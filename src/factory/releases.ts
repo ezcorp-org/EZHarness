@@ -16,7 +16,8 @@ import { FactoryCommandAuthorityError, type FactoryCommandAuthority, type Factor
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 const MAX_TEXT = 512;
-const MAX_REQUEST_BYTES = 1024 * 1024;
+/** The C04 request envelope. `release-profile.ts` bounds a resolved request by the same value. */
+export const FACTORY_RELEASE_MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_REASON_BYTES = 4096;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const encoder = new TextEncoder();
@@ -101,7 +102,7 @@ export interface FactorySenderFence {
 }
 
 export interface FactoryReleaseProvider {
-  publish(claim: FactoryReleaseClaim): Promise<FactoryProviderReceipt>;
+  publish(claim: FactoryReleaseClaim, signal?: AbortSignal): Promise<FactoryProviderReceipt>;
   verifyReceipt(operation: FactoryReleaseOperation, receipt: FactoryProviderReceipt, evidence: unknown, signal?: AbortSignal): Promise<boolean>;
   proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown, signal?: AbortSignal): Promise<boolean>;
 }
@@ -280,7 +281,7 @@ function validateRequest(input: FactoryReleaseRequest, now: number): void {
   if (input.destination.expectedVersion !== undefined) text(input.destination.expectedVersion);
   count(input.candidateGeneration); count(input.estimatedSpendMicros);
   digest(input.candidateDigest);
-  if (!Number.isSafeInteger(input.deadlineMs) || input.deadlineMs <= now || encoder.encode(canonicalJson(input.request)).byteLength > MAX_REQUEST_BYTES) throw new FactoryReleaseError("factory_release_invalid");
+  if (!Number.isSafeInteger(input.deadlineMs) || input.deadlineMs <= now || encoder.encode(canonicalJson(input.request)).byteLength > FACTORY_RELEASE_MAX_REQUEST_BYTES) throw new FactoryReleaseError("factory_release_invalid");
 }
 
 function validateMaterial(material: FactoryReleaseMaterial, decisionId: string): void {
@@ -531,7 +532,7 @@ export class FactoryReleases {
 
   async reconcile(operator: FactoryPrincipal, request: FactoryReconciliationRequest, expectedGeneration: number, provider: FactoryReleaseProvider, idempotencyKey: string): Promise<FactoryReleaseOperation> {
     [operator, request] = canonical([operator, request]);
-    text(request.projectId, request.operationId, request.reason); count(expectedGeneration, true); if (encoder.encode(request.reason).byteLength > MAX_REASON_BYTES || encoder.encode(canonicalJson(request.providerEvidence)).byteLength > MAX_REQUEST_BYTES || !request.providerEvidence || typeof request.providerEvidence !== "object" || Array.isArray(request.providerEvidence) || !Object.keys(request.providerEvidence).length || operator.kind !== "user" || operator.authentication !== "session") throw new FactoryReleaseError("factory_release_reconciliation_invalid");
+    text(request.projectId, request.operationId, request.reason); count(expectedGeneration, true); if (encoder.encode(request.reason).byteLength > MAX_REASON_BYTES || encoder.encode(canonicalJson(request.providerEvidence)).byteLength > FACTORY_RELEASE_MAX_REQUEST_BYTES || !request.providerEvidence || typeof request.providerEvidence !== "object" || Array.isArray(request.providerEvidence) || !Object.keys(request.providerEvidence).length || operator.kind !== "user" || operator.authentication !== "session") throw new FactoryReleaseError("factory_release_reconciliation_invalid");
     return this.mutations.execute({ principal: operator, projectId: request.projectId, action: "factory.operate", idempotencyKey, input: { kind: "release.reconcile", request, expectedGeneration } }, async transaction => {
       const locked = await this.readInTransaction(transaction, request.projectId, request.operationId, "update");
       if (!locked?.senderToken || locked.dispatchGeneration !== expectedGeneration || locked.state !== "uncertain" && !(locked.state === "executing" && locked.dispatchStarted)) throw new FactoryReleaseError("factory_release_reconciliation_stale");

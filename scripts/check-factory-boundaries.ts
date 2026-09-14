@@ -63,6 +63,8 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/admission-origin.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/child-artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/release-profile.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/assurance-commands.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/assurance-commands.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },

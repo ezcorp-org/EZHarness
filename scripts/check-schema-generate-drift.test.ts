@@ -20,7 +20,11 @@ describe("generatedSchemaOutputs", () => {
   test("derives the checked set from the package's own --out arguments", async () => {
     const manifest = JSON.parse(await readFile(`${SDK_PACKAGE}/package.json`, "utf8")) as { scripts: Record<string, string> };
     const outputs = generatedSchemaOutputs(manifest.scripts["schema:generate"]!);
-    expect(outputs.length).toBe(8);
+    const onDisk = (await readdir(SDK_SOURCE_DIR)).filter((name) => name.endsWith(".schema.json"));
+    // The checked set is whatever the generator declares; it must be non-empty and
+    // agree with the committed set, so a new schema needs no count edit here.
+    expect(outputs.length).toBeGreaterThan(0);
+    expect(outputs.length).toBe(onDisk.length);
     expect(outputs).toContain(`${SDK_SOURCE_DIR}/factory-runner-request.schema.json`);
     expect(outputs).toContain(`${SDK_SOURCE_DIR}/factory-api-response.schema.json`);
     expect(outputs.every((file) => file.endsWith(".schema.json"))).toBe(true);
@@ -29,7 +33,8 @@ describe("generatedSchemaOutputs", () => {
   test("every committed schema file is produced by the generator, so none is hand-written", async () => {
     const manifest = JSON.parse(await readFile(`${SDK_PACKAGE}/package.json`, "utf8")) as { scripts: Record<string, string> };
     const onDisk = (await readdir(SDK_SOURCE_DIR)).filter((name) => name.endsWith(".schema.json")).map((name) => `${SDK_SOURCE_DIR}/${name}`).sort();
-    expect(onDisk.length).toBe(8);
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(onDisk.length).toBe(generatedSchemaOutputs(manifest.scripts["schema:generate"]!).length);
     expect(ungeneratedSchemaFiles(onDisk, generatedSchemaOutputs(manifest.scripts["schema:generate"]!))).toEqual([]);
   });
 
@@ -91,11 +96,12 @@ describe("schema drift CLI seam", () => {
     const output: string[] = [];
     const log = { log: (value: unknown) => output.push(String(value)), error: (value: unknown) => output.push(String(value)) };
     // A no-op generator stands in for the real one here: the real generator is
-    // exercised by the `Factory schema and kernel` lane, and spawning eight
-    // ts-json-schema-generator passes inside the backend pool would make this
+    // exercised by the `Factory schema and kernel` lane, and spawning every
+    // ts-json-schema-generator pass inside the backend pool would make this
     // suite the slowest file in it.
     expect(await runSchemaDriftCheck({ generate: async () => 0, log })).toBe(0);
-    expect(output).toEqual(["schema drift gate passed: 8 generated schema(s) match 'schema:generate' byte for byte."]);
+    const { onDisk } = await readSchemaPlanInputs();
+    expect(output).toEqual([`schema drift gate passed: ${onDisk.length} generated schema(s) match 'schema:generate' byte for byte.`]);
     expect(await committedDigests()).toEqual(before);
   });
 
@@ -129,7 +135,8 @@ describe("schema drift CLI seam", () => {
   test("the default reader sees the real manifest and the real committed schema set", async () => {
     const { manifest, onDisk } = await readSchemaPlanInputs();
     expect(manifest.scripts?.["schema:generate"]).toContain("ts-json-schema-generator");
-    expect(onDisk).toHaveLength(8);
+    expect(onDisk.length).toBeGreaterThan(0);
+    expect(onDisk).toHaveLength(generatedSchemaOutputs(manifest.scripts!["schema:generate"]!).length);
   });
 
   test("a generator that rewrites a schema is reported as drift and the committed bytes are restored", async () => {

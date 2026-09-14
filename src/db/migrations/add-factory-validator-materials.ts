@@ -32,22 +32,23 @@ export async function up(database: MigrationDb): Promise<void> {
     trust_revision BIGINT NOT NULL CHECK (trust_revision > 0), issuer_grant_revision BIGINT NOT NULL CHECK (issuer_grant_revision > 0),
     assignment_digest TEXT NOT NULL CHECK (assignment_digest ~ '^sha256:[0-9a-f]{64}$'), created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (tenant_id, project_id, run_id, candidate_node_instance_id, candidate_generation, validator_id),
-    UNIQUE (validator_attempt_id),
     FOREIGN KEY (tenant_id, project_id, validator_lock_digest) REFERENCES factory_validator_materials(tenant_id, project_id, validator_lock_digest) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, project_id, run_id, candidate_node_instance_id, candidate_generation) REFERENCES factory_release_candidate_history(tenant_id, project_id, run_id, node_instance_id, candidate_generation) ON DELETE RESTRICT,
     FOREIGN KEY (validator_attempt_id, tenant_id, project_id, run_id) REFERENCES factory_executions(attempt_id, tenant_id, project_id, run_id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, project_id, candidate_artifact_id) REFERENCES factory_artifacts(tenant_id, project_id, object_id) ON DELETE RESTRICT
   )`);
+  await database.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uq_factory_validator_assignment_attempt_claim
+    ON factory_validator_assignments(tenant_id,project_id,validator_attempt_id,validator_id)`);
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_validator_results (
-    tenant_id TEXT NOT NULL, project_id TEXT NOT NULL, validator_attempt_id TEXT NOT NULL,
+    tenant_id TEXT NOT NULL, project_id TEXT NOT NULL, validator_attempt_id TEXT NOT NULL, validator_id TEXT NOT NULL,
     terminal_fact_digest TEXT NOT NULL CHECK (terminal_fact_digest ~ '^sha256:[0-9a-f]{64}$'),
     artifact_id TEXT NOT NULL, artifact_digest TEXT NOT NULL CHECK (artifact_digest ~ '^sha256:[0-9a-f]{64}$'), artifact_bytes BIGINT NOT NULL CHECK (artifact_bytes > 0),
     claims_json TEXT NOT NULL CHECK (octet_length(claims_json) <= 65536),
     issued_at_ms BIGINT NOT NULL CHECK (issued_at_ms > 0), expires_at_ms BIGINT NOT NULL CHECK (expires_at_ms > issued_at_ms),
     evidence_digest TEXT NOT NULL CHECK (evidence_digest ~ '^sha256:[0-9a-f]{64}$'), result_digest TEXT NOT NULL CHECK (result_digest ~ '^sha256:[0-9a-f]{64}$'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    PRIMARY KEY (tenant_id, project_id, validator_attempt_id),
-    FOREIGN KEY (validator_attempt_id) REFERENCES factory_validator_assignments(validator_attempt_id) ON DELETE RESTRICT,
+    PRIMARY KEY (tenant_id, project_id, validator_attempt_id, validator_id),
+    CONSTRAINT factory_validator_results_assignment_fkey FOREIGN KEY (tenant_id, project_id, validator_attempt_id, validator_id) REFERENCES factory_validator_assignments(tenant_id, project_id, validator_attempt_id, validator_id) ON DELETE RESTRICT,
     FOREIGN KEY (validator_attempt_id) REFERENCES factory_execution_terminals(attempt_id) ON DELETE RESTRICT,
     FOREIGN KEY (tenant_id, project_id, artifact_id) REFERENCES factory_artifacts(tenant_id, project_id, object_id) ON DELETE RESTRICT
   )`);

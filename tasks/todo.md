@@ -2301,3 +2301,89 @@ GPU:
 - [x] The supported local profile recorded, and every production criterion written as an explicit unmet row with its own measured verdict.
 
 Review (W02): the two headline gaps are closed. Device authority is now a property of the held allocation rather than of the host, fenced durably so two live attempts cannot share a node, and the Python runtime has a validator of its own instead of a subprocess call into Node. Three defects surfaced while verifying rather than while writing. Every guest, in both languages, was receiving the container image's own environment, including `PATH` and the interpreter's build metadata, although C05 names exactly three variables and the requirement index recorded that row as closed; `--unsetenv-all` removes it and the two the OCI runtime still injects are pinned to fixed, tenant-independent values. A grant naming CDI devices would have launched an attempt with no device at all, because the shared runner injects raw nodes only; it is now refused at start. The ROCm fixture could not be read by the container's mapped user in a worktree made with a restrictive umask, which would have failed the GPU proof for a reason that has nothing to do with the GPU. One deviation for the coordinator: `FactoryAttemptRuntimeError` gains a `device_conflict` code, and `FactoryPackageTrusts` gains an optional fence seam whose implementation is W03's stop path.
+
+## W05 — protected validators and child provenance
+
+- [x] One strict validator report for PASS, FAIL, INCONCLUSIVE, and VALIDATOR_ERROR, in the SDK and
+      consumed by the product. A clean process exit is not a verdict.
+- [x] Multi-claim result key migration, populated-schema backfill, repeat migration, and real
+      PostgreSQL parity between the fresh and the upgraded catalog.
+- [x] Resolve the exact compiled evidence source and stopped task, verify its journal request and
+      candidate binding, and bind claims only to their pinned runner, model, and configuration.
+- [ ] Schedule missing protected validators through durable admission, pool allocation, the attempt
+      dispatcher, and isolated execution. Blocked on W01; the typed origin and its migration landed.
+- [x] Typed validator origin in shared admission, where ordinary admission still requires a
+      dispatch-node command, with one reservation per validator identity.
+- [x] Verify required and quorum claims, freshness, issuer grants, complete report fields, current
+      trust, and the latest immutable trust revision.
+- [x] Bind a child's accepted artifact alias to the exact parent attempt, child binding, child
+      decision, artifact, and live ancestry fences, with parent acceptance kept separate.
+
+### Review
+
+Eight commits land five frozen type checkpoints plus the two behaviors those types exist for. The
+SDK now owns the only validator-report parser, so the product's hand-rolled boolean parser is gone
+and a claim's verdict is the only acceptance input: INCONCLUSIVE and VALIDATOR_ERROR are stored,
+counted, and refused rather than collapsed into FAIL. A failing required claim stopped being a
+thrown activity error and became a durable rejection receipt plus one `node-failed` event, which is
+what lets a bounded repair ever run.
+
+Three things were harder than the sketch. The freeze's branch field name `decision` was already
+taken by the acceptance decision object, so renaming it would have invalidated every stored receipt
+digest; the branch is `outcome` and the column keeps the frozen name. The freeze's release-profile
+CHECK cannot be installed before a writer exists, because the landed release path would fail every
+dispatch closed. And moving evidence claims from `passed` to `verdict` makes any evidence row
+written before the change unverifiable, which is the safe direction: rewriting those digests would
+be forging sealed evidence.
+
+Two findings went to other packages rather than being fixed here. The kernel still answers an
+acceptance rejection with a `cancel-node` for a node that has no physical attempt, which the plan
+forbids and W06 owns; the exact command is pinned in a test so the fix flips an assertion. The
+release provider's `publish` gained the missing `AbortSignal` and the request-byte bound became an
+export, so W07 and W08 implement `resolve` only.
+
+### W05 addendum after W01 integration
+
+- [x] Widen `FactoryTrustedValidatorGateway` with both binders, so the scheduler and the acceptance
+      path bind through one seam (freeze section 2, open question 7).
+- [x] Schedule missing protected validators from the acceptance command through durable admission,
+      with exactly one budget reservation and one compute admission per validator identity and the
+      typed origin sealed on both rows.
+- [ ] Pool allocation, the attempt dispatcher leg, and a real isolated guest. Blocked on one change
+      in W03's admission core: a validator admission's reference is the acceptance command, which
+      `withCurrent` does not admit and `assertContext` re-keys with the task reservation rule. The
+      change also has to suppress the `admission-result` kernel event, because a validator has no
+      kernel node to receive one, so it carries its own lost-response and cancellation matrix.
+
+The scheduler stops exactly where it can still be proven. Everything it writes is durable, keyed by
+the typed origin, and converges under repeat, concurrency, and restart; nothing downstream of the
+pool poll was written unproven.
+
+### W05 second addendum
+
+- [x] The evidence-reference scope check: a claim may cite only auxiliary materials its own attempt
+      wrote, so a report cannot make a repair read another attempt's findings.
+- [x] The attempt-dispatcher leg: a protected validator reuses the whole shared dispatch path and
+      settles through the journal, writing no kernel completion row and no inbox event.
+- [ ] The real Podman isolated-validator proof. Only the in-process runner differs now; it still
+      waits on the admission change, because the scheduler cannot produce a queue row until an
+      admission reaches `admitted`.
+
+W03 had not landed the validator-origin admission change at `a8c3e0fca`: `wp/w03-stop-settlement`
+is at `1d591eeaa` and none of its commits since the W01 merge touch the admission core. Nothing was
+cherry-picked, and nothing downstream of that point was written unproven.
+
+### W05 final addendum
+
+- [x] Cherry-picked W03's `97fb7ab16` so a validator admission authorizes through the acceptance
+      path, and applied `310d3da5f`'s shared-root-envelope correction by hand.
+- [x] The whole scheduling chain: plan, reserve, pool admission with no kernel event, one durable
+      attempt, one dispatch through W01's shared dispatcher, evidence resolved, and no further
+      schedule needed. A repeat, concurrency, a restart, and a cancellation all converge.
+- [x] A real isolated Podman guest runs one protected validator through W01's runtime and returns a
+      report the SDK validator accepts, with no grants, no tools, and a freshly minted token.
+- [x] The evidence-reference scope check.
+
+Every W05 checklist row is now closed. One defect this package introduced was caught by W18's
+derived C13 inventory in the final sweep and fixed in `b100258c0`: two new modules imported a shared
+module without declaring it, which the boundary script alone does not detect.

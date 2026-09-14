@@ -115,6 +115,26 @@ export function assertFactoryDispatchNodeOrigin(origin: FactoryAdmissionOrigin):
   return origin;
 }
 
+/**
+ * The attempt a protected validator origin runs under.
+ *
+ * Derived from the origin, so a restart re-derives the same attempt, and never equal to the
+ * acceptance command id that revealed the need: that equivalence is the forgery the plan names.
+ */
+export function factoryValidatorAttemptId(origin: FactoryProtectedValidatorOrigin): string {
+  return `factory-validator-attempt:${factoryAdmissionOriginDigest(origin).slice("sha256:".length)}`;
+}
+
+/**
+ * The node instance a protected validator attempt records against.
+ *
+ * A validator has no kernel node, so it gets its own reproducible instance id rather than borrowing
+ * the candidate's. Its output artifact therefore fills no candidate slot the real node owns.
+ */
+export function factoryValidatorNodeInstanceId(origin: FactoryProtectedValidatorOrigin): string {
+  return `factory-validator-node:${factoryAdmissionOriginDigest(origin).slice("sha256:".length, "sha256:".length + 32)}`;
+}
+
 /** `sha256:` plus 64 lowercase hex over the canonical origin. */
 export function factoryAdmissionOriginDigest(origin: FactoryAdmissionOrigin): string {
   return `sha256:${digestObject(assertFactoryAdmissionOrigin(origin))}`;

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
-import type { FactoryArtifactReference } from "@ezcorp/factory-sdk";
+import type { FactoryArtifactReference, FactoryValidatorVerdict, JsonValue } from "@ezcorp/factory-sdk";
+import type { FactoryAttemptAuthority } from "./executions";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
@@ -11,14 +12,40 @@ import type { FactoryGrants, FactoryPrincipal } from "./grants";
 import { FactoryMutations } from "./mutations";
 import { assertFactoryIdentity } from "./records";
 
+/** The reduced claim outcome that is durable. The full sealed report stays the terminal artifact. */
+export interface FactoryValidatorClaimVerdict { readonly id: string; readonly verdict: FactoryValidatorVerdict; readonly decisive: boolean }
 export interface FactoryCandidateKey { readonly projectId: string; readonly runId: string; readonly nodeInstanceId: string; readonly candidateGeneration: number }
 export interface FactoryMandatoryClaim { readonly id: string; readonly validatorId: string; readonly freshnessMs: number; readonly required?: boolean }
 export interface FactoryClaimGroup { readonly id: string; readonly claimIds: readonly string[]; readonly minimumPasses: number; readonly requireAllDecisive: boolean }
 export interface FactoryContractRevision { readonly projectId: string; readonly contractId: string; readonly revision: number; readonly contractDigest: string; readonly validatorLockDigest: string; readonly mandatoryClaims: readonly FactoryMandatoryClaim[]; readonly claimGroups: readonly FactoryClaimGroup[] }
-export interface FactoryTrustedEvidence extends FactoryCandidateKey { readonly validatorId: string; readonly validatorLockDigest: string; readonly issuerGrantRevision: number; readonly candidateDigest: string; readonly artifact: FactoryArtifactReference; readonly environmentDigest: string; readonly configurationDigest: string; readonly runnerDigest: string; readonly claims: readonly { id: string; passed: boolean; decisive: boolean }[]; readonly issuedAtMs: number; readonly expiresAtMs: number }
-/** Only the configured gateway may bind an approved contract and construct evidence from protected host facts. */
+export interface FactoryTrustedEvidence extends FactoryCandidateKey { readonly validatorId: string; readonly validatorLockDigest: string; readonly issuerGrantRevision: number; readonly candidateDigest: string; readonly artifact: FactoryArtifactReference; readonly environmentDigest: string; readonly configurationDigest: string; readonly runnerDigest: string; readonly claims: readonly FactoryValidatorClaimVerdict[]; readonly issuedAtMs: number; readonly expiresAtMs: number }
+/** The exact attempt a dedicated protected validator runs under. */
+export interface FactoryValidatorAttemptBinding {
+  readonly candidate: FactoryCandidateKey;
+  readonly validatorId: string;
+  readonly authority: FactoryAttemptAuthority;
+}
+
+/** One ordinary protected task, bound to every claim its pinned runner reports. */
+export interface FactoryValidatorTaskBinding {
+  readonly candidate: FactoryCandidateKey;
+  readonly validatorIds: readonly string[];
+  readonly authority: FactoryAttemptAuthority;
+  readonly expectedInput: JsonValue;
+}
+
+/**
+ * Only the configured gateway may bind an approved contract, bind an attempt to its claims, and
+ * construct evidence from protected host facts.
+ *
+ * The two binders are on the interface rather than only on the concrete class because the scheduler
+ * that admits a missing protected validator has to bind its attempt through the same seam the
+ * acceptance path resolves evidence through, and neither may reach past it.
+ */
 export interface FactoryTrustedValidatorGateway {
   assertContractInTransaction(transaction: MigrationDb, tenantId: string, contract: FactoryContractRevision): Promise<void>;
+  bindAttemptInTransaction(transaction: MigrationDb, request: FactoryValidatorAttemptBinding): Promise<void>;
+  bindTaskAttemptInTransaction(transaction: MigrationDb, request: FactoryValidatorTaskBinding): Promise<void>;
   resolveValidatorInTransaction(transaction: MigrationDb, tenantId: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence>;
 }
 export interface FactoryAcceptanceDecision extends FactoryCandidateKey { readonly decisionId: string; readonly candidateDigest: string; readonly evidenceSetDigest: string; readonly contractDigest: string; readonly contractSnapshotDigest: string; readonly executionEpoch: number; readonly cancellationEpoch: number }
@@ -36,11 +63,47 @@ type EvidenceRow = { evidence_id: string; project_id: string; run_id: string; no
 type DecisionRow = FactoryAcceptanceDecision & { contractId: string; contractRevision: number | string; decisionDigest: string };
 type ApprovalRow = { context_digest: string; status: "pending" | "approved" | "rejected" | "consumed" | "revoked"; principal_id: string; grant_revision: number | string; expected_generation: number | string; expires_at_ms: number | string; decision_id: string; approved_by: string | null; approved_grant_revision: number | string | null };
 
-export class FactoryAssuranceError extends Error { constructor(readonly code: string) { super(code); this.name = "FactoryAssuranceError"; } }
+export type FactoryAssuranceErrorCode =
+  | "factory_assurance_invalid"
+  | "factory_assurance_scope"
+  | "factory_assurance_stale"
+  | "factory_assurance_conflict"
+  | "factory_assurance_not_found"
+  | "factory_assurance_corrupt"
+  | "factory_assurance_trust"
+  | "factory_assurance_evidence_stale"
+  | "factory_assurance_claim_failed";
+
+export class FactoryAssuranceError extends Error { constructor(readonly code: FactoryAssuranceErrorCode) { super(code); this.name = "FactoryAssuranceError"; } }
+
+/** One required claim that did not pass, named exactly enough for a bounded repair to read. */
+export interface FactoryClaimFailure { readonly claimId: string; readonly validatorId: string; readonly verdict: FactoryValidatorVerdict; readonly reasonCode: string }
+/** One claim group that fell below its declared quorum, or lost a decisive member. */
+export interface FactoryGroupFailure { readonly groupId: string; readonly passes: number; readonly minimumPasses: number }
+
+/**
+ * The semantic acceptance failure, carrying every fact a rejection receipt needs.
+ *
+ * It is a distinct class rather than a bare code so a rejection can never be built from an
+ * infrastructure, corruption, or trust error that happens to share a string.
+ */
+export class FactoryAssuranceClaimError extends FactoryAssuranceError {
+  constructor(
+    readonly candidateDigest: string,
+    readonly contractDigest: string,
+    readonly evidenceSetDigest: string,
+    readonly failures: readonly FactoryClaimFailure[],
+    readonly groupFailures: readonly FactoryGroupFailure[],
+  ) {
+    super("factory_assurance_claim_failed");
+    this.name = "FactoryAssuranceClaimError";
+  }
+}
 const digest = (value: unknown) => `sha256:${digestObject(value)}`;
 const requiredText = (...values: readonly string[]) => { if (values.some(value => typeof value !== "string" || value.length === 0 || value.length > 512 || value.includes("\0"))) throw new FactoryAssuranceError("factory_assurance_invalid"); };
 const requiredDigest = (...values: readonly string[]) => { if (values.some(value => !/^sha256:[a-f0-9]{64}$/.test(value))) throw new FactoryAssuranceError("factory_assurance_invalid"); };
 const requiredContextDigest = (value: string) => { if (!/^[a-f0-9]{64}$/.test(value)) throw new FactoryAssuranceError("factory_assurance_invalid"); };
+const VERDICTS = new Set<FactoryValidatorVerdict>(["PASS", "FAIL", "INCONCLUSIVE", "VALIDATOR_ERROR"]);
 const counter = (value: number) => { if (!Number.isSafeInteger(value) || value < 0) throw new FactoryAssuranceError("factory_assurance_invalid"); };
 const encoded = (value: unknown) => canonicalJson(value);
 const snapshot = <Value>(value: Value): Value => JSON.parse(encoded(value)) as Value;
@@ -198,6 +261,28 @@ export class FactoryAssurance {
     await insertTransactionalAuditEntry(transaction, `factory-assurance-approval-consumed:${input.approvalId}`, input.requester.kind === "user" ? input.requester.id : null, "factory.assurance.approval.consumed", input.operationId, { tenantId: this.tenantId, projectId: input.projectId, approvalId: input.approvalId, decisionId: input.decisionId, runId: input.runId, principalKind: input.requester.kind, principalId: input.requester.id });
   }
 
+  /**
+   * Revalidates one immutable decision and every claim behind it, without requiring its run to be
+   * live.
+   *
+   * A completed child run can no longer authorize a release, but a parent that consumes the child's
+   * accepted artifact still has to prove the decision, its approved contract, and its evidence set
+   * verify. The caller owns the ancestry fences; this owns the sealed acceptance facts.
+   */
+  async readSealedDecisionInTransaction(transaction: MigrationDb, projectId: string, decisionId: string): Promise<FactoryAcceptanceDecision & { readonly contractId: string; readonly contractRevision: number }> {
+    requiredText(projectId, decisionId);
+    const decision = await this.decisionRow(transaction, projectId, decisionId);
+    if (!decision) throw new FactoryAssuranceError("factory_assurance_not_found");
+    const contract = await this.contractRow(transaction, projectId, decision.contractId, Number(decision.contractRevision));
+    if (contract.contract_digest !== decision.contractDigest || contract.protected_snapshot_digest !== decision.contractSnapshotDigest) throw new FactoryAssuranceError("factory_assurance_corrupt");
+    await this.grants.authorizeInTransaction(transaction, { kind: "user", id: contract.approved_by, authentication: "session" }, projectId, "factory.trust", Number(contract.approval_grant_revision));
+    const storedEvidence = await this.evidenceRows(transaction, projectId, decision);
+    const { requiredClaims, groups } = this.contractClaims(contract);
+    if (this.verifyEvidence(contract, requiredClaims, groups, storedEvidence) !== decision.candidateDigest || digest(storedEvidence.map(item => item.evidence_digest).sort()) !== decision.evidenceSetDigest) throw new FactoryAssuranceError("factory_assurance_corrupt");
+    const { decisionDigest: _decisionDigest, contractRevision, ...body } = decision;
+    return { ...body, contractRevision: Number(contractRevision) };
+  }
+
   /** Revalidates the immutable decision, current run epochs, protected contract, evidence, and current candidate for approval and policy claims. */
   async assertAcceptedReleaseInTransaction(transaction: MigrationDb, input: FactoryAcceptedReleaseCheck): Promise<FactoryAcceptedRelease> {
     input = snapshot(input);
@@ -234,7 +319,7 @@ export class FactoryAssurance {
       grantRevision = (await this.grants.authorizeInTransaction(transaction, actor, projectId, action)).revision;
     });
   }
-  private evidence(evidence: FactoryTrustedEvidence, expected: FactoryCandidateKey & { validatorId: string }): void { key(evidence); if (evidence.projectId !== expected.projectId || evidence.runId !== expected.runId || evidence.nodeInstanceId !== expected.nodeInstanceId || evidence.candidateGeneration !== expected.candidateGeneration || evidence.validatorId !== expected.validatorId) throw new FactoryAssuranceError("factory_assurance_trust"); requiredText(evidence.validatorId, evidence.artifact.artifactId); requiredDigest(evidence.validatorLockDigest, evidence.candidateDigest, evidence.artifact.digest, evidence.environmentDigest, evidence.configurationDigest, evidence.runnerDigest); const claimIds = new Set<string>(); const invalidClaim = evidence.claims.some(claim => { if (typeof claim.id !== "string" || typeof claim.passed !== "boolean" || typeof claim.decisive !== "boolean" || claimIds.has(claim.id)) return true; claimIds.add(claim.id); return false; }); if (!Number.isSafeInteger(evidence.issuerGrantRevision) || evidence.issuerGrantRevision < 1 || !Number.isSafeInteger(evidence.artifact.encodedBytes) || evidence.artifact.encodedBytes < 0 || !Number.isSafeInteger(evidence.issuedAtMs) || !Number.isSafeInteger(evidence.expiresAtMs) || evidence.issuedAtMs > this.now() || evidence.expiresAtMs <= evidence.issuedAtMs || evidence.claims.length > 1000 || invalidClaim) throw new FactoryAssuranceError("factory_assurance_trust"); }
+  private evidence(evidence: FactoryTrustedEvidence, expected: FactoryCandidateKey & { validatorId: string }): void { key(evidence); if (evidence.projectId !== expected.projectId || evidence.runId !== expected.runId || evidence.nodeInstanceId !== expected.nodeInstanceId || evidence.candidateGeneration !== expected.candidateGeneration || evidence.validatorId !== expected.validatorId) throw new FactoryAssuranceError("factory_assurance_trust"); requiredText(evidence.validatorId, evidence.artifact.artifactId); requiredDigest(evidence.validatorLockDigest, evidence.candidateDigest, evidence.artifact.digest, evidence.environmentDigest, evidence.configurationDigest, evidence.runnerDigest); const claimIds = new Set<string>(); const invalidClaim = evidence.claims.some(claim => { if (typeof claim.id !== "string" || !VERDICTS.has(claim.verdict) || typeof claim.decisive !== "boolean" || claimIds.has(claim.id)) return true; claimIds.add(claim.id); return false; }); if (!Number.isSafeInteger(evidence.issuerGrantRevision) || evidence.issuerGrantRevision < 1 || !Number.isSafeInteger(evidence.artifact.encodedBytes) || evidence.artifact.encodedBytes < 0 || !Number.isSafeInteger(evidence.issuedAtMs) || !Number.isSafeInteger(evidence.expiresAtMs) || evidence.issuedAtMs > this.now() || evidence.expiresAtMs <= evidence.issuedAtMs || evidence.claims.length > 1000 || invalidClaim) throw new FactoryAssuranceError("factory_assurance_trust"); }
   private async contractRow(transaction: MigrationDb, projectId: string, contractId: string, revision: number): Promise<ContractRow> { const row = rows<ContractRow>(await transaction.execute(sql`SELECT contract_digest, validator_lock_digest, mandatory_claims, claim_groups, approved_by, approval_grant_revision, protected_snapshot_digest FROM factory_acceptance_contracts WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND contract_id=${contractId} AND revision=${revision} FOR SHARE`))[0]; if (!row) throw new FactoryAssuranceError("factory_assurance_not_found"); this.assertProtectedContractRow(row, projectId, contractId, revision); return row; }
   private async decisionRow(transaction: MigrationDb, projectId: string, decisionId: string): Promise<DecisionRow | undefined> { const row = rows<DecisionRow>(await transaction.execute(sql`SELECT decision_id AS "decisionId", candidate_digest AS "candidateDigest", evidence_set_digest AS "evidenceSetDigest", contract_digest AS "contractDigest", contract_snapshot_digest AS "contractSnapshotDigest", contract_id AS "contractId", contract_revision AS "contractRevision", project_id AS "projectId", run_id AS "runId", node_instance_id AS "nodeInstanceId", candidate_generation AS "candidateGeneration", execution_epoch AS "executionEpoch", cancellation_epoch AS "cancellationEpoch", decision_digest AS "decisionDigest" FROM factory_acceptance_decisions WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND decision_id=${decisionId} FOR SHARE`))[0]; if (!row) return undefined; const decision = { ...row, contractRevision: Number(row.contractRevision), candidateGeneration: Number(row.candidateGeneration), executionEpoch: Number(row.executionEpoch), cancellationEpoch: Number(row.cancellationEpoch) }; this.assertDecisionRow(decision); return decision; }
   private async evidenceRows(transaction: MigrationDb, projectId: string, input: FactoryCandidateKey, validatorId?: string): Promise<EvidenceRow[]> { return rows<EvidenceRow>(await transaction.execute(sql`SELECT evidence_id, project_id, run_id, node_instance_id, candidate_generation, candidate_digest, validator_id, validator_lock_digest, issuer_grant_revision, artifact_id, artifact_digest, artifact_bytes, environment_digest, configuration_digest, runner_digest, claims, issued_at_ms, expires_at_ms, evidence_digest FROM factory_acceptance_evidence WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND run_id=${input.runId} AND node_instance_id=${input.nodeInstanceId} AND candidate_generation=${input.candidateGeneration} ${validatorId === undefined ? sql`` : sql`AND validator_id=${validatorId}`} FOR SHARE`)); }
@@ -244,5 +329,35 @@ export class FactoryAssurance {
   private assertProtectedContractRow(row: ContractRow, projectId: string, contractId: string, revision: number): void { try { const { requiredClaims, groups } = this.contractClaims(row); requiredDigest(row.contract_digest, row.validator_lock_digest, row.protected_snapshot_digest); requiredText(row.approved_by); const approvalGrantRevision = Number(row.approval_grant_revision); if (!Number.isSafeInteger(approvalGrantRevision) || approvalGrantRevision < 1) throw new FactoryAssuranceError("factory_assurance_corrupt"); const actual = protectedContractSnapshotDigest(this.tenantId, { projectId, contractId, revision, contractDigest: row.contract_digest, validatorLockDigest: row.validator_lock_digest, mandatoryClaims: requiredClaims, claimGroups: groups }, row.approved_by, approvalGrantRevision); if (row.protected_snapshot_digest !== actual) throw new FactoryAssuranceError("factory_assurance_corrupt"); } catch { throw new FactoryAssuranceError("factory_assurance_corrupt"); } }
   private assertDecisionRow(decision: DecisionRow): void { try { const contractRevision = Number(decision.contractRevision); key(decision); requiredText(decision.decisionId, decision.contractId); requiredDigest(decision.candidateDigest, decision.evidenceSetDigest, decision.contractDigest, decision.contractSnapshotDigest, decision.decisionDigest); if (!Number.isSafeInteger(contractRevision) || contractRevision < 1 || !Number.isSafeInteger(decision.executionEpoch) || decision.executionEpoch < 1 || !Number.isSafeInteger(decision.cancellationEpoch) || decision.cancellationEpoch < 0 || digest(this.decisionSnapshot(decision, decision.contractId, contractRevision)) !== decision.decisionDigest) throw new FactoryAssuranceError("factory_assurance_corrupt"); } catch { throw new FactoryAssuranceError("factory_assurance_corrupt"); } }
   private async verifyCurrentCandidate(transaction: MigrationDb, key: FactoryCandidateKey, storedEvidence: readonly EvidenceRow[]): Promise<void> { const currentEvidence = snapshot(await this.currentCandidate.resolveCurrentEvidenceInTransaction(transaction, this.tenantId, key, [...new Set(storedEvidence.map(row => row.validator_id))].sort())); for (const evidence of currentEvidence) this.evidence(evidence, { ...key, validatorId: evidence.validatorId }); if (storedEvidence.length !== currentEvidence.length || currentEvidence.some(evidence => evidence.expiresAtMs <= this.now() || !storedEvidence.some(row => row.evidence_digest === digest(evidence)))) throw new FactoryAssuranceError("factory_assurance_stale"); }
-  private verifyEvidence(contract: ContractRow, requiredClaims: readonly FactoryMandatoryClaim[], groups: readonly FactoryClaimGroup[], evidence: readonly EvidenceRow[]): string { if (!evidence.length || evidence.some(row => row.validator_lock_digest !== contract.validator_lock_digest || Number(row.expires_at_ms) <= this.now() || Number(row.issued_at_ms) > this.now() || row.evidence_digest !== digest(this.evidenceFromRow(row)))) throw new FactoryAssuranceError("factory_assurance_evidence_stale"); const candidateDigest = evidence[0]!.candidate_digest; if (evidence.some(row => row.candidate_digest !== candidateDigest)) throw new FactoryAssuranceError("factory_assurance_corrupt"); const results = new Map<string, { passed: boolean; decisive: boolean; issuedAtMs: number }>(); for (const row of evidence) for (const claim of JSON.parse(row.claims) as Array<{ id: string; passed: boolean; decisive: boolean }>) results.set(`${row.validator_id}:${claim.id}`, { ...claim, issuedAtMs: Number(row.issued_at_ms) }); const evaluated = new Map<string, { passed: boolean; decisive: boolean }>(); for (const claim of requiredClaims) { const result = results.get(`${claim.validatorId}:${claim.id}`); const fresh = result && this.now() - result.issuedAtMs <= claim.freshnessMs; if (claim.required !== false && (!fresh || !result.passed)) throw new FactoryAssuranceError("factory_assurance_claim_failed"); if (fresh) evaluated.set(claim.id, result); } for (const group of groups) { const items = group.claimIds.map(id => evaluated.get(id)); if (items.filter(item => item?.passed).length < group.minimumPasses || group.requireAllDecisive && items.some(item => !item?.decisive)) throw new FactoryAssuranceError("factory_assurance_claim_failed"); } return candidateDigest; }
+  /**
+   * Evaluates every required claim and every group, then reports all of them at once.
+   *
+   * It collects instead of throwing on the first failure because a rejection receipt has to name
+   * everything a bounded repair must fix; stopping at the first claim would hide the rest.
+   * A missing or stale claim is INCONCLUSIVE, which never satisfies a required claim.
+   */
+  private verifyEvidence(contract: ContractRow, requiredClaims: readonly FactoryMandatoryClaim[], groups: readonly FactoryClaimGroup[], evidence: readonly EvidenceRow[]): string {
+    if (!evidence.length || evidence.some(row => row.validator_lock_digest !== contract.validator_lock_digest || Number(row.expires_at_ms) <= this.now() || Number(row.issued_at_ms) > this.now() || row.evidence_digest !== digest(this.evidenceFromRow(row)))) throw new FactoryAssuranceError("factory_assurance_evidence_stale");
+    const candidateDigest = evidence[0]!.candidate_digest;
+    if (evidence.some(row => row.candidate_digest !== candidateDigest)) throw new FactoryAssuranceError("factory_assurance_corrupt");
+    const results = new Map<string, FactoryValidatorClaimVerdict & { issuedAtMs: number }>();
+    for (const row of evidence) for (const claim of JSON.parse(row.claims) as FactoryValidatorClaimVerdict[]) results.set(`${row.validator_id}:${claim.id}`, { ...claim, issuedAtMs: Number(row.issued_at_ms) });
+    const evaluated = new Map<string, FactoryValidatorClaimVerdict>();
+    const failures: FactoryClaimFailure[] = [];
+    for (const claim of requiredClaims) {
+      const result = results.get(`${claim.validatorId}:${claim.id}`);
+      const fresh = result && this.now() - result.issuedAtMs <= claim.freshnessMs;
+      // INCONCLUSIVE and VALIDATOR_ERROR never satisfy a required claim: only PASS does.
+      if (claim.required !== false && (!fresh || result.verdict !== "PASS")) failures.push({ claimId: claim.id, validatorId: claim.validatorId, verdict: fresh ? result.verdict : "INCONCLUSIVE", reasonCode: fresh ? result.verdict === "FAIL" ? "claim_failed" : `claim_${result.verdict.toLowerCase()}` : result ? "claim_stale" : "claim_missing" });
+      if (fresh) evaluated.set(claim.id, result);
+    }
+    const groupFailures: FactoryGroupFailure[] = [];
+    for (const group of groups) {
+      const items = group.claimIds.map(id => evaluated.get(id));
+      const passes = items.filter(item => item?.verdict === "PASS").length;
+      if (passes < group.minimumPasses || group.requireAllDecisive && items.some(item => !item?.decisive)) groupFailures.push({ groupId: group.id, passes, minimumPasses: group.minimumPasses });
+    }
+    if (failures.length || groupFailures.length) throw new FactoryAssuranceClaimError(candidateDigest, contract.contract_digest, digest(evidence.map(row => row.evidence_digest).sort()), failures, groupFailures);
+    return candidateDigest;
+  }
 }

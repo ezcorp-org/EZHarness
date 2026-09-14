@@ -10,6 +10,7 @@ import { FactoryRecords } from "../../factory/records";
 import { FactoryNotificationDelivery } from "../../factory/notification-delivery";
 import { FactoryReleaseApplication } from "../../factory/release-application";
 import { FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
+import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
 
 export function factoryReleaseConformance(setup: () => Promise<{ db: TransactionalDb; close: () => Promise<void> }>): void {
 const now = Date.UTC(2031, 0, 1);
@@ -33,6 +34,8 @@ let trusted: FactoryTrustedEvidence;
 
 class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
   async assertContractInTransaction(): Promise<void> {}
+  bindAttemptInTransaction = unboundFactoryValidatorBinders.bindAttemptInTransaction;
+  bindTaskAttemptInTransaction = unboundFactoryValidatorBinders.bindTaskAttemptInTransaction;
   async resolveValidatorInTransaction(_transaction: MigrationDb, tenant: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> {
     if (tenant !== tenantId || key.projectId !== projectId || key.runId !== candidate.runId || key.nodeInstanceId !== candidate.nodeInstanceId || key.candidateGeneration !== candidate.candidateGeneration || validatorId !== trusted.validatorId) throw new Error("current candidate mismatch");
     return structuredClone(trusted);
@@ -148,7 +151,7 @@ beforeAll(async () => {
   grants = new FactoryGrants(database, tenantId, () => now);
   for (const action of ["factory.trust", "factory.approve", "factory.release", "factory.operate"] as const) await grants.set(admin, { projectId, principal: admin, action, expectedRevision: 0, expiresAtMs: null });
   await grants.set(admin, { projectId, principal: service, action: "factory.release", expectedRevision: 0, expiresAtMs: now + 5_000 });
-  trusted = { ...candidate, validatorId: "validator", validatorLockDigest: digest("c"), issuerGrantRevision: 1, candidateDigest: digest("c"), artifact: { artifactId: "artifact", digest: digest("a"), encodedBytes: 10 }, environmentDigest: digest("e"), configurationDigest: digest("d"), runnerDigest: digest("e"), claims: [{ id: "passed", passed: true, decisive: true }], issuedAtMs: now - 1, expiresAtMs: now + 10_000 };
+  trusted = { ...candidate, validatorId: "validator", validatorLockDigest: digest("c"), issuerGrantRevision: 1, candidateDigest: digest("c"), artifact: { artifactId: "artifact", digest: digest("a"), encodedBytes: 10 }, environmentDigest: digest("e"), configurationDigest: digest("d"), runnerDigest: digest("e"), claims: [{ id: "passed", verdict: "PASS" as const, decisive: true }], issuedAtMs: now - 1, expiresAtMs: now + 10_000 };
   const gateway = new Gateway();
   assurance = new FactoryAssurance(database, tenantId, grants, gateway, new RunFence(), gateway, () => now);
   await assurance.approveContract(admin, { projectId, contractId: "contract", revision: 1, contractDigest: digest("f"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "passed", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "all", claimIds: ["passed"], minimumPasses: 1, requireAllDecisive: true }] }, mutationKey("contract"));

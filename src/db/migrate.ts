@@ -3088,6 +3088,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryTaskOutcomes(db);
   const { up: addFactoryValidatorMaterials } = await import("./migrations/add-factory-validator-materials");
   await addFactoryValidatorMaterials(db);
+  const { up: allowFactoryValidatorMulticlaim } = await import("./migrations/allow-factory-validator-multiclaim");
+  await allowFactoryValidatorMulticlaim(db);
   const { up: addFactoryPackagePreparations } = await import("./migrations/add-factory-package-preparations");
   await addFactoryPackagePreparations(db);
   const { up: addFactoryProtectedCommandEffects } = await import("./migrations/add-factory-protected-command-effects");
@@ -3095,6 +3097,10 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await upFactoryAttemptLaunches(db);
   const { up: addFactoryArtifactMaterials } = await import("./migrations/add-factory-artifact-materials");
   await addFactoryArtifactMaterials(db);
+  // Staging's order for W03's and W02's entries is preserved exactly; W05's remaining entries
+  // follow in their freeze order (38, 39, 40, then the new child alias table). Every one is
+  // self-idempotent and order-independent of the others, except that the validator report must
+  // follow the multi-claim splice, which sits immediately after add-factory-validator-materials.
   const { up: addFactoryTaskStops } = await import("./migrations/add-factory-task-stops");
   await addFactoryTaskStops(db);
   const { up: addFactoryUsageSettlements } = await import("./migrations/add-factory-usage-settlements");
@@ -3105,4 +3111,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryValidatorAdmissionEvent(db);
   const { up: addFactoryPackageQuarantine } = await import("./migrations/add-factory-package-quarantine");
   await addFactoryPackageQuarantine(db);
+  const { up: addFactoryValidatorReport } = await import("./migrations/add-factory-validator-report");
+  await addFactoryValidatorReport(db);
+  const { up: addFactoryReleaseProfile } = await import("./migrations/add-factory-release-profile");
+  await addFactoryReleaseProfile(db);
+  const { up: addFactoryProtectedDecision } = await import("./migrations/add-factory-protected-decision");
+  await addFactoryProtectedDecision(db);
+  const { up: addFactoryChildArtifactAliases } = await import("./migrations/add-factory-child-artifact-aliases");
+  await addFactoryChildArtifactAliases(db);
 }
