@@ -2049,7 +2049,8 @@ Integration defects found only on the combined tree (wave 1): an unregistered Po
 ## Later waves
 
 - [x] Wave 2 (part 1): W03 merged as `fdad73e4b` (validation ACCEPT-WITH-FIXES, low fixes landed), W02 merged as `4acc452ea` (ACCEPT-WITH-FIXES → fixes → ACCEPT); combined run on `4acc452ea` passes every producer, four Podman suites, and both gate bases with the canonical pool/compute/provisioning/Python coverage producers (`docs/validation/factory/wave2/`).
-- [ ] Wave 2 (part 2): W05 merging integ/w00 after ACCEPT-WITH-FIXES; W09 rejected once (composition root never invoked) and fixed, awaiting re-validation; W06, W07, W08 start after W05 lands.
+- [x] Wave 2 (part 2): W05 merged as `1dc9a0226` after resolving its merge onto W03 (validation ACCEPT-WITH-FIXES, fixes landed); combined run on `1dc9a0226` passes every producer, four Podman suites, and both gate bases (`docs/validation/factory/wave2/wave2c-*`). Integration fix: the schema-drift test now derives the generated schema count instead of pinning eight.
+- [ ] Wave 2 (part 3): W09 rejected once (composition root never invoked) and fixed, re-validation pending; W06, W07, W08 running from `1dc9a0226`.
 - [ ] Wave 3: W10–W12, W13, W14, W15–W17.
 - [ ] Wave 4: W19 campaign on a frozen build, W20 audit.
 
@@ -2387,6 +2388,60 @@ cherry-picked, and nothing downstream of that point was written unproven.
 Every W05 checklist row is now closed. One defect this package introduced was caught by W18's
 derived C13 inventory in the final sweep and fixed in `b100258c0`: two new modules imported a shared
 module without declaring it, which the boundary script alone does not detect.
+
+## W08 — S3 manifest publication and reconciliation (`wp/w08-s3-publication`)
+
+Owner: free Terra worker. Base `integ/w00` at `1dc9a0226`. Evidence
+`/tmp/factory-platform-evidence/w08/`. Gates `tasks/factory/w08-GATES.md`.
+
+- [x] Type the S3 publication set: the frozen request, the published manifest, and the
+      verified receipt that names every file key, digest, media type, and object version,
+      plus the final manifest digest. Never an ETag as a content digest.
+- [x] Publish an approved set of exact files under one operation directory with the
+      configured destination credentials only. Stage each member conditionally and
+      privately, verify SHA-256, media type, and object version, then write `manifest.json`
+      last. Partial staging is never published.
+- [x] Export a 256 MiB material through W04's chunks as a real S3 multipart upload.
+- [x] Reconcile an interrupted staging only under the same authorized identity. Refuse
+      conflicting content, a missing version, changed media, a manifest race, and any
+      second confirmed publication.
+- [x] Supply the S3 publication-set scope resolver for `factoryArchivePublicationSet`. Read
+      the attempt id from the verified protected command provenance, never from caller
+      input. Feed W04a's archive-before-claim and keep receipt-before-settlement.
+- [x] Implement the shared asynchronous release profile (`resolve`) for the S3 adapter.
+- [x] Prove all ten tenant credentials enforce isolation with measured cross-tenant denials.
+- [x] Full verification: focused suites with coverage, the PostgreSQL producers, typecheck,
+      lint, boundaries, gate integrity, and `BASE_REF=integ/w00` new-file and patch coverage.
+
+### Review — W08
+
+Every checklist item above is complete and has a receipt in
+`/tmp/factory-platform-evidence/w08/receipts.jsonl`. Gates are in
+`tasks/factory/w08-GATES.md`.
+
+The publication is the manifest. Members are staged conditionally and privately under one
+operation directory, each is verified by reading it back at its exact object version and
+recomputing its SHA-256 and media type, and `manifest.json` is written last. A reader that
+follows the manifest therefore never sees a partial set, and a directory with no manifest has
+published nothing. The receipt names every file key, digest, media type, and object version and
+carries the manifest digest as the one confirmed effect. No ETag reaches it: a probe of the real
+service recorded a composite ETag and no `ChecksumSHA256` at all for a multipart object, so
+neither could serve as a content digest.
+
+Two new files carry the work and `src/factory/releases.ts` is untouched.
+`release-s3-publication.ts` is the provider; `release-s3-scope.ts` is W04a's publication-set
+scope resolver and W05's asynchronous profile for S3. The attempt id comes only from the stored
+protected command trail and must agree with `factory_executions`, so a request can never widen
+the scope it is read under.
+
+The one open engineering point is stated in the gate file rather than hidden: a published member
+may be 256 MiB and the archive's per-member ceiling is 16 MiB, so member bytes are not archive
+members. The archived recovery intent already carries the whole frozen request, so every member's
+key, media type, and SHA-256 survives in the archive without them, which is what reconciliation
+needs.
+
+`deployed-independent-failure-domain` stays unmet on this host, exactly as W04a recorded. This
+package does not soften that verdict anywhere.
 
 ## W07 — GitHub publication and reconciliation
 

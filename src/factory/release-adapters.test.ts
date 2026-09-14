@@ -1,47 +1,8 @@
 import { expect, test } from "bun:test";
-import { GetObjectCommand, HeadObjectCommand, PutObjectCommand } from "@aws-sdk/client-s3";
+import { PutObjectCommand } from "@aws-sdk/client-s3";
+import { FactoryMemoryS3Store } from "../__tests__/helpers/factory-s3-memory-store";
 import { canonicalProviderReceipt, s3ReleaseRequest, S3FactoryReleaseArchive, S3FactoryReleaseProvider } from "./release-adapters";
 import { FactoryReleaseError, type FactoryReleaseClaim } from "./releases";
-
-class MemoryS3 {
-  private sequence = 0;
-  readonly current = new Map<string, { bytes: Uint8Array; version: string; etag: string; checksum?: string }>();
-  readonly versions = new Map<string, { bytes: Uint8Array; contentType?: string }>();
-  losePutResponse = false;
-  corruptReads = false;
-  omitVersions = false;
-  lastAbortSignal?: AbortSignal;
-
-  async send(command: unknown, options?: unknown): Promise<Record<string, unknown>> {
-    this.lastAbortSignal = typeof options === "object" && options !== null && "abortSignal" in options ? (options as { abortSignal?: AbortSignal }).abortSignal : undefined;
-    if (command instanceof HeadObjectCommand) {
-      const item = this.current.get(command.input.Key!);
-      if (!item || command.input.VersionId && command.input.VersionId !== item.version) throw { name: "NotFound", $metadata: { httpStatusCode: 404 } };
-      return { ...(this.omitVersions ? {} : { VersionId: item.version }), ETag: item.etag, ChecksumSHA256: item.checksum };
-    }
-    if (command instanceof PutObjectCommand) {
-      const prior = this.current.get(command.input.Key!);
-      if (command.input.IfNoneMatch === "*" && prior || command.input.IfMatch && command.input.IfMatch !== prior?.etag) throw { name: "PreconditionFailed", $metadata: { httpStatusCode: 412 } };
-      const bytes = Uint8Array.from(command.input.Body as Uint8Array);
-      const version = `version-${++this.sequence}`;
-      const etag = `"etag-${this.sequence}"`;
-      this.current.set(command.input.Key!, { bytes, version, etag, checksum: command.input.ChecksumSHA256 });
-      this.versions.set(`${command.input.Key!}:${version}`, { bytes, contentType: command.input.ContentType });
-      if (this.losePutResponse) throw new Error("response lost after committed write");
-      return { ...(this.omitVersions ? {} : { VersionId: version }), ETag: etag };
-    }
-    if (command instanceof GetObjectCommand) {
-      const current = this.current.get(command.input.Key!);
-      const version = command.input.VersionId ?? current?.version;
-      const item = this.versions.get(`${command.input.Key!}:${version}`);
-      const bytes = item?.bytes;
-      if (!bytes) throw { name: "NoSuchKey", $metadata: { httpStatusCode: 404 } };
-      const value = this.corruptReads ? new Uint8Array([0]) : bytes;
-      return { Body: { async transformToByteArray() { return value; } }, ContentLength: value.byteLength, VersionId: version, ContentType: item?.contentType };
-    }
-    throw new Error("unexpected S3 command");
-  }
-}
 
 function claim(overrides: Partial<FactoryReleaseClaim> = {}): FactoryReleaseClaim {
   const request = { bytesBase64: Buffer.from("release bytes").toString("base64"), contentType: "text/plain" };
@@ -56,7 +17,7 @@ function claim(overrides: Partial<FactoryReleaseClaim> = {}): FactoryReleaseClai
 }
 
 test("S3 release archive conditionally writes exact operation prefixes and reads the returned version", async () => {
-  const client = new MemoryS3();
+  const client = new FactoryMemoryS3Store();
   const archive = new S3FactoryReleaseArchive({ endpoint: "http://127.0.0.1", bucket: "archive", prefix: "recovery", credentials: { accessKeyId: "archive-id", secretAccessKey: "archive-secret" }, client });
   const bytes = new TextEncoder().encode("sealed intent");
   const reference = await archive.writeImmutable("tenant-a", `factory-release:${"a".repeat(64)}`, "intent", bytes);
@@ -73,7 +34,7 @@ test("S3 release archive conditionally writes exact operation prefixes and reads
 });
 
 test("S3 provider binds target, condition, returned version, and verified bytes into its receipt", async () => {
-  const client = new MemoryS3();
+  const client = new FactoryMemoryS3Store();
   const provider = new S3FactoryReleaseProvider({ endpoint: "http://127.0.0.1", bucket: "ordinary", account: "tenant-a", prefix: "published", credentials: { accessKeyId: "ordinary-id", secretAccessKey: "ordinary-secret" }, client });
   const productionProvider = new S3FactoryReleaseProvider({ endpoint: "http://127.0.0.1", bucket: "ordinary", account: "tenant-a", credentials: { accessKeyId: "ordinary-id", secretAccessKey: "ordinary-secret" } });
   const productionArchive = new S3FactoryReleaseArchive({ endpoint: "http://127.0.0.1", bucket: "archive", prefix: "recovery", credentials: { accessKeyId: "archive-id", secretAccessKey: "archive-secret" } });
@@ -90,13 +51,13 @@ test("S3 provider binds target, condition, returned version, and verified bytes 
   await expect(provider.publish(claim({ destination: { ...operation.destination, object: "mutable.txt", expectedVersion: "old-version" } }))).rejects.toMatchObject({ code: "factory_s3_immutable_target" });
   await expect(provider.publish(claim({ destination: { ...operation.destination, account: "foreign" } }))).rejects.toBeInstanceOf(FactoryReleaseError);
   await expect(provider.publish(claim({ request: { bytesBase64: "not base64" } }))).rejects.toMatchObject({ code: "factory_s3_request_invalid" });
-  const missingVersionClient = new MemoryS3(); missingVersionClient.omitVersions = true;
+  const missingVersionClient = new FactoryMemoryS3Store(); missingVersionClient.omitVersions = true;
   const missingVersionProvider = new S3FactoryReleaseProvider({ endpoint: "http://127.0.0.1", bucket: "ordinary", account: "tenant-a", credentials: { accessKeyId: "ordinary-id", secretAccessKey: "ordinary-secret" }, client: missingVersionClient });
   await expect(missingVersionProvider.publish(claim({ destination: { provider: "s3", account: "tenant-a", object: "missing-version.txt" } }))).rejects.toMatchObject({ code: "factory_s3_receipt_missing" });
 });
 
 test("S3 response loss exposes uncertainty and an exact live lookup proves effect or absence", async () => {
-  const client = new MemoryS3();
+  const client = new FactoryMemoryS3Store();
   const provider = new S3FactoryReleaseProvider({ endpoint: "http://127.0.0.1", bucket: "ordinary", account: "tenant-a", credentials: { accessKeyId: "ordinary-id", secretAccessKey: "ordinary-secret" }, client });
   client.losePutResponse = true;
   const operation = claim({ destination: { provider: "s3", account: "tenant-a", object: "lost.txt" } });
@@ -113,7 +74,7 @@ test("S3 response loss exposes uncertainty and an exact live lookup proves effec
 
 
 test("S3 reconciliation verifies a provider receipt against exact version bytes without another write", async () => {
-  const client = new MemoryS3();
+  const client = new FactoryMemoryS3Store();
   const provider = new S3FactoryReleaseProvider({ endpoint: "http://127.0.0.1", bucket: "ordinary", account: "tenant-a", prefix: "published", credentials: { accessKeyId: "ordinary-id", secretAccessKey: "ordinary-secret" }, client });
   const operation = claim();
   const receipt = await provider.publish(operation);
