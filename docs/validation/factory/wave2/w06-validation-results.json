@@ -1,0 +1,85 @@
+{
+  "package": "W06",
+  "verdict": "ACCEPT-WITH-FIXES",
+  "branch": "wp/w06-remediation",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w06-remediation",
+  "head_at_validation_start": "ec49628a5a487b503a0abb9eb6a7bc8f6c8aac15",
+  "head_at_validation_end": "8a83dff4a5fd8f9eb0f6f38a97d9168b81b4d329",
+  "head_moved_during_validation": true,
+  "head_move_diff_summary": "doc-only: tasks/factory/w06-GATES.md +20/-0, no source change",
+  "true_base": "1dc9a02268d504af3e20a279657f7cd34a7fd5ad",
+  "base_ref_note": "integ/w00 is a moving ref that has advanced past this branch's base (now includes W08); BASE_REF scripts use triple-dot merge-base diff so results are unaffected",
+  "commits_verified_present": [
+    "62e1713a9316496246d7105e280a790388ef7f51",
+    "a558a01d874c26d9c0f79841d4b3245efc81d477",
+    "22d0d09ead24e78c322382f448b995e4f5512144",
+    "58720c5fa501e693985fa9583047c4b226f4c083",
+    "25e68a4dcaf1c4eebaa6801139136e47252a0791",
+    "607e0fe639cc1ada77a5971fd19b582c037b4b8c",
+    "0486998451003f4b05809c7bd0169b2f6193c5de",
+    "d48838639067b05f6da7ab8b9a2ab60818659ae4",
+    "8f1353fceac6e69217aebb0a0d380ed4a913492a",
+    "ec49628a5a487b503a0abb9eb6a7bc8f6c8aac15"
+  ],
+  "reruns": [
+    {"name": "sdk-suite", "command": "bun test --timeout 60000 --coverage ./packages/@ezcorp/factory-sdk/src", "pass": 183, "fail": 0, "assertions": 1337, "files": 26, "matches_report": true},
+    {"name": "kernel-remediation", "command": "bun test ./packages/@ezcorp/factory-sdk/src/kernel-remediation.test.ts", "pass": 10, "fail": 0, "assertions": 64, "matches_report": true},
+    {"name": "schema-drift", "command": "bun scripts/check-schema-generate-drift.ts", "exit_code": 0, "result": "PASSED, 10 schemas byte-identical"},
+    {"name": "typecheck", "command": "bun run typecheck", "exit_code": 0},
+    {"name": "lint", "command": "bun run lint", "exit_code": 0, "note": "8 pre-existing infos in unrelated web file"},
+    {"name": "boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exit_code": 0},
+    {"name": "gate-integrity", "command": "bun scripts/gate-integrity.ts", "exit_code": 0},
+    {"name": "run-controls", "command": "bun test ./src/factory/run-controls.test.ts", "pass": 4, "fail": 0, "assertions": 28, "matches_report": true},
+    {"name": "application", "command": "bun test ./src/factory/application.test.ts", "pass": 6, "fail": 0, "assertions": 47, "matches_report": true},
+    {"name": "protected-command-effects", "command": "bun test ./src/factory/protected-command-effects.test.ts", "pass": 3, "fail": 0, "assertions": 23, "note": "sanity check, not owned by W06"},
+    {"name": "kernel-run-controls", "command": "bun test ./packages/@ezcorp/factory-sdk/src/kernel-run-controls.test.ts", "pass": 4, "fail": 0, "assertions": 17},
+    {"name": "run-lifecycle-pglite", "command": "bun test --timeout 300000 --coverage ./src/__tests__/factory-run-lifecycle.test.ts", "pass": 56, "fail": 0, "assertions": 903, "runs": 2, "matches_report": "assertion count matches EVIDENCE line (903); EXPECT line says 899, see finding D"},
+    {"name": "run-lifecycle-postgres", "command": "bun test --timeout 600000 --coverage ./tests/postgres/factory-run-lifecycle.test.ts", "database": "real PostgreSQL", "pass": 56, "fail": 0, "assertions": 903, "matches_report": true},
+    {"name": "postgres-schema-parity", "command": "bun test --timeout 600000 ./tests/postgres/factory-schema.test.ts", "database": "real PostgreSQL", "pass": 2, "fail": 0, "assertions": 2857, "matches_report": true},
+    {"name": "orchestrator-replay-producer", "command": "FACTORY_TEMPORAL_TEST_SERVER=... bash scripts/factory-orchestrator-coverage.sh", "pass": 80, "fail": 0, "exit_code": 0, "matches_report": true, "note": "worker's own receipt/log for this producer is empty, see finding A; independently reproduced here"},
+    {"name": "web-factory-component-tests", "command": "cd web && bunx vitest run src/lib/factory", "pass": 34, "fail": 0, "files": 7, "matches_report": true},
+    {"name": "web-full-component-suite", "command": "cd web && bunx vitest run --coverage (sanity, full pool)", "pass": 7445, "fail": 0, "files": 591, "note": "no regression found across whole web app"},
+    {"name": "web-vitest-coverage-canonical", "command": "bash scripts/web-vitest-coverage.sh --output ...", "pass": 7445, "fail": 0, "files": 591, "note": "must run under npx/Node, not bunx/Bun, for @vitest/coverage-v8 to record data"},
+    {"name": "e2e-factory-console", "command": "cd web && bunx playwright test factory-authoring-console.spec.ts", "pass": 14, "fail": 0, "duration_s": 42.9, "matches_report": true},
+    {"name": "new-file-coverage-gate", "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts", "result": "PASSED", "matches_report": true, "note": "failed on first attempt due to validator's own tooling error (bunx vs npx for vitest coverage); passed after correction"},
+    {"name": "patch-coverage-gate", "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts", "result": "PASSED", "matches_report": true, "note": "same correction as above"}
+  ],
+  "findings": [
+    {
+      "id": "A",
+      "severity": "moderate",
+      "title": "Broken receipt/evidence capture for the orchestrator-replay producer (G5)",
+      "detail": "logs/orchestrator-replay-20260914T074439Z.log and its baseline sibling are 0 bytes; receipts.jsonl records logBytes:0, pass:null, fail:null for both, yet G5 states 'Producer: 80 pass 0 fail' citing that empty file as evidence. Root cause: factory-orchestrator-coverage.sh writes its spec reporter to $COV_OUT/test-progress.log, not stdout, so the receipt wrapper captured nothing. Independently reproduced 80 pass / 0 fail by rerunning the producer directly, so the underlying claim is true, but the evidence chain does not currently substantiate it.",
+      "repro": "cat /tmp/factory-platform-evidence/w06/logs/orchestrator-replay-20260914T074439Z.log (empty); inspect /tmp/factory-platform-evidence/w06/receipts.jsonl record 'orchestrator-replay'",
+      "functional_impact": "none observed; independently reproduced the claimed result"
+    },
+    {
+      "id": "B",
+      "severity": "minor-moderate",
+      "title": "Generated coverage artifact accidentally committed",
+      "detail": "coverage-factory-orchestrator/lcov.info (3118 lines) was added to git tracking in commit 607e0fe63, an unrelated functional fix commit. .gitignore has no entry for coverage-factory-orchestrator/ (unlike coverage-shard/ and coverage-python/).",
+      "repro": "git diff --stat 1dc9a0226..HEAD -- coverage-factory-orchestrator; git log --oneline --diff-filter=A -- coverage-factory-orchestrator/lcov.info",
+      "functional_impact": "none; hygiene/commit-cleanliness issue"
+    },
+    {
+      "id": "C",
+      "severity": "minor",
+      "title": "Freeze correction 8 (factory.lazy-input.v1 constant) left unaddressed and undisclosed",
+      "detail": "Interface freeze section 15 assigns correction 8 to 'Sol controls' (W06's owner), and w06.md's brief explicitly names it. FACTORY_LAZY_INPUT_SCHEMA_VERSION exists in src/factory/lazy-input.ts but is used nowhere else; 15+ call sites still hardcode the string literal. Not fixed, and not mentioned in the gate file's Open section, which claims nothing is open.",
+      "repro": "grep -rn 'factory.lazy-input.v1' --include='*.ts' src packages | wc -l",
+      "functional_impact": "none; DRY/maintainability issue only"
+    },
+    {
+      "id": "D",
+      "severity": "trivial",
+      "title": "Internal inconsistency in gate file text (899 vs 903 assertions)",
+      "detail": "G10's EXPECT line says 899 assertions; the EVIDENCE line and independent reruns on both PGlite and real PostgreSQL show 903.",
+      "repro": "tasks/factory/w06-GATES.md G10 section vs. rerun output",
+      "functional_impact": "none; documentation drift"
+    }
+  ],
+  "gate_weakening_detected": false,
+  "authority_checks_removed": false,
+  "credential_leakage_detected": false,
+  "worktree_left_clean": true
+}

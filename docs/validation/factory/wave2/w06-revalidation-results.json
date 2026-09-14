@@ -1,0 +1,88 @@
+{
+  "package": "W06",
+  "validation_type": "re-validation (delta since ec49628a5)",
+  "verdict": "ACCEPT",
+  "branch": "wp/w06-remediation",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w06-remediation",
+  "prior_verdict": "ACCEPT-WITH-FIXES",
+  "prior_head": "ec49628a5a487b503a0abb9eb6a7bc8f6c8aac15",
+  "prior_report": "/tmp/factory-platform-evidence/w06-validation/report.md",
+  "head_validated": "0c383f28095c657f3dd4869d8fedca21c59fa4fb",
+  "delta_commits": [
+    {"sha": "8a83dff4a5fd8f9eb0f6f38a97d9168b81b4d329", "subject": "docs(factory): record what settle can raise and which code defers", "scope": "docs only, tasks/factory/w06-GATES.md"},
+    {"sha": "0df8dbe72dec9aa6b10a893a29d2f6f482e8ee46", "subject": "fix(factory-sdk): give the durable input descriptor one constant and one schema", "scope": "substantive fix: correction 8, receipt capture, untrack coverage artifact, count correction"},
+    {"sha": "0c383f28095c657f3dd4869d8fedca21c59fa4fb", "subject": "docs(factory): close the four coordinator fixes in the W06 gate table", "scope": "docs only, tasks/factory/w06-GATES.md"}
+  ],
+  "tree_clean": true,
+  "original_findings_resolution": [
+    {
+      "id": "A",
+      "title": "Broken receipt/evidence capture for the orchestrator-replay producer (G5)",
+      "status": "fixed",
+      "verification": "receipts.jsonl fix-orchestrator-replay record at 0df8dbe72 has logBytes 111319, pass 80, fail 0, exit 0 (non-empty, self-proving). Independently reran the producer myself under flock/timeout with FACTORY_TEMPORAL_TEST_SERVER set and got tests 80, pass 80, fail 0, cancelled 0, skipped 0, todo 0."
+    },
+    {
+      "id": "B",
+      "title": "Generated coverage artifact accidentally committed",
+      "status": "fixed",
+      "verification": "git ls-files coverage-factory-orchestrator returns nothing. .gitignore:157 adds coverage-factory-orchestrator/. git status --porcelain --ignored shows it as ignored (!!), not untracked-visible (??)."
+    },
+    {
+      "id": "C",
+      "title": "Freeze correction 8 (factory.lazy-input.v1 constant) left unaddressed and undisclosed",
+      "status": "fixed",
+      "verification": "FACTORY_LAZY_INPUT_SCHEMA_VERSION declared once in factory-sdk/src/types.ts, re-exported from index.ts and from src/factory/lazy-input.ts (not redeclared). grep for the literal string across *.ts (excluding node_modules/dist) returns exactly 3 lines: the constant's declaration, the type literal, and one test assertion of the constant's value -- matching the gate file's own claim. All 25 former call sites now consume the constant. New generated schema factory-durable-input.schema.json added with guard and round-trip test case. check-schema-generate-drift.ts passes with 11 schemas (up from 10)."
+    },
+    {
+      "id": "D",
+      "title": "Internal inconsistency in gate file text (899 vs 903 assertions)",
+      "status": "fixed",
+      "verification": "G10 EXPECT line now reads 903. Independently reran factory-run-lifecycle.test.ts on PGlite (56 pass, 903 expects) and on real PostgreSQL under lock (56 pass, 903 expects). Both match."
+    }
+  ],
+  "new_findings": [
+    {
+      "id": "E",
+      "severity": "trivial",
+      "title": "Undisclosed ownership crossing into a W04-owned test helper",
+      "detail": "0df8dbe72 modifies src/__tests__/helpers/factory-run-inputs-suite.ts (4 lines, literal-to-constant swap only). Freeze section 12 ownership table assigns this file to Sol artifacts (W04), not Sol controls (W06). Not disclosed in tasks/factory/w06-GATES.md or the commit message, unlike the previously-accepted application.ts crossing which was explicitly disclosed. Behavior-free change, directly required by freeze correction 8's own cross-cutting assignment to W06, test still passes (5 pass, 0 fail, 23 expects, independently reproduced).",
+      "repro": "git diff 1dc9a0226..HEAD -- src/__tests__/helpers/factory-run-inputs-suite.ts; freeze doc line 2129",
+      "functional_impact": "none; recommend one-line disclosure in the gate file or a heads-up to the W04 owner, does not block acceptance"
+    }
+  ],
+  "reruns": [
+    {"name": "build-workspace-packages", "command": "bun run --cwd packages/@ezcorp/{factory-sdk,factory-transport,factory-orchestrator} build", "exit_code": 0},
+    {"name": "typecheck", "command": "bun run typecheck", "exit_code": 0},
+    {"name": "lint", "command": "bun run lint", "exit_code": 0, "note": "8 pre-existing infos in unrelated web file"},
+    {"name": "boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exit_code": 0},
+    {"name": "gate-integrity", "command": "bun scripts/gate-integrity.ts", "exit_code": 0},
+    {"name": "schema-drift", "command": "bun scripts/check-schema-generate-drift.ts", "exit_code": 0, "result": "11 schemas byte-identical"},
+    {"name": "sdk-suite", "command": "bun test --coverage ./packages/@ezcorp/factory-sdk/src", "pass": 184, "fail": 0, "assertions": 1344, "files": 26, "matches_report": true},
+    {"name": "kernel-remediation", "command": "bun test ./packages/@ezcorp/factory-sdk/src/kernel-remediation.test.ts", "pass": 10, "fail": 0, "assertions": 64},
+    {"name": "kernel-run-controls", "command": "bun test ./packages/@ezcorp/factory-sdk/src/kernel-run-controls.test.ts", "pass": 4, "fail": 0, "assertions": 17},
+    {"name": "run-controls", "command": "bun test ./src/factory/run-controls.test.ts", "pass": 4, "fail": 0, "assertions": 28, "matches_report": true},
+    {"name": "application", "command": "bun test ./src/factory/application.test.ts", "pass": 6, "fail": 0, "assertions": 47, "matches_report": true},
+    {"name": "protected-command-effects", "command": "bun test ./src/factory/protected-command-effects.test.ts", "pass": 3, "fail": 0, "assertions": 23, "note": "unowned file, sanity check"},
+    {"name": "lazy-input", "command": "bun test ./src/factory/lazy-input.test.ts", "pass": 3, "fail": 0, "assertions": 18, "matches_report": true},
+    {"name": "run-inputs-integration-pglite", "command": "bun test ./src/factory/run-inputs.integration.test.ts", "pass": 5, "fail": 0, "assertions": 23, "matches_report": true},
+    {"name": "lazy-commands-pglite", "command": "bun test ./src/factory/lazy-commands.test.ts", "pass": 7, "fail": 0, "assertions": 22, "matches_report": true},
+    {"name": "task-stops-pglite", "command": "bun test ./src/__tests__/factory-task-stops.test.ts", "pass": 14, "fail": 0, "assertions": 93, "matches_report": true},
+    {"name": "run-lifecycle-pglite", "command": "bun test --coverage ./src/__tests__/factory-run-lifecycle.test.ts", "pass": 56, "fail": 0, "assertions": 903, "matches_report": true, "note": "finding D closed"},
+    {"name": "run-lifecycle-postgres", "command": "bun test --coverage ./tests/postgres/factory-run-lifecycle.test.ts", "database": "real PostgreSQL", "pass": 56, "fail": 0, "assertions": 903, "matches_report": true, "note": "finding D closed"},
+    {"name": "postgres-schema-parity", "command": "bun test ./tests/postgres/factory-schema.test.ts", "database": "real PostgreSQL", "pass": 2, "fail": 0, "assertions": 2857, "matches_report": true},
+    {"name": "run-inputs-postgres", "command": "bun test ./tests/postgres/factory-run-inputs.test.ts", "database": "real PostgreSQL", "pass": 5, "fail": 0, "assertions": 23, "matches_report": true},
+    {"name": "lazy-commands-postgres", "command": "bun test ./tests/postgres/factory-lazy-commands.test.ts", "database": "real PostgreSQL", "pass": 7, "fail": 0, "assertions": 22, "matches_report": true},
+    {"name": "task-stops-postgres", "command": "bun test ./tests/postgres/factory-task-stops.test.ts", "database": "real PostgreSQL", "pass": 14, "fail": 0, "assertions": 93, "note": "sanity check"},
+    {"name": "orchestrator-replay-producer", "command": "FACTORY_TEMPORAL_TEST_SERVER=... bash scripts/factory-orchestrator-coverage.sh", "pass": 80, "fail": 0, "exit_code": 0, "matches_report": true, "note": "finding A closed; own receipt now non-empty and self-proving"},
+    {"name": "web-factory-component-tests", "command": "cd web && bunx vitest run src/lib/factory", "pass": 34, "fail": 0, "files": 7, "matches_report": true},
+    {"name": "web-vitest-coverage-canonical", "command": "bash scripts/web-vitest-coverage.sh --output ...", "pass": 7445, "fail": 0, "files": 591, "matches_report": true},
+    {"name": "e2e-factory-console", "command": "cd web && bunx playwright test factory-authoring-console.spec.ts", "pass": 14, "fail": 0, "duration_s": 46.2, "matches_report": true, "note": "custom port 4189 to avoid shared-box port collision"},
+    {"name": "merge-lcov", "command": "bun scripts/merge-lcov.ts", "result": "merged 1171 source files"},
+    {"name": "new-file-coverage-gate", "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts", "result": "PASSED", "detail": "1 new source file(s) gated", "matches_report": true},
+    {"name": "patch-coverage-gate", "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts", "result": "PASSED", "detail": "all changed executable lines covered (16 file(s))", "matches_report": true}
+  ],
+  "gate_weakening_detected": false,
+  "authority_checks_removed": false,
+  "credential_leakage_detected": false,
+  "worktree_left_clean": true
+}

@@ -2050,7 +2050,8 @@ Integration defects found only on the combined tree (wave 1): an unregistered Po
 
 - [x] Wave 2 (part 1): W03 merged as `fdad73e4b` (validation ACCEPT-WITH-FIXES, low fixes landed), W02 merged as `4acc452ea` (ACCEPT-WITH-FIXES → fixes → ACCEPT); combined run on `4acc452ea` passes every producer, four Podman suites, and both gate bases with the canonical pool/compute/provisioning/Python coverage producers (`docs/validation/factory/wave2/`).
 - [x] Wave 2 (part 2): W05 merged as `1dc9a0226` after resolving its merge onto W03 (validation ACCEPT-WITH-FIXES, fixes landed); combined run on `1dc9a0226` passes every producer, four Podman suites, and both gate bases (`docs/validation/factory/wave2/wave2c-*`). Integration fix: the schema-drift test now derives the generated schema count instead of pinning eight.
-- [ ] Wave 2 (part 3): W09 rejected once (composition root never invoked) and fixed, re-validation pending; W06, W07, W08 running from `1dc9a0226`.
+- [x] Wave 2 (part 3): W08 merged as `6c3991b4d` (ACCEPT), W06 as `9768f2a5b` (ACCEPT-WITH-FIXES → ACCEPT), W07 as `b90dbb60d` (ACCEPT-WITH-FIXES twice, all findings fixed and verified; a window-based storage prune run against the shared store was replaced by manifest-only cleanup). Combined run on `b90dbb60d` passes every producer, four Podman suites, and both gate bases (`docs/validation/factory/wave2/wave2d-*`). Infrastructure: the local SeaweedFS volume cap raised to 400 after the ordinary store exhausted 100 volumes.
+- [ ] Wave 2 (part 4): W09 rejected twice (composition root never invoked; Podman probe not reentrant-safe), fixed, third independent validation pending.
 - [ ] Wave 3: W10–W12, W13, W14, W15–W17.
 - [ ] Wave 4: W19 campaign on a frozen build, W20 audit.
 
