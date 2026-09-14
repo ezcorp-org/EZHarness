@@ -79,6 +79,23 @@ export interface FactoryValidatorAssignmentRequest {
   readonly authority: FactoryAttemptAuthority;
 }
 
+/** One pinned validator runtime a scheduler may admit, with the profile its claims must share. */
+export interface FactoryValidatorRuntimePlan {
+  readonly validatorId: string;
+  readonly executionProfileDigest: string;
+  readonly runner: RunnerReference;
+  readonly resources: ResourceBounds;
+  readonly model?: FactoryModelPin;
+  readonly brokerAudience: string;
+  readonly freshnessMs: number;
+}
+
+/** The locked candidate plus every protected claim that still has no result. */
+export interface FactoryValidatorSchedulingPlan {
+  readonly candidate: FactoryValidationCandidate;
+  readonly missing: readonly FactoryValidatorRuntimePlan[];
+}
+
 /** One ordinary protected task binds to every exact claim its pinned runner reports. */
 export interface FactoryValidatorTaskAssignmentRequest {
   readonly candidate: FactoryCandidateKey;
@@ -303,6 +320,32 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
       const saved = await this.assignment(transaction, request.candidate, currentValidator.validatorId);
       if (saved.validator_attempt_id !== request.authority.attemptId || saved.assignment_digest !== assignmentDigest) throw new FactoryTrustedValidatorError("factory_validator_assignment_conflict");
     }
+  }
+
+  /**
+   * Names every protected claim of the current candidate that has produced no result yet.
+   *
+   * The scheduler reads this rather than the material directly, so the candidate lock, the material
+   * trust check, and the runtime configuration check all happen on the same path acceptance uses.
+   * A claim with a stored result is not missing, so a repeated schedule converges.
+   */
+  async planMissingInTransaction(transaction: MigrationDb, tenantId: string, key: FactoryCandidateKey): Promise<FactoryValidatorSchedulingPlan> {
+    if (tenantId !== this.tenantId) throw new FactoryTrustedValidatorError("factory_validator_scope");
+    key = snapshot(key);
+    const plan = await this.lifecycle.readExecutionPlanInTransaction(transaction, key);
+    const candidate = await this.releaseAuthority.lockValidationCandidateInTransaction(transaction, this.tenantId, key);
+    if (plan.compiled.digest !== candidate.definitionDigest || plan.fence.executionEpoch !== candidate.executionEpoch || plan.fence.cancellationEpoch !== candidate.cancellationEpoch) throw new FactoryTrustedValidatorError("factory_validator_candidate_stale");
+    const material = await this.materialForVersion(transaction, key.projectId, plan.compiled.definition.id, plan.compiled.definition.version);
+    this.assertConfiguredMaterial(material);
+    if (material.definitionDigest !== candidate.definitionDigest || material.validatorLockDigest !== candidate.validatorLockDigest) throw new FactoryTrustedValidatorError("factory_validator_material_stale");
+    const settled = new Set(rows<{ validator_id: string }>(await transaction.execute(sql`SELECT result.validator_id FROM factory_validator_results result JOIN factory_validator_assignments assignment ON assignment.tenant_id=result.tenant_id AND assignment.project_id=result.project_id AND assignment.validator_attempt_id=result.validator_attempt_id AND assignment.validator_id=result.validator_id WHERE result.tenant_id=${this.tenantId} AND result.project_id=${key.projectId} AND assignment.run_id=${key.runId} AND assignment.candidate_node_instance_id=${key.nodeInstanceId} AND assignment.candidate_generation=${key.candidateGeneration}`)).map(row => row.validator_id));
+    const missing = material.validators
+      .filter(entry => !settled.has(entry.validatorId))
+      .map(entry => ({
+        validatorId: entry.validatorId, executionProfileDigest: hash(executionProfile(entry)), runner: entry.runner, resources: entry.resources,
+        ...(entry.model ? { model: entry.model } : {}), brokerAudience: entry.brokerAudience, freshnessMs: Math.min(entry.freshnessMs, entry.maxEvidenceAgeMs),
+      }));
+    return { candidate, missing };
   }
 
   async resolveValidatorInTransaction(transaction: MigrationDb, tenantId: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> {

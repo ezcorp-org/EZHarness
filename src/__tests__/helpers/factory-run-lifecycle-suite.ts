@@ -48,6 +48,8 @@ import { FactoryReleaseAuthorityStore } from "../../factory/release-authority";
 import { FactoryTrustedValidators } from "../../factory/validator-materials";
 import { FactoryAssurance } from "../../factory/assurance";
 import { factorySynchronousReleaseProfile, FactoryProtectedCommandEffects } from "../../factory/protected-command-effects";
+import { FactoryProtectedValidatorScheduler } from "../../factory/validator-scheduler";
+import { assertFactoryDispatchNodeOrigin, factoryAdmissionOriginDigest } from "../../factory/admission-origin";
 import { up } from "../../db/migrations/add-factory-run-lifecycle";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 
@@ -464,7 +466,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
    * Both the accepted and the rejected path need every one of those facts, so they share this
    * rather than keeping two copies that could drift apart.
    */
-  async function protectedAcceptance(passed: boolean) {
+  async function protectedAcceptance(passed: boolean, bindValidator = true) {
     const candidateRunner = referenceCodeV1.graph.nodes.find(node => node.id === "snapshot-repository");
     const releaseNode = referenceCodeV1.graph.nodes.find(node => node.id === "github-pr-release");
     const claim = referenceCodeV1.acceptance.claims[0]!;
@@ -511,9 +513,9 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const { deadlineAt, ...wire } = validatorBase;
     const validatorRequest: FactoryRunnerRequest = { schemaVersion: "factory.runner.request.v1", authority: { ...wire, deadlineAtMs: deadlineAt.getTime(), nextOperationIndex: 0 }, runner: runtime.runner, input: { kind: "artifact", artifact: completed.result.output }, grants: [], resources: runtime.resources, tools: [], broker: { attemptToken: "protected-validator-token", audience: runtime.brokerAudience } };
     const validatorAdmission = { ...validatorBase, request: validatorRequest, requestDigest: factoryRunnerRequestDigest(validatorRequest) };
-    await completed.task.journal.admit(validatorAdmission);
-    await fixture.db.transaction(transaction => validators.bindAttemptInTransaction(transaction, { candidate: candidateKey, validatorId: claim.id, authority: validatorAdmission }));
-    await fixture.db.transaction(async transaction => {
+    if (bindValidator) await completed.task.journal.admit(validatorAdmission);
+    if (bindValidator) await fixture.db.transaction(transaction => validators.bindAttemptInTransaction(transaction, { candidate: candidateKey, validatorId: claim.id, authority: validatorAdmission }));
+    if (bindValidator) await fixture.db.transaction(async transaction => {
       const { artifactJson } = await import("../../factory/artifacts");
       const output = await completed.artifacts.stageCandidateOutputInTransaction(transaction, completed.task.identity, validatorAdmission.nodeInstanceId, 0, artifactJson.canonical({ schemaVersion: "factory.validator-claims.v1", claims: [{ id: claim.id, verdict: passed ? "PASS" : "FAIL", decisive: true, summary: `${claim.id} report`, reasonCode: passed ? "pass" : "fail", evidence: [], measuredAtMs: now }] }));
       const result: Extract<FactoryRunnerResult, { status: "completed" }> = { schemaVersion: "factory.runner.result.v1", status: "completed", journalCursor: -1, operations: [], resultDigest: output.digest.slice(7), output, usage: { kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" }, workspaceCheckpoint: { ...output, journalCursor: -1 } };
@@ -532,7 +534,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       { async writeImmutable(_tenant, operationId, name, bytes) { const key = `${operationId}/${name}`; archive.set(key, bytes.slice()); return { key, digest: `sha256:${digestBytes(bytes)}` }; }, async read(reference) { const bytes = archive.get(reference.key); if (!bytes) throw new Error("archive is missing"); return bytes.slice(); } },
       { async proveStopped() { return false; } }, Date.now);
     const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, [factorySynchronousReleaseProfile({ adapter: releaseNode.adapter, action: "publish", build(input) { return { destination: { provider: "test", account: "protected", object: "result" }, request: { acceptedCandidate: input.acceptedCandidate, destination: input.destination }, estimatedSpendMicros: 42 }; } })]);
-    return { effects, completed, acceptanceReference, acceptanceCommand, candidateAdvanced, candidate, releaseNode, releaseAuthority, assurance, releases, claim };
+    return { effects, completed, acceptanceReference, acceptanceCommand, candidateAdvanced, candidate, releaseNode, releaseAuthority, assurance, releases, claim, validators, material, candidateKey, runtime };
   }
 
   test("protected acceptance and release use exact completed, trusted, and committed facts", async () => {
@@ -585,6 +587,50 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     // acceptance node, which has no physical attempt to cancel. The plan forbids that. W06 owns
     // kernel.ts and adds the remediation wait; this records the exact command it must stop emitting.
     expect(advanced.commands.filter(command => command.kind === "cancel-node").map(command => command.kind === "cancel-node" ? command.nodeId : "")).toEqual(["accept"]);
+  });
+
+  test("a missing protected validator is scheduled through durable admission with one reservation per identity", async () => {
+    const { completed, acceptanceReference, acceptanceCommand, candidateKey, validators, material, runtime } = await protectedAcceptance(true, false);
+    const service = completed.task.service;
+    const scheduler = new FactoryProtectedValidatorScheduler(tenantId, completed.task.authority, validators, lifecycle.budgets, completed.task.admissions, {
+      async resolveInTransaction() { return { envelopeId: "root", amount: { costMicros: "3", tokens: 2, computeMs: 4 }, resources: { cpu: 1 }, memoryBytes: 64 }; },
+    }, () => now);
+
+    const planned = await fixture.db.transaction(transaction => scheduler.planInTransaction(transaction, service, acceptanceReference));
+    expect(planned).toHaveLength(1);
+    const schedule = planned[0]!;
+    expect(schedule.origin).toMatchObject({ kind: "protected-validator", acceptanceCommandId: acceptanceCommand.id, candidate: candidateKey, validatorIds: [material.mandatoryClaims[0]!.validatorId], validatorLockDigest: material.validatorLockDigest });
+    expect(schedule.runtime).toMatchObject({ validatorId: material.mandatoryClaims[0]!.validatorId, runner: runtime.runner, brokerAudience: runtime.brokerAudience });
+    // The acceptance command reveals the need; it is never the attempt that satisfies it.
+    expect(schedule.attemptId).not.toBe(acceptanceCommand.id);
+    expect(schedule.attemptId).toStartWith("factory-validator-attempt:");
+    expect(schedule.nodeInstanceId).not.toBe(candidateKey.nodeInstanceId);
+    // A protected-validator origin can never stand in for a committed transition command.
+    expect(() => assertFactoryDispatchNodeOrigin(schedule.origin)).toThrow("factory_admission_origin_forbidden");
+
+    expect(await fixture.db.transaction(transaction => scheduler.reserveInTransaction(transaction, service, acceptanceReference, schedule))).toEqual({ created: true });
+    // A repeated schedule, a lost pool response, and a restart all converge on this one reservation.
+    expect(await fixture.db.transaction(transaction => scheduler.reserveInTransaction(transaction, service, acceptanceReference, schedule))).toEqual({ created: false });
+    await Promise.all([
+      fixture.db.transaction(transaction => scheduler.reserveInTransaction(transaction, service, acceptanceReference, schedule)),
+      fixture.db.transaction(transaction => scheduler.reserveInTransaction(transaction, service, acceptanceReference, schedule)),
+    ]);
+    const reservations = rows<{ reservation_id: string; state: string; origin_kind: string }>(await fixture.db.execute(sql`SELECT reservation_id,state,origin_kind FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId} AND origin_kind='protected-validator'`));
+    expect(reservations).toEqual([{ reservation_id: schedule.reservationId, state: "held", origin_kind: "protected-validator" }]);
+    const admissions = rows<{ reservation_id: string; origin_kind: string; origin_digest: string; origin_json: string }>(await fixture.db.execute(sql`SELECT reservation_id,origin_kind,origin_digest,origin_json FROM factory_compute_admissions WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId} AND origin_kind='protected-validator'`));
+    expect(admissions).toHaveLength(1);
+    expect(admissions[0]).toMatchObject({ reservation_id: schedule.reservationId, origin_digest: factoryAdmissionOriginDigest(schedule.origin) });
+    expect(JSON.parse(admissions[0]!.origin_json)).toEqual(schedule.origin);
+
+    // The schedule is only actionable under the exact acceptance command that produced it.
+    const foreign = { ...schedule, origin: { ...schedule.origin, acceptanceCommandId: "another-acceptance-command" } };
+    await expect(fixture.db.transaction(transaction => scheduler.reserveInTransaction(transaction, service, acceptanceReference, foreign))).rejects.toMatchObject({ code: "factory_validator_schedule_stale" });
+    const rekeyed = { ...schedule, reservationId: "factory-reservation:rekeyed" };
+    await expect(fixture.db.transaction(transaction => scheduler.reserveInTransaction(transaction, service, acceptanceReference, rekeyed))).rejects.toMatchObject({ code: "factory_validator_schedule_invalid" });
+    expect(() => new FactoryProtectedValidatorScheduler("foreign-tenant", completed.task.authority, validators, lifecycle.budgets, completed.task.admissions, { async resolveInTransaction() { throw new Error("unused"); } }, () => now)).toThrow();
+
+    // Once the claim has a result the candidate needs no further schedule.
+    expect(await fixture.db.transaction(transaction => validators.planMissingInTransaction(transaction, tenantId, candidateKey))).toMatchObject({ missing: [{ validatorId: material.mandatoryClaims[0]!.validatorId }] });
   });
 
   test("attempt dispatcher mints one fresh authority and atomically commits a successful result", async () => {
