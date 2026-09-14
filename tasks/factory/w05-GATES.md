@@ -1,11 +1,18 @@
 # W05 protected validator execution and child provenance
 
-Owner: Sol assurance (W05). Branch `wp/w05-protected-validators`, based on `integ/w00` at `e32d49196`.
+Owner: Sol assurance (W05). Branch `wp/w05-protected-validators`, started from `integ/w00` at
+`e32d49196` and now merged with `integ/w00` at `4acc452ea` by `435629893`. Every gate below
+whose evidence record begins `merge-` was produced at that merged head.
 Surfaces owned: interface freeze sections 1, 2, 5, the acceptance branch of 10, and by delegation
 the SDK strict validator report of section 9.
 Evidence: `/tmp/factory-platform-evidence/w05/`. Structured records in `receipts.jsonl`, one
 uniquely named log per run under `logs/`, produced by `receipt.py` (commit SHA, dirty hashes,
 command, exit code, UTC start and end, counts, log checksum).
+
+Two records in `receipts.jsonl` were not written by this package. An independent validator ran
+`receipt.py` against this evidence directory and appended `validator-typecheck` and
+`validator-lint`. Both are truthful records of real runs, so they stay where they are; they are
+named here so that nobody counts them as W05's own and so that the record total matches.
 
 ## Commits
 
@@ -30,18 +37,43 @@ command, exit code, UTC start and end, counts, log checksum).
 | `e0953a6ba` | `docs(factory): record the W05 scheduling gates and the blocked admission leg` |
 | `d8813edc7` | `feat(factory): settle protected validator attempts through the shared dispatcher` |
 | `a8c3e0fca` | `Merge branch 'integ/w00'` (picks up the wave-1 integration receipts) |
+| `b2bd3b0c5` | `docs(factory): record the dispatcher leg, the evidence scope gate, and the W03 status` |
+| `d50b14807` | `docs(factory): record the shared-repository outage and the post-repair verification` |
+| `977e4d944` | `feat(factory): take W03's protected validator admission` (cherry-picks `741faf6c6..97fb7ab16` off `wp/w03-stop-settlement`) |
+| `73823acee` | `feat(factory): admit and dispatch a scheduled protected validator end to end` |
+| `eee3d6428` | `test(factory): run a protected validator in a real isolated guest` |
+| `b100258c0` | `fix(factory): declare the C13 shared imports the new validator modules make` |
+| `c738b5b3f` | `docs(factory): close the W05 gates with the scheduling chain and the isolated guest` |
+| `697ca0b10` | `test(factory): escape the control characters in the admission origin cases` |
+| `435629893` | `Merge branch 'integ/w00' into wp/w05-protected-validators` (staging at `4acc452ea`, carrying W03's seventeen commits and W02) |
 
 W06, W07, and W08 can consume every type checkpoint from `64d7d470a`.
 
 ## Migration registry
 
 Spliced: `allow-factory-validator-multiclaim` runs immediately after `add-factory-validator-materials`
-(freeze entry 32). Appended at the end of `migrate()`, in this order: `add-factory-admission-origin`
-(35), `add-factory-release-profile` (39), `add-factory-validator-report` (38),
-`add-factory-protected-decision` (40), `add-factory-child-artifact-aliases` (new). W01's entry 33 and
-W03's entries 34 and 36 are not on this branch, so the appended block sits after W04's entry 37. Each
-migration is self-idempotent and order-independent with respect to the others, so the coordinator may
-reorder them into the freeze's numbering without changing any result.
+(freeze entry 32), because the strict validator report needs the multi-claim key to exist first.
+
+After the merge of `integ/w00` at `4acc452ea` the tail of `migrate()` runs in this order, and the
+comment above it in `src/db/migrate.ts` says why:
+
+| Order | Entry | Owner |
+| --- | --- | --- |
+| 1 | `add-factory-task-stops` | W03 |
+| 2 | `add-factory-usage-settlements` | W03 |
+| 3 | `add-factory-admission-origin` (35) | W03, from W05's types |
+| 4 | `add-factory-validator-admission-event` | W03 |
+| 5 | `add-factory-package-quarantine` | W02 |
+| 6 | `add-factory-validator-report` (38) | W05 |
+| 7 | `add-factory-release-profile` (39) | W05 |
+| 8 | `add-factory-protected-decision` (40) | W05 |
+| 9 | `add-factory-child-artifact-aliases` (new) | W05 |
+
+Rows 1 to 5 keep exactly the positions staging gave them; rows 6 to 9 are W05's, in freeze order.
+Every one is self-idempotent and order-independent of the others, so the coordinator may renumber
+them into the freeze's sequence without changing any result. `factoryMigrationRestartConformance`
+is the gate that proves it: thirteen cases, the union of both sides', each replaying `migrate()`
+against an already-migrated database.
 
 ## Gates
 
@@ -112,13 +144,31 @@ reorder them into the freeze's numbering without changing any result.
       EVIDENCE: `receipts.jsonl` records `typecheck`, `lint`, `boundaries`, `gate-integrity`,
       `schema-drift`, all produced at `80560b73c`.
 - [x] G13: Coverage of every new file and every changed line.
-      CHECK: focused `--coverage` runs over the producing files, `bun scripts/merge-lcov.ts`, then
-      `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` and
-      `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
-      EXPECT: 161 pass, 0 fail, 1476 assertions over thirteen backend files plus 173 pass over the
-      SDK; then "New-file coverage gate PASSED: 9 new source file(s) gated." and "Patch coverage
-      gate PASSED: all changed executable lines covered (22 file(s))."
-      EVIDENCE: `receipts.jsonl` records `coverage-combined-backend`, `new-file-gate`, `patch-gate`.
+      CHECK: three focused `--coverage` producers, then one merge and both gates. The whole recipe
+      is scripted at `/tmp/factory-platform-evidence/w05/run-coverage.sh`, and it is these four commands run
+      from the worktree root with the pinned bun first on PATH:
+      1. Backend, thirteen files.
+         `bun test --timeout 600000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w05/lcov/backend ./src/factory/admission-origin.test.ts ./src/factory/release-profile.test.ts ./src/factory/protected-command-effects.test.ts ./src/factory/child-artifacts.test.ts ./src/factory/validator-materials.test.ts ./src/factory/assurance.test.ts ./src/db/migrations/allow-factory-validator-multiclaim.test.ts ./src/__tests__/factory-migration-restart.test.ts ./src/__tests__/factory-run-lifecycle.test.ts ./src/__tests__/factory-compute-admissions.test.ts ./src/factory/releases.integration.test.ts ./src/factory/release-authority.integration.test.ts ./src/factory/archive-writer.test.ts`
+      2. The two gate scripts this package changed. No other producer measures them, so without
+         this leg the patch gate fails on `scripts/check-factory-boundaries.ts` and
+         `scripts/check-factory-lanes.ts` for want of any lcov record at all.
+         `bun test --timeout 600000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w05/lcov/gates ./scripts/check-factory-boundaries.test.ts ./scripts/check-factory-lanes.test.ts ./scripts/factory-postgres-suite-registration.test.ts`
+      3. The SDK, invoked from the repository root rather than from the package directory, so the
+         emitted `SF:` paths are `packages/@ezcorp/factory-sdk/src/...` and the merge can match them
+         against the changed-file list. Run from inside the package they would be `src/...` and the
+         patch gate would see the SDK as unmeasured.
+         `bun test --timeout 600000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w05/lcov/sdk ./packages/@ezcorp/factory-sdk/src/`
+      4. `bun scripts/merge-lcov.ts "/tmp/factory-platform-evidence/w05/lcov/*/lcov.info" coverage/lcov.info && BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts && BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
+      EXPECT: 173 pass, 0 fail, 1636 assertions (backend); 50 pass, 0 fail, 91 assertions (gates);
+      173 pass, 0 fail, 1271 assertions (SDK); then "merged 650 source files", "New-file coverage
+      gate PASSED: 9 new source file(s) gated.", and "Patch coverage gate PASSED: all changed
+      executable lines covered (23 file(s))."
+      EVIDENCE: `receipts.jsonl` records `merge-coverage-backend`, `merge-coverage-gates`,
+      `merge-coverage-sdk`, and `merge-coverage-gate`, all at `435629893`.
+      CORRECTION: until this revision the row said only "focused `--coverage` runs over the
+      producing files" and named neither the gate-script leg nor the repo-rooted SDK leg, so it did
+      not reproduce. The independent validation is right about that. The four commands above were
+      run end to end, from a deleted `lcov/` directory, at the merged head.
 - [x] G14: Every owned real-PostgreSQL producer is green at the merged head.
       CHECK: the ten `tests/postgres/factory-*` suites this package touches, under the shared heavy
       lock with `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set.
@@ -174,6 +224,66 @@ reorder them into the freeze's numbering without changing any result.
       attempt, a completed result on the outcome seam, and a non-completed result on the completion
       seam are each refused.
       EVIDENCE: `receipts.jsonl` record `dispatch-adapter-pglite`.
+- [x] G20: The admission leg W03 unblocked carries the whole chain, so the acceptance command
+      schedules a validator that is admitted, leased, queued, dispatched, and settled without a
+      forged transition command and without a kernel node.
+      CHECK: `bun test --timeout 900000 ./src/__tests__/factory-run-lifecycle.test.ts ./src/__tests__/factory-compute-admissions.test.ts ./src/factory/validator-materials.test.ts ./src/factory/admission-origin.test.ts ./src/factory/assurance.test.ts ./src/factory/child-artifacts.test.ts ./src/__tests__/factory-migration-restart.test.ts`
+      EXPECT: the suite case "a missing protected validator is scheduled through durable admission
+      with one reservation per identity" reaches `admitted`, and "a protected validator settles
+      through the shared attempt dispatcher, never through the kernel task path" then drives the
+      same row to a sealed terminal fact. A repeat, two concurrent reserves, a restart, and a
+      cancellation all resolve to the one reservation and the one result. No `admission-result`
+      kernel event is emitted for a validator origin, because a validator has no kernel node.
+      EVIDENCE: `receipts.jsonl` records `post-repair-verification` (111 pass, 0 fail, 1237
+      assertions) and, on real PostgreSQL, `final3-postgres` (131 pass, 0 fail, 4089 assertions);
+      at the merged head, `merge-postgres`.
+      SOURCE: the admission change is W03's `97fb7ab16` "feat(factory): admit a protected validator
+      origin" on top of `741faf6c6` "feat(factory): type validator admission origin", taken here by
+      `977e4d944` and superseded by the merge at `435629893`.
+- [x] G21: A protected validator really runs in an isolated Podman guest through W01's runtime, not
+      in a simulated one.
+      CHECK: `bun test --timeout 600000 ./src/factory/runner/validator-guest.podman.integration.test.ts`
+      with a real `podman` on PATH. Registered in the `ci.yml` Factory isolation lane and in
+      `scripts/check-factory-lanes.ts`, so W18's lane gate stays closed.
+      EXPECT: 1 pass, 0 fail, 15 assertions. The guest is handed the candidate as a read-only
+      artifact with `grants: []` and `tools: []`; the attempt token it receives is freshly minted
+      and is not the broker's; the returned claim report satisfies
+      `validateFactoryValidatorClaimReport`; the guest-authored JSON contains no `provenance` key,
+      because provenance is sealed by the gateway and never by the guest; exactly one container
+      launch is recorded and the runner result is the `factory.runner.result.v1` cancelled envelope
+      with an empty operation list.
+      EVIDENCE: `receipts.jsonl` record `validator-guest-podman-clean`. The earlier
+      `validator-guest-podman` record at 0 pass / 1 fail is kept deliberately: it is the first
+      attempt, which failed, and it is evidence rather than noise.
+
+- [x] G22: The branch is verified on top of staging, not only against the base it started from.
+      `435629893` merges `integ/w00` at `4acc452ea`, which carries W03's seventeen stop and
+      settlement commits and W02's isolated Python guest. Ten files conflicted; each resolution is
+      named in the merge commit message. The two W03-owned files resolve to staging in full, so
+      `git diff 4acc452ea HEAD -- src/factory/command-authority.ts src/factory/compute-admissions.ts`
+      is empty.
+      CHECK, all at `435629893` under `flock /tmp/ezcorp-validation-heavy.lock timeout <s> ...`:
+      | Receipt | Result |
+      | --- | --- |
+      | `merge-postgres` (17 real PostgreSQL and S3 suites, W05's ten plus W03's task stops, archive writer, artifact materials, executions, attempt queue, pool, and the S3 run lifecycle) | 272 pass, 0 fail, 5693 assertions |
+      | `merge-coverage-backend` | 173 pass, 0 fail, 1636 assertions |
+      | `merge-coverage-gates` | 50 pass, 0 fail, 91 assertions |
+      | `merge-coverage-sdk` | 173 pass, 0 fail, 1271 assertions |
+      | `merge-coverage-gate` | 9 new source files gated, 23 files patch-covered |
+      | `merge-w03-pglite` (task stops, usage settlement, host stop transport, seven pool suites) | 73 pass, 0 fail, 567 assertions |
+      | `merge-validator-guest-podman` | 1 pass, 0 fail, 15 assertions |
+      | `merge-c13-inventory` | 13 pass, 0 fail, 153 assertions |
+      | `merge-typecheck`, `merge-lint`, `merge-boundaries`, `merge-gate-integrity`, `merge-lanes`, `merge-schema-drift` | exit 0 each; lint reports the same eight pre-existing infos and no error |
+      Workspace packages were rebuilt before the typecheck: `bun run --cwd
+      packages/@ezcorp/factory-sdk build` and the same for `factory-transport`. Without that the
+      merged `types.ts` is not in the published `dist/`, and the failure reads as a source error.
+      One fix was needed after the merge and is in it: W02's package-quarantine restart case already
+      owns the fixture email `restart-trust@example.test`, and `users_email_key` is unique, so W05's
+      validator restart case now uses `restart-validator-trust@example.test` with
+      `ON CONFLICT (id) DO NOTHING`.
+      `src/factory/admission-origin.test.ts` no longer holds the two raw NUL bytes staging still
+      carries: the blob at `435629893` has zero bytes below 32 outside tab and newline, the two
+      cases spell them `"node\u0000a"` and `"claim\u0000a"`, and git diffs the file as text.
 
 ## Deviations from the freeze, all inside the owned surfaces
 
@@ -221,17 +331,36 @@ reorder them into the freeze's numbering without changing any result.
   reservation identity for a `dispatch-node` origin is byte-identical to `factoryTaskReservationId`,
   proven by direct comparison in `admission-origin.test.ts`.
 
+- **W03, an ownership crossing this branch made and has now undone.** Freeze section 12 gives
+  `src/factory/command-authority.ts` and `src/factory/compute-admissions.ts` to W03, and this branch
+  carried edited copies of both between `977e4d944` and `697ca0b10`. The route in was the
+  coordinator-sanctioned cherry-pick of `741faf6c6..97fb7ab16`: taking W03's admission checkpoint
+  without W03's stop work forced this branch to drop
+  `FactoryAuthorizedCancellationCommand`, `withCurrentCancellation`,
+  `readRetainedAdmittedInTransaction`, and the `settling`/`allowedStatuses` parameters of
+  `assertLiveAncestors`, so the files here were a trimmed subset of W03's, not a superset.
+  `withCurrentAdmission` and `FactoryAuthorizedAdmissionCommand` are the seam W05 specified and W03
+  implemented; `git log -S withCurrentAdmission -- src/factory/command-authority.ts` names
+  `97fb7ab16`, W03's own commit, as their only author. The merge at `435629893` resolved both files
+  to staging in full, and `git diff 4acc452ea HEAD -- src/factory/command-authority.ts
+  src/factory/compute-admissions.ts` is now empty: W05 adds nothing to either file. Recorded here
+  because the crossing existed in this branch's history for four commits and a reviewer reading that
+  range would otherwise find W05 editing a W03 file with no explanation.
+
 ## Closed, and what was left to others
 
-Nothing in W05's checklist is open. Both legs that were blocked are closed by G20 and G21.
+Nothing in W05's checklist is open. The two legs that were blocked are closed by G20 (the
+admission chain W03 unblocked) and G21 (the real isolated Podman guest).
 
 **What was taken from W03, and what was deliberately left.** `977e4d944` cherry-picks `97fb7ab16`
 "feat(factory): admit a protected validator origin" and applies `310d3da5f`'s shared-root-envelope
 correction by hand. Two pieces of those commits are left behind because their dependencies live
 outside the range the coordinator named: the usage-settlement restart case needs
 `factory_usage_settlements` from W03's own usage-settlement commit, and
-`FactoryAuthorizedCancellationCommand` needs W03's stop work. Both arrive when that branch
-integrates, and nothing here references either.
+`FactoryAuthorizedCancellationCommand` needs W03's stop work. Both arrived with the merge at
+`435629893`: `add-factory-usage-settlements` is now migration entry 2 in the tail of `migrate()`,
+its restart case is one of the thirteen in the conformance suite, and
+`src/factory/command-authority.ts` is staging's file in full.
 
 **One defect this package introduced and then fixed.** `src/factory/child-artifacts.ts` and
 `src/factory/release-profile.ts` imported the C13 shared module `src/extensions/v4/blobs.ts` without
