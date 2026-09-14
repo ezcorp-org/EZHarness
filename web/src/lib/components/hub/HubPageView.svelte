@@ -14,6 +14,7 @@
 <script lang="ts">
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
+	import { setBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
 	import HubComponentRenderer from "$lib/components/hub/HubComponentRenderer.svelte";
 	import SkeletonLoader from "$lib/components/SkeletonLoader.svelte";
 	import LucideIcon from "$lib/components/LucideIcon.svelte";
@@ -340,6 +341,13 @@
 	// purely presentational — the redirect/auto-open logic still uses the raw
 	// listing order.
 	let sortedTabs = $derived(sortHubPagesByTitle(tabs));
+
+	// Name this hub page in the Command Deck breadcrumb strip. Set HERE, not
+	// in the two route wrappers (`/hub/[pageId]` and
+	// `/project/[id]/hub/[pageId]`), because the title arrives with the tab
+	// listing this component owns — the same reason the document title reads
+	// from `activeTab`. One call serves both routes.
+	$effect(() => setBreadcrumbTail(activeTab?.title));
 </script>
 
 <svelte:head>

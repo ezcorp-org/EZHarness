@@ -2,6 +2,7 @@
 	import { page } from "$app/stores";
 	import { onMount } from "svelte";
 	import { store } from "$lib/stores.svelte.js";
+	import { setBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
 	import type { SettingsSchema } from "$server/extensions/types";
 	import SettingsPanel from "./SettingsPanel.svelte";
 	import UsesList from "$lib/components/extensions/UsesList.svelte";
@@ -142,6 +143,10 @@
 	const extRef = $derived($page.params.id);
 	const extId = $derived(ext?.id ?? extRef);
 	const hasViolations = $derived(violations.length > 0);
+
+	// Name this extension in the Command Deck breadcrumb strip. The ref may be
+	// a uuid, so the strip waits for the resolved row rather than echoing it.
+	$effect(() => setBreadcrumbTail(ext?.name));
 
 	// github-projects is the ONE extension whose primary configuration is
 	// per-project (connecting a board), not the single global settings panel

@@ -10,6 +10,7 @@
 		type MarketplaceListing,
 		type MarketplaceVersion,
 	} from "$lib/api.js";
+	import { setBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
 	import MarketplaceDetail from "$lib/components/MarketplaceDetail.svelte";
 	import PublishDialog from "$lib/components/PublishDialog.svelte";
 	import FlagDialog from "$lib/components/FlagDialog.svelte";
@@ -31,6 +32,11 @@
 	// (auth context comes from the server response including userRating)
 	let isAuthor = $state(false);
 	let isAdmin = $state(false);
+
+	// Name this listing in the Command Deck breadcrumb strip. The route param
+	// is an opaque id, so the strip can only read the fetched name — it stays
+	// at `global / Marketplace` until the listing lands.
+	$effect(() => setBreadcrumbTail(listing?.name));
 
 	async function loadListing() {
 		loading = true;

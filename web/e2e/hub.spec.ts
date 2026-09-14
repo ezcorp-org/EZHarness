@@ -119,6 +119,11 @@ test.describe("Hub", () => {
 		// Tab bar shows both tabs; the active tree renders.
 		await expect(page.getByTestId("hub-tab")).toHaveCount(2);
 		await expect(page.getByTestId("hub-page-title")).toHaveText("Daily Briefing");
+		// The Command Deck strip names the open page. `pageId` is `core:briefing`,
+		// so the title can only come from the tab listing this component owns —
+		// which is why `HubPageView` publishes the tail rather than the two route
+		// wrappers. See `$lib/breadcrumb-tail.svelte.ts`.
+		await expect(page.getByTestId("deck-breadcrumb-tail")).toHaveText("Daily Briefing");
 		await expect(page.getByTestId("hub-node-status")).toContainText("Last run delivered");
 		await expect(page.getByTestId("hub-node-kv")).toContainText("0 7 * * *");
 		// Table row deep-link renders as a safe internal anchor.

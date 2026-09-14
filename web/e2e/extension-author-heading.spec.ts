@@ -16,6 +16,7 @@
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { captureEvidence } from "./fixtures/evidence.js";
+import { expectDeckBreadcrumb } from "./fixtures/breadcrumb.js";
 import { makeProject } from "./fixtures/data.js";
 import { setupAuthorReviewMock } from "./fixtures/extension-source-import.js";
 import type { Page } from "@playwright/test";
@@ -76,9 +77,7 @@ test.describe("Extension author page — heading and breadcrumb", () => {
 				await openAuthorPage(page);
 				await expect(page.getByRole("heading", { level: 1 })).toHaveText("memory-extractor");
 				await expect(page).toHaveTitle("memory-extractor · Extension workspace");
-				const crumb = page.getByTestId("deck-breadcrumb");
-				await expect(crumb).toContainText("Extensions");
-				await expect(crumb.getByTestId("deck-breadcrumb-tail")).toHaveText("memory-extractor");
+				await expectDeckBreadcrumb(page, { section: "Extensions", tail: "memory-extractor" });
 				await captureEvidence(page, testInfo, "extension-author-heading-named");
 			} finally {
 				await review.close();
@@ -95,10 +94,7 @@ test.describe("Extension author page — heading and breadcrumb", () => {
 			try {
 				await openAuthorPage(page);
 				await expect(page.getByRole("heading", { level: 1 })).toHaveText("memory-extractor");
-				const crumb = page.getByTestId("deck-breadcrumb");
-				await expect(crumb).toBeVisible();
-				await expect(crumb.getByTestId("deck-breadcrumb-tail")).toHaveText("memory-extractor");
-				await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
+				await expectDeckBreadcrumb(page, { section: "Extensions", tail: "memory-extractor" });
 				await captureEvidence(page, testInfo, "extension-author-heading-named-mobile");
 			} finally {
 				await review.close();
