@@ -2543,3 +2543,47 @@ The one thing I would flag hardest for the coordinator is not a defect in this p
 each built a publication-scope resolver that reads the verified attempt id, by two different durable
 paths. Both are correct and neither takes caller input, but one concept with two implementations is
 what C13 forbids, and collapsing them crosses both packages' files.
+
+## W10 — real code reference pack (Sol domain)
+
+Branch `wp/w10-code-pack` from `integ/w00` at `1d3edf5b0`. Gate file:
+`tasks/factory/w10-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w10/`.
+
+- [x] Pinned repository snapshot over real git, refusing symlinks, submodules, branch names, and
+      short prefixes by name.
+- [x] Native generator with the contract's twelve-iteration bound enforced in the runner.
+- [x] Complete-tree freeze producing exactly the request W07's adapter validates, with the pinned
+      base as the candidate commit's only parent, checked against real git.
+- [x] Dependency, build, type, and test checks against the real Bun and TypeScript toolchain, on a
+      disposable copy whose input tree digest is verified.
+- [x] Pinned advisory and secret scans, reporting findings without quoting the credential found.
+- [x] Path and protected-asset checks, reported as their own claims.
+- [x] Separate supervised review in a toolless validator context, strict about its rubric.
+- [x] The reference code validator as a real isolated attempt in a Podman guest.
+- [x] The valid slugify fixture and every protected negative fixture.
+- [x] Repair through W06: three real candidate generations, each remeasured, bounded at three.
+- [x] Publication through W07 to the real private repository, with the remote tree and parent read
+      back and compared.
+- [ ] Actual provider usage for the generator and the reviewer. Blocked: this deployment holds no
+      Anthropic credential. Recorded as a readiness failure, never substituted.
+- [ ] End-to-end through the real started application. Blocked: W09 has not landed on `integ/w00`.
+
+Review. The deterministic half of C10's reference code factory is complete and proven against real
+systems rather than against a description of them: real git agrees with every object identity the
+freeze derives, the real toolchain decides the build, typecheck, and test claims, a real Podman
+guest reports the static claims from inside the sandbox, and the real private repository holds a
+draft pull request whose tree and parent were read back and compared blob by blob.
+
+The two model-backed legs are built and tested against every failure a real model cannot be asked to
+produce on demand, but they did not reach the real provider, because no credential resolves here.
+That is written down as a readiness failure with a receipt, and nothing anywhere substitutes a
+canned answer for it. What it costs is the tenth mandatory claim, and the consequence is the one the
+contract promises: the journey reaches the publication step against the real repository and refuses
+to take it, naming `supervised-review` as the reason.
+
+Two shared modules were split on the way, and both are improvements rather than accommodations. The
+v4 byte digest no longer sits behind an S3 client, so hashing bytes does not require a storage
+client and a JSON-schema validator; and the four claims that read only a candidate's bytes no longer
+sit beside the five that need a workspace and a subprocess. Together they are what let the isolated
+guest ship the product's own validator instead of a second copy written for the sandbox. Both are
+declared as C13 rows, so the reuse is gated rather than assumed.
