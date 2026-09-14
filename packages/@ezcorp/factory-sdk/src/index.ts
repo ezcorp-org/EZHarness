@@ -10,7 +10,7 @@ export { FactoryParseError, parseFactoryJson, parseFactoryYaml, parseIJson, pars
 export { compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, factoryRunnerRequestDigest, factoryRunnerRequestIdentity, verifyCompiledFactoryArtifact } from "./compiler.js";
 export type { CompiledFactoryPageBytes } from "./compiler.js";
 export { defineFactory, FactoryAuthoringError } from "./authoring.js";
-export { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references.js";
+export { manifestNameOf, referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references.js";
 export { factoryGraphNodes, firstValidationIssue, isManifestName, isSchemaContained, resolveSchemaReference, validateCompiledExecutionManifest, validateCompiledFactory, validateCompiledPartitionArtifact, validateFactoryApiRequest, validateFactoryApiResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult, validateFactoryValidatorClaimReport, validateFactoryValidatorReport, validatePortSchema, validateValue, validateDurableInputPorts } from "./validation.js";
 export type * from "./kernel-types.js";
 export { FactoryKernelError, advanceKernel, assertKernelContinuationState, createKernelState, createPartitionKernelState, currentEffectCommandMatches } from "./kernel.js";
