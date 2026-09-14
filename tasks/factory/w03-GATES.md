@@ -44,6 +44,48 @@ Branch `wp/w03-stop-settlement`. Base `integ/w00` at `88effb159`.
    attempt. C02 requires a cancelling attempt to keep its stop authority until its stop event
    commits, and settlement continues after new dispatch stops.
 
+## Incident: the pool PostgreSQL suite spun for 50 minutes holding the shared heavy lock
+
+The coordinator stopped `bun test ./tests/postgres/factory-pool.test.ts` (pid 3540823) after it
+ran 44 minutes of CPU in state R with zero output, holding `/tmp/ezcorp-validation-heavy.lock`
+while W02, W05, and W09 queued behind it.
+
+**Root cause, reproduced.** Not the fairness code. `Bun.sql` returns a lazy `SQLQuery` that
+executes only when something adopts it, and handing one straight to `expect(...)` does not adopt
+it. Measured against the real engine on Bun 1.3.14:
+
+| form | result |
+| --- | --- |
+| `await expect(sql.unsafe("SELECT 1/0")).rejects.toThrow()` | state R, 100% CPU, CPU time 10 s at t=10 s and 25 s at t=25 s, no output, never completes |
+| `await Promise.resolve(sql.unsafe("SELECT 1/0")).then(ok, err)` | rejects in 6 ms |
+
+The spinning assertion was the vocabulary-drift test, which asserts the durable CHECK constraint
+refuses `requested`. It burned its 300-second timeout at full CPU, and the orphaned process kept
+the inherited `flock` descriptor after its wrapper was killed, which is why the lock stayed held
+long after the run was stopped. PGlite hands back a real promise, so this never reproduced there
+and only the real-engine lane saw it.
+
+**The coordinator's hypothesis is excluded by evidence.** `src/factory/pool/ledger.ts` contains no
+`while`, no `for (;;)`, no `do`/`while`, and no `setInterval`; all eighteen `for` loops iterate
+finite collections. The round-robin change cannot spin.
+
+**Permanent guard.** `src/factory/pool/lazy-sql-assertions.test.ts` parses the pool suite and the
+pool test files and fails on any `expect(<x>.unsafe(...))` or `expect(<x>.begin(...))`. It is
+static on purpose: the failure mode is a hang, a runtime guard would have to race a clock, and a
+spinning test is worse than a failing one. Verified both ways by restoring the pre-fix line: the
+guard fails in 27 ms on the old code and passes on the fixed code.
+
+**After the fix**, the same suite under the lock with a 120-second per-test timeout finishes in
+**3.0 seconds**, 21 pass, 0 fail (`pool-postgres-after-spin-fix.json`). Heavy runs are now issued
+one at a time.
+
+## Note on the shared `core.bare` breakage
+
+The coordinator repaired `core.bare` in this worktree at 21:30 EDT. No W03 commit or producer
+failed in that window: the tree was clean at every commit boundary, all ten commits landed, and
+the fifteen uncommitted files the coordinator saw were work in flight that committed normally
+afterwards. Nothing was retried and no receipt is affected.
+
 ## Landed deviations from the freeze, and why
 
 1. **`validateFactoryStopReceipt` takes `FactoryPhysicalStopExpectation`, not `FactoryTaskStopRequest`.**
