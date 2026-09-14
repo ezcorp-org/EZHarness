@@ -19,6 +19,10 @@ command, exit code, UTC start and end, counts, log checksum).
 | `5c3e8ae57` | `feat(factory): decide protected claims by strict verdict` (entry 38) |
 | `6bcee05b7` | `test(factory): require full coverage of the strict validator report migration` |
 | `1a90d8f33` | `feat(factory): bind a child's accepted artifact alias to its parent attempt` |
+| `e3c21df0b` | `docs(factory): record the W05 gates, deviations, and open items` |
+| `f22599803` | `Merge branch 'integ/w00' into wp/w05-protected-validators` (picks up W04a) |
+| `80560b73c` | `fix(factory): carry the archive writer fixture onto the strict claim verdict` |
+| `f07de6dd1` | `docs(tasks): record the migration-guard lessons from W05` |
 
 W06, W07, and W08 can consume every type checkpoint from `64d7d470a`.
 
@@ -91,19 +95,29 @@ reorder them into the freeze's numbering without changing any result.
       changed artifact, an unknown parent attempt, a moved fence, and a tampered seal are refused,
       and no parent acceptance is ever implied.
       CHECK: `bun test --timeout 600000 ./tests/postgres/factory-child-artifacts.test.ts ./tests/postgres/factory-schema.test.ts ./tests/postgres/factory-migration-restart.test.ts ./tests/postgres/factory-assurance.test.ts`
-      EXPECT: 0 fail on real PostgreSQL and S3.
-      EVIDENCE: `receipts.jsonl` record `child-artifacts-postgres`; PGlite counterpart in the
-      final combined record.
+      EXPECT: 32 pass, 0 fail, 2843 assertions on real PostgreSQL and S3.
+      EVIDENCE: `receipts.jsonl` record `child-artifacts-postgres`; PGlite counterpart in
+      `coverage-combined-backend`.
 - [x] G12: Static gates.
       CHECK: `bun run typecheck`, `bun run lint`, `bun scripts/check-factory-boundaries.ts`,
       `bun scripts/gate-integrity.ts`, `bun scripts/check-schema-generate-drift.ts`
       EXPECT: exit 0 each; lint reports the same eight pre-existing infos and no errors.
-      EVIDENCE: `receipts.jsonl` records `typecheck`, `lint`, `boundaries`, `gate-integrity`.
+      EVIDENCE: `receipts.jsonl` records `typecheck`, `lint`, `boundaries`, `gate-integrity`,
+      `schema-drift`, all produced at `80560b73c`.
 - [x] G13: Coverage of every new file and every changed line.
       CHECK: focused `--coverage` runs over the producing files, `bun scripts/merge-lcov.ts`, then
       `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` and
       `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
-      EVIDENCE: `receipts.jsonl` records `coverage-combined`, `new-file-gate`, `patch-gate`.
+      EXPECT: 161 pass, 0 fail, 1476 assertions over thirteen backend files plus 173 pass over the
+      SDK; then "New-file coverage gate PASSED: 9 new source file(s) gated." and "Patch coverage
+      gate PASSED: all changed executable lines covered (22 file(s))."
+      EVIDENCE: `receipts.jsonl` records `coverage-combined-backend`, `new-file-gate`, `patch-gate`.
+- [x] G14: Every owned real-PostgreSQL producer is green at the merged head.
+      CHECK: the ten `tests/postgres/factory-*` suites this package touches, under the shared heavy
+      lock with `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set.
+      EXPECT: 125 pass, 0 fail, 3888 assertions.
+      EVIDENCE: `receipts.jsonl` record `final-postgres`, produced at `f07de6dd1`, which differs
+      from `80560b73c` only in `tasks/lessons.md`.
 
 ## Deviations from the freeze, all inside the owned surfaces
 
