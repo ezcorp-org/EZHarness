@@ -126,8 +126,8 @@ describe("the contract, as C10 writes it", () => {
   });
 
   test("the nine deterministic claims this package measures are the contract's first nine", () => {
-    expect([...REFERENCE_CODE_DETERMINISTIC_CLAIM_IDS].sort())
-      .toEqual(referenceCodeV1.acceptance.claims.slice(0, 9).map(claim => claim.id).sort());
+    const measured: string[] = [...REFERENCE_CODE_DETERMINISTIC_CLAIM_IDS];
+    expect(measured.sort()).toEqual(referenceCodeV1.acceptance.claims.slice(0, 9).map(claim => claim.id).sort());
     expect(referenceCodeV1.acceptance.claims[9]!.id).toBe(REFERENCE_CODE_REVIEW_CLAIM_ID);
   });
 
