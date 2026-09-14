@@ -8,10 +8,12 @@ import argparse, os, subprocess, json, fcntl, shutil, sys, datetime, glob
 ap = argparse.ArgumentParser()
 ap.add_argument('--repo', required=True); ap.add_argument('--prefix', required=True)
 ap.add_argument('--skip', default=''); ap.add_argument('--patch-bases', default='644987ada,2588c9f19edcae24273f4a2049eb3ac37bd6f920')
-ap.add_argument('--allow-dirty', action='store_true'); ap.add_argument('--focused-extra', default=''); ap.add_argument('--reuse-from', default=''); ap.add_argument('--auto-extra-base', default='', help='also run every added/changed *.test.ts (bun-runnable, outside web/ and tests/postgres/) since this ref')
+ap.add_argument('--allow-dirty', action='store_true'); ap.add_argument('--podman', action='store_true', help='also run the real Podman suites (serially)'); ap.add_argument('--focused-extra', default=''); ap.add_argument('--reuse-from', default=''); ap.add_argument('--auto-extra-base', default='', help='also run every added/changed *.test.ts (bun-runnable, outside web/ and tests/postgres/) since this ref')
 a = ap.parse_args()
 root = Path('/tmp/factory-platform-evidence'); repo = Path(a.repo); P = a.prefix
 skip = set(filter(None, a.skip.split(',')))
+MEASURED = {'sdk': ['packages/@ezcorp/factory-sdk'], 'product': ['src','packages','scripts'], 'postgres': ['src','tests','packages'], 'node': ['packages/@ezcorp/factory-orchestrator','src/factory'], 'web': ['web/src']}
+PRODUCER_CHECK = {'sdk': 'sdk-tests', 'product': 'focused', 'postgres': 'postgres', 'node': 'node-coverage', 'web': 'web-coverage'}
 env = os.environ.copy(); env['PATH'] = '/tmp/factory-tools/bun-1.3.14/bun-linux-x64:' + env['PATH']
 fields = dict(l.split('=', 1) for l in (root / 'postgres.env').read_text().splitlines())
 endpoint = subprocess.check_output(['podman', 'port', 'factory-platform-proof-postgres', '5432'], text=True).strip()
@@ -45,11 +47,26 @@ checks = [
  ('orchestrator-build', ['bun','run','--cwd','packages/@ezcorp/factory-orchestrator','build']),
  ('node-coverage', ['bash','scripts/factory-orchestrator-coverage.sh']),
 ]
+if a.podman:
+ for f in ['./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts','./src/factory/runner/attempt-runtime.integration.test.ts','./src/factory/runner/supervisor.podman.integration.test.ts','./src/factory/package-preparation.podman.integration.test.ts']:
+  if (repo / f).exists(): checks.append(('podman-' + Path(f).stem.split('.')[0], ['bun','test','--timeout','300000',f]))
 with open('/tmp/ezcorp-validation-heavy.lock', 'w') as lock:
  fcntl.flock(lock, fcntl.LOCK_EX)
  dirty = subprocess.check_output(['git','status','--porcelain'], cwd=repo, text=True)
  if dirty and not a.allow_dirty: sys.exit(f'dirty tree:\n{dirty}')
  sha = subprocess.check_output(['git','rev-parse','HEAD'], cwd=repo, text=True).strip()
+ reuse = [r for r in a.reuse_from.split(',') if r]
+ def reusable(label):
+  for prior_prefix in reuse:
+   alt = root / f'{prior_prefix}-{label}-coverage' / 'lcov.info'
+   if not alt.exists(): continue
+   prior_head = json.loads((root / f'{prior_prefix}-results.json').read_text())[0]['head']
+   if subprocess.run(['git','diff','--quiet',prior_head,sha,'--',*MEASURED[label]], cwd=repo).returncode == 0: return (alt, prior_head)
+  return None
+ for label, check in PRODUCER_CHECK.items():
+  if check in skip and 'coverage' not in skip and not reusable(label):
+   print(f'reuse of {label} coverage is not valid at {sha[:9]}; running {check} instead', flush=True); skip.discard(check)
+   if check == 'node-coverage': skip.discard('orchestrator-build')
  results = []; failed = False
  for name, cmd in checks:
   if name in skip: continue
@@ -68,31 +85,17 @@ with open('/tmp/ezcorp-validation-heavy.lock', 'w') as lock:
  covres = {'head': sha, 'producers': [], 'checks': []}
  if not failed and 'coverage' not in skip:
   inputs = root / f'{P}-lcov-inputs'; shutil.rmtree(inputs, ignore_errors=True); inputs.mkdir()
-  # Reuse a prior prefix's coverage for a skipped producer only when every path that
-  # producer measures is byte-identical between the prior head and this head.
-  MEASURED = {'sdk': ['packages/@ezcorp/factory-sdk'], 'product': ['src','packages','scripts'], 'postgres': ['src','tests','packages'], 'node': ['packages/@ezcorp/factory-orchestrator','src/factory']}
-  reuse = [r for r in a.reuse_from.split(',') if r]
   for label in ['sdk','product','postgres','node']:
    src = Path(cov(label)) / 'lcov.info'
    if src.exists(): covres['producers'].append({'producer': label, 'input': str(src), 'head': sha})
    else:
-    for prior_prefix in reuse:
-     alt = root / f'{prior_prefix}-{label}-coverage' / 'lcov.info'
-     if not alt.exists(): continue
-     prior_head = json.loads((root / f'{prior_prefix}-results.json').read_text())[0]['head']
-     changed = subprocess.run(['git','diff','--quiet',prior_head,sha,'--',*MEASURED[label]], cwd=repo).returncode
-     assert changed == 0, f'measured source for {label} changed between {prior_head} and {sha}; cannot reuse'
-     src = alt; covres['producers'].append({'producer': label, 'input': str(src), 'head': prior_head, 'reused': True, 'sourceIdenticalTo': sha, 'paths': MEASURED[label]}); break
+    r = reusable(label)
+    if r: src, prior_head = r; covres['producers'].append({'producer': label, 'input': str(src), 'head': prior_head, 'reused': True, 'sourceIdenticalTo': sha, 'paths': MEASURED[label]})
    if src.exists(): shutil.copyfile(src, inputs / f'{label}.lcov')
   web = Path(cov('web')) / 'lcov.info'
   if not web.exists():
-   for prior_prefix in reuse:
-    alt = root / f'{prior_prefix}-web-coverage' / 'lcov.info'
-    if alt.exists():
-     prior_head = json.loads((root / f'{prior_prefix}-results.json').read_text())[0]['head']
-     changed = subprocess.run(['git','diff','--quiet',prior_head,sha,'--','web/src'], cwd=repo).returncode
-     assert changed == 0, f'web/src changed between {prior_head} and {sha}; cannot reuse web coverage'
-     web = alt; covres['producers'].append({'producer': 'web-vitest', 'input': str(web), 'head': prior_head, 'reused': True, 'sourceIdenticalTo': sha, 'paths': ['web/src']}); break
+   r = reusable('web')
+   if r: web, prior_head = r; covres['producers'].append({'producer': 'web-vitest', 'input': str(web), 'head': prior_head, 'reused': True, 'sourceIdenticalTo': sha, 'paths': MEASURED['web']})
   if web.exists():
    (inputs / 'web.lcov').write_text('\n'.join(('SF:web/' + l[3:]) if l.startswith('SF:') and not l.startswith('SF:web/') and not l.startswith('SF:/') else l for l in web.read_text().splitlines()) + '\n')
    covres['producers'].append({'producer': 'web-vitest', 'input': str(web), 'head': sha, 'rerooted': True})
