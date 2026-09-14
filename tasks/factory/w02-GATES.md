@@ -11,7 +11,7 @@ Commits:
 | `9e6b7aecf` | feat(runner): carry per-attempt device authority instead of the host list |
 | `e0598fe79` | feat(factory): isolated Python guest with a Python-native C02 validator |
 | `c25455b01` | feat(factory): prove the per-attempt GPU grant and record the supported profile |
-| `755b15502` | docs(factory): W02 gates, checklist and review |
+| `755b15502` | docs(factory): W02 gates, checklist and review (this gate file did not land here; see the note below) |
 | `284001d7c` | test(factory): run the hostile task fixture inside the component environment |
 | `6f06a82bc` | fix(factory): the supervised tool path also names its own devices |
 | `1911488e4` | test(factory): measure the hostile fixture's two non-refusal facts correctly |
@@ -22,6 +22,8 @@ Commits:
 | `fa2a6e6d1` | test(factory): cover the device preflight and drop an unused helper |
 
 Every receipt in `/tmp/factory-platform-evidence/w02/INDEX.md` was produced from clean committed source with no dirty files: the suites and proofs at `fa2a6e6d1`, and the static, focused, Python and coverage gates re-run on the merge result at `2ec0ea129`. Every heavy producer ran under `flock /tmp/ezcorp-validation-heavy.lock`; every producer that touches the GPU also ran under `flock $XDG_RUNTIME_DIR/ezcorp-factory-local-gpu.lock`. Nothing here reimaged or reconfigured this machine's GPU.
+
+**Host fault during this package.** At 21:30 EDT a `core.bare = true` in the shared `.git/config` broke `git status`, `add` and `commit` in every worktree; the coordinator wrote `core.bare = false` into this worktree's `config.worktree` at 21:46 EDT. One commit (`9e6b7aecf`, 21:15) predates the window and the next (`e0598fe79`, 22:14) follows the repair, so no commit was attempted inside it. No receipt was produced inside it either: `receipt.py` reads `git rev-parse` and `git status --porcelain` before every run and would have failed rather than recorded a result. Every commit named above is reachable from `HEAD`, and the gates were re-run on the final tree afterwards.
 
 ## Gates
 
