@@ -12,6 +12,7 @@ import type { FactoryCommandAuthority } from "./command-authority";
 import type { FactoryComputeAdmissions } from "./compute-admissions";
 import type { FactoryAttemptAuthority, FactoryExecutionJournal } from "./executions";
 import type { FactoryInbox } from "./inbox";
+import { firstFactoryJournalIssue, validateFactoryTaskOutcome } from "./journal-validation";
 import { lockFactoryScope } from "./locks";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
 import { factoryTaskReservationId } from "./task-admission";
@@ -112,6 +113,8 @@ export class FactoryTaskOutcomes {
         const atMs = this.now();
         if (!Number.isSafeInteger(atMs) || atMs < context.state.nowMs) throw new FactoryTaskOutcomeError("factory_task_outcome_clock_invalid");
         const receipt = outcomeReceipt(stored.delivery.reference.reservationId, nonSuccess, evidence, attempt, atMs);
+        const facts = validateFactoryTaskOutcome(receipt, nonSuccess, attempt);
+        if (!facts.ok) throw new FactoryTaskOutcomeError(firstFactoryJournalIssue(facts) ?? "factory_task_outcome_invalid");
         if (nonSuccess.status === "uncertain") await this.budgets.markUncertainInTransaction(locked, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: receipt.reservationId }, "runner_outcome_uncertain");
         await this.inbox.enqueueInTransaction(locked, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, receipt.event);
         const authorityJson = canonicalJson({ ...attempt, deadlineAt: attempt.deadlineAt.getTime() });
@@ -156,7 +159,8 @@ export class FactoryTaskOutcomes {
       || delivery.reference.reservationId !== row.reservation_id || canonicalJson(delivery.reference.command) !== canonicalJson(reference)
       || row.input_digest !== hash({ reference, result })
       || row.evidence_digest !== evidence.evidenceDigest
-      || canonicalJson(receipt) !== canonicalJson(outcomeReceipt(row.reservation_id, result, evidence, authority, atMs))) {
+      || canonicalJson(receipt) !== canonicalJson(outcomeReceipt(row.reservation_id, result, evidence, authority, atMs))
+      || !validateFactoryTaskOutcome(receipt, result as FactoryNonSuccessfulRunnerResult, authority).ok) {
       throw new FactoryTaskOutcomeError("factory_task_outcome_corrupt");
     }
     return Object.freeze(receipt);

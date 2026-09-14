@@ -49,6 +49,14 @@ function admission(attempt: FactoryAttemptAuthority, input?: JsonValue) {
   return { ...attempt, requestDigest: factoryRunnerRequestDigest(request), request };
 }
 
+function measuredUsage(outputTokens: number) {
+  return { kind: "measured" as const, inputTokens: 1, outputTokens, computeMs: 3, costMicros: "4" };
+}
+
+function checkpointReference(artifactId: string, journalCursor: number) {
+  return { artifactId, digest: `sha256:${"c".repeat(64)}`, encodedBytes: 1, journalCursor };
+}
+
 function operation(index: number) {
   const attempt = authority();
   return {
@@ -100,19 +108,19 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await journal.dispatch(attempt, ahead.operationId)).toEqual({ claimed: true });
   expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
   await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "result" })).rejects.toThrow("needs result, usage, and workspace checkpoint");
-  await journal.settle(attempt, ahead.operationId, "completed", { resultDigest: "ahead", result: { output: "ahead" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-2" } });
+  await journal.settle(attempt, ahead.operationId, "completed", { resultDigest: "ahead", result: { output: "ahead" }, usage: measuredUsage(2), workspaceCheckpoint: checkpointReference("checkpoint-2", 1) });
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: -1 });
-  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
-  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } });
+  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", result: { output: "first" }, usage: measuredUsage(2), workspaceCheckpoint: checkpointReference("checkpoint-1", 0) });
+  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", result: { output: "first" }, usage: measuredUsage(2), workspaceCheckpoint: checkpointReference("checkpoint-1", 0) });
   expect(await journal.operation(attempt, first.operationId)).toEqual({ state: "completed", result: { output: "first" } });
   expect(await journal.operations(attempt)).toEqual(expect.arrayContaining([
-    expect.objectContaining({ operationId: first.operationId, operationIndex: 0, state: "completed", resultDigest: "result", usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } }),
+    expect.objectContaining({ operationId: first.operationId, operationIndex: 0, state: "completed", resultDigest: "result", usage: measuredUsage(2), workspaceCheckpoint: checkpointReference("checkpoint-1", 0) }),
     expect.objectContaining({ operationId: ahead.operationId, operationIndex: 1, state: "completed", resultDigest: "ahead" }),
   ]));
-  expect(await journal.status(attempt)).toMatchObject({ terminalResult: { output: "ahead" }, workspaceCheckpoint: { revision: "checkpoint-2" } });
+  expect(await journal.status(attempt)).toMatchObject({ terminalResult: { output: "ahead" }, workspaceCheckpoint: checkpointReference("checkpoint-2", 1) });
   await journal.prepare(attempt, first);
   expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
-  await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "changed", result: { output: "first" }, usage: { output: 2 }, workspaceCheckpoint: { revision: "checkpoint-1" } })).rejects.toThrow("cannot settle");
+  await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "changed", result: { output: "first" }, usage: measuredUsage(2), workspaceCheckpoint: checkpointReference("checkpoint-1", 0) })).rejects.toThrow("cannot settle");
   expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: 1, cancelAcceptedAt: null });
   const snapshot = await journal.evidence(attempt);
   expect(snapshot.journalCursor).toBe(1);
@@ -130,8 +138,8 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await journal.cancel(attempt)).toBe(false);
   expect(await journal.status(attempt)).toMatchObject({ status: "cancel_accepted", journalCursor: 1 });
   await expect(journal.settle(attempt, second.operationId, "failed", { resultDigest: "late" })).rejects.toThrow("stale, cancelled, or expired");
-  await journal.reconcileLate(expired, second.operationId, { providerReceiptDigest: "provider-receipt", resultDigest: "late-result", usage: { charged: 1 }, workspaceCheckpoint: { revision: "late" } });
-  await expect(journal.reconcileLate({ ...expired, requestDigest: "b".repeat(64) }, second.operationId, { providerReceiptDigest: "provider-receipt", resultDigest: "late-result", usage: { charged: 1 }, workspaceCheckpoint: { revision: "late" } })).rejects.toThrow("unavailable");
+  await journal.reconcileLate(expired, second.operationId, { providerReceiptDigest: "provider-receipt", resultDigest: "late-result", usage: measuredUsage(1), workspaceCheckpoint: checkpointReference("late", 2) });
+  await expect(journal.reconcileLate({ ...expired, requestDigest: "b".repeat(64) }, second.operationId, { providerReceiptDigest: "provider-receipt", resultDigest: "late-result", usage: measuredUsage(1), workspaceCheckpoint: checkpointReference("late", 2) })).rejects.toThrow("unavailable");
   expect(await journal.status(attempt)).toMatchObject({ status: "cancel_accepted", journalCursor: 1 });
   expect(await journal.confirmStopped(expired)).toBe(true);
   expect(await journal.status(attempt)).toMatchObject({ status: "stopped" });
