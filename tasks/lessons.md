@@ -944,3 +944,12 @@
   because I added a suite without adding it to the workflow's producer list. A
   suite nobody runs is a suite that passes forever. Register it in the same
   change that adds it.
+- When a shared service is reported fixed, check the RUNNING container, not the
+  compose file. The ordinary S3 store OOM-killed a second time because it had
+  been started from the stale pre-fix container while its sibling, recreated
+  properly, ran with the new limit. `docker inspect --format
+  '{{.HostConfig.Memory}}'` differing between two services that should match is
+  the whole diagnosis, and it takes one command.
+- Do not repair shared infrastructure you do not own while another agent's run
+  holds the lock. Record the diagnosis precisely enough that the owner can act
+  in one step, and finish everything that does not depend on it.

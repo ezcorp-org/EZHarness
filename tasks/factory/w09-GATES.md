@@ -325,6 +325,26 @@ than re-derived, which the receipt states in its own `retention` field. A driver
 that overwrites the evidence of its own failures is a defect in the harness, and
 it is recorded in the corrections below.
 
+**The store went down a second time, and the 2 GiB fix had never reached it.**
+The close-out run at `e90c7380d` failed all three proofs and one PostgreSQL
+producer on the same `object-storage: ConnectionRefused`. The diagnosis is in
+`shared-store-ordinary-still-768mib.json`: the ordinary container exited 137,
+OOM-killed, at 16:19:34Z, having STARTED at 16:02:15Z — after the 15:41:59Z
+recreate — while still carrying the old 768 MiB limit. Compose declares
+`mem_limit: 2g` for both services and the archive container runs at 2 GiB, so
+the ordinary one was started from the stale pre-fix container rather than
+recreated. That is the failure mode already in `tasks/lessons.md`, one service
+over: a compose change does not reach a container that was restarted rather than
+recreated, and the tell is `docker inspect --format '{{.HostConfig.Memory}}'`
+differing between two services that should match — 805306368 against
+2147483648.
+
+W09 did not recreate it. It is shared infrastructure the coordinator owns, the
+heavy lock was held by the wave-3 integration at the time, and recreating a
+store mid-run could break that run. Every gate that does not need the ordinary
+store passed at that commit; the three proofs and the private-service producer
+are the ones that need it.
+
 **The proof no longer stops the moment the light turns green.** It holds the
 supervisor and watches it publish five consecutive readiness records, counting
 the `flock` lease children the supervisor process owns at each one, then re-reads
