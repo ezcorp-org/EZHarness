@@ -436,6 +436,85 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_task_stops WHERE stop_receipt_digest=${settled.stopReceipt!.receiptDigest}`))).toEqual([{ attempt_id: first.attemptId }]);
   });
 
+  test("a pool acknowledgement that outlives a failed product transaction settles once on retry", async () => {
+    const attempt = await launchedAttempt();
+    const { reference } = await failedOutcome(attempt, "measured");
+    let acknowledgements = 0;
+    const base = harness(attempt, stopper(async request => signed(request)), acknowledger({}, () => { acknowledgements++; }));
+    // The pool releases capacity, then the product transaction fails. Nothing
+    // durable may be left behind, and the retry must not settle twice.
+    let failures = 1;
+    const brittle = Object.create(base.settlements, { recordInTransaction: { value: async (...args: Parameters<FactoryUsageSettlements["recordInTransaction"]>) => {
+      if (failures-- > 0) throw new Error("product settlement transaction lost");
+      return base.settlements.recordInTransaction(...args);
+    } } }) as FactoryUsageSettlements;
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
+    const interrupted = new FactoryTaskStops(fixture.db, attempt.authority, attempt.admissions, attempt.journal, outcomes, attempt.queue, lifecycle.budgets, inbox, brittle, stopper(async request => signed(request)), acknowledger({}, () => { acknowledgements++; }), [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], () => now, 20_000);
+    // The pool has released, but nothing the product owns may be settled: the
+    // stop degrades to durable uncertainty and keeps its hold.
+    expect((await interrupted.stop(service, reference)).state).toBe("uncertain");
+    expect(acknowledgements).toBe(1);
+    expect(await stopRow(attempt.run.runId)).toMatchObject({ state: "uncertain" });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain", actual: null });
+    expect(await executionStatus(attempt.attemptId)).toBe("cancel_accepted");
+    expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "usage-settled")).toHaveLength(0);
+    const settled = await base.stops.stop(service, reference);
+    expect(settled.state).toBe("stopped");
+    expect(acknowledgements).toBe(2);
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
+    // One uncertain event and one stopped event, and exactly one settlement.
+    expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "attempt-stopped")).toHaveLength(2);
+    expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "usage-settled")).toHaveLength(1);
+    expect(rows(await fixture.db.execute(sql`SELECT revision FROM factory_usage_settlements WHERE run_id=${attempt.run.runId}`))).toHaveLength(1);
+  });
+
+  test("cancelling during admission claims no capacity and leaves no stop to settle", async () => {
+    // The run is cancelled while the compute request is still queued, so no
+    // attempt was ever dispatched and there is nothing physical to stop.
+    const started = await lifecycle.start(principal, key, body, 0, `admitting-start-${++sequence}`);
+    const run = { runId: started.run.runId, revision: started.run.revision };
+    const identity = { tenantId, projectId, logicalRunId: run.runId, interpreterId: "root" };
+    const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const transitions = new FactoryTransitionArtifacts(artifacts);
+    const activities = createFactoryArtifactActivities(new FactoryDefinitionArtifacts(artifacts), transitions);
+    const { compiled } = await definitions.readVersion(principal, key, body.factoryVersion);
+    const input = Object.fromEntries(Object.entries(body.parameters).map(([name, value]) => [name, value.kind === "inline" ? value.value : null])) as JsonValue;
+    const { fence } = await fixture.db.transaction(transaction => lifecycle.readExecutionPlanInTransaction(transaction, runKey(run.runId)));
+    const created = createKernelState(compiled, run.runId, input, now, { schemaVersion: "factory.lazy-input.v1", parameters: body.parameters });
+    const event = { kind: "start", id: `admitting-start-event-${sequence}`, atMs: now } as const;
+    const first = advanceKernel(compiled, { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, fence.deadlineAtMs) }, event);
+    const admissionCommand = first.commands.find(command => command.kind === "request-admission")!;
+    const authority = new FactoryCommandAuthority(fixture.db, tenantId, lifecycle, transitions, ["orchestration"], () => now);
+    await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    const unavailable = async (): Promise<never> => { throw new Error("A cancelled admission never reaches the pool."); };
+    const requestPool = { request: unavailable, status: unavailable, cancel: unavailable, acknowledgeStart: unavailable, renew: unavailable } satisfies PoolAdmissionClient;
+    const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, inbox, requestPool, () => now);
+    const reserved = await new FactoryTaskAdmission(fixture.db, authority, lifecycle.budgets, { cpu: profile }, admissions, () => now).request(service, { ...identity, commandId: admissionCommand.id });
+    expect(await reservationState(reserved.reservationId)).toMatchObject({ state: "held" });
+
+    await lifecycle.cancel(principal, runKey(run.runId), run.revision, `admitting-cancel-${run.runId}`);
+    const stored = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${run.runId} AND payload::jsonb->>'kind'='cancel'`));
+    const cancelEvent = JSON.parse(stored[0]!.payload) as KernelEvent;
+    const advanced = advanceKernel(compiled, first.nextState, cancelEvent);
+    // The kernel does ask to cancel the node, and its `attemptCommandId` is the
+    // admission command, because no dispatch command was ever issued.
+    const cancelCommand = advanced.commands.find(command => command.kind === "cancel-node");
+    expect(cancelCommand).toMatchObject({ attemptCommandId: admissionCommand.id });
+    await persistTransition(identity, 2, cancelEvent, advanced.nextState, advanced.commands, undefined, activities);
+
+    // The physical stop refuses it: there is no sealed launch, so there is no
+    // holder to fence and nothing to sign. It never fabricates a stop fact.
+    const stopped = new FactoryTaskStops(fixture.db, authority, admissions, new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction), new FactoryTaskOutcomes(fixture.db, authority, admissions, new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction), new FactoryAttemptQueue(fixture.db, new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction), tenantId, () => now), lifecycle.budgets, inbox, () => now), new FactoryAttemptQueue(fixture.db, new FactoryExecutionJournal(fixture.db, lifecycle.authorizeAttemptInTransaction), tenantId, () => now), lifecycle.budgets, inbox, new FactoryUsageSettlements(fixture.db, tenantId, inbox, () => now), stopper(async () => { throw new Error("an unadmitted attempt has no host to stop"); }), acknowledger({}, () => { throw new Error("an unadmitted attempt never released capacity"); }), [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], () => now, 20_000);
+    await expect(stopped.stop(service, { ...identity, commandId: cancelCommand!.id })).rejects.toMatchObject({ code: "factory_task_stop_stale" });
+    expect(rows(await fixture.db.execute(sql`SELECT cancel_command_id FROM factory_task_stops WHERE run_id=${run.runId}`))).toEqual([]);
+    expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_launches WHERE run_id=${run.runId}`))).toEqual([]);
+    // No capacity was ever claimed, and the unused hold is still the admission
+    // path's to release: `factory_budget_reservations` never left `held`.
+    expect(await reservationState(reserved.reservationId)).toMatchObject({ state: "held" });
+  });
+
   test("concurrent stop and confirm commit one settlement", async () => {
     const attempt = await launchedAttempt();
     const { reference } = await cancelled(attempt);
