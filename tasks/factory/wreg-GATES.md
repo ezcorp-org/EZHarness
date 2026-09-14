@@ -108,10 +108,13 @@ declared set — no assertion was relaxed. Only their prose changed ("three decl
 "declared variables").
 
 **Owner (freeze section 12).** `packages/@ezcorp/extension-runner/src/podman.ts` and the
-`src/factory/runner/*` suites are Terra runtime's (W01/W02). **Disclosure to Terra runtime:**
-`--unsetenv-all` removed `PATH` as collateral and broke the v4 extension spawn path; the
-declared-environment property you wanted is preserved, and `guestPath` is the seam if a future image
-changes its list.
+`src/factory/runner/*` suites are Terra runtime's (W01/W02).
+`packages/@ezcorp/extension-runner/src/python.ts` also changed and has no section 12 row of its own;
+W02 authored it at `e0598fe79`, so it is Terra runtime's by the same hand. The change there is the
+one-line `guestPath` override that pins the Python image's own directory list, matching how that
+class already overrides `guestInterpreter`. **Disclosure to Terra runtime:** `--unsetenv-all` removed
+`PATH` as collateral and broke the v4 extension spawn path; the declared-environment property you
+wanted is preserved, and `guestPath` is the seam in both classes if a future image changes its list.
 
 **Receipts.** Repros above; verification
 `/tmp/factory-platform-evidence/wreg/verify-path-docs-autonote.json` (docs-updater + auto-note, 8
