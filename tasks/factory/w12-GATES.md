@@ -287,7 +287,7 @@ its own recorded `logBytes`.
 
 | Receipt | Commit | Result |
 | --- | --- | --- |
-| `logs/postgres-journey.json` | `f48cf4bb8` | exit 0, 11 pass / 0 fail, 240 s |
+| `logs/postgres-journey.json` | `f48cf4bb8` | exit 0, 11 pass / 0 fail, 240 s. **MUST BE RE-RUN** - see the window note below. |
 | `logs/journey-pglite.json` | `f48cf4bb8` | exit 0, 11 pass / 0 fail |
 | `logs/shared-runner-regression.json` | `f48cf4bb8` | exit 0, 33 pass / 0 fail |
 | `logs/static-gates.json` | `f48cf4bb8` | exit 0, 18 pass / 0 fail |
@@ -298,6 +298,28 @@ its own recorded `logBytes`.
 
 `f48cf4bb8..88162a98d` changes exactly one file, `scripts/factory-reference-data-coverage.sh`, and
 no code under test, so the real-services receipt is a proof of this head's behaviour.
+
+**The real-services receipt was taken against a degraded store and is not final.** The coordinator
+records that a stale compose file in another worktree recreated the ordinary service at its old
+768 MiB limit at 16:02 UTC, and it was OOM-killed again at 16:19:34 UTC. Checked against that
+window, three of this package's receipts touched the ordinary store inside it:
+
+| Receipt | Window UTC | Disposition |
+| --- | --- | --- |
+| `logs/postgres-journey.json` | 16:14:55 to 16:18:56 | exit 0, 11 pass, and it finished 38 seconds before the store died. It PASSED, but against an under-provisioned service, so it is marked for re-run in the next round rather than counted as final. |
+| `logs/superseded-postgres-boundary-bytes.json` | 16:19:26 to 16:19:35 | exit 1, `ECONNREFUSED`. A repeat leg that no longer exists; renamed `superseded-` so it is not read as a current failure. |
+| `logs/superseded-postgres-boundary-rows.json` | 16:20:05 to 16:20:12 | exit 1, `ECONNREFUSED`. Same. |
+
+Every other receipt in the table above runs no object store at all, so the window does not reach
+them. G10, G11 and G11a rest on `logs/postgres-journey.json` and are therefore provisional until
+that one re-run lands.
+
+**Standing rule observed.** This package has never run `scripts/setup-factory-storage.sh`,
+`docker compose ... up`, `docker restart`, or anything that creates, recreates, or restarts the
+shared S3 or PostgreSQL services. Its only container commands are against its own pinned image and
+its own per-attempt directories: `podman build`, `podman run`, `podman rmi` on its own tag, and
+`podman unshare chown`. When a store was down it recorded a named readiness failure and messaged
+the coordinator.
 
 ## Landed deviations for the coordinator
 
