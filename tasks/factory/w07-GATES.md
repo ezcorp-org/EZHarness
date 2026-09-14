@@ -40,7 +40,9 @@ not code work.
 | `64e37b28f` | `test(factory): run the F04 reconciliation matrix against the GitHub adapter` |
 | `9d3594002` | `Merge branch 'integ/w00' into wp/w07-github-publication` (picks up W08; updates its `prepare` call site) |
 | `5198acfee` | `docs(factory): record the W07 gates, review, and lessons` |
-| `<stamp>` | `docs(factory): stamp the W07 gate commit table` (a file cannot carry its own hash) |
+| `5e6f142be` | `docs(factory): stamp the W07 gate commit table` |
+| `<fix>` | `fix(factory): consolidate the publication scope resolver and the path error class` (validation F1, F2) |
+| `<stamp>` | `docs(factory): record the W07 validation fixes` (a file cannot carry its own hash) |
 
 ## The landed API
 
@@ -72,7 +74,9 @@ await provider.proveNoEffect(operation, evidence, signal);
 // src/factory/release-destinations.ts and release-publication-set.ts — the three seams W09 needed.
 new FactoryDestinationReservations({ database, tenantId });
 new FactoryStoreSenderFence({ database, tenantId, quietPeriodMs });
-factoryReleasePublicationSet(new FactoryReleasePublicationScopes({ database, tenantId, authority }));
+// ONE publication-scope resolver, shared by both providers. Each supplies only its member half.
+factoryGitPublicationSet({ database, tenantId, authority });              // git
+new FactoryS3PublicationProvenance({ database, tenantId }).publicationSet(); // S3, unchanged surface
 ```
 
 ## Gates
@@ -148,18 +152,25 @@ factoryReleasePublicationSet(new FactoryReleasePublicationScopes({ database, ten
       foreign operation, evidence that does not name the operation, a settled state, and an
       unstarted dispatch; a foreign tenant throws; an aborted signal throws.
       EVIDENCE: receipt `merge-coverage-backend`. `release-destinations.ts` measures 49 of 49 lines.
-- [x] G9: The publication scope reads its attempt id from the verified candidate pointer, never
-      from caller input.
+- [x] G9: ONE publication-scope resolver derives the attempt id from the accepted protected
+      receipt, never from caller input, and the candidate pointer is a second opinion rather than a
+      second answer.
       CHECK: `bun test --timeout 240000 ./src/factory/release-authority.integration.test.ts`, case
-      "the publication scope reads its attempt id from the verified candidate pointer".
-      EXPECT: the attempt equals the one `completeCurrentCandidateInTransaction` wrote from the
-      protected command provenance; a foreign tenant, a wrong generation, and an uncommitted node
-      are refused; an operation with no sealed material for that attempt is
-      `factory_release_publication_scope_unavailable` so publication stays pending; a material a
-      different real attempt wrote is unreachable; a candidate digest that no longer matches the
-      pointer is refused; the publication set plans exactly the candidate member and propagates an
-      aborted signal.
-      EVIDENCE: receipt `merge-coverage-backend`. `release-publication-set.ts` measures 46 of 46.
+      "the publication scope derives one attempt id from the accepted protected receipt", plus
+      `bun test ./src/factory/release-s3-publication.test.ts ./src/factory/release-s3-publication.integration.test.ts`
+      for W08's side of the same resolver.
+      EXPECT: with no accepted receipt, no completion, or no sealed material the resolve is
+      `factory_publication_provenance_missing`, so publication stays pending rather than archiving
+      against a guessed scope; a foreign tenant, a drifted node, generation, or candidate digest is
+      `factory_publication_provenance_untrusted`; the resolved scope names the attempt the receipt's
+      source traces to; a material a different real attempt wrote is unreachable; an agreement
+      reader that answers with another attempt makes the resolve refuse; the candidate pointer is
+      sealed, so moving it in the database is caught as `factory_release_candidate_corrupt` before
+      the agreement check is asked; without the agreement reader the receipt alone still resolves;
+      the publication set plans exactly the candidate member and propagates an aborted signal. W08's
+      30 cases pass unchanged in behaviour.
+      EVIDENCE: receipts `fix-coverage-backend`, `fix-postgres-archive`.
+      `release-publication-set.ts` measures 127 of 127 lines and `release-s3-scope.ts` 115 of 115.
 - [x] G10: One draft pull request is opened on one unique branch, and every identity GitHub returns
       is compared with one computed locally.
       CHECK: `bun test --timeout 60000 ./src/factory/release-github.test.ts`
@@ -177,7 +188,22 @@ factoryReleasePublicationSet(new FactoryReleasePublicationScopes({ database, ten
       refused".
       EXPECT: each refusal carries its own code; `server.calls` is empty for every request-shape
       refusal; a workspace protocol and an exact version stay allowed.
-      EVIDENCE: receipt `merge-coverage-backend`.
+      EVIDENCE: receipts `merge-coverage-backend`, `fix-coverage-backend`.
+- [x] G11a: An escaping path is refused in this module's own error type, wherever it appears.
+      CHECK: the G10 suite, case "an escaping path is refused in this module's own error type,
+      wherever it appears".
+      EXPECT: six escaping shapes (`../outside.ts`, `/etc/passwd`, `src/../../etc/passwd`,
+      `.git/config`, a NUL, a backslash) each refused as `FactoryGitHubError` with
+      `factory_github_request_invalid`, in all four positions a path can occupy: a file path, a
+      protected path, an allowed path, and the dependency-lock path. A trailing-slash prefix is
+      still checked on the component before it, a non-string prefix is refused, and the valid forms
+      still pass.
+      EVIDENCE: receipt `fix-coverage-backend`.
+      WHY IT CHANGED: validation finding F1. `assertFactoryGitHubPublicationRequest` called
+      `assertFactoryGitPath` unguarded, so an escaping path surfaced as `FactoryGitObjectError` —
+      the object layer's type, not the one a publication caller handles — and no case named it.
+      `publicationPath` now wraps it, and the assertion `error instanceof FactoryGitHubError` is
+      what would fail if the wrap were removed.
 - [x] G12: A dropped response recovers by identity, a conflicting ref is never force-updated, and
       reconciliation sends no second create.
       CHECK: the G10 suite, cases "a dropped response after the branch create recovers by reading
@@ -272,24 +298,30 @@ factoryReleasePublicationSet(new FactoryReleasePublicationScopes({ database, ten
       release, release-authority, schema, and migration-restart producers, all already registered.
       EVIDENCE: receipt `merge-coverage-gates-scripts`.
 
-## Blocked, with its receipt kept
+## Previously blocked, now green
 
-- [ ] G20: The archive-writer and child-artifact PostgreSQL producers.
-      CHECK: `bun test --timeout 600000 ./tests/postgres/factory-archive-writer.test.ts ./tests/postgres/factory-run-lifecycle.test.ts ./tests/postgres/factory-assurance.test.ts ./tests/postgres/factory-child-artifacts.test.ts`
-      RESULT: **72 pass, 11 fail** — BLOCKED, not passing.
-      EVIDENCE: receipt `postgres-neighbours`, log `logs/postgres-neighbours.log`.
-      CAUSE: shared infrastructure, not code. The local "ordinary" SeaweedFS store has run out of
-      writable volumes for the `tenant-01` collection, so every S3 PUT returns HTTP 500
-      `InternalError`. `docker logs ezcorp-factory-storage-1001-factory-storage-ordinary-1` says
-      `No writable volumes and no free volumes left for {"collection":"tenant-01",...}` and
-      `create 7 volume, created 0: Not enough data nodes found!`; the container runs with
-      `-master.volumeSizeLimitMB=64 -volume.max=100`. The repository's own unchanged
-      `bun scripts/verify-factory-storage.ts` fails the same way, which is what places the fault
-      outside this branch. The archive store on 18334 is healthy; only the ordinary store on 18333
-      is exhausted.
-      NOT ACTED ON: raising `volume.max`, raising the size limit, or pruning the collection all
-      reshape data that W04a's and W05's receipts point at. The coordinator was told, with the
-      diagnosis and a safe order of operations.
+- [x] G20: The archive-writer and child-artifact PostgreSQL producers.
+      CHECK: `bun test --timeout 600000 ./tests/postgres/factory-archive-writer.test.ts ./tests/postgres/factory-child-artifacts.test.ts ./tests/postgres/factory-run-lifecycle.test.ts ./tests/postgres/factory-assurance.test.ts`
+      EXPECT: 87 pass, 0 fail, 1042 assertions.
+      EVIDENCE: receipt `fix-postgres-archive`, log `logs/fix-postgres-archive.log`.
+      HISTORY: the first run was **72 pass, 11 fail** (receipt `postgres-neighbours`, kept as the
+      failure it was). The local "ordinary" SeaweedFS store had run out of writable volumes for the
+      `tenant-01` collection, so every S3 PUT returned HTTP 500 `InternalError`; the repository's
+      own unchanged `bun scripts/verify-factory-storage.ts` failed the same way, which is what
+      placed the fault outside this branch. The coordinator repaired the store; `verify-factory-storage.ts`
+      then reported "conformance passed for 10 tenant identities across ordinary and archive
+      storage" and these four suites passed.
+
+- [ ] G20a: W08's own `tests/postgres/factory-s3-publication.test.ts` — still 2 failing.
+      CHECK: `bun test --timeout 600000 ./tests/postgres/factory-s3-publication.test.ts`
+      RESULT: **2 fail** out of 99 across the five-suite run (receipt
+      `fix-postgres-neighbours`), both the same S3 HTTP 500 `InternalError` on the ordinary store.
+      CAUSE: the store re-exhausts DURING the run. The case "a 256 MiB material exports through W04
+      chunks as a real multipart upload" consumes the remaining headroom at
+      `-master.volumeSizeLimitMB=64 -volume.max=100`, and `verify-factory-storage.ts` fails again
+      immediately afterwards. Repairing the store once is therefore not enough: the volume budget
+      cannot hold a 256 MiB export alongside the rest of the campaign's data. That is a capacity
+      decision for the coordinator, and the two cases are W08's, not W07's.
 
 ## Pre-existing failures inherited from the base, named so nobody counts them as W07's
 
@@ -331,8 +363,23 @@ their trees:
 5. **`FactoryMutations` gained `replay`.** Moving the reconciliation proofs outside the transaction
    broke idempotent replay: the second call did the proofs before reaching the receipt, and the
    preconditions refused an operation the first call had already moved. `replay` reads the recorded
-   response before any external work. `src/factory/mutations.ts` is in no owner column of freeze
-   section 12; the addition is declared here.
+   response before any external work, using the same digest, decode, and corruption checks
+   `execute` already applies — `decodeResponse` is now shared by both rather than duplicated.
+   `src/factory/mutations.ts` is in no owner column of freeze section 12, so this package does not
+   own it; the addition is declared here and the independent validation accepted it (finding F3).
+   `mutations.ts` measures 49 of 49 lines.
+8. **W08's `src/factory/release-s3-scope.ts` and its suite were changed, with the coordinator's
+   authorization**, to land the single publication-scope resolver (validation finding F2). What
+   changed: `FactoryS3PublicationProvenance` keeps its name, its constructor options, and all four
+   of its methods, and is now a thin composition over the shared `FactoryPublicationProvenance`,
+   contributing only the S3 member half (the material operation and candidate the frozen request
+   pins). The provenance derivation itself — accepted protected receipt, its completion, and the
+   execution that must agree — moved unchanged into `release-publication-set.ts`, so every W08
+   guarantee is the shared one's guarantee. `FACTORY_S3_PROVENANCE_SCAN_LIMIT` is retained as an
+   alias and `FactoryS3VerifiedAttempt` as a type alias, so no W08 caller changed. The three error
+   codes were renamed to the provider-neutral `factory_publication_provenance_{missing,untrusted,
+   invalid}` and W08's 13 assertions updated with them; they appear in no HTTP status mapping.
+   W08's suites pass unchanged in behaviour: 30 in-process cases and 87 PostgreSQL cases.
 6. **`resolveFactoryReleaseProfile`'s first parameter widened** from `FactoryAsyncReleaseProfile` to
    `Pick<..., "resolve">`, in W05's `release-profile.ts`. Only `resolve` is used, and a caller that
    already holds its own request has no adapter reference to invent. Purely additive.
@@ -348,19 +395,18 @@ their trees:
    of this file. This is the one plan row W07 cannot close with code.
 2. **`deployed-independent-failure-domain` stays unmet**, as W04a recorded. A production-equivalent
    publication claim remains blocked for the archive reason, independently of GitHub.
-3. **The ordinary S3 store is exhausted**, so the archive-writer and child-artifact PostgreSQL
-   producers are blocked. See G20.
-4. **Two publication-scope resolvers now exist.** W08's `FactoryS3PublicationProvenance`
-   (`release-s3-scope.ts`) reads the attempt id from the accepted protected receipt's `source`,
-   which is one hop from `resolveFactoryProtectedTaskSource`. W07's
-   `FactoryReleasePublicationScopes` (`release-publication-set.ts`) reads it from
-   `factory_release_current_candidates.attempt_id`, which
-   `completeCurrentCandidateInTransaction` writes from that same source. Both are verified
-   provenance and neither takes caller input, so neither is wrong — but they are one concept with
-   two implementations, which C13 forbids. **Recommendation:** collapse onto W08's receipt-based
-   read, because it is closer to the provenance module the handover names, and keep W07's
-   candidate-pointer read as an agreement check rather than a second answer. The collapse crosses
-   two packages' files, so it is the coordinator's to land.
+3. **The ordinary S3 store re-exhausts under W08's 256 MiB export case.** The archive-writer and
+   child-artifact producers are green again after the coordinator's repair (G20), but the two
+   remaining failures in W08's own suite return the store to "No writable volumes" within one run.
+   The volume budget is the open question, not the repair. See G20a.
+4. **CLOSED — the two publication-scope resolvers are now one.** `FactoryPublicationProvenance` in
+   `release-publication-set.ts` owns the single derivation: the accepted protected receipt, its
+   completion, and the execution that must agree. Each provider supplies only its member half
+   (`FactoryGitPublicationMembers` looks the member up by the artifact the verified attempt
+   produced; `FactoryS3PublicationProvenance` reads the material operation and candidate its frozen
+   request pins). W07's former candidate-pointer read survives as
+   `FactoryCandidatePointerAgreement`, an optional second opinion that must agree with the receipt
+   — not a second answer. See deviation 8 for what changed in W08's files.
 5. **Composition is W09's.** Nothing in production constructs `FactoryGitHubReleaseProvider`,
    `FactoryDestinationReservations`, `FactoryStoreSenderFence`, or the publication set yet. The
    wiring is the four constructor calls shown under "The landed API"; the broker's `readToken` must
@@ -375,9 +421,10 @@ their trees:
    and land on their own immutable keys under the material name, `S3FactoryArchiveInventory` already
    enumerates them, and widening the union would change a frozen surface for a naming preference.
    No change is needed on W04a's side.
-2. **The publication-set scope resolver reads the attempt id from the verified candidate pointer**,
-   and it refuses rather than guesses when the candidate artifact is not a sealed material for that
-   attempt. See open item 4 for the duplication this creates with W08.
+2. **The publication-set scope resolver reads the attempt id from the accepted protected command
+   receipt**, which is the pinned source W04a asked whoever owned this mapping to name. It refuses
+   rather than guesses when there is no receipt, no completion, or no sealed material for that
+   attempt. One resolver serves both providers; see deviation 8.
 3. **`FactoryArchiveMemberSources` carries one scope for all members.** The candidate artifact and
    the acceptance-evidence artifacts are written by different attempts, so one attempt-scoped
    `FactoryMaterialScope` cannot read them all through W04's scoped reader. W07's resolver

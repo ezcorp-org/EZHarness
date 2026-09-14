@@ -121,6 +121,19 @@ function record(value: unknown): Record<string, unknown> {
 }
 
 /**
+ * A path in a publication request, refused in this module's own vocabulary.
+ *
+ * `assertFactoryGitPath` throws `FactoryGitObjectError`, which is right for the object layer and
+ * wrong here: a caller of `assertFactoryGitHubPublicationRequest` should get one error type for
+ * every reason a request is unusable, whether the reason is an escaping path or a missing field.
+ */
+function publicationPath(value: unknown, maximum = 4096): string {
+  const path = bounded(value, maximum);
+  try { return assertFactoryGitPath(path); }
+  catch (error) { if (error instanceof FactoryGitObjectError) invalid(); throw error; }
+}
+
+/**
  * The author or committer a commit is reproduced from.
  *
  * The timezone is pinned to `+0000` because the identity is sent to GitHub as an ISO instant,
@@ -190,7 +203,7 @@ export function assertFactoryGitHubPublicationRequest(value: unknown): FactoryGi
   for (const entry of request.files) {
     const file = record(entry);
     if (Object.keys(file).length !== 3) invalid();
-    const path = assertFactoryGitPath(bounded(file.path, 4096));
+    const path = publicationPath(file.path);
     // A symlink or a gitlink entry is refused by name, so the reason is never "an odd mode".
     if (file.mode === "120000") throw new FactoryGitHubError("factory_github_link_rejected");
     if (file.mode === "160000") throw new FactoryGitHubError("factory_github_submodule_rejected");
@@ -207,9 +220,9 @@ export function assertFactoryGitHubPublicationRequest(value: unknown): FactoryGi
     files.push({ path, mode: file.mode, content });
   }
 
-  for (const path of request.protectedPaths) { assertFactoryGitPath(bounded(path, 4096)); if (!blobs.has(path)) throw new FactoryGitHubError("factory_github_protected_asset_changed"); }
-  for (const prefix of request.allowedPaths) { bounded(prefix, 4096); assertFactoryGitPath(prefix.endsWith("/") ? prefix.slice(0, -1) : prefix); }
-  const lock = blobs.get(assertFactoryGitPath(bounded(request.dependencyLockPath, 4096)));
+  for (const path of request.protectedPaths) { publicationPath(path); if (!blobs.has(path)) throw new FactoryGitHubError("factory_github_protected_asset_changed"); }
+  for (const prefix of request.allowedPaths) { publicationPath(typeof prefix === "string" && prefix.endsWith("/") ? prefix.slice(0, -1) : prefix); }
+  const lock = blobs.get(publicationPath(request.dependencyLockPath));
   if (!lock) throw new FactoryGitHubError("factory_github_dependency_lock_changed");
   if (typeof request.dependencyLockDigest !== "string" || request.dependencyLockDigest !== `sha256:${digestBytes(lock.content)}`) throw new FactoryGitHubError("factory_github_dependency_lock_changed");
 

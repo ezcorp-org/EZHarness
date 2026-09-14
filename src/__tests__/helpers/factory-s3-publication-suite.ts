@@ -308,13 +308,13 @@ test("the attempt behind a publication comes from the verified protected provena
   expect(sources.scope).toEqual(world.scope);
   expect(sources.candidate).toEqual(world.members.candidate);
 
-  await expect(world.provenance.sourcesFor("other-tenant", operation.operationId, operation.material)).rejects.toMatchObject({ code: "factory_s3_provenance_untrusted" });
-  await expect(world.provenance.sourcesFor(TENANT, "factory-release:missing", operation.material)).rejects.toMatchObject({ code: "factory_s3_provenance_missing" });
-  await expect(world.provenance.attemptFor({ ...operation, tenantId: "other-tenant" })).rejects.toMatchObject({ code: "factory_s3_provenance_untrusted" });
+  await expect(world.provenance.sourcesFor("other-tenant", operation.operationId, operation.material)).rejects.toMatchObject({ code: "factory_publication_provenance_untrusted" });
+  await expect(world.provenance.sourcesFor(TENANT, "factory-release:missing", operation.material)).rejects.toMatchObject({ code: "factory_publication_provenance_missing" });
+  await expect(world.provenance.attemptFor({ ...operation, tenantId: "other-tenant" })).rejects.toMatchObject({ code: "factory_publication_provenance_untrusted" });
   for (const drift of [{ nodeInstanceId: "other-node" }, { candidateGeneration: 4 }, { candidateDigest: digest("9") }]) {
-    await expect(world.provenance.attemptFor({ ...operation, ...drift })).rejects.toMatchObject({ code: "factory_s3_provenance_untrusted" });
+    await expect(world.provenance.attemptFor({ ...operation, ...drift })).rejects.toMatchObject({ code: "factory_publication_provenance_untrusted" });
   }
-  await expect(world.provenance.attemptForDecision(world.projectId, world.runId, "no-such-decision")).rejects.toMatchObject({ code: "factory_s3_provenance_missing" });
+  await expect(world.provenance.attemptForDecision(world.projectId, world.runId, "no-such-decision")).rejects.toMatchObject({ code: "factory_publication_provenance_missing" });
   const aborted = new AbortController();
   aborted.abort();
   await expect(world.provenance.attemptForDecision(world.projectId, world.runId, world.decision.decisionId, aborted.signal)).rejects.toThrow();
@@ -330,15 +330,15 @@ test("a protected receipt that does not agree with itself or its completion supp
   const base = world.acceptanceReceipt("template");
 
   // A decision and its verified source must name the same node and generation.
-  await check("drifted-node", "factory_s3_provenance_untrusted", { decision: { ...world.decision, decisionId: "drifted-node", nodeInstanceId: "elsewhere" } });
-  await check("drifted-generation", "factory_s3_provenance_untrusted", { decision: { ...world.decision, decisionId: "drifted-generation", candidateGeneration: 3 } });
+  await check("drifted-node", "factory_publication_provenance_untrusted", { decision: { ...world.decision, decisionId: "drifted-node", nodeInstanceId: "elsewhere" } });
+  await check("drifted-generation", "factory_publication_provenance_untrusted", { decision: { ...world.decision, decisionId: "drifted-generation", candidateGeneration: 3 } });
   // A receipt that claims another run or another tenant is refused.
-  await check("foreign-run", "factory_s3_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-run" }, reference: { ...base.reference, logicalRunId: "another-run" } });
-  await check("foreign-tenant", "factory_s3_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-tenant" }, reference: { ...base.reference, tenantId: "another-tenant" } });
-  await check("foreign-project", "factory_s3_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-project" }, reference: { ...base.reference, projectId: "another-project" } });
+  await check("foreign-run", "factory_publication_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-run" }, reference: { ...base.reference, logicalRunId: "another-run" } });
+  await check("foreign-tenant", "factory_publication_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-tenant" }, reference: { ...base.reference, tenantId: "another-tenant" } });
+  await check("foreign-project", "factory_publication_provenance_untrusted", { decision: { ...world.decision, decisionId: "foreign-project" }, reference: { ...base.reference, projectId: "another-project" } });
   // A task command with no verified completion, and a completion for another node.
-  await check("orphan", "factory_s3_provenance_missing", { decision: { ...world.decision, decisionId: "orphan" }, source: { ...base.source, attempt: { ...base.source.attempt, commandId: "never-completed" } } });
-  await check("mismatched", "factory_s3_provenance_untrusted", {
+  await check("orphan", "factory_publication_provenance_missing", { decision: { ...world.decision, decisionId: "orphan" }, source: { ...base.source, attempt: { ...base.source.attempt, commandId: "never-completed" } } });
+  await check("mismatched", "factory_publication_provenance_untrusted", {
     decision: { ...world.decision, decisionId: "mismatched", candidateGeneration: 9 },
     source: { ...base.source, candidateGeneration: 9 },
   });
@@ -585,7 +585,7 @@ test("a publication set is refused before it starts when its accepted candidate 
 test("the provenance reader and the profile refuse an impossible configuration", async () => {
   const world = await setup();
   for (const scanLimit of [0, -1, 1.5, 513]) {
-    expect(() => new FactoryS3PublicationProvenance({ database: world.db, tenantId: TENANT, scanLimit })).toThrow("factory_s3_provenance_invalid");
+    expect(() => new FactoryS3PublicationProvenance({ database: world.db, tenantId: TENANT, scanLimit })).toThrow("factory_publication_provenance_invalid");
   }
   expect(new FactoryS3PublicationProvenance({ database: world.db, tenantId: TENANT, scanLimit: 1 }).tenantId).toBe(TENANT);
   for (const broken of [{ account: "" }, { spendMicrosPerMebibyte: -1 }, { spendMicrosPerMebibyte: 1.5 }]) {

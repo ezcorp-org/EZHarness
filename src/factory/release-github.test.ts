@@ -234,6 +234,37 @@ test("a request that does not contain the candidate it names is refused before a
   expect(server.calls).toEqual([]);
 });
 
+test("an escaping path is refused in this module's own error type, wherever it appears", () => {
+  const server = fake();
+  const request = publicationRequest(server);
+  const escaping = ["../outside.ts", "/etc/passwd", "src/../../etc/passwd", ".git/config", "src/x\u0000y", "a\\b"];
+
+  // A file path. Every one of these would otherwise surface as a FactoryGitObjectError, which is
+  // the object layer's type and not the one a publication caller handles.
+  for (const path of escaping) {
+    const tampered = { ...request, files: [...request.files, { path, mode: "100644" as const, contentBase64: Buffer.from("x").toString("base64") }] };
+    let error: unknown = null;
+    try { assertFactoryGitHubPublicationRequest(tampered); } catch (cause) { error = cause; }
+    expect([path, error instanceof FactoryGitHubError, (error as FactoryGitHubError)?.code]).toEqual([path, true, "factory_github_request_invalid"]);
+  }
+
+  // A protected path, an allowed path, and the dependency-lock path each reach the same guard.
+  for (const path of escaping) {
+    for (const overrides of [{ protectedPaths: [path] }, { allowedPaths: [path] }, { dependencyLockPath: path }]) {
+      const field = Object.keys(overrides)[0]!;
+      let error: unknown = null;
+      try { assertFactoryGitHubPublicationRequest({ ...request, ...overrides }); } catch (cause) { error = cause; }
+      expect([field, path, error instanceof FactoryGitHubError, (error as FactoryGitHubError)?.code]).toEqual([field, path, true, "factory_github_request_invalid"]);
+    }
+  }
+
+  // An allowed-path prefix keeps its trailing slash and is still checked on the component before it.
+  expect(() => assertFactoryGitHubPublicationRequest({ ...request, allowedPaths: ["../outside/"] })).toThrow(expect.objectContaining({ code: "factory_github_request_invalid" }));
+  expect(() => assertFactoryGitHubPublicationRequest({ ...request, allowedPaths: [42] })).toThrow(expect.objectContaining({ code: "factory_github_request_invalid" }));
+  // The valid forms still pass, so the guard did not simply reject everything.
+  expect(assertFactoryGitHubPublicationRequest({ ...request, allowedPaths: ["src/", "src/slugify.ts"] }).blobs.size).toBe(CANDIDATE_FILES.length);
+});
+
 test("every malformed request shape is refused with the same invalid code", () => {
   const server = fake();
   const request = publicationRequest(server);
