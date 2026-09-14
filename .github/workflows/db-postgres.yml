@@ -255,6 +255,7 @@ jobs:
           ./tests/postgres/factory-releases.test.ts
           ./tests/postgres/factory-release-authority.test.ts
           ./tests/postgres/factory-archive-writer.test.ts
+          ./tests/postgres/factory-s3-publication.test.ts
           ./tests/postgres/factory-validator-materials.test.ts
           ./tests/postgres/factory-validator-multiclaim.test.ts
           ./tests/postgres/factory-child-artifacts.test.ts
