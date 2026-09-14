@@ -197,6 +197,26 @@ Branch `wp/w06-remediation`. Base `integ/w00` at `1dc9a0226`.
   child. `FactorySettleableChild` also dropped `deadlineAtMs`, because an inherited clock is exactly
   what a caller must not read from an unverified row. Commit `8f1353fce`.
 
+## What `settle` can raise, for a settlement driver's classifier
+
+W09's driver classifies each failure as deferred or faulted and defaults an unknown code to faulted,
+which is the safe direction. This is the complete reachable vocabulary, so the default is a backstop
+rather than the common path.
+
+| Code | Class | Raised when |
+| --- | --- | --- |
+| `factory_budget_pending` | deferred | The child still holds an unsettled reservation, an open grandchild envelope, or a non-zero allocation. Clears when the hold reconciles. `budgets.ts:245`, reached through `closeEnvelopeInTransaction`. |
+| `factory_child_corrupt` | fault | The sealed binding does not verify, the audit head is missing or malformed, or the terminal command disagrees with the recorded run status. |
+| `factory_child_conflict` | fault | The child run is not terminal, the binding digest changed under the lock, or its state is neither open nor settled. The scan only returns terminal children, so this means a genuine disagreement, not a race. |
+| `factory_child_not_found` | fault | No binding row for that child. |
+| `factory_child_forbidden` | fault | No transitions store is composed, or the service identity or tenant does not match. |
+| `factory_budget_scope` | fault | The project or installation row is missing. Not contention: `lockFactoryScope` takes `FOR SHARE` and blocks rather than returning. |
+| `factory_budget_not_found` | fault | A parent or child envelope is missing. |
+| `factory_budget_receipt_invalid` | fault | The settlement digest is malformed. |
+
+A child already settled by another worker is not an error at all: `settle` returns without effect,
+both on the unlocked read and on the locked re-check.
+
 ## Open
 
 - Nothing in the W06 checklist is open. The rejection receipt itself, the `decision` column, and
