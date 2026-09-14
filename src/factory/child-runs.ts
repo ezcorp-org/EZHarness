@@ -50,6 +50,21 @@ function definition(value: unknown): FactoryDefinitionSource {
   return source;
 }
 
+/** Every verified binding column. One list, so a reader can never drop a field verification needs. */
+const bindingColumns = sql.raw("parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state");
+
+/** Children one scan may return. A worker never asks for an unbounded page. */
+export const FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT = 200;
+
+/** One child whose parent may settle it, and the cursor that resumes after it. */
+export interface FactorySettleableChild {
+  readonly projectId: string;
+  readonly parentRunId: string;
+  readonly childRunId: string;
+  readonly startedAtMs: number;
+  readonly deadlineAtMs: number;
+}
+
 function envelopeId(parentRunId: string, interpreterId: string, commandId: string): string {
   return `child-envelope:${digestObject({ parentRunId, interpreterId, commandId }).slice("sha256:".length)}`;
 }
@@ -141,6 +156,39 @@ export class FactoryChildRuns {
     });
   }
 
+  /**
+   * Enumerates children whose parent may settle them, oldest first.
+   *
+   * A child is settleable once its own run has reached a terminal status and its binding is still
+   * `open`. The scan takes no lock, so two workers see the same page and both may call `settle`;
+   * that path already treats an already-settled binding as a no-op, and locking here would instead
+   * make one worker wait behind the other's whole settlement transaction. Every row is verified
+   * before it is returned, so no caller inherits an unverified clock, deadline, or definition.
+   *
+   * Order is `startedAtMs`, then project, then child run, which is total, so `after` resumes exactly
+   * where the previous page ended even when many children share a start instant.
+   */
+  async listSettleableInTransaction(transaction: MigrationDb, limit: number, afterValue?: Pick<FactorySettleableChild, "projectId" | "childRunId" | "startedAtMs">): Promise<readonly FactorySettleableChild[]> {
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT) throw new FactoryChildRunError("factory_child_forbidden");
+    const after = afterValue === undefined ? undefined : JSON.parse(encodeFactoryPayload(afterValue)) as Pick<FactorySettleableChild, "projectId" | "childRunId" | "startedAtMs">;
+    if (after) {
+      assertFactoryIdentity(after.projectId, after.childRunId);
+      if (!Number.isSafeInteger(after.startedAtMs) || after.startedAtMs < 0) throw new FactoryChildRunError("factory_child_corrupt");
+    }
+    const cursor = after === undefined ? sql`` : sql`AND (child.started_ms,child.project_id,child.child_run_id) > (${after.startedAtMs},${after.projectId},${after.childRunId})`;
+    const found = rows<FactoryChildBindingRow & { project_id: string }>(await transaction.execute(sql`
+      SELECT ${bindingColumns},project_id FROM factory_child_runs child
+      WHERE tenant_id=${this.tenantId} AND state='open'
+      AND EXISTS (SELECT 1 FROM factory_run_lifecycle life WHERE life.tenant_id=${this.tenantId} AND life.project_id=child.project_id AND life.run_id=child.child_run_id AND life.status IN ('succeeded','failed','cancelled'))
+      ${cursor}
+      ORDER BY child.started_ms,child.project_id,child.child_run_id LIMIT ${limit}`));
+    return found.map(row => {
+      const verified = verifyFactoryChildBinding(row);
+      assertFactoryIdentity(row.project_id);
+      return Object.freeze({ projectId: row.project_id, parentRunId: row.parent_run_id, childRunId: row.child_run_id, startedAtMs: verified.startedAtMs, deadlineAtMs: Number(row.deadline_ms) });
+    });
+  }
+
   private async create(transaction: MigrationDb, input: FactoryChildRunRequest, context: FactoryAuthorizedChildCommand): Promise<FactoryDefinitionSource> {
     const command = context.command;
     if (command.factory.id !== input.factory.id || command.factory.version !== input.factory.version || command.factory.digest !== input.factory.digest) throw new FactoryChildRunError("factory_child_conflict");
@@ -186,12 +234,12 @@ export class FactoryChildRuns {
   }
 
   private async binding(transaction: MigrationDb, input: Pick<FactoryChildRunRequest, "projectId" | "logicalRunId" | "interpreterId" | "commandId">, lock: boolean): Promise<FactoryChildBindingRow | null> {
-    const result = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND parent_run_id=${input.logicalRunId} AND parent_interpreter_id=${input.interpreterId} AND parent_command_id=${input.commandId} ${lock ? sql`FOR UPDATE` : sql``}`));
+    const result = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT ${bindingColumns} FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${input.projectId} AND parent_run_id=${input.logicalRunId} AND parent_interpreter_id=${input.interpreterId} AND parent_command_id=${input.commandId} ${lock ? sql`FOR UPDATE` : sql``}`));
     return result[0] ?? null;
   }
 
   private async bindingByChild(transaction: MigrationDb, projectId: string, childRunId: string, lock: boolean): Promise<FactoryChildBindingRow | null> {
-    const found = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND child_run_id=${childRunId} ${lock ? sql`FOR UPDATE` : sql``}`));
+    const found = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT ${bindingColumns} FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND child_run_id=${childRunId} ${lock ? sql`FOR UPDATE` : sql``}`));
     return found[0] ?? null;
   }
 

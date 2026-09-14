@@ -18,7 +18,7 @@ import { encodeFactoryPayload, FactoryRecords } from "../../factory/records";
 import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "../../factory/run-lifecycle";
 import { FactoryServiceCredentials } from "../../factory/service-credentials";
 import { FactoryCommandAuthority, type FactoryAuthorizedApprovalCommand } from "../../factory/command-authority";
-import { FactoryChildRuns } from "../../factory/child-runs";
+import { FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT, FactoryChildRuns } from "../../factory/child-runs";
 import { FactoryTaskAdmission, factoryTaskReservationId, type FactoryTaskResourceProfile } from "../../factory/task-admission";
 import { FactoryComputeAdmissions } from "../../factory/compute-admissions";
 import { FactoryExecutionJournal } from "../../factory/executions";
@@ -1154,6 +1154,91 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await expect(children.settle(service, { projectId, childRunId })).rejects.toMatchObject({ code: "factory_budget_pending" });
     expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${childRunId}`))).toEqual([{ state: "open" }]);
     expect(await lifecycle.budgets.inspect({ projectId, runId: parent.runId, envelopeId: "root" })).toMatchObject({ allocated: { tokens: "100" }, spent: { tokens: "0" } });
+  });
+
+  test("the settleable child scan is bounded, oldest first, and safe to run twice at once", async () => {
+    const definitionKey = { projectId, factoryId: "settleable-child-parent" };
+    const child = { id: key.factoryId, version: body.factoryVersion, digest: body.definitionDigest };
+    const source: FactoryDefinition = { ...structuredClone(referenceCodeV1), id: definitionKey.factoryId, factories: [child], outputPorts: {},
+      graph: { nodes: [{ id: "child", kind: "subfactory", factory: child, releaseMode: "none", grants: [] }], outputs: {} } };
+    await definitions.save(principal, definitionKey, 0, "settleable-child-parent-create", source);
+    const version = await definitions.publish(principal, definitionKey, 1, "settleable-child-parent-publish");
+    const request = { ...body, factoryVersion: version.version, definitionDigest: version.definitionDigest };
+    const service = { tenantId, subject: "orchestration" };
+    const entered = now;
+    let children: FactoryChildRuns | undefined;
+    const scan = async (limit: number, after?: { projectId: string; childRunId: string; startedAtMs: number }) =>
+      fixture.db.transaction(transaction => children!.listSettleableInTransaction(transaction, limit, after));
+    const full = () => scan(FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT);
+
+    /** Runs one parent to a terminal child and returns that child's durable identity. */
+    const terminalChild = async (label: string): Promise<string> => {
+      const parent = await startRun(principal, definitionKey, request, 0, `settleable-${label}-start`);
+      const committed = await committedInterpreter(parent.runId, definitionKey, request);
+      const command = committed.first.commands.find(value => value.kind === "run-child");
+      if (command?.kind !== "run-child") throw new Error("missing child command");
+      await persistTransition(committed.identity, 1, committed.event, committed.first.nextState, committed.first.commands, undefined, committed.activities);
+      children ??= new FactoryChildRuns(fixture.db, tenantId, committed.authority, lifecycle, committed.transitions);
+      await children.resolve(service, { ...committed.identity, commandId: command.id, factory: command.factory });
+      const childRunId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${parent.runId}`))[0]!.child_run_id;
+      const projector = new FactoryRunTransitionProjector(fixture.db, tenantId, committed.transitions, lifecycle);
+      // A child is settleable only once its own run is terminal, so scan before projecting it.
+      expect((await full()).map(item => item.childRunId)).not.toContain(childRunId);
+      await persistTransition({ tenantId, projectId, logicalRunId: childRunId, interpreterId: "root" }, 1, { id: `settleable-${label}-terminal`, kind: "cancel", atMs: now, reason: "fixture" } as never, { status: "completed" } as never, [{ kind: "complete-run", id: `settleable-${label}-complete`, output: {} }], undefined, committed.activities);
+      await projector.project(runKey(parent.runId), 8);
+      await projector.project(runKey(childRunId), 8);
+      return childRunId;
+    };
+
+    let corrupted: string | undefined;
+    let sealedStartedAtMs = 0;
+    try {
+      // Earlier tests leave their own settleable children, so start strictly after all of them.
+      const committed = await committedInterpreter((await startRun(principal, definitionKey, request, 0, "settleable-baseline-start")).runId, definitionKey, request);
+      children = new FactoryChildRuns(fixture.db, tenantId, committed.authority, lifecycle, committed.transitions);
+      const baseline = await full();
+      now = Math.max(entered, ...baseline.map(item => item.startedAtMs)) + 60_000;
+
+      const first = await terminalChild("first");
+      expect((await full()).map(item => item.childRunId)).toEqual([...baseline.map(item => item.childRunId), first]);
+      now += 60_000;
+      const second = await terminalChild("second");
+      sealedStartedAtMs = now;
+
+      const page = await full();
+      const mine = page.slice(baseline.length);
+      expect(mine.map(item => item.childRunId)).toEqual([first, second]);
+      expect(mine.map(item => item.startedAtMs)).toEqual([now - 60_000, now]);
+      expect(page.map(item => item.startedAtMs)).toEqual([...page].sort((left, right) => left.startedAtMs - right.startedAtMs).map(item => item.startedAtMs));
+      expect(mine.every(item => item.projectId === projectId && item.deadlineAtMs > item.startedAtMs)).toBe(true);
+
+      // A bounded page resumes exactly where the previous one ended, then reports no more work.
+      const resume = baseline.at(-1);
+      const firstPage = await scan(1, resume);
+      expect(firstPage.map(item => item.childRunId)).toEqual([first]);
+      const secondPage = await scan(1, firstPage[0]!);
+      expect(secondPage.map(item => item.childRunId)).toEqual([second]);
+      expect(await scan(1, secondPage[0]!)).toEqual([]);
+
+      // Two workers scanning at once see the same work, and settling it twice stays idempotent.
+      expect(await Promise.all([full(), full()])).toEqual([page, page]);
+      await expect(Promise.all([children.settle(service, { projectId, childRunId: first }), children.settle(service, { projectId, childRunId: first })])).resolves.toEqual([undefined, undefined]);
+      expect((await full()).map(item => item.childRunId)).toEqual([...baseline.map(item => item.childRunId), second]);
+
+      for (const limit of [0, -1, 1.5, FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT + 1]) {
+        await expect(scan(limit)).rejects.toMatchObject({ code: "factory_child_forbidden" });
+      }
+      await expect(scan(1, { projectId, childRunId: second, startedAtMs: -1 })).rejects.toMatchObject({ code: "factory_child_corrupt" });
+      await expect(scan(1, { projectId: "", childRunId: second, startedAtMs: 0 })).rejects.toThrow();
+
+      // A binding whose sealed clock no longer matches its digest is reported, never quietly skipped.
+      corrupted = second;
+      await fixture.db.execute(sql`UPDATE factory_child_runs SET started_ms=${now + 1} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${second}`);
+      await expect(full()).rejects.toMatchObject({ code: "factory_child_corrupt" });
+    } finally {
+      now = entered;
+      if (corrupted) await fixture.db.execute(sql`UPDATE factory_child_runs SET started_ms=${sealedStartedAtMs} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${corrupted}`);
+    }
   });
 
   test("a sibling child retries after a live delegated portion settles", async () => {
