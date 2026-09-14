@@ -141,7 +141,7 @@ async function setup() {
   const trusted: FactoryTrustedEvidence = {
     ...candidate, validatorId: "validator", validatorLockDigest: digest("c"), issuerGrantRevision: 1, candidateDigest: digest("c"),
     artifact: members.evidence.reference, environmentDigest: digest("e"), configurationDigest: digest("d"), runnerDigest: digest("e"),
-    claims: [{ id: "passed", passed: true, decisive: true }], issuedAtMs: Date.now() - 1, expiresAtMs: deadlineMs,
+    claims: [{ id: "passed", verdict: "PASS" as const, decisive: true }], issuedAtMs: Date.now() - 1, expiresAtMs: deadlineMs,
   };
   class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
     async assertContractInTransaction(): Promise<void> {}
