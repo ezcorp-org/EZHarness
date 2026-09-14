@@ -5,7 +5,7 @@ import type { BlobStore } from "../extensions/v4/types";
 import { FactoryGrants } from "./grants";
 import { configureFactoryApplication, createFactoryApplication, definitionAvailability, draftAvailability, getFactoryApplication } from "./application";
 import type { FactoryReleaseApplication } from "./release-application";
-import type { FactoryRunControls } from "./run-controls";
+import { FactoryRunControls } from "./run-controls";
 
 const database = {} as TransactionalDb;
 const blobs = {} as BlobStore;
@@ -68,6 +68,13 @@ describe("factory application composition", () => {
     expect(Object.isFrozen(captured)).toBe(true);
     expect(captured).toMatchObject({ tenantId: "tenant-1", releaseAuthority: application.releaseAuthority, grants: application.grants });
     expect(() => createFactoryApplication({ database, tenantId: "tenant-1", blobs, runOptions, availableResourceClasses: [], createReleaseOperations: () => ({ tenantId: "foreign" }) as FactoryReleaseApplication })).toThrow("factory_scope_mismatch");
+  });
+
+  test("composes run controls by default so repair and replan reach production", () => {
+    const application = createFactoryApplication({ database, tenantId: "tenant-1", blobs, runOptions, availableResourceClasses: [] });
+    expect(application.runControls).toBeInstanceOf(FactoryRunControls);
+    expect(application.runControls!.tenantId).toBe("tenant-1");
+    expect(Object.isFrozen(application.runControls)).toBe(true);
   });
 
   test("supplies verified transition stores to the optional run-control composition", () => {

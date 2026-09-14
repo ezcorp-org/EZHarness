@@ -60,7 +60,7 @@ function published(source: FactoryDefinition = historicalDefinition()): FactoryV
 	};
 }
 
-async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; diagnosticsWithoutNode?: boolean; noVersions?: boolean; releaseInbox?: boolean } = {}): Promise<{
+async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; diagnosticsWithoutNode?: boolean; noVersions?: boolean; releaseInbox?: boolean; runs?: boolean } = {}): Promise<{
 	requests: Array<{ method: string; path: string; headers: Record<string, string>; body: unknown }>;
 	failNext(operation: FailureOperation): void;
 	conflictNext(): void;
@@ -70,6 +70,9 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 	const prior = published();
 	const requests: Array<{ method: string; path: string; headers: Record<string, string>; body: unknown }> = [];
 	const failures = new Set<FailureOperation>();
+	let runRevision = 4;
+	// A different factory from the drafts above, so the page carries two genuinely distinct lists.
+	const runSummary = () => ({ runId: "run-remediation", factoryId: "reference.code.v1", factoryVersion: "1.0.0", definitionDigest, grantRevision: 1, revision: runRevision, status: "waiting", createdAtMs: 1_789_000_000_000, updatedAtMs: 1_789_000_100_000 });
 	let releaseInbox = options.releaseInbox ? [
 		{ notificationId: "notification-command", createdAtMs: 4, kind: "command_approval_requested", approvalId: "approval-command", runId: "run-review", commandId: "command-review", nodeInstanceId: "human-review", contextDigest: digest, context: { subject: "catalog candidate" }, choices: ["ship", "hold"], actorScope: "operator", expiresAtMs: 2_000_000_000_000 },
 		{ notificationId: "notification-approval", operationId: "factory-release:catalog", createdAtMs: 3, kind: "approval_requested", approvalId: "approval-catalog", contextDigest: digest, expiresAtMs: 2_000_000_000_000 },
@@ -99,6 +102,21 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 		if (url.pathname.endsWith("/runs/run-review/approvals/approval-command") && method === "PUT") {
 			releaseInbox = releaseInbox.filter(item => item.notificationId !== "notification-command");
 			return respond(envelope({ kind: "approval.resource", resource: { approvalId: "approval-command", runId: "run-review", commandId: "command-review", nodeInstanceId: "human-review", revision: 1, contextDigest: digest, status: "answered", choices: ["ship", "hold"], context: { subject: "catalog candidate" }, actorScope: "operator", expiresAtMs: 2_000_000_000_000, choice: "ship", decidedBy: "user-1", decidedAtMs: 1 } }));
+		}
+
+		if (url.pathname.endsWith("/runs/run-remediation/control") && method === "POST") {
+			const control = body as { action: string };
+			if (control.action === "replan") {
+				return respond(envelope({ kind: "error", error: { code: "factory_control_widening", message: "The replacement factory widens the current run authority.", retryable: false } }), 403);
+			}
+			runRevision += 1;
+			return respond(envelope({ kind: "mutation.accepted", receipt: { resourceId: "run-remediation", commandId: "factory-control:repair", statusUrl: "/api/factories/projects/" + projectId + "/runs/run-remediation/commands/factory-control:repair" } }), 202);
+		}
+		if (url.pathname.endsWith("/runs/run-remediation") && method === "GET") {
+			return respond(envelope({ kind: "run.details", resource: { ...runSummary(), parameters: {}, error: { code: "factory_assurance_claim_failed", message: "A required protected claim failed." } } }));
+		}
+		if (url.pathname.endsWith("/runs") && method === "GET") {
+			return respond(envelope({ kind: "run.page", page: { items: options.runs === false ? [] : [runSummary()] } }));
 		}
 
 		if (url.pathname.endsWith("/validate") && method === "POST") {
@@ -175,8 +193,9 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 
 async function openConsole(page: Page): Promise<void> {
 	await page.goto("/factories");
-	await page.getByRole("button", { name: new RegExp(factoryId) }).click();
-	await expect(page.getByRole("heading", { name: factoryId })).toBeVisible();
+	const console = page.getByTestId("factory-console");
+	await console.getByRole("button", { name: new RegExp(factoryId) }).click();
+	await expect(console.getByRole("heading", { name: factoryId })).toBeVisible();
 	await expect(page.getByTestId("factory-graph")).toBeVisible();
 }
 
@@ -207,6 +226,38 @@ test.describe("factory authoring console", () => {
 		expect(commandDecision?.method).toBe("PUT");
 		expect(commandDecision?.headers["if-match"]).toBe("0");
 		expect(commandDecision?.body).toEqual({ contextDigest: digest, choice: "ship" });
+	});
+
+	test("requests a bounded repair and refuses a widening replan @evidence", async ({ page, mockApi }, testInfo) => {
+		await page.addInitScript(() => localStorage.setItem("ezcorp-theme", "light"));
+		await page.setViewportSize({ width: 1440, height: 1100 });
+		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
+		const mocked = await routeFactoryApi(page);
+		await page.goto("/factories");
+		const controls = page.getByTestId("factory-run-controls");
+		await expect(controls.getByRole("heading", { name: "Run controls" })).toBeVisible();
+		await controls.getByRole("button", { name: /run-remediation/ }).click();
+		await expect(controls.getByText("factory_assurance_claim_failed")).toBeVisible();
+
+		await controls.getByLabel("Node").fill("generate-private-candidate");
+		await controls.getByLabel("Reason").fill("Rejected: the protected test is missing");
+		await controls.getByLabel("Input override").fill('{"remediation":{"kind":"inline","value":"restore the protected test"}}');
+		await captureEvidence(page, testInfo, "factory-run-controls-bounded-repair", { fullPage: true });
+		await controls.getByRole("button", { name: "Request repair" }).click();
+		await expect(controls.getByText("Queued repair as factory-control:repair.")).toBeVisible();
+		const repair = mocked.requests.find(item => item.path.endsWith("/runs/run-remediation/control"));
+		expect(repair?.headers["if-match"]).toBe("4");
+		expect(repair?.body).toEqual({ action: "repair", nodeId: "generate-private-candidate", reason: "Rejected: the protected test is missing", parameters: { remediation: { kind: "inline", value: "restore the protected test" } } });
+		// The control refreshed the run, so the next request must carry the revision it moved to.
+		await expect(controls.getByText("at revision 5")).toBeVisible();
+
+		await controls.getByRole("button", { name: "Replan" }).click();
+		await controls.getByLabel("Child factory").fill("reference.code.v1");
+		await controls.getByLabel("Child version").fill("2.0.0");
+		await controls.getByLabel("Child digest").fill(definitionDigest);
+		await controls.getByRole("button", { name: "Request replan" }).click();
+		await expect(controls.getByRole("alert")).toContainText("widens the run's authority");
+		await captureEvidence(page, testInfo, "factory-run-controls-widening-denied", { fullPage: true });
 	});
 
 	test("authors with the real graph library, shows diagnostics, and exports @evidence", async ({ page, mockApi }, testInfo) => {
@@ -381,7 +432,7 @@ test.describe("factory authoring console", () => {
 		await page.locator('input[type="file"]').setInputFiles({ name: "rejected.json", mimeType: "application/json", buffer: Buffer.from("{}") });
 		await expect(page.getByRole("alert")).toContainText("import unavailable");
 		await page.getByRole("button", { name: "Dismiss error" }).click();
-		await page.getByRole("button", { name: new RegExp(factoryId) }).click();
+		await page.getByTestId("factory-console").getByRole("button", { name: new RegExp(factoryId) }).click();
 
 		await page.getByLabel("New node ID").fill("duplicate");
 		await page.getByRole("button", { name: "Add node" }).click();
