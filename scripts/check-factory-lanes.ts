@@ -111,6 +111,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
       "bash scripts/setup-extension-runner-ci.sh --install",
       "bash scripts/verify-factory-local-gpu.sh",
       "./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
+      "./src/factory/runner/validator-guest.podman.integration.test.ts",
     ],
     artifacts: [],
     requires: ["factory-runner-readiness"],
