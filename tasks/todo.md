@@ -2263,6 +2263,15 @@ Gates: `tasks/factory/w09-GATES.md`.
 - [x] W09.13 One registration rule for every role, and the host supervisor readiness the
       seventh probe reads.
 - [ ] W09.14 Compose the process that holds the container runner, so attempt dispatch runs.
+      Scoped at the integration merge: `IsolatedFactoryAttemptRuntime` needs a launch store, the
+      pool admission client, the gateway-owned provider broker, and `signStopReceipt`, which takes
+      the host private key. C01/C02 keep that key out of the product process, and the host
+      supervisor deliberately links no tenant store, so this is a third process with its own
+      readiness and credentials rather than a seam on either existing one.
+- [x] W09.15 Merge `integ/w00` (1d3edf5b0) and compose the collaborators it brought: the
+      composition-owned release fence reader, and child settlement from W06's scan and settle.
+- [x] W09.16 Bind the installation row at startup. Found by the real-server proof: the foreign key
+      from `factory_projects` made the first project creation on a flag-on installation answer 500.
 
 ### Review
 

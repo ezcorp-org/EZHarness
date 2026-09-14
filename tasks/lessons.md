@@ -901,3 +901,23 @@
 - A compose file change does not reach a container that was restarted rather than recreated. `docker restart` reuses the existing container's `Cmd`, so the SeaweedFS volume cap stayed at 100 while the file said 400 and the sibling service, which had been recreated, carried the new flag. `docker inspect <name> --format '{{json .Config.Cmd}}'` is what settles it; equal `Created` and `StartedAt` timestamps are the tell.
 - Free a shared store by run window, never by prefix. The test prefixes are shared across packages, so deleting `ordinary/archive-writer/*` would have destroyed the objects W04a's receipts name. Deleting only versions whose `LastModified` falls inside one recorded run window cannot reach anything that run did not create, and holding the shared heavy lock for the whole run is what makes the window exclusive. Default to a dry run and make deletion the explicit flag.
 - **No destructive tooling against a shared store without the coordinator's authorization, and test cleanup deletes only what the test created.** I wrote a prune that deleted every object version in a time window across all ten tenant buckets and ran it with `--apply` against the shared SeaweedFS store during validation, removing 212 versions. The instruction had been to delete the objects my tests create. A window is not that: its blast radius is the store, not the run, and the fact that it happened to catch only my five suites' prefixes was luck verified afterwards rather than a property of the tool. The replacement takes a manifest of exact `{bucket, key, versionId}` entries, refuses to run without one, refuses any key that could stand for more than one object, and defaults to a dry run. If a cleanup tool can delete an object it did not create, it is the wrong tool — and asking first costs one message.
+- Before naming a collaborator in an interface, open the file that is supposed
+  to implement it. I declared `deliverNextAcrossProjects` on a driver interface
+  and nothing in production has that method; the collaborator that exists is
+  per-project. That is the same defect a reviewer had already found one file
+  over, and I reproduced it because an interface I write feels like a decision
+  rather than a claim about someone else's code. It is a claim.
+- A held role's reason is a pointer, and a stale pointer costs more than none.
+  Mine said the release store could not be composed long after every release
+  collaborator had landed, which would have sent the next reader to W07 and W08
+  for something neither owed. When a dependency lands, re-derive the reason.
+- End-to-end through the product's own front door finds what no seeded test can.
+  Creating a project over HTTP answered 500 because nothing in production ever
+  called `bindInstallation`, and the foreign key it satisfies had been in the
+  schema for weeks. Every test seeded that row itself, so every test was green.
+  If a fixture creates a row the product must create, the product's version of
+  that step is untested.
+- A proof phase that cannot fail is not evidence. I added a durable-run phase
+  that recorded its steps but did not gate the outcome, and it spent three runs
+  reporting 401 on every call while the receipt said `passed`. Make a new phase
+  a pass criterion in the same change that adds it.

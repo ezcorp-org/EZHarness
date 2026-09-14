@@ -39,6 +39,59 @@ Two further defects fell out of fixing it, both mine:
   `applied` count, so `applied === 0` was always false and the role would have
   spun at its batch bound forever without ever reporting progress.
 
+## The integration merge, and what it changed here
+
+`integ/w00` at `1d3edf5b0` is merged into this branch (W03, W02, W05, W08, W06,
+W07). Three files conflicted and all three are append-only note or table files,
+resolved as unions: every coverage threshold key from both sides, every lessons
+section from both sides, every work-package note from both sides. **No source
+file conflicted** — this branch and the integration touch disjoint source, which
+the file list confirms: this branch changes nothing under `packages/`.
+`factory-sdk`, `factory-transport`, and `factory-orchestrator` were rebuilt and
+the whole typecheck, including the locked Python distribution, is green.
+
+### Which roles run now, and what each held one is still missing
+
+Two roles changed from held to running. The rest hold, and the reason each one
+holds is now the ONE thing that is missing rather than a description of the
+collaborators that do exist — a wrong reason is worse than no reason, because it
+sends the reader to the wrong package.
+
+| Role | State | The one thing |
+| --- | --- | --- |
+| `compute-admission-dispatch` | running | — |
+| `compute-admission-poll` | running | — |
+| `run-projection` | running | — |
+| **`child-settlement`** | **running (new)** | composed here from W06's `listSettleableInTransaction` and W06's `settle` through the shared page driver |
+| `attempt-dispatch` | held | the process that holds a container runner. Not a wiring change: see below |
+| `stop-settlement` | held | **W03 shipped `FactoryPhysicalStopper`; no scan finds the next stoppable attempt.** `FactoryTaskStops` has exactly `stop`, `confirm`, and `readSettlementScopeInTransaction` |
+| `usage-reconciliation` | held | **W03 shipped `FactoryUsageReconciler`; no scan enumerates the `uncertain` reservations that hold a cost.** `FactoryBudgets.markUncertainInTransaction` writes the state and nothing lists it |
+| `release-outcome` | held | **a project enumerator.** `FactoryReleases.listClaimableInTransaction` landed and is per project; nothing lists a tenant's projects |
+| `notification-inbox-delivery` | held | the same project enumerator. The collaborator is `FactoryNotificationDelivery.deliverNext(projectId)`, also per project |
+| `notification-send` | held | W17, as planned. Its seam refuses |
+
+The two `grep`s behind that table, run at the merge commit: the only
+`async list*InTransaction` scans anywhere in `src/factory/` are
+`child-runs.ts:182` and `releases.ts:937`, and `factory_projects` is written by
+`FactoryRecords.bindProjectInTransaction` and read by nothing.
+
+**A correction to my own interface.** `FactoryNotificationInboxDriver` declared
+`deliverNextAcrossProjects`, which no production object implements — the same
+shape of defect as the `applied` field the second review found. Its header now
+states that plainly instead of implying a producer.
+
+### The composition-owned release fence reader
+
+`FactoryAssurance` takes a `FactoryReleaseFenceReader`, no package ships one,
+and the interface's own comment says why: the record is "returned only by the
+composition-owned reader after it takes project, installation, run, and
+lifecycle locks". Every implementation in the tree before this one is a test
+double. It is now `src/factory/release-fence.ts`, and it adds no query:
+`FactoryRunLifecycle.authorizeRunInTransaction` already takes exactly those four
+locks and returns the epochs, deadline, and status a fence carries. A run the
+lifecycle refuses raises the lifecycle's own typed error rather than a fence
+this file assembled from a second read of a table it does not own.
+
 ## The original finding, still true
 
 `createFactoryApplication` and `assertFactoryBootReadiness` both existed on
@@ -130,12 +183,19 @@ that "closes admission until real probes pass" had a gate and no probe.
       EXPECT: 17 pass / 0 fail; `ready` only after the host key loads and the
       runner initializes; `degraded` names which fact failed; `stopped` on exit.
       EVIDENCE: `/tmp/factory-platform-evidence/w09/logs/unit-supervisor-process.log`
-- [ ] G14: A durable run through public HTTP that executes a guest, records and
-      projects its outcome, and survives restart.
-      CHECK: waits on the packages in "What waits, and on whom".
-      EXPECT: open. The attempt dispatcher is the missing half and it is W09's
-      own, not another package's — see the entry below.
-      EVIDENCE: none yet.
+- [~] G14: A durable run through public HTTP that executes a guest, records and
+      projects its outcome, and survives restart. **Three of the five clauses
+      are proved; two are not, and the proof says so in its own record.**
+      CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 2400 bash
+      /tmp/factory-platform-evidence/w09/repro/run-three.sh`
+      EXPECT: the run is started through the product's own HTTP with the session
+      the setup route issues (`202`), read back durably (`200 queued`), and
+      survives a full server restart with the same id and status against the
+      same database. NOT proved: the guest never executes, because
+      `attempt-dispatch` has no driver in the product process (W09.14), and with
+      no dispatched attempt there is no terminal outcome to project.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09/full-stack-run-{1,2,3}.json`,
+      fields `durableRun` and `notProven`.
 - [x] G15: The proof harness records its own failures instead of crashing on
       them. A proof that leaves nothing to read is worse than one that fails.
       CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 1800 bash
@@ -160,11 +220,59 @@ under the evidence directory carries its own `producingCommit`; they were
 produced by one sweep, `repro/final-sweep.sh`, run after the last commit rather
 than gathered across several.
 
-| Run | `/api/ready` | Roles running | Pool | Supervisor | Ready beats, lease children | `/api/ready` after | Teardown | Exit | Survivors | Record fresh |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `200 ready` | dispatch, poll, projection | ready | ready | 5 ready over 8.0 s, 1 lease | `200` | 2 of 14 | 0 | none | yes |
-| 2 | `200 ready` | dispatch, poll, projection | ready | ready | 5 ready over 8.0 s, 1 lease | `200` | 2 of 14 | 0 | none | yes |
-| 3 | `200 ready` | dispatch, poll, projection | ready | ready | 5 ready over 8.0 s, 1 lease | `200` | 2 of 14 | 0 | none | yes |
+| Run | `/api/ready` | Ready beats, lease children | Run start | Read back | After restart | Exit | Survivors | Record fresh |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `200 ready` | 5 ready, 1 lease | `202` | `200 queued` | `ready`, same run, `queued` | 0 | none | yes |
+| 2 | `200 ready` | 5 ready, 1 lease | `202` | `200 queued` | `ready`, same run, `queued` | 0 | none | yes |
+| 3 | `200 ready` | 5 ready, 1 lease | `202` | `200 queued` | `ready`, same run, `queued` | 0 | none | yes |
+
+Every run also reported the pool and supervisor processes `ready`,
+`compute-admission-dispatch`, `compute-admission-poll`, `run-projection`, and
+`child-settlement` running, and `factory-runtime` torn down second of fourteen.
+A failure in any of the run-start, read-back, or restart facts now fails the
+proof: they are pass criteria, not observations.
+
+**A durable run, started through public HTTP.** The proof now walks the
+product's own API with the session the setup route issues: first-run admin
+setup, project creation, factory draft creation, version publish, grant read,
+and `POST /api/factories/projects/:projectId/definitions/:factoryId/runs`.
+Nothing reaches into the database to manufacture a principal, a project, or a
+grant. The run is accepted `202`, read back `200 queued` through
+`GET .../runs/:runId`, and — this is the durability claim — the server that
+accepted it is stopped, a second server is started against the same database,
+reaches `ready`, and answers with the same run id and the same status.
+
+Two configuration facts the harness supplies, both of them deployment
+statements rather than test shortcuts: `EZCORP_FACTORY_INTERPRETER_COMPATIBILITY`
+is `factory-kernel.v1`, because the reference factory's compiled lock pins that
+interpreter and the lifecycle must refuse a run whose interpreter the
+installation does not declare; and `EZCORP_JWT_SECRET`/`EZCORP_ENCRYPTION_SECRET`
+are fixed, because a session signed with a per-process generated secret cannot
+survive the restart the proof is testing. Each run now also gets a FRESH product
+database, since "a clean real application" is not one whose first-run setup
+another run already completed.
+
+**A product defect the proof found, now fixed.** Creating the project answered
+`500`. `factory_projects.tenant_id` is a foreign key to
+`factory_installation(tenant_id)`, and `FactoryRecords.bindInstallation` had no
+production caller anywhere in the tree, so on a flag-on installation the FIRST
+project a human created failed — with the offending INSERT in the server log and
+nothing in the product to explain it. Every existing test seeded that row
+itself, which is why only a run through public HTTP could find it.
+`startFactoryInstallation` now binds it before anything touches the factory
+tables, idempotently, and refuses a database already bound to another tenant
+with `factory_installation_mismatch` at boot.
+
+**What this proof does not cover, stated in the record itself.** Each run writes
+a `notProven` array rather than leaving its edges to be inferred from silence:
+the run stays `queued` because the `attempt-dispatch` role has no driver in the
+product process, so no container is reached; and with no dispatched attempt
+there is no terminal outcome for the projector to project, though the projector
+itself runs. Composing the process that holds a container runner is W09.14, and
+it is not a wiring change — `IsolatedFactoryAttemptRuntime` needs a launch
+store, the pool client, the gateway-owned provider broker, and
+`signStopReceipt`, which takes the HOST PRIVATE KEY that C01 and C02 keep out of
+the product process. That is a process to compose, not a seam to fill.
 
 **The proof no longer stops the moment the light turns green.** It holds the
 supervisor and watches it publish five consecutive readiness records, counting
@@ -304,6 +412,7 @@ proved separately in `repro/real-server-factory-probe.json`.
 | `src/__tests__/factory-process-boundaries.test.ts` | 14 pass / 0 fail |
 | `src/__tests__/factory-boot.test.ts` | 19 pass / 0 fail |
 | `src/__tests__/factory-service-routes.test.ts` | 2 pass / 0 fail, 12 assertions |
+| `src/factory/release-fence.test.ts` | 8 pass / 0 fail |
 | `web` Vitest: `factory-boot.server`, `context-initialization.server`, `factories.server`, `context-register-preview-bus.server`, `context-state-mediator-wiring.server` | 42 pass / 0 fail across 5 files |
 | `tests/postgres/factory-{boot,schema,private-service,migration-restart}` | 12 pass / 0 fail, each file's own exit code 0 |
 | neighbours: `src/__tests__/{openapi,gate-scripts,factory-shell-required,api-docs,factory-boot,tool-policy,session-scope-surface,shell-advisory-fallback,factory-service-routes}` + `web/src/__tests__/route-contract.test.ts` | 352 pass / 0 fail, ten files, each exit 0 |
@@ -314,12 +423,13 @@ proved separately in `repro/real-server-factory-probe.json`.
 
 Logs and receipt JSON per producer under `/tmp/factory-platform-evidence/w09/`.
 
-Twelve new source files, each at 100% line coverage after merge:
+Thirteen new source files, each at 100% line coverage after merge:
 `background-workers.ts`, `startup-config.ts`, `service-probes.ts`,
 `service-readiness.ts`, `runtime-seams.ts`, `runtime-workers.ts`,
 `runtime-composition.ts`, `release-composition.ts`, `installation-startup.ts`,
-`role-drivers.ts`, `runner/supervisor-process.ts`, and
-`web/src/lib/server/factory-boot.ts`.
+`role-drivers.ts`, `release-fence.ts`, `runner/supervisor-process.ts`, and
+`web/src/lib/server/factory-boot.ts`. The thirteenth is the release fence
+reader added by the integration merge; it was twelve before it.
 
 Every receipt under `/tmp/factory-platform-evidence/w09/` names the commit it
 was produced at, and every one cited here was regenerated at the final commit
@@ -371,6 +481,10 @@ service-authenticated lazy caller removes it.
 
 The previous version of this table attributed every gap to another package. One
 of them is mine, and it is the one that blocks the pass sentence:
+
+This table predates the integration merge. The current, verified version is
+"What the integration still needs, in one place" below; the rows here are kept
+because the attempt-dispatch row is unchanged and still mine.
 
 | Step | Owner | Exact missing collaborator |
 | --- | --- | --- |
@@ -480,6 +594,44 @@ another worker settled first.
   beyond the tenant. This is what makes "the background work is live" an answer
   an operator reads rather than a claim they accept.
 
+## What the integration still needs, in one place
+
+Four findings, each verified at the merge commit rather than inferred, and each
+blocking a role the plan names. None of them is large; all four are somebody
+else's file.
+
+1. **No stoppable-attempt scan (W03).** `FactoryPhysicalStopper` and
+   `FactoryTaskStops.stop`/`confirm` landed. Nothing enumerates the attempts
+   waiting to be settled against a receipt, so `stop-settlement` cannot be
+   driven. There is no `FOR UPDATE SKIP LOCKED` scan over `factory_task_stops`.
+2. **No uncertain-reservation scan (W03).** `FactoryUsageReconciliation` landed
+   and `FactoryBudgets.markUncertainInTransaction` writes the state, but nothing
+   lists the reservations in `uncertain` that hold a cost, so
+   `usage-reconciliation` cannot be driven.
+3. **No project enumerator (owner unassigned).** This one blocks TWO roles.
+   `FactoryReleases.listClaimableInTransaction` and
+   `FactoryNotificationDelivery.deliverNext` are both per project, and
+   `factory_projects` is written by `FactoryRecords.bindProjectInTransaction`
+   and read by nothing. An installation-wide loop needs either a cross-project
+   scan or a tenant project list. `FactoryRecords` looks like the right home; I
+   did not add it because a second reader of another package's table is the
+   duplication C13 forbids, and I refused the same shortcut in the fence reader.
+4. **No GitHub async release profile (W07).** `release-github.ts` ships a
+   `FactoryReleaseProvider`, not a `FactoryAsyncReleaseProfile`; the S3 side
+   ships both. The coordinator's instruction named "the GitHub/S3 async release
+   profiles" and only the S3 one exists.
+
+And one that is mine: **W09.14, the process that holds the container runner.**
+`FactoryAttemptDispatcher` needs a `TrustedFactoryRunner`, which in production
+is `IsolatedFactoryTrustedRunner` over `IsolatedFactoryAttemptRuntime`, which
+needs a launch store, the pool admission client, the gateway-owned provider
+broker, and `signStopReceipt` — and that last one takes the host private key,
+which C01 and C02 keep out of the product process and which the host supervisor
+holds while deliberately linking no tenant store. So the dispatcher belongs to
+neither existing process. That is a process to compose with its own readiness
+and its own credentials, not a seam to fill, and it is the reason the pass
+sentence's "executes a guest" clause is still open.
+
 ## Interface questions for the coordinator
 
 1. **A settleable-child scan has no owner.** The plan's W09 checklist names a child-settlement
@@ -532,3 +684,21 @@ another worker settled first.
   loop, so the receipt recorded `tail`'s exit code. One postgres producer was
   failing for a missing environment variable and read as green. Both scripts now
   accumulate per-file exit codes, and the log carries each one.
+- `FactoryNotificationInboxDriver.deliverNextAcrossProjects` is implemented by
+  nothing. I specified the shape the ROLE wanted and never checked that a
+  producer existed; the collaborator that exists is per-project `deliverNext`.
+  This is the same defect as the `applied` field the second review found, one
+  file over, and I found it only because the integration merge made me look for
+  the real producer. Before naming a collaborator in an interface, open the file
+  that is supposed to implement it.
+- The held-role reasons described the collaborators that DID exist rather than
+  the one thing missing, so two of them sent the reader to the wrong package
+  entirely: release-outcome read as "the release store cannot be composed" when
+  every release collaborator had landed and the only gap was a project list.
+  A reason is a pointer; a stale pointer costs more than none.
+- My real-server proof reused one product database across all three runs, so
+  the first run completed the first-run admin setup and the second and third
+  authenticated as nobody. Every step after `auth.setup` answered 401 and the
+  proof still reported `passed`, because the durable-run phase was not yet a
+  pass criterion. Independence has to include the database, and a phase that
+  cannot fail is not evidence.
