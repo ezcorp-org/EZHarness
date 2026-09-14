@@ -22,6 +22,26 @@ export interface FactoryChildBudgetDelegation {
   readonly deadlineAtMs: number;
 }
 export type FactoryBudgetAdmission = (transaction: MigrationDb, key: FactoryRunKey) => Promise<void>;
+
+/** Keyset position of one scanned hold. Pass the last item's cursor to continue. */
+export interface FactoryUncertainHoldCursor {
+  readonly createdAtMs: number;
+  readonly runId: string;
+  readonly reservationId: string;
+}
+
+/** One reservation whose cost is still held and unreconciled. */
+export interface FactoryUncertainHold extends FactoryBudgetReservationKey {
+  readonly envelopeId: string;
+  /** The reserved cost still held, as an unsigned decimal string. Never zero. */
+  readonly heldCostMicros: string;
+  /** Why the hold became uncertain, as recorded by `markUncertain`. */
+  readonly uncertainty: string;
+  readonly cursor: FactoryUncertainHoldCursor;
+}
+
+export const FACTORY_BUDGET_SCAN_DEFAULT_LIMIT = 100;
+export const FACTORY_BUDGET_SCAN_MAX_LIMIT = 1_000;
 export type FactoryBudgetTotals = Readonly<Record<"costMicros" | "tokens" | "computeMs", string>>;
 interface EnvelopeRow { envelope_id: string; parent_id: string | null; request_digest: string; limits: string; allocated: string; spent: string; deadline_ms: number | string; state: "open" | "closed"; admission_blocked: boolean }
 interface ReservationRow { envelope_id: string; request_digest: string; amount: string; actual: string | null; receipt_digest: string | null; compute_allocation: string | null; uncertainty: string | null; state: "held" | "running" | "uncertain" | "settled" }
@@ -252,6 +272,57 @@ export class FactoryBudgets {
     await this.audit(transaction, key, "envelope-closed", key.envelopeId, { spent: totals(decode(row.spent)) });
   }
 
+
+  /**
+   * Reservations whose cost is still held and which no settlement has resolved.
+   *
+   * This is the work list for reconciliation: `uncertain` means the charge is
+   * retained, so every row here is money the tenant is still holding for work
+   * whose real cost is unknown. A reservation settles out of this list only
+   * when a verified provider receipt lands, never by ageing out.
+   *
+   * Ordered by the run's creation, because `factory_budget_reservations` keeps
+   * no timestamp of its own; `run_id` and `reservation_id` break ties, so the
+   * order is total and a keyset page can never repeat or skip a row. The limit
+   * bounds the scan, and every row returned is either eligible or loudly
+   * corrupt: a zero cost is excluded in SQL, and an amount that is not
+   * canonical reaches `decode` and throws rather than being silently dropped.
+   */
+  async listUncertainWithCostInTransaction(transaction: MigrationDb, options: { readonly limit?: number; readonly after?: FactoryUncertainHoldCursor } = {}): Promise<readonly FactoryUncertainHold[]> {
+    const limit = options.limit ?? FACTORY_BUDGET_SCAN_DEFAULT_LIMIT;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > FACTORY_BUDGET_SCAN_MAX_LIMIT) throw new FactoryBudgetError("factory_budget_invalid");
+    const after = options.after;
+    if (after) { counter(after.createdAtMs); assertFactoryIdentity(after.runId, after.reservationId); }
+    const position = sql`(EXTRACT(EPOCH FROM run.created_at) * 1000)::bigint`;
+    const keyset = after ? sql` AND (${position}, reservation.run_id, reservation.reservation_id) > (${after.createdAtMs}, ${after.runId}, ${after.reservationId})` : sql``;
+    const scanned = rows<ReservationRow & { project_id: string; run_id: string; reservation_id: string; created_at_ms: number | string }>(await transaction.execute(sql`
+      SELECT reservation.project_id, reservation.run_id, reservation.reservation_id, reservation.envelope_id, reservation.amount, reservation.uncertainty, reservation.state, ${position} AS created_at_ms
+      FROM factory_budget_reservations reservation
+      JOIN factory_runs run ON run.tenant_id = reservation.tenant_id AND run.project_id = reservation.project_id AND run.run_id = reservation.run_id
+      WHERE reservation.tenant_id = ${this.tenantId} AND reservation.state = 'uncertain'
+        AND COALESCE(substring(reservation.amount from '"costMicros":"([0-9]+)"'), '1')::numeric > 0
+        AND NOT EXISTS (
+          SELECT 1 FROM factory_usage_settlements settlement
+          WHERE settlement.tenant_id = reservation.tenant_id AND settlement.project_id = reservation.project_id
+            AND settlement.run_id = reservation.run_id AND settlement.reservation_id = reservation.reservation_id
+            AND settlement.unknown_cost_micros IS NULL
+            AND settlement.revision = (SELECT MAX(latest.revision) FROM factory_usage_settlements latest
+              WHERE latest.tenant_id = settlement.tenant_id AND latest.project_id = settlement.project_id
+                AND latest.run_id = settlement.run_id AND latest.reservation_id = settlement.reservation_id))
+        ${keyset}
+      ORDER BY ${position}, reservation.run_id, reservation.reservation_id
+      LIMIT ${limit}`));
+    return Object.freeze(scanned.map(row => {
+      const createdAtMs = Number(row.created_at_ms);
+      counter(createdAtMs);
+      if (row.uncertainty === null) throw new FactoryBudgetError("factory_budget_corrupt");
+      return Object.freeze({
+        projectId: row.project_id, runId: row.run_id, reservationId: row.reservation_id, envelopeId: row.envelope_id,
+        heldCostMicros: String(decode(row.amount).costMicros), uncertainty: row.uncertainty,
+        cursor: Object.freeze({ createdAtMs, runId: row.run_id, reservationId: row.reservation_id }),
+      });
+    }));
+  }
 
   async inspect(key: FactoryBudgetKey): Promise<{ state: "open" | "closed"; admissionBlocked: boolean; limits: FactoryBudgetTotals; allocated: FactoryBudgetTotals; spent: FactoryBudgetTotals }> {
     return this.database.transaction(async transaction => {

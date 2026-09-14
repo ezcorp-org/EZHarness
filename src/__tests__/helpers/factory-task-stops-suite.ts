@@ -28,7 +28,7 @@ import { FactoryDatabaseAttemptLaunchStore, signFactoryPhysicalStopReceipt, type
 import { FactoryTaskAdmission, type FactoryTaskResourceProfile } from "../../factory/task-admission";
 import { FactoryTaskExecutionAdmission } from "../../factory/task-execution-admission";
 import { FactoryTaskOutcomes } from "../../factory/task-outcomes";
-import { FactoryTaskStops, FactoryTaskStopError, type FactoryPhysicalStopper, type FactoryPoolStopAcknowledger, type FactoryStopHostKey, type FactoryTaskStopRequest } from "../../factory/task-stops";
+import { FactoryTaskStops, FactoryTaskStopError, FACTORY_STOP_SCAN_MAX_LIMIT, type FactoryPhysicalStopper, type FactoryPoolStopAcknowledger, type FactoryStopHostKey, type FactoryTaskStopRequest } from "../../factory/task-stops";
 import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
@@ -516,6 +516,73 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     // No capacity was ever claimed, and the unused hold is still the admission
     // path's to release: `factory_budget_reservations` never left `held`.
     expect(await reservationState(reserved.reservationId)).toMatchObject({ state: "held" });
+  });
+
+  test("lists exactly the accepted cancellations a stop worker must still drive", async () => {
+    const list = (stops: FactoryTaskStops, options?: { limit?: number; after?: { acceptedAtMs: number; cancelCommandId: string } }) =>
+      fixture.db.transaction(transaction => stops.listStoppableInTransaction(transaction, options));
+
+    // An empty scan on a tenant with no accepted cancellation.
+    const first = await launchedAttempt();
+    const empty = harness(first, stopper(async request => signed(request)), acknowledger());
+    expect(await list(empty.stops)).toEqual([]);
+
+    // One accepted-but-unsettled stop appears, with the exact cancel reference
+    // `stop` takes and the sealed identities beside it.
+    const firstReference = (await cancelled(first)).reference;
+    const uncertainHarness = harness(first, { async stop(_request, signal) { return new Promise<never>((_resolve, reject) => { signal.addEventListener("abort", () => reject(new Error("host unreachable"))); }); } }, acknowledger(), undefined, 5);
+    expect((await uncertainHarness.stops.stop(service, firstReference)).state).toBe("uncertain");
+    const pending = await list(empty.stops);
+    expect(pending).toHaveLength(1);
+    expect(pending[0]).toMatchObject({ reference: firstReference, attemptId: first.attemptId, reservationId: first.reservationId, source: "sealed-launch", state: "uncertain" });
+    expect(pending[0]!.cursor).toEqual({ acceptedAtMs: pending[0]!.acceptedAtMs, cancelCommandId: firstReference.commandId });
+
+    // A second and third accepted cancellation page deterministically, and the
+    // pages partition the work with no repeat and no gap.
+    const second = await launchedAttempt();
+    const secondReference = (await cancelled(second)).reference;
+    const third = await launchedAttempt();
+    const thirdReference = (await cancelled(third)).reference;
+    for (const [attempt, reference] of [[second, secondReference], [third, thirdReference]] as const) {
+      const accepting = harness(attempt, { async stop(_request, signal) { return new Promise<never>((_resolve, reject) => { signal.addEventListener("abort", () => reject(new Error("host unreachable"))); }); } }, acknowledger(), undefined, 5);
+      expect((await accepting.stops.stop(service, reference)).state).toBe("uncertain");
+    }
+    const all = await list(empty.stops);
+    expect(all.map(entry => entry.reference.commandId)).toEqual([firstReference.commandId, secondReference.commandId, thirdReference.commandId].sort((left, right) => left < right ? -1 : left > right ? 1 : 0));
+    // Oldest first: the acceptance clock never decreases across the page.
+    expect(all.map(entry => entry.acceptedAtMs)).toEqual([...all.map(entry => entry.acceptedAtMs)].sort((left, right) => left - right));
+    const pageOne = await list(empty.stops, { limit: 2 });
+    expect(pageOne).toHaveLength(2);
+    const pageTwo = await list(empty.stops, { limit: 2, after: pageOne[1]!.cursor });
+    expect(pageTwo.map(entry => entry.reference.commandId)).toEqual(all.slice(2).map(entry => entry.reference.commandId));
+    expect(await list(empty.stops, { limit: 2, after: all[all.length - 1]!.cursor })).toEqual([]);
+    expect([...pageOne, ...pageTwo].map(entry => entry.reference.commandId)).toEqual(all.map(entry => entry.reference.commandId));
+
+    // Concurrent scans take no locks and agree, so two workers see the same
+    // work; only one of them can settle it.
+    expect(await Promise.all([list(empty.stops), list(empty.stops)])).toEqual([all, all]);
+    const settled = harness(third, stopper(async request => signed(request)), acknowledger());
+    const racing = await Promise.allSettled([settled.stops.stop(service, thirdReference), settled.stops.stop(service, thirdReference)]);
+    for (const outcome of racing) expect(outcome.status === "fulfilled" ? outcome.value.state : "rejected").toBe("stopped");
+    // A settled stop is terminal and leaves the work list.
+    expect((await list(empty.stops)).map(entry => entry.reference.commandId)).not.toContain(thirdReference.commandId);
+
+    // Bounds and a malformed cursor are refused rather than scanned.
+    for (const limit of [0, -1, 1.5, FACTORY_STOP_SCAN_MAX_LIMIT + 1]) await expect(list(empty.stops, { limit })).rejects.toMatchObject({ code: "factory_task_stop_invalid" });
+    await expect(list(empty.stops, { after: { acceptedAtMs: -1, cancelCommandId: firstReference.commandId } })).rejects.toMatchObject({ code: "factory_task_stop_invalid" });
+    await expect(list(empty.stops, { after: { acceptedAtMs: 1, cancelCommandId: "" } })).rejects.toBeInstanceOf(Error);
+    // A corrupt source is refused rather than handed to a worker. The durable
+    // CHECK normally makes this unreachable, so it is lifted to prove the scan
+    // does not trust the column, then restored.
+    await fixture.db.execute(sql`ALTER TABLE factory_task_stops DROP CONSTRAINT factory_task_stops_source_check`);
+    try {
+      await fixture.db.execute(sql`UPDATE factory_task_stops SET source='forged' WHERE cancel_command_id=${firstReference.commandId}`);
+      await expect(list(empty.stops)).rejects.toMatchObject({ code: "factory_task_stop_corrupt" });
+    } finally {
+      await fixture.db.execute(sql`UPDATE factory_task_stops SET source='sealed-launch' WHERE cancel_command_id=${firstReference.commandId}`);
+      await fixture.db.execute(sql`ALTER TABLE factory_task_stops ADD CONSTRAINT factory_task_stops_source_check CHECK (source IN ('terminal-outcome','sealed-launch'))`);
+    }
+    expect((await list(empty.stops)).length).toBeGreaterThan(0);
   });
 
   test("concurrent stop and confirm commit one settlement", async () => {

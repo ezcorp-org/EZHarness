@@ -124,6 +124,30 @@ export const FACTORY_TASK_STOP_CODES: readonly FactoryTaskStopCode[] = Object.fr
   "factory_task_stop_timeout",
 ]);
 
+/** Keyset position of one scanned stop. Pass the last item's cursor to continue. */
+export interface FactoryStoppableCursor {
+  readonly acceptedAtMs: number;
+  readonly cancelCommandId: string;
+}
+
+/** One accepted cancellation the stop worker still has to drive to a settled stop. */
+export interface FactoryStoppableAttempt {
+  /** The cancel command reference `stop` takes. */
+  readonly reference: TrustedFactoryCommandReference;
+  readonly attemptId: string;
+  readonly reservationId: string;
+  readonly source: FactoryStopSource;
+  readonly state: Exclude<FactoryTaskStopState, "stopped">;
+  readonly acceptedAtMs: number;
+  readonly cursor: FactoryStoppableCursor;
+}
+
+export const FACTORY_STOP_SCAN_DEFAULT_LIMIT = 100;
+export const FACTORY_STOP_SCAN_MAX_LIMIT = 1_000;
+
+const STOPPABLE_STATES = new Set<FactoryTaskStopState>(["accepted", "uncertain"]);
+const STOP_SOURCES = new Set<FactoryStopSource>(["terminal-outcome", "sealed-launch"]);
+
 export class FactoryTaskStopError extends Error {
   constructor(readonly code: FactoryTaskStopCode) { super(code); this.name = "FactoryTaskStopError"; }
 }
@@ -247,6 +271,46 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     const acknowledged = await this.withDeadline(signal => this.pool.confirmStopped({ reservationId: receipt.reservationId, holderGeneration: receipt.holderGeneration, hostId: receipt.hostId }, signal));
     if (acknowledged.reservationId !== receipt.reservationId || acknowledged.state !== "settled" || acknowledged.holderGeneration !== receipt.holderGeneration || acknowledged.allocationGeneration !== receipt.allocationGeneration || acknowledged.hostId !== receipt.hostId) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
     return this.database.transaction(transaction => this.finalize(transaction, service, reference, receipt));
+  }
+
+  /**
+   * Accepted cancellations that have not reached a settled stop.
+   *
+   * These are exactly the rows a stop worker must drive: `accepted` means the
+   * product cancelled but no host receipt has settled it, and `uncertain`
+   * means a stop was attempted and left durable uncertainty, which is
+   * retryable. A `stopped` row is terminal and never appears.
+   *
+   * Oldest first by the acceptance clock, with the cancel command breaking
+   * ties, so the order is total and a keyset page can neither repeat nor skip
+   * a row. The scan takes no row locks: exclusion between concurrent workers
+   * belongs to `stop`, which locks the row it settles, so two workers may list
+   * the same work and only one will commit it.
+   */
+  async listStoppableInTransaction(transaction: MigrationDb, options: { readonly limit?: number; readonly after?: FactoryStoppableCursor } = {}): Promise<readonly FactoryStoppableAttempt[]> {
+    const limit = options.limit ?? FACTORY_STOP_SCAN_DEFAULT_LIMIT;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > FACTORY_STOP_SCAN_MAX_LIMIT) throw new FactoryTaskStopError("factory_task_stop_invalid");
+    const after = options.after;
+    if (after) { stopCount(after.acceptedAtMs); assertFactoryIdentity(after.cancelCommandId); }
+    const keyset = after ? sql` AND (accepted_at_ms, cancel_command_id) > (${after.acceptedAtMs}, ${after.cancelCommandId})` : sql``;
+    const scanned = rows<Pick<StopRow, "tenant_id" | "project_id" | "run_id" | "interpreter_id" | "cancel_command_id" | "attempt_id" | "reservation_id" | "source" | "state" | "accepted_at_ms">>(await transaction.execute(sql`
+      SELECT tenant_id, project_id, run_id, interpreter_id, cancel_command_id, attempt_id, reservation_id, source, state, accepted_at_ms
+      FROM factory_task_stops
+      WHERE tenant_id = ${this.authority.tenantId} AND state IN ('accepted', 'uncertain')${keyset}
+      ORDER BY accepted_at_ms, cancel_command_id
+      LIMIT ${limit}`));
+    return Object.freeze(scanned.map(row => {
+      const acceptedAtMs = Number(row.accepted_at_ms);
+      stopCount(acceptedAtMs);
+      if (!STOPPABLE_STATES.has(row.state) || !STOP_SOURCES.has(row.source)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+      assertFactoryIdentity(row.project_id, row.run_id, row.interpreter_id, row.cancel_command_id, row.attempt_id, row.reservation_id);
+      return Object.freeze({
+        reference: Object.freeze({ tenantId: row.tenant_id, projectId: row.project_id, logicalRunId: row.run_id, interpreterId: row.interpreter_id, commandId: row.cancel_command_id }),
+        attemptId: row.attempt_id, reservationId: row.reservation_id, source: row.source,
+        state: row.state as Exclude<FactoryTaskStopState, "stopped">, acceptedAtMs,
+        cursor: Object.freeze({ acceptedAtMs, cancelCommandId: row.cancel_command_id }),
+      });
+    }));
   }
 
   /** The settlement scope for one reservation, so later reconciliation binds the same attempt. */
