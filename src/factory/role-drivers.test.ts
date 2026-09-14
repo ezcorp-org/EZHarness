@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { factoryPageDriver } from "./role-drivers";
+import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
 
 const open = new AbortController().signal;
 
 function driver(pages: Array<readonly string[]>, failing: ReadonlySet<string> = new Set()) {
-  const reported: Array<{ item: string; message: string }> = [];
+  const reported: Array<{ item: string; message: string; disposition: FactoryItemDisposition }> = [];
   const settled: string[] = [];
   let index = 0;
   const built = factoryPageDriver<string>({
@@ -13,7 +13,7 @@ function driver(pages: Array<readonly string[]>, failing: ReadonlySet<string> = 
       if (failing.has(item)) throw new Error(`cannot settle ${item}`);
       settled.push(item);
     },
-    report: (item, error) => { reported.push({ item, message: String(error) }); },
+    report: (item, error, disposition) => { reported.push({ item, message: String(error), disposition }); },
   });
   return { built, reported, settled };
 }
@@ -23,14 +23,14 @@ describe("factoryPageDriver", () => {
     const { built, settled } = driver([["a", "b", "c"]]);
     expect(await built.step(open)).toBe(true);
     expect(settled).toEqual(["a", "b", "c"]);
-    expect(built.progress).toEqual({ scanned: 3, settled: 3, failed: 0 });
+    expect(built.progress).toEqual({ scanned: 3, settled: 3, deferred: 0, failed: 0 });
   });
 
   test("an empty page is no work, and leaves the counts saying so", async () => {
     const { built, settled } = driver([[]]);
     expect(await built.step(open)).toBe(false);
     expect(settled).toEqual([]);
-    expect(built.progress).toEqual({ scanned: 0, settled: 0, failed: 0 });
+    expect(built.progress).toEqual({ scanned: 0, settled: 0, deferred: 0, failed: 0 });
   });
 
   // The defect this prevents: W06's scan orders by start instant and throws on a
@@ -40,8 +40,8 @@ describe("factoryPageDriver", () => {
     const { built, reported, settled } = driver([["corrupt", "b", "c"]], new Set(["corrupt"]));
     expect(await built.step(open)).toBe(true);
     expect(settled).toEqual(["b", "c"]);
-    expect(reported).toEqual([{ item: "corrupt", message: "Error: cannot settle corrupt" }]);
-    expect(built.progress).toEqual({ scanned: 3, settled: 2, failed: 1 });
+    expect(reported).toEqual([{ item: "corrupt", message: "Error: cannot settle corrupt", disposition: "fault" }]);
+    expect(built.progress).toEqual({ scanned: 3, settled: 2, deferred: 0, failed: 1 });
   });
 
   test("a failure in the middle and at the end is stepped over just the same", async () => {
@@ -49,7 +49,7 @@ describe("factoryPageDriver", () => {
     expect(await built.step(open)).toBe(true);
     expect(settled).toEqual(["a", "c"]);
     expect(reported.map((entry) => entry.item)).toEqual(["bad", "worse"]);
-    expect(built.progress).toEqual({ scanned: 4, settled: 2, failed: 2 });
+    expect(built.progress).toEqual({ scanned: 4, settled: 2, deferred: 0, failed: 2 });
   });
 
   test("a page where nothing settles reports no progress, so the role backs off", async () => {
@@ -57,7 +57,7 @@ describe("factoryPageDriver", () => {
     // Not `true`: returning progress here would spin the loop on rows it cannot
     // move, at the batch bound, forever.
     expect(await built.step(open)).toBe(false);
-    expect(built.progress).toEqual({ scanned: 2, settled: 0, failed: 2 });
+    expect(built.progress).toEqual({ scanned: 2, settled: 0, deferred: 0, failed: 2 });
     // The condition stays loud: every pass reports it again.
     expect(await built.step(open)).toBe(false);
     expect(reported.map((entry) => entry.item)).toEqual(["x", "y", "x", "y"]);
@@ -98,7 +98,7 @@ describe("factoryPageDriver", () => {
     // `a` completes because it was already in flight; `b` and `c` are not begun.
     expect(await built.step(controller.signal)).toBe(true);
     expect(settled).toEqual(["a"]);
-    expect(built.progress).toEqual({ scanned: 3, settled: 1, failed: 0 });
+    expect(built.progress).toEqual({ scanned: 3, settled: 1, deferred: 0, failed: 0 });
   });
 
   test("the caller's deadline reaches both the scan and every settlement", async () => {
@@ -135,5 +135,66 @@ describe("factoryPageDriver", () => {
     const { built } = driver([["a"]]);
     await built.step(open);
     expect(Object.isFrozen(built.progress)).toBe(true);
+  });
+});
+
+describe("factoryPageDriver dispositions", () => {
+  // W06's `settle` throws factory_budget_pending while a child still holds an
+  // uncertain budget reservation. That is a queue doing its job, not an
+  // integrity fault, and an operator watching undifferentiated "failures"
+  // cannot tell the two apart.
+  const transientCodes = new Set(["factory_budget_pending", "factory_child_conflict"]);
+  const classify = (error: unknown): FactoryItemDisposition =>
+    transientCodes.has((error as { code?: string }).code ?? "") ? "transient" : "fault";
+
+  function coded(code: string) {
+    return Object.assign(new Error(code), { code });
+  }
+
+  test("separates an item that is not ready yet from one that is broken", async () => {
+    const reported: Array<{ item: string; disposition: FactoryItemDisposition }> = [];
+    const built = factoryPageDriver<string>({
+      page: async () => ["pending", "corrupt", "fine"],
+      settle: async (item) => {
+        if (item === "pending") throw coded("factory_budget_pending");
+        if (item === "corrupt") throw coded("factory_child_corrupt");
+      },
+      classify,
+      report: (item, _error, disposition) => { reported.push({ item, disposition }); },
+    });
+
+    expect(await built.step(open)).toBe(true);
+    expect(reported).toEqual([
+      { item: "pending", disposition: "transient" },
+      { item: "corrupt", disposition: "fault" },
+    ]);
+    expect(built.progress).toEqual({ scanned: 3, settled: 1, deferred: 1, failed: 1 });
+  });
+
+  test("a page that is entirely not-yet reports no progress, so the role waits", async () => {
+    const built = factoryPageDriver<string>({
+      page: async () => ["a", "b"],
+      settle: async () => { throw coded("factory_budget_pending"); },
+      classify,
+      report: () => {},
+    });
+    // Waiting is exactly what a not-yet wants; spinning would not make the
+    // budget hold reconcile any sooner.
+    expect(await built.step(open)).toBe(false);
+    expect(built.progress).toEqual({ scanned: 2, settled: 0, deferred: 2, failed: 0 });
+  });
+
+  test("an unclassified failure is the loud one", async () => {
+    const reported: FactoryItemDisposition[] = [];
+    const built = factoryPageDriver<string>({
+      page: async () => ["a"],
+      settle: async () => { throw new Error("something new"); },
+      report: (_item, _error, disposition) => { reported.push(disposition); },
+    });
+    // A driver that downgraded an unknown error to backpressure would hide the
+    // case this shape exists to surface.
+    await built.step(open);
+    expect(reported).toEqual(["fault"]);
+    expect(built.progress).toEqual({ scanned: 1, settled: 0, deferred: 0, failed: 1 });
   });
 });

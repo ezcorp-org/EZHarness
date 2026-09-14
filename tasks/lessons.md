@@ -788,3 +788,17 @@
   strings and ran `$cmd` produced four exit-127 receipts that looked like four
   broken gates. This is already in this file; I hit it anyway. Build argument
   lists, not command strings.
+- A per-item mitigation cannot reach a per-page failure. I hardened a settlement
+  loop so one bad row could not abandon the page, and stated the residual bound
+  as "200 simultaneously unsettleable items". The owner then showed the
+  verification ran inside the `map` that BUILT the page, so one corrupt row
+  rejected the whole promise and my loop received no items to step over: the
+  real bound was one row, not two hundred. Before quoting a bound, check where
+  the failure is raised, not only where it is caught.
+- Not every failure deserves the same volume. A settlement that throws because a
+  budget hold has not reconciled is a queue doing its job; one that throws
+  because a seal no longer matches needs a person. Reporting both as "failed"
+  gives an operator a stream they cannot triage. Classify at the composition,
+  where the error vocabularies are known, and default the unclassified case to
+  the loud one.
+

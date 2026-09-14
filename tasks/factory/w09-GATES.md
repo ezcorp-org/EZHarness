@@ -283,36 +283,58 @@ role and starts it, with no change to this package.
 
 ## The child-settlement handover, ready to land
 
-W06 announced `FactoryChildRuns.listSettleableInTransaction` at `a558a01d8` on
-`wp/w06-remediation`. I read that commit read-only and verified the declaration
-against my seam; I did not merge it, because it is not in `integ/w00` and the
-coordinator integrates.
+W06's scan is at `8f1353fce` on `wp/w06-remediation`, superseding `a558a01d8`.
+I read both read-only and verified the declaration against my seam; I did not
+merge, because it is not in `integ/w00` and the coordinator integrates.
 
 The consumer half is landed and tested: `src/factory/role-drivers.ts`
 `factoryPageDriver` is the bounded-page shape child settlement, usage
-reconciliation, and release outcomes all share. On integration the role becomes
-one composition in `installation-startup.ts`:
+reconciliation, and release outcomes all share. On integration the role is one
+composition in `installation-startup.ts`:
 
 ```ts
 const children = new FactoryChildRuns(host.database, config.tenantId, authority, stores.runs, transitions);
+const TRANSIENT = new Set(["factory_budget_pending", "factory_child_conflict"]);
 const childSettlement = factoryPageDriver<FactorySettleableChild>({
+  // A SHORT read-only transaction, closed before settle: settle takes lockRun
+  // plus the budget's root-to-leaf locks, and holding this snapshot across that
+  // would risk lock ordering and pin a snapshot for the whole settlement.
   page: () => host.database.transaction((t) => children.listSettleableInTransaction(t, FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT)),
   settle: (child) => children.settle(service, { projectId: child.projectId, childRunId: child.childRunId }),
-  report: (child, error) => host.report("child-settlement", error),
+  classify: (error) => TRANSIENT.has((error as { code?: string }).code ?? "") ? "transient" : "fault",
+  report: (child, error, disposition) => host.report("child-settlement", { child, error, disposition }),
 });
 ```
 
-**One consumer-side hazard W06 should know about, already handled.** The scan
-orders by start instant and throws `factory_child_corrupt` rather than skipping a
-binding whose sealed clock no longer matches its digest — which is right. But a
-driver that abandoned the page on that throw would leave the oldest corrupt row
-at the head of every later scan, and nothing behind it would ever settle: one bad
-row would stop settlement for the whole installation. `factoryPageDriver` settles
-each item independently, reports the failure, and steps over it, and it reports
-progress only when at least one item settled, so a page that fails entirely backs
-the role off instead of spinning on rows it cannot move. The residual bound is
-named in that module: progress stalls only if an entire page fails, which needs
-200 simultaneously unsettleable bindings, and every one is reported every pass.
+### What changed, and what I got wrong
+
+I raised a head-of-line hazard and W06 found it was worse than I described, in a
+way my mitigation could not have reached. Verification ran inside the `map` that
+built the page, so one corrupt binding rejected the whole promise: the caller
+received **no items at all**, not a page with one bad entry. `factoryPageDriver`
+settles each item independently, but there were no items to step over. My stated
+residual bound — "200 simultaneously unsettleable bindings" — was therefore
+wrong by two orders of magnitude. It was one corrupt row anywhere in the first
+page, stalling every child behind it permanently.
+
+W06 moved the seal check into `settle`, where it already was, so a corrupt
+binding is now reported for that child alone and the driver's behaviour is
+correct against the new shape. Two consequences for this package:
+
+- **`FactorySettleableChild` dropped `deadlineAtMs`.** An inherited clock is
+  exactly what a caller must not read from a row whose seal has not been
+  checked. The adapter above no longer reads one.
+- **`settle` also throws `factory_budget_pending`** while a child still holds an
+  uncertain budget reservation. That is a queue doing its job, not an integrity
+  fault. `factoryPageDriver` now classifies: both are stepped over and both are
+  reported, but the report says which, and the counts separate `deferred` from
+  `failed`. An unclassified failure defaults to `fault`, so an unknown error is
+  the loud one.
+
+W06 also confirmed both questions I asked: a short read-only transaction for the
+scan is the only correct shape, and no re-check of terminal status is needed
+because `settle` re-reads the lifecycle itself and returns without effect when
+another worker settled first.
 
 ## Disclosed design decisions
 
