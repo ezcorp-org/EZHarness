@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { expectDeckBreadcrumb } from "./fixtures/breadcrumb.js";
 import { makeProject, makeAgent, } from "./fixtures/data.js";
 
 const mobile = { width: 375, height: 812 };
@@ -157,12 +158,18 @@ test.describe("Mobile UX", () => {
 		await expect(page.getByText("test-agent").first()).toBeVisible({ timeout: 5000 });
 
 		// One breadcrumb on a phone, not two stacked: the Command Deck strip
-		// carries the section and the agent name, and the page adds none.
+		// carries the section and the agent name, and the page adds none. The
+		// strip IS the accessible breadcrumb landmark (`<nav aria-label=
+		// "Breadcrumb">`), so this also pins its structure for a screen reader:
+		// an `<ol>` of crumbs, decorative separators hidden from the tree, a
+		// link back to the section list, and the current page marked as such.
+		await expectDeckBreadcrumb(page, { section: "Agents", tail: "test-agent" });
 		const strip = page.getByTestId("deck-breadcrumb");
-		await expect(strip).toBeVisible();
-		await expect(strip).toContainText("Agents");
-		await expect(strip.getByTestId("deck-breadcrumb-tail")).toHaveText("test-agent");
-		await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
+		// Every separator is decorative — none should reach the a11y tree.
+		await expect(strip.locator(".deck-breadcrumb__sep:not([aria-hidden='true'])")).toHaveCount(0);
+		const agentsCrumb = strip.getByRole("link", { name: "Agents" });
+		await expect(agentsCrumb).toHaveAttribute("href", "/agents");
+		await expect(strip.getByTestId("deck-breadcrumb-tail")).toHaveAttribute("aria-current", "page");
 	});
 
 	test("agent editor sections are collapsible on mobile", async ({ page, mockApi }) => {

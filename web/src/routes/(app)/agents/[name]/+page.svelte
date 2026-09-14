@@ -234,9 +234,11 @@
 <div class="space-y-6">
 	<!--
 		The Command Deck strip in `(app)/+layout.svelte` is the only breadcrumb
-		at every viewport, and it names this agent through the `breadcrumbTail`
-		this route's `+page.ts` returns. This link is the in-page way BACK, so
-		it shows on phones too — the strip's "Agents" crumb is plain text.
+		at every viewport, and it names this agent via the `PARAM_NAME_ROUTES`
+		table in `$lib/breadcrumb-tail.svelte.ts`, which reads this route's
+		`[name]` param directly — there is no `+page.ts` here. This link is the
+		in-page way BACK, so it shows on phones too — the strip's "Agents"
+		crumb is now a link to the same place.
 	-->
 	<div>
 		<a href="/agents" data-testid="agent-back-link" class="text-sm text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)]">&larr; Back to Agents</a>

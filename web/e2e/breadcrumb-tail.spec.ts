@@ -19,6 +19,7 @@
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { captureEvidence } from "./fixtures/evidence.js";
+import { expectDeckBreadcrumb } from "./fixtures/breadcrumb.js";
 import { makeProject, makeRun, makeWorkflow } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-breadcrumb-tail", name: "Tail Workspace" });
@@ -68,16 +69,6 @@ const TRACE = {
 	totals: { inputTokens: null, outputTokens: null, durationMs: 4200, steps: 1 },
 };
 
-/** The strip is the page's only breadcrumb and its last crumb is `tail`. */
-async function expectTail(page: import("@playwright/test").Page, tail: string) {
-	const strip = page.getByTestId("deck-breadcrumb");
-	await expect(strip).toHaveCount(1);
-	await expect(strip).toBeVisible();
-	await expect(strip.getByTestId("deck-breadcrumb-tail")).toHaveText(tail);
-	// No page-level breadcrumb anywhere — that component is gone.
-	await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
-}
-
 test.describe("Command Deck breadcrumb tail", () => {
 	test.describe("desktop", () => {
 		test.use({ viewport: { width: 1280, height: 800 } });
@@ -86,7 +77,7 @@ test.describe("Command Deck breadcrumb tail", () => {
 			await mockApi({ projects: [proj], workflows: [publishNotes] });
 			await page.goto("/workflows/publish-notes");
 
-			await expectTail(page, "publish-notes");
+			await expectDeckBreadcrumb(page, { tail: "publish-notes" });
 			await captureEvidence(page, testInfo, "breadcrumb-tail-param-desktop");
 		});
 
@@ -95,7 +86,7 @@ test.describe("Command Deck breadcrumb tail", () => {
 			await mockApi({ projects: [proj], runs: [nightlyRun] });
 			await page.goto("/runs/run-tail-1");
 
-			await expectTail(page, "nightly-digest");
+			await expectDeckBreadcrumb(page, { tail: "nightly-digest" });
 			await expect(page.getByTestId("deck-breadcrumb-tail")).not.toHaveText("run-tail-1");
 			await captureEvidence(page, testInfo, "breadcrumb-tail-runtime-desktop");
 		});
@@ -109,7 +100,7 @@ test.describe("Command Deck breadcrumb tail", () => {
 			await page.goto("/workflows/runs/wfrun-tail-1");
 
 			await expect(page.getByTestId("run-trace")).toBeVisible();
-			await expectTail(page, "publish-notes");
+			await expectDeckBreadcrumb(page, { tail: "publish-notes" });
 		});
 
 		test("shows no tail at all for a run it cannot name", async ({ page, mockApi }) => {
@@ -118,21 +109,31 @@ test.describe("Command Deck breadcrumb tail", () => {
 			await mockApi({ projects: [proj], runs: [] });
 			await page.goto("/runs/run-does-not-exist");
 
-			const strip = page.getByTestId("deck-breadcrumb");
-			await expect(strip).toBeVisible();
-			await expect(strip.getByTestId("deck-breadcrumb-tail")).toHaveCount(0);
-			await expect(strip).not.toContainText("run-does-not-exist");
+			await expectDeckBreadcrumb(page, { tail: null });
+			await expect(page.getByTestId("deck-breadcrumb")).not.toContainText("run-does-not-exist");
 		});
 
 		test("drops the previous subject when navigating between detail routes", async ({ page, mockApi }) => {
-			// The runtime tail is tagged with the path that published it, so a
-			// stale fetch can never label the page the user moved on to.
+			// The runtime tail is tagged with the PATHNAME that published it
+			// (`setBreadcrumbTail`'s guard in `$lib/breadcrumb-tail.svelte.ts`)
+			// specifically so a stale fetch can't label a page the user has
+			// since moved on to. Two `page.goto` calls can never prove that: each
+			// is a full page load, which tears down and re-creates every module
+			// — including the tagged runtime state — so the guard is never
+			// exercised, only the tail's initial resolution on a fresh load.
+			// Client-side navigation keeps the SPA (and its module state) alive
+			// across the route change, which is the one path the tag exists for.
 			await mockApi({ projects: [proj], runs: [nightlyRun], workflows: [publishNotes] });
 			await page.goto("/runs/run-tail-1");
-			await expectTail(page, "nightly-digest");
+			await expectDeckBreadcrumb(page, { tail: "nightly-digest" });
 
-			await page.goto("/workflows/publish-notes");
-			await expectTail(page, "publish-notes");
+			await page.getByTestId("desktop-sidebar").getByRole("link", { name: "Workflows" }).click();
+			await expect(page).toHaveURL(/\/workflows\/?$/);
+			await expectDeckBreadcrumb(page, { tail: null });
+
+			await page.getByRole("link", { name: "publish-notes" }).click();
+			await expect(page).toHaveURL(/\/workflows\/publish-notes$/);
+			await expectDeckBreadcrumb(page, { tail: "publish-notes" });
 		});
 	});
 
@@ -143,7 +144,7 @@ test.describe("Command Deck breadcrumb tail", () => {
 			await mockApi({ projects: [proj], runs: [nightlyRun] });
 			await page.goto("/runs/run-tail-1");
 
-			await expectTail(page, "nightly-digest");
+			await expectDeckBreadcrumb(page, { tail: "nightly-digest" });
 			await captureEvidence(page, testInfo, "breadcrumb-tail-runtime-mobile");
 		});
 	});

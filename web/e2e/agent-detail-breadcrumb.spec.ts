@@ -5,11 +5,12 @@
  * The page used to render its own phone-only `<Breadcrumb>` on top of the
  * Command Deck strip, which the `.deck-breadcrumb` rule in `app.css` keeps
  * visible at every width — so phones showed two breadcrumbs stacked. The page
- * breadcrumb is gone; the strip now carries the agent name as the trailing
- * crumb, resolved from the route param by `$lib/breadcrumb-tail.svelte.ts`.
- * The in-page "Back to Agents" link is no longer desktop-only, because the
- * strip's "Agents" crumb is plain text and the phone lost its only in-context
- * way back.
+ * breadcrumb is gone; the strip is now the app's ONE accessible breadcrumb
+ * (`<nav aria-label="Breadcrumb">`) and carries the agent name as its
+ * trailing crumb, resolved from the route param by
+ * `$lib/breadcrumb-tail.svelte.ts`. Its "Agents" crumb links back to
+ * `/agents`. The in-page "Back to Agents" link is no longer desktop-only —
+ * it still shows on phones as a second, in-context way back.
  *
  * The percent-sign case is the resolver's contract in the real router:
  * SvelteKit decodes the pathname before it matches a route, so the crumb must
@@ -21,6 +22,7 @@
  */
 import { test, expect } from "./fixtures/test-base.js";
 import { captureEvidence } from "./fixtures/evidence.js";
+import { expectDeckBreadcrumb } from "./fixtures/breadcrumb.js";
 import { makeAgent, makeProject } from "./fixtures/data.js";
 
 const proj = makeProject({ id: "proj-agent-breadcrumb", name: "Agent Workspace" });
@@ -29,17 +31,6 @@ const summarizer = makeAgent({
 	description: "Summarizes long text into concise summaries",
 	capabilities: ["text-processing", "nlp"],
 });
-
-/** The strip is the only breadcrumb, and its trailing crumb is the agent. */
-async function expectSoleBreadcrumb(page: import("@playwright/test").Page, agentName: string) {
-	const strip = page.getByTestId("deck-breadcrumb");
-	await expect(strip).toHaveCount(1);
-	await expect(strip).toBeVisible();
-	await expect(strip).toContainText("Agents");
-	await expect(strip.getByTestId("deck-breadcrumb-tail")).toHaveText(agentName);
-	// The page-level phone breadcrumb is gone — no second crumb trail anywhere.
-	await expect(page.getByRole("navigation", { name: "Breadcrumb" })).toHaveCount(0);
-}
 
 test.describe("Agent detail breadcrumb", () => {
 	test.describe("desktop", () => {
@@ -50,7 +41,7 @@ test.describe("Agent detail breadcrumb", () => {
 			await page.goto("/agents/summarizer");
 
 			await expect(page.getByRole("heading", { name: "summarizer" })).toBeVisible();
-			await expectSoleBreadcrumb(page, "summarizer");
+			await expectDeckBreadcrumb(page, { section: "Agents", tail: "summarizer" });
 			await expect(page.getByTestId("agent-back-link")).toBeVisible();
 			await captureEvidence(page, testInfo, "agent-detail-breadcrumb-desktop");
 		});
@@ -64,9 +55,9 @@ test.describe("Agent detail breadcrumb", () => {
 			await page.goto("/agents/summarizer");
 
 			await expect(page.getByRole("heading", { name: "summarizer" })).toBeVisible();
-			await expectSoleBreadcrumb(page, "summarizer");
-			// The strip's "Agents" crumb is plain text, so the phone keeps this
-			// link as its in-context way back (it used to be desktop-only).
+			await expectDeckBreadcrumb(page, { section: "Agents", tail: "summarizer" });
+			// The strip's "Agents" crumb is a link, but the phone still keeps this
+			// in-page link as a second way back (it used to be desktop-only).
 			await expect(page.getByTestId("agent-back-link")).toBeVisible();
 			await captureEvidence(page, testInfo, "agent-detail-breadcrumb-mobile");
 		});
