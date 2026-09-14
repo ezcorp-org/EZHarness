@@ -24,6 +24,11 @@
 # from tests/postgres/ on disk, so the next unregistered suite fails closed
 # instead of waiting for another audit.
 #
+# W04a adds `factory-archive-writer` to the assurance and release job: the
+# archive-writer role needs the ordinary S3 service for the material bytes it
+# archives and the separately credentialed archive service for the immutable
+# recovery set, and that job already starts both.
+#
 # W18 also split the assurance and release producers into their own job so the
 # C11 required check `Factory assurance and release` names a real producer set
 # rather than hiding inside a bundled job. GitHub Actions cannot share one
@@ -248,6 +253,7 @@ jobs:
           --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-assurance-release
           ./tests/postgres/factory-releases.test.ts
           ./tests/postgres/factory-release-authority.test.ts
+          ./tests/postgres/factory-archive-writer.test.ts
           ./tests/postgres/factory-validator-materials.test.ts
           ./tests/postgres/factory-validator-multiclaim.test.ts
           ./tests/postgres/factory-child-artifacts.test.ts
