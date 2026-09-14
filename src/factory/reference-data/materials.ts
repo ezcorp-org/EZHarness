@@ -28,6 +28,9 @@ import { digestBytes } from "../../extensions/v4/blobs";
  * so there is no second copy of chunking, digesting, admission, or authority.
  */
 
+/** The uid every isolated guest runs as, and therefore the uid its output directory belongs to. */
+const GUEST_UID = 65534;
+
 /** Where the guest's inputs are staged. Read-only in practice; the guest is never asked to write here. */
 export const REFERENCE_DATA_GUEST_INPUT = "in";
 /** Where the guest leaves its outputs. */
@@ -41,6 +44,7 @@ export class ReferenceDataMaterialError extends Error {
       | "reference_data_material_empty"
       | "reference_data_material_oversized"
       | "reference_data_material_name_invalid"
+      | "reference_data_material_unowned"
       | "reference_data_material_unsealed",
     message: string,
   ) {
@@ -52,22 +56,44 @@ export class ReferenceDataMaterialError extends Error {
 /**
  * The per-attempt directory the runner mounts at `/materials`.
  *
- * The output directory is group- and world-writable because a guest runs as
- * uid 65534 inside its own user namespace and the host cannot know which
- * subordinate uid that maps to. The directory itself lives inside a private
- * `mkdtemp` root, so nothing outside this attempt can reach it, and the host
- * still owns it, which is what lets the host delete what the guest wrote.
+ * The output directory is given to the GUEST, not to the world. A guest runs as
+ * uid 65534 inside its own user namespace, which the host sees as a subordinate
+ * uid it cannot compute itself, so `podman unshare chown` performs the mapping:
+ * the directory ends up owned by that mapped uid with the host user as its
+ * group, mode 0o770. The guest writes as owner, the host reads and cleans up as
+ * group, and nothing is world-writable or world-readable.
+ *
+ * Inputs stay owned by the host at 0o755 and 0o644: the guest only has to read
+ * them, and a directory the guest could write is a directory it could replace
+ * an input in.
  */
 export class ReferenceDataGuestDirectory {
   private constructor(readonly root: string) {}
 
-  static async create(parent?: string): Promise<ReferenceDataGuestDirectory> {
+  static async create(parent?: string, podman = "podman"): Promise<ReferenceDataGuestDirectory> {
     const root = await mkdtemp(join(parent ?? "/tmp", "ez-refdata-materials-"));
+    const output = join(root, REFERENCE_DATA_GUEST_OUTPUT);
     await mkdir(join(root, REFERENCE_DATA_GUEST_INPUT), { recursive: true });
-    await mkdir(join(root, REFERENCE_DATA_GUEST_OUTPUT), { recursive: true });
+    await mkdir(output, { recursive: true });
     await chmod(root, 0o755);
     await chmod(join(root, REFERENCE_DATA_GUEST_INPUT), 0o755);
-    await chmod(join(root, REFERENCE_DATA_GUEST_OUTPUT), 0o777);
+    // The mode is set BEFORE the ownership moves, because afterwards this user
+    // is only the group and cannot change it.
+    await chmod(output, 0o770);
+    // A host with no container runtime fails CLOSED. Falling back to a wider
+    // mode would be the world-writable directory this exists to avoid, and
+    // `spawnSync` raises rather than returning a code when the binary is absent.
+    let reason: string | undefined;
+    try {
+      const handover = Bun.spawnSync([podman, "unshare", "chown", `${GUEST_UID}:0`, output]);
+      if (handover.exitCode !== 0) reason = new TextDecoder().decode(handover.stderr).trim() || `exit ${handover.exitCode}`;
+    } catch (error) {
+      reason = error instanceof Error ? error.message : String(error);
+    }
+    if (reason !== undefined) {
+      await rm(root, { recursive: true, force: true });
+      throw new ReferenceDataMaterialError("reference_data_material_unowned", `The guest's output directory could not be handed to uid ${GUEST_UID}: ${reason}.`);
+    }
     return new ReferenceDataGuestDirectory(root);
   }
 

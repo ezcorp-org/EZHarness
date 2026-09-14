@@ -74,7 +74,15 @@ test("the per-attempt directory is laid out so a guest running as another user c
     // uid, which is a different user in a different namespace.
     const { stat } = await import("node:fs/promises");
     expect((await stat(join(created.root, "in/a.csv"))).mode & 0o777).toBe(0o644);
-    expect((await stat(join(created.root, "out"))).mode & 0o777).toBe(0o777);
+    // The output directory belongs to the GUEST, not to the world: the mapped
+    // uid owns it, this user is only its group, and "other" gets nothing.
+    const output = await stat(join(created.root, "out"));
+    expect(output.mode & 0o777).toBe(0o770);
+    expect(output.mode & 0o007).toBe(0);
+    expect(output.uid).not.toBe(process.getuid?.());
+    expect(output.gid).toBe(process.getgid?.() as number);
+    // Inputs stay this user's, so a guest cannot replace what it was given.
+    expect((await stat(join(created.root, "in"))).uid).toBe(process.getuid?.() as number);
   } finally {
     await created.dispose();
   }
@@ -221,6 +229,18 @@ test("a staged name that already exists is refused rather than overwritten", asy
     expect(await readFile(join(created.root, "in/a.csv"), "utf8")).toBe("first");
   } finally {
     await created.dispose();
+  }
+});
+
+test("a host with no container runtime fails closed rather than falling back to a wider mode", async () => {
+  const parent = await mkdtemp(join(tmpdir(), "refdata-no-podman-"));
+  try {
+    await expect(ReferenceDataGuestDirectory.create(parent, "/nonexistent/podman")).rejects.toMatchObject({ code: "reference_data_material_unowned" });
+    // And it leaves nothing behind that a later run could inherit.
+    const { readdir } = await import("node:fs/promises");
+    expect(await readdir(parent)).toEqual([]);
+  } finally {
+    await rm(parent, { recursive: true, force: true });
   }
 });
 

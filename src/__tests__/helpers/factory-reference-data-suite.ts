@@ -265,7 +265,7 @@ test("the golden three-row input runs C10's whole graph and every protected clai
   expect(journey.input.operationId).toBe(referenceDataOperationId(scope.operationId, "source"));
   expect(journey.snapshot.operationId).toBe(referenceDataOperationId(scope.operationId, "source"));
   expect(journey.partitions[0]?.partition.operationId).toBe(referenceDataOperationId(scope.operationId, "partitions"));
-  expect(journey.partitions[0]?.summary.operationId).toBe(referenceDataOperationId(scope.operationId, "partitions"));
+  expect(journey.summaries.operationId).toBe(referenceDataOperationId(scope.operationId, "partitions"));
   expect(journey.partitions[0]?.parquet.operationId).toBe(referenceDataOperationId(scope.operationId, "export"));
   expect(journey.manifest.operationId).toBe(referenceDataOperationId(scope.operationId, "export"));
   expect(journey.dataset.operationId).toBe(referenceDataOperationId(scope.operationId, "export"));
@@ -505,9 +505,12 @@ test("a 256 MiB input runs the whole graph and reconciles exactly, and one byte 
   expect(journey.partitions.length).toBeLessThanOrEqual(REFERENCE_DATA_LIMITS.maxPartitions);
   const rows = journey.partitions.reduce((sum, record) => sum + record.rowCount, 0);
   expect(rows).toBeLessThanOrEqual(REFERENCE_DATA_LIMITS.maxRows);
-  // One operation holds every published object, and it stays inside W04's bound.
+  // One operation holds every published object, and every operation stays well
+  // inside W04's frozen cap even at C10's declared maximum: `source` 2,
+  // `partitions` one per partition plus a single combined summary, `export` one
+  // per partition plus the manifest and the candidate.
   expect(new Set(journey.partitions.map(record => record.parquet.operationId)).size).toBe(1);
-  expect(journey.partitions.length + 2).toBeLessThanOrEqual(FACTORY_MATERIAL_LIMITS.maxObjectsPerOperation);
+  expect(REFERENCE_DATA_LIMITS.maxPartitions + 2).toBeLessThanOrEqual(FACTORY_MATERIAL_LIMITS.maxObjectsPerOperation - 150);
 
   const manifest = assertReferenceDataManifest(JSON.parse(new TextDecoder().decode(await whole(built.reader, built.scope, journey.manifest))) as unknown);
   expect(manifest.rowCount).toBe(rows);
@@ -521,6 +524,24 @@ test("a 256 MiB input runs the whole graph and reconciles exactly, and one byte 
   await expect(runReferenceDataJourney(over.options, () => referenceDataBoundaryInput(REFERENCE_DATA_LIMITS.maxBytes + 1), "boundary-over")).rejects.toMatchObject({ code: "reference_data_material_oversized" });
 }, 5_400_000);
 
+test("correcting the input is a new snapshot and a new run, never a rewrite of the old one", async () => {
+  const fixture = await fresh();
+  const { options, materials, scope } = await world(fixture);
+  const first = await runReferenceDataJourney(options, () => csv(`${REFERENCE_DATA_HEADER}\na,alpha,100\n`), "v1");
+  // The same object name at the same version cannot be re-begun with different
+  // bytes: W04 refuses the plan, so the decided snapshot cannot be replaced.
+  const source = { ...scope, operationId: referenceDataOperationId(scope.operationId, "source") };
+  await expect(materials.begin({ ...source, objectName: "input.csv", version: 1 }, "text/csv", 999, 1)).rejects.toMatchObject({ code: "factory_material_conflict" });
+  const corrected = await world(fixture);
+  const second = await runReferenceDataJourney(corrected.options, () => csv(`${REFERENCE_DATA_HEADER}\na,alpha,101\n`), "v2");
+  expect(second.input.digest).not.toBe(first.input.digest);
+  expect(second.snapshot.digest).not.toBe(first.snapshot.digest);
+}, 900_000);
+
+// Declared LAST on purpose. It is the heaviest case and the one that consumes
+// the most of W04's per-operation object budget, so running it after every
+// sibling is what proves the budget holds in a full-file run rather than only
+// in isolation.
 test("the maximum row count runs the whole graph, and one row more is refused", async () => {
   const fixture = await fresh();
   if (!fixture.large) {
@@ -568,19 +589,5 @@ test("the maximum row count runs the whole graph, and one row more is refused", 
   expect(failure).toMatchObject({ code: "reference_data_attempt_failed" });
   expect((failure as Error).message).toContain("row_limit");
 }, 5_400_000);
-
-test("correcting the input is a new snapshot and a new run, never a rewrite of the old one", async () => {
-  const fixture = await fresh();
-  const { options, materials, scope } = await world(fixture);
-  const first = await runReferenceDataJourney(options, () => csv(`${REFERENCE_DATA_HEADER}\na,alpha,100\n`), "v1");
-  // The same object name at the same version cannot be re-begun with different
-  // bytes: W04 refuses the plan, so the decided snapshot cannot be replaced.
-  const source = { ...scope, operationId: referenceDataOperationId(scope.operationId, "source") };
-  await expect(materials.begin({ ...source, objectName: "input.csv", version: 1 }, "text/csv", 999, 1)).rejects.toMatchObject({ code: "factory_material_conflict" });
-  const corrected = await world(fixture);
-  const second = await runReferenceDataJourney(corrected.options, () => csv(`${REFERENCE_DATA_HEADER}\na,alpha,101\n`), "v2");
-  expect(second.input.digest).not.toBe(first.input.digest);
-  expect(second.snapshot.digest).not.toBe(first.snapshot.digest);
-}, 900_000);
 });
 }

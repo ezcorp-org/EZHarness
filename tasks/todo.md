@@ -2561,9 +2561,20 @@ what C13 forbids, and collapsing them crosses both packages' files.
 
 ### W12 review
 
-Every checklist row is closed with a receipt. The pass criterion held: the real exported Parquet
-and its manifest reconcile exactly with the immutable source, including order, and publish through
-W08 to a real object store that hands the same bytes back.
+The pass criterion held: the real exported Parquet and its manifest reconcile exactly with the
+immutable source, including order, and publish through W08 to a real object store that hands the
+same bytes back.
+
+**On the order of events, because the first version of this paragraph got it wrong.** It declared
+every row closed at a commit whose timestamp preceded the only then-current passing receipt for the
+real-services leg, which is a claim the evidence did not support when it was written. What actually
+happened: the embedded-database journey passed first; the real-PostgreSQL and S3 leg passed next,
+including the W08 publication and the 256 MiB boundary; the maximum-row boundary was added after
+that and passed on its own; and a faithful full-file rerun then FAILED it with
+`factory_material_operation_full`, because a hundred partitions left too thin a margin against
+W04's frozen per-operation object cap. That is fixed by folding the hundred per-partition summaries
+into one material, and the case is now declared last so a full-file run is what proves it. The
+receipts in `tasks/factory/w12-GATES.md` name the commit for each.
 
 The package began with a wall, not with code. The isolated guest had no byte path out above one
 mebibyte for its whole lifetime, so no domain pack could return a real Parquet partition, a real

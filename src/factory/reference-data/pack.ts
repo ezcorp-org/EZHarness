@@ -45,6 +45,8 @@ export const REFERENCE_DATA_INPUT_OBJECT = "input.csv";
 export const REFERENCE_DATA_SNAPSHOT_OBJECT = "snapshot.json";
 export const REFERENCE_DATA_PARTITIONS_OBJECT = "partitions.json";
 export const REFERENCE_DATA_DATASET_OBJECT = "dataset.json";
+/** Every partition's transform report, in order, as ONE material. */
+export const REFERENCE_DATA_SUMMARIES_OBJECT = "partition-summaries.json";
 
 /**
  * The three C02 operations one journey writes into.
@@ -122,7 +124,16 @@ export interface ReferenceDataPartitionRecord {
   readonly index: number;
   readonly partition: ReferenceDataMaterial;
   readonly parquet: ReferenceDataMaterial;
-  readonly summary: ReferenceDataMaterial;
+  /**
+   * The transform's own report for this partition.
+   *
+   * It is held here and sealed ONCE for the whole run rather than as a material
+   * each, because W04 admits at most `maxObjectsPerOperation` objects under one
+   * operation and C10's hundred partitions would otherwise leave a margin too
+   * thin to be confident in. It is not evidence either way: the protected
+   * reconciliation recomputes every number in it.
+   */
+  readonly summary: Record<string, JsonValue>;
   readonly rowCount: number;
 }
 
@@ -130,6 +141,8 @@ export interface ReferenceDataJourney {
   readonly input: ReferenceDataMaterial;
   readonly snapshot: ReferenceDataMaterial;
   readonly partitions: readonly ReferenceDataPartitionRecord[];
+  /** Every partition's transform report, in order, as one durable material. */
+  readonly summaries: ReferenceDataMaterial;
   readonly manifest: ReferenceDataMaterial;
   readonly dataset: ReferenceDataMaterial;
   readonly attempts: readonly ReferenceDataAttemptRecord[];
@@ -393,23 +406,36 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
     });
     attempts.push(transform.attempt);
     const parquet = await sealProduced(options, transform.directory, transform.attempt, ReferenceDataGuestDirectory.output(referenceDataPartitionName(index)), referenceDataPartitionName(index), REFERENCE_DATA_PARQUET_MEDIA_TYPE, "export", reportedFile(transform.attempt.report, "file", "transformPartition"));
-    const summaryName = `part-${String(index).padStart(5, "0")}.summary.json`;
-    const summary = await sealReferenceDataMaterial(
-      options.materials,
-      { ...scopeFor(options, "partitions"), objectName: summaryName, version: 1 },
-      REFERENCE_DATA_JSON_MEDIA_TYPE,
-      transform.attempt.result.status === "completed" ? transform.attempt.result.output.encodedBytes : 0,
-      transform.directory.collect(ReferenceDataGuestDirectory.output(summaryName)),
-    );
     await transform.directory.dispose();
-    partitions.push(Object.freeze({ index, partition: partitionMaterial, parquet, summary, rowCount: declaredRows[index] as number }));
+    partitions.push(Object.freeze({ index, partition: partitionMaterial, parquet, summary: transform.attempt.report, rowCount: declaredRows[index] as number }));
   }
 
+  // One material for every partition's report, not one each. At C10's hundred
+  // partitions that is the difference between 101 and 200 objects under the
+  // `partitions` operation, against a frozen cap of 256.
+  const summaryBytes = encoder.encode(JSON.stringify(partitions.map(record => record.summary)));
+  const summaries = await sealReferenceDataMaterial(
+    options.materials,
+    { ...scopeFor(options, "partitions"), objectName: REFERENCE_DATA_SUMMARIES_OBJECT, version: 1 },
+    REFERENCE_DATA_JSON_MEDIA_TYPE,
+    summaryBytes.byteLength,
+    (async function* () {
+      yield summaryBytes;
+    })(),
+  );
+
   const reduce = await withDirectory(options, async directory => {
+    // The reduction's inputs are read back out of the sealed material, so it
+    // reads durable bytes rather than whatever the host happens to still hold.
+    const stored = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await concat(readReferenceDataMaterial(options.reader, options.scope, summaries)))) as unknown;
+    if (!Array.isArray(stored) || stored.length !== partitions.length) throw new ReferenceDataPackError("reference_data_report_invalid", `The sealed partition summaries hold ${Array.isArray(stored) ? stored.length : 0} entries for ${partitions.length} partition(s).`);
     const reports: string[] = [];
-    for (const record of partitions) {
-      const name = ReferenceDataGuestDirectory.input(record.summary.objectName);
-      await directory.stage(name, readReferenceDataMaterial(options.reader, options.scope, record.summary));
+    for (const [index, report] of stored.entries()) {
+      const name = ReferenceDataGuestDirectory.input(`part-${String(index).padStart(5, "0")}.summary.json`);
+      const bytes = encoder.encode(JSON.stringify(report));
+      await directory.stage(name, (async function* () {
+        yield bytes;
+      })());
       reports.push(name);
     }
     return {
@@ -435,7 +461,7 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
   );
   await reduce.directory.dispose();
 
-  return Object.freeze({ input: sealedInput, snapshot, partitions: Object.freeze(partitions), manifest, dataset, attempts: Object.freeze(attempts) });
+  return Object.freeze({ input: sealedInput, snapshot, partitions: Object.freeze(partitions), summaries, manifest, dataset, attempts: Object.freeze(attempts) });
 }
 
 /** The scope one step seals and reads under. */
