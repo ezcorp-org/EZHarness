@@ -4,7 +4,34 @@ import { randomUUID } from "node:crypto";
 export const POOL_RESOURCE_CLASSES = ["cpu", "memory", "provider", "gpu-host"] as const;
 export type PoolResourceClass = typeof POOL_RESOURCE_CLASSES[number];
 export type PoolResourceVector = Readonly<Partial<Record<PoolResourceClass, number>>>;
-export type PoolLeaseState = "queued" | "held" | "running" | "revoking" | "uncertain" | "settled" | "rejected";
+/**
+ * Durable reservation states. C03's table names the first state `requested` and
+ * lists no rejection state; this ledger keeps the durable names `queued` and
+ * `rejected`, which the `factory_pool_requests` CHECK constraint below is built
+ * from. `docs/factory-pool-admission.md` records the exact mapping and why the
+ * names differ; POOL_STATE_CONTRACT_MAPPING is its executable copy.
+ */
+export const POOL_LEASE_STATES = ["queued", "held", "running", "revoking", "uncertain", "settled", "rejected"] as const;
+export type PoolLeaseState = typeof POOL_LEASE_STATES[number];
+
+/** The six reservation states named by the C03 contract table, in contract order. */
+export const C03_RESERVATION_STATES = ["requested", "held", "running", "revoking", "uncertain", "settled"] as const;
+export type C03ReservationState = typeof C03_RESERVATION_STATES[number];
+
+/**
+ * Ledger state to C03 contract state. `queued` and `rejected` are both the
+ * contract's `requested` row: "wait for budget/capacity or fail by the
+ * admission deadline". A rejected request never held capacity.
+ */
+export const POOL_STATE_CONTRACT_MAPPING: Readonly<Record<PoolLeaseState, C03ReservationState>> = Object.freeze({
+  queued: "requested",
+  held: "held",
+  running: "running",
+  revoking: "revoking",
+  uncertain: "uncertain",
+  settled: "settled",
+  rejected: "requested",
+});
 
 /** Structural Bun.sql subset; this database is intentionally not the product database. */
 export interface PoolSql {
@@ -82,9 +109,29 @@ export interface PoolLeaseStatus {
 
 const leaseMs = 30_000;
 const ageLaneMs = 30_000;
-const perTenantQueueLimit = 10_000;
-const poolQueueLimit = 100_000;
 const resourceSet = new Set<string>(POOL_RESOURCE_CLASSES);
+
+export interface PoolQueueLimits {
+  /** Outstanding admission requests allowed for one tenant. */
+  readonly perTenant: number;
+  /** Outstanding admission requests allowed across the whole pool. */
+  readonly pool: number;
+}
+
+/** C03 bounds outstanding admission requests at 10,000 per tenant and 100,000 per pool. */
+export const POOL_DEFAULT_QUEUE_LIMITS: PoolQueueLimits = Object.freeze({ perTenant: 10_000, pool: 100_000 });
+
+/** C03 rejects a new start on a full queue with HTTP 429 and a retry interval. */
+export const POOL_QUEUE_FULL_REASON = "queue-full";
+export const POOL_QUEUE_FULL_HTTP_STATUS = 429;
+export const POOL_QUEUE_FULL_RETRY_SECONDS = 1;
+
+/** A deployment may tighten an outstanding-request bound. It may never raise one. */
+function boundedLimit(value: number | undefined, maximum: number): number {
+  if (value === undefined) return maximum;
+  if (!Number.isSafeInteger(value) || value < 1 || value > maximum) throw new Error("Pool outstanding-request limit must be a whole number between 1 and the C03 maximum.");
+  return value;
+}
 
 function rows<Result>(result: unknown): Result[] {
   if (Array.isArray(result)) return result as Result[];
@@ -246,7 +293,7 @@ export async function setupFactoryPoolLedger(database: Pick<PoolSql, "unsafe">):
     node_id text NOT NULL DEFAULT '',
     queued_at timestamptz NOT NULL,
     admission_deadline timestamptz NOT NULL,
-    state text NOT NULL CHECK (state IN ('queued', 'held', 'running', 'revoking', 'uncertain', 'settled', 'rejected')),
+    state text NOT NULL CHECK (state IN (${POOL_LEASE_STATES.map(state => `'${state}'`).join(", ")})),
     allocation_generation integer NOT NULL DEFAULT 1 CHECK (allocation_generation > 0),
     holder_generation integer NOT NULL DEFAULT 0 CHECK (holder_generation >= 0),
     allocation_token text,
@@ -261,7 +308,14 @@ export async function setupFactoryPoolLedger(database: Pick<PoolSql, "unsafe">):
 }
 
 export class FactoryPoolLedger {
-  constructor(private readonly database: PoolSql, private readonly clock: PoolClock = { now: () => new Date() }) {}
+  private readonly limits: PoolQueueLimits;
+
+  constructor(private readonly database: PoolSql, private readonly clock: PoolClock = { now: () => new Date() }, limits: Partial<PoolQueueLimits> = {}) {
+    this.limits = Object.freeze({ perTenant: boundedLimit(limits.perTenant, POOL_DEFAULT_QUEUE_LIMITS.perTenant), pool: boundedLimit(limits.pool, POOL_DEFAULT_QUEUE_LIMITS.pool) });
+  }
+
+  /** The outstanding-request bounds this ledger compares against. */
+  get queueLimits(): PoolQueueLimits { return this.limits; }
 
   /** Validate and snapshot a request before any caller writes related durable facts. */
   validateRequest(input: PoolRequest): PoolRequest {
@@ -342,7 +396,7 @@ export class FactoryPoolLedger {
       }
       const tenantQueued = rows<{ count: number | string }>(await transaction.unsafe("SELECT COUNT(*) AS count FROM factory_pool_requests WHERE tenant_id = $1 AND state = 'queued'", [input.tenantId]))[0];
       const allQueued = rows<{ count: number | string }>(await transaction.unsafe("SELECT COUNT(*) AS count FROM factory_pool_requests WHERE state = 'queued'"))[0];
-      if (Number(tenantQueued?.count ?? 0) >= perTenantQueueLimit || Number(allQueued?.count ?? 0) >= poolQueueLimit) return { status: "rejected", reservationId: input.reservationId, reason: "queue-full", retryAfterSeconds: 1 };
+      if (Number(tenantQueued?.count ?? 0) >= this.limits.perTenant || Number(allQueued?.count ?? 0) >= this.limits.pool) return { status: "rejected", reservationId: input.reservationId, reason: POOL_QUEUE_FULL_REASON, retryAfterSeconds: POOL_QUEUE_FULL_RETRY_SECONDS };
       await transaction.unsafe("INSERT INTO factory_pool_tenants(tenant_id, weight) VALUES ($1, 1) ON CONFLICT DO NOTHING", [input.tenantId]);
       await transaction.unsafe("INSERT INTO factory_pool_requests(reservation_id, tenant_id, grant_revision, resources_json, priority, ready_sequence, node_id, queued_at, admission_deadline, state, fence) VALUES ($1,$2,$3,$4::jsonb,$5,$6,$7,$8,$9,'queued',$10)", [input.reservationId, input.tenantId, input.grantRevision, vectorJson(vector), input.priority ?? 0, input.readySequence ?? 0, input.nodeId ?? "", iso(now), iso(input.admissionDeadline), randomUUID()]);
       return { status: "queued", reservationId: input.reservationId, queueAgeMs: 0 };
@@ -596,9 +650,9 @@ export class FactoryPoolLedger {
     }
     if (!allowed.length) return undefined;
     const served = new Set(rows<{ resource_class: PoolResourceClass; tenant_id: string }>(await transaction.unsafe("SELECT resource_class, tenant_id FROM factory_pool_round_members FOR SHARE")).map(row => `${row.resource_class}:${row.tenant_id}`));
-    const inRound = allowed.filter(candidate => this.isRoundEligible(candidate, allowed, served));
+    const inRound = allowed.filter(candidate => this.isRoundEligible(candidate, served));
     if (inRound.length) return inRound[0];
-    // Every feasible tenant for its requested classes has had one allocation.
+    // Every feasible tenant has taken its turn in every class it asked for.
     // Start the next deterministic round; this does not free or invent capacity.
     await transaction.unsafe("DELETE FROM factory_pool_round_members");
     return allowed[0];
@@ -623,14 +677,17 @@ export class FactoryPoolLedger {
   }
 
 
-  private isRoundEligible(candidate: RequestRow, candidates: readonly RequestRow[], served: ReadonlySet<string>): boolean {
+  /**
+   * C03 gives each runnable tenant one feasible allocation per round for each
+   * resource class it requests, so a tenant that already took its turn in any
+   * class it needs waits for the next round. Ending the round is what returns
+   * the turn: an earlier rule let a served tenant run again whenever no peer
+   * was still unserved, which never ended the round and let the smallest tenant
+   * id take every allocation once finished work released its capacity.
+   */
+  private isRoundEligible(candidate: RequestRow, served: ReadonlySet<string>): boolean {
     const vector = decodeVector(candidate.resources_json);
-    for (const resourceClass of POOL_RESOURCE_CLASSES) {
-      if (vector[resourceClass] === undefined || !served.has(`${resourceClass}:${candidate.tenant_id}`)) continue;
-      const unservedPeer = candidates.some(peer => peer.tenant_id !== candidate.tenant_id && decodeVector(peer.resources_json)[resourceClass] !== undefined && !served.has(`${resourceClass}:${peer.tenant_id}`));
-      if (unservedPeer) return false;
-    }
-    return true;
+    return POOL_RESOURCE_CLASSES.every(resourceClass => vector[resourceClass] === undefined || !served.has(`${resourceClass}:${candidate.tenant_id}`));
   }
 
   private async respectsReservedMinimums(transaction: PoolSql, tenantId: string, vector: PoolResourceVector, capacities: Record<PoolResourceClass, { total: number; allocated: number }>): Promise<boolean> {

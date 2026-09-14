@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { FactoryPoolLedger, type PoolClock, type PoolLease, type PoolRequest, type PoolSql } from "../../factory/pool";
+import { readFile } from "node:fs/promises";
+import { C03_RESERVATION_STATES, FactoryPoolLedger, POOL_DEFAULT_QUEUE_LIMITS, POOL_LEASE_STATES, POOL_STATE_CONTRACT_MAPPING, type PoolClock, type PoolLease, type PoolLeaseState, type PoolRequest, type PoolSql } from "../../factory/pool";
 
 export interface FactoryPoolConformanceFixture {
   readonly name: string;
@@ -35,6 +36,14 @@ async function admitted(pool: FactoryPoolLedger): Promise<PoolLease> {
   const decision = await pool.schedule();
   if (decision?.status !== "admitted" || !decision.lease) throw new Error("Expected an admitted pool lease.");
   return decision.lease;
+}
+
+/** Admit one request, finish it, and return its capacity before the next round. */
+async function cycle(pool: FactoryPoolLedger): Promise<PoolLease> {
+  const lease = await admitted(pool);
+  await pool.revoke(lease.reservationId, lease.allocationGeneration);
+  await pool.confirmStopped({ reservationId: lease.reservationId, holderGeneration: lease.holderGeneration });
+  return lease;
 }
 
 /** Runs C03 ledger behavior against an isolated database fixture. */
@@ -233,6 +242,104 @@ describe(`factory C03 pool admission ledger on ${fixture.name}`, () => {
     expect(await pool.schedule()).toMatchObject({ status: "queued", reservationId: "recovery-new" });
     await pool.confirmStopped({ reservationId: "recovery-old", holderGeneration: 1 });
     expect(await pool.schedule()).toMatchObject({ status: "admitted", reservationId: "recovery-new" });
+  });
+
+  test("serves persistently queued tenants one allocation per round, ordered inside a tenant by priority, ready sequence, then node identity", async () => {
+    await pool.configureCapacity("cpu", 1);
+    // Unequal weights order a round. They never buy a second turn inside one.
+    await pool.setTenantPolicy({ tenantId: "tenant-a", weight: 1 });
+    await pool.setTenantPolicy({ tenantId: "tenant-b", weight: 3 });
+    await pool.setTenantPolicy({ tenantId: "tenant-c", weight: 2 });
+    const queue: Array<[string, string, Partial<PoolRequest>]> = [
+      ["a-priority", "tenant-a", { priority: 5, readySequence: 9, nodeId: "node-a" }],
+      ["a-ready", "tenant-a", { priority: 1, readySequence: 2, nodeId: "node-a" }],
+      ["a-late", "tenant-a", { priority: 1, readySequence: 7, nodeId: "node-a" }],
+      ["b-node-a", "tenant-b", { priority: 0, readySequence: 0, nodeId: "node-a" }],
+      ["b-node-b", "tenant-b", { priority: 0, readySequence: 0, nodeId: "node-b" }],
+      ["b-ready", "tenant-b", { priority: 0, readySequence: 1, nodeId: "node-a" }],
+      ["c-first", "tenant-c", { priority: 0, readySequence: 0, nodeId: "node-c" }],
+      ["c-second", "tenant-c", { priority: 0, readySequence: 1, nodeId: "node-c" }],
+      ["c-third", "tenant-c", { priority: 0, readySequence: 2, nodeId: "node-c" }],
+    ];
+    for (const [reservationId, tenantId, overrides] of queue) await pool.request(request(reservationId, tenantId, { cpu: 1 }, clock, overrides));
+    const trace: string[] = [];
+    for (let round = 0; round < queue.length; round += 1) trace.push((await cycle(pool)).reservationId);
+    expect(trace).toEqual([
+      "a-priority", "b-node-a", "c-first",
+      "a-ready", "b-node-b", "c-second",
+      "a-late", "b-ready", "c-third",
+    ]);
+  });
+
+  test("admits a small tenant within a bounded number of rounds under sustained large-tenant traffic", async () => {
+    await pool.configureCapacity("cpu", 4);
+    const largeTenants = ["tenant-large-1", "tenant-large-2", "tenant-large-3"];
+    let sequence = 0;
+    const enqueue = async (tenantId: string, cpu: number) => { sequence += 1; await pool.request(request(`${tenantId}-${sequence}`, tenantId, { cpu }, clock)); };
+    // Each large tenant keeps a backlog. "tenant-small" sorts after all of them,
+    // so only the round, never the identifier order, can let it through.
+    for (const tenantId of largeTenants) { await enqueue(tenantId, 2); await enqueue(tenantId, 2); }
+    await enqueue("tenant-small", 1);
+    const trace: string[] = [];
+    for (let round = 1; round <= 12 && !trace.includes("tenant-small"); round += 1) {
+      const lease = await cycle(pool);
+      trace.push(lease.tenantId);
+      if (lease.tenantId !== "tenant-small") await enqueue(lease.tenantId, 2);
+    }
+    expect(trace).toEqual([...largeTenants, "tenant-small"]);
+    expect(trace.indexOf("tenant-small") + 1).toBeLessThanOrEqual(largeTenants.length + 1);
+    expect((await pool.status(`tenant-small-${largeTenants.length * 2 + 1}`))?.state).toBe("settled");
+  });
+
+  test("serves a thirty-second-aged request before a younger request the round order would pick", async () => {
+    await pool.configureCapacity("cpu", 1);
+    await pool.request(request("aged", "tenant-z", { cpu: 1 }, clock));
+    clock.advance(30_001);
+    await pool.request(request("young", "tenant-a", { cpu: 1 }, clock));
+    // Both tenants are unserved, so the round order alone would admit tenant-a.
+    expect(await pool.schedule()).toMatchObject({ status: "admitted", reservationId: "aged" });
+    expect((await pool.status("young"))?.state).toBe("queued");
+  });
+
+  test("bounds outstanding requests at the configured limits and defaults to the C03 maxima", async () => {
+    expect(POOL_DEFAULT_QUEUE_LIMITS).toEqual({ perTenant: 10_000, pool: 100_000 });
+    expect(new FactoryPoolLedger(poolDatabase).queueLimits).toEqual({ perTenant: 10_000, pool: 100_000 });
+    for (const limits of [{ perTenant: 10_001 }, { pool: 100_001 }, { perTenant: 0 }, { pool: 1.5 }]) {
+      expect(() => new FactoryPoolLedger(poolDatabase, clock, limits)).toThrow("outstanding-request limit");
+    }
+    // Two per tenant and three per pool exercise the same comparison the
+    // contract maxima use. Nothing is scheduled, so every row stays queued.
+    const bounded = new FactoryPoolLedger(poolDatabase, clock, { perTenant: 2, pool: 3 });
+    expect(bounded.queueLimits).toEqual({ perTenant: 2, pool: 3 });
+    await bounded.configureCapacity("cpu", 1);
+    for (const reservationId of ["bound-a-1", "bound-a-2"]) expect(await bounded.request(request(reservationId, "tenant-a", { cpu: 1 }, clock))).toMatchObject({ status: "queued" });
+    expect(await bounded.request(request("bound-a-3", "tenant-a", { cpu: 1 }, clock))).toEqual({ status: "rejected", reservationId: "bound-a-3", reason: "queue-full", retryAfterSeconds: 1 });
+    expect(await bounded.status("bound-a-3")).toBeUndefined();
+    expect(await bounded.request(request("bound-b-1", "tenant-b", { cpu: 1 }, clock))).toMatchObject({ status: "queued" });
+    expect(await bounded.request(request("bound-b-2", "tenant-b", { cpu: 1 }, clock))).toEqual({ status: "rejected", reservationId: "bound-b-2", reason: "queue-full", retryAfterSeconds: 1 });
+    expect(await bounded.status("bound-b-2")).toBeUndefined();
+    // A lost rejection leaves no durable trace, so the caller simply retries
+    // once a cancellation frees one outstanding slot.
+    await bounded.cancel("bound-a-1", 1);
+    expect(await bounded.request(request("bound-a-3", "tenant-a", { cpu: 1 }, clock))).toMatchObject({ status: "queued", reservationId: "bound-a-3" });
+  });
+
+  test("keeps the durable reservation vocabulary and the documented C03 mapping identical", async () => {
+    const states: readonly PoolLeaseState[] = POOL_LEASE_STATES;
+    expect(Object.keys(POOL_STATE_CONTRACT_MAPPING).sort()).toEqual([...states].sort());
+    expect([...new Set(Object.values(POOL_STATE_CONTRACT_MAPPING))].sort()).toEqual([...C03_RESERVATION_STATES].sort());
+    const documented = await readFile(new URL("../../../docs/factory-pool-admission.md", import.meta.url), "utf8");
+    for (const [state, contractState] of Object.entries(POOL_STATE_CONTRACT_MAPPING)) expect(documented).toContain(`| \`${state}\` | \`${contractState}\` |`);
+    // The durable CHECK constraint must accept exactly the documented states.
+    const insert = "INSERT INTO factory_pool_requests(reservation_id, tenant_id, grant_revision, resources_json, queued_at, admission_deadline, state, fence) VALUES ($1,'tenant-vocabulary',1,'{\"cpu\":1}'::jsonb,$2,$2,$3,$1)";
+    const moment = clock.now().toISOString();
+    for (const state of states) await poolDatabase.unsafe(insert, [`vocabulary-${state}`, moment, state]);
+    expect((await pool.status("vocabulary-queued"))?.state).toBe("queued");
+    for (const absent of C03_RESERVATION_STATES.filter(state => !(states as readonly string[]).includes(state))) {
+      // `expect(...).rejects` never drives Bun's lazy SQLQuery. Adopt it into a
+      // real promise so both drivers actually run the statement.
+      expect(await Promise.resolve(poolDatabase.unsafe(insert, [`vocabulary-${absent}`, moment, absent])).then(() => "accepted", () => "rejected")).toBe("rejected");
+    }
   });
 
   test("GPU stop proof releases CPU once and leaves another active CPU lease accounted", async () => {

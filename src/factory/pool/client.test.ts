@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { certificates } from "../../__tests__/helpers/factory-certificates";
+import { certificates, type Certificates } from "../../__tests__/helpers/factory-certificates";
 import { startFactoryPrivateHttps, type FactoryPrivateRequest, type FactoryPrivateResponse } from "../private-https";
 import { createPoolAdmissionClient, type PoolAdmissionClient } from "./client";
 import type { PoolAdmissionRequest } from "./service";
@@ -16,9 +16,11 @@ let client: PoolAdmissionClient;
 let server: ReturnType<typeof startFactoryPrivateHttps>;
 let override: FactoryPrivateResponse | undefined;
 let calls: FactoryPrivateRequest[];
+let certs: Certificates;
+let tls: { caPath: string; certificatePath: string; privateKeyPath: string; serviceTokenPath: string };
 
 beforeAll(async () => {
-  const certs = await certificates(directories);
+  certs = await certificates(directories);
   const directory = directories.at(-1)!;
   const tokenPath = join(directory, "pool-token");
   await writeFile(tokenPath, "pool-client-token", { mode: 0o600 });
@@ -36,13 +38,8 @@ beforeAll(async () => {
       return { status: 200, body: Buffer.from(JSON.stringify({ status: "admitted", reservationId: request.reservationId, lease })) };
     },
   });
-  client = await createPoolAdmissionClient({
-    tenantId: "tenant-a",
-    baseUrl: server.url,
-    serverName: "localhost",
-    requestTimeoutMs: 2_000,
-    tls: { caPath: join(directory, "ca.pem"), certificatePath: join(directory, "client.pem"), privateKeyPath: join(directory, "client.key"), serviceTokenPath: tokenPath },
-  });
+  tls = { caPath: join(directory, "ca.pem"), certificatePath: join(directory, "client.pem"), privateKeyPath: join(directory, "client.key"), serviceTokenPath: tokenPath };
+  client = await createPoolAdmissionClient({ tenantId: "tenant-a", baseUrl: server.url, serverName: "localhost", requestTimeoutMs: 2_000, tls });
 });
 
 afterAll(async () => { server?.stop(); await Promise.all(directories.map(path => rm(path, { recursive: true, force: true }))); });
@@ -99,6 +96,50 @@ describe("pool admission HTTP client", () => {
     override = { status: 500, body: Buffer.from('{"error":"failed"}') };
     await expect(client.request(request)).rejects.toThrow("HTTP 500");
     expect(calls.length).toBe(before + 1);
+  });
+
+  test("returns the queue-full decision carried by HTTP 429 and fails closed elsewhere", async () => {
+    const full = { status: "rejected", reservationId: request.reservationId, reason: "queue-full", retryAfterSeconds: 1 } as const;
+    override = { status: 429, body: Buffer.from(JSON.stringify(full)) };
+    expect(await client.request(request)).toEqual(full);
+
+    // Only an admission start decodes 429. Every other route keeps failing closed.
+    override = { status: 429, body: Buffer.from(JSON.stringify(full)) };
+    await expect(client.status(request.reservationId)).rejects.toThrow("HTTP 429");
+
+    override = { status: 429, body: Buffer.from(JSON.stringify({ status: "rejected", reservationId: request.reservationId, reason: "request-exceeds-configured-capacity" })) };
+    await expect(client.request(request)).rejects.toThrow("unexpected queue-full");
+    override = { status: 429, body: Buffer.from(JSON.stringify({ ...full, reservationId: "other" })) };
+    await expect(client.request(request)).rejects.toThrow("mismatched reservation");
+
+    const before = calls.length;
+    const controller = new AbortController();
+    controller.abort();
+    await expect(client.request(request, controller.signal)).rejects.toThrow();
+    expect(calls.length).toBe(before);
+  });
+
+  test("prefers a Retry-After delta-seconds header over the decision body", async () => {
+    const full = { status: "rejected", reservationId: request.reservationId, reason: "queue-full", retryAfterSeconds: 1 } as const;
+    let retryAfter: string | undefined;
+    const headers = new Headers({ "content-type": "application/json" });
+    const headerServer = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      tls: { key: certs.serverKey, cert: certs.serverCert },
+      fetch() {
+        const value = new Headers(headers);
+        if (retryAfter !== undefined) value.set("retry-after", retryAfter);
+        return new Response(JSON.stringify(full), { status: 429, headers: value });
+      },
+    });
+    try {
+      const headerClient = await createPoolAdmissionClient({ tenantId: "tenant-a", baseUrl: headerServer.url.href, serverName: "localhost", requestTimeoutMs: 2_000, tls });
+      for (const [header, expected] of [[undefined, 1], ["45", 45], [" 7 ", 7], ["0", 1], ["not-a-number", 1], ["Wed, 21 Oct 2026 07:28:00 GMT", 1], ["1234567", 1]] as const) {
+        retryAfter = header;
+        expect(await headerClient.request(request)).toEqual({ ...full, retryAfterSeconds: expected });
+      }
+    } finally { headerServer.stop(true); }
   });
 
   test("validates caller input before transport and snapshots it before an await", async () => {
