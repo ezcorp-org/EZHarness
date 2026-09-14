@@ -13,7 +13,7 @@ from unittest import mock
 
 import c02_runner
 from factory_validation import validate_factory_runner_result
-from guest import MANIFEST, Guest, GuestError, load_schema, main, read_control, serve
+from guest import MANIFEST, Guest, GuestError, _execute_from_tmp, load_schema, main, read_control, serve
 from tests.fixtures import (
     REQUEST_SCHEMA,
     RESULT_SCHEMA,
@@ -106,7 +106,7 @@ class RunExportTest(unittest.TestCase):
 class DispatchTest(unittest.TestCase):
     def test_discovery_returns_the_declared_manifest(self) -> None:
         self.assertEqual(guest().dispatch("extension/discover", None), MANIFEST)
-        self.assertEqual([tool["name"] for tool in MANIFEST["tools"]], ["validate", "run", "controls"])
+        self.assertEqual([tool["name"] for tool in MANIFEST["tools"]], ["validate", "run", "controls", "hostile"])
 
     def test_cancel_is_acknowledged(self) -> None:
         self.assertEqual(guest().dispatch("extension/cancel", None), {"cancelled": True})
@@ -221,6 +221,53 @@ class ControlsTest(unittest.TestCase):
     def test_the_controls_export_is_reachable_through_dispatch(self) -> None:
         answer = guest().dispatch("extension/invoke", {"name": "controls", "input": {}})
         self.assertEqual(answer["runtime"], "factory.python-guest.v1")
+
+
+class HostileTest(unittest.TestCase):
+    def test_every_escape_is_attempted_and_reported_as_a_refusal_or_a_breach(self) -> None:
+        # Off a container this host is not confined, so the point here is the
+        # shape of the report and that a success is recorded as a breach rather
+        # than being swallowed. The guest suite proves the refusals themselves.
+        report = guest().hostile()
+        self.assertEqual(
+            sorted(key for key in report if key != "allRefused"),
+            [
+                "execute-from-tmp",
+                "open-network",
+                "read-host-secret",
+                "replace-guest-source",
+                "spawn-shell",
+                "symlink-channel",
+                "unlink-channel",
+                "unlink-guest-source",
+                "write-channel",
+                "write-root",
+                "write-workspace",
+            ],
+        )
+        self.assertEqual(report["allRefused"], all(report[key] is True for key in report if key != "allRefused"))
+
+    def test_an_escape_that_succeeds_is_recorded_as_false_rather_than_ignored(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            writable = Path(directory) / "writable"
+            writable.write_text("x", encoding="utf-8")
+            self.assertTrue(writable.is_file())
+        # A refusal is only ever recorded when the action raised, so a report of
+        # all-true cannot be produced by an action that quietly did nothing.
+        report = guest().hostile()
+        self.assertIn(report["write-root"], (True, False))
+        if report["write-root"] is False:
+            self.assertFalse(report["allRefused"])
+
+    def test_a_payload_that_runs_is_raised_as_a_breach_and_one_that_cannot_run_is_a_refusal(self) -> None:
+        with self.assertRaises(RuntimeError):
+            _execute_from_tmp(run=lambda _path: 0)
+        # A nonzero wait status is the kernel refusing the exec, which is the
+        # outcome the noexec tmpfs must produce inside the guest.
+        _execute_from_tmp(run=lambda _path: 32256)
+
+    def test_the_hostile_export_is_reachable_through_dispatch(self) -> None:
+        self.assertIn("allRefused", guest().dispatch("extension/invoke", {"name": "hostile", "input": {}}))
 
 
 class MainTest(unittest.TestCase):

@@ -24,7 +24,11 @@ import hashlib
 import importlib.metadata
 import json
 import os
+import socket
+import stat
+import subprocess
 import sys
+import tempfile
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Final, TextIO
@@ -67,6 +71,12 @@ MANIFEST: Final[dict[str, Json]] = {
             "inputSchema": {"type": "object"},
             "outputSchema": {"type": "object"},
         },
+        {
+            "name": "hostile",
+            "description": "Attempt every escape a hostile package would try and report each refusal",
+            "inputSchema": {"type": "object"},
+            "outputSchema": {"type": "object"},
+        },
     ],
 }
 
@@ -86,6 +96,30 @@ def read_control(path: str) -> str:
         return Path(path).read_text(encoding="utf-8").strip()
     except OSError:
         return UNAVAILABLE
+
+
+def _connect() -> None:
+    """Any egress at all. The profile gives the guest no route, so this must fail."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
+        client.settimeout(2)
+        client.connect(("1.1.1.1", 443))
+
+
+def _spawn_status(path: str) -> int:
+    """Execs the payload directly, so the refusal comes from the kernel's exec
+    of that inode and from nothing a helper wrapped around it."""
+    child = os.posix_spawn(path, [path], {})
+    return os.waitpid(child, 0)[1]
+
+
+def _execute_from_tmp(run: Callable[[str], int] = _spawn_status) -> None:
+    """The writable tmpfs is `noexec`, so a dropped payload cannot run. A
+    payload that did run is raised as a breach rather than passing quietly."""
+    payload = Path(tempfile.gettempdir()) / "escape.sh"
+    payload.write_text("#!/bin/sh\necho escaped\n", encoding="utf-8")
+    payload.chmod(payload.stat().st_mode | stat.S_IXUSR)
+    if run(str(payload)) == 0:
+        raise RuntimeError("EXECUTED")
 
 
 def _status_field(status: str, name: str) -> str:
@@ -217,6 +251,39 @@ class Guest:
             "runtime": GUEST_VERSION,
         }
 
+    @staticmethod
+    def hostile() -> dict[str, Json]:
+        """A hostile task fixture, run inside the component environment.
+
+        Each entry is an escape a candidate package would try. Every one must be
+        refused by the kernel, so the report is a list of refusals rather than a
+        list of successes; a `true` anywhere here is a breach.
+        """
+        attempts: dict[str, Json] = {}
+
+        def refused(name: str, action: Callable[[], object]) -> None:
+            try:
+                action()
+                attempts[name] = False
+            except (OSError, ValueError, RuntimeError, ImportError, PermissionError):
+                attempts[name] = True
+
+        refused("write-workspace", lambda: Path("/workspace/escape.py").write_text("x", encoding="utf-8"))
+        refused("replace-guest-source", lambda: Path("/workspace/guest.py").write_text("x", encoding="utf-8"))
+        refused("unlink-guest-source", lambda: Path("/workspace/guest.py").unlink())
+        refused("write-root", lambda: Path("/escape").write_text("x", encoding="utf-8"))
+        refused("write-channel", lambda: Path("/channel/escape").write_text("x", encoding="utf-8"))
+        refused("unlink-channel", lambda: Path("/channel/in").unlink())
+        refused("symlink-channel", lambda: os.symlink("/etc/passwd", "/channel/out"))
+        refused("read-host-secret", lambda: Path("/proc/1/environ").read_bytes())
+        refused("open-network", _connect)
+        refused(
+            "spawn-shell", lambda: subprocess.run(["/bin/sh", "-c", "echo escaped"], check=True, capture_output=True)
+        )
+        refused("execute-from-tmp", _execute_from_tmp)
+        attempts["allRefused"] = all(value is True for key, value in attempts.items())
+        return attempts
+
     def invoke(self, params: Json) -> Json:
         if not isinstance(params, dict):
             raise GuestError("invoke params must be an object")
@@ -230,6 +297,8 @@ class Guest:
             return self.run(payload)
         if name == "controls":
             return self.controls()
+        if name == "hostile":
+            return self.hostile()
         raise GuestError(f"unknown export {name}")
 
     def dispatch(self, method: str, params: Json) -> Json:

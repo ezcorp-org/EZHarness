@@ -28,6 +28,9 @@ const VALIDATOR_PATHS = new Set([
 
 export const SHARED_REUSE_MODULES = [
   "packages/@ezcorp/extension-runner/src/podman.ts",
+  // The second pinned guest language extends the shared runner rather than
+  // forking its launch path, so it is shared under the same C13 row (W02).
+  "packages/@ezcorp/extension-runner/src/python.ts",
   "packages/@ezcorp/extension-runner/src/dependencies.ts",
   "packages/@ezcorp/extension-runner/src/index.ts",
   "src/extensions/v4/lifecycle.ts",
@@ -102,6 +105,7 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/run-lifecycle.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/runner/attempt-runtime.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/runner/native.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/runner/python-guest.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/runner/supervisor.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/service-credentials.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/service-credentials.ts", sharedModule: "src/extensions/v4/blobs.ts" },

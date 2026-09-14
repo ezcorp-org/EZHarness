@@ -142,6 +142,26 @@ test("the guest observes the applied controls: no capability, no device, no rout
   expect(Object.values(report).flat().join(" ")).not.toContain("sk-");
 }, 180_000);
 
+test("every escape a hostile package would try is refused by the kernel inside the component environment", async () => {
+  const report = await guest<Record<string, boolean>>("hostile", {});
+  expect(report).toEqual({
+    "write-workspace": true,
+    "replace-guest-source": true,
+    "unlink-guest-source": true,
+    "write-root": true,
+    "write-channel": true,
+    "unlink-channel": true,
+    "symlink-channel": true,
+    "read-host-secret": true,
+    "open-network": true,
+    "spawn-shell": true,
+    "execute-from-tmp": true,
+    allRefused: true,
+  });
+  // The guest is still whole and still answers after every refusal.
+  expect(await guest<Verdict>("validate", { kind: "request", value: fixture.success.find(entry => entry.kind === "request")!.value })).toMatchObject({ ok: true });
+}, 300_000);
+
 test("a build whose declared closure does not match the pinned image fails instead of sealing an artifact", async () => {
   const drifted = new PythonPodmanRunner({ root: await mkdtemp(join(tmpdir(), "ez-python-drift-")), closure: { ...await factoryPythonRunnerClosure(), distributions: ["pip==0.0.1"] } });
   try {
