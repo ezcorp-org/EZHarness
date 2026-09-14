@@ -6,7 +6,8 @@ import { FactoryReleaseError, type FactoryArchiveObject, type FactoryProviderRec
 
 interface S3ResponseBody { transformToByteArray(): Promise<Uint8Array> }
 type ArchiveS3ClientLike = Pick<S3Client, "send">;
-interface S3ClientLike { send(command: unknown, options?: { readonly abortSignal?: AbortSignal }): Promise<unknown> }
+/** The one S3 send seam every factory S3 adapter takes, so a test double replaces the client without replacing the adapter. */
+export interface S3ClientLike { send(command: unknown, options?: { readonly abortSignal?: AbortSignal }): Promise<unknown> }
 
 export interface FactoryS3ArchiveOptions extends Omit<S3BlobStoreOptions, "prefix" | "client"> {
   readonly prefix: string;
@@ -21,8 +22,10 @@ function archiveSegment(value: string): string {
 function sha256(value: Uint8Array): string { return `sha256:${digestBytes(value)}`; }
 
 function status(error: unknown): number | undefined { return (error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode; }
-function missing(error: unknown): boolean { return status(error) === 404 || ["NoSuchKey", "NoSuchVersion", "NotFound"].includes((error as { name?: string }).name ?? ""); }
-function conflict(error: unknown): boolean { return status(error) === 409 || status(error) === 412 || ["PreconditionFailed", "ConditionalRequestConflict"].includes((error as { name?: string }).name ?? ""); }
+/** An S3 fault that means the exact key or version is absent. Shared by every factory S3 adapter. */
+export function s3ErrorIsMissing(error: unknown): boolean { return status(error) === 404 || ["NoSuchKey", "NoSuchVersion", "NotFound"].includes((error as { name?: string }).name ?? ""); }
+/** An S3 fault that means a conditional write lost its race. Shared by every factory S3 adapter. */
+export function s3ErrorIsConflict(error: unknown): boolean { return status(error) === 409 || status(error) === 412 || ["PreconditionFailed", "ConditionalRequestConflict"].includes((error as { name?: string }).name ?? ""); }
 
 function makeClient(options: FactoryS3ArchiveOptions): ArchiveS3ClientLike {
   return options.client ?? new S3Client({ endpoint: options.endpoint, region: options.region ?? "us-east-1", forcePathStyle: true, credentials: options.credentials, maxAttempts: 1 });
@@ -111,13 +114,13 @@ export class S3FactoryReleaseProvider implements FactoryReleaseProvider {
     if (claim.destination.expectedVersion !== undefined) throw new FactoryReleaseError("factory_s3_immutable_target");
     let current: { VersionId?: string } | undefined;
     try { current = await this.client.send(new HeadObjectCommand({ Bucket: this.options.bucket, Key: key })) as { VersionId?: string; ETag?: string }; }
-    catch (error) { if (!missing(error)) throw error; }
+    catch (error) { if (!s3ErrorIsMissing(error)) throw error; }
     if (current) throw new FactoryReleaseError("factory_s3_version_changed");
     let written: { VersionId?: string };
     try {
       written = await this.client.send(new PutObjectCommand({ Bucket: this.options.bucket, Key: key, Body: bytes, ContentType: request.contentType, ChecksumSHA256: createHash("sha256").update(bytes).digest("base64"), IfNoneMatch: "*" })) as { VersionId?: string };
     } catch (error) {
-      if (conflict(error)) throw new FactoryReleaseError("factory_s3_version_changed");
+      if (s3ErrorIsConflict(error)) throw new FactoryReleaseError("factory_s3_version_changed");
       throw error;
     }
     const version = written.VersionId;
@@ -139,7 +142,7 @@ export class S3FactoryReleaseProvider implements FactoryReleaseProvider {
     [operation, receipt] = structuredClone([operation, receipt]);
     if (typeof receipt.version !== "string" || !receipt.version || receipt.version.length > 512) return false;
     try { return canonicalJson(await this.readReceipt(operation, receipt.version, signal)) === canonicalJson(receipt); }
-    catch (error) { if (missing(error)) return false; throw error; }
+    catch (error) { if (s3ErrorIsMissing(error)) return false; throw error; }
   }
 
   async proveNoEffect(operation: FactoryReleaseOperation, evidence: unknown, signal?: AbortSignal): Promise<boolean> {
@@ -148,7 +151,7 @@ export class S3FactoryReleaseProvider implements FactoryReleaseProvider {
     try {
       await this.client.send(new HeadObjectCommand({ Bucket: this.options.bucket, Key: key }), signal ? { abortSignal: signal } : undefined);
       return false;
-    } catch (error) { return missing(error) && operation.destination.expectedVersion === undefined; }
+    } catch (error) { return s3ErrorIsMissing(error) && operation.destination.expectedVersion === undefined; }
   }
 }
 
