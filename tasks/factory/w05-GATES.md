@@ -284,6 +284,11 @@ against an already-migrated database.
       `src/factory/admission-origin.test.ts` no longer holds the two raw NUL bytes staging still
       carries: the blob at `435629893` has zero bytes below 32 outside tab and newline, the two
       cases spell them `"node\u0000a"` and `"claim\u0000a"`, and git diffs the file as text.
+      The four cheap gates were reproduced once more after this file was written, at `e102620f7`,
+      which differs from `435629893` only in `tasks/factory/w05-GATES.md` and `tasks/lessons.md`:
+      `receipts.jsonl` records `head-gate-integrity`, `head-boundaries`, `head-lanes`, and
+      `head-schema-drift`, each exit 0. The commit that adds this paragraph changes nothing but this
+      paragraph.
 
 ## Deviations from the freeze, all inside the owned surfaces
 
