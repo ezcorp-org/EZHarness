@@ -20,7 +20,8 @@ Branch `wp/w06-remediation`. Base `integ/w00` at `1dc9a0226`.
 | `58720c5fa` | `feat(factory): give an operator the bounded repair and replan controls` |
 | `25e68a4dc` | `chore(factory): drop the unused graph type and mutable draft casts` |
 | `607e0fe63` | `fix(factory-sdk): never ask a worker to cancel a decision that has no attempt` |
-| this commit | `docs(factory): record the W06 gates` — its own SHA is reported to the coordinator, since a commit cannot contain its own hash. |
+| `048699845`, `d48838639` | the W06 gate table and review |
+| `8f1353fce` | `fix(factory): let the settleable scan enumerate and settle verify` |
 
 ## Gates
 
@@ -194,7 +195,7 @@ Branch `wp/w06-remediation`. Base `integ/w00` at `1dc9a0226`.
   no item was ever returned. The scan now enumerates and `settle` verifies, which is where
   verification already was; safety is unchanged, and the loud failure moved from per page to per
   child. `FactorySettleableChild` also dropped `deadlineAtMs`, because an inherited clock is exactly
-  what a caller must not read from an unverified row. Commit `8e0e0d1a2`.
+  what a caller must not read from an unverified row. Commit `8f1353fce`.
 
 ## Open
 
