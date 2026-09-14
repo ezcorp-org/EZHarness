@@ -549,6 +549,26 @@ lists none of these paths, and this branch changes nothing under `packages/` or
 | `docs/extensions/examples/docs-updater/subprocess.integration.test.ts` | the same symlink case, through a real subprocess |
 | `src/__tests__/substack-pilot-installer.test.ts` | the credential broker and a real MCP stdio spawn |
 
+**After the W01b merge the failing set changed, and the cause is merge currency
+rather than this branch.** At `2fe66c04f` the pool fails
+`src/factory/validator-materials.test.ts`,
+`src/factory/release-authority.integration.test.ts`, and
+`src/__tests__/factory-run-lifecycle.test.ts`. All three raise
+`factory_release_authority_invalid` from one allow-list in
+`src/factory/release-authority.ts`, which does not yet admit W02b's now-required
+`RunnerReference.manifestName`. This branch does not touch any of those files,
+and the same suite passes on `integ/w00`.
+
+The fix is upstream and postdates the merge I was told to make. The coordinator
+named `dfe3091f8`; the branch had already advanced to `f45a94148`, which is what
+is merged here; and `integ/w00` has since advanced again to `1784ab76c`, whose
+`559db1d3e` is titled "accept and validate manifestName in the trust package
+lock, register the host-launch suite" — precisely the allow-list fix plus the
+same host-launch suite registration this branch made independently. I did not
+merge a second time, because the instruction was to merge once and the
+integration is moving faster than a round takes; the next merge picks up both
+and the duplicate registration is additive.
+
 The pool also stops on `browser route coverage is required: set
 BROWSER_COVERAGE_RAW and BROWSER_COVERAGE_LCOV`, which is the instrumented
 Playwright leg, not something a branch supplies. That is why the coverage

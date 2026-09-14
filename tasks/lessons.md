@@ -1076,3 +1076,8 @@
   two conflict halves produced a file that parsed nowhere; rebuilding the object
   from every key/value pair in file order, first value wins, is the safe form,
   and comparing key counts against both sides afterwards is the proof.
+- When an integration branch moves during your round, say which commit you
+  merged and check what landed after it before blaming your own branch for a red
+  suite. Three suites failed here on an allow-list that had not yet learned a
+  newly-required field; the fix was two commits past the tip I was told to
+  merge, and the tell was that the same suite passed on the integration branch.
