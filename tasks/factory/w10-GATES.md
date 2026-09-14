@@ -1,7 +1,9 @@
 # W10 real code reference pack
 
 Owner: W10. Branch `wp/w10-code-pack`, started from `integ/w00` at `1d3edf5b0` (W18, W04, W04a, W01,
-W03, W02, W05, W08, W06, W07 integrated).
+W03, W02, W05, W08, W06, W07 integrated), then merged with `integ/w00` at `a8eff0bfa`, which carries
+W02b and the WREG backend-pool fixes. Head after the migration: `a6b5d3e47`. Every receipt whose
+name begins `w02b-` was produced at that merged head.
 Surfaces owned: `src/factory/reference-code/**`, `src/providers/factory-broker.ts`,
 `src/extensions/v4/digest.ts`, `scripts/verify-factory-reference-code-*.ts`, and the C10
 `reference.code.v1` domain implementation.
@@ -49,6 +51,32 @@ What follows from that, exactly:
 | `c0ac4aaf3` | test(factory): make C10's reference code contract executable |
 | `fdf8003f5` | fix(factory): typecheck the contract conformance test's readonly claim list |
 | `81c8045d7` | docs(tasks): W10 lessons on gitignored gate files, typechecking tests, and guest closures |
+| merge | merge `integ/w00` at `a8eff0bfa` (W02b and the WREG pool fixes) |
+| `a6b5d3e47` | feat(factory): carry the reference code pack's v4 manifest names explicitly |
+
+## Migration to freeze section 17, and what it actually required
+
+`RunnerReference.manifestName` is required, and W02b's mechanical pass had already updated this
+package's one `RunnerReference` literal. What a mechanical pass cannot do is the part that was left:
+this pack carried no reconciliation code between the scoped package name and the v4 manifest name,
+but it did carry an unstated assumption that the two correspond, with the guest's manifest name
+written out as a literal in one file and the scoped name in another.
+
+Three things changed, and one deliberately did not.
+
+- `pack.ts` derives both manifest names with the SDK's exported `manifestNameOf` instead of
+  stripping scopes itself, so the derivation nobody can see is the one the definition used.
+- `referenceCodeManifestNameFaults()` reports every way a reference this pack owns can disagree with
+  its manifest: a name the v4 grammar refuses, or a name that is not the one its scoped package
+  derives. The test asserts the list is empty, and drives both fault shapes to prove it can fail.
+- The Podman test takes the reference's `manifestName` from the guest's own manifest rather than a
+  literal, so the two cannot drift apart and fail only at bind time.
+- The guest manifest keeps its own literal name, because a v4 manifest declares its name and that
+  IS the source of truth. What changed is that the pack now proves the reference agrees with it,
+  which is exactly the comparison `releaseFacts()` makes, so the built validator release can bind
+  normally rather than being worked around.
+
+Nothing in this package compares a manifest name to `package` any more.
 
 ## Gates
 
@@ -197,8 +225,33 @@ What follows from that, exactly:
   `bun test ./scripts/factory-c13-inventory.test.ts`, `bun scripts/gate-integrity.ts`
   EXPECT: exit 0 each. EVIDENCE: `/tmp/factory-platform-evidence/w10/gate-typecheck.json`,
   `gate-lint.json`, `gate-boundaries.json`, `gate-c13-inventory.json`, `gate-integrity.json`
+- [x] G28: The manifest name the runner reference carries is derived, asserted, and never
+  reconciled privately. Every reference this pack owns satisfies the v4 grammar, is not a scoped
+  name, and equals `manifestNameOf(package)`; the guest this pack ships declares exactly that name,
+  which is the comparison `releaseFacts()` makes; and both fault shapes are driven to prove the
+  check can fail. CHECK: `bun test --timeout 300000 ./src/factory/reference-code/pack.test.ts`
+  EXPECT: 17 pass, 0 fail. EVIDENCE: `/tmp/factory-platform-evidence/w10/w02b-reference-code-suite.json`
+- [x] G29: The whole reference-code suite is green after the merge, with every new file still at
+  100%. CHECK: `flock /tmp/ezcorp-validation-heavy.lock bun test --timeout 900000 --coverage ./src/factory/reference-code/ ./src/providers/factory-broker.test.ts`
+  EXPECT: 158 pass, 0 fail, 630 assertions; no file below 100%.
+  EVIDENCE: `/tmp/factory-platform-evidence/w10/w02b-reference-code-suite.json`
+- [x] G30: Typecheck, lint, boundaries, the C13 inventory, gate integrity, and both coverage gates
+  are green at the merged head. CHECK: the five gate commands plus
+  `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` and `check-patch-coverage.ts`.
+  EXPECT: exit 0 each; "all changed executable lines covered (1 file(s))".
+  EVIDENCE: `/tmp/factory-platform-evidence/w10/w02b-gate-*.json`, `w02b-coverage-*.json`
+  NOTE: the SDK's `dist` must be rebuilt after merging, or `manifestName` and `isManifestName`
+  resolve as missing members in every consumer.
+- [ ] G31: The six real-PostgreSQL producers that need object storage. BLOCKED by a shared-store
+  outage, not by this branch. See the section below.
+- [x] G31a: The real-PostgreSQL producers that need no object storage are green at the merged head.
+  CHECK: `bun test --timeout 900000 ./tests/postgres/factory-schema.test.ts ./tests/postgres/factory-migration-restart.test.ts ./tests/postgres/factory-releases.test.ts`
+  EXPECT: 37 pass, 0 fail, 3211 assertions.
+  EVIDENCE: `/tmp/factory-platform-evidence/w10/w02b-postgres-schema-only.json`
 - [x] G24: The backend pool reports the SAME seven pre-existing failures W07 recorded at the base,
   and nothing else. 26920 pass, 7 fail across 5 files, none of which this package touches.
+  SUPERSEDED: `integ/w00@a8eff0bfa` carries the WREG fixes, so those seven are gone at the merged
+  head. The measurement below is the one taken before the merge and is kept as it was.
   CHECK: `flock /tmp/ezcorp-validation-heavy.lock bun run test`
   EXPECT: exactly the five files in the inherited-failures table below.
   EVIDENCE: `/tmp/factory-platform-evidence/w10/backend-pool.json`
@@ -258,6 +311,20 @@ need reading with their reason:
 - `provider-readiness` exits 1 on purpose. That is the readiness failure this package is required to
   record, not a broken producer.
 
+## A shared-store outage, disclosed rather than worked around
+
+The local S3 services are not running, so the six real-PostgreSQL producers that need object storage
+fail with ECONNREFUSED: 47 of 85 assertions across nine files. `podman ps` shows only the PostgreSQL
+proof container and one unrelated container. The repository's own unchanged verifier,
+`bun scripts/verify-factory-storage.ts`, reproduces it, which is what places the fault outside this
+branch. The three producers that need no object storage pass at the same commit with 3211
+assertions, and the same six producers passed 65 with 3365 assertions on this branch before the
+merge, so this is an outage rather than a regression.
+
+No shared service was started, restarted, or reconfigured. That needs coordinator authorization, and
+it has been requested. Receipts: `w02b-storage-verifier.json`, `w02b-shared-storage-outage.json`,
+`w02b-postgres-producers.json` (kept as the failure it is), `w02b-postgres-schema-only.json`.
+
 ## Disposable resources, cleaned after evidence capture
 
 Two draft pull requests (#6, #7) and their two `ezcorp-factory/...` branches were created on
@@ -290,6 +357,13 @@ keeps `factory-publication-base`. Receipt: `/tmp/factory-platform-evidence/w10/g
    trees no longer reaches the GitHub release adapter. Same reason as 4.
 
 ## Interface questions for the coordinator
+
+**Answered by the coordinator, 2026-09-14.** Q1: an optional additive `maxIterations` on
+`FactoryRunnerRequest` lands with W13 composition, and the generator's own bound stands until then.
+Q2: the composition root (W09) constructs `createFactoryProviderBroker({ pin })` and hands it to the
+runner; it is in W09's wiring round. Q3 (`protectedChecks` carrying an unused model pin) routed to
+the SDK owner. Q4 (`titleBodyDigest` and the operation marker) routed to W07. The questions are kept
+below as they were asked.
 
 1. **Should `FactoryRunnerRequest` carry the node's `maxIterations`?** Today a runner cannot see the
    bound its own definition declared, so every agent runner must re-derive it. If the answer is yes,
@@ -326,3 +400,8 @@ that reached the publication step and refused to take it.
 ## Independent validation (Sonnet validator, 2026-09-14)
 
 Verdict: ACCEPT at `4c5dd9b1f`; report `/tmp/factory-platform-evidence/w10-validation/report.md`. The provider readiness failure on this host (no model credential) is recorded, not worked around; the model-backed legs are proven against injected failures and release stays blocked, as the contract requires. The end-to-end journey through the started application (G27) waits on W09; the seven inherited backend-pool failures are being fixed on wp/wreg-backend-failures.
+
+
+## Validation
+
+Independent validator verdicts: ACCEPT at `4c5dd9b1f`, ACCEPT at `d5f3999b2` after the freeze section 17 migration. Reports: `/tmp/factory-platform-evidence/w10-validation/report.md`, `report-r2.md`. Merged to `integ/w00` by the coordinator; G27 (end to end through the real started application) waits on W09.
