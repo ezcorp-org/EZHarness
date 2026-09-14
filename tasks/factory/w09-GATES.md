@@ -219,10 +219,16 @@ that "closes admission until real probes pass" had a gate and no probe.
 Independent means a fresh private root, fresh certificates, a fresh pool
 database, and freshly started pool, supervisor, and web processes each time.
 
-All three at this branch's tip, against a web build made there. Every receipt
-under the evidence directory carries its own `producingCommit`; they were
-produced by one sweep, `repro/final-sweep.sh`, run after the last commit rather
-than gathered across several.
+All three at this branch's tip, against a web build made there.
+
+**Where the receipts sit relative to the tip.** Twenty-seven of the thirty-three
+came from one sweep, `repro/final-verify.sh`, at `dc20b39f1`. Six — the full
+coverage pool, the PostgreSQL producers, the real-Podman probe test, the
+neighbour suites, and the two Vitest legs — name `d6bd46f6a`, and the delta from
+there to `dc20b39f1` is `tasks/factory/w09-GATES.md` alone (`git diff --stat
+d6bd46f6a dc20b39f1`: one file, 22 insertions, 14 deletions). Every commit after
+`dc20b39f1` on this branch changes only this file. No receipt was produced
+against a dirty tree: all thirty-three carry an empty `dirtyOrUntracked`.
 
 | Run | `/api/ready` | Ready beats, lease children | Run start | Read back | After restart | Exit | Survivors | Record fresh |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
