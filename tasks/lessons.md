@@ -748,3 +748,58 @@
 - A compose file change does not reach a container that was restarted rather than recreated. `docker restart` reuses the existing container's `Cmd`, so the SeaweedFS volume cap stayed at 100 while the file said 400 and the sibling service, which had been recreated, carried the new flag. `docker inspect <name> --format '{{json .Config.Cmd}}'` is what settles it; equal `Created` and `StartedAt` timestamps are the tell.
 - Free a shared store by run window, never by prefix. The test prefixes are shared across packages, so deleting `ordinary/archive-writer/*` would have destroyed the objects W04a's receipts name. Deleting only versions whose `LastModified` falls inside one recorded run window cannot reach anything that run did not create, and holding the shared heavy lock for the whole run is what makes the window exclusive. Default to a dry run and make deletion the explicit flag.
 - **No destructive tooling against a shared store without the coordinator's authorization, and test cleanup deletes only what the test created.** I wrote a prune that deleted every object version in a time window across all ten tenant buckets and ran it with `--apply` against the shared SeaweedFS store during validation, removing 212 versions. The instruction had been to delete the objects my tests create. A window is not that: its blast radius is the store, not the run, and the fact that it happened to catch only my five suites' prefixes was luck verified afterwards rather than a property of the tool. The replacement takes a manifest of exact `{bucket, key, versionId}` entries, refuses to run without one, refuses any key that could stand for more than one object, and defaults to a dry run. If a cleanup tool can delete an object it did not create, it is the wrong tool — and asking first costs one message.
+
+## W11 (reference image pack), 2026-09-14
+
+- **An isolated guest cannot return more than one mebibyte, ever.**
+  `FramedExecution.received` in `packages/@ezcorp/extension-runner/src/protocol.ts`
+  accumulates for the worker's whole life and is compared against a ceiling that
+  `podman.ts` hard-caps at `1024**2` whatever the attempt's `outputBytes` says.
+  It is a lifetime budget, not a per-frame one, so chunking does not help and a
+  fresh worker holds no state to slice across. Design guest work so the bytes
+  stay in the guest and only digests and verdicts come out. W04's material
+  service is HTTPS and unreachable from `--network=none`.
+
+- **A venv interpreter reached through another path silently loses its venv.**
+  CPython derives `sys.prefix` from the path it was invoked by, so symlinking
+  `/usr/local/bin/python3` at `/opt/venv/bin/python3` produces an interpreter
+  that reports the SYSTEM site-packages. The image builds, the runner launches,
+  and the first import fails. Use a wrapper script that `exec`s the real path,
+  and assert the import in the build.
+
+- **A shell redirect follows a symlink and writes the target.**
+  `printf ... > /usr/local/bin/python3` where that name is a symlink to
+  `/usr/bin/python3.13` overwrites the REAL interpreter. The wrapper then
+  `exec`s itself and spins at full CPU. Write to a new path and `ln -sf` over
+  the name, which replaces the link rather than following it.
+
+- **`test -w` is useless as root.** Root bypasses the permission bits, so
+  `test ! -w` passes on a world-writable file. Read the mode with
+  `stat -c '%a'` and compare it.
+
+- **Touching every file's metadata copies the whole layer up.** A `chmod -R` on
+  a seven-gigabyte `COPY`ed directory cost a second seven-gigabyte layer and
+  more time than the rest of the build. `COPY` already preserves the mode;
+  verify it instead of re-applying it.
+
+- **An LFS file's Git object id names the pointer, not the content.** Binding
+  weight bytes to the blob id rejects a correct download. A content-addressed
+  file is bound by the host's SHA-256; a small inline file is bound by the blob
+  id, which IS computed over its content. One binding per file, chosen by which
+  one exists.
+
+- **Record a result only once the bytes are safely stored.** Pushing a
+  "succeeded" record when the guest answered, then fetching, left a variant
+  naming a file that a later step could not read, plus a second "failed" record
+  for the same seed. Write the record after the last step that can fail.
+
+- **Write the evidence even when the run dies.** A fatal error that discards
+  everything measured before it makes a partial run indistinguishable from a run
+  that never started. Catch it, record it in the report, and still write.
+
+- **The new-file coverage gate has no pattern for a Python test helper.**
+  `**/test_*.py` and `**/tests/__init__.py` are exempt; `tests/helpers.py` is
+  not, and is treated as product code. Put helpers in the package marker beside
+  the tests, as `src/factory/runner/python` already does. An empty
+  `__init__.py` also reads as unmeasured, because coverage.py emits no record
+  for a file with no statements.
