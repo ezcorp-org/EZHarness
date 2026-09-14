@@ -76,6 +76,14 @@ staged_test_targets() {
   local f base dir cand
   for f in "$@"; do
     case "$f" in
+      web/e2e/*)
+        # Playwright specs and their fixtures (every web/playwright*.config.ts
+        # sets `testDir: ./e2e`). Neither unit runner owns them — pre-push and
+        # CI run Playwright — so they map to nothing. Without this guard a
+        # staged spec fell through to the vitest leg below, which found no
+        # test file and failed the commit.
+        continue
+        ;;
       *.test.ts | *.test.tsx | *.spec.ts)
         [ -f "$f" ] && echo "$f"
         continue
