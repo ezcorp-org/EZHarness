@@ -44,7 +44,8 @@ not code work.
 | `75533ea96` | `fix(factory): consolidate the publication scope resolver and the path error class` (validation F1, F2) |
 | `aeda8ebb4` | `docs(factory): record the W07 validation fixes` |
 | `f3a251ff1` | `Merge branch 'integ/w00'` (brings the SeaweedFS volume-cap change `b18b080fa`) |
-| `<stamp>` | `docs(factory): replace the blocked storage receipts` (a file cannot carry its own hash) |
+| `b70271262` | `docs(factory): replace the blocked storage receipts` |
+| `<stamp>` | `docs(factory): stamp the storage-receipt commit` (a file cannot carry its own hash) |
 
 ## The landed API
 
