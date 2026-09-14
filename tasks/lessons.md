@@ -800,3 +800,9 @@
 - A host's memory is not a durable record. After a lost launch response the guest may already have been invoked, so the honest recovered state is uncertain until a terminal result is recorded; reading the host's in-memory result instead would turn a crash into an invented fact.
 - A durable claim that another process already holds is a reason to reconnect, not a reason to give up. My remote runtime answered a lost `claimStart` with uncertainty and never attached, so a gateway that restarted mid-launch abandoned a perfectly live attempt. Mirror whatever the in-process path does on that branch, and count launches and invocations in the test so a second one cannot slip in.
 - A host's in-flight result is not a durable fact, but it is still worth collecting. A supervisor that is still running the guest holds the invocation's return value, so a reconnecting gateway should read it and record it durably; only when the host has nothing either does the attempt stay uncertain.
+
+- `combined-integration.py` takes `/tmp/ezcorp-validation-heavy.lock` itself (fcntl.flock at its
+  top). Wrapping it in an outer `flock` deadlocks it against its own parent for the whole outer
+  `timeout`, silently, after it prints the focused-file line. Run it with `timeout` only, and when
+  a lock-serialized job prints nothing for ten minutes, read `/proc/locks` for the holder before
+  waiting longer.
