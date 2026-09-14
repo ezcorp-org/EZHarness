@@ -246,8 +246,8 @@ describe("C05 the host supervisor holds only host identity", () => {
     // A compile-time claim: adding a tenant or key field to the options makes
     // this assignment fail to typecheck, which is a stronger gate than a string
     // scan of the file.
-    const keys: ReadonlyArray<keyof FactoryRunnerSupervisorOptions> = ["runner", "journal", "authorizeAttempt", "invokeTool"];
-    expect([...keys].sort()).toEqual(["authorizeAttempt", "invokeTool", "journal", "runner"]);
+    const keys: ReadonlyArray<keyof FactoryRunnerSupervisorOptions> = ["runner", "journal", "authorizeAttempt", "invokeTool", "now"];
+    expect([...keys].sort()).toEqual(["authorizeAttempt", "invokeTool", "journal", "now", "runner"]);
     const declared = parse(resolve(REPO_ROOT, "src/factory/runner/supervisor.ts"));
     const optionMembers: string[] = [];
     const visit = (node: ts.Node): void => {
@@ -259,7 +259,12 @@ describe("C05 the host supervisor holds only host identity", () => {
       ts.forEachChild(node, visit);
     };
     visit(declared);
-    expect(optionMembers.sort()).toEqual(["authorizeAttempt", "invokeTool", "journal", "runner"]);
+    // An EXACT set, not a denylist, so a new option cannot arrive unreviewed.
+    // `now` arrived with W03's journal-fact sharing (`f1e396948`) and is a
+    // clock — "injected so a tool operation records real elapsed compute rather
+    // than a constant" — which is neither tenant identity nor a host key, so
+    // the boundary is intact and the set grows by exactly one reviewed name.
+    expect(optionMembers.sort()).toEqual(["authorizeAttempt", "invokeTool", "journal", "now", "runner"]);
   });
 
   test("the supervisor PROCESS holds host identity and no tenant credential", () => {
