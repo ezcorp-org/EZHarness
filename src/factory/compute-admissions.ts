@@ -3,8 +3,9 @@ import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { durableInputHash } from "../delivery-queue/durable-delivery-queue";
+import { assertFactoryAdmissionOrigin, factoryAdmissionOriginDigest, factoryReservationIdForOrigin, type FactoryAdmissionOrigin } from "./admission-origin";
 import type { FactoryBudgets } from "./budgets";
-import { type FactoryAuthorizedCommand, FactoryCommandAuthorityError, type FactoryCommandAuthority } from "./command-authority";
+import { type FactoryAuthorizedAdmissionCommand, type FactoryAuthorizedCommand, FactoryCommandAuthorityError, type FactoryCommandAuthority } from "./command-authority";
 import type { FactoryInbox } from "./inbox";
 import { FactoryInstallationCommandOutbox, type FactoryCommandDelivery } from "./outbox";
 import { parsePoolDecision, type PoolAdmissionClient } from "./pool/client";
@@ -37,19 +38,27 @@ interface AdmissionRow {
   response_json: string | null;
   event_digest: string | null;
   event_json: string | null;
+  origin_kind: string;
+  origin_json: string | null;
+  origin_digest: string | null;
 }
 interface BudgetReservationRow { readonly state: string; readonly compute_allocation: string | null }
 
 interface ClaimedAdmission { readonly row: AdmissionRow; readonly input: FactoryComputeAdmissionRequest; readonly token: string }
 export interface FactoryComputeAdmissionKey { readonly projectId: string; readonly runId: string; readonly reservationId: string }
-export interface FactoryComputeAdmissionReceipt { readonly lease: PoolLease; readonly event: AdmissionEvent }
+/**
+ * A protected-validator admission has no kernel node, so it produces no
+ * `admission-result` event. `event` is present exactly when the origin is
+ * `dispatch-node`.
+ */
+export interface FactoryComputeAdmissionReceipt { readonly lease: PoolLease; readonly event?: AdmissionEvent }
 export interface FactoryComputeAdmissionMaterial { readonly request: FactoryComputeAdmissionRequest; readonly receipt: FactoryComputeAdmissionReceipt }
 export type FactoryComputeAdmissionDispatchResult =
   | { readonly status: "idle" }
   | { readonly status: "busy"; readonly reservationId: string }
   | { readonly status: "queued"; readonly reservationId: string; readonly retryAtMs: number }
   | { readonly status: "admitted"; readonly reservationId: string; readonly receipt: FactoryComputeAdmissionReceipt }
-  | { readonly status: "rejected"; readonly reservationId: string; readonly decision: PoolDecision; readonly event: AdmissionEvent }
+  | { readonly status: "rejected"; readonly reservationId: string; readonly decision: PoolDecision; readonly event?: AdmissionEvent }
   | { readonly status: "cancelling" | "cancelled"; readonly reservationId: string }
   | { readonly status: "retry"; readonly reservationId: string; readonly reason: string };
 
@@ -83,6 +92,10 @@ function snapshotRequest(value: FactoryComputeAdmissionRequest, tenantId: string
   if (!Number.isSafeInteger(snapshot.memoryBytes) || snapshot.memoryBytes < 1 || typeof snapshot.budget.costMicros !== "string" || snapshot.budget.costMicros.length > 78 || !isUnsignedDecimal(snapshot.budget.costMicros) || !Number.isSafeInteger(snapshot.budget.tokens) || snapshot.budget.tokens < 0 || !Number.isSafeInteger(snapshot.budget.computeMs) || snapshot.budget.computeMs < 0) throw new FactoryComputeAdmissionError("factory_compute_admission_invalid");
   const deadline = Date.parse(snapshot.request.admissionDeadline);
   if (!Number.isSafeInteger(deadline) || new Date(deadline).toISOString() !== snapshot.request.admissionDeadline) throw new FactoryComputeAdmissionError("factory_compute_admission_invalid");
+  if (snapshot.origin !== undefined) {
+    try { assertFactoryAdmissionOrigin(snapshot.origin); }
+    catch { throw new FactoryComputeAdmissionError("factory_compute_admission_invalid"); }
+  }
   return canonical({ ...snapshot, request: { ...snapshot.request, resources: normalizePoolResourceVector(snapshot.request.resources) } });
 }
 
@@ -92,7 +105,21 @@ function decodeRequest(row: AdmissionRow, tenantId: string): FactoryComputeAdmis
   catch { throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt"); }
   const input = snapshotRequest(value as FactoryComputeAdmissionRequest, tenantId);
   if (input.digest !== row.request_digest || input.value.reference.projectId !== row.project_id || input.value.reference.logicalRunId !== row.run_id || input.value.request.reservationId !== row.reservation_id || row.tenant_id !== tenantId) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
+  const columns = originColumns(input.value.origin);
+  if (row.origin_kind !== columns.kind || row.origin_json !== columns.json || row.origin_digest !== columns.digest) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
   return input.value;
+}
+
+/**
+ * The durable projection of an origin onto its own columns.
+ *
+ * The sealed request already carries the origin; these columns exist so the
+ * partial unique index can give one admission per validator identity, so they
+ * must agree with it exactly.
+ */
+function originColumns(origin: FactoryAdmissionOrigin | undefined): { readonly kind: string; readonly json: string | null; readonly digest: string | null } {
+  if (origin?.kind !== "protected-validator") return { kind: "dispatch-node", json: null, digest: null };
+  return { kind: origin.kind, json: encodeFactoryPayload(origin), digest: factoryAdmissionOriginDigest(origin) };
 }
 
 function decodeResponse(row: AdmissionRow): unknown {
@@ -142,16 +169,21 @@ function validatedDecision(value: PoolDecision, input: FactoryComputeAdmissionRe
 function terminalResult(row: AdmissionRow, input: FactoryComputeAdmissionRequest): FactoryComputeAdmissionDispatchResult | undefined {
   if (row.state === "admitted" || row.state === "rejected") {
     const decision = decodeDecision(row);
-    const event = decodeEvent(row);
-    if (decision.reservationId !== row.reservation_id || event.granted !== (row.state === "admitted") || event.commandId !== input.reference.commandId || !Number.isSafeInteger(event.atMs) || event.atMs < 0 || !Number.isSafeInteger(event.candidateGeneration) || event.candidateGeneration < 0) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
+    // A validator has no kernel node, so a settled validator admission must
+    // carry no event at all. An event on one is corruption, not a bonus.
+    const validator = input.origin?.kind === "protected-validator";
+    if (validator !== (row.event_json === null)) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
+    const event = validator ? undefined : decodeEvent(row);
+    if (decision.reservationId !== row.reservation_id) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
+    if (event && (event.granted !== (row.state === "admitted") || event.commandId !== input.reference.commandId || !Number.isSafeInteger(event.atMs) || event.atMs < 0 || !Number.isSafeInteger(event.candidateGeneration) || event.candidateGeneration < 0)) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
     if (row.state === "admitted") {
       if (decision.status !== "admitted") throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
       try { assertDecisionBinding(decision, input); }
       catch { throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt"); }
-      return { status: "admitted", reservationId: row.reservation_id, receipt: { lease: decision.lease!, event } };
+      return { status: "admitted", reservationId: row.reservation_id, receipt: { lease: decision.lease!, ...(event ? { event } : {}) } };
     }
     if (decision.status !== "rejected" && decision.status !== "cancelled") throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
-    return { status: "rejected", reservationId: row.reservation_id, decision, event };
+    return { status: "rejected", reservationId: row.reservation_id, decision, ...(event ? { event } : {}) };
   }
   if (row.state === "cancelled") return { status: "cancelled", reservationId: row.reservation_id };
   return undefined;
@@ -190,9 +222,10 @@ export class FactoryComputeAdmissions {
     const input = snapshotRequest(value, this.tenantId);
     const reference = input.value.reference;
     const timestamp = nowValue(this.now);
+    const origin = originColumns(input.value.origin);
     const inserted = rows(await transaction.execute(sql`INSERT INTO factory_compute_admissions
-      (tenant_id, project_id, run_id, reservation_id, request_digest, request_json, state, next_poll_at)
-      VALUES (${this.tenantId}, ${reference.projectId}, ${reference.logicalRunId}, ${input.value.request.reservationId}, ${input.digest}, ${input.json}, 'pending', ${timestamp})
+      (tenant_id, project_id, run_id, reservation_id, request_digest, request_json, state, next_poll_at, origin_kind, origin_json, origin_digest)
+      VALUES (${this.tenantId}, ${reference.projectId}, ${reference.logicalRunId}, ${input.value.request.reservationId}, ${input.digest}, ${input.json}, 'pending', ${timestamp}, ${origin.kind}, ${origin.json}, ${origin.digest})
       ON CONFLICT DO NOTHING RETURNING reservation_id`));
     if (inserted.length === 1) return { created: true };
     const prior = rowResult(rows<AdmissionRow>(await transaction.execute(sql`SELECT * FROM factory_compute_admissions WHERE tenant_id=${this.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND reservation_id=${input.value.request.reservationId} FOR UPDATE`)));
@@ -249,7 +282,7 @@ export class FactoryComputeAdmissions {
     const result = terminalResult(row, request);
     if (result?.status !== "admitted") throw new FactoryComputeAdmissionError("factory_compute_admission_not_admitted");
     if (result.receipt.lease.allocationToken !== allocation.allocationToken || result.receipt.lease.allocationGeneration !== allocation.reservationGeneration) throw new FactoryComputeAdmissionError("factory_compute_admission_corrupt");
-    return Object.freeze({ request: Object.freeze(request), receipt: Object.freeze({ lease: Object.freeze(result.receipt.lease), event: Object.freeze(result.receipt.event) }) });
+    return Object.freeze({ request: Object.freeze(request), receipt: Object.freeze({ lease: Object.freeze(result.receipt.lease), ...(result.receipt.event ? { event: Object.freeze(result.receipt.event) } : {}) }) });
   }
 
   private deliveryKey(delivery: FactoryCommandDelivery): FactoryComputeAdmissionKey {
@@ -291,15 +324,37 @@ export class FactoryComputeAdmissions {
   }
 
   private async assertCurrent(service: TrustedFactoryServiceIdentity, input: FactoryComputeAdmissionRequest): Promise<void> {
-    await this.authority.withCurrent(service, input.reference, async (_transaction, context) => { this.assertContext(input, context); });
+    await this.authority.withCurrentAdmission(service, input.reference, input.origin, async (_transaction, context) => { this.assertContext(input, context); });
   }
 
-  private assertContext(input: FactoryComputeAdmissionRequest, context: FactoryAuthorizedCommand): void {
-    if (context.command.kind !== "request-admission" || encodeFactoryPayload(factoryExecutionFence(context.fence)) !== encodeFactoryPayload(factoryExecutionFence(input.fence)) || factoryTaskReservationId(input.reference, context) !== input.request.reservationId || new Date(context.command.deadlineAtMs).toISOString() !== input.request.admissionDeadline) throw new FactoryComputeAdmissionError("factory_compute_admission_stale");
+  /**
+   * The reservation identity must follow from the live command, never from the
+   * caller's copy of it.
+   *
+   * Ordinary task work is keyed from the committed `request-admission` context,
+   * exactly as before, and a carried `dispatch-node` origin must agree with it,
+   * so an origin can never re-key a live run. A protected validator is keyed
+   * from its own origin, and the acceptance command that authorized the poll
+   * must be the one the origin names.
+   */
+  private assertContext(input: FactoryComputeAdmissionRequest, context: FactoryAuthorizedAdmissionCommand): void {
+    const stale = (): never => { throw new FactoryComputeAdmissionError("factory_compute_admission_stale"); };
+    if (encodeFactoryPayload(factoryExecutionFence(context.fence)) !== encodeFactoryPayload(factoryExecutionFence(input.fence))) stale();
+    if (new Date(context.command.deadlineAtMs).toISOString() !== input.request.admissionDeadline) stale();
+    const origin = input.origin;
+    if (origin?.kind === "protected-validator") {
+      if (context.command.kind !== "request-acceptance" || origin.acceptanceCommandId !== context.command.id) stale();
+      if (factoryReservationIdForOrigin(input.reference, origin) !== input.request.reservationId) stale();
+      return;
+    }
+    if (context.command.kind !== "request-admission") stale();
+    const expected = factoryTaskReservationId(input.reference, context as FactoryAuthorizedCommand);
+    if (expected !== input.request.reservationId) stale();
+    if (origin && factoryReservationIdForOrigin(input.reference, origin) !== expected) stale();
   }
 
   private async commitDecision(service: TrustedFactoryServiceIdentity, claim: ClaimedAdmission, decision: PoolDecision): Promise<FactoryComputeAdmissionDispatchResult> {
-    return this.authority.withCurrent(service, claim.input.reference, async (transaction, context) => {
+    return this.authority.withCurrentAdmission(service, claim.input.reference, claim.input.origin, async (transaction, context) => {
       this.assertContext(claim.input, context);
       const admitted = decision.status === "admitted";
       if (admitted) await this.budgets.markRunningInTransaction(transaction, { projectId: claim.row.project_id, runId: claim.row.run_id, reservationId: claim.row.reservation_id }, { allocationToken: decision.lease!.allocationToken, reservationGeneration: decision.lease!.allocationGeneration });
@@ -313,7 +368,10 @@ export class FactoryComputeAdmissions {
       }
       if (!activeStates.includes(current.state as ActiveState)) throw new FactoryComputeAdmissionError("factory_compute_admission_conflict");
       const timestamp = nowValue(this.now);
-      const event: AdmissionEvent = {
+      // A protected validator has no kernel node, so there is no node to tell:
+      // no `admission-result` is built, none is enqueued, and none is stored.
+      // The durable CHECK keeps that true for the row as well as for this path.
+      const event: AdmissionEvent | undefined = context.command.kind === "request-acceptance" ? undefined : {
         kind: "admission-result",
         id: `factory-admission:${durableInputHash({ tenantId: this.tenantId, projectId: current.project_id, runId: current.run_id, reservationId: current.reservation_id, granted: admitted }).slice(7)}`,
         atMs: timestamp,
@@ -323,12 +381,12 @@ export class FactoryComputeAdmissions {
         granted: admitted,
       };
       const encodedDecision = canonicalDecision(decision);
-      const encodedEvent = canonical(event);
-      await this.inbox.enqueueInTransaction(transaction, { projectId: current.project_id, runId: current.run_id, interpreterId: claim.input.reference.interpreterId }, encodedEvent.value);
-      await transaction.execute(sql`UPDATE factory_compute_admissions SET state=${admitted ? "admitted" : "rejected"}, response_digest=${encodedDecision.digest}, response_json=${encodedDecision.json}, event_digest=${encodedEvent.digest}, event_json=${encodedEvent.json}, next_poll_at=0, poll_lease_until=0, poll_lease_token=NULL, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${current.project_id} AND run_id=${current.run_id} AND reservation_id=${current.reservation_id}`);
+      const encodedEvent = event === undefined ? undefined : canonical(event);
+      if (encodedEvent) await this.inbox.enqueueInTransaction(transaction, { projectId: current.project_id, runId: current.run_id, interpreterId: claim.input.reference.interpreterId }, encodedEvent.value);
+      await transaction.execute(sql`UPDATE factory_compute_admissions SET state=${admitted ? "admitted" : "rejected"}, response_digest=${encodedDecision.digest}, response_json=${encodedDecision.json}, event_digest=${encodedEvent?.digest ?? null}, event_json=${encodedEvent?.json ?? null}, next_poll_at=0, poll_lease_until=0, poll_lease_token=NULL, updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${current.project_id} AND run_id=${current.run_id} AND reservation_id=${current.reservation_id}`);
       return admitted
-        ? { status: "admitted", reservationId: current.reservation_id, receipt: { lease: decision.lease!, event } }
-        : { status: "rejected", reservationId: current.reservation_id, decision, event };
+        ? { status: "admitted", reservationId: current.reservation_id, receipt: { lease: decision.lease!, ...(event ? { event } : {}) } }
+        : { status: "rejected", reservationId: current.reservation_id, decision, ...(event ? { event } : {}) };
     });
   }
 
