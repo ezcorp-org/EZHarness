@@ -155,7 +155,10 @@ that "closes admission until real probes pass" had a gate and no probe.
 Independent means a fresh private root, fresh certificates, a fresh pool
 database, and freshly started pool, supervisor, and web processes each time.
 
-All three at commit `9ccb6de7e`, against a web build made at that commit.
+All three at this branch's tip, against a web build made there. Every receipt
+under the evidence directory carries its own `producingCommit`; they were
+produced by one sweep, `repro/final-sweep.sh`, run after the last commit rather
+than gathered across several.
 
 | Run | `/api/ready` | Roles running | Pool | Supervisor | Ready beats, lease children | `/api/ready` after | Teardown | Exit | Survivors | Record fresh |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
