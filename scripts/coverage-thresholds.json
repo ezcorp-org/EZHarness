@@ -1038,5 +1038,6 @@
   "src/factory/release-github.ts": 100,
   "src/factory/release-s3-publication.ts": 100,
   "src/factory/release-s3-scope.ts": 100,
-  "src/factory/release-fence.ts": 100
+  "src/factory/release-fence.ts": 100,
+  "src/factory/tenant-projects.ts": 100
 }

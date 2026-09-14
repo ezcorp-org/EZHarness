@@ -48,16 +48,12 @@ export interface FactoryProjectionDriver {
 /**
  * One bounded delivery of the durable in-app release notification inbox.
  *
- * Nothing implements this today, and the reason is worth stating exactly
- * because the method name hides it. The collaborator that exists is
- * `FactoryNotificationDelivery.deliverNext(projectId)`, which is PER PROJECT,
- * and there is no way to enumerate a tenant's projects: `FactoryRecords` binds
- * a project row and never lists one. So an installation-wide delivery loop is
- * missing its other half, exactly as the release-outcome loop is.
- *
- * This shape is kept rather than narrowed to the per-project call because it is
- * what the ROLE needs; narrowing it would move the same gap into the composition
- * without closing it. The role holds by name until a project enumerator exists.
+ * The collaborator is per project — `FactoryNotificationDelivery.deliverNext` —
+ * so this installation-wide shape is the composition's, built from that call
+ * and the project enumerator in `tenant-projects.ts`. It stayed unimplemented
+ * for a while precisely because nothing could enumerate a tenant's projects,
+ * which is worth remembering: the shape a ROLE needs is not evidence that a
+ * producer exists, and the gap between the two lived in this interface's name.
  */
 export interface FactoryNotificationInboxDriver {
   deliverNextAcrossProjects(signal: AbortSignal): Promise<boolean>;
@@ -195,7 +191,7 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
   role("notification-inbox-delivery",
     inbox && (async (signal) => progress(!(await inbox.deliverNextAcrossProjects(signal)))),
     "destination-reservations", "W07/W08",
-    "every release collaborator has landed; the delivery is per project and nothing enumerates a tenant's projects");
+    "the release store did not compose; the composition reports the exact cause under the release-store role");
 
   // The remaining four are seam-driven. Each seam is a bounded step the owning
   // package composes from its own collaborator and its own scan, so supplying it
@@ -209,7 +205,7 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
   seamRole("child-settlement", "childSettlement",
     "the installation composes this from W06's scan and settle; it holds only where neither is reachable");
   seamRole("release-outcome", "releaseProviders", factoryReleaseSeamsPresent(collaborators.seams)
-    ? "FactoryReleases.listClaimableInTransaction is per project and nothing enumerates a tenant's projects"
+    ? "the scan and the enumerator both landed; no production FactoryReleaseProviderResolver exists to dispatch a claim"
     : "a release outcome needs the provider resolver, the destination reservation, and the sender fence");
   seamRole("usage-reconciliation", "usageReconciler",
     "the scan landed; a listed hold carries no attempt, operation, provider receipt digest, or measured usage, and reconcile needs all four");

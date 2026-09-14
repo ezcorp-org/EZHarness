@@ -15,6 +15,7 @@ import {
   FACTORY_CHILD_SETTLEMENT_TRANSIENT_CODES,
   factoryChildSettlementDisposition,
   factoryChildSettlementDriver,
+  factoryNotificationInboxDriver,
   factoryGatewayProbeTarget,
   factoryStartupConfigPath,
   factoryStorageProbeTarget,
@@ -24,6 +25,7 @@ import {
 } from "./installation-startup";
 
 const roots: string[] = [];
+const reported: Array<{ role: string; error: unknown }> = [];
 const started: Array<{ stop(): Promise<void> }> = [];
 
 afterEach(async () => {
@@ -141,7 +143,7 @@ function host(overrides: Partial<FactoryInstallationHost> = {}): FactoryInstalla
     database: bindingDatabase(),
     runOptions: { interpreterBuild: "build-1", interpreterCompatibility: "1", limits: { maxCostMicros: "100", maxTokens: 100, maxComputeMs: 100 }, resolveParameters: async () => ({}) },
     availableResourceClasses: ["cpu"],
-    report: () => {},
+    report: (role, error) => { reported.push({ role, error }); },
     ...overrides,
   };
 }
@@ -561,5 +563,116 @@ describe("binding the installation to its tenant", () => {
       boot: bootConfig(root),
       dependencies: { gateway: { health: async () => true } },
     })).rejects.toMatchObject({ code: "factory_installation_mismatch" });
+  });
+});
+
+describe("the notification inbox step, across the tenant's projects", () => {
+  /** A database whose transaction answers with the given project rows, once. */
+  function projectsDatabase(ids: readonly string[]): TransactionalDb {
+    let served = false;
+    const execute = async () => {
+      if (served) return [];
+      served = true;
+      return ids.map((id, index) => ({ project_id: id, created_at_ms: 1_700_000_000_000 + index }));
+    };
+    return { execute, async transaction<R>(work: (t: { execute: typeof execute }) => Promise<R>) { return work({ execute }); } } as unknown as TransactionalDb;
+  }
+
+  test("stops at the first project that delivered, and says it did work", async () => {
+    const asked: string[] = [];
+    const driver = factoryNotificationInboxDriver(projectsDatabase(["project-a", "project-b", "project-c"]), {
+      async deliverNext(projectId: string) { asked.push(projectId); return projectId === "project-b" ? ({} as never) : null; },
+    }, "tenant-01");
+
+    expect(await driver.deliverNextAcrossProjects(new AbortController().signal)).toBe(true);
+    // One pass does not drain every project: a busy project would otherwise
+    // starve the rest for the length of its backlog.
+    expect(asked).toEqual(["project-a", "project-b"]);
+  });
+
+  test("an empty tenant, and a tenant with nothing to deliver, are both no work", async () => {
+    const none = factoryNotificationInboxDriver(projectsDatabase([]), { async deliverNext() { return null; } }, "tenant-01");
+    expect(await none.deliverNextAcrossProjects(new AbortController().signal)).toBe(false);
+
+    const quiet = factoryNotificationInboxDriver(projectsDatabase(["project-a", "project-b"]), { async deliverNext() { return null; } }, "tenant-01");
+    expect(await quiet.deliverNextAcrossProjects(new AbortController().signal)).toBe(false);
+  });
+
+  test("a stop between projects ends the pass rather than finishing the tenant", async () => {
+    const controller = new AbortController();
+    const asked: string[] = [];
+    const driver = factoryNotificationInboxDriver(projectsDatabase(["project-a", "project-b"]), {
+      async deliverNext(projectId: string) { asked.push(projectId); controller.abort(); return null; },
+    }, "tenant-01");
+
+    await expect(driver.deliverNextAcrossProjects(controller.signal)).rejects.toThrow();
+    expect(asked).toEqual(["project-a"]);
+  });
+});
+
+describe("the release store, and the role it unblocks", () => {
+  async function credentialFile(root: string, kind: string): Promise<string> {
+    const path = join(root, "secrets", `${kind}-credentials.json`);
+    await writeFile(path, JSON.stringify({ identities: [{ name: "tenant-01", credentials: [{ accessKey: `${kind}-key`, secretKey: `${kind}-secret` }] }] }), { mode: 0o600 });
+    await chmod(path, 0o600);
+    return path;
+  }
+
+  test("composes from the startup document and registers notification-inbox-delivery", async () => {
+    const before = reported.length;
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const configPath = await writeConfig(root, {
+      storage: {
+        ordinary: { ...storage("ordinary"), credentialsPath: await credentialFile(root, "ordinary") },
+        archive: { ...storage("archive"), credentialsPath: await credentialFile(root, "archive") },
+      },
+    } as never);
+
+    const startup = await startFactoryInstallation({
+      host: host(),
+      blobs: memoryBlobs(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath,
+      boot: bootConfig(root),
+      dependencies: { gateway: { health: async () => true } },
+    });
+    started.push(startup);
+
+    const report = startup.runtime.report();
+    // The role the project enumerator unblocks. Every other release
+    // collaborator landed with the wave-2 integration; this was the last one.
+    expect(report.workers.map((worker) => worker.name)).toContain("notification-inbox-delivery");
+    expect(report.heldWorkers.map((worker) => worker.role)).not.toContain("notification-inbox-delivery");
+    // Nothing reported a release-store failure on this path.
+    expect(reported.slice(before).filter((entry) => entry.role === "release-store")).toEqual([]);
+  });
+
+  test("holds the role and names the cause when a credential set is unreadable", async () => {
+    const before = reported.length;
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    // `storage()` points the archive credentials at a path that does not exist,
+    // which is the ordinary shape of a misconfigured installation.
+    const startup = await startFactoryInstallation({
+      host: host(),
+      blobs: memoryBlobs(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath: await writeConfig(root),
+      boot: bootConfig(root),
+      dependencies: { gateway: { health: async () => true } },
+    });
+    started.push(startup);
+
+    const report = startup.runtime.report();
+    expect(report.workers.map((worker) => worker.name)).not.toContain("notification-inbox-delivery");
+    // Held AND explained: an operator who can see the role held but not the
+    // reason has to guess between a missing credential, an unreachable store,
+    // and a scope mismatch.
+    const failures = reported.slice(before).filter((entry) => entry.role === "release-store");
+    expect(failures).not.toEqual([]);
+    expect(String((failures[0]!.error as Error).message)).toContain("credential set");
   });
 });

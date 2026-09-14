@@ -32,6 +32,16 @@ import { FactoryCommandAuthority } from "./command-authority";
 import { FactoryComputeAdmissions } from "./compute-admissions";
 import { FactoryInbox } from "./inbox";
 import { createPoolAdmissionClient } from "./pool/client";
+import { FactoryAssurance } from "./assurance";
+import { FactoryScopedMaterials } from "./artifact-materials";
+import { composeFactoryArchiveWriter, loadFactoryStorageCredentials } from "./release-composition";
+import { FactoryDestinationReservations, FactoryStoreSenderFence } from "./release-destinations";
+import { factoryReleaseFenceReader } from "./release-fence";
+import { FactoryS3PublicationProvenance } from "./release-s3-scope";
+import { FactoryReleases } from "./releases";
+import { FactoryNotificationDelivery } from "./notification-delivery";
+import { FactoryTrustedValidators } from "./validator-materials";
+import { factoryTenantProjectIds, factoryTenantProjects } from "./tenant-projects";
 import { FactoryRecords } from "./records";
 import { FactoryRunTransitionProjector } from "./run-transition-projector";
 import { FactoryTransitionArtifacts } from "./transition-artifacts";
@@ -39,7 +49,7 @@ import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-c
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
 import type { FactoryStorageProbeTarget } from "./service-probes";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
-import type { FactoryApplicationOptions } from "./application";
+import type { FactoryApplication, FactoryApplicationOptions } from "./application";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryRoleDriver } from "./runtime-seams";
 
@@ -242,6 +252,98 @@ export function factoryChildSettlementDriver(
   });
 }
 
+/**
+ * The release store, composed from the startup document alone.
+ *
+ * Every collaborator here landed with the wave-2 integration, and the last one
+ * this package was waiting on is the project enumerator above. The pieces and
+ * why each is the production one, not a stand-in:
+ *
+ * - `FactoryTrustedValidators` satisfies BOTH of assurance's validator seams —
+ *   the gateway and the current-candidate resolver — so it is constructed once
+ *   and passed twice rather than duplicated.
+ * - The runtimes iterable is empty because a trusted validator runtime is a
+ *   pinned deployment fact and the startup document declares none. An empty set
+ *   is not a weakened check: `resolveValidatorInTransaction` then finds no
+ *   runtime and refuses, which is the correct answer for an installation that
+ *   has pinned none.
+ * - The release fence reader is the composition-owned one, which is where the
+ *   freeze puts it.
+ * - The archive writer's publication set comes from `FactoryS3PublicationProvenance`,
+ *   the S3 derivation, because the startup document configures S3 for both the
+ *   ordinary and the archive store. An installation publishing to git would
+ *   supply `FactoryGitPublicationMembers` instead; that is a configured choice
+ *   and it is the one this document's storage section already makes.
+ *
+ * Returning `undefined` rather than throwing is deliberate. A factory whose
+ * release store cannot be composed must still serve runs; the two release roles
+ * hold by name, which is visible in the readiness report, instead of taking the
+ * whole installation down with them.
+ */
+async function installationReleases(
+  config: FactoryStartupConfig,
+  database: TransactionalDb,
+  blobs: BlobStore,
+  artifacts: FactoryArtifacts,
+  stores: Pick<FactoryApplication, "grants" | "runs" | "journal" | "releaseAuthority">,
+  report: (role: string, error: unknown) => void,
+): Promise<FactoryReleases | undefined> {
+  try {
+    const validators = new FactoryTrustedValidators(database, config.tenantId, stores.runs, stores.journal, artifacts, stores.releaseAuthority, []);
+    const assurance = new FactoryAssurance(database, config.tenantId, stores.grants, validators, factoryReleaseFenceReader(stores.runs), validators);
+    const provenance = new FactoryS3PublicationProvenance({ database, tenantId: config.tenantId });
+    const archive = composeFactoryArchiveWriter({
+      tenantId: config.tenantId,
+      ordinary: config.storage.ordinary,
+      archive: config.storage.archive,
+      reader: new FactoryScopedMaterials({ database, artifacts, blobs }),
+      resolveMembers: (tenantId, operationId, material, signal) => provenance.sourcesFor(tenantId, operationId, material, signal),
+      archiveCredentials: await loadFactoryStorageCredentials(config.storage.archive, config.tenantId),
+    });
+    return new FactoryReleases(
+      database, config.tenantId, stores.grants, assurance, stores.releaseAuthority, stores.releaseAuthority,
+      new FactoryDestinationReservations({ database, tenantId: config.tenantId }),
+      archive,
+      new FactoryStoreSenderFence({ database, tenantId: config.tenantId }),
+    );
+  } catch (error) {
+    // Never silently. A release store that cannot compose holds two roles, and
+    // an operator who can see the roles held but not the reason has to guess
+    // between a missing credential, an unreachable store, and a scope
+    // mismatch. The first version of this catch returned `undefined` and said
+    // nothing, which is the failure this comment exists to prevent.
+    report("release-store", error);
+    return undefined;
+  }
+}
+
+/**
+ * One bounded delivery of the release notification inbox, across the tenant.
+ *
+ * `FactoryNotificationDelivery.deliverNext` is per project, so the role's
+ * installation-wide shape is this walk plus the project enumerator. It stops at
+ * the first project that delivered, which keeps one pass bounded and lets the
+ * worker's own idle delay govern the rate; a pass that drained every project
+ * would let one busy project starve the rest for the length of its backlog.
+ */
+export function factoryNotificationInboxDriver(
+  database: TransactionalDb,
+  delivery: Pick<FactoryNotificationDelivery, "deliverNext">,
+  tenantId: string,
+  scan: { readonly limit?: number; readonly pages?: number } = {},
+): { deliverNextAcrossProjects(signal: AbortSignal): Promise<boolean> } {
+  const projects = factoryTenantProjects(tenantId);
+  return {
+    async deliverNextAcrossProjects(signal: AbortSignal): Promise<boolean> {
+      for (const projectId of await factoryTenantProjectIds(database, projects, scan)) {
+        signal.throwIfAborted();
+        if (await delivery.deliverNext(projectId) !== null) return true;
+      }
+      return false;
+    },
+  };
+}
+
 export interface FactoryInstallationStartup {
   readonly runtime: FactoryRuntime;
   stop(): Promise<void>;
@@ -366,8 +468,18 @@ async function installationCollaborators(
   const service: TrustedFactoryServiceIdentity = { subject: config.privateService.certificateIdentity, tenantId: config.tenantId };
   const children = new FactoryChildRuns(host.database, config.tenantId, authority, stores.runs, transitions);
 
+  // The release store, and the one role it unblocks here. `release-outcome`
+  // needs a second half this process still cannot build — see its held reason.
+  const releases = await installationReleases(config, host.database, blobs, stores.artifacts, stores, host.report);
+  const notificationInbox = releases === undefined ? undefined
+    : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(releases), config.tenantId);
+
   return {
-    workers: { projections, ...(compute === undefined ? {} : { compute }) },
+    workers: {
+      projections,
+      ...(compute === undefined ? {} : { compute }),
+      ...(notificationInbox === undefined ? {} : { notificationInbox }),
+    },
     seams: {
       childSettlement: factoryChildSettlementDriver(host.database, children, service, host.report),
     },

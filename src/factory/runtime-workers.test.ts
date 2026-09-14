@@ -100,11 +100,11 @@ describe("registerFactoryRuntimeWorkers", () => {
     expect(withoutSeams.held.find((held) => held.role === "release-outcome")!.reason).toContain("sender fence");
 
     // Once every release collaborator is present the reason must name the one
-    // thing still missing, not repeat the collaborator list. W07 shipped the
-    // claimable scan, but it is per project and nothing lists a tenant's
-    // projects, so the loop has no way to reach them all.
+    // thing still missing, not repeat the collaborator list. W07's claimable
+    // scan landed and the composition now enumerates a tenant's projects, so
+    // the remaining gap is the resolver that turns a claim into a provider.
     const withSeams = registerFactoryRuntimeWorkers(collaborators({ seams: releaseSeams() }));
-    expect(withSeams.held.find((held) => held.role === "release-outcome")!.reason).toContain("enumerates a tenant's projects");
+    expect(withSeams.held.find((held) => held.role === "release-outcome")!.reason).toContain("FactoryReleaseProviderResolver");
   });
 
   test("maps every non-idle compute status to progress and only idle to no work", async () => {
