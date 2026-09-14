@@ -156,6 +156,12 @@ which the residual job runs WITHOUT coverage. Duplicated the proof outside it:
   copy executed as a miss (8 missed lines with copies, 0 without, same assertions). The wiring test
   walks the module lifecycle in file order on the canonical instance instead.
 
+**CI round 3 — Coverage shard 7:** `mock-cleanup-coverage.test.ts` (meta-test) flagged the service
+test's `mock.module("../extensions/trusted-local-runner")` as unsnapshotted. Added the path to
+`MODULE_PATHS` in `src/__tests__/helpers/mock-cleanup.ts` (cheap import graph, no db/daemon) so
+`restoreModuleMocks()` can undo the stub. Every other check in that run was green; production
+proofs were still pending.
+
 **Verification results (final):**
 - `bun run typecheck` ✓ (0 errors) · `bun run lint` ✓ (8 pre-existing infos, none in touched files).
 - Unit/integration (one process per file): runner-mode 11/11 · runner-connection 6/6 ·
