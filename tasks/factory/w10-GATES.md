@@ -247,6 +247,17 @@ This package does change one shared module, `src/extensions/v4/blobs.ts`, so "it
 their trees" is not left as an argument: G24a runs that module's eight factory consumers (68 pass,
 437 assertions) and G25 runs its real-PostgreSQL producers (65 pass, 3365 assertions).
 
+## Two receipts in the file that are not failures of this package
+
+`receipts.jsonl` is append-only and keeps every run, including the ones I got wrong. Two entries
+need reading with their reason:
+
+- `shared-blob-tests` exits 1 because I named two test files that do not exist; Bun reported "did
+  not match any test files" and ran nothing. It is superseded by `shared-blob-consumers`, which
+  names the real files and passes 68 tests with 437 assertions. Kept rather than deleted.
+- `provider-readiness` exits 1 on purpose. That is the readiness failure this package is required to
+  record, not a broken producer.
+
 ## Disposable resources, cleaned after evidence capture
 
 Two draft pull requests (#6, #7) and their two `ezcorp-factory/...` branches were created on
