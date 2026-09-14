@@ -39,7 +39,8 @@ not code work.
 | `055dc2f86` | `feat(factory): publish accepted candidates as draft pull requests` |
 | `64e37b28f` | `test(factory): run the F04 reconciliation matrix against the GitHub adapter` |
 | `9d3594002` | `Merge branch 'integ/w00' into wp/w07-github-publication` (picks up W08; updates its `prepare` call site) |
-| `<stamp>` | `docs(factory): record the W07 gates, review, and lessons` (a file cannot carry its own hash) |
+| `5198acfee` | `docs(factory): record the W07 gates, review, and lessons` |
+| `<stamp>` | `docs(factory): stamp the W07 gate commit table` (a file cannot carry its own hash) |
 
 ## The landed API
 
