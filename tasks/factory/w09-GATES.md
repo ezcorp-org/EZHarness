@@ -217,22 +217,29 @@ proved separately in `repro/real-server-factory-probe.json`.
 | `src/factory/runtime-composition.test.ts` | 23 pass / 0 fail |
 | `src/factory/release-composition.test.ts` | 17 pass / 0 fail |
 | `src/factory/installation-startup.test.ts` | 15 pass / 0 fail |
-| `src/factory/runner/supervisor-process.test.ts` | 17 pass / 0 fail |
+| `src/factory/role-drivers.test.ts` | 12 pass / 0 fail |
+| `src/factory/runner/supervisor-process.test.ts` | 23 pass / 0 fail |
 | `src/__tests__/factory-process-boundaries.test.ts` | 14 pass / 0 fail |
 | `web/src/__tests__/factory-boot.server.test.ts` | 10 pass / 0 fail |
 | `web/src/__tests__/context-initialization.server.test.ts` | 4 pass / 0 fail |
-| `tests/postgres/factory-{boot,schema,private-service,migration-restart}` | 12 pass / 0 fail, 2745 assertions |
+| `tests/postgres/factory-{boot,schema,private-service,migration-restart}` | 12 pass / 0 fail |
+| `src/__tests__/{openapi,gate-scripts,api-docs,factory-boot,tool-policy,session-scope-surface}` | 319 pass / 0 fail |
+| `web/src/__tests__/route-contract.test.ts` | 29 pass / 0 fail |
 | `bun run typecheck`, `bun run lint` | pass; 9 pre-existing infos |
 | `bun scripts/check-factory-boundaries.ts`, `bun scripts/gate-integrity.ts` | pass |
 
 Logs and receipt JSON per producer under `/tmp/factory-platform-evidence/w09/`.
 
-Eleven new source files, each at 100% line coverage after merge:
-`background-workers.ts` 151, `startup-config.ts` 131, `service-probes.ts` 85,
-`service-readiness.ts` 92, `runtime-seams.ts` 40, `runtime-workers.ts` 84,
-`runtime-composition.ts` 96, `release-composition.ts` 78,
-`installation-startup.ts` 112, `runner/supervisor-process.ts` 127, and
+Thirteen new source files, each at 100% line coverage after merge:
+`background-workers.ts`, `startup-config.ts`, `service-probes.ts`,
+`service-readiness.ts`, `runtime-seams.ts`, `runtime-workers.ts`,
+`runtime-composition.ts`, `release-composition.ts`, `installation-startup.ts`,
+`role-drivers.ts`, `runner/supervisor-process.ts`, and
 `web/src/lib/server/factory-boot.ts`.
+
+Every receipt under `/tmp/factory-platform-evidence/w09/` names the commit it
+was produced at. The gate receipts were regenerated at the final commit after
+the validation found them stale.
 
 ## The startup race, before and after
 

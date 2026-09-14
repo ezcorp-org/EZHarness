@@ -758,3 +758,33 @@
 - Copy a credential file into the installation's own private directory rather
   than reading a shared fixture in place. The provisioner already does this, and
   the private bounded reader refuses the 0644 fixtures for the right reason.
+
+## 2026-09-14 — W09 re-validation fixes
+
+- A heartbeat must not sit behind an unbounded probe. The supervisor wrote its
+  readiness only after a Podman probe that creates a container, so the write
+  interval was probe latency plus the heartbeat against a reader window of three
+  heartbeats: a live process that read as dead whenever the box was busy. One
+  passing run proved nothing. Separate the observation from the publication, and
+  state every interval as a multiple of one configured value so the margins can
+  be read rather than guessed.
+- A record must not conflate "has not looked yet" with "looked and did not like
+  it". Both were `starting` with a reason attached, which is two different
+  operator actions behind one word.
+- Prove a timing fix by repetition, not by one green run. Three consecutive
+  independent runs, each with its own root, certificates, database, and
+  processes, is the smallest honest claim for a fix to an intermittent fault.
+- A test fake whose `wait` resolves on the microtask queue starves the other
+  loop's file I/O: the publisher spun forever and the observation never landed,
+  which looked exactly like a deadlock in the code under test. A fake that
+  stands in for a timer has to yield a macrotask, because a real timer does.
+- Read the whole log before quoting its order. I claimed the factory teardown ran
+  first of fourteen; it runs second, after a `background-timers` registration
+  that predates this package. The claim came from a filter that matched only my
+  own name, so the line above it was never in the excerpt I read.
+- Regenerate a receipt when the commit moves. Citing `gate-*.json` produced three
+  commits earlier is citing a different tree.
+- zsh does not word-split an unquoted variable. A loop that built commands as
+  strings and ran `$cmd` produced four exit-127 receipts that looked like four
+  broken gates. This is already in this file; I hit it anyway. Build argument
+  lists, not command strings.
