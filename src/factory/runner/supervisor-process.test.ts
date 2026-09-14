@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { readFactoryServiceReadiness, factorySupervisorReadinessOptions, FactoryServiceReadinessError } from "../service-readiness";
+import { readFactoryServiceReadiness, factorySupervisorReadinessOptions } from "../service-readiness";
 import {
   loadFactoryHostKey,
   factorySupervisorRecord,
