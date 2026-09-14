@@ -27,7 +27,7 @@ than prose.
 | `77ab2da1a` | `test(factory): prove S3 staging, verification, and reconciliation` |
 | `da556e9c9` | `test(factory): prove the S3 publication order on PostgreSQL and real S3` |
 | `cb3f194b5` | `test(factory): measure S3 publication isolation for ten tenant credentials` |
-| `<docs>` | `docs(factory): record the W08 S3 publication gates and review` |
+| `2827c268a` | `docs(factory): record the W08 S3 publication gates, review, and lessons` |
 | `<stamp>` | `docs(factory): stamp the W08 gate receipts` (a file cannot carry its own hash) |
 
 ## The landed API
@@ -85,19 +85,19 @@ bytes back.
 
 ## Gates
 
-- [ ] G1: The publication set stages every approved member privately and conditionally, verifies
+- [x] G1: The publication set stages every approved member privately and conditionally, verifies
       SHA-256, media type, and object version, and writes `manifest.json` only after all members
       verify. Partial staging never appears published.
       CHECK: `bun test --timeout 60000 ./src/factory/release-s3-publication.test.ts`
       EXPECT: 18 pass, 0 fail.
       EVIDENCE: `/tmp/factory-platform-evidence/w08/receipts.jsonl`, record `unit`.
-- [ ] G2: Every line of `src/factory/release-s3-publication.ts` and
+- [x] G2: Every line of `src/factory/release-s3-publication.ts` and
       `src/factory/release-s3-scope.ts` is measured.
       CHECK: the focused suites under `--coverage --coverage-reporter=lcov`, merged into
       `coverage/lcov.info`.
       EXPECT: 296 of 296 and 163 of 163 lines, 0 uncovered in each.
       EVIDENCE: records `focused` and `merge-lcov`.
-- [ ] G3: The receipt names every file key, digest, media type, and object version plus the final
+- [x] G3: The receipt names every file key, digest, media type, and object version plus the final
       manifest digest, and no ETag is ever a content digest.
       CHECK: the G1 suite, cases "a publication set stages every exact file privately …" and "a
       member at or above the part size is exported as a real multipart upload".
@@ -107,12 +107,12 @@ bytes back.
       EVIDENCE: record `unit`; the real-store semantics that force this are measured in
       `/tmp/factory-platform-evidence/w08/seaweedfs-semantics-probe.json`
       (`multipartHeadChecksumSHA256: null`, `multipartETag: "…-2"`).
-- [ ] G4: The archive holds the publication set's members before any dispatch claim, and the
+- [x] G4: The archive holds the publication set's members before any dispatch claim, and the
       verified receipt reaches the archive before product settlement.
       CHECK: `bun test --timeout 120000 ./src/factory/release-s3-publication.integration.test.ts`
       EXPECT: 12 pass, 0 fail.
       EVIDENCE: records `pglite` and `postgres`.
-- [ ] G5: A successful object and manifest write whose receipt storage failed remains recoverable
+- [x] G5: A successful object and manifest write whose receipt storage failed remains recoverable
       uncertainty, and recovery attaches the effect that exists without a second publication.
       CHECK: the G4 suite, case "a written manifest whose receipt never reached the archive stays
       recoverable uncertainty".
@@ -121,7 +121,7 @@ bytes back.
       `proveNoEffect` false, and `describePublication` rebuilding the exact receipt that then
       settles the same operation. A receipt naming another generation never settles it.
       EVIDENCE: records `pglite` and `postgres`.
-- [ ] G6: An interrupted staging resumes only under the same authorized identity, and a foreign
+- [x] G6: An interrupted staging resumes only under the same authorized identity, and a foreign
       object under the directory is a conflict rather than a resume.
       CHECK: the G4 suite, cases "an interrupted staging resumes under the same identity …" and "a
       foreign object under the operation directory is a conflict, not a resume"; the G1 suite, case
@@ -131,7 +131,7 @@ bytes back.
       and an object under another staging identity or with another digest is
       `factory_s3_conflicting_content`.
       EVIDENCE: records `unit`, `pglite`, `postgres`.
-- [ ] G7: A 256 MiB material exports through W04's chunks as a real multipart upload and re-reads
+- [x] G7: A 256 MiB material exports through W04's chunks as a real multipart upload and re-reads
       to the same SHA-256.
       CHECK: `bun test --timeout 900000 -t "256 MiB" ./tests/postgres/factory-s3-publication.test.ts`
       with `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set, under the
@@ -139,7 +139,7 @@ bytes back.
       EXPECT: 1 pass, 0 fail, 7 assertions; 268435456 bytes in 32 parts of 8 MiB; the receipt digest
       equals the streamed SHA-256 and `verifyReceipt` returns true.
       EVIDENCE: record `postgres-large`.
-- [ ] G8: All ten tenant credentials enforce isolation, with denials measured rather than assumed.
+- [x] G8: All ten tenant credentials enforce isolation, with denials measured rather than assumed.
       CHECK: `bun scripts/verify-factory-s3-publication.ts` with the generated credential directory
       exported, under the shared heavy lock.
       EXPECT: `tenants: 10`, `publications: 10`, `publishedFiles: 20`, `verifiedReceipts: 10`,
@@ -148,28 +148,28 @@ bytes back.
       denial, not a 404.
       EVIDENCE: `/tmp/factory-platform-evidence/w08/publication-s3-real.json`, record
       `verify-publication`.
-- [ ] G9: The same cases pass against real PostgreSQL and the real local SeaweedFS services.
+- [x] G9: The same cases pass against real PostgreSQL and the real local SeaweedFS services.
       CHECK: `bun test --timeout 900000 ./tests/postgres/factory-s3-publication.test.ts` under the
       shared heavy lock.
       EXPECT: 12 pass, 0 fail, 139 assertions.
       EVIDENCE: record `postgres`.
-- [ ] G10: The new PostgreSQL suite is registered in the CI producer that starts both storage
+- [x] G10: The new PostgreSQL suite is registered in the CI producer that starts both storage
       services, so W18's registration gate stays closed.
       CHECK: `bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts`
       EXPECT: 5 pass, 0 fail.
       EVIDENCE: record `focused`.
-- [ ] G11: Static gates.
+- [x] G11: Static gates.
       CHECK: `bun run typecheck`, `bun run lint`, `bun scripts/check-factory-boundaries.ts`,
       `bun scripts/gate-integrity.ts`
       EXPECT: exit 0 each; lint reports the same eight pre-existing infos and no errors.
       EVIDENCE: records `typecheck`, `lint`, `boundaries`, `gate-integrity`.
-- [ ] G12: Coverage of every new file and every changed executable line.
+- [x] G12: Coverage of every new file and every changed executable line.
       CHECK: `bun scripts/merge-lcov.ts 'coverage/*.lcov' coverage/lcov.info`, then
       `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` and
       `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
       EXPECT: exit 0 from each; 2 new source files gated, 4 changed files fully covered.
       EVIDENCE: records `merge-lcov`, `new-file-coverage`, `patch-coverage`.
-- [ ] G13: Every neighbouring producer that shares the release adapters, the release store, or the
+- [x] G13: Every neighbouring producer that shares the release adapters, the release store, or the
       storage helper stays green.
       CHECK: the six `tests/postgres/factory-*` suites in the assurance-release producer, and the
       eight PGlite release and material suites.
@@ -226,3 +226,73 @@ bytes back.
    literal, which makes `grep` treat the whole file as binary. It is W04a's file and the code is
    correct, so this package did not touch it; a `\0` escape would read the same and keep the file
    text.
+
+## Receipts
+
+Every producer below ran at `2827c268a` against a clean tree (`dirtyOrUntracked: []` in each
+record). Full records, with exact commands, timestamps, and log checksums, are in
+`/tmp/factory-platform-evidence/w08/receipts.jsonl`.
+
+| Record | Exit | Result |
+| --- | --- | --- |
+| `unit` | 0 | 18 pass, 0 fail, 172 assertions |
+| `pglite` | 0 | 12 pass, 0 fail, 134 assertions |
+| `focused` | 0 | 80 pass, 0 fail, 953 assertions, 7 files, with LCOV |
+| `neighbour-units` | 0 | 92 pass, 0 fail, 631 assertions, 8 files |
+| `postgres` | 0 | 12 pass, 0 fail, 139 assertions, real PostgreSQL and real SeaweedFS |
+| `postgres-large` | 0 | 1 pass, 0 fail, 7 assertions, the 256 MiB multipart export alone |
+| `postgres-neighbours` | 0 | 55 pass, 0 fail, 346 assertions, 6 files |
+| `verify-publication` | 0 | ten tenants, 70 cross-tenant attempts, all HTTP 403 |
+| `typecheck` | 0 | backend, web, tests, and the locked Python distribution |
+| `lint` | 0 | 8 pre-existing infos, 0 errors |
+| `boundaries` | 0 | F07 and F13 pass |
+| `gate-integrity` | 0 | no gate-weakening change |
+| `merge-lcov` | 0 | 552 source files merged into `coverage/lcov.info` |
+| `new-file-coverage` | 0 | 2 new source files gated |
+| `patch-coverage` | 0 | 4 changed files, every changed executable line covered |
+
+Coverage of the files this package owns, from the merged report
+(`/tmp/factory-platform-evidence/w08/coverage-summary.json`):
+
+| File | Lines |
+| --- | --- |
+| `src/factory/release-s3-publication.ts` | 296 of 296 |
+| `src/factory/release-s3-scope.ts` | 163 of 163 |
+| `src/factory/release-adapters.ts` | 101 of 101 |
+| `scripts/check-factory-boundaries.ts` | 320 of 320 |
+
+Other receipts: `/tmp/factory-platform-evidence/w08/publication-s3-real.json` (the ten-tenant
+proof), `/tmp/factory-platform-evidence/w08/seaweedfs-semantics-probe.json` (the measured store
+semantics the adapter is built on), and the per-producer logs beside them.
+
+## Final report
+
+### Proven
+
+| Plan bullet | Proof |
+| --- | --- |
+| Publish an approved set of exact files under one operation directory, with the configured destination credentials only | G1, G8, G9 |
+| Conditionally stage private immutable files; verify SHA-256, media type, and object version | G1, G3, G6 |
+| Publish `manifest.json` only after all members verify | G1, G6; a partial directory holds no manifest |
+| Every file key, digest, media type, and version plus the final manifest digest in the verified receipt | G3 |
+| Never an ETag as a content digest | G3, and the measured probe showing a composite ETag and no multipart `ChecksumSHA256` |
+| Enforce W04a's archive-before-claim, then archive the verified receipt before product settlement | G4, G9 |
+| A successful object and manifest write with failed receipt storage remains recoverable uncertainty | G5 |
+| Actual multipart export of a 256 MiB material through W04's chunks | G7 |
+| Interrupted staging, conflicting content, missing versions, changed media, manifest races, response loss after write | G1, G5, G6 |
+| Read-only reconciliation with the real local store | G5, G9; `describePublication` and `verifyReceipt` write nothing |
+| Partial staging never appears published | G6 |
+| Identical prior objects reconcile only under the same authorized identity | G6 |
+| No overwrite or duplicate confirmed publication | G5, G8; conditional creates plus a refused second manifest |
+| All ten tenant credentials enforce isolation, measured | G8, 70 denials all HTTP 403 |
+| The S3 publication-set scope resolver reads the attempt id from verified protected provenance | G4, G9, and the provenance cases in the conformance suite |
+
+### Open
+
+1. `deployed-independent-failure-domain` is unmet on this host. C06.14 and C12.3 stay
+   `infrastructure-blocked` and a production-equivalent publication claim stays blocked.
+2. W09 must wire the provider, the profile, and the provenance into `FactoryReleases` and
+   `FactoryArchiveWriter`; no production code constructs any of them yet.
+3. W07 still owns splitting `reconcile`'s transaction, which the S3 path inherits.
+4. W11 and W12 must emit `FactoryS3AcceptedPublication` as their accepted candidate for an S3
+   publication.
