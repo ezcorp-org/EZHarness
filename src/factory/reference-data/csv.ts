@@ -121,8 +121,6 @@ export interface ReferenceDataPartition {
 }
 
 const AMOUNT = /^(?:0|[1-9][0-9]*)$/;
-const COMMA = 0x2c;
-const NEWLINE = 0x0a;
 const CARRIAGE_RETURN = 0x0d;
 
 function refuse(code: ReferenceDataIssueCode, line: number, message: string): never {

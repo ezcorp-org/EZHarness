@@ -1025,5 +1025,14 @@
   "src/factory/git-objects.ts": 100,
   "src/factory/release-github.ts": 100,
   "src/factory/release-s3-publication.ts": 100,
-  "src/factory/release-s3-scope.ts": 100
+  "src/factory/release-s3-scope.ts": 100,
+  "src/factory/reference-data/csv.ts": 100,
+  "src/factory/reference-data/thrift.ts": 100,
+  "src/factory/reference-data/parquet.ts": 100,
+  "src/factory/reference-data/manifest.ts": 100,
+  "src/factory/reference-data/reconcile.ts": 100,
+  "src/factory/reference-data/materials.ts": 100,
+  "src/factory/reference-data/guest.ts": 100,
+  "src/factory/reference-data/pack.ts": 100,
+  "src/factory/reference-data/publication.ts": 100
 }
