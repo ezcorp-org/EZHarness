@@ -2289,3 +2289,18 @@ pool poll was written unproven.
 W03 had not landed the validator-origin admission change at `a8c3e0fca`: `wp/w03-stop-settlement`
 is at `1d591eeaa` and none of its commits since the W01 merge touch the admission core. Nothing was
 cherry-picked, and nothing downstream of that point was written unproven.
+
+### W05 final addendum
+
+- [x] Cherry-picked W03's `97fb7ab16` so a validator admission authorizes through the acceptance
+      path, and applied `310d3da5f`'s shared-root-envelope correction by hand.
+- [x] The whole scheduling chain: plan, reserve, pool admission with no kernel event, one durable
+      attempt, one dispatch through W01's shared dispatcher, evidence resolved, and no further
+      schedule needed. A repeat, concurrency, a restart, and a cancellation all converge.
+- [x] A real isolated Podman guest runs one protected validator through W01's runtime and returns a
+      report the SDK validator accepts, with no grants, no tools, and a freshly minted token.
+- [x] The evidence-reference scope check.
+
+Every W05 checklist row is now closed. One defect this package introduced was caught by W18's
+derived C13 inventory in the final sweep and fixed in `b100258c0`: two new modules imported a shared
+module without declaring it, which the boundary script alone does not detect.

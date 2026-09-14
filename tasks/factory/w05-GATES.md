@@ -143,7 +143,11 @@ reorder them into the freeze's numbering without changing any result.
       CHECK: the ten `tests/postgres/factory-*` suites this package touches, under the shared heavy
       lock with `FACTORY_TEST_POSTGRES_URL` and `EZCORP_FACTORY_STORAGE_SECRETS_DIR` set.
       EXPECT: 127 pass, 0 fail, 4007 assertions.
-      EVIDENCE: `receipts.jsonl` record `w01-merged-postgres`, produced at `dc5777a45`, and
+      EVIDENCE at the final commit `b100258c0`: `receipts.jsonl` record `final3-postgres`, 131 pass,
+      0 fail, 4089 assertions; `final3-coverage` ("12 new source file(s) gated", "29 file(s)"
+      patch-covered); `final3-typecheck`, `final3-lint`, `final3-boundaries`,
+      `final3-gate-integrity`, and `final3-lanes`, each exit 0.
+      Earlier history: `receipts.jsonl` record `w01-merged-postgres`, produced at `dc5777a45`, and
       `final2-postgres` at `a8c3e0fca` with 129 pass, 0 fail, 4048 assertions after the dispatcher
       leg landed. Coverage at the same commit: `final2-coverage` ("11 new source file(s) gated",
       "24 file(s)" patch-covered), with `final2-typecheck` and `final2-lint`.
@@ -217,28 +221,29 @@ reorder them into the freeze's numbering without changing any result.
   reservation identity for a `dispatch-node` origin is byte-identical to `factoryTaskReservationId`,
   proven by direct comparison in `admission-origin.test.ts`.
 
-## Open, and why
+## Closed, and what was left to others
 
-The scheduler reaches durable admission. The two legs after it are blocked on one specific change in
-a file this package does not own, and that change is stated exactly rather than half-built.
+Nothing in W05's checklist is open. Both legs that were blocked are closed by G20 and G21.
 
-- **Pool allocation for a validator identity.** `FactoryComputeAdmissions` polls the pool through
-  `authority.withCurrent`, whose committed-command predicate admits only `request-admission` and
-  `dispatch-node` (`command-authority.ts:112`), and `assertContext` then re-derives
-  `factoryTaskReservationId`. A validator admission's reference is the *acceptance* command, so the
-  poll refuses it with `factory_compute_admission_stale`. The required change, in W03's
-  `compute-admissions.ts` and `command-authority.ts`: when the stored request carries a
-  `protected-validator` origin, authorize through the acceptance path, compare
-  `factoryReservationIdForOrigin` instead of `factoryTaskReservationId`, and emit **no**
-  `admission-result` kernel event, because a validator has no kernel node to receive one. That last
-  point is why this was not done here: it is a behavioral change to the admission core with its own
-  lost-response, concurrent-poll, and cancellation matrix, and guessing at it in another package's
-  file is how a silent admission defect lands.
-- **Actual isolated validators through a real Podman guest.** The dispatcher leg is now landed and
-  proven (G19) with an in-process runner, so the only missing step is swapping that runner for
-  W01's `attempt-runtime` against a real guest. It waits on the item above because the scheduler
-  cannot produce a queue row until an admission reaches `admitted`; the test enqueues one directly
-  through the production queue API to prove everything downstream of that point.
+**What was taken from W03, and what was deliberately left.** `977e4d944` cherry-picks `97fb7ab16`
+"feat(factory): admit a protected validator origin" and applies `310d3da5f`'s shared-root-envelope
+correction by hand. Two pieces of those commits are left behind because their dependencies live
+outside the range the coordinator named: the usage-settlement restart case needs
+`factory_usage_settlements` from W03's own usage-settlement commit, and
+`FactoryAuthorizedCancellationCommand` needs W03's stop work. Both arrive when that branch
+integrates, and nothing here references either.
+
+**One defect this package introduced and then fixed.** `src/factory/child-artifacts.ts` and
+`src/factory/release-profile.ts` imported the C13 shared module `src/extensions/v4/blobs.ts` without
+a `REQUIRED_SHARED_IMPORTS` row. `bun scripts/check-factory-boundaries.ts` stayed green throughout,
+because it verifies only declared rows; W18's derived inventory
+(`scripts/factory-c13-inventory.test.ts`) is what caught it, and it surfaced in the final sweep
+rather than in any earlier run. `b100258c0` declares both.
+
+**Evidence-reference scope, now closed (G18).** A claim may cite only auxiliary materials its own
+attempt wrote. The `candidate_output` branch that an earlier draft allowed was removed rather than
+left unreachable: a validator's own terminal output is the report itself and cannot cite itself, and
+the artifact admission index makes a second candidate output for one node and generation impossible.
 
 **Shared-repository outage, 21:30 EDT.** `core.bare=true` was set in the shared
 `/home/dev/work/EZCorp/EZHarness/.git/config`, so plain `git status`, `add`, and `commit` failed
@@ -250,11 +255,3 @@ re-run on the repaired repository: `receipts.jsonl` record `post-repair-verifica
 0 fail, 1237 assertions, with typecheck, lint, boundaries, gate integrity, and schema drift all
 exit 0.
 
-**W03 status as of `a8c3e0fca`.** `wp/w03-stop-settlement` is still at `1d591eeaa` when rechecked after the repair, and its three commits
-since the W01 merge touch neither `compute-admissions.ts` nor `command-authority.ts`, and its gate
-file names no validator origin. There is nothing to cherry-pick yet. When that commit exists, merge
-it, run G16's reserve path through to `admitInTransaction`, and the real-guest proof follows.
-- **Evidence-reference scope.** The SDK validates the shape of every evidence reference a claim
-  carries; it does not yet prove each one lies inside the attempt's scope. The durable claim row
-  stores the reduced outcome, so an out-of-scope reference cannot become evidence, but the sealed
-  report can still name one.
