@@ -79,7 +79,7 @@ test("every build lane ran inside the isolated guest, including the committed Py
   expect(names).toContain("feature:tests/test_guest.py");
   expect(names.at(-1)).toBe("metadata-discovery");
   expect(build().manifest?.name).toBe("factory-python-runner");
-  expect(build().manifest?.tools?.map(tool => tool.name)).toEqual(["validate", "run", "controls"]);
+  expect(build().manifest?.tools?.map(tool => tool.name)).toEqual(["validate", "run", "controls", "hostile"]);
   expect(build().evidence.discoveryDigest).toMatch(/^[a-f0-9]{64}$/);
 });
 

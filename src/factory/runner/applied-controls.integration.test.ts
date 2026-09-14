@@ -21,7 +21,7 @@ import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestFiles, factoryPython
  */
 
 type Inspection = {
-  HostConfig: { NetworkMode: string; ReadonlyRootfs: boolean; CapDrop?: string[] | null; SecurityOpt: string[]; Devices?: Array<{ PathOnHost: string }> | null; Memory: number; MemorySwap: number; PidsLimit: number; CpuQuota: number; Privileged: boolean; Binds?: string[] | null; Mounts?: Array<{ Destination: string; RW: boolean }> | null };
+  HostConfig: { NetworkMode: string; ReadonlyRootfs: boolean; CapAdd?: string[] | null; CapDrop?: string[] | null; SecurityOpt: string[]; Devices?: Array<{ PathOnHost: string }> | null; Memory: number; MemorySwap: number; PidsLimit: number; CpuQuota: number; Privileged: boolean; Binds?: string[] | null; Mounts?: Array<{ Destination: string; RW: boolean }> | null };
   Config: { User: string; Env?: string[] | null; Hostname: string };
   EffectiveCaps?: string;
   BoundingCaps?: string;
@@ -106,7 +106,13 @@ test.each(["bun", "python"] as const)("%s: the runtime API and the guest agree o
 
   // Privilege.
   expect(applied.HostConfig.Privileged).toBe(false);
-  expect(applied.HostConfig.CapDrop).toContain("ALL");
+  // Podman expands `--cap-drop=ALL` into the explicit set it would otherwise
+  // have granted, so the runtime API is read as "every default dropped and none
+  // added", and the guest's own all-zero effective set below is the outcome.
+  expect(applied.HostConfig.CapAdd ?? []).toEqual([]);
+  for (const capability of ["CAP_CHOWN", "CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_FSETID", "CAP_KILL", "CAP_NET_BIND_SERVICE", "CAP_SETFCAP", "CAP_SETGID", "CAP_SETPCAP", "CAP_SETUID", "CAP_SYS_CHROOT"]) {
+    expect(applied.HostConfig.CapDrop).toContain(capability);
+  }
   expect(applied.HostConfig.SecurityOpt).toContain("no-new-privileges");
   expect(applied.HostConfig.SecurityOpt.some(option => option.startsWith("seccomp="))).toBe(true);
   expect(applied.Config.User).toBe("65534:65534");
