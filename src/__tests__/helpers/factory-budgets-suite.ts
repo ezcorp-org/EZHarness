@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { FactoryBudgets, type FactoryBudgetRequest } from "../../factory/budgets";
+import { FactoryBudgets, FACTORY_BUDGET_SCAN_MAX_LIMIT, type FactoryBudgetRequest, type FactoryUncertainHold } from "../../factory/budgets";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryCommandOutbox } from "../../factory/outbox";
 import { FactoryInbox } from "../../factory/inbox";
@@ -267,6 +267,75 @@ export function factoryBudgetsConformance(createFixture: () => Promise<{ db: Tra
     expect(JSON.parse(stored[0]!.event_json)).toEqual(settlement.event);
     const conflicting = buildFactoryUsageSettlement({ reservationId: request.reservationId, attemptId: authority.attemptId, authority, revision: 1, source: "stop", knownCostMicros: "5", settledAtMs: now });
     await expect(inbox.enqueue(inboxKey, conflicting.event)).rejects.toMatchObject({ code: "factory_inbox_conflict" });
+  });
+
+  test("lists exactly the uncertain holds reconciliation must still resolve", async () => {
+    const list = (options?: { limit?: number; after?: FactoryUncertainHold["cursor"] }) =>
+      fixture.db.transaction(transaction => budgets.listUncertainWithCostInTransaction(transaction, options));
+    await open("root", 40);
+
+    // Nothing is uncertain yet, so the work list is empty.
+    expect(await list()).toEqual([]);
+
+    // A held reservation is not uncertain, and a running one is not either.
+    await budgets.reserve(reserve("scan-held", 3), enqueue);
+    await budgets.reserve(reserve("scan-running", 3), enqueue);
+    await budgets.markRunning({ projectId, runId, reservationId: "scan-running" }, { allocationToken: "scan-allocation", reservationGeneration: 1 });
+    expect(await list()).toEqual([]);
+
+    // Three uncertain holds with a real cost are the work.
+    for (const reservationId of ["scan-c", "scan-a", "scan-b"]) {
+      await budgets.reserve(reserve(reservationId, 3), enqueue);
+      await budgets.markRunning({ projectId, runId, reservationId }, { allocationToken: `allocation-${reservationId}`, reservationGeneration: 1 });
+      await budgets.markUncertain({ projectId, runId, reservationId }, `held-${reservationId}`);
+    }
+    // A zero-cost hold is not money anyone is holding, so it is not work.
+    await budgets.reserve({ ...reserve("scan-zero", 0), amount: { costMicros: "0", tokens: 1, computeMs: 1 } }, enqueue);
+    await budgets.markRunning({ projectId, runId, reservationId: "scan-zero" }, { allocationToken: "allocation-zero", reservationGeneration: 1 });
+    await budgets.markUncertain({ projectId, runId, reservationId: "scan-zero" }, "held-zero");
+
+    const all = await list();
+    expect(all.map(entry => entry.reservationId)).toEqual(["scan-a", "scan-b", "scan-c"]);
+    expect(all.every(entry => entry.heldCostMicros === "3" && entry.projectId === projectId && entry.runId === runId && entry.envelopeId === "root")).toBe(true);
+    expect(all.map(entry => entry.uncertainty)).toEqual(["held-scan-a", "held-scan-b", "held-scan-c"]);
+    expect(all[0]!.cursor).toEqual({ createdAtMs: all[0]!.cursor.createdAtMs, runId, reservationId: "scan-a" });
+
+    // Pages partition the work with no repeat and no gap.
+    const pageOne = await list({ limit: 2 });
+    expect(pageOne.map(entry => entry.reservationId)).toEqual(["scan-a", "scan-b"]);
+    const pageTwo = await list({ limit: 2, after: pageOne[1]!.cursor });
+    expect(pageTwo.map(entry => entry.reservationId)).toEqual(["scan-c"]);
+    expect(await list({ limit: 2, after: pageTwo[0]!.cursor })).toEqual([]);
+
+    // Concurrent scans take no locks and agree.
+    expect(await Promise.all([list(), list()])).toEqual([all, all]);
+
+    // A settlement that still holds a cost leaves the hold on the list; one
+    // that resolves it takes the reservation out of `uncertain` entirely.
+    const digest = (fill: string) => `sha256:${fill.repeat(64)}`;
+    await fixture.db.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${tenantId},${projectId},${runId},'scan-a',1,'scan-attempt','stop','0','3',1,${digest("b")},'{}',${digest("c")})`);
+    expect((await list()).map(entry => entry.reservationId)).toEqual(["scan-a", "scan-b", "scan-c"]);
+    await fixture.db.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${tenantId},${projectId},${runId},'scan-a',2,'scan-attempt','reconciliation','3',${digest("d")},2,${digest("e")},'{}',${digest("f")})`);
+    expect((await list()).map(entry => entry.reservationId)).toEqual(["scan-b", "scan-c"]);
+    // Settling the reservation itself removes it for the same reason.
+    await budgets.settle({ projectId, runId, reservationId: "scan-b" }, amount(3), receipt);
+    expect((await list()).map(entry => entry.reservationId)).toEqual(["scan-c"]);
+
+    // Bounds and a malformed cursor are refused rather than scanned.
+    for (const limit of [0, -1, 1.5, FACTORY_BUDGET_SCAN_MAX_LIMIT + 1]) await expect(list({ limit })).rejects.toMatchObject({ code: "factory_budget_invalid" });
+    await expect(list({ after: { createdAtMs: -1, runId, reservationId: "scan-c" } })).rejects.toMatchObject({ code: "factory_budget_invalid" });
+    await expect(list({ after: { createdAtMs: 1, runId: "", reservationId: "scan-c" } })).rejects.toBeInstanceOf(Error);
+
+    // A non-canonical amount reaches the decoder and is refused, rather than
+    // being dropped from a worker's list without anyone noticing.
+    await fixture.db.execute(sql`UPDATE factory_budget_reservations SET amount='{"costMicros":"x","tokens":"1","computeMs":"1"}' WHERE run_id=${runId} AND reservation_id='scan-c'`);
+    await expect(list()).rejects.toMatchObject({ code: "factory_budget_corrupt" });
+    await fixture.db.execute(sql`UPDATE factory_budget_reservations SET amount='{"computeMs":"3","costMicros":"3","tokens":"3"}' WHERE run_id=${runId} AND reservation_id='scan-c'`);
+    // An uncertain hold with no recorded reason is corrupt, not silently listed.
+    await fixture.db.execute(sql`UPDATE factory_budget_reservations SET uncertainty=NULL WHERE run_id=${runId} AND reservation_id='scan-c'`);
+    await expect(list()).rejects.toMatchObject({ code: "factory_budget_corrupt" });
+    await fixture.db.execute(sql`UPDATE factory_budget_reservations SET uncertainty='held-scan-c' WHERE run_id=${runId} AND reservation_id='scan-c'`);
+    expect((await list()).map(entry => entry.reservationId)).toEqual(["scan-c"]);
   });
 
   test("invalid, stale and foreign requests fail without durable allocation", async () => {
