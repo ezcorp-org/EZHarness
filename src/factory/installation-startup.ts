@@ -43,6 +43,8 @@ import { FactoryNotificationDelivery } from "./notification-delivery";
 import { FactoryTrustedValidators } from "./validator-materials";
 import { factoryTenantProjectIds, factoryTenantProjects } from "./tenant-projects";
 import { FactoryRecords } from "./records";
+import { createFactoryProviderBroker, factoryProviderReadiness, factoryProviderReadinessRecord, type FactoryProviderPin } from "../providers/factory-broker";
+import type { FactoryBroker } from "../runtime/factory-execution";
 import { FactoryRunTransitionProjector } from "./run-transition-projector";
 import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
@@ -109,6 +111,8 @@ export interface FactoryInstallationStartOptions {
   readonly dependencies?: Partial<Pick<FactoryRuntimeDependencies, "storage" | "gateway" | "workers" | "extraProbes">>;
   /** Overridden in tests so the product store is not a real S3 dependency. */
   readonly blobs?: BlobStore;
+  /** Overridden in tests so provider readiness is not a real credential lookup. */
+  readonly providerReadiness?: Parameters<typeof factoryProviderReadiness>[1];
 }
 
 /**
@@ -344,8 +348,47 @@ export function factoryNotificationInboxDriver(
   };
 }
 
+export interface FactoryProviderComposition {
+  /** The secret-free readiness record, for `/api/ready` and for an evidence file. */
+  readonly readiness: Record<string, unknown>;
+  /** Present only when the pin is genuinely usable. Absent is never a stand-in. */
+  readonly broker?: FactoryBroker;
+}
+
+/**
+ * The model broker this installation pins, and the readiness row that says so.
+ *
+ * W10 reported that nothing constructed the broker and handed it to a runner.
+ * This constructs it, from validated configuration only, and the shape of the
+ * answer is the point: a pin whose credential is missing produces a readiness
+ * row with `ready: false` and a NAMED failure, and no broker at all. It never
+ * produces a broker that would resolve a credential later, or fall back to a
+ * host setting, or accept a call and answer plausibly. Those are the three
+ * substitutes the rule forbids, and each of them turns a missing credential
+ * into a guest's wrong answer instead of an operator's readiness row.
+ *
+ * An installation with no pin gets no row and no broker, which is correct: an
+ * installation that runs no model-calling guest needs neither, and inventing a
+ * default pin would be a fourth substitute.
+ *
+ * The record carries the provider, the model, the named failures, and the KIND
+ * of credential resolved — never its value.
+ */
+export async function composeFactoryProviderBroker(
+  pin: FactoryProviderPin | undefined,
+  options: Parameters<typeof factoryProviderReadiness>[1] = {},
+): Promise<FactoryProviderComposition | undefined> {
+  if (pin === undefined) return undefined;
+  const readiness = await factoryProviderReadiness(pin, options);
+  const record = factoryProviderReadinessRecord(readiness);
+  if (!readiness.ready) return Object.freeze({ readiness: record });
+  return Object.freeze({ readiness: record, broker: createFactoryProviderBroker({ pin, ...options }) });
+}
+
 export interface FactoryInstallationStartup {
   readonly runtime: FactoryRuntime;
+  /** The pinned model broker, when one is configured AND ready. */
+  readonly provider?: FactoryProviderComposition;
   stop(): Promise<void>;
 }
 
@@ -386,6 +429,10 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
   const transitions = new FactoryTransitionArtifacts(artifacts);
 
   const supplied = options.dependencies ?? {};
+  // Before anything is composed, so a half-configured model pin is a readiness
+  // row rather than a surprise at the first guest call.
+  const provider = await composeFactoryProviderBroker(config.modelProvider, options.providerReadiness ?? {});
+  if (provider !== undefined && provider.broker === undefined) host.report("model-provider", new Error(`factory_provider_not_ready: ${JSON.stringify(provider.readiness.failures)}`));
   const composed = supplied.workers === undefined
     ? await installationCollaborators(config, host, blobs, transitions)
     : undefined;
@@ -410,11 +457,12 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
     // host that composes a role this process cannot is not overruled by it.
     seams: { ...composed?.seams, ...options.seams },
     ...(supplied.extraProbes === undefined ? {} : { extraProbes: supplied.extraProbes }),
+    ...(provider === undefined ? {} : { providerReadiness: provider.readiness }),
     report: host.report,
   };
 
   const runtime = await startFactoryRuntime(config, options.databaseUrl, dependencies, options.signal, boot);
-  return Object.freeze({ runtime, stop: () => runtime.stop() });
+  return Object.freeze({ runtime, ...(provider === undefined ? {} : { provider }), stop: () => runtime.stop() });
 }
 
 /**

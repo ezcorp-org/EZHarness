@@ -48,6 +48,16 @@ export interface FactoryStartupConfig {
   readonly supervisorReadinessFilePath: string;
   readonly hostId: string;
   readonly readinessHeartbeatMs?: number;
+  /**
+   * The model this installation pins for a guest's reverse broker call.
+   *
+   * Optional, because an installation that runs no model-calling guest needs
+   * none, and inventing a default would be the substitute the provider
+   * readiness rule forbids. When present, both halves are required: a provider
+   * with no model, or a model with no provider, is a half-configured pin and is
+   * refused at parse rather than resolved at the first guest call.
+   */
+  readonly modelProvider?: { readonly provider: string; readonly model: string };
   readonly gateway: { readonly hostname: string; readonly port: number; readonly tls: FactoryStartupTlsMaterial };
   readonly privateService: { readonly hostname: string; readonly port: number; readonly certificateIdentity: string; readonly tls: FactoryStartupTlsMaterial };
   readonly pool: { readonly baseUrl: string; readonly serviceTokenPath: string; readonly tls: FactoryStartupTlsMaterial };
@@ -108,6 +118,8 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "supervisorReadinessFilePath", kind: "path" },
   { field: "hostId", kind: "identity" },
   { field: "readinessHeartbeatMs", kind: "interval", optional: true },
+  { field: "modelProvider.provider", kind: "identity", optional: true },
+  { field: "modelProvider.model", kind: "identity", optional: true },
   { field: "gateway.hostname", kind: "identity" },
   { field: "gateway.port", kind: "port" },
   ...tls("gateway"),
@@ -214,6 +226,11 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
   for (const field of leaves(value)) {
     if (!KNOWN_FIELDS.has(field)) invalid.push(field);
   }
+  // A model pin is both halves or neither. Half a pin is the shape that would
+  // otherwise be resolved at the first guest call, which is where a missing
+  // provider becomes a substitute rather than a refusal.
+  const pinned = ["modelProvider.provider", "modelProvider.model"].filter((field) => read(value, field).present);
+  if (pinned.length === 1) invalid.push(pinned[0] === "modelProvider.provider" ? "modelProvider.model" : "modelProvider.provider");
   if (missing.length > 0 || invalid.length > 0) throw new FactoryStartupConfigError(missing, invalid);
 
   const config = value as unknown as FactoryStartupConfig;

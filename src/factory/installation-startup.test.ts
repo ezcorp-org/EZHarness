@@ -16,6 +16,7 @@ import {
   factoryChildSettlementDisposition,
   factoryChildSettlementDriver,
   factoryNotificationInboxDriver,
+  composeFactoryProviderBroker,
   factoryGatewayProbeTarget,
   factoryStartupConfigPath,
   factoryStorageProbeTarget,
@@ -674,5 +675,48 @@ describe("the release store, and the role it unblocks", () => {
     const failures = reported.slice(before).filter((entry) => entry.role === "release-store");
     expect(failures).not.toEqual([]);
     expect(String((failures[0]!.error as Error).message)).toContain("credential set");
+  });
+});
+
+describe("the pinned model broker", () => {
+  const pin = { provider: "anthropic", model: "claude-sonnet-5" };
+
+  test("an installation with no pin gets no row and no broker", async () => {
+    // Inventing a default pin would be a substitute of its own.
+    expect(await composeFactoryProviderBroker(undefined)).toBeUndefined();
+  });
+
+  test("a missing credential is a named readiness row and NO broker", async () => {
+    const composed = await composeFactoryProviderBroker(pin, {
+      resolveCredential: async () => null,
+      isAvailableModel: () => true,
+    });
+
+    expect(composed!.broker).toBeUndefined();
+    expect(composed!.readiness).toMatchObject({ provider: "anthropic", model: "claude-sonnet-5", ready: false, credentialKind: null });
+    expect(composed!.readiness.failures).toEqual(["provider_not_configured"]);
+  });
+
+  test("an unavailable model is named too, and still yields no broker", async () => {
+    const composed = await composeFactoryProviderBroker(pin, {
+      resolveCredential: async () => ({ type: "api-key", apiKey: "not-read" }) as never,
+      isAvailableModel: () => false,
+    });
+
+    expect(composed!.broker).toBeUndefined();
+    expect(composed!.readiness.failures).toEqual(["model_not_available"]);
+  });
+
+  test("a usable pin yields a broker, and the row carries the credential KIND, never its value", async () => {
+    const composed = await composeFactoryProviderBroker(pin, {
+      resolveCredential: async () => ({ type: "api-key", apiKey: "sk-secret-value" }) as never,
+      isAvailableModel: () => true,
+    });
+
+    expect(typeof composed!.broker?.stream).toBe("function");
+    expect(composed!.readiness).toMatchObject({ ready: true, credentialKind: "api-key" });
+    expect(composed!.readiness.failures).toEqual([]);
+    // The row reaches `/api/ready`, so it must not carry the secret.
+    expect(JSON.stringify(composed!.readiness)).not.toContain("sk-secret-value");
   });
 });

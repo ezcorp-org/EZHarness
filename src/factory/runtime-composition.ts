@@ -80,6 +80,14 @@ export interface FactoryRuntimeDependencies {
   readonly report: (role: string, error: unknown) => void;
   /** Additional probes a deployment adds. Never replaces a required one. */
   readonly extraProbes?: readonly FactoryServiceProbe[];
+  /**
+   * The model pin's secret-free readiness record, when this installation pins
+   * one. It rides on `/api/ready` rather than on the seven required services,
+   * because a model pin is not a service every installation must have: an
+   * installation that runs no model-calling guest needs none, and making it
+   * required would fail a correct deployment.
+   */
+  readonly providerReadiness?: Record<string, unknown>;
 }
 
 export interface FactoryRuntimeReport {
@@ -239,6 +247,7 @@ export async function startFactoryRuntime(
         tenantId: config.tenantId,
         running: workerSet.workers.names(),
         held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage })),
+        ...(dependencies.providerReadiness === undefined ? {} : { providerReadiness: dependencies.providerReadiness }),
       },
     },
   });

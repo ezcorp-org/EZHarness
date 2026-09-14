@@ -187,3 +187,24 @@ describe("loadFactoryStartupConfig", () => {
     await expect(loadFactoryStartupConfig(path)).rejects.toThrow();
   });
 });
+
+describe("the model provider pin", () => {
+  test("is optional, but half a pin is refused at parse", () => {
+    // No pin at all is an installation that runs no model-calling guest.
+    expect(parseFactoryStartupConfig(valid()).modelProvider).toBeUndefined();
+
+    const pinned = parseFactoryStartupConfig({ ...valid(), modelProvider: { provider: "anthropic", model: "claude-sonnet-5" } });
+    expect(pinned.modelProvider).toEqual({ provider: "anthropic", model: "claude-sonnet-5" });
+
+    // Half a pin would otherwise be resolved at the first guest call, which is
+    // exactly where a missing provider turns into a substitute.
+    for (const half of [{ provider: "anthropic" }, { model: "claude-sonnet-5" }]) {
+      try {
+        parseFactoryStartupConfig({ ...valid(), modelProvider: half });
+        throw new Error("half a model pin was accepted");
+      } catch (error) {
+        expect((error as { invalid?: readonly string[] }).invalid).toContain(Object.keys(half)[0] === "provider" ? "modelProvider.model" : "modelProvider.provider");
+      }
+    }
+  });
+});
