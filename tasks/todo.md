@@ -2248,12 +2248,18 @@ Branch `wp/w03-stop-settlement`, base `integ/w00` at `88effb159`. Gates and rece
       minima, atomic whole-vector admission, infeasible rejection, the outstanding limits with
       HTTP 429, the reservation vocabulary, the allocation-trace audit, and the skewed workload.
 
+- [x] Unblock W05: admit a protected-validator origin through the acceptance command, key it with
+      `factoryReservationIdForOrigin`, and emit no `admission-result`. Commit `97fb7ab16`.
+- [x] Root-cause and guard the pool suite spin that held the shared heavy lock. Commit `c2d6f27d1`.
+
 ### Review
 
 The package landed three type checkpoints, the stop service, the C02.14 sandbox termination, the
-authenticated host stop transport, and the C03 scheduling work. Four real defects were found by
+authenticated host stop transport, and the C03 scheduling work. Six real defects were found by
 running the contracts rather than reading them: a pool round that never ended and starved every
 tenant but the lexicographically smallest; a guest shim that discarded every graceful stop because
 a container's PID 1 has no default signal action; a launch reader that only decoded `jsonb` in its
-PGlite form; and a run authorizer that made a cancelling run unstoppable. Each is described in its
-own commit with the measurement that found it.
+PGlite form; a run authorizer that made a cancelling run unstoppable; an assertion against an undriven lazy
+`SQLQuery` that busy-spun a core and held the shared heavy lock for fifty minutes; and a durable
+constraint that made a validator admission impossible to settle. Each is described in its own
+commit with the measurement that found it.

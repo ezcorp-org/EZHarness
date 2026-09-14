@@ -20,6 +20,11 @@ Branch `wp/w03-stop-settlement`. Base `integ/w00` at `88effb159`.
 | `1a4ab1e65` | `feat(factory): authenticate the host stop transport` |
 | `1688d5263` | `test(factory): cover recovery after a pool release and cancellation during admission` |
 | `cfb9a3a8c` | `chore(factory): declare the stop and settlement C13 reuse edges` |
+| `c2d6f27d1` | `fix(factory): stop the pool suite spinning on an undriven lazy SQL query` |
+| `9c28eda43` | merge `integ/w00` |
+| `741faf6c6` | `feat(factory): type validator admission origin` (cherry-pick of W05's `1e6a95668`) |
+| `310d3da5f` | `fix(factory): share one root envelope between the restart cases` |
+| `97fb7ab16` | **`feat(factory): admit a protected validator origin`** — the commit W05 is waiting on |
 
 ## Four defects found by running the contracts
 
@@ -140,6 +145,37 @@ afterwards. Nothing was retried and no receipt is affected.
   and SDK-valid. W03 worked around it by using the `uncertain` terminal status, which carries the
   held cost with no operations. Evidence: `final-focused.log`.
 
+## W05 unblocking checkpoint: `97fb7ab16`
+
+W05 stated the requirement exactly in its own gate file and did not guess at it. Landed as asked:
+
+- `command-authority.ts` gains `withCurrentAdmission`, which routes one poll by origin. A
+  `protected-validator` origin is authorized through the same acceptance path every other
+  acceptance effect uses; everything else keeps the exact execution path it had.
+- `compute-admissions.ts` keys a validator reservation with `factoryReservationIdForOrigin` and
+  requires the origin's `acceptanceCommandId` to be the live acceptance command. Ordinary task work
+  is still keyed from its committed context, and a carried `dispatch-node` origin must agree with
+  it, so an origin can never re-key a live run.
+- No `admission-result` for a validator origin: none is built, none is enqueued, none is stored.
+
+That last point needed a durable rule, not just a code path. The pre-existing constraint said a
+settled admission always carries an event, so a validator admission could not settle at all.
+`add-factory-validator-admission-event` replaces it with a conditional one that is **tightened**:
+a validator admission may never carry an event in any state, and every other origin still must once
+it settles. The original was unnamed inside `CREATE TABLE`, so a fresh database and an upgraded one
+had different names for it; the migration finds it by definition and installs one named
+replacement.
+
+`src/factory/admission-origin.ts` came from W05's `1e6a95668`, cherry-picked because it is not yet
+in `integ/w00`. Two edits to that commit's content, both because the surrounding files differ here:
+the threshold key for `allow-factory-validator-multiclaim.ts` is dropped, since that migration is on
+W05's branch and not in this tree, and `expectedIndexes` gains only the index that commit creates.
+
+**A collision the cherry-pick exposed.** W05's restart case and mine were written in different
+packages against the same fixture run, and each minted its own parentless budget envelope.
+`factory_budget_root` allows one per run, so whichever ran second failed. Both now join the run's
+single root envelope, so neither depends on the other's position (`310d3da5f`).
+
 ## Gates
 
 - [x] G1: The outcome, stop, and usage rules live in one module, and the journal boundary is typed.
@@ -250,6 +286,24 @@ afterwards. Nothing was retried and no receipt is affected.
   is NOT green on this report and is not claimed: it reports 1481 files below threshold because a
   targeted run loads only the suites this package touches, and none of those 1481 is a W03 file.
   The whole-repo verdict belongs to `bun run test:coverage` at integration.
+
+- [x] G16: A protected validator is admitted through its acceptance command and tells no kernel node.
+  CHECK: `bun test --timeout 300000 ./src/__tests__/factory-compute-admissions.test.ts` and
+  `bun test --timeout 180000 ./tests/postgres/factory-compute-admissions.test.ts`
+  EXPECT: exit 0 on both engines; the admitted receipt carries no `event`, the inbox holds no
+  `admission-result`, and the stored row's `event_json` is NULL
+  EVIDENCE: `validator-origin-pglite.json` (108 pass), `validator-origin-postgres.json` (12 pass),
+  `head2-focused.json` (222 pass). The matrix covers a lost response, a concurrent poll where
+  exactly one wins, a restart that recovers the same sealed result and still emits nothing, a
+  cancellation when the acceptance command is gone that leaves the hold at `held`, one reservation
+  per validator identity, a different claim set keying a different reservation, a forged acceptance
+  id refused, and a malformed origin that never reaches a durable row.
+
+- [x] G17: The durable rule matches the code path on both the fresh and the upgraded schema.
+  CHECK: `bun test --timeout 120000 ./src/__tests__/factory-migration-restart.test.ts`
+  EXPECT: exit 0; an event on a validator admission is refused in any state, a settled dispatch-node
+  admission without one is refused, and exactly one constraint governs the rule
+  EVIDENCE: `head2-focused.json`, `validator-origin-postgres.json`.
 
 - [x] G15: Every gate script stays green on the branch.
   CHECK: `bun run typecheck`, `bun run lint`, `bun scripts/check-factory-boundaries.ts`,
