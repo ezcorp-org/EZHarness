@@ -754,3 +754,10 @@
 - Ship a guest the product's own committed source, not a bundle. The isolated runner typechecks the `.ts` files it stages and ignores `.js`, so a bundle either fails on transpiled third-party code or silently skips the one check the sandbox performs. Staging the real files with their specifiers rewritten keeps one implementation and keeps the check.
 - A pure helper behind a heavy import is a dependency nobody can see. `digestBytes` lived in the module that constructs an S3 client, so hashing bytes transitively required the AWS SDK and a JSON-schema validator, and no isolated guest could carry the real validator. Splitting it out and re-exporting changed no caller and shrank the guest closure from 892 KB to 18 KB. Measure the closure before assuming a "small" import is small.
 - Prove a registry dispatches, do not assert it is a function. `typeof implementation === "function"` left every entry's body uncovered and would have passed for five stubs. Calling each entry and comparing its result with a direct call is what makes the registry evidence that the implementations exist.
+
+- A shared store can die from its own container limit, not the host. The SeaweedFS ordinary tier
+  exited 137 with `OOMKilled=true` under a 768 MiB `mem_limit` once 186 volumes were loaded and a
+  256 MiB object arrived; the host had 16 GiB free. When a worker reports `ECONNREFUSED` against a
+  shared service, run `docker ps -a` and `podman ps -a` both (the storage stack is Docker, the proof
+  database is Podman) and read `OOMKilled` from `inspect` before blaming the workload. Size container
+  limits from a measured idle footprint with the data loaded, and record the measurement in the doc.
