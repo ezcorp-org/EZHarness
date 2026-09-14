@@ -5,7 +5,7 @@ import { compileFactory } from "./compiler";
 import { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references";
 import { factoryGraphNodes } from "./validation";
 import { FACTORY_LIMITS } from "./types";
-import type { FactoryDefinition, FactoryGraph, FactoryNode, FactoryReference, JsonValue } from "./types";
+import type { FactoryDefinition, FactoryNode, FactoryReference, JsonValue } from "./types";
 
 function clone(definition: FactoryDefinition = referenceCodeV1): FactoryDefinition {
   return structuredClone(definition);

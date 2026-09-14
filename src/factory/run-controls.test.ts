@@ -9,22 +9,27 @@ function compiled(definition: FactoryDefinition): CompiledFactory {
   return result.factory;
 }
 
+/** A cloned definition while it is still being shaped. Only the compiled form is immutable. */
+type DraftDefinition = Omit<{ -readonly [K in keyof FactoryDefinition]: FactoryDefinition[K] }, "graph"> & {
+  graph: { -readonly [K in keyof FactoryDefinition["graph"]]: FactoryDefinition["graph"][K] };
+};
+
 /** One revision, optionally altered before it is compiled. */
-function revision(edit: (definition: FactoryDefinition) => void = () => {}, source: FactoryDefinition = referenceCodeV1): CompiledFactory {
-  const definition = structuredClone(source);
+function revision(edit: (definition: DraftDefinition) => void = () => {}, source: FactoryDefinition = referenceCodeV1): CompiledFactory {
+  const definition = structuredClone(source) as DraftDefinition;
   edit(definition);
   definition.version = "2.0.0";
   return compiled(definition);
 }
 
-function nodeIn(definition: FactoryDefinition, id: string): FactoryNode {
+function nodeIn(definition: DraftDefinition, id: string): FactoryNode {
   return definition.graph.nodes.find(node => node.id === id)!;
 }
 
 const RUN_DEADLINE_MS = 3 * 24 * 60 * 60 * 1_000;
 
 /** The revision a replan starts from, narrow enough that every widening is expressible. */
-function widest(definition: FactoryDefinition): void {
+function widest(definition: DraftDefinition): void {
   definition.capabilities = ["repository.read", "repository.write"];
   definition.effects = ["none", "read", "write"];
   definition.bounds = { ...definition.bounds, runDeadlineMs: RUN_DEADLINE_MS, maxExpandedNodes: 64, maxScopeDepth: 8 };
@@ -45,7 +50,7 @@ test("an identical revision is a bounded replacement and a narrower one still is
 
 test("each widening is denied on its own", () => {
   const current = revision(widest);
-  const denials: [string, (definition: FactoryDefinition) => void][] = [
+  const denials: [string, (definition: DraftDefinition) => void][] = [
     ["a different protected contract", definition => { definition.acceptance = { ...definition.acceptance, version: "2.0.0" }; }],
     ["a dropped protected claim", definition => { definition.acceptance = { ...definition.acceptance, claims: definition.acceptance.claims.slice(1) }; }],
     ["a changed input boundary", definition => { definition.inputPorts = { ...definition.inputPorts, extra: { type: "string" } }; }],
