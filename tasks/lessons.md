@@ -1065,3 +1065,14 @@
   the tests, as `src/factory/runner/python` already does. An empty
   `__init__.py` also reads as unmeasured, because coverage.py emits no record
   for a file with no statements.
+- Constructing a collaborator and handing it to its consumer are two jobs, and
+  only one of them may be possible. The provider broker could be built from
+  configuration today; it could not be given to the runner, because the runtime
+  wants `invoke(request, input)`, the broker offers `stream(request)`, and no
+  contract says what a guest sends to request a model stream. Writing an adapter
+  over an undefined payload would have been the substitute the requirement
+  forbids, dressed as progress.
+- A union merge of a JSON file can put the closing brace in the middle. Splicing
+  two conflict halves produced a file that parsed nowhere; rebuilding the object
+  from every key/value pair in file order, first value wins, is the safe form,
+  and comparing key counts against both sides afterwards is the proof.

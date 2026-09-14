@@ -806,6 +806,57 @@ from `PoolAdmissionClient`) and the host public keys a receipt is verified
 against; and a listed uncertain hold carries no attempt, operation, provider
 receipt digest, or measured usage, all four of which `reconcile` requires.
 
+## The composition round after the W01b merge
+
+`integ/w00` is merged once more, at `f45a94148` — the coordinator named
+`dfe3091f8` and the branch had advanced past it. It brings W01b's host launch
+transport and attempt-dispatch driver, W03's two scans, WREG, W02b's required
+`RunnerReference.manifestName`, the 2 GiB storage limit, and W11's image pack.
+Two note files conflicted; the thresholds union needed rebuilding rather than
+splicing, because the conflict region contained the object's closing brace and a
+naive join produced invalid JSON. Every key from both sides is present: 1041
+from this branch, 1055 from the integration, 1069 merged.
+
+**What this round delivered: the pinned model broker (W10's Q2).** The
+composition now constructs `createFactoryProviderBroker` from validated
+configuration. The shape of the answer is the deliverable, not the construction:
+
+| Configuration | Readiness row | Broker |
+| --- | --- | --- |
+| No pin | none | none |
+| Pin, credential missing | `ready: false`, `failures: ["provider_not_configured"]` | **none** |
+| Pin, model unavailable | `ready: false`, `failures: ["model_not_available"]` | **none** |
+| Pin, usable | `ready: true`, `credentialKind: "api-key"` | yes |
+
+It never resolves a credential later, never falls back to a host setting, and
+never accepts a call to answer plausibly; each of those turns a missing
+credential into a guest's wrong answer instead of an operator's readiness row.
+The pin is optional and is both halves or neither — half a pin is refused at
+parse, not at the first guest call — and the row carries the KIND of credential,
+never its value, which a test asserts against the serialised row.
+
+**What this round did NOT deliver, and what each one needs.** The coordinator's
+item 1 asked for four roles and item 3 for the real-guest G14. I did not reach
+them, and the reasons differ by role rather than being one shortage:
+
+| Role | Every collaborator present? | What it still needs |
+| --- | --- | --- |
+| `attempt-dispatch` | **yes** — W01b's `createFactoryAttemptDispatchDriver`, `createFactoryHostLaunchClient`, `FactoryRemoteAttemptRuntime` | composition only: `hostLaunch.{baseUrl,serverName,tls.*}` and `attemptTokenSecretPath` in the startup document, plus a `FactoryIsolatedRunnerPreflight` that resolves the lease and the prepared package. No other package is blocking |
+| `stop-settlement` | no | a `FactoryPoolStopAcknowledger`. `PoolAdmissionService.confirmStopped` and its route exist; `PoolAdmissionClient` has no `confirmStopped`, so the client adapter is unwritten. Also the `FactoryStopHostKey[]` PUBLIC keys: only the host's private signing side has a loader, and the startup document has no field |
+| `usage-reconciliation` | no | the four facts `reconcile` requires. A listed hold carries none of `attemptId`, `operationId`, `providerReceiptDigest`, `usage`, and no reader produces them. Supplying a plausible usage here is the "never settled as zero" rule broken |
+| `release-outcome` | no | a production `FactoryReleaseProviderResolver`. The claimable scan, the enumerator, and all three providers exist; nothing turns a claim into a provider |
+
+And the broker cannot yet be handed to a runner, which is worth separating from
+its construction. `IsolatedFactoryAttemptRuntimeOptions.broker` wants
+`invoke(request, input)`; `createFactoryProviderBroker` returns
+`stream(request)`; `FactoryHostLaunchSupervisorOptions.broker` wants a third
+shape. No contract defines what a guest sends to request a model stream or how a
+stream returns over one request/response hop — W01b's own end-to-end guest sends
+an ad-hoc `{ kind: "model", operation: "e2e" }` and its double answers
+`{ accepted: true }`. Writing an adapter over an undefined payload would be a
+substitute in the exact sense item 2 forbids, so the broker is constructed and
+exposed on the startup handle and the adapter is named here instead.
+
 ## What the integration still needs, in one place
 
 Four findings, each verified at the merge commit rather than inferred, and each
