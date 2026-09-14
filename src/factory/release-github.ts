@@ -467,6 +467,22 @@ export class FactoryGitHubReleaseProvider implements FactoryReleaseProvider {
     };
   }
 
+  /**
+   * The receipt for an operation that may already have published, read without writing anything.
+   *
+   * This is what an operator uses after a lost response: it reads the exact ref and lists pull
+   * requests for that exact head, base, and operation marker. It sends no create of any kind, so
+   * calling it can never produce a second effect. `null` means the remote shows no publication,
+   * which keeps the operation uncertain rather than authorizing another send.
+   */
+  async lookupReceipt(operation: FactoryReleaseOperation, signal?: AbortSignal): Promise<FactoryProviderReceipt | null> {
+    const binding = this.binding(operation);
+    const { request } = this.plan(operation);
+    if (await this.readRef(this.options.repository, binding, signal) !== request.commitSha) return null;
+    const pull = await this.findPull(this.options.repository, binding, operation, request, signal);
+    return pull ? this.receipt(operation, binding, request, pull) : null;
+  }
+
   async verifyReceipt(operation: FactoryReleaseOperation, receipt: FactoryProviderReceipt, _evidence: unknown, signal?: AbortSignal): Promise<boolean> {
     const binding = this.binding(operation);
     const { request } = this.plan(operation);

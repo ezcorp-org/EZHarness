@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { ProjectGitHubHttpError } from "../extensions/project-github-transport";
-import { FactoryGitHubFake } from "../__tests__/helpers/factory-github-fake";
-import { digestBytes, digestObject } from "../extensions/v4/blobs";
-import { factoryGitCommitId, factoryGitTreeId, type FactoryGitFile, type FactoryGitIdentity } from "./git-objects";
+import { FACTORY_GITHUB_BASE_FILES, FACTORY_GITHUB_CANDIDATE_FILES, FactoryGitHubFake, factoryGitHubPublicationFixture } from "../__tests__/helpers/factory-github-fake";
+import { digestObject } from "../extensions/v4/blobs";
+import { factoryGitTreeId, type FactoryGitFile, type FactoryGitIdentity } from "./git-objects";
 import {
   FACTORY_GITHUB_OPERATION_MARKER,
   FactoryGitHubError,
@@ -22,39 +22,15 @@ const BINDING = factoryGitBranchBinding(OPERATION_ID);
 const encoder = new TextEncoder();
 const text = (value: string) => encoder.encode(value);
 
-const BASE_FILES: readonly FactoryGitFile[] = [
-  { path: "package.json", mode: "100644", content: text(`{"name":"pack","version":"1.0.0","dependencies":{"left-pad":"1.3.0"}}\n`) },
-  { path: "bun.lock", mode: "100644", content: text("lockfile-v1\n") },
-  { path: "src/slugify.ts", mode: "100644", content: text("export const slugify = (value: string) => value;\n") },
-  { path: "tests/slugify.test.ts", mode: "100644", content: text("// protected test\n") },
-];
-
-const CANDIDATE_FILES: readonly FactoryGitFile[] = BASE_FILES.map(file =>
-  file.path === "src/slugify.ts"
-    ? { ...file, content: text('export const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");\n') }
-    : file);
+const BASE_FILES = FACTORY_GITHUB_BASE_FILES;
+const CANDIDATE_FILES = FACTORY_GITHUB_CANDIDATE_FILES;
 
 function fake(): FactoryGitHubFake {
   return new FactoryGitHubFake({ repository: REPOSITORY, repositoryId: REPOSITORY_ID, baseBranch: BASE_BRANCH, baseFiles: BASE_FILES, identity: IDENTITY });
 }
 
 function publicationRequest(server: FactoryGitHubFake, overrides: Partial<FactoryGitHubPublicationRequest> = {}, files: readonly FactoryGitFile[] = CANDIDATE_FILES): FactoryGitHubPublicationRequest {
-  const treeSha = factoryGitTreeId(files);
-  const commitMessage = "Publish the accepted slugify candidate\n";
-  const commitSha = factoryGitCommitId({ treeId: treeSha, parents: [server.baseCommitSha], author: IDENTITY, committer: IDENTITY, message: commitMessage });
-  const title = "Accepted candidate: slugify";
-  const body = `Tested base ${server.baseCommitSha} on ${BASE_BRANCH}.\n\n${FACTORY_GITHUB_OPERATION_MARKER} ${OPERATION_ID}\n`;
-  const lock = files.find(file => file.path === "bun.lock")!;
-  return {
-    schemaVersion: "factory.github-publication.v1",
-    repositoryId: REPOSITORY_ID, baseBranch: BASE_BRANCH, baseSha: server.baseCommitSha,
-    treeSha, commitSha, commitMessage, author: IDENTITY, committer: IDENTITY,
-    title, body, titleBodyDigest: `sha256:${digestObject({ title, body })}`,
-    dependencyLockPath: "bun.lock", dependencyLockDigest: `sha256:${digestBytes(lock.content)}`,
-    protectedPaths: ["tests/slugify.test.ts"], allowedPaths: ["src/"],
-    files: files.map(file => ({ path: file.path, mode: file.mode, contentBase64: Buffer.from(file.content).toString("base64") })),
-    ...overrides,
-  };
+  return { ...factoryGitHubPublicationFixture(server, OPERATION_ID, { repositoryId: REPOSITORY_ID, baseBranch: BASE_BRANCH, files }), ...overrides };
 }
 
 function operation(request: FactoryGitHubPublicationRequest): FactoryReleaseClaim {

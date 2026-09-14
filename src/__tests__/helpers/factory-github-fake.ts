@@ -1,5 +1,7 @@
 import { ProjectGitHubHttpError, type requestProjectGitHub } from "../../extensions/project-github-transport";
+import { digestBytes, digestObject } from "../../extensions/v4/blobs";
 import { factoryGitBlobId, factoryGitCommitId, factoryGitTreeId, type FactoryGitFile, type FactoryGitIdentity } from "../../factory/git-objects";
+import { FACTORY_GITHUB_OPERATION_MARKER, type FactoryGitHubPublicationRequest } from "../../factory/release-github";
 
 /**
  * A GitHub that stores exactly what it is told and answers with the identities those bytes have.
@@ -132,7 +134,8 @@ export class FactoryGitHubFake {
     if (method === "POST" && rest === "/pulls") {
       const request = body as { title: string; body: string; head: string; base: string; draft: boolean };
       const sha = this.refs.get(request.head);
-      if (!sha) throw new ProjectGitHubHttpError(422);
+      // GitHub refuses a second pull request for the same head and base, and so does this.
+      if (!sha || this.pulls.some(pull => pull.head.ref === request.head && pull.base.ref === request.base && pull.state === "open")) throw new ProjectGitHubHttpError(422);
       const pull: StoredPull = {
         number: this.nextPull++, node_id: `PR_node_${this.nextPull}`, html_url: `https://github.com/${this.options.repository}/pull/${this.nextPull - 1}`,
         draft: request.draft === true, merged: false, state: "open", body: request.body, title: request.title,
@@ -154,4 +157,45 @@ export class FactoryGitHubFake {
     }
     throw new ProjectGitHubHttpError(404);
   }
+}
+
+/** The one reference-pack fixture both the adapter suite and the release suite publish. */
+export const FACTORY_GITHUB_IDENTITY: FactoryGitIdentity = { name: "EZCorp Factory", email: "factory@ezcorp.invalid", atSeconds: 1_700_000_000, timezone: "+0000" };
+const encoder = new TextEncoder();
+const bytes = (value: string) => encoder.encode(value);
+
+export const FACTORY_GITHUB_BASE_FILES: readonly FactoryGitFile[] = [
+  { path: "package.json", mode: "100644", content: bytes(`{"name":"pack","version":"1.0.0","dependencies":{"left-pad":"1.3.0"}}\n`) },
+  { path: "bun.lock", mode: "100644", content: bytes("lockfile-v1\n") },
+  { path: "src/slugify.ts", mode: "100644", content: bytes("export const slugify = (value: string) => value;\n") },
+  { path: "tests/slugify.test.ts", mode: "100644", content: bytes("// protected test\n") },
+];
+
+export const FACTORY_GITHUB_CANDIDATE_FILES: readonly FactoryGitFile[] = FACTORY_GITHUB_BASE_FILES.map(file =>
+  file.path === "src/slugify.ts"
+    ? { ...file, content: bytes('export const slugify = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");\n') }
+    : file);
+
+/** The approved publication request for one operation against one fake's base. */
+export function factoryGitHubPublicationFixture(
+  server: FactoryGitHubFake,
+  operationId: string,
+  options: { readonly repositoryId: number; readonly baseBranch: string; readonly files?: readonly FactoryGitFile[] },
+): FactoryGitHubPublicationRequest {
+  const files = options.files ?? FACTORY_GITHUB_CANDIDATE_FILES;
+  const treeSha = factoryGitTreeId(files);
+  const commitMessage = "Publish the accepted slugify candidate\n";
+  const commitSha = factoryGitCommitId({ treeId: treeSha, parents: [server.baseCommitSha], author: FACTORY_GITHUB_IDENTITY, committer: FACTORY_GITHUB_IDENTITY, message: commitMessage });
+  const title = "Accepted candidate: slugify";
+  const body = `Tested base ${server.baseCommitSha} on ${options.baseBranch}.\n\n${FACTORY_GITHUB_OPERATION_MARKER} ${operationId}\n`;
+  const lock = files.find(file => file.path === "bun.lock")!;
+  return {
+    schemaVersion: "factory.github-publication.v1",
+    repositoryId: options.repositoryId, baseBranch: options.baseBranch, baseSha: server.baseCommitSha,
+    treeSha, commitSha, commitMessage, author: FACTORY_GITHUB_IDENTITY, committer: FACTORY_GITHUB_IDENTITY,
+    title, body, titleBodyDigest: `sha256:${digestObject({ title, body })}`,
+    dependencyLockPath: "bun.lock", dependencyLockDigest: `sha256:${digestBytes(lock.content)}`,
+    protectedPaths: ["tests/slugify.test.ts"], allowedPaths: ["src/"],
+    files: files.map(file => ({ path: file.path, mode: file.mode, contentBase64: Buffer.from(file.content).toString("base64") })),
+  };
 }
