@@ -1,0 +1,88 @@
+# Gates: W02b the runner reference names its manifest
+
+Scope: the platform-level conflict the W12 validator found and W10, W11 and W12 each disclosed. Branch `wp/w02b-manifest-name`, base `integ/w00` at `5f04c7131`. Commit `c49d8e0fe`, documentation at `HEAD`. All eight receipts under `/tmp/factory-platform-evidence/w02b/` are exit 0 from clean committed source at `c49d8e0fe`; each `logs/<label>.json` records the producing commit, the SHA-256 of every dirty file, the exact command, the exit code, UTC start and end, duration, and the log's own SHA-256.
+
+## The conflict
+
+Two rules could not both hold, and no real pack could satisfy them:
+
+| Rule | Where | Effect |
+| --- | --- | --- |
+| A v4 manifest name matches `^[a-z][a-z0-9-]{0,63}$` | `packages/@ezcorp/extension-contract/src/validation.ts:126` | `@ezcorp/reference-data` is never a legal manifest name |
+| `release.manifest.name` must EQUAL `reference.package` | `releaseFacts()`, `src/factory/package-preparation.ts` | the reference's `package` is exactly that scoped name |
+
+The three reference packs each worked around it differently, which is why it surfaced three times before it was diagnosed once.
+
+## The decision, as landed
+
+The v4 grammar is the shared contract (C13) and is unchanged. `RunnerReference` gains a required `manifestName` carrying the built manifest's exact name, and `package` keeps the scoped distribution identity it already had. The two are expected to differ.
+
+- `manifestName` is validated by the SDK's exported `isManifestName` against the same grammar the extension contract enforces, so a reference the execution schema admits is one `validateManifest` would admit. A scoped name offered as a manifest name is `RUNNER_MANIFEST_NAME`.
+- `releaseFacts()`, `bindInTransaction()` and `hydrate()` compare `manifestName`. Nothing compares a manifest name to `package` any more.
+- The field is sealed with the rest of the reference into the binding, the trust revision and the prepared receipt through the reference digest.
+
+## Gates
+
+- [x] B1: The v4 manifest grammar is enforced on the reference, and a scoped package name is refused as a manifest name.
+  CHECK: `bun test --timeout 300000 ./src/factory/package-preparation.integration.test.ts`
+  EXPECT: exit 0
+  EVIDENCE: `logs/focused-suites.json`. `@ezcorp/package-runner`, `Package-Runner`, `1-leading-digit`, `under_score` and a 65-character name are each refused with `factory_package_manifest_name_invalid` at the binding, before any trust or build exists. An empty name is refused earlier still, by the reference's own bounded-identity guard, so the two guards are distinguished rather than conflated. The positive assertion states the point directly: `isManifestName(reference.manifestName)` is true and `isManifestName(reference.package)` is false for the same reference.
+
+- [x] B2: The bound manifest name must be the prepared release's own name.
+  CHECK: the same suite
+  EXPECT: exit 0
+  EVIDENCE: `logs/focused-suites.json`. A well-formed manifest name that is not the release's name is refused with `factory_package_release_unavailable` at the binding. The suite's own reference now carries a scoped `package` and a differing `manifestName`, which is the pairing the real packs use and the one that could not be bound at all before this change; it binds, trusts and prepares end to end. A receipt cannot be replayed under a different manifest name: `assertDispatchReady` with an altered `manifestName` fails `factory_package_binding_missing`, because the reference digest seals the field.
+
+- [x] B3: The SDK types, the generated schemas and both runtimes carry the field.
+  CHECK: `bun run --cwd packages/@ezcorp/factory-sdk schema:generate`; `bun test --timeout 300000 ./packages/@ezcorp/factory-sdk/src`; `bash scripts/python-quality.sh all`
+  EXPECT: exit 0; `manifestName` required in the regenerated schemas
+  EVIDENCE: `logs/focused-suites.json` and `logs/python-quality.json`. `RunnerReference.required` is `["package","manifestName","version","digest","export"]` in `factory-runner-request.schema.json`, and the same definition is regenerated into all six documents that embed it. The SDK suite is 184 pass / 0 fail. The Python validator carries the identical rule as `is_manifest_name`, because C07 rejects a validator that works in only one runtime, and the Python lanes stay at 100% line and branch coverage.
+
+- [x] B4: Both runtimes refuse the same values with the same issue code.
+  CHECK: `bun test --timeout 120000 ./src/factory/runner/python-runner.integration.test.ts`
+  EXPECT: exit 0
+  EVIDENCE: `logs/focused-suites.json`. The committed C02 conformance fixtures gain three negatives, including a scoped name offered as a manifest name, and the host-Python lane compares the Bun validator with a real Python child on the issue code rather than on a bare yes or no. Ten rejections now cross-check, all agreeing.
+
+- [x] B5: The real Podman package-preparation suite still binds, builds and prepares.
+  CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 1800 bun test --timeout 900000 ./src/factory/package-preparation.podman.integration.test.ts`
+  EXPECT: exit 0
+  EVIDENCE: `logs/package-preparation-podman.json`, exit 0, 1 pass / 0 fail against a real built release. Its reference now derives a scoped `package` from the built manifest's own name and passes that name as `manifestName`, so the suite exercises the differing pair against a real built release rather than the identical pair that used to be the only bindable shape.
+
+- [x] B6: Real-PostgreSQL schema parity and the factory PostgreSQL producers.
+  CHECK: `postgres-env flock /tmp/ezcorp-validation-heavy.lock timeout 1800 bun test --timeout 900000 ./tests/postgres/factory-schema.test.ts ./tests/postgres/factory-migration-restart.test.ts ./tests/postgres/factory-package-preparation.test.ts ./tests/postgres/factory-executions.test.ts ./tests/postgres/factory-compute-admissions.test.ts`
+  EXPECT: exit 0
+  EVIDENCE: `logs/postgres-parity.json`, exit 0, 46 pass / 0 fail on real PostgreSQL. The reference is stored as `reference_json` and hashed into `reference_digest`, both of which change shape with the new field, so parity and the sealed-digest checks are the ones that matter here. No migration is needed: no column is added or altered, and every existing row's reference digest is recomputed from its own stored JSON.
+
+- [x] B7: Every W02 gate stays green.
+  CHECK: the focused suites, the isolated Python guest, the factory Podman suites, the Python lanes
+  EXPECT: exit 0 on all
+  EVIDENCE: `logs/focused-suites.json` (302 pass / 0 fail, 2068 assertions across 39 files), `logs/python-guest-podman.json`, `logs/factory-podman-suites.json`, `logs/python-quality.json`. The device fence, the quarantine and revocation fence, the isolated Python guest and its validator equivalence are all unchanged by this branch and all still pass.
+
+- [x] B8: Static gates and the coverage gates.
+  CHECK: `bun run typecheck`; `bun run lint`; `bun scripts/check-factory-boundaries.ts`; `bun scripts/gate-integrity.ts`; `bun scripts/check-factory-lanes.ts`; `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts`; `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
+  EXPECT: all exit 0
+  EVIDENCE: `logs/static-gates.json` and `logs/coverage-gates.json`, both exit 0. "New-file coverage gate PASSED: no new source files in this diff" and "Patch coverage gate PASSED: all changed executable lines covered (6 file(s))". Six producers are merged, including the web Vitest leg: `web/src/lib/factory/model.ts` is V8-canonical and no Bun producer can measure it, so its LCOV carries the `ezcorp-node-v8` tag or the merge drops it.
+
+## Disclosed cross-ownership touches
+
+1. **`packages/@ezcorp/factory-sdk/src/types.ts`, `validation.ts`, `index.ts`, `references.ts` and the generated `*.schema.json`.** Freeze section 12 names Sol controls as the single owner of all five. This is the SDK crossing the coordinator directed; the schemas are regenerated by `schema:generate` and never hand-edited. `validation.ts` gains one exported predicate, `isManifestName`, and one issue code, `RUNNER_MANIFEST_NAME`.
+2. **`src/factory/package-preparation.ts` and its suite.** W02-owned. Three comparisons and the reference normaliser change.
+3. **`src/factory/runner/python/factory_validation.py` and its tests.** W02-owned. The same rule, because C07 requires it in both runtimes.
+4. **Twenty-three test files and two web modules across other packages** gain `manifestName` on a `RunnerReference` literal. These are mechanical: the field is required, so every construction site must name it. No behaviour in those files changes.
+5. **`src/factory/reference-code/guest.podman.integration.test.ts`** is W10's. Its one literal gains the field, spelled exactly as that pack's manifest already spells it (`reference-code-validator`), which is also the migration W10 would have made.
+6. **`docs/plans/2026-09-13-composable-factory-platform-interfaces.md`** gains section 17, the dated correction the coordinator asked for. W00 owns the freeze; this appends rather than edits.
+
+## Migration note for W10, W11 and W12
+
+Every `RunnerReference` literal gains `manifestName`. Set it to the built manifest's own name and keep `package` scoped; the two are expected to differ, and that is the whole point of the change.
+
+- A pack that **renamed its manifest to the unscoped form** to get past `releaseFacts()` should restore the scoped `package` and leave `manifestName` as the manifest already spells it.
+- A pack that **kept the scope and avoided `FactoryPackagePreparations.bind`** can now bind normally; nothing needs to be skipped.
+- A pack that **carried both spellings in different places** should keep the scoped one in `package` and the v4 one in `manifestName` and delete the reconciliation.
+- `manifestNameOf()` in `packages/@ezcorp/factory-sdk/src/references.ts` derives the conventional name from a scoped one, for a pack that wants the default rather than a chosen name.
+
+This supersedes each pack's workaround; freeze section 17 records that.
+
+## Open
+
+- No migration accompanies this. The reference lives in `reference_json` and in the digests derived from it, so a database written before this change holds references with no `manifestName`, and their reference digests were computed without it. Nothing in this branch upgrades them, because the three reference packs are the only producers and none of them has a deployed installation. If any environment already holds a bound package, its binding must be re-issued rather than migrated: the digest is the seal, and recomputing it would defeat the seal. The coordinator should confirm no such environment exists before integrating.
