@@ -10,7 +10,7 @@ The control channel is now a FIFO triple bound read-write at `/channel`, with an
 
 Every heavy producer ran under `flock /tmp/ezcorp-validation-heavy.lock`, one at a time.
 
-Receipt provenance, all from clean committed source with no dirty files. The two Podman runs are at `c49c62937`; the attempt-runtime, supervisor, package-preparation, and focused suites are at `9156b824a`; the static and coverage gates are at head. The two commits after `9156b824a` touch only `podman.integration.test.ts` and documentation, neither of which those four suites load.
+Receipt provenance: every final receipt was produced at `14474b690` from clean committed source with no dirty files. The two Podman runs were back to back under the lock, one heavy producer at a time.
 
 - [x] G1: One concurrent claimant launches one physical attempt, with stable worker and invocation identities committed before the guest starts.
   CHECK: bun test --timeout 120000 ./src/factory/runner/attempt-recovery.test.ts ./src/factory/runner/attempt-runtime.test.ts
