@@ -2300,6 +2300,13 @@
         "context": {
           "$ref": "#/definitions/InvocationContext"
         },
+        "devices": {
+          "description": "Exactly the devices this start may use. Absent means none.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "limits": {
           "$ref": "#/definitions/ResourceLimits"
         },
