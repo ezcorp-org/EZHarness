@@ -113,6 +113,49 @@ cannot build in this mode (no acknowledgement to record) and says so.
 build (`panic(main thread): Segmentation fault … a bug in Bun`), the same panic class the backend pool
 showed on unmodified `main` earlier the same evening. Re-run after the pool finished.
 
+**Merge with `main` (PR #269 conflicts):** eleven commits landed on `main` after the branch point;
+nine files conflicted, all "both sides added". Resolved as the union in every case — #262's
+`isExtensionRunnerConfigured()` beside the async-capable lazy wrapper (it now answers true in
+trusted-local mode, without socket settings), #260/#265's named heading and installation rows beside
+the unsandboxed acknowledgement UI, both JSON manifests merged, and the e2e fixture's shared
+`BuildDeadline` kept positional with `extra` moved last (two of `main`'s callers pass the deadline
+third). Re-verified: typecheck, lint, svelte-check, runner-connection 7/7 (incl. #262's probe),
+bundled-v4-bootstrap 59/59, e2e-lanes 21/21, visual-evidence 7/7, vitest author-page/server-load/
+routes 58/58, and the trusted-local production-build lane.
+
+**CI round on PR #269 (two Opus agents in isolated worktrees):**
+- Web shards 2/3: two pre-existing vitest files asserted the approve route's old four-argument
+  `lifecycle.approve` call; now assert the exact fifth argument `{ acknowledgeUnsandboxed: undefined }`
+  (`51e524124`).
+- Coverage shard 0: a genuine regression of this PR. Keying the provisioning memo on
+  `toolchainRoot` rebuilt the identical SDK bundle once per root, and a second `Bun.build()` in one
+  `bun test` process trips a Bun file-descriptor reuse defect (`EISDIR` on regular files under the
+  isolated `node_modules/.bun` store; reproduced standalone; `main`'s shard 0 is green). Fixed by
+  caching the SDK bundle per entrypoint and the toolchain per root, sequentially; the new test counts
+  real builds with a call-through spy (`78629cbf3`). CI-equivalent shard 0 run: 1902 pass / 0 fail.
+- Also merged `main`'s #268 (repairs the #267 quality gates the first run used) — `3d94146e6`.
+- Note for future agent runs: the harness cut both agent worktrees from `main`, not from the PR
+  branch; both agents had to re-base onto the PR head themselves (`git switch -c`, since
+  `git reset --hard` is blocked for them). Cherry-picked their commits onto the PR branch.
+
+**CI round 2 — Per-file coverage gate** (`extension-lifecycle-service.ts` 99.02%, `runner-mode.ts`
+90.63%, `trusted-local-runner.ts` 42.42%): the proof for all three lived in `*integration*` suites,
+which the residual job runs WITHOUT coverage. Duplicated the proof outside it:
+- `src/__tests__/trusted-local-runner-wiring.test.ts` — the host wiring with the runner PACKAGE
+  stubbed: every option handed to the runner, the two hooks, unconfigured refusal, forget-on-failure,
+  memoisation, and the SDK-entry override.
+- `src/__tests__/extension-lifecycle-service-trusted-local.test.ts` — the SERVICE in trusted-local
+  mode on real PGlite with the runner MODULE stubbed: hooks installed once and real (audit row +
+  store), build refused without / recorded with the acknowledgement, `runBuild` records the
+  fifteen-minute verification grant (shorter than the build row, same omitted controls), disable
+  revokes.
+- `trustedLocalBunDigest()` lost its catch-reset: the binary does not change while the process runs,
+  so the memo now holds the failure too (three fewer lines to prove, and a clearer contract).
+- **Bun coverage trap, measured:** bun keeps ONE lcov record per source path and the module copy
+  loaded LAST owns it. A `?fresh=<uuid>` copy per test therefore reports any line only an earlier
+  copy executed as a miss (8 missed lines with copies, 0 without, same assertions). The wiring test
+  walks the module lifecycle in file order on the canonical instance instead.
+
 **Verification results (final):**
 - `bun run typecheck` ✓ (0 errors) · `bun run lint` ✓ (8 pre-existing infos, none in touched files).
 - Unit/integration (one process per file): runner-mode 11/11 · runner-connection 6/6 ·

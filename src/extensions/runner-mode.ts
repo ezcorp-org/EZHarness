@@ -73,13 +73,12 @@ let bunDigest: Promise<string> | undefined;
  * SHA-256 of the running bun binary. `TrustedLocalRunner` pins the binary it
  * executes extensions with and refuses to start if it changes
  * (`trusted_binary_changed`); the lifecycle stamps the same digest into
- * `runnerImageDigest` via `trustedLocalImage()`. Memoised: the binary does not
- * change while the process runs, and it is ~100 MB.
+ * `runnerImageDigest` via `trustedLocalImage()`. Memoised, failure included:
+ * the binary does not change while the process runs (and it is ~100 MB), so
+ * a read that failed once will fail the same way again — retrying would only
+ * turn one clear error into a slow, repeated one.
  */
 export function trustedLocalBunDigest(): Promise<string> {
-  bunDigest ??= readFile(process.execPath).then((bytes) => createHash("sha256").update(bytes).digest("hex")).catch((error: unknown) => {
-    bunDigest = undefined;
-    throw error;
-  });
+  bunDigest ??= readFile(process.execPath).then((bytes) => createHash("sha256").update(bytes).digest("hex"));
   return bunDigest;
 }
