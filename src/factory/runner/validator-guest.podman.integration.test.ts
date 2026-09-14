@@ -36,7 +36,7 @@ const candidate = { artifactId: "candidate-under-validation", digest: `sha256:${
 const request: FactoryRunnerRequest = {
   schemaVersion: "factory.runner.request.v1",
   authority: { attemptId, tenantId, projectId, runId, nodeInstanceId, candidateGeneration: 0, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, deadlineAtMs: Date.now() + 120_000, nextOperationIndex: 0 },
-  runner: { package: "validator", version: "1.0.0", digest, export: "run", configurationDigest: digest },
+  runner: { package: "validator", manifestName: "validator", version: "1.0.0", digest, export: "run", configurationDigest: digest },
   input: { kind: "artifact", artifact: candidate },
   grants: [],
   resources: {},

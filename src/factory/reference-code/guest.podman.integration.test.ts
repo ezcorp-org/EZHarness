@@ -69,7 +69,7 @@ function request(input: ReferenceCodeGuestInput): FactoryRunnerRequest {
   return {
     schemaVersion: "factory.runner.request.v1",
     authority: { attemptId, tenantId, projectId, runId, nodeInstanceId, candidateGeneration: 0, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, deadlineAtMs: Date.now() + 120_000, nextOperationIndex: 0 },
-    runner: { package: "@ezcorp/reference-code-validator", version: "1.0.0", digest, export: REFERENCE_CODE_GUEST_TOOL, configurationDigest: digest },
+    runner: { package: "@ezcorp/reference-code-validator", manifestName: "reference-code-validator", version: "1.0.0", digest, export: REFERENCE_CODE_GUEST_TOOL, configurationDigest: digest },
     input: { kind: "inline", value: input as never },
     grants: [],
     resources: {},

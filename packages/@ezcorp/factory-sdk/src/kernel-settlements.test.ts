@@ -5,7 +5,7 @@ import { advanceKernel, createKernelState } from "./kernel";
 import type { CompiledFactory, FactoryDefinition, FactoryNode, KernelState } from "./index";
 
 const digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-const runner = { package: "inert", version: "1", digest, export: "run" } as const;
+const runner = { package: "inert", manifestName: "inert", version: "1", digest, export: "run" } as const;
 
 /** Compile every fixture so tests use the same public execution plan as adapters. */
 function factory(nodes: readonly FactoryNode[]): CompiledFactory {

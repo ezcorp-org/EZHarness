@@ -8,6 +8,7 @@ import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases
 import { digestObject } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
+import { isManifestName } from "@ezcorp/factory-sdk";
 import { FactoryPackagePreparationError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, factoryPackageDispatchDisposition } from "../../factory/package-preparation";
 import { FactoryRecords } from "../../factory/records";
 
@@ -16,14 +17,14 @@ export interface FactoryPackagePreparationFixture { readonly db: TransactionalDb
 const tenantId = "package-tenant";
 const projectId = "package-project";
 const admin: FactoryPrincipal = { kind: "user", id: "package-admin", authentication: "session" };
-const reference: RunnerReference = { package: "package-runner", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "echo" };
+const reference: RunnerReference = { package: "@ezcorp/package-runner", manifestName: "package-runner", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "echo" };
 const secondReference: RunnerReference = { ...reference, model: "model-b", configurationDigest: `sha256:${"c".repeat(64)}` };
 const limits: ResourceLimits = { memoryBytes: 64 * 1024 * 1024, cpuMillis: 1000, pids: 16, tmpBytes: 1024 * 1024, outputBytes: 1024 * 1024, timeoutMs: 10_000 };
 
 function digestReference(value: RunnerReference): string { return `sha256:${digestObject(value)}`; }
 
 function release(sourceDigest: string, artifactDigest: string): ReleaseRecord {
-  const manifest = { schemaVersion: 4 as const, name: reference.package, version: reference.version, author: { name: "Package test" }, description: "Factory package", permissions: {}, tools: [{ name: reference.export, description: "Echo", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
+  const manifest = { schemaVersion: 4 as const, name: reference.manifestName, version: reference.version, author: { name: "Package test" }, description: "Factory package", permissions: {}, tools: [{ name: reference.export, description: "Echo", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
   const input = { installationId: "package-installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest, artifactDigest, imageDigest: "podman-image@sha256:test", manifest, evidence: { protocolVersion: 4 as const, validatorVersion: "runner-v4", discoveryDigest: digestObject(manifest), tests: [{ name: "unit", passed: true }] }, runnerProfile: "podman-v4", policyDigest: digestObject({ policy: "v4" }) };
   return { ...input, id: "package-release", releaseDigest: digestObject(input), createdAt: "2030-01-01T00:00:00.000Z" };
 }
@@ -78,6 +79,47 @@ async function trustedPackage() {
   await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-package");
   return { ...context, runner, prepared: preparations };
 }
+
+test("a scoped package name is refused as a manifest name, and the bound manifest name must match the prepared release", async () => {
+  const context = await packageContext();
+  const runner: Pick<Runner, "build" | "collectArtifacts"> = {
+    async build() { throw new Error("a refused reference never reaches a build"); },
+    async collectArtifacts() { return structuredClone(context.artifacts); },
+  };
+  const preparations = context.preparations(runner);
+
+  // The v4 manifest grammar is the shared contract. A scoped distribution name
+  // is a legal `package` and can never be a legal `manifestName`.
+  for (const refused of ["@ezcorp/package-runner", "Package-Runner", "1-leading-digit", "under_score", "a".repeat(65)]) {
+    await expect(preparations.bind(admin, { projectId, reference: { ...reference, manifestName: refused }, installationId: context.current.installationId, releaseId: context.current.id }, `bind-${refused}`))
+      .rejects.toMatchObject({ code: "factory_package_manifest_name_invalid" });
+  }
+  // An absent name is caught by the reference's own bounded-identity guard,
+  // before the grammar is consulted at all.
+  await expect(preparations.bind(admin, { projectId, reference: { ...reference, manifestName: "" }, installationId: context.current.installationId, releaseId: context.current.id }, "bind-empty"))
+    .rejects.toMatchObject({ code: "factory_package_reference_invalid" });
+  expect(isManifestName(reference.manifestName)).toBe(true);
+  expect(isManifestName(reference.package)).toBe(false);
+
+  // A well-formed manifest name that is not the release's own name is refused
+  // at the binding, before any trust or build exists.
+  await expect(preparations.bind(admin, { projectId, reference: { ...reference, manifestName: "other-runner" }, installationId: context.current.installationId, releaseId: context.current.id }, "bind-wrong-manifest-name"))
+    .rejects.toMatchObject({ code: "factory_package_release_unavailable" });
+
+  // The scoped identity and the manifest name differ, and the binding succeeds
+  // on exactly the pairing the real packs use.
+  expect(reference.package).not.toBe(reference.manifestName);
+  const binding = await preparations.bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, "bind-scoped-package");
+  expect(binding.reference).toEqual(reference);
+  await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-scoped-package");
+  const receipt = await preparations.prepare(projectId, reference);
+  expect(receipt.reference).toEqual(reference);
+  // The manifest name is sealed into the receipt through the reference digest,
+  // so a receipt cannot be replayed under a different manifest name.
+  await expect(preparations.assertDispatchReady({ authority: { tenantId, projectId }, runner: { ...reference, manifestName: "other-runner" } }))
+    .rejects.toMatchObject({ code: "factory_package_binding_missing" });
+  expect(await preparations.assertDispatchReady({ authority: { tenantId, projectId }, runner: reference })).toEqual(receipt);
+});
 
 test("package trust cannot bind an installation from another project", async () => {
   const context = await packageContext("another-project");

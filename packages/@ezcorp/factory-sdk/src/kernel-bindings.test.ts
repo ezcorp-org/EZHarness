@@ -5,7 +5,7 @@ import { simulateFactory } from "./simulator";
 import type { CompiledFactory, FactoryDefinition, FactoryNode, JsonValue } from "./index";
 
 const digest = "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
-const runner = { package: "inert", version: "1", digest, export: "run" } as const;
+const runner = { package: "inert", manifestName: "inert", version: "1", digest, export: "run" } as const;
 const string = { type: "string" } as const;
 const integer = { type: "integer" } as const;
 const labelledItem = { type: "object", properties: { label: string }, required: ["label"], additionalProperties: false } as const;

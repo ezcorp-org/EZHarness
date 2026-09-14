@@ -26,7 +26,7 @@ export function factoryLaunchRequest(overrides: { attemptId?: string; candidateG
       grantRevision: 4, reservationGeneration: 5, executionEpoch: 6, cancellationEpoch: 0,
       deadlineAtMs: Date.now() + 600_000, nextOperationIndex: 0,
     },
-    runner: { package: "runner", version: "1", digest: factoryLaunchDigest, export: "run", model: overrides.model ?? "recovery-model", configurationDigest: overrides.configurationDigest ?? factoryLaunchDigest },
+    runner: { package: "runner", manifestName: "runner", version: "1", digest: factoryLaunchDigest, export: "run", model: overrides.model ?? "recovery-model", configurationDigest: overrides.configurationDigest ?? factoryLaunchDigest },
     input: { kind: "inline", value: { prompt: "recovery" } },
     grants: [], resources: {}, tools: [],
     broker: { audience: "gateway", attemptToken: "ephemeral-token" },

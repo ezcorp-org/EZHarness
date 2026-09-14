@@ -5,7 +5,7 @@ import { advanceKernel, createKernelState } from "./kernel";
 import type { CompiledFactory, FactoryBounds, FactoryDefinition, FactoryNode, KernelState } from "./index";
 
 const digest = "sha256:bcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbcbc";
-const runner = { package: "inert", version: "1", digest, export: "run" } as const;
+const runner = { package: "inert", manifestName: "inert", version: "1", digest, export: "run" } as const;
 const string = { type: "string" } as const;
 const loopResult = { type: "object", properties: { result: string }, required: ["result"], additionalProperties: false } as const;
 

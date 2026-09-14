@@ -5,33 +5,225 @@
       "kind": "request",
       "value": {
         "schemaVersion": "factory.runner.request.v1",
-        "authority": { "attemptId": "attempt-1", "tenantId": "tenant-1", "projectId": "project-1", "runId": "run-1", "nodeInstanceId": "node-1", "candidateGeneration": 0, "attemptNumber": 1, "grantRevision": 2, "reservationGeneration": 3, "executionEpoch": 4, "cancellationEpoch": 0, "deadlineAtMs": 2000000000000, "nextOperationIndex": 0 },
-        "runner": { "package": "@example/runner", "version": "1.2.3", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "export": "run", "model": "model-v1", "configurationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" },
-        "input": { "kind": "inline", "value": { "prompt": "safe" } },
-        "grants": ["model:invoke", "tool:read"],
-        "resources": { "maxCostMicros": "1000", "maxTokens": 200, "maxComputeMs": 30000, "memoryBytes": 1024, "resourceClass": "cpu.small" },
-        "model": { "provider": "anthropic", "model": "model-v1", "configurationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "configuration": { "temperature": 0 }, "policyDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "policy": { "retries": 1 } },
-        "tools": [{ "name": "read", "description": "Read a value", "inputSchema": { "type": "object", "additionalProperties": false }, "outputSchema": { "type": "string" } }],
-        "broker": { "attemptToken": "signed-attempt-token", "audience": "installation-1" }
+        "authority": {
+          "attemptId": "attempt-1",
+          "tenantId": "tenant-1",
+          "projectId": "project-1",
+          "runId": "run-1",
+          "nodeInstanceId": "node-1",
+          "candidateGeneration": 0,
+          "attemptNumber": 1,
+          "grantRevision": 2,
+          "reservationGeneration": 3,
+          "executionEpoch": 4,
+          "cancellationEpoch": 0,
+          "deadlineAtMs": 2000000000000,
+          "nextOperationIndex": 0
+        },
+        "runner": {
+          "package": "@example/runner",
+          "manifestName": "runner",
+          "version": "1.2.3",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "export": "run",
+          "model": "model-v1",
+          "configurationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        },
+        "input": {
+          "kind": "inline",
+          "value": {
+            "prompt": "safe"
+          }
+        },
+        "grants": [
+          "model:invoke",
+          "tool:read"
+        ],
+        "resources": {
+          "maxCostMicros": "1000",
+          "maxTokens": 200,
+          "maxComputeMs": 30000,
+          "memoryBytes": 1024,
+          "resourceClass": "cpu.small"
+        },
+        "model": {
+          "provider": "anthropic",
+          "model": "model-v1",
+          "configurationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "configuration": {
+            "temperature": 0
+          },
+          "policyDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "policy": {
+            "retries": 1
+          }
+        },
+        "tools": [
+          {
+            "name": "read",
+            "description": "Read a value",
+            "inputSchema": {
+              "type": "object",
+              "additionalProperties": false
+            },
+            "outputSchema": {
+              "type": "string"
+            }
+          }
+        ],
+        "broker": {
+          "attemptToken": "signed-attempt-token",
+          "audience": "installation-1"
+        }
       }
     },
     {
       "name": "completed-result",
       "kind": "result",
       "value": {
-        "schemaVersion": "factory.runner.result.v1", "status": "completed", "journalCursor": 5,
-        "operations": [{ "operationId": "run-1:node-1:0:5", "operationIndex": 5, "kind": "model", "requestDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "state": "completed", "resultDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "usage": { "kind": "measured", "inputTokens": 10, "outputTokens": 20, "computeMs": 30, "costMicros": "40" }, "workspaceCheckpoint": { "artifactId": "checkpoint-1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "encodedBytes": 512, "journalCursor": 5 } }],
-        "resultDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", "output": { "artifactId": "result-1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "encodedBytes": 256 }, "usage": { "kind": "measured", "inputTokens": 10, "outputTokens": 20, "computeMs": 30, "costMicros": "40" }, "workspaceCheckpoint": { "artifactId": "checkpoint-1", "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "encodedBytes": 512, "journalCursor": 5 }
+        "schemaVersion": "factory.runner.result.v1",
+        "status": "completed",
+        "journalCursor": 5,
+        "operations": [
+          {
+            "operationId": "run-1:node-1:0:5",
+            "operationIndex": 5,
+            "kind": "model",
+            "requestDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "state": "completed",
+            "resultDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "usage": {
+              "kind": "measured",
+              "inputTokens": 10,
+              "outputTokens": 20,
+              "computeMs": 30,
+              "costMicros": "40"
+            },
+            "workspaceCheckpoint": {
+              "artifactId": "checkpoint-1",
+              "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+              "encodedBytes": 512,
+              "journalCursor": 5
+            }
+          }
+        ],
+        "resultDigest": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "output": {
+          "artifactId": "result-1",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "encodedBytes": 256
+        },
+        "usage": {
+          "kind": "measured",
+          "inputTokens": 10,
+          "outputTokens": 20,
+          "computeMs": 30,
+          "costMicros": "40"
+        },
+        "workspaceCheckpoint": {
+          "artifactId": "checkpoint-1",
+          "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "encodedBytes": 512,
+          "journalCursor": 5
+        }
       }
     }
   ],
   "rejected": [
-    { "name": "unsupported-tool-ast", "kind": "request", "path": ["tools", 0, "inputSchema"], "value": { "not": { "type": "string" } } },
-    { "name": "unsafe-authority-integer", "kind": "request", "path": ["authority", "nextOperationIndex"], "value": 9007199254740992 },
-    { "name": "noncanonical-money", "kind": "request", "path": ["resources", "maxCostMicros"], "value": "01" },
-    { "name": "forged-model-identity", "kind": "request", "path": ["model", "model"], "value": "different" },
-    { "name": "wrong-runner-pin", "kind": "request", "path": ["runner", "version"], "value": "latest" },
-    { "name": "malformed-usage", "kind": "result", "path": ["usage", "costMicros"], "value": "01" },
-    { "name": "malformed-checkpoint", "kind": "result", "path": ["workspaceCheckpoint", "journalCursor"], "value": 4 }
+    {
+      "name": "unsupported-tool-ast",
+      "kind": "request",
+      "path": [
+        "tools",
+        0,
+        "inputSchema"
+      ],
+      "value": {
+        "not": {
+          "type": "string"
+        }
+      }
+    },
+    {
+      "name": "unsafe-authority-integer",
+      "kind": "request",
+      "path": [
+        "authority",
+        "nextOperationIndex"
+      ],
+      "value": 9007199254740992
+    },
+    {
+      "name": "noncanonical-money",
+      "kind": "request",
+      "path": [
+        "resources",
+        "maxCostMicros"
+      ],
+      "value": "01"
+    },
+    {
+      "name": "forged-model-identity",
+      "kind": "request",
+      "path": [
+        "model",
+        "model"
+      ],
+      "value": "different"
+    },
+    {
+      "name": "wrong-runner-pin",
+      "kind": "request",
+      "path": [
+        "runner",
+        "version"
+      ],
+      "value": "latest"
+    },
+    {
+      "name": "malformed-usage",
+      "kind": "result",
+      "path": [
+        "usage",
+        "costMicros"
+      ],
+      "value": "01"
+    },
+    {
+      "name": "malformed-checkpoint",
+      "kind": "result",
+      "path": [
+        "workspaceCheckpoint",
+        "journalCursor"
+      ],
+      "value": 4
+    },
+    {
+      "name": "scoped-name-as-manifest-name",
+      "kind": "request",
+      "path": [
+        "runner",
+        "manifestName"
+      ],
+      "value": "@ezcorp/reference-data"
+    },
+    {
+      "name": "uppercase-manifest-name",
+      "kind": "request",
+      "path": [
+        "runner",
+        "manifestName"
+      ],
+      "value": "ReferenceData"
+    },
+    {
+      "name": "empty-manifest-name",
+      "kind": "request",
+      "path": [
+        "runner",
+        "manifestName"
+      ],
+      "value": ""
+    }
   ]
 }
