@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { createHash, generateKeyPairSync } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { canonicalJson } from "@ezcorp/extension-contract";
-import { advanceKernel, createKernelState, referenceCodeV1, type FactoryDefinition, type FactoryRunnerRequest, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue, type KernelEvent } from "@ezcorp/factory-sdk";
+import { advanceKernel, createKernelState, FACTORY_LAZY_INPUT_SCHEMA_VERSION, referenceCodeV1, type FactoryDefinition, type FactoryRunnerRequest, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue, type KernelEvent } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import { digestBytes } from "../../extensions/v4/blobs";
@@ -128,7 +128,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     const { compiled } = await definitions.readVersion(principal, key, body.factoryVersion);
     const input = Object.fromEntries(Object.entries(body.parameters).map(([name, value]) => [name, value.kind === "inline" ? value.value : null])) as JsonValue;
     const { fence } = await fixture.db.transaction(transaction => lifecycle.readExecutionPlanInTransaction(transaction, runKey(run.runId)));
-    const created = createKernelState(compiled, run.runId, input, now, { schemaVersion: "factory.lazy-input.v1", parameters: body.parameters });
+    const created = createKernelState(compiled, run.runId, input, now, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters });
     const event = { kind: "start", id: `stop-start-event-${sequence}`, atMs: now } as const;
     const first = advanceKernel(compiled, { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, fence.deadlineAtMs) }, event);
     const admissionCommand = first.commands.find(command => command.kind === "request-admission")!;
@@ -484,7 +484,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     const { compiled } = await definitions.readVersion(principal, key, body.factoryVersion);
     const input = Object.fromEntries(Object.entries(body.parameters).map(([name, value]) => [name, value.kind === "inline" ? value.value : null])) as JsonValue;
     const { fence } = await fixture.db.transaction(transaction => lifecycle.readExecutionPlanInTransaction(transaction, runKey(run.runId)));
-    const created = createKernelState(compiled, run.runId, input, now, { schemaVersion: "factory.lazy-input.v1", parameters: body.parameters });
+    const created = createKernelState(compiled, run.runId, input, now, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters });
     const event = { kind: "start", id: `admitting-start-event-${sequence}`, atMs: now } as const;
     const first = advanceKernel(compiled, { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, fence.deadlineAtMs) }, event);
     const admissionCommand = first.commands.find(command => command.kind === "request-admission")!;

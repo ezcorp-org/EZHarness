@@ -10,7 +10,7 @@ import { bundleWorkflowCode, Worker, type WorkflowBundle } from "@temporalio/wor
 import { historyToJSON } from "@temporalio/common/lib/proto-utils.js";
 import { createFactoryWorker } from "../src/worker.ts";
 import { Context } from "@temporalio/activity";
-import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact } from "@ezcorp/factory-sdk";
+import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import { advanceKernel, createKernelState } from "@ezcorp/factory-sdk/kernel";
 import type { KernelState } from "@ezcorp/factory-sdk/kernel-types";
@@ -804,10 +804,10 @@ describe("factory Temporal workflow", () => {
     await worker.runUntil(async () => {
       const result = await environment.client.workflow.execute("factoryWorkflow", {
         workflowId: `tenant/lazy-field-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
-        args: [workflowInput(lazyFactory, { logicalRunId: "lazy-field", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } } })],
+        args: [workflowInput(lazyFactory, { logicalRunId: "lazy-field", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact } } } })],
       });
       assert.equal(result.status, "completed");
-      assert.deepEqual(result.state.durableInput, { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } });
+      assert.deepEqual(result.state.durableInput, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact } } });
       assert.equal(result.state.lazyInput?.versions[`${artifact.artifactId}\u0000${artifact.digest}\u0000${artifact.encodedBytes}`], "storage-v1");
     });
     assert.deepEqual(observed, ["read-input-value", "request-admission", "dispatch-node"]);
@@ -845,7 +845,7 @@ describe("factory Temporal workflow", () => {
     await worker.runUntil(async () => {
       const result = await environment.client.workflow.execute("factoryWorkflow", {
         workflowId: `tenant/lazy-parent-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
-        args: [workflowInput(parentFactory, { logicalRunId: "lazy-parent", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact } } } })],
+        args: [workflowInput(parentFactory, { logicalRunId: "lazy-parent", startedAtMs, input: { data: { label: "placeholder" } }, durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact } } } })],
       });
       assert.equal(result.status, "completed");
     });
@@ -868,7 +868,7 @@ describe("factory Temporal workflow", () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/undeclared-durable-input-${process.pid}`, taskQueue: queue,
         workflowExecutionTimeout: "10 seconds", retry: { maximumAttempts: 1 },
-        args: [workflowInput(factory, { logicalRunId: "undeclared-durable-input", startedAtMs, input: { data: {} }, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact: { artifactId: "undeclared", digest: packageDigest, encodedBytes: 70_000 } } } } })],
+        args: [workflowInput(factory, { logicalRunId: "undeclared-durable-input", startedAtMs, input: { data: {} }, durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact: { artifactId: "undeclared", digest: packageDigest, encodedBytes: 70_000 } } } } })],
       });
       await assert.rejects(handle.result(), (error) => {
         const cause = (error as { cause?: { type?: string; nonRetryable?: boolean; message?: string } }).cause;
@@ -971,7 +971,7 @@ describe("factory Temporal workflow", () => {
     const artifact = { artifactId: "persisted", digest: packageDigest, encodedBytes: 70_000 };
     const replacement = { artifactId: "replacement", digest: packageDigest, encodedBytes: 70_000 };
     const state = createKernelState(continuationFactory, "durable-continuation", {}, startedAtMs, {
-      schemaVersion: "factory.lazy-input.v1",
+      schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION,
       parameters: { data: { kind: "artifact", artifact } },
     });
     let effects = 0;
@@ -987,7 +987,7 @@ describe("factory Temporal workflow", () => {
         args: [workflowInput(continuationFactory, {
           logicalRunId: "durable-continuation",
           startedAtMs,
-          durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: { data: { kind: "artifact", artifact: replacement } } },
+          durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "artifact", artifact: replacement } } },
           continuation: { state, inbox: [], pendingInbox: [], sourceSequence: 0, handledSinceContinuation: 0, acknowledgedInboxSequence: 0 },
         })],
       });

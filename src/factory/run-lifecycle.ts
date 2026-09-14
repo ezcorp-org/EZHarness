@@ -1,4 +1,5 @@
 import { lockFactoryScope } from "./locks";
+import { FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 import { createCompiledExecutionManifest } from "@ezcorp/factory-sdk/compiler";
 import { validateDurableInputPorts, validateValue } from "@ezcorp/factory-sdk/validation";
 import type { BudgetBounds, CompiledFactory, FactoryReference, FactoryRunDetails, FactoryRunStartBody, FactoryRunListQuery, FactoryRunSummary, FactoryDurableInput, FactoryDurableReceipt, FactoryCommandResource, FactoryRunError, FactoryTransportValue, JsonValue, KernelEvent } from "@ezcorp/factory-sdk";
@@ -132,7 +133,7 @@ export class FactoryRunLifecycle {
       const resolvedDescriptor = typeof resolved === "object" && resolved !== null && !Array.isArray(resolved) && (resolved as { kind?: unknown }).kind === "factory.run-resolved-parameters";
       const input = resolvedDescriptor ? (resolved as FactoryResolvedParameters).input : resolved as JsonValue;
       const ports = compiled.definition.inputPorts;
-      const durable = resolvedDescriptor ? { schemaVersion: "factory.lazy-input.v1" as const, parameters: body.parameters } : undefined;
+      const durable = resolvedDescriptor ? { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters } : undefined;
       if (durable !== undefined) {
         if (!validateDurableInputPorts(ports, input, durable).ok) throw new FactoryRunLifecycleError("factory_input_invalid");
       } else if (typeof input !== "object" || input === null || Array.isArray(input) || Object.keys(input).some(name => !Object.hasOwn(ports, name)) || Object.entries(ports).some(([name, schema]) => !Object.hasOwn(input, name) || !validateValue(schema, input[name]!).ok)) throw new FactoryRunLifecycleError("factory_input_invalid");
@@ -145,7 +146,7 @@ export class FactoryRunLifecycle {
       await this.records.createRunInTransaction(transaction, { projectId: key.projectId, runId, definitionDigest: body.definitionDigest, interpreterBuild: this.options.interpreterBuild, executionEpoch: installation.executionEpoch, input, principalId: principal.id, principalKind: principal.kind, ...(principal.credential === undefined ? {} : { serviceCredential: principal.credential }) }, async tx => {
         const definition = await this.options.stageDefinitionInTransaction(tx, compiled, identity);
         if (definition.definitionDigest !== body.definitionDigest) throw new FactoryRunLifecycleError("factory_definition_conflict");
-        const workflowInput = JSON.parse(encodeFactoryPayload({ ...identity, startedAtMs, deadlineAtMs, definition, input, durableInput: { schemaVersion: "factory.lazy-input.v1", parameters: body.parameters } })) as JsonValue;
+        const workflowInput = JSON.parse(encodeFactoryPayload({ ...identity, startedAtMs, deadlineAtMs, definition, input, durableInput: { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters } })) as JsonValue;
         await tx.execute(sql`INSERT INTO factory_run_lifecycle (tenant_id, project_id, run_id, factory_id, factory_version, definition_digest, grant_revision, status, deadline_ms, parameters_json, parameters_digest) VALUES (${this.tenantId}, ${key.projectId}, ${runId}, ${key.factoryId}, ${body.factoryVersion}, ${body.definitionDigest}, ${body.grantRevision}, 'queued', ${deadlineAtMs}, ${encodeFactoryPayload(body.parameters)}, ${digestObject(body.parameters)})`);
         await this.budgets.openEnvelopeInTransaction(tx, { projectId: key.projectId, runId, envelopeId: "root", limits: this.options.limits, deadlineAtMs });
         await new FactoryCommandOutbox(this.database, this.tenantId, key.projectId, this.now).enqueueInTransaction(tx, { kind: "start_run", projectId: key.projectId, logicalRunId: runId, interpreterId: "root", body: workflowInput });

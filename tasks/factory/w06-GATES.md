@@ -85,7 +85,7 @@ Branch `wp/w06-remediation`. Base `integ/w00` at `1dc9a0226`.
 - [x] G10: The settleable-child scan is bounded, oldest first, and safe to run twice at once.
       CHECK: `bun test --timeout 300000 ./src/__tests__/factory-run-lifecycle.test.ts` and
       `bun test --timeout 600000 ./tests/postgres/factory-run-lifecycle.test.ts`
-      EXPECT: `56 pass 0 fail`, 899 assertions on both PGlite and real PostgreSQL. The scan is
+      EXPECT: `56 pass 0 fail`, 903 assertions on both PGlite and real PostgreSQL. The scan is
       empty before a child is terminal, ordered by start instant across the whole table, resumes
       exactly from a cursor, returns the same page to two concurrent callers, tolerates two
       concurrent settles, rejects a limit of 0, -1, 1.5, or 201, and lets `settle` report a corrupt

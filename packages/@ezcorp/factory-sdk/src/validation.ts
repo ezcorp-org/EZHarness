@@ -3,6 +3,7 @@ import { validateFactoryApiPayloadDigest } from "./api.js";
 import { validateExpression } from "./expressions.js";
 import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
 import {
+  FACTORY_LAZY_INPUT_SCHEMA_VERSION,
   FACTORY_LIMITS,
   type CompiledExecutionManifest,
   type CompiledArtifactDescriptor,
@@ -765,7 +766,7 @@ function validateApiPath(request: FactoryApiRequest): ValidationResult {
 /** Validates durable artifact descriptors without materializing artifact bytes into kernel state. */
 export function validateDurableInputPorts(ports: Readonly<Record<string, PortSchema>>, input: JsonValue, durable: FactoryDurableInput): ValidationResult {
   if (!isRecord(input) || !validateIJson(input).ok || encodedBytes(input) > FACTORY_LIMITS.maxInlineValueBytes) return issue("DURABLE_INPUT", "Durable input placeholders must be bounded I-JSON objects.", ["input"]);
-  if (!isRecord(durable) || durable.schemaVersion !== "factory.lazy-input.v1" || !isRecord(durable.parameters)) return issue("DURABLE_DESCRIPTOR", "Durable input descriptor is invalid.", ["durableInput"]);
+  if (!isRecord(durable) || durable.schemaVersion !== FACTORY_LAZY_INPUT_SCHEMA_VERSION || !isRecord(durable.parameters)) return issue("DURABLE_DESCRIPTOR", "Durable input descriptor is invalid.", ["durableInput"]);
   for (const name of Object.keys(input)) if (!own(ports, name)) return issue("DURABLE_INPUT", "Durable input contains an undeclared port.", ["input", name]);
   for (const [name, transport] of Object.entries(durable.parameters)) {
     if (!boundedText(name, FACTORY_LIMITS.maxApiIdentifierLength) || !own(ports, name) || !isRecord(transport)) return issue("DURABLE_DESCRIPTOR", "Durable input parameter is invalid.", ["durableInput", "parameters", name]);

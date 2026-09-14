@@ -1,4 +1,4 @@
-import { FACTORY_LIMITS, type CompiledFactory, type JsonValue } from "@ezcorp/factory-sdk/types";
+import { FACTORY_LAZY_INPUT_SCHEMA_VERSION, FACTORY_LIMITS, type CompiledFactory, type JsonValue } from "@ezcorp/factory-sdk/types";
 import { firstValidationIssue, validateCompiledFactory } from "@ezcorp/factory-sdk/validation";
 import { decodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
@@ -90,7 +90,7 @@ export function validateLoadedDefinitionPage(page: FactoryDefinitionPage, refere
 function validateDurableInput(value: unknown): void {
   if (typeof value !== "object" || value === null || Array.isArray(value)) throw new Error("durable input must be an object");
   const input = value as { schemaVersion?: unknown; parameters?: unknown };
-  if (input.schemaVersion !== "factory.lazy-input.v1" || typeof input.parameters !== "object" || input.parameters === null || Array.isArray(input.parameters)) throw new Error("durable input is invalid");
+  if (input.schemaVersion !== FACTORY_LAZY_INPUT_SCHEMA_VERSION || typeof input.parameters !== "object" || input.parameters === null || Array.isArray(input.parameters)) throw new Error("durable input is invalid");
   for (const [name, parameter] of Object.entries(input.parameters)) {
     requiredIdentity(name, "durable input parameter name");
     if (typeof parameter !== "object" || parameter === null || Array.isArray(parameter)) throw new Error("durable input parameter is invalid");

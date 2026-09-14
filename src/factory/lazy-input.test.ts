@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { canonicalJson } from "@ezcorp/extension-contract";
-import { createKernelState, referenceCodeV1, type FactoryDefinition } from "@ezcorp/factory-sdk";
+import { createKernelState, FACTORY_LAZY_INPUT_SCHEMA_VERSION, referenceCodeV1, type FactoryDefinition } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -122,7 +122,7 @@ test("published lifecycle preserves a required large artifact as durable workflo
   const outbox = (await fixture.db.execute(sql`SELECT payload FROM factory_command_outbox WHERE tenant_id=${tenantId} AND project_id=${targetProjectId} AND logical_run_id=${started.run.runId}`)).rows[0] as { payload: string };
   const workflow = JSON.parse(outbox.payload).command.body as { input: import("@ezcorp/factory-sdk").JsonValue; durableInput: unknown; startedAtMs: number };
   expect(workflow.input).toEqual({});
-  expect(workflow.durableInput).toEqual({ schemaVersion: "factory.lazy-input.v1", parameters: body.parameters });
+  expect(workflow.durableInput).toEqual({ schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters });
   const { compiled } = await definitions.readVersion(actor, key, version.version);
   expect(() => createKernelState(compiled, started.run.runId, workflow.input, workflow.startedAtMs, workflow.durableInput as never)).not.toThrow();
 });

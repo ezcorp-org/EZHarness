@@ -11,6 +11,7 @@ export const FACTORY_API_REQUEST_SCHEMA_VERSION = "factory.api.request.v1" as co
 export const FACTORY_API_RESPONSE_SCHEMA_VERSION = "factory.api.response.v1" as const;
 export const FACTORY_VALIDATOR_CLAIMS_SCHEMA_VERSION = "factory.validator-claims.v1" as const;
 export const FACTORY_VALIDATOR_REPORT_SCHEMA_VERSION = "factory.validator-report.v1" as const;
+export const FACTORY_LAZY_INPUT_SCHEMA_VERSION = "factory.lazy-input.v1" as const;
 export const FACTORY_LIMITS = Object.freeze({
   maxDefinitionBytes: 16 * 1024 * 1024,
   maxInlineValueBytes: 64 * 1024,

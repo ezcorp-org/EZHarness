@@ -10,7 +10,7 @@ import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
 import { FactoryRecords, assertFactoryIdentity } from "./records";
 
-export const FACTORY_LAZY_INPUT_SCHEMA_VERSION = "factory.lazy-input.v1" as const;
+export { FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 export const FACTORY_LAZY_INPUT_PAGE_BYTES = FACTORY_LIMITS.maxRecordedPageBytes;
 export const FACTORY_LAZY_INPUT_PAGE_ITEMS = 32;
 
