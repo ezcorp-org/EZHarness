@@ -373,11 +373,12 @@ results. Nothing here reconfigured the GPU and nothing reimaged anything.
 
 ## Open
 
-1. **G15, large-artifact egress.** The shared runner's control-output budget is
-   a per-worker lifetime limit of one mebibyte, so an isolated guest cannot
-   return a 1,024-pixel variant at all. This blocks G16, G17 and G18 as much as
-   the missing credential does. It is W04's surface to extend and it needs a
-   path that works without network access.
+1. **G15, large-artifact egress. Owned by W12 as of this writing.** The shared
+   runner's control-output budget is a per-worker lifetime limit of one
+   mebibyte, so an isolated guest cannot return a 1,024-pixel variant at all.
+   This blocks G16, G17 and G18b as much as the missing credential does. W12 is
+   implementing the per-attempt output mount; W11 consumes it and writes none of
+   it. See "Cross-package coordination".
 2. **G16, the model credential.** No `ANTHROPIC_API_KEY` and no configured
    provider reference. Recorded as a readiness failure.
 3. **`broker.invoke` has no production implementation.** Every existing use of
@@ -411,12 +412,43 @@ The weight fetch needs about seven gigabytes of disk and eight minutes, and the
 image build needs about forty gigabytes and twenty minutes. Both are idempotent:
 a second fetch verifies rather than refetches, and a second build reuses layers.
 
+## Cross-package coordination
+
+**G15 is now owned by W12.** W12 measured the same cap independently, from the
+same two call sites, and proposed the fix: an optional per-attempt read-write
+output directory on `StartRequest`, bind-mounted at a fixed guest path inside
+the private per-attempt tree the channel already uses, with the host reading the
+files back and storing them through W04's `FactoryAttemptMaterials`. Absent
+means no mount, so no existing caller changes and C05 stays intact.
+
+W11 confirmed it is touching nothing in `packages/@ezcorp/extension-runner` and
+will consume W12's seam rather than write a second one. The requirements W11
+gave W12 for it: binary files, writable by the guest's uid 65534 under the
+read-only root, a directory rather than a single file, and a declared byte
+ceiling, because a bind mount out of the private attempt tree is disk-backed
+rather than charged against `limits.tmpBytes` and an unbounded one lets a guest
+fill the host disk.
+
+W11 also asked for one addition: the guest should report `{name, digest, bytes}`
+per file in its small result frame, and the host should refuse any file whose
+recomputed digest or length disagrees. Without that binding a truncated write is
+indistinguishable from a complete one, and a partial PNG still decodes. That is
+the property the chunked transfer has today and the only one worth carrying
+forward. Once the seam lands, W11 deletes the guest's `fetch` tool and the
+host's reassembly loop, which is a net simplification.
+
+Numbers given to W12 as evidence: the four real 1,024-pixel variants were
+998,116, 2,368,441, 2,425,924 and 2,432,539 bytes, so three of four exceed the
+entire per-worker budget on their own before base64 adds a third, and C10 allows
+up to 10 MiB per PNG.
+
 ## Interface questions for the coordinator
 
-1. Who owns large-artifact egress from a `--network=none` guest? W04 owns the
-   auxiliary material service, but it is HTTPS-only. Either an isolated guest
-   needs a non-network write path, or the frame budget needs to stop being a
-   per-worker lifetime limit. W12's Parquet export will hit the same wall.
+1. ~~Who owns large-artifact egress from a `--network=none` guest?~~ Settled
+   directly with W12: they implement the per-attempt output mount in
+   `wp/w12-data-pack` and W11 consumes it. See "Cross-package coordination".
+   The coordinator's remaining decision is whether that seam integrates before
+   or after W13, because G18b and G16 both wait on it.
 2. Is there a configured Anthropic provider reference I should resolve, or does
    the missing credential stay a readiness failure through W19?
 3. `FactoryS3AcceptedPublication` is W08's shape and W08 asked W11 and W12 to
