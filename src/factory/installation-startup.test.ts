@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import type { TransactionalDb } from "../db/migrations/types";
+import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
+import type { FactorySettleableChild } from "./child-runs";
+import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { BlobStore } from "../extensions/v4/types";
 import { resetReadiness } from "../readiness";
 import { configureFactoryApplication, getFactoryApplication } from "./application";
@@ -12,6 +14,7 @@ import { FACTORY_STARTUP_CONFIG_SCHEMA } from "./startup-config";
 import {
   FACTORY_CHILD_SETTLEMENT_TRANSIENT_CODES,
   factoryChildSettlementDisposition,
+  factoryChildSettlementDriver,
   factoryGatewayProbeTarget,
   factoryStartupConfigPath,
   factoryStorageProbeTarget,
@@ -266,7 +269,10 @@ describe("startFactoryInstallation", () => {
     });
     started.push(startup);
     const report = startup.runtime.report();
-    expect(report.workers.map((worker) => worker.name)).toEqual(["run-projection"]);
+    // Child settlement still runs: its collaborators are W06's scan and W06's
+    // `settle`, neither of which needs the pool. A pool that cannot be reached
+    // must not take down a role that does not use it.
+    expect(report.workers.map((worker) => worker.name)).toEqual(["run-projection", "child-settlement"]);
     const compute = report.heldWorkers.filter((worker) => worker.role.startsWith("compute-admission"));
     expect(compute).toHaveLength(2);
     for (const held of compute) expect(held.reason).toContain("pool admission client");
@@ -414,5 +420,86 @@ describe("factoryChildSettlementDisposition", () => {
     // exists to stop exactly that.
     expect(factoryChildSettlementDisposition(undefined)).toBe("fault");
     expect(factoryChildSettlementDisposition(null)).toBe("fault");
+  });
+});
+
+describe("the child-settlement step", () => {
+  const SERVICE: TrustedFactoryServiceIdentity = { subject: "tenant-a", tenantId: "tenant-01" };
+
+  function child(childRunId: string): FactorySettleableChild {
+    return Object.freeze({ projectId: "project-1", parentRunId: "run-parent", childRunId, startedAtMs: 1 });
+  }
+
+  /** A database whose transaction records whether it was still open on settle. */
+  function database(open: { value: boolean }): TransactionalDb {
+    return {
+      async execute() { return []; },
+      async transaction<Result>(work: (transaction: MigrationDb) => Promise<Result>): Promise<Result> {
+        open.value = true;
+        try { return await work({ async execute() { return []; } } as unknown as MigrationDb); }
+        finally { open.value = false; }
+      },
+    } as unknown as TransactionalDb;
+  }
+
+  test("pages in a transaction, closes it, and settles each child outside it", async () => {
+    const open = { value: false };
+    const settledWhileOpen: boolean[] = [];
+    const settled: string[] = [];
+    const driver = factoryChildSettlementDriver(database(open), {
+      async listSettleableInTransaction() { return [child("run-a"), child("run-b")]; },
+      async settle(service, key) {
+        expect(service).toBe(SERVICE);
+        settledWhileOpen.push(open.value);
+        settled.push(key.childRunId);
+      },
+    }, SERVICE, () => {});
+
+    expect(await driver.step(new AbortController().signal)).toBe(true);
+    expect(settled).toEqual(["run-a", "run-b"]);
+    // `settle` takes the run lock and the budget locks root-to-leaf. Holding
+    // the read-only page transaction across it would invite a lock-order
+    // inversion with the very rows it is about to take.
+    expect(settledWhileOpen).toEqual([false, false]);
+  });
+
+  test("an empty page is no work", async () => {
+    const driver = factoryChildSettlementDriver(database({ value: false }), {
+      async listSettleableInTransaction() { return []; },
+      async settle() { throw new Error("nothing to settle"); },
+    }, SERVICE, () => {});
+
+    expect(await driver.step(new AbortController().signal)).toBe(false);
+  });
+
+  test("names the disposition and the child in the report, and steps over both kinds", async () => {
+    const reported: string[] = [];
+    const driver = factoryChildSettlementDriver(database({ value: false }), {
+      async listSettleableInTransaction() { return [child("run-pending"), child("run-corrupt"), child("run-ok")]; },
+      async settle(_service, key) {
+        if (key.childRunId === "run-pending") throw Object.assign(new Error("pending"), { code: "factory_budget_pending" });
+        if (key.childRunId === "run-corrupt") throw Object.assign(new Error("corrupt"), { code: "factory_child_corrupt" });
+      },
+    }, SERVICE, (role, _error) => { reported.push(role); });
+
+    // The third child settles, so the pass made progress even though two failed:
+    // one bad row must not stop the role for the whole installation.
+    expect(await driver.step(new AbortController().signal)).toBe(true);
+    expect(reported).toEqual([
+      "child-settlement:transient:project-1/run-pending",
+      "child-settlement:fault:project-1/run-corrupt",
+    ]);
+  });
+
+  test("scans at the limit W06 published, and honours an explicit one", async () => {
+    const limits: number[] = [];
+    const children = {
+      async listSettleableInTransaction(_transaction: MigrationDb, limit: number) { limits.push(limit); return []; },
+      async settle() {},
+    };
+    await factoryChildSettlementDriver(database({ value: false }), children, SERVICE, () => {}).step(new AbortController().signal);
+    await factoryChildSettlementDriver(database({ value: false }), children, SERVICE, () => {}, 25).step(new AbortController().signal);
+
+    expect(limits).toEqual([200, 25]);
   });
 });

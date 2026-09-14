@@ -27,6 +27,7 @@ import type { TransactionalDb } from "../db/migrations/types";
 import type { BlobStore } from "../extensions/v4/types";
 import { factoryBootConfig, type FactoryBootConfig } from "./boot";
 import { FactoryArtifacts } from "./artifacts";
+import { FactoryChildRuns, FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT, type FactorySettleableChild } from "./child-runs";
 import { FactoryCommandAuthority } from "./command-authority";
 import { FactoryComputeAdmissions } from "./compute-admissions";
 import { FactoryInbox } from "./inbox";
@@ -36,8 +37,10 @@ import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
 import type { FactoryStorageProbeTarget } from "./service-probes";
-import type { FactoryItemDisposition } from "./role-drivers";
+import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
 import type { FactoryApplicationOptions } from "./application";
+import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
+import type { FactoryRoleDriver } from "./runtime-seams";
 
 export class FactoryInstallationStartupError extends Error {
   constructor(readonly code: "factory-startup-config-missing" | "factory-startup-blobs-missing" | "factory-startup-unreachable", message: string) {
@@ -205,6 +208,39 @@ export function factoryChildSettlementDisposition(error: unknown): FactoryItemDi
   return typeof code === "string" && FACTORY_CHILD_SETTLEMENT_TRANSIENT_CODES.includes(code) ? "transient" : "fault";
 }
 
+/**
+ * The child-settlement step, composed from W06's scan and W06's `settle`.
+ *
+ * The two halves come apart deliberately. `listSettleableInTransaction` takes
+ * no lock and is read-only, while `settle` takes the run lock and the budget
+ * locks root-to-leaf, so holding the scan's transaction open across the
+ * settlements would hold a read transaction for the length of a whole page and
+ * invite a lock-order inversion with the very rows it is about to take. The
+ * page transaction therefore closes before the first `settle`.
+ *
+ * Nothing re-checks an item between scan and settle. It does not need to: a
+ * child another worker settled in the gap raises nothing at all, and every
+ * other disagreement the scan could not have seen is exactly what the
+ * disposition split is for.
+ */
+export function factoryChildSettlementDriver(
+  database: TransactionalDb,
+  children: Pick<FactoryChildRuns, "listSettleableInTransaction" | "settle">,
+  service: TrustedFactoryServiceIdentity,
+  report: (role: string, error: unknown) => void,
+  limit: number = FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT,
+): FactoryRoleDriver {
+  return factoryPageDriver<FactorySettleableChild>({
+    page: (_signal) => database.transaction((transaction) => children.listSettleableInTransaction(transaction, limit)),
+    settle: (item, _signal) => children.settle(service, { projectId: item.projectId, childRunId: item.childRunId }),
+    classify: factoryChildSettlementDisposition,
+    // The disposition reaches the operator's stream in the role name, because
+    // a not-yet and an integrity fault need different responses and an
+    // undifferentiated "child-settlement failed" cannot be triaged.
+    report: (item, error, disposition) => { report(`child-settlement:${disposition}:${item.projectId}/${item.childRunId}`, error); },
+  });
+}
+
 export interface FactoryInstallationStartup {
   readonly runtime: FactoryRuntime;
   stop(): Promise<void>;
@@ -230,6 +266,9 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
   const transitions = new FactoryTransitionArtifacts(artifacts);
 
   const supplied = options.dependencies ?? {};
+  const composed = supplied.workers === undefined
+    ? await installationCollaborators(config, host, blobs, transitions)
+    : undefined;
   const storage = supplied.storage ?? factoryStorageProbeTarget(blobs);
   const gateway = supplied.gateway ?? factoryGatewayProbeTarget(config);
 
@@ -245,8 +284,11 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
     storage,
     gateway,
     service: { subject: config.privateService.certificateIdentity, tenantId: config.tenantId },
-    workers: supplied.workers ?? await installationWorkers(config, host, blobs, transitions),
-    ...(options.seams === undefined ? {} : { seams: options.seams }),
+    workers: supplied.workers ?? composed?.workers ?? {},
+    // What this process composed, then what the caller supplied. The caller
+    // wins so a test can replace a real collaborator with a fake one, and so a
+    // host that composes a role this process cannot is not overruled by it.
+    seams: { ...composed?.seams, ...options.seams },
     ...(supplied.extraProbes === undefined ? {} : { extraProbes: supplied.extraProbes }),
     report: host.report,
   };
@@ -260,13 +302,19 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
  *
  * A pool client that cannot be created leaves the two compute roles without a
  * driver, and they hold by name rather than pretending the pool is reachable.
+ *
+ * Seams are composed here too, and for the same reason the workers are: this is
+ * the one place that holds both the tenant's stores and the startup document,
+ * so it is the only place that can build a seam's step without either half
+ * reaching past its owner. A seam this process cannot compose is simply absent,
+ * and its role holds by name.
  */
-async function installationWorkers(
+async function installationCollaborators(
   config: FactoryStartupConfig,
   host: FactoryInstallationHost,
   blobs: BlobStore,
   transitions: FactoryTransitionArtifacts,
-): Promise<FactoryRuntimeDependencies["workers"]> {
+): Promise<{ readonly workers: FactoryRuntimeDependencies["workers"]; readonly seams: FactoryRuntimeDependencies["seams"] }> {
   const { createFactoryApplication } = await import("./application");
   // A throwaway application only to reach the lifecycle the roles read. The
   // one the runtime configures is built inside `startFactoryRuntime`; both are
@@ -297,5 +345,13 @@ async function installationWorkers(
   } catch {
     compute = undefined;
   }
-  return { projections, ...(compute === undefined ? {} : { compute }) };
+  const service: TrustedFactoryServiceIdentity = { subject: config.privateService.certificateIdentity, tenantId: config.tenantId };
+  const children = new FactoryChildRuns(host.database, config.tenantId, authority, stores.runs, transitions);
+
+  return {
+    workers: { projections, ...(compute === undefined ? {} : { compute }) },
+    seams: {
+      childSettlement: factoryChildSettlementDriver(host.database, children, service, host.report),
+    },
+  };
 }
