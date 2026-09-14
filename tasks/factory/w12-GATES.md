@@ -261,9 +261,11 @@ Verdict ACCEPT-WITH-FIXES (`/tmp/factory-platform-evidence/w12-validation/result
 | F1 HIGH: the maximum-row case failed a faithful full-file rerun with `factory_material_operation_full` and passed only in isolation | `5c8c66d3e`, proved by `logs/postgres-journey.json` | Root cause was the MARGIN, not the ordering: at C10's hundred partitions the `partitions` operation wrote one partition CSV and one summary each, 200 objects against W04's frozen cap of 256. The hundred summaries are now ONE material, so the widest operation at C10's maximum holds 102 of 256. The reduction still reads durable bytes, because it reads that material back rather than whatever the host happens to still hold. W04's limit is untouched. The case is declared LAST in the suite, so the faithful full-file run is what proves the budget after every sibling. Each case already used a distinct project, run, attempt and operation id, and each fixture's database is dropped on close, so nothing leaks between them. |
 | F2 MEDIUM: the gate file was never committed | `05e10a46f` | `.gitignore` line 8 ignores `tasks`, so `git add -A` skipped it silently and the commit meant to carry it had nothing to commit and failed. Force-added, which is how every sibling package's gate file got in. |
 | F3 MEDIUM: `tasks/todo.md` claimed completion at a commit preceding the receipt it rested on | `5c8c66d3e` | The review now states the actual order of events, including the full-file failure F1 records. |
-| F4 MEDIUM: an unapproved change to a shared file outside W12's ownership | OPEN, under review | `StartRequest.materials` and `PodmanRunner`'s material mount are an UNAPPROVED CROSSING into Terra-owned files, disclosed here and now owned by the Terra runtime owner on `wp/w01c-materials-review`. This branch keeps its own version unchanged and does not merge theirs. W11 has been told to consume theirs rather than mine. |
+| F4 MEDIUM: an unapproved change to a shared file outside W12's ownership | `7ac4b261d` | CLOSED by consuming rather than carrying. `integ/w00` at `f30da62fa` was merged and its version of `StartRequest.materials`, `GUEST_MATERIALS_PATH` and `runnerMaterialMount` was taken wholesale in both Terra packages; this branch's copy is deleted. W11 was told to consume the canonical one too. |
 | F5 LOW: `shared-runner-regression.log` was truncated to 0 bytes, orphaning its receipt's SHA-256 | `f48cf4bb8` | Re-run and re-recorded. Every receipt's `logBytes` now equals its log's size on disk. |
-| F6 LOW: the guest output directory was 0o777 | `5c8c66d3e` | It is handed to the guest's own uid with `podman unshare chown 65534:0` at mode 0o770: the mapped uid owns it, this user is its group, and other gets nothing. Inputs stay host-owned at 0o644, so a guest cannot replace what it was given. A host with no container runtime fails closed rather than widening the mode, and leaves nothing behind. |
+| F6 LOW: the guest output directory was 0o777 | `5c8c66d3e`, kept through `7ac4b261d` | It is handed to the guest's own uid with `podman unshare chown 65534:0` at mode 0o770: the mapped uid owns it, this user is its group, and other gets nothing. Inputs stay host-owned at 0o644, so a guest cannot replace what it was given. A host with no container runtime fails closed rather than widening the mode, and leaves nothing behind. |
+| W01c hardening: `collect()` and `produced()` followed symbolic links | `7ac4b261d` | Both now go through the shared `openRunnerMaterial` and `listRunnerMaterials`, which refuse a symbolic link, a device, a socket and a FIFO rather than following one. This was a real hole: the name grammar stopped traversal and a second path segment, but nothing stopped a link AT the final component, and the guest owns its output directory precisely so it can write there. The digest comparison did not save it either, because a guest that plants a link and reports the target's digest agrees with itself. `src/factory/reference-data/materials.test.ts` plants one and asserts the refusal. |
+| W02b migration: `RunnerReference.manifestName` | `7ac4b261d` | The scoped package and the unscoped manifest name simply differ now, so the reconciliation this pack carried is deleted along with the paragraph explaining why the two landed rules could not both hold. `factoryReferenceDataRunner` is the one place the reference is built, and `FACTORY_REFERENCE_DATA_MANIFEST_NAME` is derived by the SDK's `manifestNameOf` rather than written twice. |
 | F7 INFO: two platform-level interface conflicts | not W12's | The v4 manifest-name grammar against `releaseFacts()` is assigned to W02; the host-side reconciliation waits on W09's composition. Both stated under "Interface questions" below. |
 
 ## Shared-store incident
@@ -351,9 +353,32 @@ the coordinator.
    image, which is built from the committed lock. It fails closed when the image is absent, which
    is C10's readiness rule rather than a skip.
 
+## One instruction that did not survive contact, and what was done instead
+
+The round's instruction was to "remove the 0o777 chmod (the runner owns the directory mode now)".
+The first half is done and the second half does not hold: `runnerMaterialMount` mounts the path and
+adds `noexec`, `nosuid` and `nodev`, but it sets no mode and no owner, and `launchDetached` does not
+chown it either. Measured against the merged mount, a guest running as uid 65534 cannot write to an
+ordinary host-owned directory at all:
+
+```
+drwx------ 1001 .../out
+/bin/sh: can't create /materials/out/g.txt: Permission denied
+```
+
+Removing the handover outright would have shipped a pack whose every guest write fails, and
+re-adding 0o777 would have reopened F6. So the handover is KEPT in the form F6 asked for:
+`podman unshare chown 65534:0` on the output directory at mode 0o770, which is not world-writable
+and not world-readable. If the Terra owner would rather the runner did this, the four lines in
+`ReferenceDataGuestDirectory.create` are the whole of it and they should move there, because every
+domain pack needs the same thing.
+
 ## Interface questions
 
-1. **`FactoryPackagePreparations.releaseFacts` and `validateManifest` cannot both hold.**
+1. **CLOSED by W02b in `7ac4b261d`.** `RunnerReference` now carries `manifestName` beside the
+   scoped `package`, and `releaseFacts()` compares that, so the two no longer have to agree. The
+   original finding, kept because it is why the field exists:
+   **`FactoryPackagePreparations.releaseFacts` and `validateManifest` cannot both hold.**
    `packages/@ezcorp/extension-contract/src/validation.ts:126` requires a v4 manifest name to match
    `^[a-z][a-z0-9-]{0,63}$`, so no scoped npm name can ever be one;
    `src/factory/package-preparation.ts:84` requires the manifest name to EQUAL the runner
