@@ -128,8 +128,27 @@ that "closes admission until real probes pass" had a gate and no probe.
 
 ## Proved through the real server
 
-Receipt: `/tmp/factory-platform-evidence/w09/repro/full-stack-proof.json`,
-harness `repro/full-stack-proof.ts`, log `logs/full-stack-proof.log`.
+**Three consecutive independent runs, each its own receipt.** Driver
+`repro/run-three.sh` under `flock /tmp/ezcorp-validation-heavy.lock` with a
+`timeout`; receipts `full-stack-run-1.json`, `-2`, `-3`, records
+`repro/full-stack-run-{1,2,3}.json`, logs `logs/full-stack-run-{1,2,3}.log`.
+Independent means a fresh private root, fresh certificates, a fresh pool
+database, and freshly started pool, supervisor, and web processes each time.
+
+| Run | `/api/ready` | Roles running | Pool | Supervisor | `factory-runtime` teardown | Exit | Survivors |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `200 ready` | dispatch, poll, projection | ready | ready | 2 of 14 | 0 | none |
+| 2 | `200 ready` | dispatch, poll, projection | ready | ready | 2 of 14 | 0 | none |
+| 3 | `200 ready` | dispatch, poll, projection | ready | ready | 2 of 14 | 0 | none |
+
+The previous submission showed one passing run, and the validation was right
+that it was not reliable: the supervisor's heartbeat write sat behind an
+unbounded Podman probe, so the interval between records was probe latency plus
+the heartbeat against a reader window of three heartbeats. That is fixed at the
+design level rather than by widening a window — observation and publication are
+separate loops now, and the four intervals are stated multiples of one
+heartbeat: writes every one, reader window three, probe bound four, facts stale
+at five. `src/factory/runner/supervisor-process.ts` carries that table.
 
 Real processes in this run: the shared PostgreSQL proof container, the local S3
 services (ordinary and archive), **the real pool admission process**
