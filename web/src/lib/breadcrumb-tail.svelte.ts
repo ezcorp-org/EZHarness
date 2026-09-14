@@ -27,6 +27,7 @@
  */
 import { browser } from "$app/environment";
 import { page } from "$app/state";
+import { untrack } from "svelte";
 
 /**
  * Route ids whose dynamic parameter is already the human-readable name, so
@@ -48,13 +49,13 @@ export const PARAM_NAME_ROUTES: Readonly<Record<string, string>> = {
 };
 
 /**
- * The browser-published tail, tagged with the pathname it describes.
+ * The browser-published tail, tagged with the pathname it was published for.
  *
- * Tagging is what makes a stale crumb impossible. A page sets its subject
- * asynchronously, so a fast navigation can land the previous page's response
- * after the new route is showing; `resolveBreadcrumbTail` discards any entry
- * whose pathname is not the current one, so the worst case is no tail rather
- * than the wrong one. No teardown, no reset-on-navigate, nothing to forget.
+ * Tagging discards a tail published for a different path: a page that
+ * publishes for `/a` cannot label `/b`. It does not protect against a
+ * response that lands after the user has navigated away — the tag is
+ * captured at publish time, not at fetch time, so a page racing its own late
+ * response must guard against that itself.
  */
 let runtime = $state<{ pathname: string; tail: string } | null>(null);
 
@@ -68,6 +69,13 @@ let runtime = $state<{ pathname: string; tail: string } | null>(null);
  * site — which promptly broke twenty component tests that mock `$app/stores`
  * with no `url`. The tagging is this module's business.
  *
+ * That pathname read is `untrack`ed. SvelteKit backs `page.url` with
+ * `$state.raw` (`@sveltejs/kit/src/runtime/client/state.svelte.js`), so
+ * without `untrack` every `$effect(() => setBreadcrumbTail(subject))` would
+ * depend on the URL too — it would then re-run on each navigation before the
+ * new page's fetch lands, re-tagging the PREVIOUS subject onto the new path.
+ * The caller's effect must depend only on its subject.
+ *
  * Ignored outside the browser. Module state is per-PROCESS on the server and
  * therefore shared by every concurrent SSR request, so a server-side write
  * would leak one user's subject into another user's chrome. Effects do not
@@ -76,7 +84,7 @@ let runtime = $state<{ pathname: string; tail: string } | null>(null);
  */
 export function setBreadcrumbTail(tail: string | null | undefined): void {
 	if (!browser) return;
-	runtime = tail ? { pathname: page.url.pathname, tail } : null;
+	runtime = tail ? { pathname: untrack(() => page.url.pathname), tail } : null;
 }
 
 /**
