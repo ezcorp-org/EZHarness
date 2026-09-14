@@ -29,14 +29,16 @@ import type { ReferenceDataExportPart, ReferenceDataReconciliationInput } from "
  * bytes from this on every dispatch attempt, and `manifest.json` sorts before
  * `part-00000.parquet`.
  */
-export function referenceDataAcceptedPublication(journey: ReferenceDataJourney, scope: FactoryMaterialScope): FactoryS3AcceptedPublication {
+export function referenceDataAcceptedPublication(journey: ReferenceDataJourney): FactoryS3AcceptedPublication {
   const files = [
     { name: REFERENCE_DATA_MANIFEST_NAME, objectName: journey.manifest.objectName, version: journey.manifest.version },
     ...journey.partitions.map(record => ({ name: record.parquet.objectName, objectName: record.parquet.objectName, version: record.parquet.version })),
   ].sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
   return assertFactoryS3AcceptedPublication({
     schemaVersion: FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION,
-    materialOperationId: scope.operationId,
+    // Every published member and the accepted candidate live in the export
+    // operation, because `FactoryS3AcceptedPublication` names exactly one.
+    materialOperationId: journey.manifest.operationId,
     candidateObjectName: REFERENCE_DATA_DATASET_OBJECT,
     candidateVersion: journey.dataset.version,
     files,

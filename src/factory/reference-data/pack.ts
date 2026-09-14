@@ -46,6 +46,28 @@ export const REFERENCE_DATA_SNAPSHOT_OBJECT = "snapshot.json";
 export const REFERENCE_DATA_PARTITIONS_OBJECT = "partitions.json";
 export const REFERENCE_DATA_DATASET_OBJECT = "dataset.json";
 
+/**
+ * The three C02 operations one journey writes into.
+ *
+ * W04 admits at most `FACTORY_MATERIAL_LIMITS.maxObjectsPerOperation` objects
+ * under one operation, and C10's hundred partitions produce three materials
+ * each, so a single operation cannot hold a maximum-size run. The split is by
+ * graph step, which is what an operation means:
+ *
+ *   `source`     the immutable input and its snapshot
+ *   `partitions` every input partition and the transform's own summary of it
+ *   `export`     the published Parquet, the dataset manifest, and the accepted
+ *                candidate - everything W08 publishes lives in ONE operation,
+ *                because `FactoryS3AcceptedPublication` names exactly one
+ */
+export const REFERENCE_DATA_OPERATIONS = Object.freeze(["source", "partitions", "export"] as const);
+export type ReferenceDataOperation = (typeof REFERENCE_DATA_OPERATIONS)[number];
+
+/** The operation id one step writes under, derived from the journey's base. */
+export function referenceDataOperationId(base: string, step: ReferenceDataOperation): string {
+  return `${base}:${step}`;
+}
+
 export class ReferenceDataPackError extends Error {
   constructor(
     readonly code:
@@ -75,6 +97,7 @@ export interface ReferenceDataJourneyOptions {
   readonly host: ReferenceDataRunnerHost;
   readonly materials: Pick<FactoryAttemptMaterials, "begin" | "writeChunk" | "seal">;
   readonly reader: FactoryScopedArtifactReader;
+  /** The journey's BASE scope. Each step seals under its own derived operation. */
   readonly scope: FactoryMaterialScope;
   /** The base C02 authority. Each step takes it with its own node instance. */
   readonly authority: Omit<FactoryRunnerAuthority, "nodeInstanceId">;
@@ -260,6 +283,7 @@ async function sealProduced(
   guestName: string,
   objectName: string,
   mediaType: string,
+  operation: ReferenceDataOperation,
   expected: { readonly digest: string; readonly encodedBytes: number },
 ): Promise<ReferenceDataMaterial> {
   const measured = attempt.produced.find(entry => entry.name === guestName);
@@ -267,7 +291,7 @@ async function sealProduced(
   if (measured.digest !== expected.digest || measured.totalBytes !== expected.encodedBytes) {
     throw new ReferenceDataPackError("reference_data_guest_disagrees", `The ${attempt.export} guest reported ${expected.digest}/${expected.encodedBytes} for ${guestName} and the bytes measure ${measured.digest}/${measured.totalBytes}.`);
   }
-  const identity = { ...options.scope, objectName, version: 1 };
+  const identity = { ...scopeFor(options, operation), objectName, version: 1 };
   const sealedMaterial = await sealReferenceDataMaterial(options.materials, identity, mediaType, measured.totalBytes, directory.collect(guestName));
   if (sealedMaterial.digest !== measured.digest) throw new ReferenceDataPackError("reference_data_guest_disagrees", `${objectName} sealed as ${sealedMaterial.digest} and measured ${measured.digest}.`);
   return sealedMaterial;
@@ -284,7 +308,7 @@ async function sealProduced(
 export async function runReferenceDataJourney(options: ReferenceDataJourneyOptions, input: () => AsyncIterable<Uint8Array>, sourceVersion: string): Promise<ReferenceDataJourney> {
   const attempts: ReferenceDataAttemptRecord[] = [];
   const measured = await measureStream(input());
-  const sealedInput = await sealReferenceDataMaterial(options.materials, { ...options.scope, objectName: REFERENCE_DATA_INPUT_OBJECT, version: 1 }, REFERENCE_DATA_CSV_MEDIA_TYPE, measured.totalBytes, input());
+  const sealedInput = await sealReferenceDataMaterial(options.materials, { ...scopeFor(options, "source"), objectName: REFERENCE_DATA_INPUT_OBJECT, version: 1 }, REFERENCE_DATA_CSV_MEDIA_TYPE, measured.totalBytes, input());
 
   const snapshotAttempt = await withDirectory(options, async directory => {
     await directory.stage(ReferenceDataGuestDirectory.input(REFERENCE_DATA_INPUT_OBJECT), readReferenceDataMaterial(options.reader, options.scope, sealedInput));
@@ -307,7 +331,7 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
   }
   const snapshot = await sealReferenceDataMaterial(
     options.materials,
-    { ...options.scope, objectName: REFERENCE_DATA_SNAPSHOT_OBJECT, version: 1 },
+    { ...scopeFor(options, "source"), objectName: REFERENCE_DATA_SNAPSHOT_OBJECT, version: 1 },
     REFERENCE_DATA_JSON_MEDIA_TYPE,
     snapshotAttempt.attempt.result.status === "completed" ? snapshotAttempt.attempt.result.output.encodedBytes : 0,
     snapshotAttempt.directory.collect(ReferenceDataGuestDirectory.output(REFERENCE_DATA_SNAPSHOT_OBJECT)),
@@ -341,7 +365,7 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
     }
     declaredRows.push(partition.rowCount);
     partitionMaterials.push(
-      await sealProduced(options, parse.directory, parse.attempt, partition.name, `partition-${String(index).padStart(5, "0")}.csv`, REFERENCE_DATA_CSV_MEDIA_TYPE, {
+      await sealProduced(options, parse.directory, parse.attempt, partition.name, `partition-${String(index).padStart(5, "0")}.csv`, REFERENCE_DATA_CSV_MEDIA_TYPE, "partitions", {
         digest: partition.digest,
         encodedBytes: partition.encodedBytes,
       }),
@@ -368,11 +392,11 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
       };
     });
     attempts.push(transform.attempt);
-    const parquet = await sealProduced(options, transform.directory, transform.attempt, ReferenceDataGuestDirectory.output(referenceDataPartitionName(index)), referenceDataPartitionName(index), REFERENCE_DATA_PARQUET_MEDIA_TYPE, reportedFile(transform.attempt.report, "file", "transformPartition"));
+    const parquet = await sealProduced(options, transform.directory, transform.attempt, ReferenceDataGuestDirectory.output(referenceDataPartitionName(index)), referenceDataPartitionName(index), REFERENCE_DATA_PARQUET_MEDIA_TYPE, "export", reportedFile(transform.attempt.report, "file", "transformPartition"));
     const summaryName = `part-${String(index).padStart(5, "0")}.summary.json`;
     const summary = await sealReferenceDataMaterial(
       options.materials,
-      { ...options.scope, objectName: summaryName, version: 1 },
+      { ...scopeFor(options, "partitions"), objectName: summaryName, version: 1 },
       REFERENCE_DATA_JSON_MEDIA_TYPE,
       transform.attempt.result.status === "completed" ? transform.attempt.result.output.encodedBytes : 0,
       transform.directory.collect(ReferenceDataGuestDirectory.output(summaryName)),
@@ -401,10 +425,10 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
     };
   });
   attempts.push(reduce.attempt);
-  const manifest = await sealProduced(options, reduce.directory, reduce.attempt, ReferenceDataGuestDirectory.output(REFERENCE_DATA_MANIFEST_NAME), REFERENCE_DATA_MANIFEST_NAME, REFERENCE_DATA_MANIFEST_MEDIA_TYPE, reportedFile(reduce.attempt.report, "file", "orderedReduce"));
+  const manifest = await sealProduced(options, reduce.directory, reduce.attempt, ReferenceDataGuestDirectory.output(REFERENCE_DATA_MANIFEST_NAME), REFERENCE_DATA_MANIFEST_NAME, REFERENCE_DATA_MANIFEST_MEDIA_TYPE, "export", reportedFile(reduce.attempt.report, "file", "orderedReduce"));
   const dataset = await sealReferenceDataMaterial(
     options.materials,
-    { ...options.scope, objectName: REFERENCE_DATA_DATASET_OBJECT, version: 1 },
+    { ...scopeFor(options, "export"), objectName: REFERENCE_DATA_DATASET_OBJECT, version: 1 },
     REFERENCE_DATA_JSON_MEDIA_TYPE,
     reduce.attempt.result.status === "completed" ? reduce.attempt.result.output.encodedBytes : 0,
     reduce.directory.collect(ReferenceDataGuestDirectory.output(REFERENCE_DATA_DATASET_OBJECT)),
@@ -412,6 +436,11 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
   await reduce.directory.dispose();
 
   return Object.freeze({ input: sealedInput, snapshot, partitions: Object.freeze(partitions), manifest, dataset, attempts: Object.freeze(attempts) });
+}
+
+/** The scope one step seals and reads under. */
+function scopeFor(options: ReferenceDataJourneyOptions, operation: ReferenceDataOperation): FactoryMaterialScope {
+  return { ...options.scope, operationId: referenceDataOperationId(options.scope.operationId, operation) };
 }
 
 async function withDirectory<Result extends { directory: ReferenceDataGuestDirectory }>(options: ReferenceDataJourneyOptions, run: (directory: ReferenceDataGuestDirectory) => Promise<Result>): Promise<Result> {

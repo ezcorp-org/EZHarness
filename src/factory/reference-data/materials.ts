@@ -158,6 +158,16 @@ export class ReferenceDataGuestDirectory {
 
 /** One sealed material, as this pack refers to it afterwards. */
 export interface ReferenceDataMaterial {
+  /**
+   * The C02 operation this material belongs to.
+   *
+   * It is carried on the record because one journey writes into SEVERAL
+   * operations: W04 admits at most `maxObjectsPerOperation` objects under one,
+   * and C10's hundred partitions produce three objects each. A reader has to
+   * know which operation a material was sealed under, and asking the caller to
+   * remember is how the wrong scope reaches a read.
+   */
+  readonly operationId: string;
   readonly objectName: string;
   readonly version: number;
   readonly mediaType: string;
@@ -169,6 +179,7 @@ export interface ReferenceDataMaterial {
 
 function sealed(record: FactoryMaterialRecord, artifact: FactoryArtifactReference): ReferenceDataMaterial {
   return Object.freeze({
+    operationId: record.operationId,
     objectName: record.objectName,
     version: record.version,
     mediaType: record.mediaType,
@@ -249,10 +260,13 @@ export async function sealReferenceDataMaterial(
 export async function* readReferenceDataMaterial(
   reader: FactoryScopedArtifactReader,
   scope: FactoryMaterialScope,
-  material: Pick<ReferenceDataMaterial, "artifact" | "chunkCount">,
+  material: Pick<ReferenceDataMaterial, "artifact" | "chunkCount" | "operationId">,
   signal?: AbortSignal,
 ): AsyncGenerator<Uint8Array> {
-  for (let index = 0; index < material.chunkCount; index += 1) yield await reader.readChunk(scope, material.artifact, index, signal);
+  // The material names its own operation, so a caller holding the journey's
+  // base scope reads every one of them without tracking which step wrote it.
+  const scoped: FactoryMaterialScope = { ...scope, operationId: material.operationId };
+  for (let index = 0; index < material.chunkCount; index += 1) yield await reader.readChunk(scoped, material.artifact, index, signal);
 }
 
 /** `sha256:` over a whole byte stream, without holding it. */

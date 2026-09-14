@@ -17,7 +17,7 @@ import type { TransactionalDb } from "../../db/migrations/types";
 import { FileBlobStore } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryArtifacts } from "../../factory/artifacts";
-import { FactoryAttemptMaterials, FactoryScopedMaterials, type FactoryMaterialScope } from "../../factory/artifact-materials";
+import { FACTORY_MATERIAL_LIMITS, FactoryAttemptMaterials, FactoryScopedMaterials, type FactoryMaterialScope } from "../../factory/artifact-materials";
 import { EncryptedBlobStore, InstallationDataKey, StaticMasterKeyProvider, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../../factory/encryption";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import { REFERENCE_DATA_HEADER, REFERENCE_DATA_LIMITS } from "../../factory/reference-data/csv";
@@ -30,7 +30,7 @@ import {
   factoryReferenceDataImage,
 } from "../../factory/reference-data/guest";
 import { assertReferenceDataManifest, REFERENCE_DATA_MANIFEST_NAME } from "../../factory/reference-data/manifest";
-import { ReferenceDataPackError, runReferenceDataJourney, type ReferenceDataJourney, type ReferenceDataJourneyOptions } from "../../factory/reference-data/pack";
+import { referenceDataOperationId, ReferenceDataPackError, runReferenceDataJourney, type ReferenceDataJourney, type ReferenceDataJourneyOptions } from "../../factory/reference-data/pack";
 import { referenceDataAcceptedPublication, referenceDataReconciliationInput, whole } from "../../factory/reference-data/publication";
 import { reconcileReferenceData, REFERENCE_DATA_CLAIM_IDS } from "../../factory/reference-data/reconcile";
 import { readReferenceDataParquet } from "../../factory/reference-data/parquet";
@@ -259,13 +259,24 @@ test("the golden three-row input runs C10's whole graph and every protected clai
 
   const report = await reconcile(journey, reader, scope);
   expect(report.claims.map(claim => [claim.id, claim.verdict])).toEqual(REFERENCE_DATA_CLAIM_IDS.map(id => [id, "PASS"]));
+
+  // The journey writes into three C02 operations, because W04 admits at most
+  // 256 objects under one and a maximum-size run produces three per partition.
+  expect(journey.input.operationId).toBe(referenceDataOperationId(scope.operationId, "source"));
+  expect(journey.snapshot.operationId).toBe(referenceDataOperationId(scope.operationId, "source"));
+  expect(journey.partitions[0]?.partition.operationId).toBe(referenceDataOperationId(scope.operationId, "partitions"));
+  expect(journey.partitions[0]?.summary.operationId).toBe(referenceDataOperationId(scope.operationId, "partitions"));
+  expect(journey.partitions[0]?.parquet.operationId).toBe(referenceDataOperationId(scope.operationId, "export"));
+  expect(journey.manifest.operationId).toBe(referenceDataOperationId(scope.operationId, "export"));
+  expect(journey.dataset.operationId).toBe(referenceDataOperationId(scope.operationId, "export"));
 }, 900_000);
 
 test("the accepted publication names every exported member and the manifest, strictly ordered", async () => {
   const { options, scope } = await world(await fresh());
   const journey = await runReferenceDataJourney(options, () => csv(GOLDEN_CSV), "golden-v1");
-  const accepted = referenceDataAcceptedPublication(journey, scope);
-  expect(accepted.materialOperationId).toBe(scope.operationId);
+  const accepted = referenceDataAcceptedPublication(journey);
+  // The publication names ONE operation, and it is the export one.
+  expect(accepted.materialOperationId).toBe(referenceDataOperationId(scope.operationId, "export"));
   expect(accepted.candidateObjectName).toBe("dataset.json");
   expect(accepted.files.map(file => file.name)).toEqual([REFERENCE_DATA_MANIFEST_NAME, "part-00000.parquet"]);
   for (const file of accepted.files) expect(file.version).toBe(1);
@@ -365,7 +376,7 @@ async function publish(
   directoryName: string,
 ) {
   const s3 = fixture.s3 as NonNullable<FactoryReferenceDataFixture["s3"]>;
-  const accepted = referenceDataAcceptedPublication(journey, built.scope);
+  const accepted = referenceDataAcceptedPublication(journey);
   const decisionId = `decision-${randomUUID()}`;
   const candidateDigest = journey.dataset.digest;
   const profile = new S3FactoryManifestReleaseProfile({
@@ -442,7 +453,7 @@ test("the exported dataset publishes through W08 and reads back byte for byte", 
     // accepted shape it hands over rather than claiming a proof it did not make.
     const built = await world(fixture);
     const journey = await runReferenceDataJourney(built.options, () => csv(GOLDEN_CSV), "golden-v1");
-    const accepted = referenceDataAcceptedPublication(journey, built.scope);
+    const accepted = referenceDataAcceptedPublication(journey);
     expect(accepted.files.map(file => file.name)).toEqual([REFERENCE_DATA_MANIFEST_NAME, "part-00000.parquet"]);
     return;
   }
@@ -494,6 +505,9 @@ test("a 256 MiB input runs the whole graph and reconciles exactly, and one byte 
   expect(journey.partitions.length).toBeLessThanOrEqual(REFERENCE_DATA_LIMITS.maxPartitions);
   const rows = journey.partitions.reduce((sum, record) => sum + record.rowCount, 0);
   expect(rows).toBeLessThanOrEqual(REFERENCE_DATA_LIMITS.maxRows);
+  // One operation holds every published object, and it stays inside W04's bound.
+  expect(new Set(journey.partitions.map(record => record.parquet.operationId)).size).toBe(1);
+  expect(journey.partitions.length + 2).toBeLessThanOrEqual(FACTORY_MATERIAL_LIMITS.maxObjectsPerOperation);
 
   const manifest = assertReferenceDataManifest(JSON.parse(new TextDecoder().decode(await whole(built.reader, built.scope, journey.manifest))) as unknown);
   expect(manifest.rowCount).toBe(rows);
@@ -507,13 +521,62 @@ test("a 256 MiB input runs the whole graph and reconciles exactly, and one byte 
   await expect(runReferenceDataJourney(over.options, () => referenceDataBoundaryInput(REFERENCE_DATA_LIMITS.maxBytes + 1), "boundary-over")).rejects.toMatchObject({ code: "reference_data_material_oversized" });
 }, 5_400_000);
 
+test("the maximum row count runs the whole graph, and one row more is refused", async () => {
+  const fixture = await fresh();
+  if (!fixture.large) {
+    // The real producer runs the row volume. This leg proves the refusal at the
+    // declared bound, which is the half that needs no million-row journey.
+    const rows = [REFERENCE_DATA_HEADER];
+    for (let index = 0; index <= REFERENCE_DATA_LIMITS.maxRows; index += 1) rows.push(`id${index},alpha,1`);
+    const built = await world(fixture);
+    await expect(runReferenceDataJourney(built.options, () => csv(`${rows.join("\n")}\n`), "over-rows")).rejects.toMatchObject({ code: "reference_data_attempt_failed" });
+    return;
+  }
+  const built = await world(fixture);
+  // C10's other bound: a million rows, at the smallest row the grammar admits,
+  // so the byte bound is nowhere near and the ROW bound is what is measured.
+  async function* million(): AsyncGenerator<Uint8Array> {
+    const encoder = new TextEncoder();
+    yield encoder.encode(`${REFERENCE_DATA_HEADER}\n`);
+    let block: string[] = [];
+    for (let index = 0; index < REFERENCE_DATA_LIMITS.maxRows; index += 1) {
+      block.push(`r${index},c${index % 4},${index + 1}\n`);
+      if (block.length === 50_000) {
+        yield encoder.encode(block.join(""));
+        block = [];
+      }
+    }
+    if (block.length > 0) yield encoder.encode(block.join(""));
+  }
+  const journey = await runReferenceDataJourney(built.options, million, "boundary-rows");
+  expect(journey.partitions).toHaveLength(REFERENCE_DATA_LIMITS.maxPartitions);
+  expect(journey.partitions.reduce((sum, record) => sum + record.rowCount, 0)).toBe(REFERENCE_DATA_LIMITS.maxRows);
+  const manifest = assertReferenceDataManifest(JSON.parse(new TextDecoder().decode(await whole(built.reader, built.scope, journey.manifest))) as unknown);
+  expect(manifest.rowCount).toBe(REFERENCE_DATA_LIMITS.maxRows);
+  // 1 + 2 + ... + 1,000,000, which no double could hold exactly.
+  expect(manifest.totalAmountCents).toBe(String((BigInt(REFERENCE_DATA_LIMITS.maxRows) * BigInt(REFERENCE_DATA_LIMITS.maxRows + 1)) / 2n));
+  const report = await reconcile(journey, built.reader, built.scope);
+  expect(report.claims.map(claim => [claim.id, claim.verdict])).toEqual(REFERENCE_DATA_CLAIM_IDS.map(id => [id, "PASS"]));
+
+  // One row past the bound is refused by the guest's parse, by name.
+  const over = await world(fixture);
+  async function* overBound(): AsyncGenerator<Uint8Array> {
+    for await (const block of million()) yield block;
+    yield new TextEncoder().encode(`over,alpha,1\n`);
+  }
+  const failure = await runReferenceDataJourney(over.options, overBound, "over-rows").then(() => undefined, (error: unknown) => error);
+  expect(failure).toMatchObject({ code: "reference_data_attempt_failed" });
+  expect((failure as Error).message).toContain("row_limit");
+}, 5_400_000);
+
 test("correcting the input is a new snapshot and a new run, never a rewrite of the old one", async () => {
   const fixture = await fresh();
   const { options, materials, scope } = await world(fixture);
   const first = await runReferenceDataJourney(options, () => csv(`${REFERENCE_DATA_HEADER}\na,alpha,100\n`), "v1");
   // The same object name at the same version cannot be re-begun with different
   // bytes: W04 refuses the plan, so the decided snapshot cannot be replaced.
-  await expect(materials.begin({ ...scope, objectName: "input.csv", version: 1 }, "text/csv", 999, 1)).rejects.toMatchObject({ code: "factory_material_conflict" });
+  const source = { ...scope, operationId: referenceDataOperationId(scope.operationId, "source") };
+  await expect(materials.begin({ ...source, objectName: "input.csv", version: 1 }, "text/csv", 999, 1)).rejects.toMatchObject({ code: "factory_material_conflict" });
   const corrected = await world(fixture);
   const second = await runReferenceDataJourney(corrected.options, () => csv(`${REFERENCE_DATA_HEADER}\na,alpha,101\n`), "v2");
   expect(second.input.digest).not.toBe(first.input.digest);

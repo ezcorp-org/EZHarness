@@ -187,19 +187,23 @@ test("a material past W04's total bound is refused before any chunk is written",
 
 test("reading a material walks its chunks and never asks for the assembled bytes", async () => {
   const stored = [text("alpha"), text("beta"), text("gamma")];
+  const scopes: string[] = [];
   const reader = {
     async read(): Promise<Uint8Array> {
       throw new Error("this pack must read chunks, never a whole material");
     },
-    async readChunk(_scope: FactoryMaterialScope, _artifact: FactoryArtifactReference, index: number): Promise<Uint8Array> {
+    async readChunk(scope: FactoryMaterialScope, _artifact: FactoryArtifactReference, index: number): Promise<Uint8Array> {
+      // The material's own operation reaches the reader, not the base scope's.
+      scopes.push(scope.operationId);
       return stored[index] as Uint8Array;
     },
   };
   const collected: string[] = [];
-  for await (const chunk of readReferenceDataMaterial(reader, SCOPE, { artifact: { artifactId: "a", digest: referenceDataDigest(text("x")), encodedBytes: 1 }, chunkCount: 3 })) {
+  for await (const chunk of readReferenceDataMaterial(reader, SCOPE, { operationId: "operation:export", artifact: { artifactId: "a", digest: referenceDataDigest(text("x")), encodedBytes: 1 }, chunkCount: 3 })) {
     collected.push(new TextDecoder().decode(chunk));
   }
   expect(collected).toEqual(["alpha", "beta", "gamma"]);
+  expect(scopes).toEqual(["operation:export", "operation:export", "operation:export"]);
 });
 
 test("a stream digest measures the whole stream without holding it", async () => {
