@@ -1033,6 +1033,7 @@
   "src/factory/reference-code/guest.ts": 100,
   "src/factory/reference-code/static-claims.ts": 100,
   "src/factory/reference-code/freeze.ts": 100,
+  "src/factory/reference-code/pack.ts": 100,
   "src/factory/reference-code/remediation.ts": 100,
   "src/factory/reference-code/review.ts": 100,
   "src/factory/reference-code/git-reader.ts": 100,
