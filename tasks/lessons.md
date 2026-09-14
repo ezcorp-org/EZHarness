@@ -939,3 +939,8 @@
   commit was four commits back on my own branch and the methods were in the
   files. One `grep` settled it. A gate file that is wrong about its own history
   is worse than one that omits it.
+- A new `tests/postgres/` suite is not a gate until CI runs it, and this repo
+  enforces that: `scripts/factory-postgres-suite-registration.test.ts` failed
+  because I added a suite without adding it to the workflow's producer list. A
+  suite nobody runs is a suite that passes forever. Register it in the same
+  change that adds it.

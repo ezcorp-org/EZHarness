@@ -222,14 +222,17 @@ database, and freshly started pool, supervisor, and web processes each time.
 
 All three at this branch's tip, against a web build made there.
 
-**Where the receipts sit relative to the tip.** Twenty-seven of the thirty-three
-came from one sweep, `repro/final-verify.sh`, at `dc20b39f1`. Six — the full
-coverage pool, the PostgreSQL producers, the real-Podman probe test, the
-neighbour suites, and the two Vitest legs — name `d6bd46f6a`, and the delta from
-there to `dc20b39f1` is `tasks/factory/w09-GATES.md` alone (`git diff --stat
-d6bd46f6a dc20b39f1`: one file, 22 insertions, 14 deletions). Every commit after
-`dc20b39f1` on this branch changes only this file. No receipt was produced
-against a dirty tree: all thirty-three carry an empty `dirtyOrUntracked`.
+**Where the receipts sit.** Every receipt under the evidence directory was
+produced at `8b27a699b` against a clean tree, by `repro/final-verify.sh` and
+`repro/refresh-tail.sh`, and carries its own `producingCommit` and an empty
+`dirtyOrUntracked`. Two are deliberately non-zero: `coverage-full.json`, whose
+five failures are all outside this branch's diff and are named below, and
+`negative-control.json`, which is the proof that the harness records its own
+failures. The three-run receipts were produced twice at that commit: once during the
+shared-store outage, where they correctly failed, and once after the store was
+restored, where all three pass. Only the second set survives under `repro/`,
+because the driver writes to fixed names; the first set's summaries are in
+`shared-store-outage-observation.json`.
 
 | Run | `/api/ready` | Ready beats, lease children | Run start | Read back | After restart | Exit | Survivors | Record fresh |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
@@ -284,6 +287,43 @@ it is not a wiring change — `IsolatedFactoryAttemptRuntime` needs a launch
 store, the pool client, the gateway-owned provider broker, and
 `signStopReceipt`, which takes the HOST PRIVATE KEY that C01 and C02 keep out of
 the product process. That is a process to compose, not a seam to fill.
+
+**An unstaged outage proved the fail-closed path, which no test of mine had
+done.** During the verification sweep at `8b27a699b`, two of the three runs
+failed and the third passed. The cause was not this branch: the shared ordinary
+S3 store was OOM-killed at 15:05Z by its own 768 MiB container limit during a
+256 MiB upload, and was restored and raised to 2 GiB at 15:33Z
+(`integ/w00` `c054c6430`; incident record
+`/tmp/factory-platform-evidence/w00/shared-store-incidents.jsonl`). Runs 1 and 2
+fell inside that window, at 15:26Z and 15:29Z.
+
+What those two runs recorded is the behaviour this package exists to produce,
+against a real outage nobody staged:
+
+| Observed | Value |
+| --- | --- |
+| `/api/ready` | `503 degraded`, reason `factory-services-unavailable` |
+| Which service, by name | `object-storage: ConnectionRefused` |
+| Every factory route | `503 factory_application_unavailable`, `retryable: true` |
+| The proof's own verdict | `failed`, with the cause in the record |
+| Survivors after shutdown | none |
+
+Admission stayed closed, the unavailable service was named rather than summarised,
+the routes refused instead of serving a half-composed factory, and the proof
+recorded a failure instead of a pass. `scripts/verify-factory-storage.ts` passed
+for ten tenants across both stores afterwards, and the three runs were rerun at
+the same commit: all three pass.
+
+**The failing records themselves did not survive, and saying so is part of the
+evidence.** `run-three.sh` writes to fixed names, so the rerun overwrote the two
+failing records under `repro/`. What is on disk is
+`shared-store-outage-observation.json`: the three run summaries as the sweep log
+captured them, with `outcome: "failed"`, `readyStatus: null`, and the run start
+at `503` for the first two. The readiness and route detail in the table above
+was read from the full records before the rerun and is reproduced there rather
+than re-derived, which the receipt states in its own `retention` field. A driver
+that overwrites the evidence of its own failures is a defect in the harness, and
+it is recorded in the corrections below.
 
 **The proof no longer stops the moment the light turns green.** It holds the
 supervisor and watches it publish five consecutive readiness records, counting
@@ -688,8 +728,11 @@ no fields.
 The coordinator asked me to prepare against the interfaces these packages
 publish and not to merge again until told. This is that preparation.
 
-**W01b — attempt dispatch.** `wp/w01b-attempt-dispatch` is complete and
-publishes `createFactoryAttemptDispatchDriver` in
+**W01b — attempt dispatch.** `wp/w01b-attempt-dispatch` at `42b9e8c34` is in
+re-validation; the coordinator will say when it reaches `integ/w00`, and this
+package then merges once and wires attempt-dispatch, stop-settlement,
+usage-reconciliation, and release-outcome together rather than in four passes.
+The branch publishes `createFactoryAttemptDispatchDriver` in
 `src/factory/runner/attempt-dispatch-driver.ts`, returning a `dispatchOne()`
 whose `kind` is `"idle"` only when there was no work — exactly the
 `FactoryAttemptDispatchDriver` shape `runtime-workers.ts` already expects, so
