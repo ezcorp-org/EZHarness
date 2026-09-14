@@ -1,6 +1,6 @@
 # Gates: W02b the runner reference names its manifest
 
-Scope: the platform-level conflict the W12 validator found and W10, W11 and W12 each disclosed. Branch `wp/w02b-manifest-name`, base `integ/w00` at `5f04c7131`. Commit `c49d8e0fe`, documentation at `HEAD`. All eight receipts under `/tmp/factory-platform-evidence/w02b/` are exit 0 from clean committed source at `c49d8e0fe`; each `logs/<label>.json` records the producing commit, the SHA-256 of every dirty file, the exact command, the exit code, UTC start and end, duration, and the log's own SHA-256.
+Scope: the platform-level conflict the W12 validator found and W10, W11 and W12 each disclosed. Branch `wp/w02b-manifest-name`, base `integ/w00` at `5f04c7131`. Commits `c49d8e0fe` (the field), `af725e53a` (documentation) and `d5cfd7e1b` (the validation fixes). Head `d5cfd7e1b`. Every receipt under `/tmp/factory-platform-evidence/w02b/` is exit 0 from clean committed source, the suites and gates at `c49d8e0fe` and the `fix-` reruns at `d5cfd7e1b`; each `logs/<label>.json` records the producing commit, the SHA-256 of every dirty file, the exact command, the exit code, UTC start and end, duration, and the log's own SHA-256.
 
 ## The conflict
 
@@ -33,6 +33,13 @@ The v4 grammar is the shared contract (C13) and is unchanged. `RunnerReference` 
   EXPECT: exit 0
   EVIDENCE: `logs/focused-suites.json`. A well-formed manifest name that is not the release's name is refused with `factory_package_release_unavailable` at the binding. The suite's own reference now carries a scoped `package` and a differing `manifestName`, which is the pairing the real packs use and the one that could not be bound at all before this change; it binds, trusts and prepares end to end. A receipt cannot be replayed under a different manifest name: `assertDispatchReady` with an altered `manifestName` fails `factory_package_binding_missing`, because the reference digest seals the field.
 
+- [x] B2a: `manifestNameOf` is importable by the packs the migration note addresses, and every name it derives is legal.
+  CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 1800 bun test --timeout 900000 ./packages/@ezcorp/factory-sdk/src`
+  EXPECT: exit 0
+  EVIDENCE: `logs/fix-sdk-suite.json`, exit 0, 189 pass / 0 fail, 1393 assertions. The helper was defined in `references.ts` and never exported, and there is no `./references` subpath, so freeze section 17 and this file named a function W10, W11 and W12 could not import. It is now in the barrel and in `dist`; `manifest-name.test.ts` imports it from `@ezcorp/factory-sdk` rather than by relative path, so the export cannot be dropped again without that test failing.
+
+  **Writing that test found a second defect.** The helper did not guarantee a result the grammar admits: a v4 name must begin with a letter, and the derivation only trimmed leading dashes, so `@x/9-lead` yielded `9-lead`, which `isManifestName` refuses. It now drops every leading non-letter and falls back to a legal constant when a name normalises away entirely. The test asserts the invariant over inputs the grammar itself refuses rather than over tidy examples, and checks the shipped reference factories already name a manifest the grammar admits while their scoped package names do not.
+
 - [x] B3: The SDK types, the generated schemas and both runtimes carry the field.
   CHECK: `bun run --cwd packages/@ezcorp/factory-sdk schema:generate`; `bun test --timeout 300000 ./packages/@ezcorp/factory-sdk/src`; `bash scripts/python-quality.sh all`
   EXPECT: exit 0; `manifestName` required in the regenerated schemas
@@ -61,7 +68,7 @@ The v4 grammar is the shared contract (C13) and is unchanged. `RunnerReference` 
 - [x] B8: Static gates and the coverage gates.
   CHECK: `bun run typecheck`; `bun run lint`; `bun scripts/check-factory-boundaries.ts`; `bun scripts/gate-integrity.ts`; `bun scripts/check-factory-lanes.ts`; `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts`; `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
   EXPECT: all exit 0
-  EVIDENCE: `logs/static-gates.json` and `logs/coverage-gates.json`, both exit 0. "New-file coverage gate PASSED: no new source files in this diff" and "Patch coverage gate PASSED: all changed executable lines covered (6 file(s))". Six producers are merged, including the web Vitest leg: `web/src/lib/factory/model.ts` is V8-canonical and no Bun producer can measure it, so its LCOV carries the `ezcorp-node-v8` tag or the merge drops it.
+  EVIDENCE: `logs/fix-static-gates.json` and `logs/fix-coverage-gates.json` at head, with `logs/static-gates.json` and `logs/coverage-gates.json` from `c49d8e0fe`; all exit 0. "New-file coverage gate PASSED: no new source files in this diff" and "Patch coverage gate PASSED: all changed executable lines covered (6 file(s))". Six producers are merged, including the web Vitest leg: `web/src/lib/factory/model.ts` is V8-canonical and no Bun producer can measure it, so its LCOV carries the `ezcorp-node-v8` tag or the merge drops it.
 
 ## Disclosed cross-ownership touches
 
@@ -81,6 +88,10 @@ The v4 grammar is the shared contract (C13) and is unchanged. `RunnerReference` 
 5. **`src/factory/reference-code/guest.podman.integration.test.ts`** is W10's. Its one literal gains the field, spelled exactly as that pack's manifest already spells it (`reference-code-validator`), which is also the migration W10 would have made.
 6. **`docs/plans/2026-09-13-composable-factory-platform-interfaces.md`** gains section 17, the dated correction the coordinator asked for. W00 owns the freeze; this appends rather than edits.
 7. **`packages/@ezcorp/factory-sdk/src/index.ts` exports `manifestNameOf`.** Sol controls owns the barrel. Freeze section 17 and the migration note below tell W10, W11 and W12 to call it, and it was defined in `references.ts` but never exported, so the note named a function no consumer could import. It is now in the barrel and in `dist`, and `manifest-name.test.ts` imports it from `@ezcorp/factory-sdk` rather than by relative path, so the export cannot be dropped without that test failing. No new subpath is added: the barrel is the documented entry point.
+
+## One pre-existing coverage miss, measured and attributed
+
+`packages/@ezcorp/factory-sdk/src/validation.ts` reads 804/805 in the merged LCOV of this package's producers. The uncovered line is the `continue;` inside `validateDurableInputPorts`'s inline branch. It is **not** this branch's: the whole diff to that file is fifteen added lines, all inside the new `isManifestName` and one guard in `validateRunnerReference`, and it does not touch `validateDurableInputPorts` at all; the change only shifts that statement's line number by eight. Adding `src/factory/lazy-input.test.ts` as a producer does not reach it either. The patch-coverage gate passes, which is the gate that decides whether this branch covers what it changed. The per-file threshold for that file belongs to the full pipeline, which runs producers this focused set does not.
 
 ## Migration note for W10, W11 and W12
 
