@@ -9,7 +9,8 @@ import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryNotificationDelivery } from "../../factory/notification-delivery";
 import { FactoryReleaseApplication } from "../../factory/release-application";
-import { FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
+import { FACTORY_RELEASE_RESOLVE_TIMEOUT_MS, sealFactoryReleaseProfileResult } from "../../factory/release-profile";
+import { factoryRequestedReleaseProfile, FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
 import { FACTORY_BRANCH_NAMESPACE, FACTORY_BRANCH_REF_PREFIX, factoryGitBranchBinding, factoryOperationIdFromRef } from "../../factory/release-git-refs";
 import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
 
@@ -32,6 +33,8 @@ let fenceStatus: FactoryReleaseAuthority["status"] = "running";
 const releaseEnableEpoch = 4;
 let destinationVersion: string | null = null;
 let trusted: FactoryTrustedEvidence;
+/** The pinned material a profile resolves against. Changing it must invalidate a sealed result. */
+let materialEvidence: readonly unknown[] = [];
 
 class Gateway implements FactoryTrustedValidatorGateway, FactoryCurrentCandidateResolver {
   async assertContractInTransaction(): Promise<void> {}
@@ -125,7 +128,19 @@ function request(suffix: string, overrides: Partial<FactoryReleaseRequest> = {})
 
 let mutationSequence = 0;
 const mutationKey = (kind: string) => `${kind}-${++mutationSequence}`;
-const prepareRelease = (actor: FactoryPrincipal, input: FactoryReleaseRequest, idempotencyKey = mutationKey("prepare")) => releases.prepare(actor, input, idempotencyKey);
+/**
+ * Every preparation carries a sealed profile result. This suite already knows the exact request it
+ * wants, so the identity profile is the honest one: the resolve still runs outside every
+ * transaction and the seal still binds the acceptance decision and the pinned material.
+ */
+const prepareRelease = async (actor: FactoryPrincipal, input: FactoryReleaseRequest, idempotencyKey = mutationKey("prepare"), store: FactoryReleases = releases) => {
+  const preparation = await store.resolvePreparation({
+    projectId: input.projectId, runId: input.runId, nodeInstanceId: input.nodeInstanceId, candidateGeneration: input.candidateGeneration,
+    decisionId: input.decisionId, candidateDigest: input.candidateDigest,
+    acceptedManifest: { candidate: input.candidateDigest }, requestedDestination: { ...input.destination }, deadlineMs: input.deadlineMs,
+  }, factoryRequestedReleaseProfile(input, () => now), new AbortController().signal);
+  return store.prepare(actor, preparation, idempotencyKey);
+};
 const createReleasePolicy = (actor: FactoryPrincipal, policy: Parameters<FactoryReleases["createPolicy"]>[1], idempotencyKey = mutationKey("policy-create")) => releases.createPolicy(actor, policy, idempotencyKey);
 const revokeReleasePolicy = (actor: FactoryPrincipal, currentProjectId: string, policyId: string, expectedRevision: number, idempotencyKey = mutationKey("policy-revoke")) => releases.revokePolicy(actor, currentProjectId, policyId, expectedRevision, idempotencyKey);
 const requestReleaseApproval = async (actor: FactoryPrincipal, currentProjectId: string, operationId: string, expiresAtMs: number, idempotencyKey = mutationKey("approval-request")) => {
@@ -158,12 +173,13 @@ beforeAll(async () => {
   for (const action of ["factory.trust", "factory.approve", "factory.release", "factory.operate"] as const) await grants.set(admin, { projectId, principal: admin, action, expectedRevision: 0, expiresAtMs: null });
   await grants.set(admin, { projectId, principal: service, action: "factory.release", expectedRevision: 0, expiresAtMs: now + 5_000 });
   trusted = { ...candidate, validatorId: "validator", validatorLockDigest: digest("c"), issuerGrantRevision: 1, candidateDigest: digest("c"), artifact: { artifactId: "artifact", digest: digest("a"), encodedBytes: 10 }, environmentDigest: digest("e"), configurationDigest: digest("d"), runnerDigest: digest("e"), claims: [{ id: "passed", verdict: "PASS" as const, decisive: true }], issuedAtMs: now - 1, expiresAtMs: now + 10_000 };
+  materialEvidence = [{ artifact: trusted.artifact, candidateDigest: trusted.candidateDigest }];
   const gateway = new Gateway();
   assurance = new FactoryAssurance(database, tenantId, grants, gateway, new RunFence(), gateway, () => now);
   await assurance.approveContract(admin, { projectId, contractId: "contract", revision: 1, contractDigest: digest("f"), validatorLockDigest: trusted.validatorLockDigest, mandatoryClaims: [{ id: "passed", validatorId: trusted.validatorId, freshnessMs: 100 }], claimGroups: [{ id: "all", claimIds: ["passed"], minimumPasses: 1, requireAllDecisive: true }] }, mutationKey("contract"));
   await assurance.captureEvidence({ ...candidate, validatorId: trusted.validatorId });
   decisionId = (await assurance.accept({ ...candidate, contractId: "contract", revision: 1 })).decisionId;
-  materials = { async readPinnedInTransaction(_transaction, tenant, accepted) { if (tenant !== tenantId || accepted.decisionId !== decisionId) throw new Error("material scope"); return { decisionId, evidence: [{ artifact: trusted.artifact, candidateDigest: trusted.candidateDigest }], packageTrustDigest: digest("a"), validatorTrustDigest: digest("b") }; } };
+  materials = { async readPinnedInTransaction(_transaction, tenant, accepted) { if (tenant !== tenantId || accepted.decisionId !== decisionId) throw new Error("material scope"); return { decisionId, evidence: materialEvidence, packageTrustDigest: digest("a"), validatorTrustDigest: digest("b") }; } };
   releases = new FactoryReleases(database, tenantId, grants, assurance, materials, authority, new Destination(), archive, sender, () => now);
 });
 
@@ -202,8 +218,21 @@ test("archive is immutable and read-verified before claim", async () => {
 });
 
 test("authority selection rejects another candidate-producing node in the same run", async () => {
-  await expect(prepareRelease(admin, request("foreign-node", { nodeInstanceId: "another-release-node" }))).rejects.toThrow("canonical lifecycle lock mismatch");
+  // The pinned-decision read refuses a foreign node before any profile resolves, so no request
+  // bytes are ever produced for it.
+  await expect(prepareRelease(admin, request("foreign-node", { nodeInstanceId: "another-release-node" }))).rejects.toMatchObject({ code: "factory_assurance_stale" });
   expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/foreign-node'`))).toEqual([]);
+
+  // And a preparation resolved for the real node cannot be re-aimed: the canonical lifecycle lock
+  // is taken for the node the request names, inside the product transaction.
+  const genuine = request("foreign-node-reaimed");
+  const preparation = await releases.resolvePreparation({
+    projectId: genuine.projectId, runId: genuine.runId, nodeInstanceId: genuine.nodeInstanceId, candidateGeneration: genuine.candidateGeneration,
+    decisionId: genuine.decisionId, candidateDigest: genuine.candidateDigest,
+    acceptedManifest: { candidate: genuine.candidateDigest }, requestedDestination: { ...genuine.destination }, deadlineMs: genuine.deadlineMs,
+  }, factoryRequestedReleaseProfile(genuine, () => now), new AbortController().signal);
+  await expect(releases.prepare(admin, { ...preparation, request: { ...preparation.request, nodeInstanceId: "another-release-node" } }, mutationKey("prepare-reaimed"))).rejects.toThrow("canonical lifecycle lock mismatch");
+  expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/foreign-node-reaimed'`))).toEqual([]);
 });
 
 test("approval request and its human notification commit together once", async () => {
@@ -483,6 +512,93 @@ test("transactional audit failure rolls claim and policy counters back", async (
   expect(rows<{ used_operations: number | string }>(await database.execute(sql`SELECT used_operations FROM factory_release_policies WHERE policy_id='policy-audit'`)).map(row => Number(row.used_operations))).toEqual([0]);
 });
 
+test("a sealed profile is resolved outside every transaction and revalidated against the pinned input", async () => {
+  const resolution = (input: FactoryReleaseRequest) => ({
+    projectId: input.projectId, runId: input.runId, nodeInstanceId: input.nodeInstanceId, candidateGeneration: input.candidateGeneration,
+    decisionId: input.decisionId, candidateDigest: input.candidateDigest,
+    acceptedManifest: { candidate: input.candidateDigest }, requestedDestination: { ...input.destination }, deadlineMs: input.deadlineMs,
+  });
+
+  const accepted = request("profile-seal");
+  const sealed = await releases.resolvePreparation(resolution(accepted), factoryRequestedReleaseProfile(accepted, () => now), new AbortController().signal);
+  expect(sealed.profile).toMatchObject({ schemaVersion: "factory.release-profile-result.v1", resolvedAtMs: now, destination: accepted.destination, estimatedSpendMicros: accepted.estimatedSpendMicros });
+  expect(sealed.profileInput).toMatchObject({ tenantId, projectId, runId: candidate.runId, acceptedManifest: { candidate: accepted.candidateDigest } });
+  const operation = await releases.prepare(admin, sealed, mutationKey("profile-seal"));
+  expect(operation).toMatchObject({ profileInputDigest: sealed.profile.inputDigest, profileResultDigest: sealed.profile.resultDigest, profileResolvedAtMs: now });
+  // PGlite decodes a bigint as a number and the real driver as a string, so normalize.
+  expect(rows<{ profile_input_digest: string; profile_result_digest: string; profile_resolved_at_ms: number | string }>(await database.execute(sql`SELECT profile_input_digest,profile_result_digest,profile_resolved_at_ms FROM factory_release_operations WHERE operation_id=${operation.operationId}`))
+    .map(row => ({ ...row, profile_resolved_at_ms: Number(row.profile_resolved_at_ms) }))).toEqual([
+    { profile_input_digest: sealed.profile.inputDigest, profile_result_digest: sealed.profile.resultDigest, profile_resolved_at_ms: now },
+  ]);
+
+  // The pinned material moved after the resolve, so the sealed result no longer describes it.
+  const drifting = request("profile-drift");
+  const stale = await releases.resolvePreparation(resolution(drifting), factoryRequestedReleaseProfile(drifting, () => now), new AbortController().signal);
+  const original = materialEvidence;
+  materialEvidence = [{ artifact: trusted.artifact, candidateDigest: trusted.candidateDigest }, { note: "a second evidence reference the resolve never saw" }];
+  const writes = archive.writes;
+  await expect(releases.prepare(admin, stale, mutationKey("profile-drift"))).rejects.toMatchObject({ code: "factory_release_profile_stale" });
+  materialEvidence = original;
+  expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/profile-drift'`))).toEqual([]);
+  expect(archive.writes).toBe(writes);
+
+  // A result older than the resolve timeout is unusable; re-resolve rather than reuse. The resolve
+  // refuses it as it returns, and `prepare` refuses it again if one reaches the transaction.
+  const aged = request("profile-aged");
+  await expect(releases.resolvePreparation(resolution(aged), factoryRequestedReleaseProfile(aged, () => now - FACTORY_RELEASE_RESOLVE_TIMEOUT_MS - 1), new AbortController().signal)).rejects.toMatchObject({ code: "factory_release_profile_stale" });
+  const fresh = await releases.resolvePreparation(resolution(aged), factoryRequestedReleaseProfile(aged, () => now), new AbortController().signal);
+  const agedPreparation = { ...fresh, profile: sealFactoryReleaseProfileResult(fresh.profileInput, fresh.profile, now - FACTORY_RELEASE_RESOLVE_TIMEOUT_MS - 1) };
+  await expect(releases.prepare(admin, agedPreparation, mutationKey("profile-aged"))).rejects.toMatchObject({ code: "factory_release_profile_stale" });
+  expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/profile-aged'`))).toEqual([]);
+
+  // A forged seal is invalid, not merely stale.
+  const forged = request("profile-forged");
+  const forgedPreparation = await releases.resolvePreparation(resolution(forged), factoryRequestedReleaseProfile(forged, () => now), new AbortController().signal);
+  await expect(releases.prepare(admin, { ...forgedPreparation, profile: { ...forgedPreparation.profile, estimatedSpendMicros: forged.estimatedSpendMicros + 1 } }, mutationKey("profile-forged"))).rejects.toMatchObject({ code: "factory_release_profile_invalid" });
+
+  // An aborted resolve produces no operation row and no archive object.
+  const abandoned = request("profile-aborted");
+  const controller = new AbortController(); controller.abort();
+  const before = archive.writes;
+  await expect(releases.resolvePreparation(resolution(abandoned), factoryRequestedReleaseProfile(abandoned, () => now), controller.signal)).rejects.toMatchObject({ code: "factory_release_profile_aborted" });
+  expect(rows(await database.execute(sql`SELECT operation_id FROM factory_release_operations WHERE destination_object='releases/profile-aborted'`))).toEqual([]);
+  expect(archive.writes).toBe(before);
+
+  // An operation that lost its seal cannot be claimed, and the database refuses the same row.
+  const unsealed = await prepareRelease(admin, request("profile-unsealed"));
+  const approval = await approved(unsealed);
+  await database.execute(sql`UPDATE factory_release_operations SET profile_input_digest=NULL,profile_result_digest=NULL,profile_resolved_at_ms=NULL WHERE operation_id=${unsealed.operationId}`);
+  await expect(releases.claim(admin, projectId, unsealed.operationId, { kind: "approval", approvalId: approval })).rejects.toMatchObject({ code: "factory_release_profile_stale" });
+  const forcedClaim = await database.execute(sql`UPDATE factory_release_operations SET state='executing' WHERE operation_id=${unsealed.operationId}`).then(() => null, (error: unknown) => error);
+  expect(forcedClaim).toBeInstanceOf(Error);
+  expect(rows<{ state: string }>(await database.execute(sql`SELECT state FROM factory_release_operations WHERE operation_id=${unsealed.operationId}`))).toEqual([{ state: "pending" }]);
+});
+
+test("the claimable scan lists only operations a claim could take, oldest deadline first", async () => {
+  const claimable = async () => (await database.transaction(transaction => releases.listClaimableInTransaction(transaction, projectId, 1000))).map(item => item.operationId);
+  const first = await prepareRelease(admin, request("scan-first", { deadlineMs: now + 1_000 }));
+  const second = await prepareRelease(admin, request("scan-second", { deadlineMs: now + 2_000 }));
+  const listed = await claimable();
+  expect(listed.indexOf(first.operationId)).toBeLessThan(listed.indexOf(second.operationId));
+  expect(listed).toContain(second.operationId);
+
+  // Claiming removes it; an expired deadline and a missing archive never appear.
+  await releases.claim(admin, projectId, first.operationId, { kind: "approval", approvalId: await approved(first) });
+  expect(await claimable()).not.toContain(first.operationId);
+  await database.execute(sql`UPDATE factory_release_operations SET deadline_ms=${now} WHERE operation_id=${second.operationId}`);
+  expect(await claimable()).not.toContain(second.operationId);
+  await database.execute(sql`UPDATE factory_release_operations SET deadline_ms=${now + 2_000},archive_ready=FALSE WHERE operation_id=${second.operationId}`);
+  expect(await claimable()).not.toContain(second.operationId);
+  await database.execute(sql`UPDATE factory_release_operations SET archive_ready=TRUE WHERE operation_id=${second.operationId}`);
+  expect(await claimable()).toContain(second.operationId);
+
+  // The scan is bounded and its bound is checked.
+  expect(await database.transaction(transaction => releases.listClaimableInTransaction(transaction, projectId, 1))).toHaveLength(1);
+  await expect(database.transaction(transaction => releases.listClaimableInTransaction(transaction, projectId, 1001))).rejects.toMatchObject({ code: "factory_release_invalid" });
+  await expect(database.transaction(transaction => releases.listClaimableInTransaction(transaction, projectId, 0))).rejects.toMatchObject({ code: "factory_release_invalid" });
+  expect(await database.transaction(transaction => releases.listClaimableInTransaction(transaction, "another-project"))).toEqual([]);
+});
+
 test("no provider proof and no archive write happens inside an open transaction", async () => {
   // Freeze correction 1. The counter wraps the release store's own database handle, so "inside a
   // transaction" is a fact this test observes rather than a claim about the code.
@@ -508,14 +624,14 @@ test("no provider proof and no archive write happens inside an open transaction"
   const watchedFence: FactorySenderFence = { proveStopped: (operation, token, evidence) => note("fence.proveStopped", () => sender.proveStopped(operation, token, evidence)) };
   const split = new FactoryReleases(tracked, tenantId, grants, assurance, materials, authority, new Destination(), watchedArchive, watchedFence, () => now);
 
-  const attach = await split.prepare(admin, request("split-attach"), mutationKey("split-prepare"));
+  const attach = await prepareRelease(admin, request("split-attach"), mutationKey("split-prepare"), split);
   const attachClaim = await split.claim(admin, projectId, attach.operationId, { kind: "approval", approvalId: await approved(attach) });
   provider.loseResponse = true;
   expect(await split.dispatch(attachClaim, watchedProvider)).toMatchObject({ state: "uncertain" });
   provider.loseResponse = false;
   expect(await split.reconcile(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "provider lookup verified the exact version", providerEvidence: { lookup: true }, receipt: provider.receipts.get(attach.operationId)! }, attachClaim.dispatchGeneration, watchedProvider, mutationKey("split-attach-reconcile"))).toMatchObject({ state: "succeeded" });
 
-  const absent = await split.prepare(admin, request("split-absent"), mutationKey("split-prepare-absent"));
+  const absent = await prepareRelease(admin, request("split-absent"), mutationKey("split-prepare-absent"), split);
   const absentClaim = await split.claim(admin, projectId, absent.operationId, { kind: "approval", approvalId: await approved(absent) });
   provider.loseResponse = true;
   await split.dispatch(absentClaim, watchedProvider);

@@ -3158,7 +3158,8 @@ export const factoryReleaseOperations = pgTable("factory_release_operations", {
   check("factory_release_operations_profile_seal_check", sql`(${table.profileResultDigest} IS NULL) = (${table.profileInputDigest} IS NULL) AND (${table.profileResultDigest} IS NULL) = (${table.profileResolvedAtMs} IS NULL)`),
   check("factory_release_operations_profile_resolved_at_check", sql`${table.profileResolvedAtMs} IS NULL OR ${table.profileResolvedAtMs} > 0`),
   check("factory_release_operations_destination_ref_check", sql`${table.destinationRef} IS NULL OR ${table.destinationRef} LIKE 'refs/heads/ezcorp-factory/%'`),
-  check("factory_release_operations_destination_branch_check", sql`(${table.destinationRef} IS NULL) = (${table.destinationBranch} IS NULL)`)]);
+  check("factory_release_operations_destination_branch_check", sql`(${table.destinationRef} IS NULL) = (${table.destinationBranch} IS NULL)`),
+  check("factory_release_operations_profile_claimed_check", sql`${table.state} = 'pending' OR ${table.profileResultDigest} IS NOT NULL`)]);
 
 export const factoryReleaseDestinationReservations = pgTable("factory_release_destination_reservations", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), destinationProvider: text("destination_provider").notNull(), destinationAccount: text("destination_account").notNull(), destinationObject: text("destination_object").notNull(), operationId: text("operation_id").notNull(), expectedVersion: text("expected_version"), dispatchGeneration: bigint("dispatch_generation", { mode: "number" }).notNull(), state: text("state").notNull().$type<"held" | "confirmed" | "released">(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

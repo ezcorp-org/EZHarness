@@ -133,7 +133,8 @@ function abortReason(signal: AbortSignal): Promise<never> {
  * result that arrives after the abort is refused rather than used.
  */
 export async function resolveFactoryReleaseProfile(
-  profile: FactoryAsyncReleaseProfile,
+  /** Only `resolve` is used, so a caller that holds its own request needs no adapter reference. */
+  profile: Pick<FactoryAsyncReleaseProfile, "resolve">,
   input: FactoryReleaseProfileInput,
   signal: AbortSignal,
   now: () => number = Date.now,

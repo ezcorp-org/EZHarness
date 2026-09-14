@@ -12,7 +12,10 @@ const operation = { tenantId, projectId, operationId: "operation-1", runId: "run
 function fixture() {
   const grants = { tenantId, authorize: mock(async () => ({ revision: 1, expiresAtMs: null })) };
   const assurance = { tenantId, approveContract: mock(async () => {}), decideApproval: mock(async () => {}) };
-  const releases = { tenantId, prepare: mock(async () => operation), inspect: mock(async () => operation), requestApproval: mock(async () => ({ approvalId: "approval-1", contextDigest: "a".repeat(64) })), deliverNextNotification: mock(async () => null), listDeliveredNotifications: mock(async () => ({ items: [], nextCursor: null })), createPolicy: mock(async () => {}), revokePolicy: mock(async () => {}), reconcile: mock(async () => operation) };
+  // The application resolves one profile outside every transaction, then hands the sealed
+  // preparation to the store; the store is faked here, so both calls are observed by identity.
+  const preparation = { request: { projectId, runId: operation.runId, nodeInstanceId: operation.nodeInstanceId, candidateGeneration: 0, decisionId: operation.decisionId, candidateDigest: operation.candidateDigest, action: operation.action, destination: operation.destination, request: {}, estimatedSpendMicros: 1, deadlineMs: operation.deadlineMs }, profileInput: { tenantId, projectId, runId: operation.runId, acceptedManifest: null, requestedDestination: operation.destination, decision: {}, material: operation.material }, profile: { schemaVersion: "factory.release-profile-result.v1" as const, destination: operation.destination, request: {}, estimatedSpendMicros: 1, inputDigest: digest("a"), resultDigest: digest("b"), resolvedAtMs: 1 } };
+  const releases = { tenantId, preparation, resolvePreparation: mock(async (_input: unknown, _profile: unknown, _signal: unknown) => preparation), ensureArchived: mock(async () => operation), prepare: mock(async () => operation), inspect: mock(async () => operation), requestApproval: mock(async () => ({ approvalId: "approval-1", contextDigest: "a".repeat(64) })), deliverNextNotification: mock(async () => null), listDeliveredNotifications: mock(async () => ({ items: [], nextCursor: null })), createPolicy: mock(async () => {}), revokePolicy: mock(async () => {}), reconcile: mock(async () => operation) };
   const provider = {} as FactoryReleaseProvider;
   const providers = { resolve: mock(async () => provider) };
   return { grants, assurance, releases, provider, providers, application: new FactoryReleaseApplication(tenantId, grants as unknown as FactoryGrants, assurance as unknown as FactoryAssurance, releases as unknown as FactoryReleases, providers) };
@@ -25,6 +28,9 @@ test("release application forwards exact public preconditions into durable store
   expect(f.assurance.approveContract).toHaveBeenCalledWith(actor, { projectId, contractId: "contract-1", revision: 2, ...contract }, "contract-key");
   const prepared = await f.application.prepare(actor, projectId, { runId: operation.runId, nodeInstanceId: operation.nodeInstanceId, candidateGeneration: 0, decisionId: operation.decisionId, candidateDigest: operation.candidateDigest, action: operation.action, destination: operation.destination, request: {}, estimatedSpendMicros: 1, deadlineMs: operation.deadlineMs }, "prepare-key");
   expect(prepared).toBe(operation);
+  // The resolve names the exact identity and carries no manifest, because this path has none.
+  expect(f.releases.resolvePreparation).toHaveBeenCalledWith({ projectId, runId: operation.runId, nodeInstanceId: operation.nodeInstanceId, candidateGeneration: 0, decisionId: operation.decisionId, candidateDigest: operation.candidateDigest, acceptedManifest: null, requestedDestination: operation.destination, deadlineMs: operation.deadlineMs }, expect.objectContaining({ action: operation.action }), expect.any(AbortSignal));
+  expect(f.releases.prepare).toHaveBeenCalledWith(actor, f.releases.preparation, "prepare-key");
   await f.application.requestApproval(actor, projectId, operation.operationId, { expiresAtMs: operation.deadlineMs }, 1, "approval-key");
   expect(f.releases.requestApproval).toHaveBeenCalledWith(actor, projectId, operation.operationId, operation.deadlineMs, 1, "approval-key");
   expect(await f.application.listNotifications(actor, projectId, { limit: 25 })).toEqual({ items: [], nextCursor: null });

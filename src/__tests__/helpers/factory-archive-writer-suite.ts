@@ -24,7 +24,7 @@ import { EncryptedBlobStore, InstallationDataKey, StaticMasterKeyProvider, type 
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
-import { FactoryReleases, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterial, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider } from "../../factory/releases";
+import { factoryRequestedReleaseProfile, FactoryReleases, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterial, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider } from "../../factory/releases";
 import { FaultInjectingArchive, MemoryFactoryReleaseArchive, type FactoryArchiveStore } from "./factory-archive-fixtures";
 import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
 
@@ -186,7 +186,16 @@ async function setup() {
   let sequence = 0;
   const mutationKey = (kind: string) => `${kind}-${suffix}-${++sequence}`;
   const request = (label: string) => ({ ...candidate, decisionId, candidateDigest: trusted.candidateDigest, action: "publish", destination: { provider: "fixture", account: "account-a", object: `releases/${label}` }, request: { body: label }, estimatedSpendMicros: 5, deadlineMs: now + 300_000 });
-  const prepare = (label: string, idempotencyKey = mutationKey("prepare")) => releases.prepare(admin, request(label), idempotencyKey);
+  const prepare = async (label: string, idempotencyKey = mutationKey("prepare")) => {
+    const body = request(label);
+    // W07's release store seals a resolved profile into every preparation. This suite supplies its
+    // own exact request, so the identity profile is the right one: the seal still binds the bytes
+    // to the acceptance decision and the pinned material read outside the transaction.
+    const preparation = await releases.resolvePreparation(
+      { ...candidate, decisionId, candidateDigest: body.candidateDigest, acceptedManifest: null, requestedDestination: body.destination, deadlineMs: body.deadlineMs },
+      factoryRequestedReleaseProfile(body, () => now), new AbortController().signal);
+    return releases.prepare(admin, preparation, idempotencyKey);
+  };
   const claim = async (operation: FactoryReleaseOperation) => {
     const approval = await assurance.requestApproval(admin, { projectId, operationId: operation.operationId, decisionId, destinationDigest: operation.destinationDigest, expectedGeneration: operation.dispatchGeneration + 1, expiresAtMs: operation.deadlineMs }, mutationKey("approval"));
     await assurance.decideApproval(admin, projectId, approval.approvalId, approval.contextDigest, true, mutationKey("decision"));

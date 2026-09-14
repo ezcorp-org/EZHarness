@@ -2,7 +2,8 @@ import type { FactoryReleaseApprovalDecisionBody, FactoryReleaseContractBody, Fa
 import type { FactoryAssurance } from "./assurance";
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
 import { FactoryNotificationDelivery } from "./notification-delivery";
-import { FactoryReleaseError, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleases } from "./releases";
+import type { JsonValue } from "@ezcorp/factory-sdk";
+import { FactoryReleaseError, factoryRequestedReleaseProfile, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleases } from "./releases";
 
 export interface FactoryReleaseProviderResolver {
   resolve(operation: FactoryReleaseOperation): FactoryReleaseProvider | Promise<FactoryReleaseProvider>;
@@ -30,8 +31,22 @@ export class FactoryReleaseApplication {
     return { contractId, revision: expectedRevision + 1, ...snapshot };
   }
 
-  prepare(actor: FactoryPrincipal, projectId: string, body: FactoryReleasePrepareBody, idempotencyKey: string) {
-    return this.releases.prepare(actor, { projectId, ...body }, idempotencyKey);
+  /**
+   * The direct release API.
+   *
+   * The caller supplies the exact destination and request, so the profile is the identity one; the
+   * resolve still runs outside every transaction and still seals the acceptance decision and the
+   * pinned material the bytes were chosen against. `acceptedManifest` is `null` here because this
+   * path resolves no manifest: the request IS the caller's manifest.
+   */
+  async prepare(actor: FactoryPrincipal, projectId: string, body: FactoryReleasePrepareBody, idempotencyKey: string, signal?: AbortSignal) {
+    const request = { projectId, ...structuredClone(body) };
+    const preparation = await this.releases.resolvePreparation({
+      projectId, runId: request.runId, nodeInstanceId: request.nodeInstanceId, candidateGeneration: request.candidateGeneration,
+      decisionId: request.decisionId, candidateDigest: request.candidateDigest,
+      acceptedManifest: null, requestedDestination: request.destination as unknown as JsonValue, deadlineMs: request.deadlineMs,
+    }, factoryRequestedReleaseProfile(request), signal ?? new AbortController().signal);
+    return this.releases.prepare(actor, preparation, idempotencyKey);
   }
 
   async inspect(actor: FactoryPrincipal, projectId: string, operationId: string) {

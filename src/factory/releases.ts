@@ -14,6 +14,8 @@ import { assertFactoryIdentity } from "./records";
 import { protectFactoryCommandApproval } from "./assurance-commands";
 import { FactoryCommandAuthorityError, type FactoryCommandAuthority, type FactoryCurrentApprovalFence } from "./command-authority";
 import { assertFactoryGitBranchBinding, factoryGitBranchBinding, isFactoryGitReleaseProvider, type FactoryGitBranchBinding } from "./release-git-refs";
+import { assertFactoryReleaseProfileResult, factoryReleaseProfileInputDigest, resolveFactoryReleaseProfile, sealFactoryReleaseProfileResult, type FactoryAsyncReleaseProfile, type FactoryReleaseProfileInput, type FactoryReleaseProfileResult } from "./release-profile";
+import type { FactoryAcceptanceDecision } from "./assurance";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 const MAX_TEXT = 512;
@@ -52,6 +54,56 @@ export interface FactoryReleaseRequest {
   readonly request: unknown;
   readonly estimatedSpendMicros: number;
   readonly deadlineMs: number;
+}
+
+/**
+ * What the identity of one release is, before its destination and request bytes exist.
+ *
+ * `resolvePreparation` turns this into a `FactoryReleasePreparation` by reading the pinned
+ * decision and material, then resolving one profile outside every transaction.
+ */
+export interface FactoryReleaseResolution {
+  readonly projectId: string;
+  readonly runId: string;
+  readonly nodeInstanceId: string;
+  readonly candidateGeneration: number;
+  readonly decisionId: string;
+  readonly candidateDigest: string;
+  /** The exact accepted candidate the profile resolves against. */
+  readonly acceptedManifest: JsonValue;
+  /** What the caller asked for, before the profile turned it into an exact destination. */
+  readonly requestedDestination: JsonValue;
+  readonly deadlineMs: number;
+}
+
+/**
+ * A request together with the sealed profile result it came from.
+ *
+ * `prepare` re-derives `profileInput` from pinned facts inside its transaction, recomputes the
+ * input digest, and refuses a result that no longer matches. That is what makes the resolve
+ * outside the transaction safe: the bytes it produced cannot outlive the facts it read.
+ */
+export interface FactoryReleasePreparation {
+  readonly request: FactoryReleaseRequest;
+  readonly profileInput: FactoryReleaseProfileInput;
+  readonly profile: FactoryReleaseProfileResult;
+}
+
+/**
+ * What `resolvePreparation` needs from a profile: its action and its resolve.
+ *
+ * The adapter reference matters to whoever registered the profile, not to the resolve itself, so
+ * a caller that already holds its own request can satisfy this without inventing one.
+ */
+export type FactoryReleaseProfileResolver = Pick<FactoryAsyncReleaseProfile, "action" | "resolve">;
+
+export interface FactoryClaimableRelease {
+  readonly projectId: string;
+  readonly operationId: string;
+  readonly runId: string;
+  readonly nodeInstanceId: string;
+  readonly deadlineMs: number;
+  readonly dispatchGeneration: number;
 }
 
 export interface FactoryArchiveObject {
@@ -148,6 +200,10 @@ export interface FactoryReleaseOperation extends FactoryReleaseRequest {
   /** Git destinations only. The one ref this operation may ever create, derived from its id. */
   readonly destinationRef?: string;
   readonly destinationBranch?: string;
+  /** The seal of the asynchronous profile resolve this operation's request came from. */
+  readonly profileInputDigest?: string;
+  readonly profileResultDigest?: string;
+  readonly profileResolvedAtMs?: number;
   readonly authority?: { readonly kind: "approval" | "policy"; readonly id: string; readonly policyRevision?: number };
 }
 
@@ -215,6 +271,7 @@ type OperationRow = {
   state: FactoryReleaseState; dispatch_generation: number | string; sender_token: string | null; dispatch_started: boolean; authority_kind: "approval" | "policy" | null; authority_id: string | null; policy_revision: number | string | null;
   intent_archive_json: string | null; material_archive_json: string | null; receipt_archive_json: string | null; receipt_json: string | null; archive_ready: boolean; outcome_code: string | null;
   destination_ref: string | null; destination_branch: string | null;
+  profile_input_digest: string | null; profile_result_digest: string | null; profile_resolved_at_ms: number | string | null;
 };
 
 type NotificationRow = { payload: string; state: FactoryNotification["state"]; input_hash: string };
@@ -314,6 +371,8 @@ function operationFromRow(row: OperationRow): FactoryReleaseOperation {
     ...(row.intent_archive_json ? { intentArchive: JSON.parse(row.intent_archive_json) } : {}), ...(row.material_archive_json ? { materialArchive: JSON.parse(row.material_archive_json) } : {}),
     ...(row.receipt_archive_json ? { receiptArchive: JSON.parse(row.receipt_archive_json) } : {}), ...(row.receipt_json ? { receipt: JSON.parse(row.receipt_json) } : {}), ...(row.outcome_code ? { outcomeCode: row.outcome_code } : {}),
     ...(row.destination_ref ? { destinationRef: row.destination_ref } : {}), ...(row.destination_branch ? { destinationBranch: row.destination_branch } : {}),
+    ...(row.profile_input_digest ? { profileInputDigest: row.profile_input_digest } : {}), ...(row.profile_result_digest ? { profileResultDigest: row.profile_result_digest } : {}),
+    ...(row.profile_resolved_at_ms === null ? {} : { profileResolvedAtMs: Number(row.profile_resolved_at_ms) }),
     ...(row.authority_kind && row.authority_id ? { authority: { kind: row.authority_kind, id: row.authority_id, ...(row.policy_revision === null ? {} : { policyRevision: Number(row.policy_revision) }) } } : {}),
   };
   assertOperation(operation);
@@ -328,6 +387,42 @@ function assertOperation(operation: FactoryReleaseOperation): void {
   if (destinationDigest(operation.destination) !== operation.destinationDigest || hash({ destination: operation.destination, request: operation.request }) !== operation.requestDigest || hash(operation.material) !== operation.materialDigest || operation.operationId !== `factory-release:${digestObject(identityFor(operation))}`) throw new FactoryReleaseError("factory_release_corrupt");
   for (const reference of [operation.intentArchive, operation.materialArchive, operation.receiptArchive]) if (reference) validateArchiveReference(reference);
   assertGitBinding(operation);
+  assertProfileSeal(operation);
+}
+
+/**
+ * The three seal columns are one fact, so they arrive together or not at all.
+ *
+ * The database CHECK says the same thing plus "an operation that has left `pending` carries one".
+ * Repeating the shape here means a corrupt row fails as `factory_release_corrupt` on read rather
+ * than as a constraint violation on the next write.
+ */
+function assertProfileSeal(operation: FactoryReleaseOperation): void {
+  const present = [operation.profileInputDigest, operation.profileResultDigest, operation.profileResolvedAtMs].filter(value => value !== undefined).length;
+  if (present !== 0 && present !== 3) throw new FactoryReleaseError("factory_release_corrupt");
+  if (present === 0) { if (operation.state !== "pending") throw new FactoryReleaseError("factory_release_corrupt"); return; }
+  digest(operation.profileInputDigest!, operation.profileResultDigest!);
+  count(operation.profileResolvedAtMs!, true);
+}
+
+/**
+ * The exact `FactoryAcceptanceDecision` projection a profile input is sealed over.
+ *
+ * `FactoryAcceptedRelease.approvalDecision` is the stored decision row, which carries extra
+ * columns. Both the resolver and the final transaction project the same eleven fields, so the
+ * digest they compute is over the same bytes whichever side read the row.
+ */
+export function factoryAcceptanceDecisionOf(accepted: FactoryAcceptedRelease): FactoryAcceptanceDecision {
+  const source = accepted.approvalDecision as Partial<FactoryAcceptanceDecision> | null;
+  if (!source || typeof source !== "object") throw new FactoryReleaseError("factory_release_corrupt");
+  const decision: FactoryAcceptanceDecision = {
+    projectId: accepted.projectId, runId: accepted.runId, nodeInstanceId: accepted.nodeInstanceId, candidateGeneration: accepted.candidateGeneration,
+    decisionId: accepted.decisionId, candidateDigest: accepted.candidateDigest, contractDigest: accepted.contractDigest,
+    executionEpoch: accepted.executionEpoch, cancellationEpoch: accepted.cancellationEpoch,
+    evidenceSetDigest: source.evidenceSetDigest!, contractSnapshotDigest: source.contractSnapshotDigest!,
+  };
+  digest(decision.evidenceSetDigest, decision.contractSnapshotDigest);
+  return decision;
 }
 
 /**
@@ -414,6 +509,27 @@ const notificationQueue = new DurableDeliveryQueue<FactoryNotification>((code, m
  * It runs twice: once against the unlocked read the evidence is gathered from, and once against
  * the locked row inside the product transaction.
  */
+/**
+ * The profile for a caller that has already chosen its exact destination and request.
+ *
+ * The direct release API takes the bytes to publish, so there is nothing to look up and the
+ * profile is the identity. The seal is still real: it binds those bytes to the acceptance decision
+ * and the pinned material read at resolve time, and `prepare` refuses the result if either moved.
+ */
+export function factoryRequestedReleaseProfile(requested: Pick<FactoryReleaseRequest, "action" | "destination" | "request" | "estimatedSpendMicros">, now: () => number = Date.now): FactoryReleaseProfileResolver {
+  const frozen = canonical({ destination: requested.destination, request: requested.request as JsonValue, estimatedSpendMicros: requested.estimatedSpendMicros });
+  return {
+    action: requested.action,
+    async resolve(input) { return sealFactoryReleaseProfileResult(input, frozen, now()); },
+  };
+}
+
+/** Every profile rejection reaches a release caller as a release error, never a second vocabulary. */
+function assertProfileResult(result: FactoryReleaseProfileResult, expectedInputDigest: string, nowMs: number): FactoryReleaseProfileResult {
+  try { return assertFactoryReleaseProfileResult(result, expectedInputDigest, nowMs); }
+  catch (error) { throw new FactoryReleaseError((error as { readonly code?: string }).code === "factory_release_profile_stale" ? "factory_release_profile_stale" : "factory_release_profile_invalid"); }
+}
+
 function reconcilable(operation: FactoryReleaseOperation | null, expectedGeneration: number): operation is FactoryReleaseOperation & { readonly senderToken: string } {
   return !!operation?.senderToken && operation.dispatchGeneration === expectedGeneration && (operation.state === "uncertain" || operation.state === "executing" && operation.dispatchStarted);
 }
@@ -453,8 +569,43 @@ export class FactoryReleases {
     this.mutations = new FactoryMutations(database, tenantId, grants);
   }
 
-  async prepare(requester: FactoryPrincipal, input: FactoryReleaseRequest, idempotencyKey: string): Promise<FactoryReleaseOperation> {
-    [requester, input] = canonical([requester, input]);
+  /**
+   * Reads the pinned decision and material for one release, then resolves its profile outside
+   * every transaction and seals the result.
+   *
+   * The read transaction closes before the profile runs, so no provider or manifest work ever
+   * holds a product lock. What the profile returns is bound to the bytes it read: `prepare`
+   * re-derives the same input under a lock and refuses a result whose digest no longer matches.
+   */
+  async resolvePreparation(input: FactoryReleaseResolution, profile: FactoryReleaseProfileResolver, signal: AbortSignal): Promise<FactoryReleasePreparation> {
+    input = canonical(input);
+    text(input.projectId, input.runId, input.nodeInstanceId, input.decisionId, profile.action);
+    count(input.candidateGeneration); digest(input.candidateDigest);
+    const profileInput = await this.database.transaction(transaction => this.readProfileInputInTransaction(transaction, input));
+    const result = await resolveFactoryReleaseProfile(profile, profileInput, signal, this.now);
+    const request: FactoryReleaseRequest = {
+      projectId: input.projectId, runId: input.runId, nodeInstanceId: input.nodeInstanceId, candidateGeneration: input.candidateGeneration,
+      decisionId: input.decisionId, candidateDigest: input.candidateDigest, action: profile.action,
+      destination: result.destination, request: result.request, estimatedSpendMicros: result.estimatedSpendMicros, deadlineMs: input.deadlineMs,
+    };
+    return { request: canonical(request), profileInput, profile: result };
+  }
+
+  /** The pinned half of a profile input: the acceptance decision and the frozen material. */
+  private async readProfileInputInTransaction(transaction: MigrationDb, input: FactoryReleaseResolution): Promise<FactoryReleaseProfileInput> {
+    const accepted = await this.assurance.assertAcceptedReleaseInTransaction(transaction, { projectId: input.projectId, runId: input.runId, decisionId: input.decisionId, nodeInstanceId: input.nodeInstanceId, candidateGeneration: input.candidateGeneration, candidateDigest: input.candidateDigest });
+    const material = canonical(await this.materials.readPinnedInTransaction(transaction, this.tenantId, accepted));
+    validateMaterial(material, input.decisionId);
+    return canonical({
+      tenantId: this.tenantId, projectId: input.projectId, runId: input.runId,
+      acceptedManifest: input.acceptedManifest, requestedDestination: input.requestedDestination,
+      decision: factoryAcceptanceDecisionOf(accepted), material,
+    });
+  }
+
+  async prepare(requester: FactoryPrincipal, preparation: FactoryReleasePreparation, idempotencyKey: string): Promise<FactoryReleaseOperation> {
+    let profileInput: FactoryReleaseProfileInput, profileResult: FactoryReleaseProfileResult, input: FactoryReleaseRequest;
+    [requester, input, profileInput, profileResult] = canonical([requester, preparation.request, preparation.profileInput, preparation.profile]);
     validateRequest(input, this.now());
     const locator = await this.mutations.execute({ principal: requester, projectId: input.projectId, action: "factory.release", idempotencyKey, input: { kind: "release.prepare", request: input } }, async transaction => {
       const current = await this.authority.lockCurrentInTransaction(transaction, this.tenantId, input.projectId, input.runId, input.nodeInstanceId);
@@ -463,6 +614,12 @@ export class FactoryReleases {
       const material = canonical(await this.materials.readPinnedInTransaction(transaction, this.tenantId, accepted));
       validateMaterial(material, input.decisionId);
       if (material.packageTrustDigest !== current.packageTrustDigest || material.validatorTrustDigest !== current.validatorTrustDigest) throw new FactoryReleaseError("factory_release_trust_changed");
+      // Revalidate the exact input the profile resolved from. The caller's manifest and requested
+      // destination are bound by digest; the decision and material come from this locked read, so
+      // a result built against a stale decision or a changed material cannot be persisted.
+      const rederived: FactoryReleaseProfileInput = { ...profileInput, tenantId: this.tenantId, projectId: input.projectId, runId: input.runId, decision: factoryAcceptanceDecisionOf(accepted), material };
+      const sealed = assertProfileResult(profileResult, factoryReleaseProfileInputDigest(canonical(rederived)), this.now());
+      if (canonicalJson(sealed.destination) !== canonicalJson(input.destination) || canonicalJson(sealed.request) !== canonicalJson(input.request) || sealed.estimatedSpendMicros !== input.estimatedSpendMicros) throw new FactoryReleaseError("factory_release_profile_stale");
       const destination = canonical(input.destination);
       const canonicalRequest = canonicalJson({ provider: destination.provider, request: input.request });
       const operationId = `factory-release:${digestObject(identityFor(input))}`;
@@ -476,13 +633,27 @@ export class FactoryReleases {
       const destinationHash = destinationDigest(destination);
       const requestHash = hash({ destination, request: input.request });
       const materialHash = hash(material);
-      await transaction.execute(sql`INSERT INTO factory_release_operations (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,destination_ref,destination_branch) VALUES (${this.tenantId},${input.projectId},${operationId},${input.runId},${input.nodeInstanceId},${input.candidateGeneration},${input.candidateDigest},${input.decisionId},${accepted.contractDigest},${accepted.executionEpoch},${accepted.cancellationEpoch},${current.releaseEnableEpoch},${input.action},${destination.provider},${destination.account},${destination.object},${destination.expectedVersion ?? null},${destinationHash},${canonicalRequest},${requestHash},${canonicalJson(material)},${materialHash},${input.estimatedSpendMicros},${input.deadlineMs},'pending',${binding?.ref ?? null},${binding?.branch ?? null}) ON CONFLICT (tenant_id,project_id,run_id,node_instance_id,candidate_generation,action,destination_provider,destination_account,destination_object) DO NOTHING`);
+      await transaction.execute(sql`INSERT INTO factory_release_operations (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,destination_ref,destination_branch,profile_input_digest,profile_result_digest,profile_resolved_at_ms) VALUES (${this.tenantId},${input.projectId},${operationId},${input.runId},${input.nodeInstanceId},${input.candidateGeneration},${input.candidateDigest},${input.decisionId},${accepted.contractDigest},${accepted.executionEpoch},${accepted.cancellationEpoch},${current.releaseEnableEpoch},${input.action},${destination.provider},${destination.account},${destination.object},${destination.expectedVersion ?? null},${destinationHash},${canonicalRequest},${requestHash},${canonicalJson(material)},${materialHash},${input.estimatedSpendMicros},${input.deadlineMs},'pending',${binding?.ref ?? null},${binding?.branch ?? null},${sealed.inputDigest},${sealed.resultDigest},${sealed.resolvedAtMs}) ON CONFLICT (tenant_id,project_id,run_id,node_instance_id,candidate_generation,action,destination_provider,destination_account,destination_object) DO NOTHING`);
       const saved = await this.readInTransaction(transaction, input.projectId, operationId, "share");
       if (!saved || saved.requestDigest !== requestHash || saved.materialDigest !== materialHash || saved.destinationDigest !== destinationHash || saved.deadlineMs !== input.deadlineMs) throw new FactoryReleaseError("factory_release_conflict");
+      if (!saved.profileResultDigest) throw new FactoryReleaseError("factory_release_profile_stale");
       await insertTransactionalAuditEntry(transaction, `factory-release-prepared:${operationId}`, requester.kind === "user" ? requester.id : null, "factory.release.prepared", operationId, { tenantId: this.tenantId, projectId: input.projectId, operationId, principalKind: requester.kind, principalId: requester.id, requestDigest: requestHash, destinationDigest: destinationHash });
       return { projectId: saved.projectId, operationId: saved.operationId };
     });
-    const operation = await this.inspect(locator.projectId, locator.operationId);
+    return this.ensureArchived(requester, locator.projectId, locator.operationId);
+  }
+
+  /**
+   * Archive-before-claim, and the one place that order is applied.
+   *
+   * `prepare` calls it after its product transaction; a caller replaying a recorded preparation
+   * calls it directly, so a crash between the operation row and its archive completes without
+   * resolving a second profile. Both archive writes happen outside every transaction and are
+   * content-addressed, so a retry lands on the same immutable objects.
+   */
+  async ensureArchived(requester: FactoryPrincipal, projectId: string, operationId: string): Promise<FactoryReleaseOperation> {
+    [requester, projectId, operationId] = canonical([requester, projectId, operationId]); text(projectId, operationId);
+    const operation = await this.inspect(projectId, operationId);
     if (!operation) throw new FactoryReleaseError("factory_release_corrupt");
     if (operation.archiveReady) return operation;
     const intent = { operationId: operation.operationId, tenantId: this.tenantId, projectId: operation.projectId, runId: operation.runId, nodeInstanceId: operation.nodeInstanceId, candidateGeneration: operation.candidateGeneration, candidateDigest: operation.candidateDigest, decisionId: operation.decisionId, contractDigest: operation.contractDigest, executionEpoch: operation.executionEpoch, cancellationEpoch: operation.cancellationEpoch, releaseEnableEpoch: operation.releaseEnableEpoch, action: operation.action, destination: operation.destination, request: operation.request, requestDigest: operation.requestDigest, materialDigest: operation.materialDigest, deadlineMs: operation.deadlineMs };
@@ -539,6 +710,8 @@ export class FactoryReleases {
       const current = await this.authority.lockCurrentInTransaction(transaction, this.tenantId, projectId, observed.runId, observed.nodeInstanceId);
       const operation = await this.readInTransaction(transaction, projectId, operationId, "update");
       if (operation?.state !== "pending" || !operation.archiveReady || !operation.intentArchive || !operation.materialArchive || operation.deadlineMs <= this.now()) throw new FactoryReleaseError("factory_release_not_claimable");
+      // An operation leaves `pending` only with its profile seal, which the database also checks.
+      if (!operation.profileResultDigest) throw new FactoryReleaseError("factory_release_profile_stale");
       if (operation.runId !== observed.runId || operation.requestDigest !== observed.requestDigest || operation.materialDigest !== observed.materialDigest) throw new FactoryReleaseError("factory_release_stale");
       const accepted = await this.assurance.assertAcceptedReleaseInTransaction(transaction, operation);
       this.assertCurrent(operation, current, accepted);
@@ -753,6 +926,29 @@ export class FactoryReleases {
 
   async inspect(projectId: string, operationId: string): Promise<FactoryReleaseOperation | null> { text(projectId, operationId); return this.readInTransaction(this.database, projectId, operationId, "none"); }
 
+  /**
+   * The pending operations a release worker may try to claim, oldest deadline first.
+   *
+   * It returns identities only. Authority, acceptance, trust, the destination reservation and the
+   * approval are all re-derived by `claim` inside its own transaction, so a row named here confers
+   * nothing; it is a work list, not a grant. An operation without a readable archive or with an
+   * expired deadline is never listed, because `claim` would refuse it.
+   */
+  async listClaimableInTransaction(transaction: MigrationDb, projectId: string, limit = 100): Promise<readonly FactoryClaimableRelease[]> {
+    text(projectId); count(limit, true);
+    if (limit > 1000) throw new FactoryReleaseError("factory_release_invalid");
+    const found = rows<{ project_id: string; operation_id: string; run_id: string; node_instance_id: string; deadline_ms: number | string; dispatch_generation: number | string }>(await transaction.execute(sql`
+      SELECT project_id,operation_id,run_id,node_instance_id,deadline_ms,dispatch_generation FROM factory_release_operations
+      WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND state='pending' AND archive_ready=TRUE
+        AND profile_result_digest IS NOT NULL AND intent_archive_json IS NOT NULL AND material_archive_json IS NOT NULL
+        AND deadline_ms>${this.now()}
+      ORDER BY deadline_ms,operation_id LIMIT ${limit}`));
+    return Object.freeze(found.map(row => Object.freeze({
+      projectId: row.project_id, operationId: row.operation_id, runId: row.run_id, nodeInstanceId: row.node_instance_id,
+      deadlineMs: Number(row.deadline_ms), dispatchGeneration: Number(row.dispatch_generation),
+    })));
+  }
+
   private assertCurrent(input: Pick<FactoryReleaseRequest, "runId" | "nodeInstanceId" | "candidateGeneration" | "candidateDigest" | "deadlineMs"> & Partial<Pick<FactoryReleaseOperation, "executionEpoch" | "cancellationEpoch" | "releaseEnableEpoch">>, current: FactoryReleaseAuthority, accepted: FactoryAcceptedRelease): void {
     if (current.runId !== input.runId || current.nodeInstanceId !== input.nodeInstanceId || current.candidateGeneration !== input.candidateGeneration || current.candidateDigest !== input.candidateDigest || !["queued", "running", "waiting"].includes(current.status) || current.deadlineMs < input.deadlineMs || current.deadlineMs <= this.now() || accepted.runId !== input.runId || accepted.nodeInstanceId !== input.nodeInstanceId || accepted.candidateGeneration !== input.candidateGeneration || accepted.candidateDigest !== input.candidateDigest || input.executionEpoch !== undefined && (current.executionEpoch !== input.executionEpoch || accepted.executionEpoch !== input.executionEpoch) || input.cancellationEpoch !== undefined && (current.cancellationEpoch !== input.cancellationEpoch || accepted.cancellationEpoch !== input.cancellationEpoch) || input.releaseEnableEpoch !== undefined && current.releaseEnableEpoch !== input.releaseEnableEpoch) throw new FactoryReleaseError("factory_release_authority_stale");
   }
@@ -817,7 +1013,7 @@ export class FactoryReleases {
 
   private async readInTransaction(database: MigrationDb, projectId: string, operationId: string, lock: "update" | "share" | "none"): Promise<FactoryReleaseOperation | null> {
     const clause = lock === "update" ? sql`FOR UPDATE` : lock === "share" ? sql`FOR SHARE` : sql``;
-    const row = rows<OperationRow>(await database.execute(sql`SELECT tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,dispatch_generation,sender_token,dispatch_started,authority_kind,authority_id,policy_revision,intent_archive_json,material_archive_json,receipt_archive_json,receipt_json,archive_ready,outcome_code,destination_ref,destination_branch FROM factory_release_operations WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} ${clause}`))[0];
+    const row = rows<OperationRow>(await database.execute(sql`SELECT tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,dispatch_generation,sender_token,dispatch_started,authority_kind,authority_id,policy_revision,intent_archive_json,material_archive_json,receipt_archive_json,receipt_json,archive_ready,outcome_code,destination_ref,destination_branch,profile_input_digest,profile_result_digest,profile_resolved_at_ms FROM factory_release_operations WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND operation_id=${operationId} ${clause}`))[0];
     return row ? operationFromRow(row) : null;
   }
 }

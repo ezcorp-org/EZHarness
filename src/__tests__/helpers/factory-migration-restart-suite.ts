@@ -293,13 +293,13 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
   });
 
-  test("repeated migration keeps the release profile seal and the broker-only git ref binding", async () => {
+  test("repeated migration keeps the release profile seal, the claim gate, and the broker-only git ref binding", async () => {
     const db = fixture.db;
     const digest = (fill: string) => `sha256:${fill.repeat(64).slice(0, 64)}`;
     const profileChecks = async () => rows<{ definition: string }>(await db.execute(sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='factory_release_operations'::regclass AND contype='c' AND (conname LIKE '%profile%' OR conname LIKE '%destination_ref%' OR conname LIKE '%destination_branch%') ORDER BY conname`));
     const before = await profileChecks();
     const beforeOids = rows(await db.execute(sql`SELECT conname,oid FROM pg_constraint WHERE conrelid='factory_release_operations'::regclass AND contype='c' ORDER BY conname`));
-    expect(before).toHaveLength(6);
+    expect(before).toHaveLength(7);
     for (let boot = 0; boot < 2; boot++) {
       await fixture.migrate();
       expect(await profileChecks()).toEqual(before);
@@ -315,10 +315,10 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
     // The checks reject a half-sealed profile and a ref outside the broker namespace. A temporary
     // copy carries the same CHECKs without the operation's foreign keys.
-    const sealed = async (inputDigest: string | null, resultDigest: string | null, resolvedAtMs: number | null, ref: string | null, branch: string | null) =>
+    const sealed = async (inputDigest: string | null, resultDigest: string | null, resolvedAtMs: number | null, ref: string | null, branch: string | null, state = "pending") =>
       db.transaction(async tx => {
         await tx.execute(sql`CREATE TEMP TABLE release_probe (LIKE factory_release_operations INCLUDING CONSTRAINTS INCLUDING DEFAULTS) ON COMMIT DROP`);
-        await tx.execute(sql`INSERT INTO release_probe (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,profile_input_digest,profile_result_digest,profile_resolved_at_ms,destination_ref,destination_branch) VALUES ('t','p','o','r','n',0,${digest("1")},'d',${digest("2")},1,0,1,'publish','github','ez','demo',${digest("3")},'{}',${digest("4")},'{}',${digest("5")},0,1,'pending',${inputDigest},${resultDigest},${resolvedAtMs},${ref},${branch})`);
+        await tx.execute(sql`INSERT INTO release_probe (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,profile_input_digest,profile_result_digest,profile_resolved_at_ms,destination_ref,destination_branch) VALUES ('t','p','o','r','n',0,${digest("1")},'d',${digest("2")},1,0,1,'publish','github','ez','demo',${digest("3")},'{}',${digest("4")},'{}',${digest("5")},0,1,${state},${inputDigest},${resultDigest},${resolvedAtMs},${ref},${branch})`);
       }).then(() => null, (error: unknown) => error);
     expect(await sealed(digest("6"), digest("7"), 1, "refs/heads/ezcorp-factory/o", "ezcorp-factory/o")).toBeNull();
     expect(await sealed(digest("6"), null, 1, null, null)).toBeInstanceOf(Error);
@@ -326,6 +326,13 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     expect(await sealed(null, null, null, "refs/heads/ez-code/o", "ez-code/o")).toBeInstanceOf(Error);
     expect(await sealed(null, null, null, "refs/heads/ezcorp-factory/o", null)).toBeInstanceOf(Error);
     expect(await sealed("not-a-digest", digest("7"), 1, null, null)).toBeInstanceOf(Error);
+    // An operation may sit in `pending` unsealed, but it can never leave `pending` without its
+    // profile result. W05 deliberately left this check out; W07's store writes the seal.
+    expect(await sealed(null, null, null, null, null, "pending")).toBeNull();
+    for (const state of ["executing", "succeeded", "failed", "uncertain"]) {
+      expect([state, await sealed(null, null, null, null, null, state)]).toMatchObject([state, expect.any(Error)]);
+      expect([state, await sealed(digest("6"), digest("7"), 1, null, null, state)]).toEqual([state, null]);
+    }
   });
 
   test("repeated migration keeps the protected decision column and backfills only acceptance receipts", async () => {
