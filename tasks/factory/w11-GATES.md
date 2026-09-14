@@ -377,14 +377,15 @@ results. Nothing here reconfigured the GPU and nothing reimaged anything.
 
 ## Open
 
-1. **G15, large-artifact egress. Owned by W12.** The shared runner's
-   control-output budget is a per-worker lifetime limit of one mebibyte, so an
-   isolated guest cannot return a 1,024-pixel variant at all. This blocks G16,
-   G17 and G18b as much as the missing credential does. W11 consumes
-   `StartRequest.materials` and W12's guest output and material mount, and
-   writes no version of its own; W12 merges first and the Terra runtime owner
-   reviews that contract on `wp/w01c-materials-review`. See "Cross-package
-   coordination".
+1. **G15, large-artifact egress. Owned by the Terra runtime owner.** The shared
+   runner's control-output budget is a per-worker lifetime limit of one
+   mebibyte, so an isolated guest cannot return a 1,024-pixel variant at all.
+   This blocks G16, G17 and G18b as much as the missing credential does. W11
+   consumes `StartRequest.materials` and the `/materials` mount from
+   `wp/w01c-materials-review` at `b2b3e614e`, not W12's version, and writes none
+   of it. One sub-item is still open there: the byte ceiling is enforced on
+   read-back but not at mount time, so a running guest can still fill the host
+   disk. See "Cross-package coordination".
 2. **G16, the model credential.** No `ANTHROPIC_API_KEY` and no configured
    provider reference. Recorded as a readiness failure.
 3. **`broker.invoke` has no production implementation.** Every existing use of
@@ -428,14 +429,28 @@ files back and storing them through W04's `FactoryAttemptMaterials`. Absent
 means no mount, so no existing caller changes and C05 stays intact.
 
 **The exact seam W11 consumes, and does not write.** `StartRequest.materials`,
-with the guest output and material mount W12 adds to the shared Podman runner.
-W11 adds no version of it: this branch touches no file under
+an optional host path; absent means no mount, so no existing caller changes. The
+guest path is `GUEST_MATERIALS_PATH`, exported from `@ezcorp/extension-runner`
+with the value `/materials`, fixed rather than an environment variable because
+C05 permits a guest exactly three declared variables and this is not one of
+them. The mount is emitted by `runnerMaterialMount(directory)` as
+`type=bind,src=<dir>,dst=/materials,rw=true,relabel=private`, added only when
+named and never for a discovery guest, with `in/` for what the host staged and
+`out/` for what the guest leaves.
+
+**Consume the Terra runtime owner's version, not W12's.** W12 reports that the
+coordinator put their crossing into `packages/@ezcorp/extension-runner` under
+review as F4 and told them not to change it further, so `wp/w12-data-pack` holds
+W12's version and the Terra runtime owner's on `wp/w01c-materials-review` is the
+one that lands, HEAD `b2b3e614e`, "refuse to follow anything a guest wrote into
+its material mount". That version is already hardened past W12's. W11 waits for
+the coordinator's word and merges neither on its own.
+
+W11 adds no version of any of this: this branch touches no file under
 `packages/@ezcorp/extension-runner` at all, which the diff against the true
-merge-base `1d3edf5b0` shows. W12 merges before W11, and the Terra runtime owner
-is reviewing that shared-contract change on `wp/w01c-materials-review`, so the
-field's final name and guest path are theirs to settle, not W11's. When it
-lands, W11 wires `verify-factory-image-pack.ts` and `image_guest.py` to it and
-deletes the guest's `fetch` tool and the host's reassembly loop.
+merge-base `1d3edf5b0` shows. When the seam lands, W11 wires
+`verify-factory-image-pack.ts` and `image_guest.py` to it and deletes the
+guest's `fetch` tool and the host's reassembly loop.
 
 The requirements W11 gave W12 for that seam: binary files, writable by the
 guest's uid 65534 under the read-only root, a directory rather than a single
@@ -443,28 +458,55 @@ file, and a declared byte ceiling, because a bind mount out of the private
 attempt tree is disk-backed rather than charged against `limits.tmpBytes` and an
 unbounded one lets a guest fill the host disk.
 
-W11 also asked for one addition: the guest should report `{name, digest, bytes}`
-per file in its small result frame, and the host should refuse any file whose
-recomputed digest or length disagrees. Without that binding a truncated write is
-indistinguishable from a complete one, and a partial PNG still decodes. That is
-the property the chunked transfer has today and the only one worth carrying
-forward. Once the seam lands, W11 deletes the guest's `fetch` tool and the
-host's reassembly loop, which is a net simplification.
+**Where those requirements stand, per W12.** One, two and three are met. The
+mount is an ordinary bind mount, so binary files pass unmodified. Writability is
+`podman unshare chown 65534:0 <out>` at mode 0o770 rather than a world-writable
+0o777, which a validator made W12 correct; inputs stay host-owned at 0o644 so a
+guest cannot replace what it was given, and a host with no container runtime
+fails closed rather than widening the mode. The directory holds several files.
+
+Four is only partly met and W11 still wants it. `FACTORY_MATERIAL_LIMITS.maxTotalBytes`
+is enforced on read-back at the seal, so an oversized output never becomes
+durable, but nothing bounds the mount while the guest is running and a guest can
+still fill the host disk. A mount-time bound is the Terra runtime owner's to
+add. W12 wants it too.
+
+**The digest binding W11 asked for is already the rule.** W12 has the guest
+report `{name, digest, encodedBytes}` per file in its result, the host re-hash
+every file it finds in `out/` and refuse on any disagreement, and the seal refuse
+again if the sealed digest differs from the measured one. A truncated write
+fails at the first of those. W12's snapshot step goes further and has the guest
+hash the bytes it was actually given, so a disagreement with the sealed input is
+caught too. That is the property W11's chunked transfer has today and the only
+one worth carrying forward.
+
+**W04 admits at most 256 objects under one C02 material operation**, and
+`FactoryS3AcceptedPublication` names exactly one operation, so a published set
+has to stay inside one. W12 hit the limit with a hundred partitions writing
+three materials each and split by graph step. Checked for this pack rather than
+assumed: one generation attempt emits one normalized PNG, the fixture attempt
+emits two, and the published set is two files under one operation, so W11 is
+two orders of magnitude inside the bound. If an image run ever emits more than a
+handful of materials per attempt, split the same way.
 
 Numbers given to W12 as evidence: the four real 1,024-pixel variants were
 998,116, 2,368,441, 2,425,924 and 2,432,539 bytes, so three of four exceed the
 entire per-worker budget on their own before base64 adds a third, and C10 allows
-up to 10 MiB per PNG.
+up to 10 MiB per PNG. W12 reports the same finding from the other direction: a
+10,000-row partition at C10's 256 MiB bound is about 2.6 MiB of Parquet, which
+also clears the whole per-worker lifetime budget on its own.
 
 ## Interface questions for the coordinator
 
 1. ~~Who owns large-artifact egress from a `--network=none` guest?~~ Settled
    directly with W12: they implement the per-attempt output mount in
-   `wp/w12-data-pack` and W11 consumes `StartRequest.materials` with their guest
-   output and material mount. The Terra runtime owner reviews that shared
-   contract on `wp/w01c-materials-review`. See "Cross-package coordination". The
-   coordinator's remaining decision is whether that seam integrates before or
-   after W13, because G18b and G16 both wait on it.
+   `wp/w01c-materials-review` at `b2b3e614e` and W11 consumes
+   `StartRequest.materials` with its `/materials` mount. W12's version on
+   `wp/w12-data-pack` is under review as F4 and is not the one to land. See
+   "Cross-package coordination". Two decisions remain for the coordinator:
+   whether that seam integrates before or after W13, because G18b and G16 both
+   wait on it, and whether the Terra owner adds a mount-time byte bound, which
+   both W11 and W12 asked for.
 2. Is there a configured Anthropic provider reference I should resolve, or does
    the missing credential stay a readiness failure through W19?
 3. `FactoryS3AcceptedPublication` is W08's shape and W08 asked W11 and W12 to
