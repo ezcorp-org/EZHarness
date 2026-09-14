@@ -259,10 +259,12 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     computeAllocation: text("compute_allocation"),
     uncertainty: text("uncertainty"),
     state: text("state").notNull(),
+    originKind: text("origin_kind").notNull().default("dispatch-node"),
   }, (table) => [
     primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId] }),
     foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.envelopeId], foreignColumns: [factoryBudgetEnvelopes.tenantId, factoryBudgetEnvelopes.projectId, factoryBudgetEnvelopes.runId, factoryBudgetEnvelopes.envelopeId] }).onDelete("restrict"),
     check("factory_budget_reservations_state_check", sql`${table.state} IN ('held', 'running', 'uncertain', 'settled')`),
+    check("factory_budget_reservations_origin_kind_check", sql`${table.originKind} IN ('dispatch-node', 'protected-validator')`),
   ]);
 
   const factoryComputeAdmissions = pgTable("factory_compute_admissions", {
@@ -279,10 +281,14 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     responseJson: text("response_json"),
     eventDigest: text("event_digest"),
     eventJson: text("event_json"),
+    originKind: text("origin_kind").notNull().default("dispatch-node"),
+    originJson: text("origin_json"),
+    originDigest: text("origin_digest"),
     createdAt: createdAtColumn(),
     updatedAt: updatedAtColumn(),
   }, (table) => [
     primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId] }),
+    uniqueIndex("uq_factory_validator_admission_identity").on(table.tenantId, table.projectId, table.runId, table.originDigest).where(sql`${table.originKind} = 'protected-validator'`),
     index("idx_factory_compute_admissions_poll").on(table.tenantId, table.nextPollAt, table.createdAt, table.reservationId).where(sql`${table.state} IN ('pending', 'queued', 'cancelling')`),
     foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId], foreignColumns: [factoryBudgetReservations.tenantId, factoryBudgetReservations.projectId, factoryBudgetReservations.runId, factoryBudgetReservations.reservationId] }).onDelete("restrict"),
     check("factory_compute_admissions_request_digest_check", sql`${table.requestDigest} ~ '^sha256:[0-9a-f]{64}$'`),
@@ -292,7 +298,14 @@ export function buildFactorySchema({ projects, users, serviceAccounts }: Factory
     check("factory_compute_admissions_poll_lease_check", sql`(${table.pollLeaseToken} IS NULL) = (${table.pollLeaseUntil} = 0)`),
     check("factory_compute_admissions_response_check", sql`(${table.responseDigest} IS NULL) = (${table.responseJson} IS NULL)`),
     check("factory_compute_admissions_event_check", sql`(${table.eventDigest} IS NULL) = (${table.eventJson} IS NULL)`),
-    check("factory_compute_admissions_terminal_event_check", sql`(${table.state} IN ('admitted', 'rejected')) = (${table.eventJson} IS NOT NULL)`),
+    // A protected validator has no kernel node, so it never carries an
+    // `admission-result`; every other origin still must once it settles.
+    check("factory_compute_admissions_terminal_event_check", sql`CASE WHEN ${table.originKind} = 'protected-validator' THEN ${table.eventJson} IS NULL ELSE (${table.state} IN ('admitted', 'rejected')) = (${table.eventJson} IS NOT NULL) END`),
+    check("factory_compute_admissions_origin_kind_check", sql`${table.originKind} IN ('dispatch-node', 'protected-validator')`),
+    check("factory_compute_admissions_origin_digest_check", sql`${table.originDigest} IS NULL OR ${table.originDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+    check("factory_compute_admissions_origin_body_check", sql`(${table.originKind} = 'protected-validator') = (${table.originJson} IS NOT NULL)`),
+    check("factory_compute_admissions_origin_seal_check", sql`(${table.originJson} IS NULL) = (${table.originDigest} IS NULL)`),
+    check("factory_compute_admissions_origin_bytes_check", sql`${table.originJson} IS NULL OR octet_length(${table.originJson}) <= 1048576`),
   ]);
 
   const factoryMutationReceipts = pgTable("factory_mutation_receipts", {

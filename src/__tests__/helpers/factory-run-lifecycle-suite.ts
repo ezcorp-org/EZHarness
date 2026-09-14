@@ -128,6 +128,9 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(rows(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE run_id=${run.runId}`))).toHaveLength(1);
     expect(await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId))).toMatchObject({ sequence: 1, lag: 0 });
     if (admitted.status !== "admitted") throw new Error("fixture compute admission failed");
+    // A dispatch-node admission always carries its kernel event; a validator
+    // origin is the only shape that does not, and this fixture has none.
+    if (!admitted.receipt.event) throw new Error("fixture compute admission produced no admission-result event");
     const next = advanceKernel(compiled, first.nextState, admitted.receipt.event);
     const dispatch = next.commands.find(command => command.kind === "dispatch-node");
     if (!dispatch) throw new Error("fixture dispatch command is missing");

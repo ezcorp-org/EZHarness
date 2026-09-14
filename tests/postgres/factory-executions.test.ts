@@ -99,7 +99,7 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     const operation = operationFor(attempt, 0);
     await journal.prepare(attempt, operation);
     await journal.dispatch(attempt, operation.operationId);
-    const usage = { kind: "measured", inputTokens: 1, outputTokens: 2, computeMs: 3, costMicros: "4" };
+    const usage = { kind: "measured" as const, inputTokens: 1, outputTokens: 2, computeMs: 3, costMicros: "4" };
     await journal.settle(attempt, operation.operationId, "completed", { resultDigest: "a".repeat(64), result: { output: "done" }, usage, workspaceCheckpoint: { artifactId: "checkpoint", digest: `sha256:${"b".repeat(64)}`, encodedBytes: 4, journalCursor: 0 } });
     const snapshot = await nativeFactoryJournal(journal).snapshot(attempt.request);
     expect(snapshot).toMatchObject({ journalCursor: 0, usage, operations: [{ ...operation, state: "completed" }] });
@@ -118,11 +118,11 @@ describe("factory execution journal on real Bun.sql PostgreSQL", () => {
     await journal.prepare(attempt, one);
     await journal.dispatch(attempt, zero.operationId);
     await journal.dispatch(attempt, one.operationId);
-    await journal.settle(attempt, one.operationId, "completed", { resultDigest: "one", result: { output: "one" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 1 } });
+    await journal.settle(attempt, one.operationId, "completed", { resultDigest: "one", result: { output: "one" }, usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 0, computeMs: 2, costMicros: "3" }, workspaceCheckpoint: { artifactId: "cursor-checkpoint-1", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 2, journalCursor: 1 } });
     expect(await journal.status(attempt)).toMatchObject({ journalCursor: -1 });
-    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", result: { output: "zero" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } });
-    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", result: { output: "zero" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } });
-    await expect(journal.settle(attempt, zero.operationId, "completed", { resultDigest: "changed", result: { output: "zero" }, usage: { tokens: 1 }, workspaceCheckpoint: { snapshot: 0 } })).rejects.toThrow("cannot settle");
+    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", result: { output: "zero" }, usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 0, computeMs: 2, costMicros: "3" }, workspaceCheckpoint: { artifactId: "cursor-checkpoint-0", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 2, journalCursor: 0 } });
+    await journal.settle(attempt, zero.operationId, "completed", { resultDigest: "zero", result: { output: "zero" }, usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 0, computeMs: 2, costMicros: "3" }, workspaceCheckpoint: { artifactId: "cursor-checkpoint-0", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 2, journalCursor: 0 } });
+    await expect(journal.settle(attempt, zero.operationId, "completed", { resultDigest: "changed", result: { output: "zero" }, usage: { kind: "measured" as const, inputTokens: 1, outputTokens: 0, computeMs: 2, costMicros: "3" }, workspaceCheckpoint: { artifactId: "cursor-checkpoint-0", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 2, journalCursor: 0 } })).rejects.toThrow("cannot settle");
     expect(await journal.status(attempt)).toMatchObject({ journalCursor: 1 });
   });
 

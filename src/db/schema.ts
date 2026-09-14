@@ -3144,6 +3144,71 @@ export const factoryTaskOutcomes = pgTable("factory_task_outcomes", {
   attemptId: text("attempt_id").notNull(), reservationId: text("reservation_id").notNull(), inputDigest: text("input_digest").notNull(), authorityJson: text("authority_json").notNull(), resultJson: text("result_json").notNull(), evidenceDigest: text("evidence_digest").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }), uniqueIndex("factory_task_outcomes_attempt_id_key").on(table.attemptId), foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"), check("factory_task_outcomes_input_digest_check", sql`${table.inputDigest} ~ '^sha256:[0-9a-f]{64}$'`), check("factory_task_outcomes_evidence_digest_check", sql`${table.evidenceDigest} ~ '^sha256:[0-9a-f]{64}$'`), check("factory_task_outcomes_receipt_digest_check", sql`${table.receiptDigest} ~ '^sha256:[0-9a-f]{64}$'`)]);
 
+/**
+ * Sealed usage settlements. One row per reservation revision, carrying the one
+ * idempotent `usage-settled` event the kernel folds.
+ */
+export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  reservationId: text("reservation_id").notNull(), revision: bigint("revision", { mode: "number" }).notNull(),
+  attemptId: text("attempt_id").notNull(),
+  source: text("source").notNull().$type<"stop" | "reconciliation">(),
+  knownCostMicros: text("known_cost_micros").notNull(),
+  unknownCostMicros: text("unknown_cost_micros"),
+  providerReceiptDigest: text("provider_receipt_digest"),
+  settledAtMs: bigint("settled_at_ms", { mode: "number" }).notNull(),
+  settlementDigest: text("settlement_digest").notNull(),
+  eventJson: text("event_json").notNull(), eventDigest: text("event_digest").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId, table.revision] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId], foreignColumns: [factoryBudgetReservations.tenantId, factoryBudgetReservations.projectId, factoryBudgetReservations.runId, factoryBudgetReservations.reservationId] }).onDelete("restrict"),
+  check("factory_usage_settlements_revision_check", sql`${table.revision} >= 1`),
+  check("factory_usage_settlements_source_check", sql`${table.source} IN ('stop','reconciliation')`),
+  check("factory_usage_settlements_known_cost_check", sql`${table.knownCostMicros} ~ '^[0-9]+$'`),
+  check("factory_usage_settlements_unknown_cost_check", sql`${table.unknownCostMicros} IS NULL OR ${table.unknownCostMicros} ~ '^[0-9]+$'`),
+  check("factory_usage_settlements_receipt_check", sql`${table.providerReceiptDigest} IS NULL OR ${table.providerReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_settled_at_ms_check", sql`${table.settledAtMs} >= 0`),
+  check("factory_usage_settlements_settlement_digest_check", sql`${table.settlementDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_event_digest_check", sql`${table.eventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_reconciliation_check", sql`${table.source} <> 'reconciliation' OR ${table.providerReceiptDigest} IS NOT NULL`),
+]);
+
+/**
+ * Sealed cancellation, uncertain stop, and host-confirmed stop facts. Every
+ * CHECK the migration declares is modeled here, so the PostgreSQL parity lane
+ * compares one schema rather than two.
+ */
+export const factoryTaskStops = pgTable("factory_task_stops", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(),
+  cancelCommandId: text("cancel_command_id").notNull(), attemptCommandId: text("attempt_command_id"), attemptId: text("attempt_id").notNull(), reservationId: text("reservation_id").notNull(),
+  requestJson: text("request_json").notNull(), requestDigest: text("request_digest").notNull(),
+  source: text("source").notNull().default("terminal-outcome").$type<"terminal-outcome" | "sealed-launch">(),
+  state: text("state").notNull().$type<"accepted" | "uncertain" | "stopped">(),
+  uncertainEventJson: text("uncertain_event_json"), uncertainEventDigest: text("uncertain_event_digest"), stopReceiptJson: text("stop_receipt_json"), stopReceiptDigest: text("stop_receipt_digest"), stoppedEventJson: text("stopped_event_json"), stoppedEventDigest: text("stopped_event_digest"),
+  acceptedAtMs: bigint("accepted_at_ms", { mode: "number" }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.cancelCommandId] }),
+  uniqueIndex("factory_task_stops_attempt_id_key").on(table.attemptId),
+  foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.attemptId], foreignColumns: [factoryAttemptLaunches.attemptId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.attemptCommandId], foreignColumns: [factoryTaskOutcomes.tenantId, factoryTaskOutcomes.projectId, factoryTaskOutcomes.runId, factoryTaskOutcomes.interpreterId, factoryTaskOutcomes.commandId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.cancelCommandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"),
+  check("factory_task_stops_request_digest_check", sql`${table.requestDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_task_stops_source_check", sql`${table.source} IN ('terminal-outcome','sealed-launch')`),
+  check("factory_task_stops_state_check", sql`${table.state} IN ('accepted','uncertain','stopped')`),
+  check("factory_task_stops_accepted_at_ms_check", sql`${table.acceptedAtMs} >= 0`),
+  check("factory_task_stops_uncertain_event_digest_check", sql`${table.uncertainEventDigest} IS NULL OR ${table.uncertainEventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_task_stops_stop_receipt_digest_check", sql`${table.stopReceiptDigest} IS NULL OR ${table.stopReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_task_stops_stopped_event_digest_check", sql`${table.stoppedEventDigest} IS NULL OR ${table.stoppedEventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_task_stops_outcome_source_check", sql`${table.source} <> 'terminal-outcome' OR ${table.attemptCommandId} IS NOT NULL`),
+  check("factory_task_stops_accepted_state_check", sql`(${table.state} = 'accepted') = (${table.uncertainEventJson} IS NULL AND ${table.uncertainEventDigest} IS NULL AND ${table.stopReceiptJson} IS NULL AND ${table.stopReceiptDigest} IS NULL AND ${table.stoppedEventJson} IS NULL AND ${table.stoppedEventDigest} IS NULL)`),
+  check("factory_task_stops_uncertain_pair_check", sql`(${table.uncertainEventJson} IS NULL) = (${table.uncertainEventDigest} IS NULL)`),
+  check("factory_task_stops_receipt_pair_check", sql`(${table.stopReceiptJson} IS NULL) = (${table.stopReceiptDigest} IS NULL)`),
+  check("factory_task_stops_stopped_pair_check", sql`(${table.stoppedEventJson} IS NULL) = (${table.stoppedEventDigest} IS NULL)`),
+  check("factory_task_stops_stopped_state_check", sql`(${table.state} = 'stopped') = (${table.stopReceiptJson} IS NOT NULL AND ${table.stoppedEventJson} IS NOT NULL)`),
+]);
+
 export const factoryCommandApprovals = pgTable("factory_command_approvals", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), approvalId: text("approval_id").notNull(),
   runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),

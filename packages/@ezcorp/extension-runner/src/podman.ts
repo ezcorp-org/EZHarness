@@ -12,7 +12,17 @@ import { browserBuild, browserBuilderProgram } from "./browser";
 
 export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834";
 const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
-const guestShim = `const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("/channel/in","r+"),o=fs.openSync("/channel/out","r+"),e=fs.openSync("/channel/err","r+");const c=cp.spawn(process.execPath,["./.runner/extension.js"],{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));`;
+/**
+ * The sandbox's init process. It holds the three control FIFOs open for the
+ * guest's whole life and spawns the extension as its child.
+ *
+ * It must install a SIGTERM handler: the kernel applies no default signal
+ * action to PID 1, so without one a graceful stop is silently ignored and every
+ * cancellation has to be resolved by a kill. The handler forwards the signal to
+ * the extension, which is not PID 1 and so does take the default action, and
+ * the existing exit relay ends the sandbox as soon as it goes.
+ */
+const guestShim = `const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("/channel/in","r+"),o=fs.openSync("/channel/out","r+"),e=fs.openSync("/channel/err","r+");const c=cp.spawn(process.execPath,["./.runner/extension.js"],{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));for(const s of["SIGTERM","SIGINT"])process.on(s,()=>{try{c.kill(s)}catch{process.exit(143)}});`;
 const CHANNEL_FIFOS = ["in", "out", "err"] as const;
 /** Traversable and readable by the mapped guest uid, writable by nobody but the runner. */
 const CHANNEL_DIRECTORY_MODE = 0o755;
@@ -456,6 +466,19 @@ export class PodmanRunner implements Runner {
       return execution;
     } catch (error) { this.activeExecutions--; this.operations.set(input.workerId, { id: input.workerId, state: "failed", diagnostics: [new RunnerError("worker_start_failed", "Worker could not start").diagnostic()] }); if (staged) await rm(staged, { recursive: true, force: true }); throw error; }
   }
+  /**
+   * Signals the sandbox's init process so the guest can clean up. It never
+   * removes the container, so the caller can observe whether cleanup finished
+   * before it kills what remains.
+   */
+  async abort(id: string): Promise<void> {
+    identifier(id);
+    const current = this.operations.get(id) ?? await this.inspect(id);
+    if (current.state !== "running") return;
+    try { await command(this.podman, ["kill", "--signal=TERM", this.containerName(id)]); }
+    catch (error) { if (!(error instanceof RunnerError && error.code === "command_failed" && /no such (?:object|container)|is not running/i.test(error.message))) throw error; }
+  }
+
   async cancel(id: string): Promise<void> {
     identifier(id);
     const current = this.operations.get(id) ?? await this.inspect(id);

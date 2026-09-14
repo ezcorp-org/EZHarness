@@ -183,6 +183,12 @@ export interface Runner {
   /** Reconnect a host client to a live worker without launching another one. */
   attach?(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution>;
   cancel(id: string): Promise<void>;
+  /**
+   * Ask the whole sandbox to stop and clean up, without waiting for it and
+   * without removing it. C02 gives a cancelled worker a bounded cleanup
+   * window between this signal and an unconditional `cancel`.
+   */
+  abort?(id: string): Promise<void>;
   inspect(id: string): Promise<RunnerInspection>;
   collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles>;
 }

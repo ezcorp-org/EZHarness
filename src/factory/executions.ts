@@ -1,7 +1,7 @@
 import { sql } from "drizzle-orm";
 import { lockFactoryScope } from "./locks";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
-import { validateFactoryRunnerResult, type FactoryMeasuredUsage, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
+import { validateFactoryRunnerResult, type FactoryCheckpointReference, type FactoryRunnerResult, type FactoryUsage } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
 import type { FactoryRunnerRequest, FactoryRunnerRequestIdentity } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -9,6 +9,7 @@ import { releaseRows } from "../db/queries/extension-releases";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestObject } from "../extensions/v4/blobs";
 import { artifactJson, type FactoryArtifacts } from "./artifacts";
+import { firstFactoryJournalIssue, validateFactoryOperationSettlement, validateFactoryTerminalUsage } from "./journal-validation";
 
 export type FactoryOperationState = "prepared" | "dispatched" | "completed" | "failed" | "uncertain";
 
@@ -67,8 +68,8 @@ export interface FactoryOperationSettlement {
   resultDigest?: string;
   /** Exact JSON result, retained so recovery never repeats a completed effect. */
   result?: JsonValue;
-  usage?: unknown;
-  workspaceCheckpoint?: unknown;
+  usage?: FactoryUsage;
+  workspaceCheckpoint?: FactoryCheckpointReference;
 }
 
 export interface FactoryJournalOperationStatus {
@@ -144,7 +145,7 @@ function snapshotOperation(value: FactoryJournalOperation): FactoryJournalOperat
 }
 
 function snapshotSettlement(value: FactoryOperationSettlement): FactoryOperationSettlement {
-  const copy = (item: unknown): JsonValue | undefined => item === undefined ? undefined : JSON.parse(canonicalJson(item)) as JsonValue;
+  const copy = <Item,>(item: Item): Item => JSON.parse(canonicalJson(item)) as Item;
   return Object.freeze({ ...(value.providerReceiptDigest === undefined ? {} : { providerReceiptDigest: value.providerReceiptDigest }), ...(value.resultDigest === undefined ? {} : { resultDigest: value.resultDigest }), ...(value.result === undefined ? {} : { result: copy(value.result) }), ...(value.usage === undefined ? {} : { usage: copy(value.usage) }), ...(value.workspaceCheckpoint === undefined ? {} : { workspaceCheckpoint: copy(value.workspaceCheckpoint) }) });
 }
 
@@ -271,8 +272,12 @@ export class FactoryExecutionJournal {
     authority = snapshotAuthority(authority);
     result = snapshotSettlement(result);
     this.assertLiveInput(authority);
-    if (state === "completed" && (!result.resultDigest || result.result === undefined || result.usage === undefined || result.workspaceCheckpoint === undefined)) throw new Error("A completed factory operation needs result, usage, and workspace checkpoint evidence.");
-    if (state === "failed" && !result.resultDigest) throw new Error("A failed factory operation needs a result digest.");
+    const settlement = validateFactoryOperationSettlement(state, result);
+    if (!settlement.ok) {
+      if (state === "completed") throw new Error(`A completed factory operation needs result, usage, and workspace checkpoint evidence: ${firstFactoryJournalIssue(settlement)}.`);
+      if (state === "failed" && !result.resultDigest) throw new Error("A failed factory operation needs a result digest.");
+      throw new Error(`A factory operation settlement is malformed: ${firstFactoryJournalIssue(settlement)}.`);
+    }
     await this.db.transaction(async (database) => {
       await this.lockLive(database, authority);
       const operation = releaseRows<{ operation_index: number }>(await database.execute(sql`UPDATE factory_execution_operations SET state=${state}, provider_receipt_digest=${result.providerReceiptDigest ?? null}, result_digest=${result.resultDigest ?? null}, result_json=${result.result === undefined ? null : canonicalJson(result.result)}::jsonb, usage_json=${result.usage === undefined ? null : canonicalJson(result.usage)}::jsonb, workspace_checkpoint=${result.workspaceCheckpoint === undefined ? null : canonicalJson(result.workspaceCheckpoint)}::jsonb, updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND operation_id=${operationId} AND state='dispatched' RETURNING operation_index`))[0];
@@ -341,7 +346,7 @@ export class FactoryExecutionJournal {
 
   private async verifyCompletedEvidence(database: MigrationDb, authority: FactoryAttemptAuthority, result: Extract<FactoryRunnerResult, { status: "completed" }>, artifacts: FactoryArtifacts) {
     const evidence = await this.verifyRunnerResultInTransaction(database, authority, result);
-    if (evidence.operations.some(operation => operation.state === "prepared" || operation.state === "dispatched" || operation.state === "uncertain" || operation.usage === undefined || (operation.usage as { kind?: string }).kind !== "measured") || result.output.digest !== `sha256:${result.resultDigest}`) throw new Error("Factory terminal result does not match measured usage or output digest.");
+    if (evidence.operations.some(operation => operation.state === "prepared" || operation.state === "dispatched" || operation.state === "uncertain") || !validateFactoryTerminalUsage(result, evidence.operations).ok || result.output.digest !== `sha256:${result.resultDigest}`) throw new Error("Factory terminal result does not match measured usage or output digest.");
     const output = await artifacts.loadInTransaction(database, { tenantId: authority.tenantId, projectId: authority.projectId, logicalRunId: authority.runId }, { objectId: result.output.artifactId, digest: result.output.digest, encodedBytes: result.output.encodedBytes }, ["candidate_output"]);
     if (output.reference.digest !== result.output.digest || output.reference.encodedBytes !== result.output.encodedBytes || output.candidateNodeInstanceId !== authority.nodeInstanceId || output.candidateGeneration !== authority.candidateGeneration) throw new Error("Factory terminal output is unavailable.");
     artifactJson.parse(output.content);
@@ -361,12 +366,7 @@ export class FactoryExecutionJournal {
     durableRunnerRequest(this.storedJson(attempt.request_json), attempt.request_hash);
     const evidence = await this.operationEvidenceInTransaction(database, authority.attemptId);
     if (evidence.journalCursor !== result.journalCursor || canonicalJson(evidence.operations) !== canonicalJson(result.operations) || evidence.operations.some(operation => operation.state === "prepared" || operation.state === "dispatched")) throw new Error("Factory terminal result does not match settled journal evidence.");
-    if (result.usage?.kind === "measured") {
-      const measured = result.operations.map(operation => operation.usage).filter((usage): usage is FactoryMeasuredUsage => usage?.kind === "measured");
-      if (measured.length !== result.operations.length) throw new Error("Factory terminal result does not match measured usage or output digest.");
-      const aggregate = { kind: "measured", inputTokens: measured.reduce((sum, usage) => sum + usage.inputTokens, 0), outputTokens: measured.reduce((sum, usage) => sum + usage.outputTokens, 0), computeMs: measured.reduce((sum, usage) => sum + usage.computeMs, 0), costMicros: measured.reduce((sum, usage) => sum + BigInt(usage.costMicros), 0n).toString() };
-      if (canonicalJson(aggregate) !== canonicalJson(result.usage)) throw new Error("Factory terminal result does not match measured usage or output digest.");
-    }
+    if (!validateFactoryTerminalUsage(result, evidence.operations).ok) throw new Error("Factory terminal result does not match measured usage or output digest.");
     const resultJson = canonicalJson(result);
     const terminalResultDigest = `sha256:${digestObject(result)}`;
     const evidenceDigest = `sha256:${digestObject({ authority: { ...authority, deadlineAt: authority.deadlineAt.getTime() }, requestDigest: authority.requestDigest, terminalResultDigest, journalCursor: evidence.journalCursor, operations: evidence.operations })}`;
@@ -398,19 +398,53 @@ export class FactoryExecutionJournal {
 
   async cancel(authority: FactoryAttemptAuthority): Promise<boolean> {
     authority = snapshotAuthority(authority);
-    return this.db.transaction(async (database) => {
-      await this.lockRunFence(database, authority);
-      const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='cancel_accepted', cancel_accepted_at=COALESCE(cancel_accepted_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status IN ('admitted', 'running') RETURNING attempt_id`));
-      return Boolean(updated.length);
-    });
+    return this.db.transaction(database => this.cancelInTransaction(database, authority));
+  }
+
+  async cancelInTransaction(database: MigrationDb, value: FactoryAttemptAuthority): Promise<boolean> {
+    const authority = snapshotAuthority(value);
+    await this.lockRunFence(database, authority);
+    const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='cancel_accepted', cancel_accepted_at=COALESCE(cancel_accepted_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status IN ('admitted', 'running') RETURNING attempt_id`));
+    return Boolean(updated.length);
+  }
+
+  /**
+   * Idempotent product cancellation acceptance for one already-running attempt.
+   * A second call on an accepted attempt is a replay, not a conflict; anything
+   * else is stale and must not reach a physical stop.
+   */
+  async acceptCancellationInTransaction(database: MigrationDb, value: FactoryAttemptAuthority): Promise<boolean> {
+    const authority = snapshotAuthority(value);
+    if (await this.cancelInTransaction(database, authority)) return true;
+    const existing = releaseRows<{ status: string }>(await database.execute(sql`SELECT status FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} FOR UPDATE`))[0];
+    return existing?.status === "cancel_accepted" || existing?.status === "stopped";
   }
 
   async confirmStopped(authority: FactoryAttemptAuthority): Promise<boolean> {
     authority = snapshotAuthority(authority);
-    return this.db.transaction(async (database) => {
-      await this.lockRunFence(database, authority);
-      const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='stopped', stopped_at=COALESCE(stopped_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status='cancel_accepted' RETURNING attempt_id`));
-      return Boolean(updated.length);
+    return this.db.transaction(database => this.confirmStoppedInTransaction(database, authority));
+  }
+
+  async confirmStoppedInTransaction(database: MigrationDb, value: FactoryAttemptAuthority): Promise<boolean> {
+    const authority = snapshotAuthority(value);
+    await this.lockRunFence(database, authority);
+    const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='stopped', stopped_at=COALESCE(stopped_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status='cancel_accepted' RETURNING attempt_id`));
+    return Boolean(updated.length);
+  }
+
+  /**
+   * The sealed attempt authority for one durable attempt. A physical stop reads
+   * it by attempt id, because a live cancellation has no outcome row and must
+   * not depend on the dispatch command to name the holder it is fencing.
+   */
+  async readAuthorityInTransaction(database: MigrationDb, key: { tenantId: string; projectId: string; runId: string; attemptId: string }): Promise<FactoryAttemptAuthority | undefined> {
+    const row = releaseRows<{ node_instance_id: string; candidate_generation: number | string; attempt_number: number | string; grant_revision: number | string; reservation_generation: number | string; execution_epoch: number | string; cancellation_epoch: number | string; request_hash: string; deadline_at: Date | string }>(await database.execute(sql`SELECT node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,request_hash,deadline_at FROM factory_executions WHERE attempt_id=${key.attemptId} AND tenant_id=${key.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} FOR SHARE`))[0];
+    if (!row) return undefined;
+    return snapshotAuthority({
+      attemptId: key.attemptId, tenantId: key.tenantId, projectId: key.projectId, runId: key.runId,
+      nodeInstanceId: row.node_instance_id, candidateGeneration: Number(row.candidate_generation), attemptNumber: Number(row.attempt_number),
+      grantRevision: Number(row.grant_revision), reservationGeneration: Number(row.reservation_generation), executionEpoch: Number(row.execution_epoch),
+      cancellationEpoch: Number(row.cancellation_epoch), requestDigest: row.request_hash, deadlineAt: new Date(row.deadline_at),
     });
   }
 

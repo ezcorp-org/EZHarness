@@ -59,6 +59,7 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/archive-writer.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/artifact-access.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/admission-origin.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/assurance-commands.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/assurance-commands.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
@@ -108,7 +109,9 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/task-admission.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/task-completions.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/task-outcomes.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/task-stops.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/transition-artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/usage-settlement.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/validator-materials.ts", sharedModule: "src/extensions/v4/blobs.ts" },
 ];
 

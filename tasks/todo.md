@@ -2218,3 +2218,48 @@ Behavior, every plan bullet:
 - [x] C05 re-run across PGlite, real PostgreSQL and S3, real Podman preparation, and schema and foreign-key parity; two model and configuration tuples sharing one package and export with only one revoked.
 
 Review (W01): the recorded C02 gap is closed. `wait()` after a recovery boundary no longer refuses; one canonical terminal result is digest-sealed into the launch row before the runtime acknowledges it, and `open()` replays it without touching the runner, so a fresh gateway returns the identical result after exactly one start and one invocation. Six defects surfaced and were fixed rather than routed. The merged branch had silently removed the kernel isolation probe from every build, which is a C05 control and not merely the `ENOENT` symptom that exposed it. The isolated runtime accepted any reverse envelope with an `input` key, so a broker frame was bound to nothing even though the v4 guest already sends the exact invocation context. A readiness denial after the durable claim stranded the attempt in `launching` forever. My own first fix then introduced two more, both caught only by the real container suite: probing the kernel on `attach()` cost about four seconds and the guest whose control pipe died did not survive that window, and sweeping orphans on the lazy build and execution paths would destroy another attempt's surviving guest now that execution is detached. Finally, real PostgreSQL parity rejected a plain object as a jsonb column default. One deviation from the freeze for the coordinator to confirm: the durable terminal result lives in two columns on `factory_attempt_launches` rather than in `factory_execution_terminals`, because that table requires verified candidate output bytes and measured usage and so cannot hold a failed, cancelled, or uncertain runner result. It is still no new table.
+
+## W03 — Physical stop, cancellation, and budget settlement
+
+Branch `wp/w03-stop-settlement`, base `integ/w00` at `88effb159`. Gates and receipts:
+`tasks/factory/w03-GATES.md`, `/tmp/factory-platform-evidence/w03/`.
+
+- [x] Type checkpoint: share journal fact validation (freeze section 8).
+- [x] Type checkpoint: type live stop authority (freeze section 3, migration + Drizzle coherence).
+- [x] Type checkpoint: type usage settlement (freeze section 4, migration + inbox co-enqueue proof).
+- [x] Finish the Phase B stop service on the exact attempt, reservation, worker, host, generation,
+      request, and cancellation command.
+- [x] Cancel a still-running attempt with no terminal result, from the sealed admission plus the
+      launch record. No fabricated outcome.
+- [x] Host identity and key wiring: only the supervisor signs a physical fact.
+- [x] Concrete authenticated host stop transport over the real private mTLS service, with key
+      rotation and reload, unknown-key rejection, and the retained-trust policy for an old key.
+- [x] Abort, at most ten seconds of cleanup, then whole-sandbox termination confirmed from the
+      runtime. Proven against real rootless Podman.
+- [x] Bounded stop timeout leaves durable uncertainty and holds; a later valid receipt reconciles
+      without replacement work and without rewriting a prior outcome.
+- [x] Receipts verified before pool release and before atomic journal, budget, and inbox
+      settlement. Unknown provider cost is never settled as zero.
+- [x] Trusted later usage reconciliation with one idempotent usage-settled event, concurrent
+      stop and confirm, corruption rejection, and pool-ack-then-product-failure recovery.
+- [x] Cancellation during admission, lost acknowledgements, ledger loss, and partitioned
+      survivors. See the gate file for what the stop path proves and what is routed elsewhere.
+- [x] C03 fairness and limits: round-robin service, the thirty-second oldest-first lane, reserved
+      minima, atomic whole-vector admission, infeasible rejection, the outstanding limits with
+      HTTP 429, the reservation vocabulary, the allocation-trace audit, and the skewed workload.
+
+- [x] Unblock W05: admit a protected-validator origin through the acceptance command, key it with
+      `factoryReservationIdForOrigin`, and emit no `admission-result`. Commit `97fb7ab16`.
+- [x] Root-cause and guard the pool suite spin that held the shared heavy lock. Commit `c2d6f27d1`.
+
+### Review
+
+The package landed three type checkpoints, the stop service, the C02.14 sandbox termination, the
+authenticated host stop transport, and the C03 scheduling work. Six real defects were found by
+running the contracts rather than reading them: a pool round that never ended and starved every
+tenant but the lexicographically smallest; a guest shim that discarded every graceful stop because
+a container's PID 1 has no default signal action; a launch reader that only decoded `jsonb` in its
+PGlite form; a run authorizer that made a cancelling run unstoppable; an assertion against an undriven lazy
+`SQLQuery` that busy-spun a core and held the shared heavy lock for fifty minutes; and a durable
+constraint that made a validator admission impossible to settle. Each is described in its own
+commit with the measurement that found it.

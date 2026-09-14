@@ -3095,4 +3095,12 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await upFactoryAttemptLaunches(db);
   const { up: addFactoryArtifactMaterials } = await import("./migrations/add-factory-artifact-materials");
   await addFactoryArtifactMaterials(db);
+  const { up: addFactoryTaskStops } = await import("./migrations/add-factory-task-stops");
+  await addFactoryTaskStops(db);
+  const { up: addFactoryUsageSettlements } = await import("./migrations/add-factory-usage-settlements");
+  await addFactoryUsageSettlements(db);
+  const { up: addFactoryAdmissionOrigin } = await import("./migrations/add-factory-admission-origin");
+  await addFactoryAdmissionOrigin(db);
+  const { up: addFactoryValidatorAdmissionEvent } = await import("./migrations/add-factory-validator-admission-event");
+  await addFactoryValidatorAdmissionEvent(db);
 }
