@@ -21,7 +21,7 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 out=${COV_OUT:?COV_OUT is required}
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/factory-reference-data-coverage.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$out" "$tmp/unit" "$tmp/journey" "$tmp/postgres" "$tmp/postgres-bytes" "$tmp/postgres-rows"
+mkdir -p "$out" "$tmp/unit" "$tmp/journey" "$tmp/postgres"
 cd "$repo_root"
 
 image=$(bun -e 'const m = await import("./src/factory/reference-data/guest.ts"); process.stdout.write(await m.factoryReferenceDataImage());')
@@ -44,21 +44,15 @@ bun test --timeout 60000 --coverage --coverage-reporter=lcov --coverage-dir="$tm
 bun test --timeout 1800000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/journey" \
   ./src/factory/reference-data/journey.integration.test.ts
 
-# The real leg runs in THREE invocations. Both C10 boundary cases in one process
-# write roughly 600 MB of objects in three minutes, which OOM-killed the shared
-# object store at its container memory cap; each leg on its own is well inside
-# it. Splitting lowers the peak without weakening any case.
+# The real leg is ONE faithful full-file run. Repeating the two boundary cases
+# in separate invocations added no proof the full run does not already make, and
+# doubled the object volume on a shared store whose container memory cap has
+# OOM-killed it twice under this package's load.
 if [ -n "${FACTORY_TEST_POSTGRES_URL:-}" ]; then
   # The faithful full-file run, with the maximum-row case declared last so this
   # is what proves W04's per-operation object budget after every sibling.
   bun test --timeout 4800000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/postgres" \
     ./tests/postgres/factory-reference-data.test.ts
-  sleep 30
-  bun test --timeout 5400000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/postgres-bytes" \
-    --test-name-pattern '256 MiB' ./tests/postgres/factory-reference-data.test.ts
-  sleep 30
-  bun test --timeout 5400000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/postgres-rows" \
-    --test-name-pattern 'maximum row count' ./tests/postgres/factory-reference-data.test.ts
 else
   echo "factory reference data: FACTORY_TEST_POSTGRES_URL is unset; the real leg did not run." >&2
   exit 1
