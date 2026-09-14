@@ -117,9 +117,28 @@ function memoryBlobs(): BlobStore & { readonly stored: Map<string, Uint8Array> }
   } as unknown as BlobStore & { readonly stored: Map<string, Uint8Array> };
 }
 
+/**
+ * A database that answers the one query startup makes before the stores exist.
+ *
+ * `startFactoryInstallation` binds the installation row first, so the fake has
+ * to answer the `SELECT ... FROM factory_installation` that `bindInstallation`
+ * reads back. Returning this tenant is the agreeing case; the mismatch case has
+ * its own test with its own fake.
+ */
+function bindingDatabase(tenantId = "tenant-01"): TransactionalDb {
+  // The only read startup makes through this handle is the bind's read-back, so
+  // one row is the whole contract. A handle that answered nothing made eight
+  // unrelated assertions fail with a TypeError from inside `bindInstallation`.
+  const execute = async () => [{ tenant_id: tenantId }];
+  return {
+    execute,
+    async transaction<Result>(work: (transaction: { execute: typeof execute }) => Promise<Result>): Promise<Result> { return work({ execute }); },
+  } as unknown as TransactionalDb;
+}
+
 function host(overrides: Partial<FactoryInstallationHost> = {}): FactoryInstallationHost {
   return {
-    database: {} as TransactionalDb,
+    database: bindingDatabase(),
     runOptions: { interpreterBuild: "build-1", interpreterCompatibility: "1", limits: { maxCostMicros: "100", maxTokens: 100, maxComputeMs: 100 }, resolveParameters: async () => ({}) },
     availableResourceClasses: ["cpu"],
     report: () => {},
@@ -501,5 +520,46 @@ describe("the child-settlement step", () => {
     await factoryChildSettlementDriver(database({ value: false }), children, SERVICE, () => {}, 25).step(new AbortController().signal);
 
     expect(limits).toEqual([200, 25]);
+  });
+});
+
+describe("binding the installation to its tenant", () => {
+  test("writes the installation row before admission, and fails closed on another tenant's database", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const statements: string[] = [];
+    const recording = (answer: string): TransactionalDb => {
+      const execute = async (query: unknown) => {
+        statements.push(JSON.stringify(query));
+        return [{ tenant_id: answer }];
+      };
+      return { execute, async transaction<Result>(work: (t: { execute: typeof execute }) => Promise<Result>) { return work({ execute }); } } as unknown as TransactionalDb;
+    };
+
+    const startup = await startFactoryInstallation({
+      host: host({ database: recording("tenant-01") }),
+      blobs: memoryBlobs(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath: await writeConfig(root),
+      boot: bootConfig(root),
+      dependencies: { gateway: { health: async () => true } },
+    });
+    started.push(startup);
+    // `factory_projects.tenant_id` is a foreign key to this row. Without it the
+    // first project a human creates answers 500 from a failing INSERT.
+    expect(statements.some((statement) => statement.includes("INSERT INTO factory_installation"))).toBe(true);
+
+    // A database already bound to another installation must be refused here,
+    // at boot, rather than served.
+    await expect(startFactoryInstallation({
+      host: host({ database: recording("tenant-99") }),
+      blobs: memoryBlobs(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath: await writeConfig(root),
+      boot: bootConfig(root),
+      dependencies: { gateway: { health: async () => true } },
+    })).rejects.toMatchObject({ code: "factory_installation_mismatch" });
   });
 });

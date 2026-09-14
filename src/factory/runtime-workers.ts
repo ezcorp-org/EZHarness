@@ -45,7 +45,20 @@ export interface FactoryProjectionDriver {
   }>;
 }
 
-/** One bounded delivery of the durable in-app release notification inbox. */
+/**
+ * One bounded delivery of the durable in-app release notification inbox.
+ *
+ * Nothing implements this today, and the reason is worth stating exactly
+ * because the method name hides it. The collaborator that exists is
+ * `FactoryNotificationDelivery.deliverNext(projectId)`, which is PER PROJECT,
+ * and there is no way to enumerate a tenant's projects: `FactoryRecords` binds
+ * a project row and never lists one. So an installation-wide delivery loop is
+ * missing its other half, exactly as the release-outcome loop is.
+ *
+ * This shape is kept rather than narrowed to the per-project call because it is
+ * what the ROLE needs; narrowing it would move the same gap into the composition
+ * without closing it. The role holds by name until a project enumerator exists.
+ */
 export interface FactoryNotificationInboxDriver {
   deliverNextAcrossProjects(signal: AbortSignal): Promise<boolean>;
 }
@@ -182,7 +195,7 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
   role("notification-inbox-delivery",
     inbox && (async (signal) => progress(!(await inbox.deliverNextAcrossProjects(signal)))),
     "destination-reservations", "W07/W08",
-    "the release store cannot be composed until its destination reservation and sender fence land");
+    "every release collaborator has landed; the delivery is per project and nothing enumerates a tenant's projects");
 
   // The remaining four are seam-driven. Each seam is a bounded step the owning
   // package composes from its own collaborator and its own scan, so supplying it
@@ -194,16 +207,16 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
   };
 
   seamRole("child-settlement", "childSettlement",
-    "FactoryChildRuns has no settleable-child scan; the run lifecycle owner composes the step");
+    "the installation composes this from W06's scan and settle; it holds only where neither is reachable");
   seamRole("release-outcome", "releaseProviders", factoryReleaseSeamsPresent(collaborators.seams)
-    ? "the release store composes, but no claimable-operation scan exists to drive an outcome loop"
+    ? "FactoryReleases.listClaimableInTransaction is per project and nothing enumerates a tenant's projects"
     : "a release outcome needs the provider resolver, the destination reservation, and the sender fence");
   seamRole("usage-reconciliation", "usageReconciler",
-    "an uncertain reservation is never settled as zero; reconciliation needs the trusted reconciler");
+    "W03 shipped FactoryUsageReconciler; no scan enumerates the uncertain reservations that hold a cost");
   seamRole("notification-send", "notificationSender",
     "a notification is not delivered until a sender confirms it left this host");
   seamRole("stop-settlement", "physicalStopper",
-    "a stop is settled only against a signed physical-stop receipt, never against an API answer");
+    "W03 shipped FactoryPhysicalStopper; no scan finds the next stoppable attempt to settle against its receipt");
 
   return Object.freeze({ workers, held: Object.freeze(held) });
 }

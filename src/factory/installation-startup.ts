@@ -32,6 +32,7 @@ import { FactoryCommandAuthority } from "./command-authority";
 import { FactoryComputeAdmissions } from "./compute-admissions";
 import { FactoryInbox } from "./inbox";
 import { createPoolAdmissionClient } from "./pool/client";
+import { FactoryRecords } from "./records";
 import { FactoryRunTransitionProjector } from "./run-transition-projector";
 import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
@@ -257,6 +258,23 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
   const boot = options.boot ?? factoryBootConfig;
   const config = await loadFactoryStartupConfig(options.configPath ?? factoryStartupConfigPath(process.env, boot));
   const host = options.host;
+
+  // Bind this installation to this tenant before anything else touches the
+  // factory tables.
+  //
+  // `factory_projects.tenant_id` is a foreign key to
+  // `factory_installation(tenant_id)`, and `bindInstallation` had no production
+  // caller anywhere in the tree — so on a flag-on installation the FIRST
+  // project a human created answered 500, with the failing INSERT in the server
+  // log and nothing in the product to explain it. The real-server proof found
+  // it by creating a project through the ordinary HTTP route, which is the only
+  // way it could have been found: every test seeded the row itself.
+  //
+  // It is idempotent, and it fails closed on the one case that matters. A
+  // database already bound to a different tenant raises
+  // `factory_installation_mismatch` here, at boot, instead of letting this
+  // process serve another installation's records.
+  await new FactoryRecords(host.database, config.tenantId).bindInstallation();
 
   // The stores the roles read through. `createFactoryApplication` builds the
   // same ones again inside `startFactoryRuntime`; these are the collaborators
