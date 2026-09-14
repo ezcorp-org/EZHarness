@@ -2287,6 +2287,10 @@ Gates: `tasks/factory/w09-GATES.md`.
       readiness and credentials rather than a seam on either existing one.
 - [x] W09.15 Merge `integ/w00` (1d3edf5b0) and compose the collaborators it brought: the
       composition-owned release fence reader, and child settlement from W06's scan and settle.
+- [x] W09.23 Correct the store-outage diagnosis: W09 caused it by running
+      scripts/verify-factory-storage.ts, whose durability check recreates the ordinary service from
+      the repository compose file, which on this branch still said mem_limit: 768m. The proof now
+      checks the stores read-only and nothing under repro/ invokes compose or docker.
 - [x] W09.16 Bind the installation row at startup. Found by the real-server proof: the foreign key
       from `factory_projects` made the first project creation on a flag-on installation answer 500.
 

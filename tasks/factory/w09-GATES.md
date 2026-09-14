@@ -334,25 +334,47 @@ than re-derived, which the receipt states in its own `retention` field. A driver
 that overwrites the evidence of its own failures is a defect in the harness, and
 it is recorded in the corrections below.
 
-**The store went down a second time, and the 2 GiB fix had never reached it.**
-The close-out run at `e90c7380d` failed all three proofs and one PostgreSQL
-producer on the same `object-storage: ConnectionRefused`. The diagnosis is in
-`shared-store-ordinary-still-768mib.json`: the ordinary container exited 137,
-OOM-killed, at 16:19:34Z, having STARTED at 16:02:15Z — after the 15:41:59Z
-recreate — while still carrying the old 768 MiB limit. Compose declares
-`mem_limit: 2g` for both services and the archive container runs at 2 GiB, so
-the ordinary one was started from the stale pre-fix container rather than
-recreated. That is the failure mode already in `tasks/lessons.md`, one service
-over: a compose change does not reach a container that was restarted rather than
-recreated, and the tell is `docker inspect --format '{{.HostConfig.Memory}}'`
-differing between two services that should match — 805306368 against
-2147483648.
+**I caused the second store outage, and my first diagnosis of it was wrong.**
+The close-out at `e90c7380d` failed on `object-storage: ConnectionRefused`, and
+I published a diagnosis saying the ordinary container had been "started from the
+stale pre-fix container" by someone else. That was wrong in its mechanism and
+wrong about who did it. The coordinator read Docker's own labels on the killed
+container: `Created=2026-09-14T16:02:15Z`,
+`com.docker.compose.project.working_dir=.worktrees/w09-startup`,
+`config_files=.worktrees/w09-startup/compose.factory-storage.local.yml`. It was
+recreated from MY worktree, by me.
 
-W09 did not recreate it. It is shared infrastructure the coordinator owns, the
-heavy lock was held by the wave-3 integration at the time, and recreating a
-store mid-run could break that run. Every gate that does not need the ordinary
-store passed at that commit; the three proofs and the private-service producer
-are the ones that need it.
+The mechanism, measured rather than inferred:
+`scripts/verify-factory-storage.ts` ends its conformance run with a durability
+check that stops the ordinary service and brings it back up from the repository
+compose file. I ran that script twice, to satisfy myself the store was healthy
+before the sweep. My branch had not yet merged `c054c6430`, so my compose file
+still said `mem_limit: 768m`, and each run replaced the coordinator's 2 GiB
+container with a 768 MiB one. The second was OOM-killed at 16:19:34Z.
+
+Three things were wrong with what I did, and only one of them is the container.
+
+- **A proof may observe its infrastructure and must never reconfigure it.** The
+  script's name is `verify-factory-storage.ts`; its last act is a recreate. I
+  read the name, not the file, and ran it against a shared service other agents
+  were using.
+- **I diagnosed from the artefact I could see rather than the one that records
+  causation.** The 768 MiB limit and the start time were both true, and I built
+  a story from them that never asked who started it. `docker inspect` carries
+  the compose project's working directory and config file; those two labels name
+  the culprit directly and I never looked at them.
+- **I stated it as settled.** The gate file said "the fix never reached it" with
+  no hedge, and the receipt I wrote to make it durable repeated it. A confident
+  wrong diagnosis of shared infrastructure sends its owner to the wrong repair.
+
+The proof now checks the stores read-only: `repro/check-shared-store.ts` opens a
+connection to each port and asks for the service root, and reports an
+unreachable store by name the way a readiness row does. Nothing under
+`repro/` invokes compose, docker, or `verify-factory-storage.ts`, and both the
+harness and the three-run driver refuse to run when a store is down rather than
+producing a failure that looks like the product's. The stale
+`shared-store-ordinary-still-768mib.json` receipt is superseded by this section;
+its measurements were accurate and its conclusion was not.
 
 **The proof no longer stops the moment the light turns green.** It holds the
 supervisor and watches it publish five consecutive readiness records, counting

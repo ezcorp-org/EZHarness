@@ -1090,3 +1090,19 @@
 - My own cleanup threw from `finally` and reported a fully passing test body as a failure. The repo already had this lesson and I still wrote it. Cleanup after a container test must be best-effort and must never mask the assertions.
 - When two packages need the same piece of a shared module, land it once in the owning package rather than reviewing each copy. W11 and W12 both needed the material mount; one canonical `runnerMaterialMount` with a test that asserts its exact option string is what stops a security-relevant flag drifting in one consumer.
 - I wrote the lesson about `git add -A` silently skipping a new file under a gitignored directory, and then repeated the mistake on the very next leaf. Having the lesson is not the control; the verification step is. After committing anything under `tasks/`, run `git ls-files tasks/` and confirm the file is listed, because `git status` stays clean either way and the omission is otherwise invisible until someone else looks for the file.
+- A script named `verify-*` can still mutate what it verifies. `scripts/verify-factory-storage.ts`
+  ends its conformance run by stopping and recreating the ordinary S3 service from the repository
+  compose file. I ran it twice against shared infrastructure to satisfy myself the store was
+  healthy, from a worktree whose compose file still carried the old memory limit, and each run
+  replaced another agent's correctly-sized container with an undersized one that was then
+  OOM-killed. Read what a tool does before pointing it at something you share.
+- Diagnose from the artefact that records causation, not the one you happened to look at. I had the
+  container's memory limit and start time, built a story from them, and never asked who started it.
+  `docker inspect` carries `com.docker.compose.project.working_dir` and `config_files`, which name
+  the worktree that ran the compose command. Two labels would have pointed at me in one command.
+- State a diagnosis of someone else's infrastructure with the confidence the evidence supports. I
+  wrote "the fix never reached it" as settled fact in a gate file and a receipt. It was wrong, and a
+  confident wrong diagnosis sends the owner to the wrong repair.
+- Run every command from your own worktree. A lock-holding shell of mine had its working directory
+  in the main checkout; the scripts passed an explicit repo path so nothing broke, but a bare `git`
+  or a relative path in that shell would have acted on the integration branch.
