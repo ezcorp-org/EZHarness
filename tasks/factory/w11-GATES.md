@@ -4,7 +4,9 @@ Scope: `reference.image.v1` (C10 "Reference image factory v1"), plan section 5
 W11. Interface freeze sections 6 (per-attempt device contract), 9 (strict
 validator report), 10 (acceptance and rejection events), 16.
 
-Branch `wp/w11-image-pack`. Base `integ/w00` at `1d3edf5b0`.
+Branch `wp/w11-image-pack`, head `2b91027ae`. Originally based on `integ/w00` at
+`1d3edf5b0`; merged `integ/w00` at `a8eff0bfa` on 2026-09-14 to take W02b's
+required `RunnerReference.manifestName` and the WREG backend-pool fixes.
 Evidence `/tmp/factory-platform-evidence/w11/`, receipts index
 `/tmp/factory-platform-evidence/w11/receipts.json`.
 
@@ -25,6 +27,39 @@ results. Nothing here reconfigured the GPU and nothing reimaged anything.
 | `77e9a8ad5` | test(factory): cover the image pack's staging seam and model reader |
 | `71d478f9c` | fix(factory): put the image pack's test helpers where the gate can see them |
 | `2744c4bc9` | feat(factory): publish a real image variant through the S3 adapter |
+| `f269b6ca7` | docs(factory): correct W11's measured Python counts and stop touching W18's file |
+| `75995aba2` | docs(factory): point W11 at the material mount that will actually land |
+| `2b91027ae` | merge: integrate integ/w00 at a8eff0bfa into the image pack |
+
+## Freeze section 17 migration: `RunnerReference.manifestName`
+
+**A no-op for this pack's source, verified rather than assumed.** Section 17
+makes `manifestName` required and stops anything comparing a manifest name to
+`package`. W11 constructs no `RunnerReference` literal and carried no
+reconciliation between the two spellings, so there was nothing to migrate: a
+grep for `RunnerReference`, `manifestName` and `manifestNameOf` across
+`src/factory/reference-image/**` and this pack's four scripts returns nothing.
+The image pack's own runner references live in the SDK's `references.ts`, which
+is the SDK owner's file, and W02b updated the shared `runner()` helper there to
+derive `manifestName` through `manifestNameOf()` while keeping `package` scoped.
+
+Of the three workarounds section 17 names, W11's was the second: it keeps the
+scoped `package` and never calls `FactoryPackagePreparations.bind`. Section 17
+says such a pack "can now bind normally". W11 has NOT taken that up, because
+binding would require the image pack's `@ezcorp/reference-image` package to
+exist as a real v4 release, which is a new capability rather than a migration.
+It is recorded in "Open" as newly unblocked so it is a decision rather than an
+omission.
+
+Measured after the merge, at head `2b91027ae`, with the workspace packages
+rebuilt: focused TypeScript 151 pass / 0 fail / 383 assertions and 100% of all
+six new files; Python 176 test cases and 100% of 672 statements and 206
+branches across both locked projects; typecheck, lint,
+`check-factory-boundaries` and `gate-integrity` all exit 0; and with
+`BASE_REF=integ/w00` the new-file gate PASSED over 14 files and the patch gate
+over 6. Receipts `logs/postmerge-ts.log`, `logs/postmerge-python.log` and
+`logs/postmerge-gates.log`. The GPU journey was not rerun: the merge changes no
+file it touches, and the coordinator scoped the rerun to the suites above.
 
 ## Gates
 
@@ -230,8 +265,9 @@ results. Nothing here reconfigured the GPU and nothing reimaged anything.
       `coverage-thresholds.json` and one `SOURCE_GLOBS` entry for
       `src/factory/reference-image/python/**/*.py`, which widens enforcement.
 
-- [x] G14a: The backend pool runs on this branch, and the failures it reports
-      are inherited rather than introduced.
+- [x] G14a (measured before the merge; see the note at the end): The backend
+      pool runs on this branch, and the failures it reports are inherited rather
+      than introduced.
       CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 2400 bun run test`
       EXPECT: the run completes; every failure is in a file this branch does not
       touch.
@@ -252,6 +288,15 @@ results. Nothing here reconfigured the GPU and nothing reimaged anything.
       Not fixed here: `packages/@ezcorp/extension-contract` is W02's surface and
       editing it while that package's validator may be running would be a worse
       outcome than reporting it.
+      **Superseded by the merge, and NOT re-measured.** The numbers above were
+      taken at `619c09afe`, before `integ/w00` at `a8eff0bfa` was merged. The
+      coordinator states that merge carries the WREG backend-pool fixes that
+      remove all seven failures. W11 has not rerun the pool to confirm, because
+      the coordinator scoped this pass to the focused suite, the Python lane, the
+      static gates and the delta coverage gates, and a thirteen-minute pool run
+      under the shared heavy lock against that scoping would cost other agents
+      their queue position. The claim above therefore describes the pre-merge
+      head only. Ask and W11 will rerun it.
 
 - [ ] G15: **A variant larger than one mebibyte cannot leave an isolated guest.**
       This is a platform finding, recorded as an unmet row rather than worked
@@ -401,6 +446,15 @@ results. Nothing here reconfigured the GPU and nothing reimaged anything.
 5. **The retained fixture verdicts are not human-reviewed.** See G17.
 6. **W09 composition.** The end-to-end journey through the started application
    is not attempted here; it follows the merge, as the brief directs.
+7. **Binding the image pack as a real v4 package, newly unblocked.** Section 17
+   removes the reason W11 never called `FactoryPackagePreparations.bind`: a
+   scoped `package` no longer has to equal a manifest name. Binding now needs
+   `@ezcorp/reference-image` to exist as a built v4 release, which is a new
+   capability rather than a migration, so W11 has not taken it up in this pass.
+   Recorded as a decision rather than left as an omission.
+8. **G15 and G18b wait on the Terra runtime owner's material mount.** The
+   coordinator is landing it now with the hardening its review required and will
+   say when it reaches `integ/w00`. W11 closes both rows against it then.
 
 ## How to reproduce
 
