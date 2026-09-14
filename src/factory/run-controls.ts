@@ -1,4 +1,5 @@
 import { advanceKernel, FactoryKernelError } from "@ezcorp/factory-sdk/kernel";
+import { factoryGraphNodes } from "@ezcorp/factory-sdk";
 import type { CompiledFactory, FactoryReference, FactoryRunRevisionBody } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { digestObject } from "../extensions/v4/blobs";
@@ -19,18 +20,62 @@ function subset(values: readonly string[], existing: readonly string[]): boolean
   return values.every(value => allowed.has(value));
 }
 
-function boundedReplacement(current: CompiledFactory, replacement: CompiledFactory): boolean {
+/** Declared demand dimensions. A replacement may ask for less along each of them, never more. */
+const LIMIT_DIMENSIONS = ["maxCostMicros", "maxTokens", "maxComputeMs", "memoryBytes"] as const;
+type LimitDimension = (typeof LIMIT_DIMENSIONS)[number];
+
+/**
+ * The most any single node of a revision declares it may consume, and every class it may ask for.
+ *
+ * An absent declaration asks for nothing, so a revision that declares no resources at all is
+ * bounded by every revision. The parent's delegated envelope still caps actual spend; this compares
+ * only what each revision says it needs, which is what an operator is authorizing at replan time.
+ */
+function declaredCeiling(factory: CompiledFactory): { readonly limits: Readonly<Record<LimitDimension, bigint>>; readonly classes: ReadonlySet<string> } {
+  const limits: Record<LimitDimension, bigint> = { maxCostMicros: 0n, maxTokens: 0n, maxComputeMs: 0n, memoryBytes: 0n };
+  const classes = new Set<string>();
+  for (const node of factoryGraphNodes(factory.definition.graph)) {
+    const declared = [node.resources, node.kind === "loop" ? node.budget : undefined];
+    for (const bounds of declared) {
+      if (!bounds) continue;
+      for (const dimension of LIMIT_DIMENSIONS) {
+        const value = (bounds as Partial<Record<LimitDimension, string | number>>)[dimension];
+        if (value === undefined) continue;
+        const parsed = typeof value === "number" ? (Number.isSafeInteger(value) ? BigInt(value) : undefined) : /^\d+$/.test(value) ? BigInt(value) : undefined;
+        if (parsed === undefined) throw new FactoryRunControlError("factory_control_corrupt");
+        if (parsed > limits[dimension]) limits[dimension] = parsed;
+      }
+    }
+    if (node.resources?.resourceClass !== undefined) classes.add(node.resources.resourceClass);
+  }
+  return { limits, classes };
+}
+
+/**
+ * Whether a replacement revision stays inside the authority the run already holds.
+ *
+ * Exported so every denial can be proved on its own. The protected acceptance contract and both
+ * port records must be identical, because a changed contract or a changed boundary is a different
+ * agreement and needs a new explicitly authorized run. Bounds, capabilities, effects, declared
+ * resource demand, and resource classes may only narrow: any of them growing is a widening of
+ * authority that no in-run control may grant.
+ */
+export function factoryBoundedReplacement(current: CompiledFactory, replacement: CompiledFactory): boolean {
   const before = current.definition;
   const after = replacement.definition;
-  return replacement.definition.interpreterCompatibility === current.definition.interpreterCompatibility
+  const currentCeiling = declaredCeiling(current);
+  const replacementCeiling = declaredCeiling(replacement);
+  return after.interpreterCompatibility === before.interpreterCompatibility
     && digestObject(after.acceptance) === digestObject(before.acceptance)
     && digestObject(after.inputPorts) === digestObject(before.inputPorts)
     && digestObject(after.outputPorts) === digestObject(before.outputPorts)
     && (after.bounds.runDeadlineMs ?? Number.MAX_SAFE_INTEGER) <= (before.bounds.runDeadlineMs ?? Number.MAX_SAFE_INTEGER)
     && after.bounds.maxExpandedNodes <= before.bounds.maxExpandedNodes
     && after.bounds.maxScopeDepth <= before.bounds.maxScopeDepth
-    && subset(replacement.definition.capabilities, current.definition.capabilities)
-    && subset(replacement.definition.effects, current.definition.effects);
+    && subset(after.capabilities, before.capabilities)
+    && subset(after.effects, before.effects)
+    && LIMIT_DIMENSIONS.every(dimension => replacementCeiling.limits[dimension] <= currentCeiling.limits[dimension])
+    && subset([...replacementCeiling.classes], [...currentCeiling.classes]);
 }
 
 /** Admits one exact repair/replan event from verified current state into the existing interpreter inbox. */
@@ -77,7 +122,7 @@ export class FactoryRunControls {
     const before = await this.definitions.readVersionInTransaction(transaction, principal, { projectId: current.fence.projectId, factoryId: currentReference.id }, currentReference.version);
     const after = await this.definitions.readVersionInTransaction(transaction, principal, { projectId: current.fence.projectId, factoryId: requested.id }, requested.version);
     if (before.compiled.digest !== currentReference.digest || after.compiled.digest !== requested.digest) throw new FactoryRunControlError("factory_control_stale");
-    if (!boundedReplacement(before.compiled, after.compiled)) throw new FactoryRunControlError("factory_control_widening");
+    if (!factoryBoundedReplacement(before.compiled, after.compiled)) throw new FactoryRunControlError("factory_control_widening");
     return { id: requested.id, version: requested.version, digest: requested.digest };
   }
 

@@ -3,6 +3,7 @@ import { FactoryAuthoringError, defineFactory } from "./authoring";
 import { canonicalizeJson } from "./canonical";
 import { compileFactory } from "./compiler";
 import { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references";
+import { factoryGraphNodes } from "./validation";
 import { FACTORY_LIMITS } from "./types";
 import type { FactoryDefinition, FactoryGraph, FactoryNode, FactoryReference, JsonValue } from "./types";
 
@@ -15,15 +16,8 @@ function codes(definition: unknown): string[] {
   return result.ok ? [] : result.diagnostics.map((entry) => entry.code);
 }
 
-function nodesIn(graph: FactoryGraph): FactoryNode[] {
-  return graph.nodes.flatMap((candidate) => [
-    candidate,
-    ...(candidate.kind === "branch" ? [...nodesIn(candidate.then), ...nodesIn(candidate.else)] : candidate.kind === "map" || candidate.kind === "loop" ? nodesIn(candidate.body) : []),
-  ]);
-}
-
 function node(definition: FactoryDefinition, id: string): FactoryNode {
-  return nodesIn(definition.graph).find((candidate) => candidate.id === id) as FactoryNode;
+  return factoryGraphNodes(definition.graph).find((candidate) => candidate.id === id) as FactoryNode;
 }
 
 describe("factory compiler", () => {
@@ -55,7 +49,7 @@ describe("factory compiler", () => {
     expect(referenceImageV1.acceptance.groups).toEqual([{ id: "semantic-quorum", claimIds: ["semantic-evaluation-1", "semantic-evaluation-2", "semantic-evaluation-3"], minimumPasses: 2, requireAllDecisive: true }]);
     expect(referenceCodeV1.acceptance.claims.map((claim) => claim.id)).toEqual(["frozen-install", "build", "typecheck", "declared-tests", "protected-fixtures", "dependency-advisory", "secret-scan", "allowed-paths", "protected-assets-unchanged", "supervised-review"]);
     expect((node(referenceDataV1, "parse-schema-validation") as Extract<FactoryNode, { kind: "task" }>).bindings!.partitionRows).toEqual({ kind: "literal", value: 10_000 });
-    for (const definition of referenceFactories) for (const taskNode of nodesIn(definition.graph).filter((candidate): candidate is Extract<FactoryNode, { kind: "task" }> => candidate.kind === "task")) expect(Object.keys(taskNode.bindings ?? {}).sort()).toEqual(Object.keys(taskNode.inputPorts ?? {}).sort());
+    for (const definition of referenceFactories) for (const taskNode of factoryGraphNodes(definition.graph).filter((candidate): candidate is Extract<FactoryNode, { kind: "task" }> => candidate.kind === "task")) expect(Object.keys(taskNode.bindings ?? {}).sort()).toEqual(Object.keys(taskNode.inputPorts ?? {}).sort());
   });
 
   test("materializes defaults and separates presentation digest", () => {

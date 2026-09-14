@@ -418,6 +418,11 @@ function validateNodeSemantics(factory: CompiledFactory, node: FactoryNode, dept
   return { ok: true };
 }
 
+/** Every node in a graph, including the nodes inside branch, map, and loop bodies. */
+export function factoryGraphNodes(graph: FactoryGraph): readonly FactoryNode[] {
+  return graphNodes(graph).map(entry => entry.node);
+}
+
 export function validateCompiledExecutionManifest(value: unknown, expectedFactoryDigest?: string, descriptor?: CompiledArtifactDescriptor): ValidationResult {
   if (!isCompiledExecutionManifest(value)) return issue("EXECUTION_MANIFEST_SCHEMA", "Value does not match the generated execution manifest schema.", []);
   const manifest = value as CompiledExecutionManifest;
