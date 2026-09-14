@@ -41,7 +41,7 @@ not code work.
 | `9d3594002` | `Merge branch 'integ/w00' into wp/w07-github-publication` (picks up W08; updates its `prepare` call site) |
 | `5198acfee` | `docs(factory): record the W07 gates, review, and lessons` |
 | `5e6f142be` | `docs(factory): stamp the W07 gate commit table` |
-| `<fix>` | `fix(factory): consolidate the publication scope resolver and the path error class` (validation F1, F2) |
+| `75533ea96` | `fix(factory): consolidate the publication scope resolver and the path error class` (validation F1, F2) |
 | `<stamp>` | `docs(factory): record the W07 validation fixes` (a file cannot carry its own hash) |
 
 ## The landed API
