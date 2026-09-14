@@ -3,7 +3,7 @@
 services:
   factory-storage-ordinary:
     profiles: ["factory-storage"]
-    mem_limit: 768m
+    mem_limit: 2g
     cpus: 1
     pids_limit: 256
     image: docker.io/chrislusf/seaweedfs@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62
@@ -23,7 +23,7 @@ services:
 
   factory-storage-archive:
     profiles: ["factory-storage"]
-    mem_limit: 768m
+    mem_limit: 2g
     cpus: 1
     pids_limit: 256
     image: docker.io/chrislusf/seaweedfs@sha256:08d516132314207d10c8e37cbffc1f32b147d870169688734cc61c6231625b62

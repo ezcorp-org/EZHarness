@@ -49,7 +49,7 @@ test("rebuilds the exact immutable v4 source into a fresh real Podman runner and
     const blobs = new FileBlobStore(blobRoot);
     const sourceDigest = await putFiles(blobs, files, "workspace");
     const release = record(initial, sourceDigest);
-    const reference: RunnerReference = { package: release.manifest.name, version: release.manifest.version, digest: `sha256:${release.artifactDigest}`, export: "echo" };
+    const reference: RunnerReference = { package: `@ezcorp/${release.manifest.name}`, manifestName: release.manifest.name, version: release.manifest.version, digest: `sha256:${release.artifactDigest}`, export: "echo" };
     const records = new FactoryRecords(db, tenantId);
     await records.bindInstallation();
     await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Podman package','/tmp/podman-package')`);

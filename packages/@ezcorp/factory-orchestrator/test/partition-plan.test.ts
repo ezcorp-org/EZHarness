@@ -6,7 +6,7 @@ import { loadPartitionKernelPlan } from "../src/partition-plan.ts";
 
 const digest = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const runnerDigest = digest("partition-runner");
-const runner = { package: "inert", version: "1", digest: runnerDigest, export: "run" };
+const runner = { package: "inert", manifestName: "inert", version: "1", digest: runnerDigest, export: "run" };
 const identity = { tenantId: "tenant", projectId: "project", logicalRunId: "run", interpreterId: "partition-0" };
 
 function fixture() {

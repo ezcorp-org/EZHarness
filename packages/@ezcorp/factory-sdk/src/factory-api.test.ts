@@ -19,7 +19,7 @@ const preconditions = { idempotencyKey: "request-1", payloadDigest: sourceDigest
 const project = { projectId: "project-1" } as const;
 const draft = { ...project, factoryId: referenceCodeV1.id } as const;
 const definitionBody = { source: referenceCodeV1 } as const;
-const packageLock = { package: "@ezcorp/release-runner", version: "1.2.3", digest: `sha256:${sourceDigest}`, export: "release", model: "model-1", configurationDigest: `sha256:${compiledBlobDigest}` } as const;
+const packageLock = { package: "@ezcorp/release-runner", manifestName: "release-runner", version: "1.2.3", digest: `sha256:${sourceDigest}`, export: "release", model: "model-1", configurationDigest: `sha256:${compiledBlobDigest}` } as const;
 const releaseDestination = { provider: "s3", account: "tenant-1", object: "releases/output.json", expectedVersion: "v1" } as const;
 const releasePolicy = { principalKind: "service" as const, principalId: "service-1", action: "publish", destinationProvider: "s3", destinationAccount: "tenant-1", destinationPrefix: "releases/", contractDigest: `sha256:${compiledBlobDigest}`, maxOperations: 2, maxSpendMicros: 10, expiresAtMs: 2_000_000_000_000 };
 

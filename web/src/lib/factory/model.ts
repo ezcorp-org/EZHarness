@@ -205,7 +205,7 @@ export function newFactoryNode(kind: FactoryNodeKind, id: string): FactoryNode {
 	const base = { id, dependsOn: [] };
 	switch (kind) {
 		case "task":
-			return { ...base, kind, runner: { package: "package-name", version: "1.0.0", digest: placeholderDigest, export: "run" } };
+			return { ...base, kind, runner: { package: "package-name", manifestName: "package-name", version: "1.0.0", digest: placeholderDigest, export: "run" } };
 		case "branch":
 			return { ...base, kind, condition: literal(true), then: emptyGraph(), else: emptyGraph() };
 		case "join":
@@ -221,7 +221,7 @@ export function newFactoryNode(kind: FactoryNodeKind, id: string): FactoryNode {
 		case "acceptance":
 			return { ...base, kind, contract: "contract-id", candidate: literal(null), evidence: literal([]) };
 		case "release":
-			return { ...base, kind, adapter: { package: "release-adapter", version: "1.0.0", digest: placeholderDigest, export: "release" }, acceptedCandidate: literal(null), destination: literal(null) };
+			return { ...base, kind, adapter: { package: "release-adapter", manifestName: "release-adapter", version: "1.0.0", digest: placeholderDigest, export: "release" }, acceptedCandidate: literal(null), destination: literal(null) };
 	}
 }
 

@@ -33,7 +33,7 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
   const cancellationEpoch = 0;
 
   const digest = (value: unknown) => `sha256:${digestObject(value)}`;
-  const candidateRunner: RunnerReference = { package: "@ezcorp/candidate", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run", configurationDigest: `sha256:${"b".repeat(64)}` };
+  const candidateRunner: RunnerReference = { package: "@ezcorp/candidate", manifestName: "candidate", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run", configurationDigest: `sha256:${"b".repeat(64)}` };
 
   class Lifecycle implements FactoryReleaseRunLifecycle, FactoryValidatorRunLifecycle {
     readonly tenantId = tenantId;

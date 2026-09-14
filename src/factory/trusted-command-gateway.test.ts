@@ -3,7 +3,7 @@ import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { TrustedFactoryCommandGateway } from "./trusted-command-gateway";
 
 const raw = "a".repeat(64);
-const request = { schemaVersion: "factory.runner.request.v1", authority: { attemptId: "attempt", tenantId: "tenant", projectId: "project", runId: "run", nodeInstanceId: "node", candidateGeneration: 0, attemptNumber: 0, grantRevision: 0, reservationGeneration: 0, executionEpoch: 0, cancellationEpoch: 0, deadlineAtMs: 2_000_000_000_000, nextOperationIndex: 0 }, runner: { package: "runner", version: "1", digest: `sha256:${raw}`, export: "run" }, input: { kind: "inline", value: {} }, grants: [], resources: {}, tools: [], broker: { attemptToken: "token", audience: "gateway" } } as FactoryRunnerRequest;
+const request = { schemaVersion: "factory.runner.request.v1", authority: { attemptId: "attempt", tenantId: "tenant", projectId: "project", runId: "run", nodeInstanceId: "node", candidateGeneration: 0, attemptNumber: 0, grantRevision: 0, reservationGeneration: 0, executionEpoch: 0, cancellationEpoch: 0, deadlineAtMs: 2_000_000_000_000, nextOperationIndex: 0 }, runner: { package: "runner", manifestName: "runner", version: "1", digest: `sha256:${raw}`, export: "run" }, input: { kind: "inline", value: {} }, grants: [], resources: {}, tools: [], broker: { attemptToken: "token", audience: "gateway" } } as FactoryRunnerRequest;
 
 test("trusted command gateway admits a persisted command before runner dispatch and never accepts body authority", async () => {
   const calls: string[] = [];

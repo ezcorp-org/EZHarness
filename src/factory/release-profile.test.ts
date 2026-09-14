@@ -14,7 +14,7 @@ import { factorySynchronousReleaseProfile } from "./protected-command-effects";
 import type { RunnerReference } from "@ezcorp/factory-sdk";
 
 const digest = (fill: string) => `sha256:${fill.repeat(64).slice(0, 64)}`;
-const adapter: RunnerReference = { package: "@ezcorp/release", version: "1.0.0", digest: digest("a"), export: "publish", configurationDigest: digest("b") };
+const adapter: RunnerReference = { package: "@ezcorp/release", manifestName: "release", version: "1.0.0", digest: digest("a"), export: "publish", configurationDigest: digest("b") };
 const RESOLVED_AT = 1_700_000_000_000;
 
 function input(overrides: Partial<FactoryReleaseProfileInput> = {}): FactoryReleaseProfileInput {

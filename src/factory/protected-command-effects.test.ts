@@ -45,7 +45,7 @@ test("corruption, trust, and infrastructure faults stay out of the rejection bra
 });
 
 test("the synchronous profile bridge keeps the adapter identity it was given", () => {
-  const adapter: RunnerReference = { package: "@ezcorp/release", version: "1.0.0", digest: digest("a"), export: "publish", configurationDigest: digest("b") };
+  const adapter: RunnerReference = { package: "@ezcorp/release", manifestName: "release", version: "1.0.0", digest: digest("a"), export: "publish", configurationDigest: digest("b") };
   const lifted = factorySynchronousReleaseProfile({ adapter, action: "publish", build: () => ({ destination: { provider: "p", account: "a", object: "o" }, request: {}, estimatedSpendMicros: 0 }) });
   expect(lifted.adapter).toEqual(adapter);
   expect(typeof lifted.resolve).toBe("function");

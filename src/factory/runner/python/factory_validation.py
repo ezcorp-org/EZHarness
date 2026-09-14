@@ -269,6 +269,17 @@ def _validate_artifact_reference(reference: Json, path: Path) -> Result:
     )
 
 
+MANIFEST_NAME_LETTERS: Final = "abcdefghijklmnopqrstuvwxyz"
+
+
+def is_manifest_name(value: Json) -> bool:
+    """The v4 manifest name grammar, the exact counterpart of ``isManifestName``
+    in the SDK. A scoped distribution name belongs in ``package``, never here."""
+    if not isinstance(value, str) or not 0 < len(value) <= 64 or value[0] not in MANIFEST_NAME_LETTERS:
+        return False
+    return all(character in MANIFEST_NAME_LETTERS or character.isdigit() or character == "-" for character in value)
+
+
 def _validate_runner_reference(reference: Json, path: Path) -> Result:
     version = reference.get("version")
     if (
@@ -280,6 +291,12 @@ def _validate_runner_reference(reference: Json, path: Path) -> Result:
         or not valid_digest(reference.get("digest"), True)
     ):
         return reject("RUNNER_PIN", "Runner package, exact version, export, and digest are required.", path)
+    if not bounded_text(reference.get("manifestName")) or not is_manifest_name(reference.get("manifestName")):
+        return reject(
+            "RUNNER_MANIFEST_NAME",
+            "Runner manifest name must be the built v4 manifest's own name, which cannot be a scoped package name.",
+            (*path, "manifestName"),
+        )
     if reference.get("model") is not None and not bounded_text(reference["model"]):
         return reject("RUNNER_MODEL_PIN", "Runner model must be a bounded identity.", (*path, "model"))
     if reference.get("configurationDigest") is not None and not valid_digest(reference["configurationDigest"], True):

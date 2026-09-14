@@ -5,7 +5,7 @@ import { simulateFactory } from "./simulator";
 import type { FactoryDefinition, FactoryNode } from "./index";
 
 const digest = "sha256:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
-const runner = { package: "inert", version: "1", digest, export: "run" } as const;
+const runner = { package: "inert", manifestName: "inert", version: "1", digest, export: "run" } as const;
 const child = { id: "child.factory", version: "1", digest: "sha256:1111111111111111111111111111111111111111111111111111111111111111" } as const;
 const string = { type: "string" } as const;
 

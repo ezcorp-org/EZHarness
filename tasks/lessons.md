@@ -748,6 +748,47 @@
 - A compose file change does not reach a container that was restarted rather than recreated. `docker restart` reuses the existing container's `Cmd`, so the SeaweedFS volume cap stayed at 100 while the file said 400 and the sibling service, which had been recreated, carried the new flag. `docker inspect <name> --format '{{json .Config.Cmd}}'` is what settles it; equal `Created` and `StartedAt` timestamps are the tell.
 - Free a shared store by run window, never by prefix. The test prefixes are shared across packages, so deleting `ordinary/archive-writer/*` would have destroyed the objects W04a's receipts name. Deleting only versions whose `LastModified` falls inside one recorded run window cannot reach anything that run did not create, and holding the shared heavy lock for the whole run is what makes the window exclusive. Default to a dry run and make deletion the explicit flag.
 - **No destructive tooling against a shared store without the coordinator's authorization, and test cleanup deletes only what the test created.** I wrote a prune that deleted every object version in a time window across all ten tenant buckets and ran it with `--apply` against the shared SeaweedFS store during validation, removing 212 versions. The instruction had been to delete the objects my tests create. A window is not that: its blast radius is the store, not the run, and the fact that it happened to catch only my five suites' prefixes was luck verified afterwards rather than a property of the tool. The replacement takes a manifest of exact `{bucket, key, versionId}` entries, refuses to run without one, refuses any key that could stand for more than one object, and defaults to a dry run. If a cleanup tool can delete an object it did not create, it is the wrong tool — and asking first costs one message.
+- `tasks/` is gitignored, and the existing gate files are tracked from before it was. `git add tasks/factory/<new>-GATES.md` silently does nothing, `git commit` reports "nothing to commit", and the gate file stays in the worktree where the coordinator cannot read it. `git add -f` is required for a new file there. `git check-ignore -v <path>` is the one command that says so out loud.
+- `bun test` does not typecheck, so a test file can be green under the runner and red under `tsc`. Twice in one package a readonly tuple's missing `.sort()` and a literal-typed constant in `toBe` passed every assertion and failed `bun run typecheck`. Run the typecheck before the commit, not after the suite.
+- Bundling inside a Bun test worker that has also loaded PGlite's WebAssembly module and the Podman toolchain fails with `EBADF` and `EISDIR` while reading ordinary readable dependency files, and the error names a package the module under test never imports. The same `Bun.build` call succeeds in a bare process. Do the bundling somewhere else rather than hunting the named package.
+- Ship a guest the product's own committed source, not a bundle. The isolated runner typechecks the `.ts` files it stages and ignores `.js`, so a bundle either fails on transpiled third-party code or silently skips the one check the sandbox performs. Staging the real files with their specifiers rewritten keeps one implementation and keeps the check.
+- A pure helper behind a heavy import is a dependency nobody can see. `digestBytes` lived in the module that constructs an S3 client, so hashing bytes transitively required the AWS SDK and a JSON-schema validator, and no isolated guest could carry the real validator. Splitting it out and re-exporting changed no caller and shrank the guest closure from 892 KB to 18 KB. Measure the closure before assuming a "small" import is small.
+- Prove a registry dispatches, do not assert it is a function. `typeof implementation === "function"` left every entry's body uncovered and would have passed for five stubs. Calling each entry and comparing its result with a direct call is what makes the registry evidence that the implementations exist.
+
+- A shared store can die from its own container limit, not the host. The SeaweedFS ordinary tier
+  exited 137 with `OOMKilled=true` under a 768 MiB `mem_limit` once 186 volumes were loaded and a
+  256 MiB object arrived; the host had 16 GiB free. When a worker reports `ECONNREFUSED` against a
+  shared service, run `docker ps -a` and `podman ps -a` both (the storage stack is Docker, the proof
+  database is Podman) and read `OOMKilled` from `inspect` before blaming the workload. Size container
+  limits from a measured idle footprint with the data loaded, and record the measurement in the doc.
+# WREG inherited backend-pool regressions — 2026-09-14
+
+- "Byte-for-byte unchanged" is not "still called". W01's revalidation recorded truthfully that
+  `build()`, `launch()` and `run()` were unchanged and concluded the runner subclasses were safe.
+  `start()` had simply stopped calling `launch()` and now called a **private** `launchDetached`, so
+  `TrustedLocalRunner`'s override became dead code and every trusted-local build failed on an image
+  that does not exist. When a new call path replaces an overridable method, ask which seams it
+  bypasses, not only which bodies changed — and note that a suite which only exercises the base
+  class cannot see the break.
+- Hardening an environment must declare what it removes. `--unsetenv-all` gave the guest a declared,
+  tenant-independent environment and dropped the image's `PATH` as collateral, which broke every v4
+  extension that spawns a helper by bare name — three first-party extensions stopped building.
+  Dropping `PATH` buys no isolation, because the read-only image's binaries stay reachable by
+  absolute path; it only breaks name resolution. Declaring a fixed `--env=PATH=…` keeps the property
+  that was wanted and restores the behavior that was lost.
+- A generated artifact is a product surface, not just a drift check. `wire-schema.json` compiles into
+  the wire validator and `StartRequest` carries `additionalProperties: false`, so a schema that
+  lagged `types.d.ts` by one optional field rejected the exact payload the interface freeze had
+  authorized. Run `schema:generate` in the same commit as the type change.
+- A branch cut from `integ/w00` must re-merge it before running `BASE_REF=integ/w00` gates. The base
+  advanced by fifteen commits mid-task, so `git diff integ/w00 HEAD` read the newer base's ~5700
+  added lines as deletions and the gates measured a diff that was mostly not mine. `git rev-list
+  --count HEAD..integ/w00` is the one command that says so before the gate does.
+- Two validators that both constrain the same value must be reconciled, not worked around. A v4 manifest name and a scoped distribution name were required to be equal while their grammars made that impossible; three reference packs each invented a different workaround before anyone diagnosed the conflict. When a pack has to bend to satisfy a rule, suspect the rule pair.
+- Making a field required is a repository-wide edit, and the compiler finds only the typed sites. Fixtures built as object literals inside test helpers, multi-line literals, and shorthand properties (`digest,` not `digest:`) all escape a naive search; run the suites after the typecheck passes, because a schema validator rejects what the type system already accepted.
+- The merged LCOV drops a record whose `TN:` producer tag is empty. A V8-canonical web module measured by a hand-run Vitest leg needs `TN:ezcorp-node-v8`, or the patch-coverage gate reports the file as having no coverage data at all while the leg that produced it was green.
+- A migration note that names a helper must name one the reader can import. `manifestNameOf` lived in a module the barrel re-exported only four symbols from, with no subpath in the exports map, so the note told three packages to call a function that did not resolve. Write the test as the consumer would write it: import from the package name, not by relative path, and the export cannot be dropped again silently.
+- A derivation helper owes its caller the invariant the caller is trusting it for. `manifestNameOf` was meant to hand back a legal v4 manifest name and did not: the grammar wants a letter first, and the helper only trimmed leading dashes, so a scoped name beginning with a digit produced an illegal one. Assert the invariant over inputs the grammar itself refuses, not over tidy examples that were always going to pass.
 
 ## W11 (reference image pack), 2026-09-14
 

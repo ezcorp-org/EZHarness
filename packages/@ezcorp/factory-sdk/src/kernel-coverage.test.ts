@@ -5,7 +5,7 @@ import { advanceKernel, createKernelState, FactoryKernelError, nodeFor } from ".
 import type { CompiledFactory, FactoryDefinition, FactoryNode, KernelState } from "./index";
 
 const digest = "sha256:fefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefe";
-const runner = { package: "inert", version: "1", digest, export: "run" } as const;
+const runner = { package: "inert", manifestName: "inert", version: "1", digest, export: "run" } as const;
 const string = { type: "string" } as const;
 
 function compiled(nodes: readonly FactoryNode[], runDeadlineMs?: number): CompiledFactory {
