@@ -547,7 +547,11 @@ export class FactoryPoolLedger {
       const row = rows<RequestRow>(await transaction.unsafe("SELECT * FROM factory_pool_requests WHERE reservation_id = $1 FOR UPDATE", [input.reservationId]))[0];
       if (!row) throw new Error("Pool reservation does not exist.");
       if (Number(row.holder_generation) !== input.holderGeneration) throw new Error("Pool stop confirmation is stale.");
-      if (input.hostId !== undefined && row.host_id !== input.hostId) throw new Error("Pool stop confirmation host is stale.");
+      // A host is recorded only for an allocation that binds a whole one, so a
+      // CPU reservation has none and the pool has no host to fence. A supervisor
+      // naming the host it stopped must not be refused for that; a recorded host
+      // that disagrees still is.
+      if (input.hostId !== undefined && row.host_id !== null && row.host_id !== input.hostId) throw new Error("Pool stop confirmation host is stale.");
       if (row.state === "settled" || row.reason === "awaiting-gpu-reimage") return readRequest(row);
       if (row.state === "queued" || row.state === "rejected") throw new Error("Pool stop confirmation has no holder.");
       const vector = decodeVector(row.resources_json);

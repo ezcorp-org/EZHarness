@@ -7,7 +7,9 @@ import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
-import type { FactoryAttemptAuthority } from "./executions";
+import type { FactoryAttemptAuthority, FactoryJournalOperationEvidence } from "./executions";
+import type { FactoryUncertainHold } from "./budgets";
+import { validateFactoryOperationUsage } from "./journal-validation";
 import type { FactoryInbox } from "./inbox";
 import { lockFactoryScope } from "./locks";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
@@ -74,6 +76,30 @@ export interface FactoryUsageSettlementInput {
   readonly providerReceiptDigest?: string;
   readonly settledAtMs: number;
 }
+
+/** Why a listed hold still cannot be reconciled. Never a reason to invent a cost. */
+export type FactoryUncertainHoldUnknownReason =
+  | "no-sealed-attempt"
+  | "no-operation-receipt"
+  | "usage-still-unknown";
+
+/**
+ * What a listed hold resolves to.
+ *
+ * `resolved` carries exactly the four facts `FactoryUsageReconciler.reconcile`
+ * needs, every one of them read from evidence the journal already sealed.
+ * `unknown` is a first-class answer: the hold stays held, and the caller waits.
+ */
+export type FactoryUncertainHoldResolution =
+  | {
+      readonly kind: "resolved";
+      readonly reservationId: string;
+      readonly attemptId: string;
+      readonly operationId: string;
+      readonly providerReceiptDigest: string;
+      readonly usage: FactoryMeasuredUsage;
+    }
+  | { readonly kind: "unknown"; readonly reservationId: string; readonly reason: FactoryUncertainHoldUnknownReason };
 
 /** Trusted later reconciliation of an operation whose cost was unknown. */
 export interface FactoryUsageReconciler {
@@ -319,6 +345,8 @@ export interface FactoryUsageSettlementAuthority {
 /** The journal seam a late receipt writes through. It never advances the cursor. */
 export interface FactoryUsageJournal {
   reconcileLate(authority: FactoryAttemptAuthority, operationId: string, result: { readonly providerReceiptDigest: string; readonly usage: FactoryMeasuredUsage }): Promise<void>;
+  /** The sealed operation evidence the journal already holds for one attempt. */
+  operations(authority: FactoryAttemptAuthority): Promise<readonly FactoryJournalOperationEvidence[]>;
 }
 
 /** The budget seam a verified receipt settles through. */
@@ -344,6 +372,47 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
   ) {
     assertFactoryIdentity(tenantId);
     if (settlements.tenantId !== tenantId) throw new FactoryUsageSettlementError("factory_usage_settlement_scope");
+  }
+
+  /**
+   * Maps one listed hold to the four facts reconciliation needs, or says it
+   * cannot yet.
+   *
+   * Everything returned is read from evidence the journal already sealed. It
+   * never synthesizes a usage and never treats an absent receipt as a zero
+   * cost: an unresolved hold stays held, which is the whole point of C03's
+   * fail-closed unknown-usage rule.
+   *
+   * The operation it reads is the one that caused the hold: the journal marks
+   * exactly that one `uncertain`, and that state is the only one whose provider
+   * receipt digest is mandatory. A receipt attached to some other operation,
+   * settled or failed, is therefore never mistaken for this hold's evidence.
+   */
+  async resolve(hold: FactoryUncertainHold, signal?: AbortSignal): Promise<FactoryUncertainHoldResolution> {
+    const reservationId = hold.reservationId;
+    assertFactoryIdentity(hold.projectId, hold.runId, reservationId);
+    signal?.throwIfAborted();
+    const scope = await this.database.transaction(transaction => this.scopes.readSettlementScopeInTransaction(transaction, reservationId));
+    if (!scope) return Object.freeze({ kind: "unknown" as const, reservationId, reason: "no-sealed-attempt" as const });
+    // The hold and the sealed stop must describe the same work, or one of them
+    // is about a different run and neither may fund the other.
+    if (scope.projectId !== hold.projectId || scope.runId !== hold.runId) throw new FactoryUsageSettlementError("factory_usage_settlement_conflict");
+    const operations = await this.journal.operations(scope.authority);
+    const pending = [...operations].filter(operation => operation.state === "uncertain" && typeof operation.providerReceiptDigest === "string" && operation.providerReceiptDigest.length > 0)
+      .sort((left, right) => left.operationIndex - right.operationIndex);
+    const candidate = pending[0];
+    if (!candidate) return Object.freeze({ kind: "unknown" as const, reservationId, reason: "no-operation-receipt" as const });
+    const usage = validateFactoryOperationUsage(candidate.usage);
+    if (!usage.ok) throw new FactoryUsageSettlementError("factory_usage_settlement_corrupt");
+    if ((candidate.usage as { kind?: string }).kind !== "measured") return Object.freeze({ kind: "unknown" as const, reservationId, reason: "usage-still-unknown" as const });
+    // A digest the reconciler would refuse is refused here, where the caller can
+    // still tell a tampered row from a settlement conflict.
+    if (!RECEIPT_DIGEST_PATTERN.test(candidate.providerReceiptDigest!)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+    return Object.freeze({
+      kind: "resolved" as const, reservationId, attemptId: scope.authority.attemptId,
+      operationId: candidate.operationId, providerReceiptDigest: candidate.providerReceiptDigest!,
+      usage: Object.freeze({ ...(candidate.usage as unknown as FactoryMeasuredUsage) }),
+    });
   }
 
   async reconcile(

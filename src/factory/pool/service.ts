@@ -53,6 +53,41 @@ export class PoolAdmissionService {
   async renew(principal: PoolPrincipal, input: PoolLeaseFenceInput): Promise<PoolLease> { return this.ledger.renew({ ...this.fence(tenant(principal), input) }); }
   async cancel(principal: PoolPrincipal, reservationId: string, allocationGeneration: number): Promise<PoolLeaseStatus> { const identity = tenant(principal); const current = await this.status(identity, reservationId); if (!current) throw new Error("Pool reservation does not exist."); counter(allocationGeneration, "allocation generation", 1); const result = await this.ledger.cancel(reservationId, allocationGeneration); await this.ledger.schedule(); return result; }
   async confirmStopped(principal: PoolPrincipal, input: PoolStopInput): Promise<PoolLeaseStatus> { const identity = supervisor(principal); this.host(identity, input.hostId); const result = await this.ledger.confirmStopped(input); await this.ledger.schedule(); return result; }
+
+  /**
+   * The tenant's fenced confirmation that a supervisor's stop has settled.
+   *
+   * It returns capacity to nobody. C03 is explicit that local CPU, memory, and
+   * GPU capacity is not released until the trusted supervisor confirms process
+   * death, so only the supervisor route mutates the ledger; this one reads the
+   * result and fails closed until that has happened. A tenant gateway holds a
+   * host-signed receipt it verified itself, but the pool cannot verify that
+   * signature, so a tenant's word is never enough to free a holder's capacity.
+   *
+   * Fenced exactly as the ledger's own stop confirmation is: the reservation
+   * must belong to this tenant's certificate, and the holder generation and
+   * host must match, so a foreign host or a stale generation is refused. It
+   * writes nothing, so a repeat is identical.
+   *
+   * A GPU reservation stays unacknowledged after its stop, because it reaches
+   * `uncertain` awaiting a verified reimage receipt rather than `settled`.
+   * That is the contract, not an omission: the host is not offered again until
+   * the supervisor proves it was reimaged.
+   */
+  async acknowledgeStopped(principal: PoolPrincipal, input: PoolStopInput): Promise<PoolLeaseStatus> {
+    const identity = tenant(principal);
+    opaque(input.reservationId, "reservation id"); opaque(input.hostId, "host id"); counter(input.holderGeneration, "holder generation", 1);
+    const current = await this.ledger.status(input.reservationId);
+    if (!current) throw new Error("Pool reservation does not exist.");
+    if (current.tenantId !== identity.tenantId) throw new Error("Pool reservation is not owned by this tenant.");
+    if (current.holderGeneration !== input.holderGeneration) throw new Error("Pool stop confirmation is stale.");
+    // A host is recorded only for an allocation that binds a whole one, so a
+    // CPU reservation has none and the pool has no opinion about the host. It
+    // must not contradict the caller; silence is not contradiction.
+    if (current.hostId !== undefined && current.hostId !== input.hostId) throw new Error("Pool stop confirmation host is stale.");
+    if (current.state !== "settled") throw new Error("Pool stop cannot be acknowledged before a supervisor confirms it.");
+    return current;
+  }
   async confirmReimage(principal: PoolPrincipal, input: PoolReimageInput): Promise<PoolLeaseStatus> { const identity = supervisor(principal); this.host(identity, input.hostId); const result = await this.ledger.confirmGpuReimage(input); await this.ledger.schedule(); return result; }
   private fence(identity: Extract<PoolPrincipal, { kind: "tenant" }>, input: PoolLeaseFenceInput) { opaque(input.reservationId, "reservation id"); opaque(input.allocationToken, "allocation token"); counter(input.grantRevision, "grant revision", 1); counter(input.allocationGeneration, "allocation generation", 1); return { ...input, tenantId: identity.tenantId }; }
   private host(identity: Extract<PoolPrincipal, { kind: "supervisor" }>, hostId: string): void { opaque(hostId, "host id"); if (!identity.hostIds.includes(hostId)) throw new Error("Pool supervisor is not authorized for this host."); }

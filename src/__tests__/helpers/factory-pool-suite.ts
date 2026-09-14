@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { readFile } from "node:fs/promises";
 import { C03_RESERVATION_STATES, FactoryPoolLedger, POOL_DEFAULT_QUEUE_LIMITS, POOL_LEASE_STATES, POOL_STATE_CONTRACT_MAPPING, type PoolClock, type PoolLease, type PoolLeaseState, type PoolRequest, type PoolSql } from "../../factory/pool";
+import { PoolAdmissionService, type PoolPrincipal } from "../../factory/pool/service";
 
 export interface FactoryPoolConformanceFixture {
   readonly name: string;
@@ -372,6 +373,68 @@ describe(`factory C03 pool admission ledger on ${fixture.name}`, () => {
       // real promise so both drivers actually run the statement.
       expect(await Promise.resolve(poolDatabase.unsafe(insert, [`vocabulary-${absent}`, moment, absent])).then(() => "accepted", () => "rejected")).toBe("rejected");
     }
+  });
+
+  test("a tenant can confirm a supervisor's stop, and can never stand in for one", async () => {
+    const service = new PoolAdmissionService(poolDatabase, pool);
+    const holder: PoolPrincipal = { kind: "tenant", tenantId: "tenant-a", subject: "tenant-a", scopes: ["pool:tenant:tenant-a"] };
+    const other: PoolPrincipal = { kind: "tenant", tenantId: "tenant-b", subject: "tenant-b", scopes: ["pool:tenant:tenant-b"] };
+    const supervisorPrincipal: PoolPrincipal = { kind: "supervisor", supervisorId: "supervisor-a", subject: "supervisor-a", hostIds: ["host-ack"], scopes: ["pool:supervisor:supervisor-a"] };
+    await pool.configureCapacity("cpu", 2);
+    await pool.request(request("ack", "tenant-a", { cpu: 1 }, clock));
+    const lease = await admitted(pool);
+    await pool.acknowledgeStart(fence(lease));
+    const stop = { reservationId: "ack", holderGeneration: lease.holderGeneration, hostId: "host-ack" };
+
+    // Before the supervisor confirms, the holder may still be running, so the
+    // acknowledgement fails closed rather than freeing anything.
+    await expect(service.acknowledgeStopped(holder, stop)).rejects.toThrow("cannot be acknowledged");
+    expect((await pool.status("ack"))?.state).toBe("running");
+
+    // The supervisor's own confirmation is what releases capacity. A CPU
+    // reservation binds no whole host, so the ledger records none.
+    expect(await service.confirmStopped(supervisorPrincipal, { reservationId: stop.reservationId, holderGeneration: stop.holderGeneration, hostId: "host-ack" })).toMatchObject({ state: "settled" });
+
+    // The tenant then reads that settled fact, and a repeat is identical
+    // because the acknowledgement writes nothing at all.
+    const acknowledged = await service.acknowledgeStopped(holder, stop);
+    expect(acknowledged).toMatchObject({ reservationId: "ack", tenantId: "tenant-a", state: "settled", holderGeneration: lease.holderGeneration });
+    expect(acknowledged.hostId).toBeUndefined();
+    expect(await service.acknowledgeStopped(holder, stop)).toEqual(acknowledged);
+    // A concurrent pair agrees, and neither of them moves the ledger.
+    expect(await Promise.all([service.acknowledgeStopped(holder, stop), service.acknowledgeStopped(holder, stop)])).toEqual([acknowledged, acknowledged]);
+    expect(await pool.status("ack")).toEqual(acknowledged);
+
+    // A foreign host, a stale generation, another tenant, an unknown
+    // reservation, and a malformed field are each refused.
+    // The pool has no host for a CPU reservation, so it cannot contradict one;
+    // the GPU case below is where a foreign host is refused.
+    expect(await service.acknowledgeStopped(holder, { ...stop, hostId: "host-elsewhere" })).toEqual(acknowledged);
+    await expect(service.acknowledgeStopped(holder, { ...stop, holderGeneration: stop.holderGeneration + 1 })).rejects.toThrow("is stale");
+    await expect(service.acknowledgeStopped(other, stop)).rejects.toThrow("not owned by this tenant");
+    await expect(service.acknowledgeStopped(holder, { ...stop, reservationId: "absent" })).rejects.toThrow("does not exist");
+    await expect(service.acknowledgeStopped(holder, { ...stop, holderGeneration: 0 })).rejects.toThrow("malformed");
+    await expect(service.acknowledgeStopped(holder, { ...stop, hostId: "" })).rejects.toThrow("malformed");
+    await expect(service.acknowledgeStopped(supervisorPrincipal, stop)).rejects.toThrow("requires a tenant certificate");
+  });
+
+  test("a GPU stop stays unacknowledged until its host is proven reimaged", async () => {
+    const service = new PoolAdmissionService(poolDatabase, pool);
+    const holder: PoolPrincipal = { kind: "tenant", tenantId: "tenant-a", subject: "tenant-a", scopes: ["pool:tenant:tenant-a"] };
+    const supervisorPrincipal: PoolPrincipal = { kind: "supervisor", supervisorId: "supervisor-a", subject: "supervisor-a", hostIds: ["gpu-ack"], scopes: ["pool:supervisor:supervisor-a"] };
+    await pool.configureCapacity("cpu", 1);
+    await pool.registerGpuHost({ hostId: "gpu-ack" });
+    await pool.request(request("gpu-ack-reservation", "tenant-a", { cpu: 1, "gpu-host": 1 }, clock));
+    const lease = await admitted(pool);
+    const stop = { reservationId: "gpu-ack-reservation", holderGeneration: lease.holderGeneration, hostId: "gpu-ack" };
+    expect(await service.confirmStopped(supervisorPrincipal, stop)).toMatchObject({ state: "uncertain", reason: "awaiting-gpu-reimage" });
+    // The host is not offered again yet, so there is nothing for the tenant to
+    // acknowledge; C03 holds the capacity until a verified reimage receipt.
+    await expect(service.acknowledgeStopped(holder, stop)).rejects.toThrow("cannot be acknowledged");
+    expect(await service.confirmReimage(supervisorPrincipal, { ...stop, receipt: "reimage-proof" })).toMatchObject({ state: "settled" });
+    expect(await service.acknowledgeStopped(holder, stop)).toMatchObject({ state: "settled", hostId: "gpu-ack" });
+    // Here the pool does know the host, so a foreign one is refused.
+    await expect(service.acknowledgeStopped(holder, { ...stop, hostId: "gpu-elsewhere" })).rejects.toThrow("host is stale");
   });
 
   test("GPU stop proof releases CPU once and leaves another active CPU lease accounted", async () => {

@@ -269,7 +269,11 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     }
     this.assertHostReceipt(current, receipt);
     const acknowledged = await this.withDeadline(signal => this.pool.confirmStopped({ reservationId: receipt.reservationId, holderGeneration: receipt.holderGeneration, hostId: receipt.hostId }, signal));
-    if (acknowledged.reservationId !== receipt.reservationId || acknowledged.state !== "settled" || acknowledged.holderGeneration !== receipt.holderGeneration || acknowledged.allocationGeneration !== receipt.allocationGeneration || acknowledged.hostId !== receipt.hostId) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
+    // The pool records a host only for an allocation that binds a whole one, so
+    // a CPU reservation has none. The host binding is proven by the signed
+    // receipt this method already verified; the pool must not contradict it,
+    // and having no opinion is not a contradiction.
+    if (acknowledged.reservationId !== receipt.reservationId || acknowledged.state !== "settled" || acknowledged.holderGeneration !== receipt.holderGeneration || acknowledged.allocationGeneration !== receipt.allocationGeneration || (acknowledged.hostId !== undefined && acknowledged.hostId !== receipt.hostId)) throw new FactoryTaskStopError("factory_task_stop_pool_mismatch");
     return this.database.transaction(transaction => this.finalize(transaction, service, reference, receipt));
   }
 
