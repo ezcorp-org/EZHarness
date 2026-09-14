@@ -24,6 +24,12 @@ export interface FactoryToolInvocation {
   toolName: string;
   toolInput: JsonValue;
   workspace: FactoryWorkspaceCheckpoint;
+  /**
+   * Exactly the devices the held allocation authorized for this invocation.
+   * Absent means none: a factory start never inherits the host's global device
+   * list, whatever that host configures.
+   */
+  devices?: readonly string[];
 }
 
 export interface FactoryRunnerSupervisorOptions {
@@ -92,10 +98,10 @@ export class FactoryRunnerSupervisor {
     const inspection = await this.options.runner.inspect(invocation.workerId);
     if (inspection.state === "running") {
       if (!this.options.runner.attach) throw new Error("Factory runner cannot reattach to a surviving worker.");
-      return this.options.runner.attach({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits }, reverse);
+      return this.options.runner.attach({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits, devices: input.devices ?? [] }, reverse);
     }
     if (inspection.state !== "unknown") throw new Error("Factory worker is stopped and cannot be restarted by recovery.");
-    return this.options.runner.start({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits }, reverse);
+    return this.options.runner.start({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits, devices: input.devices ?? [] }, reverse);
   }
 
   private reverse(input: FactoryToolInvocation, invocation: ReturnType<typeof context>, operationEntry: FactoryJournalOperation, onClaim: () => void): (method: string, raw: unknown) => Promise<unknown> {
