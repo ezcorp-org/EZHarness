@@ -5,17 +5,42 @@ Surface owned: `src/factory/application.ts`, `boot.ts`, `orchestration-process.t
 suite, and the startup path in `web/src/lib/server/context.ts`.
 Evidence directory: `/tmp/factory-platform-evidence/w09/`.
 
-## The finding, stated first
+## The rejection, and what it found
 
-**Nothing in production ever composed the factory.** `createFactoryApplication` and
-`assertFactoryBootReadiness` both existed on `integ/w00`, and a repository-wide search found no
-production caller of either. The readiness gate's `availableServices` parameter defaulted to the
-empty array and no code ever supplied one, so the gate that "closes admission until real probes
-pass" had a gate and no probe. `FactoryAttemptDispatcher.dispatchOne`, `FactoryComputeAdmissions.pollNext`,
-`FactoryRunTransitionProjector.projectPending`, and `FactoryReleases.deliverNextNotification` each
-had no production driver at all.
+The first submission of this package was **REJECTED** by independent validation
+at `4e41ffd56`, and the finding was correct: **`startFactoryRuntime` was never
+invoked by any production code path.** I had built the composition root and not
+called it. A flag-on installation therefore sat at
+`booting / factory-services-pending` for the process lifetime — the static
+placeholder `src/db/connection.ts:816` writes — and every `/api/factories/*`
+route answered 503 forever.
 
-W09 is therefore the composition root itself, not a rewiring of one.
+Worse than the omission: the previous G11 table and real-server verdict
+presented that 503-forever as proof of fail-closed admission control, and
+attributed every remaining gap to W03/W05/W07/W08/W17 while omitting this one,
+which needed none of them. That was an overstatement and it is corrected below.
+
+Two further defects fell out of fixing it, both mine:
+
+- **Three seam-driven roles could never register.** `registerFactoryRuntimeWorkers`
+  called `hold()` inside `if (!seam.present)` with no `define()` branch under any
+  condition, so supplying a seam removed the hold and registered nothing: the
+  role vanished from both lists. The test asserted only absence from `held`,
+  which is exactly the assertion that let it through.
+- **The projection driver was typed against a field that does not exist.**
+  `projectPending` returns a page of visited runs; I had typed it as returning an
+  `applied` count, so `applied === 0` was always false and the role would have
+  spun at its batch bound forever without ever reporting progress.
+
+## The original finding, still true
+
+`createFactoryApplication` and `assertFactoryBootReadiness` both existed on
+`integ/w00` with no production caller. The readiness gate's `availableServices`
+parameter defaulted to the empty array and no code ever supplied one, so the gate
+that "closes admission until real probes pass" had a gate and no probe.
+`FactoryAttemptDispatcher.dispatchOne`, `FactoryComputeAdmissions.pollNext`,
+`FactoryRunTransitionProjector.projectPending`, and
+`FactoryReleases.deliverNextNotification` each had no production driver at all.
 
 ## Gates
 
@@ -74,36 +99,76 @@ W09 is therefore the composition root itself, not a rewiring of one.
       `bun test --timeout 30000 ./src/__tests__/session-scope-surface.test.ts ./web/src/__tests__/route-contract.test.ts`
       EXPECT: 26 pass; 13 pass; 29 pass. The flag-off answer is a 404 carrying `factory-disabled`.
       EVIDENCE: `/tmp/factory-platform-evidence/w09/repro/real-server-factory-probe.json`
-- [~] G11: A clean real application starts a durable run through public HTTP, executes a guest,
-      records and projects its outcome, survives restart, and shuts down without leaked processes or
-      false readiness.
-      CHECK: the real-server probes below plus the packages named in "What waits".
-      EXPECT: partial today. Start, restart, shutdown, readiness, and the two documented flag
-      answers are proved through the real server; the durable run itself waits.
-      EVIDENCE: `/tmp/factory-platform-evidence/w09/repro/real-server-factory-probe.json`
+- [x] G11: The composition root is invoked by the real boot path, `/api/ready`
+      reaches `ready` against real services, the registered roles run, and a
+      SIGTERM stops them with no leaked process.
+      CHECK: `bun /tmp/factory-platform-evidence/w09/repro/full-stack-proof.ts`
+      EXPECT: pool and supervisor processes `ready`; `/api/ready` `200 ready`
+      carrying the running and held role lists; `factory-runtime` torn down
+      first; exit 0, no survivors, port refused.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09/repro/full-stack-proof.json`
+- [x] G12: A role registers when its driver exists and holds by name when it does
+      not — one rule, no role in neither list.
+      CHECK: `bun test --timeout 30000 ./src/factory/runtime-workers.test.ts`
+      EXPECT: 15 pass / 0 fail; a supplied seam puts its role in
+      `workers.names()`; registered plus held always equals the role count.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09/logs/unit-runtime-workers.log`
+- [x] G13: The host supervisor publishes the readiness the seventh probe reads.
+      CHECK: `bun test --timeout 60000 ./src/factory/runner/supervisor-process.test.ts`
+      EXPECT: 17 pass / 0 fail; `ready` only after the host key loads and the
+      runner initializes; `degraded` names which fact failed; `stopped` on exit.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09/logs/unit-supervisor-process.log`
+- [ ] G14: A durable run through public HTTP that executes a guest, records and
+      projects its outcome, and survives restart.
+      CHECK: waits on the packages in "What waits, and on whom".
+      EXPECT: open. The attempt dispatcher is the missing half and it is W09's
+      own, not another package's — see the entry below.
+      EVIDENCE: none yet.
 
 ## Proved through the real server
 
-`bun web/build/index.js` against real PostgreSQL, three scenarios, receipt
-`/tmp/factory-platform-evidence/w09/repro/real-server-factory-probe.json`
-(sha256 `7d9c8efc541b19ab…`), producing commit `bfc5a6a23`:
+Receipt: `/tmp/factory-platform-evidence/w09/repro/full-stack-proof.json`,
+harness `repro/full-stack-proof.ts`, log `logs/full-stack-proof.log`.
 
-| Scenario | `/api/ready` | `/api/factories/...` | SIGTERM | Surviving children | Port after stop |
-| --- | --- | --- | --- | --- | --- |
-| Flag off | `200 ready` | `404 factory-disabled` | exit 0 | none | refused |
-| Flag on, nothing composed | `503 booting / factory-services-pending` | `503 factory_application_unavailable` | exit 0 | none | refused |
-| Restart on the same database | `503 booting / factory-services-pending` | `503 factory_application_unavailable` | exit 0 | none | refused |
+Real processes in this run: the shared PostgreSQL proof container, the local S3
+services (ordinary and archive), **the real pool admission process**
+(`src/factory/pool/process.ts`, real mTLS, real RS256 tokens, its own real
+database), **the real host supervisor process**
+(`src/factory/runner/supervisor-process.ts`, real host key, real container
+runner probe), a real mTLS listener on the gateway port, and the built
+SvelteKit server.
 
-Four facts follow, each from the table rather than from code review. The
-contract's `factory-disabled` reason is what a client actually receives, over
-HTTP, from a build of this branch. With the flag on and nothing composed the
-server never claims ready, which is admission closed rather than false
-readiness. A restart on the same database answers identically. And a SIGTERM
-leaves exit code 0, no surviving child process, and a refused port.
+**One simulated input, and it is the only one.** The orchestration/temporal
+readiness record is written by the production writer from the harness rather than
+by a live Node orchestrator. The pinned Temporal test server serves plaintext,
+and `FactoryOrchestratorProcessConfig` requires mTLS material to Temporal because
+C01 requires an authenticated namespace. Relaxing that to produce a green light
+is not acceptable, so the record is supplied and **labelled** rather than the
+requirement weakened. It is recorded in the receipt's `simulatedInputs` field.
 
-An earlier run of the same probe reported the OLD `factory_disabled` string
-because it ran against a build made before the fix. That run is preserved at
-`real-server-startup-probe.json`; the code was right and the evidence was stale.
+| Fact | Observed |
+| --- | --- |
+| Pool process readiness | `lifecycle: "ready"`, `databaseReady/schemaReady/listenerReady` all true |
+| Supervisor process readiness | `lifecycle: "ready"`, `facts: { hostKeyReady: true, runnerReady: true }` |
+| `GET /api/ready` | `200` `{"state":"ready"}` |
+| Roles running, from `/api/ready` | `compute-admission-dispatch`, `compute-admission-poll`, `run-projection` |
+| Roles held, from `/api/ready` | `attempt-dispatch` (W09), `notification-inbox-delivery` (W07/W08), `child-settlement` (W06), `release-outcome` (W07/W08), `usage-reconciliation` (W03), `notification-send` (W17), `stop-settlement` (W03) |
+| Shutdown order | `factory-runtime` teardown first of fourteen, `pglite-close` last |
+| SIGTERM | exit code 0, zero surviving children, port refused after stop |
+
+Three things follow that could not be said before. The composition root is
+invoked by the real boot path: `/api/ready` now reports `ready` with the
+composition's own report, where the same build without the call reported
+`booting / factory-services-pending` forever. The registered roles really run,
+and that is an HTTP-observable fact rather than a log line, because readiness
+carries the running and held lists. And a SIGTERM stops the roles before the
+database closes, with nothing left behind.
+
+`GET /api/factories/projects/project-1/definitions` answered `401 Setup required`
+in this run, because the proof database has no administrator; the auth hook
+answers before the route. That is correct auth behaviour and not a factory
+verdict. The flag-off `404 factory-disabled` and the admission-closed `503` are
+proved separately in `repro/real-server-factory-probe.json`.
 
 ## Other receipts
 
@@ -158,19 +223,45 @@ service-authenticated lazy caller removes it.
 
 ## What waits, and on whom
 
-The pass sentence's middle — *starts a durable run through public HTTP, executes a guest, records
-and projects its outcome* — cannot be composed today, and the reason is a missing collaborator in
-every case, not missing wiring:
+The previous version of this table attributed every gap to another package. One
+of them is mine, and it is the one that blocks the pass sentence:
 
-| Step | Blocked on | Exact missing collaborator |
+| Step | Owner | Exact missing collaborator |
 | --- | --- | --- |
-| Stop settlement | W03 | `FactoryPhysicalStopper`; freeze section 3 assigns its `AbortController` to this package, and the worker is registered the moment the stopper is supplied |
-| Usage reconciliation | W03 | `FactoryUsageReconciler` (freeze section 4). An uncertain reservation is never settled as zero, so the role holds rather than draining |
+| **Attempt dispatch** | **W09 (mine)** | `FactoryAttemptDispatcher` needs a `TrustedFactoryRunner` and a dispatch readiness. The only production readiness is `FactoryPackagePreparations`, whose constructor takes a container `Runner` (`build`/`collectArtifacts`) plus the package trusts and the v4 catalog. The product process holds no container runner, so the role holds there and registers unchanged in a process that does. Composing that process is the remaining work on this package. |
+| Stop settlement | W03 | the bounded step that finds the next stoppable attempt and settles it against a signed physical-stop receipt |
+| Usage reconciliation | W03 | the bounded step over reservations in `uncertain` that hold a cost; an unknown cost is never settled as zero |
 | Release store construction | W05 | `FactoryTrustedValidatorGateway`, `FactoryReleaseFenceReader`, `FactoryCurrentCandidateResolver` — all three are `FactoryAssurance` constructor parameters with no production implementation |
-| Release outcomes | W07/W08 | `FactoryDestinationReservationReader` and `FactorySenderFence` have no production implementation; and even with them, `FactoryReleases` exposes no claimable-operation scan for an outcome loop to drive |
-| Release profiles | W07/W08 | `FactoryAsyncReleaseProfile.resolve` (freeze section 5); the release worker's `AbortController` is this package's and is already in place |
+| Release outcomes | W07/W08 | `FactoryDestinationReservationReader` and `FactorySenderFence` have no production implementation, and `FactoryReleases` exposes no claimable-operation scan for an outcome loop |
 | Notification delivery off-host | W17 | the sender that confirms a notification left this host |
-| Child settlement | W05/W06 | `FactoryChildRuns` exposes `resolve` and `settle`, both keyed by an exact child. Nothing enumerates the settleable set, so no loop can be written without inventing a lifecycle query in the composition root |
+| Child settlement | W06 | `FactoryChildRuns` exposes `resolve` and `settle`, both keyed by an exact child; nothing enumerates the settleable set |
+
+Every one of these is now a `FactoryRoleDriver` seam: supplying it registers the
+role and starts it, with no change to this package.
+
+## Disclosed design decisions
+
+- **The bounded worker loop is a deliberate fork from the C13 recovery
+  scheduler.** `src/extensions/lifecycle-recovery-scheduler.ts` is
+  edge-triggered and coalescing and has no stop signal; these roles observe
+  durable queues another process writes, so they need a continuous bounded poll
+  that aborts mid-flight. Wrapping the scheduler to poll itself would give it
+  the one property it was written not to have. The reasoning is in the module
+  header so a reader does not have to infer it, and an edge-triggered role
+  should use the shared scheduler instead.
+- **The credential-free boundary rule is derived, not listed.** The load-bearing
+  assertion is that the Node orchestration closure's bare specifiers contain no
+  client that could hold a product credential (`@aws-sdk/*`, `drizzle-orm`,
+  `@electric-sql/*`, `postgres`, `pg`, `bun`). A credential-bearing module cannot
+  be reached without also reaching the client it holds the credential for, so a
+  new one under an unlisted path is caught by the package it must import. The
+  classifier is proved non-vacuous against `src/db/connection.ts` and
+  `src/extensions/v4/blobs.ts`, which it must flag. The path list is kept as a
+  redundant second reading because it names the offender directly.
+- **`/api/ready` now carries the factory's role report.** Role names, their
+  owning packages, and the tenant id. No endpoint, no credential, no identity
+  beyond the tenant. This is what makes "the background work is live" an answer
+  an operator reads rather than a claim they accept.
 
 ## Interface questions for the coordinator
 
@@ -195,7 +286,14 @@ every case, not missing wiring:
 
 ## Corrections this package made to its own work
 
-- The first composition called `assertFactoryBootReadiness(databaseUrl, [], …)` before probing, which
-  reported every service as down before a single probe had run. Its own test caught it; the
-  pre-probe call is now `assertFactoryBootConfiguration`, which is the half that does not need a
-  probe result.
+- The first composition called `assertFactoryBootReadiness(url, [], …)` before
+  probing, which reported every service down before a single probe had run. Its
+  own test caught it; the pre-probe call is now `assertFactoryBootConfiguration`.
+- The three seam-driven roles could never register, because `hold()` had no
+  `define()` counterpart. Found by independent validation, not by my tests,
+  whose assertion checked only absence from the held list.
+- The projection driver was typed against an `applied` field `projectPending`
+  does not return, so the role would have spun at its batch bound forever. Found
+  while wiring the real projector into the boot path.
+- The first real-server receipt reported the old disabled reason string because
+  it ran against a build made before the fix. Rebuild before believing a receipt.

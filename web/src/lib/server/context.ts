@@ -12,7 +12,7 @@ import { AgentExecutor } from "$server/runtime/executor";
 import { WorkflowExecutor } from "$server/runtime/workflow-executor";
 import { loadYamlWorkflows } from "$server/runtime/workflow-loader";
 import { loadReleaseWorkflowEntries } from "$server/runtime/workflow-release-assets";
-import { initDb, closeDb, getDb, getDbPath } from "$server/db/connection";
+import { initDb, closeDb, getDb } from "$server/db/connection";
 import { warmKiloCatalog } from "$server/providers/kilo";
 import { validateEnv } from "$server/env-validation";
 import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
@@ -489,7 +489,6 @@ async function initialize(): Promise<void> {
   const { getShutdownSignal } = await import("$lib/server/shutdown");
   await startFactoryIfEnabled({
     database: getDb() as never,
-    blobsRoot: `${getDbPath()}/factory-blobs`,
     databaseUrl: process.env.DATABASE_URL,
     signal: getShutdownSignal(),
     registerTeardown,

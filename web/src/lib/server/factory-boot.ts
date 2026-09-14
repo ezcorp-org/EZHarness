@@ -12,16 +12,13 @@
  * the named reason, and the rest of the server keeps serving. It is reported,
  * never swallowed: an operator reads the code out of `/api/ready`.
  */
-import { FileBlobStore } from "$server/extensions/v4/blobs";
 import { startFactoryInstallation, type FactoryInstallationStartup } from "$server/factory/installation-startup";
 import { factoryBootConfig, type FactoryBootConfig } from "$server/factory/boot";
 import { setReadiness } from "$server/readiness";
-import type { BlobStore } from "$server/extensions/v4/types";
 import type { TransactionalDb } from "$server/db/migrations/types";
 
 export interface FactoryHostBootDependencies {
   readonly database: TransactionalDb;
-  readonly blobs: BlobStore;
   readonly databaseUrl: string | undefined;
   readonly signal: AbortSignal;
   readonly boot: FactoryBootConfig;
@@ -53,7 +50,6 @@ export async function startFactoryForHost(
     const startup = await startFactoryInstallation({
       host: {
         database: dependencies.database,
-        blobs: dependencies.blobs,
         // `resolveParameters` is omitted so `createFactoryApplication` uses the
         // run-inputs resolver it builds; naming it here would shadow that.
         runOptions: hostRunOptions(env),
@@ -91,9 +87,9 @@ export async function startFactoryForHost(
 
 /** The one call `ensureInitialized` makes. Off means no factory service starts. */
 export async function startFactoryIfEnabled(
-  dependencies: Omit<FactoryHostBootDependencies, "boot" | "blobs"> & { readonly blobsRoot: string; readonly boot?: FactoryBootConfig },
+  dependencies: Omit<FactoryHostBootDependencies, "boot"> & { readonly boot?: FactoryBootConfig },
 ): Promise<FactoryInstallationStartup | null> {
   const boot = dependencies.boot ?? factoryBootConfig;
   if (!boot.enabled) return null;
-  return startFactoryForHost({ ...dependencies, boot, blobs: new FileBlobStore(dependencies.blobsRoot) });
+  return startFactoryForHost({ ...dependencies, boot });
 }

@@ -17,6 +17,22 @@
  * the process loop does not: an owned `AbortController` derived from the
  * shutdown signal, a batch bound so one role cannot starve the others, and a
  * `stop()` that awaits the in-flight step instead of abandoning it.
+ *
+ * **Why this is not `createLifecycleRecoveryScheduler`.** C13 names
+ * `src/extensions/lifecycle-recovery-scheduler.ts` as the shared scheduling
+ * module, and this file deliberately does not extend it. That scheduler is
+ * edge-triggered and coalescing: a caller says "there may be work" and it
+ * collapses overlapping requests into one pass, arming a timer for the next
+ * durable lease deadline. It is the right shape for restart-time re-drive, and
+ * it has no stop signal at all — you stop it by not calling `request()`.
+ *
+ * The roles here are the opposite shape. Nothing signals them: a durable queue
+ * has work because another process wrote a row, so a continuous bounded poll is
+ * the only way to observe it, and every role must abort mid-flight on shutdown
+ * without abandoning a lease. Wrapping the coalescing scheduler to poll itself
+ * would give it the one property it was written not to have. Recorded here as a
+ * deliberate fork rather than left for a reader to infer, and a role that
+ * genuinely is edge-triggered should use the shared scheduler instead.
  */
 
 /** What one bounded step achieved. `worked` means step again immediately. */

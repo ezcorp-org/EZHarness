@@ -10,12 +10,12 @@ import { createFactoryPoolReadinessWriter } from "./pool/readiness";
 import { createFactoryServiceReadinessWriter, factorySupervisorReadinessOptions } from "./service-readiness";
 import { FACTORY_STARTUP_CONFIG_SCHEMA } from "./startup-config";
 import {
-  FactoryInstallationStartupError,
   factoryGatewayProbeTarget,
   factoryStartupConfigPath,
   factoryStorageProbeTarget,
   startFactoryInstallation,
   type FactoryInstallationHost,
+  type FactoryInstallationStartupError,
 } from "./installation-startup";
 
 const roots: string[] = [];
@@ -115,7 +115,6 @@ function memoryBlobs(): BlobStore & { readonly stored: Map<string, Uint8Array> }
 function host(overrides: Partial<FactoryInstallationHost> = {}): FactoryInstallationHost {
   return {
     database: {} as TransactionalDb,
-    blobs: memoryBlobs(),
     runOptions: { interpreterBuild: "build-1", interpreterCompatibility: "1", limits: { maxCostMicros: "100", maxTokens: 100, maxComputeMs: 100 }, resolveParameters: async () => ({}) },
     availableResourceClasses: ["cpu"],
     report: () => {},
@@ -188,6 +187,7 @@ describe("startFactoryInstallation", () => {
     await writeReadyRecords(root);
     const startup = await startFactoryInstallation({
       host: host(),
+      blobs: memoryBlobs(),
       databaseUrl: "postgres://product",
       signal: new AbortController().signal,
       configPath: await writeConfig(root),
@@ -213,6 +213,7 @@ describe("startFactoryInstallation", () => {
     await writeReadyRecords(root);
     const startup = await startFactoryInstallation({
       host: host(),
+      blobs: memoryBlobs(),
       databaseUrl: "postgres://product",
       signal: new AbortController().signal,
       configPath: await writeConfig(root),
@@ -237,6 +238,7 @@ describe("startFactoryInstallation", () => {
 
     await expect(startFactoryInstallation({
       host: host(),
+      blobs: memoryBlobs(),
       databaseUrl: "postgres://product",
       signal: new AbortController().signal,
       configPath: await writeConfig(root),
@@ -253,6 +255,7 @@ describe("startFactoryInstallation", () => {
     // throws and the two compute roles have no driver. They must hold, not run.
     const startup = await startFactoryInstallation({
       host: host(),
+      blobs: memoryBlobs(),
       databaseUrl: "postgres://product",
       signal: new AbortController().signal,
       configPath: await writeConfig(root),
@@ -271,6 +274,7 @@ describe("startFactoryInstallation", () => {
     const root = await privateRoot();
     await expect(startFactoryInstallation({
       host: host(),
+      blobs: memoryBlobs(),
       databaseUrl: "postgres://product",
       signal: new AbortController().signal,
       boot: bootConfig(root),
@@ -283,6 +287,7 @@ describe("startFactoryInstallation", () => {
     await writeReadyRecords(root);
     const startup = await startFactoryInstallation({
       host: host(),
+      blobs: memoryBlobs(),
       databaseUrl: "postgres://product",
       signal: new AbortController().signal,
       configPath: await writeConfig(root),
@@ -299,6 +304,7 @@ describe("startFactoryInstallation", () => {
     await writeReadyRecords(root);
     const startup = await startFactoryInstallation({
       host: host(),
+      blobs: memoryBlobs(),
       databaseUrl: "postgres://product",
       signal: new AbortController().signal,
       configPath: await writeConfig(root),
@@ -308,5 +314,49 @@ describe("startFactoryInstallation", () => {
     });
     started.push(startup);
     expect(startup.runtime.report().workers.map((worker) => worker.name)).toContain("usage-reconciliation");
+  });
+});
+
+describe("the product object store comes from the configuration", () => {
+  test("is built from storage.ordinary rather than from a host-supplied path", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const credentials = join(root, "secrets", "ordinary.json");
+    await writeFile(credentials, JSON.stringify({ identities: [{ name: "tenant-01", credentials: [{ accessKey: "probe-key", secretKey: "probe-secret" }] }] }), { mode: 0o600 });
+    await chmod(credentials, 0o600);
+    const configPath = await writeConfig(root, {
+      storage: { ordinary: { ...storage("ordinary"), endpoint: "http://127.0.0.1:1", credentialsPath: credentials }, archive: storage("archive") },
+    } as never);
+
+    // No `blobs` override: the composition builds the S3 store the document
+    // names. Nothing is bound on port 1, so the byte round-trip fails and
+    // admission stays closed — which is also the proof the store is real.
+    const error = await startFactoryInstallation({
+      host: host(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath,
+      boot: bootConfig(root),
+      dependencies: { gateway: { health: async () => true }, workers: { projections: { projectPending: async () => ({ runs: [] }) } } },
+    }).then(() => undefined, (caught: unknown) => caught as { code?: string; message: string });
+    expect(error?.message).toContain("object-storage");
+    expect(getFactoryApplication()).toBeNull();
+  });
+
+  test("fails by the credential SET name when the configured credentials are unreadable", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const configPath = await writeConfig(root, {
+      storage: { ordinary: { ...storage("ordinary"), credentialsPath: join(root, "secrets", "absent.json") }, archive: storage("archive") },
+    } as never);
+    await expect(startFactoryInstallation({
+      host: host(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath,
+      boot: bootConfig(root),
+      dependencies: { gateway: { health: async () => true }, workers: { projections: { projectPending: async () => ({ runs: [] }) } } },
+    })).rejects.toMatchObject({ code: "factory-storage-credentials-unusable" });
+    expect(getFactoryApplication()).toBeNull();
   });
 });

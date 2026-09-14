@@ -169,8 +169,45 @@ describe("C02.1 only the Node orchestration process links Temporal", () => {
   });
 });
 
+/**
+ * A package whose presence in a runtime closure means that closure can hold a
+ * product credential.
+ *
+ * This is the load-bearing half of the rule and it is EXHAUSTIVE over the
+ * closure rather than a list of paths: a credential-bearing module cannot be
+ * reached without also reaching the client it holds the credential for, so a
+ * new one under an unlisted path is caught by the package it must import. The
+ * file list below is a redundant second reading, kept because it names the
+ * offender directly when it does fire.
+ */
+const CREDENTIAL_PACKAGES = [
+  "@aws-sdk/",        // object storage
+  "drizzle-orm",      // the product database
+  "@electric-sql/",   // embedded PGlite
+  "postgres",
+  "pg",
+  "bun",              // Bun.sql, Bun.file — the Node process uses none of it
+] as const;
+
+function credentialPackages(closure: Closure): string[] {
+  return [...closure.bare.keys()]
+    .filter((specifier) => CREDENTIAL_PACKAGES.some((name) => specifier === name || specifier.startsWith(name)))
+    .sort();
+}
+
 describe("C02.1 the Node orchestration process holds no product credential", () => {
-  test("its runtime closure reaches no product database, object store, or provider credential", () => {
+  test("its runtime closure reaches no client that could hold one", () => {
+    expect(credentialPackages(runtimeClosure(NODE_ORCHESTRATION_ROOTS))).toEqual([]);
+  });
+
+  test("the classifier is not vacuous: a module that DOES hold credentials is caught", () => {
+    // Without this, a classifier that matched nothing would pass the rule above
+    // forever. The product database connection is the clearest positive case.
+    expect(credentialPackages(runtimeClosure(["src/db/connection.ts"])).length).toBeGreaterThan(0);
+    expect(credentialPackages(runtimeClosure(["src/extensions/v4/blobs.ts"])).some((name) => name.startsWith("@aws-sdk/"))).toBe(true);
+  });
+
+  test("no credential-bearing product module is in the closure either", () => {
     const closure = runtimeClosure(NODE_ORCHESTRATION_ROOTS);
     const forbiddenFiles = closure.files.filter((file) =>
       file.startsWith("src/db/")
@@ -180,13 +217,7 @@ describe("C02.1 the Node orchestration process holds no product credential", () 
       || file === "src/extensions/credential-broker.ts"
       || file === "src/extensions/secrets-store.ts"
       || file === "src/extensions/host-api-broker.ts");
-    const forbiddenPackages = [...closure.bare.keys()].filter((specifier) =>
-      specifier.startsWith("@aws-sdk/")
-      || specifier.startsWith("drizzle-orm")
-      || specifier.startsWith("@electric-sql/")
-      || specifier === "postgres"
-      || specifier === "pg");
-    expect({ forbiddenFiles, forbiddenPackages }).toEqual({ forbiddenFiles: [], forbiddenPackages: [] });
+    expect(forbiddenFiles).toEqual([]);
   });
 
   test("it still holds the tenant payload codec, which is the one key it must have", () => {
@@ -229,6 +260,15 @@ describe("C05 the host supervisor holds only host identity", () => {
     };
     visit(declared);
     expect(optionMembers.sort()).toEqual(["authorizeAttempt", "invokeTool", "journal", "runner"]);
+  });
+
+  test("the supervisor PROCESS holds host identity and no tenant credential", () => {
+    // The process entry that publishes host-supervisor readiness must be as
+    // credential-free as the orchestrator, for the opposite reason: C01 says it
+    // holds host identity and no tenant state at all.
+    const closure = runtimeClosure(["src/factory/runner/supervisor-process.ts"]);
+    expect(credentialPackages(closure)).toEqual([]);
+    expect(closure.files.filter((file) => file.startsWith("src/db/") || file.startsWith("src/providers/"))).toEqual([]);
   });
 
   test("the physical-stop signer is injected, so product code never receives the host private key", () => {

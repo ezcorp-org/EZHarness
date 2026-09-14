@@ -228,7 +228,20 @@ export async function startFactoryRuntime(
   configureFactoryApplication(application);
   admissionOpen = true;
   workerSet.workers.start(signal);
-  setReadiness({ state: "ready" });
+  // Readiness carries which roles are running and which are held, so "the
+  // background work is live" is an answer an operator can read off `/api/ready`
+  // rather than a claim they have to take from a log line. Names and reasons
+  // only: no endpoint, no identity beyond the tenant, no credential.
+  setReadiness({
+    state: "ready",
+    detail: {
+      factory: {
+        tenantId: config.tenantId,
+        running: workerSet.workers.names(),
+        held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage })),
+      },
+    },
+  });
 
   return Object.freeze({ application, config, seams, workers: workerSet.workers, report, stop });
 }

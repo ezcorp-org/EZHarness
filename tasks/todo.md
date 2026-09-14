@@ -2255,38 +2255,43 @@ Gates: `tasks/factory/w09-GATES.md`.
 - [x] W09.10 Behaviour tests: shutdown order, credential expiry and refresh, dependency loss,
       restart, queue backpressure, safe re-drive, simultaneous initialization, failed-start retry.
 - [x] W09.11 Full verification per `common.md` with receipts under the evidence directory.
+- [x] W09.12 Wire the composition root into `ensureInitialized`, with a real-server proof that
+      `/api/ready` reaches `ready`, the registered roles run, and shutdown leaks nothing.
+- [x] W09.13 One registration rule for every role, and the host supervisor readiness the
+      seventh probe reads.
+- [ ] W09.14 Compose the process that holds the container runner, so attempt dispatch runs.
 
 ### Review
 
-W09 turned out to be the composition root itself rather than a rewiring of one.
-`createFactoryApplication` and `assertFactoryBootReadiness` both shipped on
-`integ/w00` with no production caller, so the gate that closes admission until
-real probes pass had a gate and no probe, and four durable primitives had no
-driver at all. Seven new modules supply the missing half: a validated startup
-document that names every absent dependency at once, seven real probes that read
-live records rather than configuration, one bounded stop-aware worker shape
-shared by every role, typed seams that refuse instead of answering, and the
-archive writer wired as the release store's archive with publication grade
-reported as a visible field.
+**The first submission was rejected, and the finding was correct.** I built the
+factory composition root and never called it. `startFactoryRuntime` composed,
+probed, and opened admission, and no production code path invoked it, so a
+flag-on installation sat at `booting / factory-services-pending` for the process
+lifetime and every factory route answered 503. My own gate file then presented
+that 503-forever as evidence of fail-closed design and blamed the remaining gaps
+on other packages, which was an overstatement.
 
-Three defects surfaced and were fixed rather than routed. `ensureInitialized`
-latched a boolean before the work it stood for, so a concurrent caller and every
-caller after a failed start were told initialization succeeded; the in-flight
-promise is now the latch and a failed attempt clears it. The flag-off 404 emitted
-`factory_disabled` where C09 names `factory-disabled`, which a client written to
-the contract could never match. And my own first composition called the readiness
-half of the boot check with an empty available set, reporting all seven services
-down before a single probe ran.
+`ensureInitialized` now composes the factory after the database opens. The proof
+is a real built server against real PostgreSQL, real S3, a real pool admission
+process, and a real host supervisor process: `/api/ready` answers `200 ready`
+and carries the running and held role lists, and a SIGTERM tears down
+`factory-runtime` first of fourteen with exit 0 and no surviving process. One
+input in that run is simulated and labelled in the receipt — the orchestration
+readiness record — because the pinned Temporal test server is plaintext while
+C01 requires an authenticated namespace, and I would rather label the gap than
+relax the requirement to produce a green light.
 
-One scope change is a real widening and the coordinator should confirm it: C01
-assigns version publish the `write` scope, so a `write` key holding the project
-`factory.publish` grant can now publish where a human session was required.
-Grant management moved the other way and is now gated on the tenant-administrator
-role as well as the scope.
+Fixing the wiring exposed two more defects of mine. The three seam-driven roles
+could never register: `hold()` had no `define()` counterpart, so supplying a seam
+removed the hold and registered nothing, and my test asserted only absence from
+the held list. And the projection driver was typed against an `applied` count
+that `projectPending` does not return, so that role would have spun at its batch
+bound forever. Every role now follows one rule — register when the driver exists,
+hold by name when it does not — and registered plus held always equals the role
+count.
 
-The pass sentence is partial. Start, restart, shutdown with no leaked process,
-and both documented flag answers are proved through the real built server against
-real PostgreSQL. The durable run in the middle of that sentence needs W03's
-stopper and reconciler, W05's validator gateway and candidate resolver, and
-W07/W08's destination reservation and sender fence; `tasks/factory/w09-GATES.md`
-names each missing collaborator and its owner.
+The pass sentence is still open, and the missing half is mine rather than
+another package's. `FactoryAttemptDispatcher` needs a trusted runner and
+`FactoryPackagePreparations`, whose constructor requires a container runner the
+product process does not hold, so the role holds there and registers unchanged in
+a process that does. Composing that process is the remaining work.

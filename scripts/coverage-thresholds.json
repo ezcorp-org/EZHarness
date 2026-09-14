@@ -1004,5 +1004,6 @@
   "src/factory/release-composition.ts": 100,
   "src/factory/service-readiness.ts": 100,
   "src/factory/installation-startup.ts": 100,
-  "web/src/lib/server/factory-boot.ts": 100
+  "web/src/lib/server/factory-boot.ts": 100,
+  "src/factory/runner/supervisor-process.ts": 100
 }

@@ -65,11 +65,18 @@ export function factoryStartupConfigPath(
   return `${boot.secretsDir.replace(/\/+$/, "")}/factory-startup.json`;
 }
 
-/** What the host process supplies that is not in the document. */
+/**
+ * What the host process supplies that is not in the document.
+ *
+ * The object store is NOT here. It is `storage.ordinary` in the startup
+ * document, built below from that endpoint and its credential set. An earlier
+ * version took a host-supplied `FileBlobStore` rooted at `getDbPath()`, which
+ * returns the literal string `"external"` for an external database — so the
+ * product object store was created as a relative directory inside the server's
+ * working tree. A configured store cannot land somewhere by accident.
+ */
 export interface FactoryInstallationHost {
   readonly database: TransactionalDb;
-  /** The product object store, already bound to this installation's data key. */
-  readonly blobs: BlobStore | FactoryApplicationOptions["blobs"];
   readonly runOptions: FactoryApplicationOptions["runOptions"];
   readonly availableResourceClasses: Iterable<string>;
   readonly report: (role: string, error: unknown) => void;
@@ -85,6 +92,8 @@ export interface FactoryInstallationStartOptions {
   readonly seams?: FactoryRuntimeDependencies["seams"];
   /** Overridden in tests so the pool client is not a real network dependency. */
   readonly dependencies?: Partial<Pick<FactoryRuntimeDependencies, "storage" | "gateway" | "workers" | "extraProbes">>;
+  /** Overridden in tests so the product store is not a real S3 dependency. */
+  readonly blobs?: BlobStore;
 }
 
 /**
@@ -133,6 +142,24 @@ export function factoryGatewayProbeTarget(config: FactoryStartupConfig): Factory
   };
 }
 
+/**
+ * The product object store this installation is configured to use.
+ *
+ * The credential set is read at composition and never travels further: only the
+ * set's NAME reaches a record, which is what the archive failure-domain
+ * classifier is built from.
+ */
+async function productObjectStore(config: FactoryStartupConfig): Promise<BlobStore> {
+  const { S3BlobStore } = await import("../extensions/v4/blobs");
+  const { loadFactoryStorageCredentials } = await import("./release-composition");
+  return new S3BlobStore({
+    endpoint: config.storage.ordinary.endpoint,
+    bucket: config.storage.ordinary.bucket,
+    prefix: config.storage.ordinary.prefix,
+    credentials: await loadFactoryStorageCredentials(config.storage.ordinary, config.tenantId),
+  }) as unknown as BlobStore;
+}
+
 export interface FactoryInstallationStartup {
   readonly runtime: FactoryRuntime;
   stop(): Promise<void>;
@@ -153,17 +180,18 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
   // The stores the roles read through. `createFactoryApplication` builds the
   // same ones again inside `startFactoryRuntime`; these are the collaborators
   // the background roles need and the application does not expose.
-  const artifacts = new FactoryArtifacts(host.database, host.blobs, config.tenantId);
+  const blobs = options.blobs ?? await productObjectStore(config);
+  const artifacts = new FactoryArtifacts(host.database, blobs, config.tenantId);
   const transitions = new FactoryTransitionArtifacts(artifacts);
 
   const supplied = options.dependencies ?? {};
-  const storage = supplied.storage ?? factoryStorageProbeTarget(host.blobs as BlobStore);
+  const storage = supplied.storage ?? factoryStorageProbeTarget(blobs);
   const gateway = supplied.gateway ?? factoryGatewayProbeTarget(config);
 
   const dependencies: FactoryRuntimeDependencies = {
     database: host.database,
     application: {
-      blobs: host.blobs,
+      blobs,
       runOptions: host.runOptions,
       availableResourceClasses: host.availableResourceClasses,
     },
@@ -172,7 +200,7 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
     storage,
     gateway,
     service: { subject: config.privateService.certificateIdentity, tenantId: config.tenantId },
-    workers: supplied.workers ?? await installationWorkers(config, host, transitions),
+    workers: supplied.workers ?? await installationWorkers(config, host, blobs, transitions),
     ...(options.seams === undefined ? {} : { seams: options.seams }),
     ...(supplied.extraProbes === undefined ? {} : { extraProbes: supplied.extraProbes }),
     report: host.report,
@@ -191,6 +219,7 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
 async function installationWorkers(
   config: FactoryStartupConfig,
   host: FactoryInstallationHost,
+  blobs: BlobStore,
   transitions: FactoryTransitionArtifacts,
 ): Promise<FactoryRuntimeDependencies["workers"]> {
   const { createFactoryApplication } = await import("./application");
@@ -200,7 +229,7 @@ async function installationWorkers(
   const stores = createFactoryApplication({
     database: host.database,
     tenantId: config.tenantId,
-    blobs: host.blobs,
+    blobs,
     runOptions: host.runOptions,
     availableResourceClasses: host.availableResourceClasses,
   });

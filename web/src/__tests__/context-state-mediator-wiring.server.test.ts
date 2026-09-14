@@ -83,10 +83,16 @@ vi.mock("$server/env-validation", () => ({ validateEnv: vi.fn() }));
 vi.mock("$server/db/connection", () => ({
 	initDb: vi.fn(async () => undefined),
 	closeDb: vi.fn(async () => undefined),
+	// `ensureInitialized` composes the factory after the database opens, so it
+	// reads the open handle and the data path. The factory flag is off in this
+	// suite, so nothing starts; the exports must still exist.
+	getDb: vi.fn(() => ({})),
+	getDbPath: vi.fn(() => "/tmp/ezcorp-test-data"),
 }));
 vi.mock("$lib/server/shutdown", () => ({
 	installShutdownHandlers: vi.fn(),
 	registerTeardown: vi.fn(),
+	getShutdownSignal: vi.fn(() => new AbortController().signal),
 }));
 vi.mock("$server/db/backup", () => ({
 	startBackups: vi.fn(),

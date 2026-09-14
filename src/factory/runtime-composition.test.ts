@@ -228,6 +228,21 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
     expect(getFactoryApplication()).toBe(runtime.application);
     expect(runtime.application.tenantId).toBe("tenant-01");
     expect(getReadiness().state).toBe("ready");
+    // Which roles run and which are held is readable from readiness itself.
+    expect(getReadiness().detail).toEqual({
+      factory: {
+        tenantId: "tenant-01",
+        running: ["compute-admission-dispatch", "compute-admission-poll", "attempt-dispatch", "run-projection"],
+        held: [
+          { role: "notification-inbox-delivery", workPackage: "W07/W08" },
+          { role: "child-settlement", workPackage: "W06" },
+          { role: "release-outcome", workPackage: "W07/W08" },
+          { role: "usage-reconciliation", workPackage: "W03" },
+          { role: "notification-send", workPackage: "W17" },
+          { role: "stop-settlement", workPackage: "W03" },
+        ],
+      },
+    });
 
     const report = runtime.report();
     expect(report.admissionOpen).toBe(true);

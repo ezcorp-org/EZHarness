@@ -51,7 +51,6 @@ const boot: FactoryBootConfig = {
 function dependencies(overrides: Record<string, unknown> = {}) {
   return {
     database: {} as never,
-    blobs: {} as never,
     databaseUrl: "postgres://product",
     signal: new AbortController().signal,
     boot,
@@ -75,7 +74,6 @@ describe("startFactoryIfEnabled", () => {
     const registerTeardown = vi.fn();
     const result = await startFactoryIfEnabled({
       ...dependencies({ registerTeardown }),
-      blobsRoot: "/tmp/blobs",
       boot: { ...boot, enabled: false },
     } as never);
     expect(result).toBeNull();
@@ -88,32 +86,33 @@ describe("startFactoryIfEnabled", () => {
   it("calls the composition root when the flag is on", async () => {
     const running = startup();
     startFactoryInstallation.mockResolvedValue(running.handle);
-    const result = await startFactoryIfEnabled({ ...dependencies(), blobsRoot: "/tmp/blobs", boot } as never);
+    const result = await startFactoryIfEnabled({ ...dependencies(), boot } as never);
     expect(result).toBe(running.handle);
     expect(startFactoryInstallation).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("startFactoryForHost", () => {
-  it("hands the composition the host's database, store, bounds, and stop signal", async () => {
+  it("hands the composition the host's database, bounds, and stop signal", async () => {
     const running = startup();
     startFactoryInstallation.mockResolvedValue(running.handle);
     const controller = new AbortController();
     const database = { handle: "database" } as never;
-    const blobs = { handle: "blobs" } as never;
 
-    await startFactoryForHost(dependencies({ database, blobs, signal: controller.signal }) as never, {
+    await startFactoryForHost(dependencies({ database, signal: controller.signal }) as never, {
       EZCORP_FACTORY_INTERPRETER_BUILD: "build-9",
       EZCORP_FACTORY_INTERPRETER_COMPATIBILITY: "3",
       EZCORP_FACTORY_RESOURCE_CLASSES: " cpu , gpu ",
     });
 
     const passed = startFactoryInstallation.mock.calls[0]![0] as {
-      host: { database: unknown; blobs: unknown; runOptions: Record<string, unknown>; availableResourceClasses: string[] };
+      host: { database: unknown; runOptions: Record<string, unknown>; availableResourceClasses: string[] };
       databaseUrl: string; signal: AbortSignal; boot: FactoryBootConfig;
     };
     expect(passed.host.database).toBe(database);
-    expect(passed.host.blobs).toBe(blobs);
+    // The object store is NOT host-supplied: it comes from `storage.ordinary`
+    // in the startup document, so nothing here can root it by accident.
+    expect(passed.host).not.toHaveProperty("blobs");
     expect(passed.host.runOptions).toMatchObject({ interpreterBuild: "build-9", interpreterCompatibility: "3" });
     expect(passed.host.availableResourceClasses).toEqual(["cpu", "gpu"]);
     expect(passed.databaseUrl).toBe("postgres://product");
