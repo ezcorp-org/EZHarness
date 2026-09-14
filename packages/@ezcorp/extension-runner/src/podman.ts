@@ -25,19 +25,20 @@ const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
 const guestShim = `const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("/channel/in","r+"),o=fs.openSync("/channel/out","r+"),e=fs.openSync("/channel/err","r+");const c=cp.spawn(process.execPath,["./.runner/extension.js"],{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));for(const s of["SIGTERM","SIGINT"])process.on(s,()=>{try{c.kill(s)}catch{process.exit(143)}});`;
 const probeProgramSource = `const fs=require("node:fs");const read=p=>fs.readFileSync(p,"utf8").trim(); const status=read("/proc/self/status");let writable=false;try{fs.writeFileSync("/root-write-probe","x");writable=true}catch{} console.log(JSON.stringify({uid:process.getuid(),status,memory:read("/sys/fs/cgroup/memory.max"),swap:read("/sys/fs/cgroup/memory.swap.max"),cpu:read("/sys/fs/cgroup/cpu.max"),pids:read("/sys/fs/cgroup/pids.max"),routes:read("/proc/net/route"),ipv6:read("/proc/net/ipv6_route"),writable}));`;
 /**
- * The guest's environment is exactly `HOME`, `TMPDIR` and `BUN_INSTALL_CACHE_DIR`.
- * `--unsetenv-all` drops the image's own `ENV`, which otherwise reached every
- * guest: measured on the pinned images, that was `PATH`, `container`, and the
- * interpreter's build metadata. Two variables remain because the OCI runtime
- * writes them into the process after podman has built the spec, and `--unsetenv`
- * cannot reach them: `LC_CTYPE=C.UTF-8`, and `HOSTNAME`, which is pinned to a
- * fixed value below so it cannot carry the container's host-derived identity.
+ * The guest's environment is exactly `HOME`, `TMPDIR`, `BUN_INSTALL_CACHE_DIR`
+ * and `PATH`. `--unsetenv-all` drops the image's own `ENV`, which otherwise
+ * reached every guest: measured on the pinned images, that was `PATH`,
+ * `container`, and the interpreter's build metadata. Two variables remain
+ * because the OCI runtime writes them into the process after podman has built
+ * the spec, and `--unsetenv` cannot reach them: `LC_CTYPE=C.UTF-8`, and
+ * `HOSTNAME`, which is pinned to a fixed value below so it cannot carry the
+ * container's host-derived identity.
  */
 const GUEST_HOSTNAME = "guest";
-/** Exactly the three variables the profile declares. Every guest has all three. */
-export const RUNNER_GUEST_ENVIRONMENT = Object.freeze(["BUN_INSTALL_CACHE_DIR", "HOME", "TMPDIR"]);
+/** Exactly the four variables the profile declares. Every guest has all four. */
+export const RUNNER_GUEST_ENVIRONMENT = Object.freeze(["BUN_INSTALL_CACHE_DIR", "HOME", "PATH", "TMPDIR"]);
 /**
- * The only names a guest may carry beyond the three declared ones. The OCI
+ * The only names a guest may carry beyond the four declared ones. The OCI
  * runtime writes them after podman has built the spec, so `--unsetenv` cannot
  * reach them, and which of the two appears depends on the image. Both carry
  * fixed, tenant-independent values: the hostname is pinned above and the locale
@@ -102,6 +103,15 @@ export class PodmanRunner implements Runner {
   readonly image: string;
   /** The in-container program `--entrypoint` names. A pinned guest language overrides it. */
   protected readonly guestInterpreter: string = "/usr/local/bin/bun";
+  /**
+   * The guest's executable search path. `--unsetenv-all` also drops the image's
+   * own `PATH`, and a v4 extension may spawn a helper by bare name under its
+   * shell grant, so the runner declares the path itself rather than inheriting
+   * it. The value is the pinned image's own directory list: fixed, carrying no
+   * host or tenant identity, and reaching only the read-only image. A pinned
+   * guest language overrides it with its own image's list.
+   */
+  protected readonly guestPath: string = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bun-node-fallback-bin";
   protected readonly root: string;
   private readonly podman: string;
   protected readonly seccompPath: string;
@@ -295,7 +305,7 @@ export class PodmanRunner implements Runner {
   private args(id: string, limits: ResourceLimits, mount?: string, devices: readonly string[] = [], channel?: string): string[] {
     const name = this.containerName(id);
     this.containers.set(id, name);
-    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
+    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", `--env=PATH=${this.guestPath}`, ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
   }
   private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {

@@ -123,7 +123,7 @@ test("a request the shared contract refuses becomes a failed result, never a com
   expect(validateFactoryRunnerResult(result)).toEqual({ ok: true });
 }, 180_000);
 
-test("the guest observes the applied controls: no capability, no device, no route, and only the three declared variables", async () => {
+test("the guest observes the applied controls: no capability, no device, no route, and only the declared variables", async () => {
   const report = await guest<GuestControls>("controls", {});
   expect(report.uid).toBe(65534);
   expect(report.gid).toBe(65534);
