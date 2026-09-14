@@ -1,0 +1,134 @@
+{
+  "package": "W02",
+  "branch": "wp/w02-python-isolation",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w02-python-gpu",
+  "headSha": "aeaa5908ba84f5559d4200751c9f410c183135d5",
+  "verdict": "ACCEPT-WITH-FIXES",
+  "gitStatusPorcelainEmpty": true,
+  "commitsOverIntegW00": 18,
+  "note": "This file supersedes an earlier results.json written by one of five parallel verification agents this validator dispatched; that agent overstepped its assigned slice (static gates + light suites only) and independently reran nearly the full protocol, reaching the same top-level verdict but missing the two HIGH findings below, which two other verification agents surfaced and which this validator then independently reproduced directly.",
+  "reruns": [
+    { "name": "typecheck", "exitCode": 0, "matchesWorkerClaim": true },
+    { "name": "lint", "exitCode": 0, "matchesWorkerClaim": true },
+    { "name": "boundaries", "exitCode": 0, "matchesWorkerClaim": true },
+    { "name": "gate-integrity", "exitCode": 0, "matchesWorkerClaim": true },
+    { "name": "check-factory-lanes", "exitCode": 0, "matchesWorkerClaim": true, "note": "declaration-only check; does not execute producers, so it could not have caught the H1 regression" },
+    { "name": "focused-suites-18-files", "exitCode": 0, "pass": 169, "fail": 0, "assertions": 719, "matchesWorkerClaim": true },
+    { "name": "podman-devices.integration.test.ts", "exitCode": 0, "pass": 6, "fail": 0, "assertions": 18, "matchesWorkerClaim": true, "lock": "gpu+heavy" },
+    { "name": "python-guest.integration.test.ts", "exitCode": 0, "pass": 12, "fail": 0, "assertions": 93, "matchesWorkerClaim": true, "lock": "heavy" },
+    { "name": "python-quality.sh all", "exitCode": 0, "testsDiscovered": 131, "coverageLines": "790/790", "coverageBranches": "424/424", "matchesWorkerClaim": true, "note": "matches worker's own receipts; does not match stale G7 prose in tasks/factory/w02-GATES.md (M2)" },
+    { "name": "applied-controls.integration.test.ts", "exitCode": 0, "pass": 5, "fail": 0, "assertions": 133, "matchesWorkerClaim": true, "lock": "heavy" },
+    { "name": "base-hardening-regressions-5-files", "exitCode": 0, "pass": 67, "fail": 0, "assertions": 243, "matchesWorkerClaim": true },
+    { "name": "podman-shared-suite", "exitCode": 0, "pass": 16, "fail": 0, "assertions": 86, "matchesWorkerClaim": true, "lock": "heavy" },
+    { "name": "factory-podman-suites", "exitCode": 0, "pass": 10, "fail": 0, "assertions": 43, "matchesWorkerClaim": true, "lock": "heavy" },
+    { "name": "postgres-producers-subset-2-files", "exitCode": 0, "pass": 7, "fail": 0, "assertions": 2678, "matchesWorkerClaim": "consistent subset of worker's 35/2942 across 6 files", "lock": "heavy" },
+    { "name": "verify-factory-local-gpu.sh", "exitCode": 0, "fixturesPassed": 10, "controlFailedAsRequired": "GPU_REQUIRED", "matchesWorkerClaim": true, "lock": "gpu" },
+    { "name": "verify-factory-attempt-gpu.ts", "exitCode": 0, "casesPassed": 6, "casesTotal": 6, "matchesWorkerClaim": true, "lock": "gpu+heavy" },
+    { "name": "check-new-file-coverage (own merged LCOV, 10 producers incl. python)", "exitCode": 0, "result": "PASSED: 7 new source file(s) gated", "matchesWorkerClaim": true },
+    { "name": "check-patch-coverage (own merged LCOV)", "exitCode": 0, "result": "PASSED: all changed executable lines covered (11 file(s))", "matchesWorkerClaim": true },
+    { "name": "independent-bun-vs-python-validator-equivalence", "fixturesCompared": 16, "agree": 16, "result": "byte-identical issue codes on all 16", "note": "new independent evidence beyond the worker's in-container test" },
+    { "name": "python-runner.integration.test.ts", "exitCode": 1, "pass": 1, "fail": 2, "assertions": 5, "matchesWorkerClaim": false, "note": "NOT claimed or mentioned anywhere by the worker; broken by this branch's removal of c02_runner.py --sdk-bridge/--node args; see finding H1" },
+    { "name": "revoke-publish-reactivation-probe", "result": "publish -> revoke -> publish succeeds, reactivating a revoked package against a real PGlite-backed FactoryPackageTrusts", "note": "see finding H2" }
+  ],
+  "findings": [
+    {
+      "id": "H1",
+      "severity": "high",
+      "summary": "src/factory/runner/python-runner.integration.test.ts is broken (1 pass, 2 fail) because c02_runner.py's --sdk-bridge/--node CLI arguments were removed in this branch and the test was not updated. This file is a required producer of the 'factory-runner-contracts' / 'Factory runner contracts' branch-protection lane (scripts/check-factory-lanes.ts:72), so real CI on this branch fails a required check.",
+      "location": "src/factory/runner/python-runner.integration.test.ts:28-34; src/factory/runner/python/c02_runner.py (diff vs integ/w00); scripts/check-factory-lanes.ts:72",
+      "reproduction": "bun test --timeout 30000 ./src/factory/runner/python-runner.integration.test.ts -> 1 pass, 2 fail, 5 expect() calls",
+      "blocking": true
+    },
+    {
+      "id": "H2",
+      "severity": "high",
+      "summary": "TRUST_TRANSITIONS.publish.from includes 'revoked', letting a plain publish reactivate a revoked package. This contradicts the revoke() method's own docstring added in the same diff ('Terminal... no later publish can reopen it') and contract C05's language that security revocation wins over draining. tasks/factory/w02-GATES.md deviation 8 claims this is intentional, but that claim contradicts the shipped code comment in the same commit.",
+      "location": "src/factory/package-preparation.ts (TRUST_TRANSITIONS const and revoke() docstring, both added in this diff)",
+      "reproduction": "standalone PGlite-backed FactoryPackageTrusts probe: publish -> revoke -> publish succeeds, history reads [\"1:active\",\"2:revoked\",\"3:active\"]; no existing test in the repo exercises revoked->publish",
+      "blocking": true
+    },
+    {
+      "id": "M1",
+      "severity": "medium",
+      "summary": "Quarantine/revocation live-attempt fencing has no real implementation yet; FactoryPackageQuarantineFence has exactly one implementation in the repo, a recording test double. This is correctly scoped as a seam for W03 in the worker's deviation notes, but tasks/factory/w02-GATES.md G8 is checked [x] with prose implying end-to-end proof.",
+      "location": "src/factory/package-preparation.ts:109; src/__tests__/helpers/factory-package-preparation-suite.ts; tasks/factory/w02-GATES.md G8",
+      "blocking": false
+    },
+    {
+      "id": "M2",
+      "severity": "medium",
+      "summary": "tasks/factory/w02-GATES.md G7 prose (122 tests, guest.py 127/127 lines, 420 branches) is stale relative to the worker's own later receipts and this rerun (131 tests, guest.py 172/172 lines, 424 branches), which match G17's separately stated aggregate. Coverage is genuinely 100% either way; documentation-accuracy defect only.",
+      "location": "tasks/factory/w02-GATES.md G7",
+      "blocking": false
+    },
+    {
+      "id": "M3",
+      "severity": "medium",
+      "summary": "scripts/coverage-thresholds.json (W18-owned per freeze section 12) was edited (two new keys plus unrelated whitespace on two pre-existing keys) without being listed among the 8 documented landed deviations, unlike the other cross-ownership touches (schema.ts, migrate.ts).",
+      "location": "scripts/coverage-thresholds.json",
+      "blocking": false
+    },
+    {
+      "id": "L1",
+      "severity": "low",
+      "summary": "No true concurrent (Promise.all) race test proves the device-exclusivity fence (pg_advisory_xact_lock in assertDevicesExclusive) under simultaneous claimStart calls; all cases in attempt-devices.test.ts are sequential.",
+      "location": "src/factory/runner/attempt-devices.test.ts; src/factory/runner/attempt-runtime.ts:358-371",
+      "blocking": false
+    },
+    {
+      "id": "L2",
+      "severity": "low",
+      "summary": "No concurrent-quarantine-vs-in-flight-attempt test and no crash-mid-fence fault injection specific to quarantine()/revoke(); lower priority pending W03 per M1.",
+      "location": "src/__tests__/helpers/factory-package-preparation-suite.ts",
+      "blocking": false
+    },
+    {
+      "id": "L3",
+      "severity": "low",
+      "summary": "G6's 'twenty-one values' number-printing conformance claim actually covers 15 explicit cases in test_factory_ijson.py; still includes the subnormal case and all 15 independently re-verified byte-for-byte against Bun JSON.stringify. Cosmetic count mismatch.",
+      "location": "src/factory/runner/python/tests/test_factory_ijson.py:193-212",
+      "blocking": false
+    }
+  ],
+  "planConformance": {
+    "digestPinnedPythonGuestFramedBridgeImmutableClosure": "proven",
+    "sharedSchemasNegativeFixturesIsolatedGuests_hostPythonConformanceSeparate": "partially proven (isolated guest path proven; separate host-Python conformance test is broken, see H1)",
+    "perAttemptDeviceAuthorityReplacingHostGlobal": "proven",
+    "appliedRuntimeControlsFromHostNoAdvisoryFallback": "proven",
+    "baseHardeningRegressionsRecheck": "proven",
+    "hostileFixturesQuarantineDuringExecutionBrokerDenial": "partially proven (hostile fixture proven; live fencing during execution not yet real, see M1; broker denial/protected-asset mutation not independently exercised)",
+    "quarantinedRevokedOnSharedFencePreventReactivation": "defect found, see H2",
+    "localAmdProofAndSupportedProfile": "proven",
+    "productionGpuCriteriaExplicitlyUnmet": "proven honest",
+    "componentPassCpuGpuDenials": "proven"
+  },
+  "interfaceConformance": {
+    "freezeSection6": "no deviation found; FactoryAttemptDeviceGrant and StartRequest.devices match the frozen types field-for-field",
+    "ownershipFreezeSection12": {
+      "disclosedCrossOwnershipTouches": ["src/db/schema.ts (Coordinator)", "src/db/migrate.ts (Coordinator)", "scripts/check-factory-boundaries.ts (Coordinator, own-rows pattern)"],
+      "undisclosedCrossOwnershipTouch": ["scripts/coverage-thresholds.json (W18) - see M3"]
+    },
+    "interfaceQuestionsEvaluated": [
+      { "question": 1, "topic": "devices/cdiDevices split, CDI refused at start", "assessment": "matches freeze section 6 open question 4 default, no sign-off needed" },
+      { "question": 2, "topic": "FactoryGpuHostProfile sourced from W16's future pool/process.ts", "assessment": "consistent with freeze section 12 ownership, not blocking" },
+      { "question": 3, "topic": "two OCI-injected residue env vars beyond C05's stated three", "assessment": "real, measured, transparently exposed, fixed non-tenant values; recommend contract wording update, not a code defect" }
+    ]
+  },
+  "securityPosture": {
+    "credentialLeakInLogsOrReceipts": false,
+    "authorityChecksRemovedWithoutReplacement": false,
+    "secretReachableByGuest": false,
+    "fifoChannelHardeningRegression": false,
+    "noteOnH2": "H2 is a logic defect in a newly added transition table, not a removed pre-existing authority check"
+  },
+  "evidenceDirectories": {
+    "logs": "/tmp/factory-platform-evidence/w02-validation/logs/",
+    "coverage": "/tmp/factory-platform-evidence/w02-validation/coverage/",
+    "mergedLcov": "/tmp/factory-platform-evidence/w02-validation/mycov/merged-lcov.info",
+    "reproScripts": [
+      "/tmp/factory-platform-evidence/w02-validation/revoke-publish-probe.test.ts",
+      "/tmp/factory-platform-evidence/w02-validation/bun-equiv-check.ts",
+      "/tmp/factory-platform-evidence/w02-validation/python-equiv-check.py"
+    ]
+  }
+}

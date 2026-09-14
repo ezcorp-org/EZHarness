@@ -1,0 +1,139 @@
+{
+  "package": "W02",
+  "branch": "wp/w02-python-isolation",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w02-python-gpu",
+  "priorHeadSha": "aeaa5908ba84f5559d4200751c9f410c183135d5",
+  "headSha": "5743c1ef6cc5218ee6560b75386f025a78ce4117",
+  "verdict": "ACCEPT",
+  "gitStatusPorcelainEmpty": true,
+  "deltaCommits": [
+    { "sha": "73f8fdfe1e4467c49b1dc12f41a32efcd0412b62", "subject": "fix(factory): repair the broken lane producer, make revocation terminal, and store real JSONB" },
+    { "sha": "5743c1ef6cc5218ee6560b75386f025a78ce4117", "subject": "docs(factory): repoint W02 gates at the post-validation rerun and record the lessons" }
+  ],
+  "filesChangedInDelta": [
+    "scripts/coverage-thresholds.json",
+    "src/__tests__/helpers/factory-package-preparation-suite.ts",
+    "src/factory/package-preparation.ts",
+    "src/factory/runner/attempt-runtime.ts",
+    "src/factory/runner/canonical-validator.mjs (deleted)",
+    "src/factory/runner/python-runner.integration.test.ts",
+    "tasks/factory/w02-GATES.md",
+    "tasks/lessons.md",
+    "tests/postgres/factory-executions.test.ts"
+  ],
+  "priorFindingsResolution": [
+    {
+      "id": "H1",
+      "priorSummary": "python-runner.integration.test.ts broken (1 pass, 2 fail), required CI lane producer",
+      "status": "resolved",
+      "evidence": "Independently reran the file standalone: 4 pass / 0 fail / 50 expect() calls (was 1 pass / 2 fail / 5 expect() calls). Test rewritten to call c02_runner.py without the removed --sdk-bridge/--node flags, now asserts issue-code equality (not just ok/not-ok) between the Bun and host-Python runtimes, and adds a new 'malformed envelope' negative case. The file is now included in the 19-file focused-suite bundle used for coverage (it was silently absent from the 18-file bundle at the prior head, which is part of why the break went unnoticed). scripts/check-factory-lanes.ts still declares it as a producer of the 'Factory runner contracts' lane (scripts/check-factory-lanes.ts:72, .github/workflows/ci.yml:117) and check-factory-lanes.ts reruns green (exit 0)."
+    },
+    {
+      "id": "H2",
+      "priorSummary": "TRUST_TRANSITIONS.publish.from included 'revoked', letting a plain publish reactivate a revoked package",
+      "status": "resolved",
+      "evidence": "TRUST_TRANSITIONS.publish.from is now ['none','active','quarantined'] (revoked removed); quarantine.from is ['active']; revoke.from is ['active','quarantined']. Once state is 'revoked', no entry in any transition's 'from' array includes 'revoked', so publish/quarantine/revoke all throw factory_package_trust_conflict from that state -- verified by reading src/factory/package-preparation.ts:76-140 directly. Grepped the whole src tree for every writer of factory_runner_package_trust_current/factory_runner_package_trust_revisions: only package-preparation.ts's change() method writes them at runtime (migrations only touch them at migrate-time). New tests 'revocation is terminal for its pinned tuple and no transition leaves it' and the rewritten 'prepares an exact active v4 release...' test (both in src/__tests__/helpers/factory-package-preparation-suite.ts, run via src/factory/package-preparation.integration.test.ts on PGlite and tests/postgres/factory-package-preparation.test.ts on real PostgreSQL) assert publish/quarantine/revoke from 'revoked' all reject with factory_package_trust_conflict, and that a replacement requires a new pinned reference (new digest) starting its own trust chain from 'none'. Independently reran; both pass as part of the 175/0/786 focused-suite result below."
+    },
+    {
+      "id": "M1",
+      "priorSummary": "G8 checkbox read as if live attempt fencing were proven end-to-end; only a recording test double implements FactoryPackageQuarantineFence",
+      "status": "resolved (honestly disclosed, not code-fixed -- correctly so, since live fencing is W03's)",
+      "evidence": "G8's own checkbox title now reads 'G8 (component-proven; live fencing waits on W03)' and a new paragraph titled 'What is NOT proven here' states plainly that FactoryPackageQuarantineFence has no production implementation on this branch, names the two test doubles that are its only implementations, and states what IS proven (the transactional seam). Grepped src/ for FactoryPackageQuarantineFence: still exactly one interface declaration and one constructor parameter in package-preparation.ts, zero production implementations -- matches the disclosure."
+    },
+    {
+      "id": "M2",
+      "priorSummary": "G7 prose stale (122 tests, guest.py 127/127, 420 branches) vs reality (131 tests, 172/172, 424 branches)",
+      "status": "resolved",
+      "evidence": "G7 now states 131 discovered tests, guest.py 172/172 lines, 790 total lines and 424 branches, matching an independent rerun of nix-shell -p uv --run 'bash scripts/python-quality.sh all' performed for this revalidation (131 tests, 790/790 lines, 424/424 branches, 100% both)."
+    },
+    {
+      "id": "M3",
+      "priorSummary": "scripts/coverage-thresholds.json (W18-owned) edited without being listed among landed deviations",
+      "status": "resolved, with a new minor side-effect",
+      "evidence": "New deviation 9 in tasks/factory/w02-GATES.md explicitly names the coverage-thresholds.json edit and its justification (common.md requires a 100% key per new file). However the delta's actual diff to that file does not add any new key (the two new keys were already present at the prior head); it only changes the indentation of two pre-existing, unrelated keys (packages/@ezcorp/factory-sdk/src/parse.ts and .../page-bytes.ts) from 2-space to 4-space, reintroducing an inconsistency the original W02 branch had already cleaned up. This contradicts deviation 9's own claim that the edit is 'appended textually so no other line in the file moves.' Confirmed cosmetic only: bun run lint (biome check) and bunx biome check scripts/coverage-thresholds.json both exit 0, and the file still parses and gates correctly (new-file/patch coverage gates both pass). See new finding L4 below."
+    },
+    {
+      "id": "L1",
+      "priorSummary": "No Promise.all concurrent race test for the device-exclusivity fence",
+      "status": "resolved",
+      "evidence": "New test 'two simultaneous claims for the same device on one host settle with exactly one winner' in tests/postgres/factory-executions.test.ts uses a real 4-connection PostgreSQL pool and Promise.all(attempts.map(...claimStart...)) so the two transactions genuinely overlap. Independently reran under the heavy lock against real PostgreSQL: 9 pass / 0 fail / 2667 expect() calls across factory-executions.test.ts + factory-schema.test.ts (was previously a narrower subset). This test is also the one that surfaced the real JSONB storage defect (see below): PGlite hid the bug because it hands back parsed objects, while Bun's SQL driver types a string parameter as json, making the old `${text}::jsonb` cast a no-op that stored a JSON string scalar."
+    },
+    {
+      "id": "L2",
+      "priorSummary": "No concurrent-quarantine-vs-in-flight-attempt test and no crash-mid-fence fault injection for quarantine()/revoke()",
+      "status": "partially resolved",
+      "evidence": "New test 'a stop path that crashes mid-fence leaves the package active rather than half-quarantined' adds a controlled fault (a fenceAttempts double that can be told to throw) and proves the trust-state write and the fence call commit or fail together (state stays '1:active' after the crash; a retry with the fence healthy commits both). This is a genuine, real fault-injection test and directly closes the 'crash-mid-fence' half of L2, reran independently as part of the 175/0/786 focused-suite result. The other half of L2 -- a true Promise.all race between an in-flight dispatch/attempt and a concurrent quarantine()/revoke() call -- was not added; every quarantine/revoke case remains sequential. Remains LOW severity and non-blocking, same as originally scored."
+    },
+    {
+      "id": "L3",
+      "priorSummary": "G6's 'twenty-one values' claim actually covers 15 explicit cases",
+      "status": "not addressed (out of scope for this delta, still open)",
+      "evidence": "G6's evidence text in the diff still reads 'verified byte for byte... over twenty-one values including subnormals'; unchanged by this delta. Low severity, cosmetic, carried over."
+    }
+  ],
+  "newFindings": [
+    {
+      "id": "L4",
+      "severity": "low",
+      "summary": "The coverage-thresholds.json edit in this delta reformats two pre-existing, unrelated keys' indentation (2-space to 4-space) rather than being a pure append, contradicting deviation 9's claim that 'no other line in the file moves.' Purely cosmetic (JSON is whitespace-insensitive; bun run lint / bunx biome check both exit 0 on the file; coverage gates still pass), but it silently reverts a cleanup the original W02 branch had already made to that file.",
+      "location": "scripts/coverage-thresholds.json (lines for packages/@ezcorp/factory-sdk/src/parse.ts and .../page-bytes.ts)",
+      "blocking": false
+    },
+    {
+      "id": "M4",
+      "severity": "medium",
+      "summary": "This delta's JSONB fix touches src/factory/runner/attempt-runtime.ts and adds a new test file section to tests/postgres/factory-executions.test.ts. Per freeze section 12's ownership table (interfaces doc line 2088), attempt-runtime.ts's default owner is Terra runtime (W01); the doc's frozen-type section only carves out a narrower joint W01/W02 write for the FactoryAttemptDeviceGrant/FactoryAttemptLaunchIntent interfaces specifically. The jsonColumn() fix goes beyond that carve-out: it also changes how request_json, package_receipt_json, and terminal_result_json are decoded (not just device_grant_json), which is W01's general attempt-launch persistence, not W02's device-authority surface. The change is technically sound, thoroughly tested, and extensively narrated inside gate G2a (which explains the defect and fix in detail) -- but unlike every other cross-ownership touch in this branch (schema.ts/migrate.ts as deviation 6, coverage-thresholds.json as deviation 9), it is not listed in the 'Landed deviations for the coordinator' section, which is the disclosure mechanism this same gate file otherwise uses consistently. This is the same class of gap as the previously-fixed M3, recurring on a new, more consequential file. Recommend adding an 11th landed deviation pointing at G2a.",
+      "location": "src/factory/runner/attempt-runtime.ts (jsonColumn helper and its four call sites); tests/postgres/factory-executions.test.ts (new concurrent-claim test); tasks/factory/w02-GATES.md (Landed deviations section, currently items 1-10)",
+      "blocking": false
+    }
+  ],
+  "reruns": [
+    { "name": "typecheck", "exitCode": 0, "matchesWorkerClaim": true },
+    { "name": "lint", "exitCode": 0, "matchesWorkerClaim": true, "note": "8 pre-existing infos, unrelated to this delta" },
+    { "name": "boundaries", "exitCode": 0, "matchesWorkerClaim": true },
+    { "name": "gate-integrity", "exitCode": 0, "matchesWorkerClaim": true },
+    { "name": "check-factory-lanes", "exitCode": 0, "matchesWorkerClaim": true },
+    { "name": "python-runner.integration.test.ts (standalone, H1 rerun)", "exitCode": 0, "pass": 4, "fail": 0, "assertions": 50, "matchesWorkerClaim": true, "note": "was 1 pass/2 fail at prior head" },
+    { "name": "focused-suites-19-files", "exitCode": 0, "pass": 175, "fail": 0, "assertions": 786, "matchesWorkerClaim": true, "note": "includes the two new package-preparation-suite tests (revocation-terminal, crash-mid-fence) and the rewritten/expanded python-runner.integration.test.ts, now correctly included in the bundle" },
+    { "name": "tests/postgres/factory-executions.test.ts + factory-schema.test.ts (real PostgreSQL, heavy lock)", "exitCode": 0, "pass": 9, "fail": 0, "assertions": 2667, "matchesWorkerClaim": true, "lock": "heavy" },
+    { "name": "tests/postgres/factory-migration-restart.test.ts (real PostgreSQL, heavy lock)", "exitCode": 0, "pass": 5, "fail": 0, "assertions": 55, "matchesWorkerClaim": "consistent (not separately itemized by worker for this delta)", "lock": "heavy" },
+    { "name": "python-quality.sh all", "exitCode": 0, "testsDiscovered": 131, "coverageLines": "790/790", "coverageBranches": "424/424", "matchesWorkerClaim": true, "lock": "heavy" },
+    { "name": "python-guest.integration.test.ts (real Podman, heavy lock)", "exitCode": 0, "pass": 12, "fail": 0, "assertions": 93, "matchesWorkerClaim": true },
+    { "name": "applied-controls.integration.test.ts (real Podman, heavy lock)", "exitCode": 0, "pass": 5, "fail": 0, "assertions": 133, "matchesWorkerClaim": true },
+    { "name": "base-hardening-regressions-5-files", "exitCode": 0, "pass": 67, "fail": 0, "assertions": 243, "matchesWorkerClaim": true },
+    { "name": "podman-devices.integration.test.ts (real Podman+GPU, gpu+heavy lock)", "exitCode": 0, "pass": 6, "fail": 0, "assertions": 18, "matchesWorkerClaim": true },
+    { "name": "podman.integration.test.ts (shared Podman suite, heavy lock)", "exitCode": 0, "pass": 16, "fail": 0, "assertions": 86, "matchesWorkerClaim": true },
+    { "name": "factory-podman-suites (attempt-runtime.integration/supervisor.podman.integration/package-preparation.podman.integration, heavy lock)", "exitCode": 0, "pass": 10, "fail": 0, "assertions": 43, "matchesWorkerClaim": true },
+    { "name": "BASE_REF=integ/w00 check-new-file-coverage.ts (own merged LCOV incl. Python)", "exitCode": 0, "result": "PASSED: 7 new source file(s) gated", "matchesWorkerClaim": true },
+    { "name": "BASE_REF=integ/w00 check-patch-coverage.ts (own merged LCOV incl. Python)", "exitCode": 0, "result": "PASSED: all changed executable lines covered (11 file(s))", "matchesWorkerClaim": true },
+    { "name": "revoked-tuple-writer-audit", "result": "grepped src/ for every writer of factory_runner_package_trust_current/factory_runner_package_trust_revisions: only package-preparation.ts's change() writes at runtime", "matchesWorkerClaim": "new independent evidence" },
+    { "name": "FactoryPackageQuarantineFence-implementation-audit", "result": "grepped src/ for FactoryPackageQuarantineFence: still exactly one interface + one constructor param, zero production implementations", "matchesWorkerClaim": "confirms G8's new honest disclosure" },
+    { "name": "canonical-validator.mjs-dead-reference-audit", "result": "grepped whole repo (excl. node_modules) for 'canonical-validator': zero remaining references after deletion", "matchesWorkerClaim": "new independent evidence" },
+    { "name": "bunx biome check scripts/coverage-thresholds.json", "exitCode": 0, "note": "confirms the indentation drift (L4) is not gate-enforced" },
+    { "name": "git status --porcelain (post-rerun)", "result": "empty, HEAD unchanged at 5743c1ef6", "matchesWorkerClaim": true }
+  ],
+  "planConformance": {
+    "quarantinedRevokedOnSharedFencePreventReactivation": "proven (H2 fixed and independently reproduced)",
+    "liveFencingDuringExecution": "still open pending W03, now honestly disclosed as such (was previously overstated, M1 fixed)",
+    "hostPythonConformanceKeptSeparateNarrower": "proven (H1 fixed; test now independently reruns 4/0/50, wired as a required CI lane producer, and included in the coverage-gating focused-suite bundle)",
+    "deviceExclusivityFenceUnderConcurrency": "proven with genuine Promise.all evidence on real PostgreSQL (L1 fixed); this test also caught and drove the fix of a real JSONB storage defect"
+  },
+  "interfaceConformance": {
+    "freezeSection6DeviceGrantTypes": "unchanged in this delta, still matches field-for-field per the prior validation",
+    "ownershipFreezeSection12": {
+      "disclosedCrossOwnershipTouchesInThisDelta": ["scripts/coverage-thresholds.json (W18) - deviation 9"],
+      "undisclosedCrossOwnershipTouchesInThisDelta": ["src/factory/runner/attempt-runtime.ts (W01, beyond the device-grant-specific joint-write carve-out) and tests/postgres/factory-executions.test.ts - see M4"]
+    }
+  },
+  "securityPosture": {
+    "credentialLeakInLogsOrReceipts": false,
+    "authorityChecksRemovedWithoutReplacement": false,
+    "secretReachableByGuest": false,
+    "note": "H2's fix is itself a security hardening (closes a revocation-bypass path); no new authority check was removed"
+  },
+  "evidenceDirectories": {
+    "logs": "/tmp/factory-platform-evidence/w02-revalidation/logs/",
+    "coverage": "/tmp/factory-platform-evidence/w02-revalidation/coverage/",
+    "mergedLcov": "/tmp/factory-platform-evidence/w02-revalidation/mycov/merged-lcov.info"
+  }
+}

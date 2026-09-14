@@ -1,0 +1,342 @@
+[
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "sdk-build",
+  "exitCode": 0,
+  "start": "2026-09-14T01:38:18",
+  "end": "2026-09-14T01:38:18",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-sdk",
+   "build"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "transport-build",
+  "exitCode": 0,
+  "start": "2026-09-14T01:38:18",
+  "end": "2026-09-14T01:38:18",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-transport",
+   "build"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "sdk-tests",
+  "exitCode": 0,
+  "start": "2026-09-14T01:38:18",
+  "end": "2026-09-14T01:38:35",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "30000",
+   "--coverage",
+   "--coverage-reporter=lcov",
+   "--coverage-dir=/tmp/factory-platform-evidence/wave2a-staging-sdk-coverage",
+   "./packages/@ezcorp/factory-sdk/src"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "focused",
+  "exitCode": 0,
+  "start": "2026-09-14T01:38:35",
+  "end": "2026-09-14T01:43:29",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "30000",
+   "--coverage",
+   "--coverage-reporter=lcov",
+   "--coverage-dir=/tmp/factory-platform-evidence/wave2a-staging-product-coverage",
+   "./src/__tests__/factory-run-lifecycle.test.ts",
+   "./src/factory/release-authority.integration.test.ts",
+   "./src/factory/executions.integration.test.ts",
+   "./src/factory/run-inputs.integration.test.ts",
+   "./src/db/migrations/add-factory-child-runs.test.ts",
+   "./src/db/migrations/bind-factory-child-definition-source.test.ts",
+   "./src/db/migrations/bind-factory-child-start-clock.test.ts",
+   "./scripts/factory-task-execution-admission-registration.test.ts",
+   "./src/db/migrations/add-factory-command-approvals.test.ts",
+   "./src/factory/release-application.test.ts",
+   "./src/factory/application.test.ts",
+   "./src/factory/private-commands.test.ts",
+   "./src/__tests__/factory-private-service.test.ts",
+   "./src/factory/validator-materials.test.ts",
+   "./src/factory/assurance.test.ts",
+   "./src/factory/releases.integration.test.ts",
+   "./src/factory/attempt-queue.integration.test.ts",
+   "./src/delivery-queue/durable-delivery-queue.test.ts",
+   "./scripts/factory-validator-materials-registration.test.ts",
+   "./src/factory/package-preparation.integration.test.ts",
+   "./src/db/migrations/add-factory-package-preparations.test.ts",
+   "./src/db/migrations/add-factory-task-outcomes.test.ts",
+   "./src/factory/artifacts.integration.test.ts",
+   "./src/factory/protected-command-provenance.test.ts",
+   "./scripts/factory-protected-command-effects-registration.test.ts",
+   "./src/db/factory-schema.test.ts",
+   "./src/__tests__/gate-scripts.test.ts",
+   "./src/extensions/__tests__/project-pull-request-transport.test.ts",
+   "./src/extensions/__tests__/github-projects-handler.test.ts",
+   "./src/extensions/__tests__/github-projects-handler.integration.test.ts",
+   "./src/extensions/__tests__/github-projects-handler-default-db.test.ts",
+   "./src/extensions/__tests__/tool-executor.github-projects-rpc.test.ts",
+   "./src/factory/release-adapters.test.ts",
+   "./packages/@ezcorp/extension-runner/tests/channel-identity.test.ts",
+   "./packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts",
+   "./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
+   "./packages/@ezcorp/factory-orchestrator/test/encryption-codec.test.ts",
+   "./scripts/check-factory-boundaries.test.ts",
+   "./scripts/check-factory-lanes.test.ts",
+   "./scripts/check-patch-coverage-typeonly.test.ts",
+   "./scripts/check-schema-generate-drift.test.ts",
+   "./scripts/factory-c13-inventory.test.ts",
+   "./scripts/factory-postgres-suite-registration.test.ts",
+   "./scripts/lib/ci-registration.test.ts",
+   "./scripts/python-quality-registration.test.ts",
+   "./src/__tests__/coverage-leg-lcov-guard.test.ts",
+   "./src/__tests__/e2e-lanes.test.ts",
+   "./src/__tests__/factory-compute-admissions.test.ts",
+   "./src/__tests__/factory-task-stops.test.ts",
+   "./src/db/migrations/add-factory-package-quarantine.test.ts",
+   "./src/db/migrations/add-factory-task-stops.test.ts",
+   "./src/db/migrations/add-factory-usage-settlements.test.ts",
+   "./src/factory/admission-origin.test.ts",
+   "./src/factory/archive-writer.integration.test.ts",
+   "./src/factory/archive-writer.test.ts",
+   "./src/factory/artifact-materials.integration.test.ts",
+   "./src/factory/artifact-materials.test.ts",
+   "./src/factory/host-stop-transport.integration.test.ts",
+   "./src/factory/journal-validation.test.ts",
+   "./src/factory/material-gateway.integration.test.ts",
+   "./src/factory/pool/client.test.ts",
+   "./src/factory/pool/lazy-sql-assertions.test.ts",
+   "./src/factory/pool/service-routes.test.ts",
+   "./src/factory/private-https.integration.test.ts",
+   "./src/factory/runner/applied-controls.integration.test.ts",
+   "./src/factory/runner/attempt-devices.test.ts",
+   "./src/factory/runner/attempt-recovery.test.ts",
+   "./src/factory/runner/attempt-runtime.integration.test.ts",
+   "./src/factory/runner/attempt-runtime.test.ts",
+   "./src/factory/runner/guest-frames.test.ts",
+   "./src/factory/runner/python-guest.integration.test.ts",
+   "./src/factory/runner/python-runner.integration.test.ts",
+   "./src/factory/runner/sandbox-stop.test.ts",
+   "./src/factory/runner/supervisor.integration.test.ts",
+   "./src/factory/runner/workspace-checkpoint-seam.test.ts",
+   "./src/factory/usage-settlement.test.ts",
+   "./scripts/check-required-checks.test.ts",
+   "./src/__tests__/factory-ci-registration.test.ts",
+   "./scripts/factory-orchestrator-registration.test.ts"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "web-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T01:43:29",
+  "end": "2026-09-14T01:48:35",
+  "command": [
+   "bash",
+   "scripts/web-vitest-coverage.sh",
+   "--output",
+   "/tmp/factory-platform-evidence/wave2a-staging-web-coverage"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "postgres",
+  "exitCode": 0,
+  "start": "2026-09-14T01:48:35",
+  "end": "2026-09-14T01:55:48",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "60000",
+   "--coverage",
+   "--coverage-reporter=lcov",
+   "--coverage-dir=/tmp/factory-platform-evidence/wave2a-staging-postgres-coverage",
+   "./tests/postgres/factory-artifacts.test.ts",
+   "./tests/postgres/factory-artifact-access.test.ts",
+   "./tests/postgres/factory-artifact-materials.test.ts",
+   "./tests/postgres/factory-lazy-input.test.ts",
+   "./tests/postgres/factory-lazy-commands.test.ts",
+   "./tests/postgres/factory-boot.test.ts",
+   "./tests/postgres/factory-run-lifecycle-s3.test.ts",
+   "./tests/postgres/factory-run-inputs.test.ts",
+   "./tests/postgres/factory-definitions.test.ts",
+   "./tests/postgres/factory-private-service.test.ts",
+   "./tests/postgres/factory-package-preparation.test.ts",
+   "./tests/postgres/factory-executions.test.ts",
+   "./tests/postgres/factory-attempt-queue.test.ts",
+   "./tests/postgres/factory-budgets.test.ts",
+   "./tests/postgres/factory-encryption-s3.test.ts",
+   "./tests/postgres/factory-inbox.test.ts",
+   "./tests/postgres/factory-project-creation.test.ts",
+   "./tests/postgres/factory-records.test.ts",
+   "./tests/postgres/factory-execution-gateway.test.ts",
+   "./tests/postgres/factory-service-credentials.test.ts",
+   "./tests/postgres/factory-grants.test.ts",
+   "./tests/postgres/factory-task-stops.test.ts",
+   "./tests/postgres/factory-migration-restart.test.ts",
+   "./tests/postgres/factory-schema.test.ts",
+   "./tests/postgres/factory-releases.test.ts",
+   "./tests/postgres/factory-release-authority.test.ts",
+   "./tests/postgres/factory-archive-writer.test.ts",
+   "./tests/postgres/factory-validator-materials.test.ts"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "types",
+  "exitCode": 0,
+  "start": "2026-09-14T01:55:48",
+  "end": "2026-09-14T01:56:21",
+  "command": [
+   "bun",
+   "run",
+   "typecheck"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "lint",
+  "exitCode": 0,
+  "start": "2026-09-14T01:56:21",
+  "end": "2026-09-14T01:56:22",
+  "command": [
+   "bun",
+   "run",
+   "lint"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "gate-integrity",
+  "exitCode": 0,
+  "start": "2026-09-14T01:56:22",
+  "end": "2026-09-14T01:56:24",
+  "command": [
+   "bun",
+   "scripts/gate-integrity.ts"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "boundaries",
+  "exitCode": 0,
+  "start": "2026-09-14T01:56:24",
+  "end": "2026-09-14T01:56:24",
+  "command": [
+   "bun",
+   "scripts/check-factory-boundaries.ts"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "orchestrator-build",
+  "exitCode": 0,
+  "start": "2026-09-14T01:56:24",
+  "end": "2026-09-14T01:56:25",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-orchestrator",
+   "build"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "node-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T01:56:25",
+  "end": "2026-09-14T01:58:19",
+  "command": [
+   "bash",
+   "scripts/factory-orchestrator-coverage.sh"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "podman-podman",
+  "exitCode": 0,
+  "start": "2026-09-14T01:58:19",
+  "end": "2026-09-14T01:59:34",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "300000",
+   "./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "podman-attempt-runtime",
+  "exitCode": 0,
+  "start": "2026-09-14T01:59:34",
+  "end": "2026-09-14T01:59:49",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "300000",
+   "./src/factory/runner/attempt-runtime.integration.test.ts"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "podman-supervisor",
+  "exitCode": 0,
+  "start": "2026-09-14T01:59:49",
+  "end": "2026-09-14T02:00:01",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "300000",
+   "./src/factory/runner/supervisor.podman.integration.test.ts"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "podman-package-preparation",
+  "exitCode": 0,
+  "start": "2026-09-14T02:00:01",
+  "end": "2026-09-14T02:00:11",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "300000",
+   "./src/factory/package-preparation.podman.integration.test.ts"
+  ]
+ }
+]

@@ -1,0 +1,53 @@
+[
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "pool-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T02:07:18",
+  "end": "2026-09-14T02:07:35",
+  "command": [
+   "bash",
+   "scripts/factory-pool-coverage.sh"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "compute-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T02:07:35",
+  "end": "2026-09-14T02:08:05",
+  "command": [
+   "bash",
+   "scripts/factory-compute-admissions-coverage.sh"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "provisioning-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T02:08:05",
+  "end": "2026-09-14T02:08:08",
+  "command": [
+   "bash",
+   "scripts/factory-provisioning-coverage.sh"
+  ]
+ },
+ {
+  "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+  "dirty": false,
+  "name": "python-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T02:08:08",
+  "end": "2026-09-14T02:08:10",
+  "command": [
+   "nix-shell",
+   "-p",
+   "uv",
+   "--run",
+   "bash scripts/python-quality.sh all"
+  ]
+ }
+]

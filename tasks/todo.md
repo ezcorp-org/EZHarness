@@ -2048,7 +2048,8 @@ Integration defects found only on the combined tree (wave 1): an unregistered Po
 
 ## Later waves
 
-- [ ] Wave 2: W02, W03, W05 running from `88effb159`; W06, W07, W08, W09 follow their inputs.
+- [x] Wave 2 (part 1): W03 merged as `fdad73e4b` (validation ACCEPT-WITH-FIXES, low fixes landed), W02 merged as `4acc452ea` (ACCEPT-WITH-FIXES → fixes → ACCEPT); combined run on `4acc452ea` passes every producer, four Podman suites, and both gate bases with the canonical pool/compute/provisioning/Python coverage producers (`docs/validation/factory/wave2/`).
+- [ ] Wave 2 (part 2): W05 merging integ/w00 after ACCEPT-WITH-FIXES; W09 rejected once (composition root never invoked) and fixed, awaiting re-validation; W06, W07, W08 start after W05 lands.
 - [ ] Wave 3: W10–W12, W13, W14, W15–W17.
 - [ ] Wave 4: W19 campaign on a frozen build, W20 audit.
 
