@@ -203,6 +203,7 @@
   "src/factory/admission-origin.ts": 100,
   "src/db/migrations/add-factory-release-profile.ts": 100,
   "src/db/migrations/add-factory-protected-decision.ts": 100,
+  "src/db/migrations/add-factory-validator-report.ts": 100,
   "src/factory/release-profile.ts": 100,
   "src/factory/protected-command-effects.ts": 100,
   "src/factory/protected-command-provenance.ts": 100,
