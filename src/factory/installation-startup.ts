@@ -36,6 +36,7 @@ import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
 import type { FactoryStorageProbeTarget } from "./service-probes";
+import type { FactoryItemDisposition } from "./role-drivers";
 import type { FactoryApplicationOptions } from "./application";
 
 export class FactoryInstallationStartupError extends Error {
@@ -159,6 +160,49 @@ async function productObjectStore(config: FactoryStartupConfig): Promise<BlobSto
     // A copy, because the AWS client attaches its own marker to this object.
     credentials: { ...await loadFactoryStorageCredentials(config.storage.ordinary, config.tenantId) },
   }) as unknown as BlobStore;
+}
+
+/**
+ * The one settlement failure a child-settlement pass retries.
+ *
+ * W06 published the complete reachable vocabulary of `FactoryChildRuns.settle`
+ * (`tasks/factory/w06-GATES.md` at `8a83dff4a`), and exactly one code means
+ * "not yet": a child still holding an unsettled reservation, an open grandchild
+ * envelope, or a non-zero allocation. It clears when the hold reconciles.
+ *
+ * Two entries are worth naming because the obvious reading is wrong, and I had
+ * one of them wrong:
+ *
+ * - `factory_child_conflict` is a FAULT for this caller specifically. Read on
+ *   its own it looks like a race worth retrying, and in another caller it would
+ *   be. But this driver only ever reaches `settle` through a scan that already
+ *   filters on terminal status, so a conflict means the lifecycle and the
+ *   binding genuinely disagree. My first draft had it as transient, which would
+ *   have retried a real disagreement forever and reported it as backpressure.
+ * - `factory_budget_scope` is a FAULT, not contention. `lockFactoryScope` takes
+ *   `FOR SHARE`, so it blocks rather than returning, and it returns null only
+ *   when the project or installation row is genuinely absent. Deferring it
+ *   would retry forever against a row that is not coming back.
+ *
+ * A child another worker already settled raises nothing at all, so the
+ * concurrent path never reaches this function.
+ */
+export const FACTORY_CHILD_SETTLEMENT_TRANSIENT_CODES: readonly string[] = Object.freeze(["factory_budget_pending"]);
+
+/**
+ * Classify one child-settlement failure.
+ *
+ * Unknown codes are faults. A classifier that guessed "transient" for something
+ * it had not seen would convert a new integrity failure into silent, endless
+ * retrying — the exact outcome the disposition split exists to prevent.
+ *
+ * It accepts anything, including `null`, because a classifier that threw would
+ * turn one item's failure into the whole role's failure — which is the
+ * behaviour the page driver exists to prevent, reintroduced one layer down.
+ */
+export function factoryChildSettlementDisposition(error: unknown): FactoryItemDisposition {
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  return typeof code === "string" && FACTORY_CHILD_SETTLEMENT_TRANSIENT_CODES.includes(code) ? "transient" : "fault";
 }
 
 export interface FactoryInstallationStartup {

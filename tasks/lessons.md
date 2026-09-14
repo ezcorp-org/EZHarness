@@ -801,4 +801,15 @@
   gives an operator a stream they cannot triage. Classify at the composition,
   where the error vocabularies are known, and default the unclassified case to
   the loud one.
+- A disposition is a property of the CALLER, not of the error. I classified
+  `factory_child_conflict` as transient because the name reads like a race. For
+  a caller that reaches settlement through a scan already filtered on terminal
+  status, a conflict means two records genuinely disagree, and retrying it
+  forever would have reported a real fault as backpressure. Ask the owner for
+  the complete reachable vocabulary before writing a classifier, and pin it as a
+  table so a code that changes class fails a test.
+- A classifier must never throw. Reading `.code` off an unknown value crashed on
+  `null`, which would have turned one item's failure into the whole role's
+  failure — reintroducing, one layer down, exactly what the page driver exists
+  to prevent.
 

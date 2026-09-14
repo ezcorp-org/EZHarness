@@ -10,6 +10,8 @@ import { createFactoryPoolReadinessWriter } from "./pool/readiness";
 import { createFactoryServiceReadinessWriter, factorySupervisorReadinessOptions } from "./service-readiness";
 import { FACTORY_STARTUP_CONFIG_SCHEMA } from "./startup-config";
 import {
+  FACTORY_CHILD_SETTLEMENT_TRANSIENT_CODES,
+  factoryChildSettlementDisposition,
   factoryGatewayProbeTarget,
   factoryStartupConfigPath,
   factoryStorageProbeTarget,
@@ -358,5 +360,59 @@ describe("the product object store comes from the configuration", () => {
       dependencies: { gateway: { health: async () => true }, workers: { projections: { projectPending: async () => ({ runs: [] }) } } },
     })).rejects.toMatchObject({ code: "factory-storage-credentials-unusable" });
     expect(getFactoryApplication()).toBeNull();
+  });
+});
+
+describe("factoryChildSettlementDisposition", () => {
+  /**
+   * W06's complete reachable vocabulary for `FactoryChildRuns.settle`
+   * (tasks/factory/w06-GATES.md at 8a83dff4a). Pinned as a table so a code
+   * that changes class fails here rather than quietly changing how a role
+   * behaves at three in the morning.
+   */
+  const vocabulary: ReadonlyArray<readonly [string, "transient" | "fault"]> = [
+    ["factory_budget_pending", "transient"],
+    ["factory_child_corrupt", "fault"],
+    ["factory_child_conflict", "fault"],
+    ["factory_child_not_found", "fault"],
+    ["factory_child_forbidden", "fault"],
+    ["factory_budget_scope", "fault"],
+    ["factory_budget_not_found", "fault"],
+    ["factory_budget_receipt_invalid", "fault"],
+  ];
+
+  test("classifies every code settle can raise", () => {
+    for (const [code, expected] of vocabulary) {
+      expect(factoryChildSettlementDisposition(Object.assign(new Error(code), { code }))).toBe(expected);
+    }
+    // Exactly one defers. If a second ever does, this fails before the set does.
+    expect(vocabulary.filter(([, disposition]) => disposition === "transient").map(([code]) => code))
+      .toEqual([...FACTORY_CHILD_SETTLEMENT_TRANSIENT_CODES]);
+  });
+
+  test("a conflict is a fault for THIS caller, because the scan already filtered on terminal status", () => {
+    // Read alone this looks like a race worth retrying, and in another caller
+    // it would be. My first draft had it transient, which would have retried a
+    // genuine lifecycle-versus-binding disagreement forever and reported it as
+    // backpressure.
+    expect(factoryChildSettlementDisposition(Object.assign(new Error("conflict"), { code: "factory_child_conflict" }))).toBe("fault");
+  });
+
+  test("a missing scope row is a fault, not contention", () => {
+    // lockFactoryScope takes FOR SHARE, so it blocks rather than returning, and
+    // returns null only when the row is genuinely absent. Deferring would retry
+    // forever against a row that is not coming back.
+    expect(factoryChildSettlementDisposition(Object.assign(new Error("scope"), { code: "factory_budget_scope" }))).toBe("fault");
+  });
+
+  test("anything unrecognised is a fault", () => {
+    expect(factoryChildSettlementDisposition(new Error("something new"))).toBe("fault");
+    expect(factoryChildSettlementDisposition(Object.assign(new Error("x"), { code: 7 }))).toBe("fault");
+    expect(factoryChildSettlementDisposition("not an error")).toBe("fault");
+    // It must not throw on these: a classifier that threw would turn one item's
+    // failure into the whole role's failure, one layer below the driver that
+    // exists to stop exactly that.
+    expect(factoryChildSettlementDisposition(undefined)).toBe("fault");
+    expect(factoryChildSettlementDisposition(null)).toBe("fault");
   });
 });

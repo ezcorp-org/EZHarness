@@ -294,14 +294,13 @@ composition in `installation-startup.ts`:
 
 ```ts
 const children = new FactoryChildRuns(host.database, config.tenantId, authority, stores.runs, transitions);
-const TRANSIENT = new Set(["factory_budget_pending", "factory_child_conflict"]);
 const childSettlement = factoryPageDriver<FactorySettleableChild>({
   // A SHORT read-only transaction, closed before settle: settle takes lockRun
   // plus the budget's root-to-leaf locks, and holding this snapshot across that
   // would risk lock ordering and pin a snapshot for the whole settlement.
   page: () => host.database.transaction((t) => children.listSettleableInTransaction(t, FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT)),
   settle: (child) => children.settle(service, { projectId: child.projectId, childRunId: child.childRunId }),
-  classify: (error) => TRANSIENT.has((error as { code?: string }).code ?? "") ? "transient" : "fault",
+  classify: factoryChildSettlementDisposition,
   report: (child, error, disposition) => host.report("child-settlement", { child, error, disposition }),
 });
 ```
@@ -330,6 +329,23 @@ correct against the new shape. Two consequences for this package:
   reported, but the report says which, and the counts separate `deferred` from
   `failed`. An unclassified failure defaults to `fault`, so an unknown error is
   the loud one.
+
+W06 then published the complete reachable vocabulary of `settle`
+(`tasks/factory/w06-GATES.md` at `8a83dff4a`), and it caught a second error of
+mine: I had `factory_child_conflict` as transient. It is a fault for this caller
+specifically, because the scan already filters on terminal status, so a conflict
+means the lifecycle and the binding genuinely disagree — my version would have
+retried a real disagreement forever and reported it as backpressure.
+`factory_budget_scope` is likewise a fault rather than contention, because
+`lockFactoryScope` takes `FOR SHARE` and blocks rather than returning.
+
+The classifier is no longer a string set in this document. It is
+`factoryChildSettlementDisposition` in `installation-startup.ts`, and its test
+pins all eight codes as a table, so a code that changes class fails a test
+rather than quietly changing how a role behaves. It is total: it accepts `null`
+without throwing, because a classifier that threw would turn one item's failure
+into the whole role's failure, one layer below the driver that exists to stop
+exactly that.
 
 W06 also confirmed both questions I asked: a short read-only transaction for the
 scan is the only correct shape, and no re-check of terminal status is needed
