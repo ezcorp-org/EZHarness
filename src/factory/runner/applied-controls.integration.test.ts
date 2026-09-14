@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { buildLimits, executionLimits, filesDigest, PodmanRunner, PythonPodmanRunner, RUNNER_GUEST_ENVIRONMENT } from "@ezcorp/extension-runner";
+import { buildLimits, executionLimits, filesDigest, PodmanRunner, PythonPodmanRunner, RUNNER_GUEST_ENVIRONMENT, RUNNER_GUEST_ENVIRONMENT_RESIDUE } from "@ezcorp/extension-runner";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { manifest as bunManifest, provision, source } from "../../../packages/@ezcorp/extension-runner/tests/helpers";
 import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestFiles, factoryPythonRunnerClosure } from "./python-guest";
@@ -135,11 +135,16 @@ test.each(["bun", "python"] as const)("%s: the runtime API and the guest agree o
   expect(applied.HostConfig.Devices ?? []).toEqual([]);
   expect(reported.gpuDevices).toEqual([]);
 
-  // Environment, including the two the OCI runtime injects with fixed values.
-  expect(reported.environment).toEqual([...RUNNER_GUEST_ENVIRONMENT]);
+  // Environment. The three declared variables are always present, and the only
+  // other names permitted are the ones the OCI runtime writes after podman has
+  // built the spec, with fixed, tenant-independent values.
+  const permitted = new Set([...RUNNER_GUEST_ENVIRONMENT, ...RUNNER_GUEST_ENVIRONMENT_RESIDUE]);
+  for (const name of RUNNER_GUEST_ENVIRONMENT) expect(reported.environment).toContain(name);
+  expect(reported.environment.filter(name => !permitted.has(name))).toEqual([]);
   expect(applied.Config.Hostname).toBe("guest");
   const declared = (applied.Config.Env ?? []).map(entry => entry.split("=")[0]).sort();
-  expect(declared).toEqual(["BUN_INSTALL_CACHE_DIR", "HOME", "TMPDIR"]);
+  for (const name of RUNNER_GUEST_ENVIRONMENT) expect(declared).toContain(name);
+  expect(declared.filter(name => !permitted.has(name))).toEqual([]);
 }, 300_000);
 
 test("no provider credential, publish credential, or attempt secret reaches either guest's environment", async () => {

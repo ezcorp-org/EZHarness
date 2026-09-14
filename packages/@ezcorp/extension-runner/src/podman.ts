@@ -24,8 +24,16 @@ const probeProgramSource = `const fs=require("node:fs");const read=p=>fs.readFil
  * fixed value below so it cannot carry the container's host-derived identity.
  */
 const GUEST_HOSTNAME = "guest";
-/** Exactly what a guest may observe, including the two the runtime injects. */
-export const RUNNER_GUEST_ENVIRONMENT = Object.freeze(["BUN_INSTALL_CACHE_DIR", "HOME", "HOSTNAME", "LC_CTYPE", "TMPDIR"]);
+/** Exactly the three variables the profile declares. Every guest has all three. */
+export const RUNNER_GUEST_ENVIRONMENT = Object.freeze(["BUN_INSTALL_CACHE_DIR", "HOME", "TMPDIR"]);
+/**
+ * The only names a guest may carry beyond the three declared ones. The OCI
+ * runtime writes them after podman has built the spec, so `--unsetenv` cannot
+ * reach them, and which of the two appears depends on the image. Both carry
+ * fixed, tenant-independent values: the hostname is pinned above and the locale
+ * is the C UTF-8 default.
+ */
+export const RUNNER_GUEST_ENVIRONMENT_RESIDUE = Object.freeze(["HOSTNAME", "LC_CTYPE"]);
 const CHANNEL_FIFOS = ["in", "out", "err"] as const;
 /** Traversable and readable by the mapped guest uid, writable by nobody but the runner. */
 const CHANNEL_DIRECTORY_MODE = 0o755;

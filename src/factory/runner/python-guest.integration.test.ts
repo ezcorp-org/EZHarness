@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
-import { buildLimits, DEFAULT_PYTHON_IMAGE, executionLimits, filesDigest, PythonPodmanRunner, pythonClosureDigest, pythonGuestLauncher, RUNNER_GUEST_ENVIRONMENT, RunnerError } from "@ezcorp/extension-runner";
+import { buildLimits, DEFAULT_PYTHON_IMAGE, executionLimits, filesDigest, PythonPodmanRunner, pythonClosureDigest, pythonGuestLauncher, RUNNER_GUEST_ENVIRONMENT, RUNNER_GUEST_ENVIRONMENT_RESIDUE, RunnerError } from "@ezcorp/extension-runner";
 import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestDigest, factoryPythonGuestFiles, factoryPythonRunnerClosure } from "./python-guest";
 
@@ -136,7 +136,9 @@ test("the guest observes the applied controls: no capability, no device, no rout
   expect(report.routes).toEqual([]);
   expect(report.ipv6Routes).toEqual([]);
   expect(report.writableRoot).toBe(false);
-  expect(report.environment).toEqual([...RUNNER_GUEST_ENVIRONMENT]);
+  for (const name of RUNNER_GUEST_ENVIRONMENT) expect(report.environment).toContain(name);
+  const permitted = new Set([...RUNNER_GUEST_ENVIRONMENT, ...RUNNER_GUEST_ENVIRONMENT_RESIDUE]);
+  expect(report.environment.filter(name => !permitted.has(name))).toEqual([]);
   expect(report.gpuDevices).toEqual([]);
   expect(report.distributions).toEqual(["pip==25.3"]);
   expect(report.python).toBe(runner.closure.pythonVersion);
