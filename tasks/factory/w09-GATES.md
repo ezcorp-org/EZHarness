@@ -235,10 +235,43 @@ of them is mine, and it is the one that blocks the pass sentence:
 | Release store construction | W05 | `FactoryTrustedValidatorGateway`, `FactoryReleaseFenceReader`, `FactoryCurrentCandidateResolver` — all three are `FactoryAssurance` constructor parameters with no production implementation |
 | Release outcomes | W07/W08 | `FactoryDestinationReservationReader` and `FactorySenderFence` have no production implementation, and `FactoryReleases` exposes no claimable-operation scan for an outcome loop |
 | Notification delivery off-host | W17 | the sender that confirms a notification left this host |
-| Child settlement | W06 | `FactoryChildRuns` exposes `resolve` and `settle`, both keyed by an exact child; nothing enumerates the settleable set |
+| Child settlement | W06 — **scan landed at `a558a01d8`, not yet in `integ/w00`** | `FactoryChildRuns.listSettleableInTransaction` exists on `wp/w06-remediation`. I may not consume another package's branch, so the role stays held until the coordinator integrates it. The adapter is written out below and is one call. |
 
 Every one of these is now a `FactoryRoleDriver` seam: supplying it registers the
 role and starts it, with no change to this package.
+
+## The child-settlement handover, ready to land
+
+W06 announced `FactoryChildRuns.listSettleableInTransaction` at `a558a01d8` on
+`wp/w06-remediation`. I read that commit read-only and verified the declaration
+against my seam; I did not merge it, because it is not in `integ/w00` and the
+coordinator integrates.
+
+The consumer half is landed and tested: `src/factory/role-drivers.ts`
+`factoryPageDriver` is the bounded-page shape child settlement, usage
+reconciliation, and release outcomes all share. On integration the role becomes
+one composition in `installation-startup.ts`:
+
+```ts
+const children = new FactoryChildRuns(host.database, config.tenantId, authority, stores.runs, transitions);
+const childSettlement = factoryPageDriver<FactorySettleableChild>({
+  page: () => host.database.transaction((t) => children.listSettleableInTransaction(t, FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT)),
+  settle: (child) => children.settle(service, { projectId: child.projectId, childRunId: child.childRunId }),
+  report: (child, error) => host.report("child-settlement", error),
+});
+```
+
+**One consumer-side hazard W06 should know about, already handled.** The scan
+orders by start instant and throws `factory_child_corrupt` rather than skipping a
+binding whose sealed clock no longer matches its digest — which is right. But a
+driver that abandoned the page on that throw would leave the oldest corrupt row
+at the head of every later scan, and nothing behind it would ever settle: one bad
+row would stop settlement for the whole installation. `factoryPageDriver` settles
+each item independently, reports the failure, and steps over it, and it reports
+progress only when at least one item settled, so a page that fails entirely backs
+the role off instead of spinning on rows it cannot move. The residual bound is
+named in that module: progress stalls only if an entire page fails, which needs
+200 simultaneously unsettleable bindings, and every one is reported every pass.
 
 ## Disclosed design decisions
 
