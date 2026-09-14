@@ -2107,3 +2107,43 @@ it now joins the bounded header prefix and the body once.
 
 The shared proof PostgreSQL container died mid-package and was restored by its owner. The failing
 run is preserved in the receipts rather than deleted.
+
+## W05 — protected validators and child provenance
+
+- [x] One strict validator report for PASS, FAIL, INCONCLUSIVE, and VALIDATOR_ERROR, in the SDK and
+      consumed by the product. A clean process exit is not a verdict.
+- [x] Multi-claim result key migration, populated-schema backfill, repeat migration, and real
+      PostgreSQL parity between the fresh and the upgraded catalog.
+- [x] Resolve the exact compiled evidence source and stopped task, verify its journal request and
+      candidate binding, and bind claims only to their pinned runner, model, and configuration.
+- [ ] Schedule missing protected validators through durable admission, pool allocation, the attempt
+      dispatcher, and isolated execution. Blocked on W01; the typed origin and its migration landed.
+- [x] Typed validator origin in shared admission, where ordinary admission still requires a
+      dispatch-node command, with one reservation per validator identity.
+- [x] Verify required and quorum claims, freshness, issuer grants, complete report fields, current
+      trust, and the latest immutable trust revision.
+- [x] Bind a child's accepted artifact alias to the exact parent attempt, child binding, child
+      decision, artifact, and live ancestry fences, with parent acceptance kept separate.
+
+### Review
+
+Eight commits land five frozen type checkpoints plus the two behaviors those types exist for. The
+SDK now owns the only validator-report parser, so the product's hand-rolled boolean parser is gone
+and a claim's verdict is the only acceptance input: INCONCLUSIVE and VALIDATOR_ERROR are stored,
+counted, and refused rather than collapsed into FAIL. A failing required claim stopped being a
+thrown activity error and became a durable rejection receipt plus one `node-failed` event, which is
+what lets a bounded repair ever run.
+
+Three things were harder than the sketch. The freeze's branch field name `decision` was already
+taken by the acceptance decision object, so renaming it would have invalidated every stored receipt
+digest; the branch is `outcome` and the column keeps the frozen name. The freeze's release-profile
+CHECK cannot be installed before a writer exists, because the landed release path would fail every
+dispatch closed. And moving evidence claims from `passed` to `verdict` makes any evidence row
+written before the change unverifiable, which is the safe direction: rewriting those digests would
+be forging sealed evidence.
+
+Two findings went to other packages rather than being fixed here. The kernel still answers an
+acceptance rejection with a `cancel-node` for a node that has no physical attempt, which the plan
+forbids and W06 owns; the exact command is pinned in a test so the fix flips an assertion. The
+release provider's `publish` gained the missing `AbortSignal` and the request-byte bound became an
+export, so W07 and W08 implement `resolve` only.
