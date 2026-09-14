@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmod, lstat, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -52,11 +52,24 @@ test("opening a channel entry refuses a replaced inode, a regular file, and a sy
     await writeFile(join(directory, "in"), "not a fifo");
     await expect(runner.entry(id, "in", 2)).rejects.toThrow("not the FIFO the runner created");
 
-    // A symlink is refused at open time, before anything is dereferenced.
+    // A symlink is refused at open time, before anything is dereferenced, and
+    // surfaces as the same typed error rather than a raw ELOOP.
     await unlink(join(directory, "in"));
     await symlink("/etc/passwd", join(directory, "in"));
-    await expect(runner.entry(id, "in", 2)).rejects.toThrow();
+    await expect(runner.entry(id, "in", 2)).rejects.toMatchObject({ name: "RunnerError", code: "channel_untrusted" });
+    await expect(runner.entry(id, "in", 2)).rejects.toThrow("ELOOP");
     expect(await readFile("/etc/passwd", "utf8")).not.toBe("");
+
+    // A directory in place of the FIFO is refused the same way, as EISDIR.
+    await unlink(join(directory, "in"));
+    await mkdir(join(directory, "in"));
+    await expect(runner.entry(id, "in", 2)).rejects.toMatchObject({ name: "RunnerError", code: "channel_untrusted" });
+    await expect(runner.entry(id, "in", 2)).rejects.toThrow("EISDIR");
+
+    // An absent entry is refused the same way, as ENOENT.
+    await rm(join(directory, "in"), { recursive: true, force: true });
+    await expect(runner.entry(id, "in", 2)).rejects.toMatchObject({ name: "RunnerError", code: "channel_untrusted" });
+    await expect(runner.entry(id, "in", 2)).rejects.toThrow("ENOENT");
   } finally { await rm(root, { recursive: true, force: true }); }
 });
 

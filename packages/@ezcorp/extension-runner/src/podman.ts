@@ -189,7 +189,13 @@ export class PodmanRunner implements Runner {
     catch { throw new RunnerError("channel_untrusted", "Runner control channel has no recorded identity"); }
     const expected = facts[fifo];
     if (!expected || !Number.isSafeInteger(expected.device) || !Number.isSafeInteger(expected.inode)) throw new RunnerError("channel_untrusted", "Runner control channel identity is incomplete");
-    const handle = await open(join(this.channelDirectory(id), fifo), flags | fsConstants.O_NOFOLLOW);
+    // `O_NOFOLLOW` rejects a planted symlink with ELOOP, and a directory with
+    // EISDIR, before any identity check can run. Every refusal, whether raised
+    // by the kernel at open or by the identity check below, leaves this method
+    // as the same typed error carrying the underlying cause.
+    let handle: Awaited<ReturnType<typeof open>>;
+    try { handle = await open(join(this.channelDirectory(id), fifo), flags | fsConstants.O_NOFOLLOW); }
+    catch (error) { throw new RunnerError("channel_untrusted", `Runner control channel entry could not be opened as the FIFO the runner created (${(error as { code?: string }).code ?? "unknown"})`); }
     const opened = await handle.stat();
     if (!opened.isFIFO() || opened.dev !== expected.device || opened.ino !== expected.inode) {
       await handle.close();
