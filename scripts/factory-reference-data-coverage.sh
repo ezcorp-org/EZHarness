@@ -21,7 +21,7 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 out=${COV_OUT:?COV_OUT is required}
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/factory-reference-data-coverage.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$out" "$tmp/unit" "$tmp/journey" "$tmp/postgres"
+mkdir -p "$out" "$tmp/unit" "$tmp/journey" "$tmp/postgres" "$tmp/postgres-bytes" "$tmp/postgres-rows"
 cd "$repo_root"
 
 image=$(bun -e 'const m = await import("./src/factory/reference-data/guest.ts"); process.stdout.write(await m.factoryReferenceDataImage());')
@@ -44,9 +44,19 @@ bun test --timeout 60000 --coverage --coverage-reporter=lcov --coverage-dir="$tm
 bun test --timeout 1800000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/journey" \
   ./src/factory/reference-data/journey.integration.test.ts
 
+# The real leg runs in THREE invocations. Both C10 boundary cases in one process
+# write roughly 600 MB of objects in three minutes, which OOM-killed the shared
+# object store at its container memory cap; each leg on its own is well inside
+# it. Splitting lowers the peak without weakening any case.
 if [ -n "${FACTORY_TEST_POSTGRES_URL:-}" ]; then
   bun test --timeout 5400000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/postgres" \
-    ./tests/postgres/factory-reference-data.test.ts
+    --test-name-pattern '^(?!.*(256 MiB|maximum row count)).*$' ./tests/postgres/factory-reference-data.test.ts
+  sleep 30
+  bun test --timeout 5400000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/postgres-bytes" \
+    --test-name-pattern '256 MiB' ./tests/postgres/factory-reference-data.test.ts
+  sleep 30
+  bun test --timeout 5400000 --coverage --coverage-reporter=lcov --coverage-dir="$tmp/postgres-rows" \
+    --test-name-pattern 'maximum row count' ./tests/postgres/factory-reference-data.test.ts
 else
   echo "factory reference data: FACTORY_TEST_POSTGRES_URL is unset; the real leg did not run." >&2
   exit 1
