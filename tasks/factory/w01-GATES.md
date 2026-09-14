@@ -2,7 +2,7 @@
 
 Scope: `docs/plans/2026-09-13-composable-factory-platform-completion.md` section 5, W01. Interface surface 6 of the W00 freeze. Receipts live under `/tmp/factory-platform-evidence/w01/`; each `logs/<label>.json` records the producing commit, dirty files, exact command, exit code, UTC start and end, duration, and the log's SHA-256. `INDEX.md` maps them and `SHA256SUMS` checksums the raw logs.
 
-Branch `wp/w01-durable-runtime`. Base `integ/w00` at `c6ac529d2`. All sixteen gates pass.
+Branch `wp/w01-durable-runtime`. Base `integ/w00` at `c6ac529d2`. All seventeen gates pass.
 
 **Closed: guest lifetime is decoupled from the supervising process.** The validator reported the SIGKILL case as timing flakiness and recommended a bounded retry. Root-causing it found a product defect, so the design was fixed instead of the test. The guest's stdin was a `podman attach` stream whose pipe the supervisor held; killing the supervisor closed it, podman forwarded the end-of-input, and the guest died. Measured before the fix in `logs/attach-eof-repro.log`: `running` while the parent lived, `exited exit=7` at the first observation 250 ms after `SIGKILL`, where 7 is the guest's own end-of-input handler.
 
@@ -82,6 +82,11 @@ Receipt provenance, all from clean committed source with no dirty files. The two
   EXPECT: exit 0 on both
   EVIDENCE: `logs/final-focused-suites.json` asserts the writer receives `operationIndex` and the attempt authority, and that the operation ID still ends with that index. `logs/final-supervisor-podman.json`, exit 0, 2 pass / 0 fail, proves the seam through a real container. The seam returns `FactoryCheckpointReference`, verified against W04's real implementer signature with a throwaway assignability probe; typed as `JsonValue` it did not compile, because a declared interface never gains that index signature. Fixtures return a real sealed-material reference whose `journalCursor` equals the operation index. `src/factory/runner/workspace-checkpoint-seam.test.ts` now pins the seam permanently: re-widening the return type to `JsonValue` fails that file's typecheck with `TS2322`, verified by a controlled revert. The consumer cannot hold this guard, because a worker who may not import this interface can only mirror it and a mirror encodes belief rather than declaration. The checkpoint bytes remain W04's `FactoryAttemptMaterials` under the reserved `workspace/` prefix; W01 builds no blob path of its own.
 
+- [x] G17: A guest cannot influence which file the host opens as its control channel.
+  CHECK: flock /tmp/ezcorp-validation-heavy.lock bun test --timeout 300000 ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts; bun test --timeout 60000 ./packages/@ezcorp/extension-runner/tests/channel-identity.test.ts
+  EXPECT: exit 0; a real sandboxed guest is refused every directory-entry change while its read-write FIFO open succeeds, and the host refuses any substituted entry
+  EVIDENCE: `logs/final-podman-suite-run1.json` and `-run2.json`, and `logs/final-focused-suites.json`. Revalidation found HIGH severity in my own `9156b824a`: the channel directory was widened to 0o777 and bind-mounted read-write, and the host reopened entries by path with no file-type check, so a guest could symlink-swap an entry and have the host dereference it. Two independent barriers now: the mount is read-only and the directory 0o755 so no entry can be created, unlinked, or renamed, with only the three FIFO inodes at 0o666; and every host open adds O_NOFOLLOW then requires fstat to report a FIFO whose device and inode match the ones recorded at creation, refusing anything else with a typed `channel_untrusted` error on launch and on every attach. Identities live beside the channel directory, never inside it. Design addendum in `DESIGN-guest-lifetime.md`.
+
 - [x] G14: Static gates.
   CHECK: bun run typecheck; bun run lint; bun scripts/check-factory-boundaries.ts; bun scripts/gate-integrity.ts
   EXPECT: all exit 0
@@ -90,7 +95,7 @@ Receipt provenance, all from clean committed source with no dirty files. The two
 - [x] G15: Coverage of every new file and every changed executable line.
   CHECK: BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts; BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts
   EXPECT: both exit 0
-  EVIDENCE: `logs/final-static-gates.json`. "New-file coverage gate PASSED: 3 new source file(s) gated" and "Patch coverage gate PASSED: all changed executable lines covered (9 file(s))". Merged from four producer LCOVs: `attempt-runtime.ts` 307/307, `guest-frames.ts` 13/13, `supervisor.ts` 71/71, `add-factory-attempt-launches.ts` 23/23, `podman.ts` 315/315, all 100%.
+  EVIDENCE: `logs/final-static-gates.json`. "New-file coverage gate PASSED: 3 new source file(s) gated" and "Patch coverage gate PASSED: all changed executable lines covered (10 file(s))". Merged from four producer LCOVs: `attempt-runtime.ts` 307/307, `guest-frames.ts` 13/13, `supervisor.ts` 71/71, `add-factory-attempt-launches.ts` 23/23, `podman.ts` 315/315, all 100%.
 
 ## Host fault during this package
 
