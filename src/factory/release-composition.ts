@@ -79,7 +79,12 @@ export async function loadFactoryStorageCredentials(storage: FactoryStartupStora
   const identity = identities.find((item) => (item as { name?: unknown })?.name === tenantId) as { credentials?: unknown } | undefined;
   const credential = Array.isArray(identity?.credentials) ? identity.credentials[0] as { accessKey?: unknown; secretKey?: unknown } : undefined;
   if (!credentialText(credential?.accessKey) || !credentialText(credential?.secretKey)) throw new FactoryStorageCredentialError(storage.credentialSet);
-  return Object.freeze({ accessKeyId: credential.accessKey, secretAccessKey: credential.secretKey });
+  // Deliberately NOT frozen. The AWS client attaches a `$source` marker to the
+  // credential object it is given (`setCredentialFeature`), so a frozen one
+  // makes every request throw `undefined is not an object`. Each client is
+  // handed its own copy at construction instead, so two clients never share
+  // one mutable object.
+  return { accessKeyId: credential.accessKey, secretAccessKey: credential.secretKey };
 }
 
 /** The non-archive credential sets the denial probe attempts with. */
@@ -153,14 +158,15 @@ export function composeFactoryArchiveWriter(options: FactoryArchiveCompositionOp
     endpoint: options.archive.endpoint,
     bucket: options.archive.bucket,
     prefix: options.archive.prefix,
-    credentials: options.archiveCredentials,
+    // A copy per client: the AWS client mutates the object it is given.
+    credentials: { ...options.archiveCredentials },
     ...(options.archiveClient === undefined ? {} : { client: options.archiveClient }),
   });
   const inventory = new S3FactoryArchiveInventory({
     endpoint: options.archive.endpoint,
     bucket: options.archive.bucket,
     root: options.archive.prefix,
-    credentials: options.archiveCredentials,
+    credentials: { ...options.archiveCredentials },
     ...(options.archiveClient === undefined ? {} : { client: options.archiveClient }),
   });
   return new FactoryArchiveWriter({

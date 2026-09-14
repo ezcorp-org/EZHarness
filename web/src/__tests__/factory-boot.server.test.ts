@@ -159,8 +159,22 @@ describe("startFactoryForHost", () => {
     expect(log.error).toHaveBeenCalledWith("[factory] background role failed", { role: "attempt-dispatch", error: "Error: queue unavailable" });
   });
 
+  it("keeps the composition's own richer readiness rather than replacing it", async () => {
+    // `startFactoryRuntime` records which probes failed before it throws. That
+    // detail is the operator's only pointer to the fix, so the host must not
+    // overwrite it with the bare service name.
+    const { setReadiness } = await import("$server/readiness");
+    const { FactoryBootError } = await import("$server/factory/boot");
+    setReadiness({ state: "degraded", reason: "factory-services-unavailable", detail: { unavailable: ["object-storage: InvalidAccessKeyId"] } });
+    startFactoryInstallation.mockRejectedValue(new FactoryBootError("factory-services-unavailable", "Factory startup requires unavailable services: object-storage."));
+
+    expect(await startFactoryForHost(dependencies() as never, {})).toBeNull();
+    expect(getReadiness().detail).toEqual({ unavailable: ["object-storage: InvalidAccessKeyId"] });
+  });
+
   it("degrades readiness with the composition's own code and keeps the host serving", async () => {
     startFactoryInstallation.mockRejectedValue(Object.assign(new Error("Factory startup requires unavailable services: temporal."), { code: "factory-services-unavailable" }));
+    resetReadiness();
     const registerTeardown = vi.fn();
     const log = { info: vi.fn(), error: vi.fn() };
 

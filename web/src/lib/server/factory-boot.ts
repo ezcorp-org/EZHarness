@@ -13,7 +13,7 @@
  * never swallowed: an operator reads the code out of `/api/ready`.
  */
 import { startFactoryInstallation, type FactoryInstallationStartup } from "$server/factory/installation-startup";
-import { factoryBootConfig, type FactoryBootConfig } from "$server/factory/boot";
+import { FactoryBootError, factoryBootConfig, type FactoryBootConfig } from "$server/factory/boot";
 import { setReadiness } from "$server/readiness";
 import type { TransactionalDb } from "$server/db/migrations/types";
 
@@ -74,12 +74,19 @@ export async function startFactoryForHost(
     });
     return startup;
   } catch (error) {
-    const code = (error as { code?: unknown }).code;
-    setReadiness({
-      state: "degraded",
-      reason: typeof code === "string" ? code : "factory-composition-failed",
-      detail: { message: error instanceof Error ? error.message : "Factory composition failed." },
-    });
+    // `startFactoryRuntime` writes the richer readiness before it throws a
+    // `FactoryBootError` — the probe failures service by service — and that
+    // detail is the operator's only pointer to the fix. Replacing it with the
+    // bare service name would cost exactly the line worth reading, so that one
+    // error is left alone. Every other failure has written nothing.
+    if (!(error instanceof FactoryBootError)) {
+      const code = (error as { code?: unknown }).code;
+      setReadiness({
+        state: "degraded",
+        reason: typeof code === "string" ? code : "factory-composition-failed",
+        detail: { message: error instanceof Error ? error.message : "Factory composition failed." },
+      });
+    }
     dependencies.log.error("[factory] composition failed; factory routes stay closed", { error: String(error) });
     return null;
   }

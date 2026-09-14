@@ -156,7 +156,8 @@ async function productObjectStore(config: FactoryStartupConfig): Promise<BlobSto
     endpoint: config.storage.ordinary.endpoint,
     bucket: config.storage.ordinary.bucket,
     prefix: config.storage.ordinary.prefix,
-    credentials: await loadFactoryStorageCredentials(config.storage.ordinary, config.tenantId),
+    // A copy, because the AWS client attaches its own marker to this object.
+    credentials: { ...await loadFactoryStorageCredentials(config.storage.ordinary, config.tenantId) },
   }) as unknown as BlobStore;
 }
 

@@ -119,6 +119,20 @@ describe("loadFactoryStorageCredentials", () => {
     expect(await loadFactoryStorageCredentials(storage(path), "tenant-01")).toEqual({ accessKeyId: "the-key", secretAccessKey: "the-secret" });
   });
 
+  test("returns a credential object the AWS client can mark, not a frozen one", async () => {
+    const root = await privateRoot();
+    const path = await credentialFile(root, { identities: [{ name: "tenant-01", credentials: [{ accessKey: "k", secretKey: "s" }] }] });
+    const credentials = await loadFactoryStorageCredentials(storage(path), "tenant-01");
+    // `setCredentialFeature` in @aws-sdk/core assigns `$source` onto the object
+    // it is handed. A frozen one makes every request throw
+    // "undefined is not an object (evaluating 'credentials.$source[feature]')",
+    // which reads as an unavailable store rather than as a caller defect.
+    expect(Object.isFrozen(credentials)).toBe(false);
+    expect(Object.isExtensible(credentials)).toBe(true);
+    (credentials as unknown as Record<string, unknown>).$source = {};
+    expect((credentials as unknown as Record<string, unknown>).$source).toEqual({});
+  });
+
   test("names the credential SET and never the value when it refuses", async () => {
     const root = await privateRoot();
     const path = await credentialFile(root, { identities: [{ name: "tenant-01", credentials: [{ accessKey: "", secretKey: "swordfish" }] }] });
