@@ -224,19 +224,21 @@ class ControlsTest(unittest.TestCase):
 
 
 class HostileTest(unittest.TestCase):
-    def test_every_escape_is_attempted_and_reported_as_a_refusal_or_a_breach(self) -> None:
+    def test_the_report_names_every_escape_and_the_two_facts_a_refusal_cannot_express(self) -> None:
         # Off a container this host is not confined, so the point here is the
         # shape of the report and that a success is recorded as a breach rather
         # than being swallowed. The guest suite proves the refusals themselves.
         report = guest().hostile()
         self.assertEqual(
-            sorted(key for key in report if key != "allRefused"),
+            sorted(report), ["allRefused", "processesVisible", "refusals", "rootOwnedSecretPresent", "spawnedChild"]
+        )
+        self.assertEqual(
+            sorted(report["refusals"]),
             [
                 "execute-from-tmp",
                 "open-network",
-                "read-host-secret",
+                "read-root-owned-secret",
                 "replace-guest-source",
-                "spawn-shell",
                 "symlink-channel",
                 "unlink-channel",
                 "unlink-guest-source",
@@ -245,19 +247,18 @@ class HostileTest(unittest.TestCase):
                 "write-workspace",
             ],
         )
-        self.assertEqual(report["allRefused"], all(report[key] is True for key in report if key != "allRefused"))
+        self.assertEqual(report["allRefused"], all(report["refusals"].values()))
+        self.assertEqual(
+            sorted(report["spawnedChild"]), ["capabilities", "noNewPrivileges", "routes", "seccomp", "spawned"]
+        )
+        self.assertTrue(report["spawnedChild"]["spawned"])
 
     def test_an_escape_that_succeeds_is_recorded_as_false_rather_than_ignored(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            writable = Path(directory) / "writable"
-            writable.write_text("x", encoding="utf-8")
-            self.assertTrue(writable.is_file())
-        # A refusal is only ever recorded when the action raised, so a report of
-        # all-true cannot be produced by an action that quietly did nothing.
         report = guest().hostile()
-        self.assertIn(report["write-root"], (True, False))
-        if report["write-root"] is False:
-            self.assertFalse(report["allRefused"])
+        # This host is unconfined, so at least one write must have succeeded and
+        # been recorded as a breach. A report that cannot record one is useless.
+        self.assertIn(False, list(report["refusals"].values()))
+        self.assertFalse(report["allRefused"])
 
     def test_a_payload_that_runs_is_raised_as_a_breach_and_one_that_cannot_run_is_a_refusal(self) -> None:
         with self.assertRaises(RuntimeError):

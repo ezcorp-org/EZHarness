@@ -20,6 +20,7 @@ import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestDigest, factoryPytho
 
 type Fixture = { success: Array<{ name: string; kind: "request" | "result"; value: unknown }>; rejected: Array<{ name: string; kind: "request" | "result"; path: Array<string | number>; value: unknown }> };
 type Verdict = { ok: boolean; schemaId?: string; runtime?: string; code?: string; path?: Array<string | number> };
+type HostileReport = { refusals: Record<string, boolean>; allRefused: boolean; processesVisible: string[]; rootOwnedSecretPresent: boolean; spawnedChild: { spawned: boolean; capabilities: string; noNewPrivileges: string; seccomp: string; routes: string[] } };
 type GuestControls = { uid: number; gid: number; capabilities: string; noNewPrivileges: string; seccomp: string; memoryMax: string; swapMax: string; cpuMax: string; pidsMax: string; routes: string[]; ipv6Routes: string[]; environment: string[]; devices: string[]; gpuDevices: string[]; writableRoot: boolean; distributions: string[]; python: string; runtime: string };
 
 const fixture = JSON.parse(await readFile(join(import.meta.dir, "fixtures/c02-conformance.json"), "utf8")) as Fixture;
@@ -143,8 +144,8 @@ test("the guest observes the applied controls: no capability, no device, no rout
 }, 180_000);
 
 test("every escape a hostile package would try is refused by the kernel inside the component environment", async () => {
-  const report = await guest<Record<string, boolean>>("hostile", {});
-  expect(report).toEqual({
+  const report = await guest<HostileReport>("hostile", {});
+  expect(report.refusals).toEqual({
     "write-workspace": true,
     "replace-guest-source": true,
     "unlink-guest-source": true,
@@ -152,12 +153,23 @@ test("every escape a hostile package would try is refused by the kernel inside t
     "write-channel": true,
     "unlink-channel": true,
     "symlink-channel": true,
-    "read-host-secret": true,
+    "read-root-owned-secret": true,
     "open-network": true,
-    "spawn-shell": true,
     "execute-from-tmp": true,
-    allRefused: true,
   });
+  expect(report.allRefused).toBe(true);
+  // A refusal to read a file that is simply absent would prove nothing.
+  expect(report.rootOwnedSecretPresent).toBe(true);
+  // Private PID namespace: the guest sees its own shim and its own process, and
+  // nothing belonging to the host or to another attempt.
+  expect(report.processesVisible.length).toBeLessThanOrEqual(4);
+  // Spawning inside the sandbox is not an escape; a spawned process leaving it
+  // would be, so the child is measured rather than the spawn.
+  expect(report.spawnedChild.spawned).toBe(true);
+  expect(report.spawnedChild.capabilities).toMatch(/^0+$/);
+  expect(report.spawnedChild.noNewPrivileges).toBe("1");
+  expect(report.spawnedChild.seccomp).toBe("2");
+  expect(report.spawnedChild.routes).toEqual([]);
   // The guest is still whole and still answers after every refusal.
   expect(await guest<Verdict>("validate", { kind: "request", value: fixture.success.find(entry => entry.kind === "request")!.value })).toMatchObject({ ok: true });
 }, 300_000);

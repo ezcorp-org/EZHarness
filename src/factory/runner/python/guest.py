@@ -98,6 +98,25 @@ def read_control(path: str) -> str:
         return UNAVAILABLE
 
 
+def _spawned_child_status() -> dict[str, Json]:
+    """What a process the guest spawns inherits. Spawning inside the sandbox is
+    not an escape; a spawned process escaping the sandbox would be."""
+    completed = subprocess.run(
+        ["/bin/sh", "-c", "cat /proc/self/status; echo ---; cat /proc/net/route"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    status, _, routes = completed.stdout.partition("---")
+    return {
+        "spawned": completed.returncode == 0,
+        "capabilities": _status_field(status, "CapEff"),
+        "noNewPrivileges": _status_field(status, "NoNewPrivs"),
+        "seccomp": _status_field(status, "Seccomp"),
+        "routes": [line for line in routes.splitlines() if line][1:],
+    }
+
+
 def _connect() -> None:
     """Any egress at all. The profile gives the guest no route, so this must fail."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as client:
@@ -255,18 +274,20 @@ class Guest:
     def hostile() -> dict[str, Json]:
         """A hostile task fixture, run inside the component environment.
 
-        Each entry is an escape a candidate package would try. Every one must be
-        refused by the kernel, so the report is a list of refusals rather than a
-        list of successes; a `true` anywhere here is a breach.
+        `refusals` are escapes a candidate package would try; each must be
+        refused by the kernel, so a `false` anywhere is a breach. `facts` are
+        two properties a refusal list cannot express: the guest sees no process
+        outside its own namespace, and a process it spawns is confined exactly
+        as it is, so spawning is not itself an escape.
         """
-        attempts: dict[str, Json] = {}
+        refusals: dict[str, bool] = {}
 
         def refused(name: str, action: Callable[[], object]) -> None:
             try:
                 action()
-                attempts[name] = False
-            except (OSError, ValueError, RuntimeError, ImportError, PermissionError):
-                attempts[name] = True
+                refusals[name] = False
+            except (OSError, ValueError, RuntimeError, ImportError):
+                refusals[name] = True
 
         refused("write-workspace", lambda: Path("/workspace/escape.py").write_text("x", encoding="utf-8"))
         refused("replace-guest-source", lambda: Path("/workspace/guest.py").write_text("x", encoding="utf-8"))
@@ -275,14 +296,18 @@ class Guest:
         refused("write-channel", lambda: Path("/channel/escape").write_text("x", encoding="utf-8"))
         refused("unlink-channel", lambda: Path("/channel/in").unlink())
         refused("symlink-channel", lambda: os.symlink("/etc/passwd", "/channel/out"))
-        refused("read-host-secret", lambda: Path("/proc/1/environ").read_bytes())
+        refused("read-root-owned-secret", lambda: Path("/etc/shadow").read_bytes())
         refused("open-network", _connect)
-        refused(
-            "spawn-shell", lambda: subprocess.run(["/bin/sh", "-c", "echo escaped"], check=True, capture_output=True)
-        )
         refused("execute-from-tmp", _execute_from_tmp)
-        attempts["allRefused"] = all(value is True for key, value in attempts.items())
-        return attempts
+        return {
+            "refusals": refusals,
+            "allRefused": all(refusals.values()),
+            "processesVisible": sorted(entry.name for entry in Path("/proc").iterdir() if entry.name.isdigit()),
+            # A refusal to read a file that is simply absent would prove nothing,
+            # so the target's presence is reported beside the refusal.
+            "rootOwnedSecretPresent": Path("/etc/shadow").exists(),
+            "spawnedChild": _spawned_child_status(),
+        }
 
     def invoke(self, params: Json) -> Json:
         if not isinstance(params, dict):
