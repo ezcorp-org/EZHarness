@@ -212,11 +212,11 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
     ? "FactoryReleases.listClaimableInTransaction is per project and nothing enumerates a tenant's projects"
     : "a release outcome needs the provider resolver, the destination reservation, and the sender fence");
   seamRole("usage-reconciliation", "usageReconciler",
-    "W03 shipped FactoryUsageReconciler; no scan enumerates the uncertain reservations that hold a cost");
+    "the scan landed; a listed hold carries no attempt, operation, provider receipt digest, or measured usage, and reconcile needs all four");
   seamRole("notification-send", "notificationSender",
     "a notification is not delivered until a sender confirms it left this host");
   seamRole("stop-settlement", "physicalStopper",
-    "W03 shipped FactoryPhysicalStopper; no scan finds the next stoppable attempt to settle against its receipt");
+    "the scan landed; FactoryTaskStops still needs a pool stop acknowledger and the host public keys, and neither exists");
 
   return Object.freeze({ workers, held: Object.freeze(held) });
 }

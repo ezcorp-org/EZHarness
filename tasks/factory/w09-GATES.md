@@ -41,8 +41,11 @@ Two further defects fell out of fixing it, both mine:
 
 ## The integration merge, and what it changed here
 
-`integ/w00` at `1d3edf5b0` is merged into this branch (W03, W02, W05, W08, W06,
-W07). Three files conflicted and all three are append-only note or table files,
+`integ/w00` is merged into this branch twice: `1d3edf5b0` (W03, W02, W05, W08,
+W06, W07) and then `2377caaa4`, which landed W03's work-list scans while this
+package was finishing — the two scans an earlier version of this file reported
+as the blockers for `stop-settlement` and `usage-reconciliation`. Neither merge
+conflicted in source. Three files conflicted and all three are append-only note or table files,
 resolved as unions: every coverage threshold key from both sides, every lessons
 section from both sides, every work-package note from both sides. **No source
 file conflicted** — this branch and the integration touch disjoint source, which
@@ -64,15 +67,16 @@ sends the reader to the wrong package.
 | `run-projection` | running | — |
 | **`child-settlement`** | **running (new)** | composed here from W06's `listSettleableInTransaction` and W06's `settle` through the shared page driver |
 | `attempt-dispatch` | held | the process that holds a container runner. Not a wiring change: see below |
-| `stop-settlement` | held | **W03 shipped `FactoryPhysicalStopper`; no scan finds the next stoppable attempt.** `FactoryTaskStops` has exactly `stop`, `confirm`, and `readSettlementScopeInTransaction` |
-| `usage-reconciliation` | held | **W03 shipped `FactoryUsageReconciler`; no scan enumerates the `uncertain` reservations that hold a cost.** `FactoryBudgets.markUncertainInTransaction` writes the state and nothing lists it |
+| `stop-settlement` | held | the scan landed in `2377caaa4`. `FactoryTaskStops` still needs a pool stop acknowledger (`confirmStopped`) and the host public keys; neither exists |
+| `usage-reconciliation` | held | the scan landed in `2377caaa4`. A listed hold carries no attempt, operation, provider receipt digest, or measured usage, and `reconcile` needs all four |
 | `release-outcome` | held | **a project enumerator.** `FactoryReleases.listClaimableInTransaction` landed and is per project; nothing lists a tenant's projects |
 | `notification-inbox-delivery` | held | the same project enumerator. The collaborator is `FactoryNotificationDelivery.deliverNext(projectId)`, also per project |
 | `notification-send` | held | W17, as planned. Its seam refuses |
 
-The two `grep`s behind that table, run at the merge commit: the only
-`async list*InTransaction` scans anywhere in `src/factory/` are
-`child-runs.ts:182` and `releases.ts:937`, and `factory_projects` is written by
+The `grep` behind that table, at the second merge: the `async
+list*InTransaction` scans in `src/factory/` are now `child-runs.ts`,
+`releases.ts`, `budgets.ts`, and `task-stops.ts` — four, where there were two —
+and `factory_projects` is still written by
 `FactoryRecords.bindProjectInTransaction` and read by nothing.
 
 **A correction to my own interface.** `FactoryNotificationInboxDriver` declared
@@ -602,14 +606,24 @@ Four findings, each verified at the merge commit rather than inferred, and each
 blocking a role the plan names. None of them is large; all four are somebody
 else's file.
 
-1. **No stoppable-attempt scan (W03).** `FactoryPhysicalStopper` and
-   `FactoryTaskStops.stop`/`confirm` landed. Nothing enumerates the attempts
-   waiting to be settled against a receipt, so `stop-settlement` cannot be
-   driven. There is no `FOR UPDATE SKIP LOCKED` scan over `factory_task_stops`.
-2. **No uncertain-reservation scan (W03).** `FactoryUsageReconciliation` landed
-   and `FactoryBudgets.markUncertainInTransaction` writes the state, but nothing
-   lists the reservations in `uncertain` that hold a cost, so
-   `usage-reconciliation` cannot be driven.
+1. **Stop settlement: the scan landed, two composition inputs did not (W03).**
+   `integ/w00` advanced to `2377caaa4` while this package was finishing and
+   `FactoryTaskStops.listStoppableInTransaction` is exactly the scan the earlier
+   version of this section asked for. It is merged here. The role still cannot
+   be composed, and the reason has moved: `FactoryTaskStops` also needs a
+   `FactoryPoolStopAcknowledger` — `confirmStopped` — which `PoolAdmissionClient`
+   does not have (it has `request`, `status`, `acknowledgeStart`, `renew`,
+   `cancel`), and a `readonly FactoryStopHostKey[]` of host PUBLIC keys to verify
+   a physical-stop receipt against, for which the startup document has no field.
+2. **Usage reconciliation: the scan landed, the receipt did not (W03).**
+   `FactoryBudgets.listUncertainWithCostInTransaction` is merged here too. A
+   listed `FactoryUncertainHold` carries `projectId`, `runId`, `reservationId`,
+   `envelopeId`, `heldCostMicros`, and `uncertainty`.
+   `FactoryUsageReconciler.reconcile` needs `attemptId`, `operationId`,
+   `providerReceiptDigest`, and a `FactoryMeasuredUsage` — the four facts that
+   make the cost knowable — and nothing maps a hold to them. This is the one gap
+   a composition must NOT paper over: supplying a plausible usage here is
+   precisely the "an unknown cost is never settled as zero" rule, broken.
 3. **No project enumerator (owner unassigned).** This one blocks TWO roles.
    `FactoryReleases.listClaimableInTransaction` and
    `FactoryNotificationDelivery.deliverNext` are both per project, and
