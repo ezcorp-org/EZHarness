@@ -149,7 +149,17 @@ test("subfactory and acceptance waits install their own fenced deadline timers",
     const timer = started.commands.find(command => command.kind === "start-timer" && command.nodeId === node.id);
     expect(timer).toEqual(expect.objectContaining({ deadlineAtMs: 10 }));
     const expired = advanceKernel(graph, started.nextState, { kind: "timer-expired", id: "expire", atMs: 10, nodeId: node.id, commandId: timer!.id });
-    expect(expired.nextState.status).toBe("stopping");
-    expect(expired.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: node.id }));
+    const stops = expired.commands.filter(command => command.kind === "cancel-node");
+    if (node.kind === "subfactory") {
+      // A child run is physical, so its stop waits for an acknowledgement from the gateway.
+      expect(expired.nextState.status).toBe("stopping");
+      expect(stops).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: node.id }));
+      continue;
+    }
+    // An acceptance attempt is the protected decision, so the deadline settles it in place.
+    expect(stops).toEqual([]);
+    expect(expired.nextState.status).toBe("failed");
+    expect(expired.nextState.nodes[node.id]).toMatchObject({ status: "failed", error: "NODE_DEADLINE_EXPIRED" });
+    expect(expired.commands).toContainEqual(expect.objectContaining({ kind: "fail-run", error: "NODE_DEADLINE_EXPIRED" }));
   }
 });

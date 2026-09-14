@@ -283,3 +283,38 @@ test("remediation preserves recorded spending and replays to the same command id
   expect(replayed).toEqual(second.step.state);
   expect(() => assertKernelContinuationState(factory, replayed)).not.toThrow();
 });
+
+test("no stop path asks a worker to cancel a decision that has no attempt to cancel", () => {
+  const factory = acceptanceFixture(1);
+  const inFlight = toAcceptance(factory, begin(factory, "virtual-stops", { request: "build it" }), 1);
+  expect(inFlight.step.state.nodes.accept).toMatchObject({ status: "waiting" });
+
+  // Run cancellation, the run deadline, and an invalid decision output each settle it in place.
+  const cancelled = advanceKernel(factory, inFlight.step.state, { kind: "cancel", id: "cancel", atMs: 2, reason: "OPERATOR_CANCELLED" });
+  expect(cancelCommandNodeIds(cancelled.commands)).toEqual([]);
+  expect(cancelled.nextState.nodes.accept).toMatchObject({ status: "cancelled" });
+  expect(cancelled.nextState.status).toBe("cancelled");
+
+  const expired = advanceKernel(factory, inFlight.step.state, { kind: "timer-expired", id: "run-deadline", atMs: inFlight.step.state.runDeadlineAtMs, commandId: inFlight.step.state.runTimerId });
+  expect(cancelCommandNodeIds(expired.commands)).toEqual([]);
+  expect(expired.nextState.status).toBe("failed");
+
+  const invalid = advanceKernel(factory, inFlight.step.state, { kind: "node-result", id: "bad-output", atMs: 2, nodeId: "accept", commandId: inFlight.command.id, candidateGeneration: 0, attempt: 1, output: { acceptedCandidate: 7 } });
+  expect(cancelCommandNodeIds(invalid.commands)).toEqual([]);
+  expect(invalid.nextState.nodes.accept).toMatchObject({ status: "failed", error: "OUTPUT_INVALID" });
+  expect(invalid.nextState.status).toBe("failed");
+
+  // An infrastructure failure is still a failure, but it is never answered with a stop command.
+  const infrastructure = advanceKernel(factory, inFlight.step.state, { kind: "node-failed", id: "infra", atMs: 2, nodeId: "accept", commandId: inFlight.command.id, candidateGeneration: 0, attempt: 1, error: "VALIDATOR_UNREACHABLE" });
+  expect(cancelCommandNodeIds(infrastructure.commands)).toEqual([]);
+  expect(infrastructure.nextState.nodes.accept).toMatchObject({ status: "failed", error: "VALIDATOR_UNREACHABLE" });
+  expect(infrastructure.nextState.status).toBe("failed");
+
+  // A task in the same graph still gets the physical stop its attempt needs.
+  const running = begin(factory, "physical-stop", { request: "build it" });
+  const admission = running.queue.find(command => command.kind === "request-admission");
+  if (admission?.kind !== "request-admission") throw new Error("fixture");
+  const admitted = apply(factory, running, answer(admission, 1)!, running.queue);
+  const cancelledTask = advanceKernel(factory, admitted.state, { kind: "cancel", id: "cancel-task", atMs: 2, reason: "OPERATOR_CANCELLED" });
+  expect(cancelCommandNodeIds(cancelledTask.commands)).toEqual(["candidate"]);
+});
