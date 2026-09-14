@@ -284,74 +284,31 @@ doubled the object volume on that service.
 
 ## Receipts
 
-Every receipt below was recorded from a clean committed tree, and every log's size on disk equals
-its own recorded `logBytes`.
+Every receipt below was recorded from a clean committed tree at head `850f24520`, under
+`flock /tmp/ezcorp-validation-heavy.lock` with an outer `timeout` for every heavy producer, and
+every log's size on disk equals its own recorded `logBytes`.
 
 | Receipt | Commit | Result |
 | --- | --- | --- |
-| `logs/postgres-journey.json` | `f48cf4bb8` | exit 0, 11 pass / 0 fail, 240 s. **MUST BE RE-RUN** - see the window note below. |
-| `logs/journey-pglite.json` | `f48cf4bb8` | exit 0, 11 pass / 0 fail |
-| `logs/shared-runner-regression.json` | `f48cf4bb8` | exit 0, 33 pass / 0 fail |
-| `logs/static-gates.json` | `f48cf4bb8` | exit 0, 18 pass / 0 fail |
-| `logs/focused-suites.json` | `f48cf4bb8` | exit 0, 89 pass / 0 fail |
-| `logs/script-gates.json` | `f48cf4bb8` | exit 0, 18 pass / 0 fail |
-| `logs/python-quality.json` | `f48cf4bb8` | exit 0, 100% line and branch |
-| `logs/coverage-gates.json` | `88162a98d` | exit 0, 13 new files gated, 12 changed files covered |
+| `logs/coverage-gates.json` | `850f24520` | exit 0, exit 0, 1 s |
+| `logs/focused-suites.json` | `850f24520` | exit 0, 90 pass 0 fail, 3 s |
+| `logs/journey-pglite.json` | `850f24520` | exit 0, 11 pass 0 fail, 400 s |
+| `logs/postgres-journey.json` | `850f24520` | exit 0, 11 pass 0 fail, 344 s |
+| `logs/postgres-maximum-rows.json` | `66e697ad4` | exit 0, 1 pass 0 fail, 118 s |
+| `logs/python-quality.json` | `850f24520` | exit 0, exit 0, 19 s |
+| `logs/script-gates.json` | `850f24520` | exit 0, 18 pass 0 fail, 1 s |
+| `logs/shared-runner-regression.json` | `850f24520` | exit 0, 34 pass 0 fail, 114 s |
+| `logs/static-gates.json` | `850f24520` | exit 0, 18 pass 0 fail, 46 s |
 
-`f48cf4bb8..88162a98d` changes exactly one file, `scripts/factory-reference-data-coverage.sh`, and
-no code under test, so the real-services receipt is a proof of this head's behaviour.
+`logs/postgres-journey.json` is the FAITHFUL full-file run of
+`tests/postgres/factory-reference-data.test.ts` on real PostgreSQL with S3-backed encrypted blobs,
+a real immutable publication, the 256 MiB boundary, and the maximum-row boundary declared last. It
+supersedes the earlier receipt taken while the ordinary store was capped at 768 MiB, and the two
+repeat-leg receipts kept as `logs/superseded-*.json` belong to invocations that no longer exist.
 
-**The real-services receipt was taken against a degraded store and is not final.** The coordinator
-records that a stale compose file in another worktree recreated the ordinary service at its old
-768 MiB limit at 16:02 UTC, and it was OOM-killed again at 16:19:34 UTC. Checked against that
-window, three of this package's receipts touched the ordinary store inside it:
-
-| Receipt | Window UTC | Disposition |
-| --- | --- | --- |
-| `logs/postgres-journey.json` | 16:14:55 to 16:18:56 | exit 0, 11 pass, and it finished 38 seconds before the store died. It PASSED, but against an under-provisioned service, so it is marked for re-run in the next round rather than counted as final. |
-| `logs/superseded-postgres-boundary-bytes.json` | 16:19:26 to 16:19:35 | exit 1, `ECONNREFUSED`. A repeat leg that no longer exists; renamed `superseded-` so it is not read as a current failure. |
-| `logs/superseded-postgres-boundary-rows.json` | 16:20:05 to 16:20:12 | exit 1, `ECONNREFUSED`. Same. |
-
-Every other receipt in the table above runs no object store at all, so the window does not reach
-them. G10, G11 and G11a rest on `logs/postgres-journey.json` and are therefore provisional until
-that one re-run lands.
-
-**Standing rule observed.** This package has never run `scripts/setup-factory-storage.sh`,
-`docker compose ... up`, `docker restart`, or anything that creates, recreates, or restarts the
-shared S3 or PostgreSQL services. Its only container commands are against its own pinned image and
-its own per-attempt directories: `podman build`, `podman run`, `podman rmi` on its own tag, and
-`podman unshare chown`. When a store was down it recorded a named readiness failure and messaged
-the coordinator.
-
-## Landed deviations for the coordinator
-
-1. **`StartRequest` gains an optional `materials` directory, and `PodmanRunner` mounts it
-   read-write at `/materials`.** This is the byte path no domain pack had. Absent means no mount,
-   so no existing caller changes, and every C05 control is unaffected. `GUEST_MATERIALS_PATH` is a
-   fixed path rather than an environment variable, because C05 permits a guest exactly three
-   declared variables and this is not one of them. Additive, and W11 needs the same thing.
-2. **PyArrow is in the committed `src/factory/runner/python/uv.lock`.** Added through `uv lock`, as
-   an exact pin. The conformance guest's own closure is unchanged: it still runs the stock
-   interpreter image with `pip==25.3` only, because the closure a guest declares is per image and
-   this pack's image is its own.
-3. **`scripts/python-quality.sh` gains an explicit test-root list and an explicit mypy config
-   file.** Discovery is explicit rather than a walk from the project root, because that root also
-   holds `.venv`. The `--config-file` is the fix for a nested `[tool.mypy]` section that nothing
-   read; it is why the PyArrow override had no effect until it was passed.
-4. **`src/factory/runner/python/pyproject.toml` gains a `pyarrow.*` mypy override.** PyArrow ships
-   no `py.typed` marker and no stub package exists, so strict mypy cannot follow the import at all.
-   The override is scoped to that one distribution; everything this repository writes stays
-   strictly typed.
-5. **The dataset manifest is `dataset-manifest.json`, not `manifest.json`.** A real publication
-   found that `manifest.json` is reserved by the shared S3 adapter for the publication manifest it
-   writes last as the publication point, and no member may take it. The two are different
-   documents.
-6. **`scripts/coverage-thresholds.json` gains nine keys** and **`scripts/check-factory-boundaries.ts`
-   gains seven `REQUIRED_SHARED_IMPORTS` rows**, both as required by common.md.
-7. **`scripts/factory-reference-data-coverage.sh` is the producer**, rather than a
-   `db-postgres.yml` step, because this journey needs a container runtime AND the pinned PyArrow
-   image, which is built from the committed lock. It fails closed when the image is absent, which
-   is C10's readiness rule rather than a skip.
+`postgres-maximum-rows` at `66e697ad4` is retained because it is the receipt that first showed the
+case passing in isolation while the full run did not, which is validator finding F1 in one pair of
+files.
 
 ## One instruction that did not survive contact, and what was done instead
 
