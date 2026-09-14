@@ -371,8 +371,13 @@ describe("factoryHostRunnerProbe", () => {
   });
 
   test("closing before any probe is safe", async () => {
-    const probe = factoryHostRunnerProbe(async () => { throw new Error("the loader must not be reached"); });
-    await probe.close();
+    // The supervisor closes the probe in its run's `finally`, which is reached
+    // even when the run fails before the first heartbeat. That close must not
+    // construct the very runner the failed start was avoiding.
+    let loaded = 0;
+    const probe = factoryHostRunnerProbe(async () => { loaded += 1; throw new Error("the loader must not be reached"); });
+    await expect(probe.close()).resolves.toBeUndefined();
+    expect(loaded).toBe(0);
   });
 
   test("a failed initialize propagates, and the next probe retries the same instance", async () => {
