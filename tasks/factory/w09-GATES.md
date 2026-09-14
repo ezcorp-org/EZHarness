@@ -857,6 +857,19 @@ an ad-hoc `{ kind: "model", operation: "e2e" }` and its double answers
 substitute in the exact sense item 2 forbids, so the broker is constructed and
 exposed on the startup handle and the adapter is named here instead.
 
+### Files touched outside W09's ownership, disclosed
+
+Freeze section 12 gives this package `src/factory/application.ts`, `boot.ts`,
+`orchestration-process.ts`, the private-service suite, and the startup path in
+`web/src/lib/server/context.ts`, plus the files it created. Three touches fall
+outside that and each is disclosed here rather than left to a diff:
+
+| File | Change | Why it is not a W09 decision |
+| --- | --- | --- |
+| `.github/workflows/db-postgres.yml` | registered `tests/postgres/factory-tenant-projects.test.ts` and `tests/postgres/factory-host-launch.test.ts` in the factory-storage lane | Additive only. `scripts/factory-postgres-suite-registration.test.ts` fails otherwise, and it failed on this branch after the merge because W01b's own suite was unregistered. A suite no workflow names is a suite nobody runs |
+| `src/factory/tenant-projects.ts` | a composition-owned READ of `factory_projects`, a table `FactoryRecords` writes | Assigned by the coordinator after this package reported it as the blocker for two roles. Read-only; binding a project stays where it is |
+| `src/__tests__/factory-process-boundaries.test.ts` | admitted `now` to the supervisor's exact option set | The set is exact by design so a new option cannot arrive unreviewed. W03's clock arrived; a clock is neither tenant identity nor a host key |
+
 ## What the integration still needs, in one place
 
 Four findings, each verified at the merge commit rather than inferred, and each
