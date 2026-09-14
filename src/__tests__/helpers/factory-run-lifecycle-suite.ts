@@ -596,7 +596,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   test("a missing protected validator is scheduled through durable admission with one reservation per identity", async () => {
     const { completed, acceptanceReference, acceptanceCommand, candidateKey, validators, material, runtime } = await protectedAcceptance(true, false);
     const service = completed.task.service;
-    const scheduler = new FactoryProtectedValidatorScheduler(tenantId, completed.task.authority, validators, lifecycle.budgets, completed.task.admissions, {
+    const scheduler = new FactoryProtectedValidatorScheduler(tenantId, completed.task.authority, validators, lifecycle.budgets, completed.task.admissions, completed.task.journal, completed.task.queue, {
       async resolveInTransaction() { return { envelopeId: "root", amount: { costMicros: "3", tokens: 2, computeMs: 4 }, resources: { cpu: 1 }, memoryBytes: 64 }; },
     }, () => now);
 
@@ -631,10 +631,72 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await expect(fixture.db.transaction(transaction => scheduler.reserveInTransaction(transaction, service, acceptanceReference, foreign))).rejects.toMatchObject({ code: "factory_validator_schedule_stale" });
     const rekeyed = { ...schedule, reservationId: "factory-reservation:rekeyed" };
     await expect(fixture.db.transaction(transaction => scheduler.reserveInTransaction(transaction, service, acceptanceReference, rekeyed))).rejects.toMatchObject({ code: "factory_validator_schedule_invalid" });
-    expect(() => new FactoryProtectedValidatorScheduler("foreign-tenant", completed.task.authority, validators, lifecycle.budgets, completed.task.admissions, { async resolveInTransaction() { throw new Error("unused"); } }, () => now)).toThrow();
+    expect(() => new FactoryProtectedValidatorScheduler("foreign-tenant", completed.task.authority, validators, lifecycle.budgets, completed.task.admissions, completed.task.journal, completed.task.queue, { async resolveInTransaction() { throw new Error("unused"); } }, () => now)).toThrow();
 
-    // Once the claim has a result the candidate needs no further schedule.
-    expect(await fixture.db.transaction(transaction => validators.planMissingInTransaction(transaction, tenantId, candidateKey))).toMatchObject({ missing: [{ validatorId: material.mandatoryClaims[0]!.validatorId }] });
+    // The pool admits the validator identity. It carries no kernel event: no node awaits one.
+    // The lease must return the exact normalized vector the enlisted request carries.
+    const enlisted = JSON.parse(rows<{ request_json: string }>(await fixture.db.execute(sql`SELECT request_json FROM factory_compute_admissions WHERE tenant_id=${tenantId} AND reservation_id=${schedule.reservationId}`))[0]!.request_json) as { request: { resources: Record<string, number> } };
+    const lease = { reservationId: schedule.reservationId, tenantId, grantRevision: 1, allocationGeneration: 1, holderGeneration: 1, allocationToken: "validator-allocation", fence: "validator-fence", deadlineAt: new Date(now + 30_000), resources: enlisted.request.resources, hostId: "host-validator" };
+    let polls = 0;
+    const pool = { async request() { polls += 1; return { status: "admitted" as const, reservationId: schedule.reservationId, lease }; }, async status() { return undefined; }, async cancel() { throw new Error("unexpected cancellation"); }, async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); } } satisfies PoolAdmissionClient;
+    const validatorAdmissions = new FactoryComputeAdmissions(fixture.db, tenantId, completed.task.authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
+    const key = { projectId, runId: completed.task.run.runId, reservationId: schedule.reservationId };
+    const admittedDecision = await validatorAdmissions.recover(service, key);
+    expect(admittedDecision).toMatchObject({ status: "admitted", reservationId: schedule.reservationId });
+    expect((admittedDecision as { event?: unknown }).event).toBeUndefined();
+    expect(polls).toBe(1);
+    // A concurrent poll and a repeat both resolve to the same admission and never call the pool twice.
+    await Promise.all([validatorAdmissions.recover(service, key), validatorAdmissions.recover(service, key)]);
+    expect(polls).toBe(1);
+    expect(rows(await fixture.db.execute(sql`SELECT state FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND reservation_id=${schedule.reservationId}`))).toEqual([{ state: "running" }]);
+    expect(rows(await fixture.db.execute(sql`SELECT event_json FROM factory_compute_admissions WHERE tenant_id=${tenantId} AND reservation_id=${schedule.reservationId}`))).toEqual([{ event_json: null }]);
+
+    // The admitted identity mints exactly one durable attempt, and a restart returns the same one.
+    const delivery = await fixture.db.transaction(transaction => scheduler.admitInTransaction(transaction, service, acceptanceReference, schedule));
+    expect(delivery.reference).toMatchObject({ attemptId: schedule.attemptId, reservationId: schedule.reservationId, nodeInstanceId: schedule.nodeInstanceId });
+    const repeated = await fixture.db.transaction(transaction => scheduler.admitInTransaction(transaction, service, acceptanceReference, schedule));
+    expect(repeated.reference.requestDigest).toBe(delivery.reference.requestDigest);
+    await Promise.all([
+      fixture.db.transaction(transaction => scheduler.admitInTransaction(transaction, service, acceptanceReference, schedule)),
+      fixture.db.transaction(transaction => scheduler.admitInTransaction(transaction, service, acceptanceReference, schedule)),
+    ]);
+    expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_executions WHERE tenant_id=${tenantId} AND node_instance_id=${schedule.nodeInstanceId}`))).toEqual([{ attempt_id: schedule.attemptId }]);
+    expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_queue WHERE tenant_id=${tenantId} AND attempt_id=${schedule.attemptId}`))).toHaveLength(1);
+    expect(rows(await fixture.db.execute(sql`SELECT validator_id FROM factory_validator_assignments WHERE tenant_id=${tenantId} AND validator_attempt_id=${schedule.attemptId}`))).toEqual([{ validator_id: material.mandatoryClaims[0]!.validatorId }]);
+
+    // W01's runtime runs it. The guest gets the candidate read-only, with no grants and no tools.
+    const settlement = new FactoryValidatorAttemptDispatch(fixture.db, tenantId, completed.task.authority, validators, completed.task.journal, completed.task.queue, completed.artifacts);
+    const report = { schemaVersion: "factory.validator-claims.v1", claims: [{ id: material.mandatoryClaims[0]!.id, verdict: "PASS", decisive: true, summary: "scheduled", reasonCode: "pass", evidence: [], measuredAtMs: now }] };
+    let guestRuns = 0;
+    const dispatcher = new FactoryAttemptDispatcher(fixture.db, completed.task.queue, {
+      async run(request) {
+        guestRuns += 1;
+        expect(request).toMatchObject({ input: { kind: "artifact", artifact: completed.result.output }, grants: [], tools: [] });
+        const { artifactJson } = await import("../../factory/artifacts");
+        const output = await fixture.db.transaction(transaction => completed.artifacts.stageCandidateOutputInTransaction(transaction, completed.task.identity, schedule.nodeInstanceId, 0, artifactJson.canonical(report)));
+        return { schemaVersion: "factory.runner.result.v1", status: "completed", journalCursor: -1, operations: [], resultDigest: output.digest.slice(7), output, usage: { kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" }, workspaceCheckpoint: { ...output, journalCursor: -1 } } as const;
+      },
+    }, settlement, { recordInTransaction: settlement.recordInTransaction.bind(settlement), readInTransaction: settlement.readOutcomeInTransaction.bind(settlement) }, dispatchReady, dispatchReadinessDisposition, { service, installationId: "validator-installation", attemptTokenSecret: "validator-schedule-secret", leaseMs: 5_000 });
+    expect(await dispatcher.dispatchOne()).toMatchObject({ kind: "completed", attemptId: schedule.attemptId, recovered: false });
+    expect(guestRuns).toBe(1);
+
+    // The whole chain closes: the claim now has evidence, so the candidate needs no further schedule.
+    const evidence = await fixture.db.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidateKey, material.mandatoryClaims[0]!.validatorId));
+    expect(evidence.claims).toEqual([{ id: material.mandatoryClaims[0]!.id, verdict: "PASS", decisive: true }]);
+    expect(await fixture.db.transaction(transaction => scheduler.planInTransaction(transaction, service, acceptanceReference))).toEqual([]);
+    expect(rows(await fixture.db.execute(sql`SELECT validator_id FROM factory_validator_results WHERE tenant_id=${tenantId} AND validator_attempt_id=${schedule.attemptId}`))).toEqual([{ validator_id: material.mandatoryClaims[0]!.validatorId }]);
+
+    // Cancelling the run advances its epoch, so the acceptance command that authorized this schedule
+    // is no longer current and no further validator work can be planned, reserved, or admitted.
+    const runKeyValue = { projectId, runId: completed.task.run.runId };
+    const revision = Number(rows<{ revision: number | string }>(await fixture.db.execute(sql`SELECT revision FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${completed.task.run.runId}`))[0]!.revision);
+    await lifecycle.cancel(principal, runKeyValue, revision, `validator-schedule-cancel-${sequence}`);
+    const cancelled: readonly ((transaction: import("../../db/migrations/types").MigrationDb) => Promise<unknown>)[] = [
+      transaction => scheduler.planInTransaction(transaction, service, acceptanceReference),
+      transaction => scheduler.reserveInTransaction(transaction, service, acceptanceReference, schedule),
+      transaction => scheduler.admitInTransaction(transaction, service, acceptanceReference, schedule),
+    ];
+    for (const act of cancelled) await expect(fixture.db.transaction(transaction => act(transaction))).rejects.toThrow();
   });
 
   test("a protected validator settles through the shared attempt dispatcher, never through the kernel task path", async () => {
