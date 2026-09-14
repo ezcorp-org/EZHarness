@@ -94,7 +94,10 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
       throw error;
     }
     const handle = await this.options.transport.attach(tokened);
-    return this.settled(tokened, handle.disposition === "terminal" ? "terminal" : "attached", async () => {
+    // The host's own disposition passes through unchanged. Collapsing an
+    // `uncertain` attach into `attached` would report a live guest where the
+    // host said it had none.
+    return this.settled(tokened, handle.disposition, async () => {
       const recorded = await this.options.launches.terminalResult(attemptId);
       if (recorded) return recorded;
       try { return await this.awaitResult(tokened); }

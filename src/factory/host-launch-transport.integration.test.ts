@@ -8,7 +8,7 @@ import { createFactoryHostLaunchClient, type FactoryHostLaunchTransport } from "
 import { createFactoryHostLaunchRouteHandler } from "./runner/host-launch-service";
 import { createFactoryHostLaunchSupervisor } from "./runner/host-launch-supervisor";
 import { FactoryRemoteAttemptRuntime } from "./runner/remote-attempt-runtime";
-import { FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
+import { FactoryAttemptRuntimeError, FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLaunchIntent, type FactoryPhysicalStopReceipt } from "./runner/attempt-runtime";
 import { certificates, type Certificates } from "../__tests__/helpers/factory-certificates";
 import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../__tests__/helpers/factory-attempt-launch-fixture";
 import { privateHttpsCall } from "../__tests__/helpers/factory-private-https-client";
@@ -221,6 +221,44 @@ test("a lost launch response reconnects instead of starting a second guest, and 
     service.stop();
     await fixture.close();
   }
+}, 120_000);
+
+test("when the supervisor also restarted and holds nothing, a rejoining gateway stays uncertain", async () => {
+  const request = factoryLaunchRequest({ attemptId: "attempt-double-restart" });
+  const fixture = await createFactoryLaunchFixture(request);
+  try {
+    const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+    // Mirrors what host-launch-client.ts returns after a double restart: the
+    // host reconnected to nothing, so it has no in-flight result to give back.
+    const emptied = (disposition: "terminal" | "uncertain"): FactoryHostLaunchTransport => ({
+      launch: async () => { throw new Error("a rejoining gateway must never launch"); },
+      attach: async (intent) => ({ disposition, workerId: intent.workerId, invocationId: intent.invocationId }),
+      result: async () => { throw new Error("this host is not running that attempt"); },
+    });
+    const gateway = (disposition: "terminal" | "uncertain") => new FactoryRemoteAttemptRuntime({
+      launches: store, transport: emptied(disposition),
+      readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
+      mintAttemptToken: async () => "minted-double-restart-token",
+      pool: { acknowledgeStart: async () => ({}) as never },
+      stop: async (intent) => stopReceipt(intent),
+    });
+
+    // A prior gateway claimed and launched, then vanished without recording.
+    const intent = await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));
+    await store.claimStart(intent.request.authority.attemptId);
+    await store.state(intent.request.authority.attemptId, "launched");
+
+    for (const disposition of ["terminal", "uncertain"] as const) {
+      const rejoined = await gateway(disposition).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+      // The host's own answer survives rather than being reported as attached.
+      expect(rejoined.disposition).toBe(disposition);
+      // And nothing is guessed: there is no durable result and the host has none.
+      const refusal = await rejoined.wait().then(() => undefined, (error: unknown) => error);
+      expect(refusal).toBeInstanceOf(FactoryAttemptRuntimeError);
+      expect((refusal as FactoryAttemptRuntimeError).code).toBe("launch_uncertain");
+    }
+    expect(await store.terminalResult(request.authority.attemptId)).toBeUndefined();
+  } finally { await fixture.close(); }
 }, 120_000);
 
 test("the host refuses an unauthorized peer, another host's intent, and an intent that does not bind itself", async () => {
