@@ -1,4 +1,4 @@
-import { factoryListQuery, handleFactoryApi, handleFactorySessionApi, readFactoryJson } from "../../../../../_shared";
+import { factoryListQuery, handleFactoryApi, readFactoryJson } from "../../../../../_shared";
 import type { RequestHandler } from "./$types";
 
 function path(params: { projectId: string; factoryId: string }) {
@@ -10,6 +10,11 @@ export const GET: RequestHandler = event => handleFactoryApi(event, {
   build: () => ({ kind: "version.list", path: path(event.params), query: factoryListQuery(event.url) }),
 });
 
-export const POST: RequestHandler = event => handleFactorySessionApi(event,
-  async () => ({ kind: "version.publish", path: path(event.params), body: await readFactoryJson(event.request) }),
-);
+// C01: publishing a version needs the project's `factory.publish` grant and an
+// independently approved contract revision, under the `write` API-key scope.
+// The product layer still enforces the grant and the contract; this verb is not
+// one of C01's human-session rows.
+export const POST: RequestHandler = event => handleFactoryApi(event, {
+  scope: "write",
+  build: async () => ({ kind: "version.publish", path: path(event.params), body: await readFactoryJson(event.request) }),
+});

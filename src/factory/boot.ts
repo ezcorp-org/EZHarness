@@ -14,6 +14,16 @@ export const FACTORY_REQUIRED_SERVICES = [
 
 export type FactoryService = (typeof FACTORY_REQUIRED_SERVICES)[number];
 
+/**
+ * The reason C09 promises when the flag is off, in one place.
+ *
+ * The contract's spelling is dashed. The API emitted an underscored variant,
+ * so the documented 404 was unrecognisable to a client written against the
+ * contract. Both the route and its tests now read this constant, so the two
+ * cannot drift again.
+ */
+export const FACTORY_DISABLED_REASON = "factory-disabled" as const;
+
 export interface FactoryBootConfig {
   enabled: boolean;
   /** One boot-captured policy used by every untrusted subprocess seam. */

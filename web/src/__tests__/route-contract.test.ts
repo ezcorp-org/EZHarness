@@ -755,7 +755,6 @@ describe("registry ⇄ filesystem parity", () => {
     // commit, the truest value the type could then express) and is re-declared
     // here, so the whole session-only surface reads one way.
     const SESSION_ONLY = [
-      "DELETE /api/factories/projects/:projectId/grants/:principalKind/:principalId/:action",
       "DELETE /api/factories/projects/:projectId/release/policies/:policyId",
       "DELETE /api/factories/projects/:projectId/release/trust",
       "DELETE /api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials/:credentialId",
@@ -775,7 +774,6 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/extensions/import-source",
       "POST /api/extensions/releases/:installationId/approve",
       "POST /api/extensions/releases/:installationId/project",
-      "POST /api/factories/projects/:projectId/definitions/:factoryId/versions",
       "POST /api/factories/projects/:projectId/releases/:operationId/approvals",
       "POST /api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials",
       "POST /api/import/commit",
@@ -786,7 +784,6 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/workflows/approvals/:id",
       "POST /api/workflows/delegations",
       "POST /api/workflows/delegations/preview",
-      "PUT /api/factories/projects/:projectId/grants/:principalKind/:principalId/:action",
       "PUT /api/factories/projects/:projectId/release/approvals/:approvalId",
       "PUT /api/factories/projects/:projectId/release/contracts/:contractId",
       "PUT /api/factories/projects/:projectId/release/control",
