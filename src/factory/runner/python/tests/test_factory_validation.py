@@ -14,6 +14,7 @@ from unittest import mock
 import factory_validation
 from factory_validation import (
     bounded_text,
+    is_manifest_name,
     resolve_local_reference,
     safe_counter,
     valid_digest,
@@ -204,6 +205,24 @@ class RunnerRequestTest(unittest.TestCase):
         self.assertEqual(request_code(at(request(), ["runner", "digest"], DIGEST)), "RUNNER_PIN")
         self.assertEqual(request_code(at(request(), ["runner", "package"], "")), "RUNNER_PIN")
         self.assertEqual(request_code(at(request(), ["runner", "export"], "")), "RUNNER_PIN")
+
+    def test_the_manifest_name_must_follow_the_v4_grammar_and_never_be_scoped(self) -> None:
+        # The scoped distribution identity lives in `package`; a manifest name
+        # that carried it would be one the shared extension contract refuses.
+        def named(value: Json) -> str | None:
+            return request_code(at(request(), ["runner", "manifestName"], value))
+
+        for refused in ["@ezcorp/reference-data", "ReferenceData", "", "1-lead", "-lead", "under_score", "a" * 65]:
+            self.assertEqual(named(refused), "RUNNER_MANIFEST_NAME", refused)
+        self.assertEqual(request_code(without(request(), ["runner", "manifestName"])), "RUNNER_REQUEST_SCHEMA")
+        for admitted in ["a", "a" * 64, "reference-data-9"]:
+            self.assertIsNone(named(admitted), admitted)
+
+    def test_the_manifest_name_grammar_is_the_v4_one(self) -> None:
+        self.assertTrue(is_manifest_name("reference-data"))
+        self.assertFalse(is_manifest_name("@ezcorp/reference-data"))
+        self.assertFalse(is_manifest_name(7))
+        self.assertFalse(is_manifest_name("A"))
 
     def test_the_runner_model_pin_must_be_bounded_and_digest_shaped(self) -> None:
         forged = at(request(), ["runner", "model"], "")

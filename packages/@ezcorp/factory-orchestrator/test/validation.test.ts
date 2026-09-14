@@ -8,7 +8,7 @@ const digest = `sha256:${"a".repeat(64)}`;
 const reference = { objectId: "object", digest, encodedBytes: 2 };
 const definition = { definitionDigest: digest, definitionEncodedBytes: 2, manifest: reference };
 const valid = { tenantId: "tenant", projectId: "project", logicalRunId: "run", interpreterId: "build", startedAtMs: 1, definition, input: {} };
-const runner = { package: "inert", version: "1", digest, export: "run" };
+const runner = { package: "inert", manifestName: "inert", version: "1", digest, export: "run" };
 
 function compiledFactory() {
   const result = compileFactory({

@@ -586,10 +586,26 @@ function validateArtifactReference(reference: FactoryArtifactReference, path: re
   return safeCounter(reference.encodedBytes) ? { ok: true } : issue("RUNNER_ARTIFACT_BYTES", "Artifact bytes must be a nonnegative safe integer.", [...path, "encodedBytes"]);
 }
 
+/**
+ * The v4 manifest name grammar, restated here so the execution schema refuses a
+ * reference the extension contract's own `validateManifest` would refuse. It is
+ * the shared contract's rule (`extension-contract/src/validation.ts`), not a
+ * second one: a scoped distribution name belongs in `package`, never here.
+ */
+const MANIFEST_NAME = "abcdefghijklmnopqrstuvwxyz";
+export function isManifestName(value: string): boolean {
+  if (value.length === 0 || value.length > 64 || !MANIFEST_NAME.includes(value[0] as string)) return false;
+  for (const character of value) {
+    if (!MANIFEST_NAME.includes(character) && !(character >= "0" && character <= "9") && character !== "-") return false;
+  }
+  return true;
+}
+
 function validateRunnerReference(reference: FactoryRunnerRequest["runner"], path: readonly (string | number)[]): ValidationResult {
   if (!boundedText(reference.package) || !boundedText(reference.export) || !boundedText(reference.version) || reference.version === "latest" || reference.version.includes("*") || !validDigest(reference.digest, true)) {
     return issue("RUNNER_PIN", "Runner package, exact version, export, and digest are required.", path);
   }
+  if (!boundedText(reference.manifestName) || !isManifestName(reference.manifestName)) return issue("RUNNER_MANIFEST_NAME", "Runner manifest name must be the built v4 manifest's own name, which cannot be a scoped package name.", [...path, "manifestName"]);
   if (reference.model !== undefined && !boundedText(reference.model)) return issue("RUNNER_MODEL_PIN", "Runner model must be a bounded identity.", [...path, "model"]);
   if (reference.configurationDigest !== undefined && !validDigest(reference.configurationDigest, true)) return issue("RUNNER_MODEL_PIN", "Runner configuration digest must be a prefixed lowercase sha256 value.", [...path, "configurationDigest"]);
   return { ok: true };

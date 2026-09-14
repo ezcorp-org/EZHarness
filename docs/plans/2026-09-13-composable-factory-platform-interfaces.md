@@ -2047,7 +2047,7 @@ One owner per file. A second worker who needs a change files it with the owner; 
 | `packages/@ezcorp/factory-sdk/src/expressions.ts` | Sol controls | Same determinism closure. |
 | `packages/@ezcorp/factory-sdk/src/*.schema.json` | Sol controls | Generated only. Never hand-edit. |
 | `packages/@ezcorp/factory-sdk/src/index.ts` | Sol controls | Export barrel. |
-| `packages/@ezcorp/extension-contract/src/types.d.ts` | Terra runtime | `StartRequest.devices` only. |
+| `packages/@ezcorp/extension-contract/src/types.d.ts` | Terra runtime | `StartRequest.devices` and `StartRequest.materials` only. |
 | `packages/@ezcorp/extension-runner/src/podman.ts` | Terra runtime | C13 shared module. Adding to it widens the F13 duplicate surface. |
 | `packages/@ezcorp/extension-runner/src/protocol.ts` | Terra runtime | Frame policy and bounds. |
 | `packages/@ezcorp/extension-runner/src/dependencies.ts` | Terra runtime | C13 shared module. Fetch and unpack limits. |
@@ -2340,4 +2340,57 @@ Accepted deviations, recorded here so consumers read the landed contract rather 
 - **Section 6 (W01).** The durable terminal result lives in two new columns on `factory_attempt_launches`, not in `factory_execution_terminals`, because that table requires a verified output-artifact foreign key and cannot hold failed, cancelled, or uncertain results. `FactoryHostLaunchProtocol.stop` currently takes W01's `FactoryPhysicalStopRequest` (attempt, reservation, holder generation, reason); W03 reconciles it with `FactoryTaskStopRequest` when section 3 lands. Cross-host replacement enforcement (signed-receipt consumption plus fencing) remains W03's, not W01's.
 - **Section 7 (W04).** `factory_artifacts` gains `material_key` and the admission-index helper a conditional `material_key` dimension; `FactoryArtifactAccessError` and `unavailable()` moved to `artifact-materials.ts` and are re-exported from `artifact-access.ts`; unsealed materials carry reserved `digest`/`storage_version` sentinels until `seal`; the material handle is one `factory_artifacts` row of kind `material` carrying the chunk manifest; `FactoryAttemptMaterials` adds `chunks()` and `readChunk()`; `maxObjectsPerOperation` counts versions as objects; `FactoryWorkspaceCheckpoints` implements open question 26's default (`workspace/` prefix), leaving the checkpoint payload shape to the runner. `add-factory-release-authority.ts` no longer re-adds its narrower `kind` check on every boot.
 - **Section 6 addendum (W01, in progress).** The guest-side control channel becomes a FIFO triple (`in`, `out`, `err`) in a per-attempt directory under the runner root, bind-mounted read-write at `/channel`. An in-container shim opens all three with `O_RDWR` and hands them to the extension as stdin/stdout/stderr, so a FIFO reader sees EOF only when the guest itself exits; the supervisor connects by opening the same FIFOs and its death closes only its own descriptors. The host-side contract (`FramedExecution`, frame policy, `Runner`, `FactoryHostLaunchProtocol`) is unchanged. W02's Python guest must implement the same shim contract. Design record: `/tmp/factory-platform-evidence/w01/DESIGN-guest-lifetime.md`.
+- **Section 6 material mount (W01 review of W12, 2026-09-14).** `StartRequest.materials` and the Podman material mount are approved in shape: a private per-attempt directory bind-mounted read-write at the fixed path `/materials` is the right answer to a control channel bounded at one mebibyte, and it widens nothing a guest can reach. Three corrections bind both W11 and W12. First, the mount options must read `rw=true,relabel=private,noexec,nosuid,nodev`, so the only two writable surfaces a guest has share the posture `/tmp` already carries; execution was denied without `noexec` on the test host, but by that filesystem's own flags rather than by anything the profile guarantees. Second, a guest CAN plant a symbolic link in that directory, measured in the shipped profile and confirmed on the host, so no consumer may walk or open the tree itself: both must read it through `listRunnerMaterials` and `openRunnerMaterial` in `packages/@ezcorp/extension-runner/src/materials.ts`, which open with `O_NOFOLLOW` and `O_NONBLOCK`, require a regular file, and bound entries, bytes, and depth. `O_NONBLOCK` is load-bearing: a planted FIFO otherwise hangs the read-back forever. Third, the directory is the caller's to create and destroy, never `0o777`, never shared or reused between attempts, and unbounded in size because Podman cannot quota a bind mount, so its owner must place it on a quota'd filesystem. Read back only after the guest is confirmed stopped; a live guest can swap a directory component and no host-side check closes that race. `GUEST_MATERIALS_PATH` stays a fixed path rather than an environment variable, discovery guests never receive the mount, `/workspace` and `/channel` stay read-only, and `materials` stays optional so no v4 caller changes. Full verdict: `/tmp/factory-platform-evidence/w01b/materials-mount-review.md`.
+- **Section 6 guest byte path (W01, 2026-09-14).** The material mount is the byte path out of a guest that W11 and W12 both need, and it now has one canonical definition in Terra's own files rather than a copy in each pack. `StartRequest.materials` is an optional host-owned directory; absent means no mount, so every v4 caller is unchanged, and a discovery guest never receives one because the build phase has no attempt. It appears at the fixed path `/materials`, never an environment variable. `runnerMaterialMount` is the only way to construct it and carries `rw=true,relabel=private,noexec,nosuid,nodev`: it is the one read-write mount a guest gets, and `noexec,nosuid,nodev` hold it at the posture `/tmp` already has. Three rules bind every consumer. A guest CAN create a symbolic link in its own material directory, measured in the shipped profile, so the host must read results back only through `listRunnerMaterials` and `openRunnerMaterial`, which open with `O_NOFOLLOW` and `O_NONBLOCK`, require a regular file, and bound entries, bytes, and depth; `O_NONBLOCK` is load-bearing because a planted FIFO otherwise hangs the read-back forever. The directory is the caller's to create and destroy, never world-writable, never shared or reused between attempts, and needs a filesystem quota because Podman cannot bound a bind mount. And removing it needs `podman unshare`: a guest's subdirectories belong to a mapped subuid, so an ordinary recursive remove fails with EACCES, measured rather than assumed, and an `idmap` mount did not avoid this on Podman 5.8.2. Read back only after the guest is confirmed stopped. Evidence: `/tmp/factory-platform-evidence/w01c/`.
 - **Section 12 (W18).** `scripts/check-factory-boundaries.ts` now derives the C13 inventory from the real import graph (46 edges) and gains a workspace-package resolver; each later package still appends its rows, and the coordinator merges.
+
+## 17. Dated correction: the runner reference names its manifest (coordinator, 2026-09-14)
+
+**Supersedes the workaround each reference pack adopted. W10, W11 and W12 must migrate.**
+
+Two rules could not both be satisfied, and the conflict was found by the W12 validator and
+disclosed independently by W10, W11 and W12:
+
+- `packages/@ezcorp/extension-contract/src/validation.ts:126` constrains a v4 manifest name to
+  `^[a-z][a-z0-9-]{0,63}$`. A scoped name such as `@ezcorp/reference-data` can never match it.
+- `releaseFacts()` in `src/factory/package-preparation.ts` required `release.manifest.name` to
+  EQUAL the runner reference's `package`, which is exactly the scoped name a pack publishes.
+
+No real pack could satisfy both, so each of the three worked around it differently: one renamed
+its manifest to the unscoped form and lost the scope, one kept the scope and never called
+`FactoryPackagePreparations.bind`, and one carried both spellings in different places.
+
+**Decision.** The v4 manifest grammar is the shared contract (C13) and stays unchanged. The runner
+reference now carries the manifest's exact name explicitly, and the scoped distribution identity
+keeps the separate field it already had:
+
+```ts
+// packages/@ezcorp/factory-sdk/src/types.ts — CHANGED. Single writer: Sol controls; landed by W02b.
+export interface RunnerReference {
+  readonly package: string;        // scoped distribution identity, e.g. @ezcorp/reference-data
+  readonly manifestName: string;   // NEW, REQUIRED. Exactly manifest.name of the built v4 release.
+  readonly version: string;
+  readonly digest: string;
+  readonly export: string;
+  readonly model?: string;
+  readonly configurationDigest?: string;
+}
+```
+
+- `manifestName` is validated against the v4 grammar by the SDK's exported `isManifestName`, so a
+  reference the execution schema admits is one `validateManifest` would admit. A scoped name
+  offered as a manifest name is `RUNNER_MANIFEST_NAME`.
+- The generated JSON Schemas are regenerated with the field required. The Python validator carries
+  the identical rule, because C07 rejects a validator that works in only one runtime.
+- `releaseFacts()`, `bindInTransaction()` and `hydrate()` compare `manifestName`; nothing compares a
+  manifest name to `package` any more.
+- The field is sealed with the rest of the reference into the binding, the trust revision and the
+  prepared receipt through the reference digest, so a receipt cannot be replayed under a different
+  manifest name.
+
+**Migration for W10, W11 and W12.** Every `RunnerReference` literal gains `manifestName`. Set it to
+the built manifest's own name and keep `package` scoped; the two are expected to differ. A pack that
+had renamed its manifest to the unscoped form to get past `releaseFacts()` should restore the scoped
+`package` and leave `manifestName` as the manifest already spells it. A pack that avoided
+`FactoryPackagePreparations.bind` can now bind normally. `manifestNameOf()` in
+`packages/@ezcorp/factory-sdk/src/references.ts` derives the conventional name from a scoped one.

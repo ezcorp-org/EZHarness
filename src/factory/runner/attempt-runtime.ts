@@ -358,6 +358,62 @@ function rowIntent(row: LaunchRow): FactoryAttemptLaunchIntent {
   return Object.freeze({ ...actual, state: row.state });
 }
 
+/** The launch intent as it crosses the host transport. The token travels with it. */
+export interface FactoryAttemptLaunchIntentWire {
+  readonly schemaVersion: "factory.attempt-launch.v1";
+  readonly request: FactoryRunnerRequest;
+  readonly lease: FactoryAttemptLease;
+  readonly preparedPackage: FactoryPreparedPackageReceipt;
+  readonly devices: { readonly devices: readonly string[]; readonly cdiDevices: readonly string[] };
+  readonly workerId: string;
+  readonly invocationId: string;
+  readonly requestDigest: string;
+  readonly grantDigest: string;
+}
+
+/** Everything a host needs to launch, and nothing a tenant record would add. */
+export function factoryAttemptLaunchIntentToWire(intent: FactoryAttemptLaunchIntent): FactoryAttemptLaunchIntentWire {
+  return Object.freeze({
+    schemaVersion: "factory.attempt-launch.v1" as const,
+    request: intent.request,
+    lease: intent.lease,
+    preparedPackage: intent.preparedPackage,
+    devices: { devices: intent.devices.devices, cdiDevices: intent.devices.cdiDevices },
+    workerId: intent.workerId,
+    invocationId: intent.invocationId,
+    requestDigest: intent.requestDigest,
+    grantDigest: intent.devices.grantDigest,
+  });
+}
+
+/**
+ * Rebuilds a launch intent from the wire and refuses one whose identities do not
+ * follow from its own contents.
+ *
+ * The worker id, the invocation id, the request digest, and the device grant are
+ * all derived, so a caller cannot assert them: they are recomputed here exactly
+ * as the database reader recomputes them, and a mismatch is refused rather than
+ * trusted. That is what keeps a host bound to the worker, invocation, and
+ * attempt the product process actually recorded.
+ */
+export function factoryAttemptLaunchIntentFromWire(value: unknown): FactoryAttemptLaunchIntent {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new FactoryAttemptRuntimeError("invalid_launch", "Factory launch intent is not an object.");
+  const wire = value as Partial<FactoryAttemptLaunchIntentWire>;
+  if (wire.schemaVersion !== "factory.attempt-launch.v1") throw new FactoryAttemptRuntimeError("invalid_launch", "Factory launch intent schema is unsupported.");
+  if (!wire.request || !wire.lease || !wire.preparedPackage || !wire.devices) throw new FactoryAttemptRuntimeError("invalid_launch", "Factory launch intent is incomplete.");
+  const devices = wire.devices;
+  if (!Array.isArray(devices.devices) || !Array.isArray(devices.cdiDevices)) throw new FactoryAttemptRuntimeError("invalid_launch", "Factory launch device facts are invalid.");
+  const rebuilt = snapshotIntent(wire.request, wire.lease, wire.preparedPackage, {
+    devices: devices.devices,
+    cdiDevices: devices.cdiDevices,
+    gpuHosts: devices.devices.length + devices.cdiDevices.length > 0 ? 1 : 0,
+  });
+  if (rebuilt.workerId !== wire.workerId || rebuilt.invocationId !== wire.invocationId || rebuilt.requestDigest !== wire.requestDigest || rebuilt.devices.grantDigest !== wire.grantDigest) {
+    throw new FactoryAttemptRuntimeError("invalid_launch", "Factory launch intent does not bind its own worker, invocation, and attempt.");
+  }
+  return rebuilt;
+}
+
 export class FactoryAttemptRuntimeError extends Error {
   constructor(readonly code: "invalid_request" | "invalid_launch" | "launch_conflict" | "launch_corrupt" | "launch_uncertain" | "lease_revoked" | "device_conflict", message: string) { super(message); }
 }

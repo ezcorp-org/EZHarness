@@ -22,7 +22,7 @@ import { dispatchReferenceDataAttempt, ReferenceDataPackError, REFERENCE_DATA_ST
  */
 
 const SCOPE: FactoryMaterialScope = { tenantId: "tenant", projectId: "project", runId: "run", attemptId: "attempt", operationId: "operation" };
-const REFERENCE: RunnerReference = { package: "@ezcorp/reference-data", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "snapshotCsv" };
+const REFERENCE: RunnerReference = { package: "@ezcorp/reference-data", manifestName: "reference-data", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "snapshotCsv" };
 const AUTHORITY: Omit<FactoryRunnerAuthority, "nodeInstanceId"> = {
   attemptId: "attempt", tenantId: "tenant", projectId: "project", runId: "run", candidateGeneration: 0, attemptNumber: 1,
   grantRevision: 1, reservationGeneration: 1, executionEpoch: 6, cancellationEpoch: 0, deadlineAtMs: 4_000_000_000_000, nextOperationIndex: 0,

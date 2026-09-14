@@ -78,6 +78,8 @@ test("the per-attempt directory is laid out so a guest running as another user c
     // uid owns it, this user is only its group, and "other" gets nothing.
     const output = await stat(join(created.root, "out"));
     expect(output.mode & 0o777).toBe(0o770);
+    // The shared mount sets no mode and no owner, so without this handover a
+    // guest running as another uid cannot write at all.
     expect(output.mode & 0o007).toBe(0);
     expect(output.uid).not.toBe(process.getuid?.());
     expect(output.gid).toBe(process.getgid?.() as number);
@@ -236,11 +238,31 @@ test("a host with no container runtime fails closed rather than falling back to 
   const parent = await mkdtemp(join(tmpdir(), "refdata-no-podman-"));
   try {
     await expect(ReferenceDataGuestDirectory.create(parent, "/nonexistent/podman")).rejects.toMatchObject({ code: "reference_data_material_unowned" });
-    // And it leaves nothing behind that a later run could inherit.
     const { readdir } = await import("node:fs/promises");
     expect(await readdir(parent)).toEqual([]);
   } finally {
     await rm(parent, { recursive: true, force: true });
+  }
+});
+
+test("anything the guest left that is not a regular file is a refusal, not an entry", async () => {
+  const created = await directory();
+  try {
+    await writeFile(join(created.root, "out/real.parquet"), text("PAR1"));
+    // A guest owns its output directory, so a planted link is reachable. The
+    // shared read-back refuses it rather than resolving it, which is what stops
+    // the host sealing another file's bytes under the guest's reported digest.
+    await symlink("/etc/hostname", join(created.root, "out/stolen.parquet"));
+    await expect(created.produced()).rejects.toMatchObject({ code: "reference_data_material_untrusted" });
+    const iterator = created.collect("out/stolen.parquet");
+    await expect(iterator.next()).rejects.toMatchObject({ code: "reference_data_material_absent" });
+    await expect(created.size("out/stolen.parquet")).rejects.toMatchObject({ code: "reference_data_material_absent" });
+    // The real file beside it still reads, so the refusal is about the link.
+    const blocks: Uint8Array[] = [];
+    for await (const chunk of created.collect("out/real.parquet")) blocks.push(Uint8Array.from(chunk));
+    expect(new TextDecoder().decode(Buffer.concat(blocks))).toBe("PAR1");
+  } finally {
+    await created.dispose();
   }
 });
 

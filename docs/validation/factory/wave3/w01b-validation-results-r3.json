@@ -1,0 +1,61 @@
+{
+  "package": "w01b",
+  "round": 3,
+  "verdict": "ACCEPT",
+  "validated_head": "173feebd4b8c7126d4d8146905722854799ac2b9",
+  "round2_validated_head": "42b9e8c348723e88602a3f4d5f0e1cf3a499e557",
+  "delta_commits": [
+    "9f7ba4b675438a065b6ca38d44b4138f3c53b26e fix(factory): keep the host's own attach disposition on a rejoin",
+    "173feebd4b8c7126d4d8146905722854799ac2b9 docs(factory): name the round-two fix commit in the gate evidence"
+  ],
+  "branch": "wp/w01b-attempt-dispatch",
+  "merge_base_used_for_BASE_REF": "2377caaa4430618541dab721779dc186bb15780f",
+  "note_on_base_ref": "integ/w00 has advanced to a8eff0bfa9ba39ed2225d6d35032ae0fbaee38ca (WREG and W02b merged since round 1/2). Per team lead's instruction, used the branch/integ-w00 merge-base (2377caaa4, matching the branch's own documented merge point) as BASE_REF for both coverage gates instead of the moving integ/w00 tip.",
+  "validation_worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w01b-validate, checked out detached at 173feebd4",
+  "worktree_note": "The originally assigned worktree (.worktrees/w01-runtime) had been switched by a concurrent session to branch wp/w01c-materials-mount with uncommitted dirty changes in packages/@ezcorp/extension-contract and packages/@ezcorp/extension-runner before this round started. Did not touch it. Reused the idle, clean, already-dependencies-installed worktree left over from round 1/2 (.worktrees/w01b-validate, previously detached at 516d4a8d4) and re-pointed it to 173feebd4 with `git checkout --detach`, which does not disrupt any other session since that worktree was not attached to a branch anyone else was using.",
+  "tree_state": "clean (git status --porcelain empty, excluding gitignored coverage/) at validated_head; no source files touched during this validation",
+  "prior_findings_disposition": [
+    {
+      "id": "R2-F1",
+      "round2_severity": "minor",
+      "status": "CLOSED",
+      "evidence": "remote-attempt-runtime.ts:97 now reads `return this.settled(tokened, handle.disposition, async () => {` -- the host's own attach disposition passes straight through, exactly mirroring open()'s existing pattern at line 62. Confirmed by direct diff read (git show 9f7ba4b67) and by the new test's explicit assertion `expect(rejoined.disposition).toBe(disposition)` for both 'terminal' and 'uncertain', independently rerun and passing."
+    },
+    {
+      "id": "R2-F2",
+      "round2_severity": "minor (real test gap)",
+      "status": "CLOSED",
+      "evidence": "New test 'when the supervisor also restarted and holds nothing, a rejoining gateway stays uncertain' (host-launch-transport.integration.test.ts, added in 9f7ba4b67) injects a fake FactoryHostLaunchTransport whose attach() returns disposition 'terminal' or 'uncertain' (looped over both) and whose launch()/result() throw, mirroring exactly what a doubly-restarted host returns. It asserts: (a) rejoined.disposition equals the host's own disposition (closes R2-F1 too), (b) `rejoined.wait()` rejects with a value that is `instanceof FactoryAttemptRuntimeError` with `.code === \"launch_uncertain\"`, and (c) `store.terminalResult` stays undefined afterward -- i.e. nothing was guessed. This is a genuine behavioral proof, not merely a line-coverage artifact: I traced the execution and confirmed the fake's result() throw is what drives the wait-closure's catch branch to actually fire this time (previously flagged in round 2 as only structurally, not behaviorally, covered). Independently reran this test alone (`bun test -t \"supervisor also restarted\"`): 1 pass / 0 fail / 7 expect() calls."
+    },
+    {
+      "id": "R2-F3",
+      "round2_severity": "trivial",
+      "status": "CLOSED",
+      "evidence": "/tmp/factory-platform-evidence/w01b/INDEX.md now has a 'Round-two receipts' section listing all six round-2 receipts (r2-transport-and-dispatch.json, r2-e2e-podman.json, r2-static-gates.json, transport-and-dispatch.json, podman-suite.json, package-preparation-podman.json), matching what exists on disk. Independently reproduced the three r2-* receipts exactly: transport-and-dispatch 11 pass/95 expect, e2e-podman 1 pass/13 expect, static-gates all four commands exit 0 with identical lint output (8 infos, same files)."
+    }
+  ],
+  "additional_disclosure_verified": {
+    "claim": "tasks/factory/w01b-GATES.md's new paragraph states FactoryAttemptRuntimeError never sets `this.name` (so it reports as `Error`), unlike RunnerError, FactoryTaskStopError, and FactoryMaterialError which all set theirs; disclosed as a pre-existing issue deliberately left unchanged as out of scope for this fix.",
+    "verification": "Confirmed accurate by direct source read. attempt-runtime.ts:417-419's FactoryAttemptRuntimeError constructor calls only `super(message)`, no `this.name` assignment. By contrast: extension-runner/src/core.ts's RunnerError sets `this.name = \"RunnerError\"`; task-stops.ts's FactoryTaskStopError sets `this.name = \"FactoryTaskStopError\"`; artifact-materials.ts's FactoryMaterialError sets `this.name = \"FactoryMaterialError\"`. The disclosure is honest and correctly scoped out -- both new tests use `instanceof FactoryAttemptRuntimeError` plus `.code`, which sidesteps the missing `.name` entirely."
+  },
+  "reruns": [
+    { "label": "build-factory-sdk/transport/orchestrator", "exit_code": 0, "notes": "all three workspace packages rebuilt clean before typecheck" },
+    { "label": "typecheck", "command": "bun run typecheck", "exit_code": 0, "notes": "backend, web, tests-typecheck, web-e2e, mypy --strict all pass" },
+    { "label": "lint", "command": "bun run lint", "exit_code": 0, "notes": "5121 files, 0 errors, 0 warnings, 8 infos (identical unrelated web/ files as round 2), matches worker's r2-static-gates.log exactly" },
+    { "label": "boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exit_code": 0 },
+    { "label": "gate-integrity", "command": "bun scripts/gate-integrity.ts", "exit_code": 0 },
+    { "label": "focused-suites-full", "command": "bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=<dir>/focused ./src/factory/runner/attempt-dispatch-driver.test.ts ./src/factory/host-launch-client.test.ts ./src/factory/host-launch-transport.integration.test.ts ./src/factory/runner/attempt-recovery.test.ts ./src/factory/runner/attempt-runtime.test.ts ./src/factory/runner/guest-frames.test.ts ./src/factory/runner/workspace-checkpoint-seam.test.ts", "exit_code": 0, "result": "53 pass / 0 fail, 252 expect() calls (round 2 baseline: 52 pass / 245 expect; delta is the +1 new double-restart test)" },
+    { "label": "transport-and-dispatch (exact match to worker's r2 label)", "command": "bun test --timeout 300000 ./src/factory/host-launch-transport.integration.test.ts ./src/factory/host-launch-client.test.ts ./src/factory/runner/attempt-dispatch-driver.test.ts", "exit_code": 0, "result": "11 pass / 0 fail, 95 expect() calls -- exact match to logs/r2-transport-and-dispatch.json" },
+    { "label": "isolated-new-test-mid-launch-rejoin", "command": "bun test -t \"gateway that restarts mid-launch\" ./src/factory/host-launch-transport.integration.test.ts", "exit_code": 0, "result": "1 pass / 18 expect(); confirms R2-F1's fix did not regress round 2's F1 test" },
+    { "label": "isolated-new-test-double-restart", "command": "bun test -t \"supervisor also restarted\" ./src/factory/host-launch-transport.integration.test.ts", "exit_code": 0, "result": "1 pass / 7 expect()" },
+    { "label": "e2e-podman", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 900 bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=<dir>/e2e ./src/factory/host-launch-e2e.podman.integration.test.ts", "exit_code": 0, "start": "2026-09-14T16:36:25Z", "end": "2026-09-14T16:36:34Z", "result": "1 pass / 0 fail, 13 expect() calls -- exact match to logs/r2-e2e-podman.json" },
+    { "label": "merge-lcov", "command": "bun scripts/merge-lcov.ts '<dir>/{focused,e2e}/lcov.info' coverage/lcov.info", "exit_code": 0, "result": "merged 600 source files -> coverage/lcov.info; remote-attempt-runtime.ts LF:68 LH:68 (100%)" },
+    { "label": "new-file-coverage", "command": "BASE_REF=2377caaa4 bun scripts/check-new-file-coverage.ts", "exit_code": 0, "result": "New-file coverage gate PASSED: 5 new source file(s) gated." },
+    { "label": "patch-coverage", "command": "BASE_REF=2377caaa4 bun scripts/check-patch-coverage.ts", "exit_code": 0, "result": "Patch coverage gate PASSED: all changed executable lines covered (6 file(s))." }
+  ],
+  "gate_weakening_check": "No thresholds changed, no new EXCLUDES, no .skip/.only/.todo, no lowered coverage, no biome.json opt-outs. w01b-GATES.md's diff is purely additive prose: G4's CHECK/EXPECT lines unchanged; the EVIDENCE line gained receipt references and a sentence; one new disclosure paragraph appended. gate-integrity.ts reran clean.",
+  "ownership_check": "All three files touched by this round's delta (src/factory/host-launch-transport.integration.test.ts, src/factory/runner/remote-attempt-runtime.ts, tasks/factory/w01b-GATES.md) remain inside Terra runtime (W01)'s owned surface, same files as round 1 and round 2 touched, no new surface crossed.",
+  "security_posture": "Grepped every round-3 log for password/secret/private-key markers: none found. No authority check touched.",
+  "residual_minor_observation_not_blocking": "The narrower catch branch in reconnect() (readiness revalidation or token minting failing during a reconnect attempt itself, as opposed to the host having nothing) still has no dedicated throwing test -- distinct from what R2-F2 named (which was specifically the 'host holds nothing' sub-case, now proven). This is a smaller, lower-risk gap than R2-F2 was, symmetrical with open()'s analogous branch, and was not named by the team lead's brief or my own round-2 R2-F2 text as required. Not a blocker; noting for completeness.",
+  "verdict_rationale": "All three round-2 findings (R2-F1 cosmetic disposition bug, R2-F2 real test gap on the crash-matrix property W01's plan is strictest about, R2-F3 stale evidence index) are closed with genuine, independently-reproduced fixes -- not just receipts trusted at face value. The R2-F2 fix in particular is a real behavioral test (not a coverage-gate technicality): it forces the exact fake transport shape a doubly-restarted host would produce and asserts a typed launch_uncertain rejection with no guessed result, for both dispositions such a host can return. All requested reruns (transport-and-dispatch, e2e Podman under the lock, static gates, BASE_REF coverage gates with an independently merged LCOV using the correct merge-base) pass and match the worker's own post-fix receipts exactly. No gate weakening, no ownership violation, no credential leakage. No further fixes are demanded before this closes."
+}

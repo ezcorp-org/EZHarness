@@ -1,0 +1,59 @@
+{
+  "package": "w02b",
+  "verdict": "ACCEPT-WITH-FIXES",
+  "head": "af725e53a",
+  "headValidated": "af725e53ab1dbca99f1975911e5c6b9b21bcb026",
+  "commits": [
+    { "sha": "c49d8e0fe3d5874f53232635a72e67fff125135d", "subject": "feat(factory): carry the v4 manifest name on the runner reference" },
+    { "sha": "af725e53ab1dbca99f1975911e5c6b9b21bcb026", "subject": "docs(factory): W02b gates, the dated freeze correction, and the pack migration note" }
+  ],
+  "baseRef": "integ/w00",
+  "baseSha": "5f04c713137026cdfeb9d680194add37c3b3a3a5",
+  "treeClean": true,
+  "receiptVerification": {
+    "sha256sumCheck": "PASSED - all 9 logs in /tmp/factory-platform-evidence/w02b/SHA256SUMS verify",
+    "allReceiptsExitZero": true
+  },
+  "myReruns": [
+    { "label": "schema-drift", "command": "bun scripts/check-schema-generate-drift.ts", "exitCode": 0, "result": "11 generated schema(s) match schema:generate byte for byte" },
+    { "label": "focused-suites", "command": "bun test --timeout 300000 --coverage ... (14 targets incl. package-preparation.integration.test.ts, python-runner.integration.test.ts, factory-sdk/src)", "exitCode": 0, "pass": 302, "fail": 0, "expect": 2068, "matchesWorkerReceipt": true },
+    { "label": "typecheck", "command": "bun run typecheck", "exitCode": 0 },
+    { "label": "lint", "command": "bun run lint", "exitCode": 0, "note": "8 pre-existing infos, unrelated to this diff, no errors" },
+    { "label": "boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exitCode": 0 },
+    { "label": "gate-integrity", "command": "bun scripts/gate-integrity.ts", "exitCode": 0 },
+    { "label": "lanes", "command": "bun scripts/check-factory-lanes.ts", "exitCode": 0 },
+    { "label": "python-quality", "command": "bash scripts/python-quality.sh all", "exitCode": 0, "pythonTests": 133, "coverage": "100% stmt/branch on all 5 touched python files incl. factory_validation.py" },
+    { "label": "package-preparation-podman", "command": "flock timeout 1800 bun test ... package-preparation.podman.integration.test.ts", "exitCode": 0, "pass": 1, "fail": 0, "expect": 6, "matchesWorkerReceipt": true },
+    { "label": "postgres-parity", "command": "flock timeout 1800 bun test ... 5x tests/postgres/factory-*.test.ts", "exitCode": 0, "pass": 46, "fail": 0, "expect": 3201, "matchesWorkerReceipt": true },
+    { "label": "python-guest-podman", "command": "flock timeout 1800 bun test ... python-guest.integration.test.ts", "exitCode": 0, "pass": 12, "fail": 0, "expect": 102, "matchesWorkerReceipt": true },
+    { "label": "factory-podman-suites", "command": "flock timeout 1800 bun test ... attempt-runtime.integration.test.ts supervisor.podman.integration.test.ts", "exitCode": 0, "pass": 9, "fail": 0, "expect": 37, "matchesWorkerReceipt": true },
+    { "label": "extension-runner-podman", "command": "flock timeout 1800 bun test ... packages/@ezcorp/extension-runner/tests/podman.integration.test.ts", "exitCode": 0, "pass": 16, "fail": 0, "expect": 86, "note": "full suite run per common.md's Podman-touching-package rule; not itemized in worker's own gate file but reproduced clean" },
+    { "label": "new-file-coverage", "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts (against my own merged lcov.info from 8 self-produced/verified lcov shards)", "exitCode": 0 },
+    { "label": "patch-coverage", "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts (same merge)", "exitCode": 0, "result": "all changed executable lines covered (6 file(s))" }
+  ],
+  "planConformance": "No dedicated W02b entry exists in plan section 5; this is a coordinator-issued cross-cutting correction (freeze section 17) resolving a conflict the W12 validator found. Its checklist is the 8 gates (B1-B8) in tasks/factory/w02b-GATES.md, all independently reproduced.",
+  "interfaceConformance": {
+    "freezeSection17": "Present, dated 2026-09-14, appended (not edited) after section 16. RunnerReference.manifestName lands exactly as specified.",
+    "ownershipDeviation": "packages/@ezcorp/factory-sdk/src/{types,validation,references,index}.ts are Sol-controls-owned per freeze section 12, but section 17 explicitly names this as 'landed by W02b' - a coordinator-directed, disclosed crossing. Not a violation."
+  },
+  "findings": [
+    {
+      "severity": "moderate",
+      "title": "manifestNameOf is not part of the SDK's public surface, contradicting the freeze doc and gate file's own migration instructions",
+      "location": "packages/@ezcorp/factory-sdk/src/references.ts:64 (defined, not exported); packages/@ezcorp/factory-sdk/src/index.ts:13 (barrel omits it); packages/@ezcorp/factory-sdk/package.json exports map has no './references' subpath either",
+      "reproduction": "echo 'import { manifestNameOf } from \"@ezcorp/factory-sdk\"; console.log(manifestNameOf(\"x\"));' > w.ts && bun run ./w.ts  =>  SyntaxError: Export named 'manifestNameOf' not found in module '.../factory-sdk/src/index.ts'",
+      "impact": "Freeze section 17 and tasks/factory/w02b-GATES.md's migration note both tell W10/W11/W12 that 'manifestNameOf() in packages/@ezcorp/factory-sdk/src/references.ts derives the conventional name from a scoped one, for a pack that wants the default rather than a chosen name.' As written this is unusable from outside the SDK package; a pack cannot import it. It is not strictly blocking (the migration note's primary instruction is to hand-spell manifestName to the built manifest's own name), but the offered convenience path does not work as documented.",
+      "suggestedFix": "Add `isManifestName, manifestNameOf` (or just manifestNameOf) to the existing `export { ... } from \"./references.js\"` line in index.ts."
+    },
+    {
+      "severity": "low",
+      "title": "The gate file undercounts the mechanical fan-out of the new required field",
+      "location": "tasks/factory/w02b-GATES.md, 'Disclosed cross-ownership touches' item 4",
+      "detail": "States 'Twenty-three test files and two web modules ... gain manifestName on a RunnerReference literal.' The actual commit c49d8e0fe touches 41 such files: 33 with a .test.ts/.spec.ts suffix, 7 non-suffixed helper/fixture files under src/__tests__/helpers/ that also construct RunnerReference literals (e.g. factory-attempt-launch-fixture.ts, factory-attempt-queue-suite.ts, factory-grants-suite.ts, factory-s3-publication-suite.ts, factory-release-authority-suite.ts, factory-execution-gateway-suite.ts, factory-validator-materials-suite.ts), plus 1 web source file (web/src/lib/factory/model.ts).",
+      "impact": "Cosmetic only; every one of these files was verified present in the commit's own diff and none of them changes gate outcomes (confirmed by the 302-pass focused rerun and the full lint/typecheck/coverage reruns). Does not affect verdict.",
+      "suggestedFix": "Correct the count, or drop the specific number and just say 'every construction site.'"
+    }
+  ],
+  "gateIntegrity": "No .skip/.only/.todo, no EXCLUDES, no lowered thresholds found in the diff. scripts/coverage-thresholds.json and scripts/check-factory-boundaries.ts untouched by this branch.",
+  "security": "Every RunnerReference field, including the new manifestName, is sealed into referenceDigest (= sha256 of the whole canonical reference object), which is part of the lookup tuple for bindings/trust/intents/receipts. A receipt cannot be replayed under an altered manifestName (assertDispatchReady with a swapped manifestName fails factory_package_binding_missing, verified in src/__tests__/helpers/factory-package-preparation-suite.ts). No authority check removed; diff of package-preparation.ts shows only the three named comparisons retargeted plus one added bounds/grammar guard. No credential values in any receipt or log I inspected."
+}

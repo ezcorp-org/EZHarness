@@ -25,26 +25,27 @@ const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
 const guestShim = `const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("/channel/in","r+"),o=fs.openSync("/channel/out","r+"),e=fs.openSync("/channel/err","r+");const c=cp.spawn(process.execPath,["./.runner/extension.js"],{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));for(const s of["SIGTERM","SIGINT"])process.on(s,()=>{try{c.kill(s)}catch{process.exit(143)}});`;
 const probeProgramSource = `const fs=require("node:fs");const read=p=>fs.readFileSync(p,"utf8").trim(); const status=read("/proc/self/status");let writable=false;try{fs.writeFileSync("/root-write-probe","x");writable=true}catch{} console.log(JSON.stringify({uid:process.getuid(),status,memory:read("/sys/fs/cgroup/memory.max"),swap:read("/sys/fs/cgroup/memory.swap.max"),cpu:read("/sys/fs/cgroup/cpu.max"),pids:read("/sys/fs/cgroup/pids.max"),routes:read("/proc/net/route"),ipv6:read("/proc/net/ipv6_route"),writable}));`;
 /**
- * The guest's environment is exactly `HOME`, `TMPDIR` and `BUN_INSTALL_CACHE_DIR`.
- * `--unsetenv-all` drops the image's own `ENV`, which otherwise reached every
- * guest: measured on the pinned images, that was `PATH`, `container`, and the
- * interpreter's build metadata. Two variables remain because the OCI runtime
- * writes them into the process after podman has built the spec, and `--unsetenv`
- * cannot reach them: `LC_CTYPE=C.UTF-8`, and `HOSTNAME`, which is pinned to a
- * fixed value below so it cannot carry the container's host-derived identity.
+ * The guest's environment is exactly `HOME`, `TMPDIR`, `BUN_INSTALL_CACHE_DIR`
+ * and `PATH`. `--unsetenv-all` drops the image's own `ENV`, which otherwise
+ * reached every guest: measured on the pinned images, that was `PATH`,
+ * `container`, and the interpreter's build metadata. Two variables remain
+ * because the OCI runtime writes them into the process after podman has built
+ * the spec, and `--unsetenv` cannot reach them: `LC_CTYPE=C.UTF-8`, and
+ * `HOSTNAME`, which is pinned to a fixed value below so it cannot carry the
+ * container's host-derived identity.
  */
 const GUEST_HOSTNAME = "guest";
 /**
  * Where a per-attempt material directory appears inside a guest.
  *
- * It is a fixed path, not an environment variable, because C05 permits a guest
- * exactly three declared variables and this is not one of them.
+ * It is a fixed path, not an environment variable, because the profile declares
+ * a guest exactly four variables and this is not one of them.
  */
 export const GUEST_MATERIALS_PATH = "/materials";
-/** Exactly the three variables the profile declares. Every guest has all three. */
-export const RUNNER_GUEST_ENVIRONMENT = Object.freeze(["BUN_INSTALL_CACHE_DIR", "HOME", "TMPDIR"]);
+/** Exactly the four variables the profile declares. Every guest has all four. */
+export const RUNNER_GUEST_ENVIRONMENT = Object.freeze(["BUN_INSTALL_CACHE_DIR", "HOME", "PATH", "TMPDIR"]);
 /**
- * The only names a guest may carry beyond the three declared ones. The OCI
+ * The only names a guest may carry beyond the four declared ones. The OCI
  * runtime writes them after podman has built the spec, so `--unsetenv` cannot
  * reach them, and which of the two appears depends on the image. Both carry
  * fixed, tenant-independent values: the hostname is pinned above and the locale
@@ -58,17 +59,30 @@ const CHANNEL_DIRECTORY_MODE = 0o755;
 const CHANNEL_FIFO_MODE = 0o666;
 
 /**
- * The per-attempt material mount. Unlike the channel it IS read-write: it is
- * the only place a guest may leave bytes, and the only alternative is a control
- * channel bounded at one mebibyte for the guest's whole life.
+ * The per-attempt material mount, and the only read-write mount a guest gets.
  *
- * It is a private directory the host created for this attempt and reads back
- * after the guest exits, so nothing here widens what the guest can reach: no
- * device, no network, no host path outside the directory, and no credential.
+ * It exists because the control channel is not a data path: a guest may emit at
+ * most `min(limits.outputBytes, 1 MiB)` over its whole life, and a domain pack's
+ * real output is larger than that. The guest writes ordinary files here and the
+ * host reads them back afterwards.
+ *
+ * `noexec`, `nosuid`, and `nodev` keep it at the same posture the `/tmp` tmpfs
+ * already carries, so the two writable surfaces a guest has agree. Execution was
+ * denied without `noexec` on the host this was measured on, but by that
+ * filesystem's own flags rather than by anything this profile guarantees.
+ *
+ * Nothing here widens what a guest can reach: no device, no network, no host
+ * path outside the directory, and no credential. What it does widen is what a
+ * guest can WRITE, and a guest can create a symbolic link in its own directory,
+ * which was measured rather than assumed. So the host must read the result back
+ * only through `listRunnerMaterials` and `openRunnerMaterial`, never by walking
+ * the tree itself, and the caller that creates the directory must not make it
+ * world-writable.
  */
 export function runnerMaterialMount(directory: string): string[] {
-  return ["--mount", `type=bind,src=${directory},dst=${GUEST_MATERIALS_PATH},rw=true,relabel=private`];
+  return ["--mount", `type=bind,src=${directory},dst=${GUEST_MATERIALS_PATH},rw=true,relabel=private,noexec,nosuid,nodev`];
 }
+
 /**
  * The guest's control-channel mount. It is read-only: a FIFO may still be opened
  * for reading and writing on a read-only mount, because the kernel's EROFS check
@@ -121,6 +135,15 @@ export class PodmanRunner implements Runner {
   readonly image: string;
   /** The in-container program `--entrypoint` names. A pinned guest language overrides it. */
   protected readonly guestInterpreter: string = "/usr/local/bin/bun";
+  /**
+   * The guest's executable search path. `--unsetenv-all` also drops the image's
+   * own `PATH`, and a v4 extension may spawn a helper by bare name under its
+   * shell grant, so the runner declares the path itself rather than inheriting
+   * it. The value is the pinned image's own directory list: fixed, carrying no
+   * host or tenant identity, and reaching only the read-only image. A pinned
+   * guest language overrides it with its own image's list.
+   */
+  protected readonly guestPath: string = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bun-node-fallback-bin";
   protected readonly root: string;
   private readonly podman: string;
   protected readonly seccompPath: string;
@@ -223,8 +246,12 @@ export class PodmanRunner implements Runner {
    * its own descriptors; it can never reach the guest as end-of-input. This is
    * what `podman attach` could not give us: its stream is the container's stdin,
    * so a client's EOF always terminated the guest.
+   *
+   * This is the execution-launch seam. `launch` is still the seam for the build
+   * and typecheck guests, which are ordinary foreground subprocesses; a runner
+   * whose execution guest is not a podman container overrides this one too.
    */
-  private async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[], materials?: string): Promise<FramedTransport> {
+  protected async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[], materials?: string): Promise<FramedTransport> {
     const directory = this.channelDirectory(id);
     await mkdir(directory, { recursive: true, mode: CHANNEL_DIRECTORY_MODE });
     await chmod(directory, CHANNEL_DIRECTORY_MODE);
@@ -314,7 +341,7 @@ export class PodmanRunner implements Runner {
   private args(id: string, limits: ResourceLimits, mount?: string, devices: readonly string[] = [], channel?: string, materials?: string): string[] {
     const name = this.containerName(id);
     this.containers.set(id, name);
-    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), ...(materials ? runnerMaterialMount(materials) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
+    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", `--env=PATH=${this.guestPath}`, ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), ...(materials ? runnerMaterialMount(materials) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
   }
   private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {

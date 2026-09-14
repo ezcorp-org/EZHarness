@@ -1,6 +1,6 @@
-import { chmod, mkdir, mkdtemp, open, readdir, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, open, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { GUEST_MATERIALS_PATH } from "@ezcorp/extension-runner";
+import { GUEST_MATERIALS_PATH, listRunnerMaterials, openRunnerMaterial } from "@ezcorp/extension-runner";
 import type { FactoryArtifactReference } from "@ezcorp/factory-sdk";
 import {
   FACTORY_MATERIAL_LIMITS,
@@ -45,7 +45,8 @@ export class ReferenceDataMaterialError extends Error {
       | "reference_data_material_oversized"
       | "reference_data_material_name_invalid"
       | "reference_data_material_unowned"
-      | "reference_data_material_unsealed",
+      | "reference_data_material_unsealed"
+      | "reference_data_material_untrusted",
     message: string,
   ) {
     super(message);
@@ -54,18 +55,26 @@ export class ReferenceDataMaterialError extends Error {
 }
 
 /**
- * The per-attempt directory the runner mounts at `/materials`.
+ * The per-attempt directory the shared runner mounts at `GUEST_MATERIALS_PATH`.
  *
- * The output directory is given to the GUEST, not to the world. A guest runs as
- * uid 65534 inside its own user namespace, which the host sees as a subordinate
- * uid it cannot compute itself, so `podman unshare chown` performs the mapping:
- * the directory ends up owned by that mapped uid with the host user as its
- * group, mode 0o770. The guest writes as owner, the host reads and cleans up as
- * group, and nothing is world-writable or world-readable.
+ * The output directory is given to the GUEST, not to the world. `runnerMaterialMount`
+ * mounts the path and adds `noexec,nosuid,nodev`, but it sets no mode and no
+ * owner, so with an ordinary host-owned directory a guest running as uid 65534
+ * cannot write at all - measured, not assumed. `podman unshare chown` performs
+ * the mapping this host cannot compute itself: the directory ends up owned by
+ * the mapped uid with this user as its group, mode 0o770. The guest writes as
+ * owner, the host reads and cleans up as group, and nothing is world-writable
+ * or world-readable.
  *
- * Inputs stay owned by the host at 0o755 and 0o644: the guest only has to read
- * them, and a directory the guest could write is a directory it could replace
- * an input in.
+ * Inputs stay this host's at 0o755 and 0o644: the guest only has to read them,
+ * and a directory the guest could write is a directory it could replace an
+ * input in.
+ *
+ * Everything the guest leaves is read back through `listRunnerMaterials` and
+ * `openRunnerMaterial`, which refuse a symbolic link, a device, a socket and a
+ * FIFO rather than following one. That is what stops a planted link at
+ * `out/<name>` having the host seal another file's bytes under the guest's own
+ * reported digest.
  */
 export class ReferenceDataGuestDirectory {
   private constructor(readonly root: string) {}
@@ -117,6 +126,23 @@ export class ReferenceDataGuestDirectory {
     return join(this.root, name);
   }
 
+  /**
+   * Opens one file the GUEST wrote, through the shared hardened path.
+   *
+   * The name grammar above stops traversal and a second path segment; it does
+   * nothing about a symbolic link AT the final component, which is exactly what
+   * a guest that owns its output directory can plant. `openRunnerMaterial`
+   * refuses one, so this never resolves to a file outside the mount.
+   */
+  private async openProduced(name: string): Promise<Awaited<ReturnType<typeof open>>> {
+    this.resolve(name);
+    try {
+      return await openRunnerMaterial(this.root, name);
+    } catch (error) {
+      throw new ReferenceDataMaterialError("reference_data_material_absent", `The guest left no usable ${name} (${error instanceof Error ? error.message : String(error)}).`);
+    }
+  }
+
   /** Writes one staged input, in bounded blocks, and reports its digest and size. */
   async stage(name: string, source: AsyncIterable<Uint8Array>): Promise<{ readonly digest: string; readonly totalBytes: number }> {
     const path = this.resolve(name);
@@ -141,14 +167,7 @@ export class ReferenceDataGuestDirectory {
 
   /** Streams one output the guest left, in chunks a material write can take directly. */
   async *collect(name: string, chunkBytes = FACTORY_MATERIAL_LIMITS.maxChunkBytes): AsyncGenerator<Uint8Array> {
-    const path = this.resolve(name);
-    let handle: Awaited<ReturnType<typeof open>>;
-    // The name is resolved above, outside the open guard, for the same reason.
-    try {
-      handle = await open(path, "r");
-    } catch {
-      throw new ReferenceDataMaterialError("reference_data_material_absent", `The guest left no ${name}.`);
-    }
+    const handle = await this.openProduced(name);
     try {
       for (;;) {
         const buffer = new Uint8Array(chunkBytes);
@@ -161,19 +180,30 @@ export class ReferenceDataGuestDirectory {
     }
   }
 
-  /** Every entry the guest actually left, so an unexpected file is visible rather than ignored. */
+  /**
+   * Every regular file the guest actually left, so an unexpected one is visible
+   * rather than ignored, and anything that is not a regular file is a refusal
+   * rather than an entry.
+   */
   async produced(): Promise<readonly string[]> {
-    return (await readdir(join(this.root, REFERENCE_DATA_GUEST_OUTPUT))).sort();
+    let entries: Awaited<ReturnType<typeof listRunnerMaterials>>;
+    try {
+      entries = await listRunnerMaterials(this.root);
+    } catch (error) {
+      throw new ReferenceDataMaterialError("reference_data_material_untrusted", `The guest's material directory is not readable as ordinary files (${error instanceof Error ? error.message : String(error)}).`);
+    }
+    return entries
+      .filter(entry => entry.path.startsWith(`${REFERENCE_DATA_GUEST_OUTPUT}/`))
+      .map(entry => entry.path.slice(REFERENCE_DATA_GUEST_OUTPUT.length + 1))
+      .sort();
   }
 
   async size(name: string): Promise<number> {
-    // The name is resolved OUTSIDE the guard, so a refused name stays a refused
-    // name instead of being reported as a file the guest did not write.
-    const path = this.resolve(name);
+    const handle = await this.openProduced(name);
     try {
-      return (await stat(path)).size;
-    } catch {
-      throw new ReferenceDataMaterialError("reference_data_material_absent", `The guest left no ${name}.`);
+      return (await handle.stat()).size;
+    } finally {
+      await handle.close();
     }
   }
 

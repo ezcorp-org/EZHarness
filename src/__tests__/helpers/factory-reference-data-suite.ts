@@ -23,8 +23,7 @@ import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../fac
 import { REFERENCE_DATA_HEADER, REFERENCE_DATA_LIMITS } from "../../factory/reference-data/csv";
 import {
   FACTORY_REFERENCE_DATA_ENTRYPOINT,
-  FACTORY_REFERENCE_DATA_PACKAGE,
-  FACTORY_REFERENCE_DATA_VERSION,
+  factoryReferenceDataRunner,
   factoryReferenceDataClosure,
   factoryReferenceDataGuestFiles,
   factoryReferenceDataImage,
@@ -125,7 +124,7 @@ const MEASURED_AT = 1_700_000_000_000;
 export const GOLDEN_CSV = `${REFERENCE_DATA_HEADER}\na,alpha,100\nb,beta,250\nc,alpha,50\n`;
 
 function reference(digest: string): RunnerReference {
-  return { package: FACTORY_REFERENCE_DATA_PACKAGE, version: FACTORY_REFERENCE_DATA_VERSION, digest: `sha256:${digest}`, export: "snapshotCsv" };
+  return factoryReferenceDataRunner(`sha256:${digest}`);
 }
 
 export function factoryReferenceDataConformance(create: () => Promise<FactoryReferenceDataFixture>): void {
@@ -229,7 +228,7 @@ async function reconcile(journey: ReferenceDataJourney, reader: FactoryScopedMat
 
 test("every build lane ran inside the pinned PyArrow guest, including the sealed suite", () => {
   expect(buildLanes.slice(0, 2)).toEqual(["syntax", "closure"]);
-  expect(buildLanes).toContain("feature:refdata/test_sealed.py");
+  expect(buildLanes).toContain("feature:tests/test_refdata_sealed.py");
   expect(buildLanes.at(-1)).toBe("metadata-discovery");
   expect(artifactDigest).toMatch(/^[a-f0-9]{64}$/);
 });
@@ -380,7 +379,7 @@ async function publish(
   const decisionId = `decision-${randomUUID()}`;
   const candidateDigest = journey.dataset.digest;
   const profile = new S3FactoryManifestReleaseProfile({
-    adapter: { package: "@ezcorp/s3-immutable-publish", version: "1.0.0", digest: `sha256:${"c".repeat(64)}`, export: "publish" },
+    adapter: { package: "@ezcorp/s3-immutable-publish", manifestName: "s3-immutable-publish", version: "1.0.0", digest: `sha256:${"c".repeat(64)}`, export: "publish" },
     account: TENANT,
     provenance: {
       attemptForDecision: async () => ({

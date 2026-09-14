@@ -19,8 +19,8 @@ function definition(version = "0.2.0"): FactoryDefinition {
 		outputPorts: {},
 		graph: {
 			nodes: [
-				{ id: "collect-the-entire-catalog-from-the-primary-source", kind: "task", runner: { package: "catalog-reader", version: "1.0.0", digest: definitionDigest, export: "collect" }, capabilities: [], effects: [] },
-				{ id: "publish-the-normalized-catalog-for-downstream-consumers", kind: "task", runner: { package: "catalog-writer", version: "1.0.0", digest: definitionDigest, export: "publish" }, capabilities: [], effects: [], dependsOn: ["collect-the-entire-catalog-from-the-primary-source"] },
+				{ id: "collect-the-entire-catalog-from-the-primary-source", kind: "task", runner: { package: "catalog-reader", manifestName: "catalog-reader", version: "1.0.0", digest: definitionDigest, export: "collect" }, capabilities: [], effects: [] },
+				{ id: "publish-the-normalized-catalog-for-downstream-consumers", kind: "task", runner: { package: "catalog-writer", manifestName: "catalog-writer", version: "1.0.0", digest: definitionDigest, export: "publish" }, capabilities: [], effects: [], dependsOn: ["collect-the-entire-catalog-from-the-primary-source"] },
 			],
 			outputs: {},
 		},

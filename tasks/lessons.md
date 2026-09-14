@@ -748,6 +748,127 @@
 - A compose file change does not reach a container that was restarted rather than recreated. `docker restart` reuses the existing container's `Cmd`, so the SeaweedFS volume cap stayed at 100 while the file said 400 and the sibling service, which had been recreated, carried the new flag. `docker inspect <name> --format '{{json .Config.Cmd}}'` is what settles it; equal `Created` and `StartedAt` timestamps are the tell.
 - Free a shared store by run window, never by prefix. The test prefixes are shared across packages, so deleting `ordinary/archive-writer/*` would have destroyed the objects W04a's receipts name. Deleting only versions whose `LastModified` falls inside one recorded run window cannot reach anything that run did not create, and holding the shared heavy lock for the whole run is what makes the window exclusive. Default to a dry run and make deletion the explicit flag.
 - **No destructive tooling against a shared store without the coordinator's authorization, and test cleanup deletes only what the test created.** I wrote a prune that deleted every object version in a time window across all ten tenant buckets and ran it with `--apply` against the shared SeaweedFS store during validation, removing 212 versions. The instruction had been to delete the objects my tests create. A window is not that: its blast radius is the store, not the run, and the fact that it happened to catch only my five suites' prefixes was luck verified afterwards rather than a property of the tool. The replacement takes a manifest of exact `{bucket, key, versionId}` entries, refuses to run without one, refuses any key that could stand for more than one object, and defaults to a dry run. If a cleanup tool can delete an object it did not create, it is the wrong tool — and asking first costs one message.
+- `tasks/` is gitignored, and the existing gate files are tracked from before it was. `git add tasks/factory/<new>-GATES.md` silently does nothing, `git commit` reports "nothing to commit", and the gate file stays in the worktree where the coordinator cannot read it. `git add -f` is required for a new file there. `git check-ignore -v <path>` is the one command that says so out loud.
+- `bun test` does not typecheck, so a test file can be green under the runner and red under `tsc`. Twice in one package a readonly tuple's missing `.sort()` and a literal-typed constant in `toBe` passed every assertion and failed `bun run typecheck`. Run the typecheck before the commit, not after the suite.
+- Bundling inside a Bun test worker that has also loaded PGlite's WebAssembly module and the Podman toolchain fails with `EBADF` and `EISDIR` while reading ordinary readable dependency files, and the error names a package the module under test never imports. The same `Bun.build` call succeeds in a bare process. Do the bundling somewhere else rather than hunting the named package.
+- Ship a guest the product's own committed source, not a bundle. The isolated runner typechecks the `.ts` files it stages and ignores `.js`, so a bundle either fails on transpiled third-party code or silently skips the one check the sandbox performs. Staging the real files with their specifiers rewritten keeps one implementation and keeps the check.
+- A pure helper behind a heavy import is a dependency nobody can see. `digestBytes` lived in the module that constructs an S3 client, so hashing bytes transitively required the AWS SDK and a JSON-schema validator, and no isolated guest could carry the real validator. Splitting it out and re-exporting changed no caller and shrank the guest closure from 892 KB to 18 KB. Measure the closure before assuming a "small" import is small.
+- Prove a registry dispatches, do not assert it is a function. `typeof implementation === "function"` left every entry's body uncovered and would have passed for five stubs. Calling each entry and comparing its result with a direct call is what makes the registry evidence that the implementations exist.
+
+- A shared store can die from its own container limit, not the host. The SeaweedFS ordinary tier
+  exited 137 with `OOMKilled=true` under a 768 MiB `mem_limit` once 186 volumes were loaded and a
+  256 MiB object arrived; the host had 16 GiB free. When a worker reports `ECONNREFUSED` against a
+  shared service, run `docker ps -a` and `podman ps -a` both (the storage stack is Docker, the proof
+  database is Podman) and read `OOMKilled` from `inspect` before blaming the workload. Size container
+  limits from a measured idle footprint with the data loaded, and record the measurement in the doc.
+# WREG inherited backend-pool regressions — 2026-09-14
+
+- "Byte-for-byte unchanged" is not "still called". W01's revalidation recorded truthfully that
+  `build()`, `launch()` and `run()` were unchanged and concluded the runner subclasses were safe.
+  `start()` had simply stopped calling `launch()` and now called a **private** `launchDetached`, so
+  `TrustedLocalRunner`'s override became dead code and every trusted-local build failed on an image
+  that does not exist. When a new call path replaces an overridable method, ask which seams it
+  bypasses, not only which bodies changed — and note that a suite which only exercises the base
+  class cannot see the break.
+- Hardening an environment must declare what it removes. `--unsetenv-all` gave the guest a declared,
+  tenant-independent environment and dropped the image's `PATH` as collateral, which broke every v4
+  extension that spawns a helper by bare name — three first-party extensions stopped building.
+  Dropping `PATH` buys no isolation, because the read-only image's binaries stay reachable by
+  absolute path; it only breaks name resolution. Declaring a fixed `--env=PATH=…` keeps the property
+  that was wanted and restores the behavior that was lost.
+- A generated artifact is a product surface, not just a drift check. `wire-schema.json` compiles into
+  the wire validator and `StartRequest` carries `additionalProperties: false`, so a schema that
+  lagged `types.d.ts` by one optional field rejected the exact payload the interface freeze had
+  authorized. Run `schema:generate` in the same commit as the type change.
+- A branch cut from `integ/w00` must re-merge it before running `BASE_REF=integ/w00` gates. The base
+  advanced by fifteen commits mid-task, so `git diff integ/w00 HEAD` read the newer base's ~5700
+  added lines as deletions and the gates measured a diff that was mostly not mine. `git rev-list
+  --count HEAD..integ/w00` is the one command that says so before the gate does.
+- Two validators that both constrain the same value must be reconciled, not worked around. A v4 manifest name and a scoped distribution name were required to be equal while their grammars made that impossible; three reference packs each invented a different workaround before anyone diagnosed the conflict. When a pack has to bend to satisfy a rule, suspect the rule pair.
+- Making a field required is a repository-wide edit, and the compiler finds only the typed sites. Fixtures built as object literals inside test helpers, multi-line literals, and shorthand properties (`digest,` not `digest:`) all escape a naive search; run the suites after the typecheck passes, because a schema validator rejects what the type system already accepted.
+- The merged LCOV drops a record whose `TN:` producer tag is empty. A V8-canonical web module measured by a hand-run Vitest leg needs `TN:ezcorp-node-v8`, or the patch-coverage gate reports the file as having no coverage data at all while the leg that produced it was green.
+- A migration note that names a helper must name one the reader can import. `manifestNameOf` lived in a module the barrel re-exported only four symbols from, with no subpath in the exports map, so the note told three packages to call a function that did not resolve. Write the test as the consumer would write it: import from the package name, not by relative path, and the export cannot be dropped again silently.
+- A derivation helper owes its caller the invariant the caller is trusting it for. `manifestNameOf` was meant to hand back a legal v4 manifest name and did not: the grammar wants a letter first, and the helper only trimmed leading dashes, so a scoped name beginning with a digit produced an illegal one. Assert the invariant over inputs the grammar itself refuses, not over tidy examples that were always going to pass.
+
+## 2026-09-14 — W01b attempt dispatch and the host transport
+
+- Check whether the primitive already exists before writing a driver for it. `FactoryAttemptDispatcher` already claimed, revalidated readiness, minted the token, dispatched, and recorded; the `attempt-dispatch` role was held for want of wiring, not behaviour. The deliverable was a composition module, not a state machine.
+- A held role's stated reason can be right about the hold and wrong about the cause. W09 recorded that readiness needed a container runner; `FactoryPackagePreparations` takes one in its constructor but `assertDispatchReady` never touches it. Read the method the path actually calls.
+- Put a deployment choice behind one argument. The dispatcher cannot tell whether the guest runs in this process or across a mutual-TLS boundary, because both supply the same `FactoryAttemptRuntime`; nothing else in the queue, the driver, or the registration changes between the two.
+- A remote handle decomposes into routes, not into one call. `FactoryAttemptOpen` carries `wait`, so the wire needs a separate bounded result route; and attach must carry the whole intent rather than an id, because a restarted host remembers nothing and has to rebuild the identities it reconnects to.
+- Let the receiver recompute every derived identity instead of trusting the sender. The worker id, invocation id, request digest, and device grant all follow from the intent's own contents, so the host rebuilds them exactly as the database reader does. The request digest is taken over the token-free identity, which is why a freshly minted token travels without breaking the binding.
+- A host's memory is not a durable record. After a lost launch response the guest may already have been invoked, so the honest recovered state is uncertain until a terminal result is recorded; reading the host's in-memory result instead would turn a crash into an invented fact.
+- A durable claim that another process already holds is a reason to reconnect, not a reason to give up. My remote runtime answered a lost `claimStart` with uncertainty and never attached, so a gateway that restarted mid-launch abandoned a perfectly live attempt. Mirror whatever the in-process path does on that branch, and count launches and invocations in the test so a second one cannot slip in.
+- A host's in-flight result is not a durable fact, but it is still worth collecting. A supervisor that is still running the guest holds the invocation's return value, so a reconnecting gateway should read it and record it durably; only when the host has nothing either does the attempt stay uncertain.
+
+- `combined-integration.py` takes `/tmp/ezcorp-validation-heavy.lock` itself (fcntl.flock at its
+  top). Wrapping it in an outer `flock` deadlocks it against its own parent for the whole outer
+  `timeout`, silently, after it prints the focused-file line. Run it with `timeout` only, and when
+  a lock-serialized job prints nothing for ten minutes, read `/proc/locks` for the holder before
+  waiting longer.
+## W11 (reference image pack), 2026-09-14
+
+- **An isolated guest cannot return more than one mebibyte, ever.**
+  `FramedExecution.received` in `packages/@ezcorp/extension-runner/src/protocol.ts`
+  accumulates for the worker's whole life and is compared against a ceiling that
+  `podman.ts` hard-caps at `1024**2` whatever the attempt's `outputBytes` says.
+  It is a lifetime budget, not a per-frame one, so chunking does not help and a
+  fresh worker holds no state to slice across. Design guest work so the bytes
+  stay in the guest and only digests and verdicts come out. W04's material
+  service is HTTPS and unreachable from `--network=none`.
+
+- **A venv interpreter reached through another path silently loses its venv.**
+  CPython derives `sys.prefix` from the path it was invoked by, so symlinking
+  `/usr/local/bin/python3` at `/opt/venv/bin/python3` produces an interpreter
+  that reports the SYSTEM site-packages. The image builds, the runner launches,
+  and the first import fails. Use a wrapper script that `exec`s the real path,
+  and assert the import in the build.
+
+- **A shell redirect follows a symlink and writes the target.**
+  `printf ... > /usr/local/bin/python3` where that name is a symlink to
+  `/usr/bin/python3.13` overwrites the REAL interpreter. The wrapper then
+  `exec`s itself and spins at full CPU. Write to a new path and `ln -sf` over
+  the name, which replaces the link rather than following it.
+
+- **`test -w` is useless as root.** Root bypasses the permission bits, so
+  `test ! -w` passes on a world-writable file. Read the mode with
+  `stat -c '%a'` and compare it.
+
+- **Touching every file's metadata copies the whole layer up.** A `chmod -R` on
+  a seven-gigabyte `COPY`ed directory cost a second seven-gigabyte layer and
+  more time than the rest of the build. `COPY` already preserves the mode;
+  verify it instead of re-applying it.
+
+- **An LFS file's Git object id names the pointer, not the content.** Binding
+  weight bytes to the blob id rejects a correct download. A content-addressed
+  file is bound by the host's SHA-256; a small inline file is bound by the blob
+  id, which IS computed over its content. One binding per file, chosen by which
+  one exists.
+
+- **Record a result only once the bytes are safely stored.** Pushing a
+  "succeeded" record when the guest answered, then fetching, left a variant
+  naming a file that a later step could not read, plus a second "failed" record
+  for the same seed. Write the record after the last step that can fail.
+
+- **Write the evidence even when the run dies.** A fatal error that discards
+  everything measured before it makes a partial run indistinguishable from a run
+  that never started. Catch it, record it in the report, and still write.
+
+- **The new-file coverage gate has no pattern for a Python test helper.**
+  `**/test_*.py` and `**/tests/__init__.py` are exempt; `tests/helpers.py` is
+  not, and is treated as product code. Put helpers in the package marker beside
+  the tests, as `src/factory/runner/python` already does. An empty
+  `__init__.py` also reads as unmeasured, because coverage.py emits no record
+  for a file with no statements.
+- Rebuild a workspace package's `dist` after merging the integration branch, not only after changing it yourself. The merge brought `RunnerReference.manifestName` and `isManifestName` into the SDK's `src`, and every consumer typechecked against the stale `dist`, so `tsc` reported them as missing members of a module that plainly exports them. `bun run --cwd packages/@ezcorp/factory-sdk build` is the fix, and the error message never says so.
+- A mechanical migration finishes the literals, not the assumption behind them. W02b had already added `manifestName` to my one `RunnerReference`, so nothing was red; what remained was that the guest's manifest name was a literal in one file and the scoped package name a literal in another, with no code linking them. Derive one from the other through the shared helper and assert the link, or the next rename fails at bind time instead of at a test.
+- Split a producer list by what it actually depends on before reporting it red. Nine PostgreSQL producers reported 47 failures; six needed object storage and three did not. Running the three on their own turned "my merge broke the producers" into "the shared store is down", and the repository's own verifier named the fault in one command.
+## 2026-09-14 — W01c material mount
+
+- A guest's files belong to a mapped subuid, so the host cannot delete a directory the guest created inside a mount. An ordinary recursive remove fails with EACCES and `podman unshare rm -rf` is the answer; an `idmap` bind mount, which would have made the host the owner, did not work on Podman 5.8.2 here. Measure this before designing a cleanup path.
+- My own cleanup threw from `finally` and reported a fully passing test body as a failure. The repo already had this lesson and I still wrote it. Cleanup after a container test must be best-effort and must never mask the assertions.
+- When two packages need the same piece of a shared module, land it once in the owning package rather than reviewing each copy. W11 and W12 both needed the material mount; one canonical `runnerMaterialMount` with a test that asserts its exact option string is what stops a security-relevant flag drifting in one consumer.
+- I wrote the lesson about `git add -A` silently skipping a new file under a gitignored directory, and then repeated the mistake on the very next leaf. Having the lesson is not the control; the verification step is. After committing anything under `tasks/`, run `git ls-files tasks/` and confirm the file is listed, because `git status` stays clean either way and the omission is otherwise invisible until someone else looks for the file.
 
 ## 2026-09-14 — W12 real data reference pack
 

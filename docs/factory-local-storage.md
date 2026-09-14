@@ -49,3 +49,9 @@ every tenant collection grows seven volumes at a time; the master then reported
 "failed to find writable volumes" and every upload failed. Raising the limit
 only changes the server command; the named data volumes and credential files
 are kept. Tests must still delete the objects they create.
+
+Each server has a 2 GiB memory limit. The first limit of 768 MiB killed the
+ordinary service (exit 137, `OOMKilled`) after 186 volumes were loaded and a
+256 MiB object arrived through the S3 gateway; the same service idles at about
+211 MiB with those volumes loaded. Raising the limit changes only the container
+configuration. A recreate keeps the named data volumes and the credential files.

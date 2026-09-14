@@ -55,6 +55,9 @@ def request(command: dict[str, Json], export: str) -> dict[str, Json]:
         },
         "runner": {
             "package": "@ezcorp/reference-data",
+            # The scoped package and the v4 manifest name differ, and the
+            # contract carries both rather than reconciling them.
+            "manifestName": "reference-data",
             "version": "1.0.0",
             "digest": f"sha256:{'a' * 64}",
             "export": export,

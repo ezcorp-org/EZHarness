@@ -12,6 +12,7 @@ import {
   FACTORY_REFERENCE_DATA_PACKAGE,
   FACTORY_REFERENCE_DATA_VERSION,
   factoryReferenceDataClosure,
+  factoryReferenceDataRunner,
   factoryReferenceDataGuestDigest,
   factoryReferenceDataGuestFiles,
   factoryReferenceDataImage,
@@ -43,11 +44,13 @@ test("the guest is exactly the committed modules, the reused C02 guest, and the 
     "refdata/guest.py",
     "refdata/parquet.py",
     "refdata/rows.py",
-    "refdata/test_sealed.py",
+    "tests/__init__.py",
+    "tests/test_refdata_sealed.py",
   ]);
   expect(FACTORY_REFERENCE_DATA_ENTRYPOINT in files).toBe(true);
   // The sealed bytes are the repository's bytes, not a copy written for a test.
   expect(files["refdata/rows.py"]).toBe(await readFile(join(REPOSITORY, "src/factory/runner/python/refdata/rows.py"), "utf8"));
+  expect(files["tests/test_refdata_sealed.py"]).toBe(await readFile(join(REPOSITORY, "src/factory/runner/python/tests/test_refdata_sealed.py"), "utf8"));
   expect(files["factory-runner-request.schema.json"]).toBe(await readFile(join(REPOSITORY, "packages/@ezcorp/factory-sdk/src/factory-runner-request.schema.json"), "utf8"));
   expect(await factoryReferenceDataGuestDigest()).toBe(filesDigest(files));
 });
@@ -55,10 +58,12 @@ test("the guest is exactly the committed modules, the reused C02 guest, and the 
 test("at least one sealed test is staged, because a build with none is refused", async () => {
   const files = await factoryReferenceDataGuestFiles();
   const tests = Object.keys(files).filter(path => /(?:^|\/)test_[^/]+\.py$/.test(path));
-  expect(tests).toEqual(["refdata/test_sealed.py"]);
+  expect(tests).toEqual(["tests/test_refdata_sealed.py"]);
   // The repository-reading suites stay OUT of the guest: it has no repository.
-  expect(Object.keys(files)).not.toContain("refdata/test_rows.py");
-  expect(Object.keys(files)).not.toContain("refdata/test_guest.py");
+  expect(Object.keys(files)).not.toContain("tests/test_refdata_rows.py");
+  expect(Object.keys(files)).not.toContain("tests/test_refdata_guest.py");
+  // And the C02 conformance guest's own suites stay out of THIS guest too.
+  expect(Object.keys(files)).not.toContain("tests/test_guest.py");
 });
 
 test("the content lock pins the interpreter, the committed uv.lock, and the observed closure", async () => {
@@ -109,8 +114,14 @@ test("a lock that no longer matches its inputs is a readiness failure, not a sub
 test("the package reference is not the v4 manifest name, and both are stated", () => {
   expect(FACTORY_REFERENCE_DATA_PACKAGE).toBe("@ezcorp/reference-data");
   expect(FACTORY_REFERENCE_DATA_VERSION).toBe("1.0.0");
-  // A scoped npm name cannot satisfy validateManifest's ^[a-z][a-z0-9-]{0,63}$.
+  // The scoped package and the v4 manifest name differ, and the reference
+  // carries both rather than reconciling them.
   expect(/^[a-z][a-z0-9-]{0,63}$/.test(FACTORY_REFERENCE_DATA_PACKAGE)).toBe(false);
+  expect(FACTORY_REFERENCE_DATA_MANIFEST_NAME).toBe("reference-data");
   expect(/^[a-z][a-z0-9-]{0,63}$/.test(FACTORY_REFERENCE_DATA_MANIFEST_NAME)).toBe(true);
+  const runner = factoryReferenceDataRunner(`sha256:${"a".repeat(64)}`, "transformPartition");
+  expect(runner.package).toBe(FACTORY_REFERENCE_DATA_PACKAGE);
+  expect(runner.manifestName).toBe(FACTORY_REFERENCE_DATA_MANIFEST_NAME);
+  expect(runner.export).toBe("transformPartition");
   expect(FACTORY_REFERENCE_DATA_EXPORTS).toEqual(["snapshotCsv", "parseCsv", "transformPartition", "orderedReduce"]);
 });

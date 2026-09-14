@@ -23,7 +23,7 @@ const version = {
 	publishedAtMs: 2,
 };
 const credential = { serviceAccountId: "service one", credentialId: "credential/one", scopes: ["read"] as const, revision: 1, issuedAtMs: 1_000, expiresAtMs: 61_000, revoked: false };
-const packageLock = { package: "@ezcorp/release", version: "1.0.0", digest: "sha256:" + digest, export: "release" } as const;
+const packageLock = { package: "@ezcorp/release", manifestName: "release", version: "1.0.0", digest: "sha256:" + digest, export: "release" } as const;
 const trust = { revision: 1, state: "active" as const, packageLock, packageTrustDigest: "sha256:" + compiledDigest, validatorTrustDigest: "sha256:" + digest, approvedBy: "admin-1", approvalGrantRevision: 1 };
 const control = { enabled: true, enableEpoch: 1 };
 const releaseBody = { runId: "run-1", nodeInstanceId: "node-1", candidateGeneration: 0, decisionId: "decision-1", candidateDigest: "sha256:" + digest, action: "publish", destination: { provider: "s3", account: "tenant-1", object: "release.json" }, request: { contentType: "application/json" }, estimatedSpendMicros: 1, deadlineMs: 2_000_000_000_000 } as const;

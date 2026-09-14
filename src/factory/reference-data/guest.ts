@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { filesDigest, pythonLockDigest, type PythonRunnerClosure } from "@ezcorp/extension-runner";
+import { manifestNameOf, type RunnerReference } from "@ezcorp/factory-sdk";
 import { digestBytes } from "../../extensions/v4/blobs";
 
 /**
@@ -21,19 +22,27 @@ export const FACTORY_REFERENCE_DATA_PACKAGE = "@ezcorp/reference-data";
 export const FACTORY_REFERENCE_DATA_VERSION = "1.0.0";
 
 /**
- * The v4 manifest name the guest really declares, which is NOT the package
- * reference above.
+ * The name the built v4 manifest carries, which is NOT the package reference
+ * above and is not expected to be.
  *
- * `validateManifest` requires `^[a-z][a-z0-9-]{0,63}$`
- * (`packages/@ezcorp/extension-contract/src/validation.ts:126`), so no scoped
- * npm name can be a v4 manifest name; `FactoryPackagePreparations.releaseFacts`
- * (`src/factory/package-preparation.ts:84`) requires the manifest name to EQUAL
- * the runner reference's package, and the compiled definition writes
- * `@ezcorp/reference-data`. Both rules are landed and they cannot both hold, so
- * a real build must break one of them. This pack keeps the rule a real build
- * enforces and records the disagreement rather than widening either surface.
+ * `RunnerReference.manifestName` is what `releaseFacts()` compares now, so the
+ * scoped `package` and the unscoped manifest name simply differ, as the freeze
+ * says they should. `manifestNameOf` derives the conventional form, and this
+ * constant is checked against it rather than written twice.
  */
-export const FACTORY_REFERENCE_DATA_MANIFEST_NAME = "reference-data";
+export const FACTORY_REFERENCE_DATA_MANIFEST_NAME = manifestNameOf(FACTORY_REFERENCE_DATA_PACKAGE);
+
+/** The pinned runner reference every task node of `reference.data.v1` binds to. */
+export function factoryReferenceDataRunner(digest: string, exportName: FactoryReferenceDataExport = "snapshotCsv"): RunnerReference {
+  return Object.freeze({
+    package: FACTORY_REFERENCE_DATA_PACKAGE,
+    manifestName: FACTORY_REFERENCE_DATA_MANIFEST_NAME,
+    version: FACTORY_REFERENCE_DATA_VERSION,
+    digest,
+    export: exportName,
+  });
+}
+
 
 /** The four exports the definition's task nodes bind to. */
 export const FACTORY_REFERENCE_DATA_EXPORTS = Object.freeze(["snapshotCsv", "parseCsv", "transformPartition", "orderedReduce"] as const);
@@ -75,7 +84,7 @@ export interface FactoryReferenceDataImageLock {
 /** The one C02 guest this pack reuses rather than reimplementing its frame loop. */
 const SHARED_GUEST_MODULES = Object.freeze(["guest.py", "factory_ijson.py", "factory_schema.py", "factory_validation.py"]);
 /** This pack's own modules, named explicitly so the sealed guest is exactly these bytes. */
-const PACK_MODULES = Object.freeze(["refdata/__init__.py", "refdata/rows.py", "refdata/parquet.py", "refdata/guest.py", "refdata/test_sealed.py"]);
+const PACK_MODULES = Object.freeze(["refdata/__init__.py", "refdata/rows.py", "refdata/parquet.py", "refdata/guest.py", "tests/__init__.py", "tests/test_refdata_sealed.py"]);
 /** The generated schemas both runtimes read, so one contract serves both. */
 const GENERATED_SCHEMAS = Object.freeze(["factory-runner-request.schema.json", "factory-runner-result.schema.json"]);
 

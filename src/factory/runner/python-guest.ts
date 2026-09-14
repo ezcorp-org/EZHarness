@@ -40,6 +40,10 @@ export async function factoryPythonGuestFiles(): Promise<WorkspaceFiles> {
     if (entry.endsWith(".py")) files[entry] = await readFile(join(project, entry), "utf8");
   }
   for (const entry of (await readdir(join(project, "tests"))).sort()) {
+    // `test_refdata_*` belongs to the reference-data pack, whose guest image
+    // carries PyArrow and whose suite this guest's image cannot import. The
+    // build runs every staged test, so staging one it cannot run would fail it.
+    if (entry.startsWith("test_refdata_")) continue;
     if (entry.endsWith(".py")) files[`tests/${entry}`] = await readFile(join(project, "tests", entry), "utf8");
   }
   for (const schema of GENERATED_SCHEMAS) {

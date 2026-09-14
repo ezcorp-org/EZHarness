@@ -33,7 +33,7 @@ const validatorTrustDigest = `sha256:${"v".repeat(64).replaceAll("v", "a")}`;
 const admin: FactoryPrincipal = { kind: "user", id: "release-authority-admin", authentication: "session" };
 const apiAdmin: FactoryPrincipal = { ...admin, authentication: "api-key" };
 const service: FactoryPrincipal = { kind: "service", id: "release-authority-service", authentication: "service" };
-const packageLock: RunnerReference = { package: "@ezcorp/release-runner", version: "1.2.3", digest: `sha256:${"b".repeat(64)}`, export: "run" };
+const packageLock: RunnerReference = { package: "@ezcorp/release-runner", manifestName: "release-runner", version: "1.2.3", digest: `sha256:${"b".repeat(64)}`, export: "run" };
 
 let fixture: Fixture;
 let database: TransactionalDb;
@@ -124,6 +124,8 @@ test("only a human session can publish exact package and validator trust", async
   await expect(authorityStore.publishTrust(apiAdmin, { projectId, expectedRevision: 0, packageLock, validatorTrustDigest }, "trust-api")).rejects.toMatchObject({ code: "factory_release_authority_human_required" });
   await expect(authorityStore.publishTrust(service, { projectId, expectedRevision: 0, packageLock, validatorTrustDigest }, "trust-service")).rejects.toMatchObject({ code: "factory_release_authority_human_required" });
   await expect(authorityStore.publishTrust(admin, { projectId, expectedRevision: 0, packageLock: { ...packageLock, version: "latest" }, validatorTrustDigest }, "trust-floating")).rejects.toMatchObject({ code: "factory_release_authority_invalid" });
+  await expect(authorityStore.publishTrust(admin, { projectId, expectedRevision: 0, packageLock: { ...packageLock, manifestName: "Release-Runner" }, validatorTrustDigest }, "trust-bad-manifest")).rejects.toMatchObject({ code: "factory_release_authority_invalid" });
+  await expect(authorityStore.publishTrust(admin, { projectId, expectedRevision: 0, packageLock: { ...packageLock, manifestName: packageLock.package }, validatorTrustDigest }, "trust-scoped-manifest")).rejects.toMatchObject({ code: "factory_release_authority_invalid" });
   const trusted = await authorityStore.publishTrust(admin, { projectId, expectedRevision: 0, packageLock, validatorTrustDigest }, "trust-v1");
   expect(trusted).toMatchObject({ revision: 1, state: "active", packageLock, validatorTrustDigest, approvalGrantRevision: 1 });
   expect(await authorityStore.publishTrust(admin, { projectId, expectedRevision: 0, packageLock, validatorTrustDigest }, "trust-v1")).toEqual(trusted);

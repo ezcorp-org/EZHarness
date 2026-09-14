@@ -1,4 +1,5 @@
 import type { FactoryArtifactReference, FactoryRunnerRequest, FactoryRunnerResult, RunnerReference } from "@ezcorp/factory-sdk";
+import { isManifestName } from "@ezcorp/factory-sdk";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -102,8 +103,8 @@ function human(actor: FactoryPrincipal): void { if (actor.kind !== "user" || act
 
 function validatePackageLock(lock: RunnerReference): RunnerReference {
   const copy = JSON.parse(canonicalJson(lock)) as RunnerReference;
-  const allowed = new Set(["package", "version", "digest", "export", "model", "configurationDigest"]);
-  if (!Object.keys(copy).every(key => allowed.has(key)) || [copy.package, copy.version, copy.export].some(value => typeof value !== "string" || value.length < 1 || value.length > 512 || value.includes("\0")) || copy.version === "latest" || copy.version.includes("*") || encoder.encode(canonicalJson(copy)).byteLength > MAX_LOCK_BYTES) throw new FactoryReleaseAuthorityError("factory_release_authority_invalid");
+  const allowed = new Set(["package", "manifestName", "version", "digest", "export", "model", "configurationDigest"]);
+  if (!Object.keys(copy).every(key => allowed.has(key)) || typeof copy.manifestName !== "string" || !isManifestName(copy.manifestName) || [copy.package, copy.version, copy.export].some(value => typeof value !== "string" || value.length < 1 || value.length > 512 || value.includes("\0")) || copy.version === "latest" || copy.version.includes("*") || encoder.encode(canonicalJson(copy)).byteLength > MAX_LOCK_BYTES) throw new FactoryReleaseAuthorityError("factory_release_authority_invalid");
   sha(copy.digest);
   if (copy.model !== undefined && (typeof copy.model !== "string" || copy.model.length < 1 || copy.model.length > 512)) throw new FactoryReleaseAuthorityError("factory_release_authority_invalid");
   if (copy.configurationDigest !== undefined) sha(copy.configurationDigest);

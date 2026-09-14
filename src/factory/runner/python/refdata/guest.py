@@ -41,13 +41,9 @@ GUEST_VERSION: Final = "factory.reference-data-guest.v1"
 
 #: The v4 manifest name.
 #:
-#: It is NOT the factory package reference. `validateManifest` requires
-#: `^[a-z][a-z0-9-]{0,63}$`, so no scoped npm name can ever be a v4 manifest
-#: name, while `FactoryPackagePreparations.releaseFacts` requires the manifest
-#: name to EQUAL the runner reference's package, which the compiled definition
-#: writes as `@ezcorp/reference-data`. The two landed rules cannot both hold.
-#: This guest keeps the rule that a real build enforces and the mismatch is
-#: filed for the owners of those two surfaces.
+#: It is NOT the factory package reference, and it is not expected to be. The
+#: reference carries `manifestName` alongside its scoped `package`, and that is
+#: the field the host compares, so the two simply differ.
 MANIFEST_NAME: Final = "reference-data"
 
 MANIFEST: Final[dict[str, Json]] = {

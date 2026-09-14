@@ -30,6 +30,7 @@ export const SHARED_REUSE_MODULES = [
   "packages/@ezcorp/extension-runner/src/podman.ts",
   // The second pinned guest language extends the shared runner rather than
   // forking its launch path, so it is shared under the same C13 row (W02).
+  "packages/@ezcorp/extension-runner/src/materials.ts",
   "packages/@ezcorp/extension-runner/src/python.ts",
   "packages/@ezcorp/extension-runner/src/dependencies.ts",
   "packages/@ezcorp/extension-runner/src/index.ts",
@@ -47,6 +48,9 @@ export const SHARED_REUSE_MODULES = [
   "src/delivery-queue/durable-delivery-queue.ts",
   "src/extensions/lifecycle-recovery-scheduler.ts",
   "src/extensions/v4/blobs.ts",
+  // The v4 content digest, split out of `blobs.ts` so a caller that only hashes bytes does not
+  // carry an S3 client. Shared under the same C13 row as the blob store it came from (W10).
+  "src/extensions/v4/digest.ts",
   "src/db/queries/audit-log.ts",
   "src/extensions/host-maintenance-daemon.ts",
 ] as const;
@@ -96,11 +100,24 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/protected-command-effects.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-code/freeze.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-code/freeze.ts", sharedModule: "src/extensions/v4/digest.ts" },
+  { factoryPath: "src/factory/reference-code/generate.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-code/generate.ts", sharedModule: "src/extensions/v4/digest.ts" },
+  { factoryPath: "src/factory/reference-code/review.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-code/snapshot.ts", sharedModule: "src/extensions/v4/digest.ts" },
+  { factoryPath: "src/factory/reference-code/static-claims.ts", sharedModule: "src/extensions/v4/digest.ts" },
+  { factoryPath: "src/factory/reference-code/workspace.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/records.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/records.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/reference-data/csv.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/reference-data/guest.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/reference-data/guest.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  // The hardened material read-back is re-exported from the runner's entry
+  // point and the package publishes no subpath for it, so the declared edge is
+  // the entry point. `materials.ts` is in SHARED_REUSE_MODULES above, which is
+  // what makes a second implementation of `listRunnerMaterials` or
+  // `openRunnerMaterial` a duplicate violation rather than a matter of taste.
   { factoryPath: "src/factory/reference-data/materials.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/reference-data/materials.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/reference-data/pack.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
