@@ -813,3 +813,26 @@
   failure — reintroducing, one layer down, exactly what the page driver exists
   to prevent.
 
+- A proof harness that cannot write its own record turns three failures into
+  three passes. `finish()` called `writeFileSync` without importing it, so every
+  run threw after its work was done and exited 1 with an empty log, while the
+  driver copied the PREVIOUS run's record and built receipts from it. The
+  receipt said `exitCode: 1` and `readyStatus: 200` in the same object and I read
+  the second field first. Two rules: a receipt must carry evidence that it
+  describes its own run (delete the record before the run, compare the record's
+  own timestamps against the run window), and a failure path must print before
+  it does anything else, so an empty log can never be a crash's only symptom.
+- A test that reaches the state once cannot see a defect in reaching it twice. My
+  three full-stack runs each sampled `/api/ready` the moment it turned green and
+  shut down, so they could not observe the second container-runner probe, which
+  was the one that failed. When the suspected fault is in repetition, hold the
+  system and watch it repeat, and count the resource whose leak is the symptom.
+- Running only the focused suites hides the tests that read a contract you
+  changed. A deliberate API scope change left `factory-service-routes.test.ts`
+  asserting the old behaviour; no suite of mine imported that file, so only the
+  full pool found it. After changing a shared table, grep for its readers rather
+  than trusting the suite list you already have.
+- Piping a test through `tail` inside a loop records `tail`'s exit code. Two of
+  my evidence scripts did this, and a postgres producer that was failing on a
+  missing environment variable read as green for hours. Capture output to a
+  variable, keep the command's own status, and accumulate it.

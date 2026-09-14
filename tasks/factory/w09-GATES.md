@@ -5,7 +5,14 @@ Surface owned: `src/factory/application.ts`, `boot.ts`, `orchestration-process.t
 suite, and the startup path in `web/src/lib/server/context.ts`.
 Evidence directory: `/tmp/factory-platform-evidence/w09/`.
 
-## The rejection, and what it found
+## The rejections, and what they found
+
+This package was rejected twice and both findings were correct. The first, at
+`4e41ffd56`, was that the composition root had no production caller. The second,
+at `599ea6ca4`, was that the host supervisor's container-runner probe was not
+safe to repeat, so the three passing runs I had shown could not be reproduced
+independently — that one is answered in "Three rounds of getting this wrong"
+below, with a test against the real runner.
 
 The first submission of this package was **REJECTED** by independent validation
 at `4e41ffd56`, and the finding was correct: **`startFactoryRuntime` was never
@@ -100,14 +107,18 @@ that "closes admission until real probes pass" had a gate and no probe.
       EXPECT: 26 pass; 13 pass; 29 pass. The flag-off answer is a 404 carrying `factory-disabled`.
       EVIDENCE: `/tmp/factory-platform-evidence/w09/repro/real-server-factory-probe.json`
 - [x] G11: The composition root is invoked by the real boot path, `/api/ready`
-      reaches `ready` against real services, the registered roles run, and a
-      SIGTERM stops them with no leaked process.
-      CHECK: `bun /tmp/factory-platform-evidence/w09/repro/full-stack-proof.ts`
-      EXPECT: pool and supervisor processes `ready`; `/api/ready` `200 ready`
-      carrying the running and held role lists; `factory-runtime` torn down
-      second, right after `background-timers`; exit 0, no survivors, port
-      refused. Three consecutive independent runs.
-      EVIDENCE: `/tmp/factory-platform-evidence/w09/repro/full-stack-proof.json`
+      reaches `ready` against real services, the registered roles run, the
+      supervisor keeps probing safely after that, and a SIGTERM stops everything
+      with no leaked process.
+      CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 2400 bash
+      /tmp/factory-platform-evidence/w09/repro/run-three.sh`
+      EXPECT: three runs, each `outcome: "passed"`, `recordFresh: true`, exit 0;
+      pool and supervisor processes `ready`; `/api/ready` `200 ready` carrying
+      the running and held role lists; five consecutive `ready` supervisor
+      heartbeats holding exactly one `flock` lease child throughout; `/api/ready`
+      still `200` after them; `factory-runtime` torn down second of fourteen; no
+      survivors, port refused.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09/full-stack-run-{1,2,3}.json`
 - [x] G12: A role registers when its driver exists and holds by name when it does
       not — one rule, no role in neither list.
       CHECK: `bun test --timeout 30000 ./src/factory/runtime-workers.test.ts`
@@ -125,6 +136,15 @@ that "closes admission until real probes pass" had a gate and no probe.
       EXPECT: open. The attempt dispatcher is the missing half and it is W09's
       own, not another package's — see the entry below.
       EVIDENCE: none yet.
+- [x] G15: The proof harness records its own failures instead of crashing on
+      them. A proof that leaves nothing to read is worse than one that fails.
+      CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 1800 bash
+      /tmp/factory-platform-evidence/w09/repro/negative-control.sh`
+      EXPECT: a run pointed at a database that is not there exits 1, writes
+      `outcome: "failed"` with the cause named, keeps the logs of all four
+      children and the readiness the pool and supervisor did reach, and leaves no
+      supervisor process behind.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09/negative-control.json`
 
 ## Proved through the real server
 
@@ -135,13 +155,32 @@ that "closes admission until real probes pass" had a gate and no probe.
 Independent means a fresh private root, fresh certificates, a fresh pool
 database, and freshly started pool, supervisor, and web processes each time.
 
-| Run | `/api/ready` | Roles running | Pool | Supervisor | `factory-runtime` teardown | Exit | Survivors |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | `200 ready` | dispatch, poll, projection | ready | ready | 2 of 14 | 0 | none |
-| 2 | `200 ready` | dispatch, poll, projection | ready | ready | 2 of 14 | 0 | none |
-| 3 | `200 ready` | dispatch, poll, projection | ready | ready | 2 of 14 | 0 | none |
+All three at commit `9ccb6de7e`, against a web build made at that commit.
 
-### Two rounds of getting this wrong
+| Run | `/api/ready` | Roles running | Pool | Supervisor | Ready beats, lease children | `/api/ready` after | Teardown | Exit | Survivors | Record fresh |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `200 ready` | dispatch, poll, projection | ready | ready | 5 ready over 8.0 s, 1 lease | `200` | 2 of 14 | 0 | none | yes |
+| 2 | `200 ready` | dispatch, poll, projection | ready | ready | 5 ready over 8.0 s, 1 lease | `200` | 2 of 14 | 0 | none | yes |
+| 3 | `200 ready` | dispatch, poll, projection | ready | ready | 5 ready over 8.0 s, 1 lease | `200` | 2 of 14 | 0 | none | yes |
+
+**The proof no longer stops the moment the light turns green.** It holds the
+supervisor and watches it publish five consecutive readiness records, counting
+the `flock` lease children the supervisor process owns at each one, then re-reads
+`/api/ready`. Five `ready` publications spanning eight seconds with exactly one
+lease throughout is the observation the earlier runs could not make: before the
+fix the second beat's probe failed `runner_store_busy`, which the supervisor
+publishes as `degraded`, and every successful beat before it added a lease. A run that reaches ready once and shuts down cannot tell those apart,
+which is precisely why three of them passed while the product was broken.
+
+**The harness proves its own failure path.** `repro/negative-control.sh` points
+the web server at a database that is not there. Receipt `negative-control.json`
+at the same commit: exit 1, `outcome: "failed"`, `failure: "the server never
+reported ready"`, the logs of all four children kept, the pool and supervisor
+readiness that *was* reached recorded so the diagnostic names what worked, and no
+supervisor process left running. Before the hardening this path threw ESRCH out
+of `process.kill(-pid)` and wrote nothing at all.
+
+### Three rounds of getting this wrong
 
 The first submission showed one passing run. The second showed three, after I
 decoupled the heartbeat from the probe's LATENCY — and an independent validator
@@ -173,6 +212,21 @@ and publication are separate loops, and the four intervals are stated multiples
 of one heartbeat — writes every one, reader window three, probe bound four,
 facts stale at five. `src/factory/runner/supervisor-process.ts` carries that
 table.
+
+The third round was the receipts rather than the product. `finish()` wrote the
+record with `writeFileSync`, which the file never imported, so every run threw a
+ReferenceError after its work was done, exited 1 with an empty log, and left the
+PREVIOUS run's `full-stack-proof.json` on disk. `run-three.sh` copied that file,
+so three receipts reported `readyStatus: 200` from a run made two hours before
+the commit they named — next to an `exitCode: 1` that should have stopped me
+reading them at all. Nothing about the product was wrong; the evidence was.
+
+Three things changed so it cannot recur. The import is there. The failure path
+prints the error to stderr before anything else, so an empty log can no longer be
+the symptom of a crash. And the driver deletes the record before each run while
+the receipt carries `recordFresh`, computed by comparing the record's own
+`startedAt` and `finishedAt` against that run's window: a receipt that cannot be
+shown to describe its own run now says so in its own text.
 
 Real processes in this run: the shared PostgreSQL proof container, the local S3
 services (ordinary and archive), **the real pool admission process**
@@ -245,13 +299,15 @@ proved separately in `repro/real-server-factory-probe.json`.
 | `src/factory/runner/supervisor-process.test.ts` | 25 pass / 0 fail |
 | `src/factory/runner/supervisor-process.podman.integration.test.ts` | 3 pass / 0 fail, real Podman |
 | `src/__tests__/factory-process-boundaries.test.ts` | 14 pass / 0 fail |
-| `web/src/__tests__/factory-boot.server.test.ts` | 10 pass / 0 fail |
-| `web/src/__tests__/context-initialization.server.test.ts` | 4 pass / 0 fail |
-| `tests/postgres/factory-{boot,schema,private-service,migration-restart}` | 12 pass / 0 fail |
-| `src/__tests__/{openapi,gate-scripts,api-docs,factory-boot,tool-policy,session-scope-surface}` | 319 pass / 0 fail |
-| `web/src/__tests__/route-contract.test.ts` | 29 pass / 0 fail |
+| `src/__tests__/factory-boot.test.ts` | 19 pass / 0 fail |
+| `src/__tests__/factory-service-routes.test.ts` | 2 pass / 0 fail, 12 assertions |
+| `web` Vitest: `factory-boot.server`, `context-initialization.server`, `factories.server`, `context-register-preview-bus.server`, `context-state-mediator-wiring.server` | 42 pass / 0 fail across 5 files |
+| `tests/postgres/factory-{boot,schema,private-service,migration-restart}` | 12 pass / 0 fail, each file's own exit code 0 |
+| neighbours: `src/__tests__/{openapi,gate-scripts,factory-shell-required,api-docs,factory-boot,tool-policy,session-scope-surface,shell-advisory-fallback,factory-service-routes}` + `web/src/__tests__/route-contract.test.ts` | 352 pass / 0 fail, ten files, each exit 0 |
 | `bun run typecheck`, `bun run lint` | pass; 9 pre-existing infos |
 | `bun scripts/check-factory-boundaries.ts`, `bun scripts/gate-integrity.ts` | pass |
+| `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` | PASSED, 12 new source files gated |
+| `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts` | PASSED, all changed executable lines covered, 18 files |
 
 Logs and receipt JSON per producer under `/tmp/factory-platform-evidence/w09/`.
 
@@ -263,8 +319,28 @@ Twelve new source files, each at 100% line coverage after merge:
 `web/src/lib/server/factory-boot.ts`.
 
 Every receipt under `/tmp/factory-platform-evidence/w09/` names the commit it
-was produced at. The gate receipts were regenerated at the final commit after
-the validation found them stale.
+was produced at, and every one cited here was regenerated at the final commit
+`9ccb6de7e`. The coverage legs behind `coverage/lcov.info` were regenerated too:
+fourteen Bun legs plus the sanctioned `scripts/web-vitest-coverage.sh` leg,
+merged with `bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w09/lcov-final/*.lcov' coverage/lcov.info`
+(1094 source files). The previous merge predated the container-runner fix, so
+the two BASE_REF gates had been reading a supervisor leg that no longer matched
+the source.
+
+**What the full `bun run test:coverage` pool says, in full.** Running it found
+one real defect on this branch, now fixed: `src/__tests__/factory-service-routes.test.ts`
+still asserted the pre-discrepancy-10 behaviour for version publish, so my own
+api-registry change was failing it, and none of my focused suites included that
+file. Two other files fail in that pool and neither can be this branch's: this
+branch changes nothing under `packages/`.
+`packages/@ezcorp/extension-contract/src/schema.test.ts` reports the wire schema
+missing seven `devices` properties the authoritative types declare, which is
+W01's device-grant surface; `packages/@ezcorp/extension-runner/tests/trusted-local.test.ts`
+fails with `image not known`, a container image this host does not have. The
+pool also stops on `browser route coverage is required: set BROWSER_COVERAGE_RAW
+and BROWSER_COVERAGE_LCOV`, which is the instrumented Playwright leg, not
+something a branch supplies. That is why the coverage evidence here is the
+per-leg merge common.md prescribes rather than that pool's exit code.
 
 ## The startup race, before and after
 
@@ -435,3 +511,21 @@ another worker settled first.
   while wiring the real projector into the boot path.
 - The first real-server receipt reported the old disabled reason string because
   it ran against a build made before the fix. Rebuild before believing a receipt.
+- The proof harness wrote its record with an unimported `writeFileSync`, so
+  every run threw after its work was done, exited 1, and left the previous run's
+  record on disk for the driver to copy. Three receipts therefore described a run
+  older than the commit they named. Caught here, before submitting, by the
+  contradiction between `exitCode: 1` and a passing body — the receipt now
+  carries `recordFresh` so the contradiction cannot be silent next time.
+- A test of the runner probe's close-before-probe case asserted nothing; it
+  relied on a throwing loader, which proves nothing if the loader is never
+  reached for some other reason. `gate-integrity.ts` found it. It now asserts
+  both facts the supervisor depends on.
+- `src/__tests__/factory-service-routes.test.ts` still asserted that version
+  publish carries no service scope, which discrepancy 10 changed. My focused
+  suites did not include that file, so only the full pool found it. It now states
+  both halves of the discrepancy, the widening and the tightening.
+- Two of my own evidence scripts piped each test file through `tail` inside a
+  loop, so the receipt recorded `tail`'s exit code. One postgres producer was
+  failing for a missing environment variable and read as green. Both scripts now
+  accumulate per-file exit codes, and the log carries each one.

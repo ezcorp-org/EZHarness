@@ -2296,3 +2296,26 @@ another package's. `FactoryAttemptDispatcher` needs a trusted runner and
 `FactoryPackagePreparations`, whose constructor requires a container runner the
 product process does not hold, so the role holds there and registers unchanged in
 a process that does. Composing that process is the remaining work.
+
+**The second submission was rejected too, and that finding was also correct.**
+The host supervisor's container-runner probe was not safe to repeat.
+`PodmanRunner.prepareStore` ends in an exclusive `flock --nonblock` child held
+for the instance's life, and the probe built a new runner per call, so the second
+probe on one root failed `runner_store_busy` and every successful one leaked a
+lease child. My three passing runs each sampled `/api/ready` the moment it turned
+green and shut down, so none of them could ever have seen a second probe. The
+supervisor now holds one runner for its lifetime and closes it in the run's
+`finally`, and a new test exercises the real `PodmanRunner` across repeated
+probes on one root. The full-stack proof now also holds the supervisor through
+five consecutive `ready` heartbeats and counts its lease children, so a repeat
+failure would fail the proof rather than go unobserved.
+
+**A third defect was in my evidence rather than the product.** The proof harness
+wrote its record with an unimported `writeFileSync`, so every run threw after its
+work was done, exited 1 with an empty log, and left the previous run's record on
+disk for the driver to copy — three receipts described a run older than the
+commit they named. Receipts now carry `recordFresh`, computed from the record's
+own timestamps against the run window. Two other evidence scripts piped test
+output through `tail` inside a loop and recorded `tail`'s exit code; one postgres
+producer was failing on a missing environment variable and read as green. Both
+now accumulate per-file exit codes.
