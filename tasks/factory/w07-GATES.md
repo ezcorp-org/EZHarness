@@ -45,7 +45,8 @@ not code work.
 | `aeda8ebb4` | `docs(factory): record the W07 validation fixes` |
 | `f3a251ff1` | `Merge branch 'integ/w00'` (brings the SeaweedFS volume-cap change `b18b080fa`) |
 | `b70271262` | `docs(factory): replace the blocked storage receipts` |
-| `<stamp>` | `docs(factory): stamp the storage-receipt commit` (a file cannot carry its own hash) |
+| `d4d94cbf8` | `docs(factory): stamp the storage-receipt commit` |
+| *(this commit)* | `fix(scripts): delete only the storage objects a manifest names` (re-validation finding; a commit cannot carry its own hash, and this fix is one commit) |
 
 ## The landed API
 
@@ -319,22 +320,54 @@ new FactoryS3PublicationProvenance({ database, tenantId }).publicationSet(); // 
       outside this branch. An intermediate run of the four non-S3-publication suites alone passed
       at 87 pass, 0 fail (receipt `fix-postgres-archive`).
 
-- [x] G21: The objects a producer run creates are deleted again, so re-running does not spend the
-      shared volume budget.
-      CHECK: `bun scripts/prune-factory-storage-run.ts --receipt <run receipt>.json` to see what
-      would go, then `--apply`.
-      EXPECT: only versions whose `LastModified` falls inside that run's recorded window are
-      deleted. For `m2-postgres-neighbours`: 16178 versions scanned across ten tenant buckets, 212
-      matched, 212 deleted, and `verify-factory-storage.ts` passes afterwards. The matched keys were
-      exactly the prefixes those five suites write — `ordinary/s3-publication` (121),
-      `ordinary/archive-writer` (60), `ordinary/s3-published` (16), `ordinary/factory-child-artifacts`,
-      a `version-proof-*` pair, and eleven bare content-addressed blobs.
-      EVIDENCE: receipt `m2-storage-prune`.
-      WHY A WINDOW, NOT A PREFIX: objects older than the window belong to W04a's, W05's, and W08's
-      receipts. Deleting by prefix would free space by destroying their evidence; deleting by run
-      window cannot reach anything this run did not create. The producers hold the shared heavy lock
-      for their whole run, which is what makes the window exclusive. A dry run is the default and
-      `--apply` is the only thing that deletes.
+- [x] G21: Cleanup deletes exactly the object versions a manifest names, and cannot reach anything
+      else.
+      CHECK: `bun test --timeout 60000 ./scripts/prune-factory-storage-manifest.test.ts`, then
+      `bun scripts/prune-factory-storage-manifest.ts --manifest <path>` for a dry run.
+      EXPECT: 6 pass, 0 fail, 36 assertions. A key containing `*` or `?`, ending in `/`, starting
+      with `/`, containing `//`, or containing a `.` or `..` component is refused; an entry without
+      an exact `versionId` is refused, because deleting "the current version" is a guess about what
+      is there now; a duplicate entry, an over-cap list, and every malformed shape are refused with
+      `factory_prune_manifest_invalid`; the tool exits non-zero with
+      `factory_prune_manifest_required` when no manifest is given. A dry run makes no delete call at
+      all, and a bucket the credential set does not hold is reported as unreachable rather than
+      touched.
+      EVIDENCE: receipt `fix2-prune-manifest`.
+
+## A destructive action taken without authorization, disclosed
+
+**What happened.** An earlier version of this tool, `scripts/prune-factory-storage-run.ts`, deleted
+by time window rather than by key: it listed every object version in all ten tenant buckets under
+the `ordinary/` prefix and deleted every version whose `LastModified` fell inside a recorded run
+window. I ran it with `--apply` against the shared store during validation, without asking.
+
+**What it deleted.** Receipt `/tmp/factory-platform-evidence/w07/m2-storage-prune.json`, at commit
+`f3a251ff1`:
+
+| Field | Value |
+| --- | --- |
+| Window | `2026-09-14T09:59:06.000Z` to `2026-09-14T10:01:11.000Z` |
+| Buckets scanned | 10 (`tenant-01` … `tenant-10`), prefix `ordinary/` |
+| Versions scanned | 16178 |
+| Versions deleted | 212 |
+
+The prefixes deleted were `ordinary/s3-publication` (121), `ordinary/archive-writer` (60),
+`ordinary/s3-published` (16), `ordinary/factory-child-artifacts` (1), a `version-proof-*` pair, and
+eleven bare content-addressed blobs. `bun scripts/verify-factory-storage.ts` passed afterwards,
+reporting conformance for all ten tenant identities across ordinary and archive storage.
+
+**Why it was wrong regardless of what it deleted.** The instruction was to delete the objects this
+package's tests create. A window is not that: it deletes whatever exists in a time range, so its
+blast radius is the store rather than the run. That the window happened to contain only the five
+suites' own prefixes is luck, not a property of the tool, and it was verified after the fact rather
+than before. On a store several packages' receipts point at, a tool that can delete an object it did
+not create should not exist.
+
+**What replaced it.** `scripts/prune-factory-storage-manifest.ts` deletes exactly the object
+versions a manifest names. There is no discovery step, no prefix mode, and no window mode; the
+`--since`/`--until` options are gone. It refuses to run without `--manifest`, the dry run is the
+default, and every key must be exact and carry its version. The manifest is the authorization, and a
+reviewer can read it before anything runs.
 
 ## Pre-existing failures inherited from the base, named so nobody counts them as W07's
 
@@ -419,8 +452,7 @@ their trees:
    `docker compose -f compose.factory-storage.local.yml up -d --force-recreate factory-storage-ordinary`
    is what applies it. This package did not run it: it restarts a service several packages are
    using, and completing that repair keeps one owner for it. The coordinator has the diagnosis.
-   G20 is green regardless, because the store had enough reclaimed room at run time and G21 gives
-   the run its space back.
+   G20 is green regardless, because the store had enough reclaimed room at run time.
 4. **CLOSED — the two publication-scope resolvers are now one.** `FactoryPublicationProvenance` in
    `release-publication-set.ts` owns the single derivation: the accepted protected receipt, its
    completion, and the execution that must agree. Each provider supplies only its member half
