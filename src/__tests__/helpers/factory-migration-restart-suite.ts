@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -67,6 +68,32 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
       expect(unkeyed).toBeInstanceOf(Error);
       expect(rows(await db.execute(sql`SELECT object_id FROM factory_artifacts WHERE object_id='factory-artifact-material-unkeyed'`))).toEqual([]);
     }
+  });
+
+  test("the attempt-launch upgrade backfills one durable invocation identity and keeps every package receipt", async () => {
+    const db = fixture.db;
+    const attemptId = "restart-launch-attempt"; // distinct from the materials case, which shares this fixture
+    const receipt = JSON.stringify({ projectId: "restart-project", artifactDigest: "b".repeat(64) });
+    await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${attemptId},'restart-tenant','restart-project','restart-run','restart-node',0,2,1,1,1,0,NOW() + INTERVAL '1 hour',${"c".repeat(64)},'{}','admitted')`);
+    await db.execute(sql`INSERT INTO factory_attempt_launches(attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,state) VALUES (${attemptId},'restart-tenant','restart-project','restart-run',${"c".repeat(64)},'{}','restart-reservation',1,1,1,'restart-allocation','restart-host',${`sha256:${"d".repeat(64)}`},${receipt}::jsonb,${"b".repeat(64)},'restart-worker','restart-invocation','prepared')`);
+    // Reproduce the pre-upgrade shape this migration must repair.
+    await db.execute(sql`ALTER TABLE factory_attempt_launches DROP COLUMN invocation_id, DROP COLUMN device_grant_json, DROP COLUMN device_grant_digest`);
+    await db.execute(sql`ALTER TABLE factory_attempt_launches ALTER COLUMN package_receipt_json DROP NOT NULL`);
+    const expected = `factory_${createHash("sha256").update(`${attemptId}:0:2`).digest("hex").slice(0, 48)}`;
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      const row = rows<{ invocation_id: string; device_grant_json: unknown; device_grant_digest: string | null; package_receipt_json: unknown }>(await db.execute(sql`SELECT invocation_id,device_grant_json,device_grant_digest,package_receipt_json FROM factory_attempt_launches WHERE attempt_id=${attemptId}`))[0];
+      expect(row?.invocation_id).toBe(expected);
+      expect(typeof row?.device_grant_json === "string" ? JSON.parse(row.device_grant_json) : row?.device_grant_json).toEqual({ devices: [], cdiDevices: [], capabilities: [] });
+      expect(row?.device_grant_digest).toBeNull();
+      expect(typeof row?.package_receipt_json === "string" ? JSON.parse(row.package_receipt_json) : row?.package_receipt_json).toEqual(JSON.parse(receipt));
+      const nullable = rows<{ is_nullable: string }>(await db.execute(sql`SELECT is_nullable FROM information_schema.columns WHERE table_name='factory_attempt_launches' AND column_name IN ('package_receipt_json','invocation_id') ORDER BY column_name`));
+      expect(nullable.map(column => column.is_nullable)).toEqual(["NO", "NO"]);
+      const unique = rows<{ indexdef: string }>(await db.execute(sql`SELECT indexdef FROM pg_indexes WHERE tablename='factory_attempt_launches' AND indexname='uq_factory_attempt_launches_invocation'`));
+      expect(unique).toHaveLength(1);
+      expect(unique[0]!.indexdef).toContain("UNIQUE");
+    }
+    await expect((async () => { await db.execute(sql`INSERT INTO factory_attempt_launches(attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,state) VALUES ('restart-attempt-duplicate','restart-tenant','restart-project','restart-run',${"c".repeat(64)},'{}','restart-reservation',1,1,1,'restart-allocation','restart-host',${`sha256:${"d".repeat(64)}`},${receipt}::jsonb,${"b".repeat(64)},'restart-worker-duplicate',${expected},'prepared')`); })()).rejects.toThrow();
   });
 
   test("repeated migration keeps one validator attempt's several claim-keyed results and their assignment key", async () => {

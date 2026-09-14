@@ -162,6 +162,8 @@ export interface StartRequest {
   artifactDigest: string;
   context: InvocationContext;
   limits: ResourceLimits;
+  /** Exactly the devices this start may use. Absent means none. */
+  devices?: readonly string[];
 }
 export interface RunnerInspection {
   id: string;

@@ -12,6 +12,7 @@ import { up as upNormalizeExtensionStateRoot } from "./migrations/normalize-exte
 import { up as upRelativizeBundledInstallPaths } from "./migrations/relativize-bundled-install-paths";
 import { up as upFactoryExecutions } from "./migrations/add-factory-executions";
 import { up as upFactoryAttemptQueue } from "./migrations/add-factory-attempt-queue";
+import { up as upFactoryAttemptLaunches } from "./migrations/add-factory-attempt-launches";
 import type { MigrateDb } from "./migrations/types";
 // Value import is safe: `project-root.ts` depends only on `../logger` and
 // node builtins. It used to live in `../extensions/bundled.ts`, which
@@ -3093,6 +3094,7 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryPackagePreparations(db);
   const { up: addFactoryProtectedCommandEffects } = await import("./migrations/add-factory-protected-command-effects");
   await addFactoryProtectedCommandEffects(db);
+  await upFactoryAttemptLaunches(db);
   const { up: addFactoryArtifactMaterials } = await import("./migrations/add-factory-artifact-materials");
   await addFactoryArtifactMaterials(db);
   const { up: addFactoryAdmissionOrigin } = await import("./migrations/add-factory-admission-origin");

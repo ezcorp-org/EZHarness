@@ -1,9 +1,9 @@
 import { workspaceText } from "@ezcorp/extension-contract";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { PodmanRunner, buildLimits, executionLimits, filesDigest, resolveDependencies } from "../src";
 import { manifest, provision, source } from "./helpers";
 import { command } from "../src/core";
@@ -46,6 +46,146 @@ test("real isolated build, typecheck, feature tests, discovery, invocation and r
   try { expect(await worker.request("extension/invoke", { name: "echo", input: { text: "hello" }, context })).toEqual({ text: "hello", broker: "value" }); } finally { await worker.close(); }
   const restarted = new PodmanRunner({ root });
   expect(await restarted.collectArtifacts(artifactDigest)).toEqual(await runner.collectArtifacts(artifactDigest));
+}, 120_000);
+
+/** Observes the fail-closed kernel probe so a build or attach cannot silently skip it. */
+class ProbeObservingRunner extends PodmanRunner {
+  readonly sweeps: boolean[] = [];
+  protected override async probeSecurity(cleanupOrphans = true): Promise<void> {
+    this.sweeps.push(cleanupOrphans);
+    await super.probeSecurity(cleanupOrphans);
+  }
+}
+
+test("a first build on a fresh runner prepares its artifact store, probes kernel isolation, and sweeps nothing", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ez-runner-first-build-"));
+  const fresh = new ProbeObservingRunner({ root: directory, ...await provision() });
+  try {
+    const files = source("async input => input");
+    const built = await fresh.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+    expect(built.diagnostics).toEqual([]);
+    expect(built.state).toBe("succeeded");
+    // The probe ran, so isolation is verified, but a lazy build never sweeps:
+    // with detached execution a container may legitimately outlive its starter.
+    expect(fresh.sweeps).toEqual([false]);
+    expect((await lstat(join(directory, "artifacts"))).mode & 0o777).toBe(0o700);
+    expect(await fresh.collectArtifacts(built.artifactDigest!)).toMatchObject({ "extension.ts": files["extension.ts"]! });
+  } finally { await fresh.close(); await rm(directory, { recursive: true, force: true }); }
+}, 120_000);
+
+test("only explicit daemon startup sweeps orphaned containers", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "ez-runner-startup-"));
+  const started = new ProbeObservingRunner({ root: directory, ...await provision() });
+  try {
+    await started.initialize();
+    expect(started.sweeps).toEqual([true]);
+    expect((await lstat(join(directory, "artifacts"))).mode & 0o777).toBe(0o700);
+  } finally { await started.close(); await rm(directory, { recursive: true, force: true }); }
+}, 120_000);
+
+test("a SIGKILLed supervisor leaves one guest that a fresh supervisor attaches and cancels", async () => {
+  const files = source("async input => input");
+  const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+  expect(build.state).toBe("succeeded");
+  await runner.close();
+  const workerId = `recover-${randomUUID()}`;
+  const context = { workerId, invocationId: randomUUID(), releaseId: build.artifactDigest!, principalId: "recovery", scopeId: "recovery", token: "recovery-token", deadline: Date.now() + 60_000 };
+  const childCode = `import {PodmanRunner} from ${JSON.stringify(new URL("../src/index.ts", import.meta.url).pathname)};const [root,workerId,artifact,context]=process.argv.slice(1);const runner=new PodmanRunner({root});await runner.start({workerId,artifactDigest:artifact,context:JSON.parse(context),limits:{memoryBytes:536870912,cpuMillis:1000,pids:64,tmpBytes:67108864,outputBytes:1048576,timeoutMs:60000}},async()=>null);console.log('READY');await new Promise(()=>{});`;
+  const child = Bun.spawn([process.execPath, "-e", childCode, root, workerId, build.artifactDigest!, JSON.stringify(context)], { stdout: "pipe", stderr: "pipe" });
+  try {
+    const first = await child.stdout.getReader().read();
+    const output = new TextDecoder().decode(first.value);
+    if (!output.includes("READY")) throw new Error(`crashed supervisor did not start guest: ${await new Response(child.stderr).text()}`);
+  } finally { child.kill("SIGKILL"); await child.exited; }
+  const fresh = new ProbeObservingRunner({ root });
+  try {
+    // The kill and its pipe closure are observed facts, not elapsed time: the
+    // child has exited above. The guest's stdin is a FIFO its in-guest shim
+    // holds O_RDWR, so losing the supervisor cannot reach it as end-of-input.
+    expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
+    const _attached = await fresh.attach({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("recovery must not repeat effects"); });
+    // Recovery creates no container of its own: no probe, and so no sweep.
+    expect(fresh.sweeps).toEqual([]);
+    expect(await fresh.inspect(workerId)).toMatchObject({ state: "running" });
+    await fresh.cancel(workerId);
+    expect(await fresh.inspect(workerId)).toMatchObject({ state: "cancelled" });
+    await expect(command("podman", ["inspect", `ez-v4-${createHash("sha256").update(`${root}:${workerId}`).digest("hex").slice(0, 32)}`])).rejects.toThrow();
+  } finally { await fresh.close(); }
+}, 120_000);
+
+test("the superseded stdin channel is what used to kill the guest with its supervisor", async () => {
+  // Controlled fault for the case above. It reproduces the previous transport
+  // exactly: a detached container whose stdin is a `podman attach` stream held
+  // by a supervisor process. Killing that supervisor closes the stream, podman
+  // forwards the end-of-input, and the guest dies. Without the FIFO channel the
+  // preceding test's `running` assertion is a race, not a property.
+  const name = `ez-v4-stdin-fault-${randomUUID().slice(0, 12)}`;
+  const guest = 'process.stdin.on("data",()=>{});process.stdin.on("end",()=>process.exit(7));setInterval(()=>{},1000)';
+  await command("podman", ["run", "--detach", "-i", "--name", name, "--pull=never", "--network=none", "--entrypoint=/usr/local/bin/bun", (await import("../src")).DEFAULT_IMAGE, "-e", guest]);
+  try {
+    const holder = `const a=Bun.spawn(["podman","attach",${JSON.stringify(name)}],{stdin:"pipe",stdout:"pipe",stderr:"pipe"});console.log("HELD");await new Promise(()=>{});`;
+    const supervisor = Bun.spawn([process.execPath, "-e", holder], { stdout: "pipe", stderr: "pipe" });
+    await supervisor.stdout.getReader().read();
+    expect((await command("podman", ["inspect", "--format={{.State.Status}}", name])).trim()).toBe("running");
+    supervisor.kill("SIGKILL");
+    await supervisor.exited;
+    // Poll the container's own state, not a clock, until it settles. Podman
+    // reports "stopped" or "exited" depending on how far teardown has got; both
+    // are terminal and neither is "running", which is the property under test.
+    const settled = new Set(["stopped", "exited"]);
+    let status = "";
+    for (let attempt = 0; attempt < 120 && !settled.has(status); attempt++) {
+      status = (await command("podman", ["inspect", "--format={{.State.Status}}", name])).trim();
+    }
+    expect(settled.has(status)).toBe(true);
+    // Exit code 7 is the guest's own end-of-input handler, so this names the
+    // cause precisely rather than observing that the container merely stopped.
+    expect((await command("podman", ["inspect", "--format={{.State.ExitCode}}", name])).trim()).toBe("7");
+  } finally { await command("podman", ["rm", "--force", "--time=0", "--ignore", name]); }
+}, 120_000);
+
+test("a sandboxed guest cannot unlink, rename, or symlink-swap a channel entry, and the host refuses a substituted one", async () => {
+  const { runnerChannelMount, DEFAULT_IMAGE } = await import("../src/podman");
+  const directory = await mkdtemp(join(tmpdir(), "ez-channel-attack-"));
+  const name = `ez-v4-channel-attack-${randomUUID().slice(0, 12)}`;
+  try {
+    await chmod(directory, 0o755);
+    await command("mkfifo", ["-m", "666", join(directory, "in")]);
+    const created = await lstat(join(directory, "in"));
+    expect(created.isFIFO()).toBe(true);
+
+    // Exactly the production guest profile, with the production mount builder so
+    // the test cannot drift from what podman.ts ships.
+    const attack = `const fs=require("node:fs");const r={};
+const t=(k,f)=>{try{f();r[k]="allowed"}catch(e){r[k]=e.code||"error"}};
+t("openReadWrite",()=>{const fd=fs.openSync("/channel/in","r+");fs.closeSync(fd)});
+t("unlink",()=>fs.unlinkSync("/channel/in"));
+t("symlinkSwap",()=>fs.symlinkSync("/etc/passwd","/channel/evil"));
+t("rename",()=>fs.renameSync("/channel/in","/channel/moved"));
+t("createRegular",()=>fs.writeFileSync("/channel/planted","x"));
+console.log(JSON.stringify(r));`;
+    const output = await command("podman", ["run", "--rm", "--name", name, "--pull=never", "--network=none", "--read-only", "--read-only-tmpfs=false",
+      "--cap-drop=ALL", "--security-opt=no-new-privileges", "--user=65534:65534", "--pid=private", "--ipc=private", "--no-hosts", "--log-driver=none",
+      "--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=16777216,mode=1777", ...runnerChannelMount(directory),
+      "--entrypoint=/usr/local/bin/bun", DEFAULT_IMAGE, "-e", attack]);
+    const result = JSON.parse(output) as Record<string, string>;
+
+    // A read-only mount still permits opening the FIFO read-write, which is what
+    // makes the hardened channel usable at all.
+    expect(result.openReadWrite).toBe("allowed");
+    // Every directory-entry mutation the validator's proof of concept relied on
+    // is refused by the kernel, not by convention.
+    for (const denied of ["unlink", "symlinkSwap", "rename", "createRegular"]) {
+      expect(["EROFS", "EACCES", "EPERM"]).toContain(result[denied]!);
+    }
+    // The entry the host would open is still the FIFO it created.
+    const after = await lstat(join(directory, "in"));
+    expect(after.isFIFO()).toBe(true);
+    expect(after.ino).toBe(created.ino);
+  } finally {
+    await command("podman", ["rm", "--force", "--time=0", "--ignore", name]).catch(() => undefined);
+    await rm(directory, { recursive: true, force: true });
+  }
 }, 120_000);
 
 test("real isolated worker drains admitted host calls before invocation teardown", async () => {
