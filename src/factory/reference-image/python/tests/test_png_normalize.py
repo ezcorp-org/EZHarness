@@ -9,7 +9,7 @@ import zlib
 from reference_image.png_format import PngFormatError, PngHeader, parse_png
 from reference_image.png_normalize import decode_scanlines, encode_png, normalize_png
 
-from .helpers import SIGNATURE, chunk, filtered, header_bytes, make_png, solid_scanlines, text_chunk
+from . import SIGNATURE, chunk, filtered, header_bytes, make_png, solid_scanlines, text_chunk
 
 
 def _png_with_filters(width: int, height: int, filter_types: list[int], rows: list[bytes]) -> bytes:

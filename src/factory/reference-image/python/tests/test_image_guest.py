@@ -30,7 +30,7 @@ from reference_image.png_format import parse_png
 from reference_image.png_normalize import decode_scanlines, normalize_png
 from reference_image.sdxl import load_pipeline
 
-from .helpers import make_png, text_chunk, tsv
+from . import make_png, text_chunk, tsv
 
 CLAIM_INPUT = {
     "width": 4,

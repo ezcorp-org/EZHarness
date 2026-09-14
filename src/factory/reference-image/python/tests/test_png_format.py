@@ -13,7 +13,7 @@ from reference_image.png_format import (
     parse_png,
 )
 
-from .helpers import SIGNATURE, animation_control, chunk, header_bytes, make_png, text_chunk
+from . import SIGNATURE, animation_control, chunk, header_bytes, make_png, text_chunk
 
 
 class ParsePngTest(unittest.TestCase):

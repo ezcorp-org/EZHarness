@@ -28,7 +28,7 @@ from reference_image.ocr_report import OcrError, read_words
 from reference_image.png_format import parse_png
 from reference_image.png_normalize import normalize_png
 
-from .helpers import animation_control, chunk, make_png, text_chunk, tsv
+from . import animation_control, chunk, make_png, text_chunk, tsv
 
 REFERENCE = ImageConstraints(
     width=1024,

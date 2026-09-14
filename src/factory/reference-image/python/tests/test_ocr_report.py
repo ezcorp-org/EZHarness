@@ -14,7 +14,7 @@ from reference_image.ocr_report import (
     tesseract_command,
 )
 
-from .helpers import tsv
+from . import tsv
 
 
 class ParseTsvTest(unittest.TestCase):
