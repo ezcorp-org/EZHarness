@@ -16,6 +16,8 @@ import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { lockFactoryScope } from "../../factory/locks";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryReleaseAuthorityError, FactoryReleaseAuthorityStore, type FactoryReleaseRunLifecycle } from "../../factory/release-authority";
+import { FactoryReleasePublicationScopes, factoryReleasePublicationSet } from "../../factory/release-publication-set";
+import type { FactoryReleaseMaterial } from "../../factory/releases";
 import type { FactoryRunFence } from "../../factory/run-lifecycle";
 
 interface Fixture { readonly db: TransactionalDb; close(): Promise<void> }
@@ -193,6 +195,58 @@ test("historical terminal reader verifies every stored binding and preserves its
     finally { await database.execute(sql`UPDATE factory_execution_terminals SET ${sql.identifier(column)}=${original[column]} WHERE attempt_id=${admission.attemptId}`); }
   }
   expect(await read()).toEqual(receipt);
+});
+
+test("the publication scope reads its attempt id from the verified candidate pointer", async () => {
+  const admission = await admit(0, "node-publication");
+  const committed = await commitCandidate(admission, "publication", null);
+  const verified = await database.transaction(tx => authorityStore.readVerifiedCandidateInTransaction(tx, tenantId, { projectId, runId, nodeInstanceId: "node-publication", candidateGeneration: 0 }));
+  // The attempt id is the one the provenance-written pointer holds, not anything a caller passed.
+  expect(verified).toMatchObject({ attemptId: admission.attemptId, candidateGeneration: 0, candidateDigest: committed.candidateDigest });
+  expect(verified.artifact).toMatchObject({ digest: committed.candidateDigest });
+  const candidateArtifactId = verified.artifact.artifactId;
+  expect(Object.isFrozen(verified)).toBe(true);
+  await expect(database.transaction(tx => authorityStore.readVerifiedCandidateInTransaction(tx, "foreign-tenant", { projectId, runId, nodeInstanceId: "node-publication", candidateGeneration: 0 }))).rejects.toMatchObject({ code: "factory_release_authority_scope" });
+  await expect(database.transaction(tx => authorityStore.readVerifiedCandidateInTransaction(tx, tenantId, { projectId, runId, nodeInstanceId: "node-publication", candidateGeneration: 1 }))).rejects.toMatchObject({ code: "factory_release_authority_stale" });
+  await expect(database.transaction(tx => authorityStore.readVerifiedCandidateInTransaction(tx, tenantId, { projectId, runId, nodeInstanceId: "node-never-committed", candidateGeneration: 0 }))).rejects.toMatchObject({ code: "factory_release_authority_stale" });
+
+  const scopes = new FactoryReleasePublicationScopes({ database, tenantId, authority: authorityStore });
+  const material: FactoryReleaseMaterial = { decisionId: "decision-publication", evidence: [{ note: "one evidence reference" }], packageTrustDigest: `sha256:${"a".repeat(64)}`, validatorTrustDigest };
+  const operationId = `factory-release:${"b".repeat(64)}`;
+  await expect(scopes.resolve(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_release_publication_scope_unknown" });
+  await expect(scopes.resolve("foreign-tenant", operationId, material)).rejects.toMatchObject({ code: "factory_release_scope" });
+
+  // One release operation row, identical to what `prepare` writes, without the release store. The
+  // contract and decision rows exist only to satisfy the operation's foreign keys.
+  await database.execute(sql`INSERT INTO factory_acceptance_contracts (tenant_id,project_id,contract_id,revision,contract_digest,validator_lock_digest,mandatory_claims,claim_groups,approved_by,approval_grant_revision) VALUES (${tenantId},${projectId},'contract-publication',1,${`sha256:${"c".repeat(64)}`},${validatorTrustDigest},'[]','[]',${admin.id},1)`);
+  await database.execute(sql`INSERT INTO factory_acceptance_decisions (tenant_id,project_id,decision_id,contract_id,contract_revision,contract_digest,candidate_digest,evidence_set_digest,decision_digest,run_id,node_instance_id,candidate_generation,execution_epoch,cancellation_epoch) VALUES (${tenantId},${projectId},'decision-publication','contract-publication',1,${`sha256:${"c".repeat(64)}`},${committed.candidateDigest},${`sha256:${"7".repeat(64)}`},${`sha256:${"8".repeat(64)}`},${runId},'node-publication',0,1,${lifecycleCancellationEpoch})`);
+  await database.execute(sql`INSERT INTO factory_release_operations (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state) VALUES (${tenantId},${projectId},${operationId},${runId},'node-publication',0,${committed.candidateDigest},'decision-publication',${`sha256:${"c".repeat(64)}`},1,${lifecycleCancellationEpoch},1,'publish','github','ezcorp-org/repository','pull-request',${`sha256:${"d".repeat(64)}`},'{}',${`sha256:${"e".repeat(64)}`},'{}',${`sha256:${"f".repeat(64)}`},0,${deadlineAtMs},'pending')`);
+  // The candidate artifact is not a sealed material yet, so no readable scope exists and
+  // publication must stay pending rather than archive against a guessed one.
+  await expect(scopes.resolve(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_release_publication_scope_unavailable" });
+
+  await database.execute(sql`INSERT INTO factory_artifact_materials (tenant_id,project_id,run_id,attempt_id,operation_id,object_name,version,media_type,digest,total_bytes,chunk_count,storage_version,sealed,object_id) VALUES (${tenantId},${projectId},${runId},${admission.attemptId},'material-operation-1','candidate',1,'application/octet-stream',${committed.candidateDigest},1,1,'v1',TRUE,${candidateArtifactId})`);
+  const resolved = await scopes.resolve(tenantId, operationId, material);
+  expect(resolved.scope).toEqual({ tenantId, projectId, runId, attemptId: admission.attemptId, operationId: "material-operation-1" });
+  expect(resolved.candidate).toEqual(verified.artifact);
+
+  // A sealed material another real attempt wrote is never reachable through this operation's scope.
+  const other = await admit(0, "node-publication-other");
+  await database.execute(sql`UPDATE factory_artifact_materials SET attempt_id=${other.attemptId} WHERE object_id=${candidateArtifactId}`);
+  await expect(scopes.resolve(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_release_publication_scope_unavailable" });
+  await database.execute(sql`UPDATE factory_artifact_materials SET attempt_id=${admission.attemptId} WHERE object_id=${candidateArtifactId}`);
+
+  // An operation whose candidate digest no longer matches the verified pointer is refused.
+  await database.execute(sql`UPDATE factory_release_operations SET candidate_digest=${`sha256:${"9".repeat(64)}`} WHERE operation_id=${operationId}`);
+  await expect(scopes.resolve(tenantId, operationId, material)).rejects.toMatchObject({ code: "factory_release_publication_scope_unavailable" });
+  await database.execute(sql`UPDATE factory_release_operations SET candidate_digest=${committed.candidateDigest} WHERE operation_id=${operationId}`);
+
+  // The publication set is the seam the archive writer consumes, and it plans the same members.
+  const controller = new AbortController(); controller.abort();
+  await expect(factoryReleasePublicationSet(scopes).plan(tenantId, operationId, material, controller.signal)).rejects.toBeInstanceOf(DOMException);
+  const planned = await factoryReleasePublicationSet(scopes).plan(tenantId, operationId, material);
+  expect(planned.map(item => item.role)).toEqual(["candidate"]);
+  expect(planned[0]).toMatchObject({ memberName: "candidate", scope: resolved.scope, artifact: verified.artifact });
 });
 
 test("candidate slots separate nodes and generations and deny a foreign-node terminal", async () => {

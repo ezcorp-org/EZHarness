@@ -64,6 +64,18 @@ export interface FactoryValidationCandidate {
   readonly validatorLockDigest: string;
 }
 
+/** The verified attempt behind an accepted candidate, and the artifact that attempt produced. */
+export interface FactoryVerifiedCandidateAttempt {
+  readonly projectId: string;
+  readonly runId: string;
+  readonly nodeInstanceId: string;
+  readonly candidateGeneration: number;
+  readonly candidateDigest: string;
+  /** Written from the protected command provenance, never from caller input. */
+  readonly attemptId: string;
+  readonly artifact: FactoryArtifactReference;
+}
+
 export interface FactoryCurrentCandidateCommit {
   readonly authority: FactoryAttemptAuthority;
   readonly result: FactoryRunnerResult;
@@ -219,7 +231,7 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
     const fence = await this.lifecycle.authorizeRunInTransaction(transaction, { projectId, runId });
     const control = await this.requireControl(transaction, projectId);
     const trust = await this.requireTrust(transaction, projectId, "share", true);
-    const candidate = rows<CandidateRow>(await transaction.execute(sql`SELECT c.candidate_generation,c.candidate_digest,c.attempt_id,c.pointer_revision,h.execution_epoch,h.cancellation_epoch,h.terminal_fact_digest,h.output_artifact_id,h.output_bytes,h.trust_revision,h.package_trust_digest,h.validator_trust_digest,h.proof_digest FROM factory_release_current_candidates c JOIN factory_release_candidate_history h ON h.tenant_id=c.tenant_id AND h.project_id=c.project_id AND h.run_id=c.run_id AND h.node_instance_id=c.node_instance_id AND h.candidate_generation=c.candidate_generation WHERE c.tenant_id=${this.tenantId} AND c.project_id=${projectId} AND c.run_id=${runId} AND c.node_instance_id=${nodeInstanceId} FOR SHARE`))[0];
+    const candidate = await this.currentCandidateRow(transaction, projectId, runId, nodeInstanceId);
     if (!candidate || Number(candidate.execution_epoch) !== fence.executionEpoch || Number(candidate.cancellation_epoch) !== fence.cancellationEpoch || Number(candidate.trust_revision) !== trust.revision || candidate.package_trust_digest !== trust.packageTrustDigest || candidate.validator_trust_digest !== trust.validatorTrustDigest) throw new FactoryReleaseAuthorityError("factory_release_authority_stale");
     await this.verifyCandidate(transaction, projectId, runId, nodeInstanceId, candidate, trust);
     return { runId, nodeInstanceId, candidateGeneration: Number(candidate.candidate_generation), candidateDigest: candidate.candidate_digest, executionEpoch: fence.executionEpoch, cancellationEpoch: fence.cancellationEpoch, releaseEnableEpoch: control.enableEpoch, deadlineMs: fence.deadlineAtMs, status: fence.status, packageTrustDigest: trust.packageTrustDigest, validatorTrustDigest: trust.validatorTrustDigest };
@@ -233,7 +245,7 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
     counter(key.candidateGeneration, 0);
     const fence = await this.lifecycle.authorizeRunInTransaction(transaction, { projectId: key.projectId, runId: key.runId });
     const trust = await this.requireTrust(transaction, key.projectId, "share", true);
-    const candidate = rows<CandidateRow>(await transaction.execute(sql`SELECT c.candidate_generation,c.candidate_digest,c.attempt_id,c.pointer_revision,h.execution_epoch,h.cancellation_epoch,h.terminal_fact_digest,h.output_artifact_id,h.output_bytes,h.trust_revision,h.package_trust_digest,h.validator_trust_digest,h.proof_digest FROM factory_release_current_candidates c JOIN factory_release_candidate_history h ON h.tenant_id=c.tenant_id AND h.project_id=c.project_id AND h.run_id=c.run_id AND h.node_instance_id=c.node_instance_id AND h.candidate_generation=c.candidate_generation WHERE c.tenant_id=${this.tenantId} AND c.project_id=${key.projectId} AND c.run_id=${key.runId} AND c.node_instance_id=${key.nodeInstanceId} AND c.candidate_generation=${key.candidateGeneration} FOR SHARE`))[0];
+    const candidate = await this.currentCandidateRow(transaction, key.projectId, key.runId, key.nodeInstanceId, key.candidateGeneration);
     if (!candidate || Number(candidate.execution_epoch) !== fence.executionEpoch || Number(candidate.cancellation_epoch) !== fence.cancellationEpoch || Number(candidate.trust_revision) !== trust.revision || candidate.package_trust_digest !== trust.packageTrustDigest || candidate.validator_trust_digest !== trust.validatorTrustDigest) throw new FactoryReleaseAuthorityError("factory_release_authority_stale");
     await this.verifyCandidate(transaction, key.projectId, key.runId, key.nodeInstanceId, candidate, trust);
     return {
@@ -260,6 +272,43 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
     if (trust.revision !== Number(candidate.trust_revision) || trust.packageTrustDigest !== candidate.package_trust_digest || trust.validatorTrustDigest !== candidate.validator_trust_digest) throw new FactoryReleaseAuthorityError("factory_release_material_stale");
     await this.verifyCandidate(transaction, accepted.projectId, accepted.runId, accepted.nodeInstanceId, candidate, trust);
     return { decisionId: accepted.decisionId, packageTrustDigest: candidate.package_trust_digest, validatorTrustDigest: candidate.validator_trust_digest, evidence: evidence.map(item => ({ evidenceId: item.evidence_id, validatorId: item.validator_id, evidenceDigest: item.evidence_digest, artifact: { artifactId: item.artifact_id, digest: item.artifact_digest, encodedBytes: Number(item.artifact_bytes) } })) };
+  }
+
+  /**
+   * The one query for the current candidate pointer and the history row it names.
+   *
+   * Three callers need it, and they differ only in whether they pin the generation. Keeping one
+   * copy means the pointer, the history join, and the share lock cannot drift between them.
+   */
+  private async currentCandidateRow(transaction: MigrationDb, projectId: string, runId: string, nodeInstanceId: string, candidateGeneration?: number): Promise<CandidateRow | undefined> {
+    const generation = candidateGeneration === undefined ? sql`` : sql`AND c.candidate_generation=${candidateGeneration}`;
+    return rows<CandidateRow>(await transaction.execute(sql`SELECT c.candidate_generation,c.candidate_digest,c.attempt_id,c.pointer_revision,h.execution_epoch,h.cancellation_epoch,h.terminal_fact_digest,h.output_artifact_id,h.output_bytes,h.trust_revision,h.package_trust_digest,h.validator_trust_digest,h.proof_digest FROM factory_release_current_candidates c JOIN factory_release_candidate_history h ON h.tenant_id=c.tenant_id AND h.project_id=c.project_id AND h.run_id=c.run_id AND h.node_instance_id=c.node_instance_id AND h.candidate_generation=c.candidate_generation WHERE c.tenant_id=${this.tenantId} AND c.project_id=${projectId} AND c.run_id=${runId} AND c.node_instance_id=${nodeInstanceId} ${generation} FOR SHARE`))[0];
+  }
+
+  /**
+   * The attempt the protected command provenance verified for one accepted candidate.
+   *
+   * `completeCurrentCandidateInTransaction` writes this pointer from the succeeded, stopped,
+   * non-uncertain attempt that `protected-command-provenance.ts` traced, so the attempt id here
+   * is never caller input. The publication set reads it to build the attempt-scoped material
+   * scope the archive writer needs.
+   */
+  async readVerifiedCandidateInTransaction(transaction: MigrationDb, tenantId: string, key: FactoryCandidateKey): Promise<FactoryVerifiedCandidateAttempt> {
+    key = JSON.parse(canonicalJson(key)) as FactoryCandidateKey;
+    if (tenantId !== this.tenantId) throw new FactoryReleaseAuthorityError("factory_release_authority_scope");
+    assertFactoryIdentity(key.projectId, key.runId, key.nodeInstanceId);
+    counter(key.candidateGeneration, 0);
+    const trust = await this.requireTrust(transaction, key.projectId, "share", true);
+    const candidate = await this.currentCandidateRow(transaction, key.projectId, key.runId, key.nodeInstanceId, key.candidateGeneration);
+    if (!candidate || Number(candidate.trust_revision) !== trust.revision || candidate.package_trust_digest !== trust.packageTrustDigest || candidate.validator_trust_digest !== trust.validatorTrustDigest) throw new FactoryReleaseAuthorityError("factory_release_authority_stale");
+    await this.verifyCandidate(transaction, key.projectId, key.runId, key.nodeInstanceId, candidate, trust);
+    assertFactoryIdentity(candidate.attempt_id, candidate.output_artifact_id);
+    return Object.freeze({
+      projectId: key.projectId, runId: key.runId, nodeInstanceId: key.nodeInstanceId,
+      candidateGeneration: Number(candidate.candidate_generation), candidateDigest: candidate.candidate_digest,
+      attemptId: candidate.attempt_id,
+      artifact: Object.freeze({ artifactId: candidate.output_artifact_id, digest: candidate.candidate_digest, encodedBytes: Number(candidate.output_bytes) }),
+    });
   }
 
   private assertFence(authority: FactoryAttemptAuthority, fence: FactoryRunFence): void {

@@ -9,6 +9,7 @@ import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryNotificationDelivery } from "../../factory/notification-delivery";
 import { FactoryReleaseApplication } from "../../factory/release-application";
+import { FactoryDestinationReservations, FactoryStoreSenderFence } from "../../factory/release-destinations";
 import { FACTORY_RELEASE_RESOLVE_TIMEOUT_MS, sealFactoryReleaseProfileResult } from "../../factory/release-profile";
 import { factoryRequestedReleaseProfile, FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
 import { FACTORY_BRANCH_NAMESPACE, FACTORY_BRANCH_REF_PREFIX, factoryGitBranchBinding, factoryOperationIdFromRef } from "../../factory/release-git-refs";
@@ -647,6 +648,80 @@ test("no provider proof and no archive write happens inside an open transaction"
     "archive.write:intent", "archive.write:material", "archive.write:receipt", "archive.write:reconciliation", "archive.read",
     "provider.publish", "provider.verifyReceipt", "provider.proveNoEffect", "fence.proveStopped",
   ]));
+});
+
+test("the production destination reservation and sender fence answer from durable facts only", async () => {
+  const reservations = new FactoryDestinationReservations({ database, tenantId });
+  const fence = new FactoryStoreSenderFence({ database, tenantId, quietPeriodMs: 60_000 });
+  const store = new FactoryReleases(database, tenantId, grants, assurance, materials, authority, reservations, archive, fence, () => now);
+  const destination = { provider: "fixture", account: "account-a", object: "releases/durable-destination" };
+
+  // Nothing has published here, so the destination reports no version and a first claim may take it.
+  const first = await prepareRelease(admin, request("durable-first", { destination }), mutationKey("durable-first"), store);
+  expect(await database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).toEqual({ currentVersion: null });
+  const claim = await store.claim(admin, projectId, first.operationId, { kind: "approval", approvalId: await approved(first) });
+  const settled = await store.dispatch(claim, provider);
+  expect(settled).toMatchObject({ state: "succeeded" });
+
+  // After the confirmed receipt the version is the provider's own, read from the receipt the
+  // platform stored rather than from the remote system.
+  expect(await database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).toEqual({ currentVersion: settled.receipt!.version });
+  await expect(database.transaction(transaction => reservations.reserveInTransaction(transaction, "foreign-tenant", first))).rejects.toMatchObject({ code: "factory_release_scope" });
+  await expect(database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, { ...first, tenantId: "foreign-tenant" }))).rejects.toMatchObject({ code: "factory_release_scope" });
+
+  // A second operation aimed at the same object sees that version, so a claim declaring none fails.
+  const second = await prepareRelease(admin, request("durable-second", { destination, nodeInstanceId: candidate.nodeInstanceId, action: "publish-again" }), mutationKey("durable-second"), store);
+  await expect(store.claim(admin, projectId, second.operationId, { kind: "approval", approvalId: await approved(second) })).rejects.toMatchObject({ code: "factory_release_destination_changed" });
+
+  // A corrupt stored receipt is corruption, not a version.
+  await database.execute(sql`UPDATE factory_release_operations SET receipt_json='not json' WHERE operation_id=${first.operationId}`);
+  await expect(database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).rejects.toMatchObject({ code: "factory_release_corrupt" });
+  await database.execute(sql`UPDATE factory_release_operations SET receipt_json=${canonicalJson({ ...settled.receipt!, object: "another-object" })} WHERE operation_id=${first.operationId}`);
+  await expect(database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).rejects.toMatchObject({ code: "factory_release_corrupt" });
+  await database.execute(sql`UPDATE factory_release_operations SET receipt_json=${canonicalJson({ ...settled.receipt!, version: "" })} WHERE operation_id=${first.operationId}`);
+  await expect(database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).rejects.toMatchObject({ code: "factory_release_corrupt" });
+  await database.execute(sql`UPDATE factory_release_operations SET receipt_json=${canonicalJson(settled.receipt!)} WHERE operation_id=${first.operationId}`);
+  await database.execute(sql`UPDATE factory_release_destination_reservations SET state='released' WHERE operation_id=${first.operationId}`);
+  expect(await database.transaction(transaction => reservations.reserveInTransaction(transaction, tenantId, first))).toEqual({ currentVersion: null });
+  await database.execute(sql`UPDATE factory_release_destination_reservations SET state='confirmed' WHERE operation_id=${first.operationId}`);
+
+  // The sender fence: an uncertain operation whose row was just written is not yet quiet.
+  const lost = await prepareRelease(admin, request("durable-fence", { destination: { ...destination, object: "releases/durable-fence" } }), mutationKey("durable-fence"), store);
+  const lostClaim = await store.claim(admin, projectId, lost.operationId, { kind: "approval", approvalId: await approved(lost) });
+  provider.loseResponse = true;
+  const uncertain = await store.dispatch(lostClaim, provider);
+  provider.loseResponse = false;
+  expect(uncertain).toMatchObject({ state: "uncertain" });
+  const evidence = { operationId: lost.operationId };
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, evidence)).toBe(false);
+
+  // Age the row past the quiet period and the same facts now prove the sender cannot send again.
+  await database.execute(sql`UPDATE factory_release_operations SET updated_at=NOW() - INTERVAL '1 hour' WHERE operation_id=${lost.operationId}`);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, evidence)).toBe(true);
+
+  // Nothing an operator supplies can substitute for those facts.
+  expect(await fence.proveStopped(uncertain, "another-token", evidence)).toBe(false);
+  expect(await fence.proveStopped(uncertain, "", evidence)).toBe(false);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, { operationId: "another-operation" })).toBe(false);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, null)).toBe(false);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, [evidence])).toBe(false);
+  expect(await fence.proveStopped({ ...uncertain, dispatchGeneration: uncertain.dispatchGeneration + 1 }, lostClaim.senderToken, evidence)).toBe(false);
+  expect(await fence.proveStopped({ ...uncertain, operationId: `factory-release:${"0".repeat(64)}` }, lostClaim.senderToken, evidence)).toBe(false);
+  expect(await fence.proveStopped({ ...uncertain, senderToken: "another-token" }, "another-token", evidence)).toBe(false);
+  await expect(fence.proveStopped({ ...uncertain, tenantId: "foreign-tenant" }, lostClaim.senderToken, evidence)).rejects.toMatchObject({ code: "factory_release_scope" });
+  const aborted = new AbortController(); aborted.abort();
+  await expect(fence.proveStopped(uncertain, lostClaim.senderToken, evidence, aborted.signal)).rejects.toBeInstanceOf(DOMException);
+
+  // A settled operation has no sender to fence.
+  await database.execute(sql`UPDATE factory_release_operations SET state='succeeded' WHERE operation_id=${lost.operationId}`);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, evidence)).toBe(false);
+  await database.execute(sql`UPDATE factory_release_operations SET state='uncertain',dispatch_started=FALSE WHERE operation_id=${lost.operationId}`);
+  expect(await fence.proveStopped(uncertain, lostClaim.senderToken, evidence)).toBe(false);
+  await database.execute(sql`UPDATE factory_release_operations SET dispatch_started=TRUE WHERE operation_id=${lost.operationId}`);
+
+  expect(() => new FactoryStoreSenderFence({ database, tenantId, quietPeriodMs: 0 })).toThrow("factory_release_invalid");
+  expect(new FactoryStoreSenderFence({ database, tenantId }).tenantId).toBe(tenantId);
+  expect(new FactoryDestinationReservations({ database, tenantId }).tenantId).toBe(tenantId);
 });
 
 test("a git destination binds one broker-namespace ref and refuses a receipt naming another", async () => {
