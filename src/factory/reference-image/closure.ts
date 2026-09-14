@@ -36,9 +36,12 @@ function pythonProject(): string {
  * isolated profile the attempt will use. A guest whose tests do not pass in the
  * image never becomes an artifact, which is what makes "it works on the host" an
  * insufficient claim here.
+ *
+ * The directory is a parameter so the missing-entrypoint refusal can be
+ * exercised. A guard that cannot be reached by a test is a guard nobody has
+ * checked still works.
  */
-export async function referenceImageGuestFiles(): Promise<WorkspaceFiles> {
-  const project = pythonProject();
+export async function referenceImageGuestFiles(project: string = pythonProject()): Promise<WorkspaceFiles> {
   const files: Record<string, string> = {};
   for (const entry of (await readdir(project)).sort()) {
     if (entry.endsWith(".py")) files[entry] = await readFile(join(project, entry), "utf8");
