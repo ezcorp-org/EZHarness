@@ -226,11 +226,18 @@ class ControlsTest(unittest.TestCase):
 class HostileTest(unittest.TestCase):
     def test_the_report_names_every_escape_and_the_two_facts_a_refusal_cannot_express(self) -> None:
         # Off a container this host is not confined, so the point here is the
-        # shape of the report and that a success is recorded as a breach rather
-        # than being swallowed. The guest suite proves the refusals themselves.
+        # shape of the report. The isolated guest suite proves the refusals.
         report = guest().hostile()
         self.assertEqual(
-            sorted(report), ["allRefused", "processesVisible", "refusals", "rootOwnedSecretPresent", "spawnedChild"]
+            sorted(report),
+            [
+                "allRefused",
+                "controlTmpWriteRefused",
+                "processesVisible",
+                "refusals",
+                "rootOwnedSecretPresent",
+                "spawnedChild",
+            ],
         )
         self.assertEqual(
             sorted(report["refusals"]),
@@ -253,12 +260,11 @@ class HostileTest(unittest.TestCase):
         )
         self.assertTrue(report["spawnedChild"]["spawned"])
 
-    def test_an_escape_that_succeeds_is_recorded_as_false_rather_than_ignored(self) -> None:
-        report = guest().hostile()
-        # This host is unconfined, so at least one write must have succeeded and
-        # been recorded as a breach. A report that cannot record one is useless.
-        self.assertIn(False, list(report["refusals"].values()))
-        self.assertFalse(report["allRefused"])
+    def test_the_probe_can_observe_a_success_so_an_all_refused_report_is_never_vacuous(self) -> None:
+        # The control write must succeed in every environment, including inside
+        # the guest, so a report of all-refused cannot be produced by a probe
+        # whose actions quietly do nothing.
+        self.assertFalse(guest().hostile()["controlTmpWriteRefused"])
 
     def test_a_payload_that_runs_is_raised_as_a_breach_and_one_that_cannot_run_is_a_refusal(self) -> None:
         with self.assertRaises(RuntimeError):

@@ -20,7 +20,7 @@ import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestDigest, factoryPytho
 
 type Fixture = { success: Array<{ name: string; kind: "request" | "result"; value: unknown }>; rejected: Array<{ name: string; kind: "request" | "result"; path: Array<string | number>; value: unknown }> };
 type Verdict = { ok: boolean; schemaId?: string; runtime?: string; code?: string; path?: Array<string | number> };
-type HostileReport = { refusals: Record<string, boolean>; allRefused: boolean; processesVisible: string[]; rootOwnedSecretPresent: boolean; spawnedChild: { spawned: boolean; capabilities: string; noNewPrivileges: string; seccomp: string; routes: string[] } };
+type HostileReport = { refusals: Record<string, boolean>; allRefused: boolean; controlTmpWriteRefused: boolean; processesVisible: string[]; rootOwnedSecretPresent: boolean; spawnedChild: { spawned: boolean; capabilities: string; noNewPrivileges: string; seccomp: string; routes: string[] } };
 type GuestControls = { uid: number; gid: number; capabilities: string; noNewPrivileges: string; seccomp: string; memoryMax: string; swapMax: string; cpuMax: string; pidsMax: string; routes: string[]; ipv6Routes: string[]; environment: string[]; devices: string[]; gpuDevices: string[]; writableRoot: boolean; distributions: string[]; python: string; runtime: string };
 
 const fixture = JSON.parse(await readFile(join(import.meta.dir, "fixtures/c02-conformance.json"), "utf8")) as Fixture;
@@ -158,6 +158,9 @@ test("every escape a hostile package would try is refused by the kernel inside t
     "execute-from-tmp": true,
   });
   expect(report.allRefused).toBe(true);
+  // The probe's own control: a write the guest is allowed to make must succeed,
+  // so an all-refused report can never be the result of a probe doing nothing.
+  expect(report.controlTmpWriteRefused).toBe(false);
   // A refusal to read a file that is simply absent would prove nothing.
   expect(report.rootOwnedSecretPresent).toBe(true);
   // Private PID namespace: the guest sees its own shim and its own process, and

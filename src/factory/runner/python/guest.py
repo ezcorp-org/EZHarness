@@ -275,19 +275,24 @@ class Guest:
         """A hostile task fixture, run inside the component environment.
 
         `refusals` are escapes a candidate package would try; each must be
-        refused by the kernel, so a `false` anywhere is a breach. `facts` are
-        two properties a refusal list cannot express: the guest sees no process
-        outside its own namespace, and a process it spawns is confined exactly
-        as it is, so spawning is not itself an escape.
+        refused by the kernel, so a `false` anywhere is a breach. The rest are
+        properties a refusal list cannot express: the probe's own control write,
+        which must succeed everywhere, which processes the guest can see, and
+        what a process it spawns inherits, because spawning inside the sandbox
+        is not itself an escape.
         """
         refusals: dict[str, bool] = {}
 
-        def refused(name: str, action: Callable[[], object]) -> None:
+        def attempt(action: Callable[[], object]) -> bool:
+            """True when the action was refused, false when it succeeded."""
             try:
                 action()
-                refusals[name] = False
             except (OSError, ValueError, RuntimeError, ImportError):
-                refusals[name] = True
+                return True
+            return False
+
+        def refused(name: str, action: Callable[[], object]) -> None:
+            refusals[name] = attempt(action)
 
         refused("write-workspace", lambda: Path("/workspace/escape.py").write_text("x", encoding="utf-8"))
         refused("replace-guest-source", lambda: Path("/workspace/guest.py").write_text("x", encoding="utf-8"))
@@ -306,6 +311,12 @@ class Guest:
             # A refusal to read a file that is simply absent would prove nothing,
             # so the target's presence is reported beside the refusal.
             "rootOwnedSecretPresent": Path("/etc/shadow").exists(),
+            # The probe's own control: writing the private tmpfs must succeed in
+            # every environment, so an all-refused report can never be the
+            # result of a probe that quietly does nothing.
+            "controlTmpWriteRefused": attempt(
+                lambda: (Path(tempfile.gettempdir()) / "control").write_text("x", encoding="utf-8")
+            ),
             "spawnedChild": _spawned_child_status(),
         }
 
