@@ -3145,6 +3145,36 @@ export const factoryTaskOutcomes = pgTable("factory_task_outcomes", {
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }), uniqueIndex("factory_task_outcomes_attempt_id_key").on(table.attemptId), foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"), check("factory_task_outcomes_input_digest_check", sql`${table.inputDigest} ~ '^sha256:[0-9a-f]{64}$'`), check("factory_task_outcomes_evidence_digest_check", sql`${table.evidenceDigest} ~ '^sha256:[0-9a-f]{64}$'`), check("factory_task_outcomes_receipt_digest_check", sql`${table.receiptDigest} ~ '^sha256:[0-9a-f]{64}$'`)]);
 
 /**
+ * Sealed usage settlements. One row per reservation revision, carrying the one
+ * idempotent `usage-settled` event the kernel folds.
+ */
+export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  reservationId: text("reservation_id").notNull(), revision: bigint("revision", { mode: "number" }).notNull(),
+  attemptId: text("attempt_id").notNull(),
+  source: text("source").notNull().$type<"stop" | "reconciliation">(),
+  knownCostMicros: text("known_cost_micros").notNull(),
+  unknownCostMicros: text("unknown_cost_micros"),
+  providerReceiptDigest: text("provider_receipt_digest"),
+  settledAtMs: bigint("settled_at_ms", { mode: "number" }).notNull(),
+  settlementDigest: text("settlement_digest").notNull(),
+  eventJson: text("event_json").notNull(), eventDigest: text("event_digest").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId, table.revision] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId], foreignColumns: [factoryBudgetReservations.tenantId, factoryBudgetReservations.projectId, factoryBudgetReservations.runId, factoryBudgetReservations.reservationId] }).onDelete("restrict"),
+  check("factory_usage_settlements_revision_check", sql`${table.revision} >= 1`),
+  check("factory_usage_settlements_source_check", sql`${table.source} IN ('stop','reconciliation')`),
+  check("factory_usage_settlements_known_cost_check", sql`${table.knownCostMicros} ~ '^[0-9]+$'`),
+  check("factory_usage_settlements_unknown_cost_check", sql`${table.unknownCostMicros} IS NULL OR ${table.unknownCostMicros} ~ '^[0-9]+$'`),
+  check("factory_usage_settlements_receipt_check", sql`${table.providerReceiptDigest} IS NULL OR ${table.providerReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_settled_at_ms_check", sql`${table.settledAtMs} >= 0`),
+  check("factory_usage_settlements_settlement_digest_check", sql`${table.settlementDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_event_digest_check", sql`${table.eventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_reconciliation_check", sql`${table.source} <> 'reconciliation' OR ${table.providerReceiptDigest} IS NOT NULL`),
+]);
+
+/**
  * Sealed cancellation, uncertain stop, and host-confirmed stop facts. Every
  * CHECK the migration declares is modeled here, so the PostgreSQL parity lane
  * compares one schema rather than two.

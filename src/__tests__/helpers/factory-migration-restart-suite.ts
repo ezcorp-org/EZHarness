@@ -121,6 +121,28 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
   });
 
+  test("the usage-settlement table keeps every revision and one row per provider receipt", async () => {
+    const db = fixture.db;
+    const reservationId = "restart-usage-reservation";
+    const digest = (fill: string) => `sha256:${fill.repeat(64)}`;
+    await db.execute(sql`INSERT INTO factory_budget_envelopes(tenant_id,project_id,run_id,envelope_id,request_digest,limits,allocated,spent,deadline_ms,state) VALUES ('restart-tenant','restart-project','restart-run','restart-usage-envelope',${digest("9")},'{"costMicros":"10","tokens":"10","computeMs":"10"}','{"costMicros":"0","tokens":"0","computeMs":"0"}','{"costMicros":"0","tokens":"0","computeMs":"0"}',9999999999999,'open')`);
+    await db.execute(sql`INSERT INTO factory_budget_reservations(tenant_id,project_id,run_id,reservation_id,envelope_id,request_digest,amount,state) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},'restart-usage-envelope',${digest("a")},'{"costMicros":"5","tokens":"5","computeMs":"5"}','uncertain')`);
+    await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},1,'restart-usage-attempt','stop','2','3',11,${digest("b")},'{}',${digest("c")})`);
+    await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},2,'restart-usage-attempt','reconciliation','5',${digest("d")},12,${digest("e")},'{}',${digest("f")})`);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      const stored = rows<{ revision: number | string; source: string; known_cost_micros: string; unknown_cost_micros: string | null }>(await db.execute(sql`SELECT revision,source,known_cost_micros,unknown_cost_micros FROM factory_usage_settlements WHERE reservation_id=${reservationId} ORDER BY revision`));
+      expect(stored.map(row => ({ ...row, revision: Number(row.revision) }))).toEqual([
+        { revision: 1, source: "stop", known_cost_micros: "2", unknown_cost_micros: "3" },
+        { revision: 2, source: "reconciliation", known_cost_micros: "5", unknown_cost_micros: null },
+      ]);
+      const duplicateReceipt = await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},3,'restart-usage-attempt','reconciliation','6',${digest("d")},13,${digest("e")},'{}',${digest("f")})`).then(() => null, (error: unknown) => error);
+      expect(duplicateReceipt).toBeInstanceOf(Error);
+      const reconciliationWithoutReceipt = await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},4,'restart-usage-attempt','reconciliation','6',13,${digest("e")},'{}',${digest("f")})`).then(() => null, (error: unknown) => error);
+      expect(reconciliationWithoutReceipt).toBeInstanceOf(Error);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);
