@@ -196,9 +196,13 @@ test("a guest writes real bytes to its material mount and the host reads them ba
     fs.writeFileSync("/materials/report.json", JSON.stringify({ rows: 3 }));
     fs.mkdirSync("/materials/partitions");
     fs.writeFileSync("/materials/partitions/part-0.bin", "0123456789");
-    // A guest CAN do this; the host's reader is what refuses to follow it.
-    try { fs.symlinkSync("/etc/passwd", "/materials/escape"); } catch {}
-    return { complete: true };
+    // A guest CAN do this; the host's reader is what refuses to follow it. The
+    // outcome is reported rather than swallowed, so the test asserts that the
+    // link was really planted instead of assuming it.
+    let planted = "no";
+    try { fs.symlinkSync("/etc/passwd", "/materials/escape"); planted = "yes"; }
+    catch (error) { planted = String(error && error.code); }
+    return { complete: true, planted };
   }`);
   try {
     // The directory is the host's, 0o700 to the runner, opened to the mapped
@@ -210,7 +214,9 @@ test("a guest writes real bytes to its material mount and the host reads them ba
     const context = { workerId, invocationId: randomUUID(), releaseId: build.artifactDigest!, principalId: "owner", scopeId: "global", token: "materials-token", deadline: Date.now() + 60_000 };
     const worker = await runner.start({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits, materials }, async () => null);
     try {
-      expect(await worker.request("extension/invoke", { name: "echo", input: {}, context })).toEqual({ complete: true });
+      // The guest reports that it really could create the symlink, so the
+      // host-side refusal below is a refusal of something that happened.
+      expect(await worker.request("extension/invoke", { name: "echo", input: {}, context })).toEqual({ complete: true, planted: "yes" });
     } finally { await worker.close(); }
 
     // The guest really planted the link, so the refusal below is not vacuous.
