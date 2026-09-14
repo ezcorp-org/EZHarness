@@ -305,11 +305,16 @@ class Reduce(GuestCase):
         return entries
 
     def reduce(self, entries: list[Json]) -> dict[str, Json]:
+        names: list[str] = []
+        for position, entry in enumerate(entries):
+            name = f"in/part-{position:05d}.summary.json"
+            self.stage(name, json.dumps(entry))
+            names.append(name)
         return self.invoke(
             "orderedReduce",
             {
                 "kind": "orderedReduce",
-                "partitions": entries,
+                "reports": names,
                 "snapshotDigest": digest(GOLDEN.encode()),
                 "snapshotBytes": len(GOLDEN),
                 "output": "out/manifest.json",
@@ -354,6 +359,24 @@ class Reduce(GuestCase):
         for entries in malformed:
             with self.subTest(entries=entries):
                 result = self.reduce(entries)
+                self.assertEqual(result["status"], "failed")
+                self.assertEqual(result["error"]["code"], "reference_data_command_invalid")
+
+    def test_refuses_a_report_name_that_is_not_a_string_or_not_readable(self) -> None:
+        for reports in ([5], ["in/absent.json"], ["in/broken.json"]):
+            with self.subTest(reports=reports):
+                self.stage("in/broken.json", "{not json")
+                result = self.invoke(
+                    "orderedReduce",
+                    {
+                        "kind": "orderedReduce",
+                        "reports": reports,
+                        "snapshotDigest": digest(GOLDEN.encode()),
+                        "snapshotBytes": len(GOLDEN),
+                        "output": "out/manifest.json",
+                        "report": f"out/dataset-{reports!s:.8}.json",
+                    },
+                )
                 self.assertEqual(result["status"], "failed")
                 self.assertEqual(result["error"]["code"], "reference_data_command_invalid")
 

@@ -294,9 +294,20 @@ def ordered_reduce(command: dict[str, Json]) -> dict[str, Json]:
     into place, because a partition that silently moved would still produce a
     manifest that added up.
     """
-    reported = command.get("partitions")
-    if not isinstance(reported, list) or not reported:
-        raise GuestError("the reduction takes a nonempty ordered list of partition results")
+    # The partition results arrive as MATERIALS, not inline. A hundred of them
+    # would not fit the 64 KiB a runner request may carry, and the command only
+    # has to name them.
+    names = command.get("reports")
+    if not isinstance(names, list) or not names:
+        raise GuestError("the reduction takes a nonempty ordered list of partition report names")
+    reported: list[Json] = []
+    for name in names:
+        if not isinstance(name, str):
+            raise GuestError("every partition report name must be a string")
+        try:
+            reported.append(json.loads(_read(name).decode("utf-8")))
+        except (ValueError, UnicodeDecodeError) as error:
+            raise GuestError(f"partition report {name!r} is not readable JSON") from error
     total = 0
     rows = 0
     categories: dict[str, dict[str, int]] = {}

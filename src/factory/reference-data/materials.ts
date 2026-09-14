@@ -105,6 +105,10 @@ export class ReferenceDataGuestDirectory {
     } finally {
       await handle.close();
     }
+    // `open`'s mode is masked by the process umask, and a host running under
+    // 077 would leave this 0600 - unreadable by the guest's uid, which is a
+    // different user in a different namespace. The mode is set, not requested.
+    await chmod(path, 0o644);
     return { digest: `sha256:${hasher.digest("hex")}`, totalBytes };
   }
 
