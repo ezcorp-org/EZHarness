@@ -1024,6 +1024,13 @@
   "src/factory/release-publication-set.ts": 100,
   "src/factory/git-objects.ts": 100,
   "src/factory/release-github.ts": 100,
+  "src/factory/reference-code/checks.ts": 100,
+  "src/factory/reference-code/fixtures.ts": 100,
+  "src/factory/reference-code/freeze.ts": 100,
+  "src/factory/reference-code/git-reader.ts": 100,
+  "src/factory/reference-code/scans.ts": 100,
+  "src/factory/reference-code/snapshot.ts": 100,
+  "src/factory/reference-code/workspace.ts": 100,
   "src/factory/release-s3-publication.ts": 100,
   "src/factory/release-s3-scope.ts": 100
 }
