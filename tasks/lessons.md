@@ -683,3 +683,39 @@
 - Share the exact flags between production and its security test. Exporting the mount builder and calling it from both means the test cannot quietly drift from what ships, which is the usual way a hardening regression stops testing the real configuration.
 - A guard that rejects correctly can still report badly. `O_NOFOLLOW` raises the kernel's own ELOOP, and a directory raises EISDIR, before any identity check runs, so two of the refusals surfaced as raw filesystem errors while the rest were typed. Wrap the whole open so every refusal leaves one typed error with the underlying code preserved; a caller should never have to tell a rejected substitution apart from an incidental I/O failure.
 - All worktrees share one `.git/config`. A `core.bare = true` written there (by any session) makes `git status`, `add`, and `commit` fail with "must be run in a work tree" in every checkout at once while `git log` still works. When workers stall without commits, check `git config --show-origin core.bare` before suspecting their code; never run `git config core.bare` or `git init --bare` in a worktree. With `extensions.worktreeConfig` enabled, `git config --worktree core.bare false` inside a worktree repairs that worktree without touching the shared file.
+
+## 2026-09-13 — W09 application and service startup
+
+- A gate with no input is not a gate. `assertFactoryBootReadiness` had shipped for weeks with an
+  `availableServices` parameter that defaulted to the empty array and no caller that ever supplied
+  one. Before trusting a readiness check, find its producer; a requirement index can record a
+  control as implemented when only half of it exists.
+- Reproduce the audit lead before deciding what it is. The initialization race is real in the module
+  and is currently unreachable over HTTP, because every route that initializes lazily calls
+  `requireAuth` first and resolving a principal needs the database initialization opens. That is one
+  `await` of distance, not a guarantee, so the fix still belongs at the source — but the report has
+  to say which of the two it is.
+- The in-flight promise is the latch. A boolean set before the work it stands for reports success
+  twice over: to a concurrent caller and to every caller after a failed attempt. Clearing the slot
+  on failure is what turns a transient outage into a slow start instead of a permanent one.
+- Name every missing dependency in one error. A parser that throws on the first bad field makes an
+  operator with three unset paths restart three times, and each restart is a new chance to read the
+  next field wrong.
+- Split the configuration check from the readiness check. My own composition called the readiness
+  half with an empty available set before probing, and it reported all seven services down before a
+  single probe ran. The test caught it; a reviewer reading the call site would not have.
+- An absent collaborator is a seam that refuses, never a stub that answers. A stop that reports
+  `stopped` with no stopped process and a release that reports `completed` with no receipt are
+  durable false facts, and they are indistinguishable from real ones the moment they are written.
+  Registering a held role as a loop that returns a plausible value is the same mistake wearing a
+  scheduler.
+- A type-only import links nothing. A regex over `from "..."` reported the host supervisor as
+  holding a product database handle it never touches, because it names `FactoryExecutionJournal`
+  under `import type`. A boundary check about what a process HOLDS has to separate erased imports
+  from real ones, which means an AST and not a pattern.
+- A changed file that no coverage include names is unmeasurable, and the patch gate says so rather
+  than passing. Two factory routes whose scope changed had no lcov data at all; adding them to the
+  Vitest include manifest widens what the gate measures, which is the only direction that is allowed.
+- Rebuild before believing a real-server receipt. The first probe run reported the OLD disabled
+  reason string because it ran against a build made before the fix; the code was right and the
+  evidence was stale.
