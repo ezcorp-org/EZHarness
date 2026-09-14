@@ -348,6 +348,23 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
     return { candidate, missing };
   }
 
+  /**
+   * Names the candidate and claims one attempt is bound to, or refuses.
+   *
+   * The dispatch adapter calls this before it records a terminal fact, so an ordinary task attempt
+   * can never be settled through the validator path and a validator attempt can never be settled
+   * through the kernel task path.
+   */
+  async readBoundAttemptInTransaction(transaction: MigrationDb, projectId: string, attemptId: string): Promise<{ readonly candidate: FactoryCandidateKey; readonly validatorIds: readonly string[] }> {
+    assertFactoryIdentity(projectId, attemptId);
+    const bound = rows<{ run_id: string; candidate_node_instance_id: string; candidate_generation: number | string; validator_id: string }>(await transaction.execute(sql`SELECT run_id,candidate_node_instance_id,candidate_generation,validator_id FROM factory_validator_assignments WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND validator_attempt_id=${attemptId} ORDER BY validator_id FOR SHARE`));
+    if (!bound.length) throw new FactoryTrustedValidatorError("factory_validator_assignment_missing");
+    const first = bound[0] as { run_id: string; candidate_node_instance_id: string; candidate_generation: number | string };
+    const candidate: FactoryCandidateKey = { projectId, runId: first.run_id, nodeInstanceId: first.candidate_node_instance_id, candidateGeneration: Number(first.candidate_generation) };
+    if (bound.some(row => row.run_id !== candidate.runId || row.candidate_node_instance_id !== candidate.nodeInstanceId || Number(row.candidate_generation) !== candidate.candidateGeneration)) throw new FactoryTrustedValidatorError("factory_validator_assignment_corrupt");
+    return { candidate, validatorIds: bound.map(row => row.validator_id) };
+  }
+
   async resolveValidatorInTransaction(transaction: MigrationDb, tenantId: string, key: FactoryCandidateKey, validatorId: string): Promise<FactoryTrustedEvidence> {
     if (tenantId !== this.tenantId) throw new FactoryTrustedValidatorError("factory_validator_scope");
     key = snapshot(key); text(validatorId);
@@ -376,6 +393,7 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
     const loaded = await this.artifacts.loadInTransaction(transaction, { tenantId: this.tenantId, projectId: candidate.projectId, logicalRunId: candidate.runId }, { objectId: result.output.artifactId, digest: result.output.digest, encodedBytes: result.output.encodedBytes }, ["candidate_output"]);
     if (loaded.candidateNodeInstanceId !== authority.nodeInstanceId || loaded.candidateGeneration !== authority.candidateGeneration) throw new FactoryTrustedValidatorError("factory_validator_terminal_untrusted");
     const outcome = strictClaimOutcome(loaded.content, validatorId);
+    await this.assertEvidenceScope(transaction, candidate, authority, outcome);
     const claims = [{ id: outcome.id, verdict: outcome.verdict, decisive: outcome.decisive }];
     const prior = rows<ResultRow>(await transaction.execute(sql`SELECT validator_id,verdict,report_digest,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest FROM factory_validator_results WHERE tenant_id=${this.tenantId} AND project_id=${candidate.projectId} AND validator_attempt_id=${authority.attemptId} AND validator_id=${validatorId} FOR SHARE`))[0];
     const timestamp = prior ? undefined : rows<{ issued_at_ms: number | string }>(await transaction.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM transaction_timestamp()) * 1000) AS issued_at_ms`))[0];
@@ -397,6 +415,36 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
     const saved = prior ?? rows<ResultRow>(await transaction.execute(sql`SELECT validator_id,verdict,report_digest,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest FROM factory_validator_results WHERE tenant_id=${this.tenantId} AND project_id=${candidate.projectId} AND validator_attempt_id=${authority.attemptId} AND validator_id=${validatorId} FOR SHARE`))[0];
     if (!saved || saved.validator_id !== validatorId || saved.verdict !== outcome.verdict || saved.report_digest !== reportDigest || saved.terminal_fact_digest !== terminal.terminalFactDigest || saved.artifact_id !== result.output.artifactId || saved.artifact_digest !== result.output.digest || Number(saved.artifact_bytes) !== result.output.encodedBytes || saved.evidence_digest !== evidenceDigest || saved.result_digest !== resultDigest || saved.claims_json !== canonicalJson(claims) || Number(saved.issued_at_ms) !== issuedAtMs || Number(saved.expires_at_ms) !== expiresAtMs) throw new FactoryTrustedValidatorError("factory_validator_result_conflict");
     return evidence;
+  }
+
+  /**
+   * Every evidence reference a claim carries must be something this exact attempt produced.
+   *
+   * A guest cannot mint an artifact reference, but it can name one it did not write, so the shape
+   * check in the SDK is not enough: a report could otherwise cite another attempt's material and
+   * make a repair read evidence that belongs to a different candidate. The only artifacts an
+   * attempt owns are the auxiliary materials it wrote under its own attempt id; its terminal output
+   * is the report itself and cannot cite itself. Anything else is out of scope and the claim is
+   * refused rather than trimmed.
+   */
+  private async assertEvidenceScope(transaction: MigrationDb, candidate: FactoryValidationCandidate, authority: FactoryAttemptAuthority, outcome: FactoryValidatorClaimOutcome): Promise<void> {
+    const references = outcome.evidence;
+    if (!references.length) return;
+    const identities = references.map(reference => reference.artifactId);
+    if (new Set(identities).size !== identities.length) throw new FactoryTrustedValidatorError("factory_validator_evidence_scope");
+    const owned = rows<{ object_id: string; digest: string; encoded_bytes: number | string; kind: string; material_attempt_id: string | null }>(await transaction.execute(sql`
+      SELECT artifact.object_id, artifact.digest, artifact.encoded_bytes, artifact.kind, material.attempt_id AS material_attempt_id
+      FROM factory_artifacts artifact
+      LEFT JOIN factory_artifact_materials material ON material.tenant_id=artifact.tenant_id AND material.project_id=artifact.project_id AND material.object_id=artifact.object_id
+      WHERE artifact.tenant_id=${this.tenantId} AND artifact.project_id=${candidate.projectId} AND artifact.run_id=${candidate.runId}
+        AND artifact.object_id IN (${sql.join(identities.map(identity => sql`${identity}`), sql`,`)})
+      FOR SHARE OF artifact`));
+    const byIdentity = new Map(owned.map(row => [row.object_id, row]));
+    for (const reference of references) {
+      const row = byIdentity.get(reference.artifactId);
+      if (!row || row.digest !== reference.digest || Number(row.encoded_bytes) !== reference.encodedBytes) throw new FactoryTrustedValidatorError("factory_validator_evidence_scope");
+      if (row.kind !== "material" || row.material_attempt_id !== authority.attemptId) throw new FactoryTrustedValidatorError("factory_validator_evidence_scope");
+    }
   }
 
   /**

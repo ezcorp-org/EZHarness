@@ -6,8 +6,9 @@ import { sql } from "drizzle-orm";
 import type { BlobStore } from "../../extensions/v4/types";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
-import { digestObject } from "../../extensions/v4/blobs";
+import { digestBytes, digestObject } from "../../extensions/v4/blobs";
 import { FactoryArtifacts, artifactJson } from "../../factory/artifacts";
+import { FactoryAttemptMaterials } from "../../factory/artifact-materials";
 import { FactoryAssurance, type FactoryContractRevision, type FactoryReleaseFenceReader } from "../../factory/assurance";
 import { FactoryExecutionJournal, type FactoryAttemptAdmission, type FactoryAttemptAuthority } from "../../factory/executions";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
@@ -315,4 +316,64 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
       await expect(database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, claimId))).rejects.toMatchObject({ code: "factory_validator_result_invalid" });
     }
   });
+
+  test("a claim may cite only the evidence its own attempt wrote", async () => {
+    const claimId = material.mandatoryClaims[0]!.validatorId;
+    const bytes = new TextEncoder().encode("validator findings");
+    const findingsDigest = `sha256:${digestBytes(bytes)}`;
+    let sequence = 0;
+
+    /**
+     * One repaired candidate, one bound validator attempt, and one auxiliary material that attempt
+     * wrote. Each round advances the candidate generation, because a candidate output is immutable
+     * and one attempt cannot publish two different reports.
+     */
+    async function round() {
+      sequence += 1;
+      const previous = Number(rows<{ candidate_generation: number | string }>(await database.execute(sql`SELECT candidate_generation FROM factory_release_current_candidates WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${runId} AND node_instance_id='candidate-node'`))[0]!.candidate_generation);
+      const generation = previous + 1;
+      const candidateAttempt = admission(`candidate-attempt-evidence-${sequence}`, "candidate-node", generation, candidateRunner, { kind: "inline", value: { request: `candidate-evidence-${sequence}` } });
+      await journal.admit(candidateAttempt);
+      const staged = await database.transaction(async transaction => {
+        const output = await artifacts.stageCandidateOutputInTransaction(transaction, { tenantId, projectId, logicalRunId: runId }, "candidate-node", generation, artifactJson.canonical({ candidate: `evidence-bytes-${sequence}` }));
+        await releases.completeCurrentCandidateInTransaction(transaction, { authority: candidateAttempt, result: completed(output), expectedCurrentGeneration: previous });
+        return output;
+      });
+      const candidate = { projectId, runId, nodeInstanceId: "candidate-node", candidateGeneration: generation };
+      const input = JSON.parse(canonicalJson({ candidate: { kind: "artifact", artifact: staged } })) as JsonValue;
+      const attempt = admission(`validator-attempt-evidence-${sequence}`, `validator-node-evidence-${sequence}`, generation, runtime.runner, { kind: "inline", value: input });
+      await journal.admit(attempt);
+      await database.transaction(transaction => validators.bindTaskAttemptInTransaction(transaction, { candidate, validatorIds: [claimId], authority: attempt, expectedInput: input }));
+      const materials = new FactoryAttemptMaterials({ database, artifacts, blobs: fixture.blobs, journal, authority: attempt });
+      const identity = { ...materials.scope(`${runId}:validator-node-evidence-${sequence}:${generation}:0`), objectName: "findings.txt", version: 1 };
+      await materials.begin(identity, "text/plain", bytes.byteLength, 1);
+      await materials.writeChunk(identity, { index: 0, digest: findingsDigest, encodedBytes: bytes.byteLength }, bytes);
+      return { candidate, attempt, owned: await materials.seal(identity, findingsDigest) };
+    }
+
+    const cited = (evidence: readonly unknown[]) => ({ schemaVersion: "factory.validator-claims.v1", claims: [{ id: claimId, verdict: "FAIL", decisive: true, summary: "findings attached", reasonCode: "fail", evidence, measuredAtMs: now }] });
+    const foreign = (await round()).owned;
+    for (const build of [
+      (_owned: FactoryArtifactReference) => foreign,
+      (owned: FactoryArtifactReference) => ({ ...owned, digest: digest("tampered-evidence") }),
+      (owned: FactoryArtifactReference) => ({ ...owned, encodedBytes: owned.encodedBytes + 1 }),
+      (owned: FactoryArtifactReference) => ({ ...owned, artifactId: "an-artifact-that-does-not-exist" }),
+    ]) {
+      const { candidate, attempt, owned } = await round();
+      await terminal(attempt, cited([build(owned)]));
+      await expect(database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, candidate, claimId))).rejects.toMatchObject({ code: "factory_validator_evidence_scope" });
+      expect(rows(await database.execute(sql`SELECT validator_id FROM factory_validator_results WHERE validator_attempt_id=${attempt.attemptId}`))).toEqual([]);
+    }
+
+    const duplicated = await round();
+    await terminal(duplicated.attempt, cited([duplicated.owned, duplicated.owned]));
+    await expect(database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, duplicated.candidate, claimId))).rejects.toMatchObject({ code: "factory_validator_evidence_scope" });
+
+    const accepted = await round();
+    await terminal(accepted.attempt, cited([accepted.owned]));
+    const evidence = await database.transaction(transaction => validators.resolveValidatorInTransaction(transaction, tenantId, accepted.candidate, claimId));
+    expect(evidence.claims).toEqual([{ id: claimId, verdict: "FAIL", decisive: true }]);
+    expect(rows(await database.execute(sql`SELECT verdict FROM factory_validator_results WHERE validator_attempt_id=${accepted.attempt.attemptId}`))).toEqual([{ verdict: "FAIL" }]);
+  });
+
 }

@@ -207,6 +207,7 @@
   "src/db/migrations/add-factory-child-artifact-aliases.ts": 100,
   "src/factory/child-artifacts.ts": 100,
   "src/factory/validator-scheduler.ts": 100,
+  "src/factory/validator-dispatch.ts": 100,
   "src/factory/release-profile.ts": 100,
   "src/factory/protected-command-effects.ts": 100,
   "src/factory/protected-command-provenance.ts": 100,
