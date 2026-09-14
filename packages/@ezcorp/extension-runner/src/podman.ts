@@ -214,8 +214,12 @@ export class PodmanRunner implements Runner {
    * its own descriptors; it can never reach the guest as end-of-input. This is
    * what `podman attach` could not give us: its stream is the container's stdin,
    * so a client's EOF always terminated the guest.
+   *
+   * This is the execution-launch seam. `launch` is still the seam for the build
+   * and typecheck guests, which are ordinary foreground subprocesses; a runner
+   * whose execution guest is not a podman container overrides this one too.
    */
-  private async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[]): Promise<FramedTransport> {
+  protected async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[]): Promise<FramedTransport> {
     const directory = this.channelDirectory(id);
     await mkdir(directory, { recursive: true, mode: CHANNEL_DIRECTORY_MODE });
     await chmod(directory, CHANNEL_DIRECTORY_MODE);
