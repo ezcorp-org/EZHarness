@@ -36,7 +36,7 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
     if (recovered) return this.settled(persisted, "terminal", async () => recovered);
 
     const claim = await this.options.launches.claimStart(attemptId);
-    if (!claim.claimed) return this.settled(claim.intent, "attached", () => this.durable(attemptId, "Recovered factory workers require a durable terminal result before another invocation."));
+    if (!claim.claimed) return this.reconnect(claim.intent);
 
     const claimed = claim.intent;
     let tokened: FactoryAttemptLaunchIntent;
@@ -70,6 +70,36 @@ export class FactoryRemoteAttemptRuntime implements FactoryAttemptRuntime {
   private async assertReady(intent: FactoryAttemptLaunchIntent): Promise<void> {
     const receipt = await this.options.readiness.assertDispatchReady(intent.request);
     if (receipt.receiptDigest !== intent.preparedPackage.receiptDigest || receipt.artifactDigest !== intent.preparedPackage.artifactDigest) throw new FactoryAttemptRuntimeError("invalid_launch", "Prepared package changed before the attempt token was minted.");
+  }
+
+  /**
+   * Rejoins an attempt another gateway already claimed.
+   *
+   * The durable claim says a launch happened, so this must never issue a second
+   * one; it reconnects over the same attach path the in-process runtime uses. A
+   * host that is still running the guest still holds its in-flight result, so a
+   * gateway that restarted mid-launch collects that result and records it rather
+   * than abandoning the attempt. A host that also restarted holds nothing, and
+   * the attempt stays uncertain rather than being guessed at.
+   */
+  private async reconnect(intent: FactoryAttemptLaunchIntent): Promise<FactoryAttemptOpen> {
+    const attemptId = intent.request.authority.attemptId;
+    let tokened: FactoryAttemptLaunchIntent;
+    try {
+      await this.assertReady(intent);
+      tokened = this.withToken(intent, await this.options.mintAttemptToken(intent.request));
+    } catch (error) {
+      // A live guest already holds authority, so nothing is released here.
+      await this.options.launches.state(attemptId, "uncertain");
+      throw error;
+    }
+    const handle = await this.options.transport.attach(tokened);
+    return this.settled(tokened, handle.disposition === "terminal" ? "terminal" : "attached", async () => {
+      const recorded = await this.options.launches.terminalResult(attemptId);
+      if (recorded) return recorded;
+      try { return await this.awaitResult(tokened); }
+      catch { throw new FactoryAttemptRuntimeError("launch_uncertain", "Recovered factory workers require a durable terminal result before another invocation."); }
+    });
   }
 
   /** The host's answer becomes durable before it is acknowledged, exactly as in process. */

@@ -3,7 +3,6 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InvocationContext, Runner, RunnerExecution, RunnerInspection, StartRequest } from "@ezcorp/extension-contract";
-import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { startFactoryPrivateHttps } from "./private-https";
 import { createFactoryHostLaunchClient, type FactoryHostLaunchTransport } from "./host-launch-client";
 import { createFactoryHostLaunchRouteHandler } from "./runner/host-launch-service";
@@ -112,6 +111,53 @@ test("an attempt launches, runs, and settles across a real mutual-TLS host bound
     expect(await recovered.wait()).toEqual(completed);
     expect(runnerA.starts).toBe(1);
     expect(runnerA.invocations).toBe(1);
+  } finally {
+    service.stop();
+    await fixture.close();
+  }
+}, 120_000);
+
+test("a gateway that restarts mid-launch rejoins the running attempt instead of launching again", async () => {
+  const root = await mkdtemp(join(tmpdir(), "factory-host-launch-rejoin-"));
+  directories.push(root);
+  const certs = await certificates(directories, "tenant-a");
+  const request = factoryLaunchRequest({ attemptId: "attempt-rejoin" });
+  const fixture = await createFactoryLaunchFixture(request);
+  const runner = new HostRunner();
+  const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: async () => ({ accepted: true }) });
+  const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
+  try {
+    const paths = await clientSecrets(root, certs);
+    const transport = await createFactoryHostLaunchClient({ baseUrl: service.url, tls: paths, serverName: "localhost", hostId });
+    const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+    const gateway = () => new FactoryRemoteAttemptRuntime({
+      launches: store, transport,
+      readiness: { assertDispatchReady: async () => factoryLaunchPackage(request) },
+      mintAttemptToken: async () => "minted-rejoin-token",
+      pool: { acknowledgeStart: async () => ({}) as never },
+      stop: async (intent) => stopReceipt(intent),
+    });
+
+    // The first gateway launches and then disappears without ever waiting, so
+    // the durable row says `launched` and no terminal result was recorded.
+    const first = await gateway().open(request, factoryLaunchLease, factoryLaunchPackage(request));
+    expect(first.disposition).toBe("started");
+    expect(runner.starts).toBe(1);
+    expect(await store.terminalResult("attempt-rejoin")).toBeUndefined();
+
+    // A replacement gateway loses the claim, so it must rejoin rather than
+    // start a second guest, and it collects the result the host is still holding.
+    const second = await gateway().open(request, factoryLaunchLease, factoryLaunchPackage(request));
+    expect(second.disposition).toBe("attached");
+    expect(second.workerId).toBe(first.workerId);
+    expect(second.invocationId).toBe(first.invocationId);
+    expect(await second.wait()).toEqual(completed);
+
+    // Exactly one launch and exactly one invocation across both gateways.
+    expect(runner.starts).toBe(1);
+    expect(runner.invocations).toBe(1);
+    expect(runner.attaches).toBe(0);
+    expect(await store.terminalResult("attempt-rejoin")).toEqual(completed);
   } finally {
     service.stop();
     await fixture.close();

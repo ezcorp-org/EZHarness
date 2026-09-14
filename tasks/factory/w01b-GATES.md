@@ -1,6 +1,6 @@
 # Gates: W01b attempt-dispatch driver and production host launch transport
 
-Branch `wp/w01b-attempt-dispatch`, from `integ/w00` at `1d3edf5b0`. Evidence under `/tmp/factory-platform-evidence/w01b/`.
+Branch `wp/w01b-attempt-dispatch`, cut from `integ/w00` at `1d3edf5b0`, which already contained W01's merge; then merged `integ/w00` at `2377caaa4` through merge commit `69a025e50` to take W03's work-list scans. Evidence under `/tmp/factory-platform-evidence/w01b/`.
 
 Status: **complete.** All six gates pass. Receipts in `/tmp/factory-platform-evidence/w01b/logs/`.
 
@@ -111,7 +111,7 @@ The `serviceTokenPath` file must exist and be non-empty because the shared gatew
 - [x] G4: Recovery and crash matrix over the wire.
   CHECK: bun test --timeout 180000 ./src/factory/host-launch-transport.integration.test.ts
   EXPECT: exactly one physical start, one invocation, and one broker effect across every failure
-  EVIDENCE: a lost launch response reconnects to the running guest instead of starting a second one; a restarted supervisor, which remembers nothing, reattaches from the intent alone and never issues a second invocation; a restarted gateway reads the same durable result and never invokes again. A host's memory is not a durable record, so a recovered wait with no recorded terminal stays uncertain rather than guessing.
+  EVIDENCE: a lost launch response reconnects to the running guest instead of starting a second one; a restarted supervisor, which remembers nothing, reattaches from the intent alone and never issues a second invocation; a restarted gateway reads the same durable result and never invokes again; and a gateway that restarts MID-LAUNCH, losing the durable claim to a prior gateway, rejoins over the attach path and collects the result the host is still holding, with exactly one launch and one invocation counted across both gateways. That last case was missing and is validator finding F1: the remote runtime previously answered a lost claim with uncertainty and never reconnected at all. A host that also restarted holds nothing, and the attempt then stays uncertain rather than being guessed at.
 
 - [x] G5: A queued attempt from a real product run executes in a real Podman guest through the supervisor process and its outcome is recorded, on PGlite and on real PostgreSQL.
   CHECK: flock /tmp/ezcorp-validation-heavy.lock bun test --timeout 300000 ./src/factory/host-launch-e2e.podman.integration.test.ts; and the same suite through `tests/postgres/factory-host-launch.test.ts` with `FACTORY_TEST_POSTGRES_URL`
