@@ -120,7 +120,7 @@ beforeEach(() => {
   const issuedAtMs = Math.floor(Date.now() / 1_000) * 1_000;
   credentials.issue.mockResolvedValue({ projectId: "project-1", serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read"], revision: 1, issuedByUserId: "member-1", issuedAtMs, expiresAtMs: issuedAtMs + 60_000, revoked: false });
   credentials.revoke.mockResolvedValue({ projectId: "project-1", serviceAccountId: "service-1", credentialId: "credential-1", scopes: ["read"], revision: 2, issuedByUserId: "member-1", issuedAtMs, expiresAtMs: issuedAtMs + 60_000, revoked: true });
-  const packageLock = { package: "@ezcorp/release", version: "1.0.0", digest: `sha256:${sourceDigest}`, export: "release" };
+  const packageLock = { package: "@ezcorp/release", manifestName: "release", version: "1.0.0", digest: `sha256:${sourceDigest}`, export: "release" };
   releaseAuthority.publishTrust.mockResolvedValue({ projectId: "project-1", revision: 1, state: "active", packageLock, packageTrustDigest: `sha256:${compiledBlobDigest}`, validatorTrustDigest: `sha256:${sourceDigest}`, approvedBy: "member-1", approvalGrantRevision: 1 });
   releaseAuthority.revokeTrust.mockResolvedValue({ projectId: "project-1", revision: 2, state: "revoked", packageLock, packageTrustDigest: `sha256:${compiledBlobDigest}`, validatorTrustDigest: `sha256:${sourceDigest}`, approvedBy: "member-1", approvalGrantRevision: 1 });
   releaseAuthority.setReleaseEnabled.mockResolvedValue({ projectId: "project-1", enabled: true, enableEpoch: 1 });
@@ -422,7 +422,7 @@ describe("factory definition and grant routes", () => {
 
 describe("factory release authority routes", () => {
   const path = { projectId: "project-1" };
-  const packageLock = { package: "@ezcorp/release", version: "1.0.0", digest: `sha256:${sourceDigest}`, export: "release" };
+  const packageLock = { package: "@ezcorp/release", manifestName: "release", version: "1.0.0", digest: `sha256:${sourceDigest}`, export: "release" };
 
   test("checks the feature and application before authentication or body parsing", async () => {
     state.enabled = false;

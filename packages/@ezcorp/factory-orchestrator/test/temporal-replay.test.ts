@@ -27,7 +27,7 @@ let historyDirectory = "";
 const hash = (value) => `sha256:${createHash("sha256").update(value).digest("hex")}`;
 const eventHash = (event) => hash(canonicalizeJson(event));
 const packageDigest = hash("inert-package");
-const runner = { package: "inert", version: "1", digest: packageDigest, export: "run" };
+const runner = { package: "inert", manifestName: "inert", version: "1", digest: packageDigest, export: "run" };
 const node = { id: "work", kind: "task", runner, deadlineMs: 600_000 };
 const lazyDataInput = { data: { type: "object", properties: { label: { type: "string" } }, required: ["label"] } };
 

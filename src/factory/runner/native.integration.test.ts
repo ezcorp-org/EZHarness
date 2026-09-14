@@ -28,7 +28,7 @@ const request: FactoryRunnerRequest = {
   schemaVersion: "factory.runner.request.v1",
   checkpoint: { ...checkpoint, journalCursor: 4 },
   authority: { attemptId: "attempt", tenantId: "tenant", projectId: "project", runId: "run", nodeInstanceId: "node", candidateGeneration: 0, attemptNumber: 0, grantRevision: 0, reservationGeneration: 0, executionEpoch: 0, cancellationEpoch: 0, deadlineAtMs: 2_000_000_000_000, nextOperationIndex: 5 },
-  runner: { package: "runner", version: "1", digest: pinned, export: "run" }, input: { kind: "inline", value: { prompt: "native" } }, grants: [], resources: {}, model: { provider: "broker", model: "model", configurationDigest: pinned, configuration: { temperature: 0 }, policyDigest: pinned, policy: { allow: true } }, tools: [], broker: { attemptToken: "attempt-token", audience: "gateway" },
+  runner: { package: "runner", manifestName: "runner", version: "1", digest: pinned, export: "run" }, input: { kind: "inline", value: { prompt: "native" } }, grants: [], resources: {}, model: { provider: "broker", model: "model", configurationDigest: pinned, configuration: { temperature: 0 }, policyDigest: pinned, policy: { allow: true } }, tools: [], broker: { attemptToken: "attempt-token", audience: "gateway" },
 };
 
 test("native Bun entrypoint executes through the shared factory runtime and derives its result from journal evidence", async () => {

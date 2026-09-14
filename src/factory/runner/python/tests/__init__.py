@@ -72,7 +72,8 @@ def request(**overrides: Json) -> dict[str, Json]:
             "nextOperationIndex": 0,
         },
         "runner": {
-            "package": "factory-python-runner",
+            "package": "@ezcorp/factory-python-runner",
+            "manifestName": "factory-python-runner",
             "version": "1.0.0",
             "digest": f"sha256:{DIGEST}",
             "export": "run",

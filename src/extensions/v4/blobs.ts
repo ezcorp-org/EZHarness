@@ -4,14 +4,20 @@ import { mkdir, open, link, unlink, realpath, lstat, type FileHandle } from "nod
 import { resolve, join } from "node:path";
 import { AbortMultipartUploadCommand, CompleteMultipartUploadCommand, CreateMultipartUploadCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client, UploadPartCommand } from "@aws-sdk/client-s3";
 import { canonicalJson, validateArtifactFiles, validateWorkspaceFiles, validateWorkspacePath, type WorkspaceFiles } from "@ezcorp/extension-contract";
+import { digestBytes } from "./digest";
 import { LifecycleError, type BlobStore } from "./types";
 import { idempotencyInputDigest } from "../../idempotency";
 
 export { canonicalJson } from "@ezcorp/extension-contract";
+// The pure digests live in `digest.ts` so a caller that needs only a hash does not pull in an S3
+// client. Re-exported here because every existing caller imports them from this module.
+export { digestBytes } from "./digest";
 
-export function digestBytes(bytes: Uint8Array): string {
-  return createHash("sha256").update(bytes).digest("hex");
+export function digestObject(value: unknown): string {
+  return idempotencyInputDigest(value);
 }
+
+
 
 const MAX_BLOB_BYTES = 192 * 1024 * 1024;
 const S3_MIN_PART_BYTES = 5 * 1024 * 1024;
@@ -210,9 +216,7 @@ export class S3BlobStore implements BlobStore {
   }
 }
 
-export function digestObject(value: unknown): string {
-  return idempotencyInputDigest(value);
-}
+
 
 export function validatePath(path: string): void {
   try { validateWorkspacePath(path); } catch { throw new LifecycleError("invalid_path", "Use a bounded relative file path without traversal."); }

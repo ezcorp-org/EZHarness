@@ -2660,3 +2660,144 @@ The one thing I would flag hardest for the coordinator is not a defect in this p
 each built a publication-scope resolver that reads the verified attempt id, by two different durable
 paths. Both are correct and neither takes caller input, but one concept with two implementations is
 what C13 forbids, and collapsing them crosses both packages' files.
+
+## W10 — real code reference pack (Sol domain)
+
+Branch `wp/w10-code-pack` from `integ/w00` at `1d3edf5b0`. Gate file:
+`tasks/factory/w10-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w10/`.
+
+- [x] Pinned repository snapshot over real git, refusing symlinks, submodules, branch names, and
+      short prefixes by name.
+- [x] Native generator with the contract's twelve-iteration bound enforced in the runner.
+- [x] Complete-tree freeze producing exactly the request W07's adapter validates, with the pinned
+      base as the candidate commit's only parent, checked against real git.
+- [x] Dependency, build, type, and test checks against the real Bun and TypeScript toolchain, on a
+      disposable copy whose input tree digest is verified.
+- [x] Pinned advisory and secret scans, reporting findings without quoting the credential found.
+- [x] Path and protected-asset checks, reported as their own claims.
+- [x] Separate supervised review in a toolless validator context, strict about its rubric.
+- [x] The reference code validator as a real isolated attempt in a Podman guest.
+- [x] The valid slugify fixture and every protected negative fixture.
+- [x] Repair through W06: three real candidate generations, each remeasured, bounded at three.
+- [x] Publication through W07 to the real private repository, with the remote tree and parent read
+      back and compared.
+- [ ] Actual provider usage for the generator and the reviewer. Blocked: this deployment holds no
+      Anthropic credential. Recorded as a readiness failure, never substituted.
+- [ ] End-to-end through the real started application. Blocked: W09 has not landed on `integ/w00`.
+
+Review. The deterministic half of C10's reference code factory is complete and proven against real
+systems rather than against a description of them: real git agrees with every object identity the
+freeze derives, the real toolchain decides the build, typecheck, and test claims, a real Podman
+guest reports the static claims from inside the sandbox, and the real private repository holds a
+draft pull request whose tree and parent were read back and compared blob by blob.
+
+The two model-backed legs are built and tested against every failure a real model cannot be asked to
+produce on demand, but they did not reach the real provider, because no credential resolves here.
+That is written down as a readiness failure with a receipt, and nothing anywhere substitutes a
+canned answer for it. What it costs is the tenth mandatory claim, and the consequence is the one the
+contract promises: the journey reaches the publication step against the real repository and refuses
+to take it, naming `supervised-review` as the reason.
+
+Two shared modules were split on the way, and both are improvements rather than accommodations. The
+v4 byte digest no longer sits behind an S3 client, so hashing bytes does not require a storage
+client and a JSON-schema validator; and the four claims that read only a candidate's bytes no longer
+sit beside the five that need a workspace and a subprocess. Together they are what let the isolated
+guest ship the product's own validator instead of a second copy written for the sandbox. Both are
+declared as C13 rows, so the reuse is gated rather than assumed.
+
+## Coordinator log — wave 2 tail and wave 3 entry (2026-09-14)
+
+Decisions and routed interface questions, recorded so no package waits on an answer that already exists.
+
+- [x] Discrepancy 10 (C01 scopes): version publish keeps the C01 `write` scope plus the `factory.publish` grant; grant management is `admin` plus the tenant-admin role; the package install/quarantine route has no handler and belongs to W14 (W09 landed the scope fixes).
+- [x] W09 Q1 (settleable-child scan) closed by W06 at `a558a01d8`; W09 Q2 (claimable-release scan) closed by W07; W03's stop-settlement and usage-reconciliation scans closed at `688d48f4d`.
+- [x] W10 Q3 (unused model pin in `references.ts` protectedChecks) routed to the SDK owner (Sol controls, W06); W10 Q4 (titleBodyDigest marker) routed to W07.
+- [ ] W10 Q1: `FactoryRunnerRequest` does not carry the node's `maxIterations`, so the generator enforces C10's twelve itself. Decision: an optional additive `maxIterations` on the request, set by the dispatcher from the definition, lands with W13 composition; until then the generator's own bound stands and is tested.
+- [ ] W10 Q2: `createFactoryProviderBroker({ pin })` must be constructed and handed to the runner by W09's composition root; goes into W09's wiring round with W01b.
+- [x] W02b (manifest name): the v4 manifest grammar stays the shared contract; `RunnerReference.manifestName` is required and validated against it; the scoped identity stays in `package`; no deployed environment holds a bound package, so no re-issue is needed; the SDK crossing is disclosed and confirmed. W10, W11, W12 migrate per freeze section 17 once `wp/w02b-manifest-name` lands.
+- [x] W01: the durable terminal result lives in two columns on `factory_attempt_launches` (freeze section 16); `FactoryHostLaunchProtocol.stop` keeps `FactoryPhysicalStopRequest` and W03 landed a parallel `FactoryPhysicalStopper` rather than reconciling it (superseded, recorded); the workspace-specifier resolver in `check-factory-boundaries.ts` is kept.
+- [x] W04: the C02.11 checkpoint implementer landed on W04's branch and merged at integration; the two additive journal seams in `executions.ts` stay with W04; the section 7 deviations carry a dated note.
+- [x] W07: the window-scoped S3 prune script was replaced by manifest-only cleanup (`4f4f76a29`); the rule is in `tasks/lessons.md` and the workers' common brief.
+- [x] W01c: the guest material mount is landed by its owner (Terra runtime) with the review's corrections (`rw,noexec,nosuid,nodev`, no 0o777, typed refusal of any non-regular entry); W12 consumes `listRunnerMaterials`/`openRunnerMaterial` and a `REQUIRED_SHARED_IMPORTS` row enforces it.
+- [x] WREG: `PATH` is the fourth declared guest variable (the pinned image's own directory list, per-image override for the Python guest); the contracts plan wording is corrected at integration; the two disclosures (`--unsetenv-all` collateral, `launchDetached` as the protected execution seam) go to Terra runtime.
+- [x] Shared stores: the ordinary SeaweedFS tier hit the 100-volume cap (`b18b080fa`, now 400) and was then OOM-killed by its 768 MiB container limit (`c054c6430`, now 2 GiB). Both recorded in `/tmp/factory-platform-evidence/w00/shared-store-incidents.jsonl`. Two orphaned spinning `bun test` processes were killed and recorded in `orphan-process-cleanup.jsonl`; W05 could not reproduce the spin in twenty-eight bounded runs and now bounds every invocation.
+- [ ] Wave 3 merge order: WREG, W01c, W02b, W01b, W12, W11, W09; then the full combined run with the Podman suites, receipts under `docs/validation/factory/wave3/`, and the integration branch fast-forwarded before W13 starts.
+## WREG — inherited backend-pool regressions (wp/wreg-backend-failures)
+
+- [x] Reproduce all seven failures with the exact targeted commands, container-backed ones under the shared heavy lock.
+- [x] Regenerate `wire-schema.json` so the wire validator accepts `StartRequest.devices` (freeze section 6).
+- [x] Restore the v4 guest's `PATH` as a declared runner variable, with a per-image override for the Python guest.
+- [x] Give detached execution a protected launch seam so `TrustedLocalRunner` runs its own local guest again, and make it refuse a device grant it cannot confine.
+- [x] Keep the full shared Podman suite and every declared-environment suite green.
+- [x] Canonical backend pool at 0 fail.
+- [x] Typecheck, lint, factory boundaries, gate integrity, and the `BASE_REF=integ/w00` new-file and patch coverage gates.
+
+Review. Seven failures, three root causes, and only one of them was the generated artifact it looked
+like. The other two were product regressions the wave-1 runtime introduced in paths its own suites
+could not see: `--unsetenv-all` removed the guest's `PATH` along with the image metadata it was
+aimed at, and a private `launchDetached` replaced the one overridable method the trusted-local
+runner depended on. Both fixes keep the property wave 1 wanted — a declared, tenant-independent
+guest environment, and a guest whose lifetime outlives its supervisor — while restoring the v4
+behavior that was lost. Nothing was skipped, relaxed, or excluded; the two closure tests still read
+`RUNNER_GUEST_ENVIRONMENT` and so still assert the exact declared set, and the trusted-local test
+kept every assertion and gained one. Full detail and receipts: `tasks/factory/wreg-GATES.md`.
+## W11 — Real image reference pack (Terra domain)
+
+Branch `wp/w11-image-pack` from `integ/w00` at `1d3edf5b0`. Evidence
+`/tmp/factory-platform-evidence/w11/`. Gate file `tasks/factory/w11-GATES.md`.
+
+- [x] Lock the SDXL revision, every weight digest, the runtime image, the
+      interpreter, the generation settings, the normalization, the OCR
+      configuration and threshold, and the evaluation configuration in one
+      committed document with one digest.
+- [x] Fetch the weight closure with every byte bound to a digest the lock
+      declared first; seal it read-only and record source and digest.
+- [x] Build the pinned guest image from the ROCm base plus the pinned wheels and
+      the sealed weights; record its digest.
+- [x] Pure-stdlib PNG structure, normalization, and OCR interpretation in the
+      locked Python project, so the deterministic claims need no heavy
+      dependency and stay fully measured.
+- [x] The SDXL generation adapter with an injected pipeline, so the torch call
+      site is exercised rather than excluded.
+- [x] Seal the image guest through the shared Python recipe machinery with the
+      observed distribution closure and the model pins.
+- [x] Execute seeds 11, 23, 37, and 53 with the C10 settings under the GPU lock
+      through W02's per-attempt device grant.
+- [x] Ordered collect semantics: a dense input-ordered outcome per seed, failed
+      variants visible, first accepted in input order selected.
+- [x] Three strict protected semantic evaluations with the quorum and error
+      rules; a missing or error result never counts as a pass. The rules are
+      implemented and covered; the live provider leg is blocked on a credential.
+- [x] The wrong-size and SALE-caption fixtures, with a blank control.
+- [ ] The car and retained tree fixtures: their defects are semantic, so both
+      wait on the evaluator.
+- [ ] Publish the accepted variant through W08 with exact verified bytes. The
+      mapping is implemented and covered; the end-to-end leg is blocked because
+      a variant larger than one mebibyte cannot leave an isolated guest.
+- [x] Report AMD execution separately from production GPU isolation, which stays
+      unmet.
+
+### Review
+
+The pack is real where the platform allows it to be. One committed lock pins the
+SDXL revision, all eighteen files, both images, the interpreter, the C10
+settings, the normalization, the OCR threshold and the evaluation configuration,
+and its digest moves when any of them does. The 6.94 GB weight closure was
+fetched with every byte bound to a digest the lock declared first, and the guest
+image was built from it and sealed at its own digest.
+
+All four recorded seeds generated real 1,024-pixel variants on this host's AMD
+card, each in its own isolated attempt through W02's grant path, and the device
+contract held inside this pack rather than only in W02's probe. The byte-level
+claims and the OCR threshold are measured by the pack's own standard-library
+reader inside the guest that holds the bytes. The OCR claim discriminated on
+real output without being tuned to: it rejected three variants for marks the
+model painted and accepted the fourth, with a blank control scoring nothing.
+
+Three things are open and none of them is a shortcut. A variant larger than one
+mebibyte cannot leave an isolated guest at all, because the shared runner's
+control-output budget is a per-worker lifetime limit; that blocks publication of
+the accepted bytes and the semantic evaluation equally. There is no Anthropic
+credential on this host. And `broker.invoke` has no production implementation,
+so a guest-initiated model call has nowhere to land. Each is recorded as an
+unmet row with its own verdict rather than folded into a summary.

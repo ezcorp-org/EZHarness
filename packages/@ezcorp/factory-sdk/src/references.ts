@@ -49,12 +49,31 @@ function runner(packageName: string, exportName: string, hex: string, model?: st
   const packageHex = "abcdef"[packageCode] as string;
   return {
     package: packageName,
+    // The scoped distribution name is not a legal v4 manifest name, so the
+    // manifest's own name is derived by stripping the scope and normalising.
+    manifestName: manifestNameOf(packageName),
     version: "1.0.0",
     digest: digest(packageHex),
     export: exportName,
     ...(model === undefined ? {} : { model }),
     configurationDigest: digest(hex),
   };
+}
+
+/**
+ * The v4 manifest name a scoped distribution name corresponds to.
+ *
+ * Every result satisfies `isManifestName`, which is the whole point: a pack
+ * calls this to get a conventional name without having to know the grammar.
+ * The grammar requires a LETTER first, so leading digits and dashes are dropped
+ * rather than merely trimmed; a name that normalises away entirely falls back
+ * to a legal constant instead of returning something the validator would refuse.
+ */
+export function manifestNameOf(packageName: string): string {
+  const unscoped = packageName.includes("/") ? packageName.slice(packageName.lastIndexOf("/") + 1) : packageName;
+  const normalised = [...unscoped.toLowerCase()].map(character => (/[a-z0-9-]/.test(character) ? character : "-")).join("");
+  const fromLetter = normalised.replace(/^[^a-z]+/, "").slice(0, 64);
+  return fromLetter.length > 0 ? fromLetter : "runner";
 }
 
 function packageOf(reference: RunnerReference): PackageReference {

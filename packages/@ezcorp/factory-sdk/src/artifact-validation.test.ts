@@ -84,6 +84,7 @@ function request(): FactoryRunnerRequest {
     },
     runner: {
       package: "@example/runner",
+      manifestName: "runner",
       version: "1.2.3",
       digest: prefixedDigest,
       export: "run",

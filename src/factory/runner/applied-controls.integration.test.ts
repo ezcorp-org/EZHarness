@@ -135,7 +135,7 @@ test.each(["bun", "python"] as const)("%s: the runtime API and the guest agree o
   expect(applied.HostConfig.Devices ?? []).toEqual([]);
   expect(reported.gpuDevices).toEqual([]);
 
-  // Environment. The three declared variables are always present, and the only
+  // Environment. The declared variables are always present, and the only
   // other names permitted are the ones the OCI runtime writes after podman has
   // built the spec, with fixed, tenant-independent values.
   const permitted = new Set([...RUNNER_GUEST_ENVIRONMENT, ...RUNNER_GUEST_ENVIRONMENT_RESIDUE]);

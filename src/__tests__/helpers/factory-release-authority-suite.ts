@@ -33,7 +33,7 @@ const validatorTrustDigest = `sha256:${"v".repeat(64).replaceAll("v", "a")}`;
 const admin: FactoryPrincipal = { kind: "user", id: "release-authority-admin", authentication: "session" };
 const apiAdmin: FactoryPrincipal = { ...admin, authentication: "api-key" };
 const service: FactoryPrincipal = { kind: "service", id: "release-authority-service", authentication: "service" };
-const packageLock: RunnerReference = { package: "@ezcorp/release-runner", version: "1.2.3", digest: `sha256:${"b".repeat(64)}`, export: "run" };
+const packageLock: RunnerReference = { package: "@ezcorp/release-runner", manifestName: "release-runner", version: "1.2.3", digest: `sha256:${"b".repeat(64)}`, export: "run" };
 
 let fixture: Fixture;
 let database: TransactionalDb;

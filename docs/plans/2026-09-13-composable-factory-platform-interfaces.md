@@ -2341,3 +2341,54 @@ Accepted deviations, recorded here so consumers read the landed contract rather 
 - **Section 7 (W04).** `factory_artifacts` gains `material_key` and the admission-index helper a conditional `material_key` dimension; `FactoryArtifactAccessError` and `unavailable()` moved to `artifact-materials.ts` and are re-exported from `artifact-access.ts`; unsealed materials carry reserved `digest`/`storage_version` sentinels until `seal`; the material handle is one `factory_artifacts` row of kind `material` carrying the chunk manifest; `FactoryAttemptMaterials` adds `chunks()` and `readChunk()`; `maxObjectsPerOperation` counts versions as objects; `FactoryWorkspaceCheckpoints` implements open question 26's default (`workspace/` prefix), leaving the checkpoint payload shape to the runner. `add-factory-release-authority.ts` no longer re-adds its narrower `kind` check on every boot.
 - **Section 6 addendum (W01, in progress).** The guest-side control channel becomes a FIFO triple (`in`, `out`, `err`) in a per-attempt directory under the runner root, bind-mounted read-write at `/channel`. An in-container shim opens all three with `O_RDWR` and hands them to the extension as stdin/stdout/stderr, so a FIFO reader sees EOF only when the guest itself exits; the supervisor connects by opening the same FIFOs and its death closes only its own descriptors. The host-side contract (`FramedExecution`, frame policy, `Runner`, `FactoryHostLaunchProtocol`) is unchanged. W02's Python guest must implement the same shim contract. Design record: `/tmp/factory-platform-evidence/w01/DESIGN-guest-lifetime.md`.
 - **Section 12 (W18).** `scripts/check-factory-boundaries.ts` now derives the C13 inventory from the real import graph (46 edges) and gains a workspace-package resolver; each later package still appends its rows, and the coordinator merges.
+
+## 17. Dated correction: the runner reference names its manifest (coordinator, 2026-09-14)
+
+**Supersedes the workaround each reference pack adopted. W10, W11 and W12 must migrate.**
+
+Two rules could not both be satisfied, and the conflict was found by the W12 validator and
+disclosed independently by W10, W11 and W12:
+
+- `packages/@ezcorp/extension-contract/src/validation.ts:126` constrains a v4 manifest name to
+  `^[a-z][a-z0-9-]{0,63}$`. A scoped name such as `@ezcorp/reference-data` can never match it.
+- `releaseFacts()` in `src/factory/package-preparation.ts` required `release.manifest.name` to
+  EQUAL the runner reference's `package`, which is exactly the scoped name a pack publishes.
+
+No real pack could satisfy both, so each of the three worked around it differently: one renamed
+its manifest to the unscoped form and lost the scope, one kept the scope and never called
+`FactoryPackagePreparations.bind`, and one carried both spellings in different places.
+
+**Decision.** The v4 manifest grammar is the shared contract (C13) and stays unchanged. The runner
+reference now carries the manifest's exact name explicitly, and the scoped distribution identity
+keeps the separate field it already had:
+
+```ts
+// packages/@ezcorp/factory-sdk/src/types.ts — CHANGED. Single writer: Sol controls; landed by W02b.
+export interface RunnerReference {
+  readonly package: string;        // scoped distribution identity, e.g. @ezcorp/reference-data
+  readonly manifestName: string;   // NEW, REQUIRED. Exactly manifest.name of the built v4 release.
+  readonly version: string;
+  readonly digest: string;
+  readonly export: string;
+  readonly model?: string;
+  readonly configurationDigest?: string;
+}
+```
+
+- `manifestName` is validated against the v4 grammar by the SDK's exported `isManifestName`, so a
+  reference the execution schema admits is one `validateManifest` would admit. A scoped name
+  offered as a manifest name is `RUNNER_MANIFEST_NAME`.
+- The generated JSON Schemas are regenerated with the field required. The Python validator carries
+  the identical rule, because C07 rejects a validator that works in only one runtime.
+- `releaseFacts()`, `bindInTransaction()` and `hydrate()` compare `manifestName`; nothing compares a
+  manifest name to `package` any more.
+- The field is sealed with the rest of the reference into the binding, the trust revision and the
+  prepared receipt through the reference digest, so a receipt cannot be replayed under a different
+  manifest name.
+
+**Migration for W10, W11 and W12.** Every `RunnerReference` literal gains `manifestName`. Set it to
+the built manifest's own name and keep `package` scoped; the two are expected to differ. A pack that
+had renamed its manifest to the unscoped form to get past `releaseFacts()` should restore the scoped
+`package` and leave `manifestName` as the manifest already spells it. A pack that avoided
+`FactoryPackagePreparations.bind` can now bind normally. `manifestNameOf()` in
+`packages/@ezcorp/factory-sdk/src/references.ts` derives the conventional name from a scoped one.
