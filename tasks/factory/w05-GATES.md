@@ -240,7 +240,17 @@ a file this package does not own, and that change is stated exactly rather than 
   cannot produce a queue row until an admission reaches `admitted`; the test enqueues one directly
   through the production queue API to prove everything downstream of that point.
 
-**W03 status as of `a8c3e0fca`.** `wp/w03-stop-settlement` is at `1d591eeaa` and its three commits
+**Shared-repository outage, 21:30 EDT.** `core.bare=true` was set in the shared
+`/home/dev/work/EZCorp/EZHarness/.git/config`, so plain `git status`, `add`, and `commit` failed
+with "this operation must be run in a work tree" in every worktree. Work continued through explicit
+`GIT_DIR` and `GIT_WORK_TREE`, and nothing was lost: all ten W05 feature commits are ancestors of
+`b2bd3b0c5`, all five new modules are present, and one `git checkout` issued during the window
+failed rather than discarding anything. After the coordinator set `core.bare=false`, every gate was
+re-run on the repaired repository: `receipts.jsonl` record `post-repair-verification`, 111 pass,
+0 fail, 1237 assertions, with typecheck, lint, boundaries, gate integrity, and schema drift all
+exit 0.
+
+**W03 status as of `a8c3e0fca`.** `wp/w03-stop-settlement` is still at `1d591eeaa` when rechecked after the repair, and its three commits
 since the W01 merge touch neither `compute-admissions.ts` nor `command-authority.ts`, and its gate
 file names no validator origin. There is nothing to cherry-pick yet. When that commit exists, merge
 it, run G16's reserve path through to `admitInTransaction`, and the real-guest proof follows.
