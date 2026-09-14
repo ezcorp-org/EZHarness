@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 import type { FactoryAttemptAuthority } from "./executions";
+import type { FactoryInbox } from "./inbox";
 import {
+  FactoryUsageReconciliation,
+  FactoryUsageSettlements,
   buildFactoryUsageSettlement,
   factoryUsageSettlementAdvance,
   factoryUsageSettlementDigest,
@@ -101,4 +104,19 @@ test("names every settlement error code once for the W14 status mapping", () => 
     const error = new FactoryUsageSettlementError(code);
     expect({ name: error.name, code: error.code, message: error.message }).toEqual({ name: "FactoryUsageSettlementError", code, message: code });
   }
+});
+
+test("binds the settlement store and its reconciler to one tenant", () => {
+  const database = { async transaction() { throw new Error("unused"); } } as never;
+  const inbox = { tenantId: "tenant" } as unknown as FactoryInbox;
+  expect(() => new FactoryUsageSettlements(database, "tenant", { tenantId: "other" } as unknown as FactoryInbox)).toThrow("factory_usage_settlement_scope");
+  expect(() => new FactoryUsageSettlements(database, "", inbox)).toThrow();
+  const settlements = new FactoryUsageSettlements(database, "tenant", inbox);
+  expect(settlements.tenantId).toBe("tenant");
+  expect(settlements.transactionalDatabase).toBe(database);
+  const scopes = { async readSettlementScopeInTransaction() { return undefined; } };
+  const journal = { async reconcileLate() { throw new Error("unused"); } };
+  const budgets = { async settleInTransaction() { throw new Error("unused"); } };
+  expect(() => new FactoryUsageReconciliation(database, "other-tenant", scopes, journal, budgets, settlements)).toThrow("factory_usage_settlement_scope");
+  expect(new FactoryUsageReconciliation(database, "tenant", scopes, journal, budgets, settlements).tenantId).toBe("tenant");
 });

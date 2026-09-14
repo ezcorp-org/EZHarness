@@ -398,19 +398,53 @@ export class FactoryExecutionJournal {
 
   async cancel(authority: FactoryAttemptAuthority): Promise<boolean> {
     authority = snapshotAuthority(authority);
-    return this.db.transaction(async (database) => {
-      await this.lockRunFence(database, authority);
-      const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='cancel_accepted', cancel_accepted_at=COALESCE(cancel_accepted_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status IN ('admitted', 'running') RETURNING attempt_id`));
-      return Boolean(updated.length);
-    });
+    return this.db.transaction(database => this.cancelInTransaction(database, authority));
+  }
+
+  async cancelInTransaction(database: MigrationDb, value: FactoryAttemptAuthority): Promise<boolean> {
+    const authority = snapshotAuthority(value);
+    await this.lockRunFence(database, authority);
+    const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='cancel_accepted', cancel_accepted_at=COALESCE(cancel_accepted_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status IN ('admitted', 'running') RETURNING attempt_id`));
+    return Boolean(updated.length);
+  }
+
+  /**
+   * Idempotent product cancellation acceptance for one already-running attempt.
+   * A second call on an accepted attempt is a replay, not a conflict; anything
+   * else is stale and must not reach a physical stop.
+   */
+  async acceptCancellationInTransaction(database: MigrationDb, value: FactoryAttemptAuthority): Promise<boolean> {
+    const authority = snapshotAuthority(value);
+    if (await this.cancelInTransaction(database, authority)) return true;
+    const existing = releaseRows<{ status: string }>(await database.execute(sql`SELECT status FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} FOR UPDATE`))[0];
+    return existing?.status === "cancel_accepted" || existing?.status === "stopped";
   }
 
   async confirmStopped(authority: FactoryAttemptAuthority): Promise<boolean> {
     authority = snapshotAuthority(authority);
-    return this.db.transaction(async (database) => {
-      await this.lockRunFence(database, authority);
-      const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='stopped', stopped_at=COALESCE(stopped_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status='cancel_accepted' RETURNING attempt_id`));
-      return Boolean(updated.length);
+    return this.db.transaction(database => this.confirmStoppedInTransaction(database, authority));
+  }
+
+  async confirmStoppedInTransaction(database: MigrationDb, value: FactoryAttemptAuthority): Promise<boolean> {
+    const authority = snapshotAuthority(value);
+    await this.lockRunFence(database, authority);
+    const updated = releaseRows(await database.execute(sql`UPDATE factory_executions SET status='stopped', stopped_at=COALESCE(stopped_at, NOW()), updated_at=NOW() WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND status='cancel_accepted' RETURNING attempt_id`));
+    return Boolean(updated.length);
+  }
+
+  /**
+   * The sealed attempt authority for one durable attempt. A physical stop reads
+   * it by attempt id, because a live cancellation has no outcome row and must
+   * not depend on the dispatch command to name the holder it is fencing.
+   */
+  async readAuthorityInTransaction(database: MigrationDb, key: { tenantId: string; projectId: string; runId: string; attemptId: string }): Promise<FactoryAttemptAuthority | undefined> {
+    const row = releaseRows<{ node_instance_id: string; candidate_generation: number | string; attempt_number: number | string; grant_revision: number | string; reservation_generation: number | string; execution_epoch: number | string; cancellation_epoch: number | string; request_hash: string; deadline_at: Date | string }>(await database.execute(sql`SELECT node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,request_hash,deadline_at FROM factory_executions WHERE attempt_id=${key.attemptId} AND tenant_id=${key.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} FOR SHARE`))[0];
+    if (!row) return undefined;
+    return snapshotAuthority({
+      attemptId: key.attemptId, tenantId: key.tenantId, projectId: key.projectId, runId: key.runId,
+      nodeInstanceId: row.node_instance_id, candidateGeneration: Number(row.candidate_generation), attemptNumber: Number(row.attempt_number),
+      grantRevision: Number(row.grant_revision), reservationGeneration: Number(row.reservation_generation), executionEpoch: Number(row.execution_epoch),
+      cancellationEpoch: Number(row.cancellation_epoch), requestDigest: row.request_hash, deadlineAt: new Date(row.deadline_at),
     });
   }
 

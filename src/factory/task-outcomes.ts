@@ -143,6 +143,16 @@ export class FactoryTaskOutcomes {
     return this.withRun(transaction, reference, () => this.readReceipt(transaction, reference));
   }
 
+  /** Exact historical result and attempt authority for physical-stop reconciliation. */
+  async readVerifiedInTransaction(transaction: MigrationDb, valueService: TrustedFactoryServiceIdentity, valueReference: TrustedFactoryCommandReference): Promise<FactoryVerifiedTaskOutcome | undefined> {
+    const service = snapshot(valueService);
+    const reference = snapshot(valueReference);
+    this.authority.assertService(service);
+    assertFactoryIdentity(...Object.values(reference));
+    if (reference.tenantId !== this.authority.tenantId) throw new FactoryTaskOutcomeError("factory_task_outcome_scope");
+    return this.withRun(transaction, reference, () => this.readVerifiedReceipt(transaction, reference));
+  }
+
   private async withRun<Result>(transaction: MigrationDb, reference: TrustedFactoryCommandReference, work: () => Promise<Result>): Promise<Result> {
     if (!await lockFactoryScope(transaction, reference.tenantId, reference.projectId)) throw new FactoryTaskOutcomeError("factory_task_outcome_scope");
     const run = rows(await transaction.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} FOR UPDATE`))[0];
