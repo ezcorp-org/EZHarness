@@ -50,11 +50,23 @@ export interface FactoryLaunchFixture {
  * rows that a durable launch intent needs. Every launch suite shares it so the
  * seeding stays in one place.
  */
-export async function createFactoryLaunchFixture(request: FactoryRunnerRequest): Promise<FactoryLaunchFixture> {
-  const database = new PGlite({ extensions: { vector, pg_trgm } });
-  await database.waitReady;
-  const db = drizzle(database, { schema }) as unknown as TransactionalDb;
-  await migrate(db as never);
+export interface FactoryLaunchFixtureSource {
+  readonly db: TransactionalDb;
+  readonly migrated?: boolean;
+  close(): Promise<void>;
+}
+
+/**
+ * Seeds the project, run, and admitted attempt a durable launch intent needs.
+ *
+ * `source` lets the same seeding run against real PostgreSQL; omit it and the
+ * fixture owns a PGlite database of its own.
+ */
+export async function createFactoryLaunchFixture(request: FactoryRunnerRequest, source?: FactoryLaunchFixtureSource): Promise<FactoryLaunchFixture> {
+  const owned = source ? undefined : new PGlite({ extensions: { vector, pg_trgm } });
+  if (owned) await owned.waitReady;
+  const db = source ? source.db : drizzle(owned!, { schema }) as unknown as TransactionalDb;
+  if (!source?.migrated) await migrate(db as never);
   const { tenantId, projectId, runId } = request.authority;
   await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Factory launch','/tmp/factory-launch')`);
   await db.execute(sql`INSERT INTO factory_installation(singleton,tenant_id,execution_epoch) VALUES (1,${tenantId},${request.authority.executionEpoch})`);
@@ -66,7 +78,7 @@ export async function createFactoryLaunchFixture(request: FactoryRunnerRequest):
       const authority = admitted.authority;
       await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${authority.attemptId},${authority.tenantId},${authority.projectId},${authority.runId},${authority.nodeInstanceId},${authority.candidateGeneration},${authority.attemptNumber},${authority.grantRevision},${authority.reservationGeneration},${authority.executionEpoch},${authority.cancellationEpoch},${new Date(authority.deadlineAtMs)},${factoryRunnerRequestDigest(admitted)},'{}','admitted')`);
     },
-    close: async () => { await database.close(); },
+    close: async () => { if (source) await source.close(); else await owned!.close(); },
   };
   await fixture.admit(request);
   return fixture;
