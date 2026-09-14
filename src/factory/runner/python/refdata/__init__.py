@@ -10,3 +10,8 @@ committed ``uv.lock`` and the one ``.python-version`` pin, and because the guest
 here reuses that guest's frame loop and its validators rather than writing a
 second one.
 """
+
+# Named explicitly rather than left to a wildcard import: the guest stages
+# exactly these modules, and a package that does not say what it contains is a
+# package whose contents a reader has to go and look up.
+__all__ = ["guest", "parquet", "rows"]

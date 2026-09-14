@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import unittest
 
+import refdata
 from refdata.guest import MANIFEST
 from refdata.parquet import MEDIA_TYPE, write_partition
 from refdata.rows import HEADER, RowError, parse_partition
@@ -34,6 +35,9 @@ class SealedGuest(unittest.TestCase):
         with self.assertRaises(RowError) as caught:
             parse_partition(f"{HEADER}\na,alpha,{2**63}\n".encode())
         self.assertEqual(caught.exception.code, "amount_overflow")
+
+    def test_the_package_names_the_modules_the_guest_stages(self) -> None:
+        self.assertEqual(refdata.__all__, ["guest", "parquet", "rows"])
 
     def test_the_manifest_declares_the_four_pinned_exports(self) -> None:
         self.assertEqual(MANIFEST["name"], "reference-data")

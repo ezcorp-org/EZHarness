@@ -2543,3 +2543,50 @@ The one thing I would flag hardest for the coordinator is not a defect in this p
 each built a publication-scope resolver that reads the verified attempt id, by two different durable
 paths. Both are correct and neither takes caller input, but one concept with two implementations is
 what C13 forbids, and collapsing them crosses both packages' files.
+
+## W12 — real data reference pack (Sol domain)
+
+- [x] 1. Immutable CSV snapshot, strict parse, ordered 10,000-row partitions, pinned
+      Python/PyArrow transform, ordered reduction, Parquet and manifest output.
+- [x] 2. Independently recompute every row, ID, count, sum, schema, and partition invariant from
+      input and exported data, against BOTH the immutable input and the manifest.
+- [x] 3. Signed-64-bit boundaries and accounting overflow, in both runtimes and through the whole
+      journey.
+- [x] 4. The golden three-row input, and duplicate, missing-partition, changed-value, overflow,
+      malformed, maximum-row, and 256 MiB boundary cases.
+- [x] 5. Repair a defective transform only through a new pinned package revision; correcting the
+      input requires a new snapshot and run.
+- [x] 6. Publish through W08, and read the published bytes back from a real object store.
+- [x] 7. Full verification per common.md, with every producer recorded from a clean committed tree.
+
+### W12 review
+
+Every checklist row is closed with a receipt. The pass criterion held: the real exported Parquet
+and its manifest reconcile exactly with the immutable source, including order, and publish through
+W08 to a real object store that hands the same bytes back.
+
+The package began with a wall, not with code. The isolated guest had no byte path out above one
+mebibyte for its whole lifetime, so no domain pack could return a real Parquet partition, a real
+PNG, or a real candidate tree. That was measured rather than inferred, raised with the coordinator
+before anything was written, and fixed as one additive field: `StartRequest.materials`, a
+per-attempt directory bind-mounted read-write, absent by default and with every C05 control
+untouched. W01's and W02's own Podman suites still pass unchanged.
+
+What landed. PyArrow in the committed lock and an image built from that lock, hash-verified, with
+its closure read back out of a live guest before any artifact is sealed. The strict grammar written
+once per runtime and held equal by committed vectors, so every shape `BigInt` and `int` would have
+quietly accepted is a refusal with a name. An independent Parquet reader that shares no code with
+the writer, because a validator that decodes with the encoder cannot catch a serialisation defect.
+And a reconciliation that compares the export with the immutable input as well as the manifest,
+which is the one comparison a defective transform cannot satisfy by also lying in its manifest.
+
+Four defects the real runs found, each fixed rather than worked around: a staged input created 0600
+under this host's umask and unreadable by the guest's uid; a reduction that took its results inline
+where a hundred partitions would not fit a 64 KiB request; a seal that wrote one chunk per incoming
+block and ran a 256 MiB material past its own plan; and a quadratic line split that would have
+turned a 256 MiB parse into hundreds of gigabytes of copying.
+
+What I would flag hardest is not a defect in this package. Two landed rules cannot both hold: a v4
+manifest name must match `^[a-z][a-z0-9-]{0,63}$`, and `FactoryPackagePreparations.releaseFacts`
+requires that name to equal a runner reference's package, which the compiled definition writes as
+`@ezcorp/reference-data`. Every domain pack hits it.

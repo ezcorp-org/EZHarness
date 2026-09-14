@@ -196,6 +196,53 @@ test("the node instance of every step is deterministic, so two runs name the sam
   });
 });
 
+test("a guest that dies mid-invocation closes its worker and fails the attempt", async () => {
+  await withDirectory(async (directory, workRoot) => {
+    const world = host(() => {
+      throw new Error("worker exited before response");
+    });
+    await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("out/report.json"), directory)).rejects.toThrow("worker exited");
+    // The worker is closed on the failure path too, so a dead guest does not
+    // leave a container behind for the next attempt to collide with.
+    expect(world.closed()).toBe(1);
+  });
+});
+
+test("a runner that refuses to start surfaces its own refusal rather than a report error", async () => {
+  await withDirectory(async (directory, workRoot) => {
+    const runner: Pick<Runner, "start"> = {
+      async start(): Promise<RunnerExecution> {
+        throw new Error("runner_busy");
+      },
+    };
+    await expect(dispatchReferenceDataAttempt(optionsFor(runner, workRoot), "snapshotCsv", "node-a", command("out/report.json"), directory)).rejects.toThrow("runner_busy");
+  });
+});
+
+test("the invocation deadline never outlives the attempt's own authority", async () => {
+  await withDirectory(async (directory, workRoot) => {
+    const report = new TextEncoder().encode("{}");
+    await directory.stage(ReferenceDataGuestDirectory.output("report.json"), (async function* () { yield report; })());
+    const near = Date.now() + 5_000;
+    const world = host(() => completed(report));
+    const options = { ...optionsFor(world.runner, workRoot), authority: { ...AUTHORITY, deadlineAtMs: near } };
+    await dispatchReferenceDataAttempt(options, "snapshotCsv", "node-a", command(ReferenceDataGuestDirectory.output("report.json")), directory);
+    // The guest is never given longer than the attempt itself holds.
+    expect(world.starts[0]?.context.deadline).toBeLessThanOrEqual(near);
+    const far = host(() => completed(report));
+    const generous = { ...optionsFor(far.runner, workRoot), authority: { ...AUTHORITY, deadlineAtMs: Date.now() + 86_400_000 } };
+    const directory2 = await ReferenceDataGuestDirectory.create(workRoot);
+    try {
+      await directory2.stage(ReferenceDataGuestDirectory.output("report.json"), (async function* () { yield report; })());
+      await dispatchReferenceDataAttempt(generous, "snapshotCsv", "node-a", command(ReferenceDataGuestDirectory.output("report.json")), directory2);
+      // And never longer than one execution's own ceiling either.
+      expect(far.starts[0]?.context.deadline).toBeLessThan(Date.now() + 86_400_000);
+    } finally {
+      await directory2.dispose();
+    }
+  });
+});
+
 test("the pack names exactly the four exports the compiled definition binds", () => {
   expect(REFERENCE_DATA_STEPS).toEqual(["snapshotCsv", "parseCsv", "transformPartition", "orderedReduce"]);
   const error = new ReferenceDataPackError("reference_data_report_invalid", "x");
