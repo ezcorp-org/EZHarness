@@ -14,14 +14,14 @@
  * runner caps a worker's control output at one mebibyte for its WHOLE LIFE
  * rather than per frame, so four variants could never report from one worker.
  *
- * That cap is why nothing here moves a full variant to the host. Generation,
- * normalization, and every byte-level and OCR claim happen inside the guest that
- * holds the bytes, and only digests, sizes, and claim verdicts come back. A
- * variant small enough to fit the remaining budget is also fetched, which proves
- * the chunked transfer and its digest binding; a variant at the contract's
- * 1,024-pixel size is not, and is recorded as deferred rather than silently
- * skipped. Publishing those exact bytes needs a large-artifact egress path the
- * platform does not have for an isolated guest; the gate file records it.
+ * The bytes leave through the material mount, not the control channel. The
+ * guest writes each accepted variant into the per-attempt directory the host
+ * bind-mounts at `/materials` and declares what it wrote; after the guest is
+ * confirmed stopped, the host walks that directory through the shared
+ * `listRunnerMaterials` and `openRunnerMaterial`, recomputes every digest, and
+ * seals the bytes as a material. A variant at the contract's 1,024-pixel size
+ * now reaches the host whole, which the control channel could never do: its
+ * budget is one mebibyte for a worker's entire life.
  *
  * The semantic evaluation is not here either. It needs a provider the isolation
  * profile deliberately puts out of reach and a credential this host does not
@@ -32,14 +32,22 @@
  *        [--fixtures]
  */
 import { createHash, randomUUID } from "node:crypto";
-import { mkdtemp, open, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, open, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { ResourceLimits } from "@ezcorp/extension-contract";
-import { buildLimits, filesDigest, PythonPodmanRunner } from "@ezcorp/extension-runner";
+import type { FactoryArtifactReference } from "@ezcorp/factory-sdk";
+import { buildLimits, filesDigest, GUEST_MATERIALS_PATH, PythonPodmanRunner } from "@ezcorp/extension-runner";
 
+import type {
+  FactoryMaterialChunk,
+  FactoryMaterialIdentity,
+  FactoryMaterialRecord,
+  FactoryMaterialScope,
+} from "../src/factory/artifact-materials.ts";
 import { referenceImageGuestFiles, REFERENCE_IMAGE_GUEST_ENTRYPOINT, referenceImageRunnerClosure } from "../src/factory/reference-image/closure.ts";
+import { sealGuestMaterials, type GuestMaterialClaim, type GuestMaterialSink, type SealedGuestMaterial } from "../src/factory/reference-image/materials.ts";
 import { referenceImageLock, referenceImageLockDigest } from "../src/factory/reference-image/lock.ts";
 import { assessRound, type VariantRecord } from "../src/factory/reference-image/variants.ts";
 import { factoryAttemptDeviceGrant, factoryHeldAllocationDevices, type FactoryAttemptLease } from "../src/factory/runner/attempt-runtime.ts";
@@ -89,13 +97,8 @@ const BUILD_CEILING: ResourceLimits = Object.freeze({ ...buildLimits, memoryByte
 /** Raw bytes per transfer piece. Base64 adds a third and the envelope a little more. */
 const PIECE_BYTES = 384 * 1024;
 
-/**
- * The raw bytes one attempt may fetch out before its lifetime control budget
- * runs out. The runner allows a mebibyte of output per worker in total, base64
- * costs four bytes for every three, and the attempt's own small answers take
- * some of it, so the usable payload is well under three quarters of a mebibyte.
- */
-const EGRESS_BUDGET = 600 * 1024;
+/** Where the guest writes what it wants the host to keep. */
+const VARIANT_MATERIAL_PATH = "variant.png";
 
 function digestOf(bytes: Uint8Array): string {
   return `sha256:${createHash("sha256").update(bytes).digest("hex")}`;
@@ -119,6 +122,53 @@ async function withGpuLock<Value>(action: () => Promise<Value>): Promise<Value> 
     lock.kill();
     await lock.exited.catch(() => undefined);
     await handle.close();
+  }
+}
+
+/**
+ * The material store this driver seals into.
+ *
+ * It is deliberately in-script and says so in the receipt. `FactoryAttemptMaterials`
+ * needs a live admitted attempt with its journal and authority rows, which is
+ * the production dispatch path rather than a standalone driver, and standing
+ * one up here would measure W01's admission rather than this pack's egress.
+ * What this run is the subject of is the mount: that the guest's bytes reach the
+ * host whole and verified. The sealing contract itself is measured against the
+ * real `FactoryMaterialService` interface in `materials.test.ts`, and the
+ * durable store is W04's.
+ */
+class DriverMaterials implements GuestMaterialSink {
+  private readonly held = new Map<string, Uint8Array>();
+  private readonly parts = new Map<string, Uint8Array[]>();
+
+  private record(identity: FactoryMaterialIdentity, mediaType: string, totalBytes: number, chunkCount: number): FactoryMaterialRecord {
+    return { ...identity, schemaVersion: "factory.material.v1", mediaType, digest: "", totalBytes, chunkCount, storageVersion: "1", sealed: false, createdAtMs: Date.now() };
+  }
+  async begin(identity: FactoryMaterialIdentity, mediaType: string, totalBytes: number, chunkCount: number): Promise<FactoryMaterialRecord> {
+    this.parts.set(identity.objectName, []);
+    return this.record(identity, mediaType, totalBytes, chunkCount);
+  }
+  async writeChunk(identity: FactoryMaterialIdentity, chunk: FactoryMaterialChunk, content: Uint8Array): Promise<FactoryMaterialRecord> {
+    // Never route this through `begin`: that resets the buffer, so every chunk
+    // would clear the ones before it and the store would seal nothing. It did,
+    // and the only symptom was a zero-byte file with a correct-looking digest.
+    (this.parts.get(identity.objectName) as Uint8Array[])[chunk.index] = Uint8Array.from(content);
+    return this.record(identity, "application/octet-stream", content.byteLength, 1);
+  }
+  async seal(identity: FactoryMaterialIdentity, digest: string): Promise<FactoryArtifactReference> {
+    const assembled = Buffer.concat((this.parts.get(identity.objectName) ?? []) as Uint8Array[]);
+    if (digestOf(assembled) !== digest) {
+      throw new Error(`Sealing ${identity.objectName} assembled ${assembled.byteLength} bytes digesting ${digestOf(assembled)}, not the ${digest} the caller verified`);
+    }
+    this.held.set(identity.objectName, assembled);
+    return { artifactId: identity.objectName, digest, encodedBytes: assembled.byteLength };
+  }
+  /** Re-checks the digest on the way out, so a store that lost bytes says so. */
+  read(reference: FactoryArtifactReference): Uint8Array {
+    const bytes = this.held.get(reference.artifactId);
+    if (bytes === undefined) throw new Error(`no sealed material ${reference.artifactId}`);
+    if (digestOf(bytes) !== reference.digest) throw new Error(`Sealed material ${reference.artifactId} no longer digests ${reference.digest}`);
+    return bytes;
   }
 }
 
@@ -147,6 +197,39 @@ async function fetchImage(worker: Worker, context: unknown, digest: string, expe
   const observed = digestOf(bytes);
   if (observed !== digest) throw new Error(`Reassembled bytes digest ${observed}, not the reported ${digest}`);
   return bytes;
+}
+
+/**
+ * Prepares one per-attempt material directory the guest can actually write to.
+ *
+ * The guest runs as uid 65534 inside its user namespace, and a directory the
+ * host created is owned by the host user, so the guest gets `EPERM` on its first
+ * write. `podman unshare` performs the chown INSIDE that namespace, which is
+ * what maps 65534 to the right host subuid; a plain `chown` on this side cannot
+ * name it.
+ *
+ * Group zero in the namespace is the host user, so mode 0770 lets the guest own
+ * the directory and lets the host read the files back as group, while other gets
+ * nothing. A world-writable 0777 would do the same job and is the reason this
+ * says 0770 instead.
+ *
+ * The mode is set BEFORE the chown, not after. Once the directory belongs to a
+ * subuid the host user does not own, a host-side `chmod` is `EPERM`; `mkdir`'s
+ * mode argument is also subject to the umask, so it is set explicitly while the
+ * host still owns the directory.
+ *
+ * A host with no container runtime fails here rather than continuing with a
+ * directory the guest cannot use.
+ */
+async function prepareMaterialDirectory(directory: string): Promise<void> {
+  await mkdir(directory, { recursive: true });
+  await chmod(directory, 0o770);
+  const chown = Bun.spawn(["podman", "unshare", "chown", "65534:0", directory], { stdout: "pipe", stderr: "pipe" });
+  const code = await chown.exited;
+  if (code !== 0) {
+    const detail = (await new Response(chown.stderr).text()).trim();
+    throw new Error(`Could not give the guest ownership of ${directory}: podman unshare chown exited ${code}. ${detail}`);
+  }
 }
 
 function contextFor(workerId: string, artifactDigest: string, limits: ResourceLimits): Record<string, unknown> {
@@ -178,7 +261,7 @@ function claimInput(digest: string, width: number, height: number): Record<strin
 }
 
 type ClaimOutcome = { id: string; verdict: string; summary: string; reasonCode: string; decisive: boolean; measuredAtMs: number; evidence: readonly unknown[] };
-type Egress = "fetched-and-verified" | "deferred-over-budget" | "not-attempted";
+type Egress = "sealed-from-material-mount" | "not-attempted";
 
 interface SeedRecord {
   readonly seed: number;
@@ -208,11 +291,20 @@ async function main(): Promise<number> {
   // The runner owns its store and removes staging directories inside it, so a
   // variant this run keeps lives somewhere the runner does not manage.
   const artifacts = await mkdtemp(join(tmpdir(), "ez-factory-image-out-"));
+  // The per-attempt material directories live outside the runner's own store,
+  // because the runner removes staging directories inside it.
+  const materialRoot = await mkdtemp(join(tmpdir(), "ez-factory-image-materials-"));
+  const store = new DriverMaterials();
   const closure = await referenceImageRunnerClosure();
   const files = await referenceImageGuestFiles();
   const sourceDigest = filesDigest(files);
   const started = new Date().toISOString();
   const records: SeedRecord[] = [];
+  // What each seed's guest declared it wrote, and what the host sealed after
+  // that guest stopped. A running guest can swap a directory component between
+  // the walk and the open, so the read-back never overlaps a live worker.
+  const claims = new Map<number, GuestMaterialClaim>();
+  const sealed: (SealedGuestMaterial & { seed: number })[] = [];
   const fixtures: Record<string, unknown>[] = [];
   const notes: string[] = [];
   let artifactDigest = "";
@@ -246,10 +338,13 @@ async function main(): Promise<number> {
       const grant = factoryAttemptDeviceGrant(attemptId, LEASE, factoryHeldAllocationDevices(LEASE, { "gpu-host": 1 }, LOCAL_AMD_PROFILE));
       const workerId = randomUUID();
       const context = contextFor(workerId, artifactDigest, GPU_CEILING);
+      // One host-owned directory per attempt, never shared between two.
+      const materialDirectory = join(materialRoot, `seed-${seed}`);
+      await prepareMaterialDirectory(materialDirectory);
       let worker: Worker | undefined;
       try {
         worker = (await runner.start(
-          { workerId, artifactDigest, context: context as never, limits: GPU_CEILING, devices: grant.devices },
+          { workerId, artifactDigest, context: context as never, limits: GPU_CEILING, devices: grant.devices, materials: materialDirectory },
           async () => { throw new Error("the image guest never reaches the broker"); },
         )) as unknown as Worker;
         const runtime = (await worker.request("extension/invoke", { name: "runtime", input: {}, context })) as { runtime: Record<string, string> };
@@ -282,12 +377,14 @@ async function main(): Promise<number> {
           context,
         })) as { claims: readonly ClaimOutcome[] };
 
-        let egress: Egress = "deferred-over-budget";
-        if (rewritten.bytes <= EGRESS_BUDGET) {
-          const bytes = await fetchImage(worker, context, rewritten.digest, rewritten.bytes);
-          await writeFile(join(artifacts, `seed-${seed}.normalized.png`), bytes);
-          egress = "fetched-and-verified";
-        }
+        // The guest writes into its mount and declares what it wrote. Nothing
+        // is read back until the worker is confirmed stopped, below.
+        const declared = (await worker.request("extension/invoke", {
+          name: "emit",
+          input: { digest: rewritten.digest, path: VARIANT_MATERIAL_PATH, mediaType: "image/png" },
+          context,
+        })) as GuestMaterialClaim;
+        claims.set(seed, declared);
         records.push({
           seed,
           index,
@@ -297,7 +394,7 @@ async function main(): Promise<number> {
           generated: { digest: generated.digest, bytes: generated.bytes },
           normalized: { digest: rewritten.digest, bytes: rewritten.bytes, sourceDigest: generated.digest },
           claims: report.claims,
-          egress,
+          egress: "sealed-from-material-mount",
           runtime: generated.runtime,
           elapsedMs: Date.now() - startedAt,
         });
@@ -314,6 +411,16 @@ async function main(): Promise<number> {
         });
       } finally {
         await worker?.close();
+      }
+
+      // Only now, with the worker confirmed stopped, read the mount back.
+      const declared = claims.get(seed);
+      if (declared !== undefined) {
+        const scope: FactoryMaterialScope = { tenantId: "image-tenant", projectId: "image-project", runId: "image-run", attemptId, operationId: `${attemptId}-materials` };
+        for (const entry of await sealGuestMaterials({ directory: materialDirectory, claims: [declared], materials: store, scope })) {
+          sealed.push({ ...entry, seed });
+          await writeFile(join(artifacts, `seed-${seed}.normalized.png`), store.read(entry.artifact));
+        }
       }
     }
 
@@ -344,9 +451,9 @@ async function main(): Promise<number> {
             input: claimInput(held.digest, referenceImageLock.generation.width, referenceImageLock.generation.height),
             context,
           })) as { claims: readonly ClaimOutcome[] };
-          const bytes = held.bytes <= EGRESS_BUDGET ? await fetchImage(worker, context, held.digest, held.bytes) : undefined;
-          if (bytes !== undefined) await writeFile(join(artifacts, `${name}.png`), bytes);
-          fixtures.push({ name, digest: held.digest, bytes: held.bytes, claims: report.claims, egress: bytes === undefined ? "deferred-over-budget" : "fetched-and-verified" });
+          const bytes = await fetchImage(worker, context, held.digest, held.bytes);
+          await writeFile(join(artifacts, `${name}.png`), bytes);
+          fixtures.push({ name, digest: held.digest, bytes: held.bytes, claims: report.claims, egress: "fetched-and-verified" });
         }
       } finally {
         await worker.close();
@@ -411,7 +518,9 @@ async function main(): Promise<number> {
     notes,
     ...(fatal === undefined ? {} : { fatal }),
     artifacts,
-    egressPolicy: `a worker may emit ${1024 ** 2} bytes of control output in its whole life, so a variant above ${EGRESS_BUDGET} raw bytes stays in the guest and is recorded by digest`,
+    egressPolicy: `every variant leaves through the material mount at ${GUEST_MATERIALS_PATH}, walked and opened only through the shared listRunnerMaterials and openRunnerMaterial after the guest stopped, with each digest recomputed from the bytes read back; the control channel's ${1024 ** 2} byte lifetime budget is never the data path`,
+    sealedMaterials: sealed.map(entry => ({ seed: entry.seed, path: entry.path, objectName: entry.objectName, digest: entry.digest, bytes: entry.bytes, mediaType: entry.mediaType })),
+    materialStore: "in-script; FactoryAttemptMaterials needs a live admitted attempt, and the sealing contract is measured against the real interface in src/factory/reference-image/materials.test.ts",
     productionGpuIsolation: "unmet; see docs/factory-local-gpu.md. This run measures the local AMD profile only.",
     semanticEvaluation: "not executed here; it needs a provider the isolated guest cannot reach and a credential this host does not carry",
   };
