@@ -446,20 +446,28 @@ merged with `bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w09/lcov-
 the two BASE_REF gates had been reading a supervisor leg that no longer matched
 the source.
 
-**What the full `bun run test:coverage` pool says, in full.** Running it found
-one real defect on this branch, now fixed: `src/__tests__/factory-service-routes.test.ts`
-still asserted the pre-discrepancy-10 behaviour for version publish, so my own
-api-registry change was failing it, and none of my focused suites included that
-file. Two other files fail in that pool and neither can be this branch's: this
-branch changes nothing under `packages/`.
-`packages/@ezcorp/extension-contract/src/schema.test.ts` reports the wire schema
-missing seven `devices` properties the authoritative types declare, which is
-W01's device-grant surface; `packages/@ezcorp/extension-runner/tests/trusted-local.test.ts`
-fails with `image not known`, a container image this host does not have. The
-pool also stops on `browser route coverage is required: set BROWSER_COVERAGE_RAW
-and BROWSER_COVERAGE_LCOV`, which is the instrumented Playwright leg, not
-something a branch supplies. That is why the coverage evidence here is the
-per-leg merge common.md prescribes rather than that pool's exit code.
+**What the full `bun run test:coverage` pool says, in full, after both merges.**
+Running it before the merge found one real defect on this branch, now fixed:
+`src/__tests__/factory-service-routes.test.ts` still asserted the
+pre-discrepancy-10 behaviour for version publish, so my own api-registry change
+was failing it, and none of my focused suites included that file. At the branch
+tip the pool exits 1 with five failing files, and none of them is this branch's
+— `git diff --name-only integ/w00 HEAD` lists none of these paths, and this
+branch changes nothing under `packages/` or `docs/extensions/`:
+
+| Failing file | What it reports |
+| --- | --- |
+| `packages/@ezcorp/extension-contract/src/schema.test.ts` | the wire schema is missing seven `devices` properties the authoritative types declare (W01's device-grant surface) |
+| `packages/@ezcorp/extension-runner/tests/trusted-local.test.ts` | `image not known` — a container image this host does not have |
+| `docs/extensions/examples/auto-note/e2e-server-pipeline.test.ts` | `isSelfRepo` does not resolve a symlink alias inside the guest workspace |
+| `docs/extensions/examples/docs-updater/subprocess.integration.test.ts` | the same symlink case, through a real subprocess |
+| `src/__tests__/substack-pilot-installer.test.ts` | the credential broker and a real MCP stdio spawn |
+
+The pool also stops on `browser route coverage is required: set
+BROWSER_COVERAGE_RAW and BROWSER_COVERAGE_LCOV`, which is the instrumented
+Playwright leg, not something a branch supplies. That is why the coverage
+evidence here is the per-leg merge common.md prescribes rather than that pool's
+exit code.
 
 ## The startup race, before and after
 
