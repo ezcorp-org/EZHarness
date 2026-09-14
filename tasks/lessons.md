@@ -640,3 +640,7 @@
 - Prove a denial with the status, not just the absence of success. All 130 refusals here were HTTP
   403; a 404 would have been a weaker claim, because a missing object and a refused one look alike
   from the outside.
+
+- A `DO $$ ... $$` body accepts no bind parameter. Splice a fixed catalog definition into it with `sql.raw` and keep the literal in one named constant, so the guard and the statement it guards can never drift.
+- Do not install a CHECK that no landed writer can satisfy. A constraint whose column is still written NULL by the current path fails every write from the moment it lands, and `NOT VALID` does not help because it still enforces on insert. Land the column and its format checks, and let the writer's own change add the completeness check.
+- A migration that drops and re-adds a primary key on every boot churns its catalog entry and revalidates the table. Guard each reshaping step on the exact shape it produces, then assert constraint OIDs are unchanged across two boots; a definition-only comparison cannot see the churn.
