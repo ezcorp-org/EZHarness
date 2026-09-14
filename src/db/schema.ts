@@ -3048,13 +3048,15 @@ export const factoryValidatorAssignments = pgTable("factory_validator_assignment
 ]);
 
 export const factoryValidatorResults = pgTable("factory_validator_results", {
-  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), validatorAttemptId: text("validator_attempt_id").notNull(), validatorId: text("validator_id").notNull(), terminalFactDigest: text("terminal_fact_digest").notNull(),
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), validatorAttemptId: text("validator_attempt_id").notNull(), validatorId: text("validator_id").notNull(), verdict: text("verdict").notNull().$type<"PASS" | "FAIL" | "INCONCLUSIVE" | "VALIDATOR_ERROR">(), reportDigest: text("report_digest"), terminalFactDigest: text("terminal_fact_digest").notNull(),
   artifactId: text("artifact_id").notNull(), artifactDigest: text("artifact_digest").notNull(), artifactBytes: bigint("artifact_bytes", { mode: "number" }).notNull(), claimsJson: text("claims_json").notNull(), issuedAtMs: bigint("issued_at_ms", { mode: "number" }).notNull(), expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), evidenceDigest: text("evidence_digest").notNull(), resultDigest: text("result_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   primaryKey({ columns: [table.tenantId, table.projectId, table.validatorAttemptId, table.validatorId] }),
   foreignKey({ columns: [table.tenantId, table.projectId, table.validatorAttemptId, table.validatorId], foreignColumns: [factoryValidatorAssignments.tenantId, factoryValidatorAssignments.projectId, factoryValidatorAssignments.validatorAttemptId, factoryValidatorAssignments.validatorId] }).onDelete("restrict"),
   foreignKey({ columns: [table.validatorAttemptId], foreignColumns: [factoryExecutionTerminals.attemptId] }).onDelete("restrict"),
   foreignKey({ columns: [table.tenantId, table.projectId, table.artifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+  check("factory_validator_results_verdict_check", sql`${table.verdict} IN ('PASS', 'FAIL', 'INCONCLUSIVE', 'VALIDATOR_ERROR')`),
+  check("factory_validator_results_report_digest_check", sql`${table.reportDigest} IS NULL OR ${table.reportDigest} ~ '^sha256:[0-9a-f]{64}$'`),
 ]);
 /** Exact human-issued source-to-target artifact reads; the protected digest binds all usable metadata. */
 export const factoryArtifactReadGrants = pgTable("factory_artifact_read_grants", {

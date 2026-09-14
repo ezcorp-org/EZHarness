@@ -2,6 +2,10 @@ import type {
   CompiledFactory,
   FactoryModelPin,
   FactoryTransportValue,
+  FactoryValidatorClaimOutcome,
+  FactoryValidatorClaimReport,
+  FactoryValidatorProvenance,
+  FactoryValidatorReport,
   JsonValue,
   FactoryRunnerRequestIdentity,
   FactoryRunnerResult,
@@ -9,7 +13,7 @@ import type {
   RunnerReference,
 } from "@ezcorp/factory-sdk";
 import { compileFactory, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
-import { validateCompiledFactory } from "@ezcorp/factory-sdk/validation";
+import { validateCompiledFactory, validateFactoryValidatorClaimReport, validateFactoryValidatorReport } from "@ezcorp/factory-sdk/validation";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -111,7 +115,7 @@ type AssignmentRow = {
   definition_digest: string; validator_lock_digest: string; candidate_digest: string; candidate_artifact_id: string; candidate_artifact_digest: string; candidate_artifact_bytes: number | string;
   runner_json: string; runner_digest: string; environment_digest: string; configuration_digest: string; freshness_ms: number | string; trust_revision: number | string; issuer_grant_revision: number | string; assignment_digest: string;
 };
-type ResultRow = { validator_id: string; terminal_fact_digest: string; artifact_id: string; artifact_digest: string; artifact_bytes: number | string; claims_json: string; issued_at_ms: number | string; expires_at_ms: number | string; evidence_digest: string; result_digest: string };
+type ResultRow = { validator_id: string; verdict: string; report_digest: string; terminal_fact_digest: string; artifact_id: string; artifact_digest: string; artifact_bytes: number | string; claims_json: string; issued_at_ms: number | string; expires_at_ms: number | string; evidence_digest: string; result_digest: string };
 
 export class FactoryTrustedValidatorError extends Error {
   constructor(readonly code: string) { super(code); this.name = "FactoryTrustedValidatorError"; }
@@ -174,23 +178,22 @@ function assignmentFields(row: Omit<AssignmentRow, "assignment_digest">): object
   };
 }
 
-function strictClaims(content: Uint8Array, validatorId: string): readonly { id: string; passed: boolean; decisive: boolean }[] {
+/**
+ * Reads the guest's claim report and returns the one outcome this claim is bound to.
+ *
+ * The SDK owns the only parser, so a successful process exit proves nothing: the verdict comes
+ * from the report or the claim has none. The guest envelope carries no provenance, and the
+ * generated schema rejects a payload that tries to supply any.
+ */
+function strictClaimOutcome(content: Uint8Array, validatorId: string): FactoryValidatorClaimOutcome {
   if (content.byteLength < 1 || content.byteLength > MAX_VALIDATOR_RESULT_BYTES) throw new FactoryTrustedValidatorError("factory_validator_result_invalid");
   let decoded: unknown;
   try { decoded = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(content)); } catch { throw new FactoryTrustedValidatorError("factory_validator_result_invalid"); }
-  if (!decoded || typeof decoded !== "object" || Array.isArray(decoded) || !Object.keys(decoded).every(key => ["schemaVersion", "claims"].includes(key))) throw new FactoryTrustedValidatorError("factory_validator_result_invalid");
-  const value = decoded as { schemaVersion?: unknown; claims?: unknown };
-  if (value.schemaVersion !== "factory.validator-result.v1" || !Array.isArray(value.claims) || value.claims.length < 1 || value.claims.length > MAX_VALIDATOR_CLAIMS) throw new FactoryTrustedValidatorError("factory_validator_result_invalid");
-  const parsed = new Map<string, { readonly id: string; readonly passed: boolean; readonly decisive: boolean }>();
-  for (const claim of value.claims) {
-    if (!claim || typeof claim !== "object" || Array.isArray(claim) || !Object.keys(claim).every(key => ["id", "passed", "decisive"].includes(key))) throw new FactoryTrustedValidatorError("factory_validator_result_invalid");
-    const result = claim as { id?: unknown; passed?: unknown; decisive?: unknown };
-    if (typeof result.id !== "string" || result.id.length < 1 || result.id.length > 512 || parsed.has(result.id) || typeof result.passed !== "boolean" || typeof result.decisive !== "boolean") throw new FactoryTrustedValidatorError("factory_validator_result_invalid");
-    parsed.set(result.id, { id: result.id, passed: result.passed, decisive: result.decisive });
-  }
-  const selected = parsed.get(validatorId);
+  if (!validateFactoryValidatorClaimReport(decoded).ok) throw new FactoryTrustedValidatorError("factory_validator_result_invalid");
+  const report = decoded as FactoryValidatorClaimReport;
+  const selected = report.claims.find(claim => claim.id === validatorId);
   if (!selected) throw new FactoryTrustedValidatorError("factory_validator_result_invalid");
-  return [selected];
+  return selected;
 }
 
 /** Concrete C04 gateway. It records only compiled material and verified host facts. */
@@ -329,8 +332,9 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
     if (terminal.attemptId !== assignment.validator_attempt_id || terminal.tenantId !== this.tenantId || terminal.projectId !== candidate.projectId || terminal.runId !== candidate.runId || terminal.nodeInstanceId !== authority.nodeInstanceId || terminal.candidateGeneration !== authority.candidateGeneration) throw new FactoryTrustedValidatorError("factory_validator_terminal_untrusted");
     const loaded = await this.artifacts.loadInTransaction(transaction, { tenantId: this.tenantId, projectId: candidate.projectId, logicalRunId: candidate.runId }, { objectId: result.output.artifactId, digest: result.output.digest, encodedBytes: result.output.encodedBytes }, ["candidate_output"]);
     if (loaded.candidateNodeInstanceId !== authority.nodeInstanceId || loaded.candidateGeneration !== authority.candidateGeneration) throw new FactoryTrustedValidatorError("factory_validator_terminal_untrusted");
-    const claims = strictClaims(loaded.content, validatorId);
-    const prior = rows<ResultRow>(await transaction.execute(sql`SELECT validator_id,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest FROM factory_validator_results WHERE tenant_id=${this.tenantId} AND project_id=${candidate.projectId} AND validator_attempt_id=${authority.attemptId} AND validator_id=${validatorId} FOR SHARE`))[0];
+    const outcome = strictClaimOutcome(loaded.content, validatorId);
+    const claims = [{ id: outcome.id, verdict: outcome.verdict, decisive: outcome.decisive }];
+    const prior = rows<ResultRow>(await transaction.execute(sql`SELECT validator_id,verdict,report_digest,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest FROM factory_validator_results WHERE tenant_id=${this.tenantId} AND project_id=${candidate.projectId} AND validator_attempt_id=${authority.attemptId} AND validator_id=${validatorId} FOR SHARE`))[0];
     const timestamp = prior ? undefined : rows<{ issued_at_ms: number | string }>(await transaction.execute(sql`SELECT FLOOR(EXTRACT(EPOCH FROM transaction_timestamp()) * 1000) AS issued_at_ms`))[0];
     const issuedAtMs = Number(prior?.issued_at_ms ?? timestamp?.issued_at_ms);
     counter(issuedAtMs, 1);
@@ -345,10 +349,35 @@ export class FactoryTrustedValidators implements FactoryTrustedValidatorGateway,
     };
     const evidenceDigest = hash(evidence);
     const resultDigest = hash({ schemaVersion: "factory.validator-result-record.v1", assignmentDigest: assignment.assignment_digest, terminalFactDigest: terminal.terminalFactDigest, evidence });
-    if (!prior) await transaction.execute(sql`INSERT INTO factory_validator_results (tenant_id,project_id,validator_attempt_id,validator_id,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest) VALUES (${this.tenantId},${candidate.projectId},${authority.attemptId},${validatorId},${terminal.terminalFactDigest},${result.output.artifactId},${result.output.digest},${result.output.encodedBytes},${canonicalJson(claims)},${issuedAtMs},${expiresAtMs},${evidenceDigest},${resultDigest})`);
-    const saved = prior ?? rows<ResultRow>(await transaction.execute(sql`SELECT validator_id,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest FROM factory_validator_results WHERE tenant_id=${this.tenantId} AND project_id=${candidate.projectId} AND validator_attempt_id=${authority.attemptId} AND validator_id=${validatorId} FOR SHARE`))[0];
-    if (!saved || saved.validator_id !== validatorId || saved.terminal_fact_digest !== terminal.terminalFactDigest || saved.artifact_id !== result.output.artifactId || saved.artifact_digest !== result.output.digest || Number(saved.artifact_bytes) !== result.output.encodedBytes || saved.evidence_digest !== evidenceDigest || saved.result_digest !== resultDigest || saved.claims_json !== canonicalJson(claims) || Number(saved.issued_at_ms) !== issuedAtMs || Number(saved.expires_at_ms) !== expiresAtMs) throw new FactoryTrustedValidatorError("factory_validator_result_conflict");
+    const reportDigest = hash(this.sealReport(assignment, candidate, authority, outcome, issuedAtMs, expiresAtMs));
+    if (!prior) await transaction.execute(sql`INSERT INTO factory_validator_results (tenant_id,project_id,validator_attempt_id,validator_id,verdict,report_digest,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest) VALUES (${this.tenantId},${candidate.projectId},${authority.attemptId},${validatorId},${outcome.verdict},${reportDigest},${terminal.terminalFactDigest},${result.output.artifactId},${result.output.digest},${result.output.encodedBytes},${canonicalJson(claims)},${issuedAtMs},${expiresAtMs},${evidenceDigest},${resultDigest})`);
+    const saved = prior ?? rows<ResultRow>(await transaction.execute(sql`SELECT validator_id,verdict,report_digest,terminal_fact_digest,artifact_id,artifact_digest,artifact_bytes,claims_json,issued_at_ms,expires_at_ms,evidence_digest,result_digest FROM factory_validator_results WHERE tenant_id=${this.tenantId} AND project_id=${candidate.projectId} AND validator_attempt_id=${authority.attemptId} AND validator_id=${validatorId} FOR SHARE`))[0];
+    if (!saved || saved.validator_id !== validatorId || saved.verdict !== outcome.verdict || saved.report_digest !== reportDigest || saved.terminal_fact_digest !== terminal.terminalFactDigest || saved.artifact_id !== result.output.artifactId || saved.artifact_digest !== result.output.digest || Number(saved.artifact_bytes) !== result.output.encodedBytes || saved.evidence_digest !== evidenceDigest || saved.result_digest !== resultDigest || saved.claims_json !== canonicalJson(claims) || Number(saved.issued_at_ms) !== issuedAtMs || Number(saved.expires_at_ms) !== expiresAtMs) throw new FactoryTrustedValidatorError("factory_validator_result_conflict");
     return evidence;
+  }
+
+  /**
+   * Seals the gateway report for one claim.
+   *
+   * Every provenance field is read from the durable assignment row and the locked candidate, never
+   * from the guest, so arbitrary runner JSON cannot mint issuer provenance. The sealed report is
+   * validated before its digest is stored, so an incomplete field set is refused here rather than
+   * discovered by a later consumer.
+   */
+  private sealReport(assignment: AssignmentRow, candidate: FactoryValidationCandidate, authority: FactoryAttemptAuthority, outcome: FactoryValidatorClaimOutcome, issuedAtMs: number, expiresAtMs: number): FactoryValidatorReport {
+    const runtime = this.runtimes.get(assignment.runner_digest);
+    const provenance: FactoryValidatorProvenance = {
+      attemptId: assignment.validator_attempt_id, tenantId: this.tenantId, projectId: candidate.projectId, runId: candidate.runId,
+      candidateNodeInstanceId: candidate.nodeInstanceId, candidateGeneration: candidate.candidateGeneration,
+      candidateDigest: candidate.candidateDigest, validatorLockDigest: assignment.validator_lock_digest, runnerDigest: assignment.runner_digest,
+      environmentDigest: assignment.environment_digest, configurationDigest: assignment.configuration_digest,
+      ...(runtime?.model ? { model: runtime.model } : {}),
+      trustRevision: Number(assignment.trust_revision), issuerGrantRevision: Number(assignment.issuer_grant_revision), issuedAtMs, expiresAtMs,
+    };
+    void authority;
+    const report: FactoryValidatorReport = { schemaVersion: "factory.validator-report.v1", provenance, claims: [outcome] };
+    if (!validateFactoryValidatorReport(report).ok) throw new FactoryTrustedValidatorError("factory_validator_result_invalid");
+    return report;
   }
 
   private assertDurableRequest(request: FactoryRunnerRequestIdentity, authority: FactoryAttemptAuthority, input: FactoryTransportValue, validator: ValidatorManifestEntry): void {

@@ -3099,6 +3099,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryAdmissionOrigin(db);
   const { up: addFactoryReleaseProfile } = await import("./migrations/add-factory-release-profile");
   await addFactoryReleaseProfile(db);
+  const { up: addFactoryValidatorReport } = await import("./migrations/add-factory-validator-report");
+  await addFactoryValidatorReport(db);
   const { up: addFactoryProtectedDecision } = await import("./migrations/add-factory-protected-decision");
   await addFactoryProtectedDecision(db);
 }
