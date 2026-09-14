@@ -38,6 +38,7 @@ export class ReferenceDataMaterialError extends Error {
     readonly code:
       | "reference_data_material_absent"
       | "reference_data_material_digest_mismatch"
+      | "reference_data_material_empty"
       | "reference_data_material_oversized"
       | "reference_data_material_name_invalid"
       | "reference_data_material_unsealed",
@@ -116,6 +117,7 @@ export class ReferenceDataGuestDirectory {
   async *collect(name: string, chunkBytes = FACTORY_MATERIAL_LIMITS.maxChunkBytes): AsyncGenerator<Uint8Array> {
     const path = this.resolve(name);
     let handle: Awaited<ReturnType<typeof open>>;
+    // The name is resolved above, outside the open guard, for the same reason.
     try {
       handle = await open(path, "r");
     } catch {
@@ -139,8 +141,11 @@ export class ReferenceDataGuestDirectory {
   }
 
   async size(name: string): Promise<number> {
+    // The name is resolved OUTSIDE the guard, so a refused name stays a refused
+    // name instead of being reported as a file the guest did not write.
+    const path = this.resolve(name);
     try {
-      return (await stat(this.resolve(name))).size;
+      return (await stat(path)).size;
     } catch {
       throw new ReferenceDataMaterialError("reference_data_material_absent", `The guest left no ${name}.`);
     }
@@ -192,17 +197,40 @@ export async function sealReferenceDataMaterial(
   signal?: AbortSignal,
 ): Promise<ReferenceDataMaterial> {
   if (totalBytes > FACTORY_MATERIAL_LIMITS.maxTotalBytes) throw new ReferenceDataMaterialError("reference_data_material_oversized", `${identity.objectName} is ${totalBytes} bytes, past the ${FACTORY_MATERIAL_LIMITS.maxTotalBytes}-byte material bound.`);
-  const chunkCount = Math.max(Math.ceil(totalBytes / FACTORY_MATERIAL_LIMITS.maxChunkBytes), 1);
+  // W04 refuses a plan whose chunk count exceeds its byte count, so a zero-byte
+  // material cannot be sealed at all. Refusing it here names the reason.
+  if (totalBytes === 0) throw new ReferenceDataMaterialError("reference_data_material_empty", `${identity.objectName} holds no bytes, and an empty material has no chunk plan.`);
+  const chunkCount = Math.ceil(totalBytes / FACTORY_MATERIAL_LIMITS.maxChunkBytes);
   const record = await materials.begin(identity, mediaType, totalBytes, chunkCount, signal);
   const hasher = new Bun.CryptoHasher("sha256");
   let index = 0;
   let written = 0;
-  for await (const chunk of source) {
-    hasher.update(chunk);
-    written += chunk.byteLength;
+  // The stream is REPACKED to the plan. A caller's blocks are whatever its own
+  // reader produced - a megabyte from a file, a line buffer from a generator -
+  // and writing one chunk per block would put a 256 MiB material far past its
+  // declared chunk count.
+  let pending = new Uint8Array(FACTORY_MATERIAL_LIMITS.maxChunkBytes);
+  let filled = 0;
+  const flush = async () => {
+    const chunk = pending.subarray(0, filled);
     await materials.writeChunk(identity, { index, digest: factoryMaterialDigest(chunk), encodedBytes: chunk.byteLength }, chunk, signal);
     index += 1;
+    pending = new Uint8Array(FACTORY_MATERIAL_LIMITS.maxChunkBytes);
+    filled = 0;
+  };
+  for await (const block of source) {
+    hasher.update(block);
+    written += block.byteLength;
+    let offset = 0;
+    while (offset < block.byteLength) {
+      const take = Math.min(FACTORY_MATERIAL_LIMITS.maxChunkBytes - filled, block.byteLength - offset);
+      pending.set(block.subarray(offset, offset + take), filled);
+      filled += take;
+      offset += take;
+      if (filled === FACTORY_MATERIAL_LIMITS.maxChunkBytes) await flush();
+    }
   }
+  if (filled > 0) await flush();
   if (written !== totalBytes || index !== chunkCount) throw new ReferenceDataMaterialError("reference_data_material_digest_mismatch", `${identity.objectName} measured ${totalBytes} bytes in ${chunkCount} chunk(s) and wrote ${written} in ${index}.`);
   // `digest` finalises the hasher, so the whole-material digest is taken once
   // and reused for both the seal and the record this returns.

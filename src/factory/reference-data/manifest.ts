@@ -13,8 +13,16 @@ import { REFERENCE_DATA_PARQUET_SCHEMA } from "./parquet";
 
 export const REFERENCE_DATA_MANIFEST_SCHEMA_VERSION = "factory.reference-data-manifest.v1";
 export const REFERENCE_DATA_MANIFEST_MEDIA_TYPE = "application/json";
-/** The reserved manifest member name inside the export directory. */
-export const REFERENCE_DATA_MANIFEST_NAME = "manifest.json";
+/**
+ * The dataset manifest's member name inside the export directory.
+ *
+ * It is NOT `manifest.json`. That name is reserved by the shared S3 adapter for
+ * the publication manifest it writes last as the publication point, and no
+ * member may take it. The two are different documents: W08's names the objects
+ * and their digests, this one carries C10's row count, per-category counts, and
+ * exact integer sums.
+ */
+export const REFERENCE_DATA_MANIFEST_NAME = "dataset-manifest.json";
 
 export type ReferenceDataManifestIssueCode =
   | "manifest_shape"

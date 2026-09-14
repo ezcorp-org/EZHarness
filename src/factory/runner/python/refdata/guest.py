@@ -241,12 +241,14 @@ def parse_csv(command: dict[str, Json]) -> dict[str, Json]:
                     break
                 digest.update(block)
                 pending += block
-                while True:
-                    at = pending.find(b"\n")
-                    if at == -1:
-                        break
-                    consume(pending[:at])
-                    pending = pending[at + 1 :]
+                # Split the WHOLE block at once. Finding one newline at a time
+                # and reslicing the remainder is quadratic in the block size,
+                # which at C10's 256 MiB bound is hundreds of gigabytes of
+                # copying for an input that should take seconds.
+                complete = pending.split(b"\n")
+                pending = complete.pop()
+                for line in complete:
+                    consume(line)
     except OSError as error:
         raise GuestError(f"material {command['input']!r} is unreadable: {error.strerror}") from error
     if pending:

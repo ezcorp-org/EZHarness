@@ -209,7 +209,9 @@ class LineReader {
   feed(chunk: Uint8Array): string[] {
     this.bytes += chunk.byteLength;
     if (this.bytes > REFERENCE_DATA_LIMITS.maxBytes) refuse("byte_limit", this.line + 1, "input exceeds the declared 256 MiB bound");
-    for (const byte of chunk) if (byte === CARRIAGE_RETURN) refuse("row_carriage_return", this.line + 1, "a carriage return is not part of the pinned line grammar");
+    // `includes` is a native scan. Iterating the bytes in JavaScript is a
+    // quarter of a billion interpreter steps at C10's 256 MiB bound.
+    if (chunk.includes(CARRIAGE_RETURN)) refuse("row_carriage_return", this.line + 1, "a carriage return is not part of the pinned line grammar");
     let text: string;
     try {
       text = this.decoder.decode(chunk, { stream: true });
