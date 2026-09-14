@@ -32,7 +32,7 @@
  *        [--fixtures]
  */
 import { createHash, randomUUID } from "node:crypto";
-import { chmod, mkdir, mkdtemp, open, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, open, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -200,36 +200,26 @@ async function fetchImage(worker: Worker, context: unknown, digest: string, expe
 }
 
 /**
- * Prepares one per-attempt material directory the guest can actually write to.
+ * Creates one per-attempt material directory and nothing more.
  *
- * The guest runs as uid 65534 inside its user namespace, and a directory the
- * host created is owned by the host user, so the guest gets `EPERM` on its first
- * write. `podman unshare` performs the chown INSIDE that namespace, which is
- * what maps 65534 to the right host subuid; a plain `chown` on this side cannot
- * name it.
+ * Making it writable by the guest is the RUNNER's job, not a caller's. At
+ * launch the runner sets mode 0o770 and hands ownership to the mapped guest uid
+ * through `podman unshare chown`, so a caller that also chowned it would be a
+ * second implementation of an ownership rule, in a script, where a mistake
+ * spells `0o777`.
  *
- * Group zero in the namespace is the host user, so mode 0770 lets the guest own
- * the directory and lets the host read the files back as group, while other gets
- * nothing. A world-writable 0777 would do the same job and is the reason this
- * says 0770 instead.
+ * An earlier revision of this script did exactly that, and the two failures it
+ * took to get right are why it does not any more: a host-created directory
+ * leaves the guest with `EPERM` on its first write, and once the directory
+ * belongs to the guest's subuid a host-side `chmod` is itself `EPERM`. Both
+ * belong on one side of the boundary, and that side is the runner's.
  *
- * The mode is set BEFORE the chown, not after. Once the directory belongs to a
- * subuid the host user does not own, a host-side `chmod` is `EPERM`; `mkdir`'s
- * mode argument is also subject to the umask, so it is set explicitly while the
- * host still owns the directory.
- *
- * A host with no container runtime fails here rather than continuing with a
- * directory the guest cannot use.
+ * So this fails closed rather than compensating: against a runner that does not
+ * yet hand the directory over, the guest's first write is refused and the run
+ * says so.
  */
 async function prepareMaterialDirectory(directory: string): Promise<void> {
   await mkdir(directory, { recursive: true });
-  await chmod(directory, 0o770);
-  const chown = Bun.spawn(["podman", "unshare", "chown", "65534:0", directory], { stdout: "pipe", stderr: "pipe" });
-  const code = await chown.exited;
-  if (code !== 0) {
-    const detail = (await new Response(chown.stderr).text()).trim();
-    throw new Error(`Could not give the guest ownership of ${directory}: podman unshare chown exited ${code}. ${detail}`);
-  }
 }
 
 function contextFor(workerId: string, artifactDigest: string, limits: ResourceLimits): Record<string, unknown> {

@@ -4,9 +4,19 @@ Leaf of W11. Closes the two rows W11 left open on the platform's byte path:
 G15 (a variant larger than one mebibyte could not leave an isolated guest) and
 G18b (the accepted 1,024-pixel variant could therefore not be published).
 
-Branch `wp/w11b-image-egress`, cut from `integ/w00` at `f30da62fa`, which
-carries the Terra runtime owner's canonical material mount.
+Branch `wp/w11b-image-egress`, cut from `integ/w00` at `f30da62fa`.
 Evidence `/tmp/factory-platform-evidence/w11b/`.
+
+**The GPU proof waits on W01d and is not claimed yet.** The mount merged at
+`f30da62fa` does not make the material directory writable for the guest: the
+runner sets no mode and no owner. Terra runtime is landing W01d, which does both
+at launch through `podman unshare chown`, so a caller creates the directory and
+passes the path and nothing else. This branch is built against that contract:
+it adds no `chmod` and no `chown` of its own, and never `0o777`. Against a
+runner that has not yet handed the directory over, the guest's first write is
+refused and the run says so, which is the correct failure. B1, B6 and B7 are
+therefore unchecked until W01d is on `integ/w00`, merged here once, and the
+journey rerun. Everything else below is measured now.
 
 **Production GPU isolation stays unmet**, on all eight criteria in
 `docs/factory-local-gpu.md`. Every generation below ran on this host's AMD
@@ -23,18 +33,21 @@ the worker is confirmed stopped, and the deferred-variant path is gone.
 
 ## Gates
 
-- [x] B1: The guest writes a 1,024-pixel variant into the mount and the host
+- [ ] B1 (waits on W01d): The guest writes a 1,024-pixel variant into the mount and the host
       reads it back whole. This is what G15 said was impossible.
       CHECK: `flock $XDG_RUNTIME_DIR/ezcorp-factory-local-gpu.lock flock /tmp/ezcorp-validation-heavy.lock timeout 6600 bun scripts/verify-factory-image-pack.ts --label w11b-mount-egress --fixtures`
       EXPECT: exit 0; every seed `sealed-from-material-mount`; no
       `deferred-over-budget` anywhere.
-      EVIDENCE: `logs/journey-mount.json`, exit 0. All four seeds generated at
-      1,024 by 1,024 on the real card (`torch 2.12.0+rocm7.14.1`,
-      `hip 7.14.60850`) and all four left through the mount: 2,364,124, 998,116,
-      2,425,299 and 2,434,845 bytes. Three of those are more than twice the
-      entire control-channel lifetime budget of 1,048,576 bytes, so each one is
-      a case the previous path could not carry at all. Every file on disk
-      digests to the value the journey recorded.
+      EVIDENCE: `logs/journey-mount.json`, exit 0, **and it does not prove this
+      gate**. All four seeds generated at 1,024 by 1,024 on the real card
+      (`torch 2.12.0+rocm7.14.1`, `hip 7.14.60850`) and all four left through
+      the mount: 2,364,124, 998,116, 2,425,299 and 2,434,845 bytes, three of
+      them more than twice the 1,048,576-byte control-channel lifetime budget.
+      Every file on disk digests to the value the journey recorded. But that run
+      was made against a directory THIS SCRIPT chowned, which is the step W01d
+      moves into the runner and which this branch no longer performs. So it is
+      evidence that the byte path, the read-back and the digest binding work,
+      and it is not evidence of the landed contract. Rerun after W01d.
 
 - [x] B2: Bytes leave only through the shared helpers, never a raw walk or open.
       CHECK: `grep -n "readdir\|[^n]open(" src/factory/reference-image/materials.ts`; `bun scripts/check-factory-boundaries.ts`
@@ -77,12 +90,15 @@ the worker is confirmed stopped, and the deferred-variant path is gone.
       Chunking also respects `maxChunkBytes`: a file one chunk plus seven bytes
       long reaches the store as two chunks of exactly that size and seven.
 
-- [x] B6: The accepted variant publishes through W08 with the digest recomputed
+- [ ] B6 (waits on W01d): The accepted variant publishes through W08 with the digest recomputed
       from the bytes read back out of the real store. This closes G18b for a
       1,024-pixel variant.
       CHECK: `EZCORP_FACTORY_STORAGE_SECRETS_DIR=<secrets> flock /tmp/ezcorp-validation-heavy.lock bun scripts/verify-factory-image-publication.ts --variant <png>`
       EXPECT: exit 0; both files re-fetched and re-hashed; a repeat refused.
-      EVIDENCE: `logs/publication.json`, exit 0. The published variant is seed
+      EVIDENCE: `logs/publication.json`, exit 0, on a variant produced by the
+      superseded run described in B1. The publication leg itself does not depend
+      on how the directory was prepared, but the variant it published came from
+      that run, so this is restated rather than claimed. The published variant is seed
       23, the first seed in input order that passed every deterministic claim in
       this run, 998,116 bytes, digest
       `sha256:21b0fa6177170166a0c882a4039bfa27227a7d4db5e920fb2c9255f9e8d109a9`.
@@ -93,13 +109,13 @@ the worker is confirmed stopped, and the deferred-variant path is gone.
       `factory_s3_manifest_published`. The run deleted exactly the two object
       keys and the manifest key it created.
 
-- [x] B7: The claims still discriminate on real output; the mount changed the
+- [ ] B7 (waits on W01d): The claims still discriminate on real output; the mount changed the
       byte path and nothing else.
       CHECK: same journey
       EXPECT: the byte-level claims pass on conforming variants, the caption
       fixture fails only the OCR claim, and the blank control passes all five.
-      EVIDENCE: `logs/journey-mount.json`. All four seeds passed the four
-      byte-level claims. Seed 23 passed `ocr-no-text` with its candidate tokens
+      EVIDENCE: `logs/journey-mount.json`, from the superseded run in B1. All
+      four seeds passed the four byte-level claims. Seed 23 passed `ocr-no-text` with its candidate tokens
       below the threshold; seeds 11, 37 and 53 failed it on marks the model
       painted. The drawn caption fixture failed `ocr-no-text` alone and passed
       the other four; the blank control passed all five. The round is
@@ -117,16 +133,18 @@ the worker is confirmed stopped, and the deferred-variant path is gone.
 
 ## Deviations and findings
 
-1. **The mount must be chowned into the user namespace, and the mode must be
-   set first.** A host-created directory is owned by the host user, so the guest
-   at uid 65534 gets `EPERM` on its first write; that was the first failing run
-   and it is kept. `podman unshare chown 65534:0` performs the chown inside the
-   namespace, which is what maps the guest uid to the right host subuid. The
-   second failing run is kept too: once the directory belongs to that subuid, a
-   host-side `chmod` is itself `EPERM`, so the mode is set while the host still
-   owns it. Mode is 0770 rather than 0777, so the guest owns it, the host reads
-   back as group, and other gets nothing. W12 hit the same two and their
-   validator made them correct the same 0777.
+1. **Making the mount writable is the runner's job, and this branch no longer
+   does it.** An earlier revision of the journey script chowned the directory
+   itself, and it took two failing runs to get right: a host-created directory
+   leaves the guest with `EPERM` on its first write, and once the directory
+   belongs to the guest's subuid a host-side `chmod` is itself `EPERM`. Both
+   runs are kept. The coordinator then corrected the design: W01d has the runner
+   set mode 0o770 and hand ownership over at launch, so a caller creates the
+   directory and passes the path and nothing more. The caller-side chown is
+   removed rather than left as a belt-and-braces duplicate, because a second
+   implementation of an ownership rule living in a script is where a mistake
+   spells `0o777`. The script now fails closed against a runner that has not
+   handed the directory over, which is what it should do.
 
 2. **The driver's material store reset its buffer on every chunk.** Its
    `writeChunk` returned `begin(...)` for convenience, and `begin` clears the
