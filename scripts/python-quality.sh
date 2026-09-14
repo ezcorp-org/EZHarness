@@ -107,7 +107,12 @@ run_typecheck() {
   local status=0
   for project_rel in "${PROJECTS[@]}"; do
     echo "→ mypy --strict (locked $project_rel)"
-    py "$project_rel" mypy --strict "$project_rel" || status=1
+    # `--config-file` is explicit because mypy resolves a config relative to the
+    # CURRENT directory, and this script runs from the repository root, which
+    # holds no pyproject.toml. Without it every project's [tool.mypy] section is
+    # read by nothing, which is how one project's untyped-import override went
+    # unapplied and its lane reported a failure the config already answered.
+    py "$project_rel" mypy --strict --config-file "$project_rel/pyproject.toml" "$project_rel" || status=1
   done
   return "$status"
 }

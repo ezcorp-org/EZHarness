@@ -1,0 +1,23 @@
+# The pinned PyArrow runner image for `reference.data.v1`.
+#
+# C11 requires the Python runner image to be BUILT FROM THE LOCK, so this file
+# installs exactly the non-development closure that `src/factory/runner/python/
+# uv.lock` resolves, hash-verified, and nothing else. The base is W02's pinned
+# CPython 3.13.12 by immutable registry digest, so the interpreter this guest
+# runs is the interpreter the repository pins.
+#
+# The requirements file is GENERATED from the lock by
+# `scripts/build-factory-data-image.sh`. Never hand-edit it: a second list of
+# pins is a second source of truth, and the guest's build lane compares the
+# importable closure with the declared one and fails on any drift.
+FROM docker.io/library/python@sha256:3121f8b0804aa3698ab750d9a39ea4a42657a385c9b133722b915e55c51551a6
+
+COPY locked-requirements.txt /tmp/locked-requirements.txt
+
+# `--require-hashes` refuses any artifact whose bytes are not in the lock.
+# `--only-binary` refuses a source distribution, which would run arbitrary build
+# code. `--no-compile` keeps the layer byte-identical across builds.
+RUN pip install --no-cache-dir --no-compile --only-binary=:all: --require-hashes \
+      -r /tmp/locked-requirements.txt \
+ && rm -f /tmp/locked-requirements.txt \
+ && python -c "import pyarrow, pyarrow.parquet; print(pyarrow.__version__)"

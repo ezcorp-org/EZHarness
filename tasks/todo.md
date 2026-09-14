@@ -2684,3 +2684,60 @@ the accepted bytes and the semantic evaluation equally. There is no Anthropic
 credential on this host. And `broker.invoke` has no production implementation,
 so a guest-initiated model call has nowhere to land. Each is recorded as an
 unmet row with its own verdict rather than folded into a summary.
+## W12 — real data reference pack (Sol domain)
+
+- [x] 1. Immutable CSV snapshot, strict parse, ordered 10,000-row partitions, pinned
+      Python/PyArrow transform, ordered reduction, Parquet and manifest output.
+- [x] 2. Independently recompute every row, ID, count, sum, schema, and partition invariant from
+      input and exported data, against BOTH the immutable input and the manifest.
+- [x] 3. Signed-64-bit boundaries and accounting overflow, in both runtimes and through the whole
+      journey.
+- [x] 4. The golden three-row input, and duplicate, missing-partition, changed-value, overflow,
+      malformed, maximum-row, and 256 MiB boundary cases.
+- [x] 5. Repair a defective transform only through a new pinned package revision; correcting the
+      input requires a new snapshot and run.
+- [x] 6. Publish through W08, and read the published bytes back from a real object store.
+- [x] 7. Full verification per common.md, with every producer recorded from a clean committed tree.
+
+### W12 review
+
+The pass criterion held: the real exported Parquet and its manifest reconcile exactly with the
+immutable source, including order, and publish through W08 to a real object store that hands the
+same bytes back.
+
+**On the order of events, because the first version of this paragraph got it wrong.** It declared
+every row closed at a commit whose timestamp preceded the only then-current passing receipt for the
+real-services leg, which is a claim the evidence did not support when it was written. What actually
+happened: the embedded-database journey passed first; the real-PostgreSQL and S3 leg passed next,
+including the W08 publication and the 256 MiB boundary; the maximum-row boundary was added after
+that and passed on its own; and a faithful full-file rerun then FAILED it with
+`factory_material_operation_full`, because a hundred partitions left too thin a margin against
+W04's frozen per-operation object cap. That is fixed by folding the hundred per-partition summaries
+into one material, and the case is now declared last so a full-file run is what proves it. The
+receipts in `tasks/factory/w12-GATES.md` name the commit for each.
+
+The package began with a wall, not with code. The isolated guest had no byte path out above one
+mebibyte for its whole lifetime, so no domain pack could return a real Parquet partition, a real
+PNG, or a real candidate tree. That was measured rather than inferred, raised with the coordinator
+before anything was written, and fixed as one additive field: `StartRequest.materials`, a
+per-attempt directory bind-mounted read-write, absent by default and with every C05 control
+untouched. W01's and W02's own Podman suites still pass unchanged.
+
+What landed. PyArrow in the committed lock and an image built from that lock, hash-verified, with
+its closure read back out of a live guest before any artifact is sealed. The strict grammar written
+once per runtime and held equal by committed vectors, so every shape `BigInt` and `int` would have
+quietly accepted is a refusal with a name. An independent Parquet reader that shares no code with
+the writer, because a validator that decodes with the encoder cannot catch a serialisation defect.
+And a reconciliation that compares the export with the immutable input as well as the manifest,
+which is the one comparison a defective transform cannot satisfy by also lying in its manifest.
+
+Four defects the real runs found, each fixed rather than worked around: a staged input created 0600
+under this host's umask and unreadable by the guest's uid; a reduction that took its results inline
+where a hundred partitions would not fit a 64 KiB request; a seal that wrote one chunk per incoming
+block and ran a 256 MiB material past its own plan; and a quadratic line split that would have
+turned a 256 MiB parse into hundreds of gigabytes of copying.
+
+What I would flag hardest is not a defect in this package. Two landed rules cannot both hold: a v4
+manifest name must match `^[a-z][a-z0-9-]{0,63}$`, and `FactoryPackagePreparations.releaseFacts`
+requires that name to equal a runner reference's package, which the compiled definition writes as
+`@ezcorp/reference-data`. Every domain pack hits it.

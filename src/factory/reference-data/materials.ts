@@ -1,0 +1,342 @@
+import { chmod, mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { GUEST_MATERIALS_PATH, listRunnerMaterials, openRunnerMaterial } from "@ezcorp/extension-runner";
+import type { FactoryArtifactReference } from "@ezcorp/factory-sdk";
+import {
+  FACTORY_MATERIAL_LIMITS,
+  factoryMaterialDigest,
+  type FactoryAttemptMaterials,
+  type FactoryMaterialIdentity,
+  type FactoryMaterialRecord,
+  type FactoryMaterialScope,
+  type FactoryScopedArtifactReader,
+} from "../artifact-materials";
+import { digestBytes } from "../../extensions/v4/blobs";
+
+/**
+ * The two byte paths this pack needs, and nothing else.
+ *
+ * W04 owns durable material bytes and the runner owns the guest, but nothing
+ * joins them: a Podman guest has `--network=none`, so the execution gateway's
+ * material routes are unreachable from inside one, and the control channel is
+ * bounded at one mebibyte for the guest's WHOLE life. This module is that
+ * join. It stages a sealed material into the per-attempt directory the runner
+ * bind-mounts, and it seals what the guest left there back into W04.
+ *
+ * It stores nothing itself. Every durable write goes through
+ * `FactoryAttemptMaterials` and every durable read through the scoped reader,
+ * so there is no second copy of chunking, digesting, admission, or authority.
+ */
+
+/** The uid every isolated guest runs as, and therefore the uid its output directory belongs to. */
+const GUEST_UID = 65534;
+
+/** Where the guest's inputs are staged. Read-only in practice; the guest is never asked to write here. */
+export const REFERENCE_DATA_GUEST_INPUT = "in";
+/** Where the guest leaves its outputs. */
+export const REFERENCE_DATA_GUEST_OUTPUT = "out";
+
+export class ReferenceDataMaterialError extends Error {
+  constructor(
+    readonly code:
+      | "reference_data_material_absent"
+      | "reference_data_material_digest_mismatch"
+      | "reference_data_material_empty"
+      | "reference_data_material_oversized"
+      | "reference_data_material_name_invalid"
+      | "reference_data_material_unowned"
+      | "reference_data_material_unsealed"
+      | "reference_data_material_untrusted",
+    message: string,
+  ) {
+    super(message);
+    this.name = "ReferenceDataMaterialError";
+  }
+}
+
+/**
+ * The per-attempt directory the shared runner mounts at `GUEST_MATERIALS_PATH`.
+ *
+ * The output directory is given to the GUEST, not to the world. `runnerMaterialMount`
+ * mounts the path and adds `noexec,nosuid,nodev`, but it sets no mode and no
+ * owner, so with an ordinary host-owned directory a guest running as uid 65534
+ * cannot write at all - measured, not assumed. `podman unshare chown` performs
+ * the mapping this host cannot compute itself: the directory ends up owned by
+ * the mapped uid with this user as its group, mode 0o770. The guest writes as
+ * owner, the host reads and cleans up as group, and nothing is world-writable
+ * or world-readable.
+ *
+ * Inputs stay this host's at 0o755 and 0o644: the guest only has to read them,
+ * and a directory the guest could write is a directory it could replace an
+ * input in.
+ *
+ * Everything the guest leaves is read back through `listRunnerMaterials` and
+ * `openRunnerMaterial`, which refuse a symbolic link, a device, a socket and a
+ * FIFO rather than following one. That is what stops a planted link at
+ * `out/<name>` having the host seal another file's bytes under the guest's own
+ * reported digest.
+ */
+export class ReferenceDataGuestDirectory {
+  private constructor(readonly root: string) {}
+
+  static async create(parent?: string, podman = "podman"): Promise<ReferenceDataGuestDirectory> {
+    const root = await mkdtemp(join(parent ?? "/tmp", "ez-refdata-materials-"));
+    const output = join(root, REFERENCE_DATA_GUEST_OUTPUT);
+    await mkdir(join(root, REFERENCE_DATA_GUEST_INPUT), { recursive: true });
+    await mkdir(output, { recursive: true });
+    await chmod(root, 0o755);
+    await chmod(join(root, REFERENCE_DATA_GUEST_INPUT), 0o755);
+    // The mode is set BEFORE the ownership moves, because afterwards this user
+    // is only the group and cannot change it.
+    await chmod(output, 0o770);
+    // A host with no container runtime fails CLOSED. Falling back to a wider
+    // mode would be the world-writable directory this exists to avoid, and
+    // `spawnSync` raises rather than returning a code when the binary is absent.
+    let reason: string | undefined;
+    try {
+      const handover = Bun.spawnSync([podman, "unshare", "chown", `${GUEST_UID}:0`, output]);
+      if (handover.exitCode !== 0) reason = new TextDecoder().decode(handover.stderr).trim() || `exit ${handover.exitCode}`;
+    } catch (error) {
+      reason = error instanceof Error ? error.message : String(error);
+    }
+    if (reason !== undefined) {
+      await rm(root, { recursive: true, force: true });
+      throw new ReferenceDataMaterialError("reference_data_material_unowned", `The guest's output directory could not be handed to uid ${GUEST_UID}: ${reason}.`);
+    }
+    return new ReferenceDataGuestDirectory(root);
+  }
+
+  /** The name the guest sees for a staged input. */
+  static input(name: string): string {
+    return `${REFERENCE_DATA_GUEST_INPUT}/${name}`;
+  }
+
+  /** The name the guest sees for an output it must write. */
+  static output(name: string): string {
+    return `${REFERENCE_DATA_GUEST_OUTPUT}/${name}`;
+  }
+
+  /** The path the guest reads, which is the same fixed mount point the runner declares. */
+  static guestPath(name: string): string {
+    return `${GUEST_MATERIALS_PATH}/${name}`;
+  }
+
+  private resolve(name: string): string {
+    if (!/^(?:in|out)\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new ReferenceDataMaterialError("reference_data_material_name_invalid", `Material name ${name} is not a bounded entry of the attempt directory.`);
+    return join(this.root, name);
+  }
+
+  /**
+   * Opens one file the GUEST wrote, through the shared hardened path.
+   *
+   * The name grammar above stops traversal and a second path segment; it does
+   * nothing about a symbolic link AT the final component, which is exactly what
+   * a guest that owns its output directory can plant. `openRunnerMaterial`
+   * refuses one, so this never resolves to a file outside the mount.
+   */
+  private async openProduced(name: string): Promise<Awaited<ReturnType<typeof open>>> {
+    this.resolve(name);
+    try {
+      return await openRunnerMaterial(this.root, name);
+    } catch (error) {
+      throw new ReferenceDataMaterialError("reference_data_material_absent", `The guest left no usable ${name} (${error instanceof Error ? error.message : String(error)}).`);
+    }
+  }
+
+  /** Writes one staged input, in bounded blocks, and reports its digest and size. */
+  async stage(name: string, source: AsyncIterable<Uint8Array>): Promise<{ readonly digest: string; readonly totalBytes: number }> {
+    const path = this.resolve(name);
+    const handle = await open(path, "wx", 0o644);
+    const hasher = new Bun.CryptoHasher("sha256");
+    let totalBytes = 0;
+    try {
+      for await (const block of source) {
+        hasher.update(block);
+        totalBytes += block.byteLength;
+        await handle.write(block);
+      }
+    } finally {
+      await handle.close();
+    }
+    // `open`'s mode is masked by the process umask, and a host running under
+    // 077 would leave this 0600 - unreadable by the guest's uid, which is a
+    // different user in a different namespace. The mode is set, not requested.
+    await chmod(path, 0o644);
+    return { digest: `sha256:${hasher.digest("hex")}`, totalBytes };
+  }
+
+  /** Streams one output the guest left, in chunks a material write can take directly. */
+  async *collect(name: string, chunkBytes = FACTORY_MATERIAL_LIMITS.maxChunkBytes): AsyncGenerator<Uint8Array> {
+    const handle = await this.openProduced(name);
+    try {
+      for (;;) {
+        const buffer = new Uint8Array(chunkBytes);
+        const read = await handle.read(buffer, 0, chunkBytes, null);
+        if (read.bytesRead === 0) return;
+        yield buffer.subarray(0, read.bytesRead);
+      }
+    } finally {
+      await handle.close();
+    }
+  }
+
+  /**
+   * Every regular file the guest actually left, so an unexpected one is visible
+   * rather than ignored, and anything that is not a regular file is a refusal
+   * rather than an entry.
+   */
+  async produced(): Promise<readonly string[]> {
+    let entries: Awaited<ReturnType<typeof listRunnerMaterials>>;
+    try {
+      entries = await listRunnerMaterials(this.root);
+    } catch (error) {
+      throw new ReferenceDataMaterialError("reference_data_material_untrusted", `The guest's material directory is not readable as ordinary files (${error instanceof Error ? error.message : String(error)}).`);
+    }
+    return entries
+      .filter(entry => entry.path.startsWith(`${REFERENCE_DATA_GUEST_OUTPUT}/`))
+      .map(entry => entry.path.slice(REFERENCE_DATA_GUEST_OUTPUT.length + 1))
+      .sort();
+  }
+
+  async size(name: string): Promise<number> {
+    const handle = await this.openProduced(name);
+    try {
+      return (await handle.stat()).size;
+    } finally {
+      await handle.close();
+    }
+  }
+
+  async dispose(): Promise<void> {
+    await rm(this.root, { recursive: true, force: true });
+  }
+}
+
+/** One sealed material, as this pack refers to it afterwards. */
+export interface ReferenceDataMaterial {
+  /**
+   * The C02 operation this material belongs to.
+   *
+   * It is carried on the record because one journey writes into SEVERAL
+   * operations: W04 admits at most `maxObjectsPerOperation` objects under one,
+   * and C10's hundred partitions produce three objects each. A reader has to
+   * know which operation a material was sealed under, and asking the caller to
+   * remember is how the wrong scope reaches a read.
+   */
+  readonly operationId: string;
+  readonly objectName: string;
+  readonly version: number;
+  readonly mediaType: string;
+  readonly digest: string;
+  readonly totalBytes: number;
+  readonly chunkCount: number;
+  readonly artifact: FactoryArtifactReference;
+}
+
+function sealed(record: FactoryMaterialRecord, artifact: FactoryArtifactReference): ReferenceDataMaterial {
+  return Object.freeze({
+    operationId: record.operationId,
+    objectName: record.objectName,
+    version: record.version,
+    mediaType: record.mediaType,
+    digest: record.digest,
+    totalBytes: record.totalBytes,
+    chunkCount: record.chunkCount,
+    artifact,
+  });
+}
+
+/**
+ * Seals a byte stream as one W04 material version.
+ *
+ * The stream is read once, chunked at W04's own chunk bound, and the whole
+ * digest is computed as it goes, so a 256 MiB export never exists as one
+ * buffer. `begin` needs the total length and the chunk count up front, which is
+ * why the caller measures the bytes first; that measurement is also what the
+ * guest's reported digest is checked against.
+ */
+export async function sealReferenceDataMaterial(
+  materials: Pick<FactoryAttemptMaterials, "begin" | "writeChunk" | "seal">,
+  identity: FactoryMaterialIdentity,
+  mediaType: string,
+  totalBytes: number,
+  source: AsyncIterable<Uint8Array>,
+  signal?: AbortSignal,
+): Promise<ReferenceDataMaterial> {
+  if (totalBytes > FACTORY_MATERIAL_LIMITS.maxTotalBytes) throw new ReferenceDataMaterialError("reference_data_material_oversized", `${identity.objectName} is ${totalBytes} bytes, past the ${FACTORY_MATERIAL_LIMITS.maxTotalBytes}-byte material bound.`);
+  // W04 refuses a plan whose chunk count exceeds its byte count, so a zero-byte
+  // material cannot be sealed at all. Refusing it here names the reason.
+  if (totalBytes === 0) throw new ReferenceDataMaterialError("reference_data_material_empty", `${identity.objectName} holds no bytes, and an empty material has no chunk plan.`);
+  const chunkCount = Math.ceil(totalBytes / FACTORY_MATERIAL_LIMITS.maxChunkBytes);
+  const record = await materials.begin(identity, mediaType, totalBytes, chunkCount, signal);
+  const hasher = new Bun.CryptoHasher("sha256");
+  let index = 0;
+  let written = 0;
+  // The stream is REPACKED to the plan. A caller's blocks are whatever its own
+  // reader produced - a megabyte from a file, a line buffer from a generator -
+  // and writing one chunk per block would put a 256 MiB material far past its
+  // declared chunk count.
+  let pending = new Uint8Array(FACTORY_MATERIAL_LIMITS.maxChunkBytes);
+  let filled = 0;
+  const flush = async () => {
+    const chunk = pending.subarray(0, filled);
+    await materials.writeChunk(identity, { index, digest: factoryMaterialDigest(chunk), encodedBytes: chunk.byteLength }, chunk, signal);
+    index += 1;
+    pending = new Uint8Array(FACTORY_MATERIAL_LIMITS.maxChunkBytes);
+    filled = 0;
+  };
+  for await (const block of source) {
+    hasher.update(block);
+    written += block.byteLength;
+    let offset = 0;
+    while (offset < block.byteLength) {
+      const take = Math.min(FACTORY_MATERIAL_LIMITS.maxChunkBytes - filled, block.byteLength - offset);
+      pending.set(block.subarray(offset, offset + take), filled);
+      filled += take;
+      offset += take;
+      if (filled === FACTORY_MATERIAL_LIMITS.maxChunkBytes) await flush();
+    }
+  }
+  if (filled > 0) await flush();
+  if (written !== totalBytes || index !== chunkCount) throw new ReferenceDataMaterialError("reference_data_material_digest_mismatch", `${identity.objectName} measured ${totalBytes} bytes in ${chunkCount} chunk(s) and wrote ${written} in ${index}.`);
+  // `digest` finalises the hasher, so the whole-material digest is taken once
+  // and reused for both the seal and the record this returns.
+  const digest = `sha256:${hasher.digest("hex")}`;
+  const artifact = await materials.seal(identity, digest, signal);
+  return sealed({ ...record, digest, totalBytes, chunkCount, sealed: true }, artifact);
+}
+
+/**
+ * Streams a sealed material back out of W04, chunk by chunk.
+ *
+ * It never calls the scoped reader's whole-artifact `read`: that allocates the
+ * assembled bytes, and this pack's largest material is the 256 MiB input
+ * snapshot.
+ */
+export async function* readReferenceDataMaterial(
+  reader: FactoryScopedArtifactReader,
+  scope: FactoryMaterialScope,
+  material: Pick<ReferenceDataMaterial, "artifact" | "chunkCount" | "operationId">,
+  signal?: AbortSignal,
+): AsyncGenerator<Uint8Array> {
+  // The material names its own operation, so a caller holding the journey's
+  // base scope reads every one of them without tracking which step wrote it.
+  const scoped: FactoryMaterialScope = { ...scope, operationId: material.operationId };
+  for (let index = 0; index < material.chunkCount; index += 1) yield await reader.readChunk(scoped, material.artifact, index, signal);
+}
+
+/** `sha256:` over a whole byte stream, without holding it. */
+export async function streamDigest(source: AsyncIterable<Uint8Array>): Promise<{ readonly digest: string; readonly totalBytes: number }> {
+  const hasher = new Bun.CryptoHasher("sha256");
+  let totalBytes = 0;
+  for await (const chunk of source) {
+    hasher.update(chunk);
+    totalBytes += chunk.byteLength;
+  }
+  return { digest: `sha256:${hasher.digest("hex")}`, totalBytes };
+}
+
+/** `sha256:` over bytes already in hand, in the shape W04's material digests take. */
+export function referenceDataDigest(bytes: Uint8Array): string {
+  return `sha256:${digestBytes(bytes)}`;
+}
