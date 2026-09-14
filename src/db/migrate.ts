@@ -3103,4 +3103,6 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryValidatorReport(db);
   const { up: addFactoryProtectedDecision } = await import("./migrations/add-factory-protected-decision");
   await addFactoryProtectedDecision(db);
+  const { up: addFactoryChildArtifactAliases } = await import("./migrations/add-factory-child-artifact-aliases");
+  await addFactoryChildArtifactAliases(db);
 }

@@ -211,6 +211,22 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
   });
 
+  test("repeated migration keeps every child artifact alias ancestry key", async () => {
+    const db = fixture.db;
+    const aliasKeys = async () => rows<{ definition: string }>(await db.execute(sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='factory_child_artifact_aliases'::regclass AND contype IN ('p','f','u') ORDER BY definition`));
+    const before = await aliasKeys();
+    // One primary key, one parent-attempt unique key, and five separate ancestry foreign keys.
+    expect(before).toHaveLength(7);
+    expect(before.filter(row => row.definition.startsWith("FOREIGN KEY"))).toHaveLength(5);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      expect(await aliasKeys()).toEqual(before);
+      expect(rows<{ indexdef: string }>(await db.execute(sql`SELECT indexdef FROM pg_indexes WHERE indexname='idx_factory_child_artifact_aliases_child'`))).toHaveLength(1);
+      const orphan = await db.execute(sql`INSERT INTO factory_child_artifact_aliases(tenant_id,project_id,alias_id,parent_run_id,parent_interpreter_id,parent_command_id,parent_node_instance_id,parent_candidate_generation,parent_attempt_id,parent_execution_epoch,parent_cancellation_epoch,child_run_id,child_decision_id,child_node_instance_id,child_candidate_generation,child_candidate_digest,child_execution_epoch,artifact_id,artifact_digest,artifact_bytes,alias_digest) VALUES ('restart-tenant','restart-project','alias','restart-run','root','no-such-command','node',0,'restart-attempt',1,0,'restart-run','no-such-decision','child',0,${`sha256:${"a".repeat(64)}`},1,'restart-candidate-output',${`sha256:${"b".repeat(64)}`},1,${`sha256:${"c".repeat(64)}`})`).then(() => null, (error: unknown) => error);
+      expect(orphan).toBeInstanceOf(Error);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

@@ -236,6 +236,28 @@ export class FactoryAssurance {
     await insertTransactionalAuditEntry(transaction, `factory-assurance-approval-consumed:${input.approvalId}`, input.requester.kind === "user" ? input.requester.id : null, "factory.assurance.approval.consumed", input.operationId, { tenantId: this.tenantId, projectId: input.projectId, approvalId: input.approvalId, decisionId: input.decisionId, runId: input.runId, principalKind: input.requester.kind, principalId: input.requester.id });
   }
 
+  /**
+   * Revalidates one immutable decision and every claim behind it, without requiring its run to be
+   * live.
+   *
+   * A completed child run can no longer authorize a release, but a parent that consumes the child's
+   * accepted artifact still has to prove the decision, its approved contract, and its evidence set
+   * verify. The caller owns the ancestry fences; this owns the sealed acceptance facts.
+   */
+  async readSealedDecisionInTransaction(transaction: MigrationDb, projectId: string, decisionId: string): Promise<FactoryAcceptanceDecision & { readonly contractId: string; readonly contractRevision: number }> {
+    requiredText(projectId, decisionId);
+    const decision = await this.decisionRow(transaction, projectId, decisionId);
+    if (!decision) throw new FactoryAssuranceError("factory_assurance_not_found");
+    const contract = await this.contractRow(transaction, projectId, decision.contractId, Number(decision.contractRevision));
+    if (contract.contract_digest !== decision.contractDigest || contract.protected_snapshot_digest !== decision.contractSnapshotDigest) throw new FactoryAssuranceError("factory_assurance_corrupt");
+    await this.grants.authorizeInTransaction(transaction, { kind: "user", id: contract.approved_by, authentication: "session" }, projectId, "factory.trust", Number(contract.approval_grant_revision));
+    const storedEvidence = await this.evidenceRows(transaction, projectId, decision);
+    const { requiredClaims, groups } = this.contractClaims(contract);
+    if (this.verifyEvidence(contract, requiredClaims, groups, storedEvidence) !== decision.candidateDigest || digest(storedEvidence.map(item => item.evidence_digest).sort()) !== decision.evidenceSetDigest) throw new FactoryAssuranceError("factory_assurance_corrupt");
+    const { decisionDigest: _decisionDigest, contractRevision, ...body } = decision;
+    return { ...body, contractRevision: Number(contractRevision) };
+  }
+
   /** Revalidates the immutable decision, current run epochs, protected contract, evidence, and current candidate for approval and policy claims. */
   async assertAcceptedReleaseInTransaction(transaction: MigrationDb, input: FactoryAcceptedReleaseCheck): Promise<FactoryAcceptedRelease> {
     input = snapshot(input);
