@@ -56,13 +56,19 @@ const bindingColumns = sql.raw("parent_run_id,parent_interpreter_id,parent_comma
 /** Children one scan may return. A worker never asks for an unbounded page. */
 export const FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT = 200;
 
-/** One child whose parent may settle it, and the cursor that resumes after it. */
+/**
+ * One child whose parent may settle it, and the cursor that resumes after it.
+ *
+ * An enumeration, not a receipt. It carries only what `settle` needs to address the child and what
+ * the scan needs to order it; a caller never reads an inherited clock, deadline, or definition from
+ * here, because `settle` re-derives and verifies all of those from the sealed binding.
+ */
 export interface FactorySettleableChild {
   readonly projectId: string;
   readonly parentRunId: string;
   readonly childRunId: string;
+  /** Ordering key only. `settle` rejects the child if the sealed binding disagrees. */
   readonly startedAtMs: number;
-  readonly deadlineAtMs: number;
 }
 
 function envelopeId(parentRunId: string, interpreterId: string, commandId: string): string {
@@ -162,8 +168,13 @@ export class FactoryChildRuns {
    * A child is settleable once its own run has reached a terminal status and its binding is still
    * `open`. The scan takes no lock, so two workers see the same page and both may call `settle`;
    * that path already treats an already-settled binding as a no-op, and locking here would instead
-   * make one worker wait behind the other's whole settlement transaction. Every row is verified
-   * before it is returned, so no caller inherits an unverified clock, deadline, or definition.
+   * make one worker wait behind the other's whole settlement transaction.
+   *
+   * The scan enumerates and `settle` verifies. Verifying the sealed binding here would reject the
+   * whole page on one bad row, so a single corrupt binding at the head of the order would stall
+   * settlement for every child behind it, for good. `settle` already verifies each child and
+   * reports `factory_child_corrupt` for it alone, which lets a driver record that child and step
+   * over it. Only fields that cannot be ordered or addressed at all are rejected here.
    *
    * Order is `startedAtMs`, then project, then child run, which is total, so `after` resumes exactly
    * where the previous page ended even when many children share a start instant.
@@ -183,9 +194,11 @@ export class FactoryChildRuns {
       ${cursor}
       ORDER BY child.started_ms,child.project_id,child.child_run_id LIMIT ${limit}`));
     return found.map(row => {
-      const verified = verifyFactoryChildBinding(row);
-      assertFactoryIdentity(row.project_id);
-      return Object.freeze({ projectId: row.project_id, parentRunId: row.parent_run_id, childRunId: row.child_run_id, startedAtMs: verified.startedAtMs, deadlineAtMs: Number(row.deadline_ms) });
+      const startedAtMs = Number(row.started_ms);
+      try { assertFactoryIdentity(row.project_id, row.parent_run_id, row.child_run_id); }
+      catch { throw new FactoryChildRunError("factory_child_corrupt"); }
+      if (!Number.isSafeInteger(startedAtMs) || startedAtMs < 0) throw new FactoryChildRunError("factory_child_corrupt");
+      return Object.freeze({ projectId: row.project_id, parentRunId: row.parent_run_id, childRunId: row.child_run_id, startedAtMs });
     });
   }
 

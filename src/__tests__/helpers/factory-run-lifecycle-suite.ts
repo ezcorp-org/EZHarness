@@ -1210,7 +1210,9 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       expect(mine.map(item => item.childRunId)).toEqual([first, second]);
       expect(mine.map(item => item.startedAtMs)).toEqual([now - 60_000, now]);
       expect(page.map(item => item.startedAtMs)).toEqual([...page].sort((left, right) => left.startedAtMs - right.startedAtMs).map(item => item.startedAtMs));
-      expect(mine.every(item => item.projectId === projectId && item.deadlineAtMs > item.startedAtMs)).toBe(true);
+      // An enumeration, not a receipt: it addresses the child and orders it, and nothing more.
+      expect(mine.every(item => item.projectId === projectId && item.parentRunId.length > 0)).toBe(true);
+      expect(Object.keys(mine[0]!).sort()).toEqual(["childRunId", "parentRunId", "projectId", "startedAtMs"]);
 
       // A bounded page resumes exactly where the previous one ended, then reports no more work.
       const resume = baseline.at(-1);
@@ -1231,10 +1233,17 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       await expect(scan(1, { projectId, childRunId: second, startedAtMs: -1 })).rejects.toMatchObject({ code: "factory_child_corrupt" });
       await expect(scan(1, { projectId: "", childRunId: second, startedAtMs: 0 })).rejects.toThrow();
 
-      // A binding whose sealed clock no longer matches its digest is reported, never quietly skipped.
+      // A binding whose sealed clock no longer matches its digest is reported by settle, per child,
+      // so one corrupt row at the head of the order cannot stall every child behind it.
       corrupted = second;
-      await fixture.db.execute(sql`UPDATE factory_child_runs SET started_ms=${now + 1} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${second}`);
-      await expect(full()).rejects.toMatchObject({ code: "factory_child_corrupt" });
+      await fixture.db.execute(sql`UPDATE factory_child_runs SET started_ms=${sealedStartedAtMs + 1} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${second}`);
+      now += 60_000;
+      const third = await terminalChild("third");
+      const withCorrupt = await full();
+      expect(withCorrupt.map(item => item.childRunId)).toEqual([...baseline.map(item => item.childRunId), second, third]);
+      await expect(children.settle(service, { projectId, childRunId: second })).rejects.toMatchObject({ code: "factory_child_corrupt" });
+      await children.settle(service, { projectId, childRunId: third });
+      expect((await full()).map(item => item.childRunId)).toEqual([...baseline.map(item => item.childRunId), second]);
     } finally {
       now = entered;
       if (corrupted) await fixture.db.execute(sql`UPDATE factory_child_runs SET started_ms=${sealedStartedAtMs} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND child_run_id=${corrupted}`);

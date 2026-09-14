@@ -87,9 +87,10 @@ Branch `wp/w06-remediation`. Base `integ/w00` at `1dc9a0226`.
       EXPECT: `56 pass 0 fail`, 899 assertions on both PGlite and real PostgreSQL. The scan is
       empty before a child is terminal, ordered by start instant across the whole table, resumes
       exactly from a cursor, returns the same page to two concurrent callers, tolerates two
-      concurrent settles, rejects a limit of 0, -1, 1.5, or 201, and reports a corrupt binding
-      rather than skipping it. EVIDENCE: `logs/pglite-run-lifecycle-final-20260914T074722Z.log`
-      and `logs/postgres-run-lifecycle-final-20260914T080357Z.log`.
+      concurrent settles, rejects a limit of 0, -1, 1.5, or 201, and lets `settle` report a corrupt
+      binding for that child alone while the child behind it still settles.
+      EVIDENCE: `logs/scan-pglite-rework-20260914T082912Z.log` and
+      `logs/scan-postgres-rework-20260914T083006Z.log`, 56 pass and 903 assertions on each.
 - [x] G11: The rejection receipt reaches the kernel and consumes no repair it was not granted.
       CHECK: `bun test --timeout 300000 ./src/__tests__/factory-run-lifecycle.test.ts -t "a failing
       required claim"`. EXPECT: one durable `rejected` row, no acceptance decision, and the kernel
@@ -143,9 +144,10 @@ Branch `wp/w06-remediation`. Base `integ/w00` at `1dc9a0226`.
 - `factoryBoundedReplacement` is exported and now also compares declared resource demand across
   every nested node and loop budget, plus resource classes, so a replan cannot move work onto a GPU
   the current revision never asked for.
-- `FactoryChildRuns.listSettleableInTransaction` hands W09 a bounded, verified, oldest-first
-  enumeration. It takes no lock on purpose: two workers must see the same page, `settle` is already
-  idempotent, and locking would serialise workers behind one another's settlement transaction.
+- `FactoryChildRuns.listSettleableInTransaction` hands W09 a bounded, oldest-first enumeration. It
+  takes no lock on purpose: two workers must see the same page, `settle` is already idempotent, and
+  locking would serialise workers behind one another's settlement transaction. The scan enumerates
+  and `settle` verifies, so a corrupt binding is reported for that child alone.
 - The production `FactoryApplication` composes `FactoryRunControls` by default, so
   `/api/factories/projects/:projectId/runs/:runId/control` answers with a receipt instead of
   `factory_control_unavailable`.
@@ -184,6 +186,15 @@ Branch `wp/w06-remediation`. Base `integ/w00` at `1dc9a0226`.
   which plausibly lengthens the hydration window that `web/CLAUDE.md` documents. Recorded for W14
   and W18 rather than silently retried. Failing log:
   `logs/e2e-factory-console-20260914T080451Z.log`.
+
+- **W06-3, found by W09's review, fixed.** The scan first verified each sealed binding inside the
+  `map` that built its page, so one corrupt row rejected the whole page and the caller received no
+  items at all. A single corrupt binding at the head of the order would then have stalled settlement
+  for every child behind it, for good, and no consumer-side per-item handling could reach it because
+  no item was ever returned. The scan now enumerates and `settle` verifies, which is where
+  verification already was; safety is unchanged, and the loud failure moved from per page to per
+  child. `FactorySettleableChild` also dropped `deadlineAtMs`, because an inherited clock is exactly
+  what a caller must not read from an unverified row. Commit `8e0e0d1a2`.
 
 ## Open
 
