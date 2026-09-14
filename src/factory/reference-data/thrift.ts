@@ -31,7 +31,7 @@ export const THRIFT_TYPE = Object.freeze({
 });
 
 export class ThriftReadError extends Error {
-  constructor(readonly code: "thrift_truncated" | "thrift_varint" | "thrift_type" | "thrift_depth", message: string) {
+  constructor(readonly code: "thrift_truncated" | "thrift_varint" | "thrift_type" | "thrift_depth" | "thrift_text", message: string) {
     super(message);
     this.name = "ThriftReadError";
   }
@@ -112,8 +112,20 @@ export class ThriftReader {
     return this.take(Number(length));
   }
 
+  /**
+   * A Thrift string field, decoded strictly.
+   *
+   * The failure is wrapped rather than allowed to escape: a corrupt footer
+   * reaches this with arbitrary bytes, and `TextDecoder` raises a bare
+   * `TypeError` that no caller could tell apart from a programming fault.
+   */
   text(): string {
-    return new TextDecoder("utf-8", { fatal: true }).decode(this.binary());
+    const raw = this.binary();
+    try {
+      return new TextDecoder("utf-8", { fatal: true }).decode(raw);
+    } catch {
+      throw new ThriftReadError("thrift_text", "Thrift string field is not valid UTF-8.");
+    }
   }
 
   /** Enters a struct. Field ids are deltas from the previous field, so the cursor tracks them. */

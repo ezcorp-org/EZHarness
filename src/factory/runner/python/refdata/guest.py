@@ -177,41 +177,86 @@ def snapshot_csv(command: dict[str, Json]) -> dict[str, Json]:
 def parse_csv(command: dict[str, Json]) -> dict[str, Json]:
     """Validate the snapshot strictly and cut it into ordered partitions.
 
-    The whole file is streamed, so a 256 MiB input is read in one partition's
-    working memory plus the global duplicate index. The FIRST refusal ends the
-    read: C10 forbids dropping a bad row and continuing, so there is no
-    rejected-row list to return.
+    The file is STREAMED. A guest has half a gibibyte of memory and C10 allows a
+    256 MiB input, so nothing here holds the whole file, the whole line list, or
+    more than one partition at a time.
+
+    The global duplicate index holds a 128-bit digest per identifier rather than
+    the identifier itself, because a million 256-byte identifiers would not fit
+    beside the rest of the work. A digest collision can only cause a REFUSAL, so
+    the index fails closed; at 128 bits the chance of one over a million rows is
+    about 1.5e-27.
+
+    The FIRST refusal ends the read: C10 forbids dropping a bad row and
+    continuing, so there is no rejected-row list to return.
     """
+    source = _member(_text(command, "input"))
     prefix = _text(command, "outputPrefix")
     expected = _text(command, "snapshotDigest")
-    body = _read(_text(command, "input"))
-    actual = _digest(body)
-    if actual != expected:
-        raise GuestError("the staged input does not match the snapshot digest it was dispatched with")
-    lines = body.split(b"\n")
-    # `split` never returns an empty list, so the last element is always readable.
-    if lines[-1] == b"":
-        lines.pop()
-    if not lines:
-        raise GuestError("row_empty")
-    header = lines[0]
+    digest = hashlib.sha256()
     partitions: list[dict[str, Json]] = []
-    seen: set[str] = set()
+    seen: set[bytes] = set()
     produced = 0
-    for start in range(1, len(lines), PARTITION_ROWS):
-        chunk = lines[start : start + PARTITION_ROWS]
-        payload = b"\n".join([header, *chunk]) + b"\n"
-        rows = parse_partition(payload, produced)
-        for row in rows:
-            if row.record_id in seen:
-                raise RowError("record_id_duplicate", start + 1, "record_id repeats an earlier row")
-            seen.add(row.record_id)
-        produced += len(rows)
+    header: bytes | None = None
+    buffered: list[bytes] = []
+    pending = b""
+    line_number = 0
+
+    def flush() -> None:
+        nonlocal produced, buffered
+        if not buffered:
+            return
         index = len(partitions)
         if index >= MAX_PARTITIONS:
-            raise RowError("row_limit", start + 1, "input exceeds the declared one-million-row bound")
+            raise RowError("row_limit", line_number, "input exceeds the declared one-million-row bound")
+        payload = b"\n".join([HEADER.encode("utf-8"), *buffered]) + b"\n"
+        rows = parse_partition(payload, produced)
+        for row in rows:
+            marker = hashlib.blake2b(row.record_id.encode("utf-8"), digest_size=16).digest()
+            if marker in seen:
+                raise RowError("record_id_duplicate", line_number, "record_id repeats an earlier row")
+            seen.add(marker)
         written = _write(f"{prefix}partition-{index:05d}.csv", payload)
-        partitions.append({**written, "index": index, "firstRowIndex": rows[0].index, "rowCount": len(rows)})
+        partitions.append({**written, "index": index, "firstRowIndex": produced, "rowCount": len(rows)})
+        produced += len(rows)
+        buffered = []
+
+    def consume(line: bytes) -> None:
+        nonlocal header, line_number
+        line_number += 1
+        if header is None:
+            if line != HEADER.encode("utf-8"):
+                raise RowError("header_mismatch", line_number, "the first line is not the pinned header")
+            header = line
+            return
+        buffered.append(line)
+        if len(buffered) == PARTITION_ROWS:
+            flush()
+
+    try:
+        with source.open("rb") as handle:
+            while True:
+                block = handle.read(1024 * 1024)
+                if not block:
+                    break
+                digest.update(block)
+                pending += block
+                while True:
+                    at = pending.find(b"\n")
+                    if at == -1:
+                        break
+                    consume(pending[:at])
+                    pending = pending[at + 1 :]
+    except OSError as error:
+        raise GuestError(f"material {command['input']!r} is unreadable: {error.strerror}") from error
+    if pending:
+        consume(pending)
+    flush()
+
+    if f"sha256:{digest.hexdigest()}" != expected:
+        raise GuestError("the staged input does not match the snapshot digest it was dispatched with")
+    if header is None:
+        raise RowError("header_missing", 1, "input holds no header line")
     if not partitions:
         raise RowError("row_empty", 1, "input holds a header and no rows")
     return {

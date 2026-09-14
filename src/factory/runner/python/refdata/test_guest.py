@@ -520,7 +520,7 @@ class MaterialBoundary(GuestCase):
         self.assertEqual(report["digest"], digest(data))
         self.assertEqual(report["totalBytes"], len(data))
 
-    def test_refuses_an_empty_input_at_the_parse_step(self) -> None:
+    def test_refuses_an_empty_input_by_naming_the_missing_header(self) -> None:
         data = self.stage("in/source.csv", "")
         result = self.invoke(
             "parseCsv",
@@ -533,7 +533,22 @@ class MaterialBoundary(GuestCase):
             },
         )
         self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"]["code"], "header_missing")
+
+    def test_reports_an_unreadable_input_at_the_parse_step(self) -> None:
+        result = self.invoke(
+            "parseCsv",
+            {
+                "kind": "parseCsv",
+                "input": "in/absent.csv",
+                "outputPrefix": "out/",
+                "snapshotDigest": f"sha256:{'0' * 64}",
+                "report": "out/partitions.json",
+            },
+        )
+        self.assertEqual(result["status"], "failed")
         self.assertEqual(result["error"]["code"], "reference_data_command_invalid")
+        self.assertIn("unreadable", result["error"]["message"])
 
     def test_refuses_more_partitions_than_the_declared_bound(self) -> None:
         rows = "\n".join(f"id{index},alpha,{index}" for index in range(3))
