@@ -2587,3 +2587,23 @@ client and a JSON-schema validator; and the four claims that read only a candida
 sit beside the five that need a workspace and a subprocess. Together they are what let the isolated
 guest ship the product's own validator instead of a second copy written for the sandbox. Both are
 declared as C13 rows, so the reuse is gated rather than assumed.
+
+## WREG — inherited backend-pool regressions (wp/wreg-backend-failures)
+
+- [x] Reproduce all seven failures with the exact targeted commands, container-backed ones under the shared heavy lock.
+- [x] Regenerate `wire-schema.json` so the wire validator accepts `StartRequest.devices` (freeze section 6).
+- [x] Restore the v4 guest's `PATH` as a declared runner variable, with a per-image override for the Python guest.
+- [x] Give detached execution a protected launch seam so `TrustedLocalRunner` runs its own local guest again, and make it refuse a device grant it cannot confine.
+- [x] Keep the full shared Podman suite and every declared-environment suite green.
+- [x] Canonical backend pool at 0 fail.
+- [x] Typecheck, lint, factory boundaries, gate integrity, and the `BASE_REF=integ/w00` new-file and patch coverage gates.
+
+Review. Seven failures, three root causes, and only one of them was the generated artifact it looked
+like. The other two were product regressions the wave-1 runtime introduced in paths its own suites
+could not see: `--unsetenv-all` removed the guest's `PATH` along with the image metadata it was
+aimed at, and a private `launchDetached` replaced the one overridable method the trusted-local
+runner depended on. Both fixes keep the property wave 1 wanted — a declared, tenant-independent
+guest environment, and a guest whose lifetime outlives its supervisor — while restoring the v4
+behavior that was lost. Nothing was skipped, relaxed, or excluded; the two closure tests still read
+`RUNNER_GUEST_ENVIRONMENT` and so still assert the exact declared set, and the trusted-local test
+kept every assertion and gained one. Full detail and receipts: `tasks/factory/wreg-GATES.md`.
