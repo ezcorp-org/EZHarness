@@ -408,6 +408,16 @@ function notificationStore(database: MigrationDb, tenantId: string, projectId: s
 
 const notificationQueue = new DurableDeliveryQueue<FactoryNotification>((code, message) => new FactoryReleaseError(code, message), randomUUID);
 
+/**
+ * The one predicate for "this operation can be reconciled at this generation".
+ *
+ * It runs twice: once against the unlocked read the evidence is gathered from, and once against
+ * the locked row inside the product transaction.
+ */
+function reconcilable(operation: FactoryReleaseOperation | null, expectedGeneration: number): operation is FactoryReleaseOperation & { readonly senderToken: string } {
+  return !!operation?.senderToken && operation.dispatchGeneration === expectedGeneration && (operation.state === "uncertain" || operation.state === "executing" && operation.dispatchStarted);
+}
+
 async function boundedReconciliationProof<T>(timeoutMs: number, prove: (signal: AbortSignal) => Promise<T>): Promise<T> {
   const controller = new AbortController();
   let timeout: ReturnType<typeof setTimeout> | undefined;
@@ -569,29 +579,51 @@ export class FactoryReleases {
     } catch { return this.markUncertain(startedClaim, "receipt_archive_unknown"); }
   }
 
+  /**
+   * Freeze correction 1: no provider network proof and no archive write happens inside a
+   * transaction.
+   *
+   * The proofs and the archive writes run first, against the operation as it was read without a
+   * lock. The product transaction then locks the row, re-derives the operator's authority through
+   * the shared mutation receipt, and refuses unless the locked row is byte-identical to the one
+   * the evidence was gathered against. Evidence taken against a row that has since moved is stale
+   * evidence, so the operator retries rather than settling on it.
+   *
+   * The archive objects written before a refused transaction are content-addressed and immutable,
+   * so the retry lands on the same keys. That is the same order `prepare` already uses.
+   */
   async reconcile(operator: FactoryPrincipal, request: FactoryReconciliationRequest, expectedGeneration: number, provider: FactoryReleaseProvider, idempotencyKey: string): Promise<FactoryReleaseOperation> {
     [operator, request] = canonical([operator, request]);
     text(request.projectId, request.operationId, request.reason); count(expectedGeneration, true); if (encoder.encode(request.reason).byteLength > MAX_REASON_BYTES || encoder.encode(canonicalJson(request.providerEvidence)).byteLength > FACTORY_RELEASE_MAX_REQUEST_BYTES || !request.providerEvidence || typeof request.providerEvidence !== "object" || Array.isArray(request.providerEvidence) || !Object.keys(request.providerEvidence).length || operator.kind !== "user" || operator.authentication !== "session") throw new FactoryReleaseError("factory_release_reconciliation_invalid");
-    return this.mutations.execute({ principal: operator, projectId: request.projectId, action: "factory.operate", idempotencyKey, input: { kind: "release.reconcile", request, expectedGeneration } }, async transaction => {
+    if ((request.action === "attach_receipt") !== (request.receipt !== undefined)) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
+
+    // A replay returns the recorded outcome before any proof or archive write, because the first
+    // call has already moved the operation and the preconditions below would refuse it.
+    const mutation = { principal: operator, projectId: request.projectId, action: "factory.operate" as const, idempotencyKey, input: { kind: "release.reconcile", request, expectedGeneration } };
+    const replayed = await this.mutations.replay<FactoryReleaseOperation>(mutation);
+    if (replayed.found) return replayed.response;
+
+    const observed = await this.inspect(request.projectId, request.operationId);
+    if (!reconcilable(observed, expectedGeneration)) throw new FactoryReleaseError("factory_release_reconciliation_stale");
+    if (request.action === "attach_receipt") {
+      validateReceipt(observed, request.receipt!);
+      const verified = await boundedReconciliationProof(this.reconciliationProofTimeoutMs, signal => provider.verifyReceipt(observed, request.receipt!, request.providerEvidence, signal));
+      if (!verified) throw new FactoryReleaseError("factory_release_receipt_unverified");
+    }
+    if (request.action === "confirm_no_effect") {
+      const [stopped, absent] = await boundedReconciliationProof(this.reconciliationProofTimeoutMs, signal => Promise.all([this.senderFence.proveStopped(observed, observed.senderToken, request.providerEvidence, signal), provider.proveNoEffect(observed, request.providerEvidence, signal)]));
+      if (!stopped || !absent) throw new FactoryReleaseError("factory_release_absence_unproved");
+    }
+    const evidence = { action: request.action, reason: request.reason, providerEvidence: request.providerEvidence, ...(request.receipt ? { receipt: request.receipt } : {}) };
+    const evidenceArchive = await archiveAndVerify(this.archive, this.tenantId, observed.operationId, "reconciliation", evidence);
+    const receiptArchive = request.action === "attach_receipt" ? await archiveAndVerify(this.archive, this.tenantId, observed.operationId, "receipt", request.receipt!) : undefined;
+    const proved = canonicalJson(observed);
+
+    return this.mutations.execute(mutation, async transaction => {
       const locked = await this.readInTransaction(transaction, request.projectId, request.operationId, "update");
-      if (!locked?.senderToken || locked.dispatchGeneration !== expectedGeneration || locked.state !== "uncertain" && !(locked.state === "executing" && locked.dispatchStarted)) throw new FactoryReleaseError("factory_release_reconciliation_stale");
-      if (request.action === "attach_receipt") {
-        if (!request.receipt) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
-        validateReceipt(locked, request.receipt);
-        const verified = await boundedReconciliationProof(this.reconciliationProofTimeoutMs, signal => provider.verifyReceipt(locked, request.receipt!, request.providerEvidence, signal));
-        if (!verified) throw new FactoryReleaseError("factory_release_receipt_unverified");
-      } else if (request.receipt) throw new FactoryReleaseError("factory_release_reconciliation_invalid");
-      if (request.action === "confirm_no_effect") {
-        const [stopped, absent] = await boundedReconciliationProof(this.reconciliationProofTimeoutMs, signal => Promise.all([this.senderFence.proveStopped(locked, locked.senderToken!, request.providerEvidence, signal), provider.proveNoEffect(locked, request.providerEvidence, signal)]));
-        if (!stopped || !absent) throw new FactoryReleaseError("factory_release_absence_unproved");
-      }
-      const evidence = { action: request.action, reason: request.reason, providerEvidence: request.providerEvidence, ...(request.receipt ? { receipt: request.receipt } : {}) };
-      const evidenceArchive = await archiveAndVerify(this.archive, this.tenantId, locked.operationId, "reconciliation", evidence);
-      await this.recordReconciliation(transaction, operator, locked, request, evidenceArchive, true);
-      if (request.action === "attach_receipt") {
-        const receiptArchive = await archiveAndVerify(this.archive, this.tenantId, locked.operationId, "receipt", request.receipt!);
-        return this.settleReceiptInTransaction(transaction, locked, request.receipt!, receiptArchive, "reconciliation");
-      }
+      if (!reconcilable(locked, expectedGeneration) || canonicalJson(locked) !== proved) throw new FactoryReleaseError("factory_release_reconciliation_stale");
+      await this.recordReconciliation(transaction, operator, locked, request, evidenceArchive);
+      if (request.action === "attach_receipt") return this.settleReceiptInTransaction(transaction, locked, request.receipt!, receiptArchive!, "reconciliation");
       if (request.action === "confirm_no_effect") {
         await transaction.execute(sql`UPDATE factory_release_operations SET state='pending',sender_token=NULL,dispatch_started=FALSE,outcome_code='confirmed_no_effect',updated_at=NOW() WHERE tenant_id=${this.tenantId} AND project_id=${locked.projectId} AND operation_id=${locked.operationId}`);
         await transaction.execute(sql`UPDATE factory_release_destination_reservations SET state='released',updated_at=NOW() WHERE tenant_id=${this.tenantId} AND operation_id=${locked.operationId}`);
@@ -769,8 +801,8 @@ export class FactoryReleases {
     return (await this.readInTransaction(transaction, operation.projectId, operation.operationId, "share"))!;
   }
 
-  private async recordReconciliation(transaction: MigrationDb, operator: FactoryPrincipal, operation: FactoryReleaseOperation, request: FactoryReconciliationRequest, evidenceArchive: FactoryArchiveObject, authorityChecked = false): Promise<void> {
-    if (!authorityChecked) await this.grants.authorizeInTransaction(transaction, operator, operation.projectId, "factory.operate");
+  /** The operator's `factory.operate` authority is re-derived by the shared mutation receipt. */
+  private async recordReconciliation(transaction: MigrationDb, operator: FactoryPrincipal, operation: FactoryReleaseOperation, request: FactoryReconciliationRequest, evidenceArchive: FactoryArchiveObject): Promise<void> {
     const reconciliationId = randomUUID();
     const evidenceJson = canonicalJson(request.providerEvidence);
     await transaction.execute(sql`INSERT INTO factory_release_reconciliations (tenant_id,project_id,reconciliation_id,operation_id,action,operator_id,reason,provider_evidence_json,provider_evidence_digest,evidence_archive_json) VALUES (${this.tenantId},${operation.projectId},${reconciliationId},${operation.operationId},${request.action},${operator.id},${request.reason},${evidenceJson},${hash(request.providerEvidence)},${archiveJson(evidenceArchive)})`);

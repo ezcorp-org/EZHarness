@@ -483,6 +483,56 @@ test("transactional audit failure rolls claim and policy counters back", async (
   expect(rows<{ used_operations: number | string }>(await database.execute(sql`SELECT used_operations FROM factory_release_policies WHERE policy_id='policy-audit'`)).map(row => Number(row.used_operations))).toEqual([0]);
 });
 
+test("no provider proof and no archive write happens inside an open transaction", async () => {
+  // Freeze correction 1. The counter wraps the release store's own database handle, so "inside a
+  // transaction" is a fact this test observes rather than a claim about the code.
+  const depth = { current: 0, max: 0 };
+  const tracked: TransactionalDb = {
+    execute: query => database.execute(query),
+    transaction: async work => {
+      depth.current += 1; depth.max = Math.max(depth.max, depth.current);
+      try { return await database.transaction(work); } finally { depth.current -= 1; }
+    },
+  };
+  const seen: { at: string; depth: number }[] = [];
+  const note = <Result>(at: string, call: () => Promise<Result>): Promise<Result> => { seen.push({ at, depth: depth.current }); return call(); };
+  const watchedArchive: FactoryReleaseArchive = {
+    writeImmutable: (tenant, operationId, name, bytes) => note(`archive.write:${name}`, () => archive.writeImmutable(tenant, operationId, name, bytes)),
+    read: reference => note("archive.read", () => archive.read(reference)),
+  };
+  const watchedProvider: FactoryReleaseProvider = {
+    publish: claim => note("provider.publish", () => provider.publish(claim)),
+    verifyReceipt: (operation, receipt) => note("provider.verifyReceipt", () => provider.verifyReceipt(operation, receipt)),
+    proveNoEffect: (operation, evidence) => note("provider.proveNoEffect", () => provider.proveNoEffect(operation, evidence)),
+  };
+  const watchedFence: FactorySenderFence = { proveStopped: (operation, token, evidence) => note("fence.proveStopped", () => sender.proveStopped(operation, token, evidence)) };
+  const split = new FactoryReleases(tracked, tenantId, grants, assurance, materials, authority, new Destination(), watchedArchive, watchedFence, () => now);
+
+  const attach = await split.prepare(admin, request("split-attach"), mutationKey("split-prepare"));
+  const attachClaim = await split.claim(admin, projectId, attach.operationId, { kind: "approval", approvalId: await approved(attach) });
+  provider.loseResponse = true;
+  expect(await split.dispatch(attachClaim, watchedProvider)).toMatchObject({ state: "uncertain" });
+  provider.loseResponse = false;
+  expect(await split.reconcile(admin, { projectId, operationId: attach.operationId, action: "attach_receipt", reason: "provider lookup verified the exact version", providerEvidence: { lookup: true }, receipt: provider.receipts.get(attach.operationId)! }, attachClaim.dispatchGeneration, watchedProvider, mutationKey("split-attach-reconcile"))).toMatchObject({ state: "succeeded" });
+
+  const absent = await split.prepare(admin, request("split-absent"), mutationKey("split-prepare-absent"));
+  const absentClaim = await split.claim(admin, projectId, absent.operationId, { kind: "approval", approvalId: await approved(absent) });
+  provider.loseResponse = true;
+  await split.dispatch(absentClaim, watchedProvider);
+  provider.loseResponse = false;
+  sender.stopped = true; provider.noEffect = true;
+  expect(await split.reconcile(admin, { projectId, operationId: absent.operationId, action: "confirm_no_effect", reason: "sender stopped and lookup found no object", providerEvidence: { operationId: absent.operationId } }, absentClaim.dispatchGeneration, watchedProvider, mutationKey("split-absence"))).toMatchObject({ state: "pending", outcomeCode: "confirmed_no_effect" });
+  sender.stopped = false; provider.noEffect = false;
+
+  // Every external and archive call ran at depth zero, and the store really did open transactions.
+  expect(seen.filter(entry => entry.depth !== 0)).toEqual([]);
+  expect(depth.max).toBeGreaterThanOrEqual(1);
+  expect(new Set(seen.map(entry => entry.at))).toEqual(new Set([
+    "archive.write:intent", "archive.write:material", "archive.write:receipt", "archive.write:reconciliation", "archive.read",
+    "provider.publish", "provider.verifyReceipt", "provider.proveNoEffect", "fence.proveStopped",
+  ]));
+});
+
 test("a git destination binds one broker-namespace ref and refuses a receipt naming another", async () => {
   const gitDestination = (object: string) => ({ provider: "github", account: "ezcorp-org/factory-platform-publication-tests", object });
   const operation = await prepareRelease(admin, request("git-branch", { destination: gitDestination("pull-request/git-branch") }));
