@@ -37,6 +37,10 @@ set -uo pipefail
 REPO_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 PROJECT_REL="src/factory/runner/python"
 PROJECT="$REPO_ROOT/$PROJECT_REL"
+# Every directory in the locked project that holds a standard-library test
+# suite. Discovery is EXPLICIT rather than a walk from the project root: the
+# project root also holds `.venv`, and a walk would try to import it.
+TEST_ROOTS="tests refdata"
 PIN_FILE="$REPO_ROOT/.python-version"
 # Keep this tag identical to PYTHON_COVERAGE_PRODUCER in scripts/coverage-config.ts.
 PRODUCER_TAG="ezcorp-python-coverage"
@@ -83,9 +87,13 @@ run_lint() {
   py ruff check --output-format=concise "$PROJECT_REL" || return 1
 }
 
+# `--config-file` is explicit because mypy resolves a config relative to the
+# CURRENT directory, and this script runs from the repository root, which holds
+# no pyproject.toml. Without it the locked project's `[tool.mypy]` section is
+# read by nothing, which is how its PyArrow override went unapplied.
 run_typecheck() {
   echo "→ mypy --strict (locked $PROJECT_REL)"
-  py mypy --strict "$PROJECT_REL" || return 1
+  py mypy --strict --config-file "$PROJECT_REL/pyproject.toml" "$PROJECT_REL" || return 1
 }
 
 # `python -m unittest discover` exits 5 when it runs zero tests, so an empty
@@ -94,8 +102,11 @@ run_typecheck() {
 discovered_test_count() {
   py python -c "
 import unittest
-suite = unittest.defaultTestLoader.discover('$PROJECT_REL/tests', pattern='test_*.py', top_level_dir='$PROJECT_REL')
-print(suite.countTestCases())
+total = 0
+for root in '$TEST_ROOTS'.split():
+    suite = unittest.defaultTestLoader.discover('$PROJECT_REL/' + root, pattern='test_*.py', top_level_dir='$PROJECT_REL')
+    total += suite.countTestCases()
+print(total)
 " 2>/dev/null | tr -d '[:space:]'
 }
 
@@ -104,13 +115,15 @@ require_non_empty_discovery() {
   count=$(discovered_test_count)
   [ -n "$count" ] || fail "standard-library test discovery could not run in $PROJECT_REL/tests"
   case "$count" in (*[!0-9]*) fail "test discovery reported a non-numeric count: $count";; esac
-  [ "$count" -gt 0 ] || fail "standard-library test discovery found ZERO tests in $PROJECT_REL/tests; an empty Python suite is a failure, not a pass"
+  [ "$count" -gt 0 ] || fail "standard-library test discovery found ZERO tests in $PROJECT_REL ($TEST_ROOTS); an empty Python suite is a failure, not a pass"
   echo "→ discovered $count Python test case(s)"
 }
 
 run_test() {
   require_non_empty_discovery || return 1
-  py python -m unittest discover -s "$PROJECT_REL/tests" -t "$PROJECT_REL" -p 'test_*.py' || return 1
+  for root in $TEST_ROOTS; do
+    py python -m unittest discover -s "$PROJECT_REL/$root" -t "$PROJECT_REL" -p 'test_*.py' || return 1
+  done
 }
 
 run_coverage() {
@@ -120,8 +133,10 @@ run_coverage() {
   rm -rf "$COVERAGE_OUT"
   mkdir -p "$COVERAGE_OUT" || return 1
   echo "→ coverage.py over standard-library discovery"
-  py coverage run --rcfile="$PROJECT_REL/pyproject.toml" --data-file="$data" \
-    -m unittest discover -s "$PROJECT_REL/tests" -t "$PROJECT_REL" -p 'test_*.py' || return 1
+  for root in $TEST_ROOTS; do
+    py coverage run --rcfile="$PROJECT_REL/pyproject.toml" --data-file="$data" --append \
+      -m unittest discover -s "$PROJECT_REL/$root" -t "$PROJECT_REL" -p 'test_*.py' || return 1
+  done
   # A second, real invocation of the module AS A SCRIPT. Importing it can never
   # execute its `__main__` guard, so without this leg that entry point is an
   # unmeasured line in a shipped runner.

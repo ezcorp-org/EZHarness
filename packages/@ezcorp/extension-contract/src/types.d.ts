@@ -164,6 +164,19 @@ export interface StartRequest {
   limits: ResourceLimits;
   /** Exactly the devices this start may use. Absent means none. */
   devices?: readonly string[];
+  /**
+   * A host-owned per-attempt directory, bind-mounted read-write at
+   * `FACTORY_GUEST_MATERIALS_PATH`. Absent means no mount, which is every
+   * existing caller.
+   *
+   * It exists because the control channel is not a data path: a guest may emit
+   * at most `min(limits.outputBytes, 1 MiB)` over its WHOLE life, and a domain
+   * pack's real output - a Parquet partition, a rendered image, a candidate
+   * tree - is larger than that. The guest writes ordinary files here; the host
+   * verifies their digests afterwards and stores them through the artifact
+   * material service. No credential and no network reach the guest either way.
+   */
+  materials?: string;
 }
 export interface RunnerInspection {
   id: string;

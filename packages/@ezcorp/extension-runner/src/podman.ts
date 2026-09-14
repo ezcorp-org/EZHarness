@@ -34,6 +34,13 @@ const probeProgramSource = `const fs=require("node:fs");const read=p=>fs.readFil
  * fixed value below so it cannot carry the container's host-derived identity.
  */
 const GUEST_HOSTNAME = "guest";
+/**
+ * Where a per-attempt material directory appears inside a guest.
+ *
+ * It is a fixed path, not an environment variable, because C05 permits a guest
+ * exactly three declared variables and this is not one of them.
+ */
+export const GUEST_MATERIALS_PATH = "/materials";
 /** Exactly the three variables the profile declares. Every guest has all three. */
 export const RUNNER_GUEST_ENVIRONMENT = Object.freeze(["BUN_INSTALL_CACHE_DIR", "HOME", "TMPDIR"]);
 /**
@@ -50,6 +57,18 @@ const CHANNEL_DIRECTORY_MODE = 0o755;
 /** The guest opens the FIFO inodes read-write; only these three inodes carry that mode. */
 const CHANNEL_FIFO_MODE = 0o666;
 
+/**
+ * The per-attempt material mount. Unlike the channel it IS read-write: it is
+ * the only place a guest may leave bytes, and the only alternative is a control
+ * channel bounded at one mebibyte for the guest's whole life.
+ *
+ * It is a private directory the host created for this attempt and reads back
+ * after the guest exits, so nothing here widens what the guest can reach: no
+ * device, no network, no host path outside the directory, and no credential.
+ */
+export function runnerMaterialMount(directory: string): string[] {
+  return ["--mount", `type=bind,src=${directory},dst=${GUEST_MATERIALS_PATH},rw=true,relabel=private`];
+}
 /**
  * The guest's control-channel mount. It is read-only: a FIFO may still be opened
  * for reading and writing on a read-only mount, because the kernel's EROFS check
@@ -205,7 +224,7 @@ export class PodmanRunner implements Runner {
    * what `podman attach` could not give us: its stream is the container's stdin,
    * so a client's EOF always terminated the guest.
    */
-  private async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[]): Promise<FramedTransport> {
+  private async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[], materials?: string): Promise<FramedTransport> {
     const directory = this.channelDirectory(id);
     await mkdir(directory, { recursive: true, mode: CHANNEL_DIRECTORY_MODE });
     await chmod(directory, CHANNEL_DIRECTORY_MODE);
@@ -222,7 +241,7 @@ export class PodmanRunner implements Runner {
     // Recorded beside the channel, never inside it, so the guest cannot reach
     // the identities the host checks against.
     await writeFile(this.channelFactsPath(id), canonicalJson(facts), { mode: 0o600 });
-    await command(this.podman, [...this.args(id, limits, staged, devices, directory), "--detach", this.image, ...this.guestEntrypointArgs()]);
+    await command(this.podman, [...this.args(id, limits, staged, devices, directory, materials), "--detach", this.image, ...this.guestEntrypointArgs()]);
     return this.channelTransport(id);
   }
   private channelFactsPath(id: string): string { return `${this.channelDirectory(id)}.channel.json`; }
@@ -292,10 +311,10 @@ export class PodmanRunner implements Runner {
   protected async run(id: string, limits: ResourceLimits, staged: string, args: string[], maximumBytes = limits.outputBytes): Promise<string> {
     return capture(this.launch(id, limits, staged, args), limits.timeoutMs, maximumBytes);
   }
-  private args(id: string, limits: ResourceLimits, mount?: string, devices: readonly string[] = [], channel?: string): string[] {
+  private args(id: string, limits: ResourceLimits, mount?: string, devices: readonly string[] = [], channel?: string, materials?: string): string[] {
     const name = this.containerName(id);
     this.containers.set(id, name);
-    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
+    return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), ...(materials ? runnerMaterialMount(materials) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
   }
   private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
   private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
@@ -474,7 +493,9 @@ export class PodmanRunner implements Runner {
       // Discovery is a build-phase guest, so it is denied a device even when the
       // host configures one. Every other start uses exactly what it was given.
       const devices = discovery ? [] : startExecutionDevices(input.devices, this.configuredDevices);
-      const child = await this.launchDetached(input.workerId, limits, stage, devices);
+      // A discovery guest never receives one: the build phase has no attempt
+      // and therefore no material scope to write into.
+      const child = await this.launchDetached(input.workerId, limits, stage, devices, discovery ? undefined : input.materials);
       const contexts = new Map<string, InvocationContext>();
       const execution = new FramedExecution(input.workerId, child, async (method, params) => {
         const context = validateInvocationContext((params as { context?: unknown })?.context);

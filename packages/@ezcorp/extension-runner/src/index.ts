@@ -1,4 +1,4 @@
-export { PodmanRunner, DEFAULT_IMAGE, configuredRunnerDevices, startExecutionDevices, runnerChannelMount, RUNNER_GUEST_ENVIRONMENT, RUNNER_GUEST_ENVIRONMENT_RESIDUE, type PodmanRunnerOptions } from "./podman";
+export { PodmanRunner, DEFAULT_IMAGE, configuredRunnerDevices, startExecutionDevices, runnerChannelMount, runnerMaterialMount, GUEST_MATERIALS_PATH, RUNNER_GUEST_ENVIRONMENT, RUNNER_GUEST_ENVIRONMENT_RESIDUE, type PodmanRunnerOptions } from "./podman";
 export { RunnerError, buildLimits, executionLimits, filesDigest } from "./core";
 export { resolveDependencies } from "./dependencies";
 export { browserBuild, type BrowserBuild } from "./browser";
