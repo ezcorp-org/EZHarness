@@ -3,6 +3,7 @@ import { validateFactoryApiPayloadDigest } from "./api.js";
 import { validateExpression } from "./expressions.js";
 import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
 import {
+  FACTORY_LAZY_INPUT_SCHEMA_VERSION,
   FACTORY_LIMITS,
   type CompiledExecutionManifest,
   type CompiledArtifactDescriptor,
@@ -414,8 +415,13 @@ function validateNodeSemantics(factory: CompiledFactory, node: FactoryNode, dept
     if (node.predecessors.length === 0 || new Set(node.predecessors).size !== node.predecessors.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.winners) return issue("COMPILED_JOIN", "Join predecessors and winners output are invalid.", ["indexes", "nodeById", node.id]);
   } else if (node.kind === "approval") {
     if (!safeCounter(node.expiresInMs, 1) || node.expiresInMs > FACTORY_LIMITS.maximumApprovalWaitMs || node.choices.length === 0 || new Set(node.choices).size !== node.choices.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.choice) return issue("COMPILED_APPROVAL", "Approval bounds, choices, or choice output are invalid.", ["indexes", "nodeById", node.id]);
-  } else if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!safeCounter(node.maxRepairs) || node.maxRepairs >= factory.definition.bounds.maxExpandedNodes)) return issue("COMPILED_REPAIR", "Acceptance repair bound is invalid.", ["indexes", "nodeById", node.id, "maxRepairs"]);
+  } else if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!safeCounter(node.maxRepairs) || node.maxRepairs > FACTORY_LIMITS.maxCandidateGenerations - 1)) return issue("COMPILED_REPAIR", "Acceptance repair bound is invalid.", ["indexes", "nodeById", node.id, "maxRepairs"]);
   return { ok: true };
+}
+
+/** Every node in a graph, including the nodes inside branch, map, and loop bodies. */
+export function factoryGraphNodes(graph: FactoryGraph): readonly FactoryNode[] {
+  return graphNodes(graph).map(entry => entry.node);
 }
 
 export function validateCompiledExecutionManifest(value: unknown, expectedFactoryDigest?: string, descriptor?: CompiledArtifactDescriptor): ValidationResult {
@@ -760,7 +766,7 @@ function validateApiPath(request: FactoryApiRequest): ValidationResult {
 /** Validates durable artifact descriptors without materializing artifact bytes into kernel state. */
 export function validateDurableInputPorts(ports: Readonly<Record<string, PortSchema>>, input: JsonValue, durable: FactoryDurableInput): ValidationResult {
   if (!isRecord(input) || !validateIJson(input).ok || encodedBytes(input) > FACTORY_LIMITS.maxInlineValueBytes) return issue("DURABLE_INPUT", "Durable input placeholders must be bounded I-JSON objects.", ["input"]);
-  if (!isRecord(durable) || durable.schemaVersion !== "factory.lazy-input.v1" || !isRecord(durable.parameters)) return issue("DURABLE_DESCRIPTOR", "Durable input descriptor is invalid.", ["durableInput"]);
+  if (!isRecord(durable) || durable.schemaVersion !== FACTORY_LAZY_INPUT_SCHEMA_VERSION || !isRecord(durable.parameters)) return issue("DURABLE_DESCRIPTOR", "Durable input descriptor is invalid.", ["durableInput"]);
   for (const name of Object.keys(input)) if (!own(ports, name)) return issue("DURABLE_INPUT", "Durable input contains an undeclared port.", ["input", name]);
   for (const [name, transport] of Object.entries(durable.parameters)) {
     if (!boundedText(name, FACTORY_LIMITS.maxApiIdentifierLength) || !own(ports, name) || !isRecord(transport)) return issue("DURABLE_DESCRIPTOR", "Durable input parameter is invalid.", ["durableInput", "parameters", name]);

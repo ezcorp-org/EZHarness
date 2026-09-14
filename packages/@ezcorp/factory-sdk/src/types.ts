@@ -11,6 +11,7 @@ export const FACTORY_API_REQUEST_SCHEMA_VERSION = "factory.api.request.v1" as co
 export const FACTORY_API_RESPONSE_SCHEMA_VERSION = "factory.api.response.v1" as const;
 export const FACTORY_VALIDATOR_CLAIMS_SCHEMA_VERSION = "factory.validator-claims.v1" as const;
 export const FACTORY_VALIDATOR_REPORT_SCHEMA_VERSION = "factory.validator-report.v1" as const;
+export const FACTORY_LAZY_INPUT_SCHEMA_VERSION = "factory.lazy-input.v1" as const;
 export const FACTORY_LIMITS = Object.freeze({
   maxDefinitionBytes: 16 * 1024 * 1024,
   maxInlineValueBytes: 64 * 1024,
@@ -28,6 +29,7 @@ export const FACTORY_LIMITS = Object.freeze({
   defaultNodeDeadlineMs: 30 * 60 * 1_000,
   maximumNodeDeadlineMs: 24 * 60 * 60 * 1_000,
   maximumApprovalWaitMs: 24 * 60 * 60 * 1_000,
+  maxCandidateGenerations: 3,
   maxWireBytes: 64 * 1024,
   maxApiIdentifierLength: 512,
   maxApiIdempotencyKeyLength: 200,
@@ -249,6 +251,16 @@ export interface AcceptanceNode extends BaseNode {
   readonly contract: string;
   readonly candidate: ValueSource;
   readonly evidence: ValueSource;
+  /**
+   * Repairs this contract authorizes after a protected rejection.
+   *
+   * The first candidate is not a repair, so the node runs at most `maxRepairs + 1` candidate
+   * generations. An absent bound authorizes no remediation at all: a rejection is terminal.
+   * `FACTORY_LIMITS.maxCandidateGenerations` caps every domain at three generations.
+   *
+   * @minimum 0
+   * @maximum 2
+   */
   readonly maxRepairs?: number;
 }
 

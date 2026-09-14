@@ -10,9 +10,12 @@ import {
   factoryRunnerResultJsonSchema,
   factoryApiRequestJsonSchema,
   factoryApiResponseJsonSchema,
+  factoryDurableInputJsonSchema,
+  isFactoryDurableInput,
   isFactoryDefinition,
 } from "./schema";
 import { referenceCodeV1 } from "./references";
+import { FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "./types";
 
 describe("generated definition schema", () => {
   test("matches every authoritative TypeScript wire definition", () => {
@@ -25,6 +28,7 @@ describe("generated definition schema", () => {
       ["FactoryRunnerResult", "urn:ezcorp:factory:runner-result:v1", factoryRunnerResultJsonSchema],
       ["FactoryApiRequest", "urn:ezcorp:factory:api-request:v1", factoryApiRequestJsonSchema],
       ["FactoryApiResponse", "urn:ezcorp:factory:api-response:v1", factoryApiResponseJsonSchema],
+      ["FactoryDurableInput", "urn:ezcorp:factory:lazy-input:v1", factoryDurableInputJsonSchema],
     ] as const;
     for (const [type, id, checkedIn] of schemas) {
       const generated = createGenerator({
@@ -36,6 +40,16 @@ describe("generated definition schema", () => {
       }).createSchema(type);
       expect(checkedIn).toEqual({ $id: id, ...generated });
     }
+  });
+
+  test("the durable input descriptor has one constant and one generated schema", () => {
+    expect(FACTORY_LAZY_INPUT_SCHEMA_VERSION).toBe("factory.lazy-input.v1");
+    expect(factoryDurableInputJsonSchema.$ref).toBe("#/definitions/FactoryDurableInput");
+    const descriptor = { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: { data: { kind: "inline", value: 1 } } };
+    expect(isFactoryDurableInput(descriptor)).toBe(true);
+    expect(isFactoryDurableInput({ ...descriptor, schemaVersion: "factory.lazy-input.v2" })).toBe(false);
+    expect(isFactoryDurableInput({ ...descriptor, unknown: true })).toBe(false);
+    expect(isFactoryDurableInput({ schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION })).toBe(false);
   });
 
   test("accepts a golden definition and rejects unknown or malformed fields", () => {

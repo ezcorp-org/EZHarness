@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { generateKeyPairSync, sign } from "node:crypto";
 import { rm } from "node:fs/promises";
-import { advanceKernel, createKernelState, referenceCodeV1, type FactoryDefinition, type JsonValue } from "@ezcorp/factory-sdk";
+import { advanceKernel, createKernelState, FACTORY_LAZY_INPUT_SCHEMA_VERSION, referenceCodeV1, type FactoryDefinition, type JsonValue } from "@ezcorp/factory-sdk";
 import type { KernelCommand, KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
@@ -85,7 +85,7 @@ async function fixture(value: string | readonly string[], mutate?: RecordedMutat
   const { compiled } = await definitions.readVersion(principal, definitionKey, version.version);
   const start = { kind: "start", id: "lazy-command-start-event", atMs: now } as const;
   const input: JsonValue = paged ? { items: [...value] } : { source: { value: value as string } };
-  const first = advanceKernel(compiled, createKernelState(compiled, identity.logicalRunId, input, now, { schemaVersion: "factory.lazy-input.v1", parameters: body.parameters }), start);
+  const first = advanceKernel(compiled, createKernelState(compiled, identity.logicalRunId, input, now, { schemaVersion: FACTORY_LAZY_INPUT_SCHEMA_VERSION, parameters: body.parameters }), start);
   const command = first.commands.find((entry): entry is Extract<typeof entry, { kind: "read-input-value" | "read-input-page" }> => entry.kind === "read-input-value" || entry.kind === "read-input-page");
   if (!command || (!paged && command.kind !== "read-input-value") || (paged && command.kind !== "read-input-page")) throw new Error("lazy command was not emitted");
   const transitions = new FactoryTransitionArtifacts(artifacts);

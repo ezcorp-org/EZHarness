@@ -2442,3 +2442,43 @@ needs.
 
 `deployed-independent-failure-domain` stays unmet on this host, exactly as W04a recorded. This
 package does not soften that verdict anywhere.
+## W06 — rejection, repair, and replan (Sol controls)
+
+Worktree `.worktrees/w06-remediation`, branch `wp/w06-remediation`, from `integ/w00` at `1dc9a0226`.
+
+- [x] 1. Kernel remediation wait. A `node-failed` with `failureKind: "acceptance_rejected"` enters a
+      bounded remediation wait instead of `stopFailedAttempt`. No `cancel-node` for a virtual node.
+- [x] 2. Bound consumption. `AcceptanceNode.maxRepairs` is the declared bound; the kernel holds an
+      absolute ceiling of three candidate generations. An exhausted bound fails with `bound_exhausted`.
+- [x] 3. Repair targets the producer, never the acceptance node itself; a repair must produce a new
+      candidate, not re-ask the same contract.
+- [x] 4. Reference remediation. `reference.code.v1` decides after the protected checks: generate →
+      freeze → checks → acceptance → bounded repair → new candidate → freeze → checks → new decision.
+- [x] 5. Replan authority. Equality of the protected contract, and denial of every widening of
+      grants, effects, resource limits, deadline, and parent budget, each tested separately.
+- [x] 6. Settleable-child scan. `FactoryChildRuns.listSettleableInTransaction`, bounded, oldest-first,
+      with empty, paged, and concurrent tests. Hands W09 its worker enumeration.
+- [x] 7. Production wiring. `runControls` composed by default; run read and repair/replan controls in
+      the browser client and a user control component.
+- [x] 8. Verification. PGlite, real PostgreSQL, the Node Temporal replay producer, kernel golden
+      traces, coverage, lint, typecheck, boundaries, gate integrity, BASE_REF=integ/w00 gates.
+
+### Review
+
+Six commits from `1dc9a0226`. The kernel now answers a protected rejection with a bounded
+remediation wait instead of a stop command naming a task that never existed, consuming the
+acceptance contract's declared `maxRepairs` under an absolute ceiling of three candidate
+generations. `reference.code.v1` decides after its protected checks, so a rejection produces a new
+candidate, a new freeze, every check again, and a new decision, which is the graph C10 specifies and
+the defect the plan named. A replan is bounded by the authority the run already holds along sixteen
+dimensions, each denied on its own. `FactoryChildRuns.listSettleableInTransaction` unblocks W09.
+The production application composes the controls by default and an operator can drive them from the
+browser.
+
+Two bugs the tests found and one defect measured outside the checklist. The browser control cleared
+the banner that reported its own outcome, twice. Cancelling a run with an in-flight acceptance, or
+its deadline expiring, emitted a stop command the gateway cannot answer and that kills the whole
+workflow; that is fixed for acceptance and filed for approval and release, whose cancellation
+semantics this package does not own.
+
+Full gate table, deviations, and receipts: `tasks/factory/w06-GATES.md`.

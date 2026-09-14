@@ -280,6 +280,7 @@
   "web/src/routes/api/factories/projects/[projectId]/releases/[operationId]/reconciliations/+server.ts": 100,
   "web/src/lib/factory/FactoryConsole.svelte": 100,
   "web/src/lib/factory/FactoryReleaseInbox.svelte": 100,
+  "web/src/lib/factory/FactoryRunControls.svelte": 100,
   "web/src/lib/factory/FactoryGraph.svelte": 100,
   "web/src/lib/factory/FactoryGraphBoundary.svelte": 100,
   "web/src/lib/factory/FactoryNode.svelte": 100,

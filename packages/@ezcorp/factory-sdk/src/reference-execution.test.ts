@@ -46,7 +46,6 @@ function fixtureOptions(overrides: { failImages?: boolean; missingEvidence?: boo
       switch (node.runner.export) {
         case "snapshotRepository": return { kind: "success", output: { snapshot: artifacts.repository } };
         case "generateCandidate": return { kind: "success", output: { candidate: artifacts.code } };
-        case "repairCandidate": return { kind: "success", output: { result: { accepted: true, candidate: artifacts.code } } };
         case "freezeGitTree": return { kind: "success", output: { candidate: input.candidate } };
         case "protectedChecks": return { kind: "success", output: overrides.missingEvidence ? {} : { evidence: evidence("checks") } };
         case "snapshotBrief": return { kind: "success", output: { brief: input.brief } };
@@ -108,7 +107,6 @@ describe("C10 reference execution", () => {
     expect(commandTrace(code)).toEqual([
       "dispatch-node:snapshot-repository",
       "dispatch-node:generate-private-candidate",
-      "dispatch-node:bounded-repair/items/0/repair-candidate",
       "dispatch-node:freeze-complete-git-tree",
       "dispatch-node:protected-checks",
       "request-acceptance:acceptance",
@@ -116,8 +114,7 @@ describe("C10 reference execution", () => {
       "request-release:github-pr-release",
       "complete-run:run",
     ]);
-    expect(codeOptions.inputs.get("generate-private-candidate")).toEqual({ snapshot: artifacts.repository, request: "slugify the input", baseBranch: "main" });
-    expect(codeOptions.inputs.get("bounded-repair/items/0/repair-candidate")).toEqual({ candidate: artifacts.code, request: "slugify the input" });
+    expect(codeOptions.inputs.get("generate-private-candidate")).toEqual({ snapshot: artifacts.repository, request: "slugify the input", baseBranch: "main", remediation: "" });
     expect(codeOptions.inputs.get("freeze-complete-git-tree")).toEqual({ candidate: artifacts.code, baseCommitSha: "abc123" });
     expect(referenceCodeV1.graph.nodes.find((node) => node.id === "generate-private-candidate" && node.kind === "task")?.runner).toEqual(expect.objectContaining({ model: "claude-haiku-4-5-20251001", configurationDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/) }));
     expect(code.commands.map((command) => command.id)).toEqual([
@@ -128,23 +125,19 @@ describe("C10 reference execution", () => {
       "trace-code:generate-private-candidate:request-admission:5",
       "trace-code:generate-private-candidate:start-timer:6",
       "trace-code:generate-private-candidate:dispatch-node:7",
-      "trace-code:bounded-repair:start-timer:8",
-      "trace-code:bounded-repair/items/0/repair-candidate:request-admission:9",
-      "trace-code:bounded-repair/items/0/repair-candidate:start-timer:10",
-      "trace-code:bounded-repair/items/0/repair-candidate:dispatch-node:11",
-      "trace-code:freeze-complete-git-tree:request-admission:12",
-      "trace-code:freeze-complete-git-tree:start-timer:13",
-      "trace-code:freeze-complete-git-tree:dispatch-node:14",
-      "trace-code:protected-checks:request-admission:15",
-      "trace-code:protected-checks:start-timer:16",
-      "trace-code:protected-checks:dispatch-node:17",
-      "trace-code:acceptance:request-acceptance:18",
-      "trace-code:acceptance:start-timer:19",
-      "trace-code:release-approval:request-approval:20",
-      "trace-code:release-approval:start-timer:21",
-      "trace-code:github-pr-release:request-release:22",
-      "trace-code:github-pr-release:start-timer:23",
-      "trace-code:run:complete-run:24",
+      "trace-code:freeze-complete-git-tree:request-admission:8",
+      "trace-code:freeze-complete-git-tree:start-timer:9",
+      "trace-code:freeze-complete-git-tree:dispatch-node:10",
+      "trace-code:protected-checks:request-admission:11",
+      "trace-code:protected-checks:start-timer:12",
+      "trace-code:protected-checks:dispatch-node:13",
+      "trace-code:acceptance:request-acceptance:14",
+      "trace-code:acceptance:start-timer:15",
+      "trace-code:release-approval:request-approval:16",
+      "trace-code:release-approval:start-timer:17",
+      "trace-code:github-pr-release:request-release:18",
+      "trace-code:github-pr-release:start-timer:19",
+      "trace-code:run:complete-run:20",
     ]);
 
     const imageOptions = fixtureOptions();
