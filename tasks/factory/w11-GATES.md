@@ -87,7 +87,7 @@ results. Nothing here reconfigured the GPU and nothing reimaged anything.
       distribution that drifted would fail the build.
       CHECK: the journey below; `bun test --timeout 30000 ./src/factory/reference-image/closure.test.ts`
       EXPECT: the build reaches `succeeded`; the closure declares 146
-      distributions and 4 model pins; the guest's own 180 Python tests run
+      distributions and 4 model pins; the guest's own 176 Python tests run
       inside the image before it becomes an artifact.
       EVIDENCE: `logs/journey-four-seeds.json`, guest artifact digest
       `a0db67c45c66ad245d114304368e5c67228cf06623ebb0a2918110ef68351f62`. The
@@ -221,10 +221,14 @@ results. Nothing here reconfigured the GPU and nothing reimaged anything.
       EVIDENCE: TypeScript 151 pass / 0 fail, 383 assertions, and 100% of
       `closure.ts` (32/32), `lock.ts` (113/113), `model-lock.ts` (41/41),
       `publication.ts` (80/80), `semantic-quorum.ts` (111/111) and `variants.ts`
-      (153/153). Python 180 test cases in this project and 100% of 671
-      statements and 206 branches. `gate-integrity.ts` reports no
-      gate-weakening change; the only gate-file edit widens enforcement by
-      adding `src/factory/reference-image/python/**/*.py` to `SOURCE_GLOBS`.
+      (153/153). Python 176 test cases in this project and 100% of 672
+      statements and 206 branches, measured by
+      `nix-shell -p uv --run 'bash scripts/python-quality.sh all'`. An earlier
+      revision of this file said 180 and 671; both were wrong and an independent
+      validator caught them. `gate-integrity.ts` reports no gate-weakening
+      change, and the only gate-file edits are additive: seven keys in
+      `coverage-thresholds.json` and one `SOURCE_GLOBS` entry for
+      `src/factory/reference-image/python/**/*.py`, which widens enforcement.
 
 - [x] G14a: The backend pool runs on this branch, and the failures it reports
       are inherited rather than introduced.
@@ -373,12 +377,14 @@ results. Nothing here reconfigured the GPU and nothing reimaged anything.
 
 ## Open
 
-1. **G15, large-artifact egress. Owned by W12 as of this writing.** The shared
-   runner's control-output budget is a per-worker lifetime limit of one
-   mebibyte, so an isolated guest cannot return a 1,024-pixel variant at all.
-   This blocks G16, G17 and G18b as much as the missing credential does. W12 is
-   implementing the per-attempt output mount; W11 consumes it and writes none of
-   it. See "Cross-package coordination".
+1. **G15, large-artifact egress. Owned by W12.** The shared runner's
+   control-output budget is a per-worker lifetime limit of one mebibyte, so an
+   isolated guest cannot return a 1,024-pixel variant at all. This blocks G16,
+   G17 and G18b as much as the missing credential does. W11 consumes
+   `StartRequest.materials` and W12's guest output and material mount, and
+   writes no version of its own; W12 merges first and the Terra runtime owner
+   reviews that contract on `wp/w01c-materials-review`. See "Cross-package
+   coordination".
 2. **G16, the model credential.** No `ANTHROPIC_API_KEY` and no configured
    provider reference. Recorded as a readiness failure.
 3. **`broker.invoke` has no production implementation.** Every existing use of
@@ -421,13 +427,21 @@ the private per-attempt tree the channel already uses, with the host reading the
 files back and storing them through W04's `FactoryAttemptMaterials`. Absent
 means no mount, so no existing caller changes and C05 stays intact.
 
-W11 confirmed it is touching nothing in `packages/@ezcorp/extension-runner` and
-will consume W12's seam rather than write a second one. The requirements W11
-gave W12 for it: binary files, writable by the guest's uid 65534 under the
-read-only root, a directory rather than a single file, and a declared byte
-ceiling, because a bind mount out of the private attempt tree is disk-backed
-rather than charged against `limits.tmpBytes` and an unbounded one lets a guest
-fill the host disk.
+**The exact seam W11 consumes, and does not write.** `StartRequest.materials`,
+with the guest output and material mount W12 adds to the shared Podman runner.
+W11 adds no version of it: this branch touches no file under
+`packages/@ezcorp/extension-runner` at all, which the diff against the true
+merge-base `1d3edf5b0` shows. W12 merges before W11, and the Terra runtime owner
+is reviewing that shared-contract change on `wp/w01c-materials-review`, so the
+field's final name and guest path are theirs to settle, not W11's. When it
+lands, W11 wires `verify-factory-image-pack.ts` and `image_guest.py` to it and
+deletes the guest's `fetch` tool and the host's reassembly loop.
+
+The requirements W11 gave W12 for that seam: binary files, writable by the
+guest's uid 65534 under the read-only root, a directory rather than a single
+file, and a declared byte ceiling, because a bind mount out of the private
+attempt tree is disk-backed rather than charged against `limits.tmpBytes` and an
+unbounded one lets a guest fill the host disk.
 
 W11 also asked for one addition: the guest should report `{name, digest, bytes}`
 per file in its small result frame, and the host should refuse any file whose
@@ -446,9 +460,11 @@ up to 10 MiB per PNG.
 
 1. ~~Who owns large-artifact egress from a `--network=none` guest?~~ Settled
    directly with W12: they implement the per-attempt output mount in
-   `wp/w12-data-pack` and W11 consumes it. See "Cross-package coordination".
-   The coordinator's remaining decision is whether that seam integrates before
-   or after W13, because G18b and G16 both wait on it.
+   `wp/w12-data-pack` and W11 consumes `StartRequest.materials` with their guest
+   output and material mount. The Terra runtime owner reviews that shared
+   contract on `wp/w01c-materials-review`. See "Cross-package coordination". The
+   coordinator's remaining decision is whether that seam integrates before or
+   after W13, because G18b and G16 both wait on it.
 2. Is there a configured Anthropic provider reference I should resolve, or does
    the missing credential stay a readiness failure through W19?
 3. `FactoryS3AcceptedPublication` is W08's shape and W08 asked W11 and W12 to
