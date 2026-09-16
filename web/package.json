@@ -33,7 +33,7 @@
 		"@types/jsdom": "^30.0.0",
 		"@typescript/native": "npm:typescript@7.0.2",
 		"@vitest/coverage-v8": "4.1.11",
-		"ast-v8-to-istanbul": "1.0.5",
+		"ast-v8-to-istanbul": "1.0.6",
 		"jsdom": "^30.0.1",
 		"rollup-plugin-visualizer": "^7.1.1",
 		"svelte": "^5.57.0",
@@ -54,7 +54,7 @@
 		"kokoro-js": "^1.2.0",
 		"linkedom": "^0.18.12",
 		"lucide-svelte": "^1.0.1",
-		"marked": "^18.0.11",
+		"marked": "^18.0.12",
 		"svelte-adapter-bun": "^1.0.1",
 		"svelte-dnd-action": "^0.9.79",
 		"zod": "^4.5.4"
