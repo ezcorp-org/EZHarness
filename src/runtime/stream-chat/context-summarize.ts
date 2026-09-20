@@ -219,13 +219,38 @@ export function makeSummarizer(
       const cached = SUMMARY_MEMO.get(key);
       if (cached !== undefined) return cached;
       const { model, apiKey } = await resolveSummarizerModel(turnModel, credentialConversationId);
-      const { generateSummary } = await import("@earendil-works/pi-agent-core");
+      // pi-agent-core 0.85.1 dropped generateSummary's `signal` parameter and
+      // added a REQUIRED `context: Context` (chord's cancellation context —
+      // a different type from pi-ai's `Context` imported above for
+      // `Models.completeSimple`, despite the shared name). Cancellation now
+      // travels via that context instead: wrap BACKGROUND_CONTEXT with
+      // `opts.signal` when present, and pass it as the new final argument.
+      const { generateSummary, withAbortSignal, BACKGROUND_CONTEXT } = await import("@earendil-works/pi-agent-core");
       const { complete } = await import("@earendil-works/pi-ai/compat");
       const models = {
         completeSimple: (m: Model, context: Context, o?: SimpleStreamOptions) =>
           complete(m, context, { ...o, apiKey }),
       } as unknown as Models;
-      const result = await generateSummary(messages, models, model, opts.reserveTokens, opts.signal, undefined, undefined, "off");
+      const harnessContext = opts.signal ? withAbortSignal(opts.signal, BACKGROUND_CONTEXT) : BACKGROUND_CONTEXT;
+      // Positional mapping (verified against the installed .d.ts): messages,
+      // models, model, reserveTokens, customInstructions, previousSummary,
+      // thinkingLevel, retry, callbacks, context. This repo never sets
+      // customInstructions/previousSummary/retry/callbacks and always runs
+      // with thinking off, so those five stay `undefined`/`"off"` exactly as
+      // before the bump — only the 5th positional slot's MEANING changed
+      // (was `signal`, is now `customInstructions`).
+      const result = await generateSummary(
+        messages,
+        models,
+        model,
+        opts.reserveTokens,
+        undefined,
+        undefined,
+        "off",
+        undefined,
+        undefined,
+        harnessContext,
+      );
       if (!result.ok) {
         log.warn("summary generation failed; falling back to trim", { reason: result.error.message });
         return null;
