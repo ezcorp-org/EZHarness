@@ -1138,3 +1138,11 @@
   (degraded, named, admission closed) and the fix was to re-run on a quieter
   box and record the measurement, not to widen the probe budget the product
   states as an invariant.
+- common.md lists coverage as a heavy producer and I only ever locked the
+  obvious three: Podman, real PostgreSQL, and the real-server proofs. My sweep
+  ran `bun run test:coverage` -- one bun plus PGlite process per file across
+  1700+ files -- outside the lock, beside another package's full backend pool,
+  on a host down to 6 GB. The tell is that "heavy" is a property of what a
+  command DOES, not of which service it talks to: a pool that forks a process
+  per file is heavier than a single Podman probe. Every producer in that list
+  goes under the lock, one at a time.

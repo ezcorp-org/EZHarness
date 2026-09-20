@@ -222,6 +222,19 @@ database, and freshly started pool, supervisor, and web processes each time.
 
 All three at this branch's tip, against a web build made there.
 
+**One producer was running unlocked, and the scripts are fixed.** The
+coordinator caught `bun run test:coverage` running from this worktree outside
+`/tmp/ezcorp-validation-heavy.lock` while another package held it with a full
+backend pool, on a host down to 6 GB. common.md lists coverage as a heavy
+producer; my sweep scripts locked Podman, real PostgreSQL, and the real-server
+proofs and left the coverage pool and its legs outside. All three scripts that
+run it now queue it under the lock with an explicit timeout, and no
+`bun run test:coverage` remains outside a `flock` in `repro/`.
+
+The receipt from the unlocked run was checked rather than assumed: no kill, no
+out-of-memory, no shard failure, and no failing test file, so it stands. Had it
+shown any of those it would have been discarded and rerun under the lock.
+
 **Where the receipts sit.** Forty receipts. The sweep and the three-run repeat
 both ran at `625d2335c` from the W09 worktree against a clean tree; the six
 static and `BASE_REF` gates were re-stamped at `935b65522`, and
