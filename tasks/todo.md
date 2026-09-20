@@ -19,9 +19,9 @@ Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout pr
 - [x] Reuse all seven native tools in a bounded guest helper; real offline Bun test passed.
 - [x] Local provider source uses the normal reviewed extension lifecycle.
 - [x] Initial durable lifecycle controller and API/panel implemented; focused tests passed.
-- [ ] Complete reviewed provider invocation and production startup wiring.
+- [x] Complete reviewed provider invocation and production startup wiring; focused authorization and startup checks pass.
 - [x] Verify real rootless lifecycle cleanup and compiled supervisor process execution.
-- [ ] Finish file-provider wiring and the complete persisted native process controller loop.
+- [x] Finish file-provider wiring and the persisted native process controller loop; 20 controller cases pass with 350/350 executable lines covered.
 - [ ] Prove all native tools, cancellation, restart and explicit disposal through the live application.
 - [ ] Run all build/test/coverage gates and inspect desktop/mobile browser evidence.
 
@@ -100,9 +100,11 @@ Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout pr
 
 ## Review
 
-Local startup configuration and rootless runtime preflight have focused tests (3 tests, 24 assertions; startup source 44/44 lines). Full controller/provider integration remains open.
+Local startup, reviewed dispatch, contained file access, process polling, cancellation, and terminal disposal have focused tests. The current controller has 20 passing tests and 350/350 measured executable lines. The panel has six passing tests and 39/39 measured lines. The provider invoker has four passing tests and 102/102 measured lines.
 
-Pending. Missing external prerequisites stay open; deterministic tests cannot qualify live providers.
+Real runtime controls passed, and two independent production-driver clients proved retained output, cancellation, workspace persistence, another command, disposal, and zero remaining owned containers or mounts. Receipts are retained under tasks/evidence/pluggable-local/. This does not yet prove the complete live application journey.
+
+The first browser attempt exposed a mismatch between persisted string approvals and broker grant objects. The reviewed invoker now uses the existing grant projection and has a regression test with the actual persisted shape. The corrected live journey and the complete repository/browser coverage gates are queued under the shared validation lock. Their results remain pending. External-host setup remains deferred.
 
 ---
 

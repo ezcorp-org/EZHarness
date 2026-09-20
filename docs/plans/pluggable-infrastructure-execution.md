@@ -52,3 +52,17 @@ User selected the bare minimum local MVP. This supersedes the initial R1–R3 im
 
 - Native tool reuse: seven existing implementations now share a catalog; the fixed read-only sandbox helper bundles to 0.79 MB. Parent tests: 5 passed, 28 assertions, four new modules each 100% measured line coverage. Real offline Podman helper executed a Bun test successfully; owned container inventory is empty afterward. Receipt `/tmp/pluggable-native-guest-proof.json`. This is helper evidence, not full controller/restart acceptance.
 - Parent local file/journal/lifecycle focused checks: 17 passed, 252 assertions. Exact runtime identity, cleanup reconciliation and process supervision remain open; the driver is not activated.
+
+## Integrated local candidate
+
+The candidate includes the reviewed local provider, dedicated project bindings,
+rootless runtime, contained file methods, native tool dispatch, durable process
+state and output, cancellation, and explicit terminal disposal. It reserves one
+retained workspace. The provider approval check uses the existing broker grant
+projection and the persisted installation approval shape.
+
+Focused controller, invoker, runtime, startup, route, and UI tests pass. The real
+runtime control receipt and separate production-driver recovery receipt are in
+`tasks/evidence/pluggable-local/`. The complete live application journey and
+full repository coverage remain acceptance gates. External infrastructure and
+all optional R4 features remain deferred.
