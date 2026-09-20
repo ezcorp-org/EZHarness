@@ -194,3 +194,13 @@ test("rejects a reviewed provider response that did not use the raw host callbac
   expect(operation.rows[0]!.state).toBe("admitted");
   expect(context.local.create).not.toHaveBeenCalled();
 });
+
+test("a host-confirmed clean create failure releases the one local slot", async () => {
+  const context = await fixture();
+  context.local.create = mock(async input => ({ receipt: { operationId: input.call.operationId, idempotencyKey: input.call.idempotencyKey, requestDigest: input.call.requestDigest, outcome: "failed" as const, error: { code: "create_failed_clean", message: "cleaned", retryable: false } } }));
+  const create = await admitCreate(context);
+  const status = await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  expect(status.operation).toMatchObject({ state: "failed" });
+  const resource = await context.database.execute(sql`SELECT desired_state,observed_state FROM sandbox_resources WHERE binding_id=${status.bindingId}`) as { rows: Array<{ desired_state: string; observed_state: string }> };
+  expect(resource.rows[0]).toEqual({ desired_state: "destroyed", observed_state: "destroyed" });
+});
