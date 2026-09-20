@@ -19,7 +19,7 @@ EZCorp is a self-hosted AI platform that brings together multi-model chat, long-
 - **Extensions and marketplace** -- Install community extensions or build your own tools, skills, and agents.
 - **Slash commands** -- Type `/review`, `/commit`, `/deploy` to expand reusable prompt templates. Compatible with Claude Code (`.claude/commands/`), Codex CLI (`.codex/prompts/`), and plain `agents/` folders. See [docs/slash-commands.md](docs/slash-commands.md).
 - **Teams** -- Multi-user support with team workspaces and shared conversations.
-- **Self-hosted** -- Your data stays on your infrastructure. Runs on a single Docker container with zero external dependencies.
+- **Self-hosted** -- Your data stays on your infrastructure. Chat runs in one app container. Extensions use a separate isolated host runner.
 
 ## Quick Start (self-hosted, builds from source)
 
@@ -38,10 +38,14 @@ cp .env.prod.example .env.prod && chmod 600 .env.prod
 # runtime can't write it — PGlite then fails to open on first boot.
 mkdir -p .ezcorp/data && sudo chown -R 1000:1000 .ezcorp/data
 
+# Before the first start, set up the host extension runner:
+# deploy/extension-runner/README.md
 docker compose -f compose.prod.yml --env-file .env.prod up -d --build
 ```
 
 The first `up` builds the image locally (a couple of minutes); subsequent ups reuse the Docker layer cache. When build is done, open [http://localhost:4000](http://localhost:4000), create your admin account, and start chatting. Your data lives in `./.ezcorp/data/` in the working tree (a host bind mount, not a docker-managed volume), so it survives `docker compose down`, `down -v`, and image upgrades — backing up is just backing up that host directory. See [Data persistence](#data-persistence) below.
+
+Both Compose stacks connect to the isolated extension runner by default. Set up the [host runner](deploy/extension-runner/README.md) before starting the app. Missing mounts or a failed authenticated connection stop startup with an error. Linux is required for the isolated runner; other hosts must explicitly choose the trusted-local mode described in that guide.
 
 For HTTPS, backups, external Postgres, and auto-updates, see the **[production guide](docs/production-guide.md)**.
 
@@ -63,6 +67,8 @@ cp .env.example .env
 #   EZCORP_ENCRYPTION_SALT    →  openssl rand -base64 16
 #   EZCORP_JWT_SECRET         →  openssl rand -base64 32
 
+# Before the first start, set up the host extension runner:
+# deploy/extension-runner/README.md
 docker compose up -d                               # → http://localhost:3000
 ```
 
