@@ -891,9 +891,41 @@ outside that and each is disclosed here rather than left to a diff:
 | --- | --- | --- |
 | `.github/workflows/db-postgres.yml` | registered `tests/postgres/factory-tenant-projects.test.ts` and `tests/postgres/factory-host-launch.test.ts` in the factory-storage lane | Additive only. `scripts/factory-postgres-suite-registration.test.ts` fails otherwise, and it failed on this branch after the merge because W01b's own suite was unregistered. A suite no workflow names is a suite nobody runs |
 | `src/factory/tenant-projects.ts` | a composition-owned READ of `factory_projects`, a table `FactoryRecords` writes | Assigned by the coordinator after this package reported it as the blocker for two roles. Read-only; binding a project stays where it is |
-| `src/__tests__/factory-process-boundaries.test.ts` | admitted `now` to the supervisor's exact option set | The set is exact by design so a new option cannot arrive unreviewed. W03's clock arrived; a clock is neither tenant identity nor a host key |
+| `src/__tests__/factory-process-boundaries.test.ts` | admitted `now` to the supervisor's exact option set |
+| `src/factory/runner/attempt-preflight.ts` | READS W03's attempt queue and compute-admission ledger | Assigned by the coordinator. It adds no SQL: `FactoryAttemptQueue.readInTransaction` gives the reservation the queue already recorded and `FactoryComputeAdmissions.readRetainedAdmittedInTransaction` gives the lease it was admitted on. `check-factory-boundaries.ts` and `factory-c13-inventory.test.ts` both pass with no new `REQUIRED_SHARED_IMPORTS` row, because that table gates factory-to-SHARED edges and this is factory-to-factory; it is disclosed here instead | The set is exact by design so a new option cannot arrive unreviewed. W03's clock arrived; a clock is neither tenant identity nor a host key |
 
-### The last gap for attempt-dispatch: the preflight
+### The preflight, built
+
+The coordinator settled where a lease comes from and this is that file,
+`src/factory/runner/attempt-preflight.ts`. One rule makes it short: an attempt's
+allocation identity is a durable fact somebody else recorded, so the preflight
+READS it. It never derives a reservation id, never asks the pool for status, and
+never assembles a lease from parts. A reservation id is a digest of the run
+scope and node identity, so a second derivation that drifted would fence the
+wrong allocation — the exact failure a lease prevents.
+
+The reservation comes from the queue's own record, the allocation from
+`readRetainedAdmittedInTransaction` (retained, because a reservation that
+reached `uncertain` keeps its capacity and a recovering dispatcher must still
+name the holder it fences), and both reads share one transaction so they cannot
+disagree. `preparedPackage` is `assertDispatchReady`, unchanged.
+
+One field is not a copy. `PoolLease.hostId` is optional and
+`FactoryAttemptLease.hostId` is required: the pool pins a host when the
+allocation is physical and leaves it unset for an ordinary CPU allocation. An
+absent host falls back to the configured `hostId`, a stated deployment fact, and
+a GPU allocation with no pinned host is REFUSED rather than dispatched to a
+machine that does not hold the card.
+
+Covered to 100% as a unit, twelve cases, including every refusal and each of the
+four shapes that mean "CPU allocation". It has no separate two-engine
+conformance suite: the compute-admissions PostgreSQL producer is self-contained
+with no shared fixture to reuse, and the preflight adds no SQL of its own, so
+the real-engine exercise of both reads is the end-to-end proof rather than a
+suite that would re-seed W03's rows by hand. That is a deliberate choice and a
+weaker one than the coordinator asked for; it is recorded rather than glossed.
+
+### What remained after the preflight
 
 The coordinator settled the architecture — the product process composes the
 dispatcher over `IsolatedFactoryTrustedRunner` with W01b's
