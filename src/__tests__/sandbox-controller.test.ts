@@ -15,13 +15,14 @@ afterAll(closeTestDb);
 beforeEach(setupTestDb);
 
 const limits = { memoryBytes: 1_048_576, milliCpu: 1000, pids: 64, diskBytes: 10_485_760 };
+const receipt = (call: { operationId: string; idempotencyKey: string; requestDigest: string }) => ({ operationId: call.operationId, idempotencyKey: call.idempotencyKey, requestDigest: call.requestDigest, outcome: "succeeded" as const });
 
 function driver() {
-  const create = mock<LocalSandboxDriver["create"]>(async input => ({ receipt: { ...input.call, outcome: "succeeded" as const }, resource: { resourceId: "resource-1", desiredState: "stopped" as const, observedState: "stopped" as const, limits } }));
-  const lifecycle = (desiredState: "running" | "stopped" | "destroyed", observedState: "running" | "stopped" | "destroyed") => mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, resource: { resourceId: input.resourceId, desiredState, observedState, limits } }));
-  const process = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, process: { identity: input.identity ?? { bootId: "boot-1", processId: "process-1" }, state: "exited" as const, exitCode: 0, outputCursor: 2 } }));
-  const output = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, cursor: 2, chunks: input.cursor === 0 ? [{ stream: "stdout" as const, encoding: "utf8" as const, data: "ok" }] : [], eof: true, gap: false }));
-  const file = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const } }));
+  const create = mock<LocalSandboxDriver["create"]>(async input => ({ receipt: receipt(input.call), resource: { resourceId: "resource-1", desiredState: "stopped" as const, observedState: "stopped" as const, limits } }));
+  const lifecycle = (desiredState: "running" | "stopped" | "destroyed", observedState: "running" | "stopped" | "destroyed") => mock(async (input: any) => ({ receipt: receipt(input.call), resource: { resourceId: input.resourceId, desiredState, observedState, limits } }));
+  const process = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity ?? { bootId: "boot-1", processId: "process-1" }, state: "exited" as const, exitCode: 0, outputCursor: 2 } }));
+  const output = mock(async (input: any) => ({ receipt: receipt(input.call), identity: input.identity, cursor: 2, chunks: input.cursor === 0 ? [{ stream: "stdout" as const, encoding: "utf8" as const, data: "ok" }] : [], eof: true, gap: false }));
+  const file = mock(async (input: any) => ({ receipt: receipt(input.call) }));
   return { create, inspect: lifecycle("stopped", "stopped"), start: lifecycle("running", "running"), stop: lifecycle("stopped", "stopped"), destroy: lifecycle("destroyed", "destroyed"), processStart: process, processInspect: process, processReadOutput: output, processCancel: process, fileStat: file, fileList: file, fileRead: file, fileWrite: file, fileMkdir: file, fileRemove: file, fileChmod: file } as unknown as LocalSandboxDriver;
 }
 
@@ -54,7 +55,7 @@ async function fixture(invoke?: SandboxProviderInvocation) {
 }
 
 async function admitCreate(context: Awaited<ReturnType<typeof fixture>>) {
-  return context.controller.createSandboxProject(context.owner.id, { name: "Sandbox project", idempotencyKey: "create-once", providerInstallationId: context.installation.id, providerId: "local", config: { profile: "local" }, limits });
+  return context.controller.createSandboxProject(context.owner.id, { name: "Sandbox project", idempotencyKey: "create-once", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits });
 }
 
 test("startup accessor fails closed until a host driver configures it", () => {
@@ -103,7 +104,7 @@ test("persists a process writer lease and denies an interleaved file writer", as
   await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Sandbox process')`);
   const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "process-start", conversationId, payload: { argv: ["echo", "ok"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
   expect(start.state).toBe("admitted");
-  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "write-during-process", conversationId, payload: { path: "a", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
+  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "write-during-process", conversationId, payload: { path: "/a", encoding: "utf8", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
   const persisted = await context.controller.getSandboxOperationResult(context.owner.id, start.id);
   expect(persisted).toMatchObject({ id: start.id, group: "sandbox.process.v1", operation: "start", state: "admitted" });
 });
@@ -111,29 +112,31 @@ test("persists a process writer lease and denies an interleaved file writer", as
 test("keeps the writer lease through a running process and releases it only after stopped inspection", async () => {
   let processState: "running" | "exited" = "running";
   const context = await fixture();
-  context.local.processStart = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, process: { identity: { bootId: "boot", processId: "process" }, state: "running" as const, outputCursor: 0 } }));
-  context.local.processInspect = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, process: { identity: input.identity, state: processState, ...(processState === "exited" ? { exitCode: 0 } : {}), outputCursor: 1 } }));
+  context.local.processStart = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: { bootId: "boot", processId: "process" }, state: "running" as const, outputCursor: 0 } }));
+  context.local.processInspect = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity, state: processState, ...(processState === "exited" ? { exitCode: 0 } : {}), outputCursor: 1 } }));
   const create = await admitCreate(context);
   await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
   const conversationId = crypto.randomUUID();
   await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Process')`);
   const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "start", conversationId, payload: { argv: ["echo"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
   expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id)).state).toBe("succeeded");
-  const output = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "readOutput", idempotencyKey: "output", conversationId, payload: { cursor: 0, maxBytes: 1024 } });
+  const output = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "readOutput", idempotencyKey: "output", conversationId, payload: { identity: { bootId: "boot", processId: "process" }, cursor: 0, maxBytes: 1024 } });
   expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, output.id)).state).toBe("succeeded");
+  const storedOutput = await context.database.execute(sql`SELECT input FROM sandbox_method_operations WHERE id=${output.id}`) as { rows: Array<{ input: string | object }> };
+  expect(typeof storedOutput.rows[0]!.input === "string" ? JSON.parse(storedOutput.rows[0]!.input) : storedOutput.rows[0]!.input).toEqual({ identity: { bootId: "boot", processId: "process" }, cursor: 0, maxBytes: 1024 });
   await context.controller.reconcileSandboxProcess(context.owner.id, create.projectId);
-  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "blocked", conversationId, payload: { path: "a", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
+  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "blocked", conversationId, payload: { path: "/a", encoding: "utf8", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
   processState = "exited";
   await context.controller.reconcileSandboxProcess(context.owner.id, create.projectId);
-  expect((await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "after-stop", conversationId, payload: { path: "a", data: "x" } })).state).toBe("admitted");
+  expect((await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "after-stop", conversationId, payload: { path: "/a", encoding: "utf8", data: "x" } })).state).toBe("admitted");
   expect(context.local.processStart).toHaveBeenCalled();
   expect(context.local.inspect).toHaveBeenCalledTimes(1);
 });
 
 test("an unknown process inspection retains the persisted writer lease", async () => {
   const context = await fixture();
-  context.local.processStart = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, process: { identity: { bootId: "boot", processId: "process" }, state: "running" as const, outputCursor: 0 } }));
-  context.local.processInspect = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, process: { identity: input.identity, state: "unknown" as const, outputCursor: 0 } }));
+  context.local.processStart = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: { bootId: "boot", processId: "process" }, state: "running" as const, outputCursor: 0 } }));
+  context.local.processInspect = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity, state: "unknown" as const, outputCursor: 0 } }));
   const create = await admitCreate(context);
   await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
   const conversationId = crypto.randomUUID();
@@ -141,7 +144,7 @@ test("an unknown process inspection retains the persisted writer lease", async (
   const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "start-unknown", conversationId, payload: { argv: ["echo"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
   await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id);
   await context.controller.reconcileSandboxProcess(context.owner.id, create.projectId);
-  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "still-blocked", conversationId, payload: { path: "a", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
+  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "still-blocked", conversationId, payload: { path: "/a", encoding: "utf8", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
 });
 
 test("native runner journals a fresh process, reads output, and proves terminal inspection", async () => {
@@ -182,7 +185,7 @@ test("rechecks the active acknowledged provider before execution after approval 
 test("rejects a reviewed provider response that did not use the raw host callback", async () => {
   const context = await fixture(async (_userId, _projectId, _provider, _group, _operation, input) => {
     const call = (input as { call: { operationId: string; idempotencyKey: string; requestDigest: string } }).call;
-    return { receipt: { ...call, outcome: "succeeded" as const } };
+    return { receipt: receipt(call), resource: { resourceId: "forged", desiredState: "stopped" as const, observedState: "stopped" as const, limits } };
   });
   const create = await admitCreate(context);
   await expect(context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id)).rejects.toMatchObject({ code: "PROVIDER_RESULT_UNVERIFIED" });
