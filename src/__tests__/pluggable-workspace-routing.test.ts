@@ -112,6 +112,29 @@ describe("persisted workspace routing", () => {
     expect(await Bun.file(marker).exists()).toBeFalse();
   });
 
+  test("a throwing or rejecting sandbox dispatcher denies all tools without host fallback or error details", async () => {
+    await insertProject("rejected-project");
+    await bindSandbox("rejected-project");
+    const marker = join(root, "must-not-exist-after-rejection");
+    let dispatched = 0;
+    configureSandboxWorkspaceDispatcher(async (_target, operation) => {
+      dispatched++;
+      if (dispatched % 2) throw new Error(`host detail ${root}:${operation}`);
+      return Promise.reject(new Error(`host detail ${root}:${operation}`));
+    });
+
+    const tools = await resolveProjectBuiltinTools("rejected-project", root);
+    for (const tool of tools) {
+      const params = tool.name === "shell" ? { command: `touch ${marker}` } : toolArguments[tool.name];
+      const result = await tool.execute("call", params);
+      expect(result.details).toEqual({ isError: true });
+      expect(toolText(result)).toBe("Error: Sandbox workspace is unavailable");
+      expect(JSON.stringify(result)).not.toContain(root);
+    }
+    expect(dispatched).toBe(7);
+    expect(await Bun.file(marker).exists()).toBeFalse();
+  });
+
   test("already-created sandbox tools recheck revision, state, dispatcher, and project existence", async () => {
     await insertProject("mutable-sandbox-project");
     await bindSandbox("mutable-sandbox-project");
