@@ -185,10 +185,14 @@ proofs were still pending.
 - [x] Audit every Podman statement and command against the repository configuration, rendered Compose output, executable tests, and current primary Podman/Compose documentation.
 - [x] Close documentation and test gaps found in the full PR diff while keeping the change focused.
 - [x] Run focused tests, formatting/lint checks, and repository-level checks that cover all changed files.
-- [ ] Merge the current PR base if needed, commit, push to the PR branch, and watch all reported checks.
+- [x] Merge the current PR base if needed, commit, push to the PR branch, and watch all reported checks.
 
 Plan review: preserve the original Podman fix, use `AGENTS.md` because that is the supported agent-instruction filename, keep one canonical detailed runbook, and prove commands before describing them as supported.
 
 ### Review
 
-Pending.
+- Renamed the root instruction file to `AGENTS.md` and updated all live root-file references. Nested, scope-specific `CLAUDE.md` files remain unchanged.
+- Added tested rootless Podman commands for the Linux development stack and the Linux/macOS production stack. Renamed the production override to `compose.podman-prod.yml`.
+- Proved the uid/gid and bind-mount contract with executable tests, rendered Compose output, the production image user, and real rootless Podman write tests.
+- Merged the current `main` and the concurrent PR-head merge without conflicts. The merged source tree is identical to the fully validated tree.
+- Verification passed: lint, typecheck, production build, focused tests, 2,185 browser tests, 26,602 coverage tests, and all 1,631 enforced coverage files.
