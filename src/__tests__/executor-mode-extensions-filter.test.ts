@@ -135,7 +135,6 @@ mock.module("../extensions/registry", () => ({
 
 mock.module("../extensions/tool-executor", () => ({
   ToolExecutor: class {
-    constructor(_reg: any, _opts: any) {}
     setStateMediator() {}
     setExecutor() {}
     setSpawnQuota() {}

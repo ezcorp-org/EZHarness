@@ -1,4 +1,4 @@
-// The "don't add replaced deps" list in CLAUDE.md, enforced instead of stated.
+// The "don't add replaced deps" list in AGENTS.md, enforced instead of stated.
 //
 // `biome.json`'s `style/noRestrictedImports` denies the modules at the IMPORT
 // site, with the reason in the diagnostic text (the direct analog of a Rust
@@ -39,7 +39,7 @@ import { join } from "node:path";
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 
 /**
- * Every module `biome.json` must deny, with the CLAUDE.md replacement each one
+ * Every module `biome.json` must deny, with the AGENTS.md replacement each one
  * loses to. Kept as the substring the diagnostic message has to mention so a
  * future edit can't degrade a reason into a bare "don't use this".
  */
@@ -58,7 +58,7 @@ const DENIED: ReadonlyArray<{ module: string; mustMention: string }> = [
 
 /**
  * `vitest` is the one denial with a sanctioned home: `web/` runs the Svelte
- * component/server suites on it (CLAUDE.md "Testing"), so `web/package.json`
+ * component/server suites on it (AGENTS.md "Testing"), so `web/package.json`
  * declares it and the `web/**` biome override permits importing it there.
  * Every other tree — backend, worker, packages, extensions, examples — is
  * bun:test only.

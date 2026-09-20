@@ -45,7 +45,10 @@ The first `up` builds the image locally (a couple of minutes); subsequent ups re
 
 For HTTPS, backups, external Postgres, and auto-updates, see the **[production guide](docs/production-guide.md)**.
 
-> **On macOS?** Podman needs one extra override file and the quick start's `chown` step does not apply — see [deployment.md § Running the prod stack under Podman on macOS](docs/deployment.md#running-the-prod-stack-under-podman-on-macos).
+> **Using rootless Podman?** The development wrapper is Linux-only. The
+> production stack runs on Linux or macOS with `compose.podman-prod.yml`, and
+> the Docker-only `chown` step does not apply. See
+> [Running the production stack under rootless Podman](docs/deployment.md#running-the-production-stack-under-rootless-podman).
 
 > **Pre-built image (future):** once a release is published to a container registry, you can skip the build by setting `EZCORP_IMAGE=ghcr.io/<owner>/<image>:<tag>` in `.env.prod`. The `image:` line in `compose.prod.yml` already honors that override.
 

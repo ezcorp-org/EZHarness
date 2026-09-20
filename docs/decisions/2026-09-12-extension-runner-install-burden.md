@@ -122,7 +122,7 @@ the engine for it.
   the new terms.
 - The prod image already satisfies the adapter's preconditions on **every OS**, because the
   container is Linux regardless of the host: `util-linux` (`setpriv`) is installed
-  (`Dockerfile:73`) and the app runs non-root as uid 1000 (`Dockerfile:275`, `USER bun`). The dev
+  (`Dockerfile`) and the app runs non-root as uid 1000 (`USER bun`). The dev
   compose stack runs as container-root and would be rejected by `probeSecurity`
   (`dedicatedUid === 0`) — dev would need `user: "1000:1000"` or the prod compose file.
 

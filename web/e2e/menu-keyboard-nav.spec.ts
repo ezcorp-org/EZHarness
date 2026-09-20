@@ -62,7 +62,7 @@ async function waitForPopover(page: any) {
 // ============================================================================
 // Phase 61-03 disposition: REPAIR (Bucket A #3, sigil correction)
 // INVESTIGATE finding: spec used `@` to open the agent/ext mention popover,
-// but per the canonical grammar in mention-logic.ts:174-190 (and CLAUDE.md
+// but per the canonical grammar in mention-logic.ts:174-190 (and AGENTS.md
 // "Mention grammar" table) `@` triggers the PATH popover (type="path",
 // files/dirs); `!` is the sigil for agent/ext/team/EZ. With `@`, api-mocks's
 // path branch (L1122) returns [] because the test seeds no files in the

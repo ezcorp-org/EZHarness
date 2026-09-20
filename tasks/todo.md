@@ -176,3 +176,19 @@ proofs were still pending.
 - Full pool `PARALLEL=3`: 25590 pass / 12 fail in 9 files — eight green when run alone (box load;
   baseline `main` failed 14 in 8 files the same evening, disjoint sets), one real: the
   evidence-covers manifest, fixed above.
+
+## PR #279 — agent instructions and complete Podman runbook
+
+- [x] Confirm the PR branch, base, review state, existing instruction-file references, and current Podman docs.
+- [x] Rename the root `CLAUDE.md` to the standard root `AGENTS.md` without changing its existing rules.
+- [x] Add concise, complete development and production Podman run instructions to `AGENTS.md` and link to detailed deployment guidance instead of duplicating it.
+- [x] Audit every Podman statement and command against the repository configuration, rendered Compose output, executable tests, and current primary Podman/Compose documentation.
+- [x] Close documentation and test gaps found in the full PR diff while keeping the change focused.
+- [x] Run focused tests, formatting/lint checks, and repository-level checks that cover all changed files.
+- [ ] Merge the current PR base if needed, commit, push to the PR branch, and watch all reported checks.
+
+Plan review: preserve the original Podman fix, use `AGENTS.md` because that is the supported agent-instruction filename, keep one canonical detailed runbook, and prove commands before describing them as supported.
+
+### Review
+
+Pending.

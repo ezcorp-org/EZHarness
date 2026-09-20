@@ -493,7 +493,7 @@ services:
       - /repo/.ezcorp:size=16m
       - /repo/worktrees:size=64m
       # The Agent tool's `isolation: "worktree"` writes HERE, not to
-      # ./worktrees — and CLAUDE.md mandates that isolation, so this is the
+      # ./worktrees — and AGENTS.md mandates that isolation, so this is the
       # tree that actually grows. Measured on the primary dev box: 101
       # worktrees / 26 GB, holding 288 .env* files and 76 live .ezcorp dirs
       # (PGlite DB + encryption keys) — a near-identical twin of what the

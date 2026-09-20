@@ -2,13 +2,14 @@ import { describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
 /**
- * Holds `compose.podman-mac.yml` — the macOS/rootless-Podman override for the
- * PROD stack — against the two artifacts it silently depends on.
+ * Holds `compose.podman-prod.yml` — the rootless-Podman override for the
+ * production stack — against the two artifacts it silently depends on.
  *
  * ## The bug this exists to prevent
  *
  * compose.prod.yml binds four host paths under ./.ezcorp into a container
- * that runs as `USER bun` (uid 1000, Dockerfile). Under rootless Podman the
+ * that runs as `USER bun` (uid/gid 1000, verified by the Dockerfile). Under
+ * rootless Podman the
  * invoking user maps to container uid 0, NOT to 1000 — so 1000 lands in the
  * subuid range with no access to the virtiofs-shared host tree, and PGlite
  * cannot open its data dir on first boot. The override fixes that with
@@ -28,22 +29,21 @@ import { join } from "node:path";
  *   - the uid/gid in the override is compared to the uid in compose.prod.yml's
  *     own documented chown, so the two statements of "who the runtime is"
  *     cannot diverge;
- *   - the image is required to actually declare a non-root USER, because an
- *     image that went back to root would make the whole override unnecessary
- *     rather than merely wrong;
+ *   - the image's final USER must equal that exact uid/gid, so changing the
+ *     runtime identity cannot leave the override silently stale;
  *   - every service the override names must exist in the base file, catching
  *     an override left behind by a rename;
  *   - the override is required to carry NO sequence field. Compose APPENDS
  *     sequences across -f files rather than replacing them (the `!override`
  *     footgun documented at length in compose.podman.yml), so a `volumes:` or
  *     `tmpfs:` added here later would duplicate the base file's entries and
- *     fail the config at parse time, on the one platform this file targets.
+ *     fail the config at parse time.
  */
 
 const ROOT = join(import.meta.dir, "..", "..");
 
 const BASE = "compose.prod.yml";
-const OVERRIDE = "compose.podman-mac.yml";
+const OVERRIDE = "compose.podman-prod.yml";
 
 interface ComposeFile {
   services?: Record<string, Record<string, unknown>>;
@@ -72,7 +72,7 @@ async function documentedRuntimeUid(): Promise<{ uid: string; gid: string }> {
   return { uid: uid!, gid: gid! };
 }
 
-describe("compose.podman-mac.yml", () => {
+describe("compose.podman-prod.yml", () => {
   test("maps the same uid/gid the base stack documents as the runtime owner", async () => {
     const { uid, gid } = await documentedRuntimeUid();
     const app = (await parse(OVERRIDE)).services?.app;
@@ -83,12 +83,17 @@ describe("compose.podman-mac.yml", () => {
     expect(mode).toBe(`keep-id:uid=${uid},gid=${gid}`);
   });
 
-  test("is only needed because the image declares a non-root USER", async () => {
+  test("maps the exact uid/gid verified for the production image user", async () => {
     const dockerfile = await Bun.file(join(ROOT, "Dockerfile")).text();
     const users = [...dockerfile.matchAll(/^USER\s+(\S+)/gm)].map((m) => m[1]);
     expect(users.length).toBeGreaterThan(0);
-    expect(users.at(-1)).not.toBe("root");
-    expect(users.at(-1)).not.toBe("0");
+    expect(users.at(-1)).toBe("bun");
+
+    const { uid, gid } = await documentedRuntimeUid();
+    expect(dockerfile.match(/^ARG EZCORP_RUNTIME_UID=(\d+)$/m)?.[1]).toBe(uid);
+    expect(dockerfile.match(/^ARG EZCORP_RUNTIME_GID=(\d+)$/m)?.[1]).toBe(gid);
+    expect(dockerfile).toContain('test "$(id -u bun)" = "$EZCORP_RUNTIME_UID"');
+    expect(dockerfile).toContain('test "$(id -g bun)" = "$EZCORP_RUNTIME_GID"');
   });
 
   test("overrides only services the base stack actually defines", async () => {
@@ -99,6 +104,45 @@ describe("compose.podman-mac.yml", () => {
 
     for (const name of Object.keys(override.services ?? {})) {
       expect(baseNames).toContain(name);
+    }
+  });
+
+  test("documents every writable host bind and leaves sidecars independent", async () => {
+    const base = await parse(BASE);
+    const appVolumes = base.services?.app?.volumes;
+    expect(Array.isArray(appVolumes)).toBe(true);
+    expect(
+      (appVolumes as string[])
+        .filter((volume) => volume.startsWith("./.ezcorp/"))
+        .map((volume) => volume.split(":", 1)[0])
+        .sort(),
+    ).toEqual([
+      "./.ezcorp/data",
+      "./.ezcorp/extension-data",
+      "./.ezcorp/extensions",
+      "./.ezcorp/projects",
+    ]);
+
+    for (const [name, service] of Object.entries(base.services ?? {})) {
+      if (name === "app" || !Array.isArray(service.volumes)) continue;
+      for (const volume of service.volumes as string[]) {
+        if (volume.startsWith("./") || volume.startsWith("/")) {
+          expect(volume.endsWith(":ro"), `${name} has writable host bind ${volume}`).toBe(
+            true,
+          );
+        }
+      }
+    }
+  });
+
+  test("keeps agent and operator docs on the production override filename", async () => {
+    expect(await Bun.file(join(ROOT, "AGENTS.md")).exists()).toBe(true);
+    expect(await Bun.file(join(ROOT, "CLAUDE.md")).exists()).toBe(false);
+
+    for (const relPath of ["AGENTS.md", "README.md", "docs/deployment.md"]) {
+      const text = await Bun.file(join(ROOT, relPath)).text();
+      expect(text, relPath).toContain(OVERRIDE);
+      expect(text, relPath).not.toContain("compose.podman-mac.yml");
     }
   });
 

@@ -233,84 +233,121 @@ sudo systemctl daemon-reload
   without relying on `unqualified-search-registries` in the host's
   `containers/registries.conf`.
 
-## Running the prod stack under Podman on macOS
+## Running the production stack under rootless Podman
 
-The section above is about the **dev** stack, which is `network_mode: host`
-and therefore Linux-only. On macOS, run the **prod** stack instead — and
-layer `compose.podman-mac.yml` on top of it, not `compose.podman.yml` (that
-one overrides the dev stack, for an unrelated `tmpfs:` reason).
+The development stack above is Linux-only because its `app` service uses
+`network_mode: host`. The production stack runs under rootless Podman on
+Linux or macOS. Layer `compose.podman-prod.yml` on `compose.prod.yml`.
+`compose.podman.yml` is only for the development stack's `tmpfs` masks.
 
-`podman machine` is a Linux VM, so everything here is rootless Podman inside
-it, reached over the machine's Docker-API socket. Use the real Docker Compose
-CLI against that socket, for the same reason the Linux section gives:
+First prepare the environment and all four host bind sources. Fill the four
+required values in `.env.prod` as described in the README.
 
 ```sh
-brew install podman docker-compose
-podman machine init --cpus 4 --memory 8192 --disk-size 60
-podman machine start
-
 cp .env.prod.example .env.prod && chmod 600 .env.prod
-# fill the four required values — see the README quick start
+mkdir -p .ezcorp/data .ezcorp/extensions .ezcorp/extension-data .ezcorp/projects
+```
 
-export DOCKER_HOST="unix://$(podman machine inspect \
-  --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
-docker-compose -f compose.prod.yml -f compose.podman-mac.yml \
+### Linux
+
+Start the rootless API socket and point Docker Compose at it:
+
+```sh
+systemctl --user enable --now podman.socket
+export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
+docker compose -f compose.prod.yml -f compose.podman-prod.yml \
   --env-file .env.prod up -d --build
 ```
 
-Then open <http://localhost:4000>.
+### macOS
 
-### Skip the quick start's `chown` — it does not work here
-
-The README says to `sudo chown -R 1000:1000 .ezcorp/data` before the first
-`up`, because Docker auto-creates a missing bind source as root and the
-uid-1000 `bun` runtime then cannot write it. Under rootless Podman that
-command is not merely unnecessary, it is counterproductive: it makes the tree
-unreadable to your own login user **without changing what the container
-sees**, because the container's uid 1000 is not the host's uid 1000. Just
-`mkdir -p` the four bind sources and leave them yours.
-
-### What `compose.podman-mac.yml` does
-
-One line: `userns_mode: keep-id:uid=1000,gid=1000` on `app`.
-
-This is the inverse of the ownership bullet in *Other rootless differences
-worth knowing* above, and the difference is which user the container runs as.
-That bullet is about the dev stack, which runs as root: container uid 0 maps
-to the invoking user, files land owned by you, and no `keep-id` is needed.
-The prod image runs as `USER bun` (uid 1000), which is **not** the invoking
-user — it maps into the subuid range, which has no access to the
-virtiofs-shared host tree. Without the override the first boot fails with
-PGlite unable to open `/app/data`.
-
-`keep-id:uid=1000,gid=1000` maps the container's uid 1000 back to the host
-user, which is what the README's `chown` is trying to achieve on Docker.
-
-One thing to check if you build your own VM rather than using `podman
-machine`: the setuid `preview-spawn` helper drops to a per-conversation
-preview uid in 90000-99000, and those must be mappable inside the user
-namespace. `podman machine` grants the VM user 1,000,000 subuids, which
-covers the pool comfortably. The distro-typical 65,536 does not:
+Podman uses a Linux virtual machine on macOS. Install Podman and the Docker
+Compose provider. Create the machine once with enough memory for the 4 GiB
+Ollama limit, then start it:
 
 ```sh
-podman machine ssh cat /etc/subuid     # core:100000:1000000
+brew install podman docker-compose
+podman machine init --cpus 4 --memory 8192 --disk-size 60  # first use only
+podman machine start
 ```
+
+For an existing machine, skip `init` and inspect its allocation with
+`podman machine inspect`. Set the Docker-compatible socket for each shell,
+then start the stack:
+
+```sh
+export DOCKER_HOST="unix://$(podman machine inspect \
+  --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
+docker-compose -f compose.prod.yml -f compose.podman-prod.yml \
+  --env-file .env.prod up -d --build
+```
+
+Open <http://localhost:4000>. Verify the Compose services and application
+readiness instead of treating a successful `up` as proof:
+
+```sh
+docker-compose -f compose.prod.yml -f compose.podman-prod.yml \
+  --env-file .env.prod ps
+curl --fail --silent --show-error http://localhost:4000/api/ready
+```
+
+Use `docker compose` instead of `docker-compose` in the verification command
+on Linux.
+
+### Why the production override is required
+
+The production image runs as uid/gid 1000. In rootless Podman's default user
+namespace, that identity maps to subordinate IDs, not to the account that
+owns the host bind directories. The app therefore cannot write `/app/data`
+or the other host binds.
+
+`compose.podman-prod.yml` sets
+`userns_mode: keep-id:uid=1000,gid=1000` on `app`. Podman's `keep-id` mode
+maps the account that invoked Podman to uid/gid 1000 in the container. The
+sidecars need no override because they do not write to host bind mounts.
+
+The README's `sudo chown -R 1000:1000 .ezcorp/data` step is for a rootful
+Docker daemon. Skip it under rootless Podman. It does not create the required
+rootless UID mapping and, on a host where your account is not uid 1000, it
+also transfers the directory away from your account.
+
+### Check the subordinate ID range
+
+The setuid `preview-spawn` helper uses per-conversation uid/gid values from
+90000 through 99000. Rootless Podman must be able to map that range. Inspect
+both files; the total ranges for the Podman user in each file must cover at
+least 99,000 IDs. A single common 65,536-ID range is insufficient.
+
+```sh
+# Linux
+grep "^$(id -un):" /etc/subuid /etc/subgid
+
+# macOS Podman machine
+podman machine ssh 'grep "^$(id -un):" /etc/subuid /etc/subgid'
+```
+
+The fields are `user:first-id:count`. Do not infer the count from the first
+ID. Podman machine configurations can differ, so the output from the machine
+you run is authoritative.
 
 ### Other macOS differences
 
-- **The VM does not start at login.** `podman machine start` after every
-  host reboot, before any `docker-compose` call — otherwise the socket path
-  resolves to nothing and compose reports a connection error that does not
-  mention the VM.
-- **`DOCKER_HOST` is per-shell.** Without it compose talks to a Docker
-  daemon if one is installed, and to nothing if one is not. Export it in
-  your shell profile, or prefix every invocation.
-- **Resource caps are enforced by the VM, not your Mac.** The `mem_limit` /
-  `cpus` caps on the sidecars are bounded by whatever `podman machine init`
-  was given — `ollama` alone declares `mem_limit: 4g`, so a default 2 GB
-  machine will thrash. The 8 GB above leaves room for the app beside it.
-- **The cgroup-delegation step from the Linux section does not apply.** The
-  machine's VM image delegates the controllers already.
+- **Start the VM after a host reboot.** Run `podman machine start` before
+  Compose. A stopped machine leaves the API socket unavailable.
+- **`DOCKER_HOST` is per-shell.** Without it, Docker Compose can select a
+  Docker daemon or no daemon. Export it in your shell profile, or prefix each
+  invocation.
+- **The VM bounds all resource limits.** The sidecar `mem_limit` and `cpus`
+  values cannot exceed the resources assigned to the machine. `ollama` alone
+  has a 4 GiB limit; the 8 GiB setup above leaves memory for the app and other
+  services.
+- **Do not apply the Linux host's cgroup-delegation procedure to macOS.**
+  Check limits inside the Podman machine if a container reports a resource
+  limit error.
+
+Primary references: [Podman `keep-id`](https://docs.podman.io/en/latest/markdown/podman-run.1.html#userns-mode),
+[Podman machine](https://docs.podman.io/en/latest/markdown/podman-machine.1.html),
+and [the Docker-compatible socket](https://podman-desktop.io/docs/migrating-from-docker/using-the-docker_host-environment-variable).
 
 ## MCP isolation — kernel + capabilities
 

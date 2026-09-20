@@ -38,7 +38,7 @@ The reusable convention every extension's host-side code follows.
   newProposals,autoSpawned,degraded}`, only when ≥1 enabled link) via `runPoll`/`pollLink`
   returning a `LinkPollResult`; per-link + per-trigger DEBUG; enriched degrade warns
   (`projectId`+`authMode`, never the token); `wake loop armed` + `poll-now` logs.
-- Docs: `docs/extensions/logging.md` + a CLAUDE.md "Extension logging" section.
+- Docs: `docs/extensions/logging.md` + an AGENTS.md "Extension logging" section.
 
 ### B. github-projects per-board default model
 Fixes the auto-run dying with **"No credentials available for anthropic"** — the spawn
