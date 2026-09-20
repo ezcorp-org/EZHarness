@@ -25,17 +25,18 @@ async function mockSandboxApi(page: Page) {
 		if (route.request().method() !== "POST") return route.fallback();
 		return route.fulfill({ status: 201, json: { project: { id: "sandbox-project" }, sandbox: current } });
 	});
-	await page.route("**/api/projects/sandbox-project/sandbox", async (route: Route) => {
+	await page.route("**/api/projects/*/sandbox", async (route: Route) => {
+		const projectId = new URL(route.request().url()).pathname.split("/")[3];
+		if (projectId !== "sandbox-project") {
+			return route.fulfill({ status: 409, json: { code: "SANDBOX_NOT_CONFIGURED", error: "Project has no sandbox binding" } });
+		}
 		if (route.request().method() === "GET") return route.fulfill({ json: current });
 		const { action } = route.request().postDataJSON() as { action: "start" | "stop" | "destroy" };
-		return route.fulfill({ json: { operation: { id: `op-${action}`, action, state: "admitted" } } });
-	});
-	await page.route("**/api/local-sandbox/operations/*/execute", async (route: Route) => {
-		const action = new URL(route.request().url()).pathname.match(/op-(start|stop|destroy)/)?.[1];
 		if (action === "destroy") return route.fulfill({ status: 409, json: { error: "Provider operation failed" } });
 		current = { ...current, state: action === "start" ? "running" : "stopped" };
 		return route.fulfill({ json: current });
 	});
+	await page.route("**/api/local-sandbox/operations/*/execute", (route: Route) => route.abort("blockedbyclient"));
 }
 
 test.describe("project sandbox panel", () => {
@@ -80,5 +81,16 @@ test.describe("project sandbox panel", () => {
 		const pageWidth = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, viewportWidth: window.innerWidth }));
 		expect(pageWidth.scrollWidth).toBeLessThanOrEqual(pageWidth.viewportWidth);
 		await captureEvidence(page, testInfo, "project-sandbox-mobile-error", { fullPage: true });
+	});
+
+	test("keeps ordinary path-empty project settings and sandbox creation available", async ({ page, mockApi }) => {
+		const project = makeProject({ id: "global-project", name: "Global project", path: "" });
+		await mockApi({ projects: [project] });
+		await mockSandboxApi(page);
+		await page.goto(`/project/${project.id}/settings`);
+		await expect(page.getByPlaceholder("/app/web/.ezcorp/projects/my-project")).toBeVisible();
+		await expect(page.getByText("Feature Index", { exact: true })).toBeVisible();
+		await expect(page.getByTestId("project-settings-integrations")).toBeVisible();
+		await expect(page.getByTestId("project-sandbox-panel").getByRole("button", { name: /Local Podman/i })).toBeVisible();
 	});
 });

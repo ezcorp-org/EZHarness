@@ -7,6 +7,7 @@ const controller = {
 	getProjectSandboxStatus: vi.fn(),
 	requestSandboxAction: vi.fn(),
 	executeAdmittedLocalSandboxOperation: vi.fn(),
+	executeAdmittedLocalSandboxOperationRaw: vi.fn(),
 };
 
 vi.mock("$server/runtime/sandbox/controller", () => ({
@@ -38,10 +39,11 @@ function event(path: string, options: { body?: unknown; locals?: Record<string, 
 beforeEach(() => {
 	for (const fn of Object.values(controller)) fn.mockReset();
 	controller.listLocalSandboxProviders.mockResolvedValue([provider]);
-	controller.createSandboxProject.mockResolvedValue(sandboxStatus);
+	controller.createSandboxProject.mockResolvedValue({ ...sandboxStatus, operation: { id: "create-operation", action: "create", state: "admitted" } });
 	controller.getProjectSandboxStatus.mockResolvedValue(sandboxStatus);
 	controller.requestSandboxAction.mockResolvedValue({ id: "operation", action: "start", state: "admitted", provider, input: { resourceId: "resource" } });
 	controller.executeAdmittedLocalSandboxOperation.mockResolvedValue(sandboxStatus);
+	controller.executeAdmittedLocalSandboxOperationRaw.mockResolvedValue({ id: "operation", state: "succeeded", receipt: { outcome: "succeeded" } });
 });
 
 describe("local sandbox API", () => {
@@ -51,26 +53,50 @@ describe("local sandbox API", () => {
 		expect(controller.listLocalSandboxProviders).toHaveBeenCalledWith("user-1");
 	});
 
-	test("creates a dedicated empty sandbox with host-owned limits", async () => {
+	test("creates and executes a dedicated empty sandbox with host-owned limits", async () => {
 		const response = await create(event("/api/sandboxes", { body: { name: "Sandbox", providerInstallationId: provider.installationId, providerId: "podman" } }) as never);
 		expect(response.status).toBe(201);
 		expect(controller.createSandboxProject).toHaveBeenCalledWith("user-1", expect.objectContaining({ name: "Sandbox", idempotencyKey, config: {}, limits: { memoryBytes: 512 * 1024 ** 2, milliCpu: 1000, pids: 64, diskBytes: 1024 ** 3 } }));
+		expect(controller.executeAdmittedLocalSandboxOperation).toHaveBeenCalledWith("user-1", "create-operation");
+		expect(controller.getProjectSandboxStatus).toHaveBeenCalledWith("user-1", "sandbox");
 		expect(await response.json()).toMatchObject({ project: { id: "sandbox" } });
 	});
 
-	test("admits a bounded lifecycle action then executes only the returned operation id", async () => {
-		const admitted = await action(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" }, body: { action: "start" } }) as never);
-		expect(admitted.status).toBe(200);
+	test("does not execute a creation that was not durably admitted", async () => {
+		controller.createSandboxProject.mockResolvedValueOnce({ ...sandboxStatus, operation: null });
+		const response = await create(event("/api/sandboxes", { body: { name: "Sandbox", providerInstallationId: provider.installationId, providerId: "podman" } }) as never);
+		expect(response.status).toBe(409);
+		expect(controller.executeAdmittedLocalSandboxOperation).not.toHaveBeenCalled();
+	});
+
+	test("executes a bounded lifecycle action through the reviewed controller path", async () => {
+		const result = await action(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" }, body: { action: "start" } }) as never);
+		expect(result.status).toBe(200);
 		expect(controller.requestSandboxAction).toHaveBeenCalledWith("user-1", "sandbox", { action: "start", idempotencyKey });
-		const ran = await execute(event("/api/local-sandbox/operations/operation/execute", { params: { id: "operation" } }) as never);
-		expect(ran.status).toBe(200);
 		expect(controller.executeAdmittedLocalSandboxOperation).toHaveBeenCalledWith("user-1", "operation");
+		expect(controller.getProjectSandboxStatus).toHaveBeenCalledWith("user-1", "sandbox");
 	});
 
 	test("requires an idempotency key before a lifecycle write reaches the controller", async () => {
 		const response = await action(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" }, body: { action: "start" }, idempotent: false }) as never);
 		expect(response.status).toBe(400);
 		expect(controller.requestSandboxAction).not.toHaveBeenCalled();
+	});
+
+	test("denies browser and user API-key requests to the raw host callback", async () => {
+		const response = await execute(event("/api/local-sandbox/operations/operation/execute", { params: { id: "operation" } }) as never);
+		expect(response.status).toBe(403);
+		expect(controller.executeAdmittedLocalSandboxOperationRaw).not.toHaveBeenCalled();
+	});
+
+	test("accepts raw dispatch only from the verified internal extension broker", async () => {
+		const response = await execute(event("/api/local-sandbox/operations/operation/execute", {
+			params: { id: "operation" },
+			locals: { ...local, authMethod: "internal" },
+		}) as never);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toMatchObject({ id: "operation", state: "succeeded" });
+		expect(controller.executeAdmittedLocalSandboxOperationRaw).toHaveBeenCalledWith("user-1", "operation", expect.any(AbortSignal));
 	});
 
 	test("rejects arbitrary create fields and lifecycle arguments", async () => {

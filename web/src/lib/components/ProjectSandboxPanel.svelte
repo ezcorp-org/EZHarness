@@ -38,11 +38,8 @@
 		try {
 			const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/sandbox`, { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ action }) });
 			if (!response.ok) throw new Error((await response.json().catch(() => ({ error: "Sandbox action failed" }))).error);
-			const admitted = await response.json() as { operation?: { id?: string } };
-			if (!admitted.operation?.id) throw new Error("Sandbox action was not admitted");
-			const execution = await fetch(`/api/local-sandbox/operations/${encodeURIComponent(admitted.operation.id)}/execute`, { method: "POST" });
-			if (!execution.ok) throw new Error((await execution.json().catch(() => ({ error: "Sandbox action failed" }))).error);
-			disposeOpen = false; await load();
+			status = await response.json() as SandboxStatus;
+			disposeOpen = false;
 		} catch (cause) { error = cause instanceof Error ? cause.message : "Sandbox action failed"; } finally { busy = false; }
 	}
 </script>

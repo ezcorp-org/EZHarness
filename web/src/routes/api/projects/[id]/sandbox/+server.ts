@@ -29,11 +29,13 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 	const idempotencyKey = request.headers.get("Idempotency-Key");
 	if (!idempotencyKey || !z.string().uuid().safeParse(idempotencyKey).success) return errorJson(400, "A valid Idempotency-Key is required");
 	try {
-		const operation = await getSandboxController().requestSandboxAction(user.id, params.id, {
+		const controller = getSandboxController();
+		const operation = await controller.requestSandboxAction(user.id, params.id, {
 			action: parsed.data.action,
 			idempotencyKey,
 		});
-		return json({ operation });
+		await controller.executeAdmittedLocalSandboxOperation(user.id, operation.id);
+		return json(statusDto(await controller.getProjectSandboxStatus(user.id, params.id)));
 	} catch (error) {
 		return sandboxError(error);
 	}

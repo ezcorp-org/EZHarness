@@ -6,9 +6,14 @@ import { join } from "node:path";
 // ── Stubs identical in shape to mention-search-file-api.test.ts ──
 
 let nextProject: { id: string; path: string } | null = null;
+let sandboxed = false;
 
 mock.module("$server/db/queries/projects", () => ({
 	getProject: async (_id: string) => nextProject,
+}));
+
+mock.module("$server/runtime/workspace/target", () => ({
+	projectRequiresSandbox: async () => sandboxed,
 }));
 
 mock.module("$server/auth/middleware", () => ({
@@ -123,6 +128,7 @@ afterAll(async () => {
 
 beforeEach(() => {
 	nextCommands = [];
+	sandboxed = false;
 	// Default OFF so the existing registry-only assertions are unaffected by
 	// the built-in `/goal` injection; goal-specific tests opt in explicitly.
 	goalEnabled = false;
@@ -150,6 +156,13 @@ async function call(url: string): Promise<Response> {
 }
 
 describe("mentions/search — type=cmd", () => {
+	test("denies command discovery for a persisted sandbox binding before local registry access", async () => {
+		sandboxed = true;
+		nextCommands = [cmd("host-command")];
+		const res = await call("/api/mentions/search?type=cmd&projectId=proj-1");
+		expect(await res.json()).toEqual([]);
+	});
+
 	test("empty query returns all (capped)", async () => {
 		nextCommands = [
 			cmd("review", "Review code"),

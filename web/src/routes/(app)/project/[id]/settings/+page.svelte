@@ -64,8 +64,10 @@
 	}
 
 	$effect(() => {
-		if (projectId && project?.path !== "") {
+		if (projectId) {
 			loadInstructions();
+		}
+		if (projectId && workspaceKind === "local") {
 			loadGithubProjectsLink();
 		}
 	});
@@ -85,6 +87,45 @@
 
 	let projectId = $derived(page.params.id);
 	let project = $derived(store.projects.find((p) => p.id === projectId));
+	type WorkspaceKind = "loading" | "local" | "sandbox" | "unavailable";
+	let workspaceKind = $state<WorkspaceKind>("loading");
+	let workspaceError = $state("");
+	let workspaceRequest = 0;
+	let sandbox = $derived(workspaceKind === "sandbox");
+	let workspaceResolved = $derived(workspaceKind === "local" || workspaceKind === "sandbox");
+
+	async function resolveWorkspaceKind(id: string, path: string) {
+		const request = ++workspaceRequest;
+		workspaceError = "";
+		if (path !== "") {
+			workspaceKind = "local";
+			return;
+		}
+		workspaceKind = "loading";
+		try {
+			const response = await fetch(`/api/projects/${encodeURIComponent(id)}/sandbox`);
+			if (request !== workspaceRequest) return;
+			if (response.ok) {
+				workspaceKind = "sandbox";
+				return;
+			}
+			const body = await response.json().catch(() => ({})) as { code?: string; error?: string };
+			if (body.code === "SANDBOX_NOT_CONFIGURED") {
+				workspaceKind = "local";
+				return;
+			}
+			workspaceKind = "unavailable";
+			workspaceError = body.error ?? "Could not verify this workspace.";
+		} catch {
+			if (request !== workspaceRequest) return;
+			workspaceKind = "unavailable";
+			workspaceError = "Could not verify this workspace.";
+		}
+	}
+
+	$effect(() => {
+		if (projectId && project) void resolveWorkspaceKind(projectId, project.path);
+	});
 
 	async function handleUpdate(data: { name: string; path: string; icon?: string | null; variables: Record<string, unknown> }) {
 		if (!projectId) return;
@@ -111,7 +152,7 @@
 					{/if}
 					<h2 class="text-2xl font-bold text-[var(--color-text-primary)]">{project.name}</h2>
 				</div>
-				{#if project.path !== ""}
+				{#if workspaceResolved && !sandbox}
 					<button
 						onclick={handleDelete}
 						class="rounded-md px-3 py-1.5 text-sm text-red-400 hover:bg-[var(--color-surface-tertiary)] hover:text-red-300"
@@ -120,13 +161,17 @@
 					</button>
 				{/if}
 			</div>
-			{#if project.path !== ""}
+			{#if workspaceResolved && !sandbox}
 				<ProjectForm {project} onsubmit={handleUpdate} submitting={projectUpdateFlash.saving} />
 				<div class="mt-2"><SaveIndicator saved={projectUpdateFlash.saved} error={projectUpdateFlash.error} /></div>
 			{/if}
 		</div>
-		<ProjectSandboxPanel projectId={project.id} sandbox={project.path === ""} />
-		{#if project.path !== ""}
+		{#if workspaceKind === "unavailable"}
+			<p class="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300" role="alert">{workspaceError}</p>
+		{:else if workspaceResolved}
+			<ProjectSandboxPanel projectId={project.id} {sandbox} />
+		{/if}
+		{#if workspaceResolved && !sandbox}
 			<!-- Feature Index -->
 			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
 				<p class="mb-3 text-xs text-[var(--color-text-secondary)]">

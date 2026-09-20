@@ -22,12 +22,16 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 	const idempotencyKey = request.headers.get("Idempotency-Key");
 	if (!idempotencyKey || !z.string().uuid().safeParse(idempotencyKey).success) return errorJson(400, "A valid Idempotency-Key is required");
 	try {
-		const status = await getSandboxController().createSandboxProject(user.id, {
+		const controller = getSandboxController();
+		const admitted = await controller.createSandboxProject(user.id, {
 			...parsed.data,
 			idempotencyKey,
 			config: {},
 			limits: LOCAL_MVP_LIMITS,
 		});
+		if (!admitted.operation?.id) return errorJson(409, "Sandbox creation was not admitted");
+		await controller.executeAdmittedLocalSandboxOperation(user.id, admitted.operation.id);
+		const status = await controller.getProjectSandboxStatus(user.id, admitted.projectId);
 		return json({ project: { id: status.projectId }, sandbox: statusDto(status) }, { status: 201 });
 	} catch (error) {
 		return sandboxError(error);
