@@ -6,15 +6,17 @@ services:
     environment:
       EZCORP_EXTENSION_RUNNER_SOCKET: /run/ez-extension-runner/runner.sock
       EZCORP_EXTENSION_RUNNER_TOKEN_FILE: /run/secrets/extension-runner-token
+    group_add:
+      - "${EZ_RUNNER_GROUP:?Set the runner socket group visible inside the app container. See deploy/extension-runner/README.md}"
     volumes:
       - type: bind
-        source: ${EZ_RUNNER_SOCKET_DIR:-/run/ez-extension-runner}
+        source: ${EZ_RUNNER_SOCKET_DIR:?Set the provisioned runner socket directory. See deploy/extension-runner/README.md}
         target: /run/ez-extension-runner
         read_only: true
         bind:
           create_host_path: false
       - type: bind
-        source: ${EZ_RUNNER_TOKEN_FILE:-/etc/ezharness/extension-runner-token}
+        source: ${EZ_RUNNER_TOKEN_FILE:?Set the provisioned runner credential file. See deploy/extension-runner/README.md}
         target: /run/secrets/extension-runner-token
         read_only: true
         bind:

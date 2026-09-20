@@ -14,14 +14,20 @@ async function run(env: Record<string, string> = {}, command = ["sh", "-c", "ech
   return { code, stdout, stderr };
 }
 
+function expectStartupRejected(result: Awaited<ReturnType<typeof run>>) {
+  expect(result.code).toBe(1);
+  expect(result.stdout).not.toContain("APP_STARTED");
+}
+
 describe("default Compose runner connection", () => {
   test("both stacks inherit the same isolated connection and preserve app commands", async () => {
     for (const path of ["docker-compose.yml", "compose.prod.yml"]) {
       const config = Bun.YAML.parse(await Bun.file(join(root, path)).text()) as { services: { app: { extends: { file: string; service: string } } } };
       expect(config.services.app.extends).toEqual({ file: `${"$"}{EZCORP_RUNNER_COMPOSE_FILE:-deploy/extension-runner/compose.runner.yml}`, service: "app" });
     }
-    const connection = Bun.YAML.parse(await Bun.file(join(root, "deploy/extension-runner/compose.runner.yml")).text()) as { services: { app: { environment: Record<string, string>; volumes: { target: string; read_only: boolean; bind: { create_host_path: boolean } }[] } } };
+    const connection = Bun.YAML.parse(await Bun.file(join(root, "deploy/extension-runner/compose.runner.yml")).text()) as { services: { app: { environment: Record<string, string>; group_add: string[]; volumes: { target: string; read_only: boolean; bind: { create_host_path: boolean } }[] } } };
     const app = connection.services.app;
+    expect(app.group_add).toEqual([`${"$"}{EZ_RUNNER_GROUP:?Set the runner socket group visible inside the app container. See deploy/extension-runner/README.md}`]);
     expect(app.volumes.map((mount) => mount.target)).toEqual(["/run/ez-extension-runner", app.environment.EZCORP_EXTENSION_RUNNER_TOKEN_FILE!]);
     expect(app.environment.EZCORP_EXTENSION_RUNNER_SOCKET).toBe("/run/ez-extension-runner/runner.sock");
     expect(app.volumes.every((mount) => mount.read_only && !mount.bind.create_host_path)).toBe(true);
@@ -32,8 +38,7 @@ describe("default Compose runner connection", () => {
 
   test("missing settings stop startup and name the setup guide", async () => {
     const result = await run();
-    expect(result.code).toBe(1);
-    expect(result.stdout).not.toContain("APP_STARTED");
+    expectStartupRejected(result);
     expect(result.stderr).toContain("deploy/extension-runner/README.md");
   });
 
@@ -60,14 +65,12 @@ describe("default Compose runner connection", () => {
       for (const response of [{ status: 401, state: "unknown" }, { status: 200, state: "invalid" }]) {
         ({ status, state } = response);
         const rejected = await run(env);
-        expect(rejected.code).toBe(1);
-        expect(rejected.stdout).not.toContain("APP_STARTED");
+        expectStartupRejected(rejected);
         expect(rejected.stderr).not.toContain(token);
       }
       server.stop(true);
       const stopped = await run(env);
-      expect(stopped.code).toBe(1);
-      expect(stopped.stdout).not.toContain("APP_STARTED");
+      expectStartupRejected(stopped);
     } finally {
       server.stop(true);
       await rm(directory, { recursive: true, force: true });
@@ -76,8 +79,7 @@ describe("default Compose runner connection", () => {
 
   test("trusted-local requires its explicit mode and acknowledgement", async () => {
     const rejected = await run({ EZCORP_EXTENSION_RUNNER: "trusted-local" });
-    expect(rejected.code).toBe(1);
-    expect(rejected.stdout).not.toContain("APP_STARTED");
+    expectStartupRejected(rejected);
     const accepted = await run({ EZCORP_EXTENSION_RUNNER: "trusted-local", EZCORP_EXTENSIONS_UNSANDBOXED_ACK: UNSANDBOXED_ACK_SENTENCE });
     expect(accepted.code).toBe(17);
     expect(accepted.stdout).toContain("APP_STARTED");
@@ -90,8 +92,7 @@ describe("default Compose runner connection", () => {
     const server = Bun.serve({ unix: socket, fetch: () => reply.promise });
     try {
       const result = await run({ EZCORP_EXTENSION_RUNNER_SOCKET: socket, EZCORP_EXTENSION_RUNNER_TOKEN: crypto.randomUUID() });
-      expect(result.code).toBe(1);
-      expect(result.stdout).not.toContain("APP_STARTED");
+      expectStartupRejected(result);
       expect(result.stderr).toContain("Extension runner is not ready");
     } finally {
       reply.resolve(new Response());

@@ -6,7 +6,7 @@
 #        mkdir -p .ezcorp/data && sudo chown -R 1000:1000 .ezcorp/data
 #      Docker auto-creates a missing bind-mount source as root; the
 #      unprivileged uid-1000 `bun` runtime can't write it otherwise.
-#   3. docker compose -f compose.prod.yml up -d
+#   3. docker compose --env-file .env.prod -f compose.prod.yml up -d
 #   4. Open http://localhost:4000 and create the admin account.
 #
 # See docs/production-guide.md for backups, migration safety, auto-updates,
