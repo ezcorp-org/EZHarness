@@ -222,7 +222,16 @@ database, and freshly started pool, supervisor, and web processes each time.
 
 All three at this branch's tip, against a web build made there.
 
-**Where the receipts sit.** Every receipt under the evidence directory was
+**Where the receipts sit.** All thirty-eight were produced at `f1db11917`
+against a clean tree by one sweep, `repro/final-sweep-v2.sh`, run from the W09
+worktree. The only receipt naming another commit is
+`shared-store-outage-observation.json`, a historical incident record stamped
+with the commit it was observed at, which is what it is for. Two exit non-zero
+and both are meant to: `coverage-full` on the browser leg described above, and
+`negative-control`, which is the proof that the harness records its own
+failures. No receipt was produced against a dirty tree.
+
+**Superseded:** Every receipt under the evidence directory was
 produced at `8b27a699b` against a clean tree, by `repro/final-verify.sh` and
 `repro/refresh-tail.sh`, and carries its own `producingCommit` and an empty
 `dirtyOrUntracked`. Two are deliberately non-zero: `coverage-full.json`, whose
@@ -547,55 +556,25 @@ merged with `bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w09/lcov-
 the two BASE_REF gates had been reading a supervisor leg that no longer matched
 the source.
 
-**What the full `bun run test:coverage` pool says, in full, after both merges.**
-Running it before the merge found one real defect on this branch, now fixed:
-`src/__tests__/factory-service-routes.test.ts` still asserted the
-pre-discrepancy-10 behaviour for version publish, so my own api-registry change
-was failing it, and none of my focused suites included that file. At the branch
-tip the pool exits 1 with five failing files, and none of them is this branch's
-today. One SIXTH file was, briefly, and is worth recording: adding
-`tests/postgres/factory-tenant-projects.test.ts` without naming it in the
-factory-storage lane failed `scripts/factory-postgres-suite-registration.test.ts`,
-a gate that exists because a suite no workflow runs is a suite that passes
-forever. It is registered in `.github/workflows/db-postgres.yml` and the gate is
-green. The five that remain are not this branch's: measured against the branch
-point rather than a moving integration ref, `git diff --name-only c22a1f846 HEAD`
-lists none of these paths, and this branch changes nothing under `packages/` or
-`docs/extensions/`:
+**What the full `bun run test:coverage` pool says at the final head.** **No test
+file fails.** The currency merge at `f30da62fa` carried the release-authority
+allow-list fix for W02b's required `manifestName`, which removed the three
+failures this branch had reported and attributed to merge currency; nothing
+replaced them. The pool still exits 1, for one reason that is not a test:
 
-| Failing file | What it reports |
-| --- | --- |
-| `packages/@ezcorp/extension-contract/src/schema.test.ts` | the wire schema is missing seven `devices` properties the authoritative types declare (W01's device-grant surface) |
-| `packages/@ezcorp/extension-runner/tests/trusted-local.test.ts` | `image not known` — a container image this host does not have |
-| `docs/extensions/examples/auto-note/e2e-server-pipeline.test.ts` | `isSelfRepo` does not resolve a symlink alias inside the guest workspace |
-| `docs/extensions/examples/docs-updater/subprocess.integration.test.ts` | the same symlink case, through a real subprocess |
-| `src/__tests__/substack-pilot-installer.test.ts` | the credential broker and a real MCP stdio spawn |
+```
+::error::browser route coverage is required: set BROWSER_COVERAGE_RAW and BROWSER_COVERAGE_LCOV
+::error::browser coverage leg produced no lcov output (infrastructure failure)
+```
 
-**After the W01b merge the failing set changed, and the cause is merge currency
-rather than this branch.** At `2fe66c04f` the pool fails
-`src/factory/validator-materials.test.ts`,
-`src/factory/release-authority.integration.test.ts`, and
-`src/__tests__/factory-run-lifecycle.test.ts`. All three raise
-`factory_release_authority_invalid` from one allow-list in
-`src/factory/release-authority.ts`, which does not yet admit W02b's now-required
-`RunnerReference.manifestName`. This branch does not touch any of those files,
-and the same suite passes on `integ/w00`.
+That is the instrumented Playwright leg, which a branch does not supply. It is
+why the coverage evidence here is the per-leg merge `common.md` prescribes —
+fourteen Bun legs plus the sanctioned `scripts/web-vitest-coverage.sh` leg,
+merged with `scripts/merge-lcov.ts` — rather than that pool's exit code. Both
+`BASE_REF=integ/w00` gates pass over that merge.
 
-The fix is upstream and postdates the merge I was told to make. The coordinator
-named `dfe3091f8`; the branch had already advanced to `f45a94148`, which is what
-is merged here; and `integ/w00` has since advanced again to `1784ab76c`, whose
-`559db1d3e` is titled "accept and validate manifestName in the trust package
-lock, register the host-launch suite" — precisely the allow-list fix plus the
-same host-launch suite registration this branch made independently. I did not
-merge a second time, because the instruction was to merge once and the
-integration is moving faster than a round takes; the next merge picks up both
-and the duplicate registration is additive.
-
-The pool also stops on `browser route coverage is required: set
-BROWSER_COVERAGE_RAW and BROWSER_COVERAGE_LCOV`, which is the instrumented
-Playwright leg, not something a branch supplies. That is why the coverage
-evidence here is the per-leg merge common.md prescribes rather than that pool's
-exit code.
+Earlier rounds of this file recorded five, then six, then three failing files.
+Each set is explained where it appears; none of them survives at this head.
 
 ## The startup race, before and after
 
