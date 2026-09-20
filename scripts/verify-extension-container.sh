@@ -57,7 +57,7 @@ services:
     network_mode: none
     userns_mode: keep-id:uid=1000,gid=1000
     logging:
-      driver: none
+      driver: k8s-file
 YAML
 DOCKER_HOST="unix://${PODMAN_SOCKET:-/run/user/$(id -u)/podman/podman.sock}" \
   docker compose --env-file /dev/null -p "${container,,}" -f "$run_root/compose.yml" up -d >/dev/null
@@ -67,4 +67,8 @@ if (typeof module.HarnessClient !== "function") throw new Error("Production imag
 '
 bun build scripts/verify-extension-container.ts --target=bun --outfile "$run_root/verify.js"
 podman cp "$run_root/verify.js" "$container:/tmp/verify-extension-container.js"
-podman exec "$container" bun /tmp/verify-extension-container.js
+if ! podman exec "$container" bun /tmp/verify-extension-container.js; then
+  podman logs --tail 100 "$container" >&2
+  cat "$run_root/runner.log" >&2
+  exit 1
+fi
