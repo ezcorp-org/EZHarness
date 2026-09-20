@@ -64,7 +64,7 @@
 	}
 
 	$effect(() => {
-		if (projectId) {
+		if (projectId && project?.path !== "") {
 			loadInstructions();
 			loadGithubProjectsLink();
 		}
@@ -111,29 +111,34 @@
 					{/if}
 					<h2 class="text-2xl font-bold text-[var(--color-text-primary)]">{project.name}</h2>
 				</div>
-				<button
-					onclick={handleDelete}
-					class="rounded-md px-3 py-1.5 text-sm text-red-400 hover:bg-[var(--color-surface-tertiary)] hover:text-red-300"
-				>
-					Delete
-				</button>
+				{#if project.path !== ""}
+					<button
+						onclick={handleDelete}
+						class="rounded-md px-3 py-1.5 text-sm text-red-400 hover:bg-[var(--color-surface-tertiary)] hover:text-red-300"
+					>
+						Delete
+					</button>
+				{/if}
 			</div>
-			<ProjectForm {project} onsubmit={handleUpdate} submitting={projectUpdateFlash.saving} />
-			<div class="mt-2"><SaveIndicator saved={projectUpdateFlash.saved} error={projectUpdateFlash.error} /></div>
+			{#if project.path !== ""}
+				<ProjectForm {project} onsubmit={handleUpdate} submitting={projectUpdateFlash.saving} />
+				<div class="mt-2"><SaveIndicator saved={projectUpdateFlash.saved} error={projectUpdateFlash.error} /></div>
+			{/if}
 		</div>
 		<ProjectSandboxPanel projectId={project.id} sandbox={project.path === ""} />
-		<!-- Feature Index -->
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
-			<p class="mb-3 text-xs text-[var(--color-text-secondary)]">
-				Buckets of related files. Mention them in chat with <code>$[feature:name]</code> — the assistant
-				gets a system note listing the feature's files. Run <strong>Scan features</strong> to auto-populate
-				from this project's source roots; user-pinned files survive every rescan.
-			</p>
-			<FeatureIndex projectId={project.id} />
-		</div>
+		{#if project.path !== ""}
+			<!-- Feature Index -->
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
+				<p class="mb-3 text-xs text-[var(--color-text-secondary)]">
+					Buckets of related files. Mention them in chat with <code>$[feature:name]</code> — the assistant
+					gets a system note listing the feature's files. Run <strong>Scan features</strong> to auto-populate
+					from this project's source roots; user-pinned files survive every rescan.
+				</p>
+				<FeatureIndex projectId={project.id} />
+			</div>
 
-		<!-- Integrations -->
-		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6" data-testid="project-settings-integrations">
+			<!-- Integrations -->
+			<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6" data-testid="project-settings-integrations">
 			<h3 class="mb-1 text-lg font-semibold text-[var(--color-text-primary)]">Integrations</h3>
 			<p class="mb-3 text-xs text-[var(--color-text-secondary)]">
 				Connect this project to external services. Moving a card on a connected GitHub Projects
@@ -162,7 +167,8 @@
 					Connect a GitHub Projects board →
 				</a>
 			</div>
-		</div>
+			</div>
+		{/if}
 
 		<!-- Composer suggestions (per-project toggle; global override lives
 		     under Settings → Personalization) -->

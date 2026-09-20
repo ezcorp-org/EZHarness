@@ -63,6 +63,9 @@ test.describe("project sandbox panel", () => {
 		const panel = page.getByTestId("project-sandbox-panel");
 		await expect(panel.getByText("stopped")).toBeVisible();
 		await expect(panel.getByRole("link", { name: "Open chat" })).toHaveAttribute("href", `/project/${project.id}`);
+		await expect(page.getByRole("textbox", { name: "Working Directory" })).toHaveCount(0);
+		await expect(page.getByText("Feature Index", { exact: true })).toHaveCount(0);
+		await expect(page.getByTestId("project-settings-integrations")).toHaveCount(0);
 		await panel.getByRole("button", { name: "Start" }).click();
 		await expect(panel.getByText("running")).toBeVisible();
 		await panel.getByRole("button", { name: "Stop" }).click();
