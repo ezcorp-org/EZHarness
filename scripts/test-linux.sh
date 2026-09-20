@@ -45,7 +45,19 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-IMAGE="${EZCORP_TEST_IMAGE:-ezcorp-test-linux}"
+if [ -n "${EZCORP_TEST_IMAGE:-}" ]; then
+  IMAGE="$EZCORP_TEST_IMAGE"
+else
+  # Reuse the image while its actual toolchain inputs are unchanged. A fixed
+  # tag leaves developers on an old Bun or Playwright browser after pulling a
+  # Dockerfile/lockfile update, even though the working tree itself is mounted.
+  IMAGE_INPUT_HASH="$(
+    git hash-object Dockerfile.test .bun-version web/package.json web/bun.lock |
+      git hash-object --stdin |
+      cut -c1-12
+  )"
+  IMAGE="ezcorp-test-linux:$IMAGE_INPUT_HASH"
+fi
 ROOT_MODULES_VOLUME="${EZCORP_TEST_ROOT_MODULES:-ezcorp-test-node-modules}"
 WEB_MODULES_VOLUME="${EZCORP_TEST_WEB_MODULES:-ezcorp-test-web-node-modules}"
 
@@ -109,5 +121,5 @@ exec "$ENGINE" run --rm "${TTY_ARGS[@]}" \
   -e EZCORP_DB_PATH=":memory:" \
   -e PI_SKIP_INIT=1 \
   "$IMAGE" \
-  bash -lc 'bun install --frozen-lockfile >/dev/null && (cd web && bun install >/dev/null) && exec "$@"' _ \
+  bash -lc 'bun install --frozen-lockfile >/dev/null && (cd web && bun install --frozen-lockfile >/dev/null) && exec "$@"' _ \
   "$@"

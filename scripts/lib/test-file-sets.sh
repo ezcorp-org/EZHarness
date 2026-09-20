@@ -87,7 +87,7 @@
 if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
   echo "error: this script needs bash 4 or newer (running: ${BASH_VERSION:-unknown})." >&2
   echo "  macOS ships bash 3.2 as /bin/bash and that is what \`bash scripts/...\` picks up." >&2
-  echo "  fix:  brew install bash   # then ensure /opt/homebrew/bin precedes /bin in \$PATH" >&2
+  echo "  fix:  brew install bash   # then use Homebrew's bin directory first in \$PATH" >&2
   echo "  check: bash --version" >&2
   exit 1
 fi

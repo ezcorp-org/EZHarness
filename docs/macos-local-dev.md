@@ -8,7 +8,7 @@ anything. This page says exactly how red, why, and what to run instead.
 ## TL;DR
 
 ```sh
-brew install bash podman docker-compose   # bash 4+, container engine
+brew install bash podman docker-compose   # bash 4+ for native wrappers; container engine
 podman machine init --cpus 4 --memory 8192 --disk-size 60 && podman machine start
 
 bun run typecheck      # native, clean
@@ -17,14 +17,17 @@ bash scripts/test-linux.sh          # the pool, in a Linux container
 bash scripts/test-linux.sh bun run test:coverage
 ```
 
-## Why `bash scripts/...` needs Homebrew bash
+## Why native test wrappers need Homebrew bash
 
 macOS ships bash **3.2** as `/bin/bash` (GPLv2, frozen in 2007). It has no
 associative arrays, which `scripts/lib/test-file-sets.sh` uses for the leg
-registry, so every wrapper that sources it dies immediately. The scripts now
-detect this and tell you to `brew install bash`, but the fix is the same
-either way: install bash 4+ and make sure `/opt/homebrew/bin` precedes `/bin`
-on your `$PATH`.
+registry, so every native wrapper that sources it dies immediately. The
+scripts now detect this and tell you to `brew install bash`. Put
+`$(brew --prefix)/bin` before `/bin` on your `$PATH`; this works on both Apple
+Silicon and Intel Macs.
+
+`scripts/test-linux.sh` does not source that library and works with the system
+bash. Its default test command invokes the newer bash inside the Linux image.
 
 ## What fails natively, and why it is not a portability bug
 
@@ -57,8 +60,10 @@ bash scripts/test-linux.sh bun run typecheck  # anything else
 ```
 
 It prefers Podman, falls back to Docker, and builds its image from
-`Dockerfile.test` on first use (`EZCORP_CONTAINER_ENGINE` and
-`EZCORP_TEST_IMAGE` override both).
+`Dockerfile.test` on first use. The default image tag is derived from the
+Dockerfile, Bun pin, and web package inputs, so a toolchain change builds a new
+image instead of silently reusing a stale one. `EZCORP_CONTAINER_ENGINE` and
+`EZCORP_TEST_IMAGE` override the engine and image.
 
 **The two `node_modules` volumes are the load-bearing part.** The repo is
 bind-mounted, so a host `bun install` is visible inside the container,

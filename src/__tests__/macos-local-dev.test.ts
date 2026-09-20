@@ -1,5 +1,13 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -38,89 +46,156 @@ const SANDBOX = mkdtempSync(join(tmpdir(), "macos-local-dev-"));
 const BIN = join(SANDBOX, "bin");
 mkdirSync(BIN, { recursive: true });
 
-// Stub engine: answers the image-presence probe so the script skips its build
-// step, then records the argv of the `run` it would have exec'd.
+// Stub engines preserve one argument per line. `$*` would flatten boundaries
+// and make `bun run test` indistinguishable from one argument with two spaces.
+const engineStub = join(BIN, "engine-stub");
 writeFileSync(
-  join(BIN, "podman"),
+  engineStub,
   [
     "#!/usr/bin/env bash",
-    'if [ "$1" = "image" ]; then exit 0; fi',
-    'printf "ARGV=%s\\n" "$*"',
+    `if [ "$1" = "image" ]; then exit "\${STUB_IMAGE_EXISTS:-0}"; fi`,
+    "{",
+    "  printf '%s\\n' '---CALL---'",
+    "  printf '%s\\n' \"$@\"",
+    '} >> "$STUB_CALLS_FILE"',
     "",
   ].join("\n"),
 );
-chmodSync(join(BIN, "podman"), 0o755);
+chmodSync(engineStub, 0o755);
+for (const engine of ["podman", "docker"]) {
+  copyFileSync(engineStub, join(BIN, engine));
+  chmodSync(join(BIN, engine), 0o755);
+}
+
+// Stable toolchain hash for the default image-name assertion.
+writeFileSync(
+  join(BIN, "git"),
+  [
+    "#!/usr/bin/env bash",
+    'if [ "$2" = "--stdin" ]; then',
+    "  cat >/dev/null",
+    "  echo 0123456789abcdef0123456789abcdef01234567",
+    "else",
+    `  for _ in "\${@:2}"; do echo abcdef0123456789abcdef0123456789abcdef01; done`,
+    "fi",
+    "",
+  ].join("\n"),
+);
+chmodSync(join(BIN, "git"), 0o755);
 
 afterAll(() => {
   rmSync(SANDBOX, { recursive: true, force: true });
 });
 
-function run(args: string[] = []): { exitCode: number; argv: string; stderr: string } {
+let runCount = 0;
+
+function run(
+  args: string[] = [],
+  options: { engine?: "docker" | "podman"; imageExists?: boolean } = {},
+): { calls: string[][]; exitCode: number; stderr: string } {
+  const callsFile = join(SANDBOX, `calls-${runCount++}.txt`);
+  writeFileSync(callsFile, "");
   const proc = Bun.spawnSync({
     cmd: ["bash", SCRIPT, ...args],
     env: {
       ...process.env,
       PATH: `${BIN}:${process.env.PATH ?? ""}`,
-      EZCORP_CONTAINER_ENGINE: "podman",
+      EZCORP_CONTAINER_ENGINE: options.engine ?? "podman",
+      EZCORP_TEST_IMAGE: "",
+      STUB_CALLS_FILE: callsFile,
+      STUB_IMAGE_EXISTS: options.imageExists === false ? "1" : "0",
     },
     stdout: "pipe",
     stderr: "pipe",
   });
-  const stdout = proc.stdout.toString();
+  const calls = readFileSync(callsFile, "utf8")
+    .split("---CALL---\n")
+    .slice(1)
+    .map((call) => call.trimEnd().split("\n"));
   return {
+    calls,
     exitCode: proc.exitCode,
-    argv: stdout.match(/^ARGV=(.*)$/m)?.[1] ?? "",
     stderr: proc.stderr.toString(),
   };
 }
 
+function runArgs(result: ReturnType<typeof run>): string[] {
+  return result.calls.at(-1) ?? [];
+}
+
 describe("scripts/test-linux.sh — the invocation it guarantees", () => {
   test("mounts the working tree and masks BOTH node_modules trees with volumes", () => {
-    const { exitCode, argv } = run();
-    expect(exitCode).toBe(0);
+    const result = run();
+    const argv = runArgs(result);
+    const joined = argv.join(" ");
+    expect(result.exitCode).toBe(0);
 
     // The working tree, not the image's stale COPY of it.
     expect(argv).toContain(`${REPO_ROOT}:/repo`);
-    expect(argv).toContain("-w /repo");
+    expect(joined).toContain("-w /repo");
 
     // Masks: without these the container reuses the host's macOS-native
     // installs and fails on multi-platform packages.
-    expect(argv).toMatch(/:\/repo\/node_modules\b/);
-    expect(argv).toMatch(/:\/repo\/web\/node_modules\b/);
+    expect(joined).toMatch(/:\/repo\/node_modules\b/);
+    expect(joined).toMatch(/:\/repo\/web\/node_modules\b/);
   });
 
   test("defaults to the backend pool as three argv words, not one", () => {
     // `"${@:-bun run test}"` would pass the default as a single argument and
     // the exec inside the container would look for a program called
     // "bun run test".
-    expect(run().argv).toMatch(/\bbun run test\b/);
-    expect(run().argv).not.toMatch(/'bun run test'|"bun run test"/);
+    const argv = runArgs(run());
+    const separator = argv.lastIndexOf("_");
+    expect(argv.slice(separator + 1)).toEqual(["bun", "run", "test"]);
   });
 
   test("passes a caller's command through instead of the default", () => {
-    const { argv } = run(["bun", "run", "typecheck"]);
-    expect(argv).toMatch(/\bbun run typecheck\b/);
-    expect(argv).not.toMatch(/\bbun run test\b/);
+    const argv = runArgs(run(["bun", "run", "typecheck"]));
+    const separator = argv.lastIndexOf("_");
+    expect(argv.slice(separator + 1)).toEqual(["bun", "run", "typecheck"]);
   });
 
   test("keeps bun's install cache out of the bind-mounted tree", () => {
     // Bun defaults the cache to <cwd>/.bun, and cwd is the repo — so an unset
     // cache dir leaves a .bun/ directory in the developer's working tree on
     // every run.
-    const { argv } = run();
-    expect(argv).toMatch(/BUN_INSTALL_CACHE_DIR=\/(?!repo\b)/);
+    expect(runArgs(run()).join(" ")).toMatch(/BUN_INSTALL_CACHE_DIR=\/(?!repo\b)/);
   });
 
   test("keeps bind-mount writes owned by the developer under rootless podman", () => {
-    expect(run().argv).toContain("--userns=keep-id");
+    expect(runArgs(run())).toContain("--userns=keep-id");
+    expect(runArgs(run([], { engine: "docker" }))).not.toContain("--userns=keep-id");
   });
 
   test("does not request a TTY when stdin is not one", () => {
     // Bun.spawnSync gives the child a pipe, so the script must choose -i.
     // With -t the engine refuses with "the input device is not a TTY".
-    const { argv } = run();
-    expect(argv).toContain(" -i ");
-    expect(argv).not.toContain(" -it ");
+    const argv = runArgs(run());
+    expect(argv).toContain("-i");
+    expect(argv).not.toContain("-it");
+  });
+
+  test("rebuilds a missing image under a toolchain-derived tag", () => {
+    const result = run([], { imageExists: false });
+    expect(result.exitCode).toBe(0);
+    expect(result.calls).toHaveLength(2);
+    expect(result.calls[0]).toEqual([
+      "build",
+      "-f",
+      "Dockerfile.test",
+      "-t",
+      "ezcorp-test-linux:0123456789ab",
+      ".",
+    ]);
+    expect(result.calls[1]).toContain("ezcorp-test-linux:0123456789ab");
+  });
+
+  test("installs both dependency trees from their lockfiles", () => {
+    const argv = runArgs(run());
+    const bash = argv.indexOf("bash");
+    const shell = argv[bash + 2];
+    expect(shell).toContain("bun install --frozen-lockfile");
+    expect(shell.match(/--frozen-lockfile/g)).toHaveLength(2);
   });
 });
 
