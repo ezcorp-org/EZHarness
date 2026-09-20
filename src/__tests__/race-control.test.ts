@@ -8,8 +8,8 @@ describe("raceControlled", () => {
     let removals = 0;
     const add = controller.signal.addEventListener.bind(controller.signal);
     const remove = controller.signal.removeEventListener.bind(controller.signal);
-    controller.signal.addEventListener = (...args) => { additions++; return add(...args); };
-    controller.signal.removeEventListener = (...args) => { removals++; return remove(...args); };
+    controller.signal.addEventListener = (...args: Parameters<typeof add>) => { additions++; return add(...args); };
+    controller.signal.removeEventListener = (...args: Parameters<typeof remove>) => { removals++; return remove(...args); };
 
     expect(await raceControlled(Promise.resolve(7), 40_000, controller.signal)).toEqual({ type: "done", value: 7 });
     expect({ additions, removals }).toEqual({ additions: 1, removals: 1 });
@@ -19,7 +19,7 @@ describe("raceControlled", () => {
     const controller = new AbortController();
     let removals = 0;
     const remove = controller.signal.removeEventListener.bind(controller.signal);
-    controller.signal.removeEventListener = (...args) => { removals++; return remove(...args); };
+    controller.signal.removeEventListener = (...args: Parameters<typeof remove>) => { removals++; return remove(...args); };
     await expect(raceControlled(Promise.reject(new Error("failed")), 40_000, controller.signal)).rejects.toThrow("failed");
     expect(removals).toBe(1);
   });
