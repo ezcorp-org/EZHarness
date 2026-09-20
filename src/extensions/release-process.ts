@@ -89,6 +89,9 @@ export class ReleaseProcess extends ExtensionProcess {
     const snapshot = await this.active();
     checkCancellation();
     if (method === "tools/list") return { tools: snapshot.release.manifest.tools ?? [] };
+    if (snapshot.release.manifest.methods?.some(contribution => contribution.name === method && contribution.sensitivity === "sensitive")) {
+      throw new ContractError("SENSITIVE_METHOD_REQUIRES_BROKER", "Sensitive runtime methods require a credential broker");
+    }
     const meta = params._meta && typeof params._meta === "object" && !Array.isArray(params._meta) ? params._meta as Record<string, unknown> : {};
     if ((meta.releaseId !== undefined && meta.releaseId !== snapshot.release.id) || (meta.expectedGeneration !== undefined && meta.expectedGeneration !== snapshot.installation.generation) || (meta.expectedReleaseBinding !== undefined && meta.expectedReleaseBinding !== await sha256(releaseBinding(snapshot)))) throw new ContractError("RELEASE_CHANGED", "Invocation no longer targets the active release generation and grants");
     const token = typeof meta.ezCallId === "string" ? meta.ezCallId : undefined;
