@@ -87,7 +87,7 @@ New / edited files are reflected within ~2 s (the registry TTL); no restart.
 ## Related docs
 
 - [slash-commands](../../slash-commands.md) — the full user-facing spec (roots table, frontmatter fields, precedence, examples). This page is the architectural companion.
-- [mention-grammar](../../../CLAUDE.md) — composer sigil overview (note: CLAUDE.md's table predates the `%` and `![EZ:]` additions; code is authoritative).
+- [mention-grammar](../../../AGENTS.md) — composer sigil overview (note: AGENTS.md's table predates the `%` and `![EZ:]` additions; code is authoritative).
 
 ## Notes & gotchas
 

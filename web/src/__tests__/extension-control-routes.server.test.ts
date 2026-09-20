@@ -9,7 +9,7 @@ vi.mock("$server/auth/middleware", () => ({
 }));
 vi.mock("$lib/server/security/api-keys", () => ({ requireScope: (locals: { scopes?: string[]; authMethod?: string }, scope: string) => locals.authMethod === "session" || locals.scopes?.includes(scope) ? null : new Response("Missing scope", { status: 403 }) }));
 import { POST as control } from "../routes/api/extensions/control/+server";
-import type { POST as approve } from "../routes/api/extensions/releases/[installationId]/approve/+server";
+import { POST as approve } from "../routes/api/extensions/releases/[installationId]/approve/+server";
 import { extensionControlError } from "$lib/server/extensions/control-errors";
 
 function event(body: unknown, authMethod = "api-key", scopes = ["extensions"]) {
@@ -33,6 +33,30 @@ test("project installation requests use the server-resolved scope", async () => 
 test("unknown tools and malformed input cannot reach lifecycle", async () => {
   for (const body of [null, {}, { tool: "extensions_approve", input: {} }, { tool: "extensions_build", input: [] }]) expect((await control(event(body))).status).toBe(400);
   expect(mocks.execute).not.toHaveBeenCalled();
+});
+
+test("release approval forwards the optional unsandboxed acknowledgement untouched and refuses a non-boolean", async () => {
+  const session = (body: unknown) => event(body, "session");
+  expect((await approve(session({ approvalId: "a", decision: true }))).status).toBe(200);
+  expect(mocks.approve).toHaveBeenLastCalledWith({ principalId: "user", scope: "global", kind: "human" }, "installation", "a", true, { acknowledgeUnsandboxed: undefined });
+  expect((await approve(session({ approvalId: "a", decision: true, acknowledgeUnsandboxed: true }))).status).toBe(200);
+  expect(mocks.approve).toHaveBeenLastCalledWith(expect.anything(), "installation", "a", true, { acknowledgeUnsandboxed: true });
+  expect((await approve(session({ approvalId: "a", decision: false, acknowledgeUnsandboxed: false }))).status).toBe(200);
+  expect(mocks.approve).toHaveBeenLastCalledWith(expect.anything(), "installation", "a", false, { acknowledgeUnsandboxed: false });
+  mocks.approve.mockClear();
+  // The route validates shape only; whether the acknowledgement is REQUIRED
+  // is the lifecycle's call (trusted-local hosts). A string "yes" is neither.
+  const bad = await approve(session({ approvalId: "a", decision: true, acknowledgeUnsandboxed: "yes" }));
+  expect(bad.status).toBe(400);
+  expect(await bad.json()).toMatchObject({ code: "invalid_input" });
+  expect(mocks.approve).not.toHaveBeenCalled();
+});
+
+test("the lifecycle's missing-acknowledgement refusal reaches the client machine-readable", async () => {
+  mocks.approve.mockRejectedValue({ code: "unsandboxed_acknowledgement_required", message: "This host runs extensions WITHOUT a sandbox." });
+  const response = await approve(event({ approvalId: "a", decision: true }, "session"));
+  expect(response.status).toBeGreaterThanOrEqual(400);
+  expect(await response.json()).toMatchObject({ code: "unsandboxed_acknowledgement_required" });
 });
 
 test("oversized streamed control requests are refused before lifecycle dispatch", async () => {

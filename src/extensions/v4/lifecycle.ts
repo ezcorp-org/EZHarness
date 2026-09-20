@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { assertJson, ContractError, validateManifest, validateWire, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { RunnerError } from "@ezcorp/extension-runner";
+import { extensionLogger } from "../../logger";
 import { digestObject, getFiles, putFiles, validatePath } from "./blobs";
 import { LifecycleError, type InstallationRecord, type InstallationState, type LifecycleActor, type LifecycleApproval, type LifecycleDependencies, type LifecycleOperation, type LifecycleRelease, type WorkspaceRecord } from "./types";
+
+const log = extensionLogger("lifecycle", "operations");
 
 // The runner has no cross-process capacity event. Retain retryable backpressure
 // as a durable lease; its fence gives a bounded 1s→30s retry cadence for CLI work.
@@ -151,10 +154,27 @@ export class ExtensionLifecycle {
     return this.editWorkspace(actor, { ...input, writes: lock === undefined ? {} : { "package-lock.json": lock }, deletes: lock === undefined ? ["package-lock.json"] : [] });
   }
 
-  async build(actor: LifecycleActor, input: { installationId: string; workspaceId: string; expectedRevision: number; idempotencyKey: string; entrypoint?: string }): Promise<LifecycleOperation> {
+  async build(actor: LifecycleActor, input: { installationId: string; workspaceId: string; expectedRevision: number; idempotencyKey: string; entrypoint?: string; acknowledgeUnsandboxed?: boolean }): Promise<LifecycleOperation> {
     await this.dependencies.authorize(actor, "build");
     const entrypoint = input.entrypoint ?? "extension.ts";
     validatePath(entrypoint);
+    if (this.dependencies.trustedLocal) {
+      // Build = bundling, typechecking AND running the extension's own test
+      // file, so it already executes untrusted code. On a trusted-local host
+      // that happens with no sandbox, and the runner refuses it unless a
+      // human approved this exact source digest (`authorize("build", …)`).
+      // The approval is recorded BEFORE the operation exists: `runBuild` is
+      // dispatched only after this method returns, so the row is committed
+      // by the time the runner asks. Recorded outside the state transaction
+      // on purpose — a second handle inside it would deadlock single-
+      // connection PGlite — and only for the revision the human actually
+      // saw; a moved revision is a different source and gets the same
+      // `revision_conflict` the transaction would raise.
+      if (input.acknowledgeUnsandboxed !== true) throw new LifecycleError("unsandboxed_acknowledgement_required", "This host builds and runs extensions WITHOUT a sandbox. Acknowledge that for this exact source before building.");
+      const workspace = this.workspace(await this.inspect(actor, input.installationId), input.workspaceId);
+      if (workspace.revision !== input.expectedRevision) throw new LifecycleError("revision_conflict", "Build must identify the current workspace revision.");
+      await this.dependencies.trustedLocal.recordApproval({ phase: "build", digest: workspace.sourceDigest, installationId: input.installationId, approvedBy: actor.principalId });
+    }
     const operation = this.newOperation("build", input.idempotencyKey, this.buildInput(input.workspaceId, input.expectedRevision, entrypoint));
     return this.transaction(actor, input.installationId, (state) => {
       const previous = this.previousOperation(state, operation);
@@ -195,6 +215,10 @@ export class ExtensionLifecycle {
       runner_busy: "The runner is busy; retry after the current build.",
       runner_timeout: "The runner request timed out.",
       runner_unconfigured: "The runner is unavailable.",
+      // trusted-local only: the runner found no live human acknowledgement
+      // for this exact digest. Named here so it reaches the operation record
+      // instead of collapsing into "operation_failed".
+      trusted_approval_required: "This host runs extensions without a sandbox, and no live acknowledgement covers this exact build or release.",
     };
     const message = messages[error.code];
     return message ? { code: error.code, message, retryable: error.retryable } : undefined;
@@ -212,6 +236,11 @@ export class ExtensionLifecycle {
         return;
       }
       const known = error instanceof LifecycleError || error instanceof ContractError;
+      // "See host diagnostics" must point at something. An unknown error is
+      // the one kind the operation record deliberately does not describe
+      // (it may carry paths or internals), so this log line is the ONLY
+      // place its cause survives. Without it a failed build was a dead end.
+      if (!runner && !known) log.error("Operation failed with an unclassified error", { installationId: state.installation.id, operationId, kind: operation.kind, error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined });
       operation.diagnostics.push(runner ? { ...runner, stage: "runner" } : { code: known ? error.code : "operation_failed", stage: operation.kind, message: known ? error.message : "Operation failed. See host diagnostics.", retryable: false });
       this.transition(operation, "failed");
     });
@@ -236,6 +265,12 @@ export class ExtensionLifecycle {
       const artifacts = await this.dependencies.runner.collectArtifacts(result.artifactDigest);
       const artifactDigest = await putFiles(this.dependencies.blobs, artifacts, "artifact");
       if (artifactDigest !== result.artifactDigest) throw new LifecycleError("artifact_mismatch", "Collected artifact bytes do not match the build digest.");
+      // trusted-local: `verifyCandidate` below starts a worker from this
+      // artifact — an `execute` the runner gates — and no release approval
+      // can exist yet. The human's build acknowledgement covers verifying
+      // the source they acknowledged, so it is extended to this artifact for
+      // a short window; the service refuses if that build row is gone.
+      if (this.dependencies.trustedLocal) await this.dependencies.trustedLocal.recordVerificationApproval({ installationId, sourceDigest: operation.sourceDigest!, artifactDigest });
       const releaseInput = { installationId, workspaceId: operation.workspaceId!, workspaceRevision: operation.workspaceRevision!, sourceDigest: operation.sourceDigest!, artifactDigest, imageDigest: result.imageDigest, manifest: result.manifest, evidence: result.evidence, runnerProfile: this.dependencies.runnerProfile, policyDigest: this.policyDigest() };
       const release: LifecycleRelease = { ...releaseInput, id: randomUUID(), releaseDigest: digestObject(releaseInput), createdAt: this.timestamp() };
       await this.transaction(actor, installationId, (state) => { const current = this.operation(state, operationId); this.assertLease(current, holder, fence); this.transition(current, "verifying"); });
@@ -292,12 +327,17 @@ export class ExtensionLifecycle {
     return release;
   }
 
-  async approve(actor: LifecycleActor, installationId: string, approvalId: string, decision: boolean): Promise<LifecycleApproval> {
+  async approve(actor: LifecycleActor, installationId: string, approvalId: string, decision: boolean, options: { acknowledgeUnsandboxed?: boolean } = {}): Promise<LifecycleApproval> {
     if (actor.kind !== "human") throw new LifecycleError("human_approval_required", "Only an authenticated human can decide release approval.");
     const snapshot = await this.inspect(actor, installationId);
     const requested = this.approval(snapshot, approvalId);
-    await this.dependencies.authorize(actor, "approve", this.release(snapshot, requested.releaseId), requested.grants);
-    return this.transaction(actor, installationId, (state) => {
+    const release = this.release(snapshot, requested.releaseId);
+    await this.dependencies.authorize(actor, "approve", release, requested.grants);
+    // Second acknowledgement point. Approving a release on a trusted-local
+    // host is approving that its artifact runs with the app's full powers, so
+    // the click must say so — a plain "approve" is refused, not upgraded.
+    if (decision && this.dependencies.trustedLocal && options.acknowledgeUnsandboxed !== true) throw new LifecycleError("unsandboxed_acknowledgement_required", "This host runs extensions WITHOUT a sandbox. Acknowledge that for this exact release to approve it.");
+    const approval = await this.transaction(actor, installationId, (state) => {
       const approval = this.approval(state, approvalId);
       this.checkApproval(state, approval, false);
       if (approval.status !== "pending") throw new LifecycleError("approval_decided", "This approval already has a decision.");
@@ -305,6 +345,14 @@ export class ExtensionLifecycle {
       approval.approvedBy = actor.principalId;
       return approval;
     });
+    // AFTER the lifecycle decision commits, and only for a yes: nothing
+    // starts a worker between approve and the separate activate call, so
+    // there is no window to close — while a row written before a decision
+    // that then failed would outlive it. If this write fails the lifecycle
+    // says approved and the runner still refuses (`trusted_approval_required`
+    // at activation): closed, and visible, rather than open.
+    if (decision && this.dependencies.trustedLocal) await this.dependencies.trustedLocal.recordApproval({ phase: "execute", digest: release.artifactDigest, installationId, approvedBy: actor.principalId });
+    return approval;
   }
 
   async activate(actor: LifecycleActor, input: { installationId: string; approvalId: string; idempotencyKey: string; rollback?: boolean }): Promise<LifecycleOperation> {
@@ -387,12 +435,17 @@ export class ExtensionLifecycle {
   async revokeApproval(actor: LifecycleActor, installationId: string, approvalId: string): Promise<LifecycleApproval> {
     if (actor.kind !== "human") throw new LifecycleError("human_approval_required", "Only an authenticated human can revoke approval.");
     await this.dependencies.authorize(actor, "approve");
-    return this.transaction(actor, installationId, (state) => {
+    const { approval, artifactDigest } = await this.transaction(actor, installationId, (state) => {
       const approval = this.approval(state, approvalId);
       if (approval.status === "consumed") throw new LifecycleError("operation_committed", "Disable the installation to revoke an active release.");
       approval.status = "revoked";
-      return approval;
+      return { approval, artifactDigest: this.release(state, approval.releaseId).artifactDigest };
     });
+    // Withdraw the runner's execute permission for THIS installation's copy
+    // of the artifact only; another installation built from identical source
+    // shares the digest and keeps its own approval.
+    if (this.dependencies.trustedLocal) await this.dependencies.trustedLocal.revokeApprovals(installationId, artifactDigest);
+    return approval;
   }
 
   private async stop(actor: LifecycleActor, installationId: string, uninstall: boolean): Promise<InstallationRecord> {
@@ -407,6 +460,10 @@ export class ExtensionLifecycle {
       for (const approval of Object.values(state.approvals)) if (approval.status === "pending" || approval.status === "approved") approval.status = "revoked";
       for (const operation of Object.values(state.operations)) if (operation.kind === "activate" && !["active", "failed", "cancelled"].includes(operation.state)) this.transition(operation, "cancelled");
     });
+    // Disable / uninstall withdraws every trusted-local approval the
+    // installation holds, build and execute alike. Idempotent, so the early
+    // return above (nothing left to stop) still lands here harmlessly.
+    if (this.dependencies.trustedLocal) await this.dependencies.trustedLocal.revokeApprovals(installationId);
     await this.reconcile(actor, installationId);
     return (await this.inspect(actor, installationId)).installation;
   }

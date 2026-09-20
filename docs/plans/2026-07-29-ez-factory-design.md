@@ -1104,7 +1104,7 @@ a reduction.
 
 ## 5. Test strategy
 
-The feature contract in `CLAUDE.md` is binding: 100% coverage on each new source
+The feature contract in `AGENTS.md` is binding: 100% coverage on each new source
 file with a key in `scripts/coverage-thresholds.json`, 100% patch coverage,
 a Playwright e2e spec for user-facing behaviour, and an `@evidence`-tagged spec
 for any frontend-visual change. **No `EXCLUDES` entries, no lowered thresholds,

@@ -22,19 +22,13 @@ interface PdfExtractResult {
 function ensurePdfjsGlobals(): void {
   const g = globalThis as unknown as Record<string, unknown>;
   if (typeof g.DOMMatrix === "undefined") {
-    g.DOMMatrix = class DOMMatrix {
-      constructor(_init?: unknown) { /* no-op stub */ }
-    };
+    g.DOMMatrix = class DOMMatrix {};
   }
   if (typeof g.ImageData === "undefined") {
-    g.ImageData = class ImageData {
-      constructor(_w?: unknown, _h?: unknown) { /* no-op stub */ }
-    };
+    g.ImageData = class ImageData {};
   }
   if (typeof g.Path2D === "undefined") {
-    g.Path2D = class Path2D {
-      constructor(_path?: unknown) { /* no-op stub */ }
-    };
+    g.Path2D = class Path2D {};
   }
 }
 

@@ -2,7 +2,7 @@
  * Attachment on-disk storage under <projectRoot>/.ezcorp/attachments/.
  *
  * Layout: .ezcorp/attachments/<conversationId>/<messageId>/<uuid>.<ext>
- * This mirrors the extension-data convention documented in CLAUDE.md.
+ * This mirrors the extension-data convention documented in AGENTS.md.
  */
 
 import { resolve, join, extname } from "node:path";
