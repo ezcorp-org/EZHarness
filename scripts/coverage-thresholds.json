@@ -1078,5 +1078,6 @@
   "src/factory/reference-image/semantic-quorum.ts": 100,
   "src/factory/reference-image/variants.ts": 100,
   "src/factory/reference-image/python/**": 100,
-  "src/factory/runner/attempt-preflight.ts": 100
+  "src/factory/runner/attempt-preflight.ts": 100,
+  "src/factory/dispatch-composition.ts": 100
 }
