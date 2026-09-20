@@ -70,7 +70,7 @@ function makeFetchStub(getResponse: any = { savedSearches: [], pinned: [] }) {
 	return vi.fn(async (input: any, init: any = {}) => {
 		const url = typeof input === "string" ? input : input?.url ?? "";
 		const method = (init.method ?? "GET").toUpperCase();
-		let body: any = undefined;
+		let body: any;
 		if (init.body) {
 			try {
 				body = JSON.parse(init.body);

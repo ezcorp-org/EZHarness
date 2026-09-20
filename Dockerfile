@@ -200,6 +200,7 @@ COPY --from=builder /app/packages/@ezcorp/harness-client/dist ./packages/@ezcorp
 COPY --from=builder /app/packages/@ezcorp/extension-contract/src ./packages/@ezcorp/extension-contract/src
 COPY --from=builder /app/packages/@ezcorp/extension-runner/src ./packages/@ezcorp/extension-runner/src
 COPY --from=builder /app/scripts/migrate-extension-v4.ts ./scripts/migrate-extension-v4.ts
+COPY --from=builder /app/deploy/extension-runner/app-entrypoint.sh ./deploy/extension-runner/app-entrypoint.sh
 
 # Copy @ezcorp/ai-kit — its manifest + source load at runtime because ai-kit is
 # a default-on bundled extension (see src/extensions/bundled.ts). The runtime
@@ -269,9 +270,13 @@ ENV EZCORP_DB_PATH=/app/data/ezcorp
 # relying on NODE_ENV being unset (which evaluates !== "production" → true).
 ENV NODE_ENV=production
 
-# Drop root. The oven/bun:1-slim base image ships a `bun` user (uid 1000); all
-# files under /app are chowned to it above. Anything in a bind-mounted
-# /app/data from the host must be readable + writable by uid 1000.
+# Drop root. The oven/bun:1-slim base image ships a `bun` user. Keep its
+# uid/gid explicit and fail the image build if an upstream base-image change
+# breaks the bind-mount ownership contract used by Compose.
+ARG EZCORP_RUNTIME_UID=1000
+ARG EZCORP_RUNTIME_GID=1000
+RUN test "$(id -u bun)" = "$EZCORP_RUNTIME_UID" \
+  && test "$(id -g bun)" = "$EZCORP_RUNTIME_GID"
 USER bun
 
 # start-period=60s covers first-boot cost: migrate() + bundled-extension

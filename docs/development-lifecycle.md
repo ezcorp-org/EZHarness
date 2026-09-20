@@ -392,7 +392,7 @@ gh label create gate-change-approved \
   specs that render the diff are screenshotted). A meta-test
   (`src/__tests__/visual-evidence-covers.test.ts`) self-ratchets it: adding an
   `@evidence` spec without a mapping fails CI. The non-visual remainder is still
-  enforced by the PR-template checkbox + the agent contract in `CLAUDE.md` + CI
+  enforced by the PR-template checkbox + the agent contract in `AGENTS.md` + CI
   running all specs at `retries: 0`.
 - **Visual evidence proves presence, not assertion.** The `Visual evidence` gate
   proves *a spec was added/changed*, not that it asserts the visual behavior —

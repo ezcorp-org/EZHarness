@@ -19,7 +19,7 @@
  * `.dockerignore`).
  *
  * Asserting from the vitest side is also the sanctioned direction for a
- * cross-tree assertion (root CLAUDE.md, "Coverage trap") — this leg
+ * cross-tree assertion (root AGENTS.md, "Coverage trap") — this leg
  * resolves both trees.
  */
 import { describe, expect, it } from "vitest";

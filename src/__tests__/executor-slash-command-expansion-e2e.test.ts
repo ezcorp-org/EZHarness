@@ -18,7 +18,7 @@
  *     thrown error) — token is left literal.
  *   - SECURITY: a body containing `![ext:evil]` / `@[file:/etc/passwd]`
  *     is treated as plain text downstream — expansion is literal, never
- *     re-parsed for other mention kinds (CLAUDE.md, mention-wiring.ts).
+ *     re-parsed for other mention kinds (AGENTS.md, mention-wiring.ts).
  *   - Multiple commands in one message expand independently.
  *
  * Strategy:

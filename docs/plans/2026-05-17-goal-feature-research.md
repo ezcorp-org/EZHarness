@@ -273,7 +273,7 @@ Example extensions worth mirroring:
 table, and they are **literal prompt substitution** done server-side in
 `applyCommandExpansion` (`src/runtime/mention-wiring.ts:139-156`,
 called from `build-prompt.ts`): the `/[cmd:name]` token's body replaces
-the token in the prompt the LLM sees; **no server logic runs**. CLAUDE.md
+the token in the prompt the LLM sees; **no server logic runs**. AGENTS.md
 confirms: *"Expansion is literal — never re-parse expanded text."*
 
 Extensions **cannot register chat slash commands** — `scripts.commands`

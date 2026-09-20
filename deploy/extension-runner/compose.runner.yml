@@ -1,14 +1,23 @@
 services:
   app:
+    extends:
+      file: compose.app.yml
+      service: app
     environment:
-      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
       EZCORP_EXTENSION_RUNNER_SOCKET: /run/ez-extension-runner/runner.sock
       EZCORP_EXTENSION_RUNNER_TOKEN_FILE: /run/secrets/extension-runner-token
+    group_add:
+      - "${EZ_RUNNER_GROUP:?Set the runner socket group visible inside the app container. See deploy/extension-runner/README.md}"
     volumes:
-      - ${EZ_RUNNER_SOCKET_DIR:?Set the host runner socket directory}:/run/ez-extension-runner:ro
-    secrets:
-      - extension-runner-token
-
-secrets:
-  extension-runner-token:
-    file: ${EZ_RUNNER_TOKEN_FILE:?Set the private runner credential file}
+      - type: bind
+        source: ${EZ_RUNNER_SOCKET_DIR:?Set the provisioned runner socket directory. See deploy/extension-runner/README.md}
+        target: /run/ez-extension-runner
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EZ_RUNNER_TOKEN_FILE:?Set the provisioned runner credential file. See deploy/extension-runner/README.md}
+        target: /run/secrets/extension-runner-token
+        read_only: true
+        bind:
+          create_host_path: false

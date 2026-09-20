@@ -169,7 +169,7 @@ error, no warning — the only symptom is a result that does not match the code.
 
 Blast radius is any developer running e2e locally with more than one checkout,
 which is now the normal shape of work on this repo (the worktree-isolation rule
-in `CLAUDE.md` actively encourages multiple trees). It is worse for agents than
+in `AGENTS.md` actively encourages multiple trees). It is worse for agents than
 humans: an agent has no ambient sense that "the app looked stale".
 
 ### Our workaround

@@ -17,7 +17,7 @@
  * — and `merge-lcov.ts` sums per `(SF, line)`. Under `web/src/lib/**` (a
  * vitest-measured path) those bun-only records survived the merge as
  * permanent misses no test could reach, and this file read 54% while being
- * fully tested. See the "Coverage trap" note in the root CLAUDE.md.
+ * fully tested. See the "Coverage trap" note in the root AGENTS.md.
  */
 import { isCriticalBundledExtensionName } from "./bundled";
 import { userConsequenceFor } from "./critical-consequence";
