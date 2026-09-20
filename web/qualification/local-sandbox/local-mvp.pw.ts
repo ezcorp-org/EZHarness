@@ -94,13 +94,17 @@ test("local native workspace survives browser and app restart then disposes clea
   expect(saved).not.toContain("Sandbox workspace is unavailable");
   const beforeRestart = await (await request.get(`/api/projects/${project.id}/sandbox`)).json();
   const restartReadKey = `${key}-engine-restart`;
-  await seedScript(restartReadKey, [{ toolCalls: [{ name: "readFile", arguments: { path: "marker.txt" } }] }, { text: "Restart persistence checked" }]);
+  expect(beforeRestart.bindingId).toBeTruthy();
+  expect(beforeRestart.resource.resourceId).toBeTruthy();
   const pids = await restartPreview();
   expect(pids.before).not.toBe(pids.after);
   await expect.poll(async () => (await request.get(`/api/projects/${project.id}/sandbox`)).status(), { timeout: 150000 }).toBe(200);
   const afterRestart = await (await request.get(`/api/projects/${project.id}/sandbox`)).json();
   expect(afterRestart.bindingId).toBe(beforeRestart.bindingId);
   expect(afterRestart.resource.resourceId).toBe(beforeRestart.resource.resourceId);
+  // The model fixture is in memory; seed the new application process. The
+  // workspace and its binding must survive without reseeding either one.
+  await seedScript(restartReadKey, [{ toolCalls: [{ name: "readFile", arguments: { path: "marker.txt" } }] }, { text: "Restart persistence checked" }]);
   const afterEngineRestart = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${restartReadKey}` });
   expect((await client.runToCompletion(afterEngineRestart.id, "Read the retained marker after app restart", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
   expect(JSON.stringify(await (await request.get(`/api/conversations/${afterEngineRestart.id}/messages?withToolCalls=true`)).json())).toContain(`${marker}_EDITED`);
