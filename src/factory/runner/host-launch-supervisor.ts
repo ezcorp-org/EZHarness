@@ -3,6 +3,7 @@ import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { validateFactoryRunnerResult, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { FactoryAttemptRuntimeError, type FactoryAttemptLaunchIntent } from "./attempt-runtime";
 import { FACTORY_GUEST_BROKER_METHOD, factoryGuestFrameInput } from "./guest-frames";
+import type { FactoryGuestBroker } from "./guest-model-broker";
 import type { FactoryHostAttemptHandle, FactoryHostLaunchSupervisor } from "./host-launch-service";
 
 export interface FactoryHostLaunchSupervisorOptions {
@@ -12,8 +13,12 @@ export interface FactoryHostLaunchSupervisorOptions {
    * The guest's one reverse capability, forwarded under the attempt's own
    * short-lived token. The host never holds a tenant credential, so this
    * returns to the product process rather than being served here.
+   *
+   * It is the same {@link FactoryGuestBroker} the in-process isolated runtime
+   * takes. It used to be a bare function over the launch intent, which meant
+   * one broker could not serve both runtimes.
    */
-  readonly broker: (intent: FactoryAttemptLaunchIntent, input: unknown) => Promise<unknown>;
+  readonly broker: FactoryGuestBroker;
   readonly now?: () => number;
 }
 
@@ -50,7 +55,7 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
   const live = new Map<string, HostAttempt>();
 
   const reverse = (intent: FactoryAttemptLaunchIntent, context: ReturnType<typeof startRequest>["context"]) =>
-    async (method: string, input: unknown) => options.broker(intent, factoryGuestFrameInput(method, input, context, FACTORY_GUEST_BROKER_METHOD));
+    async (method: string, input: unknown) => options.broker.invoke(intent.request, factoryGuestFrameInput(method, input, context, FACTORY_GUEST_BROKER_METHOD));
 
   const invoke = async (intent: FactoryAttemptLaunchIntent, execution: RunnerExecution, context: ReturnType<typeof startRequest>["context"]): Promise<FactoryRunnerResult> => {
     const value = await execution.request("extension/invoke", { name: intent.request.runner.export, input: intent.request, context });

@@ -507,6 +507,71 @@ export type FactoryRunnerRequestIdentity = Omit<FactoryRunnerRequest, "broker"> 
   readonly broker: Omit<FactoryBrokerTransport, "attemptToken">;
 };
 
+/**
+ * The one way a guest asks for a model call.
+ *
+ * Before this existed a guest had no defined payload at all, so every caller
+ * invented one and the composition could not write an adapter over them. It
+ * travels inside the existing reverse control frame as a single request and
+ * reply hop, which is why both sides are bounded: the frame policy caps what a
+ * guest may send and receive, and a streaming answer has nowhere to stream to.
+ *
+ * The model is the pin the runner request already carries, repeated here so the
+ * host can compare it. A guest cannot ask for a different one, and asking is a
+ * typed refusal rather than a substitution.
+ */
+export const FACTORY_GUEST_MODEL_LIMITS = Object.freeze({
+  maxMessages: 64,
+  maxMessageBytes: 16 * 1024,
+  maxInputBytes: 32 * 1024,
+  maxOutputTokens: 8_192,
+  maxResponseBytes: 128 * 1024,
+});
+
+export type FactoryGuestModelRole = "system" | "user" | "assistant";
+
+export interface FactoryGuestModelMessage {
+  readonly role: FactoryGuestModelRole;
+  readonly text: string;
+}
+
+export interface FactoryGuestModelRequest {
+  readonly schemaVersion: "factory.guest-model-request.v1";
+  /** The journalled operation this call belongs to. One call may be in flight per operation. */
+  readonly operationId: string;
+  readonly operationIndex: number;
+  /** Exactly the pin the runner request carries; anything else is refused. */
+  readonly model: FactoryModelPin;
+  readonly messages: readonly FactoryGuestModelMessage[];
+  readonly maxOutputTokens: number;
+}
+
+/** Why a model call was refused. A refusal is never a quiet substitution. */
+export type FactoryGuestModelRefusal =
+  | "model_pin_mismatch"
+  | "input_too_large"
+  | "operation_busy"
+  | "operation_settled"
+  | "provider_unavailable"
+  | "invalid_request";
+
+export type FactoryGuestModelResponse =
+  | {
+    readonly schemaVersion: "factory.guest-model-response.v1";
+    readonly status: "completed";
+    readonly operationId: string;
+    /** The whole answer. There is no second hop, so a partial answer is a failure. */
+    readonly text: string;
+    readonly providerReceiptDigest: string;
+    readonly usage: FactoryMeasuredUsage;
+  }
+  | {
+    readonly schemaVersion: "factory.guest-model-response.v1";
+    readonly status: "refused";
+    readonly operationId: string;
+    readonly refusal: { readonly code: FactoryGuestModelRefusal; readonly message: string };
+  };
+
 export interface FactoryMeasuredUsage {
   readonly kind: "measured";
   readonly inputTokens: number;

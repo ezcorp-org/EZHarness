@@ -1,10 +1,13 @@
 import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
 import { validateFactoryApiPayloadDigest } from "./api.js";
 import { validateExpression } from "./expressions.js";
-import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
+import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryGuestModelRequest, isFactoryGuestModelResponse, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
 import {
   FACTORY_LAZY_INPUT_SCHEMA_VERSION,
+  FACTORY_GUEST_MODEL_LIMITS,
   FACTORY_LIMITS,
+  type FactoryGuestModelRequest,
+  type FactoryGuestModelResponse,
   type CompiledExecutionManifest,
   type CompiledArtifactDescriptor,
   type CompiledFactory,
@@ -669,6 +672,52 @@ export function validateFactoryRunnerRequest(value: unknown): ValidationResult {
     if (tool.outputSchema !== undefined && !validatePortSchema(tool.outputSchema).ok) return issue("RUNNER_TOOL_SCHEMA", "Tool output schema is invalid.", ["tools", index, "outputSchema"]);
   }
   return { ok: true };
+}
+
+/**
+ * The guest's model request, bounded so it always fits one control frame.
+ *
+ * The pin is compared by the host against the runner request, not here; this
+ * step refuses a payload that is not a request at all, so a transport fault can
+ * never be mistaken for a model call.
+ */
+export function validateFactoryGuestModelRequest(value: unknown): ValidationResult {
+  if (!isFactoryGuestModelRequest(value)) return issue("GUEST_MODEL_SCHEMA", "Value does not match the generated FactoryGuestModelRequest schema.", []);
+  const request = value as FactoryGuestModelRequest;
+  if (!boundedText(request.operationId, 1_024) || !request.operationId.endsWith(`:${request.operationIndex}`) || !safeCounter(request.operationIndex)) {
+    return issue("GUEST_MODEL_OPERATION", "A guest model request must name its own journalled operation.", ["operationId"]);
+  }
+  if (!safeCounter(request.maxOutputTokens, 1) || request.maxOutputTokens > FACTORY_GUEST_MODEL_LIMITS.maxOutputTokens) {
+    return issue("GUEST_MODEL_OUTPUT", `Requested output must be between 1 and ${FACTORY_GUEST_MODEL_LIMITS.maxOutputTokens} tokens.`, ["maxOutputTokens"]);
+  }
+  if (request.messages.length < 1 || request.messages.length > FACTORY_GUEST_MODEL_LIMITS.maxMessages) {
+    return issue("GUEST_MODEL_MESSAGES", `A guest model request carries 1 to ${FACTORY_GUEST_MODEL_LIMITS.maxMessages} messages.`, ["messages"]);
+  }
+  for (let index = 0; index < request.messages.length; index += 1) {
+    const message = request.messages[index]!;
+    if (encodedBytes(message.text as unknown as JsonValue) > FACTORY_GUEST_MODEL_LIMITS.maxMessageBytes) {
+      return issue("GUEST_MODEL_MESSAGES", "A guest model message exceeds its byte bound.", ["messages", index, "text"]);
+    }
+  }
+  if (encodedBytes(request.messages as unknown as JsonValue) > FACTORY_GUEST_MODEL_LIMITS.maxInputBytes) {
+    return issue("GUEST_MODEL_INPUT_BYTES", `A guest model request input exceeds ${FACTORY_GUEST_MODEL_LIMITS.maxInputBytes} bytes.`, ["messages"]);
+  }
+  return { ok: true };
+}
+
+/** The host's single reply. A completed answer is whole, and a refusal names itself. */
+export function validateFactoryGuestModelResponse(value: unknown): ValidationResult {
+  if (!isFactoryGuestModelResponse(value)) return issue("GUEST_MODEL_SCHEMA", "Value does not match the generated FactoryGuestModelResponse schema.", []);
+  const response = value as FactoryGuestModelResponse;
+  if (!boundedText(response.operationId, 1_024)) return issue("GUEST_MODEL_OPERATION", "A guest model response must name its operation.", ["operationId"]);
+  if (response.status === "refused") {
+    return boundedText(response.refusal.message, 4_096) ? { ok: true } : issue("GUEST_MODEL_REFUSAL", "A refusal needs a bounded message.", ["refusal", "message"]);
+  }
+  if (encodedBytes(response.text as unknown as JsonValue) > FACTORY_GUEST_MODEL_LIMITS.maxResponseBytes) {
+    return issue("GUEST_MODEL_RESPONSE_BYTES", `A guest model response exceeds ${FACTORY_GUEST_MODEL_LIMITS.maxResponseBytes} bytes.`, ["text"]);
+  }
+  if (!validDigest(response.providerReceiptDigest, false)) return issue("GUEST_MODEL_RECEIPT", "A completed model call carries its provider receipt digest.", ["providerReceiptDigest"]);
+  return validateUsage(response.usage, ["usage"]);
 }
 
 export function validateFactoryRunnerResult(value: unknown): ValidationResult {

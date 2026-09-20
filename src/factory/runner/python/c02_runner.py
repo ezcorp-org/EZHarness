@@ -30,16 +30,23 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--request-schema", type=Path, required=True)
     parser.add_argument("--result-schema", type=Path, required=True)
+    parser.add_argument("--guest-model-request-schema", type=Path, required=False)
+    parser.add_argument("--guest-model-response-schema", type=Path, required=False)
     args = parser.parse_args()
     try:
         envelope: Json = json.load(sys.stdin)
         if (
             not isinstance(envelope, dict)
-            or envelope.get("kind") not in ("request", "result")
+            or envelope.get("kind") not in ("request", "result", "guest-model-request", "guest-model-response")
             or "value" not in envelope
         ):
             raise GuestError("envelope must contain kind and value")
-        guest = Guest(load_schema(args.request_schema), load_schema(args.result_schema))
+        guest = Guest(
+            load_schema(args.request_schema),
+            load_schema(args.result_schema),
+            load_schema(args.guest_model_request_schema) if args.guest_model_request_schema else None,
+            load_schema(args.guest_model_response_schema) if args.guest_model_response_schema else None,
+        )
         answer = guest.verdict(str(envelope["kind"]), envelope["value"])
         if not answer["ok"]:
             answer["error"] = answer["code"]

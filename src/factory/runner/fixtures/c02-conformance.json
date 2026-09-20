@@ -127,6 +127,69 @@
           "journalCursor": 5
         }
       }
+    },
+    {
+      "name": "pinned-guest-model-request",
+      "kind": "guest-model-request",
+      "value": {
+        "schemaVersion": "factory.guest-model-request.v1",
+        "operationId": "run-1:node-1:0:2",
+        "operationIndex": 2,
+        "model": {
+          "provider": "anthropic",
+          "model": "claude-opus-5",
+          "configurationDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "configuration": {
+            "temperature": 0
+          },
+          "policyDigest": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "policy": {
+            "tools": false
+          }
+        },
+        "messages": [
+          {
+            "role": "system",
+            "text": "Answer exactly what was asked."
+          },
+          {
+            "role": "user",
+            "text": "Summarise the staged diff."
+          }
+        ],
+        "maxOutputTokens": 1024
+      }
+    },
+    {
+      "name": "completed-guest-model-response",
+      "kind": "guest-model-response",
+      "value": {
+        "schemaVersion": "factory.guest-model-response.v1",
+        "status": "completed",
+        "operationId": "run-1:node-1:0:2",
+        "text": "The staged diff renames one export and adds a test.",
+        "providerReceiptDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "usage": {
+          "kind": "measured",
+          "inputTokens": 11,
+          "outputTokens": 7,
+          "computeMs": 21,
+          "costMicros": "1200"
+        }
+      }
+    },
+    {
+      "name": "refused-guest-model-response",
+      "kind": "guest-model-response",
+      "value": {
+        "schemaVersion": "factory.guest-model-response.v1",
+        "status": "refused",
+        "operationId": "run-1:node-1:0:2",
+        "refusal": {
+          "code": "model_pin_mismatch",
+          "message": "A guest may only call the model its attempt pinned."
+        }
+      }
     }
   ],
   "rejected": [
@@ -222,6 +285,129 @@
       "path": [
         "runner",
         "manifestName"
+      ],
+      "value": ""
+    },
+    {
+      "name": "guest-model-operation-not-its-own-index",
+      "kind": "guest-model-request",
+      "path": [
+        "operationId"
+      ],
+      "value": "run-1:node-1:0:9"
+    },
+    {
+      "name": "guest-model-output-over-bound",
+      "kind": "guest-model-request",
+      "path": [
+        "maxOutputTokens"
+      ],
+      "value": 1000000
+    },
+    {
+      "name": "guest-model-output-not-a-counter",
+      "kind": "guest-model-request",
+      "path": [
+        "maxOutputTokens"
+      ],
+      "value": 0
+    },
+    {
+      "name": "guest-model-no-messages",
+      "kind": "guest-model-request",
+      "path": [
+        "messages"
+      ],
+      "value": []
+    },
+    {
+      "name": "guest-model-message-over-byte-bound",
+      "kind": "guest-model-request",
+      "path": [
+        "messages",
+        0,
+        "text"
+      ],
+      "generate": {
+        "kind": "text",
+        "unit": "x",
+        "times": 17000
+      }
+    },
+    {
+      "name": "guest-model-input-over-byte-bound",
+      "kind": "guest-model-request",
+      "path": [
+        "messages"
+      ],
+      "generate": {
+        "kind": "messages",
+        "count": 3,
+        "length": 12000
+      }
+    },
+    {
+      "name": "guest-model-unknown-role",
+      "kind": "guest-model-request",
+      "path": [
+        "messages",
+        0,
+        "role"
+      ],
+      "value": "tool"
+    },
+    {
+      "name": "guest-model-response-text-over-bound",
+      "kind": "guest-model-response",
+      "path": [
+        "text"
+      ],
+      "generate": {
+        "kind": "text",
+        "unit": "y",
+        "times": 140000
+      }
+    },
+    {
+      "name": "guest-model-response-receipt-invalid",
+      "kind": "guest-model-response",
+      "path": [
+        "providerReceiptDigest"
+      ],
+      "value": "sha256:short"
+    },
+    {
+      "name": "guest-model-response-cost-not-unsigned",
+      "kind": "guest-model-response",
+      "path": [
+        "usage",
+        "costMicros"
+      ],
+      "value": "-1"
+    },
+    {
+      "name": "guest-model-response-operation-blank",
+      "kind": "guest-model-response",
+      "path": [
+        "operationId"
+      ],
+      "value": ""
+    },
+    {
+      "name": "guest-model-response-status-unknown",
+      "kind": "guest-model-response",
+      "path": [
+        "status"
+      ],
+      "value": "maybe"
+    },
+    {
+      "name": "guest-model-refusal-message-blank",
+      "kind": "guest-model-response",
+      "from": "refused-guest-model-response",
+      "path": [
+        "refusal",
+        "message"
       ],
       "value": ""
     }

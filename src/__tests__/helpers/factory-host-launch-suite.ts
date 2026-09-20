@@ -71,7 +71,7 @@ export async function verifyFactoryHostLaunchEndToEnd(source?: FactoryLaunchFixt
     const prepared = { ...factoryLaunchPackage(request), artifactDigest: build.artifactDigest };
 
     // The supervisor process: the container runner and host identity only.
-    const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: async (_intent, input) => { brokerCalls.push(input); return { accepted: true }; } });
+    const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async (_request, input) => { brokerCalls.push(input); return { accepted: true }; } } });
     service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
     const transport = await createFactoryHostLaunchClient({ baseUrl: service.url, tls: await clientSecrets(secrets, certs), serverName: "localhost", hostId });
 

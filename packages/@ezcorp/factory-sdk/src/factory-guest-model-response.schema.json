@@ -1,0 +1,126 @@
+{
+  "$id": "urn:ezcorp:factory:guest-model-response:v1",
+  "$ref": "#/definitions/FactoryGuestModelResponse",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryGuestModelRefusal": {
+      "description": "Why a model call was refused. A refusal is never a quiet substitution.",
+      "enum": [
+        "model_pin_mismatch",
+        "input_too_large",
+        "operation_busy",
+        "operation_settled",
+        "provider_unavailable",
+        "invalid_request"
+      ],
+      "type": "string"
+    },
+    "FactoryGuestModelResponse": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "operationId": {
+              "type": "string"
+            },
+            "providerReceiptDigest": {
+              "type": "string"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-model-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "completed",
+              "type": "string"
+            },
+            "text": {
+              "description": "The whole answer. There is no second hop, so a partial answer is a failure.",
+              "type": "string"
+            },
+            "usage": {
+              "$ref": "#/definitions/FactoryMeasuredUsage"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "status",
+            "operationId",
+            "text",
+            "providerReceiptDigest",
+            "usage"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "operationId": {
+              "type": "string"
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "$ref": "#/definitions/FactoryGuestModelRefusal"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "type": "object"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-model-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "refused",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "status",
+            "operationId",
+            "refusal"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FactoryMeasuredUsage": {
+      "additionalProperties": false,
+      "properties": {
+        "computeMs": {
+          "type": "number"
+        },
+        "costMicros": {
+          "type": "string"
+        },
+        "inputTokens": {
+          "type": "number"
+        },
+        "kind": {
+          "const": "measured",
+          "type": "string"
+        },
+        "outputTokens": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "kind",
+        "inputTokens",
+        "outputTokens",
+        "computeMs",
+        "costMicros"
+      ],
+      "type": "object"
+    }
+  }
+}

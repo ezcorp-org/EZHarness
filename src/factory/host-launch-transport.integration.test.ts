@@ -80,7 +80,7 @@ test("an attempt launches, runs, and settles across a real mutual-TLS host bound
   const stops: string[] = [];
 
   // The supervisor process: a container runner and host identity, nothing else.
-  const supervisorA = createFactoryHostLaunchSupervisor({ runner: runnerA, hostId, broker: async (_intent, input) => { brokerCalls.push(input); return { accepted: true }; } });
+  const supervisorA = createFactoryHostLaunchSupervisor({ runner: runnerA, hostId, broker: { invoke: async (_request, input) => { brokerCalls.push(input); return { accepted: true }; } } });
   const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor: supervisorA }) });
   try {
     const paths = await clientSecrets(root, certs);
@@ -124,7 +124,7 @@ test("a gateway that restarts mid-launch rejoins the running attempt instead of 
   const request = factoryLaunchRequest({ attemptId: "attempt-rejoin" });
   const fixture = await createFactoryLaunchFixture(request);
   const runner = new HostRunner();
-  const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: async () => ({ accepted: true }) });
+  const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
   const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
   try {
     const paths = await clientSecrets(root, certs);
@@ -171,7 +171,7 @@ test("a lost launch response reconnects instead of starting a second guest, and 
   const request = factoryLaunchRequest({ attemptId: "attempt-lost" });
   const fixture = await createFactoryLaunchFixture(request);
   const runner = new HostRunner();
-  const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: async () => ({ accepted: true }) });
+  const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
   const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
   try {
     const paths = await clientSecrets(root, certs);
@@ -206,7 +206,7 @@ test("a lost launch response reconnects instead of starting a second guest, and 
 
     // A restarted supervisor remembers nothing and must rebuild the identities
     // from the intent alone, which is why attach carries the whole intent.
-    const restarted = createFactoryHostLaunchSupervisor({ runner, hostId, broker: async () => ({ accepted: true }) });
+    const restarted = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
     const second = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor: restarted }) });
     try {
       const client = await createFactoryHostLaunchClient({ baseUrl: second.url, tls: paths, serverName: "localhost", hostId });
@@ -268,7 +268,7 @@ test("the host refuses an unauthorized peer, another host's intent, and an inten
   const request = factoryLaunchRequest({ attemptId: "attempt-denied" });
   const fixture = await createFactoryLaunchFixture(request);
   const runner = new HostRunner();
-  const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: async () => ({ accepted: true }) });
+  const supervisor = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({ accepted: true }) } });
   const service = startFactoryPrivateHttps({ tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca }, handle: createFactoryHostLaunchRouteHandler({ hostId, allowedPeers: ["tenant-a"], supervisor }) });
   try {
     const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);

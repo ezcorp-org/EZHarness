@@ -42,6 +42,15 @@ Path = tuple[str | int, ...]
 MAX_WIRE_BYTES: Final = 64 * 1024
 MAX_INLINE_VALUE_BYTES: Final = 64 * 1024
 
+# The guest model frame bounds, mirroring ``FACTORY_GUEST_MODEL_LIMITS`` in
+# ``packages/@ezcorp/factory-sdk/src/types.ts``.  A bound that differed between
+# the runtimes would let a guest send in Python what Bun refuses.
+GUEST_MODEL_MAX_MESSAGES: Final = 64
+GUEST_MODEL_MAX_MESSAGE_BYTES: Final = 16 * 1024
+GUEST_MODEL_MAX_INPUT_BYTES: Final = 32 * 1024
+GUEST_MODEL_MAX_OUTPUT_TOKENS: Final = 8192
+GUEST_MODEL_MAX_RESPONSE_BYTES: Final = 128 * 1024
+
 PORT_SCHEMA_KEYS: Final = frozenset(
     {
         "$defs",
@@ -552,3 +561,97 @@ def validate_factory_runner_result(value: Json, schema: Schema) -> Result:
             "RUNNER_UNCERTAIN", "Uncertain result receipt or result digest is invalid.", ("providerReceiptDigest",)
         )
     return OK
+
+
+# --------------------------------------------------------------------------
+# The guest model contract, the third and fourth exported entry points.
+# --------------------------------------------------------------------------
+
+
+def validate_factory_guest_model_request(value: Json, schema: Schema) -> Result:
+    """The Python counterpart of ``validateFactoryGuestModelRequest``.
+
+    Same checks, same order, same issue code.  A guest that reaches the model
+    through the Python runtime is held to exactly the bounds the Bun runtime
+    holds it to, which is what C07 requires of any validator that exists twice.
+    """
+    if not matches_generated_schema(schema, value):
+        return reject(
+            "GUEST_MODEL_SCHEMA",
+            "Value does not match the generated FactoryGuestModelRequest schema.",
+            (),
+        )
+    operation_id = value.get("operationId")
+    operation_index = value.get("operationIndex")
+    if (
+        not bounded_text(operation_id, 1_024)
+        or not operation_id.endswith(f":{_index_text(operation_index)}")
+        or not safe_counter(operation_index)
+    ):
+        return reject(
+            "GUEST_MODEL_OPERATION",
+            "A guest model request must name its own journalled operation.",
+            ("operationId",),
+        )
+    max_output_tokens = value.get("maxOutputTokens")
+    if not safe_counter(max_output_tokens, 1) or max_output_tokens > GUEST_MODEL_MAX_OUTPUT_TOKENS:
+        return reject(
+            "GUEST_MODEL_OUTPUT",
+            f"Requested output must be between 1 and {GUEST_MODEL_MAX_OUTPUT_TOKENS} tokens.",
+            ("maxOutputTokens",),
+        )
+    messages = value.get("messages")
+    if len(messages) < 1 or len(messages) > GUEST_MODEL_MAX_MESSAGES:
+        return reject(
+            "GUEST_MODEL_MESSAGES",
+            f"A guest model request carries 1 to {GUEST_MODEL_MAX_MESSAGES} messages.",
+            ("messages",),
+        )
+    for index, message in enumerate(messages):
+        if encoded_bytes(message.get("text")) > GUEST_MODEL_MAX_MESSAGE_BYTES:
+            return reject(
+                "GUEST_MODEL_MESSAGES",
+                "A guest model message exceeds its byte bound.",
+                ("messages", index, "text"),
+            )
+    if encoded_bytes(messages) > GUEST_MODEL_MAX_INPUT_BYTES:
+        return reject(
+            "GUEST_MODEL_INPUT_BYTES",
+            f"A guest model request input exceeds {GUEST_MODEL_MAX_INPUT_BYTES} bytes.",
+            ("messages",),
+        )
+    return OK
+
+
+def validate_factory_guest_model_response(value: Json, schema: Schema) -> Result:
+    """The Python counterpart of ``validateFactoryGuestModelResponse``.
+
+    A refusal is checked for a bounded message and nothing else; a completed
+    answer must carry a provider receipt digest and measured usage, because a
+    cost with no receipt is a cost the usage resolver cannot settle.
+    """
+    if not matches_generated_schema(schema, value):
+        return reject(
+            "GUEST_MODEL_SCHEMA",
+            "Value does not match the generated FactoryGuestModelResponse schema.",
+            (),
+        )
+    if not bounded_text(value.get("operationId"), 1_024):
+        return reject("GUEST_MODEL_OPERATION", "A guest model response must name its operation.", ("operationId",))
+    if value.get("status") == "refused":
+        if bounded_text(value.get("refusal", {}).get("message"), 4_096):
+            return OK
+        return reject("GUEST_MODEL_REFUSAL", "A refusal needs a bounded message.", ("refusal", "message"))
+    if encoded_bytes(value.get("text")) > GUEST_MODEL_MAX_RESPONSE_BYTES:
+        return reject(
+            "GUEST_MODEL_RESPONSE_BYTES",
+            f"A guest model response exceeds {GUEST_MODEL_MAX_RESPONSE_BYTES} bytes.",
+            ("text",),
+        )
+    if not valid_digest(value.get("providerReceiptDigest"), False):
+        return reject(
+            "GUEST_MODEL_RECEIPT",
+            "A completed model call carries its provider receipt digest.",
+            ("providerReceiptDigest",),
+        )
+    return _validate_usage(value.get("usage"), ("usage",))
