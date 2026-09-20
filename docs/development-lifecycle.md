@@ -268,6 +268,25 @@ It hadn't — the baseline moved. Take the control on the rebased base (a detach
 checkout of the new `origin/main`, both installs re-run) and compare like with
 like.
 
+### The test image checks that its tests reached the build context
+
+`Dockerfile.test` pairs with `Dockerfile.test.dockerignore`, which keeps the
+test sources the root `.dockerignore` strips (the prod image must not ship
+tests; the test image is built to run them).
+
+Current Docker, Podman, and Buildah select the companion ignore file when
+`Dockerfile.test` is the build file. Build from the repository root and keep
+the two files together:
+
+```sh
+podman build -f Dockerfile.test -t ezcorp-test .
+```
+
+A renamed or missing companion file, a wrong build context, or an engine that
+does not support companion ignore files can still remove tests before `COPY`.
+A guard in `Dockerfile.test` checks for both the backend preload and at least
+one Playwright spec, so a silent test-less image cannot be produced.
+
 ## Trustworthy green
 
 The blocking e2e suite runs with **`retries: 0`** (`web/playwright.config.ts`):
