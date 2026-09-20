@@ -1126,3 +1126,9 @@
   "error TS" runs the commit exactly when there ARE errors. I committed a file
   that did not typecheck this way. Gate on the command's own exit code, or run
   the check as its own step and read it.
+- Do not commit wiring that does not wire. I threaded a composer that always
+  returned undefined and kept its imports alive with `void` statements; it
+  typechecked and read like progress while doing nothing, and it would have told
+  the next reader the role was one step from running when the assembly had not
+  begun. Reverted before committing. An honest "not built" in the gate file
+  costs nothing; dead code that looks like wiring costs the next person's trust.

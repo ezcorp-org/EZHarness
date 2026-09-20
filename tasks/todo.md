@@ -2268,6 +2268,10 @@ Gates: `tasks/factory/w09-GATES.md`.
       `assertDispatchReady` is a database read, so no container runner is needed in this process.
 - [x] W09.17 Enumerate a tenant's projects as a composition-owned read, bounded, oldest-first, and
       proved on both engines; register notification-inbox-delivery on top of it.
+- [x] W09.25 Build the four role drivers in src/factory/dispatch-composition.ts, each covered to
+      100%: stop settlement, usage reconciliation, the release provider resolver, release outcome.
+- [ ] W09.26 Assemble them in installationCollaborators. No external blocker: FactoryTaskStops is
+      the one FactoryUsageSettlementAuthority and all fourteen of its arguments are reachable.
 - [ ] W09.18 Register release-outcome. Needs a production `FactoryReleaseProviderResolver`; the
       claimable scan, the enumerator, and all three providers already exist.
 - [x] W09.19 Construct the pinned model broker from validated configuration, with a missing

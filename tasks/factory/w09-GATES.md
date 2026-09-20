@@ -928,6 +928,39 @@ the real-engine exercise of both reads is the end-to-end proof rather than a
 suite that would re-seed W03's rows by hand. That is a deliberate choice and a
 weaker one than the coordinator asked for; it is recorded rather than glossed.
 
+### The four drivers are built; the assembly into the root is not
+
+`src/factory/dispatch-composition.ts` holds the four steps, each covered to
+100%: stop settlement, usage reconciliation, the release provider resolver, and
+release outcome. Each follows one rule — settle only on a fact the owning
+package produced — and two of them encode a distinction worth keeping:
+
+- Stop settlement classifies a conflict as CONTENTION, the opposite of child
+  settlement, where a conflict is a fault. The difference is the scan: this one
+  does not filter on terminal state, so two workers listing the same row is
+  expected and only one commits.
+- Usage reconciliation settles only when W03c's resolver answers `resolved`
+  with all four facts. `unknown` is neither failure nor progress: the hold stays
+  uncertain and a later pass retries. Settling on anything else would put a
+  number on work nobody measured.
+
+**No external blocker remains, and I am not claiming one.** I searched for the
+usual shape of one and found the opposite: `FactoryUsageSettlementAuthority` has
+exactly one production implementation, `FactoryTaskStops` (`task-stops.ts:218`),
+and every one of its fourteen constructor arguments is now reachable — W03c's
+`confirmStopped` is on `PoolAdmissionClient`, `createFactoryHostStopClient` is
+the production `FactoryPhysicalStopper`, `hostStopKeys` is configured, and
+`hostLaunch.baseUrl` serves the stop route alongside the launch route because
+the paths do not collide. What is left is assembling those objects in
+`installationCollaborators` and doing the same for attempt-dispatch. That is
+volume, not a gap, exactly as the coordinator said.
+
+I wrote a placeholder that threaded a `composeUsageReconciler` returning
+`undefined` and reverted it before committing. It typechecked and read like
+wiring while doing nothing, and keeping its imports alive needed `void`
+statements — dead code that would have made the next reader think the role was
+one step from running when the assembly had not begun.
+
 ### Where the four roles stand after this round
 
 The coordinator's decisions settled every design question; what remains is
