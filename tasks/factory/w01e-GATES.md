@@ -143,9 +143,12 @@ the one interface, the adapter, and a real proof.
   vitest legs this assembly omits, so it reports 701 files short, none of them touched here.
 
 - [x] G10: The contract is recorded where consumers read it.
-  EVIDENCE: a dated 2026-09-20 line in interface freeze section 16, at
-  `/tmp/factory-platform-evidence/w00/shared-interfaces.md`, copied to
-  `w01e/shared-interfaces-with-w01e-addendum.md`.
+  EVIDENCE: a dated 2026-09-20 line in section 16 of the interface freeze,
+  `docs/plans/2026-09-13-composable-factory-platform-interfaces.md`, beside the other dated
+  corrections. Section 6's file list also names the four files that carry the surface:
+  `packages/@ezcorp/factory-sdk/src/types.ts` for the two wire types and their limits, and
+  `guest-model-broker.ts`, `guest-model-journal.ts` and `provider-one-hop.ts` under
+  `src/factory/runner/`.
 
 ## The guest program shape W10 and W11 implement — migration note
 
@@ -198,14 +201,21 @@ Bounds a guest must respect, from `FACTORY_GUEST_MODEL_LIMITS`, measured in BYTE
   process, so no product path may use it. It exists for fixtures and keeps the same one-winner
   rule so the guest-visible contract is identical.
 
-## A finding for the coordinator
+## Correction: which document is the freeze
 
-The interface freeze at `/tmp/factory-platform-evidence/w00/shared-interfaces.md` is dated
-2026-09-13 and had no section 16 at all. The 2026-09-14 W01c line that `tasks/factory/w01c-GATES.md`
-records as landed is not present in it either. I created section 16 and wrote this leaf's line into
-it, and kept a copy at `w01e/shared-interfaces-with-w01e-addendum.md` in case the shared file is
-overwritten again. The W01c line needs restoring from
-`/tmp/factory-platform-evidence/w01c/materials-mount-review.md`.
+An earlier revision of this gate file reported the W01c line as missing from the freeze. That was
+wrong, and the mistake was mine: I wrote to `/tmp/factory-platform-evidence/w00/shared-interfaces.md`,
+which is a stale W00 draft copy that nothing reads.
+
+The freeze of record is the repository document,
+`docs/plans/2026-09-13-composable-factory-platform-interfaces.md`, sections 0 to 17. Its section 16
+carries the dated corrections, including the 2026-09-14 W01c material mount and guest byte path
+lines, both present and both confirmed by the W01c validator. This leaf's line is now there too,
+and section 6's file list names the four files that carry the surface. Nothing needs restoring.
+
+Lesson: the freeze is a committed document under `docs/plans/`, not an evidence artifact under
+`/tmp`. A document nothing reads cannot be a contract, and I should have checked which one
+consumers actually import before concluding an entry had been lost.
 
 ## Lessons
 
