@@ -5,6 +5,7 @@ import { requireScope } from "$lib/server/security/api-keys";
 import { getSandboxController } from "$server/runtime/sandbox/controller";
 import { LOCAL_MVP_LIMITS, sandboxError, statusDto } from "$lib/server/sandbox-route";
 import { errorJson } from "$lib/server/http-errors";
+import { disableBunRequestIdleTimeout } from "$lib/server/bun-request-timeout";
 import type { RequestHandler } from "./$types";
 
 const createBody = z.object({
@@ -13,7 +14,7 @@ const createBody = z.object({
 	providerId: z.string().min(1).max(120),
 }).strict();
 
-export const POST: RequestHandler = async ({ request, locals }) => {
+export const POST: RequestHandler = async ({ request, locals, platform }) => {
 	const scopeErr = requireScope(locals, "write");
 	if (scopeErr) return scopeErr;
 	const user = requireAuth(locals);
@@ -30,6 +31,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 			limits: LOCAL_MVP_LIMITS,
 		});
 		if (!admitted.operation?.id) return errorJson(409, "Sandbox creation was not admitted");
+		disableBunRequestIdleTimeout(platform);
 		await controller.executeAdmittedLocalSandboxOperation(user.id, admitted.operation.id);
 		const status = await controller.getProjectSandboxStatus(user.id, admitted.projectId);
 		return json({ project: { id: status.projectId }, sandbox: statusDto(status) }, { status: 201 });

@@ -5,6 +5,7 @@ import { requireScope } from "$lib/server/security/api-keys";
 import { getSandboxController } from "$server/runtime/sandbox/controller";
 import { errorJson } from "$lib/server/http-errors";
 import { sandboxError, statusDto } from "$lib/server/sandbox-route";
+import { disableBunRequestIdleTimeout } from "$lib/server/bun-request-timeout";
 import type { RequestHandler } from "./$types";
 
 const actionBody = z.object({ action: z.enum(["start", "stop", "destroy"]) }).strict();
@@ -20,7 +21,7 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	}
 };
 
-export const POST: RequestHandler = async ({ params, request, locals }) => {
+export const POST: RequestHandler = async ({ params, request, locals, platform }) => {
 	const scopeErr = requireScope(locals, "write");
 	if (scopeErr) return scopeErr;
 	const user = requireAuth(locals);
@@ -34,6 +35,7 @@ export const POST: RequestHandler = async ({ params, request, locals }) => {
 			action: parsed.data.action,
 			idempotencyKey,
 		});
+		disableBunRequestIdleTimeout(platform);
 		await controller.executeAdmittedLocalSandboxOperation(user.id, operation.id);
 		return json(statusDto(await controller.getProjectSandboxStatus(user.id, params.id)));
 	} catch (error) {

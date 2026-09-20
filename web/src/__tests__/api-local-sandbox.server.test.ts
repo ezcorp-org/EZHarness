@@ -30,12 +30,20 @@ const provider = { installationId: "11111111-1111-4111-8111-111111111111", provi
 const sandboxStatus = { projectId: "sandbox", bindingId: "binding", provider, resource: { resourceId: "resource", observedState: "stopped", desiredState: "stopped", limits: {} }, operation: null };
 
 const idempotencyKey = "22222222-2222-4222-8222-222222222222";
-function event(path: string, options: { body?: unknown; locals?: Record<string, unknown>; params?: Record<string, string>; idempotent?: boolean } = {}) {
-	return makeRequestEvent(`http://localhost${path}`, {
+function event(path: string, options: { body?: unknown; locals?: Record<string, unknown>; params?: Record<string, string>; idempotent?: boolean; platform?: { server: { timeout: ReturnType<typeof vi.fn> }; request: Request } } = {}) {
+	const requestEvent = makeRequestEvent(`http://localhost${path}`, {
 		locals: options.locals ?? local,
 		params: options.params ?? {},
 		request: { method: "POST", headers: { "content-type": "application/json", ...(options.idempotent === false ? {} : { "Idempotency-Key": idempotencyKey }) }, body: options.body === undefined ? undefined : JSON.stringify(options.body) },
 	});
+	requestEvent.platform = options.platform;
+	return requestEvent;
+}
+
+function bunPlatform(path: string) {
+	const timeout = vi.fn();
+	const request = new Request(`http://localhost${path}`);
+	return { timeout, request, platform: { server: { timeout }, request } };
 }
 
 beforeEach(() => {
@@ -78,6 +86,40 @@ describe("local sandbox API", () => {
 		expect(controller.executeAdmittedLocalSandboxOperation).toHaveBeenCalledWith("user-1", "create-operation");
 		expect(controller.getProjectSandboxStatus).toHaveBeenCalledWith("user-1", "sandbox");
 		expect(await response.json()).toMatchObject({ project: { id: "sandbox" } });
+	});
+
+	test("keeps admitted lifecycle and broker callback requests alive through their bounded operation", async () => {
+		const createPlatform = bunPlatform("/api/sandboxes");
+		const createResponse = await create(event("/api/sandboxes", {
+			body: { name: "Sandbox", providerInstallationId: provider.installationId, providerId: "podman" },
+			platform: createPlatform.platform,
+		}) as never);
+		expect(createResponse.status).toBe(201);
+		expect(createPlatform.timeout).toHaveBeenCalledWith(createPlatform.request, 0);
+
+		const actionPlatform = bunPlatform("/api/projects/sandbox/sandbox");
+		const actionResponse = await action(event("/api/projects/sandbox/sandbox", {
+			params: { id: "sandbox" }, body: { action: "destroy" }, platform: actionPlatform.platform,
+		}) as never);
+		expect(actionResponse.status).toBe(200);
+		expect(actionPlatform.timeout).toHaveBeenCalledWith(actionPlatform.request, 0);
+
+		const rawPlatform = bunPlatform("/api/local-sandbox/operations/operation/execute");
+		const rawResponse = await execute(event("/api/local-sandbox/operations/operation/execute", {
+			params: { id: "operation" }, locals: { ...local, authMethod: "internal" }, platform: rawPlatform.platform,
+		}) as never);
+		expect(rawResponse.status).toBe(200);
+		expect(rawPlatform.timeout).toHaveBeenCalledWith(rawPlatform.request, 0);
+	});
+
+	test("does not extend a sandbox request before it is admitted", async () => {
+		const { timeout, platform } = bunPlatform("/api/sandboxes");
+		const response = await create(event("/api/sandboxes", {
+			body: { name: "Sandbox", providerInstallationId: provider.installationId, providerId: provider.providerId, path: "/host" },
+			platform,
+		}) as never);
+		expect(response.status).toBe(400);
+		expect(timeout).not.toHaveBeenCalled();
 	});
 
 	test("does not execute a creation that was not durably admitted", async () => {

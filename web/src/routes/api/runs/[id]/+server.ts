@@ -4,6 +4,7 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { errorJson } from "$lib/server/http-errors";
 import { awaitRunCompletion } from "$server/runtime/await-run-completion";
+import { disableBunRequestIdleTimeout } from "$lib/server/bun-request-timeout";
 import { resolveRootConversationForOwnership } from "$lib/server/conversation-ownership";
 import type { AuthUser } from "$server/auth/types";
 import type { RequestHandler } from "./$types";
@@ -76,10 +77,7 @@ export const GET: RequestHandler = async ({ params, url, locals, request, platfo
     if (activeWaits >= maxConcurrentWaits()) {
       return errorJson(429, "Too many concurrent run waits", { retryAfter: 5 });
     }
-    // svelte-adapter-bun applies an idle timeout to ordinary responses. A
-    // bounded, authorized long-poll intentionally has no response bytes until
-    // completion, so keep its original Bun request alive for its wait bound.
-    if (platform?.server?.timeout && platform.request) platform.server.timeout(platform.request, 0);
+    disableBunRequestIdleTimeout(platform);
     activeWaits++;
     try {
       const result = await awaitRunCompletion({
