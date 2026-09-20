@@ -3125,6 +3125,70 @@ export const factoryChildArtifactAliases = pgTable("factory_child_artifact_alias
   check("factory_child_artifact_aliases_alias_digest_check", sql`${table.aliasDigest} ~ '^sha256:[0-9a-f]{64}$'`),
 ]);
 
+/**
+ * A tenant administrator's attestation for a legacy workflow outside the
+ * non-publishing allowlist, bound to the pinned definition and to the
+ * classification the administrator saw.
+ */
+export const factoryLegacyAttestations = pgTable("factory_legacy_attestations", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), workflowName: text("workflow_name").notNull(),
+  definitionDigest: text("definition_digest").notNull(), classificationDigest: text("classification_digest").notNull(),
+  classificationJson: text("classification_json").notNull(), attestedBy: text("attested_by").notNull(),
+  attestationDigest: text("attestation_digest").notNull(), revoked: boolean("revoked").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.workflowName, table.definitionDigest] }),
+  check("factory_legacy_attestations_definition_digest_check", sql`${table.definitionDigest} ~ '^[0-9a-f]{64}$'`),
+  check("factory_legacy_attestations_classification_digest_check", sql`${table.classificationDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_attestations_attestation_digest_check", sql`${table.attestationDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+]);
+
+/** The journal written and committed before the legacy engine is called. */
+export const factoryLegacyWorkflowStarts = pgTable("factory_legacy_workflow_starts", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(),
+  attemptId: text("attempt_id").notNull(), idempotencyKey: text("idempotency_key").notNull(), workflowName: text("workflow_name").notNull(),
+  definitionDigest: text("definition_digest").notNull(), classificationDigest: text("classification_digest").notNull(),
+  attestationDigest: text("attestation_digest"), inputDigest: text("input_digest").notNull(), journalDigest: text("journal_digest").notNull(),
+  legacyRunId: text("legacy_run_id"), state: text("state").notNull().$type<"journaled" | "started" | "settled">(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration, table.attemptId] }),
+  uniqueIndex("uq_factory_legacy_workflow_starts_key").on(table.tenantId, table.idempotencyKey),
+  foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+  check("factory_legacy_workflow_starts_candidate_generation_check", sql`${table.candidateGeneration} >= 0`),
+  check("factory_legacy_workflow_starts_key_check", sql`${table.idempotencyKey} LIKE 'factory:%'`),
+  check("factory_legacy_workflow_starts_definition_digest_check", sql`${table.definitionDigest} ~ '^[0-9a-f]{64}$'`),
+  check("factory_legacy_workflow_starts_classification_digest_check", sql`${table.classificationDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_workflow_starts_input_digest_check", sql`${table.inputDigest} ~ '^[0-9a-f]{64}$'`),
+  check("factory_legacy_workflow_starts_journal_digest_check", sql`${table.journalDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_workflow_starts_state_check", sql`${table.state} IN ('journaled', 'started', 'settled')`),
+  check("factory_legacy_workflow_starts_started_check", sql`${table.state} = 'journaled' OR ${table.legacyRunId} IS NOT NULL`),
+]);
+
+/** One recorded, digest-verified copy of a legacy output into the factory store. */
+export const factoryLegacyImports = pgTable("factory_legacy_imports", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(),
+  attemptId: text("attempt_id").notNull(), sourceName: text("source_name").notNull(), legacyRunId: text("legacy_run_id").notNull(),
+  declaredDigest: text("declared_digest").notNull(), verifiedDigest: text("verified_digest").notNull(),
+  byteCount: bigint("byte_count", { mode: "number" }).notNull(), objectId: text("object_id").notNull(),
+  importDigest: text("import_digest").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration, table.attemptId, table.sourceName] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration, table.attemptId], foreignColumns: [factoryLegacyWorkflowStarts.tenantId, factoryLegacyWorkflowStarts.projectId, factoryLegacyWorkflowStarts.runId, factoryLegacyWorkflowStarts.nodeInstanceId, factoryLegacyWorkflowStarts.candidateGeneration, factoryLegacyWorkflowStarts.attemptId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.objectId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+  check("factory_legacy_imports_candidate_generation_check", sql`${table.candidateGeneration} >= 0`),
+  check("factory_legacy_imports_declared_digest_check", sql`${table.declaredDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_imports_verified_digest_check", sql`${table.verifiedDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_imports_byte_count_check", sql`${table.byteCount} > 0`),
+  check("factory_legacy_imports_import_digest_check", sql`${table.importDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_imports_digest_agreement_check", sql`${table.declaredDigest} = ${table.verifiedDigest}`),
+]);
+
 export const factoryReleaseApprovals = pgTable("factory_release_approvals", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), approvalId: text("approval_id").notNull(), operationId: text("operation_id").notNull(), contextDigest: text("context_digest").notNull(), decisionId: text("decision_id").notNull(), principalId: text("principal_id").notNull().references(() => users.id, { onDelete: "restrict" }), grantRevision: bigint("grant_revision", { mode: "number" }).notNull(), expectedGeneration: bigint("expected_generation", { mode: "number" }).notNull(), expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), status: text("status").notNull().$type<"pending" | "approved" | "rejected" | "consumed" | "revoked">(), approvedBy: text("approved_by").references(() => users.id, { onDelete: "restrict" }), approvedGrantRevision: bigint("approved_grant_revision", { mode: "number" }), consumedAt: timestamp("consumed_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.approvalId] }), uniqueIndex("idx_factory_release_approvals_operation_generation").on(table.tenantId, table.projectId, table.operationId, table.expectedGeneration), foreignKey({ columns: [table.tenantId, table.projectId, table.decisionId], foreignColumns: [factoryAcceptanceDecisions.tenantId, factoryAcceptanceDecisions.projectId, factoryAcceptanceDecisions.decisionId] }).onDelete("restrict")]);

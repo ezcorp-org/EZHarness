@@ -44,7 +44,7 @@ import { getWorkflowByName } from "../db/queries/workflows";
 import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import { workflowScopeKey } from "./workflow-scope-key";
 import { systemCachedWorkflow, type CachedWorkflow } from "./workflow-scope";
-import { resolveWorkflowServiceOrigin, workflowReleaseCanExecute, type WorkflowExecutionAuthority, type HostWorkflowParentResolver } from "./workflow-release-assets";
+import { resolveWorkflowServiceOrigin, workflowReleaseCanExecute, WORKFLOW_RELEASE_AUTHORITY_LOST, type WorkflowExecutionAuthority, type HostWorkflowParentResolver } from "./workflow-release-assets";
 import type { InvocationGuard } from "../extensions/runtime-locks";
 import { createHostServiceInvocation, createServiceInvocation, type ServiceInvocation } from "../extensions/service-invocation";
 import { getWorkflowRuntime, workflowResumeEntry } from "./workflow/runtime-registry";
@@ -909,7 +909,7 @@ export class WorkflowExecutor {
     const authority = { ...opts, userId, projectId };
     const parentResolver = opts?.parentResolver ?? this.createHostParentResolver(workflow, authority);
     if (!isPureWorkflowExecutor(this) && (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, authority, undefined, parentResolver))) {
-      throw new Error("Workflow release authority is no longer available");
+      throw new Error(WORKFLOW_RELEASE_AUTHORITY_LOST);
     }
 
     if (usesFactoryKey) {
@@ -1027,7 +1027,20 @@ export class WorkflowExecutor {
       if (usesFactoryKey) await insertRun();
       else await persistStart.call(this, "insert", insertRun);
     } catch (error) {
-      if (usesFactoryKey && isUniqueViolation(error)) {
+      // A unique-key conflict is a CONCURRENT START of the same logical run,
+      // never a durability failure, and that is true of every namespace —
+      // `nested:` as much as `factory:`. Gating the discrimination on the
+      // factory prefix left a `nested:` conflict reported as
+      // `run-persistence-failed`, which says the row was not confirmed when
+      // in fact a row with that exact key already exists.
+      //
+      // `persistCritical` wraps the driver error in a `WorkflowCursorWriteError`
+      // whose `cause` is drizzle's wrapper, and `isUniqueViolation` looks one
+      // level down from what it is handed. Unwrapping exactly this one known
+      // envelope is what lets it reach the SQLSTATE; walking `cause` blindly
+      // would make an unrelated nested error look like a conflict.
+      const violation = error instanceof WorkflowCursorWriteError ? error.cause : error;
+      if (idempotencyKey !== undefined && isUniqueViolation(violation)) {
         try {
           const existing = await this.findFactoryRun(
             workflow.name,
@@ -1051,7 +1064,7 @@ export class WorkflowExecutor {
     opts?.onRunCreated?.(workflowRun);
 
     if (!isPureWorkflowExecutor(this) && !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId }, undefined, parentResolver)) {
-      return this.refuseWorkflow(workflowRun, "release-unavailable", "Workflow release authority is no longer available", userId, "start-refusal");
+      return this.refuseWorkflow(workflowRun, "release-unavailable", WORKFLOW_RELEASE_AUTHORITY_LOST, userId, "start-refusal");
     }
     return this.executeFrom({
       workflow,
@@ -1280,7 +1293,7 @@ export class WorkflowExecutor {
     // and it names what it compared so the refusal is actionable rather
     // than a bare "changed".
     if (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, row, undefined, parentResolver)) {
-      return refuseTransient("not-resumable", "Workflow release authority is no longer available");
+      return refuseTransient("not-resumable", WORKFLOW_RELEASE_AUTHORITY_LOST);
     }
     const currentHash = workflowExecutionHash(workflow, entry.extensionRelease);
     if (entry.source === "extension" && row.definitionHash === null) {
@@ -1306,7 +1319,7 @@ export class WorkflowExecutor {
 
     const depth = await workflowRunNestingDepth(row.parentRunId, MAX_WORKFLOW_NESTING_DEPTH);
     if (!await workflowReleaseCanExecute(entry, row, undefined, parentResolver)) {
-      return refuseTransient("not-resumable", "Workflow release authority is no longer available");
+      return refuseTransient("not-resumable", WORKFLOW_RELEASE_AUTHORITY_LOST);
     }
     return this.executeFrom({
       workflow,
@@ -1388,7 +1401,7 @@ export class WorkflowExecutor {
     const { workflow, input, workflowRun, projectId, userId, signal } = ctx;
     const invocationGuard: InvocationGuard | undefined = !isPureWorkflowExecutor(this) && (ctx.releaseEntry.source === "extension" || ctx.invocationGuard || ctx.releasePrincipal.parentRunId || ctx.releasePrincipal.delegationId) ? async database => {
       await ctx.invocationGuard?.(database);
-      if (!await workflowReleaseCanExecute(ctx.releaseEntry, ctx.releasePrincipal, database, ctx.parentResolver)) throw new Error("Workflow release authority is no longer available");
+      if (!await workflowReleaseCanExecute(ctx.releaseEntry, ctx.releasePrincipal, database, ctx.parentResolver)) throw new Error(WORKFLOW_RELEASE_AUTHORITY_LOST);
     } : undefined;
     const stepResults = ctx.stepResults;
     const skippedSteps = ctx.skippedSteps;
@@ -3148,7 +3161,7 @@ export async function resumeClaimedRun(
       result: {
         success: false,
         output: null,
-        error: { code: "not-resumable", message: "Workflow release authority is no longer available" },
+        error: { code: "not-resumable", message: WORKFLOW_RELEASE_AUTHORITY_LOST },
       },
     };
   }

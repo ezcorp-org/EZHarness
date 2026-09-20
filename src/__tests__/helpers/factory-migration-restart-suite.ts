@@ -373,6 +373,33 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     }
   });
 
+  test("repeated migration keeps the legacy adapter's journal, attestation, and import keys", async () => {
+    const db = fixture.db;
+    const keysOf = async (table: string) => rows<{ definition: string }>(await db.execute(sql`SELECT pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid=${`${table}`}::regclass AND contype IN ('p','f','u') ORDER BY definition`));
+    const before = {
+      attestations: await keysOf("factory_legacy_attestations"),
+      starts: await keysOf("factory_legacy_workflow_starts"),
+      imports: await keysOf("factory_legacy_imports"),
+    };
+    // The attestation binds by digest and therefore carries no foreign key; the
+    // journal names its attempt; the import names its journal and its artifact.
+    expect(before.attestations.filter(row => row.definition.startsWith("FOREIGN KEY"))).toHaveLength(0);
+    expect(before.starts.filter(row => row.definition.startsWith("FOREIGN KEY"))).toHaveLength(1);
+    expect(before.imports.filter(row => row.definition.startsWith("FOREIGN KEY"))).toHaveLength(2);
+
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      expect(await keysOf("factory_legacy_attestations")).toEqual(before.attestations);
+      expect(await keysOf("factory_legacy_workflow_starts")).toEqual(before.starts);
+      expect(await keysOf("factory_legacy_imports")).toEqual(before.imports);
+      expect(rows<{ indexdef: string }>(await db.execute(sql`SELECT indexdef FROM pg_indexes WHERE indexname='uq_factory_legacy_workflow_starts_key'`))).toHaveLength(1);
+      const orphan = await db.execute(sql`INSERT INTO factory_legacy_workflow_starts(tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_id,idempotency_key,workflow_name,definition_digest,classification_digest,input_digest,journal_digest,state) VALUES ('restart-tenant','restart-project','restart-run','node',0,'no-such-attempt','factory:legacy:x','w',${"a".repeat(64)},${`sha256:${"b".repeat(64)}`},${"c".repeat(64)},${`sha256:${"d".repeat(64)}`},'journaled')`).then(() => null, (error: unknown) => error);
+      expect(orphan).toBeInstanceOf(Error);
+      const unnamespaced = await db.execute(sql`INSERT INTO factory_legacy_attestations(tenant_id,project_id,workflow_name,definition_digest,classification_digest,classification_json,attested_by,attestation_digest) VALUES ('restart-tenant','restart-project','w','not-a-digest',${`sha256:${"b".repeat(64)}`},'{}','admin',${`sha256:${"d".repeat(64)}`})`).then(() => null, (error: unknown) => error);
+      expect(unnamespaced).toBeInstanceOf(Error);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);
