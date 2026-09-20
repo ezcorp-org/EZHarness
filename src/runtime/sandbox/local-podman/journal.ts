@@ -5,6 +5,7 @@ import type { ProviderCall, ProviderReceipt } from "@ezcorp/extension-contract";
 type Pending = { version: 1; state: "pending"; call: ProviderCall };
 type Complete<T> = { version: 1; state: "complete"; call: ProviderCall; result: T };
 type RecordValue<T> = Pending | Complete<T>;
+type Destroyed<T> = { version: 1; state: "destroyed"; resourceId: string; scope: ProviderCall["scope"]; result: T };
 export type JournalBegin<T> = { kind: "new" } | { kind: "replay"; result: T } | { kind: "unknown"; receipt: ProviderReceipt };
 export type RecoverableJournalBegin<T> = { kind: "new" | "recover" } | { kind: "replay"; result: T };
 
@@ -16,6 +17,7 @@ function same(a: ProviderCall, b: ProviderCall): boolean { return a.requestDiges
 export class DurableOperationJournal {
   constructor(private readonly root: string) {}
   private path(call: ProviderCall): string { return `${this.root}/${key(call)}.json`; }
+  private destroyedPath(resourceId: string): string { return `${this.root}/destroyed-${createHash("sha256").update(resourceId).digest("hex")}.json`; }
   private async publish(path: string, value: unknown, exclusive: boolean): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const temporary = `${path}.${crypto.randomUUID()}.new`;
@@ -44,6 +46,28 @@ export class DurableOperationJournal {
     const begun = await this.begin<T>(call);
     if (begun.kind === "unknown") return { kind: "recover" };
     return begun;
+  }
+  async completed<T>(call: ProviderCall): Promise<T | undefined> {
+    let record: RecordValue<T>;
+    try { record = JSON.parse(await readFile(this.path(call), "utf8")) as RecordValue<T>; }
+    catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined; throw error; }
+    if (!same(record.call, call)) throw new Error("idempotency key conflicts with another request");
+    return record.state === "complete" ? record.result : undefined;
+  }
+  async destroyed<T>(resourceId: string, scope: ProviderCall["scope"]): Promise<T | undefined> {
+    let record: Destroyed<T>;
+    try { record = JSON.parse(await readFile(this.destroyedPath(resourceId), "utf8")) as Destroyed<T>; }
+    catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") return undefined; throw error; }
+    if (record.version !== 1 || record.state !== "destroyed" || record.resourceId !== resourceId || JSON.stringify(record.scope) !== JSON.stringify(scope)) throw new Error("destroyed resource scope mismatch");
+    return record.result;
+  }
+  async recordDestroyed<T>(resourceId: string, call: ProviderCall, result: T): Promise<void> {
+    const path = this.destroyedPath(resourceId);
+    try { await this.publish(path, { version: 1, state: "destroyed", resourceId, scope: call.scope, result } satisfies Destroyed<T>, true); }
+    catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;
+      const existing = await this.destroyed<T>(resourceId, call.scope); if (JSON.stringify(existing) !== JSON.stringify(result)) throw new Error("destroyed resource already has a different result");
+    }
   }
   async complete<T>(call: ProviderCall, result: T): Promise<void> {
     const path = this.path(call); let current: RecordValue<T>;

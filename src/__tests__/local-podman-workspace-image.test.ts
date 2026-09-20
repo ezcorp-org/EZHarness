@@ -11,7 +11,7 @@ afterEach(async () => { process.env.PATH = originalPath; await Promise.all(roots
 
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "ez-workspace-image-")); roots.push(root);
-  const bin = join(root, "bin"); const log = join(root, "commands.jsonl"); const control = join(root, "control");
+  const bin = join(root, "bin"); const log = join(root, "commands.jsonl"); const control = join(root, "control"); const mountState = join(root, "mounted");
   await mkdir(bin);
   const script = `#!${process.execPath}
 import { appendFile, readFile, writeFile } from "node:fs/promises";
@@ -19,19 +19,22 @@ const name = "__COMMAND__"; const args = process.argv.slice(2); await appendFile
 let mode = ""; try { mode = await readFile(${JSON.stringify(control)}, "utf8"); } catch (error) { if (error.code !== "ENOENT") throw error; }
 if (mode.trim() === name + ":fail") process.exit(2);
 if (name === "truncate") await writeFile(args.at(-1), new Uint8Array(1));
+if (name === "fuse2fs") await writeFile(${JSON.stringify(mountState)}, args.at(-1));
+if (name === "fusermount3") await writeFile(${JSON.stringify(mountState)}, "");
 if (name === "e2fsck" && mode.trim() === "e2fsck:repair") process.exit(1);
 `;
   for (const name of ["truncate", "mkfs.ext2", "fuse2fs", "fusermount3", "e2fsck"]) { const path = join(bin, name); await writeFile(path, script.replace("__COMMAND__", name)); await chmod(path, 0o700); }
   process.env.PATH = `${bin}:${originalPath ?? ""}`;
   const config = { fuse2fsPath: join(bin, "fuse2fs") } as ConstructorParameters<typeof WorkspaceImage>[0];
-  const tools = { truncate: join(bin, "truncate"), mkfs: join(bin, "mkfs.ext2"), unmount: join(bin, "fusermount3"), check: join(bin, "e2fsck") };
-  return { root, log, control, image: join(root, "workspace.ext2"), mount: join(root, "mount"), images: new WorkspaceImage(config, tools) };
+  const tools = { truncate: join(bin, "truncate"), mkfs: join(bin, "mkfs.ext2"), unmount: join(bin, "fusermount3"), check: join(bin, "e2fsck"), readMountInfo: async () => { try { const mount = await readFile(mountState, "utf8"); return mount ? `1 1 1:1 / ${mount} rw - fuse x rw\n` : ""; } catch { return ""; } } };
+  return { root, log, control, mountState, image: join(root, "workspace.ext2"), mount: join(root, "mount"), images: new WorkspaceImage(config, tools) };
 }
 
 describe("WorkspaceImage", () => {
   test("creates, checks, measures, and destroys an owned image through bounded commands", async () => {
     const f = await fixture();
     await f.images.create(f.image, f.mount, 16 * 1024 * 1024);
+    await writeFile(f.mountState, "");
     await f.images.recoverCreate(f.image, f.mount, 16 * 1024 * 1024);
     await f.images.check(f.image); await writeFile(f.control, "e2fsck:repair"); await f.images.check(f.image);
     await writeFile(f.image, Buffer.alloc(4096, 1));
@@ -40,6 +43,15 @@ describe("WorkspaceImage", () => {
     await expect(stat(f.image)).rejects.toThrow(); await expect(stat(f.mount)).rejects.toThrow();
     const names = (await readFile(f.log, "utf8")).trim().split("\n").map((line) => JSON.parse(line).name);
     expect(names).toEqual(["truncate", "mkfs.ext2", "fuse2fs", "truncate", "mkfs.ext2", "fuse2fs", "e2fsck", "e2fsck", "fusermount3"]);
+  });
+
+  test("finishes disposal when the prior attempt already unmounted the image", async () => {
+    const f = await fixture();
+    await mkdir(f.mount); await writeFile(f.image, "image"); await writeFile(f.mountState, "");
+    await f.images.destroy(f.image, f.mount);
+    await f.images.destroy(f.image, f.mount);
+    await expect(stat(f.image)).rejects.toThrow(); await expect(stat(f.mount)).rejects.toThrow();
+    await expect(readFile(f.log, "utf8")).rejects.toThrow();
   });
 
   test("rejects invalid sizes and command failures, and retains data after an unmount failure", async () => {

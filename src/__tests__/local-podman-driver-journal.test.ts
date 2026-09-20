@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { LocalPodmanDriver } from "../runtime/sandbox/local-podman/driver";
 import { DurableOperationJournal } from "../runtime/sandbox/local-podman/journal";
@@ -55,6 +55,38 @@ describe("local lifecycle journal integration", () => {
   test("replays a completed mutation without another effect", async () => { const { driver, log } = await fixture(); const first = await driver.start(input()); const second = await driver.start(input()); expect(second).toEqual(first); expect((await readFile(log, "utf8")).trim().split("\n")).toHaveLength(1); });
   test("accepts Podman's omitted UTS mode as its normalized private namespace", async () => { const { driver, live, inspect } = await fixture(); delete (live.HostConfig as Record<string, unknown>).UtsMode; await writeFile(inspect, JSON.stringify([live])); expect((await driver.start(input())).receipt.outcome).toBe("succeeded"); });
   test("recovers pending mutation as unknown without an effect", async () => { const { driver, log, config } = await fixture(); await new DurableOperationJournal(`${config.stateRoot}/operations`).begin(input().call); const result = await driver.start(input()); expect(result.receipt.outcome).toBe("unknown"); await expect(readFile(log, "utf8")).rejects.toThrow(); });
+  test("recovers disposal after workspace cleanup was interrupted", async () => {
+    const f = await fixture(); const paths = resourcePaths(f.config.stateRoot, "resource"); await writeFile(paths.image, "image");
+    class InterruptedCleanup extends WorkspaceImage { override async destroy(image: string, mount: string) { await rm(image, { force: true }); await rm(mount, { recursive: true, force: true }); throw new Error("crash after unmount"); } }
+    const call = { ...input().call, operationId: "destroy-recovery", idempotencyKey: "destroy-recovery" };
+    const first = await new LocalPodmanDriver(f.config, { workspaceImage: new InterruptedCleanup(f.config) }).destroy({ call, resourceId: "resource" });
+    expect(first.receipt).toMatchObject({ outcome: "unknown", error: { code: "cleanup_unknown" } });
+    const recovered = await new LocalPodmanDriver(f.config).destroy({ call, resourceId: "resource" });
+    expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, resource: { observedState: "destroyed" } });
+    await expect(stat(paths.root)).rejects.toThrow();
+    const freshCall = { ...input().call, operationId: "destroy-fresh", idempotencyKey: "destroy-fresh", requestDigest: "d".repeat(64) };
+    const retried = await new LocalPodmanDriver(f.config).destroy({ call: freshCall, resourceId: "resource" });
+    expect(retried).toMatchObject({ receipt: { operationId: freshCall.operationId, requestDigest: freshCall.requestDigest, outcome: "succeeded" }, resource: { resourceId: "resource", observedState: "destroyed" } });
+    const foreign = await new LocalPodmanDriver(f.config).destroy({ call: { ...freshCall, operationId: "foreign", idempotencyKey: "foreign", scope: { ...freshCall.scope, projectId: "foreign" } }, resourceId: "resource" });
+    expect(foreign.receipt).toMatchObject({ outcome: "failed", error: { code: "scope_mismatch" } });
+  });
+  test("finishes root cleanup before replaying a durably completed disposal", async () => {
+    const f = await fixture(); const call = { ...input().call, operationId: "destroy-complete", idempotencyKey: "destroy-complete" };
+    const limits = f.live.HostConfig; const result = { receipt: { operationId: call.operationId, idempotencyKey: call.idempotencyKey, requestDigest: call.requestDigest, outcome: "succeeded" as const }, resource: { resourceId: "resource", desiredState: "destroyed" as const, observedState: "destroyed" as const, limits: { memoryBytes: limits.Memory, milliCpu: limits.NanoCpus / 1_000_000, pids: limits.PidsLimit, diskBytes: 32 * 1024 * 1024 } } };
+    const journal = new DurableOperationJournal(`${f.config.stateRoot}/operations`); await journal.beginRecoverable(call); await journal.complete(call, result);
+    await expect(new LocalPodmanDriver(f.config).destroy({ call, resourceId: "other" })).rejects.toThrow("another resource");
+    expect((await stat(resourcePaths(f.config.stateRoot, "resource").root)).isDirectory()).toBe(true);
+    expect(await new LocalPodmanDriver(f.config).destroy({ call, resourceId: "resource" })).toEqual(result);
+    await expect(stat(resourcePaths(f.config.stateRoot, "resource").root)).rejects.toThrow();
+  });
+  test("serializes concurrent retries of the same disposal", async () => {
+    const f = await fixture(); let cleanups = 0; const entered = Promise.withResolvers<void>(); const release = Promise.withResolvers<void>();
+    class PausedCleanup extends WorkspaceImage { override async destroy() { cleanups++; entered.resolve(); await release.promise; } }
+    const driver = new LocalPodmanDriver(f.config, { workspaceImage: new PausedCleanup(f.config) }); const call = { ...input().call, operationId: "destroy-concurrent", idempotencyKey: "destroy-concurrent" };
+    const first = driver.destroy({ call, resourceId: "resource" }); await entered.promise;
+    const second = driver.destroy({ call, resourceId: "resource" }); release.resolve();
+    expect(await second).toEqual(await first); expect(cleanups).toBe(1);
+  });
   test("rejects an idempotency collision before an effect", async () => { const { driver, log } = await fixture(); await driver.start(input()); await expect(driver.start({ ...input(), call: { ...input().call, requestDigest: "b".repeat(64) } })).rejects.toThrow("conflicts"); expect((await readFile(log, "utf8")).trim().split("\n")).toHaveLength(1); });
   test("denies inspect, start, stop, and destroy before effects when exact identity differs", async () => {
     const changes: [string, (live: Record<string, any>) => void][] = [

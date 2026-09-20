@@ -27,7 +27,7 @@ function receipt(call: ProviderCall, outcome: "succeeded" | "failed" | "unknown"
 }
 
 export class LocalPodmanDriver {
-  private readonly config: LocalPodmanHostConfig; private readonly roots: ResourceRoot; private readonly images: WorkspaceImage; private readonly journal: DurableOperationJournal; private readonly supervisor: LocalProcessSupervisor; private readonly fileSystems = new Map<string, LocalWorkspaceFiles>(); private runtimeProof?: Promise<void>;
+  private readonly config: LocalPodmanHostConfig; private readonly roots: ResourceRoot; private readonly images: WorkspaceImage; private readonly journal: DurableOperationJournal; private readonly supervisor: LocalProcessSupervisor; private readonly fileSystems = new Map<string, LocalWorkspaceFiles>(); private readonly destroyLocks = new Map<string, Promise<void>>(); private runtimeProof?: Promise<void>;
   constructor(config: LocalPodmanHostConfig, dependencies: { workspaceImage?: WorkspaceImage } = {}) { this.config = validateHostConfig(config); this.roots = new ResourceRoot(this.config.stateRoot); this.images = dependencies.workspaceImage ?? new WorkspaceImage(this.config); this.journal = new DurableOperationJournal(`${this.config.stateRoot}/operations`); this.supervisor = new LocalProcessSupervisor({ stateRoot: this.config.stateRoot, podmanPath: this.config.podmanPath, supervisorPath: this.config.supervisorPath, maxOutputBytes: 1024 * 1024, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid }, (resourceId) => this.resolveProcessResource(resourceId)); }
   private async mutate<T extends { receipt: unknown }>(call: SandboxCreateInput["call"], effect: () => Promise<T>): Promise<T> {
     const begun = await this.journal.begin<T>(call);
@@ -108,15 +108,43 @@ export class LocalPodmanDriver {
   async stop(input: SandboxStopInput): Promise<SandboxStopResult> { validateProviderMethodValue("sandbox.lifecycle.v1", "stop", "input", input); const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; return this.mutate(input.call, () => this.transition(input, "stopped", authorized.value)); }
   async destroy(input: SandboxDestroyInput): Promise<SandboxDestroyResult> {
     validateProviderMethodValue("sandbox.lifecycle.v1", "destroy", "input", input);
-    const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized;
-    return this.mutate(input.call, async () => {
-    const value = authorized.value;
-    if (value.state !== "destroying") { try { await this.verify(value); } catch { return this.identityMismatch(input.call); } value.state = "destroying"; await this.roots.writeMetadata(value.resourceId, value); }
-    const live = await this.podman(["inspect", value.containerId]);
-    if (live.code === 0) { try { await this.verify(value); } catch { return this.identityMismatch(input.call); } const removed = await this.podman(["rm", "--force", "--volumes", value.containerId]); if (removed.code !== 0 || removed.timedOut) return { receipt: receipt(input.call, "unknown", { code: "destroy_unknown", message: "Container destroy outcome is unknown.", retryable: true }) }; }
-    const paths = resourcePaths(this.config.stateRoot, value.resourceId); try { await this.images.destroy(paths.image, paths.mount); await this.roots.destroy(value.resourceId); this.fileSystems.delete(value.resourceId); } catch { return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
-    return { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: "destroyed", observedState: "destroyed", limits: value.limits } };
-    });
+    const previous = this.destroyLocks.get(input.resourceId); if (previous) await previous;
+    const lock = Promise.withResolvers<void>(); this.destroyLocks.set(input.resourceId, lock.promise);
+    try {
+      const replay = await this.journal.completed<SandboxDestroyResult>(input.call);
+      if (replay) {
+        if (replay.receipt.outcome === "succeeded") {
+          if (!("resource" in replay) || replay.resource.resourceId !== input.resourceId) throw new Error("idempotency key conflicts with another resource");
+          try { await this.roots.destroy(replay.resource.resourceId); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
+        }
+        return replay;
+      }
+      let tombstone: SandboxDestroyResult | undefined;
+      try { tombstone = await this.journal.destroyed<SandboxDestroyResult>(input.resourceId, input.call.scope); }
+      catch { return { receipt: receipt(input.call, "failed", { code: "scope_mismatch", message: "Resource scope mismatch.", retryable: false }) }; }
+      if (tombstone) {
+        if (!("resource" in tombstone) || tombstone.resource.resourceId !== input.resourceId) throw new Error("destroyed resource identity mismatch");
+        const result = { ...tombstone, receipt: receipt(input.call, "succeeded") } as SandboxDestroyResult;
+        const begun = await this.journal.beginRecoverable<SandboxDestroyResult>(input.call); if (begun.kind === "replay") return begun.result;
+        await this.journal.complete(input.call, result);
+        try { await this.roots.destroy(input.resourceId); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
+        return result;
+      }
+      const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized;
+      const begun = await this.journal.beginRecoverable<SandboxDestroyResult>(input.call); if (begun.kind === "replay") return begun.result;
+      const value = authorized.value;
+      if (value.state !== "destroying") { try { await this.verify(value); } catch { const failed = this.identityMismatch(input.call); await this.journal.complete(input.call, failed); return failed; } value.state = "destroying"; await this.roots.writeMetadata(value.resourceId, value); }
+      const live = await this.podman(["inspect", value.containerId]);
+      if (live.timedOut) return { receipt: receipt(input.call, "unknown", { code: "destroy_unknown", message: "Container destroy outcome is unknown.", retryable: true }) };
+      if (live.code === 0) { try { await this.verify(value); } catch { const failed = this.identityMismatch(input.call); await this.journal.complete(input.call, failed); return failed; } const removed = await this.podman(["rm", "--force", "--volumes", value.containerId]); if (removed.code !== 0 || removed.timedOut) return { receipt: receipt(input.call, "unknown", { code: "destroy_unknown", message: "Container destroy outcome is unknown.", retryable: true }) }; }
+      else { const absent = await this.podman(["container", "exists", value.containerName]); if (absent.timedOut || absent.code !== 1) return { receipt: receipt(input.call, "unknown", { code: "destroy_unknown", message: "Container destroy outcome is unknown.", retryable: true }) }; }
+      const paths = resourcePaths(this.config.stateRoot, value.resourceId); try { await this.images.destroy(paths.image, paths.mount); } catch { return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
+      const result = { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: "destroyed", observedState: "destroyed", limits: value.limits } } as SandboxDestroyResult;
+      await this.journal.recordDestroyed(value.resourceId, input.call, result);
+      await this.journal.complete(input.call, result);
+      try { await this.roots.destroy(value.resourceId); } catch { return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
+      this.fileSystems.delete(value.resourceId); return result;
+    } finally { lock.resolve(); if (this.destroyLocks.get(input.resourceId) === lock.promise) this.destroyLocks.delete(input.resourceId); }
   }
   private async resolveProcessResource(resourceId: string): Promise<OwnedProcessResource> {
     await this.roots.verifyPrivateRoot(); const value = await this.roots.readMetadata<Metadata>(resourceId); if (!value.bootId || value.state === "destroying") throw new Error("Resource has no process generation"); await this.verify(value); const paths = resourcePaths(this.config.stateRoot, resourceId);
