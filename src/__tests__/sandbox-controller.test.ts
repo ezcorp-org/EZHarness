@@ -88,6 +88,19 @@ test("replays a settled operation without a second provider effect and admits id
   expect(context.local.start).toHaveBeenCalledTimes(1);
 });
 
+test("persists a process writer lease and denies an interleaved file writer", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Sandbox process')`);
+  const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "process-start", conversationId, payload: { argv: ["echo", "ok"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
+  expect(start.state).toBe("admitted");
+  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "write-during-process", conversationId, payload: { path: "a", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
+  const persisted = await context.controller.getSandboxOperationResult(context.owner.id, start.id);
+  expect(persisted).toMatchObject({ id: start.id, group: "sandbox.process.v1", operation: "start", state: "admitted" });
+});
+
 test("denies a user without project membership before operation execution", async () => {
   const context = await fixture();
   const create = await admitCreate(context);

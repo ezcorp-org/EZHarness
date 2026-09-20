@@ -57,8 +57,10 @@ export interface SandboxController {
   requestSandboxAction(userId: string, projectId: string, input: RequestSandboxActionInput): Promise<AdmittedSandboxOperation>;
   executeAdmittedLocalSandboxOperation(userId: string, operationId: string): Promise<SandboxProjectStatus>;
   admitSandboxMethod(userId: string, projectId: string, input: SandboxMethodInput): Promise<AdmittedSandboxMethod>;
+  executeAdmittedSandboxMethod(userId: string, operationId: string, signal?: AbortSignal): Promise<SandboxOperationResult>;
   getSandboxOperationResult(userId: string, operationId: string): Promise<SandboxOperationResult>;
-  runNativeWorkspaceProcess(target: SandboxWorkspaceTarget, command: NativeWorkspaceCommand, signal: AbortSignal | undefined, principal: WorkspacePrincipal): Promise<SandboxOperationResult>;
+  reconcileSandboxProcess(userId: string, projectId: string, signal?: AbortSignal): Promise<SandboxOperationResult | null>;
+  runNativeWorkspaceProcess(target: SandboxWorkspaceTarget, command: NativeWorkspaceCommand, signal: AbortSignal | undefined, principal: WorkspacePrincipal): Promise<NativeWorkspaceResult>;
 }
 
 /** Future generic dispatch stays project-scoped and never accepts driver data. */
@@ -71,6 +73,7 @@ export interface AdmittedSandboxMethod { id: string; group: SandboxMethodGroup; 
 export interface SandboxOperationResult extends AdmittedSandboxMethod { result?: unknown; receipt?: ProviderReceipt }
 export interface SandboxWorkspaceTarget { projectId: string; bindingId: string; revision: number }
 export interface NativeWorkspaceCommand { argv: string[]; timeoutMs: number }
+export interface NativeWorkspaceResult { stdout: string; exitCode: number }
 export interface WorkspacePrincipal { userId: string; conversationId: string }
 export type SandboxProviderInvocation = (userId: string, projectId: string, provider: LocalSandboxProvider, group: SandboxMethodGroup, operation: string, input: unknown, signal?: AbortSignal) => Promise<unknown>;
 
