@@ -150,6 +150,14 @@ const MODULE_PATHS = [
   "../../db/queries/lessons",
   "../../db/queries/tool-calls",
   "../../db/schema",
+  // Local sandbox startup tests replace admission and engine boundaries.
+  // Restore them so later suites cannot inherit an allow-biased fake driver.
+  "../../runtime/sandbox/local-podman/commands",
+  "../../runtime/sandbox/controller",
+  "../../runtime/sandbox/provider-invoker",
+  // Project broker tests replace target resolution to select deterministic
+  // repositories. A leaked resolver would redirect later workspace actions.
+  "../../runtime/workspace/target",
   "../../extensions/registry",
   "../../extensions/tool-executor",
   // Loops EZ Mode: event-subscription-dispatcher.test.ts mock.module's the

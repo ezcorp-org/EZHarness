@@ -2,8 +2,9 @@ import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { stubAssistantMessage } from "./helpers/mock-pi-ai";
-import { resolve } from "path";
 import type { AgentEvents } from "../types";
+import type { ExtensionManifestV4 } from "@ezcorp/extension-contract";
+import { releaseRuntimeFixture } from "./helpers/release-runtime";
 
 mockDbConnection();
 
@@ -58,6 +59,7 @@ mock.module("@earendil-works/pi-agent-core", () => ({
         for (const sub of this._subs) {
           sub({
             type: "tool_execution_start",
+            toolCallId: "call_0",
             toolName: tool.name,
             args: { text: "ping" },
           });
@@ -66,7 +68,7 @@ mock.module("@earendil-works/pi-agent-core", () => ({
         // Actually execute the tool
         let toolResult: any;
         try {
-          toolResult = await tool.execute({ text: "ping" });
+          toolResult = await tool.execute("call_0", { text: "ping" });
         } catch (err) {
           toolResult = { error: String(err) };
         }
@@ -75,6 +77,7 @@ mock.module("@earendil-works/pi-agent-core", () => ({
         for (const sub of this._subs) {
           sub({
             type: "tool_execution_end",
+            toolCallId: "call_0",
             toolName: tool.name,
             result: toolResult,
             isError: false,
@@ -120,36 +123,44 @@ import { upsertSetting } from "../db/queries/settings";
 import { getDb } from "../db/connection";
 import { agentConfigs } from "../db/schema";
 import { eq } from "drizzle-orm";
-
-const MOCK_EXT_DIR = resolve(__dirname, "helpers/mock-extension");
+import { createUser } from "../db/queries/users";
 
 let extensionId: string;
 let agentConfigId: string;
 let projectId: string;
+let userId: string;
+
+const createTestConversation = (title: string) => createConversation(projectId, { title, userId });
 
 beforeAll(async () => {
   await setupTestDb();
 
-  const project = await createProject({ name: "Tool Loop E2E", path: "/tmp/tool-loop-e2e" });
+  const user = await createUser({ email: "tool-loop@test.invalid", passwordHash: "test", name: "Tool Loop" });
+  userId = user.id;
+  const project = await createProject({ name: "Tool Loop E2E", path: "/tmp/tool-loop-e2e" }, userId);
   projectId = project.id;
 
+  const manifest: ExtensionManifestV4 = {
+    schemaVersion: 4,
+    name: "e2e-echo",
+    version: "1.0.0",
+    description: "E2E test extension",
+    author: { name: "test" },
+    entrypoint: "./entrypoint.ts",
+    tools: [{ name: "echo", description: "Echoes text back", inputSchema: { type: "object", properties: { text: { type: "string" } } }, outputSchema: { type: "object" } }],
+    permissions: {},
+  };
   const ext = await createExtension({
     name: "e2e-echo",
     version: "1.0.0",
-    manifest: {
-      schemaVersion: 2,
-      name: "e2e-echo",
-      version: "1.0.0",
-      description: "E2E test extension",
-      author: { name: "test" },
-      entrypoint: "./entrypoint.ts",
-      tools: [{ name: "echo", description: "Echoes text back", inputSchema: { type: "object", properties: { text: { type: "string" } } } }],
-      permissions: {},
-    },
-    source: "local:/test",
-    installPath: MOCK_EXT_DIR,
+    manifest,
+    source: "release-v4",
+    installPath: null,
   });
   extensionId = ext.id;
+  releaseRuntimeFixture(extensionId, manifest, {
+    invoke: async (_name, input) => input,
+  }).configure();
 
   const agent = await createAgentConfig({
     name: "e2e-tool-agent",
@@ -181,7 +192,7 @@ afterAll(async () => {
 describe("Chat + Tool Loop E2E", () => {
   test("tool loop executes and produces final text response", async () => {
     toolCallCount = 0;
-    const conv = await createConversation(projectId, { title: "Tool Loop Text" });
+    const conv = await createTestConversation("Tool Loop Text");
     const bus = new EventBus<AgentEvents>();
     const executor = new AgentExecutor(new Map(), bus);
 
@@ -193,7 +204,7 @@ describe("Chat + Tool Loop E2E", () => {
 
   test("tool execution emits observability events", async () => {
     toolCallCount = 0;
-    const conv = await createConversation(projectId, { title: "Tool Obs Events" });
+    const conv = await createTestConversation("Tool Obs Events");
     const bus = new EventBus<AgentEvents>();
     const executor = new AgentExecutor(new Map(), bus);
 
@@ -215,7 +226,7 @@ describe("Chat + Tool Loop E2E", () => {
 
   test("obs:turn event includes LLM and tool timing", async () => {
     toolCallCount = 0;
-    const conv = await createConversation(projectId, { title: "Tool Turn Timing" });
+    const conv = await createTestConversation("Tool Turn Timing");
     const bus = new EventBus<AgentEvents>();
     const executor = new AgentExecutor(new Map(), bus);
 
@@ -235,7 +246,7 @@ describe("Chat + Tool Loop E2E", () => {
 
   test("observability events persisted to DB", async () => {
     toolCallCount = 0;
-    const conv = await createConversation(projectId, { title: "Obs Persist" });
+    const conv = await createTestConversation("Obs Persist");
     const bus = new EventBus<AgentEvents>();
     const executor = new AgentExecutor(new Map(), bus);
 
