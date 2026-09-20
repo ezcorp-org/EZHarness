@@ -214,6 +214,8 @@
   "src/db/migrations/add-factory-child-artifact-aliases.ts": 100,
   "src/factory/child-artifacts.ts": 100,
   "src/factory/child-release-mode.ts": 100,
+  "src/factory/reference-catalog/catalog.ts": 100,
+  "src/factory/reference-catalog/pack.ts": 100,
   "src/db/migrations/add-factory-legacy-workflow-adapters.ts": 100,
   "src/factory/legacy-workflow/adapter.ts": 100,
   "src/factory/legacy-workflow/classification.ts": 100,

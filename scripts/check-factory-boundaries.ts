@@ -104,6 +104,7 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/package-preparation.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/protected-command-effects.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-catalog/catalog.ts", sharedModule: "src/extensions/v4/digest.ts" },
   { factoryPath: "src/factory/reference-code/freeze.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/reference-code/freeze.ts", sharedModule: "src/extensions/v4/digest.ts" },
   { factoryPath: "src/factory/reference-code/generate.ts", sharedModule: "src/extensions/v4/blobs.ts" },
