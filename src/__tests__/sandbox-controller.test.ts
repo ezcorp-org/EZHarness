@@ -26,7 +26,7 @@ function driver() {
   return { create, inspect: lifecycle("stopped", "stopped"), start: lifecycle("running", "running"), stop: lifecycle("stopped", "stopped"), destroy: lifecycle("destroyed", "destroyed"), processStart: process, processInspect: process, processReadOutput: output, processCancel: process, fileStat: file, fileList: file, fileRead: file, fileWrite: file, fileMkdir: file, fileRemove: file, fileChmod: file } as unknown as LocalSandboxDriver;
 }
 
-async function fixture(invoke?: SandboxProviderInvocation) {
+async function fixture(invoke?: SandboxProviderInvocation, clock?: { now(): number; sleep(ms: number): Promise<void> }) {
   const database = getTestDb();
   const [owner] = await database.insert(users).values({ email: `owner-${crypto.randomUUID()}@example.test`, name: "Owner", passwordHash: "unused" }).returning();
   const [other] = await database.insert(users).values({ email: `other-${crypto.randomUUID()}@example.test`, name: "Other", passwordHash: "unused" }).returning();
@@ -50,7 +50,7 @@ async function fixture(invoke?: SandboxProviderInvocation) {
   } };
   let controller: ReturnType<typeof createSandboxController>;
   const reviewed: SandboxProviderInvocation = invoke ?? (async (userId, _projectId, _provider, _group, _operation, input, signal) => controller.executeAdmittedLocalSandboxOperationRaw(userId, (input as { call: { operationId: string } }).call.operationId, signal));
-  controller = createSandboxController(local, runtime, reviewed);
+  controller = createSandboxController(local, runtime, reviewed, clock);
   return { database, owner: owner!, other: other!, installation, local, controller };
 }
 
@@ -291,4 +291,22 @@ test("native abort sends canonical cancel and reconciles the writer lease", asyn
   expect(context.local.processCancel).toHaveBeenCalled();
   const lease = await context.database.execute(sql`SELECT * FROM sandbox_writer_leases WHERE binding_id=${create.bindingId}`) as { rows: unknown[] };
   expect(lease.rows).toHaveLength(0);
+});
+
+test("native deadline uses the injected clock, waits, cancels, and reconciles", async () => {
+  let now = 0; let sleeps = 0;
+  const context = await fixture(undefined, { now: () => now, sleep: async () => { sleeps++; now = 31_001; } });
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Deadline')`);
+  const identity = { bootId: "boot", processId: "slow" };
+  context.local.processStart = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity, state: "running" as const, outputCursor: 0 } }));
+  context.local.processInspect = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity, state: "running" as const, outputCursor: 0 } }));
+  context.local.processReadOutput = mock(async (input: any) => ({ receipt: receipt(input.call), identity: input.identity, cursor: 0, chunks: [], eof: true, gap: false }));
+  context.local.processCancel = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity, state: "cancelled" as const, outputCursor: 0 } }));
+  const workspace = await context.database.execute(sql`SELECT binding_id,revision FROM project_workspace_bindings WHERE project_id=${create.projectId}`) as { rows: Array<{ binding_id: string; revision: number }> };
+  await expect(context.controller.runNativeWorkspaceProcess({ projectId: create.projectId, bindingId: workspace.rows[0]!.binding_id, revision: Number(workspace.rows[0]!.revision) }, { argv: ["/usr/local/bin/bun", "/opt/ezharness/native-tools.js", "ZXhpdCAw"], timeoutMs: 1 }, undefined, { userId: context.owner.id, conversationId })).rejects.toMatchObject({ code: "PROCESS_DEADLINE" });
+  expect(sleeps).toBe(1);
+  expect(context.local.processCancel).toHaveBeenCalled();
 });
