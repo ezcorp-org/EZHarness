@@ -24,7 +24,7 @@ export EZ_RUNNER_GROUP="$(bash scripts/resolve-runner-group.sh --docker)"
 docker compose up -d
 ```
 
-For direct Docker Compose pointed at rootless Podman, use `--podman` instead. You can set an explicit numeric `EZ_RUNNER_GROUP` only when you have verified the mapping; the Podman wrapper rejects empty and non-numeric overrides before it invokes Compose.
+For direct Docker Compose pointed at rootless Podman, use `--podman` instead. Use a verified numeric `EZ_RUNNER_GROUP`. The Podman wrapper rejects empty and non-numeric shell overrides before it invokes Compose. It leaves `.env` and `--env-file` values to Compose, whose required-variable check rejects an empty value.
 
 Rootless Podman needs an explicit user-namespace mapping. Pick an unused container GID (the verifier uses `1`) and find its host GID from `podman unshare cat /proc/self/gid_map`: within the matching row, `host_gid = row_host_start + container_gid - row_container_start`. Create the shared host group with that host GID, add the runner account to it, use it on the directory, socket, and credential, and set `EZ_RUNNER_GROUP` to the container GID. Do not set `keep-groups`: Docker Compose sends it through the Podman API as a literal group name, which Podman rejects.
 

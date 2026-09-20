@@ -79,6 +79,7 @@ await Bun.write(
     'printf "COMPOSE_FILE=%s\\n" "$COMPOSE_FILE"',
     'printf "DOCKER_HOST=%s\\n" "$DOCKER_HOST"',
     'printf "EZ_RUNNER_GROUP=%s\\n" "$EZ_RUNNER_GROUP"',
+    'if test -v EZ_RUNNER_GROUP; then printf "EZ_RUNNER_GROUP_SET=1\\n"; else printf "EZ_RUNNER_GROUP_SET=0\\n"; fi',
     'printf "ARGV=%s\\n" "$*"',
     "",
   ].join("\n"),
@@ -116,7 +117,7 @@ interface Run {
   stdout: string;
   stderr: string;
   /** What the stub Compose CLI was exec'd with, or null when it never ran. */
-  invocation: { composeFile: string; dockerHost: string; runnerGroup: string; argv: string } | null;
+  invocation: { composeFile: string; dockerHost: string; runnerGroup: string; runnerGroupSet: string; argv: string } | null;
 }
 
 function run(args: string[], env: Record<string, string> = {}, dotenv?: string): Run {
@@ -148,6 +149,7 @@ function run(args: string[], env: Record<string, string> = {}, dotenv?: string):
           composeFile: read("COMPOSE_FILE"),
           dockerHost: read("DOCKER_HOST"),
           runnerGroup: read("EZ_RUNNER_GROUP"),
+          runnerGroupSet: read("EZ_RUNNER_GROUP_SET"),
           argv: read("ARGV"),
         }
       : null,
@@ -216,24 +218,42 @@ describe("podman wrapper — the invocation it guarantees", () => {
     expect(result.invocation).toBeNull();
   });
 
-  test("rejects an empty runner group in Compose's .env file", () => {
+  test("leaves a runner-group declaration in Compose's .env file to Compose", () => {
     const result = run(["config", "--services"], {}, "EZ_RUNNER_GROUP=\n");
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("explicitly set but is empty");
-    expect(result.invocation).toBeNull();
-  });
-
-  test("rejects a non-numeric runner group in Compose's .env file", () => {
-    const result = run(["config", "--services"], {}, "EZ_RUNNER_GROUP=runner\n");
-    expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("must be a numeric");
-    expect(result.invocation).toBeNull();
-  });
-
-  test("uses a numeric runner group from Compose's .env file", () => {
-    const result = run(["config", "--services"], {}, "EZ_RUNNER_GROUP=7\n");
     expect(result.exitCode).toBe(0);
-    expect(result.invocation?.runnerGroup).toBe("7");
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+  });
+
+  test("does not parse non-numeric runner groups in Compose's .env file", () => {
+    const result = run(["config", "--services"], {}, "EZ_RUNNER_GROUP=runner\n");
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+  });
+
+  test("does not guess at quoted or duplicate Compose dotenv assignments", () => {
+    const result = run(["config", "--services"], {}, 'EZ_RUNNER_GROUP="7"\r\nEZ_RUNNER_GROUP=8\n');
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+  });
+
+  test("uses a numeric shell runner group without reading Compose's .env file", () => {
+    const explicit = run(["config", "--services"], { EZ_RUNNER_GROUP: "7" });
+    expect(explicit.exitCode).toBe(0);
+    expect(explicit.invocation?.runnerGroup).toBe("7");
+  });
+
+  test("leaves a global --env-file runner group to Compose", () => {
+    const result = run(["--env-file", "custom.env", "config", "--services"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+    expect(result.invocation?.argv).toBe("compose --env-file custom.env config --services");
+  });
+
+  test("leaves the global --env-file=value spelling to Compose too", () => {
+    const result = run(["--env-file=custom.env", "config", "--services"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+    expect(result.invocation?.argv).toBe("compose --env-file=custom.env config --services");
   });
 
   test("every compose file it layers exists in the repo", async () => {
