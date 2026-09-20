@@ -468,6 +468,11 @@
 		style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
 		tabindex="0"
 	>
+		<!-- Standing host warning, in flow above every route (chat included).
+		     It lives here rather than in the overlay stack below because
+		     `PendingDecisionsTray` owns `bottom-4 right-4 z-60` and would hide
+		     it outright; see the component for the full reasoning. -->
+		<UnsandboxedExtensionsBanner mode={extensionRunner} />
 		<!-- Mobile/tablet header (hidden on chat routes - chat has its own header).
 		     Visible at `<lg` so tablets get the hamburger too (Phase 49.1).
 		     Command Deck: graphite chrome via `data-deck-mobilebar`. -->
@@ -540,7 +545,6 @@
 
 <PullToRefresh />
 <ConnectionBanner />
-<UnsandboxedExtensionsBanner mode={extensionRunner} />
 <ToastContainer />
 <ImageLightbox />
 <DockHost />
