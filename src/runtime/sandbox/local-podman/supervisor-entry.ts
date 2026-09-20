@@ -1,0 +1,87 @@
+import { chmod, readFile, stat } from "node:fs/promises";
+import type { SupervisorLaunch, SupervisorStatus } from "./supervisor";
+
+const MAX_LAUNCH_BYTES = 128 * 1024;
+
+async function atomicStatus(path: string, value: SupervisorStatus): Promise<void> {
+	const temporary = `${path}.${crypto.randomUUID()}.tmp`;
+	await Bun.write(temporary, JSON.stringify(value)); await chmod(temporary, 0o600);
+	await import("node:fs/promises").then(fs => fs.rename(temporary, path)); await chmod(path, 0o600);
+}
+
+async function command(argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
+	const child = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+	const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+	return { code, stdout, stderr };
+}
+
+async function stopped(launch: SupervisorLaunch): Promise<boolean> {
+	const result = await command([launch.podmanPath, "--remote=false", "inspect", "--format", "{{.Id}} {{.State.Running}}", launch.containerId]);
+	return result.code === 0 && result.stdout.trim() === `${launch.containerId} false`;
+}
+
+async function ownedAndRunning(launch: SupervisorLaunch): Promise<boolean> {
+	const result = await command([launch.podmanPath, "--remote=false", "inspect", "--format", "{{.Id}} {{.Name}} {{.State.Running}}", launch.containerId]);
+	return result.code === 0 && result.stdout.trim() === `${launch.containerId} ${launch.containerName} true`;
+}
+
+async function stopAndVerify(launch: SupervisorLaunch): Promise<boolean> {
+	await command([launch.podmanPath, "--remote=false", "stop", "--time", "1", launch.containerId]);
+	return stopped(launch);
+}
+
+async function helperStartTime(): Promise<string> {
+	const value = await readFile(`/proc/${process.pid}/stat`, "utf8");
+	return value.slice(value.lastIndexOf(") ") + 2).split(" ")[19] ?? "unknown";
+}
+
+export async function runSupervisorEntry(launchPath: string): Promise<void> {
+	const info = await stat(launchPath);
+	if (!info.isFile() || info.size > MAX_LAUNCH_BYTES || (info.mode & 0o077) !== 0) throw new Error("Invalid supervisor launch artifact");
+	const launch = JSON.parse(await readFile(launchPath, "utf8")) as SupervisorLaunch;
+	if (launch.version !== 1 || !launch.podmanPath.startsWith("/") || !launch.statusPath.startsWith("/") || !launch.cancelPath.startsWith("/")) throw new Error("Invalid supervisor launch");
+	const startedAt = Date.now();
+	const status: SupervisorStatus = { version: 1, identity: launch.identity, state: "running", startedAt, deadlineAt: startedAt + launch.timeoutMs, helperPid: process.pid, helperStartTime: await helperStartTime(), outputCursor: 0, gap: false, chunks: [] };
+	let writes = Promise.resolve(); const persist = () => { writes = writes.then(() => atomicStatus(launch.statusPath, status)); return writes; };
+	await persist();
+	if (!(await ownedAndRunning(launch))) { await stopAndVerify(launch); status.state = "unknown"; await persist(); return; }
+	const envArgs = Object.entries(launch.env).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
+	const child = Bun.spawn([launch.podmanPath, "--remote=false", "exec", "--user", "workspace", "--workdir", launch.cwd, ...envArgs, launch.containerId, ...launch.argv], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+	let written = 0;
+	const capture = async (stream: "stdout" | "stderr", source: ReadableStream<Uint8Array>) => {
+		const reader = source.getReader();
+		try {
+			while (true) {
+				const item = await reader.read(); if (item.done) break;
+				const allowed = Math.max(0, launch.maxOutputBytes - written); const bytes = item.value.subarray(0, allowed);
+				if (bytes.byteLength && status.chunks.length < 1024) { status.chunks.push({ cursor: status.outputCursor, stream, data: Buffer.from(bytes).toString("base64"), byteLength: bytes.byteLength }); status.outputCursor += bytes.byteLength; written += bytes.byteLength; await persist(); }
+				if (bytes.byteLength !== item.value.byteLength || status.chunks.length >= 1024) status.gap = true;
+			}
+		} finally { reader.releaseLock(); }
+	};
+	const output = Promise.all([capture("stdout", child.stdout), capture("stderr", child.stderr)]);
+	let cancelled = false; let timedOut = false;
+	let childDone = false;
+	const watcher = (async () => {
+		while (!childDone) {
+			await Bun.sleep(25);
+			timedOut = Date.now() >= status.deadlineAt;
+			cancelled = await Bun.file(launch.cancelPath).exists();
+			if (timedOut || cancelled) { if (!(await stopAndVerify(launch))) status.state = "unknown"; return; }
+		}
+	})();
+	const exitCode = await child.exited; childDone = true; await Promise.all([watcher, output]);
+	cancelled ||= await Bun.file(launch.cancelPath).exists();
+	timedOut ||= Date.now() >= status.deadlineAt;
+	const isStopped = await stopAndVerify(launch);
+	status.state = isStopped ? (cancelled || timedOut ? "cancelled" : exitCode === 0 ? "exited" : "failed") : "unknown";
+	status.exitCode = exitCode; await persist();
+}
+
+export async function supervisorEntryMain(argv = process.argv): Promise<void> {
+	const launchPath = argv[2];
+	if (!launchPath) throw new Error("Missing supervisor launch path");
+	await runSupervisorEntry(launchPath);
+}
+
+if (import.meta.main) await supervisorEntryMain();
