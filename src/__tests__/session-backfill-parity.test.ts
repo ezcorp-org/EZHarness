@@ -115,7 +115,7 @@ async function contextOf(storage: Awaited<ReturnType<typeof backfillSessionForCo
     .map((entry) => entry.message);
 }
 
-/** CANDIDATE: backfill → the stored branch → pi's context builder. */
+/** CANDIDATE: backfill → the stored branch → its message projection. */
 async function candidateContext(convId: string) {
   return contextOf(await backfillSessionForConversation(convId));
 }
