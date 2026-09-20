@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { mkdir, open, readFile, rename } from "node:fs/promises";
+import { link, mkdir, open, readFile, rename, rm } from "node:fs/promises";
 import type { ProviderCall, ProviderReceipt } from "@ezcorp/extension-contract";
 
 type Pending = { version: 1; state: "pending"; call: ProviderCall };
@@ -18,9 +18,12 @@ export class DurableOperationJournal {
   private async publish(path: string, value: unknown, exclusive: boolean): Promise<void> {
     await mkdir(this.root, { recursive: true, mode: 0o700 });
     const temporary = `${path}.${crypto.randomUUID()}.new`;
-    const file = await open(temporary, exclusive ? "wx" : "w", 0o600);
-    try { await file.writeFile(`${JSON.stringify(value)}\n`); await file.sync(); } finally { await file.close(); }
-    await rename(temporary, path);
+    const file = await open(temporary, "wx", 0o600);
+    try {
+      await file.writeFile(`${JSON.stringify(value)}\n`); await file.sync();
+      if (exclusive) await link(temporary, path); else await rename(temporary, path);
+      const directory = await open(this.root, "r"); try { await directory.sync(); } finally { await directory.close(); }
+    } finally { await file.close(); await rm(temporary, { force: true }); }
   }
   async begin<T>(call: ProviderCall): Promise<JournalBegin<T>> {
     const path = this.path(call);
@@ -32,8 +35,15 @@ export class DurableOperationJournal {
     } catch (error) {
       if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
     }
-    await this.publish(path, { version: 1, state: "pending", call } satisfies Pending, true);
+    try { await this.publish(path, { version: 1, state: "pending", call } satisfies Pending, true); }
+    catch (error) { if (error instanceof Error && "code" in error && error.code === "EEXIST") return this.begin(call); throw error; }
     return { kind: "new" };
   }
-  async complete<T>(call: ProviderCall, result: T): Promise<void> { await this.publish(this.path(call), { version: 1, state: "complete", call, result } satisfies Complete<T>, false); }
+  async complete<T>(call: ProviderCall, result: T): Promise<void> {
+    const path = this.path(call); let current: RecordValue<T>;
+    try { current = JSON.parse(await readFile(path, "utf8")) as RecordValue<T>; } catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") throw new Error("operation was not begun"); throw error; }
+    if (!same(current.call, call)) throw new Error("idempotency key conflicts with another request");
+    if (current.state === "complete") { if (JSON.stringify(current.result) !== JSON.stringify(result)) throw new Error("operation already has a different result"); return; }
+    await this.publish(path, { version: 1, state: "complete", call, result } satisfies Complete<T>, false);
+  }
 }
