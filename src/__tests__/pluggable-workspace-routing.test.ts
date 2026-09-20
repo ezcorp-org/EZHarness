@@ -1,3 +1,4 @@
+import { toolText } from "./helpers/tool-text";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
@@ -83,7 +84,7 @@ describe("persisted workspace routing", () => {
     expect(tools.map((tool) => tool.name)).toEqual(Object.keys(toolArguments));
     for (const tool of tools) {
       const result = await tool.execute("call", toolArguments[tool.name]);
-      expect(result.content[0]?.text).toBe(`GUEST_MARKER:${tool.name}`);
+      expect(toolText(result)).toBe(`GUEST_MARKER:${tool.name}`);
     }
     expect(calls).toEqual(Object.keys(toolArguments).map((operation) => `sandbox-project:fixture-binding:${operation}`));
   });
@@ -105,7 +106,7 @@ describe("persisted workspace routing", () => {
       const params = tool.name === "shell" ? { command: `touch ${marker}` } : toolArguments[tool.name];
       const result = await tool.execute("call", params);
       expect(result.details).toMatchObject({ isError: true });
-      expect(result.content[0]?.text).toContain("Sandbox workspace is unavailable");
+      expect(toolText(result)).toContain("Sandbox workspace is unavailable");
     }
     expect(await Bun.file(join(root, "marker.txt")).text()).toBe("LOCAL_MARKER");
     expect(await Bun.file(marker).exists()).toBeFalse();
@@ -118,7 +119,7 @@ describe("persisted workspace routing", () => {
       content: [{ type: "text", text: `GUEST_MARKER:${operation}` }], details: {},
     }));
     const tool = (await resolveProjectBuiltinTools("mutable-sandbox-project")).find((item) => item.name === "readFile")!;
-    expect((await tool.execute("call", { path: "marker.txt" })).content[0]?.text).toBe("GUEST_MARKER:readFile");
+    expect(toolText((await tool.execute("call", { path: "marker.txt" })))).toBe("GUEST_MARKER:readFile");
 
     configureSandboxWorkspaceDispatcher(null);
     expect((await tool.execute("call", { path: "marker.txt" })).details).toMatchObject({ isError: true });
@@ -127,13 +128,13 @@ describe("persisted workspace routing", () => {
     }));
 
     await getTestDb().update(projectWorkspaceBindings).set({ revision: 2 }).where(eq(projectWorkspaceBindings.projectId, "mutable-sandbox-project"));
-    expect((await tool.execute("call", { path: "marker.txt" })).content[0]?.text).toContain("binding changed");
+    expect(toolText((await tool.execute("call", { path: "marker.txt" })))).toContain("binding changed");
     await getTestDb().update(projectWorkspaceBindings).set({ revision: 1, state: "unknown" }).where(eq(projectWorkspaceBindings.projectId, "mutable-sandbox-project"));
-    expect((await tool.execute("call", { path: "marker.txt" })).content[0]?.text).toContain("binding changed");
+    expect(toolText((await tool.execute("call", { path: "marker.txt" })))).toContain("binding changed");
     await getTestDb().delete(projectWorkspaceBindings).where(eq(projectWorkspaceBindings.projectId, "mutable-sandbox-project"));
-    expect((await tool.execute("call", { path: "marker.txt" })).content[0]?.text).toContain("binding changed");
+    expect(toolText((await tool.execute("call", { path: "marker.txt" })))).toContain("binding changed");
     await getTestDb().delete(projects).where(eq(projects.id, "mutable-sandbox-project"));
-    expect((await tool.execute("call", { path: "marker.txt" })).content[0]?.text).toContain("binding changed");
+    expect(toolText((await tool.execute("call", { path: "marker.txt" })))).toContain("binding changed");
   });
 
   test("projects without a binding retain local tools", async () => {
@@ -141,7 +142,7 @@ describe("persisted workspace routing", () => {
     expect(await projectRequiresSandbox("local-project")).toBeFalse();
     const tools = await resolveProjectBuiltinTools("local-project");
     const result = await tools.find((tool) => tool.name === "readFile")!.execute("call", { path: "marker.txt" });
-    expect(result.content[0]?.text).toBe("LOCAL_MARKER");
+    expect(toolText(result)).toBe("LOCAL_MARKER");
   });
 
   test("a host-validated local worktree remains the local tool root", async () => {
@@ -151,7 +152,7 @@ describe("persisted workspace routing", () => {
       await writeFile(join(worktree, "marker.txt"), "PINNED_MARKER");
       const tools = await resolveProjectBuiltinTools("pinned-local-project", worktree);
       const result = await tools.find((tool) => tool.name === "readFile")!.execute("call", { path: "marker.txt" });
-      expect(result.content[0]?.text).toBe("PINNED_MARKER");
+      expect(toolText(result)).toBe("PINNED_MARKER");
     } finally {
       await rm(worktree, { recursive: true, force: true });
     }

@@ -12,6 +12,18 @@ Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout pr
 - [ ] Complete real local provider/security/recovery qualification and local evidence.
 - External-host networking/deployment: later milestone by user direction.
 
+## Local MVP progress
+
+- [x] Shared v4 provider declarations and canonical sandbox wire contract.
+- [x] Persisted routing with no local fallback and explicit conversation principal.
+- [x] Reuse all seven native tools in a bounded guest helper; real offline Bun test passed.
+- [x] Local provider source uses the normal reviewed extension lifecycle.
+- [x] Initial durable lifecycle controller and API/panel implemented; focused tests passed.
+- [ ] Complete reviewed provider invocation and production startup wiring.
+- [ ] Finish actual driver lifecycle cleanup and persistent process/controller integration.
+- [ ] Prove all native tools, cancellation, restart and explicit disposal through the live application.
+- [ ] Run all build/test/coverage gates and inspect desktop/mobile browser evidence.
+
 ## Original roadmap (deferred except MVP subset)
 
 - [ ] P01: Establish the source of truth.
