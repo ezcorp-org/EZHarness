@@ -146,4 +146,43 @@ fi
 export DOCKER_HOST="unix://$SOCKET"
 export COMPOSE_FILE="${COMPOSE_FILE:-$DEFAULT_COMPOSE_FILE}"
 
+runner_group_from_dotenv() {
+  local env_file="$REPO_ROOT/.env" line
+  [ -f "$env_file" ] || return 1
+
+  # Compose reads `.env` itself. Read only this exact assignment so an empty
+  # value cannot be hidden by the wrapper's derived export; never source a
+  # user-controlled dotenv file into this shell.
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in
+      EZ_RUNNER_GROUP=*) printf '%s' "${line#EZ_RUNNER_GROUP=}"; return 0 ;;
+    esac
+  done <"$env_file"
+  return 1
+}
+
+# A numeric override is an explicit, security-relevant choice. A fresh
+# `.env.example` leaves it unset, so derive the container-visible value from
+# the actual runner socket and this user's live rootless gid map instead.
+if [ "${EZ_RUNNER_GROUP+x}" != "x" ] && dotenv_runner_group="$(runner_group_from_dotenv)"; then
+  EZ_RUNNER_GROUP="$dotenv_runner_group"
+fi
+
+if [ "${EZ_RUNNER_GROUP+x}" = "x" ]; then
+  if [ -z "$EZ_RUNNER_GROUP" ]; then
+    echo "error: EZ_RUNNER_GROUP was explicitly set but is empty." >&2
+    echo "  Remove it to derive the rootless Podman mapping, or set its numeric" >&2
+    echo "  container-visible GID after following deploy/extension-runner/README.md." >&2
+    exit 1
+  fi
+  if [[ ! "$EZ_RUNNER_GROUP" =~ ^[0-9]+$ ]]; then
+    echo "error: EZ_RUNNER_GROUP must be a numeric container-visible GID." >&2
+    echo "  Remove it to derive the rootless Podman mapping, or correct the value." >&2
+    exit 1
+  fi
+else
+  EZ_RUNNER_GROUP="$("$REPO_ROOT/scripts/resolve-runner-group.sh" --podman)"
+fi
+export EZ_RUNNER_GROUP
+
 exec docker compose "$@"

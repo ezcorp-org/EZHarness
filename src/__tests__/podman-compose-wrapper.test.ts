@@ -33,12 +33,21 @@
  * `[ -S ]` probe, so nothing needs Podman, Docker, or a container.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
-const WRAPPER = join(REPO_ROOT, "scripts/podman-compose.sh");
+const WRAPPER_SOURCE = join(REPO_ROOT, "scripts/podman-compose.sh");
+const RESOLVER = join(REPO_ROOT, "scripts/resolve-runner-group.sh");
 const BASH = Bun.which("bash") ?? "/usr/bin/env bash";
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "podman-wrapper-"));
@@ -48,9 +57,14 @@ const BIN = join(SANDBOX, "bin");
 // otherwise that test would pass for the wrong reason.
 const BIN_NO_DOCKER = join(SANDBOX, "bin-no-docker");
 const SOCKET = join(SANDBOX, "podman.sock");
+const RUNNER_SOCKET = join(SANDBOX, "runner.sock");
+const WRAPPER = join(SANDBOX, "scripts/podman-compose.sh");
 
 mkdirSync(BIN);
 mkdirSync(BIN_NO_DOCKER);
+mkdirSync(join(SANDBOX, "scripts"));
+symlinkSync(WRAPPER_SOURCE, WRAPPER);
+symlinkSync(RESOLVER, join(SANDBOX, "scripts/resolve-runner-group.sh"));
 symlinkSync(Bun.which("dirname") ?? "/usr/bin/dirname", join(BIN_NO_DOCKER, "dirname"));
 
 // Records what the wrapper handed to Compose, then exits 0 — the wrapper
@@ -64,6 +78,7 @@ await Bun.write(
     // variables before it execs, so there is no default to fall back to.
     'printf "COMPOSE_FILE=%s\\n" "$COMPOSE_FILE"',
     'printf "DOCKER_HOST=%s\\n" "$DOCKER_HOST"',
+    'printf "EZ_RUNNER_GROUP=%s\\n" "$EZ_RUNNER_GROUP"',
     'printf "ARGV=%s\\n" "$*"',
     "",
   ].join("\n"),
@@ -71,9 +86,17 @@ await Bun.write(
 chmodSync(join(BIN, "docker"), 0o755);
 
 const socketServer = Bun.listen({ unix: SOCKET, socket: { data() {} } });
+const runnerSocketServer = Bun.listen({ unix: RUNNER_SOCKET, socket: { data() {} } });
+
+await Bun.write(
+  join(BIN, "podman"),
+  ["#!/usr/bin/env bash", `printf '0 ${statSync(RUNNER_SOCKET).gid} 1\\n'`, ""].join("\n"),
+);
+chmodSync(join(BIN, "podman"), 0o755);
 
 afterAll(() => {
   socketServer.stop(true);
+  runnerSocketServer.stop(true);
   rmSync(SANDBOX, { recursive: true, force: true });
 });
 
@@ -86,23 +109,34 @@ for (const [key, value] of Object.entries(process.env)) {
 }
 delete baseEnv.COMPOSE_FILE;
 delete baseEnv.DOCKER_HOST;
+delete baseEnv.EZ_RUNNER_GROUP;
 
 interface Run {
   exitCode: number;
   stdout: string;
   stderr: string;
   /** What the stub Compose CLI was exec'd with, or null when it never ran. */
-  invocation: { composeFile: string; dockerHost: string; argv: string } | null;
+  invocation: { composeFile: string; dockerHost: string; runnerGroup: string; argv: string } | null;
 }
 
-function run(args: string[], env: Record<string, string> = {}): Run {
+function run(args: string[], env: Record<string, string> = {}, dotenv?: string): Run {
+  const envFile = join(SANDBOX, ".env");
+  rmSync(envFile, { force: true });
+  if (dotenv !== undefined) writeFileSync(envFile, dotenv);
   const proc = Bun.spawnSync({
     cmd: [BASH, WRAPPER, ...args],
     cwd: SANDBOX,
-    env: { ...baseEnv, PATH: `${BIN}:${baseEnv.PATH}`, PODMAN_SOCKET: SOCKET, ...env },
+    env: {
+      ...baseEnv,
+      PATH: `${BIN}:${baseEnv.PATH}`,
+      PODMAN_SOCKET: SOCKET,
+      EZ_RUNNER_SOCKET_DIR: SANDBOX,
+      ...env,
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
+  rmSync(envFile, { force: true });
   const stdout = proc.stdout.toString();
   const read = (key: string) => stdout.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1] ?? "";
   return {
@@ -113,9 +147,30 @@ function run(args: string[], env: Record<string, string> = {}): Run {
       ? {
           composeFile: read("COMPOSE_FILE"),
           dockerHost: read("DOCKER_HOST"),
+          runnerGroup: read("EZ_RUNNER_GROUP"),
           argv: read("ARGV"),
         }
       : null,
+  };
+}
+
+function resolveRunnerGroup(mode: "--docker" | "--podman"): Run {
+  const proc = Bun.spawnSync({
+    cmd: [BASH, RESOLVER, mode],
+    cwd: SANDBOX,
+    env: {
+      ...baseEnv,
+      PATH: `${BIN}:${baseEnv.PATH}`,
+      EZ_RUNNER_SOCKET_DIR: SANDBOX,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    exitCode: proc.exitCode,
+    stdout: proc.stdout.toString(),
+    stderr: proc.stderr.toString(),
+    invocation: null,
   };
 }
 
@@ -128,6 +183,57 @@ describe("podman wrapper — the invocation it guarantees", () => {
     );
     expect(result.invocation?.dockerHost).toBe(`unix://${SOCKET}`);
     expect(result.invocation?.argv).toBe("compose up -d");
+  });
+
+  test("derives the mapped runner group when the fresh environment leaves it unset", () => {
+    const result = run(["config", "--services"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroup).toBe("0");
+  });
+
+  test("uses the runner socket host GID for direct Docker", () => {
+    const result = resolveRunnerGroup("--docker");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe(String(statSync(RUNNER_SOCKET).gid));
+  });
+
+  test("the fresh environment example leaves the group unset for the wrapper", async () => {
+    const example = await Bun.file(join(REPO_ROOT, ".env.example")).text();
+    expect(example).not.toContain("\nEZ_RUNNER_GROUP=");
+  });
+
+  test("rejects an explicit empty runner group before Compose can interpolate it", () => {
+    const result = run(["config", "--services"], { EZ_RUNNER_GROUP: "" });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("explicitly set but is empty");
+    expect(result.invocation).toBeNull();
+  });
+
+  test("rejects an explicit non-numeric runner group", () => {
+    const result = run(["config", "--services"], { EZ_RUNNER_GROUP: "runner" });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("must be a numeric");
+    expect(result.invocation).toBeNull();
+  });
+
+  test("rejects an empty runner group in Compose's .env file", () => {
+    const result = run(["config", "--services"], {}, "EZ_RUNNER_GROUP=\n");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("explicitly set but is empty");
+    expect(result.invocation).toBeNull();
+  });
+
+  test("rejects a non-numeric runner group in Compose's .env file", () => {
+    const result = run(["config", "--services"], {}, "EZ_RUNNER_GROUP=runner\n");
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("must be a numeric");
+    expect(result.invocation).toBeNull();
+  });
+
+  test("uses a numeric runner group from Compose's .env file", () => {
+    const result = run(["config", "--services"], {}, "EZ_RUNNER_GROUP=7\n");
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroup).toBe("7");
   });
 
   test("every compose file it layers exists in the repo", async () => {

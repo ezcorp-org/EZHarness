@@ -15,7 +15,16 @@ Provision the host service below before the first app start. The default host pa
 - Socket: `/run/ez-extension-runner/runner.sock`
 - Credential: `/etc/ezharness/extension-runner-token`
 
-For an existing runner, set `EZ_RUNNER_SOCKET_DIR`, `EZ_RUNNER_TOKEN_FILE`, and `EZ_RUNNER_GROUP` in `.env` (dev) or `.env.prod` (production), and use `--env-file .env.prod` for every production Compose command. The paths must name the directory containing that runner's socket and its actual credential file. For Docker, set `EZ_RUNNER_GROUP` to the socket directory's numeric host GID.
+For an existing runner, set `EZ_RUNNER_SOCKET_DIR` and `EZ_RUNNER_TOKEN_FILE` in `.env` (dev) or `.env.prod` (production). The paths must name the directory containing that runner's socket and its actual credential file. The documented Linux development command, `bun run podman`, derives `EZ_RUNNER_GROUP` from the socket and the live rootless Podman map when the variable is unset. Do not set it to an empty value.
+
+For direct Docker Compose, export the socket's numeric host GID before Compose:
+
+```sh
+export EZ_RUNNER_GROUP="$(bash scripts/resolve-runner-group.sh --docker)"
+docker compose up -d
+```
+
+For direct Docker Compose pointed at rootless Podman, use `--podman` instead. You can set an explicit numeric `EZ_RUNNER_GROUP` only when you have verified the mapping; the Podman wrapper rejects empty and non-numeric overrides before it invokes Compose.
 
 Rootless Podman needs an explicit user-namespace mapping. Pick an unused container GID (the verifier uses `1`) and find its host GID from `podman unshare cat /proc/self/gid_map`: within the matching row, `host_gid = row_host_start + container_gid - row_container_start`. Create the shared host group with that host GID, add the runner account to it, use it on the directory, socket, and credential, and set `EZ_RUNNER_GROUP` to the container GID. Do not set `keep-groups`: Docker Compose sends it through the Podman API as a literal group name, which Podman rejects.
 
