@@ -5,6 +5,7 @@ import {
   getSandboxWorkspaceDispatcher,
   type SandboxWorkspaceOperation,
   type WorkspaceTarget,
+  type WorkspacePrincipal,
 } from "../workspace/target";
 import { toolError } from "./types";
 
@@ -26,16 +27,17 @@ export function getBuiltinToolDefs(
   workspace: WorkspaceTarget | string,
   preview?: ShellPreviewWiring,
   shellSandbox?: ShellSandboxWiring,
+  principal?: WorkspacePrincipal,
 ): BuiltinToolDef[] {
   if (typeof workspace === "string") workspace = { kind: "local", root: workspace, revision: 0 };
-  if (workspace.kind === "sandbox") return getSandboxToolDefs(workspace);
+  if (workspace.kind === "sandbox") return getSandboxToolDefs(workspace, principal);
   return getNativeToolDefs(workspace.root, preview, shellSandbox);
 }
 
 /** Keep the existing schemas, labels, permission categories and output caps
  * identical while replacing every executable body with one host dispatcher.
  * The local bodies are metadata donors only and are never invoked here. */
-function getSandboxToolDefs(workspace: Extract<WorkspaceTarget, { kind: "sandbox" }>): BuiltinToolDef[] {
+function getSandboxToolDefs(workspace: Extract<WorkspaceTarget, { kind: "sandbox" }>, principal?: WorkspacePrincipal): BuiltinToolDef[] {
   const metadata = getBuiltinToolDefs({ kind: "local", root: "/workspace-not-used", revision: workspace.revision });
   return metadata.map((definition) => {
     const operation = definition.name as SandboxWorkspaceOperation;
@@ -47,7 +49,7 @@ function getSandboxToolDefs(workspace: Extract<WorkspaceTarget, { kind: "sandbox
         const dispatcher = getSandboxWorkspaceDispatcher();
         if (!dispatcher) return toolError("Sandbox workspace is unavailable");
         try {
-          return await dispatcher(workspace, operation, params, signal);
+          return await dispatcher(workspace, operation, params, signal, principal);
         } catch {
           return toolError("Sandbox workspace is unavailable");
         }

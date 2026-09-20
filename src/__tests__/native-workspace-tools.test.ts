@@ -9,6 +9,7 @@ import { createSandboxWorkspaceDispatcher } from "../runtime/workspace/dispatche
 let root = "";
 beforeEach(async () => { root = await mkdtemp(join(tmpdir(), "native-workspace-tools-")); await writeFile(join(root, "marker.txt"), "NATIVE_MARKER\n"); });
 afterEach(async () => { await rm(root, { recursive: true, force: true }); });
+const principal = { userId: "user", conversationId: "conversation" };
 const target = { kind: "sandbox" as const, projectId: "project", bindingId: "binding", revision: 1 };
 const run = async (name: string, params: unknown) => decodeNativeToolResult(await executeNativeTool(root, encodeNativeToolRequest(name, params)));
 
@@ -46,16 +47,16 @@ describe("workspace process dispatcher", () => {
   test("passes fixed helper argv, saved identity and cancellation to the controller", async () => {
     const controller = new AbortController();
     const calls: unknown[] = [];
-    const dispatch = createSandboxWorkspaceDispatcher(async (workspace, request, signal) => {
-      calls.push({ workspace, request, signal });
+    const dispatch = createSandboxWorkspaceDispatcher(async (workspace, request, signal, actor) => {
+      calls.push({ workspace, request, signal, actor });
       return { stdout: await executeNativeTool(root, request.argv.slice(2).join("")), exitCode: 0 };
     });
-    expect((await dispatch(target, "readFile", { path: "marker.txt" }, controller.signal)).content[0]?.text).toContain("NATIVE_MARKER");
-    expect(calls).toEqual([{ workspace: target, request: { argv: ["/usr/local/bin/bun", NATIVE_TOOL_ARTIFACT, encodeNativeToolRequest("readFile", { path: "marker.txt" })], timeoutMs: 120000 }, signal: controller.signal }]);
-    await dispatch(target, "shell", { command: "true", timeout: 99999999 });
+    expect((await dispatch(target, "readFile", { path: "marker.txt" }, controller.signal, principal)).content[0]?.text).toContain("NATIVE_MARKER");
+    expect(calls).toEqual([{ workspace: target, request: { argv: ["/usr/local/bin/bun", NATIVE_TOOL_ARTIFACT, encodeNativeToolRequest("readFile", { path: "marker.txt" })], timeoutMs: 120000 }, signal: controller.signal, actor: principal }]);
+    await dispatch(target, "shell", { command: "true", timeout: 99999999 }, undefined, principal);
     expect(calls[1]).toMatchObject({ request: { timeoutMs: 600000 } });
     const content = "x".repeat(12000);
-    expect((await dispatch(target, "editFile", { path: "large-edit.txt", new_string: content })).details).toMatchObject({ newContent: content });
+    expect((await dispatch(target, "editFile", { path: "large-edit.txt", new_string: content }, undefined, principal)).details).toMatchObject({ newContent: content });
     expect(await Bun.file(join(root, "large-edit.txt")).text()).toBe(content);
     const argv = (calls[2] as { request: { argv: string[] } }).request.argv;
     expect(argv.length).toBeGreaterThan(3);
@@ -66,12 +67,14 @@ describe("workspace process dispatcher", () => {
     let calls = 0;
     const controller = new AbortController(); controller.abort();
     const dispatch = createSandboxWorkspaceDispatcher(async () => { calls++; throw new Error("host-private-path"); });
-    expect((await dispatch(target, "shell", {}, controller.signal)).details).toMatchObject({ isError: true });
+    expect((await dispatch(target, "shell", {}, controller.signal, principal)).details).toMatchObject({ isError: true });
     expect(calls).toBe(0);
-    expect((await dispatch(target, "shell", {})).content[0]?.text).not.toContain("host-private-path");
+    expect((await dispatch(target, "readFile", {})).content[0]?.text).toContain("caller is unavailable");
+    expect(calls).toBe(0);
+    expect((await dispatch(target, "shell", {}, undefined, principal)).content[0]?.text).not.toContain("host-private-path");
     expect(calls).toBe(1);
     for (const output of [{ stdout: "", exitCode: 1 }, { stdout: "{}", exitCode: 0 }, { stdout: "x".repeat(NATIVE_TOOL_OUTPUT_BYTES + 1), exitCode: 0 }]) {
-      expect((await createSandboxWorkspaceDispatcher(async () => output)(target, "readFile", {})).details).toMatchObject({ isError: true });
+      expect((await createSandboxWorkspaceDispatcher(async () => output)(target, "readFile", {}, undefined, principal)).details).toMatchObject({ isError: true });
     }
   });
 });

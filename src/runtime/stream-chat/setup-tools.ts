@@ -172,6 +172,7 @@ export async function resolveProjectBuiltinTools(
   projectId: string,
   workingDir?: string,
   preview?: import("../tools").ShellPreviewWiring,
+  principal?: import("../workspace/target").WorkspacePrincipal,
 ): Promise<import("../tools").BuiltinToolDef[]> {
   const [{ resolveWorkspaceTarget }, { getBuiltinToolDefs }] = await Promise.all([
     import("../workspace/target"),
@@ -181,7 +182,7 @@ export async function resolveProjectBuiltinTools(
   // `workingDir` is a host-validated local run worktree. Preserve that
   // isolation for local projects, but it can never override a sandbox target.
   const target = workspaceForTools(workspace, workingDir);
-  const definitions = getBuiltinToolDefs(target, preview);
+  const definitions = getBuiltinToolDefs(target, preview, undefined, principal);
   return definitions.map((definition) => ({
     ...definition,
     execute: async (toolCallId, params, signal, onUpdate) => {
@@ -1162,7 +1163,7 @@ export async function setupTools(
             // Workspace selection is host-owned persisted policy. In
             // particular, caller-provided `workingDir` cannot turn a sandbox
             // project back into a host checkout.
-            const toolDefs = await resolveProjectBuiltinTools(options.projectId, options.workingDir, previewWiring);
+            const toolDefs = await resolveProjectBuiltinTools(options.projectId, options.workingDir, previewWiring, previewUserId ? { userId: previewUserId, conversationId } : undefined);
             for (const def of toolDefs) ctx.builtinToolDefsMap.set(def.name, def);
 
             const wrappedTools: AgentTool[] = toolDefs.map((def) =>

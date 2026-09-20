@@ -72,12 +72,14 @@ describe("persisted workspace routing", () => {
     await insertProject("sandbox-project");
     await bindSandbox("sandbox-project");
     const calls: string[] = [];
-    configureSandboxWorkspaceDispatcher(async (target, operation) => {
+    const principal = { userId: "user", conversationId: "conversation" };
+    configureSandboxWorkspaceDispatcher(async (target, operation, _params, _signal, actor) => {
+      expect(actor).toEqual(principal);
       calls.push(`${target.projectId}:${target.bindingId}:${operation}`);
       return { content: [{ type: "text", text: `GUEST_MARKER:${operation}` }], details: {} };
     });
 
-    const tools = await resolveProjectBuiltinTools("sandbox-project");
+    const tools = await resolveProjectBuiltinTools("sandbox-project", undefined, undefined, principal);
     expect(tools.map((tool) => tool.name)).toEqual(Object.keys(toolArguments));
     for (const tool of tools) {
       const result = await tool.execute("call", toolArguments[tool.name]);

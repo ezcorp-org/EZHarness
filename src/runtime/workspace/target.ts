@@ -9,12 +9,14 @@ export type WorkspaceTarget =
   | { kind: "sandbox"; bindingId: string; projectId: string; revision: number };
 
 export type SandboxWorkspaceOperation = "readFile" | "listFiles" | "readDirectory" | "editFile" | "shell" | "grep" | "glob";
+export interface WorkspacePrincipal { userId: string; conversationId: string }
 
 export type SandboxWorkspaceDispatcher = (
   target: Extract<WorkspaceTarget, { kind: "sandbox" }>,
   operation: SandboxWorkspaceOperation,
   params: unknown,
   signal?: AbortSignal,
+  principal?: WorkspacePrincipal,
 ) => Promise<AgentToolResult<unknown>>;
 
 let sandboxDispatcher: SandboxWorkspaceDispatcher | null = null;
