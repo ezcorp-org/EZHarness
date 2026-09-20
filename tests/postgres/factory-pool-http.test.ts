@@ -125,3 +125,35 @@ test("a malformed request cannot poison its reservation identity", async () => {
   expect(await client.status(queued.reservationId)).toMatchObject({ state: "queued", allocationGeneration: 1 });
   expect(await client.cancel(queued.reservationId, 1)).toMatchObject({ state: "settled", reason: "cancelled-before-admission" });
 });
+
+test("a tenant confirms a supervisor's stop over real mTLS, and never stands in for one", async () => {
+  const input = admission(`stop/${randomUUID()}`);
+  expect((await client.request(input)).reservationId).toBe(input.reservationId);
+  const admitted = await client.request(input);
+  expect(admitted.status).toBe("admitted");
+  const lease = admitted.lease!;
+  await client.acknowledgeStart({ reservationId: input.reservationId, grantRevision: 7, allocationGeneration: lease.allocationGeneration, allocationToken: lease.allocationToken });
+  const stop = { reservationId: input.reservationId, holderGeneration: 1, hostId: "host-http" };
+
+  // The supervisor has not confirmed yet, so the tenant's acknowledgement is
+  // refused rather than releasing anything.
+  await expect(client.confirmStopped(stop)).rejects.toThrow("HTTP 409");
+  expect((await client.status(input.reservationId))?.state).toBe("running");
+
+  // The supervisor's own confirmation is what releases the capacity.
+  expect(await service.ledger.confirmStopped({ reservationId: input.reservationId, holderGeneration: 1, hostId: "host-http" })).toMatchObject({ state: "settled" });
+
+  const acknowledged = await client.confirmStopped(stop);
+  expect(acknowledged).toMatchObject({ reservationId: input.reservationId, tenantId: "tenant-a", state: "settled", holderGeneration: 1 });
+  // A lost response is indistinguishable from a repeat, because the call writes
+  // nothing at all: retrying returns the identical status.
+  expect(await client.confirmStopped(stop)).toEqual(acknowledged);
+  expect(await Promise.all([client.confirmStopped(stop), client.confirmStopped(stop)])).toEqual([acknowledged, acknowledged]);
+
+  // A stale generation and another tenant's certificate are both refused.
+  await expect(client.confirmStopped({ ...stop, holderGeneration: 2 })).rejects.toThrow("HTTP 409");
+  await expect(foreign.confirmStopped(stop)).rejects.toThrow("HTTP 403");
+  // A malformed body never reaches the ledger.
+  await expect(client.confirmStopped({ ...stop, holderGeneration: 0 })).rejects.toThrow("malformed");
+  await expect(raw.request("POST", `/v1/pool/requests/${encodeURIComponent(input.reservationId)}/confirm-stopped`, { holderGeneration: 1 })).rejects.toThrow("HTTP 400");
+});

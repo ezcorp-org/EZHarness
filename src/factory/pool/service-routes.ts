@@ -109,6 +109,10 @@ export function createPoolAdmissionRouteHandler(options: PoolAdmissionRouteOptio
           const input = fence(body, reservationId);
           return json(200, parts[4] === "acknowledge-start" ? await snapshot.service.acknowledgeStart(principal, input) : await snapshot.service.renew(principal, input));
         }
+        if (parts[4] === "confirm-stopped") {
+          const body = payload(request, ["holderGeneration", "hostId"]);
+          return json(200, await snapshot.service.acknowledgeStopped(principal, { reservationId, holderGeneration: wireCounter(body.holderGeneration, "holder generation", 1), hostId: wireText(body.hostId, "host id") }));
+        }
         if (parts[4] === "cancel") {
           const body = payload(request, ["allocationGeneration"]);
           return json(200, await snapshot.service.cancel(principal, reservationId, wireCounter(body.allocationGeneration, "allocation generation", 1)));

@@ -48,6 +48,7 @@ class ControlledPool implements PoolAdmissionClient {
   }
   async acknowledgeStart(): Promise<never> { throw new Error("unused"); }
   async renew(): Promise<never> { throw new Error("unused"); }
+  async confirmStopped(): Promise<never> { throw new Error("unused"); }
 }
 
 class ControlledAuthority {

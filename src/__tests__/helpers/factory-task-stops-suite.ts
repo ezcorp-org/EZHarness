@@ -137,7 +137,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
     const unavailable = async (): Promise<never> => { throw new Error("This fixture admits product facts without a remote pool."); };
     const reference = { ...identity, commandId: admissionCommand.id };
-    const requestPool = { request: unavailable, status: unavailable, cancel: unavailable, acknowledgeStart: unavailable, renew: unavailable } satisfies PoolAdmissionClient;
+    const requestPool = { request: unavailable, status: unavailable, cancel: unavailable, acknowledgeStart: unavailable, renew: unavailable, confirmStopped: unavailable } satisfies PoolAdmissionClient;
     const reserved = await new FactoryTaskAdmission(fixture.db, authority, lifecycle.budgets, { cpu: profile }, new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, inbox, requestPool, () => now), () => now).request(service, reference);
     await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
     const queued = (await new FactoryCommandOutbox(fixture.db, tenantId, projectId, () => now, "pool").inspect(reserved.outboxCommandId))!;
@@ -390,6 +390,65 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     await expect(reconciler.reconcile({ reservationId: "missing-reservation", attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest, usage })).rejects.toMatchObject({ code: "factory_usage_settlement_not_found" });
   });
 
+  test("a listed hold resolves to the sealed facts reconciliation needs, or stays unknown", async () => {
+    const attempt = await launchedAttempt();
+    const { operation } = await dispatchedOperation(attempt);
+    // A second operation that settles with its own receipt before the run is
+    // cancelled. It is not this hold's evidence and must never be borrowed.
+    const authority = await sealedAuthority(attempt);
+    const second = { operationId: `${attempt.run.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:1`, operationIndex: 1, kind: "model" as const, requestDigest: "a".repeat(64) };
+    await attempt.journal.prepare(authority, second);
+    await attempt.journal.dispatch(authority, second.operationId);
+    await attempt.journal.settle(authority, second.operationId, "failed", { resultDigest: "f".repeat(64), providerReceiptDigest: `sha256:${"9".repeat(64)}`, usage: { kind: "measured", inputTokens: 9, outputTokens: 9, computeMs: 9, costMicros: "99" } });
+
+    const { reference } = await cancelled(attempt);
+    const held = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    expect((await held.stops.stop(service, reference)).state).toBe("stopped");
+    const reconciler = new FactoryUsageReconciliation(fixture.db, tenantId, held.stops, attempt.journal, lifecycle.budgets, held.settlements);
+    const holds = await fixture.db.transaction(transaction => lifecycle.budgets.listUncertainWithCostInTransaction(transaction));
+    const hold = holds.find(entry => entry.reservationId === attempt.reservationId)!;
+    expect(hold).toBeDefined();
+
+    // No receipt has landed on the operation that caused the hold, so the hold
+    // stays held rather than settling as zero, and the settled operation's own
+    // receipt is not borrowed for it.
+    expect(await reconciler.resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "no-operation-receipt" });
+
+    // The operation that caused the hold now carries a receipt but no measured
+    // usage, which is still unknown, not zero.
+    const providerReceiptDigest = `sha256:${"7".repeat(64)}`;
+    await fixture.db.execute(sql`UPDATE factory_execution_operations SET state='uncertain', provider_receipt_digest=${providerReceiptDigest}, usage_json=${JSON.stringify({ kind: "unknown", reason: "provider receipt pending", heldCostMicros: "900" })}::jsonb WHERE attempt_id=${attempt.attemptId} AND operation_id=${operation.operationId}`);
+    expect(await reconciler.resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "usage-still-unknown" });
+
+    // A tampered digest is refused rather than handed on to the reconciler.
+    await fixture.db.execute(sql`UPDATE factory_execution_operations SET usage_json=${JSON.stringify({ kind: "measured", inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "5" })}::jsonb, provider_receipt_digest='not-a-digest' WHERE attempt_id=${attempt.attemptId} AND operation_id=${operation.operationId}`);
+    await expect(reconciler.resolve(hold)).rejects.toMatchObject({ code: "factory_usage_settlement_receipt_invalid" });
+    // A tampered usage is corrupt, never rounded to something usable.
+    await fixture.db.execute(sql`UPDATE factory_execution_operations SET usage_json=${JSON.stringify({ kind: "measured", inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "-5" })}::jsonb, provider_receipt_digest=${providerReceiptDigest} WHERE attempt_id=${attempt.attemptId} AND operation_id=${operation.operationId}`);
+    await expect(reconciler.resolve(hold)).rejects.toMatchObject({ code: "factory_usage_settlement_corrupt" });
+
+    // With the sealed facts present, the hold resolves to exactly the four the
+    // reconciler needs, and resolving twice gives the same answer.
+    await fixture.db.execute(sql`UPDATE factory_execution_operations SET usage_json=${JSON.stringify({ kind: "measured", inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "5" })}::jsonb WHERE attempt_id=${attempt.attemptId} AND operation_id=${operation.operationId}`);
+    const resolved = await reconciler.resolve(hold);
+    expect(resolved).toEqual({ kind: "resolved", reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest, usage: { kind: "measured", inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "5" } });
+    expect(await reconciler.resolve(hold)).toEqual(resolved);
+
+    // Those facts settle the hold exactly once, and the hold leaves the list.
+    if (resolved.kind !== "resolved") throw new Error("expected resolved facts");
+    const settled = await reconciler.reconcile({ reservationId: resolved.reservationId, attemptId: resolved.attemptId, operationId: resolved.operationId, providerReceiptDigest: resolved.providerReceiptDigest, usage: resolved.usage });
+    expect(settled).toMatchObject({ source: "reconciliation", knownCostMicros: "5", providerReceiptDigest });
+    expect(await reconciler.reconcile({ reservationId: resolved.reservationId, attemptId: resolved.attemptId, operationId: resolved.operationId, providerReceiptDigest: resolved.providerReceiptDigest, usage: resolved.usage })).toEqual(settled);
+    expect(rows(await fixture.db.execute(sql`SELECT revision FROM factory_usage_settlements WHERE run_id=${attempt.run.runId} AND reservation_id=${attempt.reservationId}`))).toHaveLength(1);
+    const remaining = await fixture.db.transaction(transaction => lifecycle.budgets.listUncertainWithCostInTransaction(transaction));
+    expect(remaining.map(entry => entry.reservationId)).not.toContain(attempt.reservationId);
+
+    // A hold naming a different run than its sealed stop funds nothing.
+    await expect(reconciler.resolve({ ...hold, runId: "other-run" })).rejects.toMatchObject({ code: "factory_usage_settlement_conflict" });
+    // A hold with no sealed stop at all is unknown, not an error.
+    expect(await reconciler.resolve({ ...hold, reservationId: "reservation-without-a-stop" })).toEqual({ kind: "unknown", reservationId: "reservation-without-a-stop", reason: "no-sealed-attempt" });
+  });
+
   test("a corrupt sealed stop is refused rather than replayed", async () => {
     const attempt = await launchedAttempt();
     const { reference } = await cancelled(attempt);
@@ -492,7 +551,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     await persistTransition(identity, 1, event, first.nextState, first.commands, undefined, activities);
     const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
     const unavailable = async (): Promise<never> => { throw new Error("A cancelled admission never reaches the pool."); };
-    const requestPool = { request: unavailable, status: unavailable, cancel: unavailable, acknowledgeStart: unavailable, renew: unavailable } satisfies PoolAdmissionClient;
+    const requestPool = { request: unavailable, status: unavailable, cancel: unavailable, acknowledgeStart: unavailable, renew: unavailable, confirmStopped: unavailable } satisfies PoolAdmissionClient;
     const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, inbox, requestPool, () => now);
     const reserved = await new FactoryTaskAdmission(fixture.db, authority, lifecycle.budgets, { cpu: profile }, admissions, () => now).request(service, { ...identity, commandId: admissionCommand.id });
     expect(await reservationState(reserved.reservationId)).toMatchObject({ state: "held" });

@@ -88,7 +88,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   const start = () => startRun(principal, key, body, 0, `start-${++sequence}`);
   const taskAdmissions = (authority: FactoryCommandAuthority, profiles: Readonly<Record<string, FactoryTaskResourceProfile>>) => {
     const unavailable = async (): Promise<never> => { throw new Error("This fixture admits product facts without calling a remote pool."); };
-    const pool = { request: unavailable, status: unavailable, cancel: unavailable, acknowledgeStart: unavailable, renew: unavailable } satisfies PoolAdmissionClient;
+    const pool = { request: unavailable, status: unavailable, cancel: unavailable, acknowledgeStart: unavailable, renew: unavailable, confirmStopped: unavailable } satisfies PoolAdmissionClient;
     const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
     return new FactoryTaskAdmission(fixture.db, authority, lifecycle.budgets, profiles, admissions, () => now);
   };
@@ -122,7 +122,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const input = queued.command.body as import("../../factory/task-admission").FactoryComputeAdmissionRequest;
     const lease = { reservationId: reserved.reservationId, tenantId, grantRevision: body.grantRevision, allocationGeneration: 1, holderGeneration: 1, allocationToken: "current-authority-allocation", fence: "current-authority-fence", deadlineAt: new Date(now + 1_000), resources: input.request.resources, hostId: "host-current" };
     let requests = 0;
-    const pool = { async request() { requests++; return { status: "admitted" as const, reservationId: reserved.reservationId, lease }; }, async status() { return undefined; }, async cancel() { throw new Error("unexpected cancellation"); }, async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); } } satisfies PoolAdmissionClient;
+    const pool = { async request() { requests++; return { status: "admitted" as const, reservationId: reserved.reservationId, lease }; }, async status() { return undefined; }, async cancel() { throw new Error("unexpected cancellation"); }, async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); }, async confirmStopped(): Promise<never> { throw new Error("unused"); } } satisfies PoolAdmissionClient;
     const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
     const admitted = await admissions.recover(service, { projectId, runId: run.runId, reservationId: reserved.reservationId });
     expect(admitted).toMatchObject({ status: "admitted", receipt: { lease: { allocationToken: lease.allocationToken }, event: { commandId: admission.id, granted: true } } });
@@ -639,7 +639,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const enlisted = JSON.parse(rows<{ request_json: string }>(await fixture.db.execute(sql`SELECT request_json FROM factory_compute_admissions WHERE tenant_id=${tenantId} AND reservation_id=${schedule.reservationId}`))[0]!.request_json) as { request: { resources: Record<string, number> } };
     const lease = { reservationId: schedule.reservationId, tenantId, grantRevision: 1, allocationGeneration: 1, holderGeneration: 1, allocationToken: "validator-allocation", fence: "validator-fence", deadlineAt: new Date(now + 30_000), resources: enlisted.request.resources, hostId: "host-validator" };
     let polls = 0;
-    const pool = { async request() { polls += 1; return { status: "admitted" as const, reservationId: schedule.reservationId, lease }; }, async status() { return undefined; }, async cancel() { throw new Error("unexpected cancellation"); }, async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); } } satisfies PoolAdmissionClient;
+    const pool = { async request() { polls += 1; return { status: "admitted" as const, reservationId: schedule.reservationId, lease }; }, async status() { return undefined; }, async cancel() { throw new Error("unexpected cancellation"); }, async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); }, async confirmStopped(): Promise<never> { throw new Error("unused"); } } satisfies PoolAdmissionClient;
     const validatorAdmissions = new FactoryComputeAdmissions(fixture.db, tenantId, completed.task.authority, lifecycle.budgets, new FactoryInbox(fixture.db, tenantId, () => now), pool, () => now);
     const key = { projectId, runId: completed.task.run.runId, reservationId: schedule.reservationId };
     const admittedDecision = await validatorAdmissions.recover(service, key);
