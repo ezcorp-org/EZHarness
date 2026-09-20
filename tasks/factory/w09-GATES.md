@@ -222,7 +222,17 @@ database, and freshly started pool, supervisor, and web processes each time.
 
 All three at this branch's tip, against a web build made there.
 
-**Where the receipts sit.** The sweep, `repro/final-sweep-v2.sh`, ran at
+**Where the receipts sit.** Forty receipts. The sweep and the three-run repeat
+both ran at `625d2335c` from the W09 worktree against a clean tree; the six
+static and `BASE_REF` gates were re-stamped at `935b65522`, and
+`git diff --stat 625d2335c 935b65522` is two documentation files, 26 insertions.
+The one receipt naming an older commit is `shared-store-outage-observation.json`,
+a historical incident record stamped with the commit it was observed at. Two
+exit non-zero and both are meant to: `coverage-full` on the instrumented browser
+leg, and `negative-control`, the proof that the harness records its own
+failures. The full backend pool has no failing test file.
+
+**Superseded:** The sweep, `repro/final-sweep-v2.sh`, ran at
 `f1db11917` from the W09 worktree against a clean tree and produced every
 receipt. The six static and `BASE_REF` coverage gates were then re-stamped at
 `1e28030ba`; `git diff --stat f1db11917 1e28030ba` is this file alone, and every
