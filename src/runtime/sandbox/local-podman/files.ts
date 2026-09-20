@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
-import { constants, type BigIntStats } from "node:fs";
-import { mkdir, open, readdir, rename, rmdir, unlink, type FileHandle } from "node:fs/promises";
+import { constants, type BigIntStats, type Dir } from "node:fs";
+import { mkdir, open, opendir, rename, rmdir, unlink, type FileHandle } from "node:fs/promises";
 import type {
   SandboxFileChmodInput,
   SandboxFileListInput,
@@ -31,6 +31,15 @@ export class LocalWorkspaceFileError extends Error {
 
 interface OpenedRoot { handle: FileHandle; device: bigint }
 interface OpenedEntry { handle: FileHandle; stat: BigIntStats }
+interface ListCursor {
+  projectId: string;
+  bindingId: string;
+  generation: number;
+  resourceId: string;
+  path: string;
+  directoryRevision: string;
+  offset: number;
+}
 
 function descriptorPath(directory: FileHandle, name?: string): string {
   return name === undefined ? `/proc/self/fd/${directory.fd}` : `/proc/self/fd/${directory.fd}/${name}`;
@@ -57,23 +66,12 @@ function encodeRead(bytes: Buffer): { encoding: "utf8" | "base64"; data: string 
   catch { return { encoding: "base64", data: bytes.toString("base64") }; }
 }
 
-function cursor(path: string, after: string): string {
-  return Buffer.from(JSON.stringify({ path, after }), "utf8").toString("base64url");
-}
-
-function parseCursor(value: string | undefined, path: string): string | undefined {
-  if (value === undefined) return undefined;
-  try {
-    const decoded = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as unknown;
-    if (!decoded || typeof decoded !== "object" || Array.isArray(decoded)) throw new Error();
-    const record = decoded as Record<string, unknown>;
-    if (Object.keys(record).length !== 2 || record.path !== path || typeof record.after !== "string" || !record.after) throw new Error();
-    return record.after;
-  } catch { throw new LocalWorkspaceFileError("invalid_cursor", "List cursor does not belong to this directory"); }
-}
+async function close(handle: FileHandle | undefined): Promise<void> { await handle?.close().catch(() => undefined); }
+async function closeDirectory(directory: Dir): Promise<void> { try { await directory.close(); } catch { return; } }
 
 export class LocalWorkspaceFiles {
   private mutation = Promise.resolve();
+  private readonly cursors = new Map<string, ListCursor>();
 
   constructor(private readonly root: string, readonly limits: Readonly<LocalWorkspaceFileLimits>) {
     if (!root.startsWith("/") || !Number.isSafeInteger(limits.maxReadBytes) || limits.maxReadBytes < 1 || limits.maxReadBytes > CONTRACT_CHUNK_BYTES || !Number.isSafeInteger(limits.maxWriteBytes) || limits.maxWriteBytes < 1 || limits.maxWriteBytes > CONTRACT_CHUNK_BYTES || !Number.isSafeInteger(limits.maxListEntries) || limits.maxListEntries < 1 || limits.maxListEntries > CONTRACT_LIST_ENTRIES) throw new LocalWorkspaceFileError("limit_exceeded", "Invalid local workspace file limits");
@@ -81,8 +79,10 @@ export class LocalWorkspaceFiles {
 
   private async rootHandle(): Promise<OpenedRoot> {
     const handle = await open(this.root, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    const stat = await handle.stat({ bigint: true });
-    return { handle, device: stat.dev };
+    try {
+      const stat = await handle.stat({ bigint: true });
+      return { handle, device: stat.dev };
+    } catch (error) { await close(handle); throw error; }
   }
 
   private async childDirectory(parent: FileHandle, name: string, device: bigint, create = false): Promise<FileHandle> {
@@ -92,9 +92,11 @@ export class LocalWorkspaceFiles {
       catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }
     }
     const handle = await open(path, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-    const stat = await handle.stat({ bigint: true });
-    if (stat.dev !== device) { await handle.close(); throw new LocalWorkspaceFileError("unsupported_file", "Workspace path crossed a filesystem boundary"); }
-    return handle;
+    try {
+      const stat = await handle.stat({ bigint: true });
+      if (stat.dev !== device) throw new LocalWorkspaceFileError("unsupported_file", "Workspace path crossed a filesystem boundary");
+      return handle;
+    } catch (error) { await close(handle); throw error; }
   }
 
   private async parent(root: OpenedRoot, path: string, create = false): Promise<{ handle: FileHandle; leaf?: string }> {
@@ -104,12 +106,12 @@ export class LocalWorkspaceFiles {
     try {
       for (const part of pathParts) {
         const next = await this.childDirectory(handle, part, root.device, create);
-        if (handle !== root.handle) await handle.close();
+        if (handle !== root.handle) await close(handle);
         handle = next;
       }
       return { handle, ...(leaf ? { leaf } : {}) };
     } catch (error) {
-      if (handle !== root.handle) await handle.close();
+      if (handle !== root.handle) await close(handle);
       throw error;
     }
   }
@@ -119,14 +121,13 @@ export class LocalWorkspaceFiles {
     const parent = await this.parent(root, path);
     try {
       const handle = await open(descriptorPath(parent.handle, parent.leaf!), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-      const stat = await handle.stat({ bigint: true });
-      if (stat.dev !== root.device || (!stat.isFile() && !stat.isDirectory()) || (stat.isFile() && stat.nlink !== 1n)) {
-        await handle.close();
-        throw new LocalWorkspaceFileError("unsupported_file", "Only same-filesystem regular files and directories are supported");
-      }
-      return { handle, stat };
+      try {
+        const stat = await handle.stat({ bigint: true });
+        if (stat.dev !== root.device || (!stat.isFile() && !stat.isDirectory()) || (stat.isFile() && stat.nlink !== 1n)) throw new LocalWorkspaceFileError("unsupported_file", "Only same-filesystem regular files and directories are supported");
+        return { handle, stat };
+      } catch (error) { await close(handle); throw error; }
     } finally {
-      if (parent.handle !== root.handle) await parent.handle.close();
+      if (parent.handle !== root.handle) await close(parent.handle);
     }
   }
 
@@ -141,7 +142,7 @@ export class LocalWorkspaceFiles {
     catch (error) {
       if (error instanceof LocalWorkspaceFileError) throw error;
       const code = (error as NodeJS.ErrnoException).code;
-      throw new LocalWorkspaceFileError(code === "ENOENT" ? "invalid_path" : "unsupported_file", code === "ENOENT" ? "Workspace path does not exist" : "Workspace filesystem operation was denied");
+      throw new LocalWorkspaceFileError(code === "ENOENT" ? "invalid_path" : "unsupported_file", code === "ENOENT" ? "Workspace path does not exist" : `Workspace filesystem operation was denied (${code ?? "unknown"})`);
     }
   }
 
@@ -152,8 +153,8 @@ export class LocalWorkspaceFiles {
       try {
         const opened = await this.entry(root, request.path);
         try { return { entry: resultStat(request.path, opened.stat) }; }
-        finally { if (opened.handle !== root.handle) await opened.handle.close(); }
-      } finally { await root.handle.close(); }
+        finally { if (opened.handle !== root.handle) await close(opened.handle); }
+      } finally { await close(root.handle); }
     });
   }
 
@@ -161,26 +162,44 @@ export class LocalWorkspaceFiles {
     return this.safe(async () => {
       validateProviderMethodValue("sandbox.files.v1", "list", "input", request);
       if (request.limit > this.limits.maxListEntries) throw new LocalWorkspaceFileError("limit_exceeded", "List limit exceeds local policy");
-      const after = parseCursor(request.cursor, request.path);
       const root = await this.rootHandle();
       try {
       const opened = await this.entry(root, request.path);
       try {
         if (!opened.stat.isDirectory()) throw new LocalWorkspaceFileError("unsupported_file", "List requires a directory");
-        const names = (await readdir(descriptorPath(opened.handle))).sort();
-        const start = after === undefined ? 0 : names.findIndex(name => name > after);
-        const selected = start < 0 ? [] : names.slice(start, start + request.limit);
-        const entries: SandboxFileStat[] = [];
-        for (const name of selected) {
-          const childPath = request.path === "/" ? `/${name}` : `${request.path}/${name}`;
-          const child = await this.entry(root, childPath);
-          try { entries.push(resultStat(childPath, child.stat)); }
-          finally { if (child.handle !== root.handle) await child.handle.close(); }
+        const directoryRevision = revision(opened.stat);
+        let offset = 0;
+        if (request.cursor !== undefined) {
+          const saved = this.cursors.get(request.cursor);
+          this.cursors.delete(request.cursor);
+          if (!saved || saved.projectId !== request.call.scope.projectId || saved.bindingId !== request.call.scope.bindingId || saved.generation !== request.call.scope.generation || saved.resourceId !== request.resourceId || saved.path !== request.path || saved.directoryRevision !== directoryRevision) throw new LocalWorkspaceFileError("invalid_cursor", "List cursor is stale or belongs to another scope");
+          offset = saved.offset;
         }
-        const more = start >= 0 && start + selected.length < names.length;
-        return { entries, ...(more && selected.length ? { nextCursor: cursor(request.path, selected.at(-1)!) } : {}) };
-      } finally { if (opened.handle !== root.handle) await opened.handle.close(); }
-      } finally { await root.handle.close(); }
+        const entries: SandboxFileStat[] = [];
+        const directory = await opendir(descriptorPath(opened.handle), { bufferSize: Math.min(request.limit + 1, 32) });
+        let scanned = 0;
+        let more = false;
+        try {
+          for (;;) {
+            const dirent = await directory.read();
+            if (!dirent) break;
+            if (scanned++ < offset) continue;
+            if (entries.length === request.limit) { more = true; break; }
+            const childPath = request.path === "/" ? `/${dirent.name}` : `${request.path}/${dirent.name}`;
+            const child = await this.entry(root, childPath);
+            try { entries.push(resultStat(childPath, child.stat)); }
+            finally { if (child.handle !== root.handle) await close(child.handle); }
+          }
+        } finally { await closeDirectory(directory); }
+        let nextCursor: string | undefined;
+        if (more) {
+          nextCursor = randomUUID();
+          if (this.cursors.size >= 1024) this.cursors.delete(this.cursors.keys().next().value!);
+          this.cursors.set(nextCursor, { projectId: request.call.scope.projectId, bindingId: request.call.scope.bindingId, generation: request.call.scope.generation, resourceId: request.resourceId, path: request.path, directoryRevision, offset: offset + entries.length });
+        }
+        return { entries, ...(nextCursor ? { nextCursor } : {}) };
+      } finally { if (opened.handle !== root.handle) await close(opened.handle); }
+      } finally { await close(root.handle); }
     });
   }
 
@@ -199,8 +218,8 @@ export class LocalWorkspaceFiles {
         const read = await opened.handle.read(bytes, 0, bytes.length, request.offsetBytes);
         const body = bytes.subarray(0, read.bytesRead);
         return { path: request.path, revision: observedRevision, offsetBytes: request.offsetBytes, nextOffsetBytes: request.offsetBytes + body.byteLength, eof: request.offsetBytes + body.byteLength >= Number(opened.stat.size), ...encodeRead(body) };
-      } finally { if (opened.handle !== root.handle) await opened.handle.close(); }
-      } finally { await root.handle.close(); }
+      } finally { if (opened.handle !== root.handle) await close(opened.handle); }
+      } finally { await close(root.handle); }
     });
   }
 
@@ -226,7 +245,7 @@ export class LocalWorkspaceFiles {
             if (!current.stat.isFile()) throw new LocalWorkspaceFileError("unsupported_file", "Write target must be a regular file");
             if (request.expectedRevision !== undefined && revision(current.stat) !== request.expectedRevision) throw new LocalWorkspaceFileError("revision_conflict", "File revision changed");
             mode = Number(current.stat.mode & 0o777n);
-          } finally { await current.handle.close(); }
+          } finally { await close(current.handle); }
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT" || request.expectedRevision !== undefined) throw error;
         }
@@ -241,12 +260,12 @@ export class LocalWorkspaceFiles {
         temporaryPath = undefined;
         const written = await this.entry(root, request.path);
         try { return { entry: resultStat(request.path, written.stat) }; }
-        finally { await written.handle.close(); }
+        finally { await close(written.handle); }
       } finally {
-        await temporary?.close().catch(() => undefined);
+        await close(temporary);
         if (temporaryPath) await unlink(temporaryPath).catch(() => undefined);
-        if (parent && parent !== root.handle) await parent.close().catch(() => undefined);
-        await root.handle.close();
+        if (parent && parent !== root.handle) await close(parent);
+        await close(root.handle);
       }
       });
     });
@@ -257,31 +276,39 @@ export class LocalWorkspaceFiles {
       validateProviderMethodValue("sandbox.files.v1", "mkdir", "input", request);
       return this.exclusive(async () => {
       const root = await this.rootHandle();
+      let handle = root.handle;
       try {
-        let handle = root.handle;
-        for (const [index, part] of parts(request.path).entries()) {
-          const next = await this.childDirectory(handle, part, root.device, request.recursive || index === parts(request.path).length - 1);
-          if (handle !== root.handle) await handle.close();
+        const pathParts = parts(request.path);
+        for (const [index, part] of pathParts.entries()) {
+          const next = await this.childDirectory(handle, part, root.device, request.recursive || index === pathParts.length - 1);
+          if (handle !== root.handle) await close(handle);
           handle = next;
         }
-        try { return { entry: resultStat(request.path, await handle.stat({ bigint: true })) }; }
-        finally { if (handle !== root.handle) await handle.close(); }
-      } finally { await root.handle.close(); }
+        return { entry: resultStat(request.path, await handle.stat({ bigint: true })) };
+      } finally {
+        if (handle !== root.handle) await close(handle);
+        await close(root.handle);
+      }
       });
     });
   }
 
   private async removeDirectory(directory: FileHandle, device: bigint): Promise<void> {
-    for (const name of await readdir(descriptorPath(directory))) {
-      const path = descriptorPath(directory, name);
-      const child = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
-      const stat = await child.stat({ bigint: true });
-      try {
-        if (stat.dev !== device || (!stat.isFile() && !stat.isDirectory()) || (stat.isFile() && stat.nlink !== 1n)) throw new LocalWorkspaceFileError("unsupported_file", "Removal found an unsupported file");
-        if (stat.isDirectory()) { await this.removeDirectory(child, device); await rmdir(path); }
-        else await unlink(path);
-      } finally { await child.close(); }
-    }
+    const iterator = await opendir(descriptorPath(directory), { bufferSize: 16 });
+    try {
+      for (;;) {
+        const dirent = await iterator.read();
+        if (!dirent) break;
+        const path = descriptorPath(directory, dirent.name);
+        const child = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+        try {
+          const stat = await child.stat({ bigint: true });
+          if (stat.dev !== device || (!stat.isFile() && !stat.isDirectory()) || (stat.isFile() && stat.nlink !== 1n)) throw new LocalWorkspaceFileError("unsupported_file", "Removal found an unsupported file");
+          if (stat.isDirectory()) { await this.removeDirectory(child, device); await rmdir(path); }
+          else await unlink(path);
+        } finally { await close(child); }
+      }
+    } finally { await closeDirectory(iterator); }
   }
 
   async remove(request: SandboxFileRemoveInput): Promise<{ removedRevision: string }> {
@@ -291,24 +318,30 @@ export class LocalWorkspaceFiles {
       return this.exclusive(async () => {
       const root = await this.rootHandle();
       let parent: FileHandle | undefined;
+      let opened: OpenedEntry | undefined;
       try {
-        const opened = await this.entry(root, request.path);
+        opened = await this.entry(root, request.path);
         const observedRevision = revision(opened.stat);
-        if (request.expectedRevision !== undefined && request.expectedRevision !== observedRevision) { await opened.handle.close(); throw new LocalWorkspaceFileError("revision_conflict", "File revision changed"); }
+        if (request.expectedRevision !== undefined && request.expectedRevision !== observedRevision) throw new LocalWorkspaceFileError("revision_conflict", "File revision changed");
         const resolved = await this.parent(root, request.path);
         parent = resolved.handle;
         const target = descriptorPath(parent, resolved.leaf!);
         try {
           if (opened.stat.isDirectory()) {
-            if (!request.recursive && (await readdir(descriptorPath(opened.handle))).length) throw new LocalWorkspaceFileError("unsupported_file", "Directory is not empty");
+            if (!request.recursive) {
+              const iterator = await opendir(descriptorPath(opened.handle), { bufferSize: 1 });
+              try { if (await iterator.read()) throw new LocalWorkspaceFileError("unsupported_file", "Directory is not empty"); }
+              finally { await closeDirectory(iterator); }
+            }
             if (request.recursive) await this.removeDirectory(opened.handle, root.device);
             await rmdir(target);
           } else await unlink(target);
-        } finally { await opened.handle.close(); }
+        } finally { await close(opened.handle); opened = undefined; }
         return { removedRevision: observedRevision };
       } finally {
-        if (parent && parent !== root.handle) await parent.close().catch(() => undefined);
-        await root.handle.close();
+        await close(opened?.handle);
+        if (parent && parent !== root.handle) await close(parent);
+        await close(root.handle);
       }
       });
     });
@@ -326,8 +359,8 @@ export class LocalWorkspaceFiles {
           if (request.expectedRevision !== undefined && request.expectedRevision !== revision(opened.stat)) throw new LocalWorkspaceFileError("revision_conflict", "File revision changed");
           await opened.handle.chmod(request.mode);
           return { entry: resultStat(request.path, await opened.handle.stat({ bigint: true })) };
-        } finally { await opened.handle.close(); }
-      } finally { await root.handle.close(); }
+        } finally { await close(opened.handle); }
+      } finally { await close(root.handle); }
       });
     });
   }

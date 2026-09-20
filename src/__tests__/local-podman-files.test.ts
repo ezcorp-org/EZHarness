@@ -52,12 +52,26 @@ describe("LocalWorkspaceFiles", () => {
     await files.write({ call, resourceId, path: "/src/a", encoding: "utf8", data: "a" });
     await files.write({ call, resourceId, path: "/src/b", encoding: "utf8", data: "b" });
     await files.write({ call, resourceId, path: "/src/c", encoding: "utf8", data: "c" });
-    const first = await files.list({ call, resourceId, path: "/src", limit: 2 });
-    expect(first.entries.map(entry => entry.path)).toEqual(["/src/a", "/src/b"]);
-    expect(first.nextCursor).toBeString();
-    const second = await files.list({ call, resourceId, path: "/src", cursor: first.nextCursor, limit: 2 });
-    expect(second.entries.map(entry => entry.path)).toEqual(["/src/c", "/src/nested"]);
-    await expect(files.list({ call, resourceId, path: "/", cursor: first.nextCursor, limit: 2 })).rejects.toMatchObject({ code: "invalid_cursor" });
+    const crossResource = await files.list({ call, resourceId, path: "/src", limit: 2 });
+    expect(crossResource.nextCursor).toBeString();
+    expect(crossResource.nextCursor!.length).toBeLessThanOrEqual(256);
+    expect(crossResource.nextCursor).not.toContain("src");
+    await expect(files.list({ call, resourceId: "resource-2", path: "/src", cursor: crossResource.nextCursor, limit: 2 })).rejects.toMatchObject({ code: "invalid_cursor" });
+    const crossScope = await files.list({ call, resourceId, path: "/src", limit: 2 });
+    await expect(files.list({ call: { ...call, scope: { ...call.scope, bindingId: "binding-2" } }, resourceId, path: "/src", cursor: crossScope.nextCursor, limit: 2 })).rejects.toMatchObject({ code: "invalid_cursor" });
+    const stale = await files.list({ call, resourceId, path: "/src", limit: 2 });
+    await files.write({ call, resourceId, path: "/src/d", encoding: "utf8", data: "d" });
+    await expect(files.list({ call, resourceId, path: "/src", cursor: stale.nextCursor, limit: 2 })).rejects.toMatchObject({ code: "invalid_cursor" });
+
+    const listed: string[] = [];
+    let page = await files.list({ call, resourceId, path: "/src", limit: 2 });
+    for (;;) {
+      listed.push(...page.entries.map(entry => entry.path));
+      if (!page.nextCursor) break;
+      page = await files.list({ call, resourceId, path: "/src", cursor: page.nextCursor, limit: 2 });
+    }
+    expect(new Set(listed)).toEqual(new Set(["/src/a", "/src/b", "/src/c", "/src/d", "/src/nested"]));
+    expect(listed).toHaveLength(5);
     await expect(files.list({ call, resourceId, path: "/src", limit: 3 })).rejects.toMatchObject({ code: "limit_exceeded" });
     await expect(files.read({ call, resourceId, path: "/src/a", offsetBytes: 0, lengthBytes: 9 })).rejects.toMatchObject({ code: "limit_exceeded" });
     await expect(files.write({ call, resourceId, path: "/src/a", encoding: "utf8", data: "123456789" })).rejects.toMatchObject({ code: "limit_exceeded" });
@@ -126,5 +140,19 @@ describe("LocalWorkspaceFiles", () => {
     expect(observed.every(value => value === "inside")).toBe(true);
     expect(observed.length + denied).toBe(101);
     expect(await readFile(join(outside, "value"), "utf8")).toBe("outside");
+  });
+
+  test("closes descriptors when nested traversal and entry checks fail", async () => {
+    const { root, files } = await fixture();
+    await mkdir(join(root, "one"));
+    await writeFile(join(root, "source"), "hardlink");
+    await link(join(root, "source"), join(root, "hard"));
+    const before = (await readdir("/proc/self/fd")).length;
+    for (let attempt = 0; attempt < 50; attempt++) {
+      await expect(files.mkdir({ call, resourceId, path: "/one/missing/child", recursive: false })).rejects.toBeDefined();
+      await expect(files.stat({ call, resourceId, path: "/hard" })).rejects.toMatchObject({ code: "unsupported_file" });
+    }
+    const after = (await readdir("/proc/self/fd")).length;
+    expect(after).toBeLessThanOrEqual(before + 2);
   });
 });
