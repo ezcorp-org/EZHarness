@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { factoryChildAcceptanceResult } from "./child-acceptance";
 import { compileFactory } from "./compiler";
 import { referenceCatalogV1, referenceCodeV1, referenceDataV1, referenceFactories, referenceImageV1 } from "./references";
 import type { CompiledFactory, FactoryDefinition, JsonValue } from "./types";
@@ -11,20 +12,21 @@ const fixtureDigest = (label: string): string => `sha256:${label.charCodeAt(0).t
 /**
  * What a `releaseMode: "none"` child returns.
  *
- * Mirrors `FactoryChildAcceptanceResult` in `src/factory/child-release-mode.ts`,
- * which the host builds from a sealed acceptance decision. The SDK cannot
- * import it, so `src/factory/child-release-mode.test.ts` asserts the real value
- * satisfies `childAcceptanceSchema` and fails if the two ever drift.
+ * Built by the real `factoryChildAcceptanceResult`, not hand-written. The
+ * shape, its builder, and the port schema that admits it all live in
+ * `child-acceptance.ts` in this package, so a fixture that restated the seven
+ * fields would be the second declaration the single-declaration move removed.
+ * Every catalog child declares `factoryChildAcceptancePortSchema`, and
+ * `advanceKernel` validates each node result against its declared output port,
+ * so a drifted envelope fails the catalog simulation rather than passing.
  */
-const acceptanceOnlyReceipt = (label: string, accepted: JsonValue): JsonValue => ({
-  schemaVersion: "factory.child-acceptance.v1",
-  releaseMode: "none",
+const acceptanceOnlyReceipt = (label: string, accepted: JsonValue): JsonValue => factoryChildAcceptanceResult({
   decisionId: `decision-${label}`,
   contractDigest: fixtureDigest("c"),
   candidateDigest: fixtureDigest(label),
   evidenceSetDigest: fixtureDigest("e"),
   artifact: accepted,
-});
+}) as unknown as JsonValue;
 
 const artifacts = {
   catalog: artifact("catalog"),

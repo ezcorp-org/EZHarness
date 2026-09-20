@@ -2758,7 +2758,11 @@ work. Gate file: `tasks/factory/w13-GATES.md`. Receipts: `/tmp/factory-platform-
 - [x] Embed their actual accepted bytes in the code candidate and perform the parent's own
       protected checks and acceptance.
 - [x] Preserve child budgets, exact aliases, pinned revisions, parent authority, cancellation, and
-      output schema boundaries. Child acceptance never grants parent acceptance.
+      output schema boundaries. Child acceptance never grants parent acceptance. The alias is
+      proven directly: the acceptance-only receipt's decision binds through
+      `FactoryChildArtifacts.bind` to the exact parent attempt, and a decision the child never
+      took is refused. Only the PRODUCTION composition that calls it from the child-completion
+      path is outstanding, and that is W09b's wiring round.
 - [x] Complete the allowlisted and administrator-attested legacy adapters on the existing executor:
       `factory:` start identity, journal-before-start, lookup after crash, unique-conflict
       classification, and the periodic orphan sweep as a host-maintenance-daemon sub-tick.

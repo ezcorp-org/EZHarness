@@ -126,8 +126,11 @@ implemented nowhere in the repository.
   `factory_release_operations` is EMPTY for that run before and after a replay; the replay returns
   the recorded event; the parent has no acceptance decision of its own; the receipt's `decisionId`
   is exactly the child's row in `factory_acceptance_decisions`; the child holds a portion carved
-  out of the parent rather than a copy of its limits; and an `authorized` child still creates
-  exactly one operation.
+  out of the parent rather than a copy of its limits; the receipt's decision binds through
+  `FactoryChildArtifacts.bind` to the exact parent attempt, giving the alias the plan's second
+  bullet asks for, while a decision the child never took is refused by the sealed-decision read;
+  and an `authorized` child still creates exactly one operation. Only the PRODUCTION call from the
+  child-completion path is outstanding, and it is W09b's wiring round.
   EVIDENCE: `receipts.jsonl` records `focused-lifecycle` (74 pass, 0 fail, 1126 assertions across
   the lifecycle and migration-restart suites) and `final-postgres` (103 pass, 0 fail, 4226
   assertions on real PostgreSQL and real S3; identical at all three heads).
@@ -272,18 +275,33 @@ implemented nowhere in the repository.
 | File | Section 12 owner | Why it changed |
 | --- | --- | --- |
 | `src/factory/command-authority.ts` | Sol lifecycle (mine) | The inherited release mode rides out of the existing ancestry walk. |
-| `src/factory/protected-command-effects.ts` | Sol assurance (W05) structure, Sol controls (W06) rejection branch | The acceptance-only branch and the shared `resolveAcceptedRelease` extraction. A third writer; the logic itself lives in `child-release-mode.ts`. |
+| `src/factory/protected-command-effects.ts` | Sol assurance (W05) structure, Sol controls (W06) rejection branch | The acceptance-only branch and the shared `resolveAcceptedRelease` extraction. A THIRD writer on the file the freeze calls the only two-writer file — approved, see below. |
 | `packages/@ezcorp/factory-sdk/src/references.ts` | Sol controls | The catalog's child output ports and the bindings that read the accepted bytes out of them. The catalog row is W13's. |
 | `packages/@ezcorp/factory-sdk/src/child-acceptance.ts` (new), `index.ts` | Sol controls | Interface answer 4: the acceptance-only shape and its port schema, moved into the SDK so the two are one declaration. Authorized by the coordinator. |
 | `packages/@ezcorp/factory-sdk/src/reference-execution.test.ts` | Sol controls | Its `child()` fixture returned the old shape, so the catalog failed. |
 | `src/db/migrate.ts`, `src/db/schema.ts` | Coordinator | One appended migration entry and three Drizzle mirrors. |
 | `src/__tests__/helpers/factory-migration-restart-suite.ts` | Coordinator | The repeat-migration case every new migration owes it. |
+| `src/__tests__/helpers/mock-cleanup.ts` | not in section 12 | One `MODULE_PATHS` entry for `runtime/workflow-release-assets`, forced by `mock-cleanup-coverage.test.ts`: an unsnapshotted `mock.module` target cannot be undone, so the conflict regression's release-authority stub would have leaked into every later file in the pool. Strictly additive. |
 | `src/__tests__/helpers/factory-run-lifecycle-suite.ts` | Sol controls (W06) | An optional existing-run parameter, the `childRunUnder` helper, and four tests. Duplicating ~500 lines of fixture would have been the DRY violation. |
 | `src/runtime/workflow-executor.ts` | not in section 12 | The unique-conflict classification C10 asks for. |
 | `src/runtime/workflow-capability-hash.ts`, `src/runtime/workflow-release-assets.ts` | not in section 12 | The extracted closure walk, and one named constant replacing six copies of a sentence a consumer must recognise. |
 | `scripts/check-factory-boundaries.ts` | Coordinator | Five `REQUIRED_SHARED_IMPORTS` rows, strictly additive. |
 | `scripts/coverage-thresholds.json` | W18 | Eight 100% keys, strictly additive. |
 | `.github/workflows/db-postgres.yml` | Coordinator | Registered `./tests/postgres/factory-legacy-workflow.test.ts`. |
+
+### The third writer on `protected-command-effects.ts`, approved
+
+The freeze's section 12 annotates that file "The only two-writer file". W13 adds 86 lines to it and
+is therefore a third writer. **Coordinator decision, recorded verbatim: *the third writer is
+approved for W13's acceptance-only child mode because the change is additive and owned by the same
+Sol lifecycle/controls group*.** A dated line naming W13, the reason, and the new SDK file is in
+interface-freeze section 16.
+
+The branch has to live in this file: it must run before the adapter profile is resolved and before
+`releases.prepare` is reached, which is the only point at which "create no release operation" is
+still true. Everything that could live elsewhere does — the decision is
+`context.inheritedReleaseMode`, derived in `src/factory/command-authority.ts`, and the value and its
+port schema are in the SDK's `child-acceptance.ts`.
 
 ## Interface questions — all four answered by the coordinator (2026-09-20)
 

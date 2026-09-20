@@ -19,6 +19,7 @@ import { FactoryRunLifecycle, type FactoryRunLifecycleOptions } from "../../fact
 import { FactoryServiceCredentials } from "../../factory/service-credentials";
 import { FactoryCommandAuthority, type FactoryAuthorizedApprovalCommand } from "../../factory/command-authority";
 import { assertFactoryChildAcceptanceResult } from "../../factory/child-release-mode";
+import { FactoryChildArtifacts } from "../../factory/child-artifacts";
 import { FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT, FactoryChildRuns } from "../../factory/child-runs";
 import { FactoryTaskAdmission, factoryTaskReservationId, type FactoryTaskResourceProfile } from "../../factory/task-admission";
 import { FactoryComputeAdmissions } from "../../factory/compute-admissions";
@@ -490,7 +491,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await children.resolve({ tenantId, subject: "orchestration" }, { ...parent.identity, commandId: command.id, factory: command.factory });
     const runId = rows<{ child_run_id: string }>(await fixture.db.execute(sql`SELECT child_run_id FROM factory_child_runs WHERE tenant_id=${tenantId} AND project_id=${projectId} AND parent_run_id=${parentRun.runId} AND parent_command_id=${command.id}`))[0]!.child_run_id;
     const revision = Number(rows<{ revision: number | string }>(await fixture.db.execute(sql`SELECT revision FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${runId}`))[0]!.revision);
-    return { parentRunId: parentRun.runId, run: { runId, revision }, authority: parent.authority };
+    return { parentRunId: parentRun.runId, commandId: command.id, run: { runId, revision }, authority: parent.authority };
   };
 
   /**
@@ -602,7 +603,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   });
 
   test("an acceptance-only child returns its accepted artifact and creates no release operation", async () => {
-    const { effects, completed, acceptanceReference, candidateAdvanced, candidate, composed } = await protectedAcceptance(true, true, "none");
+    const { effects, completed, acceptanceReference, candidateAdvanced, candidate, composed, assurance } = await protectedAcceptance(true, true, "none");
     if (!composed) throw new Error("the acceptance-only fixture must be composed as a child");
     const accepted = await effects.requestAcceptance(completed.task.service, acceptanceReference);
     const acceptedAdvanced = advanceKernel(completed.task.compiled, candidateAdvanced.nextState, accepted);
@@ -636,6 +637,27 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(Number(parentRoot.allocated.costMicros)).toBeGreaterThan(0);
     expect(Number(childRoot.limits.costMicros)).toBeLessThanOrEqual(Number(parentRoot.limits.costMicros));
     await new FactoryRunTransitionProjector(fixture.db, tenantId, completed.task.transitions, lifecycle).project(runKey(completed.task.run.runId));
+
+    // The alias is the seam a parent uses to CONSUME those bytes, and the
+    // receipt's decision is exactly what it re-proves. Binding it here turns
+    // "the decision id matches a row" into the binding itself succeeding, and a
+    // foreign decision under the same parent attempt being refused.
+    const parentAttemptId = `acceptance-only-parent-attempt-${sequence}`;
+    await fixture.db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES (${parentAttemptId},${tenantId},${projectId},${composed.parentRunId},'child',0,1,1,1,1,0,${new Date(now + 600_000)},${"a".repeat(64)},'{}'::jsonb,'admitted')`);
+    const aliases = new FactoryChildArtifacts(fixture.db, tenantId, assurance, completed.artifacts, {
+      tenantId,
+      readCurrentFenceInTransaction: (transaction, currentProject, runId) => lifecycle.authorizeRunInTransaction(transaction, { projectId: currentProject, runId }),
+    });
+    const parentAttempt = { runId: composed.parentRunId, interpreterId: "root", commandId: composed.commandId, nodeInstanceId: "child", candidateGeneration: 0, attemptId: parentAttemptId };
+    const alias = await aliases.bind({ projectId, parent: parentAttempt, childRunId: completed.task.run.runId, childDecisionId: receipt.decisionId, artifact: completed.result.output });
+    expect(alias).toMatchObject({ childRunId: completed.task.run.runId, childDecisionId: receipt.decisionId, artifact: completed.result.output });
+    // Still no parent acceptance: consuming a child's bytes is not being accepted.
+    expect(rows(await fixture.db.execute(sql`SELECT decision_id FROM factory_acceptance_decisions WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${composed.parentRunId}`))).toEqual([]);
+    // A decision the child never took is refused by the sealed-decision read
+    // itself, which is the check that matters: the alias cannot be bound to an
+    // acceptance that does not exist, whatever the parent attempt looks like.
+    await expect(aliases.bind({ projectId, parent: parentAttempt, childRunId: completed.task.run.runId, childDecisionId: "acceptance-only-foreign-decision", artifact: completed.result.output }))
+      .rejects.toMatchObject({ code: "factory_assurance_not_found" });
   });
 
   test("cancelling the parent stops an acceptance-only child's release rather than completing it", async () => {
