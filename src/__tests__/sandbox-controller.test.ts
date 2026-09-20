@@ -224,6 +224,25 @@ test("method idempotency binds the conversation and canonical payload", async ()
   await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "inspect", idempotencyKey: "same", conversationId: two, payload: { identity: { bootId: "boot", processId: "process" } } })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
 });
 
+test("identical method admission replays its durable operation", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const admitted = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "inspect", idempotencyKey: "replay", payload: { identity: { bootId: "boot", processId: "process" } } });
+  const replay = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "inspect", idempotencyKey: "replay", payload: { identity: { bootId: "boot", processId: "process" } } });
+  expect(replay).toEqual(admitted);
+});
+
+test("invalid host driver output becomes an unknown durable method operation", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  context.local.fileStat = mock(async () => ({} as never));
+  const admitted = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "stat", idempotencyKey: "bad-result", payload: { path: "/x" } });
+  await expect(context.controller.executeAdmittedSandboxMethod(context.owner.id, admitted.id)).rejects.toThrow();
+  expect((await context.controller.getSandboxOperationResult(context.owner.id, admitted.id)).state).toBe("unknown");
+});
+
 test("raw dispatcher persists canonical cancel and file method results", async () => {
   const context = await fixture();
   const create = await admitCreate(context);
@@ -246,4 +265,21 @@ test("raw dispatcher persists canonical cancel and file method results", async (
     const admitted = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group, operation, idempotencyKey: crypto.randomUUID(), conversationId, payload });
     expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, admitted.id)).state).toBe("succeeded");
   }
+});
+
+test("native abort sends canonical cancel and reconciles the writer lease", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID(); const abort = new AbortController();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Abort')`);
+  context.local.processStart = mock(async (input: any) => { abort.abort(); return { receipt: receipt(input.call), process: { identity: { bootId: "boot", processId: "cancel-me" }, state: "running" as const, outputCursor: 0 } }; });
+  context.local.processCancel = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity, state: "cancelled" as const, outputCursor: 0 } }));
+  context.local.processInspect = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity, state: "cancelled" as const, outputCursor: 0 } }));
+  context.local.processReadOutput = mock(async (input: any) => ({ receipt: receipt(input.call), identity: input.identity, cursor: input.cursor, chunks: [], eof: true, gap: false }));
+  const workspace = await context.database.execute(sql`SELECT binding_id,revision FROM project_workspace_bindings WHERE project_id=${create.projectId}`) as { rows: Array<{ binding_id: string; revision: number }> };
+  await expect(context.controller.runNativeWorkspaceProcess({ projectId: create.projectId, bindingId: workspace.rows[0]!.binding_id, revision: Number(workspace.rows[0]!.revision) }, { argv: ["/usr/local/bin/bun", "/opt/ezharness/native-tools.js", "ZXhpdCAw"], timeoutMs: 1_000 }, abort.signal, { userId: context.owner.id, conversationId })).rejects.toThrow();
+  expect(context.local.processCancel).toHaveBeenCalled();
+  const lease = await context.database.execute(sql`SELECT * FROM sandbox_writer_leases WHERE binding_id=${create.bindingId}`) as { rows: unknown[] };
+  expect(lease.rows).toHaveLength(0);
 });
