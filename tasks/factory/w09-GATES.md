@@ -387,6 +387,26 @@ producing a failure that looks like the product's. The stale
 `shared-store-ordinary-still-768mib.json` receipt is superseded by this section;
 its measurements were accurate and its conclusion was not.
 
+**One run in six hit `runner_probe_timeout`, and the composition was right.**
+The sweep's second run failed: `/api/ready` answered `503 degraded` naming
+`host-supervisor`, and the supervisor's own record said
+`lifecycle: "degraded"`, `runnerReady: false`, `errorCode: "runner_probe_timeout"`.
+The shared stores were both reachable in that run's own read-only check, so this
+was not the store; it was the Podman probe exceeding its bound on a box that had
+just finished a long combined integration run.
+
+That is the readiness gate working, not failing: the probe timed out, the
+supervisor published `degraded` with the reason, admission stayed closed, and
+the proof recorded a failure rather than a pass. The three runs were then
+repeated on a quieter box and all three passed.
+
+**What I did not do about it.** The probe bound is four heartbeats and the
+harness sets a 2 s heartbeat, so the budget is 8 s. Raising either to make the
+run green would be tuning a product invariant to suit a loaded test host, which
+this repo's own rule forbids. The flake is recorded here instead, with the
+measurement, because one timeout in six runs on a shared box is a fact about
+the box that a future reader should see rather than a number I quietly changed.
+
 **The proof no longer stops the moment the light turns green.** It holds the
 supervisor and watches it publish five consecutive readiness records, counting
 the `flock` lease children the supervisor process owns at each one, then re-reads

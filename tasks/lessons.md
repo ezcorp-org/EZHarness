@@ -1132,3 +1132,9 @@
   the next reader the role was one step from running when the assembly had not
   begun. Reverted before committing. An honest "not built" in the gate file
   costs nothing; dead code that looks like wiring costs the next person's trust.
+- A flaky run on a loaded box is evidence about the box, not a threshold to
+  raise. One proof run in six hit `runner_probe_timeout` right after a long
+  combined integration run; the composition did exactly the right thing
+  (degraded, named, admission closed) and the fix was to re-run on a quieter
+  box and record the measurement, not to widen the probe budget the product
+  states as an invariant.
