@@ -365,3 +365,5 @@
 - 2026-09-20: Before classifying a focused-suite failure as a source defect, check ownership messages and active fixture migrations; distinguish an assigned stale-test update from behavior.
 
 - Freeze every tracked file, including documentation and task notes, while collecting or verifying source-attested browser coverage. Apply pending documentation only after those checks finish. Rebuilding mapped assets can change chunk names; preserve the exact mapped build until coverage receipt validation completes.
+
+- A lock released in `finally` must await every returned asynchronous cleanup inside the `try`. Test the final deletion phase with at least three queued callers; serializing only the earlier unmount phase does not prove the lock lifetime. Preserve post-conflict idempotency replay when adding a pre-insert lookup.
