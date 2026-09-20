@@ -74,6 +74,8 @@ test.describe("project sandbox panel", () => {
 		await expect(panel.getByRole("alert")).toHaveText("Provider operation failed");
 		await page.setViewportSize({ width: 390, height: 844 });
 		await expect(panel.getByRole("button", { name: "Start" })).toBeVisible();
+		const pageWidth = await page.evaluate(() => ({ scrollWidth: document.documentElement.scrollWidth, viewportWidth: window.innerWidth }));
+		expect(pageWidth.scrollWidth).toBeLessThanOrEqual(pageWidth.viewportWidth);
 		await captureEvidence(page, testInfo, "project-sandbox-mobile-error", { fullPage: true });
 	});
 });

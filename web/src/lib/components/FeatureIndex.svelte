@@ -415,14 +415,14 @@
 </script>
 
 <div class="space-y-3">
-	<div class="flex items-center justify-between gap-3">
+	<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 		<h3 class="text-lg font-semibold text-[var(--color-text-primary)]">Feature Index</h3>
-		<div class="flex items-center gap-2">
+		<div class="flex flex-wrap items-center gap-2">
 			<input
 				type="text"
 				bind:value={searchQuery}
 				placeholder="Search features..."
-				class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+				class="min-w-0 flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none sm:flex-none"
 			/>
 			<button
 				onclick={() => (newFeatureOpen = !newFeatureOpen)}
