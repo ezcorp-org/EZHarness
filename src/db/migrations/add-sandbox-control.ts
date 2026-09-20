@@ -1,0 +1,17 @@
+import { sql } from "drizzle-orm";
+import type { MigrationDb } from "./types";
+
+/** Durable authority records for the one-slot local sandbox MVP. */
+export async function up(db: MigrationDb): Promise<void> {
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS sandbox_provider_bindings (id TEXT PRIMARY KEY, project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE, owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT, installation_id TEXT NOT NULL, provider_id TEXT NOT NULL, release_id TEXT NOT NULL, release_binding TEXT NOT NULL, generation INTEGER NOT NULL, config_revision INTEGER NOT NULL, config_digest TEXT NOT NULL, state TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), CHECK (state IN ('active', 'disabled')), CHECK (generation >= 0), CHECK (config_revision > 0))`);
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS sandbox_resources (id TEXT PRIMARY KEY, binding_id TEXT NOT NULL UNIQUE REFERENCES sandbox_provider_bindings(id) ON DELETE RESTRICT, provider_resource_id TEXT, desired_state TEXT NOT NULL, observed_state TEXT NOT NULL, limits JSONB NOT NULL, revision INTEGER NOT NULL DEFAULT 1, updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), CHECK (desired_state IN ('stopped', 'running', 'destroyed')), CHECK (observed_state IN ('creating', 'stopped', 'running', 'destroying', 'destroyed', 'failed', 'unknown'))) `);
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS sandbox_operations (id TEXT PRIMARY KEY, binding_id TEXT NOT NULL REFERENCES sandbox_provider_bindings(id) ON DELETE RESTRICT, resource_id TEXT REFERENCES sandbox_resources(id) ON DELETE RESTRICT, actor_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT, action TEXT NOT NULL, idempotency_key TEXT NOT NULL, input_digest TEXT NOT NULL, request_key_digest TEXT NOT NULL, input JSONB NOT NULL, state TEXT NOT NULL DEFAULT 'admitted', receipt JSONB, claimed_at TIMESTAMP WITH TIME ZONE, completed_at TIMESTAMP WITH TIME ZONE, created_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW(), CHECK (action IN ('create', 'start', 'stop', 'destroy')), CHECK (state IN ('admitted', 'running', 'succeeded', 'failed', 'unknown')), UNIQUE(binding_id, idempotency_key))`);
+  await db.execute(sql`ALTER TABLE sandbox_operations ADD COLUMN IF NOT EXISTS request_key_digest TEXT`);
+  await db.execute(sql`UPDATE sandbox_operations SET request_key_digest=input_digest WHERE request_key_digest IS NULL`);
+  await db.execute(sql`ALTER TABLE sandbox_operations ALTER COLUMN request_key_digest SET NOT NULL`);
+  await db.execute(sql`DROP INDEX IF EXISTS sandbox_one_active_slot`);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS sandbox_one_active_slot ON sandbox_resources ((1)) WHERE observed_state <> 'destroyed'`);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS sandbox_one_active_operation ON sandbox_operations(binding_id) WHERE state IN ('admitted', 'running')`);
+  await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS sandbox_actor_idempotency ON sandbox_operations(actor_id, idempotency_key)`);
+  await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_sandbox_operations_binding_state ON sandbox_operations(binding_id, state)`);
+}
