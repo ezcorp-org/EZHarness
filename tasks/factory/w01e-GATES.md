@@ -1,7 +1,8 @@
 # Gates: W01e guest model broker frame contract
 
-Branch `wp/w01e-guest-broker`, cut from `integ/w00` at `8810d6eae`.
-Evidence: `/tmp/factory-platform-evidence/w01e/`.
+Branch `wp/w01e-guest-broker`, cut from `integ/w00` at `8810d6eae`, head `53d601e87`.
+The code is `75ae5582b`; this gate file is `53d601e87`.
+Evidence: `/tmp/factory-platform-evidence/w01e/`, indexed in `INDEX.md` with `SHA256SUMS`.
 
 Note on the base ref: `integ/w00` has since moved to `63cd5afdc`, which is a descendant of the
 branch point. Both coverage gates diff `${BASE_REF}...HEAD`, so the merge base is `8810d6eae` and
