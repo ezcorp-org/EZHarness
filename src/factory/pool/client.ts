@@ -1,6 +1,6 @@
 import { createGatewayTransport, GatewayStatusError, type GatewayResponse, type GatewayTransport, type GatewayTransportOptions } from "@ezcorp/factory-transport";
 import { POOL_LEASE_STATES, POOL_QUEUE_FULL_HTTP_STATUS, POOL_QUEUE_FULL_REASON, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseState, type PoolLeaseStatus, type PoolResourceClass, type PoolResourceVector } from "./ledger";
-import type { PoolAdmissionRequest, PoolLeaseFenceInput } from "./service";
+import type { PoolAdmissionRequest, PoolLeaseFenceInput, PoolStopInput } from "./service";
 import { parseWireJson, POOL_HTTP_BYTES_LIMIT, wireCounter, wireExact, wireIsoDate, wireRecord, wireResources, wireText } from "./wire";
 
 const leaseStates = new Set<PoolLeaseState>(POOL_LEASE_STATES);
@@ -12,6 +12,16 @@ export interface PoolAdmissionClient {
   acknowledgeStart(input: PoolLeaseFenceInput, signal?: AbortSignal): Promise<PoolLease>;
   renew(input: PoolLeaseFenceInput, signal?: AbortSignal): Promise<PoolLease>;
   cancel(reservationId: string, allocationGeneration: number, signal?: AbortSignal): Promise<PoolLeaseStatus>;
+  /**
+   * The tenant's fenced confirmation that a supervisor's stop has settled.
+   *
+   * This is what `FactoryPoolStopAcknowledger` requires before a stop may
+   * release a product hold. It returns capacity to nobody: only the
+   * supervisor's own route mutates the ledger, and this call fails closed
+   * until that has happened, because C03 does not let a tenant's word free a
+   * holder's capacity.
+   */
+  confirmStopped(input: PoolStopInput, signal?: AbortSignal): Promise<PoolLeaseStatus>;
 }
 
 export interface PoolAdmissionClientOptions extends GatewayTransportOptions { readonly tenantId: string }
@@ -177,6 +187,17 @@ export async function createPoolAdmissionClient(options: PoolAdmissionClientOpti
       const input = snapshotFence(value);
       const result = lease(json(await requestJson(transport, "POST", `${path(input.reservationId)}/renew`, { grantRevision: input.grantRevision, allocationGeneration: input.allocationGeneration, allocationToken: input.allocationToken }, signal), "lease"));
       assertLeaseBinding(result, tenantId, input);
+      return result;
+    },
+    async confirmStopped(value: PoolStopInput, signal?: AbortSignal) {
+      const reservationId = wireText(value.reservationId, "reservation id");
+      const holderGeneration = wireCounter(value.holderGeneration, "holder generation", 1);
+      const hostId = wireText(value.hostId, "host id");
+      const result = status(json(await requestJson(transport, "POST", `${path(reservationId)}/confirm-stopped`, { holderGeneration, hostId }, signal), "lease status"));
+      assertStatusBinding(result, tenantId, reservationId);
+      // The answer must name the same holder and host the caller fenced, or it
+      // is about some other allocation and proves nothing about this stop.
+      if (result.holderGeneration !== holderGeneration || (result.hostId !== undefined && result.hostId !== hostId) || result.state !== "settled") throw new Error("Pool admission returned a mismatched stop acknowledgement.");
       return result;
     },
     async cancel(value: string, generation: number, signal?: AbortSignal) {

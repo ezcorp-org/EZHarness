@@ -154,4 +154,9 @@ __pycache__/
 .ruff_cache/
 .coverage
 coverage-python/
+
+# Generated from src/factory/runner/python/uv.lock by
+# scripts/build-factory-data-image.sh before every image build. The lock is the
+# source of truth; a committed copy could only ever be a second, stale one.
+src/factory/reference-data/image/locked-requirements.txt
 coverage-factory-orchestrator/

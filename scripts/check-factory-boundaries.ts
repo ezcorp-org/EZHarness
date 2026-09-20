@@ -30,6 +30,7 @@ export const SHARED_REUSE_MODULES = [
   "packages/@ezcorp/extension-runner/src/podman.ts",
   // The second pinned guest language extends the shared runner rather than
   // forking its launch path, so it is shared under the same C13 row (W02).
+  "packages/@ezcorp/extension-runner/src/materials.ts",
   "packages/@ezcorp/extension-runner/src/python.ts",
   "packages/@ezcorp/extension-runner/src/dependencies.ts",
   "packages/@ezcorp/extension-runner/src/index.ts",
@@ -109,6 +110,18 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/reference-code/workspace.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/records.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/records.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-data/csv.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-data/guest.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
+  { factoryPath: "src/factory/reference-data/guest.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  // The hardened material read-back is re-exported from the runner's entry
+  // point and the package publishes no subpath for it, so the declared edge is
+  // the entry point. `materials.ts` is in SHARED_REUSE_MODULES above, which is
+  // what makes a second implementation of `listRunnerMaterials` or
+  // `openRunnerMaterial` a duplicate violation rather than a matter of taste.
+  { factoryPath: "src/factory/reference-data/materials.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
+  { factoryPath: "src/factory/reference-data/materials.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-data/pack.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
+  { factoryPath: "src/factory/reference-data/reconcile.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-adapters.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-s3-publication.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-authority.ts", sharedModule: "src/db/queries/audit-log.ts" },
