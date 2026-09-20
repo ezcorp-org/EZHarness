@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { CONFIG_LABEL, NATIVE_TOOLS_DESTINATION, RESOURCE_LABEL, configurationDigest, containerIdFromCreateOutput, createContainerArgv, resourceKey, resourcePaths, validateHostConfig } from "../runtime/sandbox/local-podman/commands";
+import { CONFIG_LABEL, NATIVE_TOOLS_DESTINATION, RESOURCE_LABEL, configurationDigest, containerIdFromCreateOutput, createContainerArgv, resourceKey, resourcePaths, runBoundedCommand, validateHostConfig } from "../runtime/sandbox/local-podman/commands";
 
-const config = { stateRoot: "/tmp/ez-local", imageReference: `localhost/ezharness-local@sha256:${"a".repeat(64)}`, imageId: `sha256:${"b".repeat(64)}`, podmanPath: "/bin/podman", fuse2fsPath: "/bin/fuse2fs", supervisorPath: "/bin/helper" };
+const config = { stateRoot: "/tmp/ez-local", imageReference: `localhost/ezharness-local@sha256:${"a".repeat(64)}`, imageId: `sha256:${"b".repeat(64)}`, podmanPath: "/bin/podman", fuse2fsPath: "/bin/fuse2fs", supervisorPath: "/bin/helper", workspaceUid: 1000, workspaceGid: 1000 };
 
 describe("local Podman command boundary", () => {
   test("derives opaque contained paths", () => {
@@ -13,6 +13,7 @@ describe("local Podman command boundary", () => {
     expect(validateHostConfig(config).imageReference).toBe(config.imageReference);
     expect(() => validateHostConfig({ ...config, imageReference: "localhost/ezharness-local:latest" })).toThrow();
     expect(() => validateHostConfig({ ...config, imageId: "latest" })).toThrow();
+    expect(() => validateHostConfig({ ...config, workspaceUid: 0 })).toThrow();
     expect(() => validateHostConfig({ ...config, podmanPath: "podman" })).toThrow();
     expect(() => validateHostConfig({ ...config, stateRoot: "relative" })).toThrow();
     expect(() => validateHostConfig({ ...config, nativeToolsArtifact: "relative.js" })).toThrow("nativeToolsArtifact must be absolute");
@@ -23,6 +24,7 @@ describe("local Podman command boundary", () => {
     expect(argv).toContain("--network=none"); expect(argv).toContain("--read-only"); expect(argv).toContain("--cap-drop=ALL"); expect(argv).toContain("--log-driver=none");
     expect(argv).toContain(`${RESOURCE_LABEL}=${resourceKey("r1")}`);
     expect(argv).toContain(`${CONFIG_LABEL}=${configurationDigest(config, limits)}`);
+    expect(argv).toContain("1000:1000");
     expect(argv.at(-2)).toBe("sleep");
     expect(() => createContainerArgv(config, "r1", "bad/name", "/tmp/x", { memoryBytes: 1, milliCpu: 1, pids: 0, diskBytes: 1 })).toThrow();
   });
@@ -36,5 +38,13 @@ describe("local Podman command boundary", () => {
     expect(containerIdFromCreateOutput(`${id}\n`)).toBe(id);
     expect(containerIdFromCreateOutput(`${id}\n${id}`)).toBeNull();
     expect(containerIdFromCreateOutput("container-name")).toBeNull();
+  });
+  test("bounds command output and does not wait for inherited pipe holders", async () => {
+    const result = await runBoundedCommand(["/bin/sh", "-c", "printf 123456789; printf abcdefghi >&2; sleep 10 &"], { timeoutMs: 1_000, maxOutputBytes: 4 });
+    expect(result).toMatchObject({ code: 0, stdout: "1234", stderr: "abcd", timedOut: false });
+  });
+  test("kills a command that does not exit", async () => {
+    const result = await runBoundedCommand(["/bin/sh", "-c", "kill -STOP $$"], { timeoutMs: 10, maxOutputBytes: 4 });
+    expect(result.timedOut).toBe(true); expect(result.code).not.toBe(0);
   });
 });

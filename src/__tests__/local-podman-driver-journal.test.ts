@@ -5,19 +5,20 @@ import { LocalPodmanDriver } from "../runtime/sandbox/local-podman/driver";
 import { DurableOperationJournal } from "../runtime/sandbox/local-podman/journal";
 import { ResourceRoot } from "../runtime/sandbox/local-podman/resource-root";
 import { CONFIG_LABEL, RESOURCE_LABEL, configurationDigest, resourceKey } from "../runtime/sandbox/local-podman/commands";
+import { validateProviderMethodExchange } from "@ezcorp/extension-contract";
 
 const temporaryRoots: string[] = [];
 afterEach(async () => { await Promise.all(temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 async function fixture(nativeToolsArtifact?: string) {
-  const root = await mkdtemp(`${tmpdir()}/ez-driver-`); temporaryRoots.push(root); const log = `${root}/effects`; const podman = `${root}/podman`; const inspect = `${root}/inspect.json`;
-  await writeFile(podman, `#!/bin/sh\nif [ "$2" = inspect ]; then cat '${inspect}'; exit 0; fi\nprintf '%s\\n' "$*" >> '${log}'\nexit 0\n`); await chmod(podman, 0o700);
-  const config = { stateRoot: `${root}/state`, imageReference: `localhost/ezharness-local@sha256:${"a".repeat(64)}`, imageId: `sha256:${"b".repeat(64)}`, podmanPath: podman, fuse2fsPath: "/bin/false", supervisorPath: "/bin/false", nativeToolsArtifact };
+  const root = await mkdtemp(`${tmpdir()}/ez-driver-`); temporaryRoots.push(root); const log = `${root}/effects`; const podman = `${root}/podman`; const inspect = `${root}/inspect.json`; const fail = `${root}/fail`;
+  await writeFile(podman, `#!/bin/sh\nif [ "$2" = inspect ]; then cat '${inspect}'; exit 0; fi\nprintf '%s\\n' "$*" >> '${log}'\nif [ -f '${fail}' ]; then head -c 131072 /dev/zero | tr '\\000' x >&2; printf '%s' '${root}/private' >&2; exit 1; fi\nexit 0\n`); await chmod(podman, 0o700);
+  const config = { stateRoot: `${root}/state`, imageReference: `localhost/ezharness-local@sha256:${"a".repeat(64)}`, imageId: `sha256:${"b".repeat(64)}`, podmanPath: podman, fuse2fsPath: "/bin/false", supervisorPath: "/bin/false", workspaceUid: 1000, workspaceGid: 1000, nativeToolsArtifact };
   const limits = { memoryBytes: 128 * 1024 * 1024, milliCpu: 500, pids: 32, diskBytes: 32 * 1024 * 1024 }; const containerId = "c".repeat(64); const containerName = "container";
   await mkdir(config.stateRoot, { recursive: true }); const roots = new ResourceRoot(config.stateRoot); const paths = await roots.initialize("resource");
   const configDigest = configurationDigest(config, limits); await roots.writeMetadata("resource", { resourceId: "resource", containerId, containerName, configDigest, state: "stopped", limits });
-  const live = { Id: containerId, Name: containerName, Image: config.imageId, Config: { Image: config.imageReference, Labels: { [RESOURCE_LABEL]: resourceKey("resource"), [CONFIG_LABEL]: configDigest } }, HostConfig: { NetworkMode: "none", ReadonlyRootfs: true, Memory: limits.memoryBytes, MemorySwap: limits.memoryBytes, NanoCpus: limits.milliCpu * 1_000_000, PidsLimit: limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }, ...(nativeToolsArtifact === undefined ? [] : [{ Type: "bind", Source: nativeToolsArtifact, Destination: "/opt/ezharness/native-tools.js", RW: false }])] };
+  const live = { Id: containerId, Name: containerName, Image: config.imageId, Config: { Image: config.imageReference, User: "1000:1000", Labels: { [RESOURCE_LABEL]: resourceKey("resource"), [CONFIG_LABEL]: configDigest } }, HostConfig: { NetworkMode: "none", ReadonlyRootfs: true, Memory: limits.memoryBytes, MemorySwap: limits.memoryBytes, NanoCpus: limits.milliCpu * 1_000_000, PidsLimit: limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }, ...(nativeToolsArtifact === undefined ? [] : [{ Type: "bind", Source: nativeToolsArtifact, Destination: "/opt/ezharness/native-tools.js", RW: false }])] };
   await writeFile(inspect, JSON.stringify([live]));
-  return { driver: new LocalPodmanDriver(config), log, config, inspect, live };
+  return { driver: new LocalPodmanDriver(config), log, config, inspect, live, fail, root };
 }
 const input = () => ({ call: { scope: { projectId: "p", bindingId: "b", generation: 1 }, operationId: "op", idempotencyKey: "key", requestDigest: "a".repeat(64) }, resourceId: "resource" });
 describe("local lifecycle journal integration", () => {
@@ -32,6 +33,7 @@ describe("local lifecycle journal integration", () => {
       ["configuration label", (live) => { live.Config.Labels[CONFIG_LABEL] = "wrong"; }],
       ["pinned image ID", (live) => { live.Image = `sha256:${"d".repeat(64)}`; }],
       ["pinned image reference", (live) => { live.Config.Image = `sha256:${"b".repeat(64)}`; }],
+      ["workspace user", (live) => { live.Config.User = "0:0"; }],
       ["network", (live) => { live.HostConfig.NetworkMode = "bridge"; }],
       ["read-only root", (live) => { live.HostConfig.ReadonlyRootfs = false; }],
       ["memory", (live) => { live.HostConfig.Memory += 1; }],
@@ -42,9 +44,9 @@ describe("local lifecycle journal integration", () => {
       ["workspace mode", (live) => { live.Mounts[0].RW = false; }],
       ["unexpected bind mount", (live) => { live.Mounts.push({ Type: "bind", Source: "/tmp/extra", Destination: "/extra", RW: true }); }],
     ];
-    for (const [name, change] of changes) {
+    for (const [index, [, change]] of changes.entries()) {
       const { driver, inspect, live, log } = await fixture(); change(live); await writeFile(inspect, JSON.stringify([live]));
-      const calls = [driver.inspect(input()), driver.start({ ...input(), call: { ...input().call, operationId: `${name}-start`, idempotencyKey: `${name}-start` } }), driver.stop({ ...input(), call: { ...input().call, operationId: `${name}-stop`, idempotencyKey: `${name}-stop` } }), driver.destroy({ ...input(), call: { ...input().call, operationId: `${name}-destroy`, idempotencyKey: `${name}-destroy` } })];
+      const calls = [driver.inspect(input()), driver.start({ ...input(), call: { ...input().call, operationId: `${index}-start`, idempotencyKey: `${index}-start` } }), driver.stop({ ...input(), call: { ...input().call, operationId: `${index}-stop`, idempotencyKey: `${index}-stop` } }), driver.destroy({ ...input(), call: { ...input().call, operationId: `${index}-destroy`, idempotencyKey: `${index}-destroy` } })];
       const results = await Promise.all(calls); for (const result of results) { expect(result.receipt).toMatchObject({ outcome: "failed", error: { code: "identity_mismatch" } }); }
       await expect(readFile(log, "utf8")).rejects.toThrow();
     }
@@ -52,5 +54,14 @@ describe("local lifecycle journal integration", () => {
   test("requires the configured native tools artifact at its fixed read-only mount", async () => {
     const tools = "/tmp/native-tools.js"; const { driver, inspect, live, log } = await fixture(tools); live.Mounts.pop(); await writeFile(inspect, JSON.stringify([live]));
     const result = await driver.start(input()); expect(result.receipt).toMatchObject({ outcome: "failed", error: { code: "identity_mismatch" } }); await expect(readFile(log, "utf8")).rejects.toThrow();
+  });
+  test("returns contract-exact receipts for success and failure without exposing Podman stderr", async () => {
+    const { driver, fail, root } = await fixture(); const successfulInput = input(); const successful = await driver.start(successfulInput);
+    expect(() => validateProviderMethodExchange("sandbox.lifecycle.v1", "start", successfulInput, successful)).not.toThrow(); expect(successful.receipt).not.toHaveProperty("scope");
+    await writeFile(fail, "fail"); const failedInput = { ...input(), call: { ...input().call, operationId: "failed", idempotencyKey: "failed" } }; const failed = await driver.stop(failedInput);
+    expect(() => validateProviderMethodExchange("sandbox.lifecycle.v1", "stop", failedInput, failed)).not.toThrow(); expect(JSON.stringify(failed)).not.toContain(root); expect(failed.receipt).toMatchObject({ outcome: "unknown", error: { code: "stopped_unknown", message: "Container stopped outcome is unknown." } });
+  });
+  test("rejects an unsafe request before filesystem or Podman effects", async () => {
+    const { driver, log } = await fixture(); await expect(driver.start({ ...input(), resourceId: "../escape" })).rejects.toThrow(); await expect(readFile(log, "utf8")).rejects.toThrow();
   });
 });

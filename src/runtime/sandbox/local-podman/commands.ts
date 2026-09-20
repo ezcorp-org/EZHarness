@@ -8,6 +8,8 @@ export interface LocalPodmanHostConfig {
   podmanPath: string;
   fuse2fsPath: string;
   supervisorPath: string;
+  workspaceUid: number;
+  workspaceGid: number;
   nativeToolsArtifact?: string;
 }
 
@@ -23,6 +25,22 @@ export const CONFIG_LABEL = "io.ezcorp.local-config";
 export const WORKSPACE_DESTINATION = "/workspace";
 export const NATIVE_TOOLS_DESTINATION = "/opt/ezharness/native-tools.js";
 
+export interface BoundedCommandResult { code: number; stdout: string; stderr: string; timedOut: boolean }
+export interface BoundedCommandOptions { timeoutMs: number; maxOutputBytes: number }
+
+function captureBounded(stream: ReadableStream<Uint8Array>, limit: number) {
+  const reader = stream.getReader(); const chunks: Uint8Array[] = []; let retained = 0;
+  const done = (async () => { for (;;) { const value = await reader.read(); if (value.done) break; if (retained < limit) { const part = value.value.subarray(0, limit - retained); chunks.push(part); retained += part.byteLength; } } })();
+  return async () => { await Promise.resolve(); await reader.cancel().catch(() => undefined); await done.catch(() => undefined); const joined = new Uint8Array(retained); let offset = 0; for (const chunk of chunks) { joined.set(chunk, offset); offset += chunk.byteLength; } return new TextDecoder().decode(joined); };
+}
+
+export async function runBoundedCommand(argv: string[], options: BoundedCommandOptions): Promise<BoundedCommandResult> {
+  const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" }); const finishStdout = captureBounded(proc.stdout, options.maxOutputBytes); const finishStderr = captureBounded(proc.stderr, options.maxOutputBytes); let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; proc.kill("SIGKILL"); }, options.timeoutMs);
+  try { const code = await proc.exited; const [stdout, stderr] = await Promise.all([finishStdout(), finishStderr()]); return { code, stdout, stderr, timedOut }; }
+  finally { clearTimeout(timer); }
+}
+
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
 const IMAGE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[a-f0-9]{64}$/;
@@ -32,6 +50,7 @@ export function validateHostConfig(config: LocalPodmanHostConfig): LocalPodmanHo
   if (!IMAGE_REFERENCE.test(config.imageReference)) throw new Error("imageReference must be qualified and digest-pinned");
   if (!DIGEST.test(config.imageId)) throw new Error("imageId must be an exact sha256 ID");
   for (const key of ["podmanPath", "fuse2fsPath", "supervisorPath"] as const) if (!isAbsolute(config[key])) throw new Error(`${key} must be absolute`);
+  for (const key of ["workspaceUid", "workspaceGid"] as const) if (!Number.isSafeInteger(config[key]) || config[key] < 1 || config[key] > 2_147_483_647) throw new Error(`${key} must be a positive 32-bit integer`);
   if (config.nativeToolsArtifact !== undefined && !isAbsolute(config.nativeToolsArtifact)) throw new Error("nativeToolsArtifact must be absolute");
   return Object.freeze({
     ...config,
@@ -44,13 +63,14 @@ export function resourceKey(resourceId: string): string {
   if (!ID.test(resourceId)) throw new Error("invalid resource id");
   return createHash("sha256").update(resourceId).digest("hex");
 }
-export function configurationDigest(config: LocalPodmanHostConfig, limits: LocalResourceLimits): string { return createHash("sha256").update(JSON.stringify({ imageReference: config.imageReference, imageId: config.imageId, limits, nativeToolsArtifact: config.nativeToolsArtifact ?? null })).digest("hex"); }
+export function configurationDigest(config: LocalPodmanHostConfig, limits: LocalResourceLimits): string { return createHash("sha256").update(JSON.stringify({ imageReference: config.imageReference, imageId: config.imageId, workspaceUid: config.workspaceUid, workspaceGid: config.workspaceGid, limits, nativeToolsArtifact: config.nativeToolsArtifact ?? null })).digest("hex"); }
 export function containerIdFromCreateOutput(output: string): string | null { const value = output.trim(); return /^[a-f0-9]{64}$/.test(value) ? value : null; }
 
 export interface ExpectedContainerIdentity {
   containerName: string;
   imageReference: string;
   imageId: string;
+  user: string;
   labels: Readonly<Record<typeof RESOURCE_LABEL | typeof CONFIG_LABEL, string>>;
   networkMode: "none";
   readonlyRootfs: true;
@@ -66,6 +86,7 @@ export function expectedContainerIdentity(config: LocalPodmanHostConfig, resourc
     containerName,
     imageReference: config.imageReference,
     imageId: config.imageId,
+    user: `${config.workspaceUid}:${config.workspaceGid}`,
     labels: Object.freeze({ [RESOURCE_LABEL]: resourceKey(resourceId), [CONFIG_LABEL]: configurationDigest(config, limits) }),
     networkMode: "none",
     readonlyRootfs: true,
@@ -91,7 +112,7 @@ export function createContainerArgv(config: LocalPodmanHostConfig, resourceId: s
   for (const [name, value] of Object.entries(limits)) if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`invalid ${name}`);
   const identity = expectedContainerIdentity(config, resourceId, containerName, mount, limits);
   const tools = config.nativeToolsArtifact ? [`--mount=type=bind,source=${config.nativeToolsArtifact},destination=${NATIVE_TOOLS_DESTINATION},ro`] : [];
-  return [config.podmanPath, "--remote=false", "create", "--pull=never", "--name", containerName,
+  return [config.podmanPath, "--remote=false", "create", "--pull=never", "--name", containerName, "--user", identity.user,
     "--label", `${RESOURCE_LABEL}=${identity.labels[RESOURCE_LABEL]}`, "--label", `${CONFIG_LABEL}=${identity.labels[CONFIG_LABEL]}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--log-driver=none",
     "--cap-drop=ALL", "--security-opt=no-new-privileges", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`,
     `--cpus=${limits.milliCpu / 1000}`, `--pids-limit=${limits.pids}`, "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16777216",
