@@ -1,9 +1,8 @@
 # Gates: W01e guest model broker frame contract
 
 Branch `wp/w01e-guest-broker`, cut from `integ/w00` at `8810d6eae`.
-All of the code, the tests, the fixtures and the schemas are one commit, `75ae5582b`; everything
-after it on this branch is this gate file. Read the branch tip for the gate file and `75ae5582b`
-for what it gates.
+Two code commits: `75ae5582b` is the leaf, `90ee7f3e3` is the round-2 fixes for the validator's
+REJECT at `1095a8613`. Everything else on the branch is this gate file and the freeze entry.
 Evidence: `/tmp/factory-platform-evidence/w01e/`, indexed in `INDEX.md` with `SHA256SUMS`.
 
 Note on the base ref: `integ/w00` has since moved to `63cd5afdc`, which is a descendant of the
@@ -164,19 +163,17 @@ the one interface, the adapter, and a real proof.
   EVIDENCE: `coverage-host-shard.log`, `coverage-legs.log`, `merge-lcov.log`,
   `new-file-coverage.log`, `patch-coverage.log`, `python-coverage.log`.
   `New-file coverage gate PASSED: 3 new source file(s) gated.`
-  `Patch coverage gate PASSED: all changed executable lines covered (10 file(s)).`
-  The host shard ran all 1785 files: `26615 pass | 4 fail`, the two failing files
-  (`hub-private-page-podman`, `substack-pilot-installer`, neither touched here) both passed the
-  isolated plain re-run and the shard exited 0. Python coverage is 100% across the locked
-  distribution, including `factory_validation.py` (348 statements, 250 branches) and `guest.py`.
+  `Patch coverage gate PASSED: all changed executable lines covered (11 file(s)).`
+  The host shard ran all 1786 files: `26623 pass | 0 fail`, no retry sweep needed. Python coverage
+  is 100% across the locked distribution, including `factory_validation.py` and `guest.py`.
 
   Measured from `coverage/lcov.info`, every file this leaf adds or changes:
 
   | File | Lines |
   | --- | --- |
-  | `src/factory/runner/guest-model-broker.ts` | 56/56 |
-  | `src/factory/runner/guest-model-journal.ts` | 72/72 |
-  | `src/factory/runner/provider-one-hop.ts` | 55/55 |
+  | `src/factory/runner/guest-model-broker.ts` | 60/60 |
+  | `src/factory/runner/guest-model-journal.ts` | 82/82 |
+  | `src/factory/runner/provider-one-hop.ts` | 56/56 |
   | `src/factory/runner/host-launch-supervisor.ts` | 62/62 |
   | `src/factory/runner/attempt-runtime.ts` | 379/379 |
   | `src/factory/runner/python-guest.ts` | 37/37 |
@@ -184,6 +181,7 @@ the one interface, the adapter, and a real proof.
   | `packages/@ezcorp/factory-sdk/src/schema.ts` | 96/96 |
   | `packages/@ezcorp/factory-sdk/src/types.ts` | 42/42 |
   | `packages/@ezcorp/factory-sdk/src/index.ts` | 13/13 |
+  | `scripts/check-factory-lanes.ts` | 200/200 |
 
   **Why the lcov was assembled rather than taken from `bun run test:coverage`.** Full mode
   requires a browser-route coverage receipt (`BROWSER_COVERAGE_RAW`, `BROWSER_COVERAGE_LCOV`),
