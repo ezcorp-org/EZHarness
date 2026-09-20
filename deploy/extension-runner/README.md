@@ -24,6 +24,14 @@ export EZ_RUNNER_GROUP="$(bash scripts/resolve-runner-group.sh --docker)"
 docker compose up -d
 ```
 
+The resolver does not load Compose dotenv files. If `EZ_RUNNER_SOCKET_DIR` in
+`.env` is not the default path, pass that same path to the resolver command:
+
+```sh
+export EZ_RUNNER_GROUP="$(EZ_RUNNER_SOCKET_DIR=/path/to/runner bash scripts/resolve-runner-group.sh --docker)"
+docker compose up -d
+```
+
 For direct Docker Compose pointed at rootless Podman, use `--podman` instead. Use a verified numeric `EZ_RUNNER_GROUP`. The Podman wrapper rejects empty and non-numeric shell overrides before it invokes Compose. It leaves `.env` and `--env-file` values to Compose, whose required-variable check rejects an empty value.
 
 Rootless Podman needs an explicit user-namespace mapping. Pick an unused container GID (the verifier uses `1`) and find its host GID from `podman unshare cat /proc/self/gid_map`: within the matching row, `host_gid = row_host_start + container_gid - row_container_start`. Create the shared host group with that host GID, add the runner account to it, use it on the directory, socket, and credential, and set `EZ_RUNNER_GROUP` to the container GID. Do not set `keep-groups`: Docker Compose sends it through the Podman API as a literal group name, which Podman rejects.

@@ -88,10 +88,12 @@ chmodSync(join(BIN, "docker"), 0o755);
 
 const socketServer = Bun.listen({ unix: SOCKET, socket: { data() {} } });
 const runnerSocketServer = Bun.listen({ unix: RUNNER_SOCKET, socket: { data() {} } });
+const RUNNER_HOST_GID = statSync(RUNNER_SOCKET).gid;
+const DEFAULT_GID_MAP = `0 ${RUNNER_HOST_GID} 1`;
 
 await Bun.write(
   join(BIN, "podman"),
-  ["#!/usr/bin/env bash", `printf '0 ${statSync(RUNNER_SOCKET).gid} 1\\n'`, ""].join("\n"),
+  ["#!/usr/bin/env bash", 'printf "%s\\n" "$PODMAN_GID_MAP"', ""].join("\n"),
 );
 chmodSync(join(BIN, "podman"), 0o755);
 
@@ -131,6 +133,7 @@ function run(args: string[], env: Record<string, string> = {}, dotenv?: string):
       ...baseEnv,
       PATH: `${BIN}:${baseEnv.PATH}`,
       PODMAN_SOCKET: SOCKET,
+      PODMAN_GID_MAP: DEFAULT_GID_MAP,
       EZ_RUNNER_SOCKET_DIR: SANDBOX,
       ...env,
     },
@@ -156,14 +159,16 @@ function run(args: string[], env: Record<string, string> = {}, dotenv?: string):
   };
 }
 
-function resolveRunnerGroup(mode: "--docker" | "--podman"): Run {
+function resolveRunnerGroup(mode: "--docker" | "--podman", env: Record<string, string> = {}): Run {
   const proc = Bun.spawnSync({
     cmd: [BASH, RESOLVER, mode],
     cwd: SANDBOX,
     env: {
       ...baseEnv,
       PATH: `${BIN}:${baseEnv.PATH}`,
+      PODMAN_GID_MAP: DEFAULT_GID_MAP,
       EZ_RUNNER_SOCKET_DIR: SANDBOX,
+      ...env,
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -196,7 +201,31 @@ describe("podman wrapper — the invocation it guarantees", () => {
   test("uses the runner socket host GID for direct Docker", () => {
     const result = resolveRunnerGroup("--docker");
     expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe(String(statSync(RUNNER_SOCKET).gid));
+    expect(result.stdout.trim()).toBe(String(RUNNER_HOST_GID));
+  });
+
+  test("maps a socket GID through the matching subordinate range", () => {
+    const containerStart = 7;
+    const result = resolveRunnerGroup("--podman", {
+      PODMAN_GID_MAP: `0 ${RUNNER_HOST_GID + 1} 1\n${containerStart} 0 ${RUNNER_HOST_GID + 1}`,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe(String(containerStart + RUNNER_HOST_GID));
+  });
+
+  test("rejects a socket GID outside the rootless Podman map", () => {
+    const result = resolveRunnerGroup("--podman", {
+      PODMAN_GID_MAP: `0 ${RUNNER_HOST_GID + 1} 1`,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(`runner socket host GID ${RUNNER_HOST_GID} is not mapped`);
+  });
+
+  test("names a configured runner socket that does not exist", () => {
+    const missingDirectory = join(SANDBOX, "missing-runner");
+    const result = resolveRunnerGroup("--docker", { EZ_RUNNER_SOCKET_DIR: missingDirectory });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(`no extension-runner socket at ${missingDirectory}/runner.sock`);
   });
 
   test("the fresh environment example leaves the group unset for the wrapper", async () => {
