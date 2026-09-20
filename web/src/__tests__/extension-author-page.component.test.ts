@@ -285,6 +285,30 @@ test("approved activation and disable send explicit lifecycle actions", async ()
   expect(JSON.parse(String(fetcher.mock.calls[2]![1]?.body))).toMatchObject({ tool: "extensions_release", input: { action: "disable" } });
 });
 
+test.each(["Save and build", "Activate approved release"])("%s works without the secure-context UUID API", async (button) => {
+  vi.stubGlobal("crypto", { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) });
+  const data = pageData(true);
+  data.state!.approvals.approval!.status = "approved";
+  const requests: Array<{ tool: string; input: Record<string, unknown> }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
+    const body = JSON.parse(String(options?.body));
+    requests.push(body);
+    return Response.json(body.tool === "extensions_inspect" ? data.state : { id: "operation" });
+  }));
+  const view = render(AuthorPage, { data });
+  await fireEvent.click(view.getByRole("button", { name: button }));
+  await waitFor(() => expect(requests).toHaveLength(2));
+  expect(requests[0]).toMatchObject({
+    tool: button === "Save and build" ? "extensions_build" : "extensions_release",
+    input: {
+      installationId: "installation",
+      idempotencyKey: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+    },
+  });
+  expect(requests[1]?.tool).toBe("extensions_inspect");
+  expect(view.queryByRole("alert")).not.toBeInTheDocument();
+});
+
 function verifiedRelease(name = "native-network"): InstallationState["releases"][string] {
   return { id: "release", installationId: "installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "source", artifactDigest: "artifact", imageDigest: "image", releaseDigest: "exact-release-digest", policyDigest: "policy", runnerProfile: "podman", createdAt: "2026-09-04", evidence: { protocolVersion: 4, validatorVersion: "4", tests: [], discoveryDigest: "discovery" }, manifest: { schemaVersion: 4, name, version: "1.0.0", author: { name: "tests" }, description: "Native fixture", permissions: { networkTcp: ["example.com:443"], secretRead: ["GITHUB_TOKEN"] } } };
 }

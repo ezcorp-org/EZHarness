@@ -1057,6 +1057,10 @@ test.describe("Extensions Install + Activate Flow", () => {
 			const request = route.request().postDataJSON();
 			if (request.tool === "extensions_inspect") return route.fulfill({ json: state });
 			actions.push(request);
+			if (request.tool === "extensions_build") {
+				expect(request.input).toMatchObject({ installationId, workspaceId, expectedRevision: workspace.revision, idempotencyKey: expect.any(String) });
+				return route.fulfill({ json: { id: "browser-build", state: "queued" } });
+			}
 			expect(request.tool).toBe("extensions_release");
 			expect(request.input.installationId).toBe(installationId);
 			if (request.input.action === "requestApproval") {
@@ -1115,6 +1119,25 @@ test.describe("Extensions Install + Activate Flow", () => {
 		await expect(page.locator(".state-badge")).toHaveText("active · generation 1");
 		expect(fixture.actions.map(action => action.input.action)).toEqual(["requestApproval", "activate"]);
 		expect(fixture.state.installation.activeReleaseId).toBe("verified-release");
+		expect(fixture.unexpectedMutations).toEqual([]);
+		await fixture.close();
+	});
+
+	test("build and activation work without the secure-context UUID API", async ({ page, mockApi }) => {
+		await page.addInitScript(() => Object.defineProperty(crypto, "randomUUID", { value: undefined }));
+		await mockApi({ projects: [proj], extensions: [] });
+		const fixture = await installReviewFlow(page);
+		await importGithub(page, fixture);
+		await fixture.expectReview();
+		await page.getByRole("button", { name: "Save and build", exact: true }).click();
+		await page.getByRole("button", { name: "Request approval", exact: true }).click();
+		await page.getByLabel("I reviewed this release and its permissions.", { exact: true }).check();
+		await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
+		await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
+		await expect(page.locator(".state-badge")).toHaveText("active · generation 1");
+		const keys = [fixture.actions[0]?.input.idempotencyKey, fixture.actions[2]?.input.idempotencyKey];
+		for (const key of keys) expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+		expect(keys[0]).not.toBe(keys[1]);
 		expect(fixture.unexpectedMutations).toEqual([]);
 		await fixture.close();
 	});
