@@ -284,27 +284,28 @@ doubled the object volume on that service.
 
 ## Receipts
 
-Every receipt below was recorded from a clean committed tree at head `850f24520`, under
+Every receipt below was recorded from a clean committed tree at head `526fd12f3`, under
 `flock /tmp/ezcorp-validation-heavy.lock` with an outer `timeout` for every heavy producer, and
 every log's size on disk equals its own recorded `logBytes`.
 
 | Receipt | Commit | Result |
 | --- | --- | --- |
-| `logs/coverage-gates.json` | `850f24520` | exit 0, exit 0, 1 s |
-| `logs/focused-suites.json` | `850f24520` | exit 0, 90 pass 0 fail, 3 s |
-| `logs/journey-pglite.json` | `850f24520` | exit 0, 11 pass 0 fail, 400 s |
-| `logs/postgres-journey.json` | `850f24520` | exit 0, 11 pass 0 fail, 344 s |
+| `logs/coverage-gates.json` | `526fd12f3` | exit 0, exit 0, 1 s |
+| `logs/focused-suites.json` | `526fd12f3` | exit 0, 90 pass 0 fail, 3 s |
+| `logs/journey-pglite.json` | `526fd12f3` | exit 0, 11 pass 0 fail, 65 s |
+| `logs/postgres-journey.json` | `526fd12f3` | exit 0, 11 pass 0 fail, 288 s |
 | `logs/postgres-maximum-rows.json` | `66e697ad4` | exit 0, 1 pass 0 fail, 118 s |
-| `logs/python-quality.json` | `850f24520` | exit 0, exit 0, 19 s |
-| `logs/script-gates.json` | `850f24520` | exit 0, 18 pass 0 fail, 1 s |
-| `logs/shared-runner-regression.json` | `850f24520` | exit 0, 34 pass 0 fail, 114 s |
-| `logs/static-gates.json` | `850f24520` | exit 0, 18 pass 0 fail, 46 s |
+| `logs/python-quality.json` | `526fd12f3` | exit 0, exit 0, 27 s |
+| `logs/script-gates.json` | `526fd12f3` | exit 0, 18 pass 0 fail, 2 s |
+| `logs/shared-runner-regression.json` | `526fd12f3` | exit 0, 36 pass 0 fail, 232 s |
+| `logs/static-gates.json` | `526fd12f3` | exit 0, 18 pass 0 fail, 62 s |
 
 `logs/postgres-journey.json` is the FAITHFUL full-file run of
 `tests/postgres/factory-reference-data.test.ts` on real PostgreSQL with S3-backed encrypted blobs,
-a real immutable publication, the 256 MiB boundary, and the maximum-row boundary declared last. It
-supersedes the earlier receipt taken while the ordinary store was capped at 768 MiB, and the two
-repeat-leg receipts kept as `logs/superseded-*.json` belong to invocations that no longer exist.
+a real immutable publication, the 256 MiB boundary, and the maximum-row boundary declared last.
+
+`integ/w00` already carries this package, so the new-file gate has nothing new to gate and the
+patch gate measures exactly what this round changed: six files, two of them source, both covered.
 
 `postgres-maximum-rows` at `66e697ad4` is retained because it is the receipt that first showed the
 case passing in isolation while the full run did not, which is validator finding F1 in one pair of
@@ -328,19 +329,28 @@ re-adding 0o777 would have reopened F6. So the handover is KEPT in the form F6 a
 `podman unshare chown 65534:0` on the output directory at mode 0o770, which is not world-writable
 and not world-readable.
 
-**ANSWERED by the coordinator.** The measurement stands and the handover belongs in the runner, not
-in each pack. Terra runtime lands it as leaf W01d: at launch, mode 0o770 and then
-`podman unshare chown` to the mapped guest uid with the runner's gid, refused unless the directory
-is a real runner-owned directory. This round finishes with the four lines in
-`ReferenceDataGuestDirectory.create` in place; when W01d is on `integ/w00` the coordinator signals
-and those four lines are deleted in a small follow-up, so every pack uses one implementation. Until
-then this pack's copy is the only thing keeping its guests able to write, and removing it early
-would break every journey.
+**ANSWERED, and CLOSED in `526fd12f3`.** The measurement stood and the handover belonged in the
+runner. W01d landed on `integ/w00` at `7d99dc75b`: the runner refuses a path that is not a real
+directory it owns, sets 0o770, and moves ownership to the mapped guest uid keeping its own group.
+`ReferenceDataGuestDirectory.create` now sets no mode and no owner; it makes the directory and
+passes the path.
+
+One consequence the follow-up had to handle. The runner hands over exactly the directory it is
+given and does NOT recurse, so this pack's `in` and `out` halves would have left every output
+directory owned by this host and unwritable by the guest. The directory is now FLAT. What that
+costs is named in the code rather than left implicit: a guest can unlink an input staged beside its
+outputs, and nothing rests on it not doing so, because the guest verifies the digest of what it
+reads, the host re-measures everything the guest writes, and the reconciliation reads the immutable
+input back out of W04 rather than from this directory. `produced()` reports only names this host
+did not stage, because reporting an input as guest output would be a lie the seal would then act
+on.
 
 ## Interface questions
 
-0. **ANSWERED.** Whether the output-directory handover belongs in each pack or in the shared
-   runner: the runner, as W01d. See the section above. The one question still open is narrower:
+0. **ANSWERED and closed.** Whether the output-directory handover belongs in each pack or in the
+   shared runner: the runner, as W01d, closed in `526fd12f3`. And the C13 row: the coordinator
+   confirmed binding to the runner's entry point is right and the deep `./materials` subpath is
+   Terra's to add and not required now. Recorded for the reader:
    the C13 row for the hardened read-back binds to
    `packages/@ezcorp/extension-runner/src/index.ts` rather than to `src/materials.ts`, because the
    package publishes no `./materials` subpath and `WORKSPACE_PACKAGE_ENTRIES` resolves only the
