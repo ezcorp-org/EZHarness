@@ -4,7 +4,7 @@
  *
  * The repo ships NO graph library (no d3 / dagre / elk / cytoscape /
  * svelte-flow) and adding one is against the dependency policy in the root
- * CLAUDE.md — this module is the replacement. It is a Sugiyama-lite layered
+ * AGENTS.md — this module is the replacement. It is a Sugiyama-lite layered
  * layout: longest-path ranking, deterministic within-rank ordering, even
  * coordinate assignment, cubic-bezier edge routing.
  *

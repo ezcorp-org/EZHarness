@@ -479,7 +479,7 @@ describe("registry ⇄ filesystem parity", () => {
     expect(stale).toEqual([]);
   });
 
-  // CLAUDE.md makes registration binding for EVERY `/api/*` route. This guard
+  // AGENTS.md makes registration binding for EVERY `/api/*` route. This guard
   // used to carry that invariant as DEBT: a frozen `KNOWN_UNREGISTERED` set of
   // 75 standing violations, plus the rule "this list may only SHRINK".
   //
@@ -527,12 +527,12 @@ describe("registry ⇄ filesystem parity", () => {
 
   // ── THE SECOND HALF OF THE INVARIANT: registered WITH A SCOPE ────────────
   //
-  // CLAUDE.md says "every new `/api/*` route registers in `src/api-registry.ts`
+  // AGENTS.md says "every new `/api/*` route registers in `src/api-registry.ts`
   // with a scope". Only the first half was ever enforced — the tests above.
   // `scope?: ApiRouteScope` is still OPTIONAL (`src/api-registry.ts:22`) and
   // its own docblock has promised since it was written that "the route-contract
   // meta-test will tighten the requirement over time". Nothing tightened. 93 of
-  // 300 entries declared no scope, so the sentence in CLAUDE.md described a rule
+  // 300 entries declared no scope, so the sentence in AGENTS.md described a rule
   // that a new route could ignore for free. 78 remain, in three shrinks: the two
   // `:name/run` routes backfilled to `chat` once their handlers were read (93 →
   // 91), `PUT /api/projects/:id/tool-permission-mode` (91 → 90), and then the

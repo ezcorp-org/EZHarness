@@ -22,18 +22,18 @@ export default defineConfig({
 	resolve: {
 		conditions: ["browser"],
 		alias: {
-			$lib: resolve(__dirname, "src/lib"),
+			$lib: resolve(import.meta.dirname, "src/lib"),
 			// `.svelte-kit/runtime/app` only exists after a SvelteKit build —
 			// vitest can't depend on it. Map the `$app/*` subpaths to local
 			// no-op stubs; any test asserting specific behaviour `vi.mock`s
 			// the same path on top.
-			"$app/navigation": resolve(__dirname, "src/__tests__/stubs/app-navigation.ts"),
-			"$app/forms": resolve(__dirname, "src/__tests__/stubs/app-forms.ts"),
-			"$app/state": resolve(__dirname, "src/__tests__/stubs/app-state.ts"),
-			"$app/stores": resolve(__dirname, "src/__tests__/stubs/app-stores.ts"),
-			"$app/environment": resolve(__dirname, "src/__tests__/stubs/app-environment.ts"),
-			$app: resolve(__dirname, ".svelte-kit/runtime/app"),
-			$server: resolve(__dirname, "../src"),
+			"$app/navigation": resolve(import.meta.dirname, "src/__tests__/stubs/app-navigation.ts"),
+			"$app/forms": resolve(import.meta.dirname, "src/__tests__/stubs/app-forms.ts"),
+			"$app/state": resolve(import.meta.dirname, "src/__tests__/stubs/app-state.ts"),
+			"$app/stores": resolve(import.meta.dirname, "src/__tests__/stubs/app-stores.ts"),
+			"$app/environment": resolve(import.meta.dirname, "src/__tests__/stubs/app-environment.ts"),
+			$app: resolve(import.meta.dirname, ".svelte-kit/runtime/app"),
+			$server: resolve(import.meta.dirname, "../src"),
 			// The server-context import chain transitively imports `bun:ffi`
 			// (sandbox/landlock-ffi.ts). Under vitest's jsdom env that Bun
 			// builtin can be neither bundled nor resolved on Node, breaking
@@ -42,13 +42,13 @@ export default defineConfig({
 			// functions are ever actually called — they never are in these
 			// tests; real Landlock runs only in the Bun runtime shim. Keeps the
 			// sandbox security code untouched.
-			"bun:ffi": resolve(__dirname, "src/__tests__/stubs/bun-ffi.ts"),
+			"bun:ffi": resolve(import.meta.dirname, "src/__tests__/stubs/bun-ffi.ts"),
 			// `$service-worker` is a SvelteKit virtual module only resolvable
 			// after a build. The `service-worker.shell.unit.test.ts` imports the
 			// real SW shell to line-cover it, so map the module to a static stub
 			// that satisfies its `{ version, build, files }` import. Same spirit
 			// as the `$app/*` stubs above.
-			"$service-worker": resolve(__dirname, "src/__tests__/stubs/service-worker.ts"),
+			"$service-worker": resolve(import.meta.dirname, "src/__tests__/stubs/service-worker.ts"),
 		},
 	},
 	test: {

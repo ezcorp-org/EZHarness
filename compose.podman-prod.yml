@@ -1,0 +1,55 @@
+# Rootless Podman override for the production stack on Linux and macOS.
+#
+# Layer it ON TOP of compose.prod.yml — it is not a standalone stack:
+#
+#   export DOCKER_HOST="unix://$(podman machine inspect \
+#     --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
+#   docker compose -f compose.prod.yml -f compose.podman-prod.yml \
+#     --env-file .env.prod up -d --build
+#
+# ── Why this is not compose.podman.yml ──────────────────────────────────────
+#
+# That file overrides the DEV stack (docker-compose.yml), which is
+# `network_mode: host` and therefore Linux-only — the README says so. It is
+# also about `tmpfs:` copy-up semantics, which this stack has no masks for.
+# The two files solve unrelated problems on different stacks; neither is a
+# substitute for the other, and layering both is never correct.
+#
+# ── Why `userns_mode` ───────────────────────────────────────────────────────
+#
+# Exactly one thing in the prod stack behaves differently here, and it is the
+# INVERSE of the rootless property documented in docs/deployment.md §"Other
+# rootless differences worth knowing". That bullet is about the dev stack,
+# whose container runs as root: container uid 0 maps to the invoking user, so
+# bind-mounted files land owned by you and no `--userns=keep-id` is needed.
+#
+# This image does not run as root. The Dockerfile verifies that `USER bun` is
+# uid/gid 1000,
+# and uid 1000 is NOT the invoking user — it lands in the subuid range, which
+# has no access to the virtiofs-shared host tree. So every ./.ezcorp bind is
+# unwritable to the runtime, and the first boot fails with PGlite unable to
+# open /app/data.
+#
+# `keep-id:uid=1000,gid=1000` maps the container's uid 1000 back to the host
+# user instead. It is the rootless equivalent of the `sudo chown -R 1000:1000
+# .ezcorp/data` in the README quick start — and that chown is the thing that
+# does NOT create a rootless mapping. It can also transfer the tree away from
+# your login account when that account is not uid/gid 1000.
+#
+# Headroom check: the setuid preview-spawn helper drops
+# to a per-conversation uid in 90000-99000, which must be mappable INSIDE the
+# user namespace. Verify both `/etc/subuid` and `/etc/subgid`: a common range
+# of 65,536 IDs is too small for uid/gid 90000-99000. Check the configuration
+# on the host or virtual machine that will run the stack.
+#
+# ── Scope ───────────────────────────────────────────────────────────────────
+#
+# `app` only. The sidecars write only to named volumes or read-only mounts, so
+# they do not need host-owner mapping.
+# `src/__tests__/compose-podman-prod.test.ts` holds this file against
+# `compose.prod.yml` so it cannot drift into overriding a service that no
+# longer exists, or grow a sequence field that Compose would append rather
+# than replace.
+services:
+  app:
+    userns_mode: "keep-id:uid=1000,gid=1000"

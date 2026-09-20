@@ -28,7 +28,7 @@ import { truncateOutput } from "../db/queries/conversations";
  * this is a `bun:test` under `src/`, and the vitest coverage leg measures
  * `web/src/lib/**`. An `import` here would attach Bun's line-attribution to
  * the same file the v8 leg attributes differently, and merge-lcov would union
- * the two line sets into unreachable misses (CLAUDE.md, "Coverage trap";
+ * the two line sets into unreachable misses (AGENTS.md, "Coverage trap";
  * worked example: author-draft-allowlist-parity.test.ts). Transpiling the
  * source and evaluating it emits no lcov record at all, while still running
  * the REAL implementation — no clone left to drift.

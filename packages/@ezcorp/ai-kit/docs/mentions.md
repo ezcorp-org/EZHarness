@@ -1,6 +1,6 @@
 # Mention Grammar — Normative Specification
 
-The chat composer supports three mention sigils. This document is the normative reference. The grammar table in [`/home/dev/work/ez-corp-ai/CLAUDE.md`](/home/dev/work/ez-corp-ai/CLAUDE.md) is the authoritative cross-project summary; this file expands on behaviour and constraints.
+The chat composer supports three mention sigils. This document is the normative reference. The grammar table in the root [`AGENTS.md`](../../../../AGENTS.md) is the authoritative cross-project summary; this file expands on behaviour and constraints.
 
 The authoritative parser lives at:
 `/home/dev/work/ez-corp-ai/src/runtime/mention-wiring.ts`
