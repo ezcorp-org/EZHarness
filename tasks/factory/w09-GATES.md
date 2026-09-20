@@ -222,9 +222,11 @@ database, and freshly started pool, supervisor, and web processes each time.
 
 All three at this branch's tip, against a web build made there.
 
-**Where the receipts sit.** All thirty-eight were produced at `f1db11917`
-against a clean tree by one sweep, `repro/final-sweep-v2.sh`, run from the W09
-worktree. The only receipt naming another commit is
+**Where the receipts sit.** The sweep, `repro/final-sweep-v2.sh`, ran at
+`f1db11917` from the W09 worktree against a clean tree and produced every
+receipt. The six static and `BASE_REF` coverage gates were then re-stamped at
+`1e28030ba`; `git diff --stat f1db11917 1e28030ba` is this file alone, and every
+commit after `1e28030ba` on this branch changes only this file. The only receipt naming another commit is
 `shared-store-outage-observation.json`, a historical incident record stamped
 with the commit it was observed at, which is what it is for. Two exit non-zero
 and both are meant to: `coverage-full` on the browser leg described above, and
