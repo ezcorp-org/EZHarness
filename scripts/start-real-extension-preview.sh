@@ -12,10 +12,32 @@ umask 077
 run_root="$(mktemp -d "/tmp/ez-real-runner-XXXXXXXX")"
 runner_pid=""
 preview_pid=""
+restart_file=""
+restart_ack_file=""
+restart_pid_file=""
+stop_preview() {
+  if [[ -n "$preview_pid" ]]; then
+    # The preview has the same 30s graceful-shutdown budget as the real E2E
+    # webServer. Never leave an owned restart child behind if its shutdown
+    # handler wedges; escalation is limited to this direct Bun child.
+    kill -TERM "$preview_pid" 2>/dev/null || true
+    stop_deadline=$(( $(date +%s) + 30 ))
+    while kill -0 "$preview_pid" 2>/dev/null; do
+      if (( $(date +%s) >= stop_deadline )); then
+        kill -KILL "$preview_pid" 2>/dev/null || true
+        break
+      fi
+      sleep 0.1
+    done
+    wait "$preview_pid" 2>/dev/null || true
+    preview_pid=""
+  fi
+}
 cleanup() {
   trap - EXIT INT TERM
-  if [[ -n "$preview_pid" ]]; then kill -TERM "$preview_pid" 2>/dev/null || true; wait "$preview_pid" 2>/dev/null || true; fi
+  stop_preview
   if [[ -n "$runner_pid" ]]; then kill -TERM "$runner_pid" 2>/dev/null || true; wait "$runner_pid" 2>/dev/null || true; fi
+  if [[ -n "$restart_file" ]]; then rm -f -- "$restart_file" "$restart_ack_file" "$restart_pid_file"; fi
   rm -rf "$run_root"
 }
 trap cleanup EXIT
@@ -61,6 +83,56 @@ export HOST=127.0.0.1
 export ORIGIN="${ORIGIN:-http://localhost:$PORT}"
 export BODY_SIZE_LIMIT="${BODY_SIZE_LIMIT:-134217728}"
 unset SOCKET_PATH
-bun build/index.js &
-preview_pid=$!
+restart_file="${EZCORP_TEST_PREVIEW_RESTART_FILE:-}"
+if [[ -n "$restart_file" ]]; then
+  # This control exists solely for the real E2E runner. It never activates in
+  # a normal preview or production process, where an arbitrary file could not
+  # control the app lifetime.
+  if [[ "${PI_E2E_REAL:-}" != "1" || "${NODE_ENV:-}" != "test" ]]; then
+    echo "test preview restart control requires PI_E2E_REAL=1 and NODE_ENV=test" >&2
+    exit 1
+  fi
+  restart_ack_file="${restart_file}.ack"
+  restart_pid_file="${restart_file}.pid"
+  rm -f -- "$restart_file" "$restart_ack_file" "$restart_pid_file"
+fi
+
+start_preview() {
+  bun build/index.js &
+  preview_pid=$!
+  if [[ -n "$restart_pid_file" ]]; then printf '%s\n' "$preview_pid" > "$restart_pid_file"; fi
+}
+
+
+wait_preview_ready() {
+  EZCORP_PREVIEW_ORIGIN="$ORIGIN" bun -e '
+const deadline = Date.now() + 120000;
+while (true) {
+  try {
+    const response = await fetch(process.env.EZCORP_PREVIEW_ORIGIN, { signal: AbortSignal.timeout(1000) });
+    if (response.ok || response.status === 302 || response.status === 303) break;
+  } catch {}
+  if (Date.now() >= deadline) throw new Error("preview did not become ready after restart");
+  await Bun.sleep(100);
+}
+'
+}
+
+start_preview
+if [[ -z "$restart_file" ]]; then
+  wait "$preview_pid"
+  exit $?
+fi
+wait_preview_ready
+while kill -0 "$preview_pid" 2>/dev/null; do
+  if [[ -f "$restart_file" ]]; then
+    restart_token="$(cat -- "$restart_file")"
+    rm -f -- "$restart_file"
+    stop_preview
+    start_preview
+    wait_preview_ready
+    printf '%s\n' "$restart_token" > "$restart_ack_file"
+  fi
+  sleep 0.1
+done
 wait "$preview_pid"

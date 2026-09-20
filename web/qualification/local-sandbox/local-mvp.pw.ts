@@ -1,7 +1,7 @@
 /** Hardware qualification. Requires the real rootless runtime and private host
  * config. The model response alone is scripted; application, approval, provider
  * worker, database, native tools, container and filesystem remain real. */
-import { readFile } from "node:fs/promises";
+import { readFile, rm, writeFile } from "node:fs/promises";
 import { resourcePaths } from "../../../src/runtime/sandbox/local-podman/commands";
 import { test, expect } from "../../e2e/fixtures/hydration.js";
 import { captureEvidence } from "../../e2e/fixtures/evidence";
@@ -20,11 +20,27 @@ test.afterEach(async ({ request }) => {
   ownedProjectId = undefined;
 });
 
-test("local native workspace survives browser disconnect and disposes cleanly @evidence", async ({ page: initialPage, request, baseURL, context }, testInfo) => {
+test("local native workspace survives browser and app restart then disposes cleanly @evidence", async ({ page: initialPage, request, baseURL, context }, testInfo) => {
   let page = initialPage;
   const seedScript = async (scriptKey: string, turns: unknown[]) => {
     const response = await request.post("/api/__test/mock-llm/script", { data: { scriptKey, turns } });
     expect(response.status(), await response.text()).toBe(201);
+  };
+  const restartFile = process.env.EZCORP_TEST_PREVIEW_RESTART_FILE;
+  expect(restartFile, "qualification preview restart control").toBeTruthy();
+  const restartPreview = async () => {
+    const pidFile = `${restartFile}.pid`;
+    const ackFile = `${restartFile}.ack`;
+    const before = (await readFile(pidFile, "utf8")).trim();
+    expect(before).toMatch(/^[1-9]\d*$/);
+    const token = crypto.randomUUID();
+    await rm(ackFile, { force: true });
+    await writeFile(restartFile!, `${token}\n`, { mode: 0o600 });
+    await expect.poll(async () => (await readFile(ackFile, "utf8").catch(() => "")).trim(), { timeout: 150000 }).toBe(token);
+    const after = (await readFile(pidFile, "utf8")).trim();
+    expect(after).toMatch(/^[1-9]\d*$/);
+    expect(after).not.toBe(before);
+    return { before, after };
   };
   const { client, state } = await importAndActivateBundledExtension({ page, request, baseURL: baseURL!, name: "local-sandbox" });
   const providers = await request.get("/api/sandboxes/providers");
@@ -40,6 +56,15 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   const { project } = await created.json();
   ownedProjectId = project.id;
   await expect(page).toHaveURL(new RegExp(`/project/${project.id}/settings$`));
+  await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "Start", exact: true }).click();
+  await expect(panel.getByText("running", { exact: true })).toBeVisible();
+  await panel.getByRole("button", { name: "Stop", exact: true }).click();
+  await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
+  await panel.getByRole("link", { name: "Open chat" }).click();
+  await expect(page).toHaveURL(new RegExp(`/project/${project.id}$`));
+  await page.goto(`/project/${project.id}/settings`);
+  panel = page.getByTestId("project-sandbox-panel");
   await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
   const key = `sandbox-${crypto.randomUUID()}`;
   const marker = `NATIVE_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -67,6 +92,18 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   expect(saved).toContain(`${marker}_EDITED`);
   expect(saved).toContain("1 pass");
   expect(saved).not.toContain("Sandbox workspace is unavailable");
+  const beforeRestart = await (await request.get(`/api/projects/${project.id}/sandbox`)).json();
+  const restartReadKey = `${key}-engine-restart`;
+  await seedScript(restartReadKey, [{ toolCalls: [{ name: "readFile", arguments: { path: "marker.txt" } }] }, { text: "Restart persistence checked" }]);
+  const pids = await restartPreview();
+  expect(pids.before).not.toBe(pids.after);
+  await expect.poll(async () => (await request.get(`/api/projects/${project.id}/sandbox`)).status(), { timeout: 150000 }).toBe(200);
+  const afterRestart = await (await request.get(`/api/projects/${project.id}/sandbox`)).json();
+  expect(afterRestart.bindingId).toBe(beforeRestart.bindingId);
+  expect(afterRestart.resource.resourceId).toBe(beforeRestart.resource.resourceId);
+  const afterEngineRestart = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${restartReadKey}` });
+  expect((await client.runToCompletion(afterEngineRestart.id, "Read the retained marker after app restart", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
+  expect(JSON.stringify(await (await request.get(`/api/conversations/${afterEngineRestart.id}/messages?withToolCalls=true`)).json())).toContain(`${marker}_EDITED`);
   await page.goto(`/project/${project.id}/chat/${conversation.id}`);
   await page.reload();
   const readKey = `${key}-read`;
@@ -118,6 +155,11 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   await panel.getByRole("button", { name: "Dispose sandbox", exact: true }).click();
   await expect(panel.getByText("destroyed", { exact: true })).toBeVisible();
   for (const name of ["Start", "Stop", "Dispose…"]) await expect(panel.getByRole("button", { name, exact: true })).toBeDisabled();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await captureEvidence(page, testInfo, "local-sandbox-destroyed-desktop", { fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await captureEvidence(page, testInfo, "local-sandbox-destroyed-mobile", { fullPage: true });
   const forbiddenRestart = await request.post(`/api/projects/${project.id}/sandbox`, { headers: { "Idempotency-Key": crypto.randomUUID() }, data: { action: "start" } });
   expect(forbiddenRestart.status()).toBe(409);
   expect((await forbiddenRestart.json()).code).toBe("RESOURCE_DESTROYED");
