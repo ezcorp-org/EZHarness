@@ -124,7 +124,7 @@ export interface FactorySupervisorMainDependencies {
   readonly runConfigured: (configPath: string, signal: AbortSignal) => Promise<void>;
   readonly once: (event: "SIGINT" | "SIGTERM", listener: () => void) => void;
   readonly removeListener: (event: "SIGINT" | "SIGTERM", listener: () => void) => void;
-  readonly fail: () => void;
+  readonly fail: (error: unknown) => void;
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -489,7 +489,14 @@ const productionMainDependencies: FactorySupervisorMainDependencies = {
   runConfigured: runConfiguredFactorySupervisor,
   once: (event, listener) => { process.once(event, listener); },
   removeListener: (event, listener) => { process.removeListener(event, listener); },
-  fail: () => { process.exitCode = 1; },
+  // Printed BEFORE the exit code is set, because an empty log is the one
+  // symptom a reader cannot act on. A silent exit 1 here cost a full
+  // debugging round: the process refused its own configuration and said
+  // nothing at all.
+  fail: (error: unknown) => {
+    console.error("[factory-supervisor] failed to start:", error instanceof Error ? (error.stack ?? error.message) : String(error));
+    process.exitCode = 1;
+  },
 };
 
 export async function runFactorySupervisorMain(
