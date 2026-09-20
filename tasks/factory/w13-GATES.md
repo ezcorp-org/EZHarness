@@ -239,7 +239,7 @@ implemented nowhere in the repository.
    command, so the mode rides back out of a walk that was already happening. No SDK kernel file was
    touched.
 2. **The catalog's subfactory output ports are the acceptance-only receipt, not `{artifact,
-   evidence}`.** As written, the catalog could not run: no child definition produces those ports.
+   evidence}`, and both the value and the port are declared once in the SDK.** As written, the catalog could not run: no child definition produces those ports.
    The evidence reference is the sealed DECISION rather than a list of artifacts, because a parent
    proves a child's evidence through `FactoryAssurance.readSealedDecisionInTransaction` and binds
    the artifact through `FactoryChildArtifacts`, both of which re-verify every ancestry fact. A
@@ -263,6 +263,7 @@ implemented nowhere in the repository.
 | `src/factory/command-authority.ts` | Sol lifecycle (mine) | The inherited release mode rides out of the existing ancestry walk. |
 | `src/factory/protected-command-effects.ts` | Sol assurance (W05) structure, Sol controls (W06) rejection branch | The acceptance-only branch and the shared `resolveAcceptedRelease` extraction. A third writer; the logic itself lives in `child-release-mode.ts`. |
 | `packages/@ezcorp/factory-sdk/src/references.ts` | Sol controls | The catalog's child output ports and the bindings that read the accepted bytes out of them. The catalog row is W13's. |
+| `packages/@ezcorp/factory-sdk/src/child-acceptance.ts` (new), `index.ts` | Sol controls | Interface answer 4: the acceptance-only shape and its port schema, moved into the SDK so the two are one declaration. Authorized by the coordinator. |
 | `packages/@ezcorp/factory-sdk/src/reference-execution.test.ts` | Sol controls | Its `child()` fixture returned the old shape, so the catalog failed. |
 | `src/db/migrate.ts`, `src/db/schema.ts` | Coordinator | One appended migration entry and three Drizzle mirrors. |
 | `src/__tests__/helpers/factory-migration-restart-suite.ts` | Coordinator | The repeat-migration case every new migration owes it. |
@@ -273,31 +274,38 @@ implemented nowhere in the repository.
 | `scripts/coverage-thresholds.json` | W18 | Eight 100% keys, strictly additive. |
 | `.github/workflows/db-postgres.yml` | Coordinator | Registered `./tests/postgres/factory-legacy-workflow.test.ts`. |
 
-## Interface questions for the coordinator
+## Interface questions — all four answered by the coordinator (2026-09-20)
 
-1. **Should a release-gating approval also be suppressed under `releaseMode: "none"`?** Recommended:
-   no. Every reference child declares an approval node before its release, and under acceptance-only
-   mode that approval authorizes nothing. Suppressing it would be composition erasing a consent the
-   published definition asks a human for, which is a worse failure than an approval nobody needs.
-   Answering it in a journey is a real administrator action. If the coordinator disagrees, the seam
-   is the same one this package used for the release node.
-2. **Who owns the C11 detection bound for an orphaned legacy run?** The sweep is a sub-tick on every
-   tick and cannot be faster than the daemon's wake interval, which defaults to one hour. Either the
-   default changes (a change to a shared daemon, not mine), or C10's sentence is read as a
-   deployment requirement and `EZCORP_PERM_SWEEP_INTERVAL_MS` becomes a factory readiness setting
-   alongside the C09 required-service list. Recommended: the second, recorded in `boot.ts`'s
-   readiness surface by whoever owns it.
-3. **`FactoryLegacyEngine` is the seam W09 implements.** Three methods over the existing executor:
-   `start` (→ `runWorkflow` with the journaled `factory:` key), `lookup`
-   (→ `findWorkflowRunByIdempotencyKey`, a read that provably cannot create), and `facts`
-   (→ `getWorkflowRunRow` plus the running `workflow_step_runs` names). If W09 would rather the
-   adapter import the executor directly, say so and the seam collapses — but the lookup must stay a
-   read.
-4. **`FactoryChildAcceptanceResult` is mirrored in two places that cannot import each other.**
-   `src/factory/child-release-mode.ts` writes the value; `references.ts` declares the port schema
-   that accepts it. `src/factory/child-release-mode.test.ts` asserts the real value satisfies the
-   real port, which is the only link. If the SDK should own the shape instead, it is a one-file move
-   and the host would import it.
+1. **Should a release-gating approval also be suppressed under `releaseMode: "none"`?**
+   **Answered: no, the recommendation stands.** Every reference child declares an approval node
+   before its release, and under acceptance-only mode that approval authorizes nothing — but
+   suppressing it would be composition erasing a consent the published definition asks a human for,
+   which is a worse failure than an approval nobody needs. Answering it in a journey is a real
+   administrator action. Nothing in this package suppresses an approval.
+
+2. **Who owns the C11 detection bound for an orphaned legacy run?**
+   **Answered: it is a factory readiness setting, and W09b owns it.** When the factory is enabled
+   the startup document requires the daemon's wake interval to be at most the C11 bound, and a
+   longer interval is a named readiness failure. The sub-tick stays exactly as landed here: on
+   every tick, both branches proven by G7. Routed to W09b; nothing further is W13's.
+
+3. **`FactoryLegacyEngine` is the seam W09 implements.**
+   **Answered: it stays this package's seam, and W09b implements the three-method adapter over the
+   existing executor with the lookup as a read.** Routed. `start` → `runWorkflow` with the
+   journaled `factory:` key, `lookup` → `findWorkflowRunByIdempotencyKey` (a read that provably
+   cannot create), `facts` → `getWorkflowRunRow` plus the running `workflow_step_runs` names.
+
+4. **`FactoryChildAcceptanceResult` was mirrored in two trees that cannot import each other.**
+   **Answered: move it to the SDK. Done in this package**, as a disclosed Sol controls crossing.
+   `packages/@ezcorp/factory-sdk/src/child-acceptance.ts` now owns the shape, its validator, its
+   builder, and — the part that retires the question rather than relocating it — the PORT SCHEMA
+   itself. `references.ts` imports `factoryChildAcceptancePortSchema` instead of declaring a second
+   copy, so the value and the port that admits it are one declaration and cannot drift.
+   `src/factory/child-release-mode.ts` re-exports them and keeps only what needs the host: the
+   inherited-mode type, its narrowing rule, and the v4 content digest the SDK's deterministic
+   closure must not acquire. The existing test is kept and STRENGTHENED: it now asserts the port
+   each catalog child declares is that schema by IDENTITY, not merely by equality, because a second
+   declaration that happens to match today is exactly the drift the move removes.
 
 ## A credential exposure, disclosed
 

@@ -1,3 +1,4 @@
+import { factoryChildAcceptancePortSchema } from "./child-acceptance.js";
 import type {
   AcceptanceClaim,
   AcceptanceGroup,
@@ -304,35 +305,6 @@ export const referenceDataV1: FactoryDefinition = baseDefinition(
   [dataParse, dataTransform, dataReduce, dataValidate, s3Release, runner("@ezcorp/reference-data", "snapshotCsv", "e")].map(packageOf).filter((item, index, values) => values.findIndex((candidate) => candidate.name === item.name) === index),
 );
 
-/**
- * What a child composed with `releaseMode: "none"` returns (C10).
- *
- * The child's release node creates no release operation; it completes with
- * this envelope instead, naming the accepted bytes and the sealed acceptance
- * decision that accepted them. A parent declares it as the subfactory node's
- * output port, and THAT is the boundary: a publishing child's provider receipt
- * has no `releaseMode` and no decision, so it can never satisfy this schema.
- * Composition therefore cannot silently turn an authorized child into an
- * acceptance-only one, or the reverse.
- *
- * Mirrors `FactoryChildAcceptanceResult` in `src/factory/child-release-mode.ts`,
- * which is the one writer of the value.
- */
-const childAcceptanceSchema: PortSchema = {
-  type: "object",
-  properties: {
-    schemaVersion: { type: "string", enum: ["factory.child-acceptance.v1"] },
-    releaseMode: { type: "string", enum: ["none"] },
-    decisionId: stringSchema,
-    contractDigest: { type: "string", minLength: 71, maxLength: 71 },
-    candidateDigest: { type: "string", minLength: 71, maxLength: 71 },
-    evidenceSetDigest: { type: "string", minLength: 71, maxLength: 71 },
-    artifact: artifactSchema,
-  },
-  required: ["schemaVersion", "releaseMode", "decisionId", "contractDigest", "candidateDigest", "evidenceSetDigest", "artifact"],
-  additionalProperties: false,
-};
-
 /** The accepted bytes inside an acceptance-only child's receipt. */
 function acceptedChildArtifact(name: string): ValueReference {
   return { kind: "ref", root: "node", name, path: ["receipt", "artifact"] };
@@ -354,8 +326,8 @@ export const referenceCatalogV1: FactoryDefinition = baseDefinition(
   "reference.catalog.v1",
   {
     nodes: [
-      { id: "accepted-data", kind: "subfactory", factory: dataReference, releaseMode: "none", grants: [], inputPorts: { csv: artifactSchema }, bindings: { csv: input("csv") }, outputPorts: { receipt: childAcceptanceSchema } },
-      { id: "accepted-image", kind: "subfactory", factory: imageReference, releaseMode: "none", grants: [], inputPorts: { brief: stringSchema, outputName: stringSchema }, bindings: { brief: input("brief"), outputName: { kind: "literal", value: "catalog-tree.png" } }, outputPorts: { receipt: childAcceptanceSchema } },
+      { id: "accepted-data", kind: "subfactory", factory: dataReference, releaseMode: "none", grants: [], inputPorts: { csv: artifactSchema }, bindings: { csv: input("csv") }, outputPorts: { receipt: factoryChildAcceptancePortSchema } },
+      { id: "accepted-image", kind: "subfactory", factory: imageReference, releaseMode: "none", grants: [], inputPorts: { brief: stringSchema, outputName: stringSchema }, bindings: { brief: input("brief"), outputName: { kind: "literal", value: "catalog-tree.png" } }, outputPorts: { receipt: factoryChildAcceptancePortSchema } },
       { ...task("prepare-catalog-request", catalogPrepare, ["accepted-data", "accepted-image"], { request: stringSchema }), inputPorts: { data: artifactSchema, image: artifactSchema }, bindings: { data: acceptedChildArtifact("accepted-data"), image: acceptedChildArtifact("accepted-image") } },
       {
         id: "static-catalog-code",
@@ -366,7 +338,7 @@ export const referenceCatalogV1: FactoryDefinition = baseDefinition(
         grants: [],
         inputPorts: { repositoryConnection: { type: "object", additionalProperties: true }, baseCommitSha: stringSchema, request: stringSchema, destinationRepository: { type: "object", additionalProperties: true }, baseBranch: stringSchema },
         bindings: { repositoryConnection: input("repository"), baseCommitSha: input("baseCommitSha"), request: ref("prepare-catalog-request", "request"), destinationRepository: { kind: "ref", root: "input", name: "githubDestination", path: ["repository"] }, baseBranch: { kind: "ref", root: "input", name: "githubDestination", path: ["baseBranch"] } },
-        outputPorts: { receipt: childAcceptanceSchema },
+        outputPorts: { receipt: factoryChildAcceptancePortSchema },
       },
       { ...task("protected-catalog-tests", catalogValidate, ["static-catalog-code"], { evidence: evidenceSchema }), inputPorts: { candidate: artifactSchema }, bindings: { candidate: acceptedChildArtifact("static-catalog-code") } },
       { id: "acceptance", kind: "acceptance", dependsOn: ["static-catalog-code", "protected-catalog-tests"], contract: "reference.catalog.v1.contract", candidate: acceptedChildArtifact("static-catalog-code"), evidence: ref("protected-catalog-tests", "evidence"), outputPorts: { acceptedCandidate: artifactSchema } },

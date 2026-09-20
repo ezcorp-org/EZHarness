@@ -153,6 +153,7 @@
   "packages/@ezcorp/factory-sdk/src/**": 100,
   "packages/@ezcorp/factory-sdk/src/authoring.ts": 100,
   "packages/@ezcorp/factory-sdk/src/canonical.ts": 100,
+  "packages/@ezcorp/factory-sdk/src/child-acceptance.ts": 100,
   "packages/@ezcorp/factory-sdk/src/compiler.ts": 100,
   "packages/@ezcorp/factory-sdk/src/expressions.ts": 100,
   "packages/@ezcorp/factory-sdk/src/index.ts": 100,
