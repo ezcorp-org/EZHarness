@@ -3,8 +3,17 @@ name: Mutation (nightly, full suite)
 # The full-suite counterpart to ci.yml's diff-scoped `Mutation (changed files)`
 # job. A PR only ever mutates the files it touched, so nothing would otherwise
 # re-check a module whose tests rotted under an unrelated change. This runs the
-# whole mutation.mutateGlobs set, plus the FULL-REPO CRAP ratchet (the PR gate
-# only scores touched functions).
+# whole mutation.mutateGlobs set.
+#
+# MUTATION ONLY. This workflow used to also run the full-repo CRAP ratchet and
+# the global coverage floor, rebuilding coverage/lcov.info first with a
+# standalone `bun run test:coverage`. That rebuild can never succeed here: the
+# browser-route coverage receipt it requires (BROWSER_COVERAGE_RAW/LCOV) is
+# produced by ci.yml's e2e jobs, so the merge never ran and both gates died on
+# a missing lcov — five nights out of five. Those gates now run where the
+# merged lcov actually exists: the full-repo CRAP ratchet is a main-push-only
+# step in ci.yml's `Per-file coverage gate` job, and the coverage floor already
+# ran there on every PR and push. Do not re-add a coverage rebuild here.
 #
 # Thresholds come from scripts/quality-gates.json — never hardcode one here.
 
@@ -54,13 +63,21 @@ jobs:
       # REPORT-ONLY UNTIL CALIBRATED — deliberate, and the PR gate is unaffected.
       # The full scope is the intersection of mutation.mutateGlobs with the
       # --coverage.include manifest, and that manifest carries a broad
-      # `src/lib/**`, so 185 files qualify. "V8 is asked to report on it" is not
+      # `src/lib/**`, so 186 files qualify. "V8 is asked to report on it" is not
       # "a vitest test executes it", and every file in the gap comes back 100%
       # NoCoverage — which mutation.ts correctly refuses to score. The first runs
       # exist to name those files so they can be excluded or their tests fixed.
       # A nightly that is red on day one gets muted, and a muted gate gates
       # nothing. Promote to enforcing by flipping the default below once a run
       # is clean; the diff-scoped PR gate blocks for real in the meantime.
+      #
+      # --report-only suppresses ONLY a below-threshold score. A run that
+      # produces no report at all — the initial test run timing out, a crashed
+      # worker — still fails this step (scripts/mutation.ts, mutationExitCode).
+      # It did not always: for five nights Stryker's 5-minute default dry-run
+      # timeout killed the run at 186 files and this step went green over
+      # nothing measured. web/stryker.config.json now sets dryRunTimeoutMinutes.
+      #
       # `${{ inputs.enforce && '' || '--report-only' }}` was DEAD CODE and always
       # yielded --report-only: GitHub's `&&`/`||` return VALUES, so a truthy
       # `enforce` produced `''`, which is itself falsy, so `||` then handed back
@@ -81,41 +98,17 @@ jobs:
             bun scripts/mutation.ts --full --report-only
           fi
 
-      # ── Full-repo CRAP ratchet ────────────────────────────────────────────
-      # Needs the merged lcov, which only the coverage pipeline produces, so the
-      # nightly regenerates it rather than reading a PR artifact it cannot see.
-      # continue-on-error: a coverage-pipeline problem must not be reported as a
-      # mutation failure — the step below decides the CRAP verdict on its own.
-      - name: Rebuild coverage for the CRAP ratchet
-        id: cov
-        continue-on-error: true
-        run: bun run test:coverage
-      # continue-on-error above keeps a coverage-pipeline problem from being
-      # reported as a mutation failure — but it must not be SILENT. A dead
-      # producer shrinks the denominator the two steps below measure, and
-      # without this the run would look clean while gating on partial data.
-      # (crap-score.ts and check-global-coverage.ts both now hard-fail on an
-      # empty lcov; this surfaces the degraded-but-non-empty case.)
-      - name: Flag degraded coverage data
-        if: steps.cov.outcome != 'success'
-        run: |
-          echo "::warning::coverage rebuild exited ${{ steps.cov.outcome }} — the CRAP ratchet and coverage floor below are measured on POSSIBLY INCOMPLETE data. Treat their verdicts as advisory for this run."
-      - name: CRAP ratchet (full repo)
-        if: always()
-        run: bun scripts/crap-score.ts
-      - name: Global coverage floor
-        if: always()
-        run: bun scripts/check-global-coverage.ts
-
+      # --expect names the gate this workflow ran. If the step above produced
+      # no mutation.json the summary is FAIL with a finding that says so — it
+      # must never report PASS over a run that measured nothing. (It did: the
+      # summary read "PASS / No failures" on a night when every step had died.)
       - name: Quality summary
         if: always()
-        run: bun scripts/quality-report.ts --text --limit 40
+        run: bun scripts/quality-report.ts --text --limit 40 --expect mutation
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutation-nightly-reports
-          path: |
-            coverage/quality
-            coverage/lcov.info
+          path: coverage/quality
           retention-days: 14

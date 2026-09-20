@@ -395,7 +395,7 @@ ratchet predates this one and owns ~500 keys.)
 |---|---|---|---|
 | Global line coverage | 90% aggregate (at 96.55%) | `coverage` job | `bun run gate:coverage` |
 | CRAP (touched functions) | ≤ 30 per function | `coverage` job, PRs | `bun run gate:crap:changed` |
-| CRAP (full-repo ratchet) | ≤ 83 violations | nightly | `bun run gate:crap` |
+| CRAP (full-repo ratchet) | ≤ 83 violations | `coverage` job, pushes to `main` | `bun run gate:crap` |
 | Mutation score | 80% — **report-only pilot, not blocking** | `mutation` job, PRs | `bun run gate:mutation` |
 | Mutation (full suite) | 80% — **report-only pilot** | nightly | `bun run gate:mutation:full` |
 
@@ -452,7 +452,11 @@ are complexity-only, already at 100% coverage).
 **Failures are machine-readable.** Every gate writes JSON to `coverage/quality/`
 and `scripts/quality-report.ts` folds them into `summary.json` — a flat
 `findings[]` array of *file, line, what failed, what to fix*, built for an AI
-agent to act on. For a surviving mutant the finding carries the original source
+agent to act on. The reporter takes a mandatory `--expect <gates>` naming the
+gates that ran; an expected gate that wrote no report makes the summary `fail`
+with a finding naming it, so a crashed pipeline can never read as green (the
+nightly once reported `PASS / No failures` on a run in which every gate had
+died). For a surviving mutant the finding carries the original source
 and the replacement that survived, which is the missing assertion stated
 directly: "the suite still passes when `case 'web-search': return
 'WebContextCard';` becomes `case 'web-search':`". Only a gate that actually

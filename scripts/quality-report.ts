@@ -1,12 +1,14 @@
 #!/usr/bin/env bun
 /**
- * Turn a failed quality-gate run into a short structured summary an AI agent
- * can act on without reading the raw reports.
+ * Turn a quality-gate run into a short structured summary an AI agent can act
+ * on without reading the raw reports.
  *
- * Reads whichever of these exist (each is written by its own gate):
- *   coverage/quality/crap.json             ← scripts/crap-score.ts
- *   coverage/quality/global-coverage.json  ← scripts/check-global-coverage.ts
- *   coverage/quality/mutation.json         ← Stryker's json reporter
+ * Reads the report each gate writes (one file per gate):
+ *   coverage/quality/global-coverage.json   ← scripts/check-global-coverage.ts
+ *   coverage/quality/crap.json              ← scripts/crap-score.ts
+ *   coverage/quality/mutation.json          ← Stryker's json reporter, or
+ *   coverage/quality/mutation-summary.json  ← scripts/mutation.ts --changed when
+ *                                             the diff had nothing to mutate
  *
  * Emits coverage/quality/summary.json — a flat `findings[]` array where every
  * entry answers the same four questions: WHICH file, WHICH line, WHAT failed,
@@ -18,9 +20,19 @@
  * assert, where reading a mutator name alone would not.
  *
  * USAGE
- *   bun scripts/quality-report.ts            # JSON to coverage/quality/summary.json
- *   bun scripts/quality-report.ts --text     # also print a compact digest
- *   bun scripts/quality-report.ts --limit 20 # cap findings (default 25)
+ *   bun scripts/quality-report.ts --expect coverage,crap          # JSON only
+ *   bun scripts/quality-report.ts --expect mutation --text        # + digest
+ *   bun scripts/quality-report.ts --expect coverage,crap --limit 20
+ *
+ * `--expect` is REQUIRED and names the gates the caller ran. FAIL-CLOSED: an
+ * expected gate that wrote no report — because it crashed, timed out, or never
+ * started — makes the summary `status: "fail"` with a finding naming the gate.
+ * Before this, a gate that crashed simply wrote nothing, the reader skipped
+ * it, and zero findings became `PASS / No failures`: the nightly reported
+ * exactly that on a run in which every gate had died. "No data" must never
+ * read as "no problem", and only the caller knows which data it asked for —
+ * which is why there is no default. Only expected gates are read; a stale
+ * report from a gate this run did not execute is not evidence.
  *
  * Always exits 0 — this reports, it does not gate. The gates already failed;
  * a reporter that also failed would just bury their exit codes.
@@ -29,13 +41,20 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadGates, REPORT_DIR, writeReport } from "./quality-gates.ts";
 
-const args = process.argv.slice(2);
-const asText = args.includes("--text");
-const limitIdx = args.indexOf("--limit");
-const LIMIT = limitIdx >= 0 ? Number(args[limitIdx + 1] ?? 25) : 25;
+export type GateName = "coverage" | "crap" | "mutation";
+export const GATE_NAMES: readonly GateName[] = ["coverage", "crap", "mutation"];
 
-type Finding = {
-  gate: "mutation" | "crap" | "coverage";
+/** The report file each gate is responsible for writing. */
+export const GATE_REPORT_FILE: Readonly<Record<GateName, string>> = {
+  coverage: "global-coverage.json",
+  crap: "crap.json",
+  mutation: "mutation.json",
+};
+/** mutation.ts --changed writes this instead when the diff had nothing to mutate. */
+export const MUTATION_SKIPPED_FILE = "mutation-summary.json";
+
+export type Finding = {
+  gate: GateName;
   severity: "error" | "warning";
   file: string;
   line: number | null;
@@ -44,24 +63,7 @@ type Finding = {
   detail?: Record<string, unknown>;
 };
 
-const findings: Finding[] = [];
-const gateStatus: Record<string, unknown> = {};
-
-async function readJson<T>(name: string): Promise<T | null> {
-  const p = resolve(REPORT_DIR, name);
-  if (!existsSync(p)) return null;
-  try {
-    return JSON.parse(await Bun.file(p).text()) as T;
-  } catch (err) {
-    console.error(`warning: ${name} is unreadable (${(err as Error).message}) — skipping`);
-    return null;
-  }
-}
-
-const gates = await loadGates();
-
-// ── Global coverage ────────────────────────────────────────────────────────
-type CoverageReport = {
+export type CoverageReport = {
   threshold: number;
   linePct: number;
   passed: boolean;
@@ -69,26 +71,8 @@ type CoverageReport = {
   totalLines: number;
   worstByMissingLines: { file: string; pct: number; missing: number }[];
 };
-const cov = await readJson<CoverageReport>("global-coverage.json");
-if (cov) {
-  gateStatus.coverage = { passed: cov.passed, linePct: cov.linePct, threshold: cov.threshold };
-  if (!cov.passed) {
-    for (const f of cov.worstByMissingLines.slice(0, 10)) {
-      findings.push({
-        gate: "coverage",
-        severity: "error",
-        file: f.file,
-        line: null,
-        what: `Global line coverage is ${cov.linePct.toFixed(2)}%, below the ${cov.threshold}% floor. This file is missing ${f.missing} covered line(s) (at ${f.pct.toFixed(1)}%).`,
-        fix: `Add tests covering the unexecuted lines in ${f.file}. It is one of the largest contributors to the shortfall.`,
-        detail: { missingLines: f.missing, filePct: f.pct },
-      });
-    }
-  }
-}
 
-// ── CRAP ───────────────────────────────────────────────────────────────────
-type CrapReport = {
+export type CrapReport = {
   scope: string;
   mode: string;
   passed: boolean;
@@ -104,57 +88,74 @@ type CrapReport = {
     crap: number;
   }[];
 };
-const crap = await readJson<CrapReport>("crap.json");
-if (crap) {
-  gateStatus.crap = {
-    passed: crap.passed,
-    mode: crap.mode,
-    violations: crap.totals.violations,
-    functionsScored: crap.totals.functionsScored,
-    maxScore: crap.thresholds.maxScore,
-  };
-  // A passing full-repo ratchet still lists its frozen debt — as WARNINGS.
-  // Only a gate that actually failed produces errors, so an agent driven by
-  // this file works on what broke the build and not on the backlog.
-  const crapSeverity: Finding["severity"] = crap.passed ? "warning" : "error";
-  for (const v of crap.violations) {
-    // Which lever actually moves this score? At high coverage only splitting
-    // the function helps (CRAP -> complexity as cov -> 1); at low coverage the
-    // (1-cov)^3 term dominates and tests are far cheaper than a refactor.
-    const coveragePct = v.coverage * 100;
-    const fix =
-      coveragePct >= 95
-        ? `Split ${v.name}() — it is already ${coveragePct.toFixed(0)}% covered, so its CRAP is essentially its complexity (${v.complexity}). Only reducing complexity below ${crap.thresholds.maxScore} can pass.`
-        : `Add tests for the uncovered lines in ${v.name}() (${v.uncoveredLines.slice(0, 12).join(", ")}${v.uncoveredLines.length > 12 ? ", …" : ""}). Coverage is ${coveragePct.toFixed(0)}%; the (1-coverage)^3 term dominates, so tests drop this score fastest.`;
-    findings.push({
-      gate: "crap",
-      severity: crapSeverity,
-      file: v.file,
-      line: v.line,
-      what: `CRAP ${v.crap.toFixed(1)} exceeds ${crap.thresholds.maxScore} for ${v.name}() (complexity ${v.complexity}, coverage ${coveragePct.toFixed(0)}%).`,
-      fix,
-      detail: {
-        function: v.name,
-        complexity: v.complexity,
-        coverage: Number(v.coverage.toFixed(4)),
-        uncoveredLines: v.uncoveredLines,
-      },
-    });
-  }
-}
 
-// ── Mutation ───────────────────────────────────────────────────────────────
-type Mutant = {
+export type Mutant = {
   id: string;
   mutatorName: string;
   replacement: string;
   status: string;
   location: { start: { line: number; column: number }; end: { line: number; column: number } };
 };
-type MutationReport = {
+export type MutationReport = {
   files: Record<string, { source: string; mutants: Mutant[] }>;
   projectRoot?: string;
 };
+export type MutationSkipped = { skipped: true; reason: string; mode?: string };
+
+export type SummaryInputs = {
+  /** The gates the caller ran — every one must have produced a report. */
+  expected: readonly GateName[];
+  coverage: CoverageReport | null;
+  crap: CrapReport | null;
+  mutation: MutationReport | null;
+  /** mutation.ts's early-exit receipt; satisfies the mutation gate without a score. */
+  mutationSkipped: MutationSkipped | null;
+  mutationThreshold: number;
+  limit: number;
+  generatedAt?: string;
+};
+
+export type Summary = {
+  generatedAt: string;
+  status: "pass" | "fail";
+  expected: GateName[];
+  missing: GateName[];
+  gates: Record<string, unknown>;
+  totals: { errors: number; warnings: number; reported: number };
+  truncated: boolean;
+  findings: Finding[];
+  warningsSample: Finding[];
+};
+
+/**
+ * Parse `--expect a,b,c` into gate names. Throws on absence, an empty list,
+ * an unknown name, or a duplicate — a typo here must not quietly narrow what
+ * the summary is willing to call missing.
+ */
+export function parseExpected(args: readonly string[]): GateName[] {
+  const idx = args.indexOf("--expect");
+  const raw = idx >= 0 ? args[idx + 1] : undefined;
+  if (raw === undefined || raw.startsWith("--")) {
+    throw new Error(
+      `--expect <gate,...> is required (gates: ${GATE_NAMES.join(", ")}). ` +
+        "Name the gates this run executed so a missing report fails instead of vanishing.",
+    );
+  }
+  const names = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (names.length === 0) throw new Error("--expect: empty gate list");
+  const out: GateName[] = [];
+  for (const n of names) {
+    if (!(GATE_NAMES as readonly string[]).includes(n)) {
+      throw new Error(`--expect: unknown gate "${n}" (gates: ${GATE_NAMES.join(", ")})`);
+    }
+    if (out.includes(n as GateName)) throw new Error(`--expect: "${n}" listed twice`);
+    out.push(n as GateName);
+  }
+  return out;
+}
 
 /**
  * Squeeze a code fragment onto one short line.
@@ -186,8 +187,63 @@ function originalText(source: string, loc: Mutant["location"]): string {
   return [first, ...mid, last].join("\n");
 }
 
-const mut = await readJson<MutationReport>("mutation.json");
-if (mut?.files) {
+function coverageFindings(cov: CoverageReport, gateStatus: Record<string, unknown>): Finding[] {
+  gateStatus.coverage = { passed: cov.passed, linePct: cov.linePct, threshold: cov.threshold };
+  if (cov.passed) return [];
+  return cov.worstByMissingLines.slice(0, 10).map((f) => ({
+    gate: "coverage" as const,
+    severity: "error" as const,
+    file: f.file,
+    line: null,
+    what: `Global line coverage is ${cov.linePct.toFixed(2)}%, below the ${cov.threshold}% floor. This file is missing ${f.missing} covered line(s) (at ${f.pct.toFixed(1)}%).`,
+    fix: `Add tests covering the unexecuted lines in ${f.file}. It is one of the largest contributors to the shortfall.`,
+    detail: { missingLines: f.missing, filePct: f.pct },
+  }));
+}
+
+function crapFindings(crap: CrapReport, gateStatus: Record<string, unknown>): Finding[] {
+  gateStatus.crap = {
+    passed: crap.passed,
+    mode: crap.mode,
+    violations: crap.totals.violations,
+    functionsScored: crap.totals.functionsScored,
+    maxScore: crap.thresholds.maxScore,
+  };
+  // A passing full-repo ratchet still lists its frozen debt — as WARNINGS.
+  // Only a gate that actually failed produces errors, so an agent driven by
+  // this file works on what broke the build and not on the backlog.
+  const severity: Finding["severity"] = crap.passed ? "warning" : "error";
+  return crap.violations.map((v) => {
+    // Which lever actually moves this score? At high coverage only splitting
+    // the function helps (CRAP -> complexity as cov -> 1); at low coverage the
+    // (1-cov)^3 term dominates and tests are far cheaper than a refactor.
+    const coveragePct = v.coverage * 100;
+    const fix =
+      coveragePct >= 95
+        ? `Split ${v.name}() — it is already ${coveragePct.toFixed(0)}% covered, so its CRAP is essentially its complexity (${v.complexity}). Only reducing complexity below ${crap.thresholds.maxScore} can pass.`
+        : `Add tests for the uncovered lines in ${v.name}() (${v.uncoveredLines.slice(0, 12).join(", ")}${v.uncoveredLines.length > 12 ? ", …" : ""}). Coverage is ${coveragePct.toFixed(0)}%; the (1-coverage)^3 term dominates, so tests drop this score fastest.`;
+    return {
+      gate: "crap" as const,
+      severity,
+      file: v.file,
+      line: v.line,
+      what: `CRAP ${v.crap.toFixed(1)} exceeds ${crap.thresholds.maxScore} for ${v.name}() (complexity ${v.complexity}, coverage ${coveragePct.toFixed(0)}%).`,
+      fix,
+      detail: {
+        function: v.name,
+        complexity: v.complexity,
+        coverage: Number(v.coverage.toFixed(4)),
+        uncoveredLines: v.uncoveredLines,
+      },
+    };
+  });
+}
+
+function mutationFindings(
+  mut: MutationReport,
+  threshold: number,
+  gateStatus: Record<string, unknown>,
+): Finding[] {
   let killed = 0;
   let survived = 0;
   let noCoverage = 0;
@@ -218,12 +274,11 @@ if (mut?.files) {
   const detected = killed + timeout;
   const valid = detected + survived + noCoverage;
   const score = valid > 0 ? (detected / valid) * 100 : 100;
-  const threshold = gates.mutation.scoreThreshold;
-  const mutationPassed = score + 1e-9 >= threshold;
+  const passed = score + 1e-9 >= threshold;
   gateStatus.mutation = {
     score: Number(score.toFixed(2)),
     threshold,
-    passed: mutationPassed,
+    passed,
     killed,
     timeout,
     survived,
@@ -232,21 +287,21 @@ if (mut?.files) {
   // Same rule as CRAP: survivors under a PASSING score are useful context, not
   // a build failure. Reporting them as errors would send a fix agent chasing
   // mutants on a green run.
-  const mutationSeverity: Finding["severity"] = mutationPassed ? "warning" : "error";
+  const severity: Finding["severity"] = passed ? "warning" : "error";
 
   // Survivors first (a test exists but does not assert), then NoCoverage
   // (no test reaches the line at all) — the first class is the higher-value
   // fix, because the test file to edit already exists.
   survivors.sort((a, b) => (a.m.status === b.m.status ? 0 : a.m.status === "Survived" ? -1 : 1));
 
-  for (const { file, m, source } of survivors) {
+  return survivors.map(({ file, m, source }) => {
     const rel = file.startsWith("/") ? file : `web/${file}`;
     const original = condense(originalText(source, m.location));
     const replacement = condense(m.replacement);
     const isNoCov = m.status === "NoCoverage";
-    findings.push({
-      gate: "mutation",
-      severity: mutationSeverity,
+    return {
+      gate: "mutation" as const,
+      severity,
       file: rel,
       line: m.location.start.line,
       what: isNoCov
@@ -262,45 +317,149 @@ if (mut?.files) {
         status: m.status,
         endLine: m.location.end.line,
       },
-    });
-  }
+    };
+  });
 }
 
-// ── Emit ───────────────────────────────────────────────────────────────────
-const errors = findings.filter((f) => f.severity === "error");
-const warnings = findings.filter((f) => f.severity === "warning");
-const summary = {
-  generatedAt: new Date().toISOString(),
-  status: errors.length > 0 ? "fail" : "pass",
-  gates: gateStatus,
-  totals: {
-    errors: errors.length,
-    warnings: warnings.length,
-    reported: Math.min(errors.length, LIMIT),
-  },
-  truncated: errors.length > LIMIT,
-  /** Only failures. Known-debt items are in `warningsSample`. */
-  findings: errors.slice(0, LIMIT),
-  warningsSample: warnings.slice(0, 5),
-};
-const out = await writeReport("summary.json", summary);
+/** The finding for an expected gate that left no report behind. */
+function missingGateFinding(gate: GateName): Finding {
+  const file = `coverage/quality/${GATE_REPORT_FILE[gate]}`;
+  return {
+    gate,
+    severity: "error",
+    file,
+    line: null,
+    what: `The ${gate} gate was expected to run but wrote no report (${file} is missing or unreadable). It crashed, timed out, or never started — nothing was measured, so this is not a pass.`,
+    fix: `Read the ${gate} step's log for the error and fix the pipeline, not the code under test. A gate that produces no data must fail the run; do not treat this summary as green.`,
+  };
+}
 
-if (asText) {
-  console.log(`\n=== Quality gates: ${summary.status.toUpperCase()} ===`);
-  for (const [name, st] of Object.entries(gateStatus)) {
-    console.log(`  ${name}: ${JSON.stringify(st)}`);
-  }
-  if (errors.length === 0) {
-    console.log(
-      `\nNo failures.${warnings.length > 0 ? ` (${warnings.length} known-debt warning(s) recorded, not blocking.)` : ""}`,
-    );
-  } else {
-    console.log(`\n${errors.length} finding(s)${summary.truncated ? ` (showing ${LIMIT})` : ""}:\n`);
-    for (const f of errors.slice(0, LIMIT)) {
-      console.log(`[${f.gate}] ${f.file}${f.line ? `:${f.line}` : ""}`);
-      console.log(`  what: ${f.what}`);
-      console.log(`  fix:  ${f.fix}\n`);
+/**
+ * Fold the gate reports into one summary. Pure: no I/O, so the fail-closed
+ * rule can be tested directly.
+ */
+export function buildSummary(inputs: SummaryInputs): Summary {
+  const gateStatus: Record<string, unknown> = {};
+  const findings: Finding[] = [];
+  const missing: GateName[] = [];
+
+  for (const gate of inputs.expected) {
+    switch (gate) {
+      case "coverage":
+        if (inputs.coverage) findings.push(...coverageFindings(inputs.coverage, gateStatus));
+        else missing.push(gate);
+        break;
+      case "crap":
+        if (inputs.crap) findings.push(...crapFindings(inputs.crap, gateStatus));
+        else missing.push(gate);
+        break;
+      case "mutation":
+        if (inputs.mutation?.files) {
+          findings.push(...mutationFindings(inputs.mutation, inputs.mutationThreshold, gateStatus));
+        } else if (inputs.mutationSkipped?.skipped === true) {
+          // The diff touched nothing mutatable. The gate ran and said so; that
+          // receipt is the report for this run.
+          gateStatus.mutation = { skipped: true, reason: inputs.mutationSkipped.reason };
+        } else {
+          missing.push(gate);
+        }
+        break;
     }
   }
+  for (const gate of missing) {
+    gateStatus[gate] = { ran: false };
+    findings.push(missingGateFinding(gate));
+  }
+
+  const errors = findings.filter((f) => f.severity === "error");
+  const warnings = findings.filter((f) => f.severity === "warning");
+  return {
+    generatedAt: inputs.generatedAt ?? new Date().toISOString(),
+    status: errors.length > 0 ? "fail" : "pass",
+    expected: [...inputs.expected],
+    missing,
+    gates: gateStatus,
+    totals: {
+      errors: errors.length,
+      warnings: warnings.length,
+      reported: Math.min(errors.length, inputs.limit),
+    },
+    truncated: errors.length > inputs.limit,
+    /** Only failures. Known-debt items are in `warningsSample`. */
+    findings: errors.slice(0, inputs.limit),
+    warningsSample: warnings.slice(0, 5),
+  };
 }
-console.log(`Structured summary: ${out}`);
+
+/** The compact digest printed under --text. */
+export function renderText(summary: Summary, limit: number): string {
+  const lines: string[] = [`\n=== Quality gates: ${summary.status.toUpperCase()} ===`];
+  lines.push(`  expected: ${summary.expected.join(", ")}`);
+  if (summary.missing.length > 0) lines.push(`  MISSING REPORT: ${summary.missing.join(", ")}`);
+  for (const [name, st] of Object.entries(summary.gates)) {
+    lines.push(`  ${name}: ${JSON.stringify(st)}`);
+  }
+  const { errors, warnings } = summary.totals;
+  if (errors === 0) {
+    lines.push(
+      `\nNo failures.${warnings > 0 ? ` (${warnings} known-debt warning(s) recorded, not blocking.)` : ""}`,
+    );
+  } else {
+    lines.push(`\n${errors} finding(s)${summary.truncated ? ` (showing ${limit})` : ""}:\n`);
+    for (const f of summary.findings) {
+      lines.push(`[${f.gate}] ${f.file}${f.line ? `:${f.line}` : ""}`);
+      lines.push(`  what: ${f.what}`);
+      lines.push(`  fix:  ${f.fix}\n`);
+    }
+  }
+  return lines.join("\n");
+}
+
+async function readJson<T>(name: string): Promise<T | null> {
+  const p = resolve(REPORT_DIR, name);
+  if (!existsSync(p)) return null;
+  try {
+    return JSON.parse(await Bun.file(p).text()) as T;
+  } catch (err) {
+    // Unreadable counts as absent: the gate that wrote it did not finish.
+    console.error(`warning: ${name} is unreadable (${(err as Error).message}) — treating as missing`);
+    return null;
+  }
+}
+
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  let expected: GateName[];
+  try {
+    expected = parseExpected(args);
+  } catch (err) {
+    console.error(`usage: bun scripts/quality-report.ts --expect <gate,...> [--text] [--limit N]`);
+    console.error(`  ${(err as Error).message}`);
+    process.exit(2);
+  }
+  const asText = args.includes("--text");
+  const limitIdx = args.indexOf("--limit");
+  const limit = limitIdx >= 0 ? Number(args[limitIdx + 1] ?? 25) : 25;
+  const gates = await loadGates();
+
+  const summary = buildSummary({
+    expected,
+    coverage: expected.includes("coverage")
+      ? await readJson<CoverageReport>(GATE_REPORT_FILE.coverage)
+      : null,
+    crap: expected.includes("crap") ? await readJson<CrapReport>(GATE_REPORT_FILE.crap) : null,
+    mutation: expected.includes("mutation")
+      ? await readJson<MutationReport>(GATE_REPORT_FILE.mutation)
+      : null,
+    mutationSkipped: expected.includes("mutation")
+      ? await readJson<MutationSkipped>(MUTATION_SKIPPED_FILE)
+      : null,
+    mutationThreshold: gates.mutation.scoreThreshold,
+    limit,
+  });
+  const out = await writeReport("summary.json", summary);
+  if (asText) console.log(renderText(summary, limit));
+  console.log(`Structured summary: ${out}`);
+}
+
+if (import.meta.main) await main();

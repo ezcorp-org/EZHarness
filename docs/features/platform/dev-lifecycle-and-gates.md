@@ -150,17 +150,19 @@ first (mutation is the exception — it drives vitest itself).
 
 ```sh
 bun run gate:coverage        # 90% aggregate line floor
-bun run gate:crap            # full-repo CRAP ratchet (nightly's check)
+bun run gate:crap            # full-repo CRAP ratchet (the main-push check)
 bun run gate:crap:changed    # only functions this PR touched (the PR check)
 bun run gate:mutation        # StrykerJS on the changed files (the PR check)
 bun run gate:mutation:full   # the whole scope (nightly; slow)
-bun run gate:report          # render any failure as machine-readable findings
+bun run gate:report --expect coverage,crap   # fold the gates you ran into findings
 ```
 
-**When one fails, `bun run gate:report --text` is the first thing to read.** It
-folds every gate's JSON into `coverage/quality/summary.json` as a flat
-`findings[]` of *file, line, what failed, what to fix* — built to be handed
-straight to a fix agent. Known debt on a passing ratchet is recorded as
+**When one fails, `bun run gate:report --expect <gates>` is the first thing to
+read.** It folds the named gates' JSON into `coverage/quality/summary.json` as a
+flat `findings[]` of *file, line, what failed, what to fix* — built to be handed
+straight to a fix agent. `--expect` is required: only the caller knows which
+gates ran, and a gate that was expected but wrote no report is a `fail` finding,
+never a silent pass. Known debt on a passing ratchet is recorded as
 `warning`, never `error`, so a failure list only ever contains what broke.
 
 | Failure | What it means | What to do |
@@ -171,6 +173,8 @@ straight to a fix agent. Known debt on a passing ratchet is recorded as
 | `Final mutation score N under breaking threshold` | tests execute the code but do not assert on it | each finding quotes the exact code and the replacement that survived; assert the difference |
 | `mutated file(s) had NO test coverage at all` | **a scope error, not a score.** Stryker's vitest `related` filter could not follow a `$lib`-aliased import, or the bun leg owns that file's tests | exclude it in `mutation.mutateGlobs`, or make its test import by a path vitest's graph can follow. Never "fix" it by lowering the threshold |
 | `exceeded its N-minute budget` | the PR diff was too large to mutate in `mutation.prBudgetMinutes` | split the PR. Nothing was measured, so this is never a pass |
+| `exited N without writing …/mutation.json` | **an infrastructure failure, not a score** — Stryker died before testing a mutant (initial test run timed out, crashed worker) | read the Stryker log above it; `--report-only` does not suppress this. A timed-out initial run means `dryRunTimeoutMinutes` in `web/stryker.config.json` is too low for the scope |
+| `expected to run but wrote no report` | a gate the summary was told to expect crashed, timed out or never started; nothing was measured | read that gate's step log. This is a pipeline failure and never a pass |
 
 **Validate a scope change before paying for a run:**
 `bun scripts/mutation.ts --full --dry-run-only` instruments and runs the suite
@@ -232,7 +236,7 @@ maintainer-only `gate-change-approved` label.
 - `scripts/quality-gates.json` — **the one place** the global-coverage, CRAP and mutation thresholds live; `quality-gates.ts` loads it, `gate-integrity.ts` ratchets it.
 - `scripts/crap-score.ts`, `scripts/check-global-coverage.ts`, `scripts/mutation.ts` — the three gates; `scripts/quality-report.ts` renders any failure as machine-readable findings.
 - `web/stryker.config.json` — Stryker mechanics (vitest runner, sandbox, reporters); the threshold deliberately is NOT here.
-- `.github/workflows/mutation-nightly.yml` — the full mutation suite + the full-repo CRAP ratchet.
+- `.github/workflows/mutation-nightly.yml` — the full mutation suite, and nothing else. The full-repo CRAP ratchet runs in `ci.yml`'s coverage job on pushes to `main`, the one place the merged lcov exists.
 - `src/__tests__/coverage-gate.test.ts`, `src/__tests__/gate-scripts.test.ts` — the gate scripts' own test suites (sandboxed temp-dir + fixture-driven).
 
 ## Features it touches
@@ -259,5 +263,5 @@ maintainer-only `gate-change-approved` label.
 - **`mock.module` isolation is load-bearing.** A bare `bun test` from the repo root deadlocks (553 files × cross-file `mock.module` bleed); `test.sh`/`test-coverage.sh` run each file in its own process. Never route a CI step through bare `bun test` from the root.
 - **Gate-integrity's `parseExcludeEntries` reads only the first quoted literal per `EXCLUDES` line.** A reviewer-facing convention ("one path per line with a justification comment"); a multi-pattern line would partially escape detection — known false-negative surface, mitigated by CODEOWNERS review of every `coverage-config.ts` diff.
 - **Mutation testing now covers the vitest leg only — the Bun-tested backend is NOT mutated.** Line coverage is blind to assertion quality (Gate integrity only proves "has an assertion"), and StrykerJS closes that gap, but it ships no Bun runner. So `src/**` still rests on coverage + Gate integrity alone; only `web/src/lib/**` modules on the vitest leg's `--coverage.include` allowlist (81 of 469 candidates) are mutation-gated. Widening that set means adding the module to the vitest leg first. See `docs/development-lifecycle.md` → "Code-quality gates".
-- **The CRAP gate judges touched functions on a PR, frozen debt nightly.** A PR-time CRAP check that scored whole files would fail a one-line fix for a legacy function the author never touched. The full-repo count is a ratchet (71 at adoption) rather than a hard 30, because a mature tree cannot adopt the limit in one commit — so CRAP debt is prevented from growing, not retroactively banned.
+- **The CRAP gate judges touched functions on a PR, frozen debt on every push to `main`.** A PR-time CRAP check that scored whole files would fail a one-line fix for a legacy function the author never touched. The full-repo count is a ratchet (71 at adoption) rather than a hard 30, because a mature tree cannot adopt the limit in one commit — so CRAP debt is prevented from growing, not retroactively banned.
 - **`enforce_admins` / token bypass is the only structural hole.** An agent under a repo-admin token or a ruleset bypass could disable protection. Mitigation: `enforce_admins=true`, named-human-only break-glass, and CI `GITHUB_TOKEN` scoped to `contents: read` (already the default in `ci.yml`).

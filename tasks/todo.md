@@ -888,3 +888,17 @@ Review target: reduce production wall time from 58m35s to below 30 minutes on ho
 Implementation review: five isolated proof groups share one attested image; the protected result validates all nine proof records, all eleven launcher cleanup records, exact candidate identity, and all four namespace cases. Local sequential callers keep the original eight proofs. Parent's real 4.4 GB image transfer produced a 1.496 GB archive in 30.69s, loaded both engines in 18.33s, and peaked at 129,392 KiB child RSS. No Dockerfile, coverage floor, recovery lease, or retry policy change.
 
 Local review: 25,660 backend tests, 3,624 orphan web tests, 7,379 Node tests and 2,170 Chromium cases pass. Full coverage reports 26,466 passes, zero failures and all 1,625 source floors satisfied. All 39 focused infrastructure tests pass with 431 assertions. Terra reviewed six fresh UI screenshots and independently audited the raw logs. The first browser attempt correctly refused another project's occupied port; a fresh complete run on a private port passed. Terra caught a readonly matcher type error; the final annotation passes full typecheck and preserves identical emitted JavaScript. Hosted CI must run all gates on the final PR source and establish the measured performance result.
+
+## Nightly mutation workflow — three faults (handoff 2026-09-20)
+
+Branch `ci/nightly-mutation-fixes`, worktree `.worktrees/nightly-mutation`, base origin/main 550b7c67e.
+
+- [x] Fault 3 first: `scripts/quality-report.ts` — mandatory `--expect <gate,...>`; an expected gate with no report is `status: "fail"` with a finding naming the gate; summary records `expected` + `missing`; mutation gate satisfied by `mutation.json` or a skipped `mutation-summary.json`; pure `buildSummary()` exported + unit tests; ci.yml callers pass `--expect`.
+- [x] Fault 1a: `web/stryker.config.json` `dryRunTimeoutMinutes: 30` (Stryker default 5; measured 5m21s kill on the runner).
+- [x] Fault 1b: `scripts/mutation.ts` — delete a stale `mutation.json` before the run; no report after the run is an infrastructure failure and fails regardless of `--report-only`; pure `mutationExitCode()` exported + unit tests.
+- [x] Fault 2: nightly drops the coverage rebuild + CRAP + floor steps; full-repo CRAP ratchet moves to ci.yml's coverage job on `main` pushes (the one place a merged lcov exists).
+- [x] Fix the stale `vitest.related: false` claim in `web/vitest.stryker.config.ts`.
+- [x] Docs: `docs/development-lifecycle.md` gate table; `docs/features/platform/dev-lifecycle-and-gates.md` runbook + files list.
+- [x] `actionlint` both workflows; lint; typecheck.
+- [x] Verify locally: 23 unit tests green; fault-3 acceptance (report present → PASS, deleted → FAIL); fault-1b via a fake `npx` (infra exit + report-only → 1 and stale report cleared; low score + report-only → 0; low score → 1; clean → 0); `--full --dry-run-only` green in 3m42s / 3560 tests on 32 cores (182s of it Stryker overhead); full-repo ratchet on a live CI lcov (SF re-rooted, 3 /tmp fixtures left absolute): 82 ≤ 83; floor 96.32%; lint, typecheck, actionlint all 0.
+- [ ] Push + `gh workflow run mutation-nightly.yml --ref ci/nightly-mutation-fixes`; real score table in the log.
