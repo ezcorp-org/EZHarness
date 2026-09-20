@@ -6,10 +6,23 @@ Run the runner on the Linux host under a dedicated non-root account. The app rec
 
 Requirements: Podman 5 with rootless cgroup v2 CPU, memory and PID controllers; Python 3.11 or newer for Linux `SO_PEERCRED`; util-linux `flock` and `setpriv`; the repository's pinned Bun and installed lockfile dependency closure; a local image matching `DEFAULT_IMAGE`. Provision the SDK and TypeScript only from the installed trusted application release. Builds never resolve packages from the app's dependency tree.
 
+## Default app connection
+
+Both `docker-compose.yml` and `compose.prod.yml` inherit the same connection from `compose.runner.yml`. There is no extra `-f` flag to remember. The runner remains a separate host service; Compose does not install host packages, create a service account, or launch nested Podman.
+
+Provision the host service below before the first app start. The default host paths are:
+
+- Socket: `/run/ez-extension-runner/runner.sock`
+- Credential: `/etc/ezharness/extension-runner-token`
+
+For an existing runner, set `EZ_RUNNER_SOCKET_DIR` and `EZ_RUNNER_TOKEN_FILE` in `.env` (dev) or `.env.prod` (production), and use `--env-file .env.prod` for production. These must name the directory containing that runner's socket and its actual credential file. The app mounts only those paths, read-only. Missing paths are rejected instead of being created as empty directories.
+
+At each app start, a 15-second check calls the runner through the real app UID and credential reader. A missing socket, rejected credential, wrong peer UID or stalled runner prevents app startup. Start the host runner first, then recreate the app. Existing deployments need an image rebuild for the startup check. Extension code still needs its normal tests and exact human approval.
+
 ## NixOS and systemd
 
 1. Enable `virtualisation.podman.enable = true`. Create a dedicated normal user named `ez-extension-runner` with subordinate UID/GID ranges and a home directory. Install Podman, Python 3 and the pinned Bun for this account. Use a separate group containing the runner and application service account for the socket directory.
-2. Enable lingering for that account with `loginctl enable-linger ez-extension-runner`. Install `extension-runner.service` in its user systemd directory. Set `WorkingDirectory` and `ExecStart` to the immutable installed application release and pinned Bun binary. Rootless Podman must use that account's user systemd manager; do not run it as root.
+2. Enable lingering for that account with `loginctl enable-linger ez-extension-runner`. Install `extension-runner.service` in its user systemd directory. Set `WorkingDirectory` and `ExecStart` to the immutable installed application release and pinned Bun binary. Rootless Podman must use that account's user systemd manager; do not run it as root. The supplied unit includes Nix profile paths and checks `podman`, `python3`, `flock` and `setpriv` before launch. On NixOS install `pkgs.util-linux` as well as Podman, Python and pinned Bun; user services do not inherit your shell PATH.
 3. Create a private artifact store owned by the runner, mode `0700`. Create a socket directory owned by the runner and shared application group, mode `0750`. Generate at least 32 random bytes for the shared credential. Keep the credential file readable only by the runner and the application's secret delivery mechanism. Do not place credentials in source control.
 4. Create `%h/.config/ezharness/runner.env`, mode `0600`, with `EZ_EXTENSION_RUNNER_SOCKET`, `EZ_EXTENSION_RUNNER_TOKEN_FILE`, `EZ_EXTENSION_RUNNER_STORE`, and `EZ_EXTENSION_APP_UID`. The UID is the application's host-visible Unix peer UID, including any container user namespace mapping. The gateway checks this exact UID as well as the bearer credential.
 5. Pre-pull `docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834` under the runner account. This is the tested Bun 1.3.14 image. Runtime execution uses `--pull=never`; an absent image is an error.
@@ -17,20 +30,20 @@ Requirements: Podman 5 with rootless cgroup v2 CPU, memory and PID controllers; 
 
 ## No host runner: the trusted-local mode
 
-A host that cannot run the isolated runner — macOS or Windows, where the Linux VM is not the operator's to provision, or any host where the steps above are not worth it — can instead run extensions as plain processes inside the application container. This is the `trusted-local` adapter from [security.md](../../docs/extensions/security.md): none of the seven sandbox controls apply, the extension has the app's full reach, and every build and every release approval requires an explicit per-digest human acknowledgement. Set both keys on the `app` service and nothing else from this directory:
+A host that cannot run the isolated runner — macOS or Windows, where the Linux VM is not the operator's to provision, or any host where the steps above are not worth it — can instead run extensions as plain processes inside the application container. This is the `trusted-local` adapter from [security.md](../../docs/extensions/security.md): none of the seven sandbox controls apply, the extension has the app's full reach, and every build and every release approval requires an explicit per-digest human acknowledgement. In the Compose env file, select the alternative connection and set the acknowledgement:
 
 ```
-EZCORP_EXTENSION_RUNNER=trusted-local
+EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml
 EZCORP_EXTENSIONS_UNSANDBOXED_ACK=I-understand-extensions-run-with-the-apps-full-powers
 ```
 
-The app refuses to start with one key but not the other, with an unknown value, or with an isolated-runner socket configured alongside. It runs as the image's non-root uid 1000 and refuses root. It logs the mode at error level on every boot, reports it on `/api/health?detail=true` as `extensions.runner`, and shows a standing banner on every page. Which to choose, and why this exists at all: the [decision record](../../docs/decisions/2026-09-12-extension-runner-install-burden.md).
+This selects `EZCORP_EXTENSION_RUNNER=trusted-local`, uses UID 1000, and omits the host socket and credential mounts. On dev, bind-mounted writable paths must also be writable by UID 1000. Outside Compose, set `EZCORP_EXTENSION_RUNNER=trusted-local` and the same acknowledgement directly. The app refuses to start with one key but not the other, with an unknown value, or with an isolated-runner socket configured alongside. It runs as the image's non-root uid 1000 and refuses root. It logs the mode at error level on every boot, reports it on `/api/health?detail=true` as `extensions.runner`, and shows a standing banner on every page. Which to choose, and why this exists at all: the [decision record](../../docs/decisions/2026-09-12-extension-runner-install-burden.md).
 
-Merge `compose.runner.yml` into the existing application Compose deployment and set the two required host paths. The app reads `EZCORP_EXTENSION_RUNNER_SOCKET` and `EZCORP_EXTENSION_RUNNER_TOKEN_FILE`. Outside Compose, set either this token file or `EZCORP_EXTENSION_RUNNER_TOKEN`, never both. The file must be an absolute, regular, non-symlink path, at most 4096 bytes, and not writable by group or others. Use a private secret mount; the reader removes surrounding whitespace and rejects short or malformed credentials. The runner service uses the separate `EZ_EXTENSION_*` settings above. The socket mount is the only shared host directory; its private runner subdirectory is `0700` and cannot be read by the app account.
+For a custom Compose deployment, inherit the `app` service from `compose.runner.yml` and set the two host paths as needed. The app reads `EZCORP_EXTENSION_RUNNER_SOCKET` and `EZCORP_EXTENSION_RUNNER_TOKEN_FILE`. Outside Compose, set either this token file or `EZCORP_EXTENSION_RUNNER_TOKEN`, never both. The file must be an absolute, regular, non-symlink path, at most 4096 bytes, and not writable by group or others. Use a private secret mount; the reader removes surrounding whitespace and rejects short or malformed credentials. The runner service uses the separate `EZ_EXTENSION_*` settings above. The socket mount is the only shared host directory; its private runner subdirectory is `0700` and cannot be read by the app account.
 
 ## Validation and operation
 
-After building the application image, run `bash scripts/verify-extension-container.sh <local-image>`. This starts a disposable, network-disabled app container and a real host runner. It verifies file credentials, isolated build, session approval, activation, invocation, revocation and retained history through the production HTTP API. It uses a new database and removes only its own container and runner files. The image must use the standard UID 1000 app user; the test maps it to the current host UID for the Unix peer check.
+After building the application image, run `bash scripts/verify-extension-container.sh <local-image>`. This starts a disposable, network-disabled app container and a real host runner. It verifies file credentials, isolated build, session approval, activation, invocation, revocation and retained history through the production HTTP API. It uses the same Compose runner connection and startup check as the default stacks, a new database, and removes only its own container and runner files. This check also needs Docker Compose v2+ connected to the rootless Podman socket (`systemctl --user enable --now podman.socket`). The image must use the standard UID 1000 app user; the test maps it to the current host UID for the Unix peer check.
 
 Run `bun test --cwd packages/@ezcorp/extension-runner` under a Linux test account with the same controls and cached pinned image. The integration suite requires real Podman and does not skip when isolation is missing. It tests build, typecheck, test failures, metadata discovery, reverse RPC, immutable artifacts, repeatability, host/network denial, kernel resource limits and descendant cancellation. Unit tests separately check Unix peer identity and credentials, framing and malformed output.
 

@@ -20,6 +20,9 @@ name: ezcorp-prod
 
 services:
   app:
+    extends:
+      file: ${EZCORP_RUNNER_COMPOSE_FILE:-deploy/extension-runner/compose.runner.yml}
+      service: app
     # Default: build the image locally from the source tree on first
     # `up`. The image is tagged `ezcorp:local` and reused on subsequent
     # ups (the layer cache makes warm builds quick). To switch to a

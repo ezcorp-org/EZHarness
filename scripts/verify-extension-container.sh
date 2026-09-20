@@ -39,13 +39,28 @@ while(true) {
   cat "$run_root/runner.log" >&2
   exit 1
 fi
-podman run -d --log-driver=none --name "$container" --network none --userns=keep-id:uid=1000,gid=1000 \
-  -e BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 \
-  -e EZCORP_EXTENSION_RUNNER_SOCKET=/run/ez-extension-runner/runner.sock \
-  -e EZCORP_EXTENSION_RUNNER_TOKEN_FILE=/run/secrets/extension-runner-token \
-  -v "$run_root/socket:/run/ez-extension-runner:ro" \
-  -v "$run_root/token:/run/secrets/extension-runner-token:ro" \
-  "${1:?Pass the locally built application image}" >/dev/null
+# Use the same connection and startup check as both default stacks. Hand-wiring
+# podman run here used to pass while normal Compose omitted the runner entirely.
+export EZ_VERIFY_RUNNER_REPO="$repo_root"
+export EZ_VERIFY_RUNNER_IMAGE="${1:?Pass the locally built application image}"
+export EZ_VERIFY_RUNNER_CONTAINER="$container"
+export EZ_RUNNER_SOCKET_DIR="$run_root/socket"
+export EZ_RUNNER_TOKEN_FILE="$run_root/token"
+cat > "$run_root/compose.yml" <<'YAML'
+services:
+  app:
+    extends:
+      file: ${EZ_VERIFY_RUNNER_REPO}/deploy/extension-runner/compose.runner.yml
+      service: app
+    image: ${EZ_VERIFY_RUNNER_IMAGE}
+    container_name: ${EZ_VERIFY_RUNNER_CONTAINER}
+    network_mode: none
+    userns_mode: keep-id:uid=1000,gid=1000
+    logging:
+      driver: none
+YAML
+DOCKER_HOST="unix://${PODMAN_SOCKET:-/run/user/$(id -u)/podman/podman.sock}" \
+  docker compose --env-file /dev/null -p "${container,,}" -f "$run_root/compose.yml" up -d >/dev/null
 podman exec "$container" bun -e '
 const module = await import("@ezcorp/harness-client");
 if (typeof module.HarnessClient !== "function") throw new Error("Production image cannot import HarnessClient");

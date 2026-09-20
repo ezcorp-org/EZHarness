@@ -895,3 +895,21 @@ same RUN so they don't bloat the runtime layer.
   committed; in the development worktree only)
 - `.planning/phases/55-mcp-stage-1-dns-rebind-tmpfs-seccomp-log-mode/`
   — Phase 55 plan + summaries
+
+## Default extension runner
+
+Dev and production Compose now connect to the isolated host runner by default.
+Follow [runner setup](../deploy/extension-runner/README.md) before the first app
+start. Existing installations must rebuild the app image, set the runner host
+paths if they differ from the defaults, and recreate the app.
+
+The app checks the authenticated connection before startup. If it reports
+“Extension runner is not ready”, check the host service log, socket path, key
+file permissions and configured application UID. A runner service error such as
+`Executable not found in $PATH: "flock"` means its service PATH lacks util-linux;
+on NixOS use the supplied service unit and install `pkgs.util-linux`.
+
+The runner is a separate host service. Chat-only or non-Linux installations that
+previously omitted it must choose a supported runner mode before using the
+default Compose stack. The explicit trusted-local choice and its limits are in
+the same setup guide.
