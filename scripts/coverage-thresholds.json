@@ -65,6 +65,7 @@
   "src/runtime/sandbox/controller/types.ts": 100,
   "src/db/migrations/add-sandbox-control.ts": 100,
   "web/src/lib/server/sandbox-route.ts": 100,
+  "web/src/lib/workspace-binding.ts": 100,
   "web/src/lib/components/ProjectSandboxPanel.svelte": 100,
   "web/src/routes/api/local-sandbox/operations/[id]/execute/+server.ts": 100,
   "web/src/routes/api/projects/[id]/sandbox/+server.ts": 100,

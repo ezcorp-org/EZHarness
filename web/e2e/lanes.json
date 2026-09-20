@@ -32,6 +32,7 @@
       "web/e2e/main-chat-parity.spec.ts",
       "web/e2e/onboarding-provider-access.spec.ts",
       "web/e2e/project-form.spec.ts",
+      "web/e2e/project-sandbox-panel.spec.ts",
       "web/e2e/provider-settings.spec.ts",
       "web/e2e/pull-to-refresh-no-spurious-reload.spec.ts",
       "web/e2e/quickstart-refresh.spec.ts",

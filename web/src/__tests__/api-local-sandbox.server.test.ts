@@ -99,6 +99,23 @@ describe("local sandbox API", () => {
 		expect(controller.executeAdmittedLocalSandboxOperationRaw).toHaveBeenCalledWith("user-1", "operation", expect.any(AbortSignal));
 	});
 
+	test("maps controller failures from each sandbox operation route", async () => {
+		controller.createSandboxProject.mockRejectedValueOnce(new Error("provider unavailable"));
+		const createResponse = await create(event("/api/sandboxes", { body: { name: "Sandbox", providerInstallationId: provider.installationId, providerId: "podman" } }) as never);
+		expect(createResponse.status).toBe(503);
+
+		controller.requestSandboxAction.mockRejectedValueOnce(new Error("provider unavailable"));
+		const actionResponse = await action(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" }, body: { action: "start" } }) as never);
+		expect(actionResponse.status).toBe(503);
+
+		controller.executeAdmittedLocalSandboxOperationRaw.mockRejectedValueOnce(new Error("provider unavailable"));
+		const rawResponse = await execute(event("/api/local-sandbox/operations/operation/execute", {
+			params: { id: "operation" },
+			locals: { ...local, authMethod: "internal" },
+		}) as never);
+		expect(rawResponse.status).toBe(503);
+	});
+
 	test("rejects arbitrary create fields and lifecycle arguments", async () => {
 		const createResponse = await create(event("/api/sandboxes", { body: { name: "Sandbox", providerInstallationId: provider.installationId, providerId: "podman", path: "/host" } }) as never);
 		expect(createResponse.status).toBe(400);
@@ -111,5 +128,11 @@ describe("local sandbox API", () => {
 	test("maps controller status without exposing host paths", async () => {
 		const response = await status(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" } }) as never);
 		expect(await response.json()).toMatchObject({ projectId: "sandbox", state: "stopped", provider: { label: "podman" } });
+	});
+
+	test("maps sandbox status lookup failures", async () => {
+		controller.getProjectSandboxStatus.mockRejectedValueOnce(new Error("provider unavailable"));
+		const response = await status(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" } }) as never);
+		expect(response.status).toBe(503);
 	});
 });

@@ -11,6 +11,7 @@
 	import SaveIndicator from "$lib/components/settings/SaveIndicator.svelte";
 	import ProjectSandboxPanel from "$lib/components/ProjectSandboxPanel.svelte";
 	import { createSaveFlash } from "$lib/save-flash.svelte.js";
+	import { resolveWorkspaceBinding, type WorkspaceKind } from "$lib/workspace-binding";
 
 	let globalPrompt = $state("");
 	let projectPrompt = $state("");
@@ -87,44 +88,24 @@
 
 	let projectId = $derived(page.params.id);
 	let project = $derived(store.projects.find((p) => p.id === projectId));
-	type WorkspaceKind = "loading" | "local" | "sandbox" | "unavailable";
-	let workspaceKind = $state<WorkspaceKind>("loading");
+	let workspaceKind = $state<WorkspaceKind | "loading">("loading");
 	let workspaceError = $state("");
 	let workspaceRequest = 0;
 	let sandbox = $derived(workspaceKind === "sandbox");
 	let workspaceResolved = $derived(workspaceKind === "local" || workspaceKind === "sandbox");
 
-	async function resolveWorkspaceKind(id: string, path: string) {
+	async function loadWorkspaceKind(id: string, path: string) {
 		const request = ++workspaceRequest;
 		workspaceError = "";
-		if (path !== "") {
-			workspaceKind = "local";
-			return;
-		}
 		workspaceKind = "loading";
-		try {
-			const response = await fetch(`/api/projects/${encodeURIComponent(id)}/sandbox`);
-			if (request !== workspaceRequest) return;
-			if (response.ok) {
-				workspaceKind = "sandbox";
-				return;
-			}
-			const body = await response.json().catch(() => ({})) as { code?: string; error?: string };
-			if (body.code === "SANDBOX_NOT_CONFIGURED") {
-				workspaceKind = "local";
-				return;
-			}
-			workspaceKind = "unavailable";
-			workspaceError = body.error ?? "Could not verify this workspace.";
-		} catch {
-			if (request !== workspaceRequest) return;
-			workspaceKind = "unavailable";
-			workspaceError = "Could not verify this workspace.";
-		}
+		const resolution = await resolveWorkspaceBinding(id, path);
+		if (request !== workspaceRequest) return;
+		workspaceKind = resolution.kind;
+		workspaceError = resolution.error ?? "";
 	}
 
 	$effect(() => {
-		if (projectId && project) void resolveWorkspaceKind(projectId, project.path);
+		if (projectId && project) void loadWorkspaceKind(projectId, project.path);
 	});
 
 	async function handleUpdate(data: { name: string; path: string; icon?: string | null; variables: Record<string, unknown> }) {
