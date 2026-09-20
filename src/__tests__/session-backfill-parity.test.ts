@@ -1,9 +1,10 @@
 import { test, expect, describe, beforeEach, afterAll } from "bun:test";
 import { and, eq } from "drizzle-orm";
-import { buildSessionContext, type AgentMessage, type Entry } from "@earendil-works/pi-agent-core";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { setupTestDb, closeTestDb, getTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { agentSessionEntries, agentSessions, conversations, messageAttachments, messages, projects } from "../db/schema";
 import type { StreamChatContext } from "../runtime/stream-chat/context";
+import type { SessionTreeEntry } from "../db/session-storage";
 
 // Must mock before importing modules that use db/connection.
 mockDbConnection();
@@ -74,12 +75,32 @@ async function referenceHistory(convId: string) {
 /**
  * The context for a storage the caller already built.
  *
- * This is exactly what `Session.buildContext()` did — `getBranch()` is
- * `getPathToRootOrCompaction(await getLeafId())`, and `buildContext` is
- * `buildSessionContext` over it — minus the `Session` wrapper the storage no
- * longer conforms to. Feeding repo-owned `SessionTreeEntry` values straight
- * into pi's builder is also the running proof that the owned union is what
- * the engine consumes.
+ * This used to run the branch through pi-agent-core's `buildSessionContext`
+ * — `getBranch()` is `getPathToRootOrCompaction(await getLeafId())`, and
+ * `Session.buildContext()` was `buildSessionContext` over it, minus the
+ * `Session` wrapper the storage no longer conforms to (see
+ * db-session-storage.test.ts's header for that decoupling, at the pi-ai
+ * 0.84.0 bump). pi-agent-core 0.85.1 goes a step further and removes
+ * `buildSessionContext` from the package's public surface outright: it still
+ * lives in `harness/session/context.ts`, but `harness/session/index.ts` —
+ * the only session barrel the package's `exports` map still publishes — never
+ * re-exports it, so there is no longer any subpath that resolves it. It can
+ * no longer serve as this suite's oracle for "what does a branch project to
+ * as a message list", so — same precedent as db-session-storage.test.ts —
+ * the transform is asserted DIRECTLY against the storage contract instead of
+ * through pi's builder.
+ *
+ * That direct rule is simple because `backfillSessionForConversation`
+ * (session-backfill.ts) only ever writes two entry types: a `message` entry
+ * for every real LLM turn (`isLlmTurn`), and a non-emitting `custom`
+ * placeholder for excluded/synthetic rows that exists only to keep the
+ * parentId chain connected. It never writes a compaction, branch_summary,
+ * or metadata-change entry, so the general entry-type walk
+ * `buildSessionContext` used to perform reduces — for every case this suite
+ * seeds — to "keep the `message` entries, drop everything else, preserve
+ * branch order". That is what this function asserts directly, and it is
+ * exactly what `entryToRow`'s `isLlmTurn` branch decides at write time: this
+ * function is the read-side mirror of that same rule, not a new one.
  *
  * Takes the STORAGE, not a conversation id, on purpose. Re-deriving it from
  * the id would call `backfillSessionForConversation` a second time, which is
@@ -87,48 +108,11 @@ async function referenceHistory(convId: string) {
  * move off the fresh in-memory build and onto a reopened one, and a defect
  * unique to the fresh-build path would stop tripping these tests.
  */
-async function contextOf(storage: Awaited<ReturnType<typeof backfillSessionForConversation>>) {
+async function contextOf(storage: Awaited<ReturnType<typeof backfillSessionForConversation>>): Promise<AgentMessage[]> {
   const branch = await storage.getPathToRootOrCompaction(await storage.getLeafId());
-  // Pi's builder uses an ordered entry sequence. DB storage owns tree order
-  // rather than the engine's transient sequence number, so derive it from the
-  // already ordered branch at the adapter boundary.
-  const piEntries: Entry[] = branch.map((entry, seq): Entry => {
-    const timestamp = Date.parse(entry.timestamp);
-    if (entry.type === "compaction") {
-      return { ...entry, seq, timestamp, retainedTail: entry.retainedTail ?? [] };
-    }
-    if (
-      entry.type === "message" ||
-      entry.type === "thinking_level_change" ||
-      entry.type === "model_change" ||
-      entry.type === "active_tools_change" ||
-      entry.type === "branch_summary" ||
-      entry.type === "custom"
-    ) {
-      return { ...entry, seq, timestamp };
-    }
-    // These DB-only bookkeeping nodes retain a tree link but have no pi
-    // engine equivalent. Preserve their payload as a non-emitting custom node.
-    if (entry.type === "custom_message") {
-      return {
-        type: "custom",
-        id: entry.id,
-        seq,
-        parentId: entry.parentId,
-        timestamp,
-        customType: entry.customType,
-        data: { content: entry.content, details: entry.details, display: entry.display },
-      };
-    }
-    if (entry.type === "label") {
-      return { type: "custom", id: entry.id, seq, parentId: entry.parentId, timestamp, customType: "label", data: { targetId: entry.targetId, label: entry.label } };
-    }
-    if (entry.type === "session_info") {
-      return { type: "custom", id: entry.id, seq, parentId: entry.parentId, timestamp, customType: "session_info", data: { name: entry.name } };
-    }
-    return { type: "custom", id: entry.id, seq, parentId: entry.parentId, timestamp, customType: "leaf", data: { targetId: entry.targetId } };
-  });
-  return buildSessionContext(piEntries).messages;
+  return branch
+    .filter((entry): entry is Extract<SessionTreeEntry, { type: "message" }> => entry.type === "message")
+    .map((entry) => entry.message);
 }
 
 /** CANDIDATE: backfill → the stored branch → pi's context builder. */
