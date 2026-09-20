@@ -51,6 +51,17 @@ import { factoryRuntimeSeams, factorySeamStates, type FactoryRuntimeSeamInputs, 
 import { registerFactoryRuntimeWorkers, type FactoryHeldWorker, type FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryBackgroundWorkers, FactoryBackgroundWorkerState } from "./background-workers";
 
+/** A real timer that releases on abort, so a stop never waits out a window. */
+function defaultWait(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((settle) => {
+    if (signal.aborted) return settle();
+    const done = () => { clearTimeout(timer); signal.removeEventListener("abort", done); settle(); };
+    const timer = setTimeout(done, milliseconds);
+    timer.unref?.();
+    signal.addEventListener("abort", done, { once: true });
+  });
+}
+
 /** A started listener the composition owns and must stop. */
 export interface FactoryStartedListener {
   readonly url: string;
@@ -88,6 +99,24 @@ export interface FactoryRuntimeDependencies {
    * required would fail a correct deployment.
    */
   readonly providerReadiness?: Record<string, unknown>;
+  /**
+   * How long to keep probing before giving up on an unavailable service.
+   *
+   * Absent means one round, which is the behaviour a single-host installation
+   * wants: every service is already up, and a probe that fails means a fix, not
+   * a wait. A distributed bring-up is the other case, and it has a deadlock
+   * this option exists to break. The Node orchestrator's own readiness requires
+   * reaching THIS process's private service, and this process's readiness
+   * requires the orchestrator's record, so whichever starts first fails on the
+   * other. Re-probing with the listener still bound lets the two converge;
+   * closing the listener on the first failure guarantees they never can.
+   *
+   * Admission stays closed the whole time. The retry does not weaken the gate,
+   * it stops the gate from being decided by start order.
+   */
+  readonly readinessRetry?: { readonly delayMs: number; readonly windowMs: number };
+  /** Overridden in tests so a retry window is not a real wait. */
+  readonly wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
 }
 
 export interface FactoryRuntimeReport {
@@ -102,6 +131,15 @@ export interface FactoryRuntimeReport {
 
 export interface FactoryRuntime {
   readonly application: FactoryApplication;
+  /**
+   * Present only when the first probe round found a service still coming up.
+   *
+   * It settles when admission opens or when the window is spent. A caller that
+   * needs to know which it was reads `report().admissionOpen`; nothing has to
+   * await it, because the runtime is usable either way and admission is closed
+   * until it opens.
+   */
+  readonly converged?: Promise<void>;
   readonly config: FactoryStartupConfig;
   readonly seams: FactoryRuntimeSeams;
   /**
@@ -172,12 +210,19 @@ export async function startFactoryRuntime(
   // half runs here: the readiness half needs a probe result, and calling it
   // with an empty available set would report every service as down before a
   // single probe had run.
-  assertFactoryBootConfiguration(databaseUrl, { ...boot, installationId: config.installationId });
+  try {
+    assertFactoryBootConfiguration(databaseUrl, { ...boot, installationId: config.installationId });
+  } catch (error) {
+    // The caller has already bound whatever it passed in — the private service
+    // among them — so a refusal here has to release them. Before this, a
+    // flag-on installation on PGlite threw with its listener still bound.
+    for (const listener of dependencies.listeners) listener.stop();
+    throw error;
+  }
 
   const seams = factoryRuntimeSeams(dependencies.seams);
   const probes = requiredProbes(config, dependencies, boot);
-  const results = await probeFactoryServices(probes, signal);
-  const available = availableFactoryServices(results);
+  let results = await probeFactoryServices(probes, signal);
 
   const workerSet = registerFactoryRuntimeWorkers({
     ...dependencies.workers,
@@ -199,24 +244,87 @@ export async function startFactoryRuntime(
     workers: workerSet.workers.states(),
   });
 
-  try {
-    // Admission stays closed until every required probe passed. This is the
-    // call the readiness gate was written for and never received.
-    assertFactoryBootReadiness(databaseUrl, available, { ...boot, installationId: config.installationId });
-  } catch (error) {
-    stopListeners();
-    await workerSet.workers.stop();
-    if (error instanceof FactoryBootError) {
-      setReadiness({ state: "degraded", reason: error.code, detail: { unavailable: unavailableFactoryServices(results) } });
-    }
-    throw error;
-  }
-
   const application = createFactoryApplication({
     ...dependencies.application,
     database: dependencies.database,
     tenantId: config.tenantId,
   });
+
+  /** Everything that must be released when a start fails or is given up on. */
+  const abandon = async (error: unknown): Promise<void> => {
+    stopListeners();
+    await workerSet.workers.stop();
+    if (error instanceof FactoryBootError) {
+      setReadiness({ state: "degraded", reason: error.code, detail: { unavailable: unavailableFactoryServices(results) } });
+    }
+  };
+
+  // Admission stays closed until every required probe passed. This is the call
+  // the readiness gate was written for and never received.
+  const admit = (): void => {
+    assertFactoryBootReadiness(databaseUrl, availableFactoryServices(results), { ...boot, installationId: config.installationId });
+  };
+  // A service that is merely not up yet is the retryable case; a PGlite
+  // database or a missing installation id is not, and waiting on one of those
+  // would be waiting for an operator who has not been told anything is wrong.
+  const retryable = (error: unknown) => error instanceof FactoryBootError && error.code === "factory-services-unavailable";
+
+  let converge: Promise<void> | undefined;
+  try {
+    admit();
+  } catch (error) {
+    if (dependencies.readinessRetry === undefined || !retryable(error) || signal.aborted) {
+      await abandon(error);
+      throw error;
+    }
+    // The listener stays bound and admission stays closed while this runs, so
+    // a peer whose own readiness depends on reaching this process can.
+    const retry = dependencies.readinessRetry;
+    const wait = dependencies.wait ?? defaultWait;
+    // The window is spent in whole delays rather than measured against a clock.
+    // A loop that read the wall clock would be a loop whose bound depends on how
+    // busy the host is, and this repo's rule against asserting on elapsed time
+    // applies to the code as much as to its tests.
+    const rounds = Math.max(1, Math.floor(retry.windowMs / retry.delayMs));
+    converge = (async () => {
+      for (let round = 0; round < rounds && !signal.aborted; round += 1) {
+        await wait(retry.delayMs, signal);
+        if (signal.aborted) break;
+        results = await probeFactoryServices(probes, signal);
+        try {
+          admit();
+          openAdmission();
+          return;
+        } catch (again) {
+          if (!retryable(again)) { await abandon(again); return; }
+        }
+      }
+      await abandon(new FactoryBootError("factory-services-unavailable",
+        `Factory startup gave up waiting for: ${unavailableFactoryServices(results).join(", ")}.`));
+    })();
+  }
+
+  function openAdmission(): void {
+    configureFactoryApplication(application);
+    admissionOpen = true;
+    workerSet.workers.start(signal);
+    // Readiness carries which roles are running and which are held, so "the
+    // background work is live" is an answer an operator can read off
+    // `/api/ready` rather than a claim they have to take from a log line. Names
+    // and reasons only: no endpoint, no identity beyond the tenant, no
+    // credential.
+    setReadiness({
+      state: "ready",
+      detail: {
+        factory: {
+          tenantId: config.tenantId,
+          running: workerSet.workers.names(),
+          held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage })),
+          ...(dependencies.providerReadiness === undefined ? {} : { providerReadiness: dependencies.providerReadiness }),
+        },
+      },
+    });
+  }
 
   let stopped = false;
   const stop = async (): Promise<void> => {
@@ -233,26 +341,9 @@ export async function startFactoryRuntime(
     }
   };
 
-  configureFactoryApplication(application);
-  admissionOpen = true;
-  workerSet.workers.start(signal);
-  // Readiness carries which roles are running and which are held, so "the
-  // background work is live" is an answer an operator can read off `/api/ready`
-  // rather than a claim they have to take from a log line. Names and reasons
-  // only: no endpoint, no identity beyond the tenant, no credential.
-  setReadiness({
-    state: "ready",
-    detail: {
-      factory: {
-        tenantId: config.tenantId,
-        running: workerSet.workers.names(),
-        held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage })),
-        ...(dependencies.providerReadiness === undefined ? {} : { providerReadiness: dependencies.providerReadiness }),
-      },
-    },
-  });
+  if (converge === undefined) openAdmission();
 
-  return Object.freeze({ application, config, seams, workers: workerSet.workers, report, stop });
+  return Object.freeze({ application, config, seams, workers: workerSet.workers, report, stop, ...(converge === undefined ? {} : { converged: converge }) });
 }
 
 export type { FactoryService };

@@ -545,3 +545,114 @@ describe("startFactoryRuntime validates its own inputs", () => {
     expect(runtime.report().probes.filter((probe) => probe.service === "object-storage")).toHaveLength(2);
   });
 });
+
+/**
+ * The bring-up deadlock, and the gate that does not weaken to break it.
+ *
+ * The Node orchestrator's readiness requires reaching this process's private
+ * service; this process's readiness requires the orchestrator's record. With
+ * one probe round, whichever starts second loses and the listener the other
+ * needs is already closed. Re-probing with the listener bound is what lets both
+ * converge — and admission stays closed for the whole window, so the gate is
+ * unchanged.
+ */
+describe("the readiness retry converges a distributed bring-up", () => {
+  const retry = { delayMs: 10, windowMs: 10_000 };
+
+  test("keeps the listener bound and admission closed, then opens when the service arrives", async () => {
+    const root = await privateRoot();
+    const stops: string[] = [];
+    let live = false;
+    const controller = new AbortController();
+    const runtime = await startFactoryRuntime(document(root, { readinessRetry: retry }), "postgres://product", dependencies({
+      listeners: [listener(stops, "private-service")],
+      // Stands in for the orchestration and pool records: absent on the first
+      // round, present once the peer has had a chance to start.
+      gateway: { health: async () => { if (!live) throw new Error("not listening yet"); return true; } },
+      readinessRetry: retry,
+      wait: async () => { await writeReadyRecords(root); live = true; },
+    }), controller.signal, bootConfig(root));
+    started.push(runtime);
+
+    // Admission is closed on return and the listener is still bound: a peer
+    // that needs to reach this process still can.
+    expect(runtime.report().admissionOpen).toBe(false);
+    expect(getFactoryApplication()).toBeNull();
+    expect(stops).toEqual([]);
+    expect(getReadiness().state).toBe("degraded");
+
+    await runtime.converged;
+
+    expect(runtime.report().admissionOpen).toBe(true);
+    expect(getFactoryApplication()).toBe(runtime.application);
+    expect(getReadiness().state).toBe("ready");
+    expect(stops).toEqual([]);
+  });
+
+  test("gives up at the end of the window, stops what it started, and stays degraded", async () => {
+    const root = await privateRoot();
+    const stops: string[] = [];
+    let rounds = 0;
+    const controller = new AbortController();
+    const runtime = await startFactoryRuntime(document(root, { readinessRetry: { delayMs: 10, windowMs: 30 } }), "postgres://product", dependencies({
+      listeners: [listener(stops, "private-service")],
+      gateway: { health: async () => { throw new Error("never arrives"); } },
+      readinessRetry: { delayMs: 10, windowMs: 30 },
+      // Three whole delays, counted; nothing here reads a clock.
+      wait: async () => { rounds += 1; },
+    }), controller.signal, bootConfig(root));
+    started.push(runtime);
+    await runtime.converged;
+    expect(rounds).toBe(3);
+
+    expect(runtime.report().admissionOpen).toBe(false);
+    expect(stops).toEqual(["private-service"]);
+    expect(getReadiness().state).toBe("degraded");
+    expect(getReadiness().reason).toBe("factory-services-unavailable");
+  });
+
+  test("a configuration fault is never retried, because no wait fixes it", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const stops: string[] = [];
+    let waits = 0;
+    const error = await bootFailure(startFactoryRuntime(document(root, { readinessRetry: retry }), undefined, dependencies({
+      listeners: [listener(stops, "private-service")],
+      readinessRetry: retry,
+      wait: async () => { waits += 1; },
+    }), new AbortController().signal, bootConfig(root)));
+
+    // PGlite is not a service that arrives; it is a deployment an operator has
+    // to change, and waiting on it would be waiting on nobody.
+    expect(error.code).toBe("factory-pglite-unsupported");
+    expect(waits).toBe(0);
+    expect(stops).toEqual(["private-service"]);
+  });
+
+  test("a stop during the window ends it rather than waiting it out", async () => {
+    const root = await privateRoot();
+    const stops: string[] = [];
+    const controller = new AbortController();
+    const runtime = await startFactoryRuntime(document(root, { readinessRetry: retry }), "postgres://product", dependencies({
+      listeners: [listener(stops, "private-service")],
+      gateway: { health: async () => { throw new Error("not listening yet"); } },
+      readinessRetry: retry,
+      wait: async (_ms, signal) => { controller.abort(); expect(signal).toBeDefined(); },
+    }), controller.signal, bootConfig(root));
+    started.push(runtime);
+    await runtime.converged;
+    expect(runtime.report().admissionOpen).toBe(false);
+    expect(stops).toEqual(["private-service"]);
+  });
+
+  test("without a retry the first round is the verdict, exactly as before", async () => {
+    const root = await privateRoot();
+    const stops: string[] = [];
+    const error = await bootFailure(startFactoryRuntime(document(root), "postgres://product", dependencies({
+      listeners: [listener(stops, "private-service")],
+      gateway: { health: async () => { throw new Error("not listening yet"); } },
+    }), new AbortController().signal, bootConfig(root)));
+    expect(error.code).toBe("factory-services-unavailable");
+    expect(stops).toEqual(["private-service"]);
+  });
+});

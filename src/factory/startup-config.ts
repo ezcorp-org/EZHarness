@@ -49,6 +49,14 @@ export interface FactoryStartupConfig {
   readonly hostId: string;
   readonly readinessHeartbeatMs?: number;
   /**
+   * How long startup keeps probing a service that is not up yet.
+   *
+   * Absent means one round. Present, admission stays closed and the private
+   * service stays bound while the probes repeat, which is what lets a
+   * distributed bring-up converge instead of being decided by start order.
+   */
+  readonly readinessRetry?: { readonly delayMs: number; readonly windowMs: number };
+  /**
    * The model this installation pins for a guest's reverse broker call.
    *
    * Optional, because an installation that runs no model-calling guest needs
@@ -59,7 +67,22 @@ export interface FactoryStartupConfig {
    */
   readonly modelProvider?: { readonly provider: string; readonly model: string };
   readonly gateway: { readonly hostname: string; readonly port: number; readonly tls: FactoryStartupTlsMaterial };
-  readonly privateService: { readonly hostname: string; readonly port: number; readonly certificateIdentity: string; readonly tls: FactoryStartupTlsMaterial };
+  readonly privateService: {
+    readonly hostname: string;
+    readonly port: number;
+    readonly certificateIdentity: string;
+    readonly tls: FactoryStartupTlsMaterial;
+    /**
+     * Who may command this installation, and with which signing keys.
+     *
+     * Present only on an installation that runs a Node orchestrator, because
+     * the private service is the endpoint that orchestrator calls back on.
+     * Absent, the product starts no private listener and the orchestrator's own
+     * readiness probe fails — which keeps admission closed rather than opening
+     * it for a run nothing can advance. All three fields or none.
+     */
+    readonly tokens?: { readonly issuer: string; readonly audience: string; readonly publicKeyPaths: Readonly<Record<string, string>> };
+  };
   readonly pool: { readonly baseUrl: string; readonly serviceTokenPath: string; readonly tls: FactoryStartupTlsMaterial };
   readonly storage: { readonly ordinary: FactoryStartupStorage; readonly archive: FactoryStartupStorage };
   readonly keys: { readonly masterKeyFilePath: string; readonly masterKeyId: string; readonly wrappedKeyFilePath: string; readonly grantableRoots: readonly string[] };
@@ -88,7 +111,42 @@ export interface FactoryStartupConfig {
   readonly hostStopKeys?: readonly { readonly hostId: string; readonly hostKeyId: string; readonly publicKeyPath: string }[];
   /** An operator's verified replication statement. Absent on a development host. */
   readonly archiveReplicationEvidence?: string;
+  /**
+   * The runners this installation will dispatch to, and what each one costs.
+   *
+   * One declaration serves two collaborators, which is why it is one section.
+   * `FactoryNativeRunnerPolicy` turns a `dispatch-node` command into a runner
+   * request only for a runner named here, and `FactoryTaskAdmission` turns a
+   * `request-admission` command into a pool request using the same profile's
+   * allocation, keyed by its resource class. Both are deployment facts: nothing
+   * in a factory definition can say what a CPU second costs on this host.
+   *
+   * An installation that declares none cannot admit or dispatch a task, so its
+   * private service does not compose and the reason is reported by name.
+   */
+  readonly runnerProfiles?: {
+    /** The audience a guest's broker token is minted for. */
+    readonly brokerAudience: string;
+    readonly profiles: readonly FactoryStartupRunnerProfile[];
+  };
   readonly workers?: FactoryWorkerTuning;
+}
+
+export interface FactoryStartupRunnerProfile {
+  readonly runner: {
+    readonly package: string;
+    readonly manifestName: string;
+    readonly version: string;
+    readonly digest: string;
+    readonly export: string;
+  };
+  readonly resourceClass: string;
+  readonly allocation: {
+    readonly resources: Readonly<Record<string, number>>;
+    readonly memoryBytes: number;
+    readonly budget: { readonly costMicros: string; readonly tokens: number; readonly computeMs: number };
+  };
+  readonly allowedCapabilities: readonly string[];
 }
 
 export interface FactoryWorkerTuning {
@@ -141,6 +199,8 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "supervisorReadinessFilePath", kind: "path" },
   { field: "hostId", kind: "identity" },
   { field: "readinessHeartbeatMs", kind: "interval", optional: true },
+  { field: "readinessRetry.delayMs", kind: "interval", optional: true },
+  { field: "readinessRetry.windowMs", kind: "interval", optional: true },
   { field: "modelProvider.provider", kind: "identity", optional: true },
   { field: "modelProvider.model", kind: "identity", optional: true },
   { field: "gateway.hostname", kind: "identity" },
@@ -150,6 +210,8 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "privateService.port", kind: "port" },
   { field: "privateService.certificateIdentity", kind: "identity" },
   ...tls("privateService"),
+  { field: "privateService.tokens.issuer", kind: "statement", optional: true },
+  { field: "privateService.tokens.audience", kind: "statement", optional: true },
   { field: "pool.baseUrl", kind: "url" },
   { field: "pool.serviceTokenPath", kind: "path" },
   ...tls("pool"),
@@ -218,8 +280,51 @@ function httpsUrl(value: unknown): boolean {
   }
 }
 
+/** A signing key map: one key id to one file, at least one entry. */
+function wellFormedKeyPaths(value: unknown): boolean {
+  if (!record(value)) return false;
+  const entries = Object.entries(value);
+  return entries.length >= 1 && entries.length <= 32
+    && entries.every(([kid, path]) => wellFormed("identity", kid) && wellFormed("path", path));
+}
+
+/** One runner this installation dispatches to, with its allocation. */
+function wellFormedRunnerProfile(value: unknown): boolean {
+  if (!record(value) || !exactKeys(value, ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
+  const runner = value.runner;
+  const runnerKeys = ["package", "manifestName", "version", "digest", "export"];
+  if (!record(runner) || !exactKeys(runner, runnerKeys)
+    || runnerKeys.some((key) => typeof runner[key] !== "string" || (runner[key] as string).length === 0 || (runner[key] as string).length > 512)
+    || !/^sha256:[a-f0-9]{64}$/.test(runner.digest as string)) return false;
+  if (!wellFormed("identity", value.resourceClass)) return false;
+  if (!Array.isArray(value.allowedCapabilities) || value.allowedCapabilities.length > 64
+    || value.allowedCapabilities.some((capability) => !wellFormed("identity", capability))
+    || new Set(value.allowedCapabilities).size !== value.allowedCapabilities.length) return false;
+  return wellFormedResourceProfile(value.allocation);
+}
+
+/** A task's pool vector, its memory, and the budget it may spend. */
+function wellFormedResourceProfile(value: unknown): boolean {
+  if (!record(value) || !exactKeys(value, ["resources", "memoryBytes", "budget"])) return false;
+  const resources = value.resources;
+  if (!record(resources) || Object.keys(resources).length === 0
+    || Object.entries(resources).some(([name, amount]) => !wellFormed("identity", name) || !Number.isSafeInteger(amount) || (amount as number) < 0 || (amount as number) > 1_000_000)) return false;
+  if (!Number.isSafeInteger(value.memoryBytes) || (value.memoryBytes as number) < 1) return false;
+  const budget = value.budget;
+  // `costMicros` is decimal TEXT rather than a number: a micro-denominated cost
+  // can exceed a safe integer, and the budget ledger stores it as text for
+  // exactly that reason.
+  return record(budget) && exactKeys(budget, ["costMicros", "tokens", "computeMs"])
+    && typeof budget.costMicros === "string" && /^[0-9]{1,30}$/.test(budget.costMicros)
+    && Number.isSafeInteger(budget.tokens) && (budget.tokens as number) >= 0
+    && Number.isSafeInteger(budget.computeMs) && (budget.computeMs as number) >= 0;
+}
+
 /** The set of leaf fields a valid document may carry, derived from the table. */
-const KNOWN_FIELDS: ReadonlySet<string> = new Set(["schemaVersion", "hostStopKeys", ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field)]);
+const KNOWN_FIELDS: ReadonlySet<string> = new Set([
+  "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles",
+  ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
+]);
 
 /** Exactly these keys, no more and no fewer. */
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -235,7 +340,10 @@ function leaves(value: unknown, prefix = ""): string[] {
     // `grantableRoots` is an array leaf, and `hostStopKeys` an array of
     // records; recursing into either would name its indices. Both are checked
     // by shape below instead.
-    if (field === "hostStopKeys") { found.push(field); continue; }
+    // Three branches are maps whose KEYS are data — a key id, a resource class
+    // — so recursing into them would name a value as a field. Each is checked
+    // by shape below instead.
+    if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths") { found.push(field); continue; }
     found.push(...(record(nested) ? leaves(nested, field) : [field]));
   }
   return found;
@@ -292,6 +400,39 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
         || !wellFormed("identity", entry.hostId) || !wellFormed("identity", entry.hostKeyId) || !wellFormed("path", entry.publicKeyPath)) {
         invalid.push(`hostStopKeys[${index}]`);
       }
+    }
+  }
+  // The private service's token verifier is all three fields or none: an issuer
+  // with no keys verifies nothing, and a key map with no audience would accept
+  // a token minted for another service.
+  // Both halves or neither: a delay with no window would retry forever and a
+  // window with no delay would spin.
+  const retryFields = ["readinessRetry.delayMs", "readinessRetry.windowMs"];
+  const retryPresent = retryFields.filter((field) => read(value, field).present);
+  if (retryPresent.length === 1) missing.push(retryFields.find((field) => !retryPresent.includes(field))!);
+
+  const tokenFields = ["privateService.tokens.issuer", "privateService.tokens.audience", "privateService.tokens.publicKeyPaths"];
+  const tokensPresent = tokenFields.filter((field) => read(value, field).present);
+  if (tokensPresent.length > 0 && tokensPresent.length < tokenFields.length) {
+    for (const field of tokenFields) if (!tokensPresent.includes(field)) missing.push(field);
+  }
+  const publicKeyPaths = read(value, "privateService.tokens.publicKeyPaths");
+  if (publicKeyPaths.present && !wellFormedKeyPaths(publicKeyPaths.value)) invalid.push("privateService.tokens.publicKeyPaths");
+
+  const runners = read(value, "runnerProfiles");
+  if (runners.present) {
+    const section = runners.value;
+    if (!record(section) || !exactKeys(section, ["brokerAudience", "profiles"]) || !wellFormed("identity", section.brokerAudience)
+      || !Array.isArray(section.profiles) || section.profiles.length === 0 || section.profiles.length > 64) {
+      invalid.push("runnerProfiles");
+    } else {
+      for (const [index, profile] of section.profiles.entries()) {
+        if (!wellFormedRunnerProfile(profile)) invalid.push(`runnerProfiles.profiles[${index}]`);
+      }
+      // A resource class named twice would make the admission profile map
+      // depend on declaration order, which is not a fact an operator states.
+      const classes = section.profiles.map((profile) => (profile as { resourceClass?: unknown }).resourceClass);
+      if (new Set(classes).size !== classes.length) invalid.push("runnerProfiles.profiles");
     }
   }
   if (missing.length > 0 || invalid.length > 0) throw new FactoryStartupConfigError(missing, invalid);

@@ -58,6 +58,8 @@ import type { FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryApplication, FactoryApplicationOptions } from "./application";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryRoleDriver } from "./runtime-seams";
+import type { FactoryStartedListener } from "./runtime-composition";
+import type { FactoryTaskStops } from "./task-stops";
 
 export class FactoryInstallationStartupError extends Error {
   constructor(readonly code: "factory-startup-config-missing" | "factory-startup-blobs-missing" | "factory-startup-unreachable", message: string) {
@@ -295,7 +297,7 @@ async function installationReleases(
   artifacts: FactoryArtifacts,
   stores: Pick<FactoryApplication, "grants" | "runs" | "journal" | "releaseAuthority">,
   report: (role: string, error: unknown) => void,
-): Promise<FactoryReleases | undefined> {
+): Promise<{ readonly releases: FactoryReleases; readonly assurance: FactoryAssurance } | undefined> {
   try {
     const validators = new FactoryTrustedValidators(database, config.tenantId, stores.runs, stores.journal, artifacts, stores.releaseAuthority, []);
     const assurance = new FactoryAssurance(database, config.tenantId, stores.grants, validators, factoryReleaseFenceReader(stores.runs), validators);
@@ -308,12 +310,17 @@ async function installationReleases(
       resolveMembers: (tenantId, operationId, material, signal) => provenance.sourcesFor(tenantId, operationId, material, signal),
       archiveCredentials: await loadFactoryStorageCredentials(config.storage.archive, config.tenantId),
     });
-    return new FactoryReleases(
+    const releases = new FactoryReleases(
       database, config.tenantId, stores.grants, assurance, stores.releaseAuthority, stores.releaseAuthority,
       new FactoryDestinationReservations({ database, tenantId: config.tenantId }),
       archive,
       new FactoryStoreSenderFence({ database, tenantId: config.tenantId }),
     );
+    // The assurance travels with the store: `FactoryProtectedCommandEffects`
+    // takes both, and a second assurance built over the same tables would
+    // evaluate a claim by one instance's validator set and consume the approval
+    // through another's.
+    return Object.freeze({ releases, assurance });
   } catch (error) {
     // Never silently. A release store that cannot compose holds two roles, and
     // an operator who can see the roles held but not the reason has to guess
@@ -450,8 +457,11 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
       runOptions: host.runOptions,
       availableResourceClasses: host.availableResourceClasses,
     },
-    // C02 puts every other role in its own process. This one starts no listener.
-    listeners: [],
+    // The private worker API, and only that. The pool, the supervisor, and the
+    // Node orchestrator each bind their own in their own process; this one binds
+    // the endpoint the orchestrator calls back on, because every route it
+    // serves needs the product database those processes must not hold.
+    listeners: composed?.listeners ?? [],
     storage,
     gateway,
     service: { subject: config.privateService.certificateIdentity, tenantId: config.tenantId },
@@ -460,6 +470,7 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
     // wins so a test can replace a real collaborator with a fake one, and so a
     // host that composes a role this process cannot is not overruled by it.
     seams: { ...composed?.seams, ...options.seams },
+    ...(config.readinessRetry === undefined ? {} : { readinessRetry: config.readinessRetry }),
     ...(supplied.extraProbes === undefined ? {} : { extraProbes: supplied.extraProbes }),
     ...(provider === undefined ? {} : { providerReadiness: provider.readiness }),
     report: host.report,
@@ -486,7 +497,11 @@ async function installationCollaborators(
   host: FactoryInstallationHost,
   blobs: BlobStore,
   transitions: FactoryTransitionArtifacts,
-): Promise<{ readonly workers: FactoryRuntimeDependencies["workers"]; readonly seams: FactoryRuntimeDependencies["seams"] }> {
+): Promise<{
+  readonly workers: FactoryRuntimeDependencies["workers"];
+  readonly seams: FactoryRuntimeDependencies["seams"];
+  readonly listeners: readonly FactoryStartedListener[];
+}> {
   const { createFactoryApplication } = await import("./application");
   // A throwaway application only to reach the lifecycle the roles read. The
   // one the runtime configures is built inside `startFactoryRuntime`; both are
@@ -536,9 +551,11 @@ async function installationCollaborators(
 
   // The release store, and the one role it unblocks here. `release-outcome`
   // needs a second half this process still cannot build — see its held reason.
-  const releases = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report);
-  const notificationInbox = releases === undefined ? undefined
-    : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(releases), config.tenantId);
+  const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report);
+  const notificationInbox = release === undefined ? undefined
+    : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
+
+  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops);
 
   return {
     workers: {
@@ -554,7 +571,44 @@ async function installationCollaborators(
         usageReconciler: settlement.usageReconciliation,
       }),
     },
+    listeners: privateService === undefined ? [] : [privateService],
   };
+}
+
+/**
+ * The private worker API, when this installation is configured to be commanded.
+ *
+ * It is the one listener the product process binds. A failure to compose is
+ * reported under its own role rather than taken as fatal: a factory whose
+ * orchestrator cannot reach it still serves reads, and the orchestrator's own
+ * readiness probe fails, which keeps admission closed through the path the
+ * readiness gate already owns.
+ */
+async function composePrivateService(
+  config: FactoryStartupConfig,
+  host: FactoryInstallationHost,
+  stores: FactoryInstallationStores,
+  transitions: FactoryTransitionArtifacts,
+  application: FactoryApplication,
+  release: { readonly releases: FactoryReleases; readonly assurance: FactoryAssurance } | undefined,
+  stops: FactoryTaskStops | undefined,
+): Promise<FactoryStartedListener | undefined> {
+  if (config.privateService.tokens === undefined) return undefined;
+  try {
+    const { composeFactoryPrivateService } = await import("./private-service-composition");
+    return await composeFactoryPrivateService({
+      database: host.database,
+      config,
+      application,
+      stores,
+      transitions,
+      ...(release === undefined ? {} : { releases: release.releases, assurance: release.assurance }),
+      ...(stops === undefined ? {} : { stops }),
+    });
+  } catch (error) {
+    host.report("private-service", error);
+    return undefined;
+  }
 }
 
 /**
@@ -634,7 +688,7 @@ async function composeSettlement(
   stores: FactoryInstallationStores,
   service: TrustedFactoryServiceIdentity,
   pool: PoolAdmissionClient | undefined,
-): Promise<{ readonly stopSettlement: FactoryRoleDriver; readonly usageReconciliation: FactoryRoleDriver } | undefined> {
+): Promise<{ readonly stopSettlement: FactoryRoleDriver; readonly usageReconciliation: FactoryRoleDriver; readonly stops: FactoryTaskStops } | undefined> {
   if (pool === undefined || config.hostLaunch === undefined || config.hostStopKeys === undefined
     || stores.compute === undefined || stores.outcomes === undefined) return undefined;
   try {
@@ -646,7 +700,7 @@ async function composeSettlement(
       service,
       report: host.report,
     });
-    return Object.freeze({ stopSettlement: composed.stopSettlement, usageReconciliation: composed.usageReconciliation });
+    return Object.freeze({ stopSettlement: composed.stopSettlement, usageReconciliation: composed.usageReconciliation, stops: composed.stops });
   } catch (error) {
     host.report("settlement-composition", error);
     return undefined;

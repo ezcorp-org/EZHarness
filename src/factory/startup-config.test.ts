@@ -250,3 +250,72 @@ describe("the host launch transport and the host stop keys", () => {
     }
   });
 });
+
+describe("the private service token verifier", () => {
+  const tokens = { issuer: "https://factory.example.test", audience: "factory-private-service", publicKeyPaths: { proof: "/run/secrets/token.pem" } };
+  const withTokens = (value: unknown) => valid({ privateService: { ...(valid().privateService as Record<string, unknown>), tokens: value } });
+
+  test("accepts a complete verifier and an absent one", () => {
+    expect(parseFactoryStartupConfig(withTokens(tokens)).privateService.tokens).toEqual(tokens);
+    expect(parseFactoryStartupConfig(valid()).privateService.tokens).toBeUndefined();
+  });
+
+  test("a partial verifier names every missing half at once", () => {
+    const { publicKeyPaths: _omitted, ...half } = tokens;
+    const error = reject(withTokens(half));
+    expect(error.missing).toContain("privateService.tokens.publicKeyPaths");
+    expect(error.code).toBe("factory-configuration-invalid");
+  });
+
+  test("a key map that verifies nothing, or names a path that is not one, is invalid", () => {
+    for (const publicKeyPaths of [{}, { "": "/run/secrets/token.pem" }, { proof: "" }, [], "keys"]) {
+      expect(reject(withTokens({ ...tokens, publicKeyPaths })).invalid).toContain("privateService.tokens.publicKeyPaths");
+    }
+  });
+});
+
+describe("the runner profiles this installation dispatches to", () => {
+  const profile = {
+    runner: { package: "@ezcorp/minimal", manifestName: "minimal", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run" },
+    resourceClass: "cpu",
+    allocation: { resources: { cpu: 1 }, memoryBytes: 1_073_741_824, budget: { costMicros: "1000000", tokens: 1_000, computeMs: 600_000 } },
+    allowedCapabilities: [],
+  };
+  const section = { brokerAudience: "factory-gateway", profiles: [profile] };
+
+  test("accepts a complete section and an absent one", () => {
+    expect(parseFactoryStartupConfig(valid({ runnerProfiles: section })).runnerProfiles).toEqual(section);
+    expect(parseFactoryStartupConfig(valid()).runnerProfiles).toBeUndefined();
+  });
+
+  test("refuses a section that declares no runner, or an unknown field", () => {
+    expect(reject(valid({ runnerProfiles: { ...section, profiles: [] } })).invalid).toContain("runnerProfiles");
+    expect(reject(valid({ runnerProfiles: { ...section, extra: 1 } })).invalid).toContain("runnerProfiles");
+    expect(reject(valid({ runnerProfiles: { ...section, brokerAudience: "" } })).invalid).toContain("runnerProfiles");
+    expect(reject(valid({ runnerProfiles: "profiles" })).invalid).toContain("runnerProfiles");
+  });
+
+  test("names the exact profile that is malformed, by index", () => {
+    for (const broken of [
+      { ...profile, runner: { ...profile.runner, digest: "not-a-digest" } },
+      { ...profile, runner: { ...profile.runner, export: "" } },
+      { ...profile, runner: { package: "p" } },
+      { ...profile, resourceClass: "" },
+      { ...profile, allocation: { ...profile.allocation, memoryBytes: 0 } },
+      { ...profile, allocation: { ...profile.allocation, resources: {} } },
+      { ...profile, allocation: { ...profile.allocation, resources: { cpu: -1 } } },
+      { ...profile, allocation: { ...profile.allocation, budget: { ...profile.allocation.budget, costMicros: "1.5" } } },
+      { ...profile, allocation: { ...profile.allocation, budget: { ...profile.allocation.budget, tokens: -1 } } },
+      { ...profile, allowedCapabilities: ["a", "a"] },
+      { ...profile, extra: 1 },
+      "a profile",
+    ]) {
+      expect(reject(valid({ runnerProfiles: { ...section, profiles: [broken] } })).invalid).toContain("runnerProfiles.profiles[0]");
+    }
+  });
+
+  test("refuses a resource class declared twice, because the map would depend on order", () => {
+    expect(reject(valid({ runnerProfiles: { ...section, profiles: [profile, { ...profile, runner: { ...profile.runner, export: "other" } }] } })).invalid)
+      .toContain("runnerProfiles.profiles");
+  });
+});

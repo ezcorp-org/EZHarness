@@ -200,7 +200,7 @@ describe("composeFactoryAttemptDispatch", () => {
     return paths;
   }
 
-  function config(root: string, tls: Awaited<ReturnType<typeof transportMaterial>>, secretPath: string): FactoryStartupConfig & { readonly hostLaunch: NonNullable<FactoryStartupConfig["hostLaunch"]> } {
+  function config(tls: Awaited<ReturnType<typeof transportMaterial>>, secretPath: string): FactoryStartupConfig & { readonly hostLaunch: NonNullable<FactoryStartupConfig["hostLaunch"]> } {
     return {
       schemaVersion: FACTORY_STARTUP_CONFIG_SCHEMA,
       installationId: "installation-compose",
@@ -209,7 +209,6 @@ describe("composeFactoryAttemptDispatch", () => {
       hostLaunch: { baseUrl: "https://127.0.0.1:1", serverName: "localhost", attemptTokenSecretPath: secretPath, tls },
       // The composition reads only the fields above; the rest of the document
       // is the startup parser's concern and has its own suite.
-      ...({ root } as Record<string, never>),
     } as unknown as FactoryStartupConfig & { readonly hostLaunch: NonNullable<FactoryStartupConfig["hostLaunch"]> };
   }
 
@@ -222,7 +221,7 @@ describe("composeFactoryAttemptDispatch", () => {
       const journal = new FactoryExecutionJournal(fixture.db, async () => {});
       const driver = await composeFactoryAttemptDispatch({
         database: fixture.db,
-        config: config(root, tls, await secretFile(root)),
+        config: config(tls, await secretFile(root)),
         service: { subject: "factory-private", tenantId: request.authority.tenantId } as TrustedFactoryServiceIdentity,
         queue: new FactoryAttemptQueue(fixture.db, journal, request.authority.tenantId),
         completions: { completeInTransaction: async () => ({} as never), readInTransaction: async (_t: MigrationDb) => undefined } as never,
@@ -251,7 +250,7 @@ describe("composeFactoryAttemptDispatch", () => {
       const journal = new FactoryExecutionJournal(fixture.db, async () => {});
       await expect(composeFactoryAttemptDispatch({
         database: fixture.db,
-        config: config(root, tls, join(root, "absent-secret")),
+        config: config(tls, join(root, "absent-secret")),
         service: { subject: "factory-private", tenantId: "tenant-recovery" } as TrustedFactoryServiceIdentity,
         queue: new FactoryAttemptQueue(fixture.db, journal, "tenant-recovery"),
         completions: {} as never,
