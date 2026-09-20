@@ -173,6 +173,38 @@ class Parse(GuestCase):
             },
         )
 
+    def test_writes_partitions_with_no_prefix_when_the_directory_is_flat(self) -> None:
+        # The material directory the runner hands over is one flat directory, so
+        # the ordinary case carries no prefix at all.
+        data = self.stage("in/source.csv", GOLDEN)
+        report = self.report(
+            self.invoke(
+                "parseCsv",
+                {
+                    "kind": "parseCsv",
+                    "input": "in/source.csv",
+                    "snapshotDigest": digest(data),
+                    "report": "out/partitions.json",
+                },
+            )
+        )
+        self.assertEqual([entry["name"] for entry in report["partitions"]], ["partition-00000.csv"])
+
+    def test_refuses_an_output_prefix_that_is_not_a_string(self) -> None:
+        data = self.stage("in/source.csv", GOLDEN)
+        result = self.invoke(
+            "parseCsv",
+            {
+                "kind": "parseCsv",
+                "input": "in/source.csv",
+                "outputPrefix": 5,
+                "snapshotDigest": digest(data),
+                "report": "out/partitions.json",
+            },
+        )
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["error"]["code"], "reference_data_command_invalid")
+
     def test_cuts_the_golden_input_into_one_ordered_partition(self) -> None:
         report = self.report(self.parse(GOLDEN))
         self.assertEqual(report["rowCount"], 3)
@@ -229,7 +261,7 @@ class Parse(GuestCase):
         self.assertEqual(result["error"]["code"], "record_id_duplicate")
 
     def test_refuses_a_material_name_that_leaves_the_mount(self) -> None:
-        for prefix in ("../", "/absolute/", ""):
+        for prefix in ("../", "/absolute/"):
             with self.subTest(prefix=prefix):
                 result = self.parse(GOLDEN, prefix=prefix)
                 self.assertEqual(result["status"], "failed")
