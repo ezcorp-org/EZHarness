@@ -204,3 +204,46 @@ test("a host-confirmed clean create failure releases the one local slot", async 
   const resource = await context.database.execute(sql`SELECT desired_state,observed_state FROM sandbox_resources WHERE binding_id=${status.bindingId}`) as { rows: Array<{ desired_state: string; observed_state: string }> };
   expect(resource.rows[0]).toEqual({ desired_state: "destroyed", observed_state: "destroyed" });
 });
+
+test("an interrupted raw create stays unknown and retains its reservation", async () => {
+  const context = await fixture();
+  context.local.create = mock(async () => { throw new Error("transport lost"); });
+  const create = await admitCreate(context);
+  await expect(context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id)).rejects.toThrow("transport lost");
+  const resource = await context.database.execute(sql`SELECT observed_state FROM sandbox_resources WHERE binding_id=${create.bindingId}`) as { rows: Array<{ observed_state: string }> };
+  expect(resource.rows[0]!.observed_state).toBe("unknown");
+});
+
+test("method idempotency binds the conversation and canonical payload", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const one = crypto.randomUUID(); const two = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${one},${create.projectId},${context.owner.id},'One'),(${two},${create.projectId},${context.owner.id},'Two')`);
+  await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "inspect", idempotencyKey: "same", conversationId: one, payload: { identity: { bootId: "boot", processId: "process" } } });
+  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "inspect", idempotencyKey: "same", conversationId: two, payload: { identity: { bootId: "boot", processId: "process" } } })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+});
+
+test("raw dispatcher persists canonical cancel and file method results", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Methods')`);
+  const identity = { bootId: "boot", processId: "process" };
+  context.local.processCancel = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity, state: "cancelled" as const, outputCursor: 0 } }));
+  const entry = { path: "/x", kind: "file" as const, revision: "r1", sizeBytes: 1, mode: 420 };
+  context.local.fileStat = mock(async (input: any) => ({ receipt: receipt(input.call), entry }));
+  context.local.fileList = mock(async (input: any) => ({ receipt: receipt(input.call), entries: [] }));
+  context.local.fileRead = mock(async (input: any) => ({ receipt: receipt(input.call), path: "/x", revision: "r1", offsetBytes: 0, nextOffsetBytes: 1, eof: true, encoding: "utf8" as const, data: "x" }));
+  context.local.fileWrite = mock(async (input: any) => ({ receipt: receipt(input.call), entry }));
+  context.local.fileMkdir = mock(async (input: any) => ({ receipt: receipt(input.call), entry: { ...entry, path: "/dir", kind: "directory" as const } }));
+  context.local.fileRemove = mock(async (input: any) => ({ receipt: receipt(input.call), removedRevision: "r1" }));
+  context.local.fileChmod = mock(async (input: any) => ({ receipt: receipt(input.call), entry }));
+  const cases: Array<[string, Record<string, unknown>]> = [["cancel", { identity }], ["stat", { path: "/x" }], ["list", { path: "/", limit: 10 }], ["read", { path: "/x", offsetBytes: 0, lengthBytes: 10 }], ["write", { path: "/x", encoding: "utf8", data: "x" }], ["mkdir", { path: "/dir", recursive: false }], ["remove", { path: "/x", recursive: false }], ["chmod", { path: "/x", mode: 420 }]];
+  for (const [operation, payload] of cases) {
+    const group = operation === "cancel" ? "sandbox.process.v1" : "sandbox.files.v1";
+    const admitted = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group, operation, idempotencyKey: crypto.randomUUID(), conversationId, payload });
+    expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, admitted.id)).state).toBe("succeeded");
+  }
+});
