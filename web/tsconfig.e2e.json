@@ -12,5 +12,5 @@
 		"moduleResolution": "bundler",
 		"noEmit": true
 	},
-	"include": ["e2e/**/*.ts", "src/app.d.ts", ".svelte-kit/ambient.d.ts", ".svelte-kit/non-ambient.d.ts", ".svelte-kit/types/**/$types.d.ts"]
+	"include": ["e2e/**/*.ts", "qualification/**/*.ts", "src/app.d.ts", ".svelte-kit/ambient.d.ts", ".svelte-kit/non-ambient.d.ts", ".svelte-kit/types/**/$types.d.ts"]
 }

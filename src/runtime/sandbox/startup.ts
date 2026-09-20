@@ -1,10 +1,11 @@
 import { constants } from "node:fs";
-import { access, stat, open } from "node:fs/promises";
+import { access, mkdir, stat, open } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 import { configureSandboxWorkspaceDispatcher } from "../workspace/target";
 import { createSandboxWorkspaceDispatcher } from "../workspace/dispatcher";
 import { configureSandboxController } from "./controller";
 import { invokeSandboxProvider } from "./provider-invoker";
+import { ResourceRoot } from "./local-podman/resource-root";
 import { LocalPodmanDriver } from "./local-podman/driver";
 import { runBoundedCommand, validateHostConfig, type LocalPodmanHostConfig } from "./local-podman/commands";
 
@@ -50,6 +51,8 @@ export async function initializeLocalSandbox(path = process.env.EZHARNESS_LOCAL_
   if (!path) return false;
   const config = await loadLocalSandboxConfig(path);
   await verifyLocalSandboxHost(config);
+  await mkdir(config.stateRoot, { recursive: true, mode: 0o700 });
+  await new ResourceRoot(config.stateRoot).verifyPrivateRoot();
   const controller = configureSandboxController(new LocalPodmanDriver(config), undefined, invokeSandboxProvider);
   configureSandboxWorkspaceDispatcher(createSandboxWorkspaceDispatcher((...args) => controller.runNativeWorkspaceProcess(...args)));
   return true;
