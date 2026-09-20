@@ -12,6 +12,14 @@
  *                                        Exits 0 early when the diff touches
  *                                        no mutatable file.
  *   bun scripts/mutation.ts --full       Nightly: the whole mutateGlobs set.
+ *   bun scripts/mutation.ts --full --shard I/N
+ *                                        One of N deterministic slices of that
+ *                                        set (see shardOf). The nightly runs
+ *                                        the slices as a matrix and merges the
+ *                                        reports with merge-mutation-reports.ts,
+ *                                        because the whole set does not fit a
+ *                                        hosted runner: 18797 mutants reached
+ *                                        99.4% at 5h52m and the job cap is 6h.
  *   bun scripts/mutation.ts --full --incremental
  *                                        Reuse .cache/stryker-incremental.json.
  *
@@ -83,6 +91,30 @@ export function mutationExitCode(
     };
   }
   return { code, reason: `Stryker exited ${code}: score under the break threshold` };
+}
+
+export type Shard = { index: number; count: number };
+
+/** Parse `I/N` (0-based index, 1-based count). Throws on anything else. */
+export function parseShard(arg: string | undefined): Shard {
+  const m = /^(\d+)\/(\d+)$/.exec(arg ?? "");
+  if (!m) throw new Error(`--shard expects I/N (e.g. 2/6), got "${arg ?? ""}"`);
+  const index = Number(m[1]);
+  const count = Number(m[2]);
+  if (count < 1) throw new Error(`--shard: N must be >= 1, got ${count}`);
+  if (index >= count) throw new Error(`--shard: I must be < N, got ${index}/${count}`);
+  return { index, count };
+}
+
+/**
+ * Slice `index` of `count` over an already-sorted list: every item lands in
+ * exactly one slice, round-robin, so neighbouring files in one directory are
+ * spread across shards rather than stacked into one. Deterministic for a given
+ * input order, which is what lets N matrix jobs agree on a partition with no
+ * coordination.
+ */
+export function shardOf<T>(items: readonly T[], shard: Shard): T[] {
+  return items.filter((_, i) => i % shard.count === shard.index);
 }
 
 /**
@@ -160,11 +192,9 @@ async function vitestMeasuredGlobs(): Promise<Glob[]> {
  * it in mutation.mutateGlobs) OR its tests import in a form vitest's module
  * graph cannot follow. Both are fixable; neither is a mutation score.
  */
-async function unmeasuredFiles(): Promise<string[]> {
-  if (!existsSync(MUTATION_REPORT)) return [];
-  const report = JSON.parse(await Bun.file(MUTATION_REPORT).text()) as {
-    files?: Record<string, { mutants: { status: string }[] }>;
-  };
+export function filesWithoutCoverage(report: {
+  files?: Record<string, { mutants: { status: string }[] }>;
+}): string[] {
   const out: string[] = [];
   for (const [file, rec] of Object.entries(report.files ?? {})) {
     const total = rec.mutants.length;
@@ -174,8 +204,14 @@ async function unmeasuredFiles(): Promise<string[]> {
   return out;
 }
 
+async function unmeasuredFiles(): Promise<string[]> {
+  if (!existsSync(MUTATION_REPORT)) return [];
+  return filesWithoutCoverage(JSON.parse(await Bun.file(MUTATION_REPORT).text()));
+}
+
 async function main(): Promise<void> {
-  const args = new Set(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  const args = new Set(argv);
   const changedOnly = args.has("--changed");
   const full = args.has("--full");
   const incremental = args.has("--incremental");
@@ -186,10 +222,18 @@ async function main(): Promise<void> {
   // makes a scope invalid — a test that cannot run inside the sandbox. Use it to
   // validate mutateGlobs before paying for a full run.
   const dryRunOnly = args.has("--dry-run-only");
+  const shardIdx = argv.indexOf("--shard");
+  let shard: Shard | null = null;
+  try {
+    shard = shardIdx >= 0 ? parseShard(argv[shardIdx + 1]) : null;
+  } catch (err) {
+    console.error(`✗ ${(err as Error).message}`);
+    process.exit(2);
+  }
 
-  if (changedOnly === full) {
+  if (changedOnly === full || (shard && !full)) {
     console.error(
-      "usage: bun scripts/mutation.ts (--changed | --full) [--incremental] [--report-only] [--dry-run]",
+      "usage: bun scripts/mutation.ts (--changed | --full [--shard I/N]) [--incremental] [--report-only] [--dry-run]",
     );
     process.exit(2);
   }
@@ -286,10 +330,10 @@ async function main(): Promise<void> {
         found.add(rel);
       }
     }
-    const selected = matchMutateGlobs(gates.mutation.mutateGlobs, [...found])
+    const inScope = matchMutateGlobs(gates.mutation.mutateGlobs, [...found])
       .filter(isVitestMeasured)
       .sort();
-    if (selected.length === 0) {
+    if (inScope.length === 0) {
       console.error(
         "✗ --full selected 0 files. mutation.mutateGlobs and test-coverage.sh's " +
           "--coverage.include list no longer intersect — refusing to report a vacuous pass.",
@@ -297,9 +341,18 @@ async function main(): Promise<void> {
       process.exit(1);
     }
     console.log(
-      `Mutation: ${selected.length} file(s) in scope ` +
-        `(${found.size} matched mutateGlobs, ${found.size - selected.length} not measured by vitest)`,
+      `Mutation: ${inScope.length} file(s) in scope ` +
+        `(${found.size} matched mutateGlobs, ${found.size - inScope.length} not measured by vitest)`,
     );
+    const selected = shard ? shardOf(inScope, shard) : inScope;
+    if (shard) {
+      console.log(`Mutation: shard ${shard.index}/${shard.count} → ${selected.length} file(s):`);
+      for (const f of selected) console.log(`  web/${f}`);
+      if (selected.length === 0) {
+        console.error(`✗ shard ${shard.index}/${shard.count} is empty — more shards than files in scope.`);
+        process.exit(1);
+      }
+    }
     mutateArgs = ["--mutate", selected.join(",")];
   }
 

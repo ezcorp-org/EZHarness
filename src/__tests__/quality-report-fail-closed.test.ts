@@ -10,18 +10,30 @@
  *   scripts/mutation.ts        — --report-only suppresses ONLY a threshold
  *                                verdict. A Stryker exit with no report is an
  *                                infrastructure failure and still fails.
+ *                                --shard I/N partitions the scope exactly.
+ *   scripts/merge-mutation-reports.ts
+ *                              — the nightly's N shard reports merge into one
+ *                                without overlap, and score the way Stryker
+ *                                scores.
  *
  * Both scripts export their decision logic as pure functions, so this is
  * fixture-driven and touches no files.
  */
 import { describe, expect, test } from "bun:test";
-import { mutationExitCode } from "../../scripts/mutation.ts";
+import { mergeMutationReports } from "../../scripts/merge-mutation-reports.ts";
+import {
+  filesWithoutCoverage,
+  mutationExitCode,
+  parseShard,
+  shardOf,
+} from "../../scripts/mutation.ts";
 import {
   buildSummary,
   type CrapReport,
   type CoverageReport,
   GATE_NAMES,
   type MutationReport,
+  mutationTotals,
   parseExpected,
   renderText,
   type SummaryInputs,
@@ -331,5 +343,88 @@ describe("mutationExitCode — --report-only suppresses only the threshold verdi
 
   test("a non-1 infrastructure exit code is passed through, not normalised", () => {
     expect(mutationExitCode({ status: 127, signal: null }, { reportProduced: false, reportOnly: true }).code).toBe(127);
+  });
+});
+
+describe("mutationTotals — scores the way Stryker does", () => {
+  test("timeouts count as killed, NoCoverage counts against", () => {
+    expect(mutationTotals(failingMutation)).toEqual({
+      killed: 1,
+      timeout: 1,
+      survived: 1,
+      noCoverage: 1,
+      score: 50,
+    });
+  });
+
+  test("no mutants is 100, not a division by zero", () => {
+    expect(mutationTotals({ files: {} }).score).toBe(100);
+    expect(mutationTotals({ files: { "a.ts": { source: "", mutants: [] } } }).score).toBe(100);
+  });
+});
+
+describe("filesWithoutCoverage — the scope-error detector", () => {
+  test("lists only files whose every mutant is NoCoverage", () => {
+    const report: MutationReport = {
+      files: {
+        "src/lib/dead.ts": { source: "", mutants: [mutantAt(1, "NoCoverage"), mutantAt(2, "NoCoverage")] },
+        "src/lib/live.ts": { source: "", mutants: [mutantAt(1, "NoCoverage"), mutantAt(2, "Killed")] },
+        "src/lib/empty.ts": { source: "", mutants: [] },
+      },
+    };
+    expect(filesWithoutCoverage(report)).toEqual(["src/lib/dead.ts"]);
+    expect(filesWithoutCoverage({})).toEqual([]);
+  });
+});
+
+describe("parseShard / shardOf — a deterministic, exact partition", () => {
+  test("parses I/N and rejects everything else", () => {
+    expect(parseShard("2/6")).toEqual({ index: 2, count: 6 });
+    expect(parseShard("0/1")).toEqual({ index: 0, count: 1 });
+    for (const bad of [undefined, "", "6/6", "7/6", "1/0", "a/b", "1", "1/2/3", "-1/2"]) {
+      expect(() => parseShard(bad)).toThrow(/--shard/);
+    }
+  });
+
+  test("every item lands in exactly one shard, round-robin over the input order", () => {
+    const files = Array.from({ length: 17 }, (_, i) => `f${String(i).padStart(2, "0")}.ts`);
+    const count = 6;
+    const shards = Array.from({ length: count }, (_, index) => shardOf(files, { index, count }));
+    expect(shards[0]).toEqual(["f00.ts", "f06.ts", "f12.ts"]);
+    expect(shards[5]).toEqual(["f05.ts", "f11.ts"]);
+    const all = shards.flat().sort();
+    expect(all).toEqual([...files].sort());
+    expect(new Set(all).size).toBe(files.length);
+    // Same input, same slices — N jobs can agree with no coordination.
+    expect(shardOf(files, { index: 3, count })).toEqual(shards[3] as string[]);
+  });
+
+  test("one shard is the whole list; more shards than items leaves empty slices", () => {
+    expect(shardOf(["a", "b"], { index: 0, count: 1 })).toEqual(["a", "b"]);
+    expect(shardOf(["a", "b"], { index: 2, count: 3 })).toEqual([]);
+  });
+});
+
+describe("mergeMutationReports — the nightly's N reports become one", () => {
+  const shardA: MutationReport = {
+    files: { "src/lib/a.ts": { source: "a", mutants: [mutantAt(1, "Killed"), mutantAt(1, "Survived")] } },
+  };
+  const shardB: MutationReport = {
+    files: { "src/lib/b.ts": { source: "b", mutants: [mutantAt(1, "Killed")] } },
+  };
+
+  test("unions the files and keeps the first report's envelope", () => {
+    const merged = mergeMutationReports([{ ...shardA, projectRoot: "/x" }, shardB]);
+    expect(Object.keys(merged.files).sort()).toEqual(["src/lib/a.ts", "src/lib/b.ts"]);
+    expect(merged.projectRoot).toBe("/x");
+    expect(mutationTotals(merged)).toEqual({ killed: 2, timeout: 0, survived: 1, noCoverage: 0, score: (2 / 3) * 100 });
+  });
+
+  test("a file present in two reports is an overlap error, not a silent overwrite", () => {
+    expect(() => mergeMutationReports([shardA, shardA])).toThrow(/appears in more than one shard/);
+  });
+
+  test("nothing to merge is an error", () => {
+    expect(() => mergeMutationReports([])).toThrow(/nothing to merge/);
   });
 });

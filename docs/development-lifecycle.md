@@ -403,7 +403,14 @@ ratchet predates this one and owns ~500 keys.)
 runner and the backend pool's per-file `mock.module` isolation fights perTest
 coverage, so it drives the Node/Vitest leg the coverage job already provisions.
 PRs mutate **only the changed files** (a full run is far too slow for a PR —
-measured 2m02s for 2 files); `mutation-nightly.yml` runs the whole set.
+measured 2m02s for 2 files); `mutation-nightly.yml` runs the whole set as a
+**matrix of shards**. One job cannot: 186 files instrument to 18,797 mutants,
+and a single hosted runner reached 99.4% at 5h52m before the 6-hour job cap
+killed it. Each shard runs `mutation.ts --full --shard I/N` (a deterministic
+round-robin slice of the sorted scope) with `--report-only`, uploads its
+report, and `scripts/merge-mutation-reports.ts` merges exactly N of them and
+decides the threshold verdict once, on the merged score. Fewer than N reports
+is a failure, never a score over a partial tree.
 
 Scope is the **intersection** of `mutation.mutateGlobs` and the
 `--coverage.include` allowlist in `test-coverage.sh`, minus `src/lib/server/**`:

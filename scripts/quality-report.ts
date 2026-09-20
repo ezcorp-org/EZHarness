@@ -239,41 +239,49 @@ function crapFindings(crap: CrapReport, gateStatus: Record<string, unknown>): Fi
   });
 }
 
+export type MutationTotals = {
+  killed: number;
+  timeout: number;
+  survived: number;
+  noCoverage: number;
+  /** Stryker's mutation score, 0-100: timeouts count as killed; NoCoverage counts against you. */
+  score: number;
+};
+
+/**
+ * Count a Stryker report the way Stryker scores it. Shared with
+ * merge-mutation-reports.ts so the nightly's merged verdict and this summary
+ * cannot disagree about what the score is.
+ */
+export function mutationTotals(mut: MutationReport): MutationTotals {
+  const t = { killed: 0, timeout: 0, survived: 0, noCoverage: 0 };
+  for (const rec of Object.values(mut.files)) {
+    for (const m of rec.mutants) {
+      if (m.status === "Killed") t.killed++;
+      else if (m.status === "Timeout") t.timeout++;
+      else if (m.status === "Survived") t.survived++;
+      else if (m.status === "NoCoverage") t.noCoverage++;
+    }
+  }
+  const detected = t.killed + t.timeout;
+  const valid = detected + t.survived + t.noCoverage;
+  return { ...t, score: valid > 0 ? (detected / valid) * 100 : 100 };
+}
+
 function mutationFindings(
   mut: MutationReport,
   threshold: number,
   gateStatus: Record<string, unknown>,
 ): Finding[] {
-  let killed = 0;
-  let survived = 0;
-  let noCoverage = 0;
-  let timeout = 0;
+  const { killed, timeout, survived, noCoverage, score } = mutationTotals(mut);
   const survivors: { file: string; m: Mutant; source: string }[] = [];
-
   for (const [file, rec] of Object.entries(mut.files)) {
     for (const m of rec.mutants) {
-      switch (m.status) {
-        case "Killed":
-          killed++;
-          break;
-        case "Timeout":
-          timeout++;
-          break;
-        case "Survived":
-          survived++;
-          survivors.push({ file, m, source: rec.source });
-          break;
-        case "NoCoverage":
-          noCoverage++;
-          survivors.push({ file, m, source: rec.source });
-          break;
+      if (m.status === "Survived" || m.status === "NoCoverage") {
+        survivors.push({ file, m, source: rec.source });
       }
     }
   }
-  // Stryker's score: timeouts count as killed; NoCoverage counts against you.
-  const detected = killed + timeout;
-  const valid = detected + survived + noCoverage;
-  const score = valid > 0 ? (detected / valid) * 100 : 100;
   const passed = score + 1e-9 >= threshold;
   gateStatus.mutation = {
     score: Number(score.toFixed(2)),

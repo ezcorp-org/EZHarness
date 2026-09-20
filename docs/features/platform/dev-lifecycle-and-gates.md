@@ -153,7 +153,9 @@ bun run gate:coverage        # 90% aggregate line floor
 bun run gate:crap            # full-repo CRAP ratchet (the main-push check)
 bun run gate:crap:changed    # only functions this PR touched (the PR check)
 bun run gate:mutation        # StrykerJS on the changed files (the PR check)
-bun run gate:mutation:full   # the whole scope (nightly; slow)
+bun run gate:mutation:full   # the whole scope (hours; the nightly shards it)
+bun scripts/mutation.ts --full --shard 0/6 --report-only   # one nightly slice
+bun scripts/merge-mutation-reports.ts --shards 6 "mutation-shards/*/mutation.json"   # merge N slices, verdict once
 bun run gate:report --expect coverage,crap   # fold the gates you ran into findings
 ```
 
@@ -173,6 +175,7 @@ never a silent pass. Known debt on a passing ratchet is recorded as
 | `Final mutation score N under breaking threshold` | tests execute the code but do not assert on it | each finding quotes the exact code and the replacement that survived; assert the difference |
 | `mutated file(s) had NO test coverage at all` | **a scope error, not a score.** Stryker's vitest `related` filter could not follow a `$lib`-aliased import, or the bun leg owns that file's tests | exclude it in `mutation.mutateGlobs`, or make its test import by a path vitest's graph can follow. Never "fix" it by lowering the threshold |
 | `exceeded its N-minute budget` | the PR diff was too large to mutate in `mutation.prBudgetMinutes` | split the PR. Nothing was measured, so this is never a pass |
+| `expected exactly N shard report(s) … and found M` | a nightly shard died and left no report; the merge refuses to score the rest | read that shard's log. `MUTATION_SHARDS` in `mutation-nightly.yml` and its `shard` matrix must agree |
 | `exited N without writing …/mutation.json` | **an infrastructure failure, not a score** — Stryker died before testing a mutant (initial test run timed out, crashed worker) | read the Stryker log above it; `--report-only` does not suppress this. A timed-out initial run means `dryRunTimeoutMinutes` in `web/stryker.config.json` is too low for the scope |
 | `expected to run but wrote no report` | a gate the summary was told to expect crashed, timed out or never started; nothing was measured | read that gate's step log. This is a pipeline failure and never a pass |
 
@@ -236,7 +239,8 @@ maintainer-only `gate-change-approved` label.
 - `scripts/quality-gates.json` — **the one place** the global-coverage, CRAP and mutation thresholds live; `quality-gates.ts` loads it, `gate-integrity.ts` ratchets it.
 - `scripts/crap-score.ts`, `scripts/check-global-coverage.ts`, `scripts/mutation.ts` — the three gates; `scripts/quality-report.ts` renders any failure as machine-readable findings.
 - `web/stryker.config.json` — Stryker mechanics (vitest runner, sandbox, reporters); the threshold deliberately is NOT here.
-- `.github/workflows/mutation-nightly.yml` — the full mutation suite, and nothing else. The full-repo CRAP ratchet runs in `ci.yml`'s coverage job on pushes to `main`, the one place the merged lcov exists.
+- `.github/workflows/mutation-nightly.yml` — the full mutation suite as a matrix of `MUTATION_SHARDS` slices plus a merge-and-summary job, and nothing else. The full-repo CRAP ratchet runs in `ci.yml`'s coverage job on pushes to `main`, the one place the merged lcov exists.
+- `scripts/merge-mutation-reports.ts` — merges exactly N shard reports into `coverage/quality/mutation.json` and applies the break threshold once, on the merged score (`--enforce`).
 - `src/__tests__/coverage-gate.test.ts`, `src/__tests__/gate-scripts.test.ts` — the gate scripts' own test suites (sandboxed temp-dir + fixture-driven).
 
 ## Features it touches
