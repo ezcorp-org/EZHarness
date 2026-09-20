@@ -262,7 +262,7 @@ export function createShellTool(
           stderr = stderrText.text;
           const exitCode = await proc.exited;
           return { exitCode };
-          })(), timeout, signal);
+        })(), timeout, signal);
 
         if (result.type === "timeout") {
           proc.kill();

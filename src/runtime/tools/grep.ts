@@ -208,7 +208,7 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
           ]);
           const exitCode = await proc.exited;
           return { stdout, stderr, exitCode };
-          })(), softTimeoutMs, signal);
+        })(), softTimeoutMs, signal);
 
         // NOTE: these two messages are user-facing status text, not the
         // `Error: <message>` convention `toolError` encodes (the tests pin

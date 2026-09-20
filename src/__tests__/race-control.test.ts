@@ -20,8 +20,31 @@ describe("raceControlled", () => {
     let removals = 0;
     const remove = controller.signal.removeEventListener.bind(controller.signal);
     controller.signal.removeEventListener = (...args) => { removals++; return remove(...args); };
-    expect(raceControlled(Promise.reject(new Error("failed")), 40_000, controller.signal)).rejects.toThrow("failed");
+    await expect(raceControlled(Promise.reject(new Error("failed")), 40_000, controller.signal)).rejects.toThrow("failed");
     expect(removals).toBe(1);
+  });
+
+  test.each([
+    ["shell", `const { createShellTool } = await import("./src/runtime/tools/shell.ts");\nconst result = await createShellTool(process.cwd()).execute("probe", { command: "printf immediate", timeout: 40000 });\nif (result.content[0]?.text !== "immediate") throw new Error("unexpected shell output");`],
+    ["grep", `process.env.EZCORP_GREP_TIMEOUT_MS = "40000";\nconst { createGrepTool } = await import("./src/runtime/tools/grep.ts");\nconst result = await createGrepTool(process.cwd()).execute("probe", { pattern: "raceControlled", path: "src/runtime/tools/race-control.ts" });\nif (!result.content[0]?.text.includes("raceControlled")) throw new Error("unexpected grep output");`],
+  ])("lets a successful %s subprocess exit before its long deadline", async (_name, source) => {
+    const child = Bun.spawn([process.execPath, "-e", source], {
+      cwd: new URL("../..", import.meta.url).pathname,
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    let guard: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const exitCode = await Promise.race([
+        child.exited,
+        new Promise<null>((resolve) => { guard = setTimeout(() => resolve(null), 5_000); }),
+      ]);
+      expect(exitCode).toBe(0);
+    } finally {
+      if (guard !== undefined) clearTimeout(guard);
+      if (child.exitCode === null) child.kill();
+      await child.exited;
+    }
   });
 
   test("reports timeout", async () => {
