@@ -111,6 +111,12 @@ describe("scripts/test-linux.sh — the invocation it guarantees", () => {
     expect(argv).toMatch(/BUN_INSTALL_CACHE_DIR=\/(?!repo\b)/);
   });
 
+  test("installs both dependency trees from their frozen lockfiles", () => {
+    const { argv } = run();
+    expect(argv).toContain("bun install --frozen-lockfile");
+    expect(argv).toContain("bun install --cwd web --frozen-lockfile");
+  });
+
   test("keeps bind-mount writes owned by the developer under rootless podman", () => {
     expect(run().argv).toContain("--userns=keep-id");
   });
