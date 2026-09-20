@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -75,8 +76,8 @@ writeFileSync(
   join(BIN, "git"),
   [
     "#!/usr/bin/env bash",
-    `if [ -n "\${STUB_GIT_CALLS_FILE:-}" ]; then`,
-    "  { printf '%s\\n' '---CALL---'; printf '%s\\n' \"$@\"; } >> \"$STUB_GIT_CALLS_FILE\"",
+    `if [ -n "\${STUB_GIT_CALLS_DIR:-}" ]; then`,
+    "  printf '%s\\n' \"$@\" > \"$STUB_GIT_CALLS_DIR/$$\"",
     "fi",
     `if [ "\${STUB_USE_REAL_GIT:-0}" = "1" ]; then`,
     `  exec ${JSON.stringify(REAL_GIT)} "$@"`,
@@ -108,9 +109,9 @@ function run(
   } = {},
 ): { calls: string[][]; exitCode: number; gitCalls: string[][]; stderr: string } {
   const callsFile = join(SANDBOX, `calls-${runCount++}.txt`);
-  const gitCallsFile = join(SANDBOX, `git-calls-${runCount}.txt`);
+  const gitCallsDir = join(SANDBOX, `git-calls-${runCount}`);
   writeFileSync(callsFile, "");
-  writeFileSync(gitCallsFile, "");
+  mkdirSync(gitCallsDir);
   const proc = Bun.spawnSync({
     cmd: ["bash", options.script ?? SCRIPT, ...args],
     env: {
@@ -119,7 +120,7 @@ function run(
       EZCORP_CONTAINER_ENGINE: options.engine ?? "podman",
       EZCORP_TEST_IMAGE: "",
       STUB_CALLS_FILE: callsFile,
-      STUB_GIT_CALLS_FILE: gitCallsFile,
+      STUB_GIT_CALLS_DIR: gitCallsDir,
       STUB_IMAGE_EXISTS: options.imageExists === false ? "1" : "0",
       STUB_USE_REAL_GIT: options.useRealGit ? "1" : "0",
     },
@@ -130,10 +131,9 @@ function run(
     .split("---CALL---\n")
     .slice(1)
     .map((call) => call.trimEnd().split("\n"));
-  const gitCalls = readFileSync(gitCallsFile, "utf8")
-    .split("---CALL---\n")
-    .slice(1)
-    .map((call) => call.trimEnd().split("\n"));
+  const gitCalls = readdirSync(gitCallsDir).map((file) =>
+    readFileSync(join(gitCallsDir, file), "utf8").trimEnd().split("\n"),
+  );
   return {
     calls,
     exitCode: proc.exitCode,
@@ -213,7 +213,7 @@ describe("scripts/test-linux.sh — the invocation it guarantees", () => {
       ".",
     ]);
     expect(result.calls[1]).toContain("ezcorp-test-linux:0123456789ab");
-    expect(result.gitCalls[0]).toEqual([
+    expect(result.gitCalls).toContainEqual([
       "hash-object",
       "Dockerfile.test",
       "Dockerfile.test.dockerignore",
