@@ -1,4 +1,4 @@
-import type { ProviderReceipt, SandboxCreateInput, SandboxCreateResult, SandboxResource, SandboxResourceLimits } from "@ezcorp/extension-contract";
+import type { ProviderReceipt, SandboxCreateInput, SandboxCreateResult, SandboxFileChmodInput, SandboxFileChmodResult, SandboxFileListInput, SandboxFileListResult, SandboxFileMkdirInput, SandboxFileMkdirResult, SandboxFileReadInput, SandboxFileReadResult, SandboxFileRemoveInput, SandboxFileRemoveResult, SandboxFileStatInput, SandboxFileStatResult, SandboxFileWriteInput, SandboxFileWriteResult, SandboxProcessCancelInput, SandboxProcessCancelResult, SandboxProcessInspectInput, SandboxProcessInspectResult, SandboxProcessReadOutputInput, SandboxProcessReadOutputResult, SandboxProcessStartInput, SandboxProcessStartResult, SandboxResource, SandboxResourceLimits } from "@ezcorp/extension-contract";
 
 export type SandboxAction = "create" | "start" | "stop" | "destroy";
 export type SandboxMethodGroup = "sandbox.lifecycle.v1" | "sandbox.process.v1" | "sandbox.files.v1";
@@ -56,6 +56,8 @@ export interface SandboxController {
   getProjectSandboxStatus(userId: string, projectId: string): Promise<SandboxProjectStatus>;
   requestSandboxAction(userId: string, projectId: string, input: RequestSandboxActionInput): Promise<AdmittedSandboxOperation>;
   executeAdmittedLocalSandboxOperation(userId: string, operationId: string): Promise<SandboxProjectStatus>;
+  /** Broker-only callback. It dispatches a durable operation to the host driver. */
+  executeAdmittedLocalSandboxOperationRaw(userId: string, operationId: string, signal?: AbortSignal): Promise<SandboxProjectStatus | SandboxOperationResult>;
   admitSandboxMethod(userId: string, projectId: string, input: SandboxMethodInput): Promise<AdmittedSandboxMethod>;
   executeAdmittedSandboxMethod(userId: string, operationId: string, signal?: AbortSignal): Promise<SandboxOperationResult>;
   getSandboxOperationResult(userId: string, operationId: string): Promise<SandboxOperationResult>;
@@ -86,4 +88,15 @@ export interface LocalSandboxDriver extends SandboxProviderInvoker {
   start(input: { call: SandboxCreateInput["call"]; resourceId: string }): Promise<{ receipt: ProviderReceipt; resource?: SandboxResource }>;
   stop(input: { call: SandboxCreateInput["call"]; resourceId: string }): Promise<{ receipt: ProviderReceipt; resource?: SandboxResource }>;
   destroy(input: { call: SandboxCreateInput["call"]; resourceId: string }): Promise<{ receipt: ProviderReceipt; resource?: SandboxResource }>;
+  processStart(input: SandboxProcessStartInput): Promise<SandboxProcessStartResult>;
+  processInspect(input: SandboxProcessInspectInput): Promise<SandboxProcessInspectResult>;
+  processReadOutput(input: SandboxProcessReadOutputInput): Promise<SandboxProcessReadOutputResult>;
+  processCancel(input: SandboxProcessCancelInput): Promise<SandboxProcessCancelResult>;
+  fileStat(input: SandboxFileStatInput): Promise<SandboxFileStatResult>;
+  fileList(input: SandboxFileListInput): Promise<SandboxFileListResult>;
+  fileRead(input: SandboxFileReadInput): Promise<SandboxFileReadResult>;
+  fileWrite(input: SandboxFileWriteInput): Promise<SandboxFileWriteResult>;
+  fileMkdir(input: SandboxFileMkdirInput): Promise<SandboxFileMkdirResult>;
+  fileRemove(input: SandboxFileRemoveInput): Promise<SandboxFileRemoveResult>;
+  fileChmod(input: SandboxFileChmodInput): Promise<SandboxFileChmodResult>;
 }

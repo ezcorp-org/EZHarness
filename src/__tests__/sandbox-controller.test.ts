@@ -19,7 +19,10 @@ const limits = { memoryBytes: 1_048_576, milliCpu: 1000, pids: 64, diskBytes: 10
 function driver() {
   const create = mock<LocalSandboxDriver["create"]>(async input => ({ receipt: { ...input.call, outcome: "succeeded" as const }, resource: { resourceId: "resource-1", desiredState: "stopped" as const, observedState: "stopped" as const, limits } }));
   const lifecycle = (desiredState: "running" | "stopped" | "destroyed", observedState: "running" | "stopped" | "destroyed") => mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, resource: { resourceId: input.resourceId, desiredState, observedState, limits } }));
-  return { create, inspect: lifecycle("stopped", "stopped"), start: lifecycle("running", "running"), stop: lifecycle("stopped", "stopped"), destroy: lifecycle("destroyed", "destroyed") } as LocalSandboxDriver;
+  const process = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, process: { identity: input.identity ?? { bootId: "boot-1", processId: "process-1" }, state: "exited" as const, exitCode: 0, outputCursor: 2 } }));
+  const output = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, cursor: 2, chunks: [{ stream: "stdout" as const, encoding: "utf8" as const, data: "ok" }], eof: true, gap: false }));
+  const file = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const } }));
+  return { create, inspect: lifecycle("stopped", "stopped"), start: lifecycle("running", "running"), stop: lifecycle("stopped", "stopped"), destroy: lifecycle("destroyed", "destroyed"), processStart: process, processInspect: process, processReadOutput: output, processCancel: process, fileStat: file, fileList: file, fileRead: file, fileWrite: file, fileMkdir: file, fileRemove: file, fileChmod: file } as unknown as LocalSandboxDriver;
 }
 
 async function fixture(invoke?: SandboxProviderInvocation) {
@@ -44,7 +47,10 @@ async function fixture(invoke?: SandboxProviderInvocation) {
     if (!row.rows[0]) return null;
     return { installation: JSON.parse(row.rows[0].payload), release, limits: { memoryBytes: 1_048_576, cpuMillis: 1000, pids: 64, tmpBytes: 10_485_760, outputBytes: 65_536, timeoutMs: 30_000 } } as ActiveExtensionRelease;
   } };
-  return { database, owner: owner!, other: other!, installation, local, controller: createSandboxController(local, runtime, invoke) };
+  let controller: ReturnType<typeof createSandboxController>;
+  const reviewed: SandboxProviderInvocation = invoke ?? (async (userId, _projectId, _provider, _group, _operation, input, signal) => controller.executeAdmittedLocalSandboxOperationRaw(userId, (input as { call: { operationId: string } }).call.operationId, signal));
+  controller = createSandboxController(local, runtime, reviewed);
+  return { database, owner: owner!, other: other!, installation, local, controller };
 }
 
 async function admitCreate(context: Awaited<ReturnType<typeof fixture>>) {
@@ -103,15 +109,10 @@ test("persists a process writer lease and denies an interleaved file writer", as
 });
 
 test("keeps the writer lease through a running process and releases it only after stopped inspection", async () => {
-  let inspectState: "running" | "stopped" | "unknown" = "running";
-  const invocations: string[] = [];
-  const context = await fixture(async (_userId, _projectId, _provider, group, operation, input) => {
-    invocations.push(`${group}:${operation}`);
-    const call = (input as { call: { operationId: string; idempotencyKey: string; requestDigest: string } }).call;
-    if (group === "sandbox.lifecycle.v1") return { receipt: { ...call, outcome: "succeeded" as const }, resource: { resourceId: "resource-1", desiredState: "stopped" as const, observedState: inspectState, limits } };
-    if (operation === "start") return { receipt: { ...call, outcome: "succeeded" as const }, process: { identity: { bootId: "boot", processId: "process" }, state: "running", outputCursor: 0 } };
-    return { receipt: { ...call, outcome: "succeeded" as const }, cursor: 1, chunks: [], eof: false, gap: false };
-  });
+  let processState: "running" | "exited" = "running";
+  const context = await fixture();
+  context.local.processStart = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, process: { identity: { bootId: "boot", processId: "process" }, state: "running" as const, outputCursor: 0 } }));
+  context.local.processInspect = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, process: { identity: input.identity, state: processState, ...(processState === "exited" ? { exitCode: 0 } : {}), outputCursor: 1 } }));
   const create = await admitCreate(context);
   await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
   const conversationId = crypto.randomUUID();
@@ -122,18 +123,17 @@ test("keeps the writer lease through a running process and releases it only afte
   expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, output.id)).state).toBe("succeeded");
   await context.controller.reconcileSandboxProcess(context.owner.id, create.projectId);
   await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "blocked", conversationId, payload: { path: "a", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
-  inspectState = "stopped";
+  processState = "exited";
   await context.controller.reconcileSandboxProcess(context.owner.id, create.projectId);
   expect((await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "after-stop", conversationId, payload: { path: "a", data: "x" } })).state).toBe("admitted");
-  expect(invocations).toContain("sandbox.process.v1:start");
+  expect(context.local.processStart).toHaveBeenCalled();
+  expect(context.local.inspect).toHaveBeenCalledTimes(1);
 });
 
-test("an unknown lifecycle inspection retains the persisted writer lease", async () => {
-  const context = await fixture(async (_userId, _projectId, _provider, group, operation, input) => {
-    const call = (input as { call: { operationId: string; idempotencyKey: string; requestDigest: string } }).call;
-    if (group === "sandbox.lifecycle.v1") return { receipt: { ...call, outcome: "succeeded" as const }, resource: { resourceId: "resource-1", desiredState: "stopped" as const, observedState: "unknown" as const, limits } };
-    return { receipt: { ...call, outcome: "succeeded" as const }, process: { identity: { bootId: "boot", processId: "process" }, state: "running", outputCursor: 0 } };
-  });
+test("an unknown process inspection retains the persisted writer lease", async () => {
+  const context = await fixture();
+  context.local.processStart = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, process: { identity: { bootId: "boot", processId: "process" }, state: "running" as const, outputCursor: 0 } }));
+  context.local.processInspect = mock(async (input: any) => ({ receipt: { ...input.call, outcome: "succeeded" as const }, process: { identity: input.identity, state: "unknown" as const, outputCursor: 0 } }));
   const create = await admitCreate(context);
   await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
   const conversationId = crypto.randomUUID();
@@ -142,6 +142,23 @@ test("an unknown lifecycle inspection retains the persisted writer lease", async
   await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id);
   await context.controller.reconcileSandboxProcess(context.owner.id, create.projectId);
   await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "still-blocked", conversationId, payload: { path: "a", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
+});
+
+test("native runner journals a fresh process, reads output, and proves terminal inspection", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Native')`);
+  const workspace = await context.database.execute(sql`SELECT binding_id,revision FROM project_workspace_bindings WHERE project_id=${create.projectId}`) as { rows: Array<{ binding_id: string; revision: number }> };
+  const result = await context.controller.runNativeWorkspaceProcess({ projectId: create.projectId, bindingId: workspace.rows[0]!.binding_id, revision: Number(workspace.rows[0]!.revision) }, { argv: ["/usr/local/bin/bun", "/opt/ezharness/native-tools.js", "ZXhpdCAw"], timeoutMs: 1_000 }, undefined, { userId: context.owner.id, conversationId });
+  expect(result).toEqual({ stdout: "ok", exitCode: 0 });
+  expect(context.local.start).toHaveBeenCalledTimes(1);
+  expect(context.local.processStart).toHaveBeenCalled();
+  expect(context.local.processReadOutput).toHaveBeenCalled();
+  expect(context.local.processInspect).toHaveBeenCalled();
+  const operations = await context.database.execute(sql`SELECT id FROM sandbox_method_operations WHERE method='start'`) as { rows: Array<{ id: string }> };
+  expect(operations.rows[0]!.id).not.toContain("native:");
 });
 
 test("denies a user without project membership before operation execution", async () => {
@@ -160,4 +177,17 @@ test("rechecks the active acknowledged provider before execution after approval 
   expect(context.local.create).not.toHaveBeenCalled();
   const operation = await context.database.execute(sql`SELECT state FROM sandbox_operations WHERE id=${create.operation!.id}`) as { rows: Array<{ state: string }> };
   expect(operation.rows[0]!.state).toBe("admitted");
+});
+
+test("rejects a reviewed provider response that did not use the raw host callback", async () => {
+  const context = await fixture(async (_userId, _projectId, _provider, _group, _operation, input) => {
+    const call = (input as { call: { operationId: string; idempotencyKey: string; requestDigest: string } }).call;
+    return { receipt: { ...call, outcome: "succeeded" as const } };
+  });
+  const create = await admitCreate(context);
+  await expect(context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id)).rejects.toMatchObject({ code: "PROVIDER_RESULT_UNVERIFIED" });
+  await expect(context.controller.executeAdmittedLocalSandboxOperationRaw(context.owner.id, create.operation!.id)).rejects.toMatchObject({ code: "RAW_DISPATCH_DENIED" });
+  const operation = await context.database.execute(sql`SELECT state FROM sandbox_operations WHERE id=${create.operation!.id}`) as { rows: Array<{ state: string }> };
+  expect(operation.rows[0]!.state).toBe("admitted");
+  expect(context.local.create).not.toHaveBeenCalled();
 });
