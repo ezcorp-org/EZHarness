@@ -100,11 +100,44 @@ the one interface, the adapter, and a real proof.
   EVIDENCE: `typecheck.log`, `lint.log`, `boundaries.log`, `gate-integrity.log`, all exit 0.
 
 - [x] G9: Coverage gates against the branch point.
-  CHECK: `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts`; `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
-  EXPECT: both exit 0
-  EVIDENCE: `coverage.log`, `new-file-coverage.log`, `patch-coverage.log`. Three new source files
-  are registered at 100 in `scripts/coverage-thresholds.json`:
-  `src/factory/runner/guest-model-broker.ts`, `guest-model-journal.ts`, `provider-one-hop.ts`.
+  CHECK: `SHARD_INDEX=0 SHARD_TOTAL=1 COV_OUT=… bash scripts/test-coverage.sh`; `COVERAGE_LEGS_ONLY=1 COV_OUT=… bash scripts/test-coverage.sh`; `bun scripts/merge-lcov.ts '<all>/*.info' coverage/lcov.info`; `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts`; `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`; `bash scripts/python-quality.sh coverage`
+  EXPECT: both gates exit 0
+  EVIDENCE: `coverage-host-shard.log`, `coverage-legs.log`, `merge-lcov.log`,
+  `new-file-coverage.log`, `patch-coverage.log`, `python-coverage.log`.
+  `New-file coverage gate PASSED: 3 new source file(s) gated.`
+  `Patch coverage gate PASSED: all changed executable lines covered (10 file(s)).`
+  The host shard ran all 1785 files: `26615 pass | 4 fail`, the two failing files
+  (`hub-private-page-podman`, `substack-pilot-installer`, neither touched here) both passed the
+  isolated plain re-run and the shard exited 0. Python coverage is 100% across the locked
+  distribution, including `factory_validation.py` (348 statements, 250 branches) and `guest.py`.
+
+  Measured from `coverage/lcov.info`, every file this leaf adds or changes:
+
+  | File | Lines |
+  | --- | --- |
+  | `src/factory/runner/guest-model-broker.ts` | 56/56 |
+  | `src/factory/runner/guest-model-journal.ts` | 72/72 |
+  | `src/factory/runner/provider-one-hop.ts` | 55/55 |
+  | `src/factory/runner/host-launch-supervisor.ts` | 62/62 |
+  | `src/factory/runner/attempt-runtime.ts` | 379/379 |
+  | `src/factory/runner/python-guest.ts` | 37/37 |
+  | `packages/@ezcorp/factory-sdk/src/validation.ts` | 839/839 |
+  | `packages/@ezcorp/factory-sdk/src/schema.ts` | 96/96 |
+  | `packages/@ezcorp/factory-sdk/src/types.ts` | 42/42 |
+  | `packages/@ezcorp/factory-sdk/src/index.ts` | 13/13 |
+
+  **Why the lcov was assembled rather than taken from `bun run test:coverage`.** Full mode
+  requires a browser-route coverage receipt (`BROWSER_COVERAGE_RAW`, `BROWSER_COVERAGE_LCOV`),
+  which is produced by a Playwright lane against a real PostgreSQL service. I am not permitted to
+  create or restart that service, so full mode fails at
+  `::error::browser route coverage is required` and never writes `coverage/lcov.info` — it left a
+  stale 510-file file behind, against which both gates reported "NO lcov data" for every changed
+  file including long-standing covered ones. That is a measurement failure, not a coverage
+  failure, and is recorded in `coverage.log` and `coverage-driver.log` rather than deleted.
+  Host-shard mode plus legs-only mode produce the same per-file lcov without the browser receipt,
+  and `merge-lcov.ts` is the same merger full mode uses. The per-file threshold gate
+  (`check-coverage.ts`) is NOT meaningful on this merge and was not claimed: it needs the web and
+  vitest legs this assembly omits, so it reports 701 files short, none of them touched here.
 
 - [x] G10: The contract is recorded where consumers read it.
   EVIDENCE: a dated 2026-09-20 line in interface freeze section 16, at
