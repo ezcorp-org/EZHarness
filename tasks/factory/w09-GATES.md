@@ -529,6 +529,7 @@ proved separately in `repro/real-server-factory-probe.json`.
 | `src/__tests__/factory-service-routes.test.ts` | 2 pass / 0 fail, 12 assertions |
 | `src/factory/release-fence.test.ts` | 8 pass / 0 fail |
 | `src/factory/tenant-projects.test.ts` | 9 pass / 0 fail |
+| `src/factory/runner/attempt-preflight.test.ts` | 12 pass / 0 fail |
 | `factory-tenant-projects` conformance, PGlite and real PostgreSQL | 5 pass / 0 fail on each engine |
 | `web` Vitest: `factory-boot.server`, `context-initialization.server`, `factories.server`, `context-register-preview-bus.server`, `context-state-mediator-wiring.server` | 42 pass / 0 fail across 5 files |
 | `tests/postgres/factory-{boot,schema,private-service,migration-restart}` | 12 pass / 0 fail, each file's own exit code 0 |
@@ -540,14 +541,16 @@ proved separately in `repro/real-server-factory-probe.json`.
 
 Logs and receipt JSON per producer under `/tmp/factory-platform-evidence/w09/`.
 
-Fourteen new source files, each at 100% line coverage after merge:
+Fifteen new source files, each at 100% line coverage after merge:
 `background-workers.ts`, `startup-config.ts`, `service-probes.ts`,
 `service-readiness.ts`, `runtime-seams.ts`, `runtime-workers.ts`,
 `runtime-composition.ts`, `release-composition.ts`, `installation-startup.ts`,
 `role-drivers.ts`, `release-fence.ts`, `tenant-projects.ts`,
-`runner/supervisor-process.ts`, and `web/src/lib/server/factory-boot.ts`. The
-thirteenth is the release fence reader and the fourteenth is the project
-enumerator; it was twelve before the integration merge.
+`runner/attempt-preflight.ts`, `runner/supervisor-process.ts`, and
+`web/src/lib/server/factory-boot.ts`. The last three are the release fence
+reader, the project enumerator, and the dispatch preflight; it was twelve before
+the first integration merge. Both `BASE_REF=integ/w00` gates pass over the
+prescribed per-leg merge: 15 new source files gated, 21 changed files covered.
 
 Every receipt under `/tmp/factory-platform-evidence/w09/` names the commit it
 was produced at, and every one cited here was regenerated at the final commit
