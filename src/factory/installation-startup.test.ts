@@ -92,7 +92,7 @@ async function writeReadyRecords(root: string): Promise<void> {
     .write({ lifecycle: "ready", databaseReady: true, schemaReady: true, listenerReady: true });
   await createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({
     installationId: "installation-01", hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 5_000,
-  })).write({ lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true } });
+  })).write({ lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } });
 }
 
 function bootConfig(root: string, overrides: Partial<FactoryBootConfig> = {}): FactoryBootConfig {
@@ -259,7 +259,7 @@ describe("startFactoryInstallation", () => {
     await writeFile(join(root, "supervisor.json"), JSON.stringify({
       schemaVersion: "factory.supervisor-readiness.v1", service: "host-supervisor",
       installationId: "installation-01", instanceId: "host-01", lifecycle: "ready",
-      observedAtMs: Date.now() - 120_000, facts: { hostKeyReady: true, runnerReady: true },
+      observedAtMs: Date.now() - 120_000, facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false },
     }), { mode: 0o600 });
     await chmod(join(root, "supervisor.json"), 0o600);
 

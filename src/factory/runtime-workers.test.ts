@@ -93,9 +93,10 @@ describe("registerFactoryRuntimeWorkers", () => {
     expect(set.workers.names()).toEqual([]);
     expect(set.held.map((held) => held.role)).toEqual([...FACTORY_WORKER_ROLES]);
     // W01b corrected the old reason: readiness is a database read, so the
-    // missing piece is the runtime and this installation's configuration for
-    // it, not a container runner in this process.
-    expect(set.held.find((held) => held.role === "attempt-dispatch")!.reason).toContain("host launch endpoint");
+    // missing piece is this installation's configuration for the remote
+    // runtime, not a container runner in this process. W09b assembled the
+    // role, so the reason now names what the assembly needs and could not get.
+    expect(set.held.find((held) => held.role === "attempt-dispatch")!.reason).toContain("hostLaunch endpoint");
   });
 
   test("distinguishes the two reasons a release outcome can be held", () => {
@@ -103,11 +104,14 @@ describe("registerFactoryRuntimeWorkers", () => {
     expect(withoutSeams.held.find((held) => held.role === "release-outcome")!.reason).toContain("sender fence");
 
     // Once every release collaborator is present the reason must name the one
-    // thing still missing, not repeat the collaborator list. W07's claimable
-    // scan landed and the composition now enumerates a tenant's projects, so
-    // the remaining gap is the resolver that turns a claim into a provider.
+    // thing still missing, not repeat the collaborator list. The resolver this
+    // reason used to name is built and covered (`factoryReleaseProviderResolver`),
+    // the claimable scan landed, and the composition enumerates a tenant's
+    // projects — so the remaining gap moved to the consent `claim` requires.
     const withSeams = registerFactoryRuntimeWorkers(collaborators({ seams: releaseSeams() }));
-    expect(withSeams.held.find((held) => held.role === "release-outcome")!.reason).toContain("FactoryReleaseProviderResolver");
+    const reason = withSeams.held.find((held) => held.role === "release-outcome")!.reason;
+    expect(reason).toContain("approved approval");
+    expect(reason).toContain("automatic policy");
   });
 
   test("maps every non-idle compute status to progress and only idle to no work", async () => {

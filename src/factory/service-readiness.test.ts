@@ -33,7 +33,7 @@ function options(root: string, overrides: Partial<FactoryServiceReadinessOptions
   };
 }
 
-const ready = { lifecycle: "ready" as const, facts: { hostKeyReady: true, runnerReady: true } };
+const ready = { lifecycle: "ready" as const, facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } };
 
 describe("factorySupervisorReadinessOptions", () => {
   test("names the service, its schema, and exactly the facts a supervisor observes", () => {
@@ -52,7 +52,7 @@ describe("createFactoryServiceReadinessWriter", () => {
     const scope = options(root);
     const writer = createFactoryServiceReadinessWriter(scope, () => now);
 
-    await writer.write({ lifecycle: "starting", facts: { hostKeyReady: true, runnerReady: false } });
+    await writer.write({ lifecycle: "starting", facts: { hostKeyReady: true, runnerReady: false , hostServicesReady: false } });
     const published = await writer.write(ready);
     expect(published).toMatchObject({ service: "host-supervisor", instanceId: "host-01", lifecycle: "ready", observedAtMs: 10_000 });
     expect(JSON.parse(await readFile(scope.readinessFilePath, "utf8"))).toEqual(published);
@@ -67,11 +67,11 @@ describe("createFactoryServiceReadinessWriter", () => {
     const root = await privateRoot();
     const scope = options(root);
     const writer = createFactoryServiceReadinessWriter(scope, () => 1_000);
-    expect(await writer.write({ lifecycle: "degraded", facts: { hostKeyReady: false, runnerReady: false }, errorCode: "runner_unreachable" }))
+    expect(await writer.write({ lifecycle: "degraded", facts: { hostKeyReady: false, runnerReady: false , hostServicesReady: false }, errorCode: "runner_unreachable" }))
       .toMatchObject({ lifecycle: "degraded", errorCode: "runner_unreachable" });
 
     await expect(writer.write({ lifecycle: "ready", facts: { hostKeyReady: true } })).rejects.toBeInstanceOf(FactoryServiceReadinessError);
-    await expect(writer.write({ lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true, extra: true } })).rejects.toBeInstanceOf(FactoryServiceReadinessError);
+    await expect(writer.write({ lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true, extra: true , hostServicesReady: false } })).rejects.toBeInstanceOf(FactoryServiceReadinessError);
     await expect(writer.write({ lifecycle: "ready", facts: ready.facts, errorCode: "NOT A CODE" })).rejects.toBeInstanceOf(FactoryServiceReadinessError);
     await expect(writer.write({ lifecycle: "wedged" as never, facts: ready.facts })).rejects.toBeInstanceOf(FactoryServiceReadinessError);
   });
@@ -112,7 +112,7 @@ describe("readFactoryServiceReadiness", () => {
     await expect(readFactoryServiceReadiness({ ...scope, service: "pool-admission" }, () => 10_000)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
     await expect(readFactoryServiceReadiness({ ...scope, readinessFilePath: join(root, "absent.json") }, () => 10_000)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
 
-    await createFactoryServiceReadinessWriter(scope, () => 10_000).write({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false } });
+    await createFactoryServiceReadinessWriter(scope, () => 10_000).write({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false , hostServicesReady: false } });
     await expect(readFactoryServiceReadiness(scope, () => 10_000)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
   });
 
@@ -120,7 +120,7 @@ describe("readFactoryServiceReadiness", () => {
     const root = await privateRoot();
     const scope = options(root);
     for (const body of ["{not json", "[]", '"text"', JSON.stringify({ schemaVersion: "other" }),
-      JSON.stringify({ ...{ schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA, service: "host-supervisor", installationId: "installation-01", instanceId: "host-01", lifecycle: "ready", observedAtMs: 1, facts: { hostKeyReady: true, runnerReady: true } }, surprise: 1 })]) {
+      JSON.stringify({ ...{ schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA, service: "host-supervisor", installationId: "installation-01", instanceId: "host-01", lifecycle: "ready", observedAtMs: 1, facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } }, surprise: 1 })]) {
       await writeFile(scope.readinessFilePath, body, { mode: 0o600 });
       await chmod(scope.readinessFilePath, 0o600);
       await expect(readFactoryServiceReadiness(scope, () => 1)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
@@ -134,7 +134,7 @@ describe("readFactoryServiceReadiness", () => {
       await writeFile(scope.readinessFilePath, JSON.stringify({
         schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA, service: "host-supervisor",
         installationId: "installation-01", instanceId: "host-01", lifecycle: "ready",
-        observedAtMs, facts: { hostKeyReady: true, runnerReady: true },
+        observedAtMs, facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false },
       }), { mode: 0o600 });
       await chmod(scope.readinessFilePath, 0o600);
       await expect(readFactoryServiceReadiness(scope, () => 1_000)).rejects.toBeInstanceOf(FactoryServiceReadinessError);

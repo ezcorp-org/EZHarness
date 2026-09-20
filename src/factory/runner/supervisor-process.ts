@@ -48,7 +48,9 @@
 import { createPrivateKey } from "node:crypto";
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { Runner } from "@ezcorp/extension-contract";
 import { privateDirectory, readPrivateBounded } from "../private-files";
+import { startFactoryHostServices } from "./supervisor-services";
 import {
   createFactoryServiceReadinessWriter,
   factorySupervisorReadinessOptions,
@@ -76,6 +78,25 @@ export interface FactorySupervisorProcessConfig {
   readonly runnerRoot: string;
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
+  /**
+   * Where this host publishes its launch and stop services.
+   *
+   * Optional, because a deployment whose container runner lives in the product
+   * process runs the in-process runtime and this host publishes nothing. When
+   * present every part is required: a port with no certificate cannot terminate
+   * mutual TLS, and a stop route with no key id file cannot sign what it
+   * observed. `hostKeyIdPath` is a FILE rather than the literal `hostKeyId`
+   * above because the stop route reloads the pair per signature, which is what
+   * makes key rotation work without restarting this process.
+   */
+  readonly services?: {
+    readonly hostname: string;
+    readonly port: number;
+    /** mTLS peer identities allowed to launch or stop on this host. */
+    readonly allowedPeers: readonly string[];
+    readonly hostKeyIdPath: string;
+    readonly tls: { readonly caPath: string; readonly certificatePath: string; readonly privateKeyPath: string };
+  };
 }
 
 export interface FactorySupervisorProcessDependencies {
@@ -87,6 +108,14 @@ export interface FactorySupervisorProcessDependencies {
    */
   readonly createRunnerProbe: () => FactoryHostRunnerProbe;
   readonly createReadiness: (config: FactorySupervisorProcessConfig) => FactoryServiceReadinessWriter;
+  /**
+   * Binds the launch and stop listener this host publishes.
+   *
+   * A dependency rather than a direct call so a test can exercise the whole
+   * lifecycle — bind after the first good probe, degrade when the bind fails,
+   * release on stop — without a real certificate and a real port.
+   */
+  readonly startServices: (config: FactorySupervisorProcessConfig, runner: FactoryHostRunner) => Promise<{ stop(): void }>;
   readonly wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly now: () => number;
 }
@@ -110,15 +139,35 @@ function integer(value: unknown, minimum: number, maximum: number): boolean {
   return Number.isSafeInteger(value) && (value as number) >= minimum && (value as number) <= maximum;
 }
 
+/**
+ * The host service section, exactly complete or entirely absent.
+ *
+ * Half a listener is not a listener: a port with no certificate refuses every
+ * connection, and a peer list of length zero authorizes nobody, so both are
+ * parse failures rather than a service that starts and turns everything away.
+ */
+function serviceSection(value: unknown): boolean {
+  if (!record(value)) return false;
+  const required = ["hostname", "port", "allowedPeers", "hostKeyIdPath", "tls"];
+  if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !required.includes(key))) return false;
+  if (!text(value.hostname) || !integer(value.port, 1, 65_535) || !text(value.hostKeyIdPath)) return false;
+  if (!Array.isArray(value.allowedPeers) || value.allowedPeers.length < 1 || value.allowedPeers.length > 64
+    || value.allowedPeers.some((peer) => !text(peer))) return false;
+  const tls = value.tls;
+  const tlsKeys = ["caPath", "certificatePath", "privateKeyPath"];
+  return record(tls) && tlsKeys.every((key) => text(tls[key])) && Object.keys(tls).every((key) => tlsKeys.includes(key));
+}
+
 /** Strict parser. The document names paths and identities, never a key value. */
 export function parseFactorySupervisorProcessConfig(value: unknown): FactorySupervisorProcessConfig {
   const required = ["schemaVersion", "installationId", "hostId", "hostKeyPath", "hostKeyId", "runnerRoot", "readinessFilePath"];
-  const allowed = new Set([...required, "readinessHeartbeatMs"]);
+  const allowed = new Set([...required, "readinessHeartbeatMs", "services"]);
   if (!record(value) || required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.has(key))
     || value.schemaVersion !== CONFIG_SCHEMA
     || !text(value.installationId) || !text(value.hostId) || !text(value.hostKeyPath) || !text(value.hostKeyId)
     || !text(value.runnerRoot) || !text(value.readinessFilePath)
-    || (value.readinessHeartbeatMs !== undefined && !integer(value.readinessHeartbeatMs, 1_000, 60_000))) {
+    || (value.readinessHeartbeatMs !== undefined && !integer(value.readinessHeartbeatMs, 1_000, 60_000))
+    || (value.services !== undefined && !serviceSection(value.services))) {
     throw new Error("factory supervisor config is invalid");
   }
   return value as unknown as FactorySupervisorProcessConfig;
@@ -140,11 +189,19 @@ export async function loadFactoryHostKey(path: string): Promise<void> {
   createPrivateKey(Buffer.from(bytes));
 }
 
-/** The part of the container runner this process uses. */
-export interface FactoryHostRunner {
+/**
+ * The container runner this process holds, and everything it is used for.
+ *
+ * It was `initialize`/`close` while the probe was the only caller. The host
+ * launch and stop services run in this process now, so the same ONE instance
+ * also starts, inspects, aborts, and cancels guests — which is why the probe
+ * below hands the instance out rather than keeping it private. A second
+ * instance would take the store lease again and fail `runner_store_busy`.
+ */
+export type FactoryHostRunner = Runner & {
   initialize(): Promise<void>;
   close(): Promise<void>;
-}
+};
 
 export type FactoryHostRunnerLoader = () => Promise<new (options: { root: string }) => FactoryHostRunner>;
 
@@ -173,13 +230,24 @@ const loadPodmanRunner: FactoryHostRunnerLoader = async () => (await import("@ez
 export interface FactoryHostRunnerProbe {
   /** Prove the runner answers. Real work once; a no-op after that. */
   probe(config: FactorySupervisorProcessConfig): Promise<void>;
+  /**
+   * The initialized instance, once a probe has succeeded.
+   *
+   * Undefined before the first successful probe, which is deliberate: the host
+   * services must not be published by a process whose runner has not answered,
+   * because a launch accepted by a broken runner is an attempt that reports a
+   * start it never made.
+   */
+  instance(): FactoryHostRunner | undefined;
   /** Release the store lease, so the process leaves no `flock` child behind. */
   close(): Promise<void>;
 }
 
 export function factoryHostRunnerProbe(loadRunner: FactoryHostRunnerLoader = loadPodmanRunner): FactoryHostRunnerProbe {
   let runner: FactoryHostRunner | undefined;
+  let answered: FactoryHostRunner | undefined;
   return {
+    instance: () => answered,
     async probe(config: FactorySupervisorProcessConfig): Promise<void> {
       if (!runner) {
         const Runner = await loadRunner();
@@ -190,18 +258,51 @@ export function factoryHostRunnerProbe(loadRunner: FactoryHostRunnerLoader = loa
       // profile. It is also the only path W01 permits to sweep orphans, and a
       // daemon startup is exactly the caller that lesson names.
       await runner.initialize();
+      answered = runner;
     },
     async close(): Promise<void> {
       const current = runner;
       runner = undefined;
+      answered = undefined;
       await current?.close();
     },
   };
 }
 
+/**
+ * Bind the host services from the configured material.
+ *
+ * The certificate, key, and CA are read through the same bounded private reader
+ * the host key uses, so a world-readable server key is refused here rather than
+ * becoming a listener anybody can impersonate.
+ */
+export async function startFactoryConfiguredHostServices(
+  config: FactorySupervisorProcessConfig,
+  runner: FactoryHostRunner,
+): Promise<{ stop(): void }> {
+  const services = config.services;
+  if (services === undefined) throw new Error("factory supervisor host services are not configured");
+  const [ca, cert, key] = await Promise.all([
+    readPrivatePath(services.tls.caPath, MAX_KEY_BYTES),
+    readPrivatePath(services.tls.certificatePath, MAX_KEY_BYTES),
+    readPrivatePath(services.tls.privateKeyPath, MAX_KEY_BYTES),
+  ]);
+  const utf8 = (bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  return startFactoryHostServices({
+    hostId: config.hostId,
+    allowedPeers: services.allowedPeers,
+    runner,
+    signingKey: { hostId: config.hostId, privateKeyPath: config.hostKeyPath, keyIdPath: services.hostKeyIdPath },
+    tls: { ca: utf8(ca), cert: utf8(cert), key: utf8(key) },
+    hostname: services.hostname,
+    port: services.port,
+  });
+}
+
 export const factorySupervisorProductionDependencies: FactorySupervisorProcessDependencies = {
   loadHostKey: loadFactoryHostKey,
   createRunnerProbe: () => factoryHostRunnerProbe(),
+  startServices: startFactoryConfiguredHostServices,
   now: Date.now,
   createReadiness: (config) => createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({
     installationId: config.installationId,
@@ -227,7 +328,11 @@ interface SupervisorObservation {
   attempted: boolean;
   hostKeyReady: boolean;
   runnerReady: boolean;
-  /** When both facts were last observed TRUE. Zero means never. */
+  /** The launch and stop listener, bound. False when this host publishes none. */
+  hostServicesReady: boolean;
+  /** Whether this host is configured to publish them at all. */
+  servicesConfigured: boolean;
+  /** When every required fact was last observed TRUE. Zero means never. */
   observedAtMs: number;
   errorCode?: string;
 }
@@ -283,9 +388,14 @@ export function factorySupervisorRecord(
   nowMs: number,
   stalenessMs: number,
 ): FactoryServiceReadinessUpdate {
-  const facts = { hostKeyReady: observation.hostKeyReady, runnerReady: observation.runnerReady };
+  const facts = { hostKeyReady: observation.hostKeyReady, runnerReady: observation.runnerReady, hostServicesReady: observation.hostServicesReady };
   if (!observation.attempted) return { lifecycle: "starting", facts };
   if (observation.errorCode !== undefined) return { lifecycle: "degraded", facts, errorCode: observation.errorCode };
+  // A host that says it publishes launch and stop, and does not, is the exact
+  // false readiness that lets a product open admission for guests nobody can
+  // start. Configured-and-unbound degrades; configured-at-all is what makes the
+  // fact required, so a host that publishes none is unaffected.
+  if (observation.servicesConfigured && !observation.hostServicesReady) return { lifecycle: "degraded", facts, errorCode: "host_services_unavailable" };
   // Both facts were observed true. A heartbeat never keeps asserting a fact
   // nobody is still checking, so an observation that ages out degrades even
   // though the last thing it saw was good.
@@ -317,9 +427,11 @@ export async function runConfiguredFactorySupervisor(
   const heartbeatMs = config.readinessHeartbeatMs ?? 5_000;
   const timeoutMs = heartbeatMs * FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS;
   const stalenessMs = heartbeatMs * FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS;
-  const observation: SupervisorObservation = { attempted: false, hostKeyReady: false, runnerReady: false, observedAtMs: 0 };
+  const servicesConfigured = config.services !== undefined;
+  const observation: SupervisorObservation = { attempted: false, hostKeyReady: false, runnerReady: false, hostServicesReady: false, servicesConfigured, observedAtMs: 0 };
   const runnerProbe = dependencies.createRunnerProbe();
-  await readiness.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false } });
+  let services: { stop(): void } | undefined;
+  await readiness.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
 
   const observing = (async () => {
     while (!signal.aborted) {
@@ -329,7 +441,23 @@ export async function runConfiguredFactorySupervisor(
       observation.hostKeyReady = seen.hostKeyReady;
       observation.runnerReady = seen.runnerReady;
       observation.errorCode = seen.errorCode;
-      if (seen.hostKeyReady && seen.runnerReady) observation.observedAtMs = dependencies.now();
+      // The listener is bound once, after the runner has answered, and it stays
+      // bound: rebinding on every heartbeat would drop live connections, and
+      // binding before the first good probe would publish a host that accepts
+      // launches its runner cannot serve.
+      const runner = runnerProbe.instance();
+      if (servicesConfigured && services === undefined && seen.runnerReady && runner !== undefined) {
+        try {
+          services = await dependencies.startServices(config, runner);
+        } catch {
+          // Named, not swallowed: the record degrades with this code and the
+          // next heartbeat tries again, because a port held by a dying sibling
+          // frees itself and a certificate an operator fixes needs no restart.
+          observation.errorCode = "host_services_unavailable";
+        }
+      }
+      observation.hostServicesReady = services !== undefined;
+      if (seen.hostKeyReady && seen.runnerReady && (!servicesConfigured || observation.hostServicesReady)) observation.observedAtMs = dependencies.now();
       await dependencies.wait(heartbeatMs, signal);
     }
   })();
@@ -347,10 +475,13 @@ export async function runConfiguredFactorySupervisor(
     // would see the host and tell nobody.
     await Promise.all([observing, publishing]);
   } finally {
-    // Release the store lease before recording the stop, so a supervisor that
-    // has said `stopped` really is holding nothing.
+    // Release every held resource before recording the stop, so a supervisor
+    // that has said `stopped` really is holding nothing: the listener first, so
+    // no launch arrives for a runner that is closing, then the store lease.
+    services?.stop();
+    services = undefined;
     await runnerProbe.close();
-    await readiness.write({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false } });
+    await readiness.write({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
   }
 }
 

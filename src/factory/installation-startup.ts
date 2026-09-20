@@ -10,15 +10,19 @@
  *
  *   - It composes the stores and the roles that advance product state: the
  *     compute-admission outbox and poll, and the run-transition projector.
- *   - It does NOT host the execution gateway, the host supervisor, the pool, or
- *     the Node orchestrator. C02 makes each of those a separate process with
- *     different credentials, and C01 says the supervisor holds host identity
- *     and no tenant state. So this process reads each one's published readiness
- *     or asks it over its own transport; it never starts one.
- *   - It does NOT drive the attempt dispatcher. That needs a
- *     `TrustedFactoryRunner` and `FactoryPackagePreparations`, whose constructor
- *     requires a container `Runner`. The role holds by name here and registers
- *     unchanged in a process that does hold one.
+ *   - It does NOT host the host supervisor, the pool, or the Node orchestrator.
+ *     C02 makes each of those a separate process with different credentials,
+ *     and C01 says the supervisor holds host identity and no tenant state. So
+ *     this process reads each one's published readiness or asks it over its own
+ *     transport; it never starts one.
+ *   - It DOES drive the attempt dispatcher, with the guest running in the
+ *     supervisor process across the host launch transport. Every durable record
+ *     — the launch intent, its one-winner claim, the terminal result, the
+ *     completion and the outcome — stays here, and only the physical launch
+ *     crosses the wire. An earlier version of this comment said the role held
+ *     here because `FactoryPackagePreparations` requires a container runner;
+ *     W01b corrected that, and the correction is why the role now runs:
+ *     `assertDispatchReady` is a database read.
  *
  * Every failure is named and fails closed: a flag-on installation whose factory
  * cannot compose must not serve factory routes, and must not claim readiness.
@@ -27,11 +31,8 @@ import type { TransactionalDb } from "../db/migrations/types";
 import type { BlobStore } from "../extensions/v4/types";
 import { factoryBootConfig, type FactoryBootConfig } from "./boot";
 import { FactoryArtifacts } from "./artifacts";
-import { FactoryChildRuns, FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT, type FactorySettleableChild } from "./child-runs";
-import { FactoryCommandAuthority } from "./command-authority";
-import { FactoryComputeAdmissions } from "./compute-admissions";
-import { FactoryInbox } from "./inbox";
-import { createPoolAdmissionClient } from "./pool/client";
+import { type FactoryChildRuns, FACTORY_CHILD_SETTLEMENT_SCAN_LIMIT, type FactorySettleableChild } from "./child-runs";
+import { createPoolAdmissionClient, type PoolAdmissionClient } from "./pool/client";
 import { FactoryAssurance } from "./assurance";
 import { FactoryScopedMaterials } from "./artifact-materials";
 import { composeFactoryArchiveWriter, loadFactoryStorageCredentials } from "./release-composition";
@@ -45,12 +46,15 @@ import { factoryTenantProjectIds, factoryTenantProjects } from "./tenant-project
 import { FactoryRecords } from "./records";
 import { createFactoryProviderBroker, factoryProviderReadiness, factoryProviderReadinessRecord, type FactoryProviderPin } from "../providers/factory-broker";
 import type { FactoryBroker } from "../runtime/factory-execution";
-import { FactoryRunTransitionProjector } from "./run-transition-projector";
 import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
+import { factoryInstallationStores, type FactoryInstallationStores } from "./installation-stores";
+import { composeFactoryAttemptDispatch, factoryPackageReadiness, type FactoryHostPhysicalStopper } from "./attempt-composition";
+import { composeFactorySettlement } from "./dispatch-composition";
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
 import type { FactoryStorageProbeTarget } from "./service-probes";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
+import type { FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryApplication, FactoryApplicationOptions } from "./application";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryRoleDriver } from "./runtime-seams";
@@ -487,19 +491,21 @@ async function installationCollaborators(
   // A throwaway application only to reach the lifecycle the roles read. The
   // one the runtime configures is built inside `startFactoryRuntime`; both are
   // pure store wrappers over the same database, so neither owns state.
-  const stores = createFactoryApplication({
+  const application = createFactoryApplication({
     database: host.database,
     tenantId: config.tenantId,
     blobs,
     runOptions: host.runOptions,
     availableResourceClasses: host.availableResourceClasses,
   });
-  const projections = new FactoryRunTransitionProjector(host.database, config.tenantId, transitions, stores.runs);
 
-  const authority = new FactoryCommandAuthority(host.database, config.tenantId, stores.runs, transitions, [config.privateService.certificateIdentity]);
-  let compute: FactoryComputeAdmissions | undefined;
+  // One pool client, shared by admission, settlement, and the attempt runtime's
+  // start acknowledgement. Three clients would open three mutual-TLS sessions
+  // to the same endpoint and, worse, could disagree about which of them holds a
+  // lease when one of them is rotated.
+  let pool: PoolAdmissionClient | undefined;
   try {
-    const pool = await createPoolAdmissionClient({
+    pool = await createPoolAdmissionClient({
       tenantId: config.tenantId,
       baseUrl: config.pool.baseUrl,
       tls: {
@@ -509,27 +515,140 @@ async function installationCollaborators(
         serviceTokenPath: config.pool.serviceTokenPath,
       },
     });
-    compute = new FactoryComputeAdmissions(host.database, config.tenantId, authority, stores.runs.budgets, new FactoryInbox(host.database, config.tenantId), pool);
-  } catch {
-    compute = undefined;
+  } catch (error) {
+    host.report("pool-admission-client", error);
+    pool = undefined;
   }
+
   const service: TrustedFactoryServiceIdentity = { subject: config.privateService.certificateIdentity, tenantId: config.tenantId };
-  const children = new FactoryChildRuns(host.database, config.tenantId, authority, stores.runs, transitions);
+  const stores = factoryInstallationStores({
+    database: host.database,
+    tenantId: config.tenantId,
+    blobs,
+    application,
+    transitions,
+    serviceSubject: config.privateService.certificateIdentity,
+    ...(pool === undefined ? {} : { pool }),
+  });
+
+  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application.grants, pool);
+  const settlement = await composeSettlement(config, host, stores, service, pool);
 
   // The release store, and the one role it unblocks here. `release-outcome`
   // needs a second half this process still cannot build — see its held reason.
-  const releases = await installationReleases(config, host.database, blobs, stores.artifacts, stores, host.report);
+  const releases = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report);
   const notificationInbox = releases === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(releases), config.tenantId);
 
   return {
     workers: {
-      projections,
-      ...(compute === undefined ? {} : { compute }),
+      projections: stores.projections,
+      ...(stores.compute === undefined ? {} : { compute: stores.compute }),
+      ...(attempts === undefined ? {} : { attempts }),
       ...(notificationInbox === undefined ? {} : { notificationInbox }),
     },
     seams: {
-      childSettlement: factoryChildSettlementDriver(host.database, children, service, host.report),
+      childSettlement: factoryChildSettlementDriver(host.database, stores.children, service, host.report),
+      ...(settlement === undefined ? {} : {
+        physicalStopper: settlement.stopSettlement,
+        usageReconciler: settlement.usageReconciliation,
+      }),
     },
   };
+}
+
+/**
+ * The `attempt-dispatch` collaborator, when this installation can reach a host.
+ *
+ * Three facts have to hold and each absence is reported rather than silently
+ * dropping the role: the startup document declares a host launch endpoint, the
+ * pool client exists, and the task stores that record a completion or an
+ * outcome could be built. Missing any one of them, the role holds by name with
+ * the reason visible on `/api/ready`.
+ */
+async function composeAttemptDispatch(
+  config: FactoryStartupConfig,
+  host: FactoryInstallationHost,
+  blobs: BlobStore,
+  stores: FactoryInstallationStores,
+  grants: FactoryApplication["grants"],
+  pool: PoolAdmissionClient | undefined,
+): Promise<FactoryRuntimeWorkerCollaborators["attempts"]> {
+  const hostLaunch = config.hostLaunch;
+  if (hostLaunch === undefined || pool === undefined || stores.compute === undefined || stores.completions === undefined || stores.outcomes === undefined) return undefined;
+  try {
+    const stopper = await factoryHostStopper(config);
+    return await composeFactoryAttemptDispatch({
+      database: host.database,
+      config: { ...config, hostLaunch },
+      service: { subject: config.privateService.certificateIdentity, tenantId: config.tenantId },
+      queue: stores.queue,
+      completions: stores.completions,
+      outcomes: stores.outcomes,
+      admissions: stores.compute,
+      readiness: factoryPackageReadiness(host.database, config.tenantId, grants, blobs),
+      pool,
+      stopper,
+    });
+  } catch (error) {
+    host.report("attempt-dispatch-composition", error);
+    return undefined;
+  }
+}
+
+/**
+ * The host stop transport, as the narrow physical call the wire carries.
+ *
+ * See `factoryIntentPhysicalStop`: the runtime's post-result stop has no cancel
+ * command behind it, so it addresses the host with the physical coordinates
+ * alone. The cast is the whole narrowing and it is here, in one line, rather
+ * than spread through the runtime.
+ */
+async function factoryHostStopper(config: FactoryStartupConfig): Promise<FactoryHostPhysicalStopper> {
+  const { createFactoryHostStopClient } = await import("./host-stop-client");
+  const hostLaunch = config.hostLaunch;
+  if (hostLaunch === undefined) throw new FactoryInstallationStartupError("factory-startup-config-missing", "A host stop transport needs the host launch endpoint.");
+  const client = await createFactoryHostStopClient({
+    baseUrl: hostLaunch.baseUrl,
+    serverName: hostLaunch.serverName,
+    hostId: config.hostId,
+    tls: {
+      caPath: hostLaunch.tls.caPath,
+      certificatePath: hostLaunch.tls.certificatePath,
+      privateKeyPath: hostLaunch.tls.privateKeyPath,
+      serviceTokenPath: hostLaunch.tls.serviceTokenPath,
+    },
+  });
+  return (expectation, signal) => client.stop(expectation as Parameters<typeof client.stop>[0], signal);
+}
+
+/**
+ * The two settlement roles, when the host keys and the pool are both present.
+ *
+ * They compose together or not at all, because the usage reconciler reads its
+ * settlement scope through the very `FactoryTaskStops` the stop role drives.
+ */
+async function composeSettlement(
+  config: FactoryStartupConfig,
+  host: FactoryInstallationHost,
+  stores: FactoryInstallationStores,
+  service: TrustedFactoryServiceIdentity,
+  pool: PoolAdmissionClient | undefined,
+): Promise<{ readonly stopSettlement: FactoryRoleDriver; readonly usageReconciliation: FactoryRoleDriver } | undefined> {
+  if (pool === undefined || config.hostLaunch === undefined || config.hostStopKeys === undefined
+    || stores.compute === undefined || stores.outcomes === undefined) return undefined;
+  try {
+    const composed = await composeFactorySettlement({
+      database: host.database,
+      config,
+      stores: { ...stores, compute: stores.compute, outcomes: stores.outcomes },
+      pool,
+      service,
+      report: host.report,
+    });
+    return Object.freeze({ stopSettlement: composed.stopSettlement, usageReconciliation: composed.usageReconciliation });
+  } catch (error) {
+    host.report("settlement-composition", error);
+    return undefined;
+  }
 }

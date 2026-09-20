@@ -182,7 +182,7 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
   role("attempt-dispatch",
     attempts && (async () => progress((await attempts.dispatchOne()).kind === "idle")),
     "attempt-dispatcher", "W09",
-    "the driver and the host launch transport land with W01b; this installation still needs its host launch endpoint and attempt token secret configured");
+    "this installation declares no hostLaunch endpoint, or its pool admission client could not be built, so no attempt can be launched or its completion recorded");
 
   const projections = collaborators.projections;
   role("run-projection",
@@ -210,15 +210,29 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
 
   seamRole("child-settlement", "childSettlement",
     "the installation composes this from W06's scan and settle; it holds only where neither is reachable");
+  // `release-outcome` is the one role whose last collaborator is still absent,
+  // and the reason moved again. The resolver this package used to wait for is
+  // built (`factoryReleaseProviderResolver`), the claimable scan and the project
+  // enumerator both landed, and `factoryReleaseOutcomeDriver` is written and
+  // covered. What no production code produces is the CONSENT `FactoryReleases.claim`
+  // requires: an approved `factory_release_approvals` row or an automatic
+  // `factory_release_policies` row, selected for one claimable operation.
+  // `grep -n "factory_release_approvals\|factory_release_policies" src/factory/*.ts`
+  // finds only writers and by-id consumers — `assurance.ts` consumes an approval
+  // by id, `releases.ts` consumes a policy by id, and the only reader that
+  // returns an approval id is `listDeliveredNotifications`, an actor-scoped
+  // console read that needs grants a background role does not hold. Supplying a
+  // consent this composition chose would authorize a release nobody approved,
+  // which is the one substitute that cannot be walked back.
   seamRole("release-outcome", "releaseProviders", factoryReleaseSeamsPresent(collaborators.seams)
-    ? "the scan and the enumerator both landed; no production FactoryReleaseProviderResolver exists to dispatch a claim"
+    ? "no production reader maps a claimable operation to its approved approval or its automatic policy, and claim needs one (W05 owns factory_release_approvals, W07 owns the claimable scan)"
     : "a release outcome needs the provider resolver, the destination reservation, and the sender fence");
   seamRole("usage-reconciliation", "usageReconciler",
-    "the scan landed; a listed hold carries no attempt, operation, provider receipt digest, or measured usage, and reconcile needs all four");
+    "the reconciler composes with the stop settlement it shares a settlement authority with; both need the pool, the hostLaunch endpoint, and the configured hostStopKeys");
   seamRole("notification-send", "notificationSender",
     "a notification is not delivered until a sender confirms it left this host");
   seamRole("stop-settlement", "physicalStopper",
-    "the scan landed; FactoryTaskStops still needs a pool stop acknowledger and the host public keys, and neither exists");
+    "FactoryTaskStops needs the pool admission client, this installation's hostLaunch endpoint to reach the host stop service, and at least one configured hostStopKeys entry");
 
   return Object.freeze({ workers, held: Object.freeze(held) });
 }

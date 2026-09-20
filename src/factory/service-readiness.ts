@@ -163,8 +163,17 @@ export async function readFactoryServiceReadiness(
 
 export const FACTORY_SUPERVISOR_READINESS_SCHEMA = "factory.supervisor-readiness.v1";
 
-/** The facts a host supervisor observes about itself. Neither is a credential. */
-export const FACTORY_SUPERVISOR_FACTS = Object.freeze(["hostKeyReady", "runnerReady"] as const);
+/**
+ * The facts a host supervisor observes about itself. None is a credential.
+ *
+ * `hostServicesReady` is the launch and stop listener this host publishes. It
+ * joined the set when the supervisor became the process that hosts them: a
+ * supervisor whose key loads and whose runner answers still cannot start a
+ * guest if nothing is listening, and a product that dispatches over the host
+ * launch transport must be able to see that difference rather than infer it
+ * from a connection refused at the first dispatch.
+ */
+export const FACTORY_SUPERVISOR_FACTS = Object.freeze(["hostKeyReady", "runnerReady", "hostServicesReady"] as const);
 
 export function factorySupervisorReadinessOptions(input: {
   readonly installationId: string;

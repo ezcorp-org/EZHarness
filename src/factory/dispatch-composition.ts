@@ -13,16 +13,22 @@
  * a cost this file inferred; a release dispatches to the provider the
  * operation's persisted destination names, never to a default.
  */
+import { basename, dirname, resolve as resolvePath } from "node:path";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
-import type { FactoryTaskStops, FactoryStoppableAttempt } from "./task-stops";
+import { FactoryTaskStops, type FactoryStopHostKey, type FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
-import type { FactoryUsageReconciliation } from "./usage-settlement";
+import { FactoryUsageReconciliation } from "./usage-settlement";
 import type { FactoryClaimableRelease, FactoryReleaseOperation, FactoryReleaseProvider, FactoryReleases } from "./releases";
 import type { FactoryReleaseProviderResolver } from "./release-application";
 import type { FactoryPrincipal } from "./grants";
+import { createFactoryHostStopClient } from "./host-stop-client";
+import { privateDirectory, readPrivateBounded } from "./private-files";
+import type { PoolAdmissionClient } from "./pool/client";
+import type { FactoryInstallationStores } from "./installation-stores";
+import type { FactoryStartupConfig } from "./startup-config";
 
 /**
  * Settle the next accepted cancellation against a signed physical-stop receipt.
@@ -184,5 +190,122 @@ export function factoryReleaseOutcomeDriver(
       await releases.dispatch(claim, await providers.resolve(claim));
     },
     report: (claimable, error, disposition) => { report(`release-outcome:${disposition}:${claimable.operationId}`, error); },
+  });
+}
+
+/** A host public key file. Not a secret, read through the same bounded reader. */
+const MAX_HOST_PUBLIC_KEY_BYTES = 16 * 1024;
+
+export class FactoryStopCompositionError extends Error {
+  constructor(readonly code: "factory_stop_host_keys_missing" | "factory_stop_transport_missing", message: string) {
+    super(message);
+    this.name = "FactoryStopCompositionError";
+  }
+}
+
+/**
+ * The host public keys a physical-stop receipt is verified against.
+ *
+ * By reference in the document and by value only here, for the length of one
+ * composition. `FactoryTaskStops` takes the PEM text and calls
+ * `createPublicKey` itself, so this reads bytes and decides nothing: a key that
+ * is not a key fails there, by name, rather than being silently skipped and
+ * leaving a host whose receipts can never verify.
+ */
+export async function loadFactoryStopHostKeys(
+  configured: readonly { readonly hostId: string; readonly hostKeyId: string; readonly publicKeyPath: string }[],
+): Promise<readonly FactoryStopHostKey[]> {
+  if (configured.length === 0) {
+    throw new FactoryStopCompositionError("factory_stop_host_keys_missing",
+      "Settling a stop needs at least one configured host public key.");
+  }
+  const keys = await Promise.all(configured.map(async (entry) => {
+    const absolute = resolvePath(entry.publicKeyPath);
+    const directory = await privateDirectory(dirname(absolute));
+    let bytes: Uint8Array;
+    try {
+      bytes = await readPrivateBounded(directory, basename(absolute), MAX_HOST_PUBLIC_KEY_BYTES);
+    } finally {
+      await directory.close();
+    }
+    return Object.freeze({ hostId: entry.hostId, hostKeyId: entry.hostKeyId, publicKey: new TextDecoder("utf-8", { fatal: true }).decode(bytes) });
+  }));
+  return Object.freeze(keys);
+}
+
+/** What both settlement roles need beyond the stores they share. */
+export interface FactorySettlementCompositionOptions {
+  readonly database: TransactionalDb;
+  readonly config: FactoryStartupConfig;
+  readonly stores: FactoryInstallationStores & Required<Pick<FactoryInstallationStores, "compute" | "outcomes">>;
+  readonly pool: Pick<PoolAdmissionClient, "confirmStopped">;
+  readonly service: TrustedFactoryServiceIdentity;
+  readonly report: (role: string, error: unknown) => void;
+}
+
+export interface FactorySettlementComposition {
+  /** Also the settlement-scope authority the usage reconciler reads through. */
+  readonly stops: FactoryTaskStops;
+  readonly stopSettlement: FactoryRoleDriver;
+  readonly usageReconciliation: FactoryRoleDriver;
+}
+
+/**
+ * Compose both settlement roles, which share one `FactoryTaskStops`.
+ *
+ * They are composed together because they are not independent:
+ * `FactoryUsageReconciliation` takes a `FactoryUsageSettlementAuthority`, and
+ * the only production implementation of it is `FactoryTaskStops`. Building two
+ * would give the two roles different views of the same reservation scope.
+ *
+ * The stop transport is the host launch endpoint. The launch service and the
+ * stop service run in the same supervisor process and their paths do not
+ * collide (`/v1/host/launches` against `/v1/host/stops`), so one base URL and
+ * one client certificate serve both; a second endpoint would be a second
+ * deployment fact for no gain.
+ */
+export async function composeFactorySettlement(options: FactorySettlementCompositionOptions): Promise<FactorySettlementComposition> {
+  const { config, stores } = options;
+  if (config.hostLaunch === undefined) {
+    throw new FactoryStopCompositionError("factory_stop_transport_missing",
+      "Settling a stop needs the host launch endpoint to reach the host stop service.");
+  }
+  const stopper = await createFactoryHostStopClient({
+    baseUrl: config.hostLaunch.baseUrl,
+    serverName: config.hostLaunch.serverName,
+    hostId: config.hostId,
+    tls: {
+      caPath: config.hostLaunch.tls.caPath,
+      certificatePath: config.hostLaunch.tls.certificatePath,
+      privateKeyPath: config.hostLaunch.tls.privateKeyPath,
+      serviceTokenPath: config.hostLaunch.tls.serviceTokenPath,
+    },
+  });
+  const stops = new FactoryTaskStops(
+    options.database,
+    stores.authority,
+    stores.compute,
+    stores.journal,
+    stores.outcomes,
+    stores.queue,
+    stores.budgets,
+    stores.inbox,
+    stores.settlements,
+    stopper,
+    options.pool,
+    await loadFactoryStopHostKeys(config.hostStopKeys ?? []),
+  );
+  const reconciliation = new FactoryUsageReconciliation(
+    options.database,
+    config.tenantId,
+    stops,
+    stores.journal,
+    stores.budgets,
+    stores.settlements,
+  );
+  return Object.freeze({
+    stops,
+    stopSettlement: factoryStopSettlementDriver(options.database, stops, options.service, options.report),
+    usageReconciliation: factoryUsageReconciliationDriver(options.database, stores.budgets, reconciliation, options.report),
   });
 }
