@@ -190,5 +190,17 @@ the worker is confirmed stopped, and the deferred-variant path is gone.
 ## Receipts
 
 `/tmp/factory-platform-evidence/w11b/receipts.json` indexes every record.
+
+**One recorded digest drifted, and the index is now sealed last.** A validator
+found `logDigest` for `logs/gates.log` recorded as `sha256:9106502f…` where the
+file digested `sha256:f0a55e3b…`. The cause was ordering, not tampering: the
+gates producer APPENDS, and after the W01d correction the delta-gate reruns
+appended to that log while the correction script updated the commit and the
+result fields without recomputing the digest beside them. A digest nobody can
+reproduce is worth less than no digest, so the index is regenerated from the
+files on disk as the final step, after the last producer has run and after the
+commit it names. Every `*Digest` field is now derived by pairing it with its
+path field rather than written by hand, so an appended log cannot leave a stale
+value behind, and `generatedAt` records when the sealing happened.
 `logs/journey-mount.json`, `logs/publication.json`, `logs/gates.log`, and the
 two kept failing runs described in Deviations 1 and 2.
