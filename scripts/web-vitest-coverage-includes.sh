@@ -283,5 +283,6 @@ web_vitest_coverage_args() {
     "--coverage.include=src/routes/api/agent-configs/[id]/+server.ts"
     "--coverage.include=src/routes/api/agent-configs/generate/+server.ts"
     "--coverage.include=src/routes/api/projects/[id]/tool-permission-mode/+server.ts"
+    "--coverage.include=src/routes/api/mentions/search/+server.ts"
   )
 }
