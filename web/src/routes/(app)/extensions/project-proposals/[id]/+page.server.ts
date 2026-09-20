@@ -11,7 +11,12 @@ function actor(locals: App.Locals) {
 }
 
 export const load: PageServerLoad = async ({ locals, params }) => {
-  try { return await getProjectPullRequests().inspect(actor(locals), params.id); }
+  try {
+    const record = await getProjectPullRequests().inspect(actor(locals), params.id);
+    // `breadcrumbTail` names the subject in the Command Deck strip. `[id]` is
+    // an opaque proposal id; `owner/repo#12` is what the reviewer recognises.
+    return { ...record, breadcrumbTail: `${record.proposal.repository}#${record.proposal.number}` };
+  }
   catch (cause) { error(403, cause instanceof LifecycleError ? cause.message : "This project proposal cannot be reviewed."); }
 };
 

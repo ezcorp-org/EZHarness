@@ -1,4 +1,5 @@
 import { test, expect } from "./fixtures/test-base.js";
+import { expectDeckBreadcrumb } from "./fixtures/breadcrumb.js";
 import { makeProject, makeAgent, } from "./fixtures/data.js";
 
 const mobile = { width: 375, height: 812 };
@@ -142,7 +143,7 @@ test.describe("Mobile UX", () => {
 		await expect(page.getByText("Current session", { exact: true })).toBeVisible();
 	});
 
-	test("breadcrumb shows on mobile for agent detail", async ({ page, mockApi }) => {
+	test("the deck breadcrumb strip names the agent on mobile", async ({ page, mockApi }) => {
 		await page.setViewportSize(mobile);
 
 		await mockApi({
@@ -156,10 +157,19 @@ test.describe("Mobile UX", () => {
 		await page.goto("/agents/test-agent");
 		await expect(page.getByText("test-agent").first()).toBeVisible({ timeout: 5000 });
 
-		// Breadcrumb nav should be visible on mobile
-		const breadcrumb = page.locator("nav[aria-label='Breadcrumb']");
-		await expect(breadcrumb).toBeVisible();
-		await expect(breadcrumb.getByText("Agents")).toBeVisible();
+		// One breadcrumb on a phone, not two stacked: the Command Deck strip
+		// carries the section and the agent name, and the page adds none. The
+		// strip IS the accessible breadcrumb landmark (`<nav aria-label=
+		// "Breadcrumb">`), so this also pins its structure for a screen reader:
+		// an `<ol>` of crumbs, decorative separators hidden from the tree, a
+		// link back to the section list, and the current page marked as such.
+		await expectDeckBreadcrumb(page, { section: "Agents", tail: "test-agent" });
+		const strip = page.getByTestId("deck-breadcrumb");
+		// Every separator is decorative — none should reach the a11y tree.
+		await expect(strip.locator(".deck-breadcrumb__sep:not([aria-hidden='true'])")).toHaveCount(0);
+		const agentsCrumb = strip.getByRole("link", { name: "Agents" });
+		await expect(agentsCrumb).toHaveAttribute("href", "/agents");
+		await expect(strip.getByTestId("deck-breadcrumb-tail")).toHaveAttribute("aria-current", "page");
 	});
 
 	test("agent editor sections are collapsible on mobile", async ({ page, mockApi }) => {
@@ -209,7 +219,7 @@ test.describe("Mobile UX", () => {
 		await expect(desktopGrid.getByText("50", { exact: true })).toBeVisible();
 	});
 
-	test("breadcrumb links are clickable and navigate correctly", async ({ page, mockApi }) => {
+	test("the in-page back link returns to the agents list on mobile", async ({ page, mockApi }) => {
 		await page.setViewportSize(mobile);
 
 		await mockApi({
@@ -223,17 +233,15 @@ test.describe("Mobile UX", () => {
 		await page.goto("/agents/test-agent");
 		await expect(page.getByText("test-agent").first()).toBeVisible({ timeout: 5000 });
 
-		const breadcrumb = page.locator("nav[aria-label='Breadcrumb']");
-		await expect(breadcrumb).toBeVisible();
-
-		// The "Agents" link should navigate back to agents list
-		const agentsLink = breadcrumb.getByRole("link", { name: "Agents" });
-		await expect(agentsLink).toBeVisible();
-		await agentsLink.click();
+		// The strip's crumbs are plain text, so the in-page link is the phone's
+		// way back. It used to be desktop-only (`hidden md:block`).
+		const backLink = page.getByTestId("agent-back-link");
+		await expect(backLink).toBeVisible();
+		await backLink.click();
 		await expect(page).toHaveURL(/\/agents\/?$/);
 	});
 
-	test("breadcrumb has proper aria-label for accessibility", async ({ page, mockApi }) => {
+	test("the back link is reachable by its accessible name on mobile", async ({ page, mockApi }) => {
 		await page.setViewportSize(mobile);
 
 		await mockApi({
@@ -247,14 +255,12 @@ test.describe("Mobile UX", () => {
 		await page.goto("/agents/test-agent");
 		await expect(page.getByText("test-agent").first()).toBeVisible({ timeout: 5000 });
 
-		// Verify aria-label="Breadcrumb" is set on the nav element
-		const breadcrumb = page.locator("nav[aria-label='Breadcrumb']");
-		await expect(breadcrumb).toBeVisible();
-		await expect(breadcrumb).toHaveAttribute("aria-label", "Breadcrumb");
-
-		// Verify breadcrumb contains an ordered list
-		const ol = breadcrumb.locator("ol");
-		await expect(ol).toBeVisible();
+		// A screen reader has to be able to find the way back by name, not by
+		// position: the link is exposed with its own text, and it points at the
+		// list route.
+		const backLink = page.getByRole("link", { name: /Back to Agents/ });
+		await expect(backLink).toBeVisible();
+		await expect(backLink).toHaveAttribute("href", "/agents");
 	});
 
 	test("collapsible details sections can be toggled closed and reopened", async ({ page, mockApi }) => {

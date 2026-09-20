@@ -9,6 +9,7 @@
 	import { startAuthKeepalive } from "$lib/auth-keepalive.js";
 	import { clearResumeState, projectIdFromPath } from "$lib/resume-path.js";
 	import { isIconUrl } from "$lib/project-icon.js";
+	import { resolveBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
 	import ProjectRail from "$lib/components/ProjectRail.svelte";
 	import HubNavSection from "$lib/components/hub/HubNavSection.svelte";
 	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
@@ -257,18 +258,25 @@
 		] : []),
 	]);
 
-	// Command Deck breadcrumb: label for the current section, resolved from the
-	// active nav link (falls back to the first path segment). Pure presentation.
-	let breadcrumbLabel = $derived.by((): string => {
+	// Command Deck breadcrumb: the current section, resolved from the active
+	// nav link (falls back to the first path segment). `href` is the nav
+	// link's own href so the crumb can double as a link back to that
+	// section — `null` when the section came from the path-segment fallback,
+	// since there's no known route to link to. Pure presentation.
+	let breadcrumbSection = $derived.by((): { label: string; href: string | null } => {
 		const match = navLinks.find((l) => isLinkActive(l.href));
-		if (match) return match.label;
+		if (match) return { label: match.label, href: match.href };
 		const seg = page.url.pathname.split("/").filter(Boolean)[0];
-		return seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : "Home";
+		return { label: seg ? seg.charAt(0).toUpperCase() + seg.slice(1) : "Home", href: null };
 	});
 
-	// Optional page-supplied trailing crumb (e.g. the extension name on the
-	// author page). Pages set `breadcrumbTail` in their load data.
-	let breadcrumbTail = $derived(page.data.breadcrumbTail || null);
+	// Optional trailing crumb naming the subject of a detail route — the
+	// extension on the author page, the agent on `/agents/<name>`. One
+	// resolver serves every route; see `$lib/breadcrumb-tail.svelte.ts` for
+	// the three sources and why routes keyed only by an opaque id get none.
+	let breadcrumbTail = $derived(
+		resolveBreadcrumbTail(page.route.id, page.url.pathname, page.params, page.data.breadcrumbTail),
+	);
 
 </script>
 
@@ -495,17 +503,28 @@
 			></span>
 		</div>
 		{/if}
-		<!-- Desktop breadcrumb context strip (≥lg, non-chat routes). -->
+		<!-- Command Deck breadcrumb — the app's only breadcrumb landmark, shown
+		     at every viewport (not just ≥lg) on non-chat routes. The section
+		     crumb links back to its nav route when a tail names a subject
+		     beneath it. -->
 		{#if !isChatRoute}
-		<div class="hidden lg:flex deck-breadcrumb" data-deck-breadcrumb data-testid="deck-breadcrumb">
-			<span class="text-[var(--color-text-muted)]">{isGlobalProject ? "global" : (activeProject?.name ?? "workspace")}</span>
-			<span class="deck-breadcrumb__sep">/</span>
-			<span class="text-[var(--color-text-secondary)]">{breadcrumbLabel}</span>
-			{#if breadcrumbTail}
-			<span class="deck-breadcrumb__sep">/</span>
-			<span class="text-[var(--color-text-primary)]" data-testid="deck-breadcrumb-tail">{breadcrumbTail}</span>
-			{/if}
-		</div>
+		<nav aria-label="Breadcrumb" class="deck-breadcrumb" data-deck-breadcrumb data-testid="deck-breadcrumb">
+			<ol class="flex items-center gap-2">
+				<li class="text-[var(--color-text-muted)]">{isGlobalProject ? "global" : (activeProject?.name ?? "workspace")}</li>
+				<li aria-hidden="true" class="deck-breadcrumb__sep">/</li>
+				<li class="text-[var(--color-text-secondary)]" aria-current={breadcrumbTail ? undefined : "page"}>
+					{#if breadcrumbTail && breadcrumbSection.href}
+					<a href={breadcrumbSection.href} class="hover:underline">{breadcrumbSection.label}</a>
+					{:else}
+					{breadcrumbSection.label}
+					{/if}
+				</li>
+				{#if breadcrumbTail}
+				<li aria-hidden="true" class="deck-breadcrumb__sep">/</li>
+				<li class="text-[var(--color-text-primary)]" data-testid="deck-breadcrumb-tail" aria-current="page">{breadcrumbTail}</li>
+				{/if}
+			</ol>
+		</nav>
 		{/if}
 		{#if isChatRoute}
 			<div class="flex-1 relative">

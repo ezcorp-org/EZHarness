@@ -4,6 +4,15 @@
     "web/src/lib/components/UnsandboxedExtensionsBanner.svelte",
     "web/src/routes/(app)/+layout.svelte"
   ],
+  "web/e2e/agent-detail-breadcrumb.spec.ts": [
+    "web/src/routes/(app)/+layout.svelte",
+    "web/src/routes/(app)/agents/[name]/+page.svelte"
+  ],
+  "web/e2e/breadcrumb-tail.spec.ts": [
+    "web/src/routes/(app)/+layout.svelte",
+    "web/src/routes/(app)/runs/[id]/+page.svelte",
+    "web/src/routes/(app)/workflows/runs/[id]/+page.svelte"
+  ],
   "web/e2e/extension-author-heading.spec.ts": [
     "web/src/routes/(app)/+layout.svelte",
     "web/src/routes/(app)/extensions/author/+page.svelte"
