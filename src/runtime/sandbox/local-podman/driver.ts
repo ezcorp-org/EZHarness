@@ -26,7 +26,7 @@ function receipt(call: ProviderCall, outcome: "succeeded" | "failed" | "unknown"
 
 export class LocalPodmanDriver {
   private readonly config: LocalPodmanHostConfig; private readonly roots: ResourceRoot; private readonly images: WorkspaceImage; private readonly journal: DurableOperationJournal; private readonly supervisor: LocalProcessSupervisor; private readonly fileSystems = new Map<string, LocalWorkspaceFiles>(); private runtimeProof?: Promise<void>;
-  constructor(config: LocalPodmanHostConfig) { this.config = validateHostConfig(config); this.roots = new ResourceRoot(this.config.stateRoot); this.images = new WorkspaceImage(this.config); this.journal = new DurableOperationJournal(`${this.config.stateRoot}/operations`); this.supervisor = new LocalProcessSupervisor({ stateRoot: this.config.stateRoot, podmanPath: this.config.podmanPath, supervisorPath: this.config.supervisorPath, maxOutputBytes: 1024 * 1024, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid }, (resourceId) => this.resolveProcessResource(resourceId)); }
+  constructor(config: LocalPodmanHostConfig, dependencies: { workspaceImage?: WorkspaceImage } = {}) { this.config = validateHostConfig(config); this.roots = new ResourceRoot(this.config.stateRoot); this.images = dependencies.workspaceImage ?? new WorkspaceImage(this.config); this.journal = new DurableOperationJournal(`${this.config.stateRoot}/operations`); this.supervisor = new LocalProcessSupervisor({ stateRoot: this.config.stateRoot, podmanPath: this.config.podmanPath, supervisorPath: this.config.supervisorPath, maxOutputBytes: 1024 * 1024, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid }, (resourceId) => this.resolveProcessResource(resourceId)); }
   private async mutate<T extends { receipt: unknown }>(call: SandboxCreateInput["call"], effect: () => Promise<T>): Promise<T> {
     const begun = await this.journal.begin<T>(call);
     if (begun.kind === "replay") return begun.result;
@@ -41,9 +41,12 @@ export class LocalPodmanDriver {
     await this.images.create(paths.image, paths.mount, input.limits.diskBytes);
     const argv = createContainerArgv(this.config, resourceId, containerName, paths.mount, input.limits);
     const { code, stdout, timedOut } = await runBoundedCommand(argv, { timeoutMs: PODMAN_CREATE_TIMEOUT_MS, maxOutputBytes: PODMAN_OUTPUT_LIMIT });
-    if (code !== 0) return timedOut
-      ? { receipt: receipt(input.call, "unknown", { code: "create_unknown", message: "Container creation outcome is unknown.", retryable: true }) }
-      : { receipt: receipt(input.call, "failed", { code: "create_failed", message: "Container creation failed.", retryable: false }) };
+    if (code !== 0) {
+      if (timedOut) return { receipt: receipt(input.call, "unknown", { code: "create_unknown", message: "Container creation outcome is unknown.", retryable: true }) };
+      try { await this.images.destroy(paths.image, paths.mount); await this.roots.destroy(resourceId); }
+      catch { return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
+      return { receipt: receipt(input.call, "failed", { code: "create_failed", message: "Container creation failed.", retryable: false }) };
+    }
     const containerId = containerIdFromCreateOutput(stdout);
     if (containerId === null) return { receipt: receipt(input.call, "unknown", { code: "create_identity_unknown", message: "Podman did not return an exact container ID.", retryable: true }) } as SandboxCreateResult;
     const metadata: Metadata = { resourceId, containerId, containerName, configDigest: configurationDigest(this.config, input.limits), scope: input.call.scope, state: "stopped", limits: input.limits }; await this.roots.writeMetadata(resourceId, metadata);
