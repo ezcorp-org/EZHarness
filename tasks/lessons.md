@@ -884,3 +884,39 @@
 - A reserved name in a shared adapter is a real constraint, not a naming preference. `manifest.json` belongs to the S3 publication manifest and no member may take it, which is obvious in hindsight and cost a full real-services run to discover. Read the member grammar before choosing member names.
 - A receipt taken while the tree is changing is not a receipt. I started a fifteen-minute producer, then edited three files, and the recorded "no dirty files" was true at start and false by the end. Commit first, run second, and re-run everything on the final tree.
 - `argparse.REMAINDER` swallows flags that follow the positional. `receipt.py label --lock -- cmd` put `--lock` into the command; `receipt.py --lock label -- cmd` is the working order. Worth knowing before losing a long run to it.
+
+## 2026-09-20 — W13 composition and the legacy adapter
+
+- A declared field that nothing reads is not a feature, and its type will not tell you. `releaseMode`
+  had a union in `types.ts`, an `enum` in five generated JSON Schemas, a `required` entry in each,
+  and three literals in the reference definitions — and no runtime code anywhere read it, so the
+  composite definition it configured could not have executed at all. Grep for the READER before
+  believing a declared enum is implemented; `grep` for the writer finds the literals and reassures.
+- `Omit<T, K>` does not stop a caller handing in a whole `T`. A seal built as
+  `digestObject({ schemaVersion, ...value })` silently folded the excluded `revoked` flag and the
+  seal itself back in, so every stored attestation read back as corrupt. Name every field a digest
+  covers; a spread into a sealing function is a spread into the seal.
+- A `const` initialised with a string literal still WIDENS in an object-literal property, so
+  `typeof MY_CONST` as a field type stops matching the moment the value is read rather than inlined.
+  `as const` on the declaration, not at the use site, is what fixes it — and `as const` applied to a
+  reference is a compile error that names something else entirely.
+- `isUniqueViolation` looks exactly one level down from what it is handed, and drizzle already
+  spends that level. A caller that wraps the error again — `persistCritical` wraps it in a
+  `WorkflowCursorWriteError` — puts the SQLSTATE out of reach without changing a line of either
+  module. Unwrap the one envelope you know you added; walking `cause` blindly would make an
+  unrelated nested error look like a conflict.
+- Revert the fix and watch the test go red, even when the fix is two tokens. Mine looked obviously
+  right; the revert is what showed that exactly two of the four new cases depended on it, and which
+  two.
+- Attribute a derived finding to the walk that produced it. The shared closure walk yields
+  capabilities per DEFINITION, so a classifier's findings are per definition; inventing per-step
+  attribution would have meant a second walk of the same graph, which is the divergence the one
+  shared walk exists to prevent. Say what the attribution is in the type's doc rather than implying
+  a precision the data does not have.
+- Two trees that may not import each other can still be held equal by a parity test that reads one
+  as TEXT. The factory cannot import a bundled v4 extension to learn its storage key layout, and a
+  mirrored copy silently rots; a test that parses the extension's own `const` declarations and
+  compares them fails on the rename instead of the exclusion quietly matching nothing.
+- A crash-recovery path that runs only after a crash is a path nothing exercises. Making the
+  key lookup unconditional — every start looks the run up before creating one — removed the special
+  case, and the same code is now covered by the ordinary test as well as the crash test.
