@@ -96,6 +96,36 @@ test("replays a settled operation without a second provider effect and admits id
   expect(context.local.start).toHaveBeenCalledTimes(1);
 });
 
+test("replays a concurrent lifecycle admission after its insert conflicts", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const database = context.database as unknown as { execute(query: unknown): Promise<unknown> };
+  const execute = database.execute.bind(database);
+  let lookupCount = 0;
+  let releaseLookups!: () => void;
+  const bothLookups = new Promise<void>(resolve => { releaseLookups = resolve; });
+  database.execute = async query => {
+    const text = ((query as { queryChunks?: Array<{ value?: string }> }).queryChunks ?? []).map(chunk => chunk.value ?? "").join("");
+    if (text.includes("SELECT * FROM sandbox_operations WHERE binding_id=") && !text.includes("ORDER BY")) {
+      lookupCount++;
+      if (lookupCount === 2) releaseLookups();
+      await bothLookups;
+    }
+    return execute(query);
+  };
+  try {
+    const [first, second] = await Promise.all([
+      context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "concurrent-start" }),
+      context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "concurrent-start" }),
+    ]);
+    expect(lookupCount).toBe(3);
+    expect(second).toEqual(first);
+  } finally {
+    database.execute = execute;
+  }
+});
+
 test("persists a process writer lease and denies an interleaved file writer", async () => {
   const context = await fixture();
   const create = await admitCreate(context);

@@ -361,11 +361,12 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       if (current.resource.observedState === "destroyed") throw new SandboxControllerError("RESOURCE_DESTROYED", "This sandbox has been disposed");
       if (!input.idempotencyKey) throw new SandboxControllerError("INVALID_INPUT", "An idempotency key is required");
       const value = { resourceId: current.resource.resourceId }; const digest = await sha256(canonicalJson(value)); const id = crypto.randomUUID();
+      const replay = (operation: Row) => {
+        if (operation.actor_id !== userId || operation.action !== input.action || operation.input_digest !== digest) throw new SandboxControllerError("IDEMPOTENCY_CONFLICT", "Idempotency key is already bound to another request");
+        return { id: String(operation.id), action: operation.action as AdmittedSandboxOperation["action"], state: operation.state as AdmittedSandboxOperation["state"], input: value, provider: current.provider };
+      };
       const existing = rows(await getDb().execute(sql`SELECT * FROM sandbox_operations WHERE binding_id=${current.bindingId} AND idempotency_key=${input.idempotencyKey}`))[0];
-      if (existing) {
-        if (existing.actor_id !== userId || existing.action !== input.action || existing.input_digest !== digest) throw new SandboxControllerError("IDEMPOTENCY_CONFLICT", "Idempotency key is already bound to another request");
-        return { id: String(existing.id), action: existing.action as AdmittedSandboxOperation["action"], state: existing.state as AdmittedSandboxOperation["state"], input: value, provider: current.provider };
-      }
+      if (existing) return replay(existing);
       if (input.action === "destroy") {
         const pendingDestroy = rows(await getDb().execute(sql`SELECT * FROM sandbox_operations WHERE binding_id=${current.bindingId} AND resource_id=(SELECT id FROM sandbox_resources WHERE binding_id=${current.bindingId}) AND action='destroy' AND state IN ('admitted','running','unknown') ORDER BY created_at DESC LIMIT 1`))[0];
         if (pendingDestroy) {
@@ -374,7 +375,11 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         }
       }
       const inserted = rows(await getDb().execute(sql`INSERT INTO sandbox_operations (id,binding_id,resource_id,actor_id,action,idempotency_key,input_digest,request_key_digest,input) VALUES (${id},${current.bindingId},(SELECT id FROM sandbox_resources WHERE binding_id=${current.bindingId}),${userId},${input.action},${input.idempotencyKey},${digest},${digest},${JSON.stringify(value)}) ON CONFLICT DO NOTHING RETURNING id`))[0];
-      if (!inserted) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox operation is already admitted or running");
+      if (!inserted) {
+        const raced = rows(await getDb().execute(sql`SELECT * FROM sandbox_operations WHERE binding_id=${current.bindingId} AND idempotency_key=${input.idempotencyKey}`))[0];
+        if (raced) return replay(raced);
+        throw new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox operation is already admitted or running");
+      }
       return { id, action: input.action, state: "admitted", input: value, provider: current.provider };
     },
     async executeAdmittedLocalSandboxOperation(userId, operationId) {
