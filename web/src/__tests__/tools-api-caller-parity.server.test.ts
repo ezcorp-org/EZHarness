@@ -15,7 +15,7 @@
  * bun-only zero-hit `DA` records on the declaration lines of its multi-line
  * signatures — lines V8 never emits — and `merge-lcov.ts` sums per (SF,
  * line), so the module's coverage would DROP without a line of it becoming
- * less tested. See the coverage trap in the root CLAUDE.md.
+ * less tested. See the coverage trap in the root AGENTS.md.
  */
 import { describe, test, expect, vi, beforeEach } from "vitest";
 

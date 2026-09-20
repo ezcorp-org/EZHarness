@@ -47,7 +47,7 @@ featureFiles
   PRIMARY KEY (featureId, relpath)
 ```
 
-**Mention grammar update** — extend the table in `CLAUDE.md`:
+**Mention grammar update** — extend the table in `AGENTS.md`:
 
 | Sigil | Kind | Token | Source |
 |---|---|---|---|
@@ -169,4 +169,4 @@ The raw `$[feature:…]` token stays in user-visible text; the LLM sees substitu
 - **`.gitignore` parsing:** the existing `@[file:…]` resolver reads `.gitignore`; we'll reuse that helper. If it doesn't already handle nested ignores, that gap surfaces here too.
 - **Slug collisions:** two top-level dirs named the same in different roots (e.g. `src/components/` and `web/src/components/`). Mitigation: prefix with parent root segment when collision detected (`web-components` vs `src-components`).
 - **PGlite vs external Postgres:** schema must work on both. The existing schema already uses `pgTable` and the migrations target both, so following that pattern is fine.
-- **CLAUDE.md mention-grammar table:** must be updated atomically with the sigil regex change to keep docs honest.
+- **AGENTS.md mention-grammar table:** must be updated atomically with the sigil regex change to keep docs honest.

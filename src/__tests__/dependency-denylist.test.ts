@@ -1,4 +1,4 @@
-// The "don't add replaced deps" list in CLAUDE.md, enforced instead of stated.
+// The "don't add replaced deps" list in AGENTS.md, enforced instead of stated.
 //
 // `biome.json`'s `style/noRestrictedImports` denies the modules at the IMPORT
 // site, with the reason in the diagnostic text (the direct analog of a Rust
@@ -35,11 +35,13 @@
 import { test, expect, describe } from "bun:test";
 import { Glob } from "bun";
 import { join } from "node:path";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 
 /**
- * Every module `biome.json` must deny, with the CLAUDE.md replacement each one
+ * Every module `biome.json` must deny, with the AGENTS.md replacement each one
  * loses to. Kept as the substring the diagnostic message has to mention so a
  * future edit can't degrade a reason into a bare "don't use this".
  */
@@ -58,7 +60,7 @@ const DENIED: ReadonlyArray<{ module: string; mustMention: string }> = [
 
 /**
  * `vitest` is the one denial with a sanctioned home: `web/` runs the Svelte
- * component/server suites on it (CLAUDE.md "Testing"), so `web/package.json`
+ * component/server suites on it (AGENTS.md "Testing"), so `web/package.json`
  * declares it and the `web/**` biome override permits importing it there.
  * Every other tree — backend, worker, packages, extensions, examples — is
  * bun:test only.
@@ -204,11 +206,15 @@ describe("dependency denylist", () => {
     // under `src/` must be denied both modules, the identical probe under
     // `web/` only the non-exempt one.
     const probe = 'import "express";\nimport "vitest";\n';
-    const backend = join(REPO_ROOT, "src", "__denylist-probe.ts");
-    const web = join(REPO_ROOT, "web", "src", "lib", "__denylist-probe.ts");
-    await Bun.write(backend, probe);
-    await Bun.write(web, probe);
+    // Keep the real config and relative paths, but never add probe imports to
+    // the checkout while TypeScript, Svelte or another test process scans it.
+    const fixture = await mkdtemp(join(tmpdir(), "dependency-denylist-"));
+    const backend = join(fixture, "src", "__denylist-probe.ts");
+    const web = join(fixture, "web", "src", "lib", "__denylist-probe.ts");
     try {
+      for (const path of ["biome.json", ".gitignore"]) await Bun.write(join(fixture, path), Bun.file(join(REPO_ROOT, path)));
+      await Bun.write(backend, probe);
+      await Bun.write(web, probe);
       const proc = Bun.spawnSync(
         [
           join(REPO_ROOT, "node_modules", ".bin", "biome"),
@@ -218,8 +224,9 @@ describe("dependency denylist", () => {
           backend,
           web,
         ],
-        { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" },
+        { cwd: fixture, stdout: "pipe", stderr: "pipe" },
       );
+      expect(proc.stdout.length, proc.stderr.toString()).toBeGreaterThan(0);
       const report = JSON.parse(proc.stdout.toString()) as {
         diagnostics: Array<{ location?: { path?: string }; message?: unknown }>;
       };
@@ -238,8 +245,7 @@ describe("dependency denylist", () => {
       expect(backendHits.length).toBe(2);
       expect(webHits.length).toBe(1);
     } finally {
-      await Bun.file(backend).delete();
-      await Bun.file(web).delete();
+      await rm(fixture, { recursive: true, force: true });
     }
   }, 60_000);
 });

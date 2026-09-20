@@ -124,7 +124,13 @@ test.each([
     expect(providerRequest.headers.get("authorization")).toBe("Bearer openai-test-key");
     expect(providerRequest.payload.model).toBe(model);
   } else if (provider === "anthropic") {
-    expect(providerRequest.url).toBe("https://anthropic.test/v1/messages");
+    // `?beta=true` since pi-ai 0.85.1: the provider switched from
+    // `client.messages.create` to `client.beta.messages.create`, and the SDK
+    // marks that namespace on the query string. Asserted exactly, not
+    // loosened to a prefix — the flag is a real change in which Anthropic API
+    // surface this app's traffic lands on, and it should have to be
+    // re-confirmed if it moves again.
+    expect(providerRequest.url).toBe("https://anthropic.test/v1/messages?beta=true");
     expect(providerRequest.headers.get("x-api-key")).toBe("anthropic-test-key");
     expect(providerRequest.payload.model).toBe(model);
   } else {

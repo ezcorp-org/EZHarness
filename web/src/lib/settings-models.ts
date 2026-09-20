@@ -56,7 +56,7 @@ export function hasModelId(models: CustomModelEntry[], modelId: string): boolean
  * `src/runtime/routing/llm-providers.ts` — the backend's single provider
  * table — and pinned to it by `settings-models.unit.test.ts`, which parses
  * that file rather than importing it (importing a `src/**` module from the
- * vitest leg is the coverage trap documented in the root CLAUDE.md).
+ * vitest leg is the coverage trap documented in the root AGENTS.md).
  *
  * `kilo` is LAST deliberately: it is the keyless free-tier provider, so it can
  * only ever add an answer where a deployment had none.

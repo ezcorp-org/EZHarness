@@ -25,7 +25,7 @@ export default defineConfig({
 		allowedHosts: ['nixos-amd.taile1c5b0.ts.net'],
 		watch: {
 			// `.ezcorp/` is the runtime extension-data store (gitignored,
-			// see CLAUDE.md), not source. In the container it's a volume
+			// see AGENTS.md), not source. In the container it's a volume
 			// mounted INSIDE the Vite root (`/app/web/.ezcorp`), so when an
 			// extension persists files there — e.g. extension-author
 			// host-materializing a draft's `tsconfig.json` — Vite's tsconfig
