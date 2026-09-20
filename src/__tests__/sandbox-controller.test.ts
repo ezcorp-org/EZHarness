@@ -310,3 +310,17 @@ test("native deadline uses the injected clock, waits, cancels, and reconciles", 
   expect(sleeps).toBe(1);
   expect(context.local.processCancel).toHaveBeenCalled();
 });
+
+test("a disposed workspace cannot be restarted or reserve the next task slot again", async () => {
+  const context = await fixture();
+  const created = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id);
+  const dispose = await context.controller.requestSandboxAction(context.owner.id, created.projectId, { action: "destroy", idempotencyKey: "dispose" });
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, dispose.id);
+  for (const action of ["start", "stop", "destroy"] as const) {
+    await expect(context.controller.requestSandboxAction(context.owner.id, created.projectId, { action, idempotencyKey: `after-disposal-${action}` })).rejects.toMatchObject({ code: "RESOURCE_DESTROYED" });
+  }
+  const next = await context.controller.createSandboxProject(context.owner.id, { name: "Next task", idempotencyKey: "next-task", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits });
+  expect(next.projectId).not.toBe(created.projectId);
+  expect((await context.controller.getProjectSandboxStatus(context.owner.id, created.projectId)).resource?.observedState).toBe("destroyed");
+});

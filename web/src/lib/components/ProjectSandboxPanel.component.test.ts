@@ -68,3 +68,14 @@ describe("ProjectSandboxPanel", () => {
 		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Provider operation failed"));
 	});
 });
+
+
+test("disposed workspaces keep history accessible but cannot issue lifecycle commands", async () => {
+	const fetch = vi.fn().mockResolvedValue(response({ state: "destroyed" }));
+	vi.stubGlobal("fetch", fetch);
+	const view = render(ProjectSandboxPanel, { projectId: "sandbox", sandbox: true });
+	await waitFor(() => expect(view.getByText("destroyed", { exact: true })).toBeVisible());
+	for (const name of ["Start", "Stop", "Dispose…"]) expect(view.getByRole("button", { name, exact: true })).toBeDisabled();
+	expect(view.getByRole("link", { name: "Open chat" })).toHaveAttribute("href", "/project/sandbox");
+	expect(fetch).toHaveBeenCalledTimes(1);
+});

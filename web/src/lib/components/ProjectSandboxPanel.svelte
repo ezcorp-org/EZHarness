@@ -10,6 +10,7 @@
 	let busy = $state(false);
 	let error = $state("");
 	let disposeOpen = $state(false);
+	const disposed = $derived(status?.state === "destroyed");
 
 	async function load() {
 		error = "";
@@ -51,8 +52,8 @@
 	</div>
 	{#if error}<p class="mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>{/if}
 	{#if sandbox}
-		<div class="mt-4 flex flex-wrap gap-2"><button class="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={busy} onclick={() => action("start")}>Start</button><button class="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm" disabled={busy} onclick={() => action("stop")}>Stop</button><a class="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm" href={`/project/${projectId}`}>Open chat</a><button class="ml-auto rounded-md px-3 py-1.5 text-sm text-red-700 hover:bg-red-500/10 dark:text-red-300" disabled={busy} onclick={() => disposeOpen = true}>Dispose…</button></div>
-		{#if disposeOpen}<div class="mt-4 rounded-md border border-red-500/30 bg-red-500/10 p-3"><p class="text-sm text-red-700 dark:text-red-300">Dispose this sandbox permanently? Workspace changes cannot be recovered.</p><div class="mt-3 flex gap-2"><button class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white" disabled={busy} onclick={() => action("destroy")}>Dispose sandbox</button><button class="rounded-md px-3 py-1.5 text-sm" onclick={() => disposeOpen = false}>Cancel</button></div></div>{/if}
+		<div class="mt-4 flex flex-wrap gap-2"><button class="rounded-md bg-blue-600 px-3 py-1.5 text-sm text-white disabled:opacity-50" disabled={busy || disposed} onclick={() => action("start")}>Start</button><button class="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm" disabled={busy || disposed} onclick={() => action("stop")}>Stop</button><a class="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm" href={`/project/${projectId}`}>Open chat</a><button class="ml-auto rounded-md px-3 py-1.5 text-sm text-red-700 hover:bg-red-500/10 dark:text-red-300" disabled={busy || disposed} onclick={() => disposeOpen = true}>Dispose…</button></div>
+		{#if disposeOpen}<div class="mt-4 rounded-md border border-red-500/30 bg-red-500/10 p-3"><p class="text-sm text-red-700 dark:text-red-300">Dispose this sandbox permanently? Workspace changes cannot be recovered.</p><div class="mt-3 flex gap-2"><button class="rounded-md bg-red-600 px-3 py-1.5 text-sm text-white" disabled={busy || disposed} onclick={() => action("destroy")}>Dispose sandbox</button><button class="rounded-md px-3 py-1.5 text-sm" onclick={() => disposeOpen = false}>Cancel</button></div></div>{/if}
 	{:else if providers.length}
 		<div class="mt-4 grid gap-2 sm:grid-cols-2">{#each providers as provider}<button class="rounded-md border border-[var(--color-border)] p-3 text-left hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50" disabled={busy || !provider.ready} onclick={() => create(provider)}><span class="block text-sm font-medium text-[var(--color-text-primary)]">{provider.label}</span><span class="mt-1 block text-xs text-[var(--color-text-muted)]">{provider.ready ? "Create a dedicated sandbox" : provider.reason ?? "Needs review"}</span></button>{/each}</div>
 	{:else}<p class="mt-4 text-sm text-[var(--color-text-muted)]">No reviewed local sandbox provider is available. Install and review a provider to create one.</p>{/if}

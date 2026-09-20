@@ -91,4 +91,8 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   await panel.getByRole("button", { name: "Dispose…" }).click();
   await panel.getByRole("button", { name: "Dispose sandbox", exact: true }).click();
   await expect(panel.getByText("destroyed", { exact: true })).toBeVisible();
+  for (const name of ["Start", "Stop", "Dispose…"]) await expect(panel.getByRole("button", { name, exact: true })).toBeDisabled();
+  const forbiddenRestart = await request.post(`/api/projects/${project.id}/sandbox`, { headers: { "Idempotency-Key": crypto.randomUUID() }, data: { action: "start" } });
+  expect(forbiddenRestart.status()).toBe(409);
+  expect((await forbiddenRestart.json()).code).toBe("RESOURCE_DESTROYED");
 });
