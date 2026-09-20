@@ -52,6 +52,7 @@ describe("invokeSandboxProvider", () => {
   let bindingId: string;
   let reference: { installationId: string; providerId: string; releaseId: string; releaseBinding: string; generation: number };
   let response: unknown;
+  let hostResults: Map<string, unknown>;
   let dispatches: number;
   let registry: ExtensionRegistry;
 
@@ -64,6 +65,7 @@ describe("invokeSandboxProvider", () => {
     const [project, authorProject] = await db.insert(projects).values([{ name: "Sandbox Project", path: "/tmp/project" }, { name: "Author Project", path: "/tmp/author-project" }]).returning();
     userId = user!.id;
     dispatches = 0;
+    hostResults = new Map();
     projectId = project!.id;
     authorProjectId = authorProject!.id;
     await db.insert(projectMembers).values({ userId, projectId });
@@ -84,7 +86,8 @@ describe("invokeSandboxProvider", () => {
           if (method !== "extension/dispatch") throw new Error(`Unexpected ${method}`);
           dispatches += 1;
           const dispatch = params as { input: Record<string, unknown>; context: unknown };
-          const api = await reverse("ezcorp/api.request", { context: dispatch.context, input: { method: "POST", path: `/api/local-sandbox/operations/${call.operationId}/execute` } });
+          const operationId = String((dispatch.input.call as { operationId: string }).operationId);
+          const api = await reverse("ezcorp/api.request", { context: dispatch.context, input: { method: "POST", path: `/api/local-sandbox/operations/${operationId}/execute` } });
           expect(api).toEqual({ status: 200, body: JSON.stringify(response) });
           return response;
         } };
@@ -100,7 +103,9 @@ describe("invokeSandboxProvider", () => {
     await db.execute(sql`INSERT INTO sandbox_provider_bindings (id, project_id, owner_id, installation_id, provider_id, release_id, release_binding, generation, config_revision, config_digest, state) VALUES (${bindingId}, ${projectId}, ${userId}, ${installationId}, 'local', ${releaseId}, ${reference.releaseBinding}, 1, 1, ${"c".repeat(64)}, 'active')`);
     configureHostApiTransport({ request: async (actingUserId, request) => {
       expect(actingUserId).toBe(userId);
-      expect(request).toEqual({ method: "POST", path: `/api/local-sandbox/operations/${call.operationId}/execute` });
+      expect(request).toEqual({ method: "POST", path: expect.stringMatching(/^\/api\/local-sandbox\/operations\/[a-zA-Z0-9_-]+\/execute$/) });
+      const operationId = request.path.split("/")[4]!;
+      hostResults.set(operationId, response);
       return { status: 200, body: JSON.stringify(response) };
     }, events: async () => ({ cursor: "0", events: [] }) });
   });
@@ -110,6 +115,15 @@ describe("invokeSandboxProvider", () => {
   test("runs the reviewed release through the authenticated host API broker", async () => {
     response = { receipt: { ...call, outcome: "succeeded" }, resource: { resourceId: "resource", desiredState: "stopped", observedState: "stopped", limits } };
     await expect(invokeSandboxProvider(userId, projectId, reference, "sandbox.lifecycle.v1", "create", { call: { scope: { projectId, bindingId, generation: 1 }, ...call }, profile: "linux-exec.v1", limits })).resolves.toEqual(response);
+  });
+
+  test("returns a persisted canonical destroy result through the reviewed reply", async () => {
+    const destroyCall = { operationId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID(), requestDigest: "d".repeat(64) };
+    response = { receipt: { ...destroyCall, outcome: "succeeded" }, resource: { resourceId: "resource", desiredState: "destroyed", observedState: "destroyed", limits } };
+    const input = { call: { scope: { projectId, bindingId, generation: 1 }, ...destroyCall }, resourceId: "resource" };
+
+    await expect(invokeSandboxProvider(userId, projectId, reference, "sandbox.lifecycle.v1", "destroy", input)).resolves.toEqual(response);
+    expect(hostResults.get(destroyCall.operationId)).toEqual(response);
   });
 
   test("denies missing members, inactive users, revoked bindings, and forged provider results", async () => {
