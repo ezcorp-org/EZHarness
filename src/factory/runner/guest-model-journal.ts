@@ -92,6 +92,15 @@ export function createFactoryJournalGuestModelJournal(options: FactoryJournalGue
       const workspaceCheckpoint = await options.workspace.checkpoint({ operationId: operation.operationId, operationIndex: operation.operationIndex, attempt: authority, result });
       await options.journal.settle(authority, operation.operationId, "completed", { providerReceiptDigest: completion.providerReceiptDigest, resultDigest: digest(result), result, usage: completion.usage, workspaceCheckpoint });
     },
+    async hold(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void> {
+      const authority = factoryGuestModelAuthority(attempt);
+      const operation = factoryGuestModelOperation(request);
+      // Exactly the receipt and the usage, and nothing else. `reconcileLate`
+      // compares the stored row field for field against what a later caller
+      // passes, so a result digest or a checkpoint written here would make the
+      // reconciliation that recovers this cost fail as a mismatch.
+      await options.journal.settle(authority, operation.operationId, "uncertain", { providerReceiptDigest: completion.providerReceiptDigest, usage: completion.usage });
+    },
     async fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, reason: string): Promise<void> {
       const authority = factoryGuestModelAuthority(attempt);
       const operation = factoryGuestModelOperation(request);
@@ -109,12 +118,17 @@ export function createFactoryJournalGuestModelJournal(options: FactoryJournalGue
  * for what it is: nothing here survives the process, so no product path may
  * use it.
  */
-export function createFactoryMemoryGuestModelJournal(): FactoryGuestModelJournal & { readonly recorded: readonly { operationId: string; providerReceiptDigest: string; usage: unknown }[] } {
+export function createFactoryMemoryGuestModelJournal(): FactoryGuestModelJournal & {
+  readonly recorded: readonly { operationId: string; providerReceiptDigest: string; usage: unknown }[];
+  readonly held: readonly { operationId: string; providerReceiptDigest: string; usage: unknown }[];
+} {
   const states = new Map<string, "dispatched" | "settled">();
   const recorded: { operationId: string; providerReceiptDigest: string; usage: unknown }[] = [];
+  const held: { operationId: string; providerReceiptDigest: string; usage: unknown }[] = [];
   const key = (attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest) => `${attempt.authority.attemptId}:${request.operationId}`;
   return Object.freeze({
     recorded,
+    held,
     async claim(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest): Promise<FactoryGuestModelClaim> {
       const state = states.get(key(attempt, request));
       if (state === "settled") return { claimed: false, reason: "settled" };
@@ -125,6 +139,10 @@ export function createFactoryMemoryGuestModelJournal(): FactoryGuestModelJournal
     async record(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void> {
       states.set(key(attempt, request), "settled");
       recorded.push({ operationId: request.operationId, providerReceiptDigest: completion.providerReceiptDigest, usage: { ...completion.usage } });
+    },
+    async hold(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void> {
+      states.set(key(attempt, request), "settled");
+      held.push({ operationId: request.operationId, providerReceiptDigest: completion.providerReceiptDigest, usage: { ...completion.usage } });
     },
     async fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest): Promise<void> {
       states.set(key(attempt, request), "settled");

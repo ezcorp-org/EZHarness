@@ -716,7 +716,10 @@ export function validateFactoryGuestModelResponse(value: unknown): ValidationRes
   if (encodedBytes(response.text as unknown as JsonValue) > FACTORY_GUEST_MODEL_LIMITS.maxResponseBytes) {
     return issue("GUEST_MODEL_RESPONSE_BYTES", `A guest model response exceeds ${FACTORY_GUEST_MODEL_LIMITS.maxResponseBytes} bytes.`, ["text"]);
   }
-  if (!validDigest(response.providerReceiptDigest, false)) return issue("GUEST_MODEL_RECEIPT", "A completed model call carries its provider receipt digest.", ["providerReceiptDigest"]);
+  // Prefixed, because this digest is what settles the call. `FactoryUsageReconciliation`
+  // enforces `^sha256:[0-9a-f]{64}$` and refuses a bare digest through the same branch it uses
+  // for a tampered one, so the two shapes may not differ across this boundary.
+  if (!validDigest(response.providerReceiptDigest, true)) return issue("GUEST_MODEL_RECEIPT", "A completed model call carries its prefixed provider receipt digest.", ["providerReceiptDigest"]);
   return validateUsage(response.usage, ["usage"]);
 }
 

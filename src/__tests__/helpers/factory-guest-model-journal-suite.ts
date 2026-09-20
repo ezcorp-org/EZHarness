@@ -1,7 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import type { FactoryGuestModelRequest, FactoryModelPin, FactoryRunnerRequest, JsonValue } from "@ezcorp/factory-sdk";
+import type { FactoryGuestModelRequest, FactoryModelPin, FactoryRunnerRequest, FactoryRunnerResult, JsonValue } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
+import { validateFactoryTerminalUsage } from "../../factory/journal-validation";
+import { FactoryInbox } from "../../factory/inbox";
+import { FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
 import type { MigrateDb, TransactionalDb } from "../../db/migrations/types";
 import { releaseRows } from "../../db/queries/extension-releases";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
@@ -23,6 +26,8 @@ const TENANT = "guest-model-tenant";
 const PROJECT = "guest-model-project";
 const RUN = "guest-model-run";
 const NODE = "guest-model-node";
+const RESERVATION = "guest-model-reservation";
+const ENVELOPE = "guest-model-envelope";
 
 const pin: FactoryModelPin = { provider: "anthropic", model: "claude-opus-5", configurationDigest: DIGEST, configuration: {}, policyDigest: DIGEST, policy: {} };
 
@@ -54,7 +59,16 @@ function guestRequest(index: number, overrides: Partial<FactoryGuestModelRequest
 }
 
 function completionFor(index: number): FactoryModelCompletion {
-  return { text: `answer ${index}`, providerReceiptDigest: `${index}`.padStart(64, "d"), usage: { kind: "measured", inputTokens: 3 + index, outputTokens: 5, computeMs: 7, costMicros: `${100 + index}` } };
+  // Prefixed, exactly as `factoryProviderReceiptDigest` emits it, because the
+  // reconciliation path refuses any other shape.
+  return { text: `answer ${index}`, providerReceiptDigest: `sha256:${`${index}`.padStart(64, "d")}`, usage: { kind: "measured", inputTokens: 3 + index, outputTokens: 5, computeMs: 7, costMicros: `${100 + index}` } };
+}
+
+/** A promise plus the function that settles it, so a test awaits an OBSERVED event. */
+function signal(): { readonly reached: Promise<void>; arrive: () => void } {
+  let arrive: (() => void) | undefined;
+  const reached = new Promise<void>(resolve => { arrive = resolve; });
+  return { reached, arrive: () => arrive?.() };
 }
 
 export interface FactoryGuestModelJournalFixture {
@@ -72,6 +86,10 @@ export function factoryGuestModelJournalConformance(createFixture: () => Promise
     await db.execute(sql`INSERT INTO factory_installation(singleton, tenant_id, execution_epoch) VALUES (1, ${TENANT}, 1)`);
     await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES (${TENANT}, ${PROJECT})`);
     await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES (${TENANT}, ${PROJECT}, ${RUN}, ${DIGEST}, 'test', 1, 'request', '{}')`);
+    // A real reservation in a settleable state, because the reconciliation path
+    // settles the budget hold and refuses an unknown reservation.
+    await db.execute(sql`INSERT INTO factory_budget_envelopes(tenant_id, project_id, run_id, envelope_id, request_digest, limits, allocated, spent, deadline_ms, state) VALUES (${TENANT}, ${PROJECT}, ${RUN}, ${ENVELOPE}, ${DIGEST}, '{}', '{}', '{}', 2000000000000, 'open')`);
+    await db.execute(sql`INSERT INTO factory_budget_reservations(tenant_id, project_id, run_id, reservation_id, envelope_id, request_digest, amount, state) VALUES (${TENANT}, ${PROJECT}, ${RUN}, ${RESERVATION}, ${ENVELOPE}, ${DIGEST}, '{"costMicros":"1000"}', 'uncertain')`);
   });
 
   afterAll(async () => { await fixture?.close(); });
@@ -82,13 +100,17 @@ export function factoryGuestModelJournalConformance(createFixture: () => Promise
     const journal = new FactoryExecutionJournal(db, async (_transaction, current) => { authorized.push(current.attemptId); });
     const attempt = authority();
     const request = runnerRequest(attempt);
-    await journal.admit({ ...attempt, requestDigest: factoryRunnerRequestDigest(request), request });
+    // The durable authority carries the canonical request digest, which is what
+    // every journal read fences on. The placeholder on `attempt` is not it.
+    const sealed: FactoryAttemptAuthority = { ...attempt, requestDigest: factoryRunnerRequestDigest(request) };
+    await journal.admit({ ...sealed, request });
 
     const checkpoints: string[] = [];
     let held: Promise<void> | undefined;
+    let reachedProvider: { readonly reached: Promise<void>; arrive: () => void } | undefined;
     let answers = 0;
     const instance = createFactoryGuestModelBroker({
-      provider: { complete: async (guest) => { answers += 1; await held; return completionFor(guest.operationIndex); } },
+      provider: { complete: async (guest) => { answers += 1; reachedProvider?.arrive(); await held; return completionFor(guest.operationIndex); } },
       journal: createFactoryJournalGuestModelJournal({
         journal,
         workspace: { checkpoint: async (input) => { checkpoints.push(input.operationId); return { artifactId: `checkpoint-${input.operationIndex}`, digest: `sha256:${"c".repeat(64)}`, encodedBytes: 4, journalCursor: input.operationIndex }; } },
@@ -114,14 +136,43 @@ export function factoryGuestModelJournalConformance(createFixture: () => Promise
     expect(answers).toBe(1);
 
     // A second caller while the first holds the claim is refused as busy.
+    //
+    // The arrival at the provider is AWAITED, never spun on. `journal.claim` is
+    // a socket round trip on a real server, and a `while (…) await
+    // Promise.resolve()` loop enqueues a fresh microtask every turn, so the
+    // event loop never reaches its I/O phase and the query result can never
+    // arrive. That spins at full CPU forever; it passed on PGlite only because
+    // PGlite settles through microtasks.
     let release: (() => void) | undefined;
     held = new Promise<void>(resolve => { release = resolve; });
+    reachedProvider = signal();
     const pending = instance.call(request, guestRequest(1));
-    while (answers === 1) await Promise.resolve();
+    await reachedProvider.reached;
     expect(await instance.call(request, guestRequest(1))).toMatchObject({ status: "refused", refusal: { code: "operation_busy" } });
     release?.();
     expect((await pending).status).toBe("completed");
     held = undefined;
+
+    // A completed call settles the ordinary way: the terminal result's usage is
+    // the sum of its operations' measured usage, which is what the budget hold
+    // settles on at stop. No receipt digest is involved in that path.
+    // Read here, before the refusal cases below add operations with no measured
+    // usage: a completed terminal requires EVERY journal operation to carry one.
+    const evidence = await journal.operations(sealed);
+    const completedModel = evidence.filter(operation => operation.state === "completed");
+    expect(completedModel.map(operation => operation.operationId)).toEqual([`${RUN}:${NODE}:0:0`, `${RUN}:${NODE}:0:1`]);
+    const summed = { kind: "measured" as const, inputTokens: 3 + 4, outputTokens: 10, computeMs: 14, costMicros: "201" };
+    const terminal = {
+      schemaVersion: "factory.runner.result.v1", status: "completed", journalCursor: 1,
+      operations: completedModel.map(operation => ({ operationId: operation.operationId, operationIndex: operation.operationIndex, kind: operation.kind, requestDigest: operation.requestDigest, state: "completed", resultDigest: operation.resultDigest, usage: operation.usage, workspaceCheckpoint: operation.workspaceCheckpoint })),
+      resultDigest: "e".repeat(64), output: { artifactId: "guest-model-output", digest: `sha256:${"e".repeat(64)}`, encodedBytes: 8 },
+      usage: summed, workspaceCheckpoint: { artifactId: "checkpoint-1", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 4, journalCursor: 1 },
+    } as unknown as FactoryRunnerResult;
+    expect(validateFactoryTerminalUsage(terminal, evidence)).toEqual({ ok: true });
+    // A terminal usage that does not equal the sum of what the model calls cost
+    // is refused, so the completed path cannot quietly under-report.
+    expect(validateFactoryTerminalUsage({ ...terminal, usage: { ...summed, costMicros: "1" } } as unknown as FactoryRunnerResult, evidence).ok).toBe(false);
+
 
     // A provider failure settles the claim as failed rather than stranding it.
     const failing = createFactoryGuestModelBroker({
@@ -132,5 +183,49 @@ export function factoryGuestModelJournalConformance(createFixture: () => Promise
     const [failed] = releaseRows<{ state: string; usage_json: unknown }>(await db.execute(sql`SELECT state, usage_json FROM factory_execution_operations WHERE attempt_id=${attempt.attemptId} AND operation_id=${`${RUN}:${NODE}:0:2`}`));
     expect(failed?.state).toBe("failed");
     expect(failed?.usage_json).toBeNull();
+
+    // A call whose provider outcome is lost leaves the operation UNCERTAIN with
+    // the receipt and the cost retained, which is the only state the resolver
+    // will consider.
+    const lost = createFactoryGuestModelBroker({
+      provider: { complete: async () => completionFor(3) },
+      journal: createFactoryJournalGuestModelJournal({ journal, workspace: { checkpoint: async () => { throw new Error("the completed settlement was lost"); } } }),
+    });
+    const refused = await lost.call(request, guestRequest(3));
+    expect(refused).toMatchObject({ status: "refused", refusal: { code: "provider_unavailable" } });
+    expect((refused as { refusal: { message: string } }).refusal.message).toContain("held as uncertain for reconciliation");
+    const [uncertain] = releaseRows<{ state: string; provider_receipt_digest: string; usage_json: unknown; result_digest: string | null; workspace_checkpoint: unknown }>(await db.execute(sql`SELECT state, provider_receipt_digest, usage_json, result_digest, workspace_checkpoint FROM factory_execution_operations WHERE attempt_id=${attempt.attemptId} AND operation_id=${`${RUN}:${NODE}:0:3`}`));
+    expect(uncertain?.state).toBe("uncertain");
+    expect(uncertain?.provider_receipt_digest).toBe(completionFor(3).providerReceiptDigest);
+    // Nothing but the receipt and the cost, so `reconcileLate` matches it later.
+    expect(uncertain?.result_digest).toBeNull();
+    expect(uncertain?.workspace_checkpoint).toBeNull();
+
+    // The real resolver settles it. The scope seam is the one the reconciliation
+    // class declares so it need not depend on the stop store; everything else
+    // here — the journal, the settlements, the reconciliation itself — is real.
+    const settlements = new FactoryUsageSettlements(db, TENANT, new FactoryInbox(db, TENANT));
+    const budgetSettlements: { costMicros: string; tokens: number; computeMs: number; receipt: string }[] = [];
+    const reconciler = new FactoryUsageReconciliation(db, TENANT, {
+      readSettlementScopeInTransaction: async () => ({ projectId: PROJECT, runId: RUN, interpreterId: "root", reservationId: RESERVATION, authority: sealed }),
+    }, journal, {
+      settleInTransaction: async (_transaction, _key, actual, receiptDigest) => { budgetSettlements.push({ ...actual, receipt: receiptDigest }); },
+    }, settlements);
+
+    const hold = { projectId: PROJECT, runId: RUN, reservationId: RESERVATION, envelopeId: ENVELOPE, heldCostMicros: "1000", uncertainty: "provider outcome lost", cursor: { createdAtMs: 1, runId: RUN, reservationId: RESERVATION } };
+    const resolved = await reconciler.resolve(hold);
+    expect(resolved).toEqual({
+      kind: "resolved", reservationId: RESERVATION, attemptId: attempt.attemptId,
+      operationId: `${RUN}:${NODE}:0:3`, providerReceiptDigest: completionFor(3).providerReceiptDigest,
+      usage: completionFor(3).usage,
+    });
+    if (resolved.kind !== "resolved") throw new Error("the resolver did not settle the held operation");
+    const facts = { reservationId: resolved.reservationId, attemptId: resolved.attemptId, operationId: resolved.operationId, providerReceiptDigest: resolved.providerReceiptDigest, usage: resolved.usage };
+    const reconciled = await reconciler.reconcile(facts);
+    expect(reconciled).toMatchObject({ source: "reconciliation", knownCostMicros: completionFor(3).usage.costMicros, providerReceiptDigest: completionFor(3).providerReceiptDigest });
+    expect(budgetSettlements).toEqual([{ costMicros: "103", tokens: 11, computeMs: 7, receipt: completionFor(3).providerReceiptDigest }]);
+    // One receipt, one settlement: reconciling again returns the same row.
+    expect(await reconciler.reconcile(facts)).toEqual(reconciled);
+    expect(budgetSettlements).toHaveLength(1);
   });
 }

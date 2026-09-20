@@ -205,7 +205,7 @@ def guest_model_response(**overrides: Json) -> dict[str, Json]:
         "status": "completed",
         "operationId": "run-python:node-python:1:2",
         "text": "The staged diff renames one export and adds a test.",
-        "providerReceiptDigest": DIGEST,
+        "providerReceiptDigest": f"sha256:{DIGEST}",
         "usage": {"kind": "measured", "inputTokens": 11, "outputTokens": 7, "computeMs": 21, "costMicros": "1200"},
     }
     value.update(overrides)

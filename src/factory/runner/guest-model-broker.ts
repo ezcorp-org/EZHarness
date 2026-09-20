@@ -56,6 +56,17 @@ export type FactoryGuestModelClaim =
 export interface FactoryGuestModelJournal {
   claim(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest): Promise<FactoryGuestModelClaim>;
   record(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void>;
+  /**
+   * The provider answered but the completed settlement did not land.
+   *
+   * The receipt and the cost are real and must survive, so the operation is
+   * settled `uncertain` carrying both. That is the one state whose provider
+   * receipt digest is mandatory and the only state
+   * `FactoryUsageReconciliation.resolve` will consider, so this is what lets
+   * W03c settle the call later. Dropping the completion here would lose money
+   * the deployment has already spent.
+   */
+  hold(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void>;
   /** Settles a claimed operation that never produced a completion. */
   fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, reason: string): Promise<void>;
 }
@@ -139,7 +150,16 @@ export function createFactoryGuestModelBroker(options: FactoryGuestModelBrokerOp
       // failed call, so the recording is part of answering, not a follow-up.
       await options.journal.record(attempt, request, completion);
     } catch (error) {
-      return refusal(request.operationId, "provider_unavailable", reason(error));
+      // The provider answered and charged for it. The completion is handed to
+      // `hold` rather than discarded, so the receipt and the measured cost
+      // reach the journal as an uncertain operation and W03c's resolver can
+      // settle them. A failure to hold is named in the refusal rather than
+      // swallowed, because then nothing but `reconcileLate` can recover it.
+      const held = await options.journal.hold(attempt, request, completion).then(() => undefined, (holdError: unknown) => reason(holdError));
+      const message = held === undefined
+        ? `${reason(error)} (the cost was held as uncertain for reconciliation)`
+        : `${reason(error)} (the cost could not be held: ${held})`;
+      return refusal(request.operationId, "provider_unavailable", message);
     }
 
     const response = Object.freeze({

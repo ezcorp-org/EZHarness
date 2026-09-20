@@ -93,7 +93,10 @@ test("a cost that cannot be settled is refused rather than rounded to zero", () 
 
 test("two different provider answers never share one receipt digest", () => {
   const base = factoryProviderReceiptDigest(message());
-  expect(base).toMatch(/^[a-f0-9]{64}$/);
+  // `FactoryUsageReconciliation` enforces exactly this pattern in both `resolve`
+  // and `reconcile`, and refuses anything else through the same branch it uses
+  // for a tampered digest.
+  expect(base).toMatch(/^sha256:[a-f0-9]{64}$/);
   expect(factoryProviderReceiptDigest(message())).toBe(base);
   for (const variant of [
     message({ content: [{ type: "text", text: "different" }] } as Partial<AssistantMessage>),

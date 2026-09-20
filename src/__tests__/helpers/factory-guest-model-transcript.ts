@@ -51,7 +51,7 @@ function asked(context: Context): { role: string; text: string }[] {
   const system = context.systemPrompt === undefined ? [] : [{ role: "system", text: context.systemPrompt }];
   const turns = context.messages.map(message => ({
     role: message.role,
-    text: (message as { content?: unknown }).content instanceof Array
+    text: Array.isArray((message as { content?: unknown }).content)
       ? ((message as { content: { type: string; text?: string }[] }).content.filter(part => part.type === "text").map(part => part.text ?? "").join(""))
       : String((message as { content?: unknown }).content ?? ""),
   }));

@@ -4,6 +4,7 @@ import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryGuestModelMessage, FactoryGuestModelRequest, FactoryMeasuredUsage, FactoryModelPin, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryBroker } from "../../runtime/factory-execution";
 import type { FactoryModelCompletion, FactoryOneHopProvider } from "./guest-model-broker";
+import { factoryGuestModelOperation } from "./guest-model-journal";
 
 /**
  * The adapter from the SDK broker's stream to the guest's one-hop reply.
@@ -56,6 +57,12 @@ function textOf(message: AssistantMessage): string {
  * It is the settlement's identity, so it covers the answer, the model that
  * produced it, how it stopped, and what it consumed. Two different answers can
  * never share one receipt.
+ *
+ * The `sha256:` prefix is not decoration. `FactoryUsageReconciliation` enforces
+ * `^sha256:[0-9a-f]{64}$` in both `resolve` and `reconcile`, and refuses a bare
+ * hex digest through the same branch it uses for a TAMPERED one, so a
+ * legitimate receipt in the wrong shape would be indistinguishable from an
+ * attack on the journal.
  */
 export function factoryProviderReceiptDigest(message: AssistantMessage): string {
   const receipt = {
@@ -64,7 +71,7 @@ export function factoryProviderReceiptDigest(message: AssistantMessage): string 
     ...(message.responseId === undefined ? {} : { responseId: message.responseId }),
     content: message.content, stopReason: message.stopReason, usage: message.usage,
   };
-  return createHash("sha256").update(canonicalJson(JSON.parse(JSON.stringify(receipt)))).digest("hex");
+  return `sha256:${createHash("sha256").update(canonicalJson(JSON.parse(JSON.stringify(receipt)))).digest("hex")}`;
 }
 
 /** Provider usage as the journal records it. Cost is carried in micros, never as a float. */
@@ -90,7 +97,10 @@ export function createFactoryOneHopProvider(options: FactoryOneHopProviderOption
       const startedAtMs = now();
       const stream = await options.broker.stream({
         attemptToken: attempt.broker.attemptToken,
-        operation: { operationId: request.operationId, operationIndex: request.operationIndex, kind: "model", requestDigest: createHash("sha256").update(canonicalJson({ model: request.model, messages: request.messages, maxOutputTokens: request.maxOutputTokens })).digest("hex"), state: "prepared" },
+        // The same entry the journal claimed, built by the same function. Two
+        // spellings of this digest would let the claim and the provider request
+        // describe different work under one operation id.
+        operation: { ...factoryGuestModelOperation(request), state: "prepared" },
         model,
         context,
         options: { maxTokens: request.maxOutputTokens },

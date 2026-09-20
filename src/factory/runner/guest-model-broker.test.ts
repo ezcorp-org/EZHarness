@@ -7,7 +7,8 @@ import { factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-la
 const digest = `sha256:${"a".repeat(64)}`;
 const pin: FactoryModelPin = { provider: "anthropic", model: "claude-opus-5", configurationDigest: digest, configuration: {}, policyDigest: digest, policy: {} };
 const usage: FactoryMeasuredUsage = { kind: "measured", inputTokens: 11, outputTokens: 7, computeMs: 21, costMicros: "1200" };
-const completion: FactoryModelCompletion = { text: "the whole answer", providerReceiptDigest: "b".repeat(64), usage };
+const receipt = `sha256:${"b".repeat(64)}`;
+const completion: FactoryModelCompletion = { text: "the whole answer", providerReceiptDigest: receipt, usage };
 
 // `null` means an attempt with no pin at all. An optional parameter cannot say
 // that: `attempt(undefined)` takes the default and silently yields a PINNED
@@ -39,6 +40,7 @@ function broker(options: { complete?: () => Promise<FactoryModelCompletion>; jou
   const journal: FactoryGuestModelJournal = options.journal ?? {
     claim: memory.claim,
     record: async (a, r, c) => { calls.push("record"); await memory.record(a, r, c); },
+    hold: async (a, r, c) => { calls.push("hold"); await memory.hold(a, r, c); },
     fail: async (a, r, reason) => { calls.push("fail"); await memory.fail(a, r, reason); },
   };
   const instance = createFactoryGuestModelBroker({
@@ -54,7 +56,7 @@ test("a well-formed call reaches the provider and its cost is recorded before th
   const memory = createFactoryMemoryGuestModelJournal();
   const instance = createFactoryGuestModelBroker({
     provider: { complete: async () => completion },
-    journal: { claim: memory.claim, record: async (a, r, c) => { await held; await memory.record(a, r, c); }, fail: memory.fail },
+    journal: { claim: memory.claim, record: async (a, r, c) => { await held; await memory.record(a, r, c); }, hold: memory.hold, fail: memory.fail },
   });
 
   let answered = false;
@@ -68,9 +70,9 @@ test("a well-formed call reaches the provider and its cost is recorded before th
   release?.();
   expect(await pending).toEqual({
     schemaVersion: "factory.guest-model-response.v1", status: "completed", operationId: "run:node:0:0",
-    text: "the whole answer", providerReceiptDigest: "b".repeat(64), usage,
+    text: "the whole answer", providerReceiptDigest: receipt, usage,
   });
-  expect(memory.recorded).toEqual([{ operationId: "run:node:0:0", providerReceiptDigest: "b".repeat(64), usage }]);
+  expect(memory.recorded).toEqual([{ operationId: "run:node:0:0", providerReceiptDigest: receipt, usage }]);
 });
 
 test("a model other than the attempt's pin is refused without reaching the provider", async () => {
@@ -126,7 +128,7 @@ test("a refusal survives a release that itself fails, leaving the operation for 
   const memory = createFactoryMemoryGuestModelJournal();
   const instance = createFactoryGuestModelBroker({
     provider: { complete: async () => { throw new Error("provider gone"); } },
-    journal: { claim: memory.claim, record: memory.record, fail: async () => { throw new Error("journal unavailable"); } },
+    journal: { claim: memory.claim, record: memory.record, hold: memory.hold, fail: async () => { throw new Error("journal unavailable"); } },
   });
   expect(await instance.call(attempt(), request())).toMatchObject({ status: "refused", refusal: { code: "provider_unavailable", message: "provider gone" } });
   // The operation stays claimed, so nothing else can repeat the effect while
@@ -139,15 +141,38 @@ test("a call whose cost cannot be recorded is refused rather than answered", asy
   const memory = createFactoryMemoryGuestModelJournal();
   const instance = createFactoryGuestModelBroker({
     provider: { complete: async () => { calls.push("provider"); return completion; } },
-    journal: { claim: memory.claim, record: async () => { throw new Error("journal unavailable"); }, fail: memory.fail },
+    journal: { claim: memory.claim, record: async () => { throw new Error("journal unavailable"); }, hold: memory.hold, fail: memory.fail },
   });
   const refused = await instance.call(attempt(), request());
   // The provider did run, so the cost is real; answering anyway would hand the
   // guest a result W03c can never settle. A refusal is the honest outcome.
   expect(calls).toEqual(["provider"]);
-  expect(refused).toMatchObject({ status: "refused", refusal: { code: "provider_unavailable", message: "journal unavailable" } });
+  expect(refused).toMatchObject({ status: "refused", refusal: { code: "provider_unavailable" } });
+  expect((refused as { refusal: { message: string } }).refusal.message).toBe("journal unavailable (the cost was held as uncertain for reconciliation)");
   expect(refused).not.toHaveProperty("text");
   expect(memory.recorded).toEqual([]);
+  // The completion is NOT dropped. The receipt and the cost are held, which is
+  // the only thing that lets the resolver settle a call the deployment paid for.
+  expect(memory.held).toEqual([{ operationId: "run:node:0:0", providerReceiptDigest: receipt, usage }]);
+});
+
+test("a cost that can be neither recorded nor held names both failures rather than hiding one", async () => {
+  const memory = createFactoryMemoryGuestModelJournal();
+  const instance = createFactoryGuestModelBroker({
+    provider: { complete: async () => completion },
+    journal: {
+      claim: memory.claim,
+      record: async () => { throw new Error("journal unavailable"); },
+      hold: async () => { throw new Error("journal still unavailable"); },
+      fail: memory.fail,
+    },
+  });
+  const refused = await instance.call(attempt(), request());
+  expect((refused as { refusal: { message: string } }).refusal.message).toBe("journal unavailable (the cost could not be held: journal still unavailable)");
+  expect(refused).not.toHaveProperty("text");
+  // Nothing settled it, so the operation is still claimed and `reconcileLate`
+  // is the only thing that can recover it.
+  expect(await instance.call(attempt(), request())).toMatchObject({ status: "refused", refusal: { code: "operation_busy" } });
 });
 
 test("an answer too large for the guest frame is refused after its cost is recorded", async () => {
@@ -158,7 +183,7 @@ test("an answer too large for the guest frame is refused after its cost is recor
   expect(refused).not.toHaveProperty("text");
   // Truncating would be a silent substitution, and the provider still charged
   // for what it produced, so the receipt is settled and the guest is refused.
-  expect(recorded).toEqual([{ operationId: "run:node:0:0", providerReceiptDigest: "b".repeat(64), usage }]);
+  expect(recorded).toEqual([{ operationId: "run:node:0:0", providerReceiptDigest: receipt, usage }]);
 });
 
 test("the one seam routes a model payload here and everything else to its delegate", async () => {
