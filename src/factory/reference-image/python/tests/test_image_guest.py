@@ -8,8 +8,10 @@ import io
 import json
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
+from pathlib import Path
 from typing import Any
 from unittest import mock
 
@@ -17,6 +19,7 @@ import image_guest
 from image_guest import (
     CHUNK_BYTES,
     MANIFEST,
+    MATERIALS_PATH,
     Guest,
     GuestError,
     digest_of,
@@ -337,6 +340,71 @@ class TesseractTest(unittest.TestCase):
         self.assertEqual(caught.exception.code, "ocr_engine_unavailable")
 
 
+class EmitToolTest(unittest.TestCase):
+    """Writing a held image into the material mount, and what it refuses."""
+
+    def _mounted(self, root: str) -> mock._patch[str]:
+        return mock.patch.object(image_guest, "MATERIALS_PATH", root)
+
+    def test_it_writes_the_bytes_and_declares_them(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        data = make_png(4, 3)
+        guest.held[digest_of(data)] = data
+        with tempfile.TemporaryDirectory() as root, self._mounted(root):
+            answer = guest.emit({"digest": digest_of(data), "path": "variant.png", "mediaType": "image/png"})
+            written = Path(root, "variant.png").read_bytes()
+        self.assertEqual(written, data)
+        self.assertEqual(
+            answer,
+            {"path": "variant.png", "digest": digest_of(data), "bytes": len(data), "mediaType": "image/png"},
+        )
+
+    def test_it_creates_the_parent_directory(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        guest.held[digest_of(b"abc")] = b"abc"
+        with tempfile.TemporaryDirectory() as root, self._mounted(root):
+            guest.emit({"digest": digest_of(b"abc"), "path": "out/nested/v.png", "mediaType": "image/png"})
+            self.assertEqual(Path(root, "out/nested/v.png").read_bytes(), b"abc")
+
+    def test_it_leaves_no_partial_file_behind(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        guest.held[digest_of(b"abc")] = b"abc"
+        with tempfile.TemporaryDirectory() as root, self._mounted(root):
+            guest.emit({"digest": digest_of(b"abc"), "path": "v.png", "mediaType": "image/png"})
+            self.assertEqual(sorted(p.name for p in Path(root).iterdir()), ["v.png"])
+
+    def test_emitting_an_unheld_image_is_refused(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        with tempfile.TemporaryDirectory() as root, self._mounted(root), self.assertRaises(GuestError):
+            guest.emit({"digest": "sha256:" + "0" * 64, "path": "v.png", "mediaType": "image/png"})
+
+    def test_a_path_escaping_the_mount_is_refused(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        guest.held[digest_of(b"abc")] = b"abc"
+        for path in ("/etc/passwd", "../escape.png", "out/../../escape.png"):
+            with (
+                self.subTest(path=path),
+                tempfile.TemporaryDirectory() as root,
+                self._mounted(root),
+                self.assertRaises(GuestError),
+            ):
+                guest.emit({"digest": digest_of(b"abc"), "path": path, "mediaType": "image/png"})
+
+    def test_an_absent_mount_is_refused_rather_than_created(self) -> None:
+        guest = Guest("/opt/model", fixed_clock)
+        guest.held[digest_of(b"abc")] = b"abc"
+        with (
+            tempfile.TemporaryDirectory() as root,
+            self._mounted(str(Path(root, "absent"))),
+            self.assertRaises(GuestError) as caught,
+        ):
+            guest.emit({"digest": digest_of(b"abc"), "path": "v.png", "mediaType": "image/png"})
+        self.assertIn("material mount", str(caught.exception))
+
+    def test_the_mount_path_is_the_one_the_host_bind_mounts(self) -> None:
+        self.assertEqual(MATERIALS_PATH, "/materials")
+
+
 class FixturesToolTest(unittest.TestCase):
     def test_it_holds_the_caption_and_its_blank_control(self) -> None:
         guest = Guest("/opt/model", fixed_clock)
@@ -368,7 +436,7 @@ class DispatchTest(unittest.TestCase):
 
     def test_the_manifest_lists_every_tool_the_guest_answers(self) -> None:
         named = {str(tool["name"]) for tool in MANIFEST["tools"]}
-        self.assertEqual(named, {"put", "fetch", "generate", "normalize", "claims", "runtime", "fixtures"})
+        self.assertEqual(named, {"put", "fetch", "generate", "normalize", "claims", "runtime", "fixtures", "emit"})
 
     def test_the_manifest_declares_no_permission(self) -> None:
         self.assertEqual(MANIFEST["permissions"], {})

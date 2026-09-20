@@ -142,6 +142,7 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/run-controls.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/run-lifecycle.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/run-lifecycle.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/reference-image/materials.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/runner/attempt-runtime.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/runner/native.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/runner/python-guest.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
