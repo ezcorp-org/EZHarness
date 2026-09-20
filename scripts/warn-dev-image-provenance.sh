@@ -7,24 +7,33 @@ set -eu
 repo_dir="${EZCORP_REPO_DIR:-/repo}"
 image_commit="${EZCORP_IMAGE_BUILD_COMMIT:-unknown}"
 checkout_commit="$(git -C "$repo_dir" rev-parse --verify HEAD 2>/dev/null || true)"
-checkout_dirty="$(git -C "$repo_dir" status --porcelain 2>/dev/null || true)"
+checkout_status_readable=1
+checkout_dirty="$(git -C "$repo_dir" status --porcelain 2>/dev/null)" || checkout_status_readable=0
+
+print_rebuild_commands() {
+  revision="${checkout_commit:-\$(git rev-parse --verify HEAD)}"
+  printf '         Docker: EZCORP_BUILD_COMMIT=%s docker compose up -d --build\n' "$revision" >&2
+  echo "         Rootless Podman: bun run podman up -d --build" >&2
+}
 
 if [ -z "$checkout_commit" ]; then
   echo "WARNING: Cannot read the bind-mounted checkout commit; dev image provenance was not compared." >&2
-  echo "         Rebuild through the sanctioned dev-stack wrapper: bun run podman up -d --build" >&2
+  print_rebuild_commands
   exit 0
 fi
 
 if [ "$image_commit" = "unknown" ]; then
   echo "WARNING: Dev image provenance is unavailable; its build revision was not recorded." >&2
-  echo "         Rebuild through the sanctioned dev-stack wrapper: bun run podman up -d --build" >&2
+  print_rebuild_commands
 elif [ "$image_commit" != "$checkout_commit" ]; then
   echo "WARNING: Dev image revision ($image_commit) differs from /repo HEAD ($checkout_commit)." >&2
   echo "         Web source is bind-mounted; image-backed dependencies and generated assets may be stale." >&2
-  echo "         Rebuild through the sanctioned dev-stack wrapper: EZCORP_BUILD_COMMIT=$checkout_commit bun run podman up -d --build" >&2
+  print_rebuild_commands
 fi
 
-if [ -n "$checkout_dirty" ]; then
+if [ "$checkout_status_readable" = 0 ]; then
+  echo "WARNING: Cannot inspect /repo for uncommitted changes; the revision comparison is incomplete." >&2
+elif [ -n "$checkout_dirty" ]; then
   echo "WARNING: /repo has uncommitted changes; matching HEAD revisions cannot prove image-backed files match." >&2
-  echo "         Rebuild through the sanctioned dev-stack wrapper: bun run podman up -d --build" >&2
+  echo "         Commit or stash the changes before relying on the revision comparison." >&2
 fi

@@ -5,11 +5,6 @@
 # in ci.yml). The floating `oven/bun:1` this used to carry meant any upstream
 # 1.x push invalidated every layer below, including both installs.
 FROM oven/bun:1.3.14
-ARG EZCORP_BUILD_COMMIT=unknown
-# The Bun base image carries its own OCI revision. Override it so the dev
-# image identifies the EZHarness checkout that supplied its image-backed files.
-LABEL org.opencontainers.image.revision=$EZCORP_BUILD_COMMIT
-ENV EZCORP_IMAGE_BUILD_COMMIT=$EZCORP_BUILD_COMMIT
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 
@@ -64,6 +59,14 @@ RUN bun run --cwd packages/@ezcorp/sdk build --force \
 # files writable by that unprivileged user. Host binds remain operator-owned.
 RUN mkdir -p /app/state /app/cache /app/web/.ezcorp /app/.ezcorp/extension-releases \
  && chown -R 1000:1000 /app
+
+# Keep commit-specific metadata after every filesystem layer. Putting it near
+# FROM would invalidate the dependency and workspace-build cache on each commit.
+ARG EZCORP_BUILD_COMMIT=unknown
+# The Bun base image carries its own OCI revision. Override it so the dev
+# image identifies the EZHarness checkout that supplied its image-backed files.
+LABEL org.opencontainers.image.revision=$EZCORP_BUILD_COMMIT
+ENV EZCORP_IMAGE_BUILD_COMMIT=$EZCORP_BUILD_COMMIT
 
 EXPOSE 3000
 
