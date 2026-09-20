@@ -1,10 +1,11 @@
-import { validateProviderMethodValue, type ProviderCall, type ProviderError, type ProviderFailedReceipt, type ProviderReceipt, type ProviderSucceededReceipt, type ProviderUnknownReceipt, type SandboxCreateInput, type SandboxCreateResult, type SandboxDestroyInput, type SandboxDestroyResult, type SandboxInspectInput, type SandboxInspectResult, type SandboxStartInput, type SandboxStartResult, type SandboxStopInput, type SandboxStopResult } from "@ezcorp/extension-contract";
+import { validateProviderMethodValue, type ProviderCall, type ProviderError, type ProviderFailedReceipt, type ProviderReceipt, type ProviderSucceededReceipt, type ProviderUnknownReceipt, type SandboxCreateInput, type SandboxCreateResult, type SandboxDestroyInput, type SandboxDestroyResult, type SandboxInspectInput, type SandboxInspectResult, type SandboxProcessCancelInput, type SandboxProcessCancelResult, type SandboxProcessInspectInput, type SandboxProcessInspectResult, type SandboxProcessReadOutputInput, type SandboxProcessReadOutputResult, type SandboxProcessStartInput, type SandboxProcessStartResult, type SandboxStartInput, type SandboxStartResult, type SandboxStopInput, type SandboxStopResult } from "@ezcorp/extension-contract";
 import { CONFIG_LABEL, RESOURCE_LABEL, configurationDigest, containerIdFromCreateOutput, createContainerArgv, expectedContainerIdentity, resourcePaths, runBoundedCommand, validateHostConfig, type BoundedCommandResult, type LocalPodmanHostConfig } from "./commands";
 import { ResourceRoot } from "./resource-root";
 import { WorkspaceImage } from "./workspace-image";
 import { DurableOperationJournal } from "./journal";
+import { LocalProcessSupervisor, type OwnedProcessResource } from "./supervisor";
 
-type Metadata = { resourceId: string; containerId: string; containerName: string; configDigest: string; scope: ProviderCall["scope"]; state: "stopped" | "running" | "destroying" | "unknown"; limits: SandboxCreateInput["limits"] };
+type Metadata = { resourceId: string; containerId: string; containerName: string; configDigest: string; scope: ProviderCall["scope"]; bootId?: string; state: "stopped" | "running" | "destroying" | "unknown"; limits: SandboxCreateInput["limits"] };
 type InspectMount = { Type?: string; Source?: string; Destination?: string; RW?: boolean };
 type InspectContainer = { Id?: string; Name?: string; Image?: string; Config?: { Image?: string; User?: string; Labels?: Record<string, string> }; HostConfig?: { NetworkMode?: string; UsernsMode?: string; ReadonlyRootfs?: boolean; Memory?: number; MemorySwap?: number; NanoCpus?: number; PidsLimit?: number }; Mounts?: InspectMount[] };
 const PODMAN_OUTPUT_LIMIT = 64 * 1024;
@@ -22,8 +23,8 @@ function receipt(call: ProviderCall, outcome: "succeeded" | "failed" | "unknown"
 }
 
 export class LocalPodmanDriver {
-  private readonly config: LocalPodmanHostConfig; private readonly roots: ResourceRoot; private readonly images: WorkspaceImage; private readonly journal: DurableOperationJournal;
-  constructor(config: LocalPodmanHostConfig) { this.config = validateHostConfig(config); this.roots = new ResourceRoot(this.config.stateRoot); this.images = new WorkspaceImage(this.config); this.journal = new DurableOperationJournal(`${this.config.stateRoot}/operations`); }
+  private readonly config: LocalPodmanHostConfig; private readonly roots: ResourceRoot; private readonly images: WorkspaceImage; private readonly journal: DurableOperationJournal; private readonly supervisor: LocalProcessSupervisor;
+  constructor(config: LocalPodmanHostConfig) { this.config = validateHostConfig(config); this.roots = new ResourceRoot(this.config.stateRoot); this.images = new WorkspaceImage(this.config); this.journal = new DurableOperationJournal(`${this.config.stateRoot}/operations`); this.supervisor = new LocalProcessSupervisor({ stateRoot: this.config.stateRoot, podmanPath: this.config.podmanPath, supervisorPath: this.config.supervisorPath, maxOutputBytes: 1024 * 1024, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid }, (resourceId) => this.resolveProcessResource(resourceId)); }
   private async mutate<T extends { receipt: unknown }>(call: SandboxCreateInput["call"], effect: () => Promise<T>): Promise<T> {
     const begun = await this.journal.begin<T>(call);
     if (begun.kind === "replay") return begun.result;
@@ -74,7 +75,7 @@ export class LocalPodmanDriver {
     if (value.state === "destroying") return { receipt: receipt(input.call, "failed", { code: "resource_destroying", message: "Resource destruction is in progress.", retryable: false }) };
     try { await this.verify(value); } catch { return this.identityMismatch(input.call); } const result = await this.podman([target === "running" ? "start" : "stop", value.containerId]);
     if (result.code !== 0 || result.timedOut) return { receipt: receipt(input.call, "unknown", { code: `${target}_unknown`, message: `Container ${target} outcome is unknown.`, retryable: true }) };
-    value.state = target; await this.roots.writeMetadata(value.resourceId, value);
+    value.state = target; if (target === "running") value.bootId = crypto.randomUUID(); await this.roots.writeMetadata(value.resourceId, value);
     return { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: target, observedState: target, limits: value.limits } };
   }
   async start(input: SandboxStartInput): Promise<SandboxStartResult> { validateProviderMethodValue("sandbox.lifecycle.v1", "start", "input", input); const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; return this.mutate(input.call, () => this.transition(input, "running", authorized.value)); }
@@ -91,4 +92,12 @@ export class LocalPodmanDriver {
     return { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: "destroyed", observedState: "destroyed", limits: value.limits } };
     });
   }
+  private async resolveProcessResource(resourceId: string): Promise<OwnedProcessResource> {
+    await this.roots.verifyPrivateRoot(); const value = await this.roots.readMetadata<Metadata>(resourceId); if (value.state !== "running" || !value.bootId) throw new Error("Resource is not running"); await this.verify(value); const paths = resourcePaths(this.config.stateRoot, resourceId);
+    return { resourceId, containerId: value.containerId, containerName: value.containerName, scope: value.scope, processRoot: `${paths.output}/process`, bootId: value.bootId };
+  }
+  processStart(input: SandboxProcessStartInput): Promise<SandboxProcessStartResult> { return this.supervisor.start(input); }
+  processInspect(input: SandboxProcessInspectInput): Promise<SandboxProcessInspectResult> { return this.supervisor.inspect(input); }
+  processReadOutput(input: SandboxProcessReadOutputInput): Promise<SandboxProcessReadOutputResult> { return this.supervisor.readOutput(input); }
+  processCancel(input: SandboxProcessCancelInput): Promise<SandboxProcessCancelResult> { return this.supervisor.cancel(input); }
 }

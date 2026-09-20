@@ -27,7 +27,7 @@ process.exit(2);
 `); await chmod(podman, 0o700);
 	const resource: OwnedProcessResource = { resourceId: "resource", containerId: "containerid", containerName: "containername", scope: call.scope, processRoot, bootId: "boot-id" };
 	const entries: Promise<void>[] = [];
-	const supervisor = new LocalProcessSupervisor({ stateRoot: root, podmanPath: podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: outputBytes, workspaceUid: 1000, workspaceGid: 1000 }, async () => resource, argv => { entries.push(runSupervisorEntry(argv[1]!)); });
+	const supervisor = new LocalProcessSupervisor({ stateRoot: root, podmanPath: podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: outputBytes, workspaceUid: 0, workspaceGid: 0 }, async () => resource, argv => { entries.push(runSupervisorEntry(argv[1]!)); });
 	const input: SandboxProcessStartInput = { call, resourceId: "resource", argv: ["tool"], env: { SAFE: "yes" }, cwd: "/", user: "workspace", timeoutMs: 2_000 };
 	return { root, processRoot, runtimeState, execArgs, resource, entries, supervisor, input };
 }
@@ -45,7 +45,7 @@ describe("LocalProcessSupervisor", () => {
 		await writeFile(join(f.processRoot, "cancel"), started.process.identity.processId);
 		const inspected = await terminal(f, started.process.identity); expect(inspected).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "cancelled", outputCursor: 12 } });
 		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
-		expect(JSON.parse(await readFile(f.execArgs, "utf8"))).toContain("1000:1000");
+		expect(JSON.parse(await readFile(f.execArgs, "utf8"))).toContain("0:0");
 		const first = await f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 0, maxBytes: 5 });
 		expect(first).toMatchObject({ receipt: { outcome: "succeeded" }, cursor: 5, eof: false, gap: true });
 		const second = await f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 5, maxBytes: 20 });
@@ -66,7 +66,7 @@ describe("LocalProcessSupervisor", () => {
 
 	test("fails closed for invalid host configuration, state artifacts, and cursors", async () => {
 		const f = await fixture();
-		expect(() => new LocalProcessSupervisor({ stateRoot: "relative", podmanPath: f.input.argv[0]!, supervisorPath: "relative", maxOutputBytes: 0, workspaceUid: 0, workspaceGid: 0 }, async () => f.resource)).toThrow();
+		expect(() => new LocalProcessSupervisor({ stateRoot: "relative", podmanPath: f.input.argv[0]!, supervisorPath: "relative", maxOutputBytes: 0, workspaceUid: -1, workspaceGid: -1 }, async () => f.resource)).toThrow();
 		const started = await f.supervisor.start(f.input); if (!("process" in started)) throw new Error("missing process");
 		await writeFile(join(f.processRoot, "cancel"), started.process.identity.processId); await terminal(f, started.process.identity);
 		const badCursor = await f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 999, maxBytes: 1 }); expect(badCursor.receipt.outcome).toBe("failed");

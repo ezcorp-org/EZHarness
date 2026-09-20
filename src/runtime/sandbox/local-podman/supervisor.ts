@@ -84,7 +84,7 @@ function assertConfig(config: LocalProcessSupervisorConfig): LocalProcessSupervi
 	const stateRoot = resolve(config.stateRoot);
 	if (!stateRoot.startsWith(sep) || !config.podmanPath.startsWith(sep) || !config.supervisorPath.startsWith(sep)) throw new Error("Supervisor paths must be absolute");
 	if (!Number.isSafeInteger(config.maxOutputBytes) || config.maxOutputBytes < 1 || config.maxOutputBytes > 1024 * 1024) throw new Error("Invalid supervisor output limit");
-	if (!Number.isSafeInteger(config.workspaceUid) || config.workspaceUid < 1 || config.workspaceUid > 2_147_483_647 || !Number.isSafeInteger(config.workspaceGid) || config.workspaceGid < 1 || config.workspaceGid > 2_147_483_647) throw new Error("Invalid workspace UID/GID");
+	if (!Number.isSafeInteger(config.workspaceUid) || config.workspaceUid < 0 || config.workspaceUid > 2_147_483_647 || !Number.isSafeInteger(config.workspaceGid) || config.workspaceGid < 0 || config.workspaceGid > 2_147_483_647) throw new Error("Invalid workspace UID/GID");
 	return Object.freeze({ ...config, stateRoot });
 }
 
