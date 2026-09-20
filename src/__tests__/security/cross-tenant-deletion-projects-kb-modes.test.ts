@@ -119,6 +119,11 @@ mock.module("../../../web/src/routes/api/modes/[id]/$types", () => ({}));
 const apiKeysMock = () => ({ requireScope: () => null });
 mock.module("$lib/server/security/api-keys", apiKeysMock);
 mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
+// Project mutation authorization is the subject here. The persisted
+// workspace policy is tested separately and must not require database setup
+// in these route-level ownership probes.
+mock.module("$server/runtime/workspace/target", () => ({ projectRequiresSandbox: async () => false }));
+mock.module("../../runtime/workspace/target", () => ({ projectRequiresSandbox: async () => false }));
 
 mock.module("$lib/server/security/validation", () =>
   require("../../../web/src/lib/server/security/validation"),
