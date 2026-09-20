@@ -57,7 +57,7 @@ export interface SandboxController {
   requestSandboxAction(userId: string, projectId: string, input: RequestSandboxActionInput): Promise<AdmittedSandboxOperation>;
   executeAdmittedLocalSandboxOperation(userId: string, operationId: string): Promise<SandboxProjectStatus>;
   /** Broker-only callback. It dispatches a durable operation to the host driver. */
-  executeAdmittedLocalSandboxOperationRaw(userId: string, operationId: string, signal?: AbortSignal): Promise<SandboxProjectStatus | SandboxOperationResult>;
+  executeAdmittedLocalSandboxOperationRaw(userId: string, operationId: string, signal?: AbortSignal): Promise<unknown>;
   admitSandboxMethod(userId: string, projectId: string, input: SandboxMethodInput): Promise<AdmittedSandboxMethod>;
   executeAdmittedSandboxMethod(userId: string, operationId: string, signal?: AbortSignal): Promise<SandboxOperationResult>;
   getSandboxOperationResult(userId: string, operationId: string): Promise<SandboxOperationResult>;

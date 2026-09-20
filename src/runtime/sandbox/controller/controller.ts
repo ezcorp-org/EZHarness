@@ -50,7 +50,10 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     await getDb().transaction(async (tx: DbTransaction) => {
       await tx.execute(sql`UPDATE sandbox_operations SET state=${result.receipt.outcome}, receipt=${JSON.stringify(result.receipt)}, completed_at=NOW() WHERE id=${operationId}`);
       if (result.resource) await tx.execute(sql`UPDATE sandbox_resources SET provider_resource_id=${result.resource.resourceId}, desired_state=${result.resource.desiredState}, observed_state=${result.resource.observedState}, updated_at=NOW() WHERE binding_id=${bindingId}`);
-      else if (result.receipt.outcome !== "succeeded") await tx.execute(sql`UPDATE sandbox_resources SET observed_state=${resourceState(result.receipt)}, updated_at=NOW() WHERE binding_id=${bindingId}`);
+      else if (result.receipt.outcome !== "succeeded") {
+        const cleanCreateFailure = result.receipt.outcome === "failed" && result.receipt.error.code === "create_failed_clean";
+        await tx.execute(sql`UPDATE sandbox_resources SET desired_state=${cleanCreateFailure ? "destroyed" : "stopped"},observed_state=${cleanCreateFailure ? "destroyed" : resourceState(result.receipt)}, updated_at=NOW() WHERE binding_id=${bindingId}`);
+      }
       if (result.receipt.outcome === "succeeded" && result.resource) await tx.execute(sql`UPDATE project_workspace_bindings SET state='active', updated_at=NOW() WHERE binding_id=${bindingId}`);
     });
   }
@@ -76,12 +79,9 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
   async function wireMethodInput(operation: Row, providerValue: LocalSandboxProvider): Promise<Record<string, unknown>> {
     const payload = parse<Record<string, unknown>>(operation.input);
     const body: Record<string, unknown> = { ...payload, resourceId: String(operation.provider_resource_id) };
-    // Native callers use timeoutMs. C02 uses deadlineMs on the provider wire.
     if (operation.method_group === "sandbox.process.v1" && operation.method === "start") {
       const timeoutMs = body.timeoutMs;
       if (!Number.isSafeInteger(timeoutMs) || Number(timeoutMs) < 1) throw new SandboxControllerError("INVALID_INPUT", "Process timeout must be a positive integer");
-      delete body.timeoutMs;
-      body.deadlineMs = Number(timeoutMs);
     }
     const requestDigest = await sha256(canonicalJson(body));
     return { ...body, call: { scope: { projectId: String(operation.project_id), bindingId: String(operation.binding_id), generation: providerValue.generation }, operationId: String(operation.id), idempotencyKey: String(operation.idempotency_key), requestDigest } };
@@ -183,8 +183,6 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         const input = await wireMethodInput(operation, current.provider);
         reviewedOperations.add(operationId);
         providerResult = await invoke(userId, String(operation.project_id), current.provider, operation.method_group as SandboxMethodInput["group"], String(operation.method), input, signal);
-      } catch (error) {
-        throw error;
       } finally {
         reviewedOperations.delete(operationId);
       }
@@ -205,13 +203,14 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         await boundProvider(binding);
         const claimed = rows(await getDb().execute(sql`UPDATE sandbox_operations SET state='running', claimed_at=NOW() WHERE id=${operationId} AND state='admitted' AND actor_id=${userId} RETURNING *`))[0];
         if (!claimed) return status(userId, String(lifecycle.project_id));
+        let result: ProviderResult;
         try {
           const call = { scope: { projectId: String(binding.project_id), bindingId: String(binding.id), generation: Number(binding.generation) }, operationId, idempotencyKey: String(claimed.idempotency_key), requestDigest: String(claimed.input_digest) };
           const input = parse<{ resourceId?: string }>(claimed.input);
-          const result = claimed.action === "create" ? await driver.create(parse<SandboxCreateInput>(claimed.input)) : claimed.action === "start" ? await driver.start({ call, resourceId: input.resourceId! }) : claimed.action === "stop" ? await driver.stop({ call, resourceId: input.resourceId! }) : await driver.destroy({ call, resourceId: input.resourceId! });
+          result = claimed.action === "create" ? await driver.create(parse<SandboxCreateInput>(claimed.input)) : claimed.action === "start" ? await driver.start({ call, resourceId: input.resourceId! }) : claimed.action === "stop" ? await driver.stop({ call, resourceId: input.resourceId! }) : await driver.destroy({ call, resourceId: input.resourceId! });
           receiptMatches(call, result.receipt); await settle(operationId, String(binding.id), result);
         } catch (error) { await unknown(operationId, String(binding.id)); throw error; }
-        return status(userId, String(lifecycle.project_id));
+        return result!;
       }
       const operation = rows(await getDb().execute(sql`SELECT operation.*, binding.project_id, resource.provider_resource_id FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id JOIN sandbox_resources resource ON resource.id=operation.resource_id WHERE operation.id=${operationId}`))[0];
       if (!operation || operation.actor_id !== userId) throw new SandboxControllerError("OPERATION_NOT_ADMITTED", "Operation is not available for execution");
@@ -221,10 +220,11 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const current = await boundProvider(binding);
       const claimed = rows(await getDb().execute(sql`UPDATE sandbox_method_operations SET state='running',claimed_at=NOW() WHERE id=${operationId} AND state='admitted' AND actor_id=${userId} RETURNING id`))[0];
       if (!claimed) return methodResult(userId, operationId);
+      let result: { receipt?: ProviderReceipt; process?: ProcessResult["process"] };
       try {
         if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
         const input = await wireMethodInput(operation, current);
-        const result = await dispatchMethod(operation, input) as { receipt?: ProviderReceipt; process?: ProcessResult["process"] };
+        result = await dispatchMethod(operation, input) as { receipt?: ProviderReceipt; process?: ProcessResult["process"] };
         const call = input.call as SandboxCreateInput["call"];
         if (!result.receipt) throw new SandboxControllerError("PROVIDER_RECEIPT_MISMATCH", "Provider did not return a receipt");
         receiptMatches(call, result.receipt);
@@ -251,10 +251,10 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         await getDb().execute(sql`UPDATE sandbox_writer_leases SET state='unknown',updated_at=NOW() WHERE operation_id=${operationId}`);
         throw error;
       }
-      return methodResult(userId, operationId);
+      return result!;
     },
     async reconcileSandboxProcess(userId, projectId, signal) {
-      const current = await status(userId, projectId);
+      await status(userId, projectId);
       const process = rows(await getDb().execute(sql`SELECT process.*,binding.id AS binding_id,resource.provider_resource_id FROM sandbox_processes process JOIN sandbox_provider_bindings binding ON binding.id=process.binding_id JOIN sandbox_resources resource ON resource.id=process.resource_id WHERE binding.project_id=${projectId} ORDER BY process.updated_at DESC LIMIT 1`))[0];
       if (!process) return null;
       const result = parse<ProcessResult>(process.result);
@@ -282,7 +282,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const settled = await this.executeAdmittedSandboxMethod(principal.userId, admitted.id, signal);
       const started = settled.result as ProcessResult | undefined;
       if (!started?.process?.identity) throw new SandboxControllerError("NATIVE_RESULT_UNAVAILABLE", "Native process did not return an identity");
-      let cursor = started.process.outputCursor; let stdout = ""; let terminal = started.process;
+      let cursor = 0; let stdout = ""; let terminal = started.process; let drainedAfterTerminal = false;
       for (let attempt = 0; attempt < 64; attempt++) {
         if (signal?.aborted) {
           const cancel = await this.admitSandboxMethod(principal.userId, target.projectId, { group: "sandbox.process.v1", operation: "cancel", idempotencyKey: crypto.randomUUID(), conversationId: principal.conversationId, payload: { identity: terminal.identity } });
@@ -296,9 +296,13 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         const inspection = await this.admitSandboxMethod(principal.userId, target.projectId, { group: "sandbox.process.v1", operation: "inspect", idempotencyKey: crypto.randomUUID(), conversationId: principal.conversationId, payload: { identity: terminal.identity } });
         const inspected = await this.executeAdmittedSandboxMethod(principal.userId, inspection.id, signal);
         terminal = (inspected.result as ProcessResult | undefined)?.process ?? terminal;
-        if (isTerminalProcess(terminal.state)) break;
+        if (isTerminalProcess(terminal.state)) {
+          if (drainedAfterTerminal) break;
+          drainedAfterTerminal = true;
+        }
       }
       if (!isTerminalProcess(terminal.state) || !Number.isSafeInteger(terminal.exitCode)) throw new SandboxControllerError("NATIVE_RESULT_UNAVAILABLE", "Native process did not reach a terminal state");
+      await this.reconcileSandboxProcess(principal.userId, target.projectId);
       return { stdout, exitCode: Number(terminal.exitCode) };
     },
     async requestSandboxAction(userId, projectId, input) {
@@ -327,8 +331,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         const input = operation.action === "create" ? parse<SandboxCreateInput>(operation.input) : { ...parse<Record<string, unknown>>(operation.input), call: { scope: { projectId: String(binding.project_id), bindingId: String(binding.id), generation: Number(binding.generation) }, operationId, idempotencyKey: String(operation.idempotency_key), requestDigest: String(operation.input_digest) } };
         reviewedOperations.add(operationId);
         providerResult = await invoke(userId, String(binding.project_id), current, "sandbox.lifecycle.v1", String(operation.action), input);
-      } catch (error) { throw error; }
-      finally { reviewedOperations.delete(operationId); }
+      } finally { reviewedOperations.delete(operationId); }
       const actual = await status(userId, String(binding.project_id));
       if (actual.operation?.id === operationId && ["admitted", "running"].includes(actual.operation.state)) throw new SandboxControllerError("PROVIDER_RESULT_UNVERIFIED", "Reviewed provider did not produce a durable host result");
       const receipt = (providerResult as { receipt?: ProviderReceipt } | undefined)?.receipt;
