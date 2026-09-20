@@ -1,0 +1,6 @@
+services:
+  app:
+    environment:
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
+    entrypoint: ["/bin/sh", "/app/deploy/extension-runner/app-entrypoint.sh"]
+    command: ["bun", "run", "web/build/index.js"]
