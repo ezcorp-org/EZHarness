@@ -394,10 +394,17 @@ export async function reconcileExtensionLifecycle(): Promise<void> {
   const services = await getServices();
   const { getDb } = await import("../db/connection");
   const result = await getDb().execute(sql`SELECT payload FROM extension_release_installations ORDER BY id`);
+  void auditHistoricalReleaseBlobStorage(services.blobs).catch((error) => {
+    log.warn("Extension release blob storage audit unavailable; lifecycle recovery continues.", { code: error instanceof LifecycleError ? error.code : "release_blob_audit_failed" });
+  });
+  await reconcileInstallations(services, releaseRows<{ payload: string }>(result).map(row => JSON.parse(row.payload) as InstallationRecord));
+}
+
+async function auditHistoricalReleaseBlobStorage(blobs: FileBlobStore): Promise<void> {
+  const { getDb } = await import("../db/connection");
   const releaseResult = await getDb().execute(sql`SELECT payload FROM extension_release_records WHERE kind = 'releases' ORDER BY installation_id, id`);
   const releases = releaseRows<{ payload: string }>(releaseResult).map((row) => JSON.parse(row.payload) as ReleaseBlobDigests);
-  await auditReleaseBlobStorage(services.blobs, releases, (message, details) => log.warn(message, { ...details }));
-  await reconcileInstallations(services, releaseRows<{ payload: string }>(result).map(row => JSON.parse(row.payload) as InstallationRecord));
+  await auditReleaseBlobStorage(blobs, releases, (message, details) => log.warn(message, { ...details }));
 }
 
 const lifecycleRecovery = createLifecycleRecoveryScheduler(
