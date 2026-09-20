@@ -69,6 +69,7 @@ web_vitest_coverage_args() {
     "--coverage.include=src/routes/api/projects/[id]/features/scan/+server.ts"
     "--coverage.include=src/routes/api/projects/[id]/sandbox/+server.ts"
     "--coverage.include=src/routes/api/sandboxes/+server.ts"
+    "--coverage.include=src/routes/api/sandboxes/providers/+server.ts"
     "--coverage.include=src/routes/api/local-sandbox/operations/[id]/execute/+server.ts"
     "--coverage.include=src/lib/components/ProjectSandboxPanel.svelte"
     "--coverage.include=src/lib/workspace-binding.ts"

@@ -21,6 +21,8 @@ const { GET: providers } = await import("../routes/api/sandboxes/providers/+serv
 const { POST: create } = await import("../routes/api/sandboxes/+server");
 const { GET: status, POST: action } = await import("../routes/api/projects/[id]/sandbox/+server");
 const { POST: execute } = await import("../routes/api/local-sandbox/operations/[id]/execute/+server");
+const { sandboxError, statusDto } = await import("../lib/server/sandbox-route");
+const { SandboxControllerError } = await import("$server/runtime/sandbox/controller");
 
 const user = { id: "user-1", email: "user@example.test", name: "User", role: "user" };
 const local = { user };
@@ -51,6 +53,22 @@ describe("local sandbox API", () => {
 		const response = await providers(event("/api/sandboxes/providers") as never);
 		expect(await response.json()).toEqual({ providers: [{ installationId: provider.installationId, providerId: "podman", label: "podman", ready: true }] });
 		expect(controller.listLocalSandboxProviders).toHaveBeenCalledWith("user-1");
+	});
+
+	test("maps provider listing failures through the shared sandbox error boundary", async () => {
+		controller.listLocalSandboxProviders.mockRejectedValueOnce(new Error("provider unavailable"));
+		const response = await providers(event("/api/sandboxes/providers") as never);
+		expect(response.status).toBe(503);
+	});
+
+	test("maps controller error codes and status fallback without host details", async () => {
+		expect(sandboxError(new SandboxControllerError("PROJECT_ACCESS_DENIED", "Denied")).status).toBe(403);
+		expect(sandboxError(new SandboxControllerError("SANDBOX_CONTROLLER_UNAVAILABLE", "Unavailable")).status).toBe(503);
+		const stale = sandboxError(new SandboxControllerError("STALE_WORKSPACE_BINDING", "Stale"));
+		expect(stale.status).toBe(409);
+		expect(await stale.json()).toMatchObject({ code: "STALE_WORKSPACE_BINDING" });
+		expect(statusDto({ ...sandboxStatus, resource: null, operation: { id: "pending", action: "start", state: "admitted" } }).state).toBe("admitted");
+		expect(statusDto({ ...sandboxStatus, resource: null, operation: null }).state).toBe("unknown");
 	});
 
 	test("creates and executes a dedicated empty sandbox with host-owned limits", async () => {
