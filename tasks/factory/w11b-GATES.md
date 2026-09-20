@@ -4,19 +4,15 @@ Leaf of W11. Closes the two rows W11 left open on the platform's byte path:
 G15 (a variant larger than one mebibyte could not leave an isolated guest) and
 G18b (the accepted 1,024-pixel variant could therefore not be published).
 
-Branch `wp/w11b-image-egress`, cut from `integ/w00` at `f30da62fa`.
+Branch `wp/w11b-image-egress`, cut from `integ/w00` at `f30da62fa`, with
+`integ/w00` at `7d99dc75b` merged in.
 Evidence `/tmp/factory-platform-evidence/w11b/`.
 
-**The GPU proof waits on W01d and is not claimed yet.** The mount merged at
-`f30da62fa` does not make the material directory writable for the guest: the
-runner sets no mode and no owner. Terra runtime is landing W01d, which does both
-at launch through `podman unshare chown`, so a caller creates the directory and
-passes the path and nothing else. This branch is built against that contract:
-it adds no `chmod` and no `chown` of its own, and never `0o777`. Against a
-runner that has not yet handed the directory over, the guest's first write is
-refused and the run says so, which is the correct failure. B1, B6 and B7 are
-therefore unchecked until W01d is on `integ/w00`, merged here once, and the
-journey rerun. Everything else below is measured now.
+`integ/w00` at `7d99dc75b` is merged in, bringing W01d: the runner performs the
+material directory handover itself at launch, setting mode `0o770` and giving
+ownership to the mapped guest uid. This branch adds no `chmod` and no `chown` of
+its own; it creates the directory and passes the path. B1, B6 and B7 are closed
+against that contract below, on runs made at the merged head.
 
 **Production GPU isolation stays unmet**, on all eight criteria in
 `docs/factory-local-gpu.md`. Every generation below ran on this host's AMD
@@ -33,21 +29,22 @@ the worker is confirmed stopped, and the deferred-variant path is gone.
 
 ## Gates
 
-- [ ] B1 (waits on W01d): The guest writes a 1,024-pixel variant into the mount and the host
+- [x] B1: The guest writes a 1,024-pixel variant into the mount and the host
       reads it back whole. This is what G15 said was impossible.
       CHECK: `flock $XDG_RUNTIME_DIR/ezcorp-factory-local-gpu.lock flock /tmp/ezcorp-validation-heavy.lock timeout 6600 bun scripts/verify-factory-image-pack.ts --label w11b-mount-egress --fixtures`
       EXPECT: exit 0; every seed `sealed-from-material-mount`; no
       `deferred-over-budget` anywhere.
-      EVIDENCE: `logs/journey-mount.json`, exit 0, **and it does not prove this
-      gate**. All four seeds generated at 1,024 by 1,024 on the real card
-      (`torch 2.12.0+rocm7.14.1`, `hip 7.14.60850`) and all four left through
-      the mount: 2,364,124, 998,116, 2,425,299 and 2,434,845 bytes, three of
-      them more than twice the 1,048,576-byte control-channel lifetime budget.
-      Every file on disk digests to the value the journey recorded. But that run
-      was made against a directory THIS SCRIPT chowned, which is the step W01d
-      moves into the runner and which this branch no longer performs. So it is
-      evidence that the byte path, the read-back and the digest binding work,
-      and it is not evidence of the landed contract. Rerun after W01d.
+      EVIDENCE: `logs/journey-w01d.json` and `logs/journey-w01d-round2.json`,
+      both exit 0, both at the merged head with the runner performing the
+      handover and this script performing none of it. Round one produced
+      2,368,441, 998,625, 2,428,174 and 2,436,450 bytes; round two produced
+      1,646,345, 1,236,981, 2,402,616 and 2,474,191. Every one of the eight left
+      through the mount as `sealed-from-material-mount`, and seven of the eight
+      exceed the 1,048,576-byte control-channel lifetime budget outright. Every
+      file on disk digests to the value the journey recorded.
+      The earlier `logs/journey-mount.json` is retained and does NOT prove this
+      gate: it ran against a directory the script chowned itself, which is the
+      step W01d moved into the runner.
 
 - [x] B2: Bytes leave only through the shared helpers, never a raw walk or open.
       CHECK: `grep -n "readdir\|[^n]open(" src/factory/reference-image/materials.ts`; `bun scripts/check-factory-boundaries.ts`
@@ -90,26 +87,24 @@ the worker is confirmed stopped, and the deferred-variant path is gone.
       Chunking also respects `maxChunkBytes`: a file one chunk plus seven bytes
       long reaches the store as two chunks of exactly that size and seven.
 
-- [ ] B6 (waits on W01d): The accepted variant publishes through W08 with the digest recomputed
+- [x] B6: The accepted variant publishes through W08 with the digest recomputed
       from the bytes read back out of the real store. This closes G18b for a
       1,024-pixel variant.
       CHECK: `EZCORP_FACTORY_STORAGE_SECRETS_DIR=<secrets> flock /tmp/ezcorp-validation-heavy.lock bun scripts/verify-factory-image-publication.ts --variant <png>`
       EXPECT: exit 0; both files re-fetched and re-hashed; a repeat refused.
-      EVIDENCE: `logs/publication.json`, exit 0, on a variant produced by the
-      superseded run described in B1. The publication leg itself does not depend
-      on how the directory was prepared, but the variant it published came from
-      that run, so this is restated rather than claimed. The published variant is seed
-      23, the first seed in input order that passed every deterministic claim in
-      this run, 998,116 bytes, digest
-      `sha256:21b0fa6177170166a0c882a4039bfa27227a7d4db5e920fb2c9255f9e8d109a9`.
-      The digest recomputed from the bytes fetched back out of the local
-      SeaweedFS store is the same value, and `matchesReceipt` and
-      `matchesSource` are both true for it and for the 2,602-byte evidence
-      document. A second publication of the confirmed set was refused with
-      `factory_s3_manifest_published`. The run deleted exactly the two object
-      keys and the manifest key it created.
+      EVIDENCE: `logs/publication-w01d.json`, exit 0, on the variant round two
+      produced at the merged head. It is seed 23, the first seed in input order
+      that passed every deterministic claim, **1,236,981 bytes**, digest
+      `sha256:5a53155fa896377969a9bbe1086f11dff035ff69889380b70d62666bfe39b10a`.
+      That is comfortably above the control-channel lifetime budget, so these
+      are bytes the previous path could not have carried at all. The digest
+      recomputed from what was fetched back out of the local SeaweedFS store is
+      the same value, `matchesReceipt` and `matchesSource` are both true for it
+      and for the 2,603-byte evidence document, a second publication of the
+      confirmed set was refused with `factory_s3_manifest_published`, and the run
+      deleted exactly the two object keys and the manifest key it created.
 
-- [ ] B7 (waits on W01d): The claims still discriminate on real output; the mount changed the
+- [x] B7: The claims still discriminate on real output; the mount changed the
       byte path and nothing else.
       CHECK: same journey
       EXPECT: the byte-level claims pass on conforming variants, the caption
@@ -126,10 +121,32 @@ the worker is confirmed stopped, and the deferred-variant path is gone.
       `bun scripts/gate-integrity.ts`; `bun test --coverage ./src/factory/reference-image/`;
       `bash scripts/python-quality.sh all`; the `BASE_REF=integ/w00` coverage gates
       EXPECT: all exit 0; 100% of `materials.ts`.
-      EVIDENCE: `logs/gates.log`. TypeScript 169 pass / 0 fail / 417 assertions
-      across 6 files, with `materials.ts` at 72/72 and the six files W11 added
-      still at 100%. Python 183 test cases and 100% of 691 statements and 212
-      branches. typecheck, lint, boundaries and gate integrity all exit 0.
+      EVIDENCE: `logs/gates-w01d.log`, measured at the merged head. TypeScript
+      194 pass / 0 fail / 447 assertions across 7 files, with `materials.ts` at
+      72/72 and the six files W11 added still at 100%. Python 183 test cases and
+      100% of 691 statements and 212 branches for this project. typecheck, lint,
+      `check-factory-boundaries` and `gate-integrity` all exit 0, and with
+      `BASE_REF=integ/w00` the new-file gate passed over 1 new source file and
+      the patch gate over 2 changed files. The earlier `logs/gates.log` is
+      retained as the pre-merge measurement.
+
+- [x] B9: A round in which nothing passes is rejected, and the second round uses
+      a revised prompt. This is C10's own remedy, exercised rather than assumed.
+      CHECK: the two journey receipts above.
+      EXPECT: round one `round.rejected` with every variant visible; round two
+      run with a revised prompt and no third round.
+      EVIDENCE: round one with the reference brief produced no passing variant
+      and the pack said so: `round.rejected`, "All 4 variants were measured and
+      none satisfied the contract", with all four recorded and their OCR
+      findings named. C10's remedy for that is a second round with a revised
+      prompt, and only in the second, so round two ran once with
+      "One green oak tree on a plain white background. No text, no letters, no
+      numbers, no watermark, no signature." It produced an accepted variant and
+      no third round was run. The same prompt was NOT retried to get a different
+      draw; the revision addresses the failure the first round measured, which
+      is what makes it remediation rather than a reroll.
+      Round two is `round.unmeasured` rather than accepted, correctly, because
+      the semantic quorum has no credential to run under (G16).
 
 ## Deviations and findings
 
