@@ -34,7 +34,7 @@ podman --remote=false image inspect \
   --format '{{.Id}} {{.Digest}}'
 ```
 
-That build uses the current checkout and package repositories cached on the host. It does not claim the qualified digest unless both values match the constants above. A different result is a new image candidate: qualify it, record its full image ID and repository digest, and change runtime configuration in a separate reviewed change. Never retag a different candidate under the qualified digest or enable a network pull at provider startup.
+That build uses the current checkout and requires the base image to be cached locally. Package installation can still require network access; `--pull=never` only prevents a base-image pull. It does not claim the qualified digest unless both values match the constants above. A different result is a new image candidate: qualify it, record its full image ID and repository digest, and change runtime configuration in a separate reviewed change. Never retag a different candidate under the qualified digest or enable a network pull at provider startup.
 
 With the verified image present, the production-driver proof is:
 

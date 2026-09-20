@@ -37,7 +37,8 @@ owned by that user. These settings are host configuration, never provider input:
 
 The digest-pinned image must already exist locally and provide Bun at
 `/usr/local/bin/bun`, Bash, and basic Unix tools. The runtime never pulls an
-image. UID 0 is inside the rootless user namespace and maps to the invoking
+image. See the [tested image setup](../../scripts/pluggable-infrastructure/README.md)
+for the local artifact, verification command, and candidate build recipe. UID 0 is inside the rootless user namespace and maps to the invoking
 unprivileged host user. All capabilities are dropped. The container has no
 network, a read-only root, and fixed memory, CPU, PID, and workspace disk bounds.
 The filesystem mount remains private; no `allow_other` host change is needed.

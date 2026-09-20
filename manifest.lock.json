@@ -341,8 +341,8 @@
       "directory": "extensions/local-sandbox",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 11609,
-      "sourceDigest": "282cfb1540f986a03ad428f37fcade92e9bb9dcda6ef153d9b3af34661771e2c"
+      "bytes": 11762,
+      "sourceDigest": "91c15c76218b908d550a2548642451e8be7b7ef7006d0537eae1d7357b1632e0"
     },
     "memory-extractor": {
       "directory": "extensions/memory-extractor",
