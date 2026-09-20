@@ -214,6 +214,43 @@ test("an interrupted raw create stays unknown and retains its reservation", asyn
   expect(resource.rows[0]!.observed_state).toBe("unknown");
 });
 
+test("reuses an interrupted same-actor disposal with fresh reviewed authorization and releases the local slot", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  let attempts = 0;
+  context.local.destroy = mock(async input => {
+    attempts++;
+    if (attempts === 1) throw new Error("transport lost");
+    return { receipt: receipt(input.call), resource: { resourceId: input.resourceId, desiredState: "destroyed" as const, observedState: "destroyed" as const, limits } };
+  });
+  const initial = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "dispose-original" });
+  await expect(context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, initial.id)).rejects.toThrow("transport lost");
+  await expect(context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "dispose-original" })).rejects.toMatchObject({ code: "IDEMPOTENCY_CONFLICT" });
+  await context.database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES(${crypto.randomUUID()},${create.projectId},${context.other.id},'member')`);
+  await expect(context.controller.requestSandboxAction(context.other.id, create.projectId, { action: "destroy", idempotencyKey: "other-dispose" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+  const retried = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "dispose-retry" });
+  expect(retried).toMatchObject({ id: initial.id, action: "destroy", state: "unknown" });
+  const status = await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, retried.id);
+  expect(attempts).toBe(2);
+  expect(status.resource).toMatchObject({ observedState: "destroyed" });
+  await expect(context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "after-disposal" })).rejects.toMatchObject({ code: "RESOURCE_DESTROYED" });
+  const next = await context.controller.createSandboxProject(context.owner.id, { name: "Next task", idempotencyKey: "next-task-after-retry", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits });
+  expect(next.projectId).not.toBe(create.projectId);
+});
+
+test("does not reuse a failed disposal", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  context.local.destroy = mock(async input => ({ receipt: { ...receipt(input.call), outcome: "failed" as const, error: { code: "destroy_failed", message: "not destroyed", retryable: true } } }));
+  const failed = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "dispose-failed" });
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, failed.id);
+  const fresh = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "dispose-fresh" });
+  expect(fresh).toMatchObject({ action: "destroy", state: "admitted" });
+  expect(fresh.id).not.toBe(failed.id);
+});
+
 test("method idempotency binds the conversation and canonical payload", async () => {
   const context = await fixture();
   const create = await admitCreate(context);
