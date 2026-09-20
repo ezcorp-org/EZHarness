@@ -54,3 +54,23 @@ KVM and QEMU are installed, but no reusable Linux guest disk is present. A later
 The probe follows the current Podman run contract. Podman documents that `--cpus`, `--memory`, and `--pids-limit` map to cgroup controls; `--network=none` creates an unconfigured network namespace; and `--read-only` makes the root filesystem read-only. It also warns that rootless resource controls depend on the host and are unsupported with cgroups v1. The probe therefore checks the real cgroup v2 values instead of trusting accepted flags. See [Podman run](https://docs.podman.io/en/latest/markdown/podman-run.1.html).
 
 Podman documents that privileged mode disables major isolation controls, including dropped capabilities, read-only mounts, and seccomp. The Compose probe does not use privileged mode to make nesting pass. See [Podman create](https://docs.podman.io/en/latest/markdown/podman-create.1.html#privileged).
+
+## Production driver recovery proof
+
+The production driver has a separate repeatable check. It starts a real managed
+process, exits the first host client, and uses a second host client to read its
+identity and retained output, cancel it, read the saved workspace, run another
+command, and destroy the workspace. The final check requires no owned container
+or filesystem mount to remain.
+
+```sh
+EZ_FUSE2FS_PATH=/absolute/path/to/fuse2fs \
+EZ_LOCAL_IMAGE='localhost/ezharness-local-mvp@sha256:<manifest-digest>' \
+EZ_LOCAL_DRIVER_RECEIPT=/tmp/local-driver-receipt.json \
+bun scripts/pluggable-infrastructure/qualify-production-local-driver.ts
+```
+
+The script compiles the production supervisor and creates its own private state
+directory. Its two client processes use the same production driver and persisted
+state. This proves driver recovery across client exits; the browser qualification
+separately exercises provider approval, application routing, and native tools.
