@@ -37,6 +37,53 @@ export async function getFiles(blobs: BlobStore, digest: string, kind: "workspac
   return files;
 }
 
+export type ReleaseBlobAuditCondition = "healthy" | "empty" | "mostly_missing" | "single_missing" | "partially_missing";
+
+export interface ReleaseBlobAudit {
+  expected: number;
+  present: number;
+  missing: number;
+  condition: ReleaseBlobAuditCondition;
+}
+
+export interface ReleaseBlobDigests {
+  sourceDigest: string;
+  artifactDigest: string;
+}
+
+/**
+ * Check every immutable release object by name only. Reading and parsing all
+ * stored artifacts during boot would turn a volume diagnostic into unbounded
+ * startup work, and the digest filenames are already the storage contract.
+ */
+export async function auditReleaseBlobPresence(blobs: Pick<FileBlobStore, "has">, digests: Iterable<string>): Promise<ReleaseBlobAudit> {
+  const expected = [...new Set(digests)];
+  let present = 0;
+  for (const digest of expected) if (await blobs.has(digest)) present++;
+  const missing = expected.length - present;
+  const condition: ReleaseBlobAuditCondition = missing === 0 ? "healthy"
+    : present === 0 ? "empty"
+      : missing === 1 ? "single_missing"
+        : missing * 2 >= expected.length ? "mostly_missing"
+          : "partially_missing";
+  return { expected: expected.length, present, missing, condition };
+}
+
+/**
+ * Classify the persistent release store without logging installation ids,
+ * release names, or content digests. The caller supplies the boot logger.
+ */
+export async function auditReleaseBlobStorage(blobs: Pick<FileBlobStore, "has">, releases: Iterable<ReleaseBlobDigests>, warn: (message: string, details: ReleaseBlobAudit) => void): Promise<ReleaseBlobAudit> {
+  const digests: string[] = [];
+  for (const release of releases) digests.push(release.sourceDigest, release.artifactDigest);
+  const audit = await auditReleaseBlobPresence(blobs, digests);
+  if (audit.condition === "empty") warn("Extension release blob storage is empty. The release volume may be renamed or unmounted; mount the expected volume or copy release blobs from the prior volume. Do not restore the database.", audit);
+  else if (audit.condition === "mostly_missing") warn("Most extension release blobs are missing. The release volume may be renamed or unmounted; mount the expected volume or copy release blobs from the prior volume. Do not restore the database.", audit);
+  else if (audit.condition === "single_missing") warn("One extension release blob is missing. Restore or rebuild the affected release.", audit);
+  else if (audit.condition === "partially_missing") warn("Some extension release blobs are missing. Restore or rebuild the affected releases.", audit);
+  return audit;
+}
+
 export class FileBlobStore implements BlobStore {
   private readonly root: string;
 
@@ -74,6 +121,20 @@ export class FileBlobStore implements BlobStore {
     }
   }
 
+  /** True only for an existing regular blob; never reads its contents. */
+  async has(digest: string): Promise<boolean> {
+    if (!/^[a-f0-9]{64}$/.test(digest)) throw new LifecycleError("invalid_digest", "Invalid content digest.");
+    await this.directory();
+    let handle: FileHandle;
+    try {
+      handle = await open(join(this.root, digest), constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") return false;
+      throw cause;
+    }
+    try { return (await handle.stat()).isFile(); } finally { await handle.close(); }
+  }
+
   async get(digest: string): Promise<Uint8Array> {
     if (!/^[a-f0-9]{64}$/.test(digest)) throw new LifecycleError("invalid_digest", "Invalid content digest.");
     await this.directory();
@@ -81,7 +142,7 @@ export class FileBlobStore implements BlobStore {
     try {
       handle = await open(join(this.root, digest), constants.O_RDONLY | constants.O_NOFOLLOW);
     } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new LifecycleError("artifact_missing", "Stored extension files are missing. Restore extension release storage from backup.");
+      if ((cause as NodeJS.ErrnoException).code === "ENOENT") throw new LifecycleError("artifact_missing", "One stored extension release blob is missing. Restore or rebuild the affected release.");
       throw cause;
     }
     try {

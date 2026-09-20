@@ -146,4 +146,12 @@ fi
 export DOCKER_HOST="unix://$SOCKET"
 export COMPOSE_FILE="${COMPOSE_FILE:-$DEFAULT_COMPOSE_FILE}"
 
+# Dockerfile.dev stores this value in its OCI revision label and runtime env.
+# Keep an explicit value for reproducible rebuilds, but make the documented
+# `bun run podman up -d --build` command record the checkout by default.
+if [ -z "${EZCORP_BUILD_COMMIT:-}" ]; then
+  EZCORP_BUILD_COMMIT="$(git rev-parse --verify HEAD)"
+fi
+export EZCORP_BUILD_COMMIT
+
 exec docker compose "$@"

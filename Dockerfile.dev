@@ -5,6 +5,11 @@
 # in ci.yml). The floating `oven/bun:1` this used to carry meant any upstream
 # 1.x push invalidated every layer below, including both installs.
 FROM oven/bun:1.3.14
+ARG EZCORP_BUILD_COMMIT=unknown
+# The Bun base image carries its own OCI revision. Override it so the dev
+# image identifies the EZHarness checkout that supplied its image-backed files.
+LABEL org.opencontainers.image.revision=$EZCORP_BUILD_COMMIT
+ENV EZCORP_IMAGE_BUILD_COMMIT=$EZCORP_BUILD_COMMIT
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
 WORKDIR /app
 

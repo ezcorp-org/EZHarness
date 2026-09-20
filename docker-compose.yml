@@ -37,6 +37,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.dev
+      args:
+        EZCORP_BUILD_COMMIT: ${EZCORP_BUILD_COMMIT:-unknown}
     # `network_mode: host` is dev-only convenience: it lets the dev's
     # browser hit the SvelteKit dev server on localhost without port
     # mapping. Production deployments use isolated container networking
@@ -182,6 +184,7 @@ services:
             exit 1
           fi
         done
+        /app/scripts/warn-dev-image-provenance.sh
         # Reconcile deps with the committed lockfile BEFORE anything else.
         # node_modules is baked into the dev image (it is NOT bind-mounted),
         # so when a merged PR advances bun.lock — e.g. the pi-ai 0.79→0.80

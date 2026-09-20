@@ -12,7 +12,7 @@ import { ExtensionLifecycle, FileBlobStore, LifecycleError, type InstallationSta
 import { ExtensionDataMigrations, type StorageMigrationInput } from "./v4/data-migrations";
 import { ExtensionDeliveryQueue } from "./v4/deliveries";
 import { createCandidateVerificationBroker, type CandidateFixtures } from "./candidate-verification-broker";
-import { getFiles } from "./v4/blobs";
+import { auditReleaseBlobStorage, getFiles, type ReleaseBlobDigests } from "./v4/blobs";
 import { hasExactReleaseGrants } from "./bundled-drift-reapprove";
 import { createLifecycleRecoveryScheduler } from "./lifecycle-recovery-scheduler";
 
@@ -394,6 +394,9 @@ export async function reconcileExtensionLifecycle(): Promise<void> {
   const services = await getServices();
   const { getDb } = await import("../db/connection");
   const result = await getDb().execute(sql`SELECT payload FROM extension_release_installations ORDER BY id`);
+  const releaseResult = await getDb().execute(sql`SELECT payload FROM extension_release_records WHERE kind = 'releases' ORDER BY installation_id, id`);
+  const releases = releaseRows<{ payload: string }>(releaseResult).map((row) => JSON.parse(row.payload) as ReleaseBlobDigests);
+  await auditReleaseBlobStorage(services.blobs, releases, (message, details) => log.warn(message, { ...details }));
   await reconcileInstallations(services, releaseRows<{ payload: string }>(result).map(row => JSON.parse(row.payload) as InstallationRecord));
 }
 

@@ -64,6 +64,7 @@ await Bun.write(
     // variables before it execs, so there is no default to fall back to.
     'printf "COMPOSE_FILE=%s\\n" "$COMPOSE_FILE"',
     'printf "DOCKER_HOST=%s\\n" "$DOCKER_HOST"',
+    'printf "EZCORP_BUILD_COMMIT=%s\\n" "$EZCORP_BUILD_COMMIT"',
     'printf "ARGV=%s\\n" "$*"',
     "",
   ].join("\n"),
@@ -92,7 +93,7 @@ interface Run {
   stdout: string;
   stderr: string;
   /** What the stub Compose CLI was exec'd with, or null when it never ran. */
-  invocation: { composeFile: string; dockerHost: string; argv: string } | null;
+  invocation: { composeFile: string; dockerHost: string; buildCommit: string; argv: string } | null;
 }
 
 function run(args: string[], env: Record<string, string> = {}): Run {
@@ -113,6 +114,7 @@ function run(args: string[], env: Record<string, string> = {}): Run {
       ? {
           composeFile: read("COMPOSE_FILE"),
           dockerHost: read("DOCKER_HOST"),
+          buildCommit: read("EZCORP_BUILD_COMMIT"),
           argv: read("ARGV"),
         }
       : null,
@@ -155,6 +157,12 @@ describe("podman wrapper — the invocation it guarantees", () => {
     expect(run(["--profile", "ollama", "up", "-d"]).invocation?.argv).toBe(
       "compose --profile ollama up -d",
     );
+  });
+
+  test("records the checkout revision by default while preserving an explicit build revision", () => {
+    const checkout = Bun.spawnSync({ cmd: ["git", "-C", REPO_ROOT, "rev-parse", "--verify", "HEAD"], stdout: "pipe" }).stdout.toString().trim();
+    expect(run(["up", "-d"]).invocation?.buildCommit).toBe(checkout);
+    expect(run(["up", "-d"], { EZCORP_BUILD_COMMIT: "f".repeat(40) }).invocation?.buildCommit).toBe("f".repeat(40));
   });
 });
 
