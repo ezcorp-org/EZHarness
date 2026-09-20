@@ -43,6 +43,16 @@ bun run test
 bun run test:coverage
 ```
 
+**On macOS**, `bun run test` and `bun run test:coverage` are red before you
+change anything — 115 files, on Linux-only facilities (`prlimit`, `flock`,
+procfs). Run those two in a Linux container instead, and see
+[docs/macos-local-dev.md](docs/macos-local-dev.md) for the full picture:
+
+```sh
+bash scripts/test-linux.sh
+bash scripts/test-linux.sh bun run test:coverage
+```
+
 ## Changing the gate itself
 
 The gate files (`scripts/coverage-*.ts`, `coverage-thresholds.json`, CI
