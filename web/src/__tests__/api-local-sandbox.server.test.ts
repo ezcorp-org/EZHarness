@@ -1,0 +1,89 @@
+import { beforeEach, describe, expect, test, vi } from "vitest";
+import { makeRequestEvent } from "./helpers/server-route-test-utils";
+
+const controller = {
+	listLocalSandboxProviders: vi.fn(),
+	createSandboxProject: vi.fn(),
+	getProjectSandboxStatus: vi.fn(),
+	requestSandboxAction: vi.fn(),
+	executeAdmittedLocalSandboxOperation: vi.fn(),
+};
+
+vi.mock("$server/runtime/sandbox/controller", () => ({
+	getSandboxController: () => controller,
+	SandboxControllerError: class SandboxControllerError extends Error {
+		constructor(public code: string, message: string) { super(message); }
+	},
+}));
+
+const { GET: providers } = await import("../routes/api/sandboxes/providers/+server");
+const { POST: create } = await import("../routes/api/sandboxes/+server");
+const { GET: status, POST: action } = await import("../routes/api/projects/[id]/sandbox/+server");
+const { POST: execute } = await import("../routes/api/local-sandbox/operations/[id]/execute/+server");
+
+const user = { id: "user-1", email: "user@example.test", name: "User", role: "user" };
+const local = { user };
+const provider = { installationId: "11111111-1111-4111-8111-111111111111", providerId: "podman", releaseId: "release", releaseBinding: "binding", generation: 1 };
+const sandboxStatus = { projectId: "sandbox", bindingId: "binding", provider, resource: { resourceId: "resource", observedState: "stopped", desiredState: "stopped", limits: {} }, operation: null };
+
+const idempotencyKey = "22222222-2222-4222-8222-222222222222";
+function event(path: string, options: { body?: unknown; locals?: Record<string, unknown>; params?: Record<string, string>; idempotent?: boolean } = {}) {
+	return makeRequestEvent(`http://localhost${path}`, {
+		locals: options.locals ?? local,
+		params: options.params ?? {},
+		request: { method: "POST", headers: { "content-type": "application/json", ...(options.idempotent === false ? {} : { "Idempotency-Key": idempotencyKey }) }, body: options.body === undefined ? undefined : JSON.stringify(options.body) },
+	});
+}
+
+beforeEach(() => {
+	for (const fn of Object.values(controller)) fn.mockReset();
+	controller.listLocalSandboxProviders.mockResolvedValue([provider]);
+	controller.createSandboxProject.mockResolvedValue(sandboxStatus);
+	controller.getProjectSandboxStatus.mockResolvedValue(sandboxStatus);
+	controller.requestSandboxAction.mockResolvedValue({ id: "operation", action: "start", state: "admitted", provider, input: { resourceId: "resource" } });
+	controller.executeAdmittedLocalSandboxOperation.mockResolvedValue(sandboxStatus);
+});
+
+describe("local sandbox API", () => {
+	test("lists only controller-reviewed providers for the authenticated user", async () => {
+		const response = await providers(event("/api/sandboxes/providers") as never);
+		expect(await response.json()).toEqual({ providers: [{ installationId: provider.installationId, providerId: "podman", label: "podman", ready: true }] });
+		expect(controller.listLocalSandboxProviders).toHaveBeenCalledWith("user-1");
+	});
+
+	test("creates a dedicated empty sandbox with host-owned limits", async () => {
+		const response = await create(event("/api/sandboxes", { body: { name: "Sandbox", providerInstallationId: provider.installationId, providerId: "podman" } }) as never);
+		expect(response.status).toBe(201);
+		expect(controller.createSandboxProject).toHaveBeenCalledWith("user-1", expect.objectContaining({ name: "Sandbox", idempotencyKey, config: {}, limits: { memoryBytes: 512 * 1024 ** 2, milliCpu: 1000, pids: 64, diskBytes: 1024 ** 3 } }));
+		expect(await response.json()).toMatchObject({ project: { id: "sandbox" } });
+	});
+
+	test("admits a bounded lifecycle action then executes only the returned operation id", async () => {
+		const admitted = await action(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" }, body: { action: "start" } }) as never);
+		expect(admitted.status).toBe(200);
+		expect(controller.requestSandboxAction).toHaveBeenCalledWith("user-1", "sandbox", { action: "start", idempotencyKey });
+		const ran = await execute(event("/api/local-sandbox/operations/operation/execute", { params: { id: "operation" } }) as never);
+		expect(ran.status).toBe(200);
+		expect(controller.executeAdmittedLocalSandboxOperation).toHaveBeenCalledWith("user-1", "operation");
+	});
+
+	test("requires an idempotency key before a lifecycle write reaches the controller", async () => {
+		const response = await action(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" }, body: { action: "start" }, idempotent: false }) as never);
+		expect(response.status).toBe(400);
+		expect(controller.requestSandboxAction).not.toHaveBeenCalled();
+	});
+
+	test("rejects arbitrary create fields and lifecycle arguments", async () => {
+		const createResponse = await create(event("/api/sandboxes", { body: { name: "Sandbox", providerInstallationId: provider.installationId, providerId: "podman", path: "/host" } }) as never);
+		expect(createResponse.status).toBe(400);
+		expect(controller.createSandboxProject).not.toHaveBeenCalled();
+		const actionResponse = await action(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" }, body: { action: "start", command: "whoami" } }) as never);
+		expect(actionResponse.status).toBe(400);
+		expect(controller.requestSandboxAction).not.toHaveBeenCalled();
+	});
+
+	test("maps controller status without exposing host paths", async () => {
+		const response = await status(event("/api/projects/sandbox/sandbox", { params: { id: "sandbox" } }) as never);
+		expect(await response.json()).toMatchObject({ projectId: "sandbox", state: "stopped", provider: { label: "podman" } });
+	});
+});

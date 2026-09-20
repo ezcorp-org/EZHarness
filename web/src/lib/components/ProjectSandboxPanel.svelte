@@ -26,7 +26,7 @@
 	async function create(provider: Provider) {
 		busy = true; error = "";
 		try {
-			const response = await fetch("/api/sandboxes", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: `Sandbox for ${projectId}`, sourceProjectId: projectId, providerInstallationId: provider.installationId, providerId: provider.providerId }) });
+			const response = await fetch("/api/sandboxes", { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ name: `Sandbox for ${projectId}`, providerInstallationId: provider.installationId, providerId: provider.providerId }) });
 			if (!response.ok) throw new Error((await response.json().catch(() => ({ error: "Could not create sandbox" }))).error);
 			const data = await response.json();
 			await goto(`/project/${data.project.id}/settings`);
@@ -36,8 +36,12 @@
 	async function action(action: "start" | "stop" | "destroy") {
 		busy = true; error = "";
 		try {
-			const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/sandbox`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
+			const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/sandbox`, { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ action }) });
 			if (!response.ok) throw new Error((await response.json().catch(() => ({ error: "Sandbox action failed" }))).error);
+			const admitted = await response.json() as { operation?: { id?: string } };
+			if (!admitted.operation?.id) throw new Error("Sandbox action was not admitted");
+			const execution = await fetch(`/api/local-sandbox/operations/${encodeURIComponent(admitted.operation.id)}/execute`, { method: "POST" });
+			if (!execution.ok) throw new Error((await execution.json().catch(() => ({ error: "Sandbox action failed" }))).error);
 			disposeOpen = false; await load();
 		} catch (cause) { error = cause instanceof Error ? cause.message : "Sandbox action failed"; } finally { busy = false; }
 	}
