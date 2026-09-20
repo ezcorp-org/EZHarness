@@ -18,6 +18,36 @@ describe("isEmbeddingReady", () => {
   });
 });
 
+// The extension runner mode on the DETAIL surface only — the bare liveness
+// probe stays a single `status` field (asserted below in "public response
+// has only status field").
+describe("health endpoint — extension runner mode", () => {
+  const dbUp = () => mock.module("../db/connection", () => ({
+    getPglite: () => ({ query: mock(() => ({ rows: [{ "?column?": 1 }] })) }),
+    getDb: () => ({}),
+    initDb: mock(() => Promise.resolve()),
+  }));
+
+  test("detail reports the isolated runner by default", async () => {
+    dbUp();
+    const { buildHealthResponse } = await import("../health");
+    const detail = await buildHealthResponse(true);
+    expect(detail.extensions).toEqual({ runner: "isolated" });
+  });
+
+  test("an incoherent mode env reads as invalid — health answers rather than throws", async () => {
+    const previous = process.env.EZCORP_EXTENSION_RUNNER;
+    process.env.EZCORP_EXTENSION_RUNNER = "bogus";
+    try {
+      dbUp();
+      const { buildHealthResponse } = await import("../health");
+      expect((await buildHealthResponse(true)).extensions).toEqual({ runner: "invalid" });
+    } finally {
+      if (previous === undefined) delete process.env.EZCORP_EXTENSION_RUNNER; else process.env.EZCORP_EXTENSION_RUNNER = previous;
+    }
+  });
+});
+
 // Test health endpoint logic
 describe("health endpoint logic", () => {
   test("returns healthy status when DB is up", async () => {

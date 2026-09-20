@@ -15,6 +15,17 @@ Requirements: Podman 5 with rootless cgroup v2 CPU, memory and PID controllers; 
 5. Pre-pull `docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834` under the runner account. This is the tested Bun 1.3.14 image. Runtime execution uses `--pull=never`; an absent image is an error.
 6. Start the user service. Initialization verifies actual container UID, seccomp, capabilities, no-new-privileges, read-only root, network routes and cgroup settings. A failed check prevents service startup. No command in this setup is run automatically by the application.
 
+## No host runner: the trusted-local mode
+
+A host that cannot run the isolated runner — macOS or Windows, where the Linux VM is not the operator's to provision, or any host where the steps above are not worth it — can instead run extensions as plain processes inside the application container. This is the `trusted-local` adapter from [security.md](../../docs/extensions/security.md): none of the seven sandbox controls apply, the extension has the app's full reach, and every build and every release approval requires an explicit per-digest human acknowledgement. Set both keys on the `app` service and nothing else from this directory:
+
+```
+EZCORP_EXTENSION_RUNNER=trusted-local
+EZCORP_EXTENSIONS_UNSANDBOXED_ACK=I-understand-extensions-run-with-the-apps-full-powers
+```
+
+The app refuses to start with one key but not the other, with an unknown value, or with an isolated-runner socket configured alongside. It runs as the image's non-root uid 1000 and refuses root. It logs the mode at error level on every boot, reports it on `/api/health?detail=true` as `extensions.runner`, and shows a standing banner on every page. Which to choose, and why this exists at all: the [decision record](../../docs/decisions/2026-09-12-extension-runner-install-burden.md).
+
 Merge `compose.runner.yml` into the existing application Compose deployment and set the two required host paths. The app reads `EZCORP_EXTENSION_RUNNER_SOCKET` and `EZCORP_EXTENSION_RUNNER_TOKEN_FILE`. Outside Compose, set either this token file or `EZCORP_EXTENSION_RUNNER_TOKEN`, never both. The file must be an absolute, regular, non-symlink path, at most 4096 bytes, and not writable by group or others. Use a private secret mount; the reader removes surrounding whitespace and rejects short or malformed credentials. The runner service uses the separate `EZ_EXTENSION_*` settings above. The socket mount is the only shared host directory; its private runner subdirectory is `0700` and cannot be read by the app account.
 
 ## Validation and operation

@@ -25,6 +25,7 @@
 	import TeamChatPanel from "$lib/components/TeamChatPanel.svelte";
 	import DockHost from "$lib/components/tool-cards/DockHost.svelte";
 	import PendingDecisionsTray from "$lib/components/tool-cards/PendingDecisionsTray.svelte";
+	import UnsandboxedExtensionsBanner from "$lib/components/UnsandboxedExtensionsBanner.svelte";
 	import EzPanel from "$lib/components/ez/EzPanel.svelte";
 
 	let { children } = $props();
@@ -38,6 +39,9 @@
 	let shortcuts = $state<ShortcutBinding[]>([]);
 	let isAdmin = $state(false);
 	let currentUser = $state<{ id: string; name: string; email: string; role: string } | null>(null);
+	// `extensionRunner` from the same /api/auth/me fetch: "isolated" or
+	// "trusted-local". Drives the standing not-sandboxed banner.
+	let extensionRunner = $state<string | null>(null);
 	let userMenuOpen = $state(false);
 
 	function toggleSidebar() {
@@ -98,6 +102,7 @@
 					currentUser = me.user;
 					if (me.user.role === "admin") isAdmin = true;
 				}
+				if (typeof me.extensionRunner === "string") extensionRunner = me.extensionRunner;
 			})
 			.catch(() => {});
 
@@ -463,6 +468,11 @@
 		style="padding-right: {reservedDockPx}px; transition: padding-right 200ms ease-in-out;"
 		tabindex="0"
 	>
+		<!-- Standing host warning, in flow above every route (chat included).
+		     It lives here rather than in the overlay stack below because
+		     `PendingDecisionsTray` owns `bottom-4 right-4 z-60` and would hide
+		     it outright; see the component for the full reasoning. -->
+		<UnsandboxedExtensionsBanner mode={extensionRunner} />
 		<!-- Mobile/tablet header (hidden on chat routes - chat has its own header).
 		     Visible at `<lg` so tablets get the hamburger too (Phase 49.1).
 		     Command Deck: graphite chrome via `data-deck-mobilebar`. -->
