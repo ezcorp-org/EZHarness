@@ -2,7 +2,7 @@
 
 Date: 20 September 2026
 
-Status: implementation started in `feat/pluggable-infrastructure`; no live qualification claimed
+Status: local MVP implemented in `feat/pluggable-infrastructure`; final integrated validation remains in progress
 
 Input: the supplied **Pluggable Sandbox & Secrets Infrastructure — Proposed v1, 19 September 2026** PRD
 

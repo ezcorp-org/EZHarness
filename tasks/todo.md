@@ -7,7 +7,7 @@ Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout pr
 - [x] Fetch base and create isolated integration, Sol, and Terra worktrees.
 - [x] Complete independent plan audits and record corrections before code.
 - [x] Establish initial decisions, shared interfaces, ownership, and checks.
-- [ ] Implement the local MVP subset: provider contract, persistent binding, actual local sandbox, seven tools, restart/log/cancel/cleanup, minimal user flow.
+- [x] Implement the local MVP subset: provider contract, persistent binding, actual local sandbox, seven tools, restart/log/cancel/cleanup, minimal user flow.
 - [ ] Verify full changed-source coverage and canonical build/test lanes.
 - [ ] Complete real local provider/security/recovery qualification and local evidence.
 - External-host networking/deployment: later milestone by user direction.
@@ -100,11 +100,13 @@ Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout pr
 
 ## Review
 
-Local startup, reviewed dispatch, contained file access, process polling, cancellation, and terminal disposal have focused tests. The current controller has 20 passing tests and 350/350 measured executable lines. The panel has six passing tests and 39/39 measured lines. The provider invoker has four passing tests and 102/102 measured lines.
+The local provider, reviewed dispatch, durable binding, native tools, process supervision, and minimal settings panel are implemented. The live browser journey passed all seven tools, an actual Bun test inside the sandbox, persisted files, browser disconnect, cancellation, recovery, and disposal. No owned containers or mounts remained.
 
-Real runtime controls passed, and two independent production-driver clients proved retained output, cancellation, workspace persistence, another command, disposal, and zero remaining owned containers or mounts. Receipts are retained under tasks/evidence/pluggable-local/. This does not yet prove the complete live application journey.
+That journey exposed and fixed provider grant comparison, project-list refresh, HTTP idle timeout, and returned tool-error reporting. Immediate shell and grep completion also revealed retained deadline timers; a shared cleanup helper and real subprocess regressions now prove prompt exit.
 
-The first browser attempt exposed a mismatch between persisted string approvals and broker grant objects. The reviewed invoker now uses the existing grant projection and has a regression test with the actual persisted shape. The corrected live journey and the complete repository/browser coverage gates are queued under the shared validation lock. Their results remain pending. External-host setup remains deferred.
+Final validation remains open. The first complete backend run found 15 failures in five files: an outdated source count, old tool-loop fixtures, missing mock cleanup registration, and host-project policy fixtures. These are being repaired without removing security assertions. The final live test will also prove graceful application restart, exercise Start/Stop/Open chat, and retain desktop/mobile images. Full canonical tests, coverage, and build must then pass on that candidate.
+
+External hosts, Infisical, all R4 features, Compose services, and Claude/Codex guest workers remain outside this MVP.
 
 ---
 
