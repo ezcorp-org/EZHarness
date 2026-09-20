@@ -2,9 +2,11 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { providerMethodSchemas, sha256, type ExtensionManifestV4, type Runner, type SandboxProviderMethodGroup } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import { configureHostApiTransport } from "../../extensions/host-api-broker";
+import { buildFullGrantFromManifest } from "../../extensions/install-grant";
 import { _setPermissionEngineForTests } from "../../extensions/permission-engine";
 import { releaseBinding, configureReleaseRuntime } from "../../extensions/release-process";
 import { ExtensionRegistry } from "../../extensions/registry";
+import { requestedReleaseGrants } from "../../extensions/bundled-drift-reapprove";
 import { digestObject } from "../../extensions/v4/blobs";
 import { createStubPermissionEngine } from "../../__tests__/helpers/permission-engine-stub";
 import { mockDbConnection, setupTestDb, closeTestDb, getTestDb } from "../../__tests__/helpers/test-pglite";
@@ -51,6 +53,7 @@ describe("invokeSandboxProvider", () => {
   let reference: { installationId: string; providerId: string; releaseId: string; releaseBinding: string; generation: number };
   let response: unknown;
   let dispatches: number;
+  let registry: ExtensionRegistry;
 
   beforeEach(async () => {
     await setupTestDb();
@@ -68,8 +71,8 @@ describe("invokeSandboxProvider", () => {
     bindingId = crypto.randomUUID();
     const releaseId = crypto.randomUUID();
     const snapshot = {
-      installation: { id: installationId, ownerId: userId, scope: "global", activeReleaseId: releaseId, generation: 1, enabled: true, uninstalled: false, status: "active" as const, acknowledgedGeneration: 1, grants: { grantedAt: {}, hostApi: manifest.permissions.hostApi } },
-      release: { id: releaseId, installationId, workspaceId: crypto.randomUUID(), workspaceRevision: 1, sourceDigest: digestObject(manifest), artifactDigest: digestObject(manifest), releaseDigest: digestObject(manifest), imageDigest: `sha256:${"a".repeat(64)}`, runnerProfile: "test", policyDigest: "b".repeat(64), manifest, evidence: { protocolVersion: 4, validatorVersion: "test", tests: [{ name: "fixture", passed: true }], discoveryDigest: digestObject(manifest) }, createdAt: new Date().toISOString() },
+      installation: { id: installationId, ownerId: userId, scope: "global", activeReleaseId: releaseId, generation: 1, enabled: true, uninstalled: false, status: "active" as const, acknowledgedGeneration: 1, grants: requestedReleaseGrants(manifest) },
+      release: { id: releaseId, installationId, workspaceId: crypto.randomUUID(), workspaceRevision: 1, sourceDigest: digestObject(manifest), artifactDigest: digestObject(manifest), releaseDigest: digestObject(manifest), imageDigest: `sha256:${"a".repeat(64)}`, runnerProfile: "test", policyDigest: "b".repeat(64), manifest, evidence: { protocolVersion: 4 as const, validatorVersion: "test", tests: [{ name: "fixture", passed: true }], discoveryDigest: digestObject(manifest) }, createdAt: new Date().toISOString() },
       limits: { memoryBytes: 512 * 1024 * 1024, cpuMillis: 1000, pids: 64, tmpBytes: 64 * 1024 * 1024, outputBytes: 1024 * 1024, timeoutMs: 30_000 },
     };
     reference = { installationId, providerId: "local", releaseId, releaseBinding: await sha256(releaseBinding(snapshot)), generation: 1 };
@@ -88,9 +91,9 @@ describe("invokeSandboxProvider", () => {
       },
     };
     configureReleaseRuntime({ runner: async () => runner, resolve: async id => id === installationId ? snapshot : null });
-    const registry = ExtensionRegistry.getInstance();
+    registry = ExtensionRegistry.getInstance();
     registry.setManifestForTest(installationId, manifest);
-    registry.setGrantedPermsForTest(installationId, snapshot.installation.grants);
+    registry.setGrantedPermsForTest(installationId, buildFullGrantFromManifest(manifest, 0));
     await db.execute(sql`INSERT INTO extension_release_installations (id, owner_id, scope, payload) VALUES (${installationId}, ${userId}, 'global', ${JSON.stringify(snapshot.installation)})`);
     await db.execute(sql`CREATE TABLE IF NOT EXISTS sandbox_provider_bindings (id TEXT PRIMARY KEY, project_id TEXT UNIQUE NOT NULL, owner_id TEXT NOT NULL, installation_id TEXT NOT NULL, provider_id TEXT NOT NULL, release_id TEXT NOT NULL, release_binding TEXT NOT NULL, generation INTEGER NOT NULL, config_revision INTEGER NOT NULL, config_digest TEXT NOT NULL, state TEXT NOT NULL)`);
     await db.execute(sql`INSERT INTO extension_project_bindings (installation_id, payload) VALUES (${installationId}, ${JSON.stringify({ id: crypto.randomUUID(), projectId: authorProjectId, ownerId: userId, releaseId, generation: 1, approvedAt: new Date().toISOString(), writePaths: [] })})`);
@@ -133,5 +136,15 @@ describe("invokeSandboxProvider", () => {
 
     await expect(invokeSandboxProvider(userId, projectId, reference, "sandbox.lifecycle.v1", "create", input, controller.signal)).rejects.toThrow("Cancelled");
     expect(dispatches).toBe(0);
+  });
+
+  test("accepts the published grant projection but rejects an extra broker route", async () => {
+    response = { receipt: { ...call, outcome: "succeeded" }, resource: { resourceId: "resource", desiredState: "stopped", observedState: "stopped", limits } };
+    const input = { call: { scope: { projectId, bindingId, generation: 1 }, ...call }, profile: "linux-exec.v1" as const, limits };
+    await expect(invokeSandboxProvider(userId, projectId, reference, "sandbox.lifecycle.v1", "create", input)).resolves.toEqual(response);
+
+    const grant = buildFullGrantFromManifest(manifest, 0);
+    registry.setGrantedPermsForTest(installationId, { ...grant, hostApi: { events: false, routes: [...grant.hostApi!.routes, { method: "POST", path: "/api/extra" }] } });
+    await expect(invokeSandboxProvider(userId, projectId, reference, "sandbox.lifecycle.v1", "create", input)).rejects.toThrow("broker is not bound");
   });
 });

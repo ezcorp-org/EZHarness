@@ -7,6 +7,8 @@ import { getDb } from "../../db/connection";
 import { sql } from "drizzle-orm";
 import { registerCallProvenance, releaseCallProvenance } from "../../extensions/call-provenance";
 import { getPermissionEngine } from "../../extensions/permission-engine";
+import { hasExactReleaseGrants } from "../../extensions/bundled-drift-reapprove";
+import { buildFullGrantFromManifest } from "../../extensions/install-grant";
 import { getReleaseRuntime, ReleaseProcess, releaseBinding, resolveActiveRelease } from "../../extensions/release-process";
 import { ExtensionRegistry } from "../../extensions/registry";
 import { ToolExecutor } from "../../extensions/tool-executor";
@@ -17,6 +19,11 @@ export interface SandboxProviderReference {
   releaseId: string;
   releaseBinding: string;
   generation: number;
+}
+
+function brokerGrantProjection(value: object): Record<string, unknown> {
+  const { grantedAt: _grantedAt, ...projection } = value as { grantedAt?: unknown } & Record<string, unknown>;
+  return projection;
 }
 
 export async function invokeSandboxProvider(
@@ -97,7 +104,8 @@ async function assertLiveProviderInvocation(
   const mappedMethod = providerMethod(snapshot.release.manifest.providers, provider.providerId, group, operation);
   const registeredManifest = registry.getManifest(provider.installationId);
   const registeredGrants = registry.getGrantedPermissions(provider.installationId);
-  if (!registeredManifest || !registeredGrants || canonicalJson(registeredManifest) !== canonicalJson(snapshot.release.manifest) || canonicalJson(registeredGrants) !== canonicalJson(snapshot.installation.grants)) throw new ContractError("RELEASE_CHANGED", "Sandbox provider broker is not bound to the active release.");
+  const expectedBrokerGrants = brokerGrantProjection(buildFullGrantFromManifest(snapshot.release.manifest));
+  if (!hasExactReleaseGrants(snapshot.release.manifest, snapshot.installation.grants) || !registeredManifest || !registeredGrants || canonicalJson(registeredManifest) !== canonicalJson(snapshot.release.manifest) || canonicalJson(brokerGrantProjection(registeredGrants)) !== canonicalJson(expectedBrokerGrants)) throw new ContractError("RELEASE_CHANGED", "Sandbox provider broker is not bound to the active release.");
   if (!snapshot.release.manifest.methods?.some(method => method.name === mappedMethod && method.sensitivity === "ordinary")) throw new ContractError("SENSITIVE_METHOD_REQUIRES_BROKER", "Sandbox provider method is not eligible for host invocation.");
   return snapshot;
 }
