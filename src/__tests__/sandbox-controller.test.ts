@@ -243,6 +243,15 @@ test("invalid host driver output becomes an unknown durable method operation", a
   expect((await context.controller.getSandboxOperationResult(context.owner.id, admitted.id)).state).toBe("unknown");
 });
 
+test("a valid but unsupported generic lifecycle method is durably marked unknown", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const admitted = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.lifecycle.v1", operation: "start", idempotencyKey: "unsupported", payload: {} });
+  await expect(context.controller.executeAdmittedSandboxMethod(context.owner.id, admitted.id)).rejects.toMatchObject({ code: "INVALID_OPERATION" });
+  expect((await context.controller.getSandboxOperationResult(context.owner.id, admitted.id)).state).toBe("unknown");
+});
+
 test("raw dispatcher persists canonical cancel and file method results", async () => {
   const context = await fixture();
   const create = await admitCreate(context);
