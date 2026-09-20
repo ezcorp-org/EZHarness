@@ -57,12 +57,14 @@ export function getBuiltinToolDefs(
  * The local bodies are metadata donors only and are never invoked here. */
 function getSandboxToolDefs(workspace: Extract<WorkspaceTarget, { kind: "sandbox" }>): BuiltinToolDef[] {
   const metadata = getBuiltinToolDefs({ kind: "local", root: "/workspace-not-used", revision: workspace.revision });
-  const dispatcher = getSandboxWorkspaceDispatcher();
   return metadata.map((definition) => {
     const operation = definition.name as SandboxWorkspaceOperation;
     return {
       ...definition,
       execute: async (_toolCallId, params, signal) => {
+        // Resolve per effect: an emergency disable must affect a catalog that
+        // was already handed to a running model.
+        const dispatcher = getSandboxWorkspaceDispatcher();
         if (!dispatcher) return toolError("Sandbox workspace is unavailable");
         try {
           return await dispatcher(workspace, operation, params, signal);

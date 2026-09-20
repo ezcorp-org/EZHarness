@@ -180,10 +180,43 @@ export async function resolveProjectBuiltinTools(
   const workspace = await resolveWorkspaceTarget(projectId);
   // `workingDir` is a host-validated local run worktree. Preserve that
   // isolation for local projects, but it can never override a sandbox target.
-  const target = workspace.kind === "local" && workingDir
-    ? { ...workspace, root: workingDir }
-    : workspace;
-  return getBuiltinToolDefs(target, preview);
+  const target = workspaceForTools(workspace, workingDir);
+  const definitions = getBuiltinToolDefs(target, preview);
+  return definitions.map((definition) => ({
+    ...definition,
+    execute: async (toolCallId, params, signal, onUpdate) => {
+      try {
+        const current = workspaceForTools(await resolveWorkspaceTarget(projectId), workingDir);
+        if (!sameWorkspaceTarget(target, current)) {
+          const { toolError } = await import("../tools/types");
+          return toolError("Workspace binding changed; start a new run before retrying.");
+        }
+        return definition.execute(toolCallId, params, signal, onUpdate);
+      } catch {
+        const { toolError } = await import("../tools/types");
+        return toolError("Workspace binding changed; start a new run before retrying.");
+      }
+    },
+  }));
+}
+
+function workspaceForTools(
+  workspace: import("../workspace/target").WorkspaceTarget,
+  workingDir?: string,
+): import("../workspace/target").WorkspaceTarget {
+  return workspace.kind === "local" && workingDir ? { ...workspace, root: workingDir } : workspace;
+}
+
+function sameWorkspaceTarget(
+  left: import("../workspace/target").WorkspaceTarget,
+  right: import("../workspace/target").WorkspaceTarget,
+): boolean {
+  if (left.kind !== right.kind || left.revision !== right.revision) return false;
+  if (left.kind === "local" && right.kind === "local") return left.root === right.root;
+  if (left.kind === "sandbox" && right.kind === "sandbox") {
+    return left.bindingId === right.bindingId && left.projectId === right.projectId;
+  }
+  return false;
 }
 
 /**

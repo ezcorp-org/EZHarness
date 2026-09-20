@@ -1,5 +1,6 @@
 import type { AgentToolResult } from "@earendil-works/pi-agent-core";
 import { eq } from "drizzle-orm";
+import { isAbsolute } from "node:path";
 import { getDb } from "../../db/connection";
 import { projects, projectWorkspaceBindings } from "../../db/schema";
 
@@ -32,14 +33,17 @@ export function getSandboxWorkspaceDispatcher(): SandboxWorkspaceDispatcher | nu
  * this decision: a sandbox binding never carries a host filesystem root. */
 export async function resolveWorkspaceTarget(projectId: string, expectedRevision?: number): Promise<WorkspaceTarget> {
   const db = getDb();
-  const [project] = await db.select({ path: projects.path }).from(projects).where(eq(projects.id, projectId));
-  if (!project?.path) throw new Error("Project workspace is unavailable");
+  const [project] = await db.select({ id: projects.id, path: projects.path }).from(projects).where(eq(projects.id, projectId));
+  if (!project) throw new Error("Project workspace is unavailable");
 
   const [binding] = await db
     .select()
     .from(projectWorkspaceBindings)
     .where(eq(projectWorkspaceBindings.projectId, projectId));
-  if (!binding) return { kind: "local", root: project.path, revision: 0 };
+  if (!binding) {
+    if (!project.path || !isAbsolute(project.path)) throw new Error("Project workspace is unavailable");
+    return { kind: "local", root: project.path, revision: 0 };
+  }
   if (binding.kind !== "sandbox" || binding.state !== "active" || !binding.bindingId) {
     throw new Error("Sandbox workspace is unavailable");
   }
@@ -56,5 +60,11 @@ export async function projectRequiresSandbox(projectId: string | undefined): Pro
     .select({ kind: projectWorkspaceBindings.kind, state: projectWorkspaceBindings.state })
     .from(projectWorkspaceBindings)
     .where(eq(projectWorkspaceBindings.projectId, projectId));
-  return binding?.kind === "sandbox";
+  return requiresSandboxBinding(binding);
+}
+
+/** A row from a newer engine is never evidence that direct host access is
+ * safe. Only no binding means the compatible local target. */
+export function requiresSandboxBinding(binding: { kind: string } | undefined): boolean {
+  return binding !== undefined;
 }

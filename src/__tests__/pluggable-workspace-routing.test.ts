@@ -11,9 +11,11 @@ const { projects, projectWorkspaceBindings } = await import("../db/schema");
 const {
   configureSandboxWorkspaceDispatcher,
   projectRequiresSandbox,
+  requiresSandboxBinding,
   resolveWorkspaceTarget,
 } = await import("../runtime/workspace/target");
 const { resolveProjectBuiltinTools } = await import("../runtime/stream-chat/setup-tools");
+const { getBuiltinToolDefs } = await import("../runtime/tools");
 
 const toolArguments: Record<string, Record<string, unknown>> = {
   readFile: { path: "marker.txt" },
@@ -55,6 +57,17 @@ afterEach(async () => {
 });
 
 describe("persisted workspace routing", () => {
+  test("a future binding kind remains fail-closed", () => {
+    expect(requiresSandboxBinding(undefined)).toBeFalse();
+    expect(requiresSandboxBinding({ kind: "future-provider" })).toBeTrue();
+  });
+
+  test("sandbox metadata construction needs no local root", () => {
+    const tools = getBuiltinToolDefs({ kind: "sandbox", projectId: "sandbox-project", bindingId: "fixture-binding", revision: 1 });
+    expect(tools).toHaveLength(7);
+    expect(tools.map((tool) => tool.name)).toEqual(Object.keys(toolArguments));
+  });
+
   test("the production setup seam sends all seven sandbox tools to the injected dispatcher", async () => {
     await insertProject("sandbox-project");
     await bindSandbox("sandbox-project");
@@ -73,18 +86,52 @@ describe("persisted workspace routing", () => {
     expect(calls).toEqual(Object.keys(toolArguments).map((operation) => `sandbox-project:fixture-binding:${operation}`));
   });
 
+  test("an active sandbox binding does not require a usable local root", async () => {
+    await getTestDb().insert(projects).values({ id: "pathless-sandbox-project", name: "pathless", path: "" });
+    await bindSandbox("pathless-sandbox-project");
+    expect(await resolveWorkspaceTarget("pathless-sandbox-project")).toMatchObject({ kind: "sandbox", bindingId: "fixture-binding" });
+  });
+
   test("an unavailable sandbox dispatcher denies all seven tools without reading the local checkout", async () => {
     await insertProject("unavailable-project");
     await bindSandbox("unavailable-project");
     // Passing a real local root here models a dispatched worktree. Sandbox
     // policy must ignore it rather than treating it as a fallback.
+    const marker = join(root, "must-not-exist");
     const tools = await resolveProjectBuiltinTools("unavailable-project", root);
     for (const tool of tools) {
-      const result = await tool.execute("call", toolArguments[tool.name]);
+      const params = tool.name === "shell" ? { command: `touch ${marker}` } : toolArguments[tool.name];
+      const result = await tool.execute("call", params);
       expect(result.details).toMatchObject({ isError: true });
       expect(result.content[0]?.text).toContain("Sandbox workspace is unavailable");
     }
     expect(await Bun.file(join(root, "marker.txt")).text()).toBe("LOCAL_MARKER");
+    expect(await Bun.file(marker).exists()).toBeFalse();
+  });
+
+  test("already-created sandbox tools recheck revision, state, dispatcher, and project existence", async () => {
+    await insertProject("mutable-sandbox-project");
+    await bindSandbox("mutable-sandbox-project");
+    configureSandboxWorkspaceDispatcher(async (_target, operation) => ({
+      content: [{ type: "text", text: `GUEST_MARKER:${operation}` }], details: {},
+    }));
+    const tool = (await resolveProjectBuiltinTools("mutable-sandbox-project")).find((item) => item.name === "readFile")!;
+    expect((await tool.execute("call", { path: "marker.txt" })).content[0]?.text).toBe("GUEST_MARKER:readFile");
+
+    configureSandboxWorkspaceDispatcher(null);
+    expect((await tool.execute("call", { path: "marker.txt" })).details).toMatchObject({ isError: true });
+    configureSandboxWorkspaceDispatcher(async (_target, operation) => ({
+      content: [{ type: "text", text: `GUEST_MARKER:${operation}` }], details: {},
+    }));
+
+    await getTestDb().update(projectWorkspaceBindings).set({ revision: 2 }).where(eq(projectWorkspaceBindings.projectId, "mutable-sandbox-project"));
+    expect((await tool.execute("call", { path: "marker.txt" })).content[0]?.text).toContain("binding changed");
+    await getTestDb().update(projectWorkspaceBindings).set({ revision: 1, state: "unknown" }).where(eq(projectWorkspaceBindings.projectId, "mutable-sandbox-project"));
+    expect((await tool.execute("call", { path: "marker.txt" })).content[0]?.text).toContain("binding changed");
+    await getTestDb().delete(projectWorkspaceBindings).where(eq(projectWorkspaceBindings.projectId, "mutable-sandbox-project"));
+    expect((await tool.execute("call", { path: "marker.txt" })).content[0]?.text).toContain("binding changed");
+    await getTestDb().delete(projects).where(eq(projects.id, "mutable-sandbox-project"));
+    expect((await tool.execute("call", { path: "marker.txt" })).content[0]?.text).toContain("binding changed");
   });
 
   test("projects without a binding retain local tools", async () => {
@@ -115,5 +162,7 @@ describe("persisted workspace routing", () => {
     await expect(resolveWorkspaceTarget("unknown-project")).rejects.toThrow("Sandbox workspace is unavailable");
     await getTestDb().update(projectWorkspaceBindings).set({ state: "active", revision: 2 }).where(eq(projectWorkspaceBindings.projectId, "unknown-project"));
     await expect(resolveWorkspaceTarget("unknown-project", 1)).rejects.toThrow("Sandbox workspace is unavailable");
+    expect(await resolveWorkspaceTarget("unknown-project", 2)).toMatchObject({ kind: "sandbox", revision: 2 });
+    expect(await projectRequiresSandbox(undefined)).toBeFalse();
   });
 });
