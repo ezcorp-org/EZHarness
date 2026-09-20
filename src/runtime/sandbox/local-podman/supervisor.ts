@@ -71,12 +71,17 @@ export interface SupervisorStatus {
 
 type ResolveOwnedResource = (resourceId: string) => Promise<OwnedProcessResource>;
 type LaunchDetached = (argv: string[]) => void;
+type LockFile = (descriptor: number, operation: number) => number;
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const MAX_STATUS_BYTES = 2 * 1024 * 1024;
-const libc = dlopen("libc.so.6", { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } });
 const LOCK_EXCLUSIVE_NONBLOCKING = 2 | 4;
 const LOCK_RELEASE = 8;
+let flockCall: ((descriptor: number, operation: number) => number) | undefined;
+function flock(descriptor: number, operation: number): number {
+	flockCall ??= dlopen("libc.so.6", { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } }).symbols.flock;
+	return flockCall(descriptor, operation);
+}
 
 function receipt(call: ProviderCall) {
 	return { operationId: call.operationId, idempotencyKey: call.idempotencyKey, requestDigest: call.requestDigest, outcome: "succeeded" as const };
@@ -138,7 +143,7 @@ export function launchDetachedSupervisor(argv: string[]): void {
 
 export class LocalProcessSupervisor {
 	private readonly config: LocalProcessSupervisorConfig;
-	constructor(config: LocalProcessSupervisorConfig, private readonly resolveOwnedResource: ResolveOwnedResource, private readonly launchDetached: LaunchDetached = launchDetachedSupervisor) { this.config = assertConfig(config); }
+	constructor(config: LocalProcessSupervisorConfig, private readonly resolveOwnedResource: ResolveOwnedResource, private readonly launchDetached: LaunchDetached = launchDetachedSupervisor, private readonly lockFile: LockFile = flock) { this.config = assertConfig(config); }
 
 	private paths(resource: OwnedProcessResource) {
 		return { launch: `${resource.processRoot}/launch.json`, status: `${resource.processRoot}/status.json`, cancel: `${resource.processRoot}/cancel` };
@@ -177,7 +182,8 @@ export class LocalProcessSupervisor {
 			await chmod(resource.processRoot, 0o700);
 			const lockPath = `${resource.processRoot}/start.lock`;
 			const lock = await open(lockPath, "a+", 0o600); await chmod(lockPath, 0o600);
-			if (libc.symbols.flock(lock.fd, LOCK_EXCLUSIVE_NONBLOCKING) !== 0) { await lock.close(); return failure(input.call, "process_busy", "A process start is already in progress"); }
+			let lockResult: number; try { lockResult = this.lockFile(lock.fd, LOCK_EXCLUSIVE_NONBLOCKING); } catch (error) { await lock.close(); throw error; }
+			if (lockResult !== 0) { await lock.close(); return failure(input.call, "process_busy", "A process start is already in progress"); }
 			try {
 				try {
 					const stored = await readStatus(paths.status);
@@ -198,7 +204,7 @@ export class LocalProcessSupervisor {
 					catch { return failure(input.call, "process_start_unknown", "The supervisor launch outcome is unknown", "unknown"); }
 				return { receipt: receipt(input.call), process: { identity, state: "starting", outputCursor: 0 } };
 			} finally {
-					libc.symbols.flock(lock.fd, LOCK_RELEASE); await lock.close();
+					this.lockFile(lock.fd, LOCK_RELEASE); await lock.close();
 			}
 		} catch (error) { return failure(input.call, "process_start_failed", error instanceof Error ? error.message : "Process start failed"); }
 	}

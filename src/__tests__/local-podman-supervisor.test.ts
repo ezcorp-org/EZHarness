@@ -133,4 +133,11 @@ describe("LocalProcessSupervisor", () => {
 		const first = await supervisor.start(f.input); expect(first.receipt.outcome).toBe("unknown");
 		const replayed = await supervisor.start(f.input); expect(replayed.receipt.outcome).toBe("succeeded"); expect("process" in replayed && replayed.process.state).toBe("starting"); expect(launches).toBe(1);
 	});
+
+	test("does not load the native lock binding during import or configuration", async () => {
+		const f = await fixture(64); let nativeCalls = 0;
+		const supervisor = new LocalProcessSupervisor({ stateRoot: f.root, podmanPath: f.podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: 64, workspaceUid: 0, workspaceGid: 0 }, async () => f.resource, () => undefined, () => { nativeCalls += 1; throw new Error("native binding unavailable"); });
+		expect(nativeCalls).toBe(0);
+		expect((await supervisor.start(f.input)).receipt).toMatchObject({ outcome: "failed", error: { code: "process_start_failed" } }); expect(nativeCalls).toBe(1);
+	});
 });
