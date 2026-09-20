@@ -41,6 +41,32 @@ RUN cd web && bunx playwright install --with-deps chromium
 # Copy all source including tests
 COPY . .
 
+# ── Did the tests actually land? ───────────────────────────────────────────
+#
+# `Dockerfile.test.dockerignore` is a BUILDKIT convention: BuildKit looks for
+# `<dockerfile>.dockerignore` and prefers it over the root `.dockerignore`.
+# Podman/Buildah do NOT implement that lookup — they apply the root
+# `.dockerignore` unless told otherwise with `--ignorefile`. The root file
+# excludes `**/*.test.ts`, `**/*.spec.ts` and `**/__tests__`, because the PROD
+# image must not ship tests.
+#
+# So under Podman this image builds "successfully" with every test stripped
+# out of it, and the failure surfaces much later as
+# `error: preload not found "./src/__tests__/preload.ts"` — once per test file,
+# naming neither the ignorefile nor the engine. Measured: 298 files, 0 passes.
+#
+# Fail here instead, where the fix is one flag:
+#   podman build --ignorefile Dockerfile.test.dockerignore -f Dockerfile.test .
+RUN if [ ! -f src/__tests__/preload.ts ] || [ ! -d web/e2e ]; then \
+      echo "" >&2; \
+      echo "error: the test sources are missing from this image's build context." >&2; \
+      echo "  Dockerfile.test.dockerignore is a BuildKit-only convention; Podman and" >&2; \
+      echo "  Buildah fall back to the root .dockerignore, which strips all tests." >&2; \
+      echo "  fix:  <engine> build --ignorefile Dockerfile.test.dockerignore -f Dockerfile.test ." >&2; \
+      echo "" >&2; \
+      exit 1; \
+    fi
+
 # Generate SvelteKit types ($lib alias resolution for web tests)
 RUN cd web && bunx svelte-kit sync
 
