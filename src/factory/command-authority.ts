@@ -3,6 +3,7 @@ import type { AcceptanceNode, ApprovalNode, CompiledFactory, FactoryNode, Kernel
 import { sql } from "drizzle-orm";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import type { FactoryAdmissionOrigin } from "./admission-origin";
+import { narrowerFactoryReleaseMode, type FactoryInheritedReleaseMode } from "./child-release-mode";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryPrincipal } from "./grants";
@@ -31,6 +32,15 @@ interface CommittedCommand<Command extends KernelCommand> {
   readonly state: KernelState;
   readonly fence: FactoryRunFence;
   readonly initiator: FactoryPrincipal;
+  /**
+   * The release authority this run inherits from the subfactory nodes above it.
+   *
+   * Derived by the same ancestry walk that proves every parent attempt is
+   * still current, so it costs no extra query and cannot disagree with the
+   * liveness check about which bindings are in the chain. A cached copy in a
+   * binding row would be a historical fact; this is the live one.
+   */
+  readonly inheritedReleaseMode: FactoryInheritedReleaseMode;
 }
 
 export interface FactoryAuthorizedPartitionCommand extends CommittedCommand<PartitionCommand> {}
@@ -295,13 +305,13 @@ export class FactoryCommandAuthority {
       // default statuses and so keeps the old behaviour exactly.
       const settling = allowedStatuses.has("stopping");
       const { fence, compiled, initiator } = await this.lifecycle.readExecutionPlanInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId }, settling);
-      await this.assertLiveAncestors(transaction, reference.projectId, reference.logicalRunId, new Set(), allowedStatuses, settling);
+      const inheritedReleaseMode = await this.assertLiveAncestors(transaction, reference.projectId, reference.logicalRunId, new Set(), allowedStatuses, settling);
       const current = await this.head(transaction, reference);
       if (Number(current.source_sequence) !== Number(head.source_sequence) || current.digest !== head.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
       const state = transition.nextState;
       const cancellationMatches = state.cancellationEpoch === fence.cancellationEpoch || (allowTerminalCancellationTransition && command.kind === "notify-partition" && (state.status === "failed" || state.status === "cancelled") && state.cancellationEpoch === fence.cancellationEpoch + 1);
       if (state.logicalRunId !== reference.logicalRunId || state.definitionDigest !== fence.definitionDigest || state.runDeadlineAtMs !== fence.deadlineAtMs || !cancellationMatches || !allowedStatuses.has(state.status)) throw new FactoryCommandAuthorityError("factory_command_stale");
-      return work(transaction, { command, sourceSequence: stored.sourceSequence, commandDigest: stored.commandDigest, commandState: commandTransition.nextState, compiled, state, fence, initiator });
+      return work(transaction, { command, sourceSequence: stored.sourceSequence, commandDigest: stored.commandDigest, commandState: commandTransition.nextState, compiled, state, fence, initiator, inheritedReleaseMode });
     };
     return suppliedTransaction ? apply(suppliedTransaction) : this.database.transaction(apply);
   }
@@ -316,12 +326,21 @@ export class FactoryCommandAuthority {
     return node as Extract<FactoryNode, { kind: Kind }>;
   }
 
-  /** A child command remains live only while every sealed parent attempt remains current. */
-  private async assertLiveAncestors(transaction: MigrationDb, projectId: string, runId: string, visited: Set<string>, allowedStatuses: ReadonlySet<KernelState["status"]> = new Set(["running", "waiting"]), settling = false): Promise<void> {
+  /**
+   * A child command remains live only while every sealed parent attempt remains current.
+   *
+   * Returns the release authority the run inherits on the way back up, so the
+   * two answers come from one walk of one chain. C10's `releaseMode: "none"`
+   * is a property of a subfactory node, and the node is exactly what this walk
+   * already re-derives from the parent's compiled definition at its pinned
+   * digest — never a copy stored beside the binding, which a later repair
+   * could leave behind.
+   */
+  private async assertLiveAncestors(transaction: MigrationDb, projectId: string, runId: string, visited: Set<string>, allowedStatuses: ReadonlySet<KernelState["status"]> = new Set(["running", "waiting"]), settling = false): Promise<FactoryInheritedReleaseMode> {
     if (visited.size >= 16 || visited.has(runId)) throw new FactoryCommandAuthorityError("factory_command_corrupt");
     visited.add(runId);
     const binding = rows<FactoryChildBindingRow>(await transaction.execute(sql`SELECT parent_run_id,parent_interpreter_id,parent_command_id,parent_source_sequence,parent_command_digest,child_run_id,parent_envelope_id,child_envelope_id,child_factory_id,child_factory_version,child_definition_digest,definition_json,started_ms,parent_execution_epoch,parent_cancellation_epoch,parent_grant_revision,deadline_ms,binding_digest,state FROM factory_child_runs WHERE tenant_id=${this.tenantId} AND project_id=${projectId} AND child_run_id=${runId}`))[0];
-    if (!binding) return;
+    if (!binding) return "root";
     try { verifyFactoryChildBinding(binding); }
     catch { throw new FactoryCommandAuthorityError("factory_command_corrupt"); }
     const parent = { tenantId: this.tenantId, projectId, logicalRunId: binding.parent_run_id, interpreterId: binding.parent_interpreter_id, commandId: binding.parent_command_id };
@@ -339,7 +358,18 @@ export class FactoryCommandAuthority {
     const node = this.attemptNode({ command: stored.command, compiled: plan.compiled, state, fence: plan.fence }, "subfactory");
     const expectedFactory = state.nodes[stored.command.nodeId]?.factoryOverride ?? node.factory;
     if (expectedFactory.id !== stored.command.factory.id || expectedFactory.version !== stored.command.factory.version || expectedFactory.digest !== stored.command.factory.digest) throw new FactoryCommandAuthorityError("factory_command_stale");
-    await this.assertLiveAncestors(transaction, projectId, binding.parent_run_id, visited, allowedStatuses, settling);
+    const above = await this.assertLiveAncestors(transaction, projectId, binding.parent_run_id, visited, allowedStatuses, settling);
+    return narrowerFactoryReleaseMode(node.releaseMode, above);
+  }
+
+  /**
+   * The release authority one run inherits, with every ancestor re-verified.
+   *
+   * The same walk `withCommitted` performs, exposed for a caller that holds a
+   * transaction but no committed command of its own.
+   */
+  readInheritedReleaseModeInTransaction(transaction: MigrationDb, projectId: string, runId: string): Promise<FactoryInheritedReleaseMode> {
+    return this.assertLiveAncestors(transaction, projectId, runId, new Set());
   }
 
   private async head(database: MigrationDb, reference: TrustedFactoryCommandReference): Promise<Head> {

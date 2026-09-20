@@ -6,6 +6,25 @@ import { simulateFactory, type FactorySimulatorOptions } from "./simulator";
 
 const artifact = (label: string): JsonValue => ({ digest: `sha256:${label.charCodeAt(0).toString(16).padStart(2, "0").repeat(32)}`, mediaType: "application/octet-stream", storage: `fixture://${label}` });
 const evidence = (label: string): JsonValue => [artifact(label)];
+const fixtureDigest = (label: string): string => `sha256:${label.charCodeAt(0).toString(16).padStart(2, "0").repeat(32)}`;
+
+/**
+ * What a `releaseMode: "none"` child returns.
+ *
+ * Mirrors `FactoryChildAcceptanceResult` in `src/factory/child-release-mode.ts`,
+ * which the host builds from a sealed acceptance decision. The SDK cannot
+ * import it, so `src/factory/child-release-mode.test.ts` asserts the real value
+ * satisfies `childAcceptanceSchema` and fails if the two ever drift.
+ */
+const acceptanceOnlyReceipt = (label: string, accepted: JsonValue): JsonValue => ({
+  schemaVersion: "factory.child-acceptance.v1",
+  releaseMode: "none",
+  decisionId: `decision-${label}`,
+  contractDigest: fixtureDigest("c"),
+  candidateDigest: fixtureDigest(label),
+  evidenceSetDigest: fixtureDigest("e"),
+  artifact: accepted,
+});
 
 const artifacts = {
   catalog: artifact("catalog"),
@@ -69,9 +88,9 @@ function fixtureOptions(overrides: { failImages?: boolean; missingEvidence?: boo
     },
     child(command) {
       childInputs.set(command.nodeId, command.input);
-      if (command.factory.id === "reference.data.v1") return { kind: "success", output: { artifact: artifacts.data, evidence: evidence("data-child") } };
-      if (command.factory.id === "reference.image.v1") return { kind: "success", output: { artifact: artifacts.image, evidence: evidence("image-child") } };
-      return { kind: "success", output: { candidate: artifacts.catalog } };
+      if (command.factory.id === "reference.data.v1") return { kind: "success", output: { receipt: acceptanceOnlyReceipt("data", artifacts.data) } };
+      if (command.factory.id === "reference.image.v1") return { kind: "success", output: { receipt: acceptanceOnlyReceipt("image", artifacts.image) } };
+      return { kind: "success", output: { receipt: acceptanceOnlyReceipt("catalog", artifacts.catalog) } };
     },
     acceptance(command) {
       return { kind: "success", output: { acceptedCandidate: command.candidate } };

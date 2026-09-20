@@ -84,6 +84,7 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/attempt-queue.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
   { factoryPath: "src/factory/budgets.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/budgets.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/child-release-mode.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/child-runs.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/command-authority.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/compute-admissions.ts", sharedModule: "src/delivery-queue/durable-delivery-queue.ts" },
