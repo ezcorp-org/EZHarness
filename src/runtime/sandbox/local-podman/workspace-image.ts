@@ -11,7 +11,8 @@ export class WorkspaceImage {
   constructor(private readonly config: LocalPodmanHostConfig, private readonly tools: { truncate: string; mkfs: string; unmount: string; check: string; readMountInfo?: () => Promise<string> } = { truncate: "truncate", mkfs: "mkfs.ext2", unmount: "fusermount3", check: "e2fsck" }) {}
   private async mounted(mount: string): Promise<boolean> {
     const mountInfo = await (this.tools.readMountInfo?.() ?? readFile("/proc/self/mountinfo", "utf8"));
-    return mountInfo.split("\n").some((line) => line.split(" ")[4]?.replaceAll("\\040", " ") === mount);
+    const escapes: Record<string, string> = { "040": " ", "011": "\t", "012": "\n", "134": "\\" };
+    return mountInfo.split("\n").some((line) => line.split(" ")[4]?.replace(/\\(040|011|012|134)/g, (_, code: string) => escapes[code]!) === mount);
   }
   async create(image: string, mount: string, bytes: number): Promise<void> {
     if (!Number.isSafeInteger(bytes) || bytes < 16 * 1024 * 1024) throw new Error("invalid workspace size");

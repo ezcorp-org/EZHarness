@@ -9,7 +9,7 @@ const roots: string[] = [];
 const originalPath = process.env.PATH;
 afterEach(async () => { process.env.PATH = originalPath; await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
-async function fixture() {
+async function fixture(mountName = "mount") {
   const root = await mkdtemp(join(tmpdir(), "ez-workspace-image-")); roots.push(root);
   const bin = join(root, "bin"); const log = join(root, "commands.jsonl"); const control = join(root, "control"); const mountState = join(root, "mounted");
   await mkdir(bin);
@@ -26,8 +26,8 @@ if (name === "e2fsck" && mode.trim() === "e2fsck:repair") process.exit(1);
   for (const name of ["truncate", "mkfs.ext2", "fuse2fs", "fusermount3", "e2fsck"]) { const path = join(bin, name); await writeFile(path, script.replace("__COMMAND__", name)); await chmod(path, 0o700); }
   process.env.PATH = `${bin}:${originalPath ?? ""}`;
   const config = { fuse2fsPath: join(bin, "fuse2fs") } as ConstructorParameters<typeof WorkspaceImage>[0];
-  const tools = { truncate: join(bin, "truncate"), mkfs: join(bin, "mkfs.ext2"), unmount: join(bin, "fusermount3"), check: join(bin, "e2fsck"), readMountInfo: async () => { try { const mount = await readFile(mountState, "utf8"); return mount ? `1 1 1:1 / ${mount} rw - fuse x rw\n` : ""; } catch { return ""; } } };
-  return { root, log, control, mountState, image: join(root, "workspace.ext2"), mount: join(root, "mount"), images: new WorkspaceImage(config, tools) };
+  const tools = { truncate: join(bin, "truncate"), mkfs: join(bin, "mkfs.ext2"), unmount: join(bin, "fusermount3"), check: join(bin, "e2fsck"), readMountInfo: async () => { try { const mount = await readFile(mountState, "utf8"); const encoded = mount.replaceAll("\\", "\\134").replaceAll("\t", "\\011").replaceAll("\n", "\\012").replaceAll(" ", "\\040"); return mount ? `1 1 1:1 / ${encoded} rw - fuse x rw\n` : ""; } catch { return ""; } } };
+  return { root, log, control, mountState, image: join(root, "workspace.ext2"), mount: join(root, mountName), images: new WorkspaceImage(config, tools) };
 }
 
 describe("WorkspaceImage", () => {
@@ -52,6 +52,13 @@ describe("WorkspaceImage", () => {
     await f.images.destroy(f.image, f.mount);
     await expect(stat(f.image)).rejects.toThrow(); await expect(stat(f.mount)).rejects.toThrow();
     await expect(readFile(f.log, "utf8")).rejects.toThrow();
+  });
+
+  test("recognizes every escaped mountinfo path character before disposal", async () => {
+    const f = await fixture("space tab\tline\nslash\\mount");
+    await f.images.create(f.image, f.mount, 16 * 1024 * 1024); await f.images.destroy(f.image, f.mount);
+    const names = (await readFile(f.log, "utf8")).trim().split("\n").map((line) => JSON.parse(line).name);
+    expect(names.at(-1)).toBe("fusermount3"); await expect(stat(f.mount)).rejects.toThrow();
   });
 
   test("rejects invalid sizes and command failures, and retains data after an unmount failure", async () => {
