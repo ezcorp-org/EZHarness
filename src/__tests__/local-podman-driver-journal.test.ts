@@ -74,18 +74,25 @@ describe("local lifecycle journal integration", () => {
     const f = await fixture(); const call = { ...input().call, operationId: "destroy-complete", idempotencyKey: "destroy-complete" };
     const limits = f.live.HostConfig; const result = { receipt: { operationId: call.operationId, idempotencyKey: call.idempotencyKey, requestDigest: call.requestDigest, outcome: "succeeded" as const }, resource: { resourceId: "resource", desiredState: "destroyed" as const, observedState: "destroyed" as const, limits: { memoryBytes: limits.Memory, milliCpu: limits.NanoCpus / 1_000_000, pids: limits.PidsLimit, diskBytes: 32 * 1024 * 1024 } } };
     const journal = new DurableOperationJournal(`${f.config.stateRoot}/operations`); await journal.beginRecoverable(call); await journal.complete(call, result);
-    await expect(new LocalPodmanDriver(f.config).destroy({ call, resourceId: "other" })).rejects.toThrow("another resource");
+    await expect(new LocalPodmanDriver(f.config).destroy({ call, resourceId: "other" })).rejects.toThrow("identity mismatch");
     expect((await stat(resourcePaths(f.config.stateRoot, "resource").root)).isDirectory()).toBe(true);
     expect(await new LocalPodmanDriver(f.config).destroy({ call, resourceId: "resource" })).toEqual(result);
     await expect(stat(resourcePaths(f.config.stateRoot, "resource").root)).rejects.toThrow();
   });
   test("serializes concurrent retries of the same disposal", async () => {
-    const f = await fixture(); let cleanups = 0; const entered = Promise.withResolvers<void>(); const release = Promise.withResolvers<void>();
-    class PausedCleanup extends WorkspaceImage { override async destroy() { cleanups++; entered.resolve(); await release.promise; } }
+    const f = await fixture(); let cleanups = 0; let active = 0; let maximumActive = 0; const firstEntered = Promise.withResolvers<void>(); const releaseFirst = Promise.withResolvers<void>(); const secondEntered = Promise.withResolvers<void>(); const releaseSecond = Promise.withResolvers<void>();
+    class PausedCleanup extends WorkspaceImage { override async destroy() { cleanups++; active++; maximumActive = Math.max(maximumActive, active); try { if (cleanups === 1) { firstEntered.resolve(); await releaseFirst.promise; throw new Error("interrupted"); } secondEntered.resolve(); await releaseSecond.promise; } finally { active--; } } }
     const driver = new LocalPodmanDriver(f.config, { workspaceImage: new PausedCleanup(f.config) }); const call = { ...input().call, operationId: "destroy-concurrent", idempotencyKey: "destroy-concurrent" };
-    const first = driver.destroy({ call, resourceId: "resource" }); await entered.promise;
-    const second = driver.destroy({ call, resourceId: "resource" }); release.resolve();
-    expect(await second).toEqual(await first); expect(cleanups).toBe(1);
+    const first = driver.destroy({ call, resourceId: "resource" }); await firstEntered.promise;
+    const second = driver.destroy({ call, resourceId: "resource" }); const third = driver.destroy({ call, resourceId: "resource" }); releaseFirst.resolve(); await secondEntered.promise;
+    await Bun.sleep(25); expect(maximumActive).toBe(1); releaseSecond.resolve();
+    expect((await first).receipt.outcome).toBe("unknown"); expect((await second).receipt.outcome).toBe("succeeded"); expect(await third).toEqual(await second); expect(cleanups).toBe(2);
+  });
+  test("checks the private state root before trusting destroy recovery records", async () => {
+    const f = await fixture(); const call = { ...input().call, operationId: "private-root", idempotencyKey: "private-root" }; const result = { receipt: { operationId: call.operationId, idempotencyKey: call.idempotencyKey, requestDigest: call.requestDigest, outcome: "succeeded" as const }, resource: { resourceId: "resource", desiredState: "destroyed" as const, observedState: "destroyed" as const, limits: { memoryBytes: 1, milliCpu: 1, pids: 1, diskBytes: 1 } } };
+    const journal = new DurableOperationJournal(`${f.config.stateRoot}/operations`); await journal.recordDestroyed("resource", call, result); await chmod(f.config.stateRoot, 0o777);
+    await expect(new LocalPodmanDriver(f.config).destroy({ call, resourceId: "resource" })).rejects.toThrow("private");
+    await chmod(f.config.stateRoot, 0o700); expect((await stat(resourcePaths(f.config.stateRoot, "resource").root)).isDirectory()).toBe(true);
   });
   test("rejects an idempotency collision before an effect", async () => { const { driver, log } = await fixture(); await driver.start(input()); await expect(driver.start({ ...input(), call: { ...input().call, requestDigest: "b".repeat(64) } })).rejects.toThrow("conflicts"); expect((await readFile(log, "utf8")).trim().split("\n")).toHaveLength(1); });
   test("denies inspect, start, stop, and destroy before effects when exact identity differs", async () => {

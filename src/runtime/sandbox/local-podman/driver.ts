@@ -106,29 +106,28 @@ export class LocalPodmanDriver {
   }
   async start(input: SandboxStartInput): Promise<SandboxStartResult> { validateProviderMethodValue("sandbox.lifecycle.v1", "start", "input", input); const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; return this.mutate(input.call, () => this.transition(input, "running", authorized.value)); }
   async stop(input: SandboxStopInput): Promise<SandboxStopResult> { validateProviderMethodValue("sandbox.lifecycle.v1", "stop", "input", input); const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; return this.mutate(input.call, () => this.transition(input, "stopped", authorized.value)); }
+  private async finishDestroyed(input: SandboxDestroyInput, result: SandboxDestroyResult): Promise<SandboxDestroyResult> {
+    if (!("resource" in result) || result.resource.resourceId !== input.resourceId) throw new Error("destroyed resource identity mismatch");
+    try { await this.roots.destroy(result.resource.resourceId); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
+    this.fileSystems.delete(result.resource.resourceId); return result;
+  }
   async destroy(input: SandboxDestroyInput): Promise<SandboxDestroyResult> {
     validateProviderMethodValue("sandbox.lifecycle.v1", "destroy", "input", input);
-    const previous = this.destroyLocks.get(input.resourceId); if (previous) await previous;
-    const lock = Promise.withResolvers<void>(); this.destroyLocks.set(input.resourceId, lock.promise);
+    await this.roots.verifyPrivateRoot();
+    const previous = this.destroyLocks.get(input.resourceId) ?? Promise.resolve(); const lock = Promise.withResolvers<void>(); const queued = previous.then(() => lock.promise); this.destroyLocks.set(input.resourceId, queued); await previous;
     try {
       const replay = await this.journal.completed<SandboxDestroyResult>(input.call);
-      if (replay) {
-        if (replay.receipt.outcome === "succeeded") {
-          if (!("resource" in replay) || replay.resource.resourceId !== input.resourceId) throw new Error("idempotency key conflicts with another resource");
-          try { await this.roots.destroy(replay.resource.resourceId); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
-        }
-        return replay;
-      }
+      if (replay) return replay.receipt.outcome === "succeeded" ? this.finishDestroyed(input, replay) : replay;
       let tombstone: SandboxDestroyResult | undefined;
       try { tombstone = await this.journal.destroyed<SandboxDestroyResult>(input.resourceId, input.call.scope); }
       catch { return { receipt: receipt(input.call, "failed", { code: "scope_mismatch", message: "Resource scope mismatch.", retryable: false }) }; }
       if (tombstone) {
         if (!("resource" in tombstone) || tombstone.resource.resourceId !== input.resourceId) throw new Error("destroyed resource identity mismatch");
         const result = { ...tombstone, receipt: receipt(input.call, "succeeded") } as SandboxDestroyResult;
-        const begun = await this.journal.beginRecoverable<SandboxDestroyResult>(input.call); if (begun.kind === "replay") return begun.result;
+        const begun = await this.journal.beginRecoverable<SandboxDestroyResult>(input.call); if (begun.kind === "replay") return begun.result.receipt.outcome === "succeeded" ? this.finishDestroyed(input, begun.result) : begun.result;
         await this.journal.complete(input.call, result);
-        try { await this.roots.destroy(input.resourceId); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
-        return result;
+        return this.finishDestroyed(input, result);
       }
       const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized;
       const begun = await this.journal.beginRecoverable<SandboxDestroyResult>(input.call); if (begun.kind === "replay") return begun.result;
@@ -142,9 +141,8 @@ export class LocalPodmanDriver {
       const result = { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: "destroyed", observedState: "destroyed", limits: value.limits } } as SandboxDestroyResult;
       await this.journal.recordDestroyed(value.resourceId, input.call, result);
       await this.journal.complete(input.call, result);
-      try { await this.roots.destroy(value.resourceId); } catch { return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
-      this.fileSystems.delete(value.resourceId); return result;
-    } finally { lock.resolve(); if (this.destroyLocks.get(input.resourceId) === lock.promise) this.destroyLocks.delete(input.resourceId); }
+      return this.finishDestroyed(input, result);
+    } finally { lock.resolve(); if (this.destroyLocks.get(input.resourceId) === queued) this.destroyLocks.delete(input.resourceId); }
   }
   private async resolveProcessResource(resourceId: string): Promise<OwnedProcessResource> {
     await this.roots.verifyPrivateRoot(); const value = await this.roots.readMetadata<Metadata>(resourceId); if (!value.bootId || value.state === "destroying") throw new Error("Resource has no process generation"); await this.verify(value); const paths = resourcePaths(this.config.stateRoot, resourceId);
