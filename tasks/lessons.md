@@ -938,3 +938,10 @@
 - A crash-recovery path that runs only after a crash is a path nothing exercises. Making the
   key lookup unconditional — every start looks the run up before creating one — removed the special
   case, and the same code is now covered by the ordinary test as well as the crash test.
+- A secret passed as `env VAR=value <command>` is a secret published. `/proc/<pid>/cmdline` is
+  world-readable on a shared host, and `receipt.py` copies the command array verbatim into
+  `receipts.jsonl`, so the same shape that leaks to every process also writes the value into a
+  document. The brief said to EXPORT the URL and I read past it. Assemble a credential inside a
+  script file whose own argv is just its path, and make the last step of the producer a
+  `grep -rlF` for the value over the whole evidence directory — a scan that can fail is worth more
+  than an intention not to leak.
