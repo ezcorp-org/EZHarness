@@ -18,7 +18,7 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
-import { FactoryTaskStops, type FactoryStopHostKey, type FactoryStoppableAttempt } from "./task-stops";
+import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryStopHostKey, type FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
 import { FactoryUsageReconciliation } from "./usage-settlement";
 import type { FactoryClaimableRelease, FactoryReleaseOperation, FactoryReleaseProvider, FactoryReleases } from "./releases";
@@ -241,6 +241,15 @@ export interface FactorySettlementCompositionOptions {
   readonly pool: Pick<PoolAdmissionClient, "confirmStopped">;
   readonly service: TrustedFactoryServiceIdentity;
   readonly report: (role: string, error: unknown) => void;
+  /**
+   * The host stop transport, already built.
+   *
+   * Supplied rather than created here so this installation opens ONE mutual-TLS
+   * session to its host: the attempt runtime's post-result stop and this role's
+   * cancellation settlement address the same endpoint, and two clients would be
+   * two sessions that can disagree about which of them is current.
+   */
+  readonly stopper?: FactoryPhysicalStopper;
 }
 
 export interface FactorySettlementComposition {
@@ -270,7 +279,7 @@ export async function composeFactorySettlement(options: FactorySettlementComposi
     throw new FactoryStopCompositionError("factory_stop_transport_missing",
       "Settling a stop needs the host launch endpoint to reach the host stop service.");
   }
-  const stopper = await createFactoryHostStopClient({
+  const stopper = options.stopper ?? await createFactoryHostStopClient({
     baseUrl: config.hostLaunch.baseUrl,
     serverName: config.hostLaunch.serverName,
     hostId: config.hostId,

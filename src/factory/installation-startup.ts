@@ -59,7 +59,7 @@ import type { FactoryApplication, FactoryApplicationOptions } from "./applicatio
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { FactoryStartedListener } from "./runtime-composition";
-import type { FactoryTaskStops } from "./task-stops";
+import type { FactoryPhysicalStopper, FactoryTaskStops } from "./task-stops";
 
 export class FactoryInstallationStartupError extends Error {
   constructor(readonly code: "factory-startup-config-missing" | "factory-startup-blobs-missing" | "factory-startup-unreachable", message: string) {
@@ -550,8 +550,17 @@ async function installationCollaborators(
     ...(pool === undefined ? {} : { pool }),
   });
 
-  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application.grants, pool);
-  const settlement = await composeSettlement(config, host, stores, service, pool);
+  // One host stop client, shared by the attempt runtime's post-result stop and
+  // the stop-settlement role. Absent when this installation names no host.
+  let stopper: Awaited<ReturnType<typeof factoryHostStopper>> | undefined;
+  try {
+    stopper = config.hostLaunch === undefined ? undefined : await factoryHostStopper(config);
+  } catch (error) {
+    host.report("host-stop-client", error);
+    stopper = undefined;
+  }
+  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application.grants, pool, stopper);
+  const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
 
   // The release store, and the one role it unblocks here. `release-outcome`
   // needs a second half this process still cannot build — see its held reason.
@@ -631,11 +640,12 @@ async function composeAttemptDispatch(
   stores: FactoryInstallationStores,
   grants: FactoryApplication["grants"],
   pool: PoolAdmissionClient | undefined,
+  stopper: FactoryHostStopClient | undefined,
 ): Promise<FactoryRuntimeWorkerCollaborators["attempts"]> {
   const hostLaunch = config.hostLaunch;
-  if (hostLaunch === undefined || pool === undefined || stores.compute === undefined || stores.completions === undefined || stores.outcomes === undefined) return undefined;
+  if (hostLaunch === undefined || pool === undefined || stopper === undefined
+    || stores.compute === undefined || stores.completions === undefined || stores.outcomes === undefined) return undefined;
   try {
-    const stopper = await factoryHostStopper(config);
     return await composeFactoryAttemptDispatch({
       database: host.database,
       config: { ...config, hostLaunch },
@@ -646,7 +656,7 @@ async function composeAttemptDispatch(
       admissions: stores.compute,
       readiness: factoryPackageReadiness(host.database, config.tenantId, grants, blobs),
       pool,
-      stopper,
+      stopper: stopper.physical,
     });
   } catch (error) {
     host.report("attempt-dispatch-composition", error);
@@ -662,7 +672,7 @@ async function composeAttemptDispatch(
  * alone. The cast is the whole narrowing and it is here, in one line, rather
  * than spread through the runtime.
  */
-async function factoryHostStopper(config: FactoryStartupConfig): Promise<FactoryHostPhysicalStopper> {
+async function factoryHostStopper(config: FactoryStartupConfig): Promise<FactoryHostStopClient> {
   const { createFactoryHostStopClient } = await import("./host-stop-client");
   const hostLaunch = config.hostLaunch;
   if (hostLaunch === undefined) throw new FactoryInstallationStartupError("factory-startup-config-missing", "A host stop transport needs the host launch endpoint.");
@@ -677,7 +687,16 @@ async function factoryHostStopper(config: FactoryStartupConfig): Promise<Factory
       serviceTokenPath: hostLaunch.tls.serviceTokenPath,
     },
   });
-  return (expectation, signal) => client.stop(expectation as Parameters<typeof client.stop>[0], signal);
+  // Both shapes of the same client: W03's cancelling caller passes a whole
+  // `FactoryTaskStopRequest`, and the runtime's post-result stop has only the
+  // physical coordinates. One session, two views.
+  const physical: FactoryHostPhysicalStopper = (expectation, signal) => client.stop(expectation as Parameters<typeof client.stop>[0], signal);
+  return Object.freeze({ client, physical });
+}
+
+interface FactoryHostStopClient {
+  readonly client: FactoryPhysicalStopper;
+  readonly physical: FactoryHostPhysicalStopper;
 }
 
 /**
@@ -692,8 +711,9 @@ async function composeSettlement(
   stores: FactoryInstallationStores,
   service: TrustedFactoryServiceIdentity,
   pool: PoolAdmissionClient | undefined,
+  stopper: FactoryHostStopClient | undefined,
 ): Promise<{ readonly stopSettlement: FactoryRoleDriver; readonly usageReconciliation: FactoryRoleDriver; readonly stops: FactoryTaskStops } | undefined> {
-  if (pool === undefined || config.hostLaunch === undefined || config.hostStopKeys === undefined
+  if (pool === undefined || stopper === undefined || config.hostLaunch === undefined || config.hostStopKeys === undefined
     || stores.compute === undefined || stores.outcomes === undefined) return undefined;
   try {
     const composed = await composeFactorySettlement({
@@ -702,6 +722,7 @@ async function composeSettlement(
       stores: { ...stores, compute: stores.compute, outcomes: stores.outcomes },
       pool,
       service,
+      stopper: stopper.client,
       report: host.report,
     });
     return Object.freeze({ stopSettlement: composed.stopSettlement, usageReconciliation: composed.usageReconciliation, stops: composed.stops });
