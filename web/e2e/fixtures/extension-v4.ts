@@ -13,8 +13,9 @@ export async function extensionClient(request: APIRequestContext, baseURL: strin
   return { client: new HarnessClient({ baseUrl: baseURL, apiKey: key }), key };
 }
 
-export async function buildWorkspace(client: HarnessClient, created: CreatedWorkspace, deadline: BuildDeadline = buildDeadline()): Promise<InstallationState> {
-  const operation = await client.extensionControl<LifecycleOperation>("extensions_build", { installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: created.workspace.revision, idempotencyKey: crypto.randomUUID() });
+/** `extra` merges into the build input — e.g. `{ acknowledgeUnsandboxed: true }` on a trusted-local host, where the build is refused without it. Last, so callers sharing a `deadline` across builds keep passing it positionally. */
+export async function buildWorkspace(client: HarnessClient, created: CreatedWorkspace, deadline: BuildDeadline = buildDeadline(), extra: Record<string, unknown> = {}): Promise<InstallationState> {
+  const operation = await client.extensionControl<LifecycleOperation>("extensions_build", { installationId: created.installation.id, workspaceId: created.workspace.id, expectedRevision: created.workspace.revision, idempotencyKey: crypto.randomUUID(), ...extra });
   return waitForExtensionBuild(client, created.installation.id, operation.id, deadline);
 }
 
@@ -119,6 +120,11 @@ export async function approveAndActivateWorkspace(page: Page, client: HarnessCli
   const approve = page.getByRole("button", { name: "Approve exact release", exact: true });
   await expect(approve).toBeDisabled();
   await page.getByLabel("I reviewed this release and its permissions.").check();
+  // On a trusted-local host the approval card carries a second, required
+  // acknowledgement; on an isolated host it is absent. Mode-agnostic on
+  // purpose so every journey through here runs under both servers.
+  const unsandboxed = page.getByLabel("I understand this extension will run without a sandbox.");
+  if (await unsandboxed.count()) await unsandboxed.check();
   await approve.click();
   await activateApprovedRelease(page);
   const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });

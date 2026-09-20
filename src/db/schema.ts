@@ -2703,6 +2703,34 @@ export const extensionSecrets = pgTable("extension_secrets", {
 export type ExtensionSecret = typeof extensionSecrets.$inferSelect;
 export type NewExtensionSecret = typeof extensionSecrets.$inferInsert;
 
+// ── Extension trusted-local approvals ────────────────────────────────
+// The persistence of `TrustedLocalRunner.approvalFor()`: a human's
+// acknowledgement that ONE exact digest may build (phase `build`, source
+// digest) or run (phase `execute`, artifact digest) with none of the seven
+// sandbox controls. Written only by the lifecycle's two acknowledgement
+// points, read only by the runner's `authorize()`, deleted on revoke /
+// disable / uninstall. Rationale and the per-installation key:
+// src/db/migrations/add-extension-trusted-local-approvals.ts.
+//
+// Drizzle-side mirror. The FK to extension_release_installations — a table
+// drizzle does not model — lives in the migration, which is the source of
+// truth for DDL; never push this table from drizzle-kit.
+export const extensionTrustedLocalApprovals = pgTable("extension_trusted_local_approvals", {
+  installationId: text("installation_id").notNull(),
+  phase: text("phase").$type<"build" | "execute">().notNull(),
+  digest: text("digest").notNull(),
+  approvedBy: text("approved_by").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true, mode: "date" }).notNull(),
+  /** JSON array of the omitted controls the approver acknowledged — always the full `TRUSTED_LOCAL_OMITTED_CONTROLS` list. */
+  omittedControls: text("omitted_controls").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "date" }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.installationId, table.phase, table.digest] }),
+  index("extension_trusted_local_approvals_digest").on(table.phase, table.digest),
+]);
+
+export type ExtensionTrustedLocalApproval = typeof extensionTrustedLocalApprovals.$inferSelect;
+
 // ── Extension RBAC grants ──────────────────────────────────────────────
 // Per-user scope grants over the extension system: what the USER may do
 // WITH an extension (invoke it, configure it, write its secrets, approve

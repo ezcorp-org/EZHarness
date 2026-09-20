@@ -16,6 +16,14 @@
       "severity": "high",
       "reason": "No in-range fix exists. The advisory is fixed in adm-zip 0.6.0, but onnxruntime-node declares `adm-zip ^0.5.16` (resolved: 0.5.18) and has NOT widened it — checked 1.24.3 and the newest stable 1.27.0, both still `^0.5.16`. @huggingface/transformers 4.2.0 (the current latest) pins `onnxruntime-node 1.24.3` EXACTLY, so no upgrade at any level reaches the fix; the only route through is an `overrides` pin that deliberately violates a declared range. Exposure is install-time only and not attacker-reachable: adm-zip appears in exactly one file, onnxruntime-node/script/install-utils.js, which the `postinstall` script uses to unpack the prebuilt native binary it just fetched over HTTPS from the ONNX Runtime CDN. EZCorp never imports adm-zip (zero source hits) and no runtime path hands it a ZIP, so the crafted-archive memory-exhaustion class needs a compromised upstream artifact to trigger at all — at which point the ZIP is the least of it. At expiry, re-check whether onnxruntime-node has widened its adm-zip range and whether transformers has moved off the 1.24.3 pin.",
       "expires": "2026-11-04"
+    },
+    {
+      "ghsa": "GHSA-7q85-xj36-vmfc",
+      "package": "adm-zip",
+      "path": "@huggingface/transformers 4.2.0 › onnxruntime-node 1.24.3 › adm-zip 0.5.18 (root and web/) — the same single edge as GHSA-xcpc-8h2w-3j85 above",
+      "severity": "high",
+      "reason": "Published 2026-09-20; it reds this gate on main and on every open PR, so it is suppressed here to unblock unrelated work, NOT because no fix exists. Unlike the sibling entry above, an in-range upgrade now DOES exist and is the real fix: @huggingface/transformers 4.3.0 (released after that entry was written) moves off the exact 1.24.3 pin to onnxruntime-node 1.30.0, which widened its range to `adm-zip ^0.6.0` and so resolves to 0.6.1 — the fixed version for this advisory, for GHSA-xcpc-8h2w-3j85, and for the moderate GHSA-vwc7-r8mq-g2x9. That bump also moves onnxruntime-web and sharp, so it is a dependency change that needs the embeddings legs run against it on its own, not a rider on a feature branch. Tracked as a follow-up; landing it must also DELETE both adm-zip entries here, which the gate's stale-entry check will demand. Deferring is safe for the same reason the sibling entry gives: adm-zip is reached from exactly one file, onnxruntime-node/script/install-utils.js, where `postinstall` unpacks the prebuilt native binary it just fetched over HTTPS from the ONNX Runtime CDN. EZCorp never imports adm-zip (zero source hits) and no runtime path hands it a ZIP, so this uncontrolled-allocation DoS needs a compromised upstream artifact to reach at all. Short expiry on purpose — this is a scheduling deferral, not an accepted risk.",
+      "expires": "2026-10-20"
     }
   ]
 }

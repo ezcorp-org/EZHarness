@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { provisionToolchain } from "../src/provision";
@@ -23,6 +23,36 @@ async function createRunnerRootWithLongInheritedTmp(): Promise<string> {
     await rm(longTmpOwner, { recursive: true, force: true });
   }
 }
+
+test("toolchainRoot names the tree the trusted toolchain comes from; the default is this package's own", async () => {
+  // The repository root is four levels above tests/ — the pinned closure the
+  // host runner always resolves against. A caller bundled elsewhere (the
+  // in-process trusted-local runner inside the SvelteKit build) must name it.
+  const repoRoot = resolve(import.meta.dirname, "..", "..", "..", "..");
+  // The SDK bundle does not vary with the toolchain root, and must not be
+  // rebuilt per root: a second Bun.build() in one process reuses the first
+  // build's cached file descriptors and reads the wrong files (EISDIR on
+  // regular files under the isolated node_modules/.bun layout). Counting
+  // real builds — the spy calls through — is the only assertion that still
+  // holds once bun fixes that, so it, not the crash, is the gate.
+  const build = spyOn(Bun, "build");
+  try {
+    const explicit = await provisionToolchain({ toolchainRoot: repoRoot });
+    for (const name of ["typescript", "@types/bun", "bun-types", "@types/node", "undici-types"]) expect(explicit.toolchainFiles[`node_modules/${name}/package.json`]).toBeDefined();
+    // Same closure either way from source, so the default and the explicit
+    // root provision the identical TypeScript.
+    const implicit = await provisionToolchain();
+    expect(explicit.toolchainFiles["node_modules/typescript/package.json"]).toEqual(implicit.toolchainFiles["node_modules/typescript/package.json"]);
+    expect(implicit.sdkFiles).toEqual(explicit.sdkFiles);
+    // A root with no closure is an error, not a silent fallback to wherever
+    // this module happens to live.
+    const empty = await mkdtemp("/tmp/ez-toolchain-empty-");
+    try { await expect(provisionToolchain({ toolchainRoot: empty })).rejects.toThrow(); } finally { await rm(empty, { recursive: true, force: true }); }
+    // Three toolchain roots, one SDK build — this test owns the first
+    // provision in its process, so the count is absolute, not a delta.
+    expect(build.mock.calls.length).toBe(1);
+  } finally { build.mockRestore(); }
+}, 120_000);
 
 test("runner provision preserves type-only exports and their declaration closure", async () => {
   const { sdkFiles } = await provisionToolchain();
