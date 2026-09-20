@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +6,10 @@ import { registerCallProvenance, releaseCallProvenance } from "../call-provenanc
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import type { RpcHandlerDeps } from "../tool-executor/rpc-handlers";
 import type { JsonRpcRequest } from "../types";
+import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
+
+mockDbConnection();
+const { projects, projectWorkspaceBindings } = await import("../../db/schema");
 
 const root = await mkdtemp(join(tmpdir(), "ez-project-git-"));
 let active = true;
@@ -19,7 +23,6 @@ mock.module("../../db/queries/users", () => ({ getUserById: async () => ({ id: "
 mock.module("../../db/queries/conversations", () => ({ getConversation: async () => ({ id: "conversation", userId: owned ? "user" : "other", projectId: "project" }) }));
 mock.module("../../db/queries/projects", () => ({ getProject: async () => ({ id: "project", path: local ? root : null }) }));
 mock.module("../../auth/middleware", () => ({ checkProjectRole: async () => member ? undefined : new Response(null, { status: 403 }) }));
-mock.module("../../runtime/workspace/target", () => ({ projectRequiresSandbox: async () => false }));
 const { handleProjectGit, readProjectGit } = await import("../project-git-broker");
 const authorize = mock(async () => ({ decision: allowed ? "allow" : "prompt" }));
 const deps = { engine: { authorize } } as unknown as RpcHandlerDeps;
@@ -35,8 +38,17 @@ const first = await git("rev-parse", "HEAD");
 await git("commit", "--allow-empty", "-m", "Second commit");
 const second = await git("rev-parse", "HEAD");
 await git("remote", "add", "origin", "https://host-only-token@github.com/owner/repo.git");
-beforeEach(() => { active = owned = member = allowed = local = true; binding = { id: "binding", projectId: "project", ownerId: "user" }; authorize.mockClear(); });
-afterAll(async () => { await rm(root, { recursive: true, force: true }); restoreModuleMocks(); });
+beforeAll(async () => {
+  await setupTestDb();
+  await getTestDb().insert(projects).values({ id: "project", name: "Project", path: root });
+});
+beforeEach(async () => {
+  active = owned = member = allowed = local = true;
+  binding = { id: "binding", projectId: "project", ownerId: "user" };
+  authorize.mockClear();
+  await getTestDb().delete(projectWorkspaceBindings);
+});
+afterAll(async () => { await closeTestDb(); await rm(root, { recursive: true, force: true }); restoreModuleMocks(); });
 
 async function invoke(operation = "gitHead", input: Record<string, unknown> = {}, conversationId: string | null = "conversation", actor = "extension", projectId?: string) {
   const token = registerCallProvenance({ actorExtensionId: "extension", onBehalfOf: "user", conversationId, runId: null, parentCallId: null, kind: "tool", ownerless: false, ...(projectId ? { projectId, projectBindingId: "binding" } : {}) });
@@ -69,6 +81,13 @@ test("project reads recheck ownership membership policy and local project", asyn
   owned = true; member = false; expect((await invoke()).error?.message).toContain("membership");
   member = true; local = false; expect((await invoke()).error?.message).toContain("local");
   local = true; allowed = false; expect((await invoke()).error?.message).toContain("Approve");
+});
+
+test("a persisted sandbox binding denies direct host Git before permission or host effects", async () => {
+  await getTestDb().insert(projectWorkspaceBindings).values({ projectId: "project", kind: "sandbox", bindingId: "sandbox-binding", state: "active", revision: 1 });
+  expect((await invoke("origin")).error?.message).toContain("does not permit direct host project access");
+  expect(authorize).not.toHaveBeenCalled();
+  expect(await git("remote", "get-url", "origin")).toBe("https://host-only-token@github.com/owner/repo.git");
 });
 
 test("Git failures and malformed metadata do not expose host errors", async () => {
