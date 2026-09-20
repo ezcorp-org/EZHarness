@@ -20,7 +20,8 @@ Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout pr
 - [x] Local provider source uses the normal reviewed extension lifecycle.
 - [x] Initial durable lifecycle controller and API/panel implemented; focused tests passed.
 - [ ] Complete reviewed provider invocation and production startup wiring.
-- [ ] Finish actual driver lifecycle cleanup and persistent process/controller integration.
+- [x] Verify real rootless lifecycle cleanup and compiled supervisor process execution.
+- [ ] Finish file-provider wiring and the complete persisted native process controller loop.
 - [ ] Prove all native tools, cancellation, restart and explicit disposal through the live application.
 - [ ] Run all build/test/coverage gates and inspect desktop/mobile browser evidence.
 
@@ -98,6 +99,8 @@ Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout pr
 - [ ] Q08: Roll out and verify the selected release.
 
 ## Review
+
+Local startup configuration and rootless runtime preflight have focused tests (3 tests, 24 assertions; startup source 44/44 lines). Full controller/provider integration remains open.
 
 Pending. Missing external prerequisites stay open; deterministic tests cannot qualify live providers.
 

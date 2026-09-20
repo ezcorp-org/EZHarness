@@ -21,8 +21,8 @@ export type SandboxWorkspaceDispatcher = (
 
 let sandboxDispatcher: SandboxWorkspaceDispatcher | null = null;
 
-/** Host startup supplies the reviewed provider dispatcher. It is intentionally
- * absent in the local-first milestone, where sandbox-bound tools deny. */
+/** Host startup supplies the reviewed provider dispatcher after validating
+ * the local runtime. Unconfigured sandbox-bound tools deny. */
 export function configureSandboxWorkspaceDispatcher(dispatcher: SandboxWorkspaceDispatcher | null): void {
   sandboxDispatcher = dispatcher;
 }
