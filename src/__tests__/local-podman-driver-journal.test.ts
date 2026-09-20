@@ -88,6 +88,17 @@ describe("local lifecycle journal integration", () => {
     await Bun.sleep(25); expect(maximumActive).toBe(1); releaseSecond.resolve();
     expect((await first).receipt.outcome).toBe("unknown"); expect((await second).receipt.outcome).toBe("succeeded"); expect(await third).toEqual(await second); expect(cleanups).toBe(2);
   });
+  test("holds the disposal lock until final resource-root deletion settles", async () => {
+    const f = await fixture(); class ImmediateCleanup extends WorkspaceImage { override async destroy() {} }
+    const driver = new LocalPodmanDriver(f.config, { workspaceImage: new ImmediateCleanup(f.config) }); const roots = (driver as unknown as { roots: ResourceRoot }).roots; const remove = roots.destroy.bind(roots);
+    let calls = 0; let active = 0; let maximumActive = 0; const entered = Promise.withResolvers<void>(); const release = Promise.withResolvers<void>();
+    roots.destroy = async (resourceId) => { calls++; active++; maximumActive = Math.max(maximumActive, active); try { if (calls === 1) { entered.resolve(); await release.promise; } await remove(resourceId); } finally { active--; } };
+    const call = { ...input().call, operationId: "destroy-root-lock", idempotencyKey: "destroy-root-lock" };
+    const first = driver.destroy({ call, resourceId: "resource" }); await entered.promise;
+    const second = driver.destroy({ call, resourceId: "resource" }); const third = driver.destroy({ call, resourceId: "resource" });
+    await Bun.sleep(25); expect({ calls, maximumActive }).toEqual({ calls: 1, maximumActive: 1 }); release.resolve();
+    const results = await Promise.all([first, second, third]); expect(results.map((result) => result.receipt.outcome)).toEqual(["succeeded", "succeeded", "succeeded"]); expect(maximumActive).toBe(1);
+  });
   test("checks the private state root before trusting destroy recovery records", async () => {
     const f = await fixture(); const call = { ...input().call, operationId: "private-root", idempotencyKey: "private-root" }; const result = { receipt: { operationId: call.operationId, idempotencyKey: call.idempotencyKey, requestDigest: call.requestDigest, outcome: "succeeded" as const }, resource: { resourceId: "resource", desiredState: "destroyed" as const, observedState: "destroyed" as const, limits: { memoryBytes: 1, milliCpu: 1, pids: 1, diskBytes: 1 } } };
     const journal = new DurableOperationJournal(`${f.config.stateRoot}/operations`); await journal.recordDestroyed("resource", call, result); await chmod(f.config.stateRoot, 0o777);

@@ -118,19 +118,19 @@ export class LocalPodmanDriver {
     const previous = this.destroyLocks.get(input.resourceId) ?? Promise.resolve(); const lock = Promise.withResolvers<void>(); const queued = previous.then(() => lock.promise); this.destroyLocks.set(input.resourceId, queued); await previous;
     try {
       const replay = await this.journal.completed<SandboxDestroyResult>(input.call);
-      if (replay) return replay.receipt.outcome === "succeeded" ? this.finishDestroyed(input, replay) : replay;
+      if (replay) return replay.receipt.outcome === "succeeded" ? await this.finishDestroyed(input, replay) : replay;
       let tombstone: SandboxDestroyResult | undefined;
       try { tombstone = await this.journal.destroyed<SandboxDestroyResult>(input.resourceId, input.call.scope); }
       catch { return { receipt: receipt(input.call, "failed", { code: "scope_mismatch", message: "Resource scope mismatch.", retryable: false }) }; }
       if (tombstone) {
         if (!("resource" in tombstone) || tombstone.resource.resourceId !== input.resourceId) throw new Error("destroyed resource identity mismatch");
         const result = { ...tombstone, receipt: receipt(input.call, "succeeded") } as SandboxDestroyResult;
-        const begun = await this.journal.beginRecoverable<SandboxDestroyResult>(input.call); if (begun.kind === "replay") return begun.result.receipt.outcome === "succeeded" ? this.finishDestroyed(input, begun.result) : begun.result;
+        const begun = await this.journal.beginRecoverable<SandboxDestroyResult>(input.call); if (begun.kind === "replay") return begun.result.receipt.outcome === "succeeded" ? await this.finishDestroyed(input, begun.result) : begun.result;
         await this.journal.complete(input.call, result);
-        return this.finishDestroyed(input, result);
+        return await this.finishDestroyed(input, result);
       }
       const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized;
-      const begun = await this.journal.beginRecoverable<SandboxDestroyResult>(input.call); if (begun.kind === "replay") return begun.result;
+      const begun = await this.journal.beginRecoverable<SandboxDestroyResult>(input.call); if (begun.kind === "replay") return begun.result.receipt.outcome === "succeeded" ? await this.finishDestroyed(input, begun.result) : begun.result;
       const value = authorized.value;
       if (value.state !== "destroying") { try { await this.verify(value); } catch { const failed = this.identityMismatch(input.call); await this.journal.complete(input.call, failed); return failed; } value.state = "destroying"; await this.roots.writeMetadata(value.resourceId, value); }
       const live = await this.podman(["inspect", value.containerId]);
@@ -141,7 +141,7 @@ export class LocalPodmanDriver {
       const result = { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: "destroyed", observedState: "destroyed", limits: value.limits } } as SandboxDestroyResult;
       await this.journal.recordDestroyed(value.resourceId, input.call, result);
       await this.journal.complete(input.call, result);
-      return this.finishDestroyed(input, result);
+      return await this.finishDestroyed(input, result);
     } finally { lock.resolve(); if (this.destroyLocks.get(input.resourceId) === queued) this.destroyLocks.delete(input.resourceId); }
   }
   private async resolveProcessResource(resourceId: string): Promise<OwnedProcessResource> {
