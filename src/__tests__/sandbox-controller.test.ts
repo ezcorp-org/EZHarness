@@ -4,6 +4,7 @@ import { validateManifest } from "@ezcorp/extension-contract";
 import { providerMethodSchemas } from "../../packages/@ezcorp/extension-contract/src/validation";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import type { LocalSandboxDriver } from "../runtime/sandbox/controller/types";
+import type { SandboxProviderInvocation } from "../runtime/sandbox/controller/types";
 import { users } from "../db/schema";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
@@ -21,7 +22,7 @@ function driver() {
   return { create, inspect: lifecycle("stopped", "stopped"), start: lifecycle("running", "running"), stop: lifecycle("stopped", "stopped"), destroy: lifecycle("destroyed", "destroyed") } as LocalSandboxDriver;
 }
 
-async function fixture() {
+async function fixture(invoke?: SandboxProviderInvocation) {
   const database = getTestDb();
   const [owner] = await database.insert(users).values({ email: `owner-${crypto.randomUUID()}@example.test`, name: "Owner", passwordHash: "unused" }).returning();
   const [other] = await database.insert(users).values({ email: `other-${crypto.randomUUID()}@example.test`, name: "Other", passwordHash: "unused" }).returning();
@@ -43,7 +44,7 @@ async function fixture() {
     if (!row.rows[0]) return null;
     return { installation: JSON.parse(row.rows[0].payload), release, limits: { memoryBytes: 1_048_576, cpuMillis: 1000, pids: 64, tmpBytes: 10_485_760, outputBytes: 65_536, timeoutMs: 30_000 } } as ActiveExtensionRelease;
   } };
-  return { database, owner: owner!, other: other!, installation, local, controller: createSandboxController(local, runtime) };
+  return { database, owner: owner!, other: other!, installation, local, controller: createSandboxController(local, runtime, invoke) };
 }
 
 async function admitCreate(context: Awaited<ReturnType<typeof fixture>>) {
@@ -99,6 +100,48 @@ test("persists a process writer lease and denies an interleaved file writer", as
   await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "write-during-process", conversationId, payload: { path: "a", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
   const persisted = await context.controller.getSandboxOperationResult(context.owner.id, start.id);
   expect(persisted).toMatchObject({ id: start.id, group: "sandbox.process.v1", operation: "start", state: "admitted" });
+});
+
+test("keeps the writer lease through a running process and releases it only after stopped inspection", async () => {
+  let inspectState: "running" | "stopped" | "unknown" = "running";
+  const invocations: string[] = [];
+  const context = await fixture(async (_userId, _projectId, _provider, group, operation, input) => {
+    invocations.push(`${group}:${operation}`);
+    const call = (input as { call: { operationId: string; idempotencyKey: string; requestDigest: string } }).call;
+    if (group === "sandbox.lifecycle.v1") return { receipt: { ...call, outcome: "succeeded" as const }, resource: { resourceId: "resource-1", desiredState: "stopped" as const, observedState: inspectState, limits } };
+    if (operation === "start") return { receipt: { ...call, outcome: "succeeded" as const }, process: { identity: { bootId: "boot", processId: "process" }, state: "running", outputCursor: 0 } };
+    return { receipt: { ...call, outcome: "succeeded" as const }, cursor: 1, chunks: [], eof: false, gap: false };
+  });
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Process')`);
+  const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "start", conversationId, payload: { argv: ["echo"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
+  expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id)).state).toBe("succeeded");
+  const output = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "readOutput", idempotencyKey: "output", conversationId, payload: { cursor: 0, maxBytes: 1024 } });
+  expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, output.id)).state).toBe("succeeded");
+  await context.controller.reconcileSandboxProcess(context.owner.id, create.projectId);
+  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "blocked", conversationId, payload: { path: "a", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
+  inspectState = "stopped";
+  await context.controller.reconcileSandboxProcess(context.owner.id, create.projectId);
+  expect((await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "after-stop", conversationId, payload: { path: "a", data: "x" } })).state).toBe("admitted");
+  expect(invocations).toContain("sandbox.process.v1:start");
+});
+
+test("an unknown lifecycle inspection retains the persisted writer lease", async () => {
+  const context = await fixture(async (_userId, _projectId, _provider, group, operation, input) => {
+    const call = (input as { call: { operationId: string; idempotencyKey: string; requestDigest: string } }).call;
+    if (group === "sandbox.lifecycle.v1") return { receipt: { ...call, outcome: "succeeded" as const }, resource: { resourceId: "resource-1", desiredState: "stopped" as const, observedState: "unknown" as const, limits } };
+    return { receipt: { ...call, outcome: "succeeded" as const }, process: { identity: { bootId: "boot", processId: "process" }, state: "running", outputCursor: 0 } };
+  });
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Unknown process')`);
+  const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "start-unknown", conversationId, payload: { argv: ["echo"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
+  await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id);
+  await context.controller.reconcileSandboxProcess(context.owner.id, create.projectId);
+  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "still-blocked", conversationId, payload: { path: "a", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
 });
 
 test("denies a user without project membership before operation execution", async () => {
