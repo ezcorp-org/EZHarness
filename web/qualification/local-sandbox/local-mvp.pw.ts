@@ -79,7 +79,7 @@ test("local native workspace survives browser and app restart then disposes clea
   await clickAction("stop", "Stop");
   await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
   await panel.getByRole("link", { name: "Open chat" }).click();
-  await expect(page).toHaveURL(new RegExp(`/project/${project.id}$`));
+  await expect(page).toHaveURL(new RegExp(`/project/${project.id}/chat$`));
   await page.goto(`/project/${project.id}/settings`);
   panel = page.getByTestId("project-sandbox-panel");
   await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
