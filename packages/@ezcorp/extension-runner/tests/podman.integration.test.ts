@@ -283,6 +283,23 @@ test("the runner's material handover leaves the directory closed to everyone but
   }
 }, 180_000);
 
+test("a material directory the runner does not own refuses the start and launches nothing", async () => {
+  const workerId = `refused-${randomUUID()}`;
+  const context = { workerId, invocationId: randomUUID(), releaseId: artifactDigest, principalId: "owner", scopeId: "global", token: "refused-token", deadline: Date.now() + 60_000 };
+  // `/` is owned by root on every host this runs on, and the runner is never
+  // root, so the handover must refuse it rather than chmod the filesystem root.
+  const refused = await runner.start({ workerId, artifactDigest, context, limits: executionLimits, materials: "/" }, async () => null)
+    .then(() => undefined, (error: unknown) => error as { code?: string; message?: string });
+  expect(refused?.code).toBe("material_directory_invalid");
+  expect(refused?.message).toContain("is not owned by the runner");
+
+  // Nothing was launched: no container carries this worker's name.
+  const name = `ez-v4-${(await import("../src/core")).sha256(`${root}:${workerId}`).slice(0, 32)}`;
+  expect(await command("podman", ["ps", "-a", "--filter", `name=${name}`, "--format={{.Names}}"])).toBe("");
+  // And the filesystem root is untouched.
+  expect((await lstat("/")).uid).toBe(0);
+}, 120_000);
+
 test("real isolated worker drains admitted host calls before invocation teardown", async () => {
   const files = source("(_input,ctx) => { void ctx.call('lifetime.probe',{}).catch(()=>undefined); return {complete:true}; }");
   const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
