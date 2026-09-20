@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
+import { FileBlobStore } from "./v4/blobs";
 
 mockDbConnection();
 
@@ -11,7 +12,7 @@ const priorBlobRoot = process.env.EZCORP_EXTENSION_BLOB_ROOT;
 const blobRoot = await mkdtemp(join(tmpdir(), "ezcorp-lifecycle-blob-audit-"));
 process.env.EZCORP_EXTENSION_BLOB_ROOT = blobRoot;
 
-const { reconcileExtensionLifecycle } = await import("./extension-lifecycle-service");
+const { auditHistoricalReleaseBlobStorage, reconcileExtensionLifecycle, RELEASE_BLOB_AUDIT_RELEASE_LIMIT } = await import("./extension-lifecycle-service");
 
 afterAll(async () => {
   await closeTestDb();
@@ -64,6 +65,25 @@ test("a malformed historical release record warns without blocking lifecycle rec
     const warning = await capture.logged.promise;
     expect(warning).toContain('"code":"release_blob_audit_failed"');
     expect(warning).not.toContain("not json");
+  } finally {
+    capture.restore();
+  }
+});
+
+test("historical blob audit queries only its capped sample and one sentinel release", async () => {
+  await setupTestDb();
+  for (let index = 0; index <= RELEASE_BLOB_AUDIT_RELEASE_LIMIT; index++) {
+    const id = `capped-release-${index}`;
+    const sourceDigest = index.toString(16).padStart(64, "0");
+    const artifactDigest = index.toString(16).padStart(64, "f");
+    await addReleaseRecord(id, JSON.stringify({ sourceDigest, artifactDigest }));
+  }
+  const capture = captureWarning("Extension release blob storage is empty in the audited sample.");
+  try {
+    await expect(auditHistoricalReleaseBlobStorage(new FileBlobStore(blobRoot))).resolves.toBeUndefined();
+    const warning = await capture.logged.promise;
+    expect(warning).toContain(`"expected":${RELEASE_BLOB_AUDIT_RELEASE_LIMIT * 2}`);
+    expect(warning).toContain('"partial":true');
   } finally {
     capture.restore();
   }

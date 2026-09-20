@@ -12,7 +12,7 @@ import { ExtensionLifecycle, FileBlobStore, LifecycleError, type InstallationSta
 import { ExtensionDataMigrations, type StorageMigrationInput } from "./v4/data-migrations";
 import { ExtensionDeliveryQueue } from "./v4/deliveries";
 import { createCandidateVerificationBroker, type CandidateFixtures } from "./candidate-verification-broker";
-import { auditReleaseBlobStorage, getFiles, type ReleaseBlobDigests } from "./v4/blobs";
+import { auditReleaseBlobStorage, boundedReleaseBlobAuditSample, getFiles, type ReleaseBlobDigests } from "./v4/blobs";
 import { hasExactReleaseGrants } from "./bundled-drift-reapprove";
 import { createLifecycleRecoveryScheduler } from "./lifecycle-recovery-scheduler";
 
@@ -128,6 +128,9 @@ export interface RecoveryServices { lifecycle: Pick<ExtensionLifecycle, "recover
 let services: Promise<LifecycleServices> | undefined;
 const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let recoveryCapacityAvailable = false;
+
+/** Historical release blobs are diagnostic only: cap startup filesystem work. */
+export const RELEASE_BLOB_AUDIT_RELEASE_LIMIT = 128;
 
 async function initialize(): Promise<LifecycleServices> {
   // In trusted-local mode the in-process runner needs its approval store and
@@ -400,11 +403,12 @@ export async function reconcileExtensionLifecycle(): Promise<void> {
   await reconcileInstallations(services, releaseRows<{ payload: string }>(result).map(row => JSON.parse(row.payload) as InstallationRecord));
 }
 
-async function auditHistoricalReleaseBlobStorage(blobs: FileBlobStore): Promise<void> {
+export async function auditHistoricalReleaseBlobStorage(blobs: FileBlobStore): Promise<void> {
   const { getDb } = await import("../db/connection");
-  const releaseResult = await getDb().execute(sql`SELECT payload FROM extension_release_records WHERE kind = 'releases' ORDER BY installation_id, id`);
-  const releases = releaseRows<{ payload: string }>(releaseResult).map((row) => JSON.parse(row.payload) as ReleaseBlobDigests);
-  await auditReleaseBlobStorage(blobs, releases, (message, details) => log.warn(message, { ...details }));
+  const releaseResult = await getDb().execute(sql`SELECT payload FROM extension_release_records WHERE kind = 'releases' ORDER BY installation_id, id LIMIT ${RELEASE_BLOB_AUDIT_RELEASE_LIMIT + 1}`);
+  const sample = boundedReleaseBlobAuditSample(releaseRows<{ payload: string }>(releaseResult), RELEASE_BLOB_AUDIT_RELEASE_LIMIT);
+  const releases = sample.records.map((row) => JSON.parse(row.payload) as ReleaseBlobDigests);
+  await auditReleaseBlobStorage(blobs, releases, (message, details) => log.warn(message, { ...details }), { partial: sample.partial });
 }
 
 const lifecycleRecovery = createLifecycleRecoveryScheduler(

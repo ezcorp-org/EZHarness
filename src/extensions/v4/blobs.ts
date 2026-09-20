@@ -46,9 +46,18 @@ export interface ReleaseBlobAudit {
   condition: ReleaseBlobAuditCondition;
 }
 
+export interface ReleaseBlobAuditReport extends ReleaseBlobAudit {
+  partial: boolean;
+}
+
 export interface ReleaseBlobDigests {
   sourceDigest: string;
   artifactDigest: string;
+}
+
+/** Retain one sentinel record outside the audit cap to make sampling explicit. */
+export function boundedReleaseBlobAuditSample<T>(records: readonly T[], limit: number): { records: readonly T[]; partial: boolean } {
+  return { records: records.slice(0, limit), partial: records.length > limit };
 }
 
 /**
@@ -73,15 +82,18 @@ export async function auditReleaseBlobPresence(blobs: Pick<FileBlobStore, "has">
  * Classify the persistent release store without logging installation ids,
  * release names, or content digests. The caller supplies the boot logger.
  */
-export async function auditReleaseBlobStorage(blobs: Pick<FileBlobStore, "has">, releases: Iterable<ReleaseBlobDigests>, warn: (message: string, details: ReleaseBlobAudit) => void): Promise<ReleaseBlobAudit> {
+export async function auditReleaseBlobStorage(blobs: Pick<FileBlobStore, "has">, releases: Iterable<ReleaseBlobDigests>, warn: (message: string, details: ReleaseBlobAuditReport) => void, options: { partial?: boolean } = {}): Promise<ReleaseBlobAuditReport> {
   const digests: string[] = [];
   for (const release of releases) digests.push(release.sourceDigest, release.artifactDigest);
   const audit = await auditReleaseBlobPresence(blobs, digests);
-  if (audit.condition === "empty") warn("Extension release blob storage is empty. The release volume may be renamed or unmounted; mount the expected volume or copy release blobs from the prior volume. Do not restore the database.", audit);
-  else if (audit.condition === "mostly_missing") warn("Most extension release blobs are missing. The release volume may be renamed or unmounted; mount the expected volume or copy release blobs from the prior volume. Do not restore the database.", audit);
-  else if (audit.condition === "single_missing") warn("One extension release blob is missing. Restore or rebuild the affected release.", audit);
-  else if (audit.condition === "partially_missing") warn("Some extension release blobs are missing. Restore or rebuild the affected releases.", audit);
-  return audit;
+  const report = { ...audit, partial: options.partial === true };
+  const scope = report.partial ? " in the audited sample" : "";
+  if (report.condition === "healthy" && report.partial) warn("Extension release blob audit is partial; no blobs were missing in the audited sample.", report);
+  else if (report.condition === "empty") warn(`Extension release blob storage is empty${scope}. The release volume may be renamed or unmounted; mount the expected volume or copy release blobs from the prior volume. Do not restore the database.`, report);
+  else if (report.condition === "mostly_missing") warn(`Most extension release blobs are missing${scope}. The release volume may be renamed or unmounted; mount the expected volume or copy release blobs from the prior volume. Do not restore the database.`, report);
+  else if (report.condition === "single_missing") warn(`One extension release blob is missing${scope}. Restore or rebuild the affected release.`, report);
+  else if (report.condition === "partially_missing") warn(`Some extension release blobs are missing${scope}. Restore or rebuild the affected releases.`, report);
+  return report;
 }
 
 export class FileBlobStore implements BlobStore {

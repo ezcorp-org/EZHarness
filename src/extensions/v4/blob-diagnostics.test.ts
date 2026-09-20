@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { auditReleaseBlobPresence, auditReleaseBlobStorage, FileBlobStore } from "./blobs";
+import { auditReleaseBlobPresence, auditReleaseBlobStorage, boundedReleaseBlobAuditSample, FileBlobStore } from "./blobs";
 
 const root = await mkdtemp(join(tmpdir(), "ezcorp-release-blob-audit-"));
 const blobs = new FileBlobStore(root);
@@ -41,4 +41,18 @@ test("release blob storage warnings name the usable recovery without exposing re
     expect.stringContaining("Some extension release blobs"),
   ]);
   expect(messages.join("\n")).not.toContain(present);
+});
+
+test("release blob audit keeps one sentinel record and marks sampled warnings", async () => {
+  expect(boundedReleaseBlobAuditSample(["first", "second", "sentinel"], 2)).toEqual({ records: ["first", "second"], partial: true });
+  expect(boundedReleaseBlobAuditSample(["first", "second"], 2)).toEqual({ records: ["first", "second"], partial: false });
+  const messages: string[] = [];
+  const report = await auditReleaseBlobStorage(blobs, [{ sourceDigest: absent("c"), artifactDigest: absent("d") }], (message) => messages.push(message), { partial: true });
+  expect(report).toMatchObject({ expected: 2, missing: 2, partial: true });
+  expect(messages).toEqual([expect.stringContaining("in the audited sample")]);
+  const sourceDigest = await blobs.put(new TextEncoder().encode("sample source"));
+  const artifactDigest = await blobs.put(new TextEncoder().encode("sample artifact"));
+  const completeSample = await auditReleaseBlobStorage(blobs, [{ sourceDigest, artifactDigest }], (message) => messages.push(message), { partial: true });
+  expect(completeSample).toMatchObject({ condition: "healthy", partial: true });
+  expect(messages[1]).toContain("audit is partial");
 });
