@@ -100,8 +100,11 @@ export function factoryAttemptPreflight(options: FactoryAttemptPreflightOptions)
     });
   }
 
-  return Object.freeze({
+  // Typed before freezing, so the parameters take their types from the
+  // interface rather than from an untyped object literal.
+  const preflight: FactoryIsolatedRunnerPreflight = {
     lease: (request) => options.database.transaction((transaction) => leaseInTransaction(transaction, request)),
     preparedPackage: (request) => options.readiness.assertDispatchReady(request),
-  });
+  };
+  return Object.freeze(preflight);
 }

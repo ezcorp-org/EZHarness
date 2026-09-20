@@ -1121,3 +1121,8 @@
 - A reserved name in a shared adapter is a real constraint, not a naming preference. `manifest.json` belongs to the S3 publication manifest and no member may take it, which is obvious in hindsight and cost a full real-services run to discover. Read the member grammar before choosing member names.
 - A receipt taken while the tree is changing is not a receipt. I started a fifteen-minute producer, then edited three files, and the recorded "no dirty files" was true at start and false by the end. Commit first, run second, and re-run everything on the final tree.
 - `argparse.REMAINDER` swallows flags that follow the positional. `receipt.py label --lock -- cmd` put `--lock` into the command; `receipt.py --lock label -- cmd` is the working order. Worth knowing before losing a long run to it.
+- `bun run typecheck && ...` does not gate a commit when the typecheck output is
+  piped through `grep`: grep exits 0 for a match, so a chain that greps for
+  "error TS" runs the commit exactly when there ARE errors. I committed a file
+  that did not typecheck this way. Gate on the command's own exit code, or run
+  the check as its own step and read it.
