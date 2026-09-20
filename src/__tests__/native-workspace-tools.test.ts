@@ -48,12 +48,18 @@ describe("workspace process dispatcher", () => {
     const calls: unknown[] = [];
     const dispatch = createSandboxWorkspaceDispatcher(async (workspace, request, signal) => {
       calls.push({ workspace, request, signal });
-      return { stdout: await executeNativeTool(root, request.argv[2]!), exitCode: 0 };
+      return { stdout: await executeNativeTool(root, request.argv.slice(2).join("")), exitCode: 0 };
     });
     expect((await dispatch(target, "readFile", { path: "marker.txt" }, controller.signal)).content[0]?.text).toContain("NATIVE_MARKER");
     expect(calls).toEqual([{ workspace: target, request: { argv: ["/usr/local/bin/bun", NATIVE_TOOL_ARTIFACT, encodeNativeToolRequest("readFile", { path: "marker.txt" })], timeoutMs: 120000 }, signal: controller.signal }]);
     await dispatch(target, "shell", { command: "true", timeout: 99999999 });
     expect(calls[1]).toMatchObject({ request: { timeoutMs: 600000 } });
+    const content = "x".repeat(12000);
+    expect((await dispatch(target, "editFile", { path: "large-edit.txt", new_string: content })).details).toMatchObject({ newContent: content });
+    expect(await Bun.file(join(root, "large-edit.txt")).text()).toBe(content);
+    const argv = (calls[2] as { request: { argv: string[] } }).request.argv;
+    expect(argv.length).toBeGreaterThan(3);
+    expect(argv.every(arg => arg.length <= 4096)).toBeTrue();
   });
 
   test("does not dispatch cancelled requests or treat failed, malformed or oversized output as success", async () => {

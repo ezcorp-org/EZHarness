@@ -22,8 +22,9 @@ export function createSandboxWorkspaceDispatcher(run: RunNativeWorkspaceProcess)
     if (signal?.aborted) return toolError("Workspace tool cancelled");
     try {
       const timeout = operation === "shell" && params && typeof params === "object" && "timeout" in params && typeof params.timeout === "number" && Number.isFinite(params.timeout) ? params.timeout : undefined;
+      const encoded = encodeNativeToolRequest(operation, params);
       const result = await run(target, {
-        argv: ["/usr/local/bin/bun", NATIVE_TOOL_ARTIFACT, encodeNativeToolRequest(operation, params)],
+        argv: ["/usr/local/bin/bun", NATIVE_TOOL_ARTIFACT, ...encoded.match(/.{1,4096}/g)!],
         timeoutMs: validateTimeout(timeout),
       }, signal);
       if (result.exitCode !== 0) return toolError("Workspace tool did not complete");
