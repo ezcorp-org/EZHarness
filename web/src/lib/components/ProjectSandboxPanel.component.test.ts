@@ -2,11 +2,12 @@ import "@testing-library/jest-dom/vitest";
 import { fireEvent, render, waitFor } from "@testing-library/svelte";
 import { afterEach, describe, expect, test, vi } from "vitest";
 
-const { goto } = vi.hoisted(() => ({ goto: vi.fn() }));
+const { goto, refreshProjects } = vi.hoisted(() => ({ goto: vi.fn(), refreshProjects: vi.fn() }));
 vi.mock("$app/navigation", () => ({ goto }));
+vi.mock("$lib/stores.svelte.js", () => ({ refreshProjects }));
 import ProjectSandboxPanel from "./ProjectSandboxPanel.svelte";
 
-afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); goto.mockReset(); });
+afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks(); goto.mockReset(); refreshProjects.mockReset(); });
 
 function response(body: unknown, ok = true): Response {
 	return new Response(JSON.stringify(body), { status: ok ? 200 : 409, headers: { "content-type": "application/json" } });
@@ -18,12 +19,28 @@ describe("ProjectSandboxPanel", () => {
 		vi.stubGlobal("fetch", fetch);
 		const view = render(ProjectSandboxPanel, { projectId: "source" });
 		await waitFor(() => expect(view.getByRole("button", { name: /Local sandbox.*Create a dedicated sandbox/i })).toBeVisible());
+		const order: string[] = [];
+		refreshProjects.mockImplementation(async () => { order.push("refresh"); return true; });
+		goto.mockImplementation(async () => { order.push("goto"); });
 		await fireEvent.click(view.getByRole("button", { name: /Local sandbox.*Create a dedicated sandbox/i }));
 		await waitFor(() => expect(goto).toHaveBeenCalledWith("/project/sandbox-project/settings"));
+		expect(refreshProjects).toHaveBeenCalledOnce();
+		expect(order).toEqual(["refresh", "goto"]);
 		expect(fetch).toHaveBeenLastCalledWith("/api/sandboxes", expect.objectContaining({
 			method: "POST",
 			body: JSON.stringify({ name: "Sandbox for source", providerInstallationId: "install", providerId: "local" }),
 		}));
+	});
+
+	test("does not navigate when the new project cannot refresh into the store", async () => {
+		const fetch = vi.fn().mockResolvedValueOnce(response({ providers: [{ installationId: "install", providerId: "local", label: "Local sandbox", ready: true }] })).mockResolvedValueOnce(response({ project: { id: "sandbox-project" } }));
+		vi.stubGlobal("fetch", fetch);
+		refreshProjects.mockResolvedValue(false);
+		const view = render(ProjectSandboxPanel, { projectId: "source" });
+		await waitFor(() => expect(view.getByRole("button", { name: /Local sandbox.*Create a dedicated sandbox/i })).toBeVisible());
+		await fireEvent.click(view.getByRole("button", { name: /Local sandbox.*Create a dedicated sandbox/i }));
+		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Could not load the new sandbox"));
+		expect(goto).not.toHaveBeenCalled();
 	});
 
 	test("shows provider absence", async () => {
@@ -75,7 +92,7 @@ test("disposed workspaces keep history accessible but cannot issue lifecycle com
 	vi.stubGlobal("fetch", fetch);
 	const view = render(ProjectSandboxPanel, { projectId: "sandbox", sandbox: true });
 	await waitFor(() => expect(view.getByText("destroyed", { exact: true })).toBeVisible());
-	for (const name of ["Start", "Stop", "Dispose…"]) expect(view.getByRole("button", { name, exact: true })).toBeDisabled();
+	for (const name of ["Start", "Stop", "Dispose…"]) expect(view.getByRole("button", { name })).toBeDisabled();
 	expect(view.getByRole("link", { name: "Open chat" })).toHaveAttribute("href", "/project/sandbox");
 	expect(fetch).toHaveBeenCalledTimes(1);
 });

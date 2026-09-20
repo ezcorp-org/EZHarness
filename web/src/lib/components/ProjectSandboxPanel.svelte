@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
+	import { refreshProjects } from "$lib/stores.svelte.js";
 
 	type Provider = { installationId: string; providerId: string; label: string; ready: boolean; reason?: string };
 	type SandboxStatus = { state: string; operation?: { id: string; state: string } | null; provider?: { label: string } | null };
@@ -30,6 +31,7 @@
 			const response = await fetch("/api/sandboxes", { method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() }, body: JSON.stringify({ name: `Sandbox for ${projectId}`, providerInstallationId: provider.installationId, providerId: provider.providerId }) });
 			if (!response.ok) throw new Error((await response.json().catch(() => ({ error: "Could not create sandbox" }))).error);
 			const data = await response.json();
+			if (!await refreshProjects()) throw new Error("Could not load the new sandbox");
 			await goto(`/project/${data.project.id}/settings`);
 		} catch (cause) { error = cause instanceof Error ? cause.message : "Could not create sandbox"; } finally { busy = false; }
 	}
