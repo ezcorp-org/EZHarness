@@ -41,6 +41,9 @@ import { join } from "node:path";
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const SCRIPT = join(REPO_ROOT, "scripts", "test-linux.sh");
 const FILE_SETS = join(REPO_ROOT, "scripts", "lib", "test-file-sets.sh");
+const REAL_GIT = Bun.which("git");
+
+if (!REAL_GIT) throw new Error("git is required for this test");
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "macos-local-dev-"));
 const BIN = join(SANDBOX, "bin");
@@ -72,6 +75,12 @@ writeFileSync(
   join(BIN, "git"),
   [
     "#!/usr/bin/env bash",
+    `if [ -n "\${STUB_GIT_CALLS_FILE:-}" ]; then`,
+    "  { printf '%s\\n' '---CALL---'; printf '%s\\n' \"$@\"; } >> \"$STUB_GIT_CALLS_FILE\"",
+    "fi",
+    `if [ "\${STUB_USE_REAL_GIT:-0}" = "1" ]; then`,
+    `  exec ${JSON.stringify(REAL_GIT)} "$@"`,
+    "fi",
     'if [ "$2" = "--stdin" ]; then',
     "  cat >/dev/null",
     "  echo 0123456789abcdef0123456789abcdef01234567",
@@ -91,19 +100,28 @@ let runCount = 0;
 
 function run(
   args: string[] = [],
-  options: { engine?: "docker" | "podman"; imageExists?: boolean } = {},
-): { calls: string[][]; exitCode: number; stderr: string } {
+  options: {
+    engine?: "docker" | "podman";
+    imageExists?: boolean;
+    script?: string;
+    useRealGit?: boolean;
+  } = {},
+): { calls: string[][]; exitCode: number; gitCalls: string[][]; stderr: string } {
   const callsFile = join(SANDBOX, `calls-${runCount++}.txt`);
+  const gitCallsFile = join(SANDBOX, `git-calls-${runCount}.txt`);
   writeFileSync(callsFile, "");
+  writeFileSync(gitCallsFile, "");
   const proc = Bun.spawnSync({
-    cmd: ["bash", SCRIPT, ...args],
+    cmd: ["bash", options.script ?? SCRIPT, ...args],
     env: {
       ...process.env,
       PATH: `${BIN}:${process.env.PATH ?? ""}`,
       EZCORP_CONTAINER_ENGINE: options.engine ?? "podman",
       EZCORP_TEST_IMAGE: "",
       STUB_CALLS_FILE: callsFile,
+      STUB_GIT_CALLS_FILE: gitCallsFile,
       STUB_IMAGE_EXISTS: options.imageExists === false ? "1" : "0",
+      STUB_USE_REAL_GIT: options.useRealGit ? "1" : "0",
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -112,9 +130,14 @@ function run(
     .split("---CALL---\n")
     .slice(1)
     .map((call) => call.trimEnd().split("\n"));
+  const gitCalls = readFileSync(gitCallsFile, "utf8")
+    .split("---CALL---\n")
+    .slice(1)
+    .map((call) => call.trimEnd().split("\n"));
   return {
     calls,
     exitCode: proc.exitCode,
+    gitCalls,
     stderr: proc.stderr.toString(),
   };
 }
@@ -164,7 +187,9 @@ describe("scripts/test-linux.sh — the invocation it guarantees", () => {
 
   test("keeps bind-mount writes owned by the developer under rootless podman", () => {
     expect(runArgs(run())).toContain("--userns=keep-id");
-    expect(runArgs(run([], { engine: "docker" }))).not.toContain("--userns=keep-id");
+    const docker = run([], { engine: "docker" });
+    expect(docker.exitCode).toBe(0);
+    expect(runArgs(docker)).not.toContain("--userns=keep-id");
   });
 
   test("does not request a TTY when stdin is not one", () => {
@@ -188,6 +213,45 @@ describe("scripts/test-linux.sh — the invocation it guarantees", () => {
       ".",
     ]);
     expect(result.calls[1]).toContain("ezcorp-test-linux:0123456789ab");
+    expect(result.gitCalls[0]).toEqual([
+      "hash-object",
+      "Dockerfile.test",
+      "Dockerfile.test.dockerignore",
+      ".bun-version",
+      "web/package.json",
+      "web/bun.lock",
+    ]);
+  });
+
+  test("changes the image tag when the companion ignore file changes", () => {
+    const fixture = join(SANDBOX, `repo-${runCount++}`);
+    const scripts = join(fixture, "scripts");
+    const web = join(fixture, "web");
+    mkdirSync(scripts, { recursive: true });
+    mkdirSync(web, { recursive: true });
+    const fixtureScript = join(scripts, "test-linux.sh");
+    copyFileSync(SCRIPT, fixtureScript);
+    for (const [path, contents] of [
+      ["Dockerfile.test", "FROM scratch\n"],
+      ["Dockerfile.test.dockerignore", "node_modules\n"],
+      [".bun-version", "1.3.14\n"],
+      ["web/package.json", "{}\n"],
+      ["web/bun.lock", "lockfile\n"],
+    ]) {
+      writeFileSync(join(fixture, path), contents);
+    }
+
+    const first = run([], { imageExists: false, script: fixtureScript, useRealGit: true });
+    writeFileSync(join(fixture, "Dockerfile.test.dockerignore"), "node_modules\n.git\n");
+    const second = run([], { imageExists: false, script: fixtureScript, useRealGit: true });
+    const firstTag = first.calls[0]?.[first.calls[0].indexOf("-t") + 1];
+    const secondTag = second.calls[0]?.[second.calls[0].indexOf("-t") + 1];
+
+    expect(first.exitCode).toBe(0);
+    expect(second.exitCode).toBe(0);
+    expect(firstTag).toStartWith("ezcorp-test-linux:");
+    expect(secondTag).toStartWith("ezcorp-test-linux:");
+    expect(secondTag).not.toBe(firstTag);
   });
 
   test("installs both dependency trees from their lockfiles", () => {

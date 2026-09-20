@@ -52,7 +52,7 @@ else
   # tag leaves developers on an old Bun or Playwright browser after pulling a
   # Dockerfile/lockfile update, even though the working tree itself is mounted.
   IMAGE_INPUT_HASH="$(
-    git hash-object Dockerfile.test .bun-version web/package.json web/bun.lock |
+    git hash-object Dockerfile.test Dockerfile.test.dockerignore .bun-version web/package.json web/bun.lock |
       git hash-object --stdin |
       cut -c1-12
   )"
@@ -112,7 +112,7 @@ exec "$ENGINE" run --rm "${TTY_ARGS[@]}" \
   -v "$ROOT_MODULES_VOLUME:/repo/node_modules" \
   -v "$WEB_MODULES_VOLUME:/repo/web/node_modules" \
   -w /repo \
-  "${USERNS_ARGS[@]}" \
+  ${USERNS_ARGS[@]+"${USERNS_ARGS[@]}"} \
   -e CI=1 \
   `# Bun's install cache defaults to <cwd>/.bun inside the container, and cwd` \
   `# is the bind-mounted repo — so an unset cache dir drops a root-owned` \
