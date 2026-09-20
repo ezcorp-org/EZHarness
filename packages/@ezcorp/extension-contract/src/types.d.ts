@@ -9,6 +9,40 @@ export interface HostApiPermission {
   routes: { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string }[];
   events: boolean;
 }
+export type ProviderRequiredPermission = "hostApi" | "network" | "networkTcp" | "storage";
+export interface ProviderHostContract { major: 4; minor: number }
+export interface SandboxLifecycleMethodGroup { name: "sandbox.lifecycle.v1"; methods: { create: string; inspect: string; start: string; stop: string; destroy: string } }
+export interface SandboxProcessMethodGroup { name: "sandbox.process.v1"; methods: { start: string; inspect: string; readOutput: string; cancel: string } }
+export interface SandboxFilesMethodGroup { name: "sandbox.files.v1"; methods: { stat: string; list: string; read: string; write: string; mkdir: string; remove: string; chmod: string } }
+export type SandboxProviderMethodGroup =
+  | SandboxLifecycleMethodGroup
+  | SandboxProcessMethodGroup
+  | SandboxFilesMethodGroup;
+export interface StaticSecretMethodGroup { name: "secret.static.v1"; methods: { resolve: string } }
+export type SecretProviderMethodGroup = StaticSecretMethodGroup;
+export interface SandboxProviderContribution {
+  id: string;
+  kind: "sandbox";
+  protocolMajor: 1;
+  minimumHostContract: ProviderHostContract;
+  profiles: ("linux-exec.v1")[];
+  capabilities: [];
+  configSchema: ValueSchema;
+  requiredPermissions: ProviderRequiredPermission[];
+  methodGroups: SandboxProviderMethodGroup[];
+}
+export interface StaticSecretProviderContribution {
+  id: string;
+  kind: "static-secret";
+  protocolMajor: 1;
+  minimumHostContract: ProviderHostContract;
+  profiles: ["static-secret.v1"];
+  capabilities: [];
+  configSchema: ValueSchema;
+  requiredPermissions: ProviderRequiredPermission[];
+  methodGroups: SecretProviderMethodGroup[];
+}
+export type ProviderContribution = SandboxProviderContribution | StaticSecretProviderContribution;
 export interface ToolDefinitionV4 extends ToolDefinition {
   outputSchema: ValueSchema;
   mcpOutputSchema?: ValueSchema;
@@ -16,7 +50,8 @@ export interface ToolDefinitionV4 extends ToolDefinition {
 export interface ExtensionManifestV4 extends Omit<ExtensionManifestV2, "schemaVersion" | "tools" | "permissions"> {
   schemaVersion: 4;
   tools?: ToolDefinitionV4[];
-  methods?: { name: string; inputSchema: ValueSchema; outputSchema: ValueSchema }[];
+  methods?: { name: string; inputSchema: ValueSchema; outputSchema: ValueSchema; sensitivity?: "ordinary" | "sensitive" }[];
+  providers?: ProviderContribution[];
   bootSpawn?: boolean;
   dataSchema?: { version: string; readableVersions: string[]; migrateMethod?: string };
   permissions: ExtensionManifestV2["permissions"] & {

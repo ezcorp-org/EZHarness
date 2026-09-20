@@ -680,6 +680,13 @@
               },
               "outputSchema": {
                 "$ref": "#/definitions/ValueSchema"
+              },
+              "sensitivity": {
+                "enum": [
+                  "ordinary",
+                  "sensitive"
+                ],
+                "type": "string"
               }
             },
             "required": [
@@ -1121,6 +1128,12 @@
           "description": "Deterministic attachment preprocessors. Each entry names a declared tool the host runs automatically on matching attachments before the assistant turn — see  {@link  PreprocessorDecl }  for the full contract.",
           "items": {
             "$ref": "#/definitions/PreprocessorDecl"
+          },
+          "type": "array"
+        },
+        "providers": {
+          "items": {
+            "$ref": "#/definitions/ProviderContribution"
           },
           "type": "array"
         },
@@ -1891,6 +1904,42 @@
       ],
       "type": "object"
     },
+    "ProviderContribution": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SandboxProviderContribution"
+        },
+        {
+          "$ref": "#/definitions/StaticSecretProviderContribution"
+        }
+      ]
+    },
+    "ProviderHostContract": {
+      "additionalProperties": false,
+      "properties": {
+        "major": {
+          "const": 4,
+          "type": "number"
+        },
+        "minor": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "major",
+        "minor"
+      ],
+      "type": "object"
+    },
+    "ProviderRequiredPermission": {
+      "enum": [
+        "hostApi",
+        "network",
+        "networkTcp",
+        "storage"
+      ],
+      "type": "string"
+    },
     "PublishedExtensionRelease": {
       "additionalProperties": false,
       "properties": {
@@ -2049,6 +2098,207 @@
       ],
       "type": "object"
     },
+    "SandboxFilesMethodGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "methods": {
+          "additionalProperties": false,
+          "properties": {
+            "chmod": {
+              "type": "string"
+            },
+            "list": {
+              "type": "string"
+            },
+            "mkdir": {
+              "type": "string"
+            },
+            "read": {
+              "type": "string"
+            },
+            "remove": {
+              "type": "string"
+            },
+            "stat": {
+              "type": "string"
+            },
+            "write": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "stat",
+            "list",
+            "read",
+            "write",
+            "mkdir",
+            "remove",
+            "chmod"
+          ],
+          "type": "object"
+        },
+        "name": {
+          "const": "sandbox.files.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "methods"
+      ],
+      "type": "object"
+    },
+    "SandboxLifecycleMethodGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "methods": {
+          "additionalProperties": false,
+          "properties": {
+            "create": {
+              "type": "string"
+            },
+            "destroy": {
+              "type": "string"
+            },
+            "inspect": {
+              "type": "string"
+            },
+            "start": {
+              "type": "string"
+            },
+            "stop": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "create",
+            "inspect",
+            "start",
+            "stop",
+            "destroy"
+          ],
+          "type": "object"
+        },
+        "name": {
+          "const": "sandbox.lifecycle.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "methods"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessMethodGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "methods": {
+          "additionalProperties": false,
+          "properties": {
+            "cancel": {
+              "type": "string"
+            },
+            "inspect": {
+              "type": "string"
+            },
+            "readOutput": {
+              "type": "string"
+            },
+            "start": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "start",
+            "inspect",
+            "readOutput",
+            "cancel"
+          ],
+          "type": "object"
+        },
+        "name": {
+          "const": "sandbox.process.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "methods"
+      ],
+      "type": "object"
+    },
+    "SandboxProviderContribution": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "maxItems": 0,
+          "minItems": 0,
+          "type": "array"
+        },
+        "configSchema": {
+          "$ref": "#/definitions/ValueSchema"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "sandbox",
+          "type": "string"
+        },
+        "methodGroups": {
+          "items": {
+            "$ref": "#/definitions/SandboxProviderMethodGroup"
+          },
+          "type": "array"
+        },
+        "minimumHostContract": {
+          "$ref": "#/definitions/ProviderHostContract"
+        },
+        "profiles": {
+          "items": {
+            "const": "linux-exec.v1",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "protocolMajor": {
+          "const": 1,
+          "type": "number"
+        },
+        "requiredPermissions": {
+          "items": {
+            "$ref": "#/definitions/ProviderRequiredPermission"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "protocolMajor",
+        "minimumHostContract",
+        "profiles",
+        "capabilities",
+        "configSchema",
+        "requiredPermissions",
+        "methodGroups"
+      ],
+      "type": "object"
+    },
+    "SandboxProviderMethodGroup": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SandboxLifecycleMethodGroup"
+        },
+        {
+          "$ref": "#/definitions/SandboxProcessMethodGroup"
+        },
+        {
+          "$ref": "#/definitions/SandboxFilesMethodGroup"
+        }
+      ]
+    },
     "ScriptDefinition": {
       "additionalProperties": false,
       "properties": {
@@ -2078,6 +2328,9 @@
         }
       },
       "type": "object"
+    },
+    "SecretProviderMethodGroup": {
+      "$ref": "#/definitions/StaticSecretMethodGroup"
     },
     "SettingsField": {
       "anyOf": [
@@ -2312,6 +2565,92 @@
         "artifactDigest",
         "context",
         "limits"
+      ],
+      "type": "object"
+    },
+    "StaticSecretMethodGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "methods": {
+          "additionalProperties": false,
+          "properties": {
+            "resolve": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "resolve"
+          ],
+          "type": "object"
+        },
+        "name": {
+          "const": "secret.static.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "methods"
+      ],
+      "type": "object"
+    },
+    "StaticSecretProviderContribution": {
+      "additionalProperties": false,
+      "properties": {
+        "capabilities": {
+          "maxItems": 0,
+          "minItems": 0,
+          "type": "array"
+        },
+        "configSchema": {
+          "$ref": "#/definitions/ValueSchema"
+        },
+        "id": {
+          "type": "string"
+        },
+        "kind": {
+          "const": "static-secret",
+          "type": "string"
+        },
+        "methodGroups": {
+          "items": {
+            "$ref": "#/definitions/SecretProviderMethodGroup"
+          },
+          "type": "array"
+        },
+        "minimumHostContract": {
+          "$ref": "#/definitions/ProviderHostContract"
+        },
+        "profiles": {
+          "items": {
+            "const": "static-secret.v1",
+            "type": "string"
+          },
+          "maxItems": 1,
+          "minItems": 1,
+          "type": "array"
+        },
+        "protocolMajor": {
+          "const": 1,
+          "type": "number"
+        },
+        "requiredPermissions": {
+          "items": {
+            "$ref": "#/definitions/ProviderRequiredPermission"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "protocolMajor",
+        "minimumHostContract",
+        "profiles",
+        "capabilities",
+        "configSchema",
+        "requiredPermissions",
+        "methodGroups"
       ],
       "type": "object"
     },

@@ -142,10 +142,47 @@ export function validateManifest(value: unknown): ExtensionManifestV4 {
     compileValueSchema(method.outputSchema);
   }
   if (methodNames.size > 128) throw new ContractError("DATA_LIMIT", "Too many runtime methods");
+  const methodSensitivity = new Map((manifest.methods ?? []).map(method => [method.name, method.sensitivity]));
+  const providerIds = new Set<string>();
+  for (const provider of manifest.providers ?? []) {
+    if (!/^[a-z][a-z0-9-]{0,63}$/.test(provider.id) || providerIds.has(provider.id)) throw new ContractError("INVALID_MANIFEST", "Invalid or duplicate provider ID");
+    providerIds.add(provider.id);
+    if (provider.minimumHostContract.minor !== 0) throw new ContractError("INVALID_MANIFEST", "Provider minimum host contract must be supported host contract 4.0");
+    if (!provider.profiles.length || provider.profiles.length > 8 || new Set(provider.profiles).size !== provider.profiles.length) throw new ContractError("INVALID_MANIFEST", "Provider profiles must be a unique bounded list");
+    if (provider.capabilities.length > 16 || new Set(provider.capabilities).size !== provider.capabilities.length) throw new ContractError("INVALID_MANIFEST", "Provider capabilities must be a unique bounded list");
+    if (!provider.methodGroups.length || provider.methodGroups.length > 16) throw new ContractError("INVALID_MANIFEST", "Provider method groups must be a non-empty bounded list");
+    compileValueSchema(provider.configSchema, 64 * 1024);
+    if (provider.requiredPermissions.length > 16 || new Set(provider.requiredPermissions).size !== provider.requiredPermissions.length) throw new ContractError("INVALID_MANIFEST", "Provider permissions must be a unique bounded list");
+    for (const permission of provider.requiredPermissions) {
+      const axis = permission;
+      const declaration = manifest.permissions[axis as keyof typeof manifest.permissions];
+      const declared = Object.hasOwn(manifest.permissions, axis) && (Array.isArray(declaration) ? declaration.length > 0 : Boolean(declaration));
+      if (!declared) throw new ContractError("INVALID_MANIFEST", "Provider required permission must be declared by the manifest");
+    }
+    const groupNames = new Set<string>();
+    const mappedMethods = new Set<string>();
+    for (const group of provider.methodGroups) {
+      if (groupNames.has(group.name)) throw new ContractError("INVALID_MANIFEST", "Duplicate provider method group");
+      groupNames.add(group.name);
+      for (const mapped of Object.values(group.methods)) {
+        if (!methodNames.has(mapped) || mappedMethods.has(mapped) || !methodSensitivity.get(mapped)) throw new ContractError("INVALID_MANIFEST", "Provider methods must uniquely reference explicitly classified manifest methods");
+        mappedMethods.add(mapped);
+        if (methodSensitivity.get(mapped) === "sensitive" && names.has(mapped)) throw new ContractError("INVALID_MANIFEST", "Sensitive provider methods cannot be tools");
+        if (provider.kind === "static-secret" && methodSensitivity.get(mapped) !== "sensitive") throw new ContractError("INVALID_MANIFEST", "Secret provider methods must be sensitive");
+      }
+    }
+    if (provider.kind === "sandbox") {
+      for (const required of ["sandbox.lifecycle.v1", "sandbox.process.v1", "sandbox.files.v1"]) if (!groupNames.has(required)) throw new ContractError("INVALID_MANIFEST", "Sandbox providers must declare lifecycle, process, and file method groups");
+    } else {
+      if (!groupNames.has("secret.static.v1")) throw new ContractError("INVALID_MANIFEST", "Static secret providers must declare the static secret method group");
+    }
+  }
+  if (providerIds.size > 16) throw new ContractError("DATA_LIMIT", "Too many provider contributions");
   if (manifest.dataSchema) {
     const data = manifest.dataSchema;
     if (![data.version, ...data.readableVersions].every(version => /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(version)) || data.readableVersions.length > 64 || new Set(data.readableVersions).size !== data.readableVersions.length || !data.readableVersions.includes(data.version)) throw new ContractError("INVALID_MANIFEST", "Invalid data schema compatibility declaration");
     if (data.migrateMethod && !methodNames.has(data.migrateMethod)) throw new ContractError("INVALID_MANIFEST", "Data migration must reference a declared runtime method");
+    if (data.migrateMethod && methodSensitivity.get(data.migrateMethod) === "sensitive") throw new ContractError("INVALID_MANIFEST", "Data migration cannot invoke a sensitive runtime method");
   }
   for (const route of manifest.permissions.hostApi?.routes ?? []) {
     if (!/^\/api\/(?:[a-zA-Z0-9_-]+|:[a-zA-Z][a-zA-Z0-9_]*)(?:\/(?:[a-zA-Z0-9_-]+|:[a-zA-Z][a-zA-Z0-9_]*))*$/.test(route.path)) throw new ContractError("INVALID_MANIFEST", "Host API routes must be fixed /api paths with named parameters");
