@@ -31,6 +31,10 @@ export async function authorizeProjectOperation(deps: Pick<RpcHandlerDeps, "engi
   const role = await checkProjectRole({ user }, projectId, "member");
   if (role instanceof Response) throw new LifecycleError("permission_denied", "Project membership is required.");
   const project = await getProject(projectId);
+  const { projectRequiresSandbox } = await import("../runtime/workspace/target");
+  if (await projectRequiresSandbox(projectId)) {
+    throw new LifecycleError("project_required", "This sandbox project does not permit direct host project access.");
+  }
   if (!project?.path) throw new LifecycleError("project_required", "A local project is required.");
   const decision = await deps.engine.authorize({ extensionId, userId: user.id, conversationId: conversation?.id ?? null, toolName: operation, ...(projectConsent ? { projectConsent } : {}) }, capabilities);
   if (decision.decision !== "allow") throw new LifecycleError("permission_denied", "Approve shell and required project capabilities before this operation.");

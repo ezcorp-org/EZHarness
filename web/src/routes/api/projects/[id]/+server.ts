@@ -5,6 +5,7 @@ import { requireAuth, checkProjectRole } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { projectPathSchema } from "$lib/server/security/validation";
 import { errorJson } from "$lib/server/http-errors";
+import { projectRequiresSandbox } from "$server/runtime/workspace/target";
 import type { RequestHandler } from "./$types";
 
 /**
@@ -77,6 +78,7 @@ export const PUT: RequestHandler = async ({ request, params, locals }) => {
   if (scopeErr) return scopeErr;
   const gate = await checkProjectRole(locals, params.id, "member");
   if (gate instanceof Response) return gate;
+  if (await projectRequiresSandbox(params.id)) return errorJson(409, "Sandbox projects cannot be edited through project settings.");
   const parsed = updateProjectSchema.safeParse(await request.json().catch(() => ({})));
   if (!parsed.success) {
     return errorJson(400, "Invalid request body");
@@ -99,6 +101,7 @@ export const DELETE: RequestHandler = async ({ params, locals }) => {
   if (scopeErr) return scopeErr;
   const gate = await checkProjectRole(locals, params.id, "member");
   if (gate instanceof Response) return gate;
+  if (await projectRequiresSandbox(params.id)) return errorJson(409, "Dispose the sandbox before deleting its project.");
   const deleted = await projectQueries.deleteProject(params.id);
   if (!deleted) return errorJson(404, "Not found");
   return json({ ok: true });

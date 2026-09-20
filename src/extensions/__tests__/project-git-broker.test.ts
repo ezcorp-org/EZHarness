@@ -19,6 +19,7 @@ mock.module("../../db/queries/users", () => ({ getUserById: async () => ({ id: "
 mock.module("../../db/queries/conversations", () => ({ getConversation: async () => ({ id: "conversation", userId: owned ? "user" : "other", projectId: "project" }) }));
 mock.module("../../db/queries/projects", () => ({ getProject: async () => ({ id: "project", path: local ? root : null }) }));
 mock.module("../../auth/middleware", () => ({ checkProjectRole: async () => member ? undefined : new Response(null, { status: 403 }) }));
+mock.module("../../runtime/workspace/target", () => ({ projectRequiresSandbox: async () => false }));
 const { handleProjectGit, readProjectGit } = await import("../project-git-broker");
 const authorize = mock(async () => ({ decision: allowed ? "allow" : "prompt" }));
 const deps = { engine: { authorize } } as unknown as RpcHandlerDeps;

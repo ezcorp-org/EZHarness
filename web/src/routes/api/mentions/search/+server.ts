@@ -16,6 +16,7 @@ import {
 	listFilteredChildren,
 } from "$server/runtime/fs/scan-fs";
 import { parseGoalEnabled } from "$server/runtime/goal-host";
+import { projectRequiresSandbox } from "$server/runtime/workspace/target";
 import type { RequestHandler } from "./$types";
 
 const MAX_RESULTS = 10;
@@ -229,6 +230,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	if (type === "cmd") {
 		let projectPath: string | null = null;
 		if (projectId) {
+			if (await projectRequiresSandbox(projectId)) return json([]);
 			const project = await projectQueries.getProject(projectId);
 			projectPath = project?.path ? resolve(project.path) : null;
 		}
@@ -477,6 +479,7 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	// through to agent/ext/team results.
 	if (type === "path") {
 		if (!projectId) return json([]);
+		if (await projectRequiresSandbox(projectId)) return json([]);
 		const project = await projectQueries.getProject(projectId);
 		const projectPath = project?.path ? resolve(project.path) : null;
 		if (!projectPath) return json([]);
