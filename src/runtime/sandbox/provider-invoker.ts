@@ -2,9 +2,11 @@ import { ContractError, canonicalJson, sha256, validateProviderMethodExchange, v
 import { getProjectMembership } from "../../db/queries/project-members";
 import { getProject } from "../../db/queries/projects";
 import { getUserById } from "../../db/queries/users";
+import { releaseRows } from "../../db/queries/extension-releases";
+import { getDb } from "../../db/connection";
+import { sql } from "drizzle-orm";
 import { registerCallProvenance, releaseCallProvenance } from "../../extensions/call-provenance";
 import { getPermissionEngine } from "../../extensions/permission-engine";
-import { getExtensionProjectBinding } from "../../extensions/project-binding";
 import { getReleaseRuntime, ReleaseProcess, releaseBinding, resolveActiveRelease } from "../../extensions/release-process";
 import { ExtensionRegistry } from "../../extensions/registry";
 import { ToolExecutor } from "../../extensions/tool-executor";
@@ -53,7 +55,7 @@ export async function invokeSandboxProvider(
         ezCallId: token,
         releaseId: provider.releaseId,
         expectedGeneration: provider.generation,
-        expectedReleaseBinding: await sha256(provider.releaseBinding),
+        expectedReleaseBinding: provider.releaseBinding,
       },
     }, {
       signal,
@@ -85,11 +87,11 @@ async function assertLiveProviderInvocation(
     getProject(projectId),
     getProjectMembership(userId, projectId),
     resolveActiveRelease(provider.installationId, runtime),
-    getExtensionProjectBinding(provider.installationId),
+    readSandboxProviderBinding(projectId),
   ]);
   if (user?.status !== "active" || !project || !membership) throw new ContractError("CAPABILITY_DENIED", "An active project member is required.");
-  if (snapshot.release.id !== provider.releaseId || snapshot.installation.generation !== provider.generation || releaseBinding(snapshot) !== provider.releaseBinding) throw new ContractError("RELEASE_CHANGED", "Sandbox provider release changed.");
-  if (!binding || binding.projectId !== projectId || binding.releaseId !== provider.releaseId || binding.generation !== provider.generation) throw new ContractError("CAPABILITY_DENIED", "Sandbox provider is not approved for this project.");
+  if (snapshot.release.id !== provider.releaseId || snapshot.installation.generation !== provider.generation || await sha256(releaseBinding(snapshot)) !== provider.releaseBinding) throw new ContractError("RELEASE_CHANGED", "Sandbox provider release changed.");
+  if (!binding || binding.installationId !== provider.installationId || binding.providerId !== provider.providerId || binding.releaseId !== provider.releaseId || binding.releaseBinding !== provider.releaseBinding || binding.generation !== provider.generation) throw new ContractError("CAPABILITY_DENIED", "Sandbox provider is not approved for this project.");
   const call = (input as { call?: { scope?: { projectId?: unknown; bindingId?: unknown; generation?: unknown } } }).call;
   if (call?.scope?.projectId !== projectId || call.scope.bindingId !== binding.id || call.scope.generation !== provider.generation) throw new ContractError("INVALID_PROVIDER_VALUE", "Provider call scope does not match the approved project binding.");
   const mappedMethod = providerMethod(snapshot.release.manifest.providers, provider.providerId, group, operation);
@@ -98,6 +100,19 @@ async function assertLiveProviderInvocation(
   if (!registeredManifest || !registeredGrants || canonicalJson(registeredManifest) !== canonicalJson(snapshot.release.manifest) || canonicalJson(registeredGrants) !== canonicalJson(snapshot.installation.grants)) throw new ContractError("RELEASE_CHANGED", "Sandbox provider broker is not bound to the active release.");
   if (!snapshot.release.manifest.methods?.some(method => method.name === mappedMethod && method.sensitivity === "ordinary")) throw new ContractError("SENSITIVE_METHOD_REQUIRES_BROKER", "Sandbox provider method is not eligible for host invocation.");
   return snapshot;
+}
+
+interface SandboxProviderBinding {
+  id: string;
+  installationId: string;
+  providerId: string;
+  releaseId: string;
+  releaseBinding: string;
+  generation: number;
+}
+
+async function readSandboxProviderBinding(projectId: string): Promise<SandboxProviderBinding | undefined> {
+  return releaseRows<SandboxProviderBinding>(await getDb().execute(sql`SELECT id, installation_id AS "installationId", provider_id AS "providerId", release_id AS "releaseId", release_binding AS "releaseBinding", generation FROM sandbox_provider_bindings WHERE project_id = ${projectId} AND state = 'active'`))[0];
 }
 
 function providerMethod(providers: readonly unknown[] | undefined, providerId: string, group: SandboxProviderGroup, operation: string): string {

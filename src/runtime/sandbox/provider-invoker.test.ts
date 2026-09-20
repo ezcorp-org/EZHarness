@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { providerMethodSchemas, type ExtensionManifestV4, type Runner, type SandboxProviderMethodGroup } from "@ezcorp/extension-contract";
+import { providerMethodSchemas, sha256, type ExtensionManifestV4, type Runner, type SandboxProviderMethodGroup } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import { configureHostApiTransport } from "../../extensions/host-api-broker";
 import { _setPermissionEngineForTests } from "../../extensions/permission-engine";
@@ -45,6 +45,7 @@ const manifest: ExtensionManifestV4 = {
 describe("invokeSandboxProvider", () => {
   let userId: string;
   let projectId: string;
+  let authorProjectId: string;
   let installationId: string;
   let bindingId: string;
   let reference: { installationId: string; providerId: string; releaseId: string; releaseBinding: string; generation: number };
@@ -56,9 +57,10 @@ describe("invokeSandboxProvider", () => {
     _setPermissionEngineForTests(createStubPermissionEngine("allow-all"));
     const db = getTestDb();
     const [user] = await db.insert(users).values({ email: `${crypto.randomUUID()}@test.local`, passwordHash: "fixture", name: "User", role: "member", status: "active" }).returning();
-    const [project] = await db.insert(projects).values({ name: "Project", path: "/tmp/project" }).returning();
+    const [project, authorProject] = await db.insert(projects).values([{ name: "Sandbox Project", path: "/tmp/project" }, { name: "Author Project", path: "/tmp/author-project" }]).returning();
     userId = user!.id;
     projectId = project!.id;
+    authorProjectId = authorProject!.id;
     await db.insert(projectMembers).values({ userId, projectId });
     installationId = crypto.randomUUID();
     bindingId = crypto.randomUUID();
@@ -68,7 +70,7 @@ describe("invokeSandboxProvider", () => {
       release: { id: releaseId, installationId, workspaceId: crypto.randomUUID(), workspaceRevision: 1, sourceDigest: digestObject(manifest), artifactDigest: digestObject(manifest), releaseDigest: digestObject(manifest), imageDigest: `sha256:${"a".repeat(64)}`, runnerProfile: "test", policyDigest: "b".repeat(64), manifest, evidence: { protocolVersion: 4, validatorVersion: "test", tests: [{ name: "fixture", passed: true }], discoveryDigest: digestObject(manifest) }, createdAt: new Date().toISOString() },
       limits: { memoryBytes: 512 * 1024 * 1024, cpuMillis: 1000, pids: 64, tmpBytes: 64 * 1024 * 1024, outputBytes: 1024 * 1024, timeoutMs: 30_000 },
     };
-    reference = { installationId, providerId: "local", releaseId, releaseBinding: releaseBinding(snapshot), generation: 1 };
+    reference = { installationId, providerId: "local", releaseId, releaseBinding: await sha256(releaseBinding(snapshot)), generation: 1 };
     const runner: Runner = {
       async build() { throw new Error("unused"); }, async cancel() {}, async inspect() { return { id: "fixture", state: "running", diagnostics: [] }; }, async collectArtifacts() { throw new Error("unused"); },
       async start(start, reverse) {
@@ -87,7 +89,9 @@ describe("invokeSandboxProvider", () => {
     registry.setManifestForTest(installationId, manifest);
     registry.setGrantedPermsForTest(installationId, snapshot.installation.grants);
     await db.execute(sql`INSERT INTO extension_release_installations (id, owner_id, scope, payload) VALUES (${installationId}, ${userId}, 'global', ${JSON.stringify(snapshot.installation)})`);
-    await db.execute(sql`INSERT INTO extension_project_bindings (installation_id, payload) VALUES (${installationId}, ${JSON.stringify({ id: bindingId, projectId, ownerId: userId, releaseId, generation: 1, approvedAt: new Date().toISOString(), writePaths: [] })})`);
+    await db.execute(sql`CREATE TABLE IF NOT EXISTS sandbox_provider_bindings (id TEXT PRIMARY KEY, project_id TEXT UNIQUE NOT NULL, owner_id TEXT NOT NULL, installation_id TEXT NOT NULL, provider_id TEXT NOT NULL, release_id TEXT NOT NULL, release_binding TEXT NOT NULL, generation INTEGER NOT NULL, config_revision INTEGER NOT NULL, config_digest TEXT NOT NULL, state TEXT NOT NULL)`);
+    await db.execute(sql`INSERT INTO extension_project_bindings (installation_id, payload) VALUES (${installationId}, ${JSON.stringify({ id: crypto.randomUUID(), projectId: authorProjectId, ownerId: userId, releaseId, generation: 1, approvedAt: new Date().toISOString(), writePaths: [] })})`);
+    await db.execute(sql`INSERT INTO sandbox_provider_bindings (id, project_id, owner_id, installation_id, provider_id, release_id, release_binding, generation, config_revision, config_digest, state) VALUES (${bindingId}, ${projectId}, ${userId}, ${installationId}, 'local', ${releaseId}, ${reference.releaseBinding}, 1, 1, ${"c".repeat(64)}, 'active')`);
     configureHostApiTransport({ request: async (actingUserId, request) => {
       expect(actingUserId).toBe(userId);
       expect(request).toEqual({ method: "POST", path: `/api/local-sandbox/operations/${call.operationId}/execute` });
@@ -111,9 +115,9 @@ describe("invokeSandboxProvider", () => {
     await getTestDb().update(users).set({ status: "inactive" }).where(sql`${users.id} = ${userId}`);
     await expect(invokeSandboxProvider(userId, projectId, reference, "sandbox.lifecycle.v1", "create", input)).rejects.toThrow("active project member");
     await getTestDb().update(users).set({ status: "active" }).where(sql`${users.id} = ${userId}`);
-    await getTestDb().execute(sql`DELETE FROM extension_project_bindings WHERE installation_id = ${installationId}`);
+    await getTestDb().execute(sql`DELETE FROM sandbox_provider_bindings WHERE project_id = ${projectId}`);
     await expect(invokeSandboxProvider(userId, projectId, reference, "sandbox.lifecycle.v1", "create", input)).rejects.toThrow("not approved");
-    await getTestDb().execute(sql`INSERT INTO extension_project_bindings (installation_id, payload) VALUES (${installationId}, ${JSON.stringify({ id: bindingId, projectId, ownerId: userId, releaseId: reference.releaseId, generation: 1, approvedAt: new Date().toISOString(), writePaths: [] })})`);
+    await getTestDb().execute(sql`INSERT INTO sandbox_provider_bindings (id, project_id, owner_id, installation_id, provider_id, release_id, release_binding, generation, config_revision, config_digest, state) VALUES (${bindingId}, ${projectId}, ${userId}, ${installationId}, 'local', ${reference.releaseId}, ${reference.releaseBinding}, 1, 1, ${"c".repeat(64)}, 'active')`);
     response = { receipt: { ...call, outcome: "succeeded", operationId: "forged" }, resource: { resourceId: "resource", desiredState: "stopped", observedState: "stopped", limits } };
     await expect(invokeSandboxProvider(userId, projectId, reference, "sandbox.lifecycle.v1", "create", input)).rejects.toThrow("receipt changed operationId");
   });
