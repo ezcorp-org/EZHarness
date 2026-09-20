@@ -1146,3 +1146,56 @@
   command DOES, not of which service it talks to: a pool that forks a process
   per file is heavier than a single Podman probe. Every producer in that list
   goes under the lock, one at a time.
+
+## 2026-09-20 — W09b assembly and the guest proof
+
+- **A hold reason is a claim, and claims expire.** `release-outcome` held for
+  "no production `FactoryReleaseProviderResolver`". The resolver was built here
+  in an afternoon and the role still could not register, because `claim` needs a
+  CONSENT — an approved approval or an automatic policy — and nothing reads one.
+  Before restating a hold, re-derive it from the call you are actually blocked
+  on, not from the last person's sentence.
+- **Composing a listener is not the same as having one.** `startFactoryPrivateService`
+  had no production caller, and the composition root's own comment explained
+  why in a way that was right about three processes and wrong about the fourth.
+  "C02 puts every other role in its own process" is true of the pool, the
+  supervisor, and the orchestrator; the private service is how the product is
+  reached BY one of them, and it needs the database they must not hold. Read a
+  comment that justifies an absence as a hypothesis, not as a finding.
+- **Two readiness gates that each require the other never converge.** The
+  orchestrator's readiness probes the product's private service; the product's
+  readiness reads the orchestrator's record. With one probe round, whichever
+  starts second loses, and the listener the other needs is closed by the failure
+  path. The fix is to keep probing with the listener bound and admission closed —
+  not to relax either gate. A distributed bring-up that depends on start order is
+  a defect even when every component is correct.
+- **A boundary gate earns its keep on the change you were sure was safe.**
+  Hosting W01b's launch routes and W03's stop route in the supervisor pulled
+  `drizzle-orm`, PGlite and the S3 client into a process C01 says holds only host
+  identity, because the three values those routes need share a module with the
+  durable launch store. Nothing about the code looked wrong; the closure test
+  printed the eleven packages. Run the boundary test on any change that moves a
+  module into a new process.
+- **A process entry that exits 1 in silence costs a whole round.** The
+  orchestrator refused its own configuration and printed nothing, and the
+  orchestrator package replaced every startup cause with a bare "factory
+  orchestrator process failed". Two lines — print before setting the exit code,
+  and attach the cause — turned an hour of bisecting into one readable message:
+  a private path with a writable ancestor, then a peer that was not listening.
+- **A fake store must return what a real one would.** `InstallationDataKey.loadOrCreate`
+  re-reads what it just saved and decrypts it to prove the round trip, so a
+  harness store that handed back the base64 the FILE carries failed with
+  `factory_key_missing` — a name that describes the symptom and not the cause.
+  When a fake sits between two halves of a round trip, it has to speak both.
+- **The pinned test server is not the real server.** The Temporal test server
+  does not implement `DescribeTaskQueue`, which the orchestrator's readiness
+  probe requires, so it cannot serve this proof at all — and the failure looks
+  like a product fault. Check that a pinned tool implements the method under
+  test before concluding anything about the code.
+- **A proof may add a deployment topology; it may not relax a requirement.** The
+  orchestrator requires mutual TLS to its namespace and the Temporal server
+  terminates none, so the proof puts a real TLS terminator in front of it —
+  presenting this installation's certificate, requiring the client's, verifying
+  both against the same CA. That is the sidecar a real deployment uses. Passing
+  a different `connect` dependency to make the light turn green would have been
+  the substitute.

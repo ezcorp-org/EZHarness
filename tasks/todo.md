@@ -2910,3 +2910,22 @@ end-to-end proof that a submitted run reaches a real guest.
       as a named factory readiness setting.
 - [ ] 100% line coverage on every new file, both `BASE_REF=integ/w00` gates, and
       the full sweep at the final head with a clean tree.
+
+### W09b review
+
+The four roles: three run, one holds. `attempt-dispatch`, `stop-settlement` and
+`usage-reconciliation` register and run in the real started application, over
+the real pool, the real host transports, and one shared store set.
+`release-outcome` holds on a collaborator that does not exist on this branch —
+a reader that maps a claimable release operation to the approved approval or the
+automatic policy `FactoryReleases.claim` requires — proved by grep in the gate
+file and attributed to W05 and W07.
+
+Three things were found by doing rather than by reading. The private worker API
+had no production caller at all, so a submitted run had no path off `queued`
+however well the roles were composed. The two readiness gates that the
+orchestrator and the product hold over each other could never converge, because
+the failure path closed the listener the other side needed. And hosting the two
+host routes in the supervisor pulled the product database into a process C01
+says holds only host identity — caught by the boundary test, fixed by splitting
+the attempt wire out of the launch store.
