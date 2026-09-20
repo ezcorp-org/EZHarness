@@ -3,7 +3,7 @@ import { RE2JS } from "re2js";
 import schema from "./wire-schema.json";
 import type { ExtensionManifestV4, JsonValue, ToolDefinitionV4, ValueSchema, WireData, WorkspaceFile, WorkspaceFiles } from "@ezcorp/extension-contract/types";
 import { parseTcpDestination } from "./network";
-import { assertJson, ContractError, MAX_FRAME_BYTES } from "./json";
+import { assertJson, ContractError, isForbiddenJsonKey, MAX_FRAME_BYTES } from "./json";
 import { validateWorkspaceFiles, validateWorkspacePath } from "./files";
 export * from "./json";
 export * from "./files";
@@ -16,6 +16,56 @@ export const TOOL_RESULT_SCHEMA = {
   properties: { content: { type: "array", items: { type: "object", required: ["type"], properties: { type: { type: "string" }, text: { type: "string" } }, additionalProperties: true } }, isError: { type: "boolean" } },
   additionalProperties: true,
 };
+export type SandboxProviderGroup = "sandbox.lifecycle.v1" | "sandbox.process.v1" | "sandbox.files.v1";
+export type ProviderSchemaDirection = "input" | "result";
+const providerMethodDefinitions = {
+  "sandbox.lifecycle.v1": {
+    create: ["SandboxCreateInput", "SandboxCreateResult"], inspect: ["SandboxInspectInput", "SandboxInspectResult"], start: ["SandboxStartInput", "SandboxStartResult"], stop: ["SandboxStopInput", "SandboxStopResult"], destroy: ["SandboxDestroyInput", "SandboxDestroyResult"],
+  },
+  "sandbox.process.v1": {
+    start: ["SandboxProcessStartInput", "SandboxProcessStartResult"], inspect: ["SandboxProcessInspectInput", "SandboxProcessInspectResult"], readOutput: ["SandboxProcessReadOutputInput", "SandboxProcessReadOutputResult"], cancel: ["SandboxProcessCancelInput", "SandboxProcessCancelResult"],
+  },
+  "sandbox.files.v1": {
+    stat: ["SandboxFileStatInput", "SandboxFileStatResult"], list: ["SandboxFileListInput", "SandboxFileListResult"], read: ["SandboxFileReadInput", "SandboxFileReadResult"], write: ["SandboxFileWriteInput", "SandboxFileWriteResult"], mkdir: ["SandboxFileMkdirInput", "SandboxFileMkdirResult"], remove: ["SandboxFileRemoveInput", "SandboxFileRemoveResult"], chmod: ["SandboxFileChmodInput", "SandboxFileChmodResult"],
+  },
+} as const;
+export type SandboxProviderOperation<Group extends SandboxProviderGroup> = keyof typeof providerMethodDefinitions[Group] & string;
+const providerSchemaCache = new Map<string, { inputSchema: ValueSchema; outputSchema: ValueSchema }>();
+
+function standaloneWireSchema(definitionName: string): ValueSchema {
+  const definitions = schema.definitions as Record<string, ValueSchema>;
+  const included = new Map<string, ValueSchema>();
+  const rewrite = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(rewrite);
+    if (!value || typeof value !== "object") return value;
+    const record = value as Record<string, unknown>;
+    if (typeof record.$ref === "string" && record.$ref.startsWith("#/definitions/")) {
+      const name = decodeURIComponent(record.$ref.slice("#/definitions/".length));
+      if (!definitions[name]) throw new ContractError("INVALID_CONTRACT", `Missing provider wire definition: ${name}`);
+      if (!included.has(name)) {
+        included.set(name, {});
+        included.set(name, rewrite(definitions[name]) as ValueSchema);
+      }
+      return { $ref: `#/$defs/${name}` };
+    }
+    return Object.fromEntries(Object.entries(record).map(([key, child]) => [key, rewrite(child)]));
+  };
+  const root = definitions[definitionName];
+  if (!root) throw new ContractError("INVALID_CONTRACT", `Missing provider wire definition: ${definitionName}`);
+  const rewritten = rewrite(root) as ValueSchema;
+  return { ...rewritten, ...(included.size ? { $defs: Object.fromEntries(included) } : {}) };
+}
+
+export function providerMethodSchemas<Group extends SandboxProviderGroup>(group: Group, operation: SandboxProviderOperation<Group>): { inputSchema: ValueSchema; outputSchema: ValueSchema } {
+  const key = `${group}:${operation}`;
+  const cached = providerSchemaCache.get(key);
+  if (cached) return structuredClone(cached);
+  const pair = (providerMethodDefinitions[group] as Record<string, readonly [string, string]>)[operation];
+  if (!pair) throw new ContractError("INVALID_CONTRACT", "Unsupported provider method");
+  const value = { inputSchema: standaloneWireSchema(pair[0]), outputSchema: standaloneWireSchema(pair[1]) };
+  providerSchemaCache.set(key, value);
+  return structuredClone(value);
+}
 const encoder = new TextEncoder();
 const ajv = new Ajv({ strict: false, allErrors: false, ownProperties: true, validateFormats: false });
 ajv.addSchema(schema, "wire");
@@ -116,6 +166,153 @@ export function compileValueSchema(value: unknown, maxValueBytes = MAX_FRAME_BYT
   return checkValue;
 }
 
+const PROVIDER_CHUNK_BYTES = 256 * 1024;
+const PROVIDER_DEADLINE_MS = 24 * 60 * 60 * 1000;
+const providerIdentifierPattern = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
+const providerDigestPattern = /^[a-f0-9]{64}$/;
+
+function providerIdentifier(value: unknown, field: string): void {
+  if (typeof value !== "string" || !providerIdentifierPattern.test(value)) throw new ContractError("INVALID_PROVIDER_VALUE", `Invalid ${field}`);
+}
+
+function providerInteger(value: unknown, field: string, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): void {
+  if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) throw new ContractError("INVALID_PROVIDER_VALUE", `Invalid ${field}`);
+}
+
+function providerVirtualPath(value: unknown): void {
+  if (typeof value !== "string" || encoder.encode(value).byteLength > 1024 || !value.startsWith("/") || (value.length > 1 && value.endsWith("/")) || value.includes("\\") || Array.from(value).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) throw new ContractError("INVALID_PROVIDER_PATH", "Expected a canonical workspace-root path");
+  if (value !== "/" && value.slice(1).split("/").some(part => !part || part === "." || part === ".." || isForbiddenJsonKey(part))) throw new ContractError("INVALID_PROVIDER_PATH", "Unsafe workspace-root path");
+}
+
+function providerEncodedBytes(encoding: unknown, data: unknown): number {
+  if (typeof data !== "string") throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid provider byte payload");
+  if (encoding === "utf8") return encoder.encode(data).byteLength;
+  if (encoding !== "base64" || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data) || (data && btoa(atob(data.slice(-4))) !== data.slice(-4))) throw new ContractError("INVALID_PROVIDER_VALUE", "Expected canonical provider base64");
+  return data.length / 4 * 3 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
+}
+
+function validateProviderCall(call: Record<string, unknown>): void {
+  const scope = call.scope as Record<string, unknown>;
+  providerIdentifier(scope.projectId, "project ID");
+  providerIdentifier(scope.bindingId, "binding ID");
+  providerInteger(scope.generation, "generation", 1);
+  providerIdentifier(call.operationId, "operation ID");
+  providerIdentifier(call.idempotencyKey, "idempotency key");
+  if (typeof call.requestDigest !== "string" || !providerDigestPattern.test(call.requestDigest)) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid request digest");
+}
+
+function validateProviderReceipt(receipt: Record<string, unknown>): void {
+  providerIdentifier(receipt.operationId, "receipt operation ID");
+  providerIdentifier(receipt.idempotencyKey, "receipt idempotency key");
+  if (typeof receipt.requestDigest !== "string" || !providerDigestPattern.test(receipt.requestDigest)) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid receipt request digest");
+  if (receipt.providerOperationId !== undefined) providerIdentifier(receipt.providerOperationId, "provider operation ID");
+  if (receipt.outcome === "failed" && !receipt.error) throw new ContractError("INVALID_PROVIDER_VALUE", "Failed provider receipt requires an error");
+  if (receipt.outcome === "succeeded" && receipt.error) throw new ContractError("INVALID_PROVIDER_VALUE", "Successful provider receipt cannot contain an error");
+  if (receipt.error) {
+    const error = receipt.error as Record<string, unknown>;
+    providerIdentifier(error.code, "provider error code");
+    if (typeof error.message !== "string" || encoder.encode(error.message).byteLength > 4096) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid provider error message");
+  }
+}
+
+function validateProviderResource(resource: Record<string, unknown>): void {
+  providerIdentifier(resource.resourceId, "resource ID");
+  const limits = resource.limits as Record<string, unknown>;
+  providerInteger(limits.memoryBytes, "memory bytes", 1);
+  providerInteger(limits.milliCpu, "CPU milliCPU", 1, 1_000_000);
+  providerInteger(limits.pids, "PID limit", 1, 32_768);
+  providerInteger(limits.diskBytes, "disk bytes", 1);
+}
+
+function validateProviderProcess(process: Record<string, unknown>): void {
+  const identity = process.identity as Record<string, unknown>;
+  providerIdentifier(identity.bootId, "boot ID");
+  providerIdentifier(identity.processId, "process ID");
+  providerInteger(process.outputCursor, "process output cursor");
+  if (process.exitCode !== undefined) providerInteger(process.exitCode, "process exit code", -255, 255);
+}
+
+function validateProviderFileStat(entry: Record<string, unknown>): void {
+  providerVirtualPath(entry.path);
+  providerIdentifier(entry.revision, "file revision");
+  providerInteger(entry.sizeBytes, "file size");
+  providerInteger(entry.mode, "file mode", 0, 0o777);
+}
+
+export function validateProviderMethodValue<Group extends SandboxProviderGroup>(group: Group, operation: SandboxProviderOperation<Group>, direction: ProviderSchemaDirection, value: unknown): unknown {
+  const schemas = providerMethodSchemas(group, operation);
+  compileValueSchema(direction === "input" ? schemas.inputSchema : schemas.outputSchema)(value);
+  const record = value as Record<string, unknown>;
+  if (direction === "input") {
+    validateProviderCall(record.call as Record<string, unknown>);
+    if (record.resourceId !== undefined) providerIdentifier(record.resourceId, "resource ID");
+    if (group === "sandbox.lifecycle.v1" && operation === "create") validateProviderResource({ resourceId: "request", desiredState: "stopped", observedState: "stopped", limits: record.limits });
+    if (group === "sandbox.process.v1") {
+      if (record.identity) validateProviderProcess({ identity: record.identity, state: "unknown", outputCursor: 0 });
+      if (operation === "start") {
+        if ((record.argv as unknown[]).length === 0 || (record.argv as unknown[]).length > 128 || (record.argv as unknown[]).some(item => typeof item !== "string" || encoder.encode(item).byteLength > 4096)) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid process argv");
+        const env = record.env as Record<string, unknown>;
+        if (Object.keys(env).length > 128 || Object.entries(env).some(([name, item]) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) || typeof item !== "string") || encoder.encode(JSON.stringify(env)).byteLength > 64 * 1024) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid process environment");
+        providerVirtualPath(record.cwd);
+        providerInteger(record.deadlineMs, "process deadline", 1, PROVIDER_DEADLINE_MS);
+      }
+      if (operation === "readOutput") {
+        providerInteger(record.cursor, "process output cursor");
+        providerInteger(record.maxBytes, "process output byte limit", 1, PROVIDER_CHUNK_BYTES);
+      }
+    }
+    if (group === "sandbox.files.v1") {
+      providerVirtualPath(record.path);
+      if (record.cursor !== undefined) providerIdentifier(record.cursor, "file list cursor");
+      if (record.expectedRevision !== undefined) providerIdentifier(record.expectedRevision, "expected file revision");
+      if (record.revision !== undefined) providerIdentifier(record.revision, "file revision");
+      if (operation === "list") providerInteger(record.limit, "file list limit", 1, 256);
+      if (operation === "read") {
+        providerInteger(record.offsetBytes, "file read offset");
+        providerInteger(record.lengthBytes, "file read length", 1, PROVIDER_CHUNK_BYTES);
+      }
+      if (operation === "write" && providerEncodedBytes(record.encoding, record.data) > PROVIDER_CHUNK_BYTES) throw new ContractError("DATA_LIMIT", "File write exceeds provider chunk limit");
+      if (operation === "chmod") providerInteger(record.mode, "file mode", 0, 0o777);
+    }
+  } else {
+    validateProviderReceipt(record.receipt as Record<string, unknown>);
+    if (record.resource) validateProviderResource(record.resource as Record<string, unknown>);
+    if (record.process) validateProviderProcess(record.process as Record<string, unknown>);
+    if (record.entry) validateProviderFileStat(record.entry as Record<string, unknown>);
+    if (record.entries) {
+      if ((record.entries as unknown[]).length > 256) throw new ContractError("DATA_LIMIT", "File list exceeds provider entry limit");
+      for (const entry of record.entries as Record<string, unknown>[]) validateProviderFileStat(entry);
+    }
+    if (record.nextCursor !== undefined) providerIdentifier(record.nextCursor, "next file list cursor");
+    if (record.removedRevision !== undefined) providerIdentifier(record.removedRevision, "removed file revision");
+    if (group === "sandbox.process.v1" && operation === "readOutput") {
+      providerInteger(record.cursor, "process output cursor");
+      if ((record.chunks as unknown[]).length > 256) throw new ContractError("DATA_LIMIT", "Too many process output chunks");
+      let bytes = 0;
+      for (const chunk of record.chunks as Record<string, unknown>[]) bytes += providerEncodedBytes(chunk.encoding, chunk.data);
+      if (bytes > PROVIDER_CHUNK_BYTES) throw new ContractError("DATA_LIMIT", "Process output exceeds provider chunk limit");
+    }
+    if (group === "sandbox.files.v1" && operation === "read") {
+      providerVirtualPath(record.path);
+      providerIdentifier(record.revision, "file revision");
+      providerInteger(record.offsetBytes, "file read offset");
+      providerInteger(record.nextOffsetBytes, "next file read offset");
+      if ((record.nextOffsetBytes as number) < (record.offsetBytes as number)) throw new ContractError("INVALID_PROVIDER_VALUE", "Next file read offset cannot move backwards");
+      if (providerEncodedBytes(record.encoding, record.data) > PROVIDER_CHUNK_BYTES) throw new ContractError("DATA_LIMIT", "File read exceeds provider chunk limit");
+    }
+  }
+  return value;
+}
+
+export function validateProviderMethodExchange<Group extends SandboxProviderGroup>(group: Group, operation: SandboxProviderOperation<Group>, input: unknown, result: unknown): { input: unknown; result: unknown } {
+  validateProviderMethodValue(group, operation, "input", input);
+  validateProviderMethodValue(group, operation, "result", result);
+  const call = (input as { call: Record<string, unknown> }).call;
+  const receipt = (result as { receipt: Record<string, unknown> }).receipt;
+  for (const field of ["operationId", "idempotencyKey", "requestDigest"]) if (call[field] !== receipt[field]) throw new ContractError("INVALID_PROVIDER_RECEIPT", `Provider receipt changed ${field}`);
+  return { input, result };
+}
+
 export function validateManifest(value: unknown): ExtensionManifestV4 {
   const manifest = validateWire("manifest", value);
   if (manifest.permissions.networkTcp) {
@@ -143,6 +340,7 @@ export function validateManifest(value: unknown): ExtensionManifestV4 {
   }
   if (methodNames.size > 128) throw new ContractError("DATA_LIMIT", "Too many runtime methods");
   const methodSensitivity = new Map((manifest.methods ?? []).map(method => [method.name, method.sensitivity]));
+  for (const [method, sensitivity] of methodSensitivity) if (sensitivity === "sensitive" && names.has(method)) throw new ContractError("INVALID_MANIFEST", "Sensitive runtime methods cannot be tools");
   const providerIds = new Set<string>();
   for (const provider of manifest.providers ?? []) {
     if (!/^[a-z][a-z0-9-]{0,63}$/.test(provider.id) || providerIds.has(provider.id)) throw new ContractError("INVALID_MANIFEST", "Invalid or duplicate provider ID");
@@ -164,11 +362,15 @@ export function validateManifest(value: unknown): ExtensionManifestV4 {
     for (const group of provider.methodGroups) {
       if (groupNames.has(group.name)) throw new ContractError("INVALID_MANIFEST", "Duplicate provider method group");
       groupNames.add(group.name);
-      for (const mapped of Object.values(group.methods)) {
+      for (const [operation, mapped] of Object.entries(group.methods)) {
         if (!methodNames.has(mapped) || mappedMethods.has(mapped) || !methodSensitivity.get(mapped)) throw new ContractError("INVALID_MANIFEST", "Provider methods must uniquely reference explicitly classified manifest methods");
         mappedMethods.add(mapped);
-        if (methodSensitivity.get(mapped) === "sensitive" && names.has(mapped)) throw new ContractError("INVALID_MANIFEST", "Sensitive provider methods cannot be tools");
         if (provider.kind === "static-secret" && methodSensitivity.get(mapped) !== "sensitive") throw new ContractError("INVALID_MANIFEST", "Secret provider methods must be sensitive");
+        if (provider.kind === "sandbox") {
+          const definitions = (providerMethodDefinitions[group.name as SandboxProviderGroup] as Record<string, readonly [string, string]>)[operation];
+          const method = manifest.methods?.find(candidate => candidate.name === mapped);
+          if (!definitions || !method || canonicalJson(method.inputSchema) !== canonicalJson(standaloneWireSchema(definitions[0])) || canonicalJson(method.outputSchema) !== canonicalJson(standaloneWireSchema(definitions[1]))) throw new ContractError("INVALID_MANIFEST", "Sandbox provider methods must use the canonical wire schemas");
+        }
       }
     }
     if (provider.kind === "sandbox") {

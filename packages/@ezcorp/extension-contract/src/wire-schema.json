@@ -1904,6 +1904,30 @@
       ],
       "type": "object"
     },
+    "ProviderCall": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "requestDigest": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/definitions/ProviderScope"
+        }
+      },
+      "required": [
+        "scope",
+        "operationId",
+        "idempotencyKey",
+        "requestDigest"
+      ],
+      "type": "object"
+    },
     "ProviderContribution": {
       "anyOf": [
         {
@@ -1913,6 +1937,26 @@
           "$ref": "#/definitions/StaticSecretProviderContribution"
         }
       ]
+    },
+    "ProviderError": {
+      "additionalProperties": false,
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "retryable": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "retryable"
+      ],
+      "type": "object"
     },
     "ProviderHostContract": {
       "additionalProperties": false,
@@ -1931,6 +1975,461 @@
       ],
       "type": "object"
     },
+    "ProviderMethodWire": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.lifecycle.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxCreateInput"
+            },
+            "operation": {
+              "const": "create",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxCreateResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.lifecycle.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxInspectInput"
+            },
+            "operation": {
+              "const": "inspect",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxInspectResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.lifecycle.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxStartInput"
+            },
+            "operation": {
+              "const": "start",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxStartResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.lifecycle.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxStopInput"
+            },
+            "operation": {
+              "const": "stop",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxStopResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.lifecycle.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxDestroyInput"
+            },
+            "operation": {
+              "const": "destroy",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxDestroyResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.process.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxProcessStartInput"
+            },
+            "operation": {
+              "const": "start",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxProcessStartResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.process.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxProcessInspectInput"
+            },
+            "operation": {
+              "const": "inspect",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxProcessInspectResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.process.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxProcessReadOutputInput"
+            },
+            "operation": {
+              "const": "readOutput",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxProcessReadOutputResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.process.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxProcessCancelInput"
+            },
+            "operation": {
+              "const": "cancel",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxProcessCancelResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.files.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxFileStatInput"
+            },
+            "operation": {
+              "const": "stat",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxFileStatResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.files.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxFileListInput"
+            },
+            "operation": {
+              "const": "list",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxFileListResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.files.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxFileReadInput"
+            },
+            "operation": {
+              "const": "read",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxFileReadResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.files.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxFileWriteInput"
+            },
+            "operation": {
+              "const": "write",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxFileWriteResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.files.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxFileMkdirInput"
+            },
+            "operation": {
+              "const": "mkdir",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxFileMkdirResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.files.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxFileRemoveInput"
+            },
+            "operation": {
+              "const": "remove",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxFileRemoveResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "group": {
+              "const": "sandbox.files.v1",
+              "type": "string"
+            },
+            "input": {
+              "$ref": "#/definitions/SandboxFileChmodInput"
+            },
+            "operation": {
+              "const": "chmod",
+              "type": "string"
+            },
+            "result": {
+              "$ref": "#/definitions/SandboxFileChmodResult"
+            }
+          },
+          "required": [
+            "group",
+            "operation",
+            "input",
+            "result"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "ProviderReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/ProviderError"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "succeeded",
+            "failed",
+            "unknown"
+          ],
+          "type": "string"
+        },
+        "providerOperationId": {
+          "type": "string"
+        },
+        "requestDigest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operationId",
+        "idempotencyKey",
+        "requestDigest",
+        "outcome"
+      ],
+      "type": "object"
+    },
     "ProviderRequiredPermission": {
       "enum": [
         "hostApi",
@@ -1939,6 +2438,26 @@
         "storage"
       ],
       "type": "string"
+    },
+    "ProviderScope": {
+      "additionalProperties": false,
+      "properties": {
+        "bindingId": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "number"
+        },
+        "projectId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "bindingId",
+        "generation"
+      ],
+      "type": "object"
     },
     "PublishedExtensionRelease": {
       "additionalProperties": false,
@@ -2098,6 +2617,437 @@
       ],
       "type": "object"
     },
+    "SandboxCreateInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "limits": {
+          "$ref": "#/definitions/SandboxResourceLimits"
+        },
+        "profile": {
+          "const": "linux-exec.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "profile",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "SandboxCreateResult": {
+      "additionalProperties": false,
+      "properties": {
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        },
+        "resource": {
+          "$ref": "#/definitions/SandboxResource"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SandboxDestroyInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId"
+      ],
+      "type": "object"
+    },
+    "SandboxDestroyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        },
+        "resource": {
+          "$ref": "#/definitions/SandboxResource"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SandboxFileChmodInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "expectedRevision": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "number"
+        },
+        "path": {
+          "type": "string"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "path",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "SandboxFileChmodResult": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "$ref": "#/definitions/SandboxFileStat"
+        },
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SandboxFileListInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "cursor": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "number"
+        },
+        "path": {
+          "type": "string"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "path",
+        "limit"
+      ],
+      "type": "object"
+    },
+    "SandboxFileListResult": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/definitions/SandboxFileStat"
+          },
+          "type": "array"
+        },
+        "nextCursor": {
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        }
+      },
+      "required": [
+        "receipt",
+        "entries"
+      ],
+      "type": "object"
+    },
+    "SandboxFileMkdirInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "path": {
+          "type": "string"
+        },
+        "recursive": {
+          "type": "boolean"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "path",
+        "recursive"
+      ],
+      "type": "object"
+    },
+    "SandboxFileMkdirResult": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "$ref": "#/definitions/SandboxFileStat"
+        },
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SandboxFileReadInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "lengthBytes": {
+          "type": "number"
+        },
+        "offsetBytes": {
+          "type": "number"
+        },
+        "path": {
+          "type": "string"
+        },
+        "resourceId": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "path",
+        "offsetBytes",
+        "lengthBytes"
+      ],
+      "type": "object"
+    },
+    "SandboxFileReadResult": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "encoding": {
+          "enum": [
+            "utf8",
+            "base64"
+          ],
+          "type": "string"
+        },
+        "eof": {
+          "type": "boolean"
+        },
+        "nextOffsetBytes": {
+          "type": "number"
+        },
+        "offsetBytes": {
+          "type": "number"
+        },
+        "path": {
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        },
+        "revision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "receipt",
+        "path",
+        "revision",
+        "offsetBytes",
+        "nextOffsetBytes",
+        "eof",
+        "encoding",
+        "data"
+      ],
+      "type": "object"
+    },
+    "SandboxFileRemoveInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "expectedRevision": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "recursive": {
+          "type": "boolean"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "path",
+        "recursive"
+      ],
+      "type": "object"
+    },
+    "SandboxFileRemoveResult": {
+      "additionalProperties": false,
+      "properties": {
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        },
+        "removedRevision": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SandboxFileStat": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "file",
+            "directory"
+          ],
+          "type": "string"
+        },
+        "mode": {
+          "type": "number"
+        },
+        "path": {
+          "type": "string"
+        },
+        "revision": {
+          "type": "string"
+        },
+        "sizeBytes": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "path",
+        "kind",
+        "revision",
+        "sizeBytes",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "SandboxFileStatInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "path": {
+          "type": "string"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "path"
+      ],
+      "type": "object"
+    },
+    "SandboxFileStatResult": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "$ref": "#/definitions/SandboxFileStat"
+        },
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SandboxFileWriteInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "data": {
+          "type": "string"
+        },
+        "encoding": {
+          "enum": [
+            "utf8",
+            "base64"
+          ],
+          "type": "string"
+        },
+        "expectedRevision": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "path",
+        "encoding",
+        "data"
+      ],
+      "type": "object"
+    },
+    "SandboxFileWriteResult": {
+      "additionalProperties": false,
+      "properties": {
+        "entry": {
+          "$ref": "#/definitions/SandboxFileStat"
+        },
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
     "SandboxFilesMethodGroup": {
       "additionalProperties": false,
       "properties": {
@@ -2148,6 +3098,37 @@
       ],
       "type": "object"
     },
+    "SandboxInspectInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId"
+      ],
+      "type": "object"
+    },
+    "SandboxInspectResult": {
+      "additionalProperties": false,
+      "properties": {
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        },
+        "resource": {
+          "$ref": "#/definitions/SandboxResource"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
     "SandboxLifecycleMethodGroup": {
       "additionalProperties": false,
       "properties": {
@@ -2190,6 +3171,115 @@
       ],
       "type": "object"
     },
+    "SandboxProcess": {
+      "additionalProperties": false,
+      "properties": {
+        "exitCode": {
+          "type": "number"
+        },
+        "identity": {
+          "$ref": "#/definitions/SandboxProcessIdentity"
+        },
+        "outputCursor": {
+          "type": "number"
+        },
+        "state": {
+          "$ref": "#/definitions/SandboxProcessState"
+        }
+      },
+      "required": [
+        "identity",
+        "state",
+        "outputCursor"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessCancelInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "identity": {
+          "$ref": "#/definitions/SandboxProcessIdentity"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "identity"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessCancelResult": {
+      "additionalProperties": false,
+      "properties": {
+        "process": {
+          "$ref": "#/definitions/SandboxProcess"
+        },
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessIdentity": {
+      "additionalProperties": false,
+      "properties": {
+        "bootId": {
+          "type": "string"
+        },
+        "processId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "bootId",
+        "processId"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessInspectInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "identity": {
+          "$ref": "#/definitions/SandboxProcessIdentity"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "identity"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessInspectResult": {
+      "additionalProperties": false,
+      "properties": {
+        "process": {
+          "$ref": "#/definitions/SandboxProcess"
+        },
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
     "SandboxProcessMethodGroup": {
       "additionalProperties": false,
       "properties": {
@@ -2227,6 +3317,162 @@
         "methods"
       ],
       "type": "object"
+    },
+    "SandboxProcessOutputChunk": {
+      "additionalProperties": false,
+      "properties": {
+        "data": {
+          "type": "string"
+        },
+        "encoding": {
+          "enum": [
+            "utf8",
+            "base64"
+          ],
+          "type": "string"
+        },
+        "stream": {
+          "enum": [
+            "stdout",
+            "stderr"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "encoding",
+        "data"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessReadOutputInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "cursor": {
+          "type": "number"
+        },
+        "identity": {
+          "$ref": "#/definitions/SandboxProcessIdentity"
+        },
+        "maxBytes": {
+          "type": "number"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "identity",
+        "cursor",
+        "maxBytes"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessReadOutputResult": {
+      "additionalProperties": false,
+      "properties": {
+        "chunks": {
+          "items": {
+            "$ref": "#/definitions/SandboxProcessOutputChunk"
+          },
+          "type": "array"
+        },
+        "cursor": {
+          "type": "number"
+        },
+        "eof": {
+          "type": "boolean"
+        },
+        "gap": {
+          "type": "boolean"
+        },
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        }
+      },
+      "required": [
+        "receipt",
+        "cursor",
+        "chunks",
+        "eof",
+        "gap"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessStartInput": {
+      "additionalProperties": false,
+      "properties": {
+        "argv": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "resourceId": {
+          "type": "string"
+        },
+        "user": {
+          "const": "workspace",
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId",
+        "argv",
+        "env",
+        "cwd",
+        "user",
+        "deadlineMs"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessStartResult": {
+      "additionalProperties": false,
+      "properties": {
+        "process": {
+          "$ref": "#/definitions/SandboxProcess"
+        },
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SandboxProcessState": {
+      "enum": [
+        "starting",
+        "running",
+        "exited",
+        "cancelled",
+        "failed",
+        "unknown"
+      ],
+      "type": "string"
     },
     "SandboxProviderContribution": {
       "additionalProperties": false,
@@ -2298,6 +3544,133 @@
           "$ref": "#/definitions/SandboxFilesMethodGroup"
         }
       ]
+    },
+    "SandboxResource": {
+      "additionalProperties": false,
+      "properties": {
+        "desiredState": {
+          "enum": [
+            "stopped",
+            "running",
+            "destroyed"
+          ],
+          "type": "string"
+        },
+        "limits": {
+          "$ref": "#/definitions/SandboxResourceLimits"
+        },
+        "observedState": {
+          "$ref": "#/definitions/SandboxResourceState"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resourceId",
+        "desiredState",
+        "observedState",
+        "limits"
+      ],
+      "type": "object"
+    },
+    "SandboxResourceLimits": {
+      "additionalProperties": false,
+      "properties": {
+        "diskBytes": {
+          "type": "number"
+        },
+        "memoryBytes": {
+          "type": "number"
+        },
+        "milliCpu": {
+          "type": "number"
+        },
+        "pids": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "memoryBytes",
+        "milliCpu",
+        "pids",
+        "diskBytes"
+      ],
+      "type": "object"
+    },
+    "SandboxResourceState": {
+      "enum": [
+        "creating",
+        "stopped",
+        "running",
+        "destroying",
+        "destroyed",
+        "failed",
+        "unknown"
+      ],
+      "type": "string"
+    },
+    "SandboxStartInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId"
+      ],
+      "type": "object"
+    },
+    "SandboxStartResult": {
+      "additionalProperties": false,
+      "properties": {
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        },
+        "resource": {
+          "$ref": "#/definitions/SandboxResource"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
+    },
+    "SandboxStopInput": {
+      "additionalProperties": false,
+      "properties": {
+        "call": {
+          "$ref": "#/definitions/ProviderCall"
+        },
+        "resourceId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "call",
+        "resourceId"
+      ],
+      "type": "object"
+    },
+    "SandboxStopResult": {
+      "additionalProperties": false,
+      "properties": {
+        "receipt": {
+          "$ref": "#/definitions/ProviderReceipt"
+        },
+        "resource": {
+          "$ref": "#/definitions/SandboxResource"
+        }
+      },
+      "required": [
+        "receipt"
+      ],
+      "type": "object"
     },
     "ScriptDefinition": {
       "additionalProperties": false,
@@ -2746,6 +4119,9 @@
         "operation": {
           "$ref": "#/definitions/OperationRecord"
         },
+        "providerMethod": {
+          "$ref": "#/definitions/ProviderMethodWire"
+        },
         "publishedRelease": {
           "$ref": "#/definitions/PublishedExtensionRelease"
         },
@@ -2772,7 +4148,8 @@
         "approval",
         "inspection",
         "workspace",
-        "installation"
+        "installation",
+        "providerMethod"
       ],
       "type": "object"
     },

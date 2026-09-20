@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { validateManifest } from "./validation";
+import { providerMethodSchemas, validateManifest, type SandboxProviderGroup, type SandboxProviderOperation } from "./validation";
 
 const schema = { type: "object", additionalProperties: false };
 const sandboxGroups = [
@@ -8,6 +8,13 @@ const sandboxGroups = [
   { name: "sandbox.files.v1", methods: { stat: "files/stat", list: "files/list", read: "files/read", write: "files/write", mkdir: "files/mkdir", remove: "files/remove", chmod: "files/chmod" } },
 ] as const;
 const sandboxMethodNames = sandboxGroups.flatMap(group => Object.values(group.methods));
+function declaredMethods<Group extends SandboxProviderGroup>(group: Group, methods: Record<SandboxProviderOperation<Group>, string>) {
+  return Object.entries(methods).map(([operation, name]) => ({
+    name,
+    ...providerMethodSchemas(group, operation as SandboxProviderOperation<Group>),
+    sensitivity: "ordinary" as const,
+  }));
+}
 const base = {
   schemaVersion: 4,
   name: "incus-provider",
@@ -15,7 +22,7 @@ const base = {
   description: "Provider contract fixture",
   author: { name: "Tests" },
   permissions: { storage: true },
-  methods: sandboxMethodNames.map(name => ({ name, inputSchema: schema, outputSchema: schema, sensitivity: "ordinary" })),
+  methods: sandboxGroups.flatMap(group => declaredMethods(group.name, group.methods)),
 };
 const sandboxProvider = {
   id: "primary",
@@ -71,6 +78,7 @@ describe("provider manifest contributions", () => {
       [{ ...sandboxProvider, methodGroups: sandboxGroups.map((group, index) => index === 0 ? { ...group, methods: { ...group.methods, create: "missing" } } : group) }],
     ];
     for (const providers of cases) expect(() => validateManifest({ ...base, providers })).toThrow();
+    expect(() => validateManifest({ ...base, methods: base.methods.map((method, index) => index === 0 ? { ...method, outputSchema: schema } : method), providers: [sandboxProvider] })).toThrow("canonical wire schemas");
   });
 
   test("requires explicit sensitivity and keeps sensitive provider methods out of tools", () => {
@@ -91,5 +99,12 @@ describe("provider manifest contributions", () => {
       dataSchema: { version: "1", readableVersions: ["1"], migrateMethod: sensitiveName },
     };
     expect(() => validateManifest({ ...sensitiveMigration, providers: [sandboxProvider] })).toThrow();
+
+    const standaloneCollision = {
+      ...base,
+      methods: [{ name: "private", inputSchema: schema, outputSchema: schema, sensitivity: "sensitive" }],
+      tools: [{ name: "private", description: "Collision", inputSchema: schema, outputSchema: schema }],
+    };
+    expect(() => validateManifest(standaloneCollision)).toThrow("Sensitive runtime methods cannot be tools");
   });
 });
