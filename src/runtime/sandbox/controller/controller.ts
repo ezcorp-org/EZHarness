@@ -178,10 +178,11 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       if (current.state !== "admitted") return current;
       if (!invoke) throw new SandboxControllerError("SANDBOX_INVOKER_UNAVAILABLE", "Reviewed sandbox provider invoker is not configured");
       const operation = rows(await getDb().execute(sql`SELECT operation.*,binding.project_id,resource.provider_resource_id FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id JOIN sandbox_resources resource ON resource.id=operation.resource_id WHERE operation.id=${operationId}`))[0]!;
+      if (reviewedOperations.has(operationId)) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Sandbox operation is already under reviewed execution");
+      reviewedOperations.add(operationId);
       let providerResult: unknown;
       try {
         const input = await wireMethodInput(operation, current.provider);
-        reviewedOperations.add(operationId);
         providerResult = await invoke(userId, String(operation.project_id), current.provider, operation.method_group as SandboxMethodInput["group"], String(operation.method), input, signal);
       } finally {
         reviewedOperations.delete(operationId);
@@ -326,10 +327,11 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${operation.binding_id}`))[0]!;
       const current = await boundProvider(binding);
       if (!invoke) throw new SandboxControllerError("SANDBOX_INVOKER_UNAVAILABLE", "Reviewed sandbox provider invoker is not configured");
+      if (reviewedOperations.has(operationId)) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Sandbox operation is already under reviewed execution");
+      reviewedOperations.add(operationId);
       let providerResult: unknown;
       try {
         const input = operation.action === "create" ? parse<SandboxCreateInput>(operation.input) : { ...parse<Record<string, unknown>>(operation.input), call: { scope: { projectId: String(binding.project_id), bindingId: String(binding.id), generation: Number(binding.generation) }, operationId, idempotencyKey: String(operation.idempotency_key), requestDigest: String(operation.input_digest) } };
-        reviewedOperations.add(operationId);
         providerResult = await invoke(userId, String(binding.project_id), current, "sandbox.lifecycle.v1", String(operation.action), input);
       } finally { reviewedOperations.delete(operationId); }
       const actual = await status(userId, String(binding.project_id));
