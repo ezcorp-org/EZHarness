@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
-import { resolve, sep } from "node:path";
+import { isAbsolute, resolve, sep } from "node:path";
 
 export interface LocalPodmanHostConfig {
   stateRoot: string;
-  imageDigest: string;
+  imageReference: string;
+  imageId: string;
   podmanPath: string;
   fuse2fsPath: string;
   supervisorPath: string;
+  nativeToolsArtifact?: string;
 }
 
 export interface LocalResourceLimits {
@@ -16,19 +18,66 @@ export interface LocalResourceLimits {
   diskBytes: number;
 }
 
+export const RESOURCE_LABEL = "io.ezcorp.local-resource";
+export const CONFIG_LABEL = "io.ezcorp.local-config";
+export const WORKSPACE_DESTINATION = "/workspace";
+export const NATIVE_TOOLS_DESTINATION = "/opt/ezharness/native-tools.js";
+
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const DIGEST = /^sha256:[a-f0-9]{64}$/;
+const IMAGE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[a-f0-9]{64}$/;
 
 export function validateHostConfig(config: LocalPodmanHostConfig): LocalPodmanHostConfig {
   if (!resolve(config.stateRoot).startsWith(`${sep}var${sep}`) && !resolve(config.stateRoot).startsWith(`${sep}tmp${sep}`)) throw new Error("stateRoot must be absolute and private");
-  if (!DIGEST.test(config.imageDigest)) throw new Error("imageDigest must be an exact sha256 digest");
-  for (const key of ["podmanPath", "fuse2fsPath", "supervisorPath"] as const) if (!config[key].startsWith(sep)) throw new Error(`${key} must be absolute`);
-  return Object.freeze({ ...config, stateRoot: resolve(config.stateRoot) });
+  if (!IMAGE_REFERENCE.test(config.imageReference)) throw new Error("imageReference must be qualified and digest-pinned");
+  if (!DIGEST.test(config.imageId)) throw new Error("imageId must be an exact sha256 ID");
+  for (const key of ["podmanPath", "fuse2fsPath", "supervisorPath"] as const) if (!isAbsolute(config[key])) throw new Error(`${key} must be absolute`);
+  if (config.nativeToolsArtifact !== undefined && !isAbsolute(config.nativeToolsArtifact)) throw new Error("nativeToolsArtifact must be absolute");
+  return Object.freeze({
+    ...config,
+    stateRoot: resolve(config.stateRoot),
+    nativeToolsArtifact: config.nativeToolsArtifact === undefined ? undefined : resolve(config.nativeToolsArtifact),
+  });
 }
 
 export function resourceKey(resourceId: string): string {
   if (!ID.test(resourceId)) throw new Error("invalid resource id");
   return createHash("sha256").update(resourceId).digest("hex");
+}
+export function configurationDigest(config: LocalPodmanHostConfig, limits: LocalResourceLimits): string { return createHash("sha256").update(JSON.stringify({ imageReference: config.imageReference, imageId: config.imageId, limits, nativeToolsArtifact: config.nativeToolsArtifact ?? null })).digest("hex"); }
+export function containerIdFromCreateOutput(output: string): string | null { const value = output.trim(); return /^[a-f0-9]{64}$/.test(value) ? value : null; }
+
+export interface ExpectedContainerIdentity {
+  containerName: string;
+  imageReference: string;
+  imageId: string;
+  labels: Readonly<Record<typeof RESOURCE_LABEL | typeof CONFIG_LABEL, string>>;
+  networkMode: "none";
+  readonlyRootfs: true;
+  memoryBytes: number;
+  memorySwapBytes: number;
+  nanoCpus: number;
+  pids: number;
+  bindMounts: readonly { source: string; destination: string; readWrite: boolean }[];
+}
+
+export function expectedContainerIdentity(config: LocalPodmanHostConfig, resourceId: string, containerName: string, mount: string, limits: LocalResourceLimits): ExpectedContainerIdentity {
+  return Object.freeze({
+    containerName,
+    imageReference: config.imageReference,
+    imageId: config.imageId,
+    labels: Object.freeze({ [RESOURCE_LABEL]: resourceKey(resourceId), [CONFIG_LABEL]: configurationDigest(config, limits) }),
+    networkMode: "none",
+    readonlyRootfs: true,
+    memoryBytes: limits.memoryBytes,
+    memorySwapBytes: limits.memoryBytes,
+    nanoCpus: limits.milliCpu * 1_000_000,
+    pids: limits.pids,
+    bindMounts: Object.freeze([
+      Object.freeze({ source: resolve(mount), destination: WORKSPACE_DESTINATION, readWrite: true }),
+      ...(config.nativeToolsArtifact === undefined ? [] : [Object.freeze({ source: config.nativeToolsArtifact, destination: NATIVE_TOOLS_DESTINATION, readWrite: false })]),
+    ]),
+  });
 }
 
 export function resourcePaths(stateRoot: string, resourceId: string) {
@@ -40,9 +89,11 @@ export function resourcePaths(stateRoot: string, resourceId: string) {
 export function createContainerArgv(config: LocalPodmanHostConfig, resourceId: string, containerName: string, mount: string, limits: LocalResourceLimits): string[] {
   if (!ID.test(containerName)) throw new Error("invalid container name");
   for (const [name, value] of Object.entries(limits)) if (!Number.isSafeInteger(value) || value <= 0) throw new Error(`invalid ${name}`);
+  const identity = expectedContainerIdentity(config, resourceId, containerName, mount, limits);
+  const tools = config.nativeToolsArtifact ? [`--mount=type=bind,source=${config.nativeToolsArtifact},destination=${NATIVE_TOOLS_DESTINATION},ro`] : [];
   return [config.podmanPath, "--remote=false", "create", "--pull=never", "--name", containerName,
-    "--label", `io.ezcorp.local-resource=${resourceKey(resourceId)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--log-driver=none",
+    "--label", `${RESOURCE_LABEL}=${identity.labels[RESOURCE_LABEL]}`, "--label", `${CONFIG_LABEL}=${identity.labels[CONFIG_LABEL]}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--log-driver=none",
     "--cap-drop=ALL", "--security-opt=no-new-privileges", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`,
     `--cpus=${limits.milliCpu / 1000}`, `--pids-limit=${limits.pids}`, "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16777216",
-    `--mount=type=bind,source=${mount},destination=/workspace,rw`, config.imageDigest, "sleep", "infinity"];
+    `--mount=type=bind,source=${mount},destination=${WORKSPACE_DESTINATION},rw`, ...tools, config.imageReference, "sleep", "infinity"];
 }
