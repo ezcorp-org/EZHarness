@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, open, rm } from "node:fs/promises";
+import { chmod, mkdtemp, open, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { GUEST_MATERIALS_PATH, listRunnerMaterials, openRunnerMaterial } from "@ezcorp/extension-runner";
 import type { FactoryArtifactReference } from "@ezcorp/factory-sdk";
@@ -28,13 +28,14 @@ import { digestBytes } from "../../extensions/v4/blobs";
  * so there is no second copy of chunking, digesting, admission, or authority.
  */
 
-/** The uid every isolated guest runs as, and therefore the uid its output directory belongs to. */
-const GUEST_UID = 65534;
-
-/** Where the guest's inputs are staged. Read-only in practice; the guest is never asked to write here. */
-export const REFERENCE_DATA_GUEST_INPUT = "in";
-/** Where the guest leaves its outputs. */
-export const REFERENCE_DATA_GUEST_OUTPUT = "out";
+/**
+ * The uid every isolated guest runs as.
+ *
+ * This pack no longer moves ownership itself: the runner hands the material
+ * directory over at launch. The constant is kept so a test can state which uid
+ * the handover is expected to reach.
+ */
+export const REFERENCE_DATA_GUEST_UID = 65534;
 
 export class ReferenceDataMaterialError extends Error {
   constructor(
@@ -44,7 +45,6 @@ export class ReferenceDataMaterialError extends Error {
       | "reference_data_material_empty"
       | "reference_data_material_oversized"
       | "reference_data_material_name_invalid"
-      | "reference_data_material_unowned"
       | "reference_data_material_unsealed"
       | "reference_data_material_untrusted",
     message: string,
@@ -57,63 +57,44 @@ export class ReferenceDataMaterialError extends Error {
 /**
  * The per-attempt directory the shared runner mounts at `GUEST_MATERIALS_PATH`.
  *
- * The output directory is given to the GUEST, not to the world. `runnerMaterialMount`
- * mounts the path and adds `noexec,nosuid,nodev`, but it sets no mode and no
- * owner, so with an ordinary host-owned directory a guest running as uid 65534
- * cannot write at all - measured, not assumed. `podman unshare chown` performs
- * the mapping this host cannot compute itself: the directory ends up owned by
- * the mapped uid with this user as its group, mode 0o770. The guest writes as
- * owner, the host reads and cleans up as group, and nothing is world-writable
- * or world-readable.
+ * It is ONE flat directory, not an input and an output half. The runner hands
+ * over exactly the directory it is given - mode `0o770`, ownership moved to the
+ * mapped guest uid, its own group retained - and it does not recurse, so a
+ * nested output directory would stay this host's and the guest could not write
+ * a byte into it. Measured against the runner, not assumed.
  *
- * Inputs stay this host's at 0o755 and 0o644: the guest only has to read them,
- * and a directory the guest could write is a directory it could replace an
- * input in.
+ * What that costs is small and named: a guest can unlink an input staged beside
+ * its outputs. Nothing rests on it not doing so. The guest verifies the digest
+ * of what it reads, the host re-measures everything the guest writes, and the
+ * reconciliation reads the immutable input back out of W04 rather than from
+ * this directory, so a guest that replaces its own input only fails its own
+ * attempt.
  *
  * Everything the guest leaves is read back through `listRunnerMaterials` and
  * `openRunnerMaterial`, which refuse a symbolic link, a device, a socket and a
- * FIFO rather than following one. That is what stops a planted link at
- * `out/<name>` having the host seal another file's bytes under the guest's own
- * reported digest.
+ * FIFO rather than following one. That is what stops a planted link having the
+ * host seal another file's bytes under the guest's own reported digest.
  */
 export class ReferenceDataGuestDirectory {
+  /** Exactly the names this host placed, so `produced()` can report only what the GUEST left. */
+  private readonly staged = new Set<string>();
+
   private constructor(readonly root: string) {}
 
-  static async create(parent?: string, podman = "podman"): Promise<ReferenceDataGuestDirectory> {
-    const root = await mkdtemp(join(parent ?? "/tmp", "ez-refdata-materials-"));
-    const output = join(root, REFERENCE_DATA_GUEST_OUTPUT);
-    await mkdir(join(root, REFERENCE_DATA_GUEST_INPUT), { recursive: true });
-    await mkdir(output, { recursive: true });
-    await chmod(root, 0o755);
-    await chmod(join(root, REFERENCE_DATA_GUEST_INPUT), 0o755);
-    // The mode is set BEFORE the ownership moves, because afterwards this user
-    // is only the group and cannot change it.
-    await chmod(output, 0o770);
-    // A host with no container runtime fails CLOSED. Falling back to a wider
-    // mode would be the world-writable directory this exists to avoid, and
-    // `spawnSync` raises rather than returning a code when the binary is absent.
-    let reason: string | undefined;
-    try {
-      const handover = Bun.spawnSync([podman, "unshare", "chown", `${GUEST_UID}:0`, output]);
-      if (handover.exitCode !== 0) reason = new TextDecoder().decode(handover.stderr).trim() || `exit ${handover.exitCode}`;
-    } catch (error) {
-      reason = error instanceof Error ? error.message : String(error);
-    }
-    if (reason !== undefined) {
-      await rm(root, { recursive: true, force: true });
-      throw new ReferenceDataMaterialError("reference_data_material_unowned", `The guest's output directory could not be handed to uid ${GUEST_UID}: ${reason}.`);
-    }
-    return new ReferenceDataGuestDirectory(root);
+  static async create(parent?: string): Promise<ReferenceDataGuestDirectory> {
+    // No mode and no owner are set here. The runner performs the handover at
+    // launch and refuses a path that is not a real directory it owns.
+    return new ReferenceDataGuestDirectory(await mkdtemp(join(parent ?? "/tmp", "ez-refdata-materials-")));
   }
 
-  /** The name the guest sees for a staged input. */
+  /** The name the guest sees for a staged input. The directory is flat, so it is the name itself. */
   static input(name: string): string {
-    return `${REFERENCE_DATA_GUEST_INPUT}/${name}`;
+    return name;
   }
 
   /** The name the guest sees for an output it must write. */
   static output(name: string): string {
-    return `${REFERENCE_DATA_GUEST_OUTPUT}/${name}`;
+    return name;
   }
 
   /** The path the guest reads, which is the same fixed mount point the runner declares. */
@@ -122,7 +103,7 @@ export class ReferenceDataGuestDirectory {
   }
 
   private resolve(name: string): string {
-    if (!/^(?:in|out)\/[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new ReferenceDataMaterialError("reference_data_material_name_invalid", `Material name ${name} is not a bounded entry of the attempt directory.`);
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(name)) throw new ReferenceDataMaterialError("reference_data_material_name_invalid", `Material name ${name} is not a bounded entry of the attempt directory.`);
     return join(this.root, name);
   }
 
@@ -161,7 +142,10 @@ export class ReferenceDataGuestDirectory {
     // `open`'s mode is masked by the process umask, and a host running under
     // 077 would leave this 0600 - unreadable by the guest's uid, which is a
     // different user in a different namespace. The mode is set, not requested.
+    // The runner moves the DIRECTORY's ownership and leaves files as they are,
+    // so this mode is the whole of what makes a staged input readable.
     await chmod(path, 0o644);
+    this.staged.add(name);
     return { digest: `sha256:${hasher.digest("hex")}`, totalBytes };
   }
 
@@ -192,10 +176,10 @@ export class ReferenceDataGuestDirectory {
     } catch (error) {
       throw new ReferenceDataMaterialError("reference_data_material_untrusted", `The guest's material directory is not readable as ordinary files (${error instanceof Error ? error.message : String(error)}).`);
     }
-    return entries
-      .filter(entry => entry.path.startsWith(`${REFERENCE_DATA_GUEST_OUTPUT}/`))
-      .map(entry => entry.path.slice(REFERENCE_DATA_GUEST_OUTPUT.length + 1))
-      .sort();
+    // Only what the GUEST left. The inputs this host staged sit in the same flat
+    // directory, and reporting them as guest output would be a lie the seal
+    // would then act on.
+    return entries.map(entry => entry.path).filter(path => !this.staged.has(path)).sort();
   }
 
   async size(name: string): Promise<number> {

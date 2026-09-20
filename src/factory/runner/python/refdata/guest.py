@@ -129,6 +129,14 @@ def _text(command: dict[str, Json], key: str) -> str:
     return value
 
 
+def _prefix(command: dict[str, Json], key: str) -> str:
+    """An optional name prefix. The material directory is flat, so no prefix is the ordinary case."""
+    value = command.get(key, "")
+    if not isinstance(value, str):
+        raise GuestError(f"command field {key!r} must be a string when present")
+    return value
+
+
 def _whole(command: dict[str, Json], key: str) -> int:
     value = command.get(key)
     if not isinstance(value, int) or isinstance(value, bool) or value < 0:
@@ -187,7 +195,7 @@ def parse_csv(command: dict[str, Json]) -> dict[str, Json]:
     continuing, so there is no rejected-row list to return.
     """
     source = _member(_text(command, "input"))
-    prefix = _text(command, "outputPrefix")
+    prefix = _prefix(command, "outputPrefix")
     expected = _text(command, "snapshotDigest")
     digest = hashlib.sha256()
     partitions: list[dict[str, Json]] = []
