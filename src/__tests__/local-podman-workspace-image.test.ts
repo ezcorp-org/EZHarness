@@ -16,7 +16,7 @@ async function fixture() {
   const script = `#!${process.execPath}
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 const name = "__COMMAND__"; const args = process.argv.slice(2); await appendFile(${JSON.stringify(log)}, JSON.stringify({ name }) + "\\n");
-let mode = ""; try { mode = await readFile(${JSON.stringify(control)}, "utf8"); } catch {}
+let mode = ""; try { mode = await readFile(${JSON.stringify(control)}, "utf8"); } catch (error) { if (error.code !== "ENOENT") throw error; }
 if (mode.trim() === name + ":fail") process.exit(2);
 if (name === "truncate") await writeFile(args.at(-1), new Uint8Array(1));
 if (name === "e2fsck" && mode.trim() === "e2fsck:repair") process.exit(1);

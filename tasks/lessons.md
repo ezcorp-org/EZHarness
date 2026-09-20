@@ -362,3 +362,4 @@
 
 - When the user requests the bare minimum MVP, reduce the active milestone explicitly. Keep optional protocols, second-provider proof and external services in the later backlog; do not keep building them under the earlier full-plan scope.
 - 2026-09-20: For integration audits, verify the exact parent worktree and HEAD before reporting findings. Do not infer current code from an earlier feature worktree.
+- 2026-09-20: Before classifying a focused-suite failure as a source defect, check ownership messages and active fixture migrations; distinguish an assigned stale-test update from behavior.

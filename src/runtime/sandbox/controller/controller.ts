@@ -21,7 +21,7 @@ function receiptMatches(call: SandboxCreateInput["call"], receipt: ProviderRecei
 function resourceState(receipt: ProviderReceipt): "failed" | "unknown" { return receipt.outcome === "failed" ? "failed" : "unknown"; }
 function isTerminalProcess(state: unknown): boolean { return state === "exited" || state === "cancelled" || state === "failed"; }
 
-export function createSandboxController(driver: LocalSandboxDriver, runtime: Pick<ReleaseRuntimeDependencies, "resolve"> = getReleaseRuntime(), invoke?: SandboxProviderInvocation): SandboxController {
+export function createSandboxController(driver: LocalSandboxDriver, runtime: Pick<ReleaseRuntimeDependencies, "resolve"> = getReleaseRuntime(), invoke?: SandboxProviderInvocation, clock = { now: () => Date.now(), sleep: (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)) }): SandboxController {
   const reviewedOperations = new Set<string>();
   const rawOperations = new Map<string, Promise<unknown>>();
   function requireReviewedWindow(operationId: string): void {
@@ -322,7 +322,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const started = await method("start", { argv: command.argv, env: {}, cwd: "/workspace", user: "workspace", timeoutMs: command.timeoutMs }) as ProcessResult;
       if (!started.process) throw new SandboxControllerError("PROCESS_IDENTITY_UNAVAILABLE", "Native process did not return an identity");
       const identity = started.process.identity;
-      const deadline = Date.now() + command.timeoutMs + 30_000;
+      const deadline = clock.now() + command.timeoutMs + 30_000;
       let cursor = 0; let stdout = ""; let outputBytes = 0; let cancelSent = false;
       const decoder = new TextDecoder();
       try {
@@ -346,9 +346,9 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
             if (typeof terminal.exitCode !== "number") throw new SandboxControllerError("NATIVE_RESULT_UNAVAILABLE", "Native process has no verified exit code");
             return { stdout: stdout + decoder.decode(), exitCode: terminal.exitCode };
           }
-          if (Date.now() >= deadline) throw new SandboxControllerError("PROCESS_DEADLINE", "Native process did not settle within its deadline");
+          if (clock.now() >= deadline) throw new SandboxControllerError("PROCESS_DEADLINE", "Native process did not settle within its deadline");
           if (!output.eof && output.chunks.length) continue;
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await clock.sleep(100);
         }
       } catch (error) {
         if (!cancelSent) await method("cancel", { identity }).catch(() => undefined);

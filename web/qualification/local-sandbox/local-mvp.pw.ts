@@ -35,14 +35,18 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
     { name: "editFile", arguments: { path: "marker.txt", old_string: marker, new_string: `${marker}_EDITED` } },
     { name: "shell", arguments: { command: "cat marker.txt", timeout: 30000 } },
   ];
-  const script = await request.post("/api/__test/mock-llm/script", { data: { scriptKey: key, turns: [...calls.map(call => ({ toolCalls: [call] })), { text: "Native checks complete" }] } });
+  const script = await request.post("/api/__test/mock-llm/script", { data: { scriptKey: key, turns: [...calls.map((call, index) => ({ toolCalls: [{ ...call, id: `${key}-${index}` }] })), { text: "Native checks complete" }] } });
   expect(script.status(), await script.text()).toBe(200);
   const conversation = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${key}`, title: "Local sandbox qualification" });
   const result = await client.runToCompletion(conversation.id, "Run the local native checks", { permissionMode: "yolo", timeoutMs: 240000 });
   expect(result.outcome, JSON.stringify(result)).toBe("complete");
-  const messages = await request.get(`/api/conversations/${conversation.id}/messages`);
+  const messages = await request.get(`/api/conversations/${conversation.id}/messages?withToolCalls=true`);
   expect(messages.status(), await messages.text()).toBe(200);
-  const saved = JSON.stringify(await messages.json());
+  const history = await messages.json();
+  const actualCalls = [...history.messages.flatMap((message: { toolCalls?: unknown[] }) => message.toolCalls ?? []), ...history.orphanedToolCalls];
+  expect(actualCalls).toHaveLength(calls.length);
+  expect(actualCalls.every(call => call.status === "success"), JSON.stringify(actualCalls)).toBe(true);
+  const saved = actualCalls.map(call => call.fullOutput ?? call.outputSummary).join("\n");
   expect(saved).toContain(`${marker}_EDITED`);
   expect(saved).toContain("1 pass");
   expect(saved).not.toContain("Sandbox workspace is unavailable");
@@ -52,7 +56,7 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   expect((await request.post("/api/__test/mock-llm/script", { data: { scriptKey: readKey, turns: [{ toolCalls: [{ name: "readFile", arguments: { path: "marker.txt" } }] }, { text: "Persistence checked" }] } })).status()).toBe(200);
   const resumed = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${readKey}` });
   expect((await client.runToCompletion(resumed.id, "Read the persisted marker", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
-  const persisted = await request.get(`/api/conversations/${resumed.id}/messages`);
+  const persisted = await request.get(`/api/conversations/${resumed.id}/messages?withToolCalls=true`);
   expect(JSON.stringify(await persisted.json())).toContain(`${marker}_EDITED`);
   // Observe the real supervisor before disconnecting and cancelling. This
   // reads only the qualification host's owned metadata, never changes it.
@@ -78,7 +82,7 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   expect((await request.post("/api/__test/mock-llm/script", { data: { scriptKey: recoveryKey, turns: [{ toolCalls: [{ name: "shell", arguments: { command: "test ! -e cancel-failed.txt && cat marker.txt", timeout: 30000 } }] }, { text: "Cancellation recovery checked" }] } })).status()).toBe(200);
   const recovered = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${recoveryKey}` });
   expect((await client.runToCompletion(recovered.id, "Check the retained workspace", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
-  expect(JSON.stringify(await (await request.get(`/api/conversations/${recovered.id}/messages`)).json())).toContain(`${marker}_EDITED`);
+  expect(JSON.stringify(await (await request.get(`/api/conversations/${recovered.id}/messages?withToolCalls=true`)).json())).toContain(`${marker}_EDITED`);
   await page.reload();
   await captureEvidence(page, testInfo, "local-sandbox-real-desktop", { fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
