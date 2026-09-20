@@ -23,19 +23,28 @@ function sseBody(frames: Array<{ event: string; data: unknown }>): string {
 }
 
 /**
- * Minimal Anthropic-SDK-shaped client: `messages.create(...).asResponse()`
+ * Minimal Anthropic-SDK-shaped client: `beta.messages.create(...).asResponse()`
  * resolves to a fetch Response streaming the given SSE frames — exactly the
  * seam streamAnthropic uses when `options.client` is provided.
+ *
+ * It is `beta.messages`, not `messages`, from pi-ai 0.85.1 on: the provider
+ * moved from `client.messages.create({ ...params, stream: true })` to
+ * `client.beta.messages.create(params)` (`dist/api/anthropic-messages.js`).
+ * A real `@anthropic-ai/sdk` client carries both namespaces, so only a
+ * hand-built double like this one notices — and it notices as the whole
+ * stream failing, because the missing property throws inside the provider
+ * and surfaces as `stopReason: "error"` rather than as a type error. The
+ * assertion that this stream reaches `message_stop` is what keeps that
+ * silent.
  */
 function fakeClient(body: string) {
-  return {
-    messages: {
-      create: (_params: unknown, _opts: unknown) => ({
-        asResponse: async () =>
-          new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }),
-      }),
-    },
+  const messages = {
+    create: (_params: unknown, _opts: unknown) => ({
+      asResponse: async () =>
+        new Response(body, { status: 200, headers: { "content-type": "text/event-stream" } }),
+    }),
   };
+  return { beta: { messages } };
 }
 
 /** A complete single-text-block Anthropic stream with the given message_start usage. */
