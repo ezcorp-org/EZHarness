@@ -11,12 +11,13 @@ const temporaryRoots: string[] = [];
 afterEach(async () => { await Promise.all(temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 async function fixture(nativeToolsArtifact?: string) {
   const root = await mkdtemp(`${tmpdir()}/ez-driver-`); temporaryRoots.push(root); const log = `${root}/effects`; const podman = `${root}/podman`; const inspect = `${root}/inspect.json`; const fail = `${root}/fail`;
-  await writeFile(podman, `#!/bin/sh\nif [ "$2" = inspect ]; then cat '${inspect}'; exit 0; fi\nprintf '%s\\n' "$*" >> '${log}'\nif [ -f '${fail}' ]; then head -c 131072 /dev/zero | tr '\\000' x >&2; printf '%s' '${root}/private' >&2; exit 1; fi\nexit 0\n`); await chmod(podman, 0o700);
+  await writeFile(podman, `#!/bin/sh\nif [ "$2" = info ]; then printf 'true v2\\n'; exit 0; fi\nif [ "$2" = inspect ]; then cat '${inspect}'; exit 0; fi\nprintf '%s\\n' "$*" >> '${log}'\nif [ -f '${fail}' ]; then head -c 131072 /dev/zero | tr '\\000' x >&2; printf '%s' '${root}/private' >&2; exit 1; fi\nexit 0\n`); await chmod(podman, 0o700);
   const config = { stateRoot: `${root}/state`, imageReference: `localhost/ezharness-local@sha256:${"a".repeat(64)}`, imageId: "b".repeat(64), podmanPath: podman, fuse2fsPath: "/bin/false", supervisorPath: "/bin/false", workspaceUid: 0, workspaceGid: 0, nativeToolsArtifact };
   const limits = { memoryBytes: 128 * 1024 * 1024, milliCpu: 500, pids: 32, diskBytes: 32 * 1024 * 1024 }; const containerId = "c".repeat(64); const containerName = "container";
   await mkdir(config.stateRoot, { recursive: true, mode: 0o700 }); const roots = new ResourceRoot(config.stateRoot); const paths = await roots.initialize("resource");
+  await mkdir(paths.mount, { mode: 0o700 });
   const configDigest = configurationDigest(config, limits); await roots.writeMetadata("resource", { resourceId: "resource", containerId, containerName, configDigest, scope: input().call.scope, state: "stopped", limits });
-  const live = { Id: containerId, Name: containerName, Image: config.imageId, Config: { Image: config.imageReference, User: "0:0", Labels: { [RESOURCE_LABEL]: resourceKey("resource"), [CONFIG_LABEL]: configDigest } }, HostConfig: { NetworkMode: "none", UsernsMode: "", ReadonlyRootfs: true, Memory: limits.memoryBytes, MemorySwap: limits.memoryBytes, NanoCpus: limits.milliCpu * 1_000_000, PidsLimit: limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }, ...(nativeToolsArtifact === undefined ? [] : [{ Type: "bind", Source: nativeToolsArtifact, Destination: "/opt/ezharness/native-tools.js", RW: false }])] };
+  const live = { Id: containerId, Name: containerName, Image: config.imageId, State: { Running: false }, Config: { Image: config.imageReference, User: "0:0", Labels: { [RESOURCE_LABEL]: resourceKey("resource"), [CONFIG_LABEL]: configDigest } }, HostConfig: { NetworkMode: "none", UsernsMode: "", ReadonlyRootfs: true, Memory: limits.memoryBytes, MemorySwap: limits.memoryBytes, NanoCpus: limits.milliCpu * 1_000_000, PidsLimit: limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }, ...(nativeToolsArtifact === undefined ? [] : [{ Type: "bind", Source: nativeToolsArtifact, Destination: "/opt/ezharness/native-tools.js", RW: false }])] };
   await writeFile(inspect, JSON.stringify([live]));
   return { driver: new LocalPodmanDriver(config), log, config, inspect, live, fail, root };
 }
@@ -57,8 +58,9 @@ describe("local lifecycle journal integration", () => {
     const result = await driver.start(input()); expect(result.receipt).toMatchObject({ outcome: "failed", error: { code: "identity_mismatch" } }); await expect(readFile(log, "utf8")).rejects.toThrow();
   });
   test("returns contract-exact receipts for success and failure without exposing Podman stderr", async () => {
-    const { driver, fail, root } = await fixture(); const successfulInput = input(); const successful = await driver.start(successfulInput);
+    const { driver, fail, root, live, inspect } = await fixture(); const successfulInput = input(); const successful = await driver.start(successfulInput);
     expect(() => validateProviderMethodExchange("sandbox.lifecycle.v1", "start", successfulInput, successful)).not.toThrow(); expect(successful.receipt).not.toHaveProperty("scope");
+    live.State.Running = true; await writeFile(inspect, JSON.stringify([live]));
     await writeFile(fail, "fail"); const failedInput = { ...input(), call: { ...input().call, operationId: "failed", idempotencyKey: "failed" } }; const failed = await driver.stop(failedInput);
     expect(() => validateProviderMethodExchange("sandbox.lifecycle.v1", "stop", failedInput, failed)).not.toThrow(); expect(JSON.stringify(failed)).not.toContain(root); expect(failed.receipt).toMatchObject({ outcome: "unknown", error: { code: "stopped_unknown", message: "Container stopped outcome is unknown." } });
   });
@@ -68,5 +70,16 @@ describe("local lifecycle journal integration", () => {
   test("rejects a different resource scope before the journal or Podman effects", async () => {
     const { driver, log, config } = await fixture(); const foreign = { ...input(), call: { ...input().call, scope: { ...input().call.scope, projectId: "foreign" } } }; const result = await driver.start(foreign);
     expect(result.receipt).toMatchObject({ outcome: "failed", error: { code: "scope_mismatch" } }); await expect(readFile(log, "utf8")).rejects.toThrow(); await expect(readdir(`${config.stateRoot}/operations`)).rejects.toThrow();
+  });
+  test("wires every file method with exact receipts, scope, revisions, and mutation replay", async () => {
+    const { driver } = await fixture(); let sequence = 0; const fileCall = () => ({ ...input().call, operationId: `file-${++sequence}`, idempotencyKey: `file-${sequence}` });
+    const mkdirInput = { call: fileCall(), resourceId: "resource", path: "/dir", recursive: false }; const made = await driver.fileMkdir(mkdirInput); expect(() => validateProviderMethodExchange("sandbox.files.v1", "mkdir", mkdirInput, made)).not.toThrow();
+    const writeInput = { call: fileCall(), resourceId: "resource", path: "/dir/file", encoding: "utf8" as const, data: "value" }; const written = await driver.fileWrite(writeInput); expect(() => validateProviderMethodExchange("sandbox.files.v1", "write", writeInput, written)).not.toThrow(); expect(await driver.fileWrite(writeInput)).toEqual(written); if (!("entry" in written)) throw new Error("missing file");
+    const statInput = { call: fileCall(), resourceId: "resource", path: "/dir/file" }; const stated = await driver.fileStat(statInput); expect(() => validateProviderMethodExchange("sandbox.files.v1", "stat", statInput, stated)).not.toThrow();
+    const listInput = { call: fileCall(), resourceId: "resource", path: "/dir", limit: 1 }; const listed = await driver.fileList(listInput); expect(() => validateProviderMethodExchange("sandbox.files.v1", "list", listInput, listed)).not.toThrow();
+    const readInput = { call: fileCall(), resourceId: "resource", path: "/dir/file", offsetBytes: 0, lengthBytes: 16 }; expect(await driver.fileRead(readInput)).toMatchObject({ receipt: { outcome: "succeeded" }, data: "value" });
+    const chmodInput = { call: fileCall(), resourceId: "resource", path: "/dir/file", expectedRevision: written.entry.revision, mode: 0o640 }; expect((await driver.fileChmod(chmodInput)).receipt.outcome).toBe("succeeded");
+    const removeInput = { call: fileCall(), resourceId: "resource", path: "/dir", recursive: true }; expect((await driver.fileRemove(removeInput)).receipt.outcome).toBe("succeeded");
+    const foreign = { ...statInput, call: { ...fileCall(), scope: { ...input().call.scope, projectId: "foreign" } } }; expect(await driver.fileStat(foreign)).toMatchObject({ receipt: { outcome: "failed", error: { code: "scope_mismatch" } } });
   });
 });
