@@ -1,6 +1,5 @@
 import type { AgentTool } from "@earendil-works/pi-agent-core";
 import { logger } from "../../logger";
-import { getProject } from "../../db/queries/projects";
 import { resolveModel, getDefaultTier } from "../../providers/router";
 import { tierForModel, getModelRegistry } from "../../providers/registry";
 import {
@@ -164,6 +163,27 @@ export interface SetupToolsResult {
    */
   routingSignals?: RoutingSignals;
   routingConfig?: RoutingConfig;
+}
+
+/** Production's project-tool routing seam. The persisted target is resolved
+ * before tool construction, so no client option can select a host path for a
+ * sandbox-bound project. Kept exported for the actual-DB routing canary. */
+export async function resolveProjectBuiltinTools(
+  projectId: string,
+  workingDir?: string,
+  preview?: import("../tools").ShellPreviewWiring,
+): Promise<import("../tools").BuiltinToolDef[]> {
+  const [{ resolveWorkspaceTarget }, { getBuiltinToolDefs }] = await Promise.all([
+    import("../workspace/target"),
+    import("../tools"),
+  ]);
+  const workspace = await resolveWorkspaceTarget(projectId);
+  // `workingDir` is a host-validated local run worktree. Preserve that
+  // isolation for local projects, but it can never override a sandbox target.
+  const target = workspace.kind === "local" && workingDir
+    ? { ...workspace, root: workingDir }
+    : workspace;
+  return getBuiltinToolDefs(target, preview);
 }
 
 /**
@@ -1083,10 +1103,7 @@ export async function setupTools(
       // 2a. Built-in project file tools
       if (options.projectId) {
         try {
-          const project = await getProject(options.projectId);
-          if (project?.path) {
-            const { getBuiltinToolDefs } = await import("../tools");
-
+          {
             // Secure-preview spawn trigger (Phase 3b): thread the
             // conversation owner's id + the live port-watcher into the shell
             // tool so a recognized dev-server command runs under the
@@ -1109,11 +1126,10 @@ export async function setupTools(
                 })()
               : undefined;
 
-            // The dispatch-pinned working dir (spawn-assignment `workingDir`)
-            // wins over the project path so a pipeline sub-agent's shell/fs
-            // tools operate in its run worktree, never the shared checkout.
-            const toolRoot = options.workingDir ?? project.path;
-            const toolDefs = getBuiltinToolDefs(toolRoot, previewWiring);
+            // Workspace selection is host-owned persisted policy. In
+            // particular, caller-provided `workingDir` cannot turn a sandbox
+            // project back into a host checkout.
+            const toolDefs = await resolveProjectBuiltinTools(options.projectId, options.workingDir, previewWiring);
             for (const def of toolDefs) ctx.builtinToolDefsMap.set(def.name, def);
 
             const wrappedTools: AgentTool[] = toolDefs.map((def) =>

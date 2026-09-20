@@ -468,6 +468,11 @@ export class AgentExecutor {
       control?.signal?.throwIfAborted();
     };
     await assertActive();
+    // Code agents receive direct shell/file adapters, unlike chat's built-in
+    // tool catalog. A persisted sandbox target therefore denies this legacy
+    // host path until a reviewed sandbox-native agent adapter exists.
+    const sandboxBound = this.persist && !serviceInvocation
+      && await (await import("./workspace/target")).projectRequiresSandbox(projectId);
     const agent = this.agents.get(name);
     if (!agent) throw new Error(`Agent not found: ${name}`);
 
@@ -518,6 +523,7 @@ export class AgentExecutor {
     // the same fact the delegation consent dialog already shows before a grant
     // (`findEffortNoops`), now at the moment it actually bites.
     const denyServiceAdapter = (): never => { throw new Error("Direct host file, shell and LLM adapters are unavailable to service agents. Use an approved extension tool with explicit service capabilities instead."); };
+    const denySandboxHostAdapter = (): never => { throw new Error("Direct host file and shell adapters are unavailable for a sandbox-bound project."); };
     const piLlm: PiLlmAdapter = serviceInvocation ? { complete: denyServiceAdapter, stream: denyServiceAdapter } : createPiLlmAdapter(modelOverride, (message) => appendLog(message, "warn"), control ? { beforeCall: assertActive, signal: controller.signal } : undefined);
     const guarded = async <Result>(effect: () => Promise<Result>): Promise<Result> => {
       controller.signal.throwIfAborted();
@@ -530,8 +536,8 @@ export class AgentExecutor {
       input: resolvedInput,
       // biome-ignore lint/suspicious/noExplicitAny: `AgentContext.llm` is deliberately open (see src/types.ts) because code-based agents receive whatever LLM wrapper the runtime built; this is the one site that installs the pi-ai adapter into it.
       llm: piLlm as any,
-      shell: serviceInvocation ? { run: denyServiceAdapter } : control ? { run: (...args) => guarded(() => this.shell.run(...args)) } : this.shell,
-      file: serviceInvocation ? { read: denyServiceAdapter, write: denyServiceAdapter, exists: denyServiceAdapter } : control ? {
+      shell: serviceInvocation ? { run: denyServiceAdapter } : sandboxBound ? { run: denySandboxHostAdapter } : control ? { run: (...args) => guarded(() => this.shell.run(...args)) } : this.shell,
+      file: serviceInvocation ? { read: denyServiceAdapter, write: denyServiceAdapter, exists: denyServiceAdapter } : sandboxBound ? { read: denySandboxHostAdapter, write: denySandboxHostAdapter, exists: denySandboxHostAdapter } : control ? {
         read: (...args) => guarded(() => this.file.read(...args)),
         write: (...args) => guarded(() => this.file.write(...args)),
         exists: (...args) => guarded(() => this.file.exists(...args)),

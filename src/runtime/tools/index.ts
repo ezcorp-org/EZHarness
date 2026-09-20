@@ -7,6 +7,12 @@ import { createShellTool, type ShellPreviewWiring, type ShellSandboxWiring } fro
 import { createGrepTool } from "./grep";
 import { createGlobTool } from "./glob";
 import { describeOutputCap, getToolOutputLimit } from "./output-limits";
+import {
+  getSandboxWorkspaceDispatcher,
+  type SandboxWorkspaceOperation,
+  type WorkspaceTarget,
+} from "../workspace/target";
+import { toolError } from "./types";
 
 export type { BuiltinToolDef, ToolCategory, PermissionMode, CardType } from "./types";
 export type { ShellPreviewWiring, ShellSandboxWiring } from "./shell";
@@ -23,10 +29,13 @@ export type { ShellPreviewWiring, ShellSandboxWiring } from "./shell";
  * context (the shell tool then behaves exactly as before).
  */
 export function getBuiltinToolDefs(
-  projectPath: string,
+  workspace: WorkspaceTarget | string,
   preview?: ShellPreviewWiring,
   shellSandbox?: ShellSandboxWiring,
 ): BuiltinToolDef[] {
+  if (typeof workspace === "string") workspace = { kind: "local", root: workspace, revision: 0 };
+  if (workspace.kind === "sandbox") return getSandboxToolDefs(workspace);
+  const projectPath = workspace.root;
   const defs: BuiltinToolDef[] = [
     createReadFileTool(projectPath),
     createListFilesTool(projectPath),
@@ -41,4 +50,26 @@ export function getBuiltinToolDefs(
     def.description = `${def.description} ${describeOutputCap(def.name)}`;
   }
   return defs;
+}
+
+/** Keep the existing schemas, labels, permission categories and output caps
+ * identical while replacing every executable body with one host dispatcher.
+ * The local bodies are metadata donors only and are never invoked here. */
+function getSandboxToolDefs(workspace: Extract<WorkspaceTarget, { kind: "sandbox" }>): BuiltinToolDef[] {
+  const metadata = getBuiltinToolDefs({ kind: "local", root: "/workspace-not-used", revision: workspace.revision });
+  const dispatcher = getSandboxWorkspaceDispatcher();
+  return metadata.map((definition) => {
+    const operation = definition.name as SandboxWorkspaceOperation;
+    return {
+      ...definition,
+      execute: async (_toolCallId, params, signal) => {
+        if (!dispatcher) return toolError("Sandbox workspace is unavailable");
+        try {
+          return await dispatcher(workspace, operation, params, signal);
+        } catch {
+          return toolError("Sandbox workspace is unavailable");
+        }
+      },
+    };
+  });
 }

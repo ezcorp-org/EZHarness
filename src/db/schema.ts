@@ -33,6 +33,19 @@ export const projects = pgTable("projects", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+/** A project uses its local checkout when it has no row. Sandbox rows hold
+ * only an opaque provider binding; a host path in this row would be a routing
+ * escape hatch. The write API arrives with the reviewed provider lifecycle. */
+export const projectWorkspaceBindings = pgTable("project_workspace_bindings", {
+  projectId: text("project_id").primaryKey().references(() => projects.id, { onDelete: "cascade" }),
+  kind: text("kind").notNull().$type<"sandbox">(),
+  bindingId: text("binding_id"),
+  revision: integer("revision").notNull(),
+  state: text("state").notNull().$type<"active" | "unknown">(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("idx_project_workspace_bindings_state").on(table.state)]);
+
 /**
  * WHO a project belongs to. The platform's project-membership model.
  *
