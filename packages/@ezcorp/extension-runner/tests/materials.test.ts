@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listRunnerMaterials, openRunnerMaterial } from "../src/materials";
-import { GUEST_MATERIALS_PATH, runnerMaterialMount } from "../src/podman";
+import { GUEST_MATERIALS_PATH, PodmanRunner, runnerMaterialMount } from "../src/podman";
 
 async function root(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), "ez-materials-"));
@@ -94,4 +94,55 @@ test("the material mount is read-write but carries the same posture the tmpfs do
   for (const flag of ["noexec", "nosuid", "nodev"]) expect(options).toContain(flag);
   // A fixed path, never an environment variable.
   expect(GUEST_MATERIALS_PATH).toBe("/materials");
+});
+
+/** Reaches the private handover without loosening its visibility in production. */
+class HandoverProbe extends PodmanRunner {
+  handOver(directory: string): Promise<void> {
+    return (this as unknown as { handOverMaterials(directory: string): Promise<void> }).handOverMaterials(directory);
+  }
+}
+
+test("the handover refuses a directory it cannot vouch for, before touching podman", async () => {
+  const store = await root();
+  try {
+    // The podman binary is deliberately a path that cannot execute. Every case
+    // below must fail on its own check, so reaching podman at all would surface
+    // as a spawn error instead of the typed refusal.
+    const runner = new HandoverProbe({ root: store, podman: "/nonexistent/podman-must-never-run" });
+
+    // Missing directory.
+    const absent = join(store, "not-created");
+    const missing = await runner.handOver(absent).then(() => undefined, (error: unknown) => error as { name?: string; code?: string; message?: string });
+    expect(missing?.name).toBe("RunnerError");
+    expect(missing?.code).toBe("material_directory_invalid");
+    expect(missing?.message).toContain("does not exist");
+
+    // A regular file where the directory should be.
+    const asFile = join(store, "a-file");
+    await writeFile(asFile, "not a directory");
+    const file = await runner.handOver(asFile).then(() => undefined, (error: unknown) => error as { code?: string; message?: string });
+    expect(file?.code).toBe("material_directory_invalid");
+    expect(file?.message).toContain("is not a directory");
+
+    // A symlink pointing at a perfectly good directory is still refused, because
+    // the runner would otherwise chmod and chown whatever it resolves to.
+    const target = join(store, "real-directory");
+    await mkdir(target);
+    const linked = join(store, "linked");
+    await symlink(target, linked);
+    const link = await runner.handOver(linked).then(() => undefined, (error: unknown) => error as { code?: string; message?: string });
+    expect(link?.code).toBe("material_directory_invalid");
+    expect(link?.message).toContain("is not a directory");
+    // The target it pointed at is untouched: no mode change reached it.
+    expect((await lstat(target)).mode & 0o777).not.toBe(0o770);
+
+    // A directory the runner does not own. `/` is owned by root on every host
+    // this runs on, and the runner is never root.
+    const foreign = await runner.handOver("/").then(() => undefined, (error: unknown) => error as { code?: string; message?: string });
+    expect(foreign?.code).toBe("material_directory_invalid");
+    expect(foreign?.message).toContain("is not owned by the runner");
+    // And nothing about it changed.
+    expect((await lstat("/")).uid).toBe(0);
+  } finally { await rm(store, { recursive: true, force: true }); }
 });

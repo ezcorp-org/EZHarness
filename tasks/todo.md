@@ -2742,6 +2742,12 @@ manifest name must match `^[a-z][a-z0-9-]{0,63}$`, and `FactoryPackagePreparatio
 requires that name to equal a runner reference's package, which the compiled definition writes as
 `@ezcorp/reference-data`. Every domain pack hits it.
 
+### Coordinator log — wave 3 progress (2026-09-20)
+
+- [x] Merged in order: WREG (e659795eb), W02b (a8eff0bfa), W01b (dfe3091f8), W11 (f45a94148), the release-authority manifestName fix (559db1d3e), W10 (b0a2ca872), W01c mount (f30da62fa), W12 (f1af41c16), W03c (8810d6eae), W01d (7d99dc75b). Combined run wave3c green at b0a2ca872; receipts in `docs/validation/factory/wave3/`; `feat/composable-factory-platform` fast-forwarded to 1784ab76c.
+- [ ] In flight: W09 composition round (preflight built over W03's retained admission; four roles to assemble; G14 real-guest proof), W11b (GPU journey rerun on the runner-owned handover), W12 follow-up (drop the caller-side handover), W01e (guest model-broker frame contract and adapter), W13 (composition and legacy adapter, started 2026-09-20 from f1af41c16).
+- [ ] Next: validate and merge W11b, W12 follow-up, W01e, W09; full combined run with `--podman`; receipts under `docs/validation/factory/wave3/`; fast-forward feat; then W14 (after W09 and W13), W15 and W16 (after W09), W17 (after W09, W15, W16), W18 final gate, W19 campaign, W20 audit.
+- Decisions this session: the dispatch preflight reads the held allocation from `FactoryComputeAdmissions.readRetainedAdmittedInTransaction` and never derives or assembles a lease; the release-outcome resolver selects among the three providers by destination kind with GitHub lifted through `factorySynchronousReleaseProfile`; the guest model-broker payload is undefined and is Terra runtime's to define (W01e) before any adapter is written; the model-backed legs stay explicit readiness rows on this host.
 ## W13 — Composition and legacy adapter (Sol lifecycle)
 
 Branch `wp/w13-composition`, cut from `integ/w00` and fast-forwarded to `8810d6eae` before any

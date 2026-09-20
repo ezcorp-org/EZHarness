@@ -884,6 +884,24 @@
 - A reserved name in a shared adapter is a real constraint, not a naming preference. `manifest.json` belongs to the S3 publication manifest and no member may take it, which is obvious in hindsight and cost a full real-services run to discover. Read the member grammar before choosing member names.
 - A receipt taken while the tree is changing is not a receipt. I started a fifteen-minute producer, then edited three files, and the recorded "no dirty files" was true at start and false by the end. Commit first, run second, and re-run everything on the final tree.
 - `argparse.REMAINDER` swallows flags that follow the positional. `receipt.py label --lock -- cmd` put `--lock` into the command; `receipt.py --lock label -- cmd` is the working order. Worth knowing before losing a long run to it.
+## 2026-09-14 — W01d material handover
+
+- A rule written into a review is not enforced until production does it. My review forbade `0o777` on the material directory, and then my own integration test used exactly that, which hid from everyone that production set no mode or owner at all and no guest could write. When a review's rule needs a mode or an owner set, check which side actually sets it; if the answer is "the test", the rule is not in force.
+- The v4 build type-checks the guest source, so a guest program must be strict TypeScript. An untyped diagnostic object fails the BUILD, which surfaces as `build.state === "failed"` rather than as the assertion you were aiming at.
+- `writeFile(path, data, { mode })` is masked by the process umask, so a file meant to be `0o644` can land `0o600` and an isolated guest reads EACCES. Set the mode with an explicit `chmod` after the write; the runner's own staging already did this and the reason is now recorded.
+- When a container test fails with a generic handler error, make the guest report each step's outcome instead of throwing. One rerun then names the failing operation and its errno, where guessing costs a lock cycle each time.
+
+- Only the coordinator manages the shared stores. A worker's proof harness ran `compose up` from its
+  own worktree, whose compose file still carried the old 768 MiB limit, and recreated the ordinary
+  store twenty minutes after the coordinator had raised it to 2 GiB; it was OOM-killed again. Docker's
+  labels (`com.docker.compose.project.working_dir`, `config_files`) name the worktree that created a
+  container, so read them before blaming the workload. A proof verifies a shared service is up and
+  records a named readiness failure if it is not; it never creates, recreates, or restarts one.
+- A shared type change is not done until every hand-written key allow-list knows the new field. W02b
+  added the required `manifestName`, updated the allow-list in package-preparation.ts, and missed the
+  one in release-authority.ts; the package's focused set and the validator's reruns both passed, and
+  the combined integration run failed 17 cases. Grep for every `"<lastKey>"]` list and run every
+  suite that constructs the type, not only the owning package's suites.
 
 ## 2026-09-20 — W13 composition and the legacy adapter
 
