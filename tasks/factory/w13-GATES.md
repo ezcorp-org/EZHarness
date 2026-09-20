@@ -15,8 +15,16 @@ UTC start and end, the pass/fail/assertion counts, and the log's own SHA-256; ea
 | `3be5e7978` | `test(factory): pin the composition boundaries an acceptance-only child keeps` |
 | `42799ff98` | `docs(factory): record the W13 plan, review, and lessons` |
 | `185ff682a` | `test: snapshot the release-authority module the conflict regression stubs` |
-| `dff333d73` | `Merge branch 'integ/w00' into wp/w13-composition` — the base advanced by six commits (W01d) mid-package; every receipt below was produced at this head |
-| this commit | `docs(factory): record the W13 gates` — its own SHA is reported to the coordinator |
+| `dff333d73` | `Merge branch 'integ/w00' into wp/w13-composition` — the base advanced by six commits (W01d) mid-package |
+| `0ea636c54` | `docs(factory): record the W13 gates` |
+| `557baa630` | `docs: record the credential-in-argv lesson` |
+| `65d5f5a5f` | `Merge branch 'integ/w00' into wp/w13-composition` — the base advanced again by nine commits (W11b, W12 handover removal) |
+| `655616b0b` | `refactor(factory): let the SDK own the acceptance-only shape and its port` — interface answer 4 |
+| this commit | `docs(factory): close the W13 gates on the final head` — its own SHA is reported to the coordinator |
+
+**Every receipt named below was produced at `655616b0b`**, the final head, with a clean tree. The
+earlier `merge-*` and `merge2-*` records are retained for the two intermediate heads, and the very
+first `backend-pool` record is retained with its exit 1 because it caught a real defect.
 
 ## What was inert before this package
 
@@ -121,8 +129,8 @@ implemented nowhere in the repository.
   out of the parent rather than a copy of its limits; and an `authorized` child still creates
   exactly one operation.
   EVIDENCE: `receipts.jsonl` records `focused-lifecycle` (74 pass, 0 fail, 1126 assertions across
-  the lifecycle and migration-restart suites) and `merge-postgres` (103 pass, 0 fail, 4226
-  assertions on real PostgreSQL and real S3).
+  the lifecycle and migration-restart suites) and `final-postgres` (103 pass, 0 fail, 4226
+  assertions on real PostgreSQL and real S3; identical at all three heads).
 
 - [x] G9: The inherited release mode is read from the live ancestry, and cancelling the parent
   stops the child's release.
@@ -131,12 +139,13 @@ implemented nowhere in the repository.
   a child of a `none` node reports `none`, all through real published parents, committed
   `run-child` commands, and `FactoryChildRuns.resolve`; after the parent is cancelled the child's
   `requestRelease` throws and leaves no receipt and no operation.
-  EVIDENCE: `receipts.jsonl` records `focused-lifecycle`, `merge-postgres`.
+  EVIDENCE: `receipts.jsonl` records `focused-lifecycle`, `final-postgres`.
 
 - [x] G10: The output port is the boundary in both directions.
-  CHECK: `bun test --timeout 60000 ./src/factory/child-release-mode.test.ts`
-  EXPECT: exit 0; the real value satisfies the port all three catalog children declare; a
-  publishing child's provider receipt and an `authorized` variant both FAIL that port; `none`
+  CHECK: `bun test --timeout 60000 ./src/factory/child-release-mode.test.ts ./packages/@ezcorp/factory-sdk/src/child-acceptance.test.ts`
+  EXPECT: exit 0; the port all three catalog children declare IS the shared schema by identity,
+  not merely equal to it; the real value satisfies it; a publishing child's provider receipt, an
+  `authorized` variant, and a receipt naming no addressable artifact all FAIL that port; `none`
   narrows every combination of inherited modes; every required field is required and a malformed
   digest is refused; an extra field is dropped rather than carried into the seal.
   EVIDENCE: `receipts.jsonl` record `focused-composition` (33 pass, 0 fail).
@@ -171,18 +180,19 @@ implemented nowhere in the repository.
   `(tenant_id, idempotency_key)` index survives; an orphan journal row and a bare-hex definition
   digest are both refused; every modeled column, type, nullability, default, and foreign key
   matches the engine's catalog.
-  EVIDENCE: `receipts.jsonl` records `focused-lifecycle` and `merge-postgres`.
+  EVIDENCE: `receipts.jsonl` records `focused-lifecycle` and `final-postgres`.
 
 - [x] G14: The whole legacy surface outside factories still works.
   CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 2400 bun run test`
   EXPECT: exit 0 across the whole backend pool, including every workflow executor, runner, resume,
   nesting, approval, delegation, consent, capability-hash, release-asset, host-maintenance-daemon,
   and `extensions/ez-factory` suite.
-  EVIDENCE: `receipts.jsonl` record `merge-backend-pool`: **27,325 pass, 0 fail, 1,833 files**,
-  exit 0. The FIRST attempt (`backend-pool`, exit 1) is retained: it caught one real defect of
-  mine — `mock-cleanup-coverage.test.ts` refused the unsnapshotted `mock.module` target in the new
-  conflict regression, which would have leaked a release-authority stub into every later file.
-  Fixed at `185ff682a`, not exempted.
+  EVIDENCE: `receipts.jsonl` record `final-backend-pool`: **27,347 pass, 0 fail, 1,835 files**,
+  exit 0 at `655616b0b`. Re-run green at each of the three heads (`merge-backend-pool` 27,325 pass;
+  `merge2-backend-pool` 27,343 pass). The FIRST attempt (`backend-pool`, exit 1) is retained: it
+  caught one real defect of mine — `mock-cleanup-coverage.test.ts` refused the unsnapshotted
+  `mock.module` target in the new conflict regression, which would have leaked a release-authority
+  stub into every later file. Fixed at `185ff682a`, not exempted.
 
 - [x] G15: Static gates and diff-scoped coverage.
   CHECK: `bun run typecheck`, `bun run lint`, `bun scripts/check-factory-boundaries.ts`,
@@ -192,11 +202,12 @@ implemented nowhere in the repository.
   `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts` over the merged LCOV.
   EXPECT: exit 0 for each; every new source file at 100% lines and every changed executable line
   covered.
-  EVIDENCE: `receipts.jsonl` records `merge-static-gates` (all eight checks exit 0 at the merged
-  head) and `merge-coverage`. The merged report is retained at `lcov-merged.info` with the
-  thirteen per-leg reports under `lcov/`. **New-file gate PASSED, 8 new source files gated; patch
-  gate PASSED, all changed executable lines covered across 17 files.** Every new source at 100%
-  lines: `add-factory-legacy-workflow-adapters.ts` 9/9, `child-release-mode.ts` 42/42,
+  EVIDENCE: `receipts.jsonl` records `final-static-gates` (all eight checks exit 0) and
+  `final-coverage`, both at `655616b0b`. The merged report is retained at `lcov-merged.info` with
+  the thirteen per-leg reports under `lcov/`. **New-file gate PASSED, 9 new source files gated;
+  patch gate PASSED, all changed executable lines covered across 19 files.** Every new source at
+  100% lines: `factory-sdk/src/child-acceptance.ts` 67/67,
+  `add-factory-legacy-workflow-adapters.ts` 9/9, `child-release-mode.ts` 8/8,
   `legacy-workflow/adapter.ts` 198/198, `legacy-workflow/classification.ts` 45/45,
   `legacy-workflow/import.ts` 96/96, `legacy-workflow/status.ts` 50/50,
   `reference-catalog/catalog.ts` 139/139, `reference-catalog/pack.ts` 59/59.
