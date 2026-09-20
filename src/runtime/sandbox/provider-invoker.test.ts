@@ -50,6 +50,7 @@ describe("invokeSandboxProvider", () => {
   let bindingId: string;
   let reference: { installationId: string; providerId: string; releaseId: string; releaseBinding: string; generation: number };
   let response: unknown;
+  let dispatches: number;
 
   beforeEach(async () => {
     await setupTestDb();
@@ -59,6 +60,7 @@ describe("invokeSandboxProvider", () => {
     const [user] = await db.insert(users).values({ email: `${crypto.randomUUID()}@test.local`, passwordHash: "fixture", name: "User", role: "member", status: "active" }).returning();
     const [project, authorProject] = await db.insert(projects).values([{ name: "Sandbox Project", path: "/tmp/project" }, { name: "Author Project", path: "/tmp/author-project" }]).returning();
     userId = user!.id;
+    dispatches = 0;
     projectId = project!.id;
     authorProjectId = authorProject!.id;
     await db.insert(projectMembers).values({ userId, projectId });
@@ -77,6 +79,7 @@ describe("invokeSandboxProvider", () => {
         return { workerId: start.workerId, close: async () => {}, onNotification: () => () => {}, request: async (method, params) => {
           if (method === "extension/discover") return manifest;
           if (method !== "extension/dispatch") throw new Error(`Unexpected ${method}`);
+          dispatches += 1;
           const dispatch = params as { input: Record<string, unknown>; context: unknown };
           const api = await reverse("ezcorp/api.request", { context: dispatch.context, input: { method: "POST", path: `/api/local-sandbox/operations/${call.operationId}/execute` } });
           expect(api).toEqual({ status: 200, body: JSON.stringify(response) });
@@ -120,5 +123,15 @@ describe("invokeSandboxProvider", () => {
     await getTestDb().execute(sql`INSERT INTO sandbox_provider_bindings (id, project_id, owner_id, installation_id, provider_id, release_id, release_binding, generation, config_revision, config_digest, state) VALUES (${bindingId}, ${projectId}, ${userId}, ${installationId}, 'local', ${reference.releaseId}, ${reference.releaseBinding}, 1, 1, ${"c".repeat(64)}, 'active')`);
     response = { receipt: { ...call, outcome: "succeeded", operationId: "forged" }, resource: { resourceId: "resource", desiredState: "stopped", observedState: "stopped", limits } };
     await expect(invokeSandboxProvider(userId, projectId, reference, "sandbox.lifecycle.v1", "create", input)).rejects.toThrow("receipt changed operationId");
+  });
+
+  test("does not dispatch a reviewed provider or its host callback after cancellation", async () => {
+    response = { receipt: { ...call, outcome: "succeeded" }, resource: { resourceId: "resource", desiredState: "stopped", observedState: "stopped", limits } };
+    const controller = new AbortController();
+    controller.abort(new DOMException("Cancelled", "AbortError"));
+    const input = { call: { scope: { projectId, bindingId, generation: 1 }, ...call }, profile: "linux-exec.v1" as const, limits };
+
+    await expect(invokeSandboxProvider(userId, projectId, reference, "sandbox.lifecycle.v1", "create", input, controller.signal)).rejects.toThrow("Cancelled");
+    expect(dispatches).toBe(0);
   });
 });
