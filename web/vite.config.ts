@@ -10,11 +10,11 @@ const emptyNodeShim = fileURLToPath(
 
 // The SvelteKit server hook is the first SSR module and reaches the backend
 // graph that has timed out during cold starts. Start its transform with server
-// startup to reduce that race; Vite does not await the warmup before listening,
-// so it can overlap with early requests. This is a mitigation only: Vite 8
-// does not expose a server-config transport timeout or retry for a rejected
-// module-runner request, so a later transform timeout can still require an app
-// restart.
+// startup and pre-transform its static import graph to reduce that race. Vite does
+// not await the warmup before listening, so it can overlap with early requests.
+// This is a mitigation only: Vite 8 does not expose a server-config transport
+// timeout or retry for a rejected module-runner request, so a later transform
+// timeout can still require an app restart.
 const ssrWarmupFiles = ['./src/hooks.server.ts'];
 
 export default defineConfig({
@@ -29,6 +29,15 @@ export default defineConfig({
 		sveltekit(),
 		visualizer({ emitFile: true, filename: 'stats.html' })
 	],
+	environments: {
+		ssr: {
+			dev: {
+				// SSR defaults this to false. Without it, warmup transforms only the
+				// hook entry and leaves its large backend graph for the first request.
+				preTransformRequests: true,
+			},
+		},
+	},
 	server: {
 		host: '0.0.0.0',
 		allowedHosts: ['nixos-amd.taile1c5b0.ts.net'],

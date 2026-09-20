@@ -15,5 +15,6 @@ describe("Vite SSR warmup", () => {
 
 		expect(config.server.warmup.ssrFiles).toContain("./src/hooks.server.ts");
 		expect(config.environments.ssr.dev.warmup).toContain("./src/hooks.server.ts");
+		expect(config.environments.ssr.dev.preTransformRequests).toBe(true);
 	});
 });
