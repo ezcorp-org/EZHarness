@@ -1958,6 +1958,38 @@
       ],
       "type": "object"
     },
+    "ProviderFailedReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/ProviderError"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "outcome": {
+          "const": "failed",
+          "type": "string"
+        },
+        "providerOperationId": {
+          "type": "string"
+        },
+        "requestDigest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operationId",
+        "idempotencyKey",
+        "requestDigest",
+        "outcome",
+        "error"
+      ],
+      "type": "object"
+    },
     "ProviderHostContract": {
       "additionalProperties": false,
       "properties": {
@@ -2395,41 +2427,6 @@
         }
       ]
     },
-    "ProviderReceipt": {
-      "additionalProperties": false,
-      "properties": {
-        "error": {
-          "$ref": "#/definitions/ProviderError"
-        },
-        "idempotencyKey": {
-          "type": "string"
-        },
-        "operationId": {
-          "type": "string"
-        },
-        "outcome": {
-          "enum": [
-            "succeeded",
-            "failed",
-            "unknown"
-          ],
-          "type": "string"
-        },
-        "providerOperationId": {
-          "type": "string"
-        },
-        "requestDigest": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "operationId",
-        "idempotencyKey",
-        "requestDigest",
-        "outcome"
-      ],
-      "type": "object"
-    },
     "ProviderRequiredPermission": {
       "enum": [
         "hostApi",
@@ -2456,6 +2453,84 @@
         "projectId",
         "bindingId",
         "generation"
+      ],
+      "type": "object"
+    },
+    "ProviderSucceededReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "outcome": {
+          "const": "succeeded",
+          "type": "string"
+        },
+        "providerOperationId": {
+          "type": "string"
+        },
+        "requestDigest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operationId",
+        "idempotencyKey",
+        "requestDigest",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "ProviderUnknownReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "error": {
+          "$ref": "#/definitions/ProviderError"
+        },
+        "idempotencyKey": {
+          "type": "string"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "outcome": {
+          "const": "unknown",
+          "type": "string"
+        },
+        "providerOperationId": {
+          "type": "string"
+        },
+        "requestDigest": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "operationId",
+        "idempotencyKey",
+        "requestDigest",
+        "outcome"
+      ],
+      "type": "object"
+    },
+    "ProviderUnsuccessfulResult": {
+      "additionalProperties": false,
+      "properties": {
+        "receipt": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/ProviderFailedReceipt"
+            },
+            {
+              "$ref": "#/definitions/ProviderUnknownReceipt"
+            }
+          ]
+        }
+      },
+      "required": [
+        "receipt"
       ],
       "type": "object"
     },
@@ -2639,19 +2714,27 @@
       "type": "object"
     },
     "SandboxCreateResult": {
-      "additionalProperties": false,
-      "properties": {
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            },
+            "resource": {
+              "$ref": "#/definitions/SandboxResource"
+            }
+          },
+          "required": [
+            "receipt",
+            "resource"
+          ],
+          "type": "object"
         },
-        "resource": {
-          "$ref": "#/definitions/SandboxResource"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxDestroyInput": {
       "additionalProperties": false,
@@ -2670,19 +2753,27 @@
       "type": "object"
     },
     "SandboxDestroyResult": {
-      "additionalProperties": false,
-      "properties": {
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            },
+            "resource": {
+              "$ref": "#/definitions/SandboxResource"
+            }
+          },
+          "required": [
+            "receipt",
+            "resource"
+          ],
+          "type": "object"
         },
-        "resource": {
-          "$ref": "#/definitions/SandboxResource"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxFileChmodInput": {
       "additionalProperties": false,
@@ -2712,19 +2803,27 @@
       "type": "object"
     },
     "SandboxFileChmodResult": {
-      "additionalProperties": false,
-      "properties": {
-        "entry": {
-          "$ref": "#/definitions/SandboxFileStat"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "$ref": "#/definitions/SandboxFileStat"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            }
+          },
+          "required": [
+            "receipt",
+            "entry"
+          ],
+          "type": "object"
         },
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxFileListInput": {
       "additionalProperties": false,
@@ -2754,26 +2853,33 @@
       "type": "object"
     },
     "SandboxFileListResult": {
-      "additionalProperties": false,
-      "properties": {
-        "entries": {
-          "items": {
-            "$ref": "#/definitions/SandboxFileStat"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "entries": {
+              "items": {
+                "$ref": "#/definitions/SandboxFileStat"
+              },
+              "type": "array"
+            },
+            "nextCursor": {
+              "type": "string"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            }
           },
-          "type": "array"
+          "required": [
+            "receipt",
+            "entries"
+          ],
+          "type": "object"
         },
-        "nextCursor": {
-          "type": "string"
-        },
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt",
-        "entries"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxFileMkdirInput": {
       "additionalProperties": false,
@@ -2800,19 +2906,27 @@
       "type": "object"
     },
     "SandboxFileMkdirResult": {
-      "additionalProperties": false,
-      "properties": {
-        "entry": {
-          "$ref": "#/definitions/SandboxFileStat"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "$ref": "#/definitions/SandboxFileStat"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            }
+          },
+          "required": [
+            "receipt",
+            "entry"
+          ],
+          "type": "object"
         },
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxFileReadInput": {
       "additionalProperties": false,
@@ -2846,48 +2960,55 @@
       "type": "object"
     },
     "SandboxFileReadResult": {
-      "additionalProperties": false,
-      "properties": {
-        "data": {
-          "type": "string"
-        },
-        "encoding": {
-          "enum": [
-            "utf8",
-            "base64"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "data": {
+              "type": "string"
+            },
+            "encoding": {
+              "enum": [
+                "utf8",
+                "base64"
+              ],
+              "type": "string"
+            },
+            "eof": {
+              "type": "boolean"
+            },
+            "nextOffsetBytes": {
+              "type": "number"
+            },
+            "offsetBytes": {
+              "type": "number"
+            },
+            "path": {
+              "type": "string"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            },
+            "revision": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "receipt",
+            "path",
+            "revision",
+            "offsetBytes",
+            "nextOffsetBytes",
+            "eof",
+            "encoding",
+            "data"
           ],
-          "type": "string"
+          "type": "object"
         },
-        "eof": {
-          "type": "boolean"
-        },
-        "nextOffsetBytes": {
-          "type": "number"
-        },
-        "offsetBytes": {
-          "type": "number"
-        },
-        "path": {
-          "type": "string"
-        },
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
-        },
-        "revision": {
-          "type": "string"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt",
-        "path",
-        "revision",
-        "offsetBytes",
-        "nextOffsetBytes",
-        "eof",
-        "encoding",
-        "data"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxFileRemoveInput": {
       "additionalProperties": false,
@@ -2917,19 +3038,27 @@
       "type": "object"
     },
     "SandboxFileRemoveResult": {
-      "additionalProperties": false,
-      "properties": {
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            },
+            "removedRevision": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "receipt",
+            "removedRevision"
+          ],
+          "type": "object"
         },
-        "removedRevision": {
-          "type": "string"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxFileStat": {
       "additionalProperties": false,
@@ -2984,19 +3113,27 @@
       "type": "object"
     },
     "SandboxFileStatResult": {
-      "additionalProperties": false,
-      "properties": {
-        "entry": {
-          "$ref": "#/definitions/SandboxFileStat"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "$ref": "#/definitions/SandboxFileStat"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            }
+          },
+          "required": [
+            "receipt",
+            "entry"
+          ],
+          "type": "object"
         },
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxFileWriteInput": {
       "additionalProperties": false,
@@ -3034,19 +3171,27 @@
       "type": "object"
     },
     "SandboxFileWriteResult": {
-      "additionalProperties": false,
-      "properties": {
-        "entry": {
-          "$ref": "#/definitions/SandboxFileStat"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "entry": {
+              "$ref": "#/definitions/SandboxFileStat"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            }
+          },
+          "required": [
+            "receipt",
+            "entry"
+          ],
+          "type": "object"
         },
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxFilesMethodGroup": {
       "additionalProperties": false,
@@ -3115,19 +3260,27 @@
       "type": "object"
     },
     "SandboxInspectResult": {
-      "additionalProperties": false,
-      "properties": {
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            },
+            "resource": {
+              "$ref": "#/definitions/SandboxResource"
+            }
+          },
+          "required": [
+            "receipt",
+            "resource"
+          ],
+          "type": "object"
         },
-        "resource": {
-          "$ref": "#/definitions/SandboxResource"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxLifecycleMethodGroup": {
       "additionalProperties": false,
@@ -3215,19 +3368,27 @@
       "type": "object"
     },
     "SandboxProcessCancelResult": {
-      "additionalProperties": false,
-      "properties": {
-        "process": {
-          "$ref": "#/definitions/SandboxProcess"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "process": {
+              "$ref": "#/definitions/SandboxProcess"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            }
+          },
+          "required": [
+            "receipt",
+            "process"
+          ],
+          "type": "object"
         },
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxProcessIdentity": {
       "additionalProperties": false,
@@ -3266,19 +3427,27 @@
       "type": "object"
     },
     "SandboxProcessInspectResult": {
-      "additionalProperties": false,
-      "properties": {
-        "process": {
-          "$ref": "#/definitions/SandboxProcess"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "process": {
+              "$ref": "#/definitions/SandboxProcess"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            }
+          },
+          "required": [
+            "receipt",
+            "process"
+          ],
+          "type": "object"
         },
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxProcessMethodGroup": {
       "additionalProperties": false,
@@ -3375,35 +3544,46 @@
       "type": "object"
     },
     "SandboxProcessReadOutputResult": {
-      "additionalProperties": false,
-      "properties": {
-        "chunks": {
-          "items": {
-            "$ref": "#/definitions/SandboxProcessOutputChunk"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "chunks": {
+              "items": {
+                "$ref": "#/definitions/SandboxProcessOutputChunk"
+              },
+              "type": "array"
+            },
+            "cursor": {
+              "type": "number"
+            },
+            "eof": {
+              "type": "boolean"
+            },
+            "gap": {
+              "type": "boolean"
+            },
+            "identity": {
+              "$ref": "#/definitions/SandboxProcessIdentity"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            }
           },
-          "type": "array"
+          "required": [
+            "receipt",
+            "identity",
+            "cursor",
+            "chunks",
+            "eof",
+            "gap"
+          ],
+          "type": "object"
         },
-        "cursor": {
-          "type": "number"
-        },
-        "eof": {
-          "type": "boolean"
-        },
-        "gap": {
-          "type": "boolean"
-        },
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt",
-        "cursor",
-        "chunks",
-        "eof",
-        "gap"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxProcessStartInput": {
       "additionalProperties": false,
@@ -3420,9 +3600,6 @@
         "cwd": {
           "type": "string"
         },
-        "deadlineMs": {
-          "type": "number"
-        },
         "env": {
           "additionalProperties": {
             "type": "string"
@@ -3431,6 +3608,9 @@
         },
         "resourceId": {
           "type": "string"
+        },
+        "timeoutMs": {
+          "type": "number"
         },
         "user": {
           "const": "workspace",
@@ -3444,24 +3624,32 @@
         "env",
         "cwd",
         "user",
-        "deadlineMs"
+        "timeoutMs"
       ],
       "type": "object"
     },
     "SandboxProcessStartResult": {
-      "additionalProperties": false,
-      "properties": {
-        "process": {
-          "$ref": "#/definitions/SandboxProcess"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "process": {
+              "$ref": "#/definitions/SandboxProcess"
+            },
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            }
+          },
+          "required": [
+            "receipt",
+            "process"
+          ],
+          "type": "object"
         },
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxProcessState": {
       "enum": [
@@ -3627,19 +3815,27 @@
       "type": "object"
     },
     "SandboxStartResult": {
-      "additionalProperties": false,
-      "properties": {
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            },
+            "resource": {
+              "$ref": "#/definitions/SandboxResource"
+            }
+          },
+          "required": [
+            "receipt",
+            "resource"
+          ],
+          "type": "object"
         },
-        "resource": {
-          "$ref": "#/definitions/SandboxResource"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "SandboxStopInput": {
       "additionalProperties": false,
@@ -3658,19 +3854,27 @@
       "type": "object"
     },
     "SandboxStopResult": {
-      "additionalProperties": false,
-      "properties": {
-        "receipt": {
-          "$ref": "#/definitions/ProviderReceipt"
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "receipt": {
+              "$ref": "#/definitions/ProviderSucceededReceipt"
+            },
+            "resource": {
+              "$ref": "#/definitions/SandboxResource"
+            }
+          },
+          "required": [
+            "receipt",
+            "resource"
+          ],
+          "type": "object"
         },
-        "resource": {
-          "$ref": "#/definitions/SandboxResource"
+        {
+          "$ref": "#/definitions/ProviderUnsuccessfulResult"
         }
-      },
-      "required": [
-        "receipt"
-      ],
-      "type": "object"
+      ]
     },
     "ScriptDefinition": {
       "additionalProperties": false,

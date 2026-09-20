@@ -18,7 +18,7 @@ Receipts report `succeeded`, `failed`, or `unknown`. A failed receipt requires a
 
 Lifecycle resources use opaque IDs, desired and observed state, and exact integer limits: bytes for memory and disk, milliCPU for CPU, and a PID count. No floating point or ambiguous CPU unit is accepted.
 
-Processes use an opaque boot ID plus process ID. They never expose or trust a raw operating-system PID. Start specifies bounded argv, environment, virtual working directory, workspace user, and admitted deadline. Output uses a non-negative cursor, explicit gap and EOF flags, separate stdout/stderr chunks, and UTF-8 or canonical base64.
+Processes use an opaque boot ID plus process ID. They never expose or trust a raw operating-system PID. Start specifies bounded argv, environment, virtual working directory, workspace user, and `timeoutMs`: an execution duration of at most 24 hours measured from process start. Output uses a non-negative cursor, explicit gap and EOF flags, separate stdout/stderr chunks, and UTF-8 or canonical base64.
 
 Files use `/` as the virtual workspace root. Paths are absolute within that virtual root, have canonical segments, and reject traversal, control characters, backslashes, unsafe JSON object keys, and trailing separators. Reads are revision-bound when requested and use byte offsets and lengths. Writes use an optional expected revision. List pages contain at most 256 entries. Modes are integer Unix permission bits from `0000` through `0777`.
 

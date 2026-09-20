@@ -250,11 +250,11 @@ export function validateProviderMethodValue<Group extends SandboxProviderGroup>(
     if (group === "sandbox.process.v1") {
       if (record.identity) validateProviderProcess({ identity: record.identity, state: "unknown", outputCursor: 0 });
       if (operation === "start") {
-        if ((record.argv as unknown[]).length === 0 || (record.argv as unknown[]).length > 128 || (record.argv as unknown[]).some(item => typeof item !== "string" || encoder.encode(item).byteLength > 4096)) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid process argv");
+        if ((record.argv as unknown[]).length === 0 || (record.argv as unknown[]).length > 128 || (record.argv as unknown[]).some(item => typeof item !== "string" || item.includes("\0") || encoder.encode(item).byteLength > 4096)) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid process argv");
         const env = record.env as Record<string, unknown>;
-        if (Object.keys(env).length > 128 || Object.entries(env).some(([name, item]) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) || typeof item !== "string") || encoder.encode(JSON.stringify(env)).byteLength > 64 * 1024) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid process environment");
+        if (Object.keys(env).length > 128 || Object.entries(env).some(([name, item]) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) || typeof item !== "string" || item.includes("\0")) || encoder.encode(JSON.stringify(env)).byteLength > 64 * 1024) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid process environment");
         providerVirtualPath(record.cwd);
-        providerInteger(record.deadlineMs, "process deadline", 1, PROVIDER_DEADLINE_MS);
+        providerInteger(record.timeoutMs, "process timeout", 1, PROVIDER_DEADLINE_MS);
       }
       if (operation === "readOutput") {
         providerInteger(record.cursor, "process output cursor");
@@ -276,6 +276,7 @@ export function validateProviderMethodValue<Group extends SandboxProviderGroup>(
     }
   } else {
     validateProviderReceipt(record.receipt as Record<string, unknown>);
+    if ((record.receipt as Record<string, unknown>).outcome !== "succeeded") return value;
     if (record.resource) validateProviderResource(record.resource as Record<string, unknown>);
     if (record.process) validateProviderProcess(record.process as Record<string, unknown>);
     if (record.entry) validateProviderFileStat(record.entry as Record<string, unknown>);
@@ -286,6 +287,7 @@ export function validateProviderMethodValue<Group extends SandboxProviderGroup>(
     if (record.nextCursor !== undefined) providerIdentifier(record.nextCursor, "next file list cursor");
     if (record.removedRevision !== undefined) providerIdentifier(record.removedRevision, "removed file revision");
     if (group === "sandbox.process.v1" && operation === "readOutput") {
+      validateProviderProcess({ identity: record.identity, state: "unknown", outputCursor: record.cursor });
       providerInteger(record.cursor, "process output cursor");
       if ((record.chunks as unknown[]).length > 256) throw new ContractError("DATA_LIMIT", "Too many process output chunks");
       let bytes = 0;
@@ -310,6 +312,35 @@ export function validateProviderMethodExchange<Group extends SandboxProviderGrou
   const call = (input as { call: Record<string, unknown> }).call;
   const receipt = (result as { receipt: Record<string, unknown> }).receipt;
   for (const field of ["operationId", "idempotencyKey", "requestDigest"]) if (call[field] !== receipt[field]) throw new ContractError("INVALID_PROVIDER_RECEIPT", `Provider receipt changed ${field}`);
+  if (receipt.outcome !== "succeeded") return { input, result };
+  const request = input as Record<string, unknown>;
+  const response = result as Record<string, unknown>;
+  if (request.resourceId !== undefined && response.resource && request.resourceId !== (response.resource as Record<string, unknown>).resourceId) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider response changed resource ID");
+  if (request.identity !== undefined && response.process && canonicalJson(request.identity) !== canonicalJson((response.process as Record<string, unknown>).identity)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider response changed process identity");
+  if (group === "sandbox.process.v1" && operation === "readOutput") {
+    if (canonicalJson(request.identity) !== canonicalJson(response.identity)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider output changed process identity");
+    const chunks = response.chunks as Record<string, unknown>[];
+    const bytes = chunks.reduce((total, chunk) => total + providerEncodedBytes(chunk.encoding, chunk.data), 0);
+    if ((response.cursor as number) < (request.cursor as number) || bytes > (request.maxBytes as number)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider output exceeded its requested cursor or byte range");
+  }
+  if (group === "sandbox.files.v1") {
+    const requestedPath = request.path as string;
+    const returnedEntry = response.entry as Record<string, unknown> | undefined;
+    if (returnedEntry && returnedEntry.path !== requestedPath) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider response changed file path");
+    if (operation === "read") {
+      if (response.path !== requestedPath || response.offsetBytes !== request.offsetBytes || (request.revision !== undefined && response.revision !== request.revision)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider read changed path, revision, or offset");
+      const bytes = providerEncodedBytes(response.encoding, response.data);
+      if (bytes > (request.lengthBytes as number) || response.nextOffsetBytes !== (request.offsetBytes as number) + bytes) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider read returned an invalid byte range");
+    }
+    if (operation === "list") {
+      const prefix = requestedPath === "/" ? "/" : `${requestedPath}/`;
+      for (const entry of response.entries as Record<string, unknown>[]) {
+        const path = entry.path as string;
+        if (!path.startsWith(prefix) || path.slice(prefix.length).includes("/")) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider list returned an entry outside the requested directory");
+      }
+    }
+    if (operation === "remove" && request.expectedRevision !== undefined && response.removedRevision !== request.expectedRevision) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider removal changed the expected revision");
+  }
   return { input, result };
 }
 
