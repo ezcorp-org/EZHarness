@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
+import { dlopen, FFIType } from "bun:ffi";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ProviderCall, SandboxProcessStartInput } from "@ezcorp/extension-contract";
@@ -29,7 +30,7 @@ process.exit(2);
 	const entries: Promise<void>[] = [];
 	const supervisor = new LocalProcessSupervisor({ stateRoot: root, podmanPath: podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: outputBytes, workspaceUid: 0, workspaceGid: 0 }, async () => resource, argv => { entries.push(runSupervisorEntry(argv[1]!)); });
 	const input: SandboxProcessStartInput = { call, resourceId: "resource", argv: ["tool"], env: { SAFE: "yes" }, cwd: "/", user: "workspace", timeoutMs: 2_000 };
-	return { root, processRoot, runtimeState, execArgs, resource, entries, supervisor, input };
+	return { root, processRoot, runtimeState, execArgs, podman, resource, entries, supervisor, input };
 }
 
 async function terminal(f: Awaited<ReturnType<typeof fixture>>, identity: { bootId: string; processId: string }) {
@@ -70,6 +71,9 @@ describe("LocalProcessSupervisor", () => {
 	test("fails closed for invalid host configuration, state artifacts, and cursors", async () => {
 		const f = await fixture();
 		expect(() => new LocalProcessSupervisor({ stateRoot: "relative", podmanPath: f.input.argv[0]!, supervisorPath: "relative", maxOutputBytes: 0, workspaceUid: -1, workspaceGid: -1 }, async () => f.resource)).toThrow();
+		const lockPath = join(f.processRoot, "start.lock"); const held = await open(lockPath, "a+", 0o600); const libc = dlopen("libc.so.6", { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } }); expect(libc.symbols.flock(held.fd, 2 | 4)).toBe(0);
+		expect((await f.supervisor.start(f.input)).receipt).toMatchObject({ outcome: "failed", error: { code: "process_busy" } }); libc.symbols.flock(held.fd, 8); await held.close(); libc.close();
+		await writeFile(lockPath, "orphaned host crash artifact", { mode: 0o600 });
 		const started = await f.supervisor.start(f.input); if (!("process" in started)) throw new Error("missing process");
 		await writeFile(join(f.processRoot, "cancel"), started.process.identity.processId); await terminal(f, started.process.identity);
 		const badCursor = await f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 999, maxBytes: 1 }); expect(badCursor.receipt.outcome).toBe("failed");
@@ -121,5 +125,12 @@ describe("LocalProcessSupervisor", () => {
 		await Bun.sleep(20); await writeFile(f.runtimeState, "stopped"); await terminal(f, started.process.identity);
 		const output = await f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 0, maxBytes: 64 }); if (!("chunks" in output)) throw new Error("missing output");
 		const bytes = Buffer.concat(output.chunks.map((chunk) => Buffer.from(chunk.data, "base64"))); expect(bytes.toString("utf8")).toBe("€"); expect(output.cursor).toBe(3);
+	});
+
+	test("retains a replayable identity when detached launch throws", async () => {
+		const f = await fixture(64); let launches = 0;
+		const supervisor = new LocalProcessSupervisor({ stateRoot: f.root, podmanPath: f.podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: 64, workspaceUid: 0, workspaceGid: 0 }, async () => f.resource, () => { launches += 1; throw new Error("crash boundary"); });
+		const first = await supervisor.start(f.input); expect(first.receipt.outcome).toBe("unknown");
+		const replayed = await supervisor.start(f.input); expect(replayed.receipt.outcome).toBe("succeeded"); expect("process" in replayed && replayed.process.state).toBe("starting"); expect(launches).toBe(1);
 	});
 });

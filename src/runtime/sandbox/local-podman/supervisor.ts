@@ -15,6 +15,7 @@ import type {
 	SandboxProcessStartResult,
 } from "@ezcorp/extension-contract";
 import { validateProviderMethodValue } from "@ezcorp/extension-contract";
+import { dlopen, FFIType } from "bun:ffi";
 import { runBoundedCommand } from "./commands";
 
 export interface OwnedProcessResource {
@@ -73,6 +74,9 @@ type LaunchDetached = (argv: string[]) => void;
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const MAX_STATUS_BYTES = 2 * 1024 * 1024;
+const libc = dlopen("libc.so.6", { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } });
+const LOCK_EXCLUSIVE_NONBLOCKING = 2 | 4;
+const LOCK_RELEASE = 8;
 
 function receipt(call: ProviderCall) {
 	return { operationId: call.operationId, idempotencyKey: call.idempotencyKey, requestDigest: call.requestDigest, outcome: "succeeded" as const };
@@ -172,8 +176,8 @@ export class LocalProcessSupervisor {
 			await mkdir(resource.processRoot, { recursive: true, mode: 0o700 });
 			await chmod(resource.processRoot, 0o700);
 			const lockPath = `${resource.processRoot}/start.lock`;
-			let lock: FileHandle;
-			try { lock = await open(lockPath, "wx", 0o600); } catch { return failure(input.call, "process_busy", "A process start is already in progress"); }
+			const lock = await open(lockPath, "a+", 0o600); await chmod(lockPath, 0o600);
+			if (libc.symbols.flock(lock.fd, LOCK_EXCLUSIVE_NONBLOCKING) !== 0) { await lock.close(); return failure(input.call, "process_busy", "A process start is already in progress"); }
 			try {
 				try {
 					const stored = await readStatus(paths.status);
@@ -190,10 +194,11 @@ export class LocalProcessSupervisor {
 				await atomicJson(paths.launch, launch);
 				const now = Date.now();
 					await atomicJson(paths.status, { version: 1, identity, call: input.call, state: "starting", startedAt: now, deadlineAt: now + input.timeoutMs, helperPid: 0, helperStartTime: "pending", outputCursor: 0, gap: false, chunks: [] } satisfies SupervisorStatus);
-				this.launchDetached([this.config.supervisorPath, paths.launch]);
+					try { this.launchDetached([this.config.supervisorPath, paths.launch]); }
+					catch { return failure(input.call, "process_start_unknown", "The supervisor launch outcome is unknown", "unknown"); }
 				return { receipt: receipt(input.call), process: { identity, state: "starting", outputCursor: 0 } };
 			} finally {
-				await lock.close(); await rm(lockPath, { force: true });
+					libc.symbols.flock(lock.fd, LOCK_RELEASE); await lock.close();
 			}
 		} catch (error) { return failure(input.call, "process_start_failed", error instanceof Error ? error.message : "Process start failed"); }
 	}
