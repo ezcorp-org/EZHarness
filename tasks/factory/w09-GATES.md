@@ -925,6 +925,28 @@ the real-engine exercise of both reads is the end-to-end proof rather than a
 suite that would re-seed W03's rows by hand. That is a deliberate choice and a
 weaker one than the coordinator asked for; it is recorded rather than glossed.
 
+### Where the four roles stand after this round
+
+The coordinator's decisions settled every design question; what remains is
+composition volume, and I did not reach it. Stated plainly rather than implied:
+
+| Role | State | What is left |
+| --- | --- | --- |
+| `attempt-dispatch` | held | its last missing collaborator, the preflight, is BUILT. Assembling the driver still needs the dispatch stores wired in this process: the attempt queue, completions and outcomes, `FactoryPackagePreparations` (whose `FactoryV4PackageCatalog` wants a `DatabaseLifecycleRepository` and whose build limits have no startup-document field), the launch store, the host launch client, and `FactoryRemoteAttemptRuntime` |
+| `stop-settlement` | held | W03c's `PoolAdmissionClient.confirmStopped` is merged and `hostStopKeys` is configured. `FactoryTaskStops` takes fourteen constructor arguments and this process holds nine of them today |
+| `usage-reconciliation` | held | W03c's `FactoryUsageReconciliation.resolve` is merged and returns `resolved` with the four facts or `unknown` with a reason. The role is a page driver over the uncertain-hold scan that settles only on `resolved` |
+| `release-outcome` | held | the resolver is composition, as the coordinator ruled: select among the three providers by `operation.destination.provider`, lifting GitHub with W05's `factorySynchronousReleaseProfile` |
+
+G14's "executes a guest" therefore remains unproven. The three real-server
+passes below prove everything up to dispatch: a durable run submitted over
+public HTTP, read back, surviving a restart, with clean shutdown and no false
+readiness. The run stays `queued`, which the proof records in its own
+`notProven` field rather than leaving to inference.
+
+This is the honest shape of the round: one hard design question answered and
+built, and four assemblies not done. I would rather hand over a branch that is
+green and says so than one that claims four roles it has not exercised.
+
 ### What remained after the preflight
 
 The coordinator settled the architecture — the product process composes the

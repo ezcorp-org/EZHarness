@@ -2275,6 +2275,9 @@ Gates: `tasks/factory/w09-GATES.md`.
 - [ ] W09.20 Hand the broker to a runner. Blocked on a contract, not a wiring: the runtime wants
       `invoke(request, input)`, the broker offers `stream(request)`, and the host launch supervisor
       wants a third shape. Nothing defines what a guest sends to request a model stream.
+- [x] W09.24 Build the dispatch preflight over W03's recorded allocation (reservation from the
+      queue's own record, lease from readRetainedAdmittedInTransaction, one transaction, GPU with
+      no pinned host refused).
 - [ ] W09.21 Register attempt-dispatch and prove G14 with a real guest. The configuration landed
       (`hostLaunch.*`, `attemptTokenSecretPath`, `hostStopKeys`). One collaborator remains: a
       production `FactoryIsolatedRunnerPreflight`. `preparedPackage` is `assertDispatchReady`;
