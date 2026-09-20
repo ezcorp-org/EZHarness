@@ -22,6 +22,7 @@ vi.mock("$server/db/queries/projects", () => ({
 
 const mockListCommands = vi.fn();
 const mockListAgents = vi.fn();
+let sandboxedProjects = new Set<string>();
 
 vi.mock("$lib/server/context", () => ({
 	getExecutor: () => ({ listAgents: mockListAgents }),
@@ -34,6 +35,10 @@ vi.mock("$lib/server/context", () => ({
 // Mock it OFF so it never injects here (mirrors that file's default).
 vi.mock("$server/runtime/goal-host", () => ({
 	parseGoalEnabled: () => false,
+}));
+
+vi.mock("$server/runtime/workspace/target", () => ({
+	projectRequiresSandbox: async (projectId: string) => sandboxedProjects.has(projectId),
 }));
 
 const { getProject } = await import("$server/db/queries/projects");
@@ -54,6 +59,7 @@ const user = { id: "u1", email: "u@x", name: "u", role: "user" };
 
 describe("GET /api/mentions/search", () => {
 	beforeEach(() => {
+		sandboxedProjects = new Set();
 		vi.mocked(getProject).mockReset();
 		mockListCommands.mockReset();
 		mockListAgents.mockReset();
@@ -126,6 +132,19 @@ describe("GET /api/mentions/search", () => {
 		expect(res.status).toBe(200);
 		const body = (await res.json()) as unknown[];
 		expect(body).toEqual([]);
+	});
+
+	test("sandbox-bound projects deny path search before a host path lookup", async () => {
+		sandboxedProjects.add("sandbox-project");
+		const res = await GET(
+			makeEvent({
+				href: "http://localhost/api/mentions/search?type=path&projectId=sandbox-project&q=src",
+				locals: { user },
+			}),
+		);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual([]);
+		expect(vi.mocked(getProject)).not.toHaveBeenCalled();
 	});
 
 	test("type=cmd with no q: returns commands from registry (mapped to {kind:'command'})", async () => {
@@ -227,5 +246,19 @@ describe("GET /api/mentions/search", () => {
 		// detail, but it must be a non-null string ending in "/tmp".
 		expect(typeof arg.projectPath).toBe("string");
 		expect((arg.projectPath as string).endsWith("/tmp")).toBe(true);
+	});
+
+	test("sandbox-bound projects deny command discovery before the local registry", async () => {
+		sandboxedProjects.add("sandbox-project");
+		const res = await GET(
+			makeEvent({
+				href: "http://localhost/api/mentions/search?type=cmd&projectId=sandbox-project",
+				locals: { user },
+			}),
+		);
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual([]);
+		expect(mockListCommands).not.toHaveBeenCalled();
+		expect(vi.mocked(getProject)).not.toHaveBeenCalled();
 	});
 });

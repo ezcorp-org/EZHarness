@@ -20,6 +20,8 @@ const mockUpdateProject = vi.fn(async (_id: string, patch: unknown) => ({
 	name: "P",
 	...(patch as Record<string, unknown>),
 }));
+const mockDeleteProject = vi.fn(async () => true);
+let sandboxed = false;
 
 // Membership gate satisfied: `checkProjectRole` signals success by returning
 // anything that is NOT a Response.
@@ -31,10 +33,14 @@ vi.mock("$server/auth/middleware", () => ({
 vi.mock("$server/db/queries/projects", () => ({
 	updateProject: mockUpdateProject,
 	getProject: async () => ({ id: "p1", name: "P", path: "/app" }),
-	deleteProject: async () => true,
+	deleteProject: mockDeleteProject,
 }));
 
-const { PUT } = await import("../routes/api/projects/[id]/+server");
+vi.mock("$server/runtime/workspace/target", () => ({
+	projectRequiresSandbox: async () => sandboxed,
+}));
+
+const { PUT, DELETE } = await import("../routes/api/projects/[id]/+server");
 
 function makePutEvent(body: unknown) {
 	return {
@@ -49,12 +55,23 @@ function makePutEvent(body: unknown) {
 	} as never;
 }
 
+function makeDeleteEvent() {
+	return {
+		url: new URL("http://localhost/api/projects/p1"),
+		locals: { user: { id: "u1", email: "u@x", name: "u", role: "member" } },
+		params: { id: "p1" },
+		request: new Request("http://localhost/api/projects/p1", { method: "DELETE" }),
+	} as never;
+}
+
 describe("PUT /api/projects/[id] path shape", () => {
 	// Every "did not reach the DB" assertion below is only meaningful against
 	// a clean call log — without this the first accepted path in the file
 	// makes every later `not.toHaveBeenCalled()` fail for the wrong reason.
 	beforeEach(() => {
+		sandboxed = false;
 		mockUpdateProject.mockClear();
+		mockDeleteProject.mockClear();
 	});
 
 	test("rejects a relative path", async () => {
@@ -115,5 +132,21 @@ describe("PUT /api/projects/[id] path shape", () => {
 			const res = await PUT(makePutEvent({ path }));
 			expect(res.status).toBe(200);
 		}
+	});
+
+	test("denies an edit of a sandbox-bound project before its host path can change", async () => {
+		sandboxed = true;
+		const res = await PUT(makePutEvent({ path: "/app/host-root" }));
+		expect(res.status).toBe(409);
+		expect(await res.json()).toMatchObject({ error: expect.stringContaining("Sandbox") });
+		expect(mockUpdateProject).not.toHaveBeenCalled();
+	});
+
+	test("denies deleting a sandbox project until its explicit disposal completes", async () => {
+		sandboxed = true;
+		const res = await DELETE(makeDeleteEvent());
+		expect(res.status).toBe(409);
+		expect(await res.json()).toMatchObject({ error: expect.stringContaining("Dispose") });
+		expect(mockDeleteProject).not.toHaveBeenCalled();
 	});
 });

@@ -9,6 +9,7 @@
 	import FeatureIndex from "$lib/components/FeatureIndex.svelte";
 	import ComposerSuggestSection from "$lib/components/settings/ComposerSuggestSection.svelte";
 	import SaveIndicator from "$lib/components/settings/SaveIndicator.svelte";
+	import ProjectSandboxPanel from "$lib/components/ProjectSandboxPanel.svelte";
 	import { createSaveFlash } from "$lib/save-flash.svelte.js";
 
 	let globalPrompt = $state("");
@@ -120,6 +121,7 @@
 			<ProjectForm {project} onsubmit={handleUpdate} submitting={projectUpdateFlash.saving} />
 			<div class="mt-2"><SaveIndicator saved={projectUpdateFlash.saved} error={projectUpdateFlash.error} /></div>
 		</div>
+		<ProjectSandboxPanel projectId={project.id} sandbox={project.path === ""} />
 		<!-- Feature Index -->
 		<div class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6">
 			<p class="mb-3 text-xs text-[var(--color-text-secondary)]">
