@@ -1,6 +1,6 @@
 # Pluggable infrastructure execution contract
 
-Source: docs/plans/2026-09-20-pluggable-infrastructure-tasks.md. All required R1–R3 outcomes remain in scope. Optional R4 selection is pending user input.
+Source: docs/plans/2026-09-20-pluggable-infrastructure-tasks.md. The active scope is the bare minimum local EZHarness MVP. All R4 features, Claude/Codex guest workers, external networking, Infisical, second-provider qualification, and Compose services are deferred or removed as specified in the source plan.
 
 ## Shared rules
 
@@ -40,3 +40,15 @@ Parent owns integration, shared coverage registration and final verification. Ag
 ## Active MVP scope
 
 User selected the bare minimum local MVP. This supersedes the initial R1–R3 implementation scope. See the final scope section in the source backlog. Contract and routing foundations remain; optional protocols, Infisical, second-provider proof, external networking and full Compose qualification are deferred.
+
+- C01 integrated as `9802fef2e`: additive provider declarations, generated schema, fixed MVP method groups and sensitive classification. Agent receipt reports contract tests, builds and 100% changed-line coverage; parent rerun in progress.
+- Local runtime feasibility: rootless Podman on this extfs host cannot enforce overlay disk quota. Owned fixed-size filesystem/FUSE proof stopped guest writes at ENOSPC and retained data after remount. Final recipe must avoid unsupported journal handling and prove recovery/cleanup; this is not yet full profile qualification.
+- Work unit model: each MVP sandbox uses a dedicated project. Existing source-index feature rows are not execution identities. Local host-validated workingDir behavior remains intact; sandbox binding overrides it.
+
+- Parent C01 verification passed: schema parity, 21 contract tests, package build and 100% changed executable-line coverage. Receipt path normalization required the canonical root-invoked test command. See gates/pluggable-contract.md.
+
+- Parent W02 verification: 9 tests passed, 44 assertions; target and binding migration each have 100% measured executable-line coverage. `/tmp/pluggable-routing-parent.log` and the root-produced lcov record provide the evidence. Full integrated coverage and runtime acceptance remain open.
+- Parent review rejected the first replay journal implementation: temp-file rename did not atomically claim an idempotency key across concurrent instances. A concurrency test and exclusive publication are required before integration.
+
+- Native tool reuse: seven existing implementations now share a catalog; the fixed read-only sandbox helper bundles to 0.79 MB. Parent tests: 5 passed, 28 assertions, four new modules each 100% measured line coverage. Real offline Podman helper executed a Bun test successfully; owned container inventory is empty afterward. Receipt `/tmp/pluggable-native-guest-proof.json`. This is helper evidence, not full controller/restart acceptance.
+- Parent local file/journal/lifecycle focused checks: 17 passed, 252 assertions. Exact runtime identity, cleanup reconciliation and process supervision remain open; the driver is not activated.

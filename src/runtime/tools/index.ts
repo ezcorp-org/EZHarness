@@ -1,12 +1,6 @@
 import type { BuiltinToolDef } from "./types";
-import { createReadFileTool } from "./read-file";
-import { createListFilesTool } from "./list-files";
-import { createReadDirectoryTool } from "./read-directory";
-import { createEditFileTool } from "./edit-file";
-import { createShellTool, type ShellPreviewWiring, type ShellSandboxWiring } from "./shell";
-import { createGrepTool } from "./grep";
-import { createGlobTool } from "./glob";
-import { describeOutputCap, getToolOutputLimit } from "./output-limits";
+import { getNativeToolDefs } from "./native-tools";
+import type { ShellPreviewWiring, ShellSandboxWiring } from "./shell";
 import {
   getSandboxWorkspaceDispatcher,
   type SandboxWorkspaceOperation,
@@ -35,21 +29,7 @@ export function getBuiltinToolDefs(
 ): BuiltinToolDef[] {
   if (typeof workspace === "string") workspace = { kind: "local", root: workspace, revision: 0 };
   if (workspace.kind === "sandbox") return getSandboxToolDefs(workspace);
-  const projectPath = workspace.root;
-  const defs: BuiltinToolDef[] = [
-    createReadFileTool(projectPath),
-    createListFilesTool(projectPath),
-    createReadDirectoryTool(projectPath),
-    createEditFileTool(projectPath),
-    createShellTool(projectPath, preview, shellSandbox),
-    createGrepTool(projectPath),
-    createGlobTool(projectPath),
-  ];
-  for (const def of defs) {
-    def.maxOutputBytes = getToolOutputLimit(def.name);
-    def.description = `${def.description} ${describeOutputCap(def.name)}`;
-  }
-  return defs;
+  return getNativeToolDefs(workspace.root, preview, shellSandbox);
 }
 
 /** Keep the existing schemas, labels, permission categories and output caps
