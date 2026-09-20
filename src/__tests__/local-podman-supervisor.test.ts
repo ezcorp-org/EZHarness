@@ -41,6 +41,8 @@ describe("LocalProcessSupervisor", () => {
 	test("runs one detached process, bounds output while reading, and stops descendants", async () => {
 		const f = await fixture(); const started = await f.supervisor.start(f.input);
 		expect(started.receipt.outcome).toBe("succeeded"); if (!("process" in started)) throw new Error("missing process");
+		expect(await f.supervisor.start(f.input)).toEqual(started);
+		expect((await f.supervisor.start({ ...f.input, call: { ...call, requestDigest: "b".repeat(64) } })).receipt).toMatchObject({ outcome: "failed", error: { code: "idempotency_conflict" } });
 		const busy = await f.supervisor.start({ ...f.input, call: { ...call, operationId: "other" } }); expect(busy.receipt.outcome).toBe("failed");
 		await writeFile(join(f.processRoot, "cancel"), started.process.identity.processId);
 		const inspected = await terminal(f, started.process.identity); expect(inspected).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "cancelled", outputCursor: 12 } });
@@ -86,7 +88,7 @@ describe("LocalProcessSupervisor", () => {
 		await writeFile(f.runtimeState, "running");
 		const statusPath = join(f.processRoot, "status.json");
 		const deadIdentity = { bootId: "boot-id", processId: crypto.randomUUID() };
-		await writeFile(statusPath, JSON.stringify({ version: 1, identity: deadIdentity, state: "running", startedAt: 1, deadlineAt: 2, helperPid: 99999999, helperStartTime: "missing", outputCursor: 0, gap: false, chunks: [] }), { mode: 0o600 });
+		await writeFile(statusPath, JSON.stringify({ version: 1, identity: deadIdentity, call, state: "running", startedAt: 1, deadlineAt: 2, helperPid: 99999999, helperStartTime: "missing", outputCursor: 0, gap: false, chunks: [] }), { mode: 0o600 });
 		const recovered = await f.supervisor.inspect({ call, resourceId: "resource", identity: deadIdentity });
 		expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "unknown" } });
 		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
@@ -97,5 +99,18 @@ describe("LocalProcessSupervisor", () => {
 		const result = await terminal(f, started.process.identity);
 		expect(result).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "exited" } });
 		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
+	});
+
+	test("retires stale active status after a verified container boot change without stopping the new boot", async () => {
+		const f = await fixture(64); const first = await f.supervisor.start(f.input); if (!("process" in first)) throw new Error("missing process");
+		await f.supervisor.cancel({ call, resourceId: "resource", identity: first.process.identity }); await terminal(f, first.process.identity);
+		const statusPath = join(f.processRoot, "status.json"); const stale = JSON.parse(await readFile(statusPath, "utf8")); stale.state = "running"; await writeFile(statusPath, JSON.stringify(stale), { mode: 0o600 });
+		f.resource.bootId = "next-boot"; await writeFile(f.runtimeState, "running");
+		const next = await f.supervisor.start({ ...f.input, call: { ...call, operationId: "next", idempotencyKey: "next" } }); expect(next.receipt.outcome).toBe("succeeded"); if (!("process" in next)) throw new Error("missing next process");
+		expect(await readFile(f.runtimeState, "utf8")).toBe("running");
+		expect((await f.supervisor.inspect({ call, resourceId: "resource", identity: first.process.identity })).receipt.outcome).toBe("failed");
+		expect((await f.supervisor.readOutput({ call, resourceId: "resource", identity: first.process.identity, cursor: 0, maxBytes: 1 })).receipt.outcome).toBe("failed");
+		expect((await f.supervisor.cancel({ call, resourceId: "resource", identity: first.process.identity })).receipt.outcome).toBe("failed");
+		await f.supervisor.cancel({ call, resourceId: "resource", identity: next.process.identity }); await terminal(f, next.process.identity);
 	});
 });

@@ -169,7 +169,7 @@ def main() -> int:
         create_args = [
             "create", "--pull=never", "--name", container,
             "--label", f"io.ezcorp.pluggable-qualification={run_id}",
-            "--network=none", "--read-only", "--read-only-tmpfs=false",
+            "--network=none", "--pid=private", "--ipc=private", "--uts=private", "--read-only", "--read-only-tmpfs=false",
             "--log-driver=none",
             "--cap-drop=ALL", "--security-opt=no-new-privileges",
             "--memory=128m", "--memory-swap=128m", "--cpus=0.5", "--pids-limit=32",
@@ -191,6 +191,9 @@ def main() -> int:
         record(controls, "capabilities-dropped", cap_eff == "0000000000000000", {"CapEff": cap_eff, "inspect": host_config["CapDrop"]})
         record(controls, "network-disabled", host_config["NetworkMode"] == "none", host_config["NetworkMode"])
         record(controls, "read-only-root", host_config["ReadonlyRootfs"] is True, host_config["ReadonlyRootfs"])
+        receipt["containerIsolation"] = {key: host_config.get(key) for key in ("NetworkMode", "PidMode", "IpcMode", "UtsMode", "UsernsMode", "Privileged", "CapDrop", "SecurityOpt")}
+        if host_config.get("PidMode") != "private" or host_config.get("IpcMode") != "private" or host_config.get("UtsMode") is not None or host_config.get("Privileged") is not False:
+            raise ProbeError("container namespace or privilege identity differs from the fixed local profile")
 
         cgroup_values = podman("exec", container, "sh", "-c", "cat /sys/fs/cgroup/cpu.max /sys/fs/cgroup/memory.max /sys/fs/cgroup/memory.swap.max /sys/fs/cgroup/pids.max").stdout.splitlines()
         receipt["observedCgroup"] = {"cpu.max": cgroup_values[0], "memory.max": cgroup_values[1], "memory.swap.max": cgroup_values[2], "pids.max": cgroup_values[3]}
@@ -205,8 +208,8 @@ def main() -> int:
         record(controls, "bounded-output", len(retained.encode()) == 1024, {"producedBytes": len(bounded.encode()), "retainedBytes": len(retained.encode()), "limitBytes": 1024})
         podman("exec", "--detach", container, "sh", "-c", "sleep 300 & child=$!; echo $child > /workspace/cancel-pid; wait $child")
         cancel_pid = podman("exec", container, "sh", "-c", "while [ ! -s /workspace/cancel-pid ]; do sleep 0.01; done; cat /workspace/cancel-pid").stdout.strip()
-        cancel = podman("exec", container, "kill", "-TERM", cancel_pid, check=False)
-        still_alive = podman("exec", container, "sh", "-c", f"i=0; while kill -0 {cancel_pid} 2>/dev/null && [ $i -lt 100 ]; do i=$((i+1)); sleep 0.01; done; kill -0 {cancel_pid} 2>/dev/null", check=False)
+        cancel = podman("exec", container, "sh", "-c", f"kill -TERM {cancel_pid}", check=False)
+        still_alive = podman("exec", container, "sh", "-c", f"i=0; while [ -r /proc/{cancel_pid}/stat ] && [ \"$(cut -d' ' -f3 /proc/{cancel_pid}/stat)\" != Z ] && [ $i -lt 100 ]; do i=$((i+1)); sleep 0.01; done; [ -r /proc/{cancel_pid}/stat ] && [ \"$(cut -d' ' -f3 /proc/{cancel_pid}/stat)\" != Z ]", check=False)
         record(controls, "process-cancel", cancel.returncode == 0 and still_alive.returncode != 0, {"pid": cancel_pid, "killExitCode": cancel.returncode, "aliveExitCode": still_alive.returncode})
         denied = podman("exec", container, "sh", "-c", "printf forbidden > /qualification-host-canary", check=False)
         record(controls, "filesystem-isolation", denied.returncode != 0 and not (pathlib.Path("/") / "qualification-host-canary").exists(), {"exitCode": denied.returncode, "stderr": denied.stderr.strip()[:512]})

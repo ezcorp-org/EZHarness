@@ -41,6 +41,7 @@ export interface SupervisorLaunch {
 	containerId: string;
 	containerName: string;
 	identity: { bootId: string; processId: string };
+	call: ProviderCall;
 	argv: string[];
 	env: Record<string, string>;
 	cwd: string;
@@ -55,6 +56,7 @@ export interface SupervisorLaunch {
 export interface SupervisorStatus {
 	version: 1;
 	identity: { bootId: string; processId: string };
+	call: ProviderCall;
 	state: SandboxProcess["state"];
 	startedAt: number;
 	deadlineAt: number;
@@ -110,7 +112,7 @@ async function readStatus(path: string): Promise<SupervisorStatus> {
 	const info = await stat(path);
 	if (!info.isFile() || info.size > MAX_STATUS_BYTES || (info.mode & 0o077) !== 0) throw new Error("Invalid supervisor status artifact");
 	const value = JSON.parse(await readFile(path, "utf8")) as SupervisorStatus;
-	if (value.version !== 1 || !ID.test(value.identity.bootId) || !ID.test(value.identity.processId) || !Array.isArray(value.chunks)) throw new Error("Invalid supervisor status");
+	if (value.version !== 1 || !ID.test(value.identity.bootId) || !ID.test(value.identity.processId) || !value.call || !Array.isArray(value.chunks)) throw new Error("Invalid supervisor status");
 	return value;
 }
 
@@ -122,6 +124,8 @@ async function processStartTime(pid: number): Promise<string | undefined> {
 function asProcess(status: SupervisorStatus): SandboxProcess {
 	return { identity: status.identity, state: status.state, ...(status.exitCode === undefined ? {} : { exitCode: status.exitCode }), outputCursor: status.outputCursor };
 }
+function sameCall(left: ProviderCall, right: ProviderCall): boolean { return JSON.stringify(left) === JSON.stringify(right); }
+function sameCallKey(left: ProviderCall, right: ProviderCall): boolean { return left.idempotencyKey === right.idempotencyKey && JSON.stringify(left.scope) === JSON.stringify(right.scope); }
 
 export function launchDetachedSupervisor(argv: string[]): void {
 	const child = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
@@ -150,6 +154,7 @@ export class LocalProcessSupervisor {
 
 	private async recover(resource: OwnedProcessResource, status: SupervisorStatus, path: string): Promise<SupervisorStatus> {
 		if (status.state !== "starting" && status.state !== "running") return status;
+		if (status.identity.bootId !== resource.bootId) { const recovered = { ...status, state: "unknown" as const }; await atomicJson(path, recovered); return recovered; }
 		if (status.state === "starting" && status.helperPid === 0 && Date.now() <= Math.min(status.deadlineAt, status.startedAt + 5_000)) return status;
 		const liveStart = await processStartTime(status.helperPid);
 		if (status.identity.bootId === resource.bootId && liveStart !== undefined && liveStart === status.helperStartTime) return status;
@@ -171,17 +176,20 @@ export class LocalProcessSupervisor {
 			try { lock = await open(lockPath, "wx", 0o600); } catch { return failure(input.call, "process_busy", "A process start is already in progress"); }
 			try {
 				try {
-					const current = await readStatus(paths.status);
+					const stored = await readStatus(paths.status);
+					if (stored.identity.bootId === resource.bootId && sameCall(stored.call, input.call)) return { receipt: receipt(input.call), process: asProcess(stored) };
+					if (stored.identity.bootId === resource.bootId && sameCallKey(stored.call, input.call)) return failure(input.call, "idempotency_conflict", "The idempotency key belongs to a different process request");
+					const current = await this.recover(resource, stored, paths.status);
 					if (current.state === "starting" || current.state === "running") return failure(input.call, "process_busy", "The resource already has a managed process");
 				} catch (error) {
 					if ((error as NodeJS.ErrnoException).code !== "ENOENT") return failure(input.call, "process_state_unknown", "The prior process state cannot be verified", "unknown");
 				}
 				await rm(paths.cancel, { force: true });
 				const identity = { bootId: resource.bootId, processId: crypto.randomUUID() };
-				const launch: SupervisorLaunch = { version: 1, podmanPath: this.config.podmanPath, containerId: resource.containerId, containerName: resource.containerName, identity, argv: input.argv, env: input.env, cwd: input.cwd, timeoutMs: input.timeoutMs, maxOutputBytes: this.config.maxOutputBytes, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid, statusPath: paths.status, cancelPath: paths.cancel };
+					const launch: SupervisorLaunch = { version: 1, podmanPath: this.config.podmanPath, containerId: resource.containerId, containerName: resource.containerName, identity, call: input.call, argv: input.argv, env: input.env, cwd: input.cwd, timeoutMs: input.timeoutMs, maxOutputBytes: this.config.maxOutputBytes, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid, statusPath: paths.status, cancelPath: paths.cancel };
 				await atomicJson(paths.launch, launch);
 				const now = Date.now();
-				await atomicJson(paths.status, { version: 1, identity, state: "starting", startedAt: now, deadlineAt: now + input.timeoutMs, helperPid: 0, helperStartTime: "pending", outputCursor: 0, gap: false, chunks: [] } satisfies SupervisorStatus);
+					await atomicJson(paths.status, { version: 1, identity, call: input.call, state: "starting", startedAt: now, deadlineAt: now + input.timeoutMs, helperPid: 0, helperStartTime: "pending", outputCursor: 0, gap: false, chunks: [] } satisfies SupervisorStatus);
 				this.launchDetached([this.config.supervisorPath, paths.launch]);
 				return { receipt: receipt(input.call), process: { identity, state: "starting", outputCursor: 0 } };
 			} finally {
@@ -193,7 +201,8 @@ export class LocalProcessSupervisor {
 	async inspect(input: SandboxProcessInspectInput): Promise<SandboxProcessInspectResult> {
 		validateProviderMethodValue("sandbox.process.v1", "inspect", "input", input);
 		try {
-			const resource = await this.owned(input); const path = this.paths(resource).status; const stored = await readStatus(path);
+				const resource = await this.owned(input); const path = this.paths(resource).status; const stored = await readStatus(path);
+				if (input.identity.bootId !== resource.bootId) return failure(input.call, "process_not_found", "Process boot generation does not match");
 			if (stored.identity.bootId !== input.identity.bootId || stored.identity.processId !== input.identity.processId) return failure(input.call, "process_not_found", "Process identity does not match");
 			const status = await this.recover(resource, stored, path);
 			return { receipt: receipt(input.call), process: asProcess(status) };
@@ -203,7 +212,8 @@ export class LocalProcessSupervisor {
 	async readOutput(input: SandboxProcessReadOutputInput): Promise<SandboxProcessReadOutputResult> {
 		validateProviderMethodValue("sandbox.process.v1", "readOutput", "input", input);
 		try {
-			const resource = await this.owned(input); const status = await readStatus(this.paths(resource).status);
+				const resource = await this.owned(input); const status = await readStatus(this.paths(resource).status);
+				if (input.identity.bootId !== resource.bootId) return failure(input.call, "process_not_found", "Process boot generation does not match");
 			if (status.identity.bootId !== input.identity.bootId || status.identity.processId !== input.identity.processId || input.cursor > status.outputCursor) return failure(input.call, "process_not_found", "Process output identity or cursor does not match");
 			let budget = input.maxBytes; let cursor = input.cursor; const chunks: SandboxProcessOutputChunk[] = [];
 			for (const chunk of status.chunks) {
@@ -219,7 +229,8 @@ export class LocalProcessSupervisor {
 	async cancel(input: SandboxProcessCancelInput): Promise<SandboxProcessCancelResult> {
 		validateProviderMethodValue("sandbox.process.v1", "cancel", "input", input);
 		try {
-			const resource = await this.owned(input); const paths = this.paths(resource); const status = await readStatus(paths.status);
+				const resource = await this.owned(input); const paths = this.paths(resource); const status = await readStatus(paths.status);
+				if (input.identity.bootId !== resource.bootId) return failure(input.call, "process_not_found", "Process boot generation does not match");
 			if (status.identity.bootId !== input.identity.bootId || status.identity.processId !== input.identity.processId) return failure(input.call, "process_not_found", "Process identity does not match");
 			await writeFile(paths.cancel, input.identity.processId, { mode: 0o600 });
 			for (let attempts = 0; attempts < 400; attempts += 1) {

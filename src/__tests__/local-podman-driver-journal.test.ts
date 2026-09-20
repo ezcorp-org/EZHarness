@@ -19,7 +19,7 @@ async function fixture(nativeToolsArtifact?: string) {
   await mkdir(config.stateRoot, { recursive: true, mode: 0o700 }); const roots = new ResourceRoot(config.stateRoot); const paths = await roots.initialize("resource");
   await mkdir(paths.mount, { mode: 0o700 });
   const configDigest = configurationDigest(config, limits); await roots.writeMetadata("resource", { resourceId: "resource", containerId, containerName, configDigest, scope: input().call.scope, state: "stopped", limits });
-  const live = { Id: containerId, Name: containerName, Image: config.imageId, State: { Running: false }, Config: { Image: config.imageReference, User: "0:0", Labels: { [RESOURCE_LABEL]: resourceKey("resource"), [CONFIG_LABEL]: configDigest } }, HostConfig: { NetworkMode: "none", UsernsMode: "", ReadonlyRootfs: true, Memory: limits.memoryBytes, MemorySwap: limits.memoryBytes, NanoCpus: limits.milliCpu * 1_000_000, PidsLimit: limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }, ...(nativeToolsArtifact === undefined ? [] : [{ Type: "bind", Source: nativeToolsArtifact, Destination: "/opt/ezharness/native-tools.js", RW: false }])] };
+  const capDrop = ["CAP_CHOWN", "CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_FSETID", "CAP_KILL", "CAP_NET_BIND_SERVICE", "CAP_SETFCAP", "CAP_SETGID", "CAP_SETPCAP", "CAP_SETUID", "CAP_SYS_CHROOT"]; const live = { Id: containerId, Name: containerName, Image: config.imageId, State: { Running: false }, Config: { Image: config.imageReference, User: "0:0", Labels: { [RESOURCE_LABEL]: resourceKey("resource"), [CONFIG_LABEL]: configDigest } }, HostConfig: { NetworkMode: "none", UsernsMode: "", PidMode: "private", IpcMode: "private", UtsMode: null, Privileged: false, CapDrop: capDrop, SecurityOpt: ["no-new-privileges"], ReadonlyRootfs: true, Memory: limits.memoryBytes, MemorySwap: limits.memoryBytes, NanoCpus: limits.milliCpu * 1_000_000, PidsLimit: limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }, ...(nativeToolsArtifact === undefined ? [] : [{ Type: "bind", Source: nativeToolsArtifact, Destination: "/opt/ezharness/native-tools.js", RW: false }])] };
   await writeFile(inspect, JSON.stringify([live]));
   return { driver: new LocalPodmanDriver(config), log, config, inspect, live, fail, root };
 }
@@ -36,8 +36,10 @@ describe("local lifecycle journal integration", () => {
     const createInput = { call: input().call, profile: "linux-exec.v1" as const, limits: { memoryBytes: 128 * 1024 * 1024, milliCpu: 500, pids: 32, diskBytes: 16 * 1024 * 1024 } };
     const created = await driver.create(createInput); expect(created.receipt.outcome).toBe("succeeded"); if (!("resource" in created)) throw new Error("missing resource");
     const paths = resourcePaths(stateRoot, created.resource.resourceId); const metadata = await new ResourceRoot(stateRoot).readMetadata<any>(created.resource.resourceId);
-    const live = { Id: containerId, Name: metadata.containerName, Image: config.imageId, State: { Running: false }, Config: { Image: config.imageReference, User: "0:0", Labels: { [RESOURCE_LABEL]: resourceKey(created.resource.resourceId), [CONFIG_LABEL]: metadata.configDigest } }, HostConfig: { NetworkMode: "none", UsernsMode: "", ReadonlyRootfs: true, Memory: createInput.limits.memoryBytes, MemorySwap: createInput.limits.memoryBytes, NanoCpus: createInput.limits.milliCpu * 1_000_000, PidsLimit: createInput.limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }] };
-    await writeFile(control, JSON.stringify([live])); const destroyed = await driver.destroy({ call: { ...input().call, operationId: "destroy", idempotencyKey: "destroy" }, resourceId: created.resource.resourceId });
+    const capDrop = ["CAP_CHOWN", "CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_FSETID", "CAP_KILL", "CAP_NET_BIND_SERVICE", "CAP_SETFCAP", "CAP_SETGID", "CAP_SETPCAP", "CAP_SETUID", "CAP_SYS_CHROOT"]; const live = { Id: containerId, Name: metadata.containerName, Image: config.imageId, State: { Running: false }, Config: { Image: config.imageReference, User: "0:0", Labels: { [RESOURCE_LABEL]: resourceKey(created.resource.resourceId), [CONFIG_LABEL]: metadata.configDigest } }, HostConfig: { NetworkMode: "none", UsernsMode: "", PidMode: "private", IpcMode: "private", UtsMode: null, Privileged: false, CapDrop: capDrop, SecurityOpt: ["no-new-privileges"], ReadonlyRootfs: true, Memory: createInput.limits.memoryBytes, MemorySwap: createInput.limits.memoryBytes, NanoCpus: createInput.limits.milliCpu * 1_000_000, PidsLimit: createInput.limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }] };
+    await writeFile(control, JSON.stringify([live])); const createJournal = (await readdir(`${stateRoot}/operations`))[0]!; await writeFile(`${stateRoot}/operations/${createJournal}`, JSON.stringify({ version: 1, state: "pending", call: createInput.call }));
+    expect(await new LocalPodmanDriver(config, { workspaceImage: images }).create(createInput)).toEqual(created);
+    const destroyed = await driver.destroy({ call: { ...input().call, operationId: "destroy", idempotencyKey: "destroy" }, resourceId: created.resource.resourceId });
     expect(destroyed.receipt.outcome).toBe("succeeded");
     await writeFile(fail, "fail"); const failed = await driver.create({ ...createInput, call: { ...input().call, operationId: "create-failed", idempotencyKey: "create-failed" } });
     expect(failed.receipt).toMatchObject({ outcome: "failed", error: { code: "create_failed_clean" } });
@@ -63,6 +65,12 @@ describe("local lifecycle journal integration", () => {
       ["pinned image reference", (live) => { live.Config.Image = `sha256:${"b".repeat(64)}`; }],
       ["workspace user", (live) => { live.Config.User = "1000:1000"; }],
       ["network", (live) => { live.HostConfig.NetworkMode = "bridge"; }],
+      ["PID namespace", (live) => { live.HostConfig.PidMode = "host"; }],
+      ["IPC namespace", (live) => { live.HostConfig.IpcMode = "host"; }],
+      ["UTS namespace", (live) => { live.HostConfig.UtsMode = "host"; }],
+      ["privileged", (live) => { live.HostConfig.Privileged = true; }],
+      ["capabilities", (live) => { live.HostConfig.CapDrop = []; }],
+      ["security options", (live) => { live.HostConfig.SecurityOpt = []; }],
       ["user namespace", (live) => { live.HostConfig.UsernsMode = "private"; }],
       ["read-only root", (live) => { live.HostConfig.ReadonlyRootfs = false; }],
       ["memory", (live) => { live.HostConfig.Memory += 1; }],

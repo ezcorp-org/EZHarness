@@ -72,6 +72,7 @@ export interface ExpectedContainerIdentity {
   user: string;
   labels: Readonly<Record<typeof RESOURCE_LABEL | typeof CONFIG_LABEL, string>>;
   networkMode: "none";
+  pidMode: "private"; ipcMode: "private"; utsMode: null; privileged: false; capDrop: readonly string[]; securityOpt: readonly string[];
   readonlyRootfs: true;
   memoryBytes: number;
   memorySwapBytes: number;
@@ -88,6 +89,7 @@ export function expectedContainerIdentity(config: LocalPodmanHostConfig, resourc
     user: `${config.workspaceUid}:${config.workspaceGid}`,
     labels: Object.freeze({ [RESOURCE_LABEL]: resourceKey(resourceId), [CONFIG_LABEL]: configurationDigest(config, limits) }),
     networkMode: "none",
+    pidMode: "private", ipcMode: "private", utsMode: null, privileged: false, capDrop: Object.freeze(["CAP_CHOWN", "CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_FSETID", "CAP_KILL", "CAP_NET_BIND_SERVICE", "CAP_SETFCAP", "CAP_SETGID", "CAP_SETPCAP", "CAP_SETUID", "CAP_SYS_CHROOT"]), securityOpt: Object.freeze(["no-new-privileges"]),
     readonlyRootfs: true,
     memoryBytes: limits.memoryBytes,
     memorySwapBytes: limits.memoryBytes,
@@ -112,7 +114,7 @@ export function createContainerArgv(config: LocalPodmanHostConfig, resourceId: s
   const identity = expectedContainerIdentity(config, resourceId, containerName, mount, limits);
   const tools = config.nativeToolsArtifact ? [`--mount=type=bind,source=${config.nativeToolsArtifact},destination=${NATIVE_TOOLS_DESTINATION},ro`] : [];
   return [config.podmanPath, "--remote=false", "create", "--pull=never", "--name", containerName, "--user", identity.user,
-    "--label", `${RESOURCE_LABEL}=${identity.labels[RESOURCE_LABEL]}`, "--label", `${CONFIG_LABEL}=${identity.labels[CONFIG_LABEL]}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--log-driver=none",
+    "--label", `${RESOURCE_LABEL}=${identity.labels[RESOURCE_LABEL]}`, "--label", `${CONFIG_LABEL}=${identity.labels[CONFIG_LABEL]}`, "--network=none", "--pid=private", "--ipc=private", "--uts=private", "--read-only", "--read-only-tmpfs=false", "--log-driver=none",
     "--cap-drop=ALL", "--security-opt=no-new-privileges", `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`,
     `--cpus=${limits.milliCpu / 1000}`, `--pids-limit=${limits.pids}`, "--tmpfs=/tmp:rw,noexec,nosuid,nodev,size=16777216",
     `--mount=type=bind,source=${mount},destination=${WORKSPACE_DESTINATION},rw`, ...tools, config.imageReference, "sleep", "infinity"];

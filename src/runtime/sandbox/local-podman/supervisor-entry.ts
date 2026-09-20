@@ -42,7 +42,7 @@ export async function runSupervisorEntry(launchPath: string): Promise<void> {
 	const launch = JSON.parse(await readFile(launchPath, "utf8")) as SupervisorLaunch;
 	if (launch.version !== 1 || !launch.podmanPath.startsWith("/") || !launch.statusPath.startsWith("/") || !launch.cancelPath.startsWith("/")) throw new Error("Invalid supervisor launch");
 	const startedAt = Date.now();
-	const status: SupervisorStatus = { version: 1, identity: launch.identity, state: "running", startedAt, deadlineAt: startedAt + launch.timeoutMs, helperPid: process.pid, helperStartTime: await helperStartTime(), outputCursor: 0, gap: false, chunks: [] };
+	const status: SupervisorStatus = { version: 1, identity: launch.identity, call: launch.call, state: "running", startedAt, deadlineAt: startedAt + launch.timeoutMs, helperPid: process.pid, helperStartTime: await helperStartTime(), outputCursor: 0, gap: false, chunks: [] };
 	let writes = Promise.resolve(); const persist = () => { writes = writes.then(() => atomicStatus(launch.statusPath, status)); return writes; };
 	await persist();
 	if (!(await ownedAndRunning(launch))) { await stopAndVerify(launch); status.state = "unknown"; await persist(); return; }
