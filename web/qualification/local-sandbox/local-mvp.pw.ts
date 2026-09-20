@@ -10,6 +10,14 @@ import { importAndActivateBundledExtension } from "../../e2e/fixtures/extension-
 let ownedProjectId: string | undefined;
 test.afterEach(async ({ request }) => {
   if (!ownedProjectId) return;
+  // Do not race disposal against an action whose UI assertion failed while
+  // its bounded runtime request is still completing.
+  await expect.poll(async () => {
+    const response = await request.get(`/api/projects/${ownedProjectId}/sandbox`);
+    expect(response.status(), await response.text()).toBe(200);
+    const { operation } = await response.json();
+    return operation?.state === "admitted" || operation?.state === "running";
+  }, { timeout: 60000 }).toBe(false);
   const status = await request.get(`/api/projects/${ownedProjectId}/sandbox`);
   expect(status.status(), await status.text()).toBe(200);
   if ((await status.json()).state !== "destroyed") {
@@ -55,11 +63,20 @@ test("local native workspace survives browser and app restart then disposes clea
   expect(created.status(), await created.text()).toBe(201);
   const { project } = await created.json();
   ownedProjectId = project.id;
+  const clickAction = async (action: "start" | "stop" | "destroy", label: string) => {
+    const [response] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === `/api/projects/${project.id}/sandbox`
+        && response.request().method() === "POST" && response.request().postDataJSON()?.action === action, { timeout: 60000 }),
+      panel.getByRole("button", { name: label, exact: true }).click(),
+    ]);
+    expect(response.status(), await response.text()).toBe(200);
+    expect((await response.json()).state).toBe({ start: "running", stop: "stopped", destroy: "destroyed" }[action]);
+  };
   await expect(page).toHaveURL(new RegExp(`/project/${project.id}/settings$`));
   await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
-  await panel.getByRole("button", { name: "Start", exact: true }).click();
+  await clickAction("start", "Start");
   await expect(panel.getByText("running", { exact: true })).toBeVisible();
-  await panel.getByRole("button", { name: "Stop", exact: true }).click();
+  await clickAction("stop", "Stop");
   await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
   await panel.getByRole("link", { name: "Open chat" }).click();
   await expect(page).toHaveURL(new RegExp(`/project/${project.id}$`));
@@ -156,7 +173,7 @@ test("local native workspace survives browser and app restart then disposes clea
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await captureEvidence(page, testInfo, "local-sandbox-real-mobile", { fullPage: true });
   await panel.getByRole("button", { name: "Dispose…" }).click();
-  await panel.getByRole("button", { name: "Dispose sandbox", exact: true }).click();
+  await clickAction("destroy", "Dispose sandbox");
   await expect(panel.getByText("destroyed", { exact: true })).toBeVisible();
   for (const name of ["Start", "Stop", "Dispose…"]) await expect(panel.getByRole("button", { name, exact: true })).toBeDisabled();
   await page.setViewportSize({ width: 1440, height: 900 });
