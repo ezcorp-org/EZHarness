@@ -15,6 +15,7 @@ import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { createUnsubscribedBridgeDatabase } from "./helpers/subscribe-bridge-db";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import { LifecycleError } from "../extensions/v4/types";
+import { toolError } from "../runtime/tools/types";
 
 // Capture-bag for persistToolCall calls.
 const persisted: Array<Record<string, unknown>> = [];
@@ -250,6 +251,12 @@ describe("subscribeBridge — cardLayout fan-out", () => {
 		const row = persisted.find((r) => r.providerToolCallId === "tc-1");
 		expect(row, "persistToolCall called for the tool").toBeDefined();
 		expect(row!.cardLayout).toBe("dock");
+		// Native tools return errors so the model can recover. Their saved card
+		// must still report failure when the agent event itself did not throw.
+		piAgent.fire({ type: "tool_execution_end", toolCallId: "native-failure", toolName: "shell", isError: false, result: toolError("Sandbox workspace is unavailable") });
+		await ctx.dbQueue;
+		expect(persisted.find(value => value.providerToolCallId === "native-failure")?.success).toBe(false);
+		expect(emits.find(value => value.name === "tool:error")?.data.error).toContain("Sandbox workspace is unavailable");
 		failPersistence = true;
 		piAgent.fire({ type: "tool_execution_end", toolCallId: "failed-write", toolName: "claude-design__open-canvas", isError: false, result: { content: [] } });
 		await ctx.dbQueue;

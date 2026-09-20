@@ -75,6 +75,15 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   expect((await client.runToCompletion(resumed.id, "Read the persisted marker", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
   const persisted = await request.get(`/api/conversations/${resumed.id}/messages?withToolCalls=true`);
   expect(JSON.stringify(await persisted.json())).toContain(`${marker}_EDITED`);
+  const missingKey = `${key}-missing`;
+  await seedScript(missingKey, [{ toolCalls: [{ name: "readFile", arguments: { path: "missing-file.txt" } }] }, { text: "Missing file handled" }]);
+  const missing = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${missingKey}` });
+  expect((await client.runToCompletion(missing.id, "Read a file that does not exist", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
+  const missingHistory = await (await request.get(`/api/conversations/${missing.id}/messages?withToolCalls=true`)).json();
+  const missingCalls = [...missingHistory.messages.flatMap((message: { toolCalls?: unknown[] }) => message.toolCalls ?? []), ...missingHistory.orphanedToolCalls];
+  expect(missingCalls).toHaveLength(1);
+  expect(missingCalls[0].status).toBe("error");
+  expect(missingCalls[0].fullOutput ?? missingCalls[0].outputSummary).toContain("Error:");
   // Observe the real supervisor before disconnecting and cancelling. This
   // reads only the qualification host's owned metadata, never changes it.
   const host = JSON.parse(await readFile(process.env.EZHARNESS_LOCAL_SANDBOX_CONFIG!, "utf8"));

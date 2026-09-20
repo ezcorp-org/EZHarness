@@ -307,6 +307,8 @@ export function subscribeBridge(
         break;
       }
       case "tool_execution_end": {
+        const details = event.result?.details;
+        const toolFailed = event.isError || (details !== null && typeof details === "object" && "isError" in details && details.isError === true);
         // Drop the watchdog inflight entry on both success and error
         // paths — the run is no longer waiting on this call. Safe if the
         // entry was never recorded (e.g. invoke_agent below skips
@@ -331,10 +333,10 @@ export function subscribeBridge(
           event.toolName,
         );
         const toolEvent: DomainExtensionEvent | undefined = event.toolName === "invoke_agent" ? undefined : {
-          id: crypto.randomUUID(), type: event.isError ? "tool:error" : "tool:complete", conversationId,
+          id: crypto.randomUUID(), type: toolFailed ? "tool:error" : "tool:complete", conversationId,
           payload: {
             conversationId, extensionId: "", toolName: event.toolName, duration: 0,
-            ...(event.isError ? { error: typeof event.result === "string" ? event.result : JSON.stringify(event.result) } : { output: event.result, success: true }),
+            ...(toolFailed ? { error: typeof event.result === "string" ? event.result : JSON.stringify(event.result) } : { output: event.result, success: true }),
             cardType: endCardType, ...(endCardLayout ? { cardLayout: endCardLayout } : {}), invocationId: event.toolCallId,
           },
         };
@@ -366,7 +368,7 @@ export function subscribeBridge(
             toolName: event.toolName,
             input: args,
             output: { content: event.result?.content ?? [] },
-            success: !event.isError,
+            success: !toolFailed,
             durationMs: 0,
             cardType: endCardType ?? null,
             cardLayout: endCardLayout ?? null,
