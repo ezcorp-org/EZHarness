@@ -47,6 +47,14 @@ export interface FactoryStartupConfig {
   readonly poolReadinessFilePath: string;
   readonly supervisorReadinessFilePath: string;
   readonly hostId: string;
+  /**
+   * How often the host maintenance daemon sweeps orphaned legacy runs.
+   *
+   * Required, and at most `FACTORY_ORPHAN_DETECTION_BOUND_MS`. It is declared
+   * here rather than inferred because the daemon's own default is one hour and
+   * an installation that runs factories has agreed to a thirty-second bound.
+   */
+  readonly orphanSweepIntervalMs: number;
   readonly readinessHeartbeatMs?: number;
   /**
    * How long startup keeps probing a service that is not up yet.
@@ -198,6 +206,7 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "poolReadinessFilePath", kind: "path" },
   { field: "supervisorReadinessFilePath", kind: "path" },
   { field: "hostId", kind: "identity" },
+  { field: "orphanSweepIntervalMs", kind: "interval" },
   { field: "readinessHeartbeatMs", kind: "interval", optional: true },
   { field: "readinessRetry.delayMs", kind: "interval", optional: true },
   { field: "readinessRetry.windowMs", kind: "interval", optional: true },

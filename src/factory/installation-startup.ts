@@ -471,6 +471,10 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
     // host that composes a role this process cannot is not overruled by it.
     seams: { ...composed?.seams, ...options.seams },
     ...(config.readinessRetry === undefined ? {} : { readinessRetry: config.readinessRetry }),
+    // The daemon's own reader, so the check compares the document against the
+    // value that will really govern the sweep rather than against the env var
+    // read a second way.
+    orphanSweepIntervalMs: (await import("../extensions/host-maintenance-daemon")).getSweepIntervalMs(),
     ...(supplied.extraProbes === undefined ? {} : { extraProbes: supplied.extraProbes }),
     ...(provider === undefined ? {} : { providerReadiness: provider.readiness }),
     report: host.report,

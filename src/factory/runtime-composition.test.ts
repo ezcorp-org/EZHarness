@@ -46,6 +46,7 @@ function document(root: string, overrides: Record<string, unknown> = {}): Record
     poolReadinessFilePath: join(root, "pool.json"),
     supervisorReadinessFilePath: join(root, "supervisor.json"),
     hostId: "host-01",
+    orphanSweepIntervalMs: 30_000,
     readinessHeartbeatMs: 5_000,
     gateway: { hostname: "127.0.0.1", port: 8443, tls: tlsMaterial },
     privateService: { hostname: "127.0.0.1", port: 8444, certificateIdentity: "factory-private", tls: tlsMaterial },

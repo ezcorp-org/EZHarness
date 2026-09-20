@@ -15,6 +15,21 @@ export const FACTORY_REQUIRED_SERVICES = [
 export type FactoryService = (typeof FACTORY_REQUIRED_SERVICES)[number];
 
 /**
+ * C11's detection bound, next to the C09 service list because it is the same
+ * kind of fact: something a flag-on installation must have, checked at startup.
+ *
+ * C10 requires an orphaned legacy run to reach a terminal or resumable state
+ * within thirty seconds. W13's orphan sweep is a sub-tick of the host
+ * maintenance daemon, whose default wake is one hour — so on a default
+ * installation the bound is missed by two orders of magnitude, and nothing
+ * would have said so. The interval is therefore a declared factory setting,
+ * checked against this bound AND against the interval the daemon will really
+ * use: a document that states thirty seconds while the daemon ticks hourly is
+ * a wish, not a setting.
+ */
+export const FACTORY_ORPHAN_DETECTION_BOUND_MS = 30_000;
+
+/**
  * The reason C09 promises when the flag is off, in one place.
  *
  * The contract's spelling is dashed. The API emitted an underscored variant,
@@ -59,7 +74,9 @@ export class FactoryBootError extends Error {
       | "factory-pglite-unsupported"
       | "factory-installation-id-required"
       | "factory-secrets-dir-required"
-      | "factory-services-unavailable",
+      | "factory-services-unavailable"
+      | "factory-orphan-sweep-too-slow"
+      | "factory-orphan-sweep-mismatch",
     message: string,
   ) {
     super(message);
@@ -120,6 +137,34 @@ export function assertFactoryBootReadiness(
       `Factory startup requires unavailable services: ${missing.join(", ")}.`,
     );
     setReadiness({ state: "degraded", reason: error.code, detail: { missing } });
+    throw error;
+  }
+}
+
+/**
+ * The orphan sweep must tick at least as often as C11's detection bound.
+ *
+ * Two facts, both named. `declaredMs` is what the startup document states and
+ * `effectiveMs` is what `getSweepIntervalMs` will really use after its own
+ * default and floor; a mismatch is its own failure, because a document that
+ * disagrees with the daemon is the silent pass this check exists to prevent.
+ */
+export function assertFactoryOrphanDetectionBound(
+  declaredMs: number,
+  effectiveMs: number,
+  config: FactoryBootConfig = factoryBootConfig,
+): void {
+  if (!config.enabled) return;
+  if (!Number.isSafeInteger(declaredMs) || declaredMs < 1 || declaredMs > FACTORY_ORPHAN_DETECTION_BOUND_MS) {
+    const error = new FactoryBootError("factory-orphan-sweep-too-slow",
+      `Factory startup requires an orphan sweep at most every ${FACTORY_ORPHAN_DETECTION_BOUND_MS} ms; this installation declares ${declaredMs}.`);
+    setReadiness({ state: "degraded", reason: error.code, detail: { declaredMs, boundMs: FACTORY_ORPHAN_DETECTION_BOUND_MS } });
+    throw error;
+  }
+  if (effectiveMs !== declaredMs) {
+    const error = new FactoryBootError("factory-orphan-sweep-mismatch",
+      `The factory declares an orphan sweep every ${declaredMs} ms and the host maintenance daemon will use ${effectiveMs} ms.`);
+    setReadiness({ state: "degraded", reason: error.code, detail: { declaredMs, effectiveMs, boundMs: FACTORY_ORPHAN_DETECTION_BOUND_MS } });
     throw error;
   }
 }

@@ -28,6 +28,12 @@ import {
   type FactoryInstallationStartupError,
 } from "./installation-startup";
 
+// This suite composes the real installation, which checks C11's bound against
+// the interval the host maintenance daemon will really use. An installation
+// that runs factories has agreed to that bound, so the fixture states it the
+// way a deployment does rather than relaxing the check.
+process.env.EZCORP_PERM_SWEEP_INTERVAL_MS = "30000";
+
 const roots: string[] = [];
 const reported: Array<{ role: string; error: unknown }> = [];
 const started: Array<{ stop(): Promise<void> }> = [];
@@ -61,6 +67,7 @@ function document(root: string): Record<string, unknown> {
     tenantId: "tenant-01",
     poolId: "pool-01",
     hostId: "host-01",
+    orphanSweepIntervalMs: 30_000,
     temporalNamespace: "tenant-01.factory",
     orchestrationReadinessFilePath: join(root, "orchestration.json"),
     poolReadinessFilePath: join(root, "pool.json"),

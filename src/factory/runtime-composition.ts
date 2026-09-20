@@ -27,7 +27,7 @@
  */
 import { setReadiness } from "../readiness";
 import type { TransactionalDb } from "../db/migrations/types";
-import { assertFactoryBootConfiguration, assertFactoryBootReadiness, factoryBootConfig, FactoryBootError, type FactoryBootConfig, type FactoryService } from "./boot";
+import { assertFactoryBootConfiguration, assertFactoryBootReadiness, assertFactoryOrphanDetectionBound, factoryBootConfig, FactoryBootError, type FactoryBootConfig, type FactoryService } from "./boot";
 import { configureFactoryApplication, createFactoryApplication, type FactoryApplication, type FactoryApplicationOptions } from "./application";
 import { parseFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
 import {
@@ -115,6 +115,14 @@ export interface FactoryRuntimeDependencies {
    * it stops the gate from being decided by start order.
    */
   readonly readinessRetry?: { readonly delayMs: number; readonly windowMs: number };
+  /**
+   * The interval the host maintenance daemon will really sweep at.
+   *
+   * Supplied by the host rather than read here, because reading it means
+   * importing the daemon and the daemon imports the product database — which is
+   * the closure this composition is careful about.
+   */
+  readonly orphanSweepIntervalMs?: number;
   /** Overridden in tests so a retry window is not a real wait. */
   readonly wait?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
 }
@@ -212,6 +220,14 @@ export async function startFactoryRuntime(
   // single probe had run.
   try {
     assertFactoryBootConfiguration(databaseUrl, { ...boot, installationId: config.installationId });
+    // C11's bound, checked against what the daemon will really do. A host that
+    // does not say what its daemon uses is checked against the declaration
+    // alone, which still refuses an hourly sweep.
+    assertFactoryOrphanDetectionBound(
+      config.orphanSweepIntervalMs,
+      dependencies.orphanSweepIntervalMs ?? config.orphanSweepIntervalMs,
+      { ...boot, installationId: config.installationId },
+    );
   } catch (error) {
     // The caller has already bound whatever it passed in — the private service
     // among them — so a refusal here has to release them. Before this, a
