@@ -8,6 +8,13 @@ const emptyNodeShim = fileURLToPath(
 	new URL('./src/lib/empty-node-shim.ts', import.meta.url),
 );
 
+// The SvelteKit server hook is the first SSR module and reaches the backend
+// graph that has timed out during cold starts. Transform it before requests
+// arrive to reduce that race. This is a mitigation only: Vite 8 does not
+// expose a server-config transport timeout or retry for a rejected module-runner
+// request, so a later transform timeout can still require an app restart.
+const ssrWarmupFiles = ['./src/hooks.server.ts'];
+
 export default defineConfig({
 	// Browser coverage is an explicit build mode. Normal production builds keep
 	// their current source-map policy; the collector refuses scripts without a
@@ -23,6 +30,9 @@ export default defineConfig({
 	server: {
 		host: '0.0.0.0',
 		allowedHosts: ['nixos-amd.taile1c5b0.ts.net'],
+		warmup: {
+			ssrFiles: ssrWarmupFiles,
+		},
 		watch: {
 			// `.ezcorp/` is the runtime extension-data store (gitignored,
 			// see AGENTS.md), not source. In the container it's a volume
