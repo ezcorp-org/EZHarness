@@ -1,7 +1,7 @@
 import { executionLimits } from "@ezcorp/extension-runner";
 import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { validateFactoryRunnerResult, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
-import { FactoryAttemptRuntimeError, type FactoryAttemptLaunchIntent } from "./attempt-runtime";
+import { FactoryAttemptRuntimeError, type FactoryAttemptLaunchIntent } from "./attempt-wire";
 import { FACTORY_GUEST_BROKER_METHOD, factoryGuestFrameInput } from "./guest-frames";
 import type { FactoryHostAttemptHandle, FactoryHostLaunchSupervisor } from "./host-launch-service";
 

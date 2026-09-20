@@ -43,7 +43,7 @@ import {
   factoryRunnerSandboxControl,
   stopFactorySandbox,
 } from "./sandbox-stop";
-import type { FactoryUnsignedPhysicalStopReceipt } from "./attempt-runtime";
+import type { FactoryUnsignedPhysicalStopReceipt } from "./attempt-wire";
 
 /** A launch body carries a whole runner request; a stop body is tiny. */
 const MAX_HOST_SERVICE_BODY_BYTES = 4 * 1024 * 1024;
