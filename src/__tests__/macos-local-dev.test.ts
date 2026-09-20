@@ -254,11 +254,12 @@ describe("scripts/test-linux.sh — the invocation it guarantees", () => {
     expect(secondTag).not.toBe(firstTag);
   });
 
-  test("installs both dependency trees from their lockfiles", () => {
+  test("installs both dependency trees from their frozen lockfiles", () => {
     const argv = runArgs(run());
     const bash = argv.indexOf("bash");
     const shell = argv[bash + 2];
     expect(shell).toContain("bun install --frozen-lockfile");
+    expect(shell).toContain("bun install --cwd web --frozen-lockfile");
     expect(shell.match(/--frozen-lockfile/g)).toHaveLength(2);
   });
 });

@@ -121,5 +121,5 @@ exec "$ENGINE" run --rm "${TTY_ARGS[@]}" \
   -e EZCORP_DB_PATH=":memory:" \
   -e PI_SKIP_INIT=1 \
   "$IMAGE" \
-  bash -lc 'bun install --frozen-lockfile >/dev/null && (cd web && bun install --frozen-lockfile >/dev/null) && exec "$@"' _ \
+  bash -lc 'bun install --frozen-lockfile >/dev/null && bun install --cwd web --frozen-lockfile >/dev/null && exec "$@"' _ \
   "$@"
