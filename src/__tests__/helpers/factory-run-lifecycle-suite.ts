@@ -627,7 +627,34 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(rows(await fixture.db.execute(sql`SELECT operation_id FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${completed.task.run.runId}`))).toEqual([]);
     // A child's acceptance is still only the CHILD's: the parent has its own decision table.
     expect(rows(await fixture.db.execute(sql`SELECT decision_id FROM factory_acceptance_decisions WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${composed.parentRunId}`))).toEqual([]);
+    // The decision the receipt names is the child's sealed one, which is exactly what
+    // `FactoryChildArtifacts.bind` re-proves before a parent may consume the artifact.
+    expect(rows<{ decision_id: string }>(await fixture.db.execute(sql`SELECT decision_id FROM factory_acceptance_decisions WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${completed.task.run.runId}`)).map(row => row.decision_id)).toEqual([receipt.decisionId]);
+    // The child holds a portion carved out of the parent, not a fresh copy of its limits.
+    const parentRoot = await lifecycle.budgets.inspect({ projectId, runId: composed.parentRunId, envelopeId: "root" });
+    const childRoot = await lifecycle.budgets.inspect({ projectId, runId: completed.task.run.runId, envelopeId: "root" });
+    expect(Number(parentRoot.allocated.costMicros)).toBeGreaterThan(0);
+    expect(Number(childRoot.limits.costMicros)).toBeLessThanOrEqual(Number(parentRoot.limits.costMicros));
     await new FactoryRunTransitionProjector(fixture.db, tenantId, completed.task.transitions, lifecycle).project(runKey(completed.task.run.runId));
+  });
+
+  test("cancelling the parent stops an acceptance-only child's release rather than completing it", async () => {
+    const { effects, completed, acceptanceReference, candidateAdvanced, composed } = await protectedAcceptance(true, true, "none");
+    if (!composed) throw new Error("the acceptance-only fixture must be composed as a child");
+    const accepted = await effects.requestAcceptance(completed.task.service, acceptanceReference);
+    const acceptedAdvanced = advanceKernel(completed.task.compiled, candidateAdvanced.nextState, accepted);
+    await persistTransition(completed.task.identity, 4, accepted, acceptedAdvanced.nextState, acceptedAdvanced.commands, undefined, completed.task.activities);
+    await new FactoryRunTransitionProjector(fixture.db, tenantId, completed.task.transitions, lifecycle).project(runKey(completed.task.run.runId), 8);
+    const releaseCommand = acceptedAdvanced.commands.find(command => command.kind === "request-release");
+    if (releaseCommand?.kind !== "request-release") throw new Error("protected release command is missing");
+    const releaseReference = { ...completed.task.identity, commandId: releaseCommand.id };
+
+    const parentRevision = Number(rows<{ revision: number | string }>(await fixture.db.execute(sql`SELECT revision FROM factory_run_lifecycle WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${composed.parentRunId}`))[0]!.revision);
+    await cancelRun(principal, runKey(composed.parentRunId), parentRevision, `acceptance-only-cancel-${composed.parentRunId}`);
+
+    await expect(effects.requestRelease(completed.task.service, releaseReference)).rejects.toThrow();
+    expect(rows(await fixture.db.execute(sql`SELECT command_id FROM factory_protected_command_effects WHERE run_id=${completed.task.run.runId} AND kind='request-release'`))).toEqual([]);
+    expect(rows(await fixture.db.execute(sql`SELECT operation_id FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${completed.task.run.runId}`))).toEqual([]);
   });
 
   test("an authorized child still creates exactly one release operation", async () => {
