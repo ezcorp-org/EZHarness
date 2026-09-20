@@ -3,6 +3,7 @@ import { validatePath } from "./validate";
 import { errorMessage, toolError, type BuiltinToolDef } from "./types";
 import { buildStreamTruncationMarker, getToolOutputLimit } from "./output-limits";
 import type { ToolParams } from "./validate";
+import { raceControlled } from "./race-control";
 
 /**
  * Directories GNU grep must not descend into. ripgrep gets this for free by
@@ -200,26 +201,14 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
           stderr: "pipe",
         });
 
-        const outcome = await Promise.race([
-          (async () => {
-            const [stdout, stderr] = await Promise.all([
-              drainBounded(proc.stdout, cap),
-              drainBounded(proc.stderr, cap),
-            ]);
-            const exitCode = await proc.exited;
-            return { type: "done" as const, stdout, stderr, exitCode };
-          })(),
-          new Promise<{ type: "timeout" }>((r) =>
-            setTimeout(() => r({ type: "timeout" }), softTimeoutMs),
-          ),
-          ...(signal
-            ? [
-                new Promise<{ type: "aborted" }>((r) =>
-                  signal.addEventListener("abort", () => r({ type: "aborted" }), { once: true }),
-                ),
-              ]
-            : []),
-        ]);
+        const outcome = await raceControlled((async () => {
+          const [stdout, stderr] = await Promise.all([
+            drainBounded(proc.stdout, cap),
+            drainBounded(proc.stderr, cap),
+          ]);
+          const exitCode = await proc.exited;
+          return { stdout, stderr, exitCode };
+          })(), softTimeoutMs, signal);
 
         // NOTE: these two messages are user-facing status text, not the
         // `Error: <message>` convention `toolError` encodes (the tests pin
@@ -246,7 +235,7 @@ export function createGrepTool(projectPath: string): BuiltinToolDef {
           };
         }
 
-        const { stdout, stderr, exitCode } = outcome;
+        const { stdout, stderr, exitCode } = outcome.value;
         const trimmed = stdout.text.trim();
 
         // Exit 2 = a real error (bad regex, unreadable root). Check this

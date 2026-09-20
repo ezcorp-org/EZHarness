@@ -12,6 +12,7 @@ import {
   DEFAULT_RUNTIME_RO_DIRS,
   runtimeExecRoDirs,
 } from "../../extensions/sandbox/landlock";
+import { raceControlled } from "./race-control";
 
 const log = logger.child("shell-tool");
 
@@ -246,32 +247,22 @@ export function createShellTool(
         let truncated = false;
 
         // Race: process completion vs timeout vs external abort
-        const result = await Promise.race([
+        const result = await raceControlled((async () => {
           // Main path: read streams and wait for exit
-          (async () => {
-            // Read stdout + stderr concurrently. Both streams are bounded by
-            // MAX_OUTPUT_BYTES so an unbounded stderr producer can't OOM us.
-            // stderr is silent — no streaming callback, so the UI updates
-            // remain stdout-only.
-            const [stdoutText, stderrText] = await Promise.all([
-              readStream(proc.stdout, MAX_OUTPUT_BYTES, onUpdate),
-              readStream(proc.stderr, MAX_OUTPUT_BYTES),
-            ]);
-            output = stdoutText.text;
-            truncated = stdoutText.truncated || stderrText.truncated;
-            stderr = stderrText.text;
-            const exitCode = await proc.exited;
-            return { type: "done" as const, exitCode };
-          })(),
-          // Timeout
-          new Promise<{ type: "timeout" }>((resolve) =>
-            setTimeout(() => resolve({ type: "timeout" }), timeout)
-          ),
-          // External abort
-          ...(signal ? [new Promise<{ type: "aborted" }>((resolve) =>
-            signal.addEventListener("abort", () => resolve({ type: "aborted" }), { once: true })
-          )] : []),
-        ]);
+          // Read stdout + stderr concurrently. Both streams are bounded by
+          // MAX_OUTPUT_BYTES so an unbounded stderr producer can't OOM us.
+          // stderr is silent — no streaming callback, so the UI updates
+          // remain stdout-only.
+          const [stdoutText, stderrText] = await Promise.all([
+            readStream(proc.stdout, MAX_OUTPUT_BYTES, onUpdate),
+            readStream(proc.stderr, MAX_OUTPUT_BYTES),
+          ]);
+          output = stdoutText.text;
+          truncated = stdoutText.truncated || stderrText.truncated;
+          stderr = stderrText.text;
+          const exitCode = await proc.exited;
+          return { exitCode };
+          })(), timeout, signal);
 
         if (result.type === "timeout") {
           proc.kill();
@@ -292,7 +283,7 @@ export function createShellTool(
         const fullOutput = stderr ? `${output}\n${stderr}` : output;
         return {
           content: [{ type: "text" as const, text: fullOutput || "(no output)" }],
-          details: { exitCode: result.exitCode, stdout: output, stderr, streaming: false, truncated },
+          details: { exitCode: result.value.exitCode, stdout: output, stderr, streaming: false, truncated },
         };
       } catch (e) {
         const message = errorMessage(e);
