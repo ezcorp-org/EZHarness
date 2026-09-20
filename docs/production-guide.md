@@ -64,9 +64,9 @@ To copy it off-host, tar the folder directly (stop the app first so
 PGlite isn't mid-write):
 
 ```bash
-docker compose -f compose.prod.yml stop app
+docker compose --env-file .env.prod -f compose.prod.yml stop app
 sudo tar czf ezcorp-data-$(date +%Y%m%d).tgz .ezcorp/data .ezcorp/extension-data
-docker compose -f compose.prod.yml start app
+docker compose --env-file .env.prod -f compose.prod.yml start app
 ```
 
 Restore by stopping the stack, untarring back over `./.ezcorp/`, fixing
@@ -182,9 +182,9 @@ with `EACCES: permission denied, mkdir '/app/.ezcorp/extension-data'`. Fix
 with a one-time chown — no data loss, no `down -v`:
 
 ```bash
-docker compose -f compose.prod.yml run --rm --user 0 --entrypoint sh app \
+docker compose --env-file .env.prod -f compose.prod.yml run --rm --user 0 --entrypoint sh app \
   -c "chown -R bun:bun /app/.ezcorp"
-docker compose -f compose.prod.yml up -d
+docker compose --env-file .env.prod -f compose.prod.yml up -d
 ```
 
 ## 2. Boot sequence and migration safety
@@ -313,16 +313,16 @@ If `/api/ready` returns 503 with `reason: "migration-blocked"`:
 
 ```bash
 # Edit compose.prod.yml: image: ghcr.io/ezcorp-org/ezcorp:<previous-tag>
-docker compose -f compose.prod.yml up -d
+docker compose --env-file .env.prod -f compose.prod.yml up -d
 ```
 
 **Option B — fix forward and reset the breaker:**
 
 ```bash
 # Pull the new image that fixes the migration, then clear the marker
-docker compose -f compose.prod.yml pull
+docker compose --env-file .env.prod -f compose.prod.yml pull
 docker exec <container> rm /app/data/.migration-failed
-docker compose -f compose.prod.yml up -d --force-recreate
+docker compose --env-file .env.prod -f compose.prod.yml up -d --force-recreate
 ```
 
 **Option C — export data and rebuild from the snapshot:**
@@ -388,7 +388,7 @@ Stop the app container first so PGlite isn't holding a file handle, then
 rotate the data directory atomically.
 
 ```bash
-docker compose -f compose.prod.yml stop app
+docker compose --env-file .env.prod -f compose.prod.yml stop app
 
 # Replace this with the snapshot you picked in step 1.
 SNAP=pre-boot-<sha>-<ts>
@@ -404,7 +404,7 @@ sudo sh -c "set -eu;
   rm -f .ezcorp-recovery-needed.json;
   chown -R 1000:1000 ezcorp"
 
-docker compose -f compose.prod.yml up -d app
+docker compose --env-file .env.prod -f compose.prod.yml up -d app
 ```
 
 The next clean boot clears the marker automatically; the explicit `rm
@@ -475,9 +475,9 @@ restarting.
 
 ```bash
 # Example: restore from the most recent pre-boot snapshot
-docker compose -f compose.prod.yml stop app
+docker compose --env-file .env.prod -f compose.prod.yml stop app
 sudo sh -c 'cd .ezcorp/data && rm -rf ezcorp && cp -a backups/pre-boot-*/ ezcorp && chown -R 1000:1000 ezcorp'
-docker compose -f compose.prod.yml up -d
+docker compose --env-file .env.prod -f compose.prod.yml up -d
 ```
 
 Move `EZCORP_BACKUP_DIR` to a separate mount (e.g. an NFS volume or S3-mounted
@@ -521,7 +521,7 @@ recreates the `app` container. The boot sequence then re-runs migrations
 with the snapshot-and-rollback safety net above.
 
 ```bash
-docker compose -f compose.prod.yml up -d
+docker compose --env-file .env.prod -f compose.prod.yml up -d
 # Watchtower only acts on containers with the label
 # `com.centurylinklabs.watchtower.enable=true` — already set on `app`.
 ```

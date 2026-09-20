@@ -31,6 +31,9 @@ services:
     mem_limit: 1g
 
   app:
+    extends:
+      file: ${EZCORP_RUNNER_COMPOSE_FILE:-deploy/extension-runner/compose.runner.yml}
+      service: app
     build:
       context: .
       dockerfile: Dockerfile.dev

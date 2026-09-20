@@ -200,6 +200,7 @@ COPY --from=builder /app/packages/@ezcorp/harness-client/dist ./packages/@ezcorp
 COPY --from=builder /app/packages/@ezcorp/extension-contract/src ./packages/@ezcorp/extension-contract/src
 COPY --from=builder /app/packages/@ezcorp/extension-runner/src ./packages/@ezcorp/extension-runner/src
 COPY --from=builder /app/scripts/migrate-extension-v4.ts ./scripts/migrate-extension-v4.ts
+COPY --from=builder /app/deploy/extension-runner/app-entrypoint.sh ./deploy/extension-runner/app-entrypoint.sh
 
 # Copy @ezcorp/ai-kit — its manifest + source load at runtime because ai-kit is
 # a default-on bundled extension (see src/extensions/bundled.ts). The runtime

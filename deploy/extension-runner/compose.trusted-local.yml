@@ -1,0 +1,10 @@
+# Explicit alternative to the default isolated runner. No host socket mounts.
+services:
+  app:
+    extends:
+      file: compose.app.yml
+      service: app
+    user: "1000:1000"
+    environment:
+      EZCORP_EXTENSION_RUNNER: trusted-local
+      EZCORP_EXTENSIONS_UNSANDBOXED_ACK: ${EZCORP_EXTENSIONS_UNSANDBOXED_ACK:?Set the explicit acknowledgement described in deploy/extension-runner/README.md}
