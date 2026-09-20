@@ -2,7 +2,7 @@
 name = "ezcorp-factory-runner"
 version = "0.0.0"
 requires-python = "==3.13.*"
-dependencies = ["jsonschema==4.25.1"]
+dependencies = ["jsonschema==4.25.1", "pyarrow==25.0.1"]
 
 [dependency-groups]
 dev = [
@@ -40,3 +40,12 @@ show_missing = true
 
 [tool.mypy]
 strict = true
+
+# PyArrow ships no `py.typed` marker and no stub package exists for it, so
+# strict mypy cannot follow `import pyarrow` at all. The override is scoped to
+# that one distribution: everything this repository writes stays strictly
+# typed, and the untyped surface is the third-party library, named here rather
+# than silenced with a per-line comment in every file that uses it.
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*"]
+ignore_missing_imports = true
