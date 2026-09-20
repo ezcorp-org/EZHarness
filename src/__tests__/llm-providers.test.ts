@@ -110,7 +110,7 @@ describe("T2 no consumer re-inlines the list", () => {
 
   test("the web mirror of the preference order matches the table byte-for-byte", async () => {
     // Parsed, not imported: a `src/**` bun test that imports a web/src/lib
-    // module poisons that module's merged coverage (root CLAUDE.md).
+    // module poisons that module's merged coverage (root AGENTS.md).
     const source = await Bun.file(
       `${import.meta.dir}/../../web/src/lib/settings-models.ts`,
     ).text();

@@ -15,7 +15,7 @@
  * time; bun cannot import this file directly.
  *
  * Only the `below` API is exposed — the 9 pickers all wrap on `<lg`. A
- * `useBreakpointAbove` variant would be YAGNI per CLAUDE.md DRY rule.
+ * `useBreakpointAbove` variant would be YAGNI per AGENTS.md DRY rule.
  */
 
 const BREAKPOINTS = { sm: 640, md: 768, lg: 1024, xl: 1280 } as const;

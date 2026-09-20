@@ -176,3 +176,23 @@ proofs were still pending.
 - Full pool `PARALLEL=3`: 25590 pass / 12 fail in 9 files — eight green when run alone (box load;
   baseline `main` failed 14 in 8 files the same evening, disjoint sets), one real: the
   evidence-covers manifest, fixed above.
+
+## PR #279 — agent instructions and complete Podman runbook
+
+- [x] Confirm the PR branch, base, review state, existing instruction-file references, and current Podman docs.
+- [x] Rename the root `CLAUDE.md` to the standard root `AGENTS.md` without changing its existing rules.
+- [x] Add concise, complete development and production Podman run instructions to `AGENTS.md` and link to detailed deployment guidance instead of duplicating it.
+- [x] Audit every Podman statement and command against the repository configuration, rendered Compose output, executable tests, and current primary Podman/Compose documentation.
+- [x] Close documentation and test gaps found in the full PR diff while keeping the change focused.
+- [x] Run focused tests, formatting/lint checks, and repository-level checks that cover all changed files.
+- [x] Merge the current PR base if needed, commit, push to the PR branch, and watch all reported checks.
+
+Plan review: preserve the original Podman fix, use `AGENTS.md` because that is the supported agent-instruction filename, keep one canonical detailed runbook, and prove commands before describing them as supported.
+
+### Review
+
+- Renamed the root instruction file to `AGENTS.md` and updated all live root-file references. Nested, scope-specific `CLAUDE.md` files remain unchanged.
+- Added tested rootless Podman commands for the Linux development stack and the Linux/macOS production stack. Renamed the production override to `compose.podman-prod.yml`.
+- Proved the uid/gid and bind-mount contract with executable tests, rendered Compose output, the production image user, and real rootless Podman write tests.
+- Merged the current `main` and the concurrent PR-head merge without conflicts. The merged source tree is identical to the fully validated tree.
+- Verification passed: lint, typecheck, production build, focused tests, 2,185 browser tests, 26,602 coverage tests, and all 1,631 enforced coverage files.

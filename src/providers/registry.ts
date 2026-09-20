@@ -105,7 +105,7 @@ export interface ModelEntry {
    * The model's output cap. Carried on the entry solely so ONE caller can
    * derive the enforced input budget (`computeInputBudget` needs both fields)
    * without re-resolving the whole model. Never written back — see the
-   * input-only compaction invariant in CLAUDE.md.
+   * input-only compaction invariant in AGENTS.md.
    */
   maxTokens?: number;
   vision: boolean;
@@ -198,7 +198,7 @@ function piModelToEntry(model: AnyModel): ModelEntry {
 /**
  * A catalog model with its context window corrected.
  *
- * This IS a clone, and the binding invariant in CLAUDE.md forbids cloning a
+ * This IS a clone, and the binding invariant in AGENTS.md forbids cloning a
  * model "to save context" — so the distinction matters. That rule is about
  * COMPACTION manufacturing headroom it does not have (mutating `maxTokens`,
  * writing back `responseReserve`). This is the opposite operation in both

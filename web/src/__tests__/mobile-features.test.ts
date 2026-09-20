@@ -105,7 +105,7 @@ describe("MobileTabBar active tab logic", () => {
 // What stays here is the guard that suite could never provide: this file runs
 // on the BUN leg, and a bun:test that IMPORTS a `web/src/lib/**` module the
 // vitest leg measures corrupts that module's merged coverage (see the coverage
-// trap in CLAUDE.md). So the source is PARSED, not imported — the same
+// trap in AGENTS.md). So the source is PARSED, not imported — the same
 // technique as `src/__tests__/author-draft-allowlist-parity.test.ts`.
 //
 // This pins the two properties that made the bug possible, at the only place
