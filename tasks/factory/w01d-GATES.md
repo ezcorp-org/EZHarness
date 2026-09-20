@@ -1,6 +1,6 @@
 # Gates: W01d material handover
 
-Branch `wp/w01d-materials-handover`, cut from `integ/w00` at `f30da62fa`, which already contains the W01c mount. Head `HEAD_PLACEHOLDER`. `integ/w00` has since moved to `8810d6eae`; merging it is not required for this leaf and was not done.
+Branch `wp/w01d-materials-handover`, cut from `integ/w00` at `f30da62fa`, which already contains the W01c mount. Head `12070ce49`. `integ/w00` has since moved to `8810d6eae`; merging it is not required for this leaf and was not done.
 Evidence and receipts: `/tmp/factory-platform-evidence/w01d/`.
 
 W12 measured the defect against the merged mount: the runner set neither mode nor owner on the material directory, so a guest could not write to it at all. The only thing hiding that was a `chmod(materials, 0o777)` in W01's own integration test, which is the exact mode the W01c review forbade, moved out of production and into a test. That is my defect, and the handover belongs in the runner rather than repeated in every domain pack.
