@@ -2881,3 +2881,32 @@ What I would flag hardest is not a defect in this package. Two landed rules cann
 manifest name must match `^[a-z][a-z0-9-]{0,63}$`, and `FactoryPackagePreparations.releaseFacts`
 requires that name to equal a runner reference's package, which the compiled definition writes as
 `@ezcorp/reference-data`. Every domain pack hits it.
+
+## W09b — assemble the four held roles and prove G14
+
+Branch `wp/w09b-assembly` from `wp/w09-startup` at `7af8579fd`. Gate file
+`tasks/factory/w09b-GATES.md`; evidence `/tmp/factory-platform-evidence/w09b/`.
+
+W09 left four roles held with every design question settled. This package is the
+composition volume, the host services the supervisor must carry, and the
+end-to-end proof that a submitted run reaches a real guest.
+
+- [ ] One construction of every durable store the roles share (`installation-stores.ts`).
+- [ ] `attempt-dispatch`: the preflight, `FactoryRemoteAttemptRuntime` over the
+      host launch client, `FactoryPackagePreparations` over the shared v4 runner
+      client, and W01b's dispatch driver.
+- [ ] `stop-settlement`: `FactoryTaskStops` over the host stop transport, the
+      configured host public keys, and `PoolAdmissionClient.confirmStopped`.
+- [ ] `usage-reconciliation`: the page driver over the uncertain-hold scan,
+      settling only on `resolve` → `resolved`.
+- [ ] `release-outcome`: the claimable scan, the project enumerator, and the
+      provider resolver keyed by `operation.destination.provider`.
+- [ ] The supervisor process hosts W01b's host launch service and W03's host
+      stop service, owns the one `PodmanRunner`, and holds the host key.
+- [ ] The product process starts the private service the Node orchestrator calls.
+- [ ] G14: a run submitted over public HTTP executes a real guest, three
+      consecutive clean passes on fresh product databases.
+- [ ] W13 follow-ons: the `FactoryLegacyEngine` adapter, and the C11 sweep bound
+      as a named factory readiness setting.
+- [ ] 100% line coverage on every new file, both `BASE_REF=integ/w00` gates, and
+      the full sweep at the final head with a clean tree.

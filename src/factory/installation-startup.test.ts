@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
+import { certificates } from "../__tests__/helpers/factory-certificates";
+import { FACTORY_WORKER_ROLES } from "./runtime-workers";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
@@ -718,5 +721,134 @@ describe("the pinned model broker", () => {
     expect(composed!.readiness.failures).toEqual([]);
     // The row reaches `/api/ready`, so it must not carry the secret.
     expect(JSON.stringify(composed!.readiness)).not.toContain("sk-secret-value");
+  });
+});
+
+/**
+ * The four roles W09 held, assembled.
+ *
+ * Every test here runs the real `installationCollaborators`, which means it
+ * must NOT supply `dependencies.workers` — supplying it is what the earlier
+ * suites do to keep the pool out, and it skips the composition entirely.
+ */
+describe("the roles this installation assembles", () => {
+  async function transport(root: string): Promise<Record<string, unknown>> {
+    const certs = await certificates(roots, "factory-private");
+    const secrets = join(root, "secrets");
+    const write = async (name: string, value: string) => {
+      const path = join(secrets, name);
+      await writeFile(path, value, { mode: 0o600 });
+      await chmod(path, 0o600);
+      return path;
+    };
+    const tls = {
+      caPath: await write("ca.pem", certs.ca),
+      certificatePath: await write("client.pem", certs.clientCert),
+      privateKeyPath: await write("client.key", certs.clientKey),
+    };
+    const serviceTokenPath = await write("service.token", "unused-by-these-routes");
+    const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const publicKeyPath = await write("host.pub", publicKey.export({ type: "spki", format: "pem" }).toString());
+    const attemptTokenSecretPath = await write("attempt-token", "s".repeat(48));
+    return {
+      pool: { baseUrl: "https://127.0.0.1:1", serviceTokenPath, tls },
+      hostLaunch: { baseUrl: "https://127.0.0.1:1", serverName: "localhost", attemptTokenSecretPath, tls: { ...tls, serviceTokenPath } },
+      hostStopKeys: [{ hostId: "host-01", hostKeyId: "host-key-1", publicKeyPath }],
+    };
+  }
+
+  async function start(root: string, overrides: Record<string, unknown>) {
+    const startup = await startFactoryInstallation({
+      host: host(),
+      blobs: memoryBlobs(),
+      databaseUrl: "postgres://product",
+      signal: new AbortController().signal,
+      configPath: await writeConfig(root, overrides),
+      boot: bootConfig(root),
+      dependencies: { gateway: { health: async () => true } },
+    });
+    started.push(startup);
+    return startup;
+  }
+
+  test("registers attempt dispatch, stop settlement, and usage reconciliation from the document", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const startup = await start(root, await transport(root));
+
+    const report = startup.runtime.report();
+    const running = report.workers.map((worker) => worker.name);
+    expect(running).toContain("attempt-dispatch");
+    expect(running).toContain("stop-settlement");
+    expect(running).toContain("usage-reconciliation");
+    expect(running).toContain("compute-admission-dispatch");
+    // Registered and held always partition the role set, so naming the three
+    // above as running is also the assertion that they are not held.
+    const held = report.heldWorkers.map((worker) => worker.role);
+    expect(held).not.toContain("attempt-dispatch");
+    expect(held).not.toContain("stop-settlement");
+    expect(held).not.toContain("usage-reconciliation");
+    expect([...running, ...held].sort()).toEqual([...FACTORY_WORKER_ROLES].sort());
+  });
+
+  test("holds all three by name when the document declares no host launch endpoint", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const { hostLaunch: _omitted, ...withoutTransport } = await transport(root);
+    const startup = await start(root, withoutTransport);
+
+    const held = new Map(startup.runtime.report().heldWorkers.map((worker) => [worker.role, worker.reason]));
+    expect(held.get("attempt-dispatch")).toContain("hostLaunch endpoint");
+    expect(held.get("stop-settlement")).toContain("hostLaunch endpoint");
+    expect(held.get("usage-reconciliation")).toContain("hostLaunch endpoint");
+    // The compute roles are unaffected: the pool client still built.
+    expect(startup.runtime.report().workers.map((worker) => worker.name)).toContain("compute-admission-poll");
+  });
+
+  test("holds stop settlement and reconciliation when no host public key is configured", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const { hostStopKeys: _omitted, ...withoutKeys } = await transport(root);
+    const startup = await start(root, withoutKeys);
+
+    const report = startup.runtime.report();
+    // Attempt dispatch does not verify a receipt, so it still registers.
+    expect(report.workers.map((worker) => worker.name)).toContain("attempt-dispatch");
+    const held = new Map(report.heldWorkers.map((worker) => [worker.role, worker.reason]));
+    expect(held.get("stop-settlement")).toContain("hostStopKeys");
+    expect(held.get("usage-reconciliation")).toBeDefined();
+  });
+
+  test("reports the cause and holds attempt dispatch when the attempt token secret is unreadable", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const material = await transport(root);
+    const hostLaunch = { ...(material.hostLaunch as Record<string, unknown>), attemptTokenSecretPath: join(root, "secrets", "absent-token") };
+    const startup = await start(root, { ...material, hostLaunch });
+
+    expect(startup.runtime.report().heldWorkers.map((worker) => worker.role)).toContain("attempt-dispatch");
+    expect(reported.map((entry) => entry.role)).toContain("attempt-dispatch-composition");
+  });
+
+  test("reports the pool client it could not build and holds every role that needs it", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const material = await transport(root);
+    const startup = await start(root, { ...material, pool: { ...(material.pool as Record<string, unknown>), tls: { caPath: join(root, "absent.pem"), certificatePath: join(root, "absent.pem"), privateKeyPath: join(root, "absent.pem") } } });
+
+    expect(reported.map((entry) => entry.role)).toContain("pool-admission-client");
+    const held = startup.runtime.report().heldWorkers.map((worker) => worker.role);
+    for (const role of ["compute-admission-dispatch", "compute-admission-poll", "attempt-dispatch", "stop-settlement", "usage-reconciliation"]) {
+      expect(held).toContain(role);
+    }
+  });
+
+  test("release outcome stays held, and its reason names the consent nothing produces", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const startup = await start(root, await transport(root));
+    const reason = startup.runtime.report().heldWorkers.find((worker) => worker.role === "release-outcome")!.reason;
+    expect(reason).toBeDefined();
+    expect(startup.runtime.report().workers.map((worker) => worker.name)).not.toContain("release-outcome");
   });
 });

@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import type { RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
+import { certificates } from "../../__tests__/helpers/factory-certificates";
 import { generateKeyPairSync } from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -12,6 +13,7 @@ import {
   parseFactorySupervisorProcessConfig,
   factoryHostRunnerProbe,
   runConfiguredFactorySupervisor,
+  startFactoryConfiguredHostServices,
   runFactorySupervisorMain,
   startFactorySupervisorMain,
   factorySupervisorProductionDependencies,
@@ -66,6 +68,7 @@ async function writeHostKey(root: string): Promise<void> {
 }
 
 let abortController: AbortController | undefined;
+const certificateRoots: string[] = [];
 
 const HEARTBEAT_MS = 1_000;
 
@@ -511,5 +514,160 @@ describe("factorySupervisorProductionDependencies", () => {
 
     const noHeartbeat = factorySupervisorProductionDependencies.createReadiness(parseFactorySupervisorProcessConfig(config(root, { readinessHeartbeatMs: undefined })));
     expect(await noHeartbeat.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false , hostServicesReady: false } })).toMatchObject({ lifecycle: "starting" });
+  });
+});
+
+describe("the host services this supervisor publishes", () => {
+  const services = (root: string) => ({
+    hostname: "127.0.0.1",
+    port: 8600,
+    allowedPeers: ["tenant-a"],
+    hostKeyIdPath: join(root, "host.kid"),
+    tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "server.pem"), privateKeyPath: join(root, "server.key") },
+  });
+
+  test("the parser takes a complete section and refuses every incomplete one", async () => {
+    const root = await privateRoot();
+    const complete = services(root);
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: complete } as never)).services).toEqual(complete as never);
+    // Absent is legal: a deployment whose runner lives in the product process
+    // publishes no host services.
+    expect(parseFactorySupervisorProcessConfig(config(root)).services).toBeUndefined();
+
+    for (const broken of [
+      { ...complete, hostname: "" },
+      { ...complete, port: 0 },
+      { ...complete, port: 70_000 },
+      { ...complete, allowedPeers: [] },
+      { ...complete, allowedPeers: ["ok", ""] },
+      { ...complete, hostKeyIdPath: "" },
+      { ...complete, tls: { caPath: "a", certificatePath: "b" } },
+      { ...complete, tls: { ...complete.tls, extra: "x" } },
+      { ...complete, extra: "x" },
+      "not a record",
+    ]) {
+      expect(() => parseFactorySupervisorProcessConfig(config(root, { services: broken } as never))).toThrow("factory supervisor config is invalid");
+    }
+  });
+
+  test("binds once after the first good probe, publishes the fact, and releases on stop", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root, { services: services(root) } as never);
+    abortController = new AbortController();
+    const published: Array<{ lifecycle: string; hostServicesReady: boolean }> = [];
+    let started = 0;
+    let stopped = 0;
+    const runner = { async initialize() {}, async close() {} } as never;
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      createRunnerProbe: () => ({ probe: async () => {}, instance: () => runner, close: async () => {} }),
+      startServices: async () => { started += 1; return { stop: () => { stopped += 1; } }; },
+      createReadiness: () => ({ write: async (update) => { published.push({ lifecycle: update.lifecycle, hostServicesReady: update.facts.hostServicesReady! }); return { ...update } as never; } }),
+    }, 5));
+
+    // Bound ONCE across several heartbeats: rebinding each beat would drop live
+    // connections, and the listener is released before the process says stopped.
+    expect(started).toBe(1);
+    expect(stopped).toBe(1);
+    expect(published.some((entry) => entry.lifecycle === "ready" && entry.hostServicesReady)).toBe(true);
+    expect(published.at(-1)).toEqual({ lifecycle: "stopped", hostServicesReady: false });
+  });
+
+  test("a bind that fails degrades by name and is retried on the next heartbeat", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root, { services: services(root) } as never);
+    abortController = new AbortController();
+    const published: string[] = [];
+    let attempts = 0;
+    const runner = { async initialize() {}, async close() {} } as never;
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      createRunnerProbe: () => ({ probe: async () => {}, instance: () => runner, close: async () => {} }),
+      startServices: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("address in use");
+        return { stop: () => {} };
+      },
+      createReadiness: () => ({ write: async (update) => { published.push(`${update.lifecycle}:${update.errorCode ?? ""}`); return { ...update } as never; } }),
+    }, 6));
+
+    expect(attempts).toBeGreaterThan(1);
+    expect(published.some((entry) => entry === "degraded:host_services_unavailable")).toBe(true);
+    expect(published.some((entry) => entry === "ready:")).toBe(true);
+  });
+
+  test("a runner that never answers never publishes a host service", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root, { services: services(root) } as never);
+    abortController = new AbortController();
+    let started = 0;
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      createRunnerProbe: () => ({ probe: async () => { throw new Error("isolation_unavailable"); }, instance: () => undefined, close: async () => {} }),
+      startServices: async () => { started += 1; return { stop: () => {} }; },
+    }));
+
+    // A host that accepted a launch its runner cannot serve would report a start
+    // it never made.
+    expect(started).toBe(0);
+  });
+
+  test("a host that publishes no services stays ready on its own two facts", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root);
+    abortController = new AbortController();
+    const published: Array<{ lifecycle: string; errorCode?: string }> = [];
+    let started = 0;
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      startServices: async () => { started += 1; return { stop: () => {} }; },
+      createReadiness: () => ({ write: async (update) => { published.push({ lifecycle: update.lifecycle, ...(update.errorCode === undefined ? {} : { errorCode: update.errorCode }) }); return { ...update } as never; } }),
+    }, 5));
+
+    expect(started).toBe(0);
+    expect(published.some((entry) => entry.lifecycle === "ready")).toBe(true);
+    expect(published.some((entry) => entry.errorCode === "host_services_unavailable")).toBe(false);
+  });
+
+  test("a configured host whose listener never bound reads as degraded, not ready", () => {
+    const facts = { hostKeyReady: true, runnerReady: true, hostServicesReady: false };
+    expect(factorySupervisorRecord({ attempted: true, ...facts, servicesConfigured: true, observedAtMs: 900 }, 1_000, 500))
+      .toEqual({ lifecycle: "degraded", facts, errorCode: "host_services_unavailable" });
+    // The same observation on a host that publishes none is simply ready.
+    expect(factorySupervisorRecord({ attempted: true, ...facts, servicesConfigured: false, observedAtMs: 900 }, 1_000, 500))
+      .toEqual({ lifecycle: "ready", facts });
+  });
+
+  test("startFactoryConfiguredHostServices refuses when the section is absent", async () => {
+    const root = await privateRoot();
+    await expect(startFactoryConfiguredHostServices(parseFactorySupervisorProcessConfig(config(root)), {} as never))
+      .rejects.toThrow("factory supervisor host services are not configured");
+  });
+
+  test("startFactoryConfiguredHostServices binds from the configured material", async () => {
+    const root = await privateRoot();
+    const certs = await certificates(certificateRoots, "tenant-a");
+    for (const [name, value] of [["ca.pem", certs.ca], ["server.pem", certs.serverCert], ["server.key", certs.serverKey]] as const) {
+      await writeFile(join(root, name), value, { mode: 0o600 });
+      await chmod(join(root, name), 0o600);
+    }
+    await writeFile(join(root, "host.kid"), "host-key-1", { mode: 0o600 });
+    await writeHostKey(root);
+    // The parser refuses port 0 as a deployment fact, so the test takes a real
+    // free port and releases it before the listener binds it.
+    const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    const port = probe.port;
+    probe.stop(true);
+    const parsed = parseFactorySupervisorProcessConfig(config(root, { services: { ...services(root), port } } as never));
+    const listener = await startFactoryConfiguredHostServices(parsed, { async initialize() {}, async close() {} } as never);
+    try {
+      expect(listener).toBeDefined();
+    } finally {
+      listener.stop();
+    }
   });
 });

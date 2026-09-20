@@ -8,7 +8,19 @@
  * measured — so its "unknown" path is asserted twice, once for the refusal and
  * once for the disposition that keeps it retryable.
  */
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import type { BlobStore } from "../extensions/v4/types";
+import { certificates } from "../__tests__/helpers/factory-certificates";
+import { createFactoryApplication } from "./application";
+import { FactoryArtifacts } from "./artifacts";
+import { FactoryTransitionArtifacts } from "./transition-artifacts";
+import { factoryInstallationStores } from "./installation-stores";
+import { FactoryTaskStops } from "./task-stops";
+import type { PoolAdmissionClient } from "./pool/client";
+import type { FactoryStartupConfig } from "./startup-config";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import type { FactoryClaimableRelease, FactoryReleaseOperation, FactoryReleaseProvider } from "./releases";
 import type { FactoryStoppableAttempt } from "./task-stops";
@@ -25,6 +37,8 @@ import {
   factoryStopSettlementDriver,
   factoryUsageReconciliationDisposition,
   factoryUsageReconciliationDriver,
+  composeFactorySettlement,
+  loadFactoryStopHostKeys,
 } from "./dispatch-composition";
 
 const SERVICE: TrustedFactoryServiceIdentity = { subject: "tenant-a", tenantId: "tenant-01" };
@@ -216,5 +230,150 @@ describe("the release-outcome step", () => {
 
     expect(await failing.step(SIGNAL)).toBe(false);
     expect(reported).toEqual(["release-outcome:fault:op-bad"]);
+  });
+});
+
+describe("loadFactoryStopHostKeys", () => {
+  const roots: string[] = [];
+  afterAll(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+
+  async function keyFile(name: string, mode = 0o600): Promise<{ root: string; path: string; pem: string }> {
+    const root = await mkdtemp(join(process.env.HOME!, ".w09b-hostkeys-"));
+    roots.push(root);
+    await chmod(root, 0o700);
+    const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const pem = publicKey.export({ type: "spki", format: "pem" }).toString();
+    const path = join(root, name);
+    await writeFile(path, pem, { mode });
+    await chmod(path, mode);
+    return { root, path, pem };
+  }
+
+  test("reads each configured public key by value, keeping the host and key id", async () => {
+    const first = await keyFile("host-a.pem");
+    const second = await keyFile("host-b.pem");
+    const keys = await loadFactoryStopHostKeys([
+      { hostId: "host-a", hostKeyId: "key-1", publicKeyPath: first.path },
+      { hostId: "host-b", hostKeyId: "key-2", publicKeyPath: second.path },
+    ]);
+    expect(keys.map((key) => key.hostId)).toEqual(["host-a", "host-b"]);
+    expect(keys.map((key) => key.hostKeyId)).toEqual(["key-1", "key-2"]);
+    expect(keys[0]!.publicKey).toBe(first.pem);
+    // `FactoryTaskStops` calls `createPublicKey` on this text, so a key that is
+    // not a key fails there by name rather than being skipped here.
+    expect(String(keys[1]!.publicKey)).toContain("BEGIN PUBLIC KEY");
+  });
+
+  test("refuses an empty list, because a list that verifies nothing is not a list", async () => {
+    await expect(loadFactoryStopHostKeys([])).rejects.toMatchObject({ code: "factory_stop_host_keys_missing" });
+  });
+
+  test("refuses a key file the private reader will not open", async () => {
+    const loose = await keyFile("host-loose.pem", 0o644);
+    await expect(loadFactoryStopHostKeys([{ hostId: "host-a", hostKeyId: "key-1", publicKeyPath: loose.path }])).rejects.toBeDefined();
+  });
+
+  test("refuses a key file that is not there", async () => {
+    const present = await keyFile("host-present.pem");
+    await expect(loadFactoryStopHostKeys([{ hostId: "host-a", hostKeyId: "key-1", publicKeyPath: join(present.root, "absent.pem") }])).rejects.toBeDefined();
+  });
+});
+
+describe("composeFactorySettlement", () => {
+  const roots: string[] = [];
+  afterAll(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+
+  async function material(): Promise<{ root: string; tls: { caPath: string; certificatePath: string; privateKeyPath: string; serviceTokenPath: string }; publicKeyPath: string }> {
+    const root = await mkdtemp(join(process.env.HOME!, ".w09b-settlement-"));
+    roots.push(root);
+    await chmod(root, 0o700);
+    const certs = await certificates(roots, "tenant-a");
+    const tls = {
+      caPath: join(root, "ca.pem"),
+      certificatePath: join(root, "client.pem"),
+      privateKeyPath: join(root, "client.key"),
+      serviceTokenPath: join(root, "token"),
+    };
+    await writeFile(tls.caPath, certs.ca, { mode: 0o600 });
+    await writeFile(tls.certificatePath, certs.clientCert, { mode: 0o600 });
+    await writeFile(tls.privateKeyPath, certs.clientKey, { mode: 0o600 });
+    await writeFile(tls.serviceTokenPath, "unused-by-the-host-stop-route", { mode: 0o600 });
+    const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const publicKeyPath = join(root, "host.pub");
+    await writeFile(publicKeyPath, publicKey.export({ type: "spki", format: "pem" }).toString(), { mode: 0o600 });
+    return { root, tls, publicKeyPath };
+  }
+
+  function settlementStores(db: TransactionalDb) {
+    const blobs = { async put() { return "sha256-x"; }, async get() { return new Uint8Array(); } } as unknown as BlobStore;
+    const application = createFactoryApplication({
+      database: db,
+      tenantId: "tenant-01",
+      blobs,
+      runOptions: { interpreterBuild: "build-1", interpreterCompatibility: "1", limits: { maxCostMicros: "100", maxTokens: 100, maxComputeMs: 100 }, resolveParameters: async () => ({}) },
+      availableResourceClasses: ["cpu"],
+    });
+    const pool = {
+      async request() { throw new Error("unused"); }, async status() { throw new Error("unused"); },
+      async acknowledgeStart() { throw new Error("unused"); }, async renew() { throw new Error("unused"); },
+      async cancel() { throw new Error("unused"); }, async confirmStopped() { throw new Error("unused"); },
+    } as unknown as PoolAdmissionClient;
+    const stores = factoryInstallationStores({
+      database: db, tenantId: "tenant-01", blobs, application,
+      transitions: new FactoryTransitionArtifacts(new FactoryArtifacts(db, blobs, "tenant-01")),
+      serviceSubject: "tenant-a", pool,
+    });
+    return { stores: { ...stores, compute: stores.compute!, outcomes: stores.outcomes! }, pool };
+  }
+
+  function config(tls: Awaited<ReturnType<typeof material>>["tls"], publicKeyPath: string) {
+    return {
+      installationId: "installation-01", tenantId: "tenant-01", hostId: "host-01",
+      hostLaunch: { baseUrl: "https://127.0.0.1:1", serverName: "localhost", attemptTokenSecretPath: "/unused", tls },
+      hostStopKeys: [{ hostId: "host-01", hostKeyId: "key-1", publicKeyPath }],
+    } as unknown as FactoryStartupConfig;
+  }
+
+  test("composes both roles over one FactoryTaskStops", async () => {
+    const { tls, publicKeyPath } = await material();
+    const db = database();
+    const { stores, pool } = settlementStores(db);
+    const reported: string[] = [];
+    const composed = await composeFactorySettlement({
+      database: db, config: config(tls, publicKeyPath), stores, pool,
+      service: SERVICE, report: (role) => { reported.push(role); },
+    });
+
+    expect(composed.stops).toBeInstanceOf(FactoryTaskStops);
+    // The reconciler reads its settlement scope through the stop store, which
+    // is why one composition produces both and neither can be built alone.
+    expect(typeof composed.stops.readSettlementScopeInTransaction).toBe("function");
+    // Both scans are empty against this handle, so a pass finds no work and
+    // reports nothing.
+    expect(await composed.stopSettlement.step(SIGNAL)).toBe(false);
+    expect(await composed.usageReconciliation.step(SIGNAL)).toBe(false);
+    expect(reported).toEqual([]);
+  });
+
+  test("refuses without the host launch endpoint the stop service lives behind", async () => {
+    const { tls, publicKeyPath } = await material();
+    const db = database();
+    const { stores, pool } = settlementStores(db);
+    const { hostLaunch: _omitted, ...withoutTransport } = config(tls, publicKeyPath) as unknown as Record<string, unknown>;
+    await expect(composeFactorySettlement({
+      database: db, config: withoutTransport as unknown as FactoryStartupConfig, stores, pool,
+      service: SERVICE, report: () => {},
+    })).rejects.toMatchObject({ code: "factory_stop_transport_missing" });
+  });
+
+  test("refuses without a configured host public key, rather than verifying nothing", async () => {
+    const { tls, publicKeyPath } = await material();
+    const db = database();
+    const { stores, pool } = settlementStores(db);
+    const { hostStopKeys: _omitted, ...withoutKeys } = config(tls, publicKeyPath) as unknown as Record<string, unknown>;
+    await expect(composeFactorySettlement({
+      database: db, config: withoutKeys as unknown as FactoryStartupConfig, stores, pool,
+      service: SERVICE, report: () => {},
+    })).rejects.toMatchObject({ code: "factory_stop_host_keys_missing" });
   });
 });
