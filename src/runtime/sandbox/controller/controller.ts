@@ -1,4 +1,5 @@
-import { canonicalJson, sha256, type ProviderReceipt, type SandboxCreateInput, type SandboxResource } from "@ezcorp/extension-contract";
+import { canonicalJson, sha256, validateProviderMethodValue, validateProviderMethodExchange, type ProviderReceipt, type SandboxCreateInput, type SandboxResource } from "@ezcorp/extension-contract";
+import { NATIVE_TOOL_ARTIFACT, NATIVE_TOOL_OUTPUT_BYTES } from "../native-tool-protocol";
 import { sql } from "drizzle-orm";
 import { getDb, type DbTransaction } from "../../../db/connection";
 import { getProjectMembership } from "../../../db/queries/project-members";
@@ -22,6 +23,7 @@ function isTerminalProcess(state: unknown): boolean { return state === "exited" 
 
 export function createSandboxController(driver: LocalSandboxDriver, runtime: Pick<ReleaseRuntimeDependencies, "resolve"> = getReleaseRuntime(), invoke?: SandboxProviderInvocation): SandboxController {
   const reviewedOperations = new Set<string>();
+  const rawOperations = new Map<string, Promise<unknown>>();
   function requireReviewedWindow(operationId: string): void {
     if (!reviewedOperations.has(operationId)) throw new SandboxControllerError("RAW_DISPATCH_DENIED", "Raw sandbox dispatch requires an active reviewed invocation");
   }
@@ -48,13 +50,17 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
   }
   async function settle(operationId: string, bindingId: string, result: ProviderResult): Promise<void> {
     await getDb().transaction(async (tx: DbTransaction) => {
-      await tx.execute(sql`UPDATE sandbox_operations SET state=${result.receipt.outcome}, receipt=${JSON.stringify(result.receipt)}, completed_at=NOW() WHERE id=${operationId}`);
+      await tx.execute(sql`UPDATE sandbox_operations SET state=${result.receipt.outcome}, receipt=${JSON.stringify(result.receipt)}, result=${JSON.stringify(result)}, completed_at=NOW() WHERE id=${operationId}`);
       if (result.resource) await tx.execute(sql`UPDATE sandbox_resources SET provider_resource_id=${result.resource.resourceId}, desired_state=${result.resource.desiredState}, observed_state=${result.resource.observedState}, updated_at=NOW() WHERE binding_id=${bindingId}`);
       else if (result.receipt.outcome !== "succeeded") {
-        const cleanCreateFailure = result.receipt.outcome === "failed" && result.receipt.error.code === "create_failed_clean";
+        const action = rows(await tx.execute(sql`SELECT action FROM sandbox_operations WHERE id=${operationId}`))[0]?.action;
+        const cleanCreateFailure = action === "create" && result.receipt.outcome === "failed" && result.receipt.error.code === "create_failed_clean";
         await tx.execute(sql`UPDATE sandbox_resources SET desired_state=${cleanCreateFailure ? "destroyed" : "stopped"},observed_state=${cleanCreateFailure ? "destroyed" : resourceState(result.receipt)}, updated_at=NOW() WHERE binding_id=${bindingId}`);
       }
-      if (result.receipt.outcome === "succeeded" && result.resource) await tx.execute(sql`UPDATE project_workspace_bindings SET state='active', updated_at=NOW() WHERE binding_id=${bindingId}`);
+      if (result.receipt.outcome === "succeeded" && result.resource) {
+        await tx.execute(sql`UPDATE project_workspace_bindings SET state=${result.resource.observedState === "destroyed" ? "unknown" : "active"}, updated_at=NOW() WHERE binding_id=${bindingId}`);
+        if (result.resource.observedState === "destroyed") await tx.execute(sql`DELETE FROM sandbox_writer_leases WHERE binding_id=${bindingId}`);
+      }
     });
   }
   async function unknown(operationId: string, bindingId: string): Promise<void> {
@@ -72,7 +78,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     return { id: String(operation.id), group: operation.method_group as SandboxMethodInput["group"], operation: String(operation.method), state: operation.state as SandboxOperationResult["state"], provider: current, ...(operation.receipt ? { receipt: parse<ProviderReceipt>(operation.receipt) } : {}), ...(operation.result ? { result: parse<unknown>(operation.result) } : {}) };
   }
   function nativeCommand(command: NativeWorkspaceCommand): void {
-    if (!Number.isSafeInteger(command.timeoutMs) || command.timeoutMs < 1 || command.argv.length < 3 || command.argv[0] !== "/usr/local/bin/bun" || command.argv[1] !== "/opt/ezharness/native-tools.js") throw new SandboxControllerError("INVALID_NATIVE_COMMAND", "Native command does not target the fixed helper");
+    if (!Number.isSafeInteger(command.timeoutMs) || command.timeoutMs < 1 || command.timeoutMs > 600_000 || command.argv.length < 3 || command.argv[0] !== "/usr/local/bin/bun" || command.argv[1] !== NATIVE_TOOL_ARTIFACT) throw new SandboxControllerError("INVALID_NATIVE_COMMAND", "Native command does not target the fixed helper");
     const encoded = command.argv.slice(2);
     if (encoded.some(part => part.length > 4096 || !/^[A-Za-z0-9_-]+$/.test(part)) || encoded.join("").length > Math.ceil((32 * 1024) * 4 / 3)) throw new SandboxControllerError("INVALID_NATIVE_COMMAND", "Native helper payload exceeds its fixed bound");
   }
@@ -85,6 +91,20 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     }
     const requestDigest = await sha256(canonicalJson(body));
     return { ...body, call: { scope: { projectId: String(operation.project_id), bindingId: String(operation.binding_id), generation: providerValue.generation }, operationId: String(operation.id), idempotencyKey: String(operation.idempotency_key), requestDigest } };
+  }
+  async function reviewed(userId: string, projectId: string, current: LocalSandboxProvider, group: SandboxMethodInput["group"], method: string, input: Record<string, unknown>, table: "sandbox_operations" | "sandbox_method_operations", signal?: AbortSignal): Promise<unknown> {
+    if (!invoke) throw new SandboxControllerError("SANDBOX_INVOKER_UNAVAILABLE", "Reviewed sandbox provider invoker is not configured");
+    validateProviderMethodValue(group, method as never, "input", input);
+    const id = (input.call as SandboxCreateInput["call"]).operationId;
+    if (reviewedOperations.has(id)) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Sandbox operation is already under reviewed execution");
+    reviewedOperations.add(id);
+    try {
+      const response = await invoke(userId, projectId, current, group, method, input, signal);
+      validateProviderMethodExchange(group, method as never, input, response);
+      const actual = rows(await getDb().execute(sql`SELECT result FROM ${sql.raw(table)} WHERE id=${id}`))[0]?.result;
+      if (!actual || canonicalJson(parse(actual)) !== canonicalJson(response)) throw new SandboxControllerError("PROVIDER_RESULT_UNVERIFIED", "Reviewed provider result differs from the durable host result");
+      return parse(actual);
+    } finally { reviewedOperations.delete(id); }
   }
   async function dispatchMethod(operation: Row, input: Record<string, unknown>): Promise<unknown> {
     const group = String(operation.method_group); const method = String(operation.method);
@@ -105,6 +125,69 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       if (method === "chmod") return driver.fileChmod(input as never);
     }
     throw new SandboxControllerError("INVALID_OPERATION", "Unsupported sandbox provider method");
+  }
+  async function executeRaw(userId: string, operationId: string, signal?: AbortSignal): Promise<unknown> {
+      const lifecycle = rows(await getDb().execute(sql`SELECT operation.*, binding.project_id FROM sandbox_operations operation JOIN sandbox_provider_bindings binding ON binding.id = operation.binding_id WHERE operation.id=${operationId}`))[0];
+      if (lifecycle) {
+        if (lifecycle.actor_id !== userId) throw new SandboxControllerError("OPERATION_NOT_ADMITTED", "Operation is not available for execution");
+        await requireMember(userId, String(lifecycle.project_id));
+        if (["succeeded", "failed"].includes(String(lifecycle.state)) && lifecycle.result) return parse(lifecycle.result);
+        const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${lifecycle.binding_id}`))[0]!;
+        await boundProvider(binding);
+        const claimed = rows(await getDb().execute(sql`UPDATE sandbox_operations SET state='running', claimed_at=NOW() WHERE id=${operationId} AND state IN ('admitted','running','unknown') AND actor_id=${userId} RETURNING *`))[0];
+        if (!claimed) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Operation cannot be claimed");
+        let result: ProviderResult;
+        try {
+          const call = { scope: { projectId: String(binding.project_id), bindingId: String(binding.id), generation: Number(binding.generation) }, operationId, idempotencyKey: String(claimed.idempotency_key), requestDigest: String(claimed.input_digest) };
+          const input = parse<{ resourceId?: string }>(claimed.input);
+          result = claimed.action === "create" ? await driver.create(parse<SandboxCreateInput>(claimed.input)) : claimed.action === "start" ? await driver.start({ call, resourceId: input.resourceId! }) : claimed.action === "stop" ? await driver.stop({ call, resourceId: input.resourceId! }) : await driver.destroy({ call, resourceId: input.resourceId! });
+          validateProviderMethodExchange("sandbox.lifecycle.v1", String(claimed.action) as never, claimed.action === "create" ? parse(claimed.input) : { ...input, call }, result); await settle(operationId, String(binding.id), result);
+        } catch (error) { await unknown(operationId, String(binding.id)); throw error; }
+        return result!;
+      }
+      const operation = rows(await getDb().execute(sql`SELECT operation.*, binding.project_id, resource.provider_resource_id FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id JOIN sandbox_resources resource ON resource.id=operation.resource_id WHERE operation.id=${operationId}`))[0];
+      if (!operation || operation.actor_id !== userId) throw new SandboxControllerError("OPERATION_NOT_ADMITTED", "Operation is not available for execution");
+      await requireMember(userId, String(operation.project_id));
+      if (["succeeded", "failed"].includes(String(operation.state)) && operation.result) return parse(operation.result);
+      const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${operation.binding_id}`))[0]!;
+      const current = await boundProvider(binding);
+      const claimed = rows(await getDb().execute(sql`UPDATE sandbox_method_operations SET state='running',claimed_at=NOW() WHERE id=${operationId} AND state IN ('admitted','running','unknown') AND actor_id=${userId} RETURNING id`))[0];
+      if (!claimed) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Operation cannot be claimed");
+      let result: { receipt?: ProviderReceipt; process?: ProcessResult["process"] };
+      try {
+        if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
+        const input = await wireMethodInput(operation, current);
+        validateProviderMethodValue(operation.method_group as SandboxMethodInput["group"], String(operation.method) as never, "input", input);
+        result = await dispatchMethod(operation, input) as { receipt?: ProviderReceipt; process?: ProcessResult["process"] };
+        const call = input.call as SandboxCreateInput["call"];
+        if (!result.receipt) throw new SandboxControllerError("PROVIDER_RECEIPT_MISMATCH", "Provider did not return a receipt");
+        receiptMatches(call, result.receipt);
+        validateProviderMethodExchange(operation.method_group as SandboxMethodInput["group"], String(operation.method) as never, input, result);
+        await getDb().transaction(async (tx: DbTransaction) => {
+          await tx.execute(sql`UPDATE sandbox_method_operations SET state=${result.receipt!.outcome},receipt=${JSON.stringify(result.receipt)},result=${JSON.stringify(result)},completed_at=NOW() WHERE id=${operationId}`);
+          if (operation.method_group === "sandbox.process.v1" && operation.method === "start") {
+            const process = result.process;
+            await tx.execute(sql`INSERT INTO sandbox_processes(id,binding_id,resource_id,operation_id,provider_process_id,state,result) VALUES(${crypto.randomUUID()},${operation.binding_id},${operation.resource_id},${operationId},${process?.identity.processId ?? null},${process?.state ?? 'unknown'},${JSON.stringify(result)}) ON CONFLICT (operation_id) DO UPDATE SET provider_process_id=EXCLUDED.provider_process_id,state=EXCLUDED.state,result=EXCLUDED.result,updated_at=NOW()`);
+            await tx.execute(sql`UPDATE sandbox_writer_leases SET state=${process?.state === "running" ? "running" : "unknown"},updated_at=NOW() WHERE operation_id=${operationId}`);
+          }
+          if (operation.method_group === "sandbox.process.v1" && (operation.method === "inspect" || operation.method === "cancel")) {
+            const process = result.process;
+            if (process) await tx.execute(sql`UPDATE sandbox_processes SET state=${process.state},result=${JSON.stringify(result)},updated_at=NOW() WHERE binding_id=${operation.binding_id} AND provider_process_id=${process.identity.processId}`);
+          }
+          if (operation.method_group === "sandbox.files.v1" && result.receipt!.outcome !== "unknown") await tx.execute(sql`DELETE FROM sandbox_writer_leases WHERE operation_id=${operationId}`);
+          if (operation.method_group === "sandbox.lifecycle.v1" && operation.method === "inspect") {
+            const resource = (result as ProviderResult).resource;
+            if (!resource) throw new SandboxControllerError("PROVIDER_RECEIPT_MISMATCH", "Lifecycle inspection must return a resource");
+            await tx.execute(sql`UPDATE sandbox_resources SET desired_state=${resource.desiredState},observed_state=${resource.observedState},updated_at=NOW() WHERE binding_id=${operation.binding_id}`);
+            if (["stopped", "destroyed"].includes(resource.observedState)) await tx.execute(sql`DELETE FROM sandbox_writer_leases WHERE binding_id=${operation.binding_id} AND EXISTS (SELECT 1 FROM sandbox_processes p WHERE p.operation_id=sandbox_writer_leases.operation_id AND p.state IN ('exited','cancelled','failed'))`);
+          }
+        });
+      } catch (error) {
+        await getDb().execute(sql`UPDATE sandbox_method_operations SET state='unknown',completed_at=NOW() WHERE id=${operationId}`);
+        await getDb().execute(sql`UPDATE sandbox_writer_leases SET state='unknown',updated_at=NOW() WHERE operation_id=${operationId}`);
+        throw error;
+      }
+      return result!;
   }
   return {
     async listLocalSandboxProviders(_userId) {
@@ -131,10 +214,12 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       }
       const active = await provider(input.providerInstallationId, input.providerId);
       const projectId = crypto.randomUUID(); const bindingId = crypto.randomUUID(); const operationId = crypto.randomUUID(); const idempotencyKey = input.idempotencyKey;
+      if (Object.keys(input.config).length) throw new SandboxControllerError("INVALID_INPUT", "The local MVP does not accept provider configuration");
       const configDigest = await sha256(canonicalJson(input.config));
       const call = { scope: { projectId, bindingId, generation: active.generation }, operationId, idempotencyKey, requestDigest: "" };
       const createInput = { call, profile: "linux-exec.v1" as const, limits: input.limits };
       call.requestDigest = await sha256(canonicalJson({ profile: createInput.profile, limits: createInput.limits }));
+      validateProviderMethodValue("sandbox.lifecycle.v1", "create", "input", createInput);
       await getDb().transaction(async (tx: DbTransaction) => {
         await tx.execute(sql`INSERT INTO projects (id,name,path,variables) VALUES (${projectId},${input.name.trim()},'',${{}})`);
         await tx.execute(sql`INSERT INTO project_members (id,project_id,user_id,role) VALUES (${crypto.randomUUID()},${projectId},${userId},'owner')`);
@@ -156,106 +241,45 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const resource = rows(await getDb().execute(sql`SELECT id FROM sandbox_resources WHERE binding_id=${current.bindingId}`))[0]!;
       const id = crypto.randomUUID();
       const writer = (input.group === "sandbox.process.v1" && input.operation === "start") || (input.group === "sandbox.files.v1" && ["write", "mkdir", "remove", "chmod"].includes(input.operation));
-      const inserted = rows(await getDb().execute(sql`INSERT INTO sandbox_method_operations(id,binding_id,resource_id,actor_id,conversation_id,method_group,method,idempotency_key,input) VALUES(${id},${current.bindingId},${resource.id},${userId},${input.conversationId ?? null},${input.group},${input.operation},${input.idempotencyKey},${JSON.stringify(input.payload)}) ON CONFLICT DO NOTHING RETURNING id`))[0];
+      const wire = await wireMethodInput({ input: input.payload, provider_resource_id: current.resource.resourceId, method_group: input.group, method: input.operation, project_id: projectId, binding_id: current.bindingId, id, idempotency_key: input.idempotencyKey }, current.provider);
+      validateProviderMethodValue(input.group, input.operation as never, "input", wire);
+      return getDb().transaction(async (tx: DbTransaction) => {
+      const inserted = rows(await tx.execute(sql`INSERT INTO sandbox_method_operations(id,binding_id,resource_id,actor_id,conversation_id,method_group,method,idempotency_key,input) VALUES(${id},${current.bindingId},${resource.id},${userId},${input.conversationId ?? null},${input.group},${input.operation},${input.idempotencyKey},${JSON.stringify(input.payload)}) ON CONFLICT DO NOTHING RETURNING id`))[0];
       if (!inserted) {
-        const existing = rows(await getDb().execute(sql`SELECT * FROM sandbox_method_operations WHERE binding_id=${current.bindingId} AND idempotency_key=${input.idempotencyKey}`))[0];
+        const existing = rows(await tx.execute(sql`SELECT * FROM sandbox_method_operations WHERE binding_id=${current.bindingId} AND idempotency_key=${input.idempotencyKey}`))[0];
         if (!existing) throw new SandboxControllerError("WRITER_LEASED", "A sandbox writer is already active");
-        if (existing.actor_id !== userId || existing.method_group !== input.group || existing.method !== input.operation || canonicalJson(parse(existing.input)) !== canonicalJson(input.payload)) throw new SandboxControllerError("IDEMPOTENCY_CONFLICT", "Idempotency key is already bound to another request");
+        if (existing.actor_id !== userId || existing.conversation_id !== (input.conversationId ?? null) || existing.method_group !== input.group || existing.method !== input.operation || canonicalJson(parse(existing.input)) !== canonicalJson(input.payload)) throw new SandboxControllerError("IDEMPOTENCY_CONFLICT", "Idempotency key is already bound to another request");
         return { id: String(existing.id), group: existing.method_group as SandboxMethodInput["group"], operation: String(existing.method), state: existing.state as AdmittedSandboxMethod["state"], provider: current.provider };
       }
       if (writer) {
-        const leased = rows(await getDb().execute(sql`INSERT INTO sandbox_writer_leases(binding_id,operation_id,state) VALUES(${current.bindingId},${id},'starting') ON CONFLICT DO NOTHING RETURNING binding_id`))[0];
+        const leased = rows(await tx.execute(sql`INSERT INTO sandbox_writer_leases(binding_id,operation_id,state) VALUES(${current.bindingId},${id},'starting') ON CONFLICT DO NOTHING RETURNING binding_id`))[0];
         if (!leased) {
-          await getDb().execute(sql`UPDATE sandbox_method_operations SET state='failed',completed_at=NOW() WHERE id=${id}`);
           throw new SandboxControllerError("WRITER_LEASED", "A sandbox writer is already active");
         }
       }
-      return { id, group: input.group, operation: input.operation, state: "admitted", provider: current.provider };
+      return { id, group: input.group, operation: input.operation, state: "admitted" as const, provider: current.provider };
+      });
     },
     getSandboxOperationResult: methodResult,
     async executeAdmittedSandboxMethod(userId, operationId, signal) {
       const current = await methodResult(userId, operationId);
-      if (current.state !== "admitted") return current;
-      if (!invoke) throw new SandboxControllerError("SANDBOX_INVOKER_UNAVAILABLE", "Reviewed sandbox provider invoker is not configured");
+      if (["succeeded", "failed"].includes(current.state)) return current;
       const operation = rows(await getDb().execute(sql`SELECT operation.*,binding.project_id,resource.provider_resource_id FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id JOIN sandbox_resources resource ON resource.id=operation.resource_id WHERE operation.id=${operationId}`))[0]!;
-      if (reviewedOperations.has(operationId)) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Sandbox operation is already under reviewed execution");
-      reviewedOperations.add(operationId);
-      let providerResult: unknown;
-      try {
-        const input = await wireMethodInput(operation, current.provider);
-        providerResult = await invoke(userId, String(operation.project_id), current.provider, operation.method_group as SandboxMethodInput["group"], String(operation.method), input, signal);
-      } finally {
-        reviewedOperations.delete(operationId);
-      }
-      const actual = await methodResult(userId, operationId);
-      if (actual.state === "admitted" || actual.state === "running") throw new SandboxControllerError("PROVIDER_RESULT_UNVERIFIED", "Reviewed provider did not produce a durable host result");
-      const receipt = (providerResult as { receipt?: ProviderReceipt } | undefined)?.receipt;
-      if (receipt && canonicalJson(receipt) !== canonicalJson(actual.receipt)) throw new SandboxControllerError("PROVIDER_RESULT_MISMATCH", "Reviewed provider result differs from the durable host result");
-      return actual;
+      await reviewed(userId, String(operation.project_id), current.provider, current.group, current.operation, await wireMethodInput(operation, current.provider), "sandbox_method_operations", signal);
+      return methodResult(userId, operationId);
     },
     async executeAdmittedLocalSandboxOperationRaw(userId, operationId, signal) {
       requireReviewedWindow(operationId);
-      const lifecycle = rows(await getDb().execute(sql`SELECT operation.*, binding.project_id FROM sandbox_operations operation JOIN sandbox_provider_bindings binding ON binding.id = operation.binding_id WHERE operation.id=${operationId}`))[0];
-      if (lifecycle) {
-        if (lifecycle.actor_id !== userId) throw new SandboxControllerError("OPERATION_NOT_ADMITTED", "Operation is not available for execution");
-        await requireMember(userId, String(lifecycle.project_id));
-        if (["succeeded", "failed", "unknown"].includes(String(lifecycle.state))) return status(userId, String(lifecycle.project_id));
-        const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${lifecycle.binding_id}`))[0]!;
-        await boundProvider(binding);
-        const claimed = rows(await getDb().execute(sql`UPDATE sandbox_operations SET state='running', claimed_at=NOW() WHERE id=${operationId} AND state='admitted' AND actor_id=${userId} RETURNING *`))[0];
-        if (!claimed) return status(userId, String(lifecycle.project_id));
-        let result: ProviderResult;
-        try {
-          const call = { scope: { projectId: String(binding.project_id), bindingId: String(binding.id), generation: Number(binding.generation) }, operationId, idempotencyKey: String(claimed.idempotency_key), requestDigest: String(claimed.input_digest) };
-          const input = parse<{ resourceId?: string }>(claimed.input);
-          result = claimed.action === "create" ? await driver.create(parse<SandboxCreateInput>(claimed.input)) : claimed.action === "start" ? await driver.start({ call, resourceId: input.resourceId! }) : claimed.action === "stop" ? await driver.stop({ call, resourceId: input.resourceId! }) : await driver.destroy({ call, resourceId: input.resourceId! });
-          receiptMatches(call, result.receipt); await settle(operationId, String(binding.id), result);
-        } catch (error) { await unknown(operationId, String(binding.id)); throw error; }
-        return result!;
-      }
-      const operation = rows(await getDb().execute(sql`SELECT operation.*, binding.project_id, resource.provider_resource_id FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id JOIN sandbox_resources resource ON resource.id=operation.resource_id WHERE operation.id=${operationId}`))[0];
-      if (!operation || operation.actor_id !== userId) throw new SandboxControllerError("OPERATION_NOT_ADMITTED", "Operation is not available for execution");
-      await requireMember(userId, String(operation.project_id));
-      if (["succeeded", "failed", "unknown"].includes(String(operation.state))) return methodResult(userId, operationId);
-      const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${operation.binding_id}`))[0]!;
-      const current = await boundProvider(binding);
-      const claimed = rows(await getDb().execute(sql`UPDATE sandbox_method_operations SET state='running',claimed_at=NOW() WHERE id=${operationId} AND state='admitted' AND actor_id=${userId} RETURNING id`))[0];
-      if (!claimed) return methodResult(userId, operationId);
-      let result: { receipt?: ProviderReceipt; process?: ProcessResult["process"] };
-      try {
-        if (signal?.aborted) throw signal.reason ?? new DOMException("Aborted", "AbortError");
-        const input = await wireMethodInput(operation, current);
-        result = await dispatchMethod(operation, input) as { receipt?: ProviderReceipt; process?: ProcessResult["process"] };
-        const call = input.call as SandboxCreateInput["call"];
-        if (!result.receipt) throw new SandboxControllerError("PROVIDER_RECEIPT_MISMATCH", "Provider did not return a receipt");
-        receiptMatches(call, result.receipt);
-        await getDb().transaction(async (tx: DbTransaction) => {
-          await tx.execute(sql`UPDATE sandbox_method_operations SET state=${result.receipt!.outcome},receipt=${JSON.stringify(result.receipt)},result=${JSON.stringify(result)},completed_at=NOW() WHERE id=${operationId}`);
-          if (operation.method_group === "sandbox.process.v1" && operation.method === "start") {
-            const process = result.process;
-            await tx.execute(sql`INSERT INTO sandbox_processes(id,binding_id,resource_id,operation_id,provider_process_id,state,result) VALUES(${crypto.randomUUID()},${operation.binding_id},${operation.resource_id},${operationId},${process?.identity.processId ?? null},${process?.state ?? 'unknown'},${JSON.stringify(result)}) ON CONFLICT (operation_id) DO UPDATE SET provider_process_id=EXCLUDED.provider_process_id,state=EXCLUDED.state,result=EXCLUDED.result,updated_at=NOW()`);
-            await tx.execute(sql`UPDATE sandbox_writer_leases SET state=${process?.state === "running" ? "running" : "unknown"},updated_at=NOW() WHERE operation_id=${operationId}`);
-          }
-          if (operation.method_group === "sandbox.process.v1" && (operation.method === "inspect" || operation.method === "cancel")) {
-            const process = result.process;
-            if (process) await tx.execute(sql`UPDATE sandbox_processes SET state=${process.state},result=${JSON.stringify(result)},updated_at=NOW() WHERE binding_id=${operation.binding_id} AND provider_process_id=${process.identity.processId}`);
-          }
-          if (operation.method_group === "sandbox.lifecycle.v1" && operation.method === "inspect") {
-            const resource = (result as ProviderResult).resource;
-            if (!resource) throw new SandboxControllerError("PROVIDER_RECEIPT_MISMATCH", "Lifecycle inspection must return a resource");
-            await tx.execute(sql`UPDATE sandbox_resources SET desired_state=${resource.desiredState},observed_state=${resource.observedState},updated_at=NOW() WHERE binding_id=${operation.binding_id}`);
-            if (["stopped", "destroyed"].includes(resource.observedState)) await tx.execute(sql`DELETE FROM sandbox_writer_leases WHERE binding_id=${operation.binding_id}`);
-          }
-        });
-      } catch (error) {
-        await getDb().execute(sql`UPDATE sandbox_method_operations SET state='unknown',completed_at=NOW() WHERE id=${operationId}`);
-        await getDb().execute(sql`UPDATE sandbox_writer_leases SET state='unknown',updated_at=NOW() WHERE operation_id=${operationId}`);
-        throw error;
-      }
-      return result!;
+      const active = rawOperations.get(operationId);
+      if (active) return active;
+      const pending = executeRaw(userId, operationId, signal);
+      rawOperations.set(operationId, pending);
+      try { return await pending; } finally { rawOperations.delete(operationId); }
     },
     async reconcileSandboxProcess(userId, projectId, signal) {
-      await status(userId, projectId);
+      const current = await status(userId, projectId);
+      const pending = rows(await getDb().execute(sql`SELECT op.id FROM sandbox_writer_leases lease JOIN sandbox_method_operations op ON op.id=lease.operation_id WHERE lease.binding_id=${current.bindingId} AND op.method_group='sandbox.process.v1' AND op.method='start' AND op.state IN ('admitted','running','unknown')`))[0];
+      if (pending) await this.executeAdmittedSandboxMethod(userId, String(pending.id), signal);
       const process = rows(await getDb().execute(sql`SELECT process.*,binding.id AS binding_id,resource.provider_resource_id FROM sandbox_processes process JOIN sandbox_provider_bindings binding ON binding.id=process.binding_id JOIN sandbox_resources resource ON resource.id=process.resource_id WHERE binding.project_id=${projectId} ORDER BY process.updated_at DESC LIMIT 1`))[0];
       if (!process) return null;
       const result = parse<ProcessResult>(process.result);
@@ -271,40 +295,66 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     },
     async runNativeWorkspaceProcess(target, command, signal, principal) {
       nativeCommand(command);
+      signal?.throwIfAborted();
       if (!principal.userId || !principal.conversationId) throw new SandboxControllerError("PROJECT_ACCESS_DENIED", "An authenticated workspace principal is required");
+      const conversation = rows(await getDb().execute(sql`SELECT project_id,user_id FROM conversations WHERE id=${principal.conversationId}`))[0];
+      if (!conversation || conversation.project_id !== target.projectId || conversation.user_id !== principal.userId) throw new SandboxControllerError("CONVERSATION_ACCESS_DENIED", "Conversation does not belong to the authenticated project member");
       const workspace = rows(await getDb().execute(sql`SELECT binding_id,revision FROM project_workspace_bindings WHERE project_id=${target.projectId}`))[0];
       if (!workspace || workspace.binding_id !== target.bindingId || Number(workspace.revision) !== target.revision) throw new SandboxControllerError("STALE_WORKSPACE_BINDING", "Workspace binding changed");
-      const resource = await this.getProjectSandboxStatus(principal.userId, target.projectId);
+      await this.reconcileSandboxProcess(principal.userId, target.projectId);
+      const retained = rows(await getDb().execute(sql`SELECT operation_id FROM sandbox_writer_leases WHERE binding_id=${target.bindingId}`))[0];
+      if (retained) throw new SandboxControllerError("WRITER_LEASED", "A sandbox writer is already active or awaiting recovery");
+      const resource = await status(principal.userId, target.projectId);
       if (resource.resource?.observedState !== "running") {
         const lifecycle = await this.requestSandboxAction(principal.userId, target.projectId, { action: "start", idempotencyKey: crypto.randomUUID() });
-        await this.executeAdmittedLocalSandboxOperation(principal.userId, lifecycle.id);
+        const startedResource = await this.executeAdmittedLocalSandboxOperation(principal.userId, lifecycle.id);
+        if (startedResource.resource?.observedState !== "running") throw new SandboxControllerError("RESOURCE_NOT_RUNNING", "Sandbox could not start");
       }
-      const admitted = await this.admitSandboxMethod(principal.userId, target.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: crypto.randomUUID(), conversationId: principal.conversationId, payload: { argv: command.argv, env: {}, cwd: "/workspace", user: "workspace", timeoutMs: command.timeoutMs } });
-      const settled = await this.executeAdmittedSandboxMethod(principal.userId, admitted.id, signal);
-      const started = settled.result as ProcessResult | undefined;
-      if (!started?.process?.identity) throw new SandboxControllerError("NATIVE_RESULT_UNAVAILABLE", "Native process did not return an identity");
-      let cursor = 0; let stdout = ""; let terminal = started.process; let drainedAfterTerminal = false;
-      for (let attempt = 0; attempt < 64; attempt++) {
-        if (signal?.aborted) {
-          const cancel = await this.admitSandboxMethod(principal.userId, target.projectId, { group: "sandbox.process.v1", operation: "cancel", idempotencyKey: crypto.randomUUID(), conversationId: principal.conversationId, payload: { identity: terminal.identity } });
-          await this.executeAdmittedSandboxMethod(principal.userId, cancel.id);
+      const method = async (operation: string, payload: Record<string, unknown>) => {
+        const admitted = await this.admitSandboxMethod(principal.userId, target.projectId, { group: "sandbox.process.v1", operation, idempotencyKey: crypto.randomUUID(), conversationId: principal.conversationId, payload });
+        // Once admitted, cancellation must finish host reconciliation. An
+        // aborted caller must not cancel its own cleanup RPC.
+        const completed = await this.executeAdmittedSandboxMethod(principal.userId, admitted.id);
+        const result = completed.result as ProcessResult;
+        if (result.receipt.outcome !== "succeeded") throw new SandboxControllerError("PROCESS_UNAVAILABLE", "The process outcome could not be verified");
+        return completed.result;
+      };
+      const started = await method("start", { argv: command.argv, env: {}, cwd: "/workspace", user: "workspace", timeoutMs: command.timeoutMs }) as ProcessResult;
+      if (!started.process) throw new SandboxControllerError("PROCESS_IDENTITY_UNAVAILABLE", "Native process did not return an identity");
+      const identity = started.process.identity;
+      const deadline = Date.now() + command.timeoutMs + 30_000;
+      let cursor = 0; let stdout = ""; let outputBytes = 0; let cancelSent = false;
+      const decoder = new TextDecoder();
+      try {
+        for (;;) {
+          if (signal?.aborted && !cancelSent) { await method("cancel", { identity }); cancelSent = true; }
+          const inspected = await method("inspect", { identity }) as ProcessResult;
+          const terminal = inspected.process!;
+          const output = await method("readOutput", { identity, cursor, maxBytes: NATIVE_TOOL_OUTPUT_BYTES }) as { cursor: number; chunks: Array<{ stream: string; encoding: string; data: string }>; eof: boolean; gap: boolean };
+          cursor = output.cursor;
+          if (output.gap) throw new SandboxControllerError("OUTPUT_INCOMPLETE", "Native process output exceeded its retained bound");
+          for (const chunk of output.chunks) if (chunk.stream === "stdout") {
+            const bytes = Buffer.from(chunk.data, chunk.encoding === "utf8" ? "utf8" : "base64");
+            outputBytes += bytes.length;
+            if (outputBytes > NATIVE_TOOL_OUTPUT_BYTES) throw new SandboxControllerError("OUTPUT_INCOMPLETE", "Native process output exceeded its retained bound");
+            stdout += decoder.decode(bytes, { stream: true });
+          }
+          if (isTerminalProcess(terminal.state) && output.eof) {
+            await this.reconcileSandboxProcess(principal.userId, target.projectId);
+            if (rows(await getDb().execute(sql`SELECT operation_id FROM sandbox_writer_leases WHERE binding_id=${target.bindingId}`)).length) throw new SandboxControllerError("PROCESS_NOT_QUIESCENT", "Process stopped but workspace quiescence is unverified");
+            signal?.throwIfAborted();
+            if (typeof terminal.exitCode !== "number") throw new SandboxControllerError("NATIVE_RESULT_UNAVAILABLE", "Native process has no verified exit code");
+            return { stdout: stdout + decoder.decode(), exitCode: terminal.exitCode };
+          }
+          if (Date.now() >= deadline) throw new SandboxControllerError("PROCESS_DEADLINE", "Native process did not settle within its deadline");
+          if (!output.eof && output.chunks.length) continue;
+          await new Promise(resolve => setTimeout(resolve, 100));
         }
-        const output = await this.admitSandboxMethod(principal.userId, target.projectId, { group: "sandbox.process.v1", operation: "readOutput", idempotencyKey: crypto.randomUUID(), conversationId: principal.conversationId, payload: { identity: terminal.identity, cursor, maxBytes: 65536 } });
-        const read = await this.executeAdmittedSandboxMethod(principal.userId, output.id, signal);
-        const value = read.result as { cursor?: number; chunks?: Array<{ stream: string; encoding: string; data: string }> } | undefined;
-        if (value && Number.isSafeInteger(value.cursor)) cursor = Number(value.cursor);
-        for (const chunk of value?.chunks ?? []) if (chunk.stream === "stdout") stdout += chunk.encoding === "utf8" ? chunk.data : Buffer.from(chunk.data, "base64").toString("utf8");
-        const inspection = await this.admitSandboxMethod(principal.userId, target.projectId, { group: "sandbox.process.v1", operation: "inspect", idempotencyKey: crypto.randomUUID(), conversationId: principal.conversationId, payload: { identity: terminal.identity } });
-        const inspected = await this.executeAdmittedSandboxMethod(principal.userId, inspection.id, signal);
-        terminal = (inspected.result as ProcessResult | undefined)?.process ?? terminal;
-        if (isTerminalProcess(terminal.state)) {
-          if (drainedAfterTerminal) break;
-          drainedAfterTerminal = true;
-        }
+      } catch (error) {
+        if (!cancelSent) await method("cancel", { identity }).catch(() => undefined);
+        await this.reconcileSandboxProcess(principal.userId, target.projectId).catch(() => undefined);
+        throw error;
       }
-      if (!isTerminalProcess(terminal.state) || !Number.isSafeInteger(terminal.exitCode)) throw new SandboxControllerError("NATIVE_RESULT_UNAVAILABLE", "Native process did not reach a terminal state");
-      await this.reconcileSandboxProcess(principal.userId, target.projectId);
-      return { stdout, exitCode: Number(terminal.exitCode) };
     },
     async requestSandboxAction(userId, projectId, input) {
       const current = await status(userId, projectId); if (!current.resource) throw new SandboxControllerError("RESOURCE_MISSING", "Sandbox resource is not created");
@@ -320,25 +370,16 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       return { id, action: input.action, state: "admitted", input: value, provider: current.provider };
     },
     async executeAdmittedLocalSandboxOperation(userId, operationId) {
-      const operation = rows(await getDb().execute(sql`SELECT operation.*, binding.project_id FROM sandbox_operations operation JOIN sandbox_provider_bindings binding ON binding.id = operation.binding_id WHERE operation.id=${operationId}`))[0];
+      const operation = rows(await getDb().execute(sql`SELECT operation.*, binding.project_id FROM sandbox_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id WHERE operation.id=${operationId}`))[0];
       if (!operation || operation.actor_id !== userId) throw new SandboxControllerError("OPERATION_NOT_ADMITTED", "Operation is not available for execution");
       await requireMember(userId, String(operation.project_id));
-      if (["succeeded", "failed", "unknown"].includes(String(operation.state))) return status(userId, String(operation.project_id));
       const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${operation.binding_id}`))[0]!;
       const current = await boundProvider(binding);
-      if (!invoke) throw new SandboxControllerError("SANDBOX_INVOKER_UNAVAILABLE", "Reviewed sandbox provider invoker is not configured");
-      if (reviewedOperations.has(operationId)) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Sandbox operation is already under reviewed execution");
-      reviewedOperations.add(operationId);
-      let providerResult: unknown;
-      try {
-        const input = operation.action === "create" ? parse<SandboxCreateInput>(operation.input) : { ...parse<Record<string, unknown>>(operation.input), call: { scope: { projectId: String(binding.project_id), bindingId: String(binding.id), generation: Number(binding.generation) }, operationId, idempotencyKey: String(operation.idempotency_key), requestDigest: String(operation.input_digest) } };
-        providerResult = await invoke(userId, String(binding.project_id), current, "sandbox.lifecycle.v1", String(operation.action), input);
-      } finally { reviewedOperations.delete(operationId); }
-      const actual = await status(userId, String(binding.project_id));
-      if (actual.operation?.id === operationId && ["admitted", "running"].includes(actual.operation.state)) throw new SandboxControllerError("PROVIDER_RESULT_UNVERIFIED", "Reviewed provider did not produce a durable host result");
-      const receipt = (providerResult as { receipt?: ProviderReceipt } | undefined)?.receipt;
-      if (receipt && canonicalJson(receipt) !== canonicalJson(actual.operation?.receipt)) throw new SandboxControllerError("PROVIDER_RESULT_MISMATCH", "Reviewed provider result differs from the durable host result");
-      return actual;
+      if (!["succeeded", "failed"].includes(String(operation.state))) {
+        const input = operation.action === "create" ? parse<Record<string, unknown>>(operation.input) : { ...parse<Record<string, unknown>>(operation.input), call: { scope: { projectId: String(binding.project_id), bindingId: String(binding.id), generation: Number(binding.generation) }, operationId, idempotencyKey: String(operation.idempotency_key), requestDigest: String(operation.input_digest) } };
+        await reviewed(userId, String(binding.project_id), current, "sandbox.lifecycle.v1", String(operation.action), input, "sandbox_operations");
+      }
+      return status(userId, String(binding.project_id));
     },
   };
 }
