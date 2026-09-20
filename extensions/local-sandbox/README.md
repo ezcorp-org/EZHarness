@@ -48,8 +48,10 @@ screen to approve and activate `local-sandbox`, then create a sandbox from
 project settings. This MVP reserves one workspace at a time, including stopped
 workspaces. Dispose it explicitly before creating the next one.
 
-Do not place the state root on a temporary filesystem if it must survive host
-reboots. Stop the application before changing its runtime image or host paths.
+Application restart with the same state root is qualified. Host reboot and
+helper-crash recovery are not qualified for this MVP. Persistent storage is an
+operator precaution, not a claim of recovery support.
+Stop the application before changing its runtime image or host paths.
 Keep the configuration, compiled supervisor, and tool bundle with the matching
 application revision. A mismatch denies operations instead of adopting a
 container by name.

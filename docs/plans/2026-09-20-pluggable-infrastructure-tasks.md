@@ -4,6 +4,8 @@ Date: 20 September 2026
 
 Status: local MVP implemented in `feat/pluggable-infrastructure`; final integrated validation remains in progress
 
+The original plan below is a deferred roadmap. The active scope is the local native MVP in section 11. No AMD/Xeon, Incus, or Infisical deployment is configured or claimed.
+
 Input: the supplied **Pluggable Sandbox & Secrets Infrastructure — Proposed v1, 19 September 2026** PRD
 
 Target: `ezcorp-org/EZHarness`
