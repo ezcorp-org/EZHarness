@@ -15,20 +15,21 @@ async function fixture(outputBytes = 12) {
 	const root = await mkdtemp(join(tmpdir(), "ez-supervisor-")); roots.push(root);
 	const processRoot = join(root, "resource", "process"); await mkdir(processRoot, { recursive: true, mode: 0o700 });
 	const runtimeState = join(root, "runtime-state"); await writeFile(runtimeState, "running");
+	const descendantPid = join(root, "descendant-pid"); const execArgs = join(root, "exec-args");
 	const podman = join(root, "podman");
 	await writeFile(podman, `#!/tmp/bun-pinned/bin/bun
 import { readFile, writeFile } from "node:fs/promises";
-const args = process.argv.slice(2); const state = ${JSON.stringify(runtimeState)};
-if (args.includes("exec")) { process.stdout.write("abcdefghij"); process.stderr.write("KLMNOPQRST"); while ((await readFile(state, "utf8")) === "running") await Bun.sleep(5); process.exit(0); }
-if (args.includes("stop")) { await writeFile(state, "stopped"); process.exit(0); }
+const args = process.argv.slice(2); const state = ${JSON.stringify(runtimeState)}; const descendantPid = ${JSON.stringify(descendantPid)};
+if (args.includes("exec")) { await writeFile(${JSON.stringify(execArgs)}, JSON.stringify(args)); process.stdout.write("abcdefghij"); process.stderr.write("KLMNOPQRST"); if (args.includes("background")) { const child = Bun.spawn(["/bin/sh", "-c", "sleep 30"], { stdout: "inherit", stderr: "inherit" }); await writeFile(descendantPid, String(child.pid)); process.exit(0); } while ((await readFile(state, "utf8")) === "running") await Bun.sleep(5); process.exit(0); }
+if (args.includes("stop")) { await writeFile(state, "stopped"); try { process.kill(Number(await readFile(descendantPid, "utf8")), "SIGKILL"); } catch { await Promise.resolve(); } process.exit(0); }
 if (args.includes("inspect")) { const running = (await readFile(state, "utf8")) === "running"; console.log(args.some(value => value.includes(".Name")) ? "containerid containername " + running : "containerid " + running); process.exit(0); }
 process.exit(2);
 `); await chmod(podman, 0o700);
 	const resource: OwnedProcessResource = { resourceId: "resource", containerId: "containerid", containerName: "containername", scope: call.scope, processRoot, bootId: "boot-id" };
 	const entries: Promise<void>[] = [];
-	const supervisor = new LocalProcessSupervisor({ stateRoot: root, podmanPath: podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: outputBytes }, async () => resource, argv => { entries.push(runSupervisorEntry(argv[1]!)); });
+	const supervisor = new LocalProcessSupervisor({ stateRoot: root, podmanPath: podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: outputBytes, workspaceUid: 1000, workspaceGid: 1000 }, async () => resource, argv => { entries.push(runSupervisorEntry(argv[1]!)); });
 	const input: SandboxProcessStartInput = { call, resourceId: "resource", argv: ["tool"], env: { SAFE: "yes" }, cwd: "/", user: "workspace", timeoutMs: 2_000 };
-	return { root, processRoot, runtimeState, resource, entries, supervisor, input };
+	return { root, processRoot, runtimeState, execArgs, resource, entries, supervisor, input };
 }
 
 async function terminal(f: Awaited<ReturnType<typeof fixture>>, identity: { bootId: string; processId: string }) {
@@ -44,6 +45,7 @@ describe("LocalProcessSupervisor", () => {
 		await writeFile(join(f.processRoot, "cancel"), started.process.identity.processId);
 		const inspected = await terminal(f, started.process.identity); expect(inspected).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "cancelled", outputCursor: 12 } });
 		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
+		expect(JSON.parse(await readFile(f.execArgs, "utf8"))).toContain("1000:1000");
 		const first = await f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 0, maxBytes: 5 });
 		expect(first).toMatchObject({ receipt: { outcome: "succeeded" }, cursor: 5, eof: false, gap: true });
 		const second = await f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 5, maxBytes: 20 });
@@ -64,7 +66,7 @@ describe("LocalProcessSupervisor", () => {
 
 	test("fails closed for invalid host configuration, state artifacts, and cursors", async () => {
 		const f = await fixture();
-		expect(() => new LocalProcessSupervisor({ stateRoot: "relative", podmanPath: f.input.argv[0]!, supervisorPath: "relative", maxOutputBytes: 0 }, async () => f.resource)).toThrow();
+		expect(() => new LocalProcessSupervisor({ stateRoot: "relative", podmanPath: f.input.argv[0]!, supervisorPath: "relative", maxOutputBytes: 0, workspaceUid: 0, workspaceGid: 0 }, async () => f.resource)).toThrow();
 		const started = await f.supervisor.start(f.input); if (!("process" in started)) throw new Error("missing process");
 		await writeFile(join(f.processRoot, "cancel"), started.process.identity.processId); await terminal(f, started.process.identity);
 		const badCursor = await f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 999, maxBytes: 1 }); expect(badCursor.receipt.outcome).toBe("failed");
@@ -87,6 +89,13 @@ describe("LocalProcessSupervisor", () => {
 		await writeFile(statusPath, JSON.stringify({ version: 1, identity: deadIdentity, state: "running", startedAt: 1, deadlineAt: 2, helperPid: 99999999, helperStartTime: "missing", outputCursor: 0, gap: false, chunks: [] }), { mode: 0o600 });
 		const recovered = await f.supervisor.inspect({ call, resourceId: "resource", identity: deadIdentity });
 		expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "unknown" } });
+		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
+	});
+
+	test("stops background descendants before waiting for inherited output pipes", async () => {
+		const f = await fixture(64); const started = await f.supervisor.start({ ...f.input, argv: ["background"] }); if (!("process" in started)) throw new Error("missing process");
+		const result = await terminal(f, started.process.identity);
+		expect(result).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "exited" } });
 		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
 	});
 });

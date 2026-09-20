@@ -1,32 +1,33 @@
-import { chmod, readFile, stat } from "node:fs/promises";
+import { chmod, open, readFile, rename, rm, stat } from "node:fs/promises";
+import type { FileHandle } from "node:fs/promises";
+import { dirname } from "node:path";
 import type { SupervisorLaunch, SupervisorStatus } from "./supervisor";
+import { runBoundedCommand } from "./commands";
 
 const MAX_LAUNCH_BYTES = 128 * 1024;
 
 async function atomicStatus(path: string, value: SupervisorStatus): Promise<void> {
 	const temporary = `${path}.${crypto.randomUUID()}.tmp`;
-	await Bun.write(temporary, JSON.stringify(value)); await chmod(temporary, 0o600);
-	await import("node:fs/promises").then(fs => fs.rename(temporary, path)); await chmod(path, 0o600);
-}
-
-async function command(argv: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-	const child = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
-	const [code, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
-	return { code, stdout, stderr };
+	let handle: FileHandle | undefined;
+	try {
+		handle = await open(temporary, "wx", 0o600); await handle.writeFile(JSON.stringify(value)); await handle.sync(); await handle.close(); handle = undefined;
+		await rename(temporary, path); await chmod(path, 0o600);
+		const directory = await open(dirname(path), "r"); try { await directory.sync(); } finally { await directory.close(); }
+	} finally { await handle?.close().catch(() => undefined); await rm(temporary, { force: true }).catch(() => undefined); }
 }
 
 async function stopped(launch: SupervisorLaunch): Promise<boolean> {
-	const result = await command([launch.podmanPath, "--remote=false", "inspect", "--format", "{{.Id}} {{.State.Running}}", launch.containerId]);
-	return result.code === 0 && result.stdout.trim() === `${launch.containerId} false`;
+	const result = await runBoundedCommand([launch.podmanPath, "--remote=false", "inspect", "--format", "{{.Id}} {{.State.Running}}", launch.containerId], { timeoutMs: 10_000, maxOutputBytes: 4096 });
+	return !result.timedOut && result.code === 0 && result.stdout.trim() === `${launch.containerId} false`;
 }
 
 async function ownedAndRunning(launch: SupervisorLaunch): Promise<boolean> {
-	const result = await command([launch.podmanPath, "--remote=false", "inspect", "--format", "{{.Id}} {{.Name}} {{.State.Running}}", launch.containerId]);
-	return result.code === 0 && result.stdout.trim() === `${launch.containerId} ${launch.containerName} true`;
+	const result = await runBoundedCommand([launch.podmanPath, "--remote=false", "inspect", "--format", "{{.Id}} {{.Name}} {{.State.Running}}", launch.containerId], { timeoutMs: 10_000, maxOutputBytes: 4096 });
+	return !result.timedOut && result.code === 0 && result.stdout.trim() === `${launch.containerId} ${launch.containerName} true`;
 }
 
 async function stopAndVerify(launch: SupervisorLaunch): Promise<boolean> {
-	await command([launch.podmanPath, "--remote=false", "stop", "--time", "1", launch.containerId]);
+	await runBoundedCommand([launch.podmanPath, "--remote=false", "stop", "--time", "1", launch.containerId], { timeoutMs: 10_000, maxOutputBytes: 4096 });
 	return stopped(launch);
 }
 
@@ -46,7 +47,7 @@ export async function runSupervisorEntry(launchPath: string): Promise<void> {
 	await persist();
 	if (!(await ownedAndRunning(launch))) { await stopAndVerify(launch); status.state = "unknown"; await persist(); return; }
 	const envArgs = Object.entries(launch.env).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
-	const child = Bun.spawn([launch.podmanPath, "--remote=false", "exec", "--user", "workspace", "--workdir", launch.cwd, ...envArgs, launch.containerId, ...launch.argv], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+	const child = Bun.spawn([launch.podmanPath, "--remote=false", "exec", "--user", `${launch.workspaceUid}:${launch.workspaceGid}`, "--workdir", launch.cwd, ...envArgs, launch.containerId, ...launch.argv], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
 	let written = 0;
 	const capture = async (stream: "stdout" | "stderr", source: ReadableStream<Uint8Array>) => {
 		const reader = source.getReader();
@@ -70,10 +71,11 @@ export async function runSupervisorEntry(launchPath: string): Promise<void> {
 			if (timedOut || cancelled) { if (!(await stopAndVerify(launch))) status.state = "unknown"; return; }
 		}
 	})();
-	const exitCode = await child.exited; childDone = true; await Promise.all([watcher, output]);
+	const exitCode = await child.exited; childDone = true; await watcher;
 	cancelled ||= await Bun.file(launch.cancelPath).exists();
 	timedOut ||= Date.now() >= status.deadlineAt;
 	const isStopped = await stopAndVerify(launch);
+	await output;
 	status.state = isStopped ? (cancelled || timedOut ? "cancelled" : exitCode === 0 ? "exited" : "failed") : "unknown";
 	status.exitCode = exitCode; await persist();
 }

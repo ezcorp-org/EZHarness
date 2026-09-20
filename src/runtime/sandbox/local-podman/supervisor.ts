@@ -1,6 +1,6 @@
 import { chmod, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
-import { resolve, sep } from "node:path";
+import { dirname, resolve, sep } from "node:path";
 import type {
 	ProviderCall,
 	SandboxProcess,
@@ -15,6 +15,7 @@ import type {
 	SandboxProcessStartResult,
 } from "@ezcorp/extension-contract";
 import { validateProviderMethodValue } from "@ezcorp/extension-contract";
+import { runBoundedCommand } from "./commands";
 
 export interface OwnedProcessResource {
 	resourceId: string;
@@ -30,6 +31,8 @@ export interface LocalProcessSupervisorConfig {
 	podmanPath: string;
 	supervisorPath: string;
 	maxOutputBytes: number;
+	workspaceUid: number;
+	workspaceGid: number;
 }
 
 export interface SupervisorLaunch {
@@ -43,6 +46,8 @@ export interface SupervisorLaunch {
 	cwd: string;
 	timeoutMs: number;
 	maxOutputBytes: number;
+	workspaceUid: number;
+	workspaceGid: number;
 	statusPath: string;
 	cancelPath: string;
 }
@@ -79,6 +84,7 @@ function assertConfig(config: LocalProcessSupervisorConfig): LocalProcessSupervi
 	const stateRoot = resolve(config.stateRoot);
 	if (!stateRoot.startsWith(sep) || !config.podmanPath.startsWith(sep) || !config.supervisorPath.startsWith(sep)) throw new Error("Supervisor paths must be absolute");
 	if (!Number.isSafeInteger(config.maxOutputBytes) || config.maxOutputBytes < 1 || config.maxOutputBytes > 1024 * 1024) throw new Error("Invalid supervisor output limit");
+	if (!Number.isSafeInteger(config.workspaceUid) || config.workspaceUid < 1 || config.workspaceUid > 2_147_483_647 || !Number.isSafeInteger(config.workspaceGid) || config.workspaceGid < 1 || config.workspaceGid > 2_147_483_647) throw new Error("Invalid workspace UID/GID");
 	return Object.freeze({ ...config, stateRoot });
 }
 
@@ -91,9 +97,13 @@ function assertOwned(config: LocalProcessSupervisorConfig, value: OwnedProcessRe
 
 async function atomicJson(path: string, value: unknown): Promise<void> {
 	const temporary = `${path}.${crypto.randomUUID()}.tmp`;
-	await writeFile(temporary, JSON.stringify(value), { mode: 0o600, flag: "wx" });
-	await rename(temporary, path);
-	await chmod(path, 0o600);
+	let handle: FileHandle | undefined;
+	try {
+		handle = await open(temporary, "wx", 0o600);
+		await handle.writeFile(JSON.stringify(value)); await handle.sync(); await handle.close(); handle = undefined;
+		await rename(temporary, path); await chmod(path, 0o600);
+		const directory = await open(dirname(path), "r"); try { await directory.sync(); } finally { await directory.close(); }
+	} finally { await handle?.close().catch(() => undefined); await rm(temporary, { force: true }).catch(() => undefined); }
 }
 
 async function readStatus(path: string): Promise<SupervisorStatus> {
@@ -133,11 +143,9 @@ export class LocalProcessSupervisor {
 	}
 
 	private async stopAndVerify(resource: OwnedProcessResource): Promise<boolean> {
-		const stopped = Bun.spawn([this.config.podmanPath, "--remote=false", "stop", "--time", "1", resource.containerId], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-		await stopped.exited;
-		const inspected = Bun.spawn([this.config.podmanPath, "--remote=false", "inspect", "--format", "{{.Id}} {{.State.Running}}", resource.containerId], { stdin: "ignore", stdout: "pipe", stderr: "ignore" });
-		const [code, output] = await Promise.all([inspected.exited, new Response(inspected.stdout).text()]);
-		return code === 0 && output.trim() === `${resource.containerId} false`;
+		await runBoundedCommand([this.config.podmanPath, "--remote=false", "stop", "--time", "1", resource.containerId], { timeoutMs: 10_000, maxOutputBytes: 4096 });
+		const inspected = await runBoundedCommand([this.config.podmanPath, "--remote=false", "inspect", "--format", "{{.Id}} {{.State.Running}}", resource.containerId], { timeoutMs: 10_000, maxOutputBytes: 4096 });
+		return !inspected.timedOut && inspected.code === 0 && inspected.stdout.trim() === `${resource.containerId} false`;
 	}
 
 	private async recover(resource: OwnedProcessResource, status: SupervisorStatus, path: string): Promise<SupervisorStatus> {
@@ -170,7 +178,7 @@ export class LocalProcessSupervisor {
 				}
 				await rm(paths.cancel, { force: true });
 				const identity = { bootId: resource.bootId, processId: crypto.randomUUID() };
-				const launch: SupervisorLaunch = { version: 1, podmanPath: this.config.podmanPath, containerId: resource.containerId, containerName: resource.containerName, identity, argv: input.argv, env: input.env, cwd: input.cwd, timeoutMs: input.timeoutMs, maxOutputBytes: this.config.maxOutputBytes, statusPath: paths.status, cancelPath: paths.cancel };
+				const launch: SupervisorLaunch = { version: 1, podmanPath: this.config.podmanPath, containerId: resource.containerId, containerName: resource.containerName, identity, argv: input.argv, env: input.env, cwd: input.cwd, timeoutMs: input.timeoutMs, maxOutputBytes: this.config.maxOutputBytes, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid, statusPath: paths.status, cancelPath: paths.cancel };
 				await atomicJson(paths.launch, launch);
 				const now = Date.now();
 				await atomicJson(paths.status, { version: 1, identity, state: "starting", startedAt: now, deadlineAt: now + input.timeoutMs, helperPid: 0, helperStartTime: "pending", outputCursor: 0, gap: false, chunks: [] } satisfies SupervisorStatus);
