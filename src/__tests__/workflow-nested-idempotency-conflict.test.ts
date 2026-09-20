@@ -35,6 +35,7 @@ import { EventBus } from "../runtime/events";
 import { AgentExecutor } from "../runtime/executor";
 import { loadAgentsStatic } from "../runtime/loader";
 import { isUniqueViolation } from "../db/unique-violation";
+import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { AgentEvents, WorkflowDefinition } from "../types";
 
 let pglite: PGlite;
@@ -80,7 +81,9 @@ describe("a nested-key conflict is a concurrent start, not a lost row", () => {
     await db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('nested-user','nested-conflict@example.test','x','Nested','admin')`);
   });
 
-  afterAll(async () => { await pglite?.close(); });
+  // The release-authority stub must not outlive this file: a leaked one would
+  // grant authority to every later test in the pool.
+  afterAll(async () => { restoreModuleMocks(); await pglite?.close(); });
 
   test("the envelope hides the SQLSTATE, which is why the executor unwraps it", async () => {
     const key = nestedRunKey(crypto.randomUUID(), "child", 0);
