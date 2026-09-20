@@ -1,14 +1,9 @@
 # Build-context excludes for `Dockerfile.test` ONLY.
 #
-# BuildKit uses `<dockerfile>.dockerignore` when it exists and that file
-# REPLACES the root `.dockerignore` outright — the two are never merged.
-#
-# THAT LOOKUP IS BUILDKIT-ONLY. Podman and Buildah do not implement it: they
-# read the root `.dockerignore` and this file is never consulted, so every
-# test is stripped and the image builds green with nothing to run. Pass
-# `--ignorefile Dockerfile.test.dockerignore` on those engines. A guard in
-# Dockerfile.test fails the build when the test sources are missing, so this
-# cannot pass silently again.
+# Current Docker, Podman, and Buildah select `<dockerfile>.dockerignore` when it
+# exists. This companion file REPLACES the root `.dockerignore` outright — the
+# two are never merged. Keep it beside `Dockerfile.test`; the Dockerfile has a
+# guard that fails when either the backend preload or browser specs are missing.
 # So every exclude the root file needs, this file needs too, minus the
 # ones the test image genuinely depends on.
 #
