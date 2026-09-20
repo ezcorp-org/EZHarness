@@ -7,8 +7,25 @@ import { test, expect } from "../../e2e/fixtures/hydration.js";
 import { captureEvidence } from "../../e2e/fixtures/evidence";
 import { importAndActivateBundledExtension } from "../../e2e/fixtures/extension-v4";
 
+let ownedProjectId: string | undefined;
+test.afterEach(async ({ request }) => {
+  if (!ownedProjectId) return;
+  const status = await request.get(`/api/projects/${ownedProjectId}/sandbox`);
+  expect(status.status(), await status.text()).toBe(200);
+  if ((await status.json()).state !== "destroyed") {
+    const disposed = await request.post(`/api/projects/${ownedProjectId}/sandbox`, { headers: { "Idempotency-Key": crypto.randomUUID() }, data: { action: "destroy" } });
+    expect(disposed.status(), await disposed.text()).toBe(200);
+    expect((await disposed.json()).state).toBe("destroyed");
+  }
+  ownedProjectId = undefined;
+});
+
 test("local native workspace survives browser disconnect and disposes cleanly @evidence", async ({ page: initialPage, request, baseURL, context }, testInfo) => {
   let page = initialPage;
+  const seedScript = async (scriptKey: string, turns: unknown[]) => {
+    const response = await request.post("/api/__test/mock-llm/script", { data: { scriptKey, turns } });
+    expect(response.status(), await response.text()).toBe(201);
+  };
   const { client, state } = await importAndActivateBundledExtension({ page, request, baseURL: baseURL!, name: "local-sandbox" });
   const providers = await request.get("/api/sandboxes/providers");
   expect(providers.status(), await providers.text()).toBe(200);
@@ -21,6 +38,7 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   const created = await createdResponse;
   expect(created.status(), await created.text()).toBe(201);
   const { project } = await created.json();
+  ownedProjectId = project.id;
   await expect(page).toHaveURL(new RegExp(`/project/${project.id}/settings$`));
   await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
   const key = `sandbox-${crypto.randomUUID()}`;
@@ -35,8 +53,7 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
     { name: "editFile", arguments: { path: "marker.txt", old_string: marker, new_string: `${marker}_EDITED` } },
     { name: "shell", arguments: { command: "cat marker.txt", timeout: 30000 } },
   ];
-  const script = await request.post("/api/__test/mock-llm/script", { data: { scriptKey: key, turns: [...calls.map((call, index) => ({ toolCalls: [{ ...call, id: `${key}-${index}` }] })), { text: "Native checks complete" }] } });
-  expect(script.status(), await script.text()).toBe(200);
+  await seedScript(key, [...calls.map((call, index) => ({ toolCalls: [{ ...call, id: `${key}-${index}` }] })), { text: "Native checks complete" }]);
   const conversation = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${key}`, title: "Local sandbox qualification" });
   const result = await client.runToCompletion(conversation.id, "Run the local native checks", { permissionMode: "yolo", timeoutMs: 240000 });
   expect(result.outcome, JSON.stringify(result)).toBe("complete");
@@ -53,7 +70,7 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   await page.goto(`/project/${project.id}/chat/${conversation.id}`);
   await page.reload();
   const readKey = `${key}-read`;
-  expect((await request.post("/api/__test/mock-llm/script", { data: { scriptKey: readKey, turns: [{ toolCalls: [{ name: "readFile", arguments: { path: "marker.txt" } }] }, { text: "Persistence checked" }] } })).status()).toBe(200);
+  await seedScript(readKey, [{ toolCalls: [{ name: "readFile", arguments: { path: "marker.txt" } }] }, { text: "Persistence checked" }]);
   const resumed = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${readKey}` });
   expect((await client.runToCompletion(resumed.id, "Read the persisted marker", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
   const persisted = await request.get(`/api/conversations/${resumed.id}/messages?withToolCalls=true`);
@@ -65,7 +82,7 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   const paths = resourcePaths(host.stateRoot, status.resource.resourceId);
   const processStatus = async () => JSON.parse(await readFile(`${paths.output}/process/status.json`, "utf8"));
   const cancelKey = `${key}-cancel`;
-  expect((await request.post("/api/__test/mock-llm/script", { data: { scriptKey: cancelKey, turns: [{ toolCalls: [{ name: "shell", arguments: { command: "printf waiting > cancel-started.txt; sleep 120; printf should-not-exist > cancel-failed.txt", timeout: 180000 } }] }, { text: "Cancelled command settled" }] } })).status()).toBe(200);
+  await seedScript(cancelKey, [{ toolCalls: [{ name: "shell", arguments: { command: "printf waiting > cancel-started.txt; sleep 120; printf should-not-exist > cancel-failed.txt", timeout: 180000 } }] }, { text: "Cancelled command settled" }]);
   const cancellable = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${cancelKey}` });
   const active = await client.sendMessage(cancellable.id, "Run until cancelled", { permissionMode: "yolo" });
   expect(active.runId).toBeTruthy();
@@ -79,7 +96,7 @@ test("local native workspace survives browser disconnect and disposes cleanly @e
   expect((await client.awaitRun(active.runId!, 60000)).outcome).toBe("cancel");
   await expect.poll(async () => (await processStatus()).state, { timeout: 30000 }).toBe("cancelled");
   const recoveryKey = `${key}-recovery`;
-  expect((await request.post("/api/__test/mock-llm/script", { data: { scriptKey: recoveryKey, turns: [{ toolCalls: [{ name: "shell", arguments: { command: "test ! -e cancel-failed.txt && cat marker.txt", timeout: 30000 } }] }, { text: "Cancellation recovery checked" }] } })).status()).toBe(200);
+  await seedScript(recoveryKey, [{ toolCalls: [{ name: "shell", arguments: { command: "test ! -e cancel-failed.txt && cat marker.txt", timeout: 30000 } }] }, { text: "Cancellation recovery checked" }]);
   const recovered = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${recoveryKey}` });
   expect((await client.runToCompletion(recovered.id, "Check the retained workspace", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
   expect(JSON.stringify(await (await request.get(`/api/conversations/${recovered.id}/messages?withToolCalls=true`)).json())).toContain(`${marker}_EDITED`);
