@@ -14,6 +14,8 @@ UTC start and end, the pass/fail/assertion counts, and the log's own SHA-256; ea
 | `d912bd323` | `feat(factory): embed the accepted child bytes in the catalog candidate` |
 | `3be5e7978` | `test(factory): pin the composition boundaries an acceptance-only child keeps` |
 | `42799ff98` | `docs(factory): record the W13 plan, review, and lessons` |
+| `185ff682a` | `test: snapshot the release-authority module the conflict regression stubs` |
+| `dff333d73` | `Merge branch 'integ/w00' into wp/w13-composition` — the base advanced by six commits (W01d) mid-package; every receipt below was produced at this head |
 | this commit | `docs(factory): record the W13 gates` — its own SHA is reported to the coordinator |
 
 ## What was inert before this package
@@ -34,7 +36,7 @@ implemented nowhere in the repository.
 
 ## Gates
 
-- [ ] G1: A pinned legacy workflow is classified statically, and the allowlist is stated as its
+- [x] G1: A pinned legacy workflow is classified statically, and the allowlist is stated as its
   complement with `git` excluded by excluding `shell`.
   CHECK: `bun test --timeout 60000 ./src/factory/legacy-workflow/classification.test.ts`
   EXPECT: exit 0; a read-only graph is `non-publishing`; a shell step, a `network`/`network.tcp`
@@ -43,9 +45,9 @@ implemented nowhere in the repository.
   made them so; a nested workflow inside the allowlist stays non-publishing and one outside it does
   not; an unresolved nested name, a cycle, and a graph below the depth cap are findings rather than
   passes; the classification digest moves when the graph does.
-  EVIDENCE: `receipts.jsonl` record `focused-classification`.
+  EVIDENCE: `receipts.jsonl` record `focused-classification` (29 pass, 0 fail, 87 assertions).
 
-- [ ] G2: Every C10 legacy status row maps, and an unknown status is uncertain rather than benign.
+- [x] G2: Every C10 legacy status row maps, and an unknown status is uncertain rather than benign.
   CHECK: `bun test --timeout 60000 ./src/factory/legacy-workflow/status.test.ts`
   EXPECT: exit 0; `success`→succeeded with its outputs, `suspended`→waiting with its reason and its
   resumability, `awaiting_approval`→TERMINAL uncertainty surfaced as a blocker and never resumable,
@@ -53,9 +55,9 @@ implemented nowhere in the repository.
   with the recorded batch index and in-flight step names, a run that lost release authority
   mid-flight→`release-authority-lost` through all three shapes the engine writes, `cancelled`→
   cancelled, and any other status→uncertain.
-  EVIDENCE: `receipts.jsonl` record `focused-classification`.
+  EVIDENCE: `receipts.jsonl` record `focused-classification` (29 pass, 0 fail).
 
-- [ ] G3: The adapter journals before it starts, looks the run up by its `factory:` key on every
+- [x] G3: The adapter journals before it starts, looks the run up by its `factory:` key on every
   call, and a crash between journal and start creates no duplicate legacy run.
   CHECK: `bun test --timeout 120000 ./src/factory/legacy-workflow/adapter.test.ts`
   EXPECT: exit 0; the engine reads the journal row as `journaled` WHILE it is running, which is the
@@ -63,9 +65,9 @@ implemented nowhere in the repository.
   crash after the engine created the run leaves the journal `journaled`, and the next call adopts
   that same run with `startCalls` still 1 and one key in the engine; two concurrent starts agree on
   one run; replaying with different input is `factory_legacy_conflict`.
-  EVIDENCE: `receipts.jsonl` record `focused-adapter`.
+  EVIDENCE: `receipts.jsonl` record `focused-adapter` (22 pass, 0 fail, 77 assertions).
 
-- [ ] G4: A shell-bearing workflow is denied without an attestation, and any definition change
+- [x] G4: A shell-bearing workflow is denied without an attestation, and any definition change
   invalidates the one it had.
   CHECK: `bun test --timeout 120000 ./src/factory/legacy-workflow/adapter.test.ts`
   EXPECT: exit 0; an unattested publishing classification is `factory_legacy_unattested` with zero
@@ -73,9 +75,9 @@ implemented nowhere in the repository.
   classification; re-attesting is idempotent and a second administrator is a conflict; an edited
   definition and a widened classification under the same definition digest are both unattested
   again; revoking stops admission.
-  EVIDENCE: `receipts.jsonl` record `focused-adapter`.
+  EVIDENCE: `receipts.jsonl` record `focused-adapter` (22 pass, 0 fail).
 
-- [ ] G5: A legacy output enters the factory store only as a recorded, digest-verified copy, and
+- [x] G5: A legacy output enters the factory store only as a recorded, digest-verified copy, and
   the ownerless ez-factory job store is never surfaced.
   CHECK: `bun test --timeout 120000 ./src/factory/legacy-workflow/adapter.test.ts ./src/factory/legacy-workflow/import-parity.test.ts`
   EXPECT: exit 0; the imported bytes read back byte-identical from the artifact store; a declared
@@ -86,16 +88,18 @@ implemented nowhere in the repository.
   TEXT.
   EVIDENCE: `receipts.jsonl` records `focused-adapter`, `focused-classification`.
 
-- [ ] G6: A unique-key conflict is a concurrent start in every namespace, and the fix is
+- [x] G6: A unique-key conflict is a concurrent start in every namespace, and the fix is
   load-bearing.
   CHECK: `bun test --timeout 60000 ./src/__tests__/workflow-nested-idempotency-conflict.test.ts`,
   then the recorded red-to-green control that restores the old gate, reruns, and restores the file
   byte for byte.
   EXPECT: exit 0 with 4 pass; under the old gate exactly 2 of the 4 fail, and the restored file's
   SHA-256 equals the committed blob's.
-  EVIDENCE: `receipts.jsonl` records `focused-composition`, `nested-conflict-control`.
+  EVIDENCE: `receipts.jsonl` records `focused-composition` (33 pass, 0 fail, 157 assertions) and
+  `nested-conflict-control`, whose log records `oldGateFailures=2 newGateFailures=0` with the
+  file's SHA-256 identical before and after.
 
-- [ ] G7: The orphan sweep is a host-maintenance-daemon sub-tick on every tick, and resolves both
+- [x] G7: The orphan sweep is a host-maintenance-daemon sub-tick on every tick, and resolves both
   branches.
   CHECK: `bun test --timeout 120000 ./src/__tests__/factory-legacy-orphan-sweep.test.ts`
   EXPECT: exit 0; a boundary orphan becomes `suspended`/`resumable`/`orphaned-resumable` with no
@@ -104,9 +108,9 @@ implemented nowhere in the repository.
   and one again for a run orphaned after the previous tick; a run inside its lease is never swept;
   and before the daemon notices anything the factory side already reads the expired lease as
   uncertain. No wall clock is asserted: the daemon's clock is injected.
-  EVIDENCE: `receipts.jsonl` record `focused-composition`.
+  EVIDENCE: `receipts.jsonl` record `focused-composition` (33 pass, 0 fail).
 
-- [ ] G8: A child composed in acceptance-only mode creates no release operation and returns the
+- [x] G8: A child composed in acceptance-only mode creates no release operation and returns the
   accepted artifact with its sealed decision.
   CHECK: `bun test --timeout 600000 ./src/__tests__/factory-run-lifecycle.test.ts`
   EXPECT: exit 0 with 60 pass; the release node completes with a `node-result` carrying a
@@ -116,26 +120,28 @@ implemented nowhere in the repository.
   is exactly the child's row in `factory_acceptance_decisions`; the child holds a portion carved
   out of the parent rather than a copy of its limits; and an `authorized` child still creates
   exactly one operation.
-  EVIDENCE: `receipts.jsonl` records `focused-lifecycle`, `postgres-legacy`.
+  EVIDENCE: `receipts.jsonl` records `focused-lifecycle` (74 pass, 0 fail, 1126 assertions across
+  the lifecycle and migration-restart suites) and `merge-postgres` (103 pass, 0 fail, 4226
+  assertions on real PostgreSQL and real S3).
 
-- [ ] G9: The inherited release mode is read from the live ancestry, and cancelling the parent
+- [x] G9: The inherited release mode is read from the live ancestry, and cancelling the parent
   stops the child's release.
   CHECK: `bun test --timeout 600000 ./src/__tests__/factory-run-lifecycle.test.ts`
   EXPECT: exit 0; a root run reports `root`, a child of an `authorized` node reports `authorized`,
   a child of a `none` node reports `none`, all through real published parents, committed
   `run-child` commands, and `FactoryChildRuns.resolve`; after the parent is cancelled the child's
   `requestRelease` throws and leaves no receipt and no operation.
-  EVIDENCE: `receipts.jsonl` records `focused-lifecycle`, `postgres-legacy`.
+  EVIDENCE: `receipts.jsonl` records `focused-lifecycle`, `merge-postgres`.
 
-- [ ] G10: The output port is the boundary in both directions.
+- [x] G10: The output port is the boundary in both directions.
   CHECK: `bun test --timeout 60000 ./src/factory/child-release-mode.test.ts`
   EXPECT: exit 0; the real value satisfies the port all three catalog children declare; a
   publishing child's provider receipt and an `authorized` variant both FAIL that port; `none`
   narrows every combination of inherited modes; every required field is required and a malformed
   digest is refused; an extra field is dropped rather than carried into the seal.
-  EVIDENCE: `receipts.jsonl` record `focused-composition`.
+  EVIDENCE: `receipts.jsonl` record `focused-composition` (33 pass, 0 fail).
 
-- [ ] G11: `reference.catalog.v1` executes end to end with acceptance-only children.
+- [x] G11: `reference.catalog.v1` executes end to end with acceptance-only children.
   CHECK: `bun test --timeout 120000 ./packages/@ezcorp/factory-sdk/src/reference-execution.test.ts`
   EXPECT: exit 0 with 3 pass; the catalog's command trace is exactly `run-child:accepted-data`,
   `run-child:accepted-image`, `dispatch-node:prepare-catalog-request`,
@@ -143,9 +149,9 @@ implemented nowhere in the repository.
   `request-acceptance:acceptance`, `request-approval:release-approval`,
   `request-release:github-pr-release`, `complete-run:run`, and every reference factory reaches
   `completed`.
-  EVIDENCE: `receipts.jsonl` record `sdk-references`.
+  EVIDENCE: `receipts.jsonl` record `sdk-references` (36 pass, 0 fail, 299 assertions).
 
-- [ ] G12: The candidate carries the ACTUAL accepted bytes, and the parent's own claims say so.
+- [x] G12: The candidate carries the ACTUAL accepted bytes, and the parent's own claims say so.
   CHECK: `bun test --timeout 60000 ./src/factory/reference-catalog/catalog.test.ts ./src/factory/reference-catalog/pack.test.ts`
   EXPECT: exit 0; bytes that do not hash to the digest the child's sealed decision accepted are
   `reference_catalog_bytes_unaccepted`; a release receipt in place of an acceptance-only one is
@@ -154,9 +160,9 @@ implemented nowhere in the repository.
   `catalog-render` fails for an altered and for an absent page; the page escapes child-supplied
   text; the registry dispatches to the same implementations a direct call reaches; every pinned
   runner reference declares a legal manifest name derived from its package.
-  EVIDENCE: `receipts.jsonl` record `focused-composition`.
+  EVIDENCE: `receipts.jsonl` record `focused-composition` (33 pass, 0 fail).
 
-- [ ] G13: The three new tables survive repeated migration, and real PostgreSQL agrees with the
+- [x] G13: The three new tables survive repeated migration, and real PostgreSQL agrees with the
   Drizzle model.
   CHECK: `bun test --timeout 300000 ./src/__tests__/factory-migration-restart.test.ts` and
   `FACTORY_TEST_POSTGRES_URL=… bun test --timeout 600000 ./tests/postgres/factory-schema.test.ts ./tests/postgres/factory-migration-restart.test.ts`
@@ -165,16 +171,20 @@ implemented nowhere in the repository.
   `(tenant_id, idempotency_key)` index survives; an orphan journal row and a bare-hex definition
   digest are both refused; every modeled column, type, nullability, default, and foreign key
   matches the engine's catalog.
-  EVIDENCE: `receipts.jsonl` records `focused-lifecycle`, `postgres-legacy`.
+  EVIDENCE: `receipts.jsonl` records `focused-lifecycle` and `merge-postgres`.
 
-- [ ] G14: The whole legacy surface outside factories still works.
+- [x] G14: The whole legacy surface outside factories still works.
   CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 2400 bun run test`
   EXPECT: exit 0 across the whole backend pool, including every workflow executor, runner, resume,
   nesting, approval, delegation, consent, capability-hash, release-asset, host-maintenance-daemon,
   and `extensions/ez-factory` suite.
-  EVIDENCE: `receipts.jsonl` record `backend-pool`.
+  EVIDENCE: `receipts.jsonl` record `merge-backend-pool`: **27,325 pass, 0 fail, 1,833 files**,
+  exit 0. The FIRST attempt (`backend-pool`, exit 1) is retained: it caught one real defect of
+  mine — `mock-cleanup-coverage.test.ts` refused the unsnapshotted `mock.module` target in the new
+  conflict regression, which would have leaked a release-authority stub into every later file.
+  Fixed at `185ff682a`, not exempted.
 
-- [ ] G15: Static gates and diff-scoped coverage.
+- [x] G15: Static gates and diff-scoped coverage.
   CHECK: `bun run typecheck`, `bun run lint`, `bun scripts/check-factory-boundaries.ts`,
   `bun scripts/gate-integrity.ts`, `bun scripts/check-schema-generate-drift.ts`,
   `bun test --timeout 60000 ./scripts/factory-c13-inventory.test.ts`, then
@@ -182,7 +192,14 @@ implemented nowhere in the repository.
   `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts` over the merged LCOV.
   EXPECT: exit 0 for each; every new source file at 100% lines and every changed executable line
   covered.
-  EVIDENCE: `receipts.jsonl` records `static-gates`, `coverage-w13`, `coverage-gates`.
+  EVIDENCE: `receipts.jsonl` records `merge-static-gates` (all eight checks exit 0 at the merged
+  head) and `merge-coverage`. The merged report is retained at `lcov-merged.info` with the
+  thirteen per-leg reports under `lcov/`. **New-file gate PASSED, 8 new source files gated; patch
+  gate PASSED, all changed executable lines covered across 17 files.** Every new source at 100%
+  lines: `add-factory-legacy-workflow-adapters.ts` 9/9, `child-release-mode.ts` 42/42,
+  `legacy-workflow/adapter.ts` 198/198, `legacy-workflow/classification.ts` 45/45,
+  `legacy-workflow/import.ts` 96/96, `legacy-workflow/status.ts` 50/50,
+  `reference-catalog/catalog.ts` 139/139, `reference-catalog/pack.ts` 59/59.
 
 ## Open
 
@@ -281,6 +298,29 @@ implemented nowhere in the repository.
    that accepts it. `src/factory/child-release-mode.test.ts` asserts the real value satisfies the
    real port, which is the only link. If the SDK should own the shape instead, it is a one-file move
    and the host would import it.
+
+## A credential exposure, disclosed
+
+The first attempt at the real-PostgreSQL producer passed the proof database's URL as
+`env FACTORY_TEST_POSTGRES_URL=… DATABASE_URL=… <command>`. An argument vector is world-readable
+through `/proc/<pid>/cmdline` on this shared host, and `receipt.py` copies the command verbatim
+into `receipts.jsonl` — so that shape would also have written the password into a document. The
+brief says never to print a credential value anywhere, and this was a way of printing one.
+
+It was caught while the producer was still QUEUED on the shared lock, before it ran and before any
+receipt was written. The process group was killed, the producer was rewritten to assemble and
+export the URL inside a script file (`postgres.sh`, whose own argv is just its path), and three
+scans were run:
+
+- `grep -rlF "$POSTGRES_PASSWORD" /tmp/factory-platform-evidence/w13/` returns nothing, and the
+  same scan is now the last step of `heavy2.sh`, which recorded `SECRET-SCAN-PASSED`.
+- the producer's own log was checked against the value: zero occurrences.
+- a `/proc/*/cmdline` sweep of every process on the host: zero carry it.
+
+The value was never written to any document, log, or receipt. The exposure was a queued argument
+vector for roughly twenty-one minutes. The password belongs to the shared proof database and is not
+mine to rotate; the coordinator should decide whether to. No other process on the host was passing
+it the same way, so this was mine alone rather than a pattern.
 
 ## Destructive actions
 
