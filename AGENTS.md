@@ -84,6 +84,64 @@ Don't add replaced deps:
 - `Bun.redis` if Redis is ever introduced (none today) — no `ioredis`
 - Prefer `Bun.file` over `node:fs` read/write; Bun.$`cmd` over execa
 
+## Podman
+
+Use rootless Podman. The development and production stacks need different
+Compose overrides; they are not interchangeable.
+
+### Development stack — Linux only
+
+The development stack uses host networking and does not run on macOS or
+Windows. Prepare `.env` as described in the README, start the rootless socket
+once, then use the repository wrapper. The wrapper always loads
+`docker-compose.yml` plus `compose.podman.yml`.
+
+```sh
+systemctl --user enable --now podman.socket
+bun run podman up -d --build
+bun run podman logs -f app
+bun run podman down
+```
+
+Use `bun run podman --profile ollama up -d` to add the optional Ollama
+sidecar. If you run the web server on the host instead of in Compose, use
+`bun run dev:stack` so it connects to the Compose Postgres database.
+
+### Production stack — Linux or macOS
+
+Prepare `.env.prod` as described in the README. Create the bind sources as
+your login user. Rootless Podman maps that user to the image's uid/gid 1000,
+so do not run the Docker-only `sudo chown -R 1000:1000` step.
+
+```sh
+mkdir -p .ezcorp/data .ezcorp/extensions .ezcorp/extension-data .ezcorp/projects
+```
+
+On Linux, start the rootless socket, point Docker Compose at it, and start the
+stack:
+
+```sh
+systemctl --user enable --now podman.socket
+export DOCKER_HOST="unix:///run/user/$(id -u)/podman/podman.sock"
+docker compose -f compose.prod.yml -f compose.podman-prod.yml \
+  --env-file .env.prod up -d --build
+```
+
+On macOS, start `podman machine`, set `DOCKER_HOST` to the machine socket, and
+start the stack with the standalone Docker Compose provider:
+
+```sh
+podman machine start
+export DOCKER_HOST="unix://$(podman machine inspect \
+  --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
+docker-compose -f compose.prod.yml -f compose.podman-prod.yml \
+  --env-file .env.prod up -d --build
+```
+
+See [docs/deployment.md](docs/deployment.md#running-the-production-stack-under-rootless-podman)
+for first-time macOS machine setup, UID-range checks, verification, and
+troubleshooting.
+
 ## Testing
 
 Three runners; use the wrapper scripts, not raw `bun test` at the root.
