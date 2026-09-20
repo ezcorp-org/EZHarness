@@ -1,3 +1,96 @@
+# Pluggable infrastructure execution
+
+Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout preserved.
+
+## Plan
+
+- [x] Fetch base and create isolated integration, Sol, and Terra worktrees.
+- [x] Complete independent plan audits and record corrections before code.
+- [x] Establish initial decisions, shared interfaces, ownership, and checks.
+- [ ] Implement the local MVP subset: provider contract, persistent binding, actual local sandbox, seven tools, restart/log/cancel/cleanup, minimal user flow.
+- [ ] Verify full changed-source coverage and canonical build/test lanes.
+- [ ] Complete real local provider/security/recovery qualification and local evidence.
+- External-host networking/deployment: later milestone by user direction.
+
+## Original roadmap (deferred except MVP subset)
+
+- [ ] P01: Establish the source of truth.
+- [ ] P02: Approve scope and threat model.
+- [ ] P03: Inventory deployment and access.
+- [ ] P04: Set operating policy.
+- [ ] C01: Define provider contributions once.
+- [ ] C02: Specify sandbox wire semantics.
+- [ ] C03: Specify secret wire semantics.
+- [ ] C04: Register reviewed providers and connections.
+- [ ] C05: Enforce drain and lifecycle rules.
+- [ ] C06: Publish shared conformance fixtures.
+- [ ] H01: Specify and review infrastructure transport.
+- [ ] H02: Implement fresh authority for controller effects.
+- [ ] H03: Implement the sensitive result path.
+- [ ] H04: Implement protected connection I/O.
+- [ ] H05: Close the boundary review.
+- [ ] B01: Add durable data and migrations.
+- [ ] B02: Implement authorized lifecycle transitions.
+- [ ] B03: Implement reservations and queue admission.
+- [ ] B04: Implement reconciliation and fencing.
+- [ ] B05: Implement durable process control.
+- [ ] B06: Implement the workspace writer lease.
+- [ ] B07: Add controller health and bounded retry.
+- [ ] I01: Provision the restricted backend.
+- [ ] I02: Build the pinned guest recipe.
+- [ ] I03: Build contained file operations.
+- [ ] I04: Build durable guest supervision.
+- [ ] I05: Prove actual resource controls.
+- [ ] I06: Enforce network separation.
+- [ ] I07: Ship the Incus extension.
+- [ ] I08: Implement the Compose workload driver.
+- [ ] W01: Inventory every project access path.
+- [ ] W02: Inject one explicit workspace backend.
+- [ ] W03: Route authenticated previews.
+- [ ] W04: Bind runs, agents and MCP to the feature.
+- [ ] W05: Complete validation and PR flow.
+- [ ] W06: Prove disconnect and review workflow.
+- [ ] S01: Preserve the existing encrypted store.
+- [ ] S02: Add approved credential references.
+- [ ] S03: Implement the Infisical static extension.
+- [ ] S04: Deliver destination-bound HTTP credentials.
+- [ ] S05: Implement approved guest delivery.
+- [ ] S06: Reconcile credential cleanup.
+- [ ] U01: Build connection/review/preflight UI.
+- [ ] U02: Build environment selection and admission status.
+- [ ] U03: Build persistent feature/run views.
+- [ ] U04: Build cleanup and secret status views.
+- [ ] U05: Validate the real UI.
+- [ ] O01: Implement safe retention and disposal.
+- [ ] O02: Implement backup and disaster recovery.
+- [ ] O03: Write and test operator runbooks.
+- [ ] O04: Define upgrades and rollback.
+- [ ] V01: Build a real independent baseline adapter.
+- [ ] V02: Run unchanged baseline consumer flows.
+- [ ] V03: Close full Compose portability or obtain an explicit spec amendment.
+- [ ] V04: Ship SDK scaffolding and author guide.
+- Excluded by user: N01: Qualify Claude Code worker placement.
+- Excluded by user: N02: Qualify Codex worker placement.
+- [ ] N03: Qualify dynamic leases only with a real issuer.
+- [ ] N04: Qualify large file transfer if selected.
+- [ ] N05: Qualify snapshot/restore and suspend if selected.
+- [ ] N06: Qualify PTY and resize if selected.
+- [ ] N07: Track future backend requests without expanding v1.
+- [ ] Q01: Build end-to-end qualification fixtures.
+- [ ] Q02: Run the negative security suite.
+- [ ] Q03: Run resource and concurrency qualification.
+- [ ] Q04: Run the failure/recovery matrix.
+- [ ] Q05: Run ten consecutive real feature lifecycles.
+- [ ] Q06: Pass all repository gates.
+- [ ] Q07: Publish the evidence and support matrix.
+- [ ] Q08: Roll out and verify the selected release.
+
+## Review
+
+Pending. Missing external prerequisites stay open; deterministic tests cannot qualify live providers.
+
+---
+
 # Extension v4 independent validation
 
 - [x] Fetch PR and latest main; preserve original worktrees.

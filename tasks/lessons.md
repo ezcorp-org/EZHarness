@@ -351,3 +351,11 @@
 - A passing shard can hide a first-attempt failure. Audit raw failed-test summaries and the actual `Retry sweep` / `isolated plain re-run` messages before accepting CI.
 - A readiness timeout must kill and reap the owned child. Drain stdout and stderr from spawn, bound exit after the signal, and retain diagnostics on early exit. Use the current executable rather than an ambient `bun` binary.
 - Shutdown tests need a real writable database, not repeated catalog creation inside the signal handshake. Build a closed empty catalog once, give each child a private copy, and keep writes and data-survival checks in the real child/reopen path. Verify the unchanged deadline under the same load that reproduced the failure.
+
+## Pluggable infrastructure scope
+
+- When infrastructure does not exist, validate locally first. Do not make external host connections a prerequisite for the local implementation. Keep local validation and later remote networking as separate milestones.
+
+- This infrastructure build uses the native EZHarness loop only. Claude and Codex guest workers are excluded by user decision; do not add worker placement or SDK integrations for them.
+
+- When the user requests the bare minimum MVP, reduce the active milestone explicitly. Keep optional protocols, second-provider proof and external services in the later backlog; do not keep building them under the earlier full-plan scope.
