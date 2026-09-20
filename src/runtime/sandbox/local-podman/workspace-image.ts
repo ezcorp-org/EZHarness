@@ -1,4 +1,4 @@
-import { mkdir, rm, stat } from "node:fs/promises";
+import { mkdir, readFile, rm, stat } from "node:fs/promises";
 import { runBoundedCommand, type LocalPodmanHostConfig } from "./commands";
 
 async function run(argv: string[]): Promise<string> {
@@ -15,6 +15,11 @@ export class WorkspaceImage {
     await run([this.tools.truncate, "-s", String(bytes), image]);
     await run([this.tools.mkfs, "-q", "-F", "-m", "0", image]);
     await this.mount(image, mount);
+  }
+  async recoverCreate(image: string, mount: string, bytes: number): Promise<void> {
+    const mounted = (await readFile("/proc/self/mountinfo", "utf8")).split("\n").some((line) => line.split(" ")[4]?.replaceAll("\\040", " ") === mount);
+    if (mounted) return;
+    await rm(image, { force: true }); await rm(mount, { recursive: true, force: true }); await this.create(image, mount, bytes);
   }
   async mount(image: string, mount: string): Promise<void> { await run([this.config.fuse2fsPath, "-o", "fakeroot", image, mount]); }
   async unmount(mount: string): Promise<void> { await run([this.tools.unmount, "-u", mount]); }

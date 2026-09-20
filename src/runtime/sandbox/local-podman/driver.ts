@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { open } from "node:fs/promises";
 import { validateProviderMethodValue, type ProviderCall, type ProviderError, type ProviderFailedReceipt, type ProviderReceipt, type ProviderSucceededReceipt, type ProviderUnknownReceipt, type SandboxCreateInput, type SandboxCreateResult, type SandboxDestroyInput, type SandboxDestroyResult, type SandboxFileChmodInput, type SandboxFileChmodResult, type SandboxFileListInput, type SandboxFileListResult, type SandboxFileMkdirInput, type SandboxFileMkdirResult, type SandboxFileReadInput, type SandboxFileReadResult, type SandboxFileRemoveInput, type SandboxFileRemoveResult, type SandboxFileStatInput, type SandboxFileStatResult, type SandboxFileWriteInput, type SandboxFileWriteResult, type SandboxInspectInput, type SandboxInspectResult, type SandboxProcessCancelInput, type SandboxProcessCancelResult, type SandboxProcessInspectInput, type SandboxProcessInspectResult, type SandboxProcessReadOutputInput, type SandboxProcessReadOutputResult, type SandboxProcessStartInput, type SandboxProcessStartResult, type SandboxStartInput, type SandboxStartResult, type SandboxStopInput, type SandboxStopResult } from "@ezcorp/extension-contract";
 import { CONFIG_LABEL, RESOURCE_LABEL, configurationDigest, containerIdFromCreateOutput, createContainerArgv, expectedContainerIdentity, resourcePaths, runBoundedCommand, validateHostConfig, type BoundedCommandResult, type LocalPodmanHostConfig } from "./commands";
@@ -8,6 +9,7 @@ import { LocalProcessSupervisor, type OwnedProcessResource } from "./supervisor"
 import { LocalWorkspaceFileError, LocalWorkspaceFiles } from "./files";
 
 type Metadata = { resourceId: string; containerId: string; containerName: string; configDigest: string; scope: ProviderCall["scope"]; bootId?: string; state: "stopped" | "running" | "destroying" | "unknown"; limits: SandboxCreateInput["limits"] };
+type CreateReservation = { version: 1; state: "creating"; phase: "reserved" | "workspace" | "container"; resourceId: string; containerName: string; configDigest: string; scope: ProviderCall["scope"]; call: ProviderCall; limits: SandboxCreateInput["limits"] };
 type InspectMount = { Type?: string; Source?: string; Destination?: string; RW?: boolean };
 type InspectContainer = { Id?: string; Name?: string; Image?: string; State?: { Running?: boolean }; Config?: { Image?: string; User?: string; Labels?: Record<string, string> }; HostConfig?: { NetworkMode?: string; UsernsMode?: string; ReadonlyRootfs?: boolean; Memory?: number; MemorySwap?: number; NanoCpus?: number; PidsLimit?: number }; Mounts?: InspectMount[] };
 const PODMAN_OUTPUT_LIMIT = 64 * 1024;
@@ -36,22 +38,37 @@ export class LocalPodmanDriver {
   async create(input: SandboxCreateInput): Promise<SandboxCreateResult> {
     validateProviderMethodValue("sandbox.lifecycle.v1", "create", "input", input);
     await this.roots.verifyPrivateRoot(); await this.verifyRuntime();
-    return this.mutate(input.call, async () => {
-    const resourceId = crypto.randomUUID(); const paths = await this.roots.initialize(resourceId); const containerName = `ez-local-${resourceId}`;
-    await this.images.create(paths.image, paths.mount, input.limits.diskBytes);
+    const begun = await this.journal.beginRecoverable<SandboxCreateResult>(input.call); if (begun.kind === "replay") return begun.result;
+    const identity = createHash("sha256").update(JSON.stringify({ scope: input.call.scope, operationId: input.call.operationId, idempotencyKey: input.call.idempotencyKey, requestDigest: input.call.requestDigest })).digest("hex");
+    const resourceId = `r-${identity.slice(0, 48)}`; const paths = this.roots.paths(resourceId); const containerName = `ez-local-${resourceId}`; const configDigest = configurationDigest(this.config, input.limits);
+    let reservation: CreateReservation;
+    const reserve = async () => { await this.roots.initialize(resourceId); const value: CreateReservation = { version: 1, state: "creating", phase: "reserved", resourceId, containerName, configDigest, scope: input.call.scope, call: input.call, limits: input.limits }; await this.roots.writeMetadata(resourceId, value); return value; };
+    if (begun.kind === "new") reservation = await reserve();
+    else { try { reservation = await this.roots.readMetadata<CreateReservation>(resourceId); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; reservation = await reserve(); } if (reservation.state !== "creating" || JSON.stringify(reservation.call) !== JSON.stringify(input.call) || reservation.configDigest !== configDigest) throw new Error("create reservation mismatch"); }
+    if (reservation.phase === "reserved") { if (begun.kind === "recover") await this.images.recoverCreate(paths.image, paths.mount, input.limits.diskBytes); else await this.images.create(paths.image, paths.mount, input.limits.diskBytes); reservation.phase = "workspace"; await this.roots.writeMetadata(resourceId, reservation); }
+    const adopt = async (): Promise<SandboxCreateResult | undefined> => {
+      const inspected = await this.podman(["inspect", containerName]); if (inspected.code !== 0 || inspected.timedOut) return undefined;
+      let values: InspectContainer[]; try { values = JSON.parse(inspected.stdout) as InspectContainer[]; } catch { return undefined; } if (!Array.isArray(values) || values.length !== 1 || typeof values[0]?.Id !== "string") return undefined;
+      const metadata: Metadata = { resourceId, containerId: values[0].Id, containerName, configDigest, scope: input.call.scope, state: "stopped", limits: input.limits };
+      try { if (await this.verify(metadata)) return undefined; } catch { return undefined; }
+      await this.roots.writeMetadata(resourceId, metadata); const result = { receipt: receipt(input.call, "succeeded"), resource: { resourceId, desiredState: "stopped", observedState: "stopped", limits: input.limits } } as SandboxCreateResult; await this.journal.complete(input.call, result); return result;
+    };
+    if (reservation.phase === "container") { const recovered = await adopt(); if (recovered) return recovered; }
+    reservation.phase = "container"; await this.roots.writeMetadata(resourceId, reservation);
     const argv = createContainerArgv(this.config, resourceId, containerName, paths.mount, input.limits);
     const { code, stdout, timedOut } = await runBoundedCommand(argv, { timeoutMs: PODMAN_CREATE_TIMEOUT_MS, maxOutputBytes: PODMAN_OUTPUT_LIMIT });
     if (code !== 0) {
+      const recovered = await adopt(); if (recovered) return recovered;
       if (timedOut) return { receipt: receipt(input.call, "unknown", { code: "create_unknown", message: "Container creation outcome is unknown.", retryable: true }) };
+      const absent = await this.podman(["container", "exists", containerName]); if (absent.timedOut || absent.code !== 1) return { receipt: receipt(input.call, "unknown", { code: "create_unknown", message: "Container creation outcome is unknown.", retryable: true }) };
       try { await this.images.destroy(paths.image, paths.mount); await this.roots.destroy(resourceId); }
       catch { return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
-      return { receipt: receipt(input.call, "failed", { code: "create_failed", message: "Container creation failed.", retryable: false }) };
+      const failed = { receipt: receipt(input.call, "failed", { code: "create_failed_clean", message: "Container creation failed and owned resources were removed.", retryable: false }) } as SandboxCreateResult; await this.journal.complete(input.call, failed); return failed;
     }
     const containerId = containerIdFromCreateOutput(stdout);
-    if (containerId === null) return { receipt: receipt(input.call, "unknown", { code: "create_identity_unknown", message: "Podman did not return an exact container ID.", retryable: true }) } as SandboxCreateResult;
-    const metadata: Metadata = { resourceId, containerId, containerName, configDigest: configurationDigest(this.config, input.limits), scope: input.call.scope, state: "stopped", limits: input.limits }; await this.roots.writeMetadata(resourceId, metadata);
-    return { receipt: receipt(input.call, "succeeded"), resource: { resourceId, desiredState: "stopped", observedState: "stopped", limits: input.limits } } as SandboxCreateResult;
-    });
+    if (containerId === null) { const recovered = await adopt(); if (recovered) return recovered; return { receipt: receipt(input.call, "unknown", { code: "create_identity_unknown", message: "Podman did not return an exact container ID.", retryable: true }) } as SandboxCreateResult; }
+    const metadata: Metadata = { resourceId, containerId, containerName, configDigest, scope: input.call.scope, state: "stopped", limits: input.limits }; await this.roots.writeMetadata(resourceId, metadata);
+    const result = { receipt: receipt(input.call, "succeeded"), resource: { resourceId, desiredState: "stopped", observedState: "stopped", limits: input.limits } } as SandboxCreateResult; await this.journal.complete(input.call, result); return result;
   }
   async inspect(input: SandboxInspectInput): Promise<SandboxInspectResult> {
     validateProviderMethodValue("sandbox.lifecycle.v1", "inspect", "input", input);

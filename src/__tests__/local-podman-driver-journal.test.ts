@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { createHash } from "node:crypto";
 import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { LocalPodmanDriver } from "../runtime/sandbox/local-podman/driver";
@@ -27,9 +28,9 @@ describe("local lifecycle journal integration", () => {
   test("creates and destroys a resource through owned command executables", async () => {
     const root = await mkdtemp(`${tmpdir()}/ez-driver-create-`); temporaryRoots.push(root); const stateRoot = `${root}/state`; await mkdir(stateRoot, { mode: 0o700 });
     const control = `${root}/control`; const fail = `${root}/fail`; const podman = `${root}/podman`; const containerId = "c".repeat(64);
-    await writeFile(podman, `#!/etc/profiles/per-user/dev/bin/bash\nif [ "$2" = info ]; then echo 'true v2'; elif [ "$2" = create ]; then [ -f '${fail}' ] && exit 2; echo '${containerId}'; elif [ "$2" = inspect ]; then cat '${control}'; fi\n`); await chmod(podman, 0o700);
-    const tool = `${root}/tool`; await writeFile(tool, "#!/etc/profiles/per-user/dev/bin/bash\nexit 0\n"); await chmod(tool, 0o700);
-    const truncate = `${root}/truncate`; await writeFile(truncate, "#!/etc/profiles/per-user/dev/bin/bash\n/run/current-system/sw/bin/truncate \"$@\"\n"); await chmod(truncate, 0o700);
+    await writeFile(podman, `#!${process.execPath}\nimport { readFile } from "node:fs/promises"; const args = process.argv.slice(2); let mode = ""; try { mode = await readFile(${JSON.stringify(fail)}, "utf8"); } catch {} if (args[1] === "info") console.log("true v2"); else if (args[1] === "create") { if (mode === "fail") process.exit(2); console.log(mode === "malformed" ? "not-an-id" : ${JSON.stringify(containerId)}); } else if (args[1] === "inspect") process.stdout.write(await readFile(${JSON.stringify(control)}, "utf8")); else if (args[1] === "container" && args[2] === "exists") process.exit(1);\n`); await chmod(podman, 0o700);
+    const tool = `${root}/tool`; await writeFile(tool, `#!${process.execPath}\n`); await chmod(tool, 0o700);
+    const truncate = `${root}/truncate`; await writeFile(truncate, `#!${process.execPath}\nimport { writeFile } from "node:fs/promises"; const args = process.argv.slice(2); await writeFile(args.at(-1), new Uint8Array(1));\n`); await chmod(truncate, 0o700);
     const config = { stateRoot, imageReference: `localhost/ezharness-local@sha256:${"a".repeat(64)}`, imageId: "b".repeat(64), podmanPath: podman, fuse2fsPath: tool, supervisorPath: "/bin/false", workspaceUid: 0, workspaceGid: 0 };
     const images = new WorkspaceImage(config, { truncate, mkfs: tool, unmount: tool, check: tool }); const driver = new LocalPodmanDriver(config, { workspaceImage: images });
     const createInput = { call: input().call, profile: "linux-exec.v1" as const, limits: { memoryBytes: 128 * 1024 * 1024, milliCpu: 500, pids: 32, diskBytes: 16 * 1024 * 1024 } };
@@ -39,8 +40,15 @@ describe("local lifecycle journal integration", () => {
     await writeFile(control, JSON.stringify([live])); const destroyed = await driver.destroy({ call: { ...input().call, operationId: "destroy", idempotencyKey: "destroy" }, resourceId: created.resource.resourceId });
     expect(destroyed.receipt.outcome).toBe("succeeded");
     await writeFile(fail, "fail"); const failed = await driver.create({ ...createInput, call: { ...input().call, operationId: "create-failed", idempotencyKey: "create-failed" } });
-    expect(failed.receipt).toMatchObject({ outcome: "failed", error: { code: "create_failed" } });
+    expect(failed.receipt).toMatchObject({ outcome: "failed", error: { code: "create_failed_clean" } });
     expect((await readdir(stateRoot)).sort()).toEqual(["operations"]);
+    const recoverCall = { ...input().call, operationId: "recover", idempotencyKey: "recover" }; await writeFile(fail, "malformed");
+    const uncertain = await driver.create({ ...createInput, call: recoverCall }); expect(uncertain.receipt.outcome).toBe("unknown");
+    const hash = createHash("sha256").update(JSON.stringify({ scope: recoverCall.scope, operationId: recoverCall.operationId, idempotencyKey: recoverCall.idempotencyKey, requestDigest: recoverCall.requestDigest })).digest("hex"); const recoveredId = `r-${hash.slice(0, 48)}`; const recoveredPaths = resourcePaths(stateRoot, recoveredId); const recoveredDigest = configurationDigest(config, createInput.limits);
+    await writeFile(control, JSON.stringify([{ ...live, Name: `ez-local-${recoveredId}`, Config: { ...live.Config, Labels: { [RESOURCE_LABEL]: resourceKey(recoveredId), [CONFIG_LABEL]: recoveredDigest } }, Mounts: [{ Type: "bind", Source: recoveredPaths.mount, Destination: "/workspace", RW: true }] }]));
+    const recovered = await new LocalPodmanDriver(config, { workspaceImage: images }).create({ ...createInput, call: recoverCall }); expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, resource: { resourceId: recoveredId } });
+    const preJournalCall = { ...input().call, operationId: "pre-reservation", idempotencyKey: "pre-reservation" }; await new DurableOperationJournal(`${stateRoot}/operations`).beginRecoverable(preJournalCall); await writeFile(fail, "");
+    expect((await new LocalPodmanDriver(config, { workspaceImage: images }).create({ ...createInput, call: preJournalCall })).receipt.outcome).toBe("succeeded");
   });
   test("replays a completed mutation without another effect", async () => { const { driver, log } = await fixture(); const first = await driver.start(input()); const second = await driver.start(input()); expect(second).toEqual(first); expect((await readFile(log, "utf8")).trim().split("\n")).toHaveLength(1); });
   test("recovers pending mutation as unknown without an effect", async () => { const { driver, log, config } = await fixture(); await new DurableOperationJournal(`${config.stateRoot}/operations`).begin(input().call); const result = await driver.start(input()); expect(result.receipt.outcome).toBe("unknown"); await expect(readFile(log, "utf8")).rejects.toThrow(); });

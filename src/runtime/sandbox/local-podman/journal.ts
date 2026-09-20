@@ -6,6 +6,7 @@ type Pending = { version: 1; state: "pending"; call: ProviderCall };
 type Complete<T> = { version: 1; state: "complete"; call: ProviderCall; result: T };
 type RecordValue<T> = Pending | Complete<T>;
 export type JournalBegin<T> = { kind: "new" } | { kind: "replay"; result: T } | { kind: "unknown"; receipt: ProviderReceipt };
+export type RecoverableJournalBegin<T> = { kind: "new" | "recover" } | { kind: "replay"; result: T };
 
 function key(call: ProviderCall): string {
   return createHash("sha256").update(`${call.scope.projectId}\0${call.scope.bindingId}\0${call.scope.generation}\0${call.idempotencyKey}`).digest("hex");
@@ -38,6 +39,11 @@ export class DurableOperationJournal {
     try { await this.publish(path, { version: 1, state: "pending", call } satisfies Pending, true); }
     catch (error) { if (error instanceof Error && "code" in error && error.code === "EEXIST") return this.begin(call); throw error; }
     return { kind: "new" };
+  }
+  async beginRecoverable<T>(call: ProviderCall): Promise<RecoverableJournalBegin<T>> {
+    const begun = await this.begin<T>(call);
+    if (begun.kind === "unknown") return { kind: "recover" };
+    return begun;
   }
   async complete<T>(call: ProviderCall, result: T): Promise<void> {
     const path = this.path(call); let current: RecordValue<T>;
