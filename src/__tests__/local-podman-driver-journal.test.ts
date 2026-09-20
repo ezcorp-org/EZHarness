@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { LocalPodmanDriver } from "../runtime/sandbox/local-podman/driver";
 import { DurableOperationJournal } from "../runtime/sandbox/local-podman/journal";
@@ -12,11 +12,11 @@ afterEach(async () => { await Promise.all(temporaryRoots.splice(0).map((path) =>
 async function fixture(nativeToolsArtifact?: string) {
   const root = await mkdtemp(`${tmpdir()}/ez-driver-`); temporaryRoots.push(root); const log = `${root}/effects`; const podman = `${root}/podman`; const inspect = `${root}/inspect.json`; const fail = `${root}/fail`;
   await writeFile(podman, `#!/bin/sh\nif [ "$2" = inspect ]; then cat '${inspect}'; exit 0; fi\nprintf '%s\\n' "$*" >> '${log}'\nif [ -f '${fail}' ]; then head -c 131072 /dev/zero | tr '\\000' x >&2; printf '%s' '${root}/private' >&2; exit 1; fi\nexit 0\n`); await chmod(podman, 0o700);
-  const config = { stateRoot: `${root}/state`, imageReference: `localhost/ezharness-local@sha256:${"a".repeat(64)}`, imageId: `sha256:${"b".repeat(64)}`, podmanPath: podman, fuse2fsPath: "/bin/false", supervisorPath: "/bin/false", workspaceUid: 1000, workspaceGid: 1000, nativeToolsArtifact };
+  const config = { stateRoot: `${root}/state`, imageReference: `localhost/ezharness-local@sha256:${"a".repeat(64)}`, imageId: "b".repeat(64), podmanPath: podman, fuse2fsPath: "/bin/false", supervisorPath: "/bin/false", workspaceUid: 0, workspaceGid: 0, nativeToolsArtifact };
   const limits = { memoryBytes: 128 * 1024 * 1024, milliCpu: 500, pids: 32, diskBytes: 32 * 1024 * 1024 }; const containerId = "c".repeat(64); const containerName = "container";
-  await mkdir(config.stateRoot, { recursive: true }); const roots = new ResourceRoot(config.stateRoot); const paths = await roots.initialize("resource");
-  const configDigest = configurationDigest(config, limits); await roots.writeMetadata("resource", { resourceId: "resource", containerId, containerName, configDigest, state: "stopped", limits });
-  const live = { Id: containerId, Name: containerName, Image: config.imageId, Config: { Image: config.imageReference, User: "1000:1000", Labels: { [RESOURCE_LABEL]: resourceKey("resource"), [CONFIG_LABEL]: configDigest } }, HostConfig: { NetworkMode: "none", ReadonlyRootfs: true, Memory: limits.memoryBytes, MemorySwap: limits.memoryBytes, NanoCpus: limits.milliCpu * 1_000_000, PidsLimit: limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }, ...(nativeToolsArtifact === undefined ? [] : [{ Type: "bind", Source: nativeToolsArtifact, Destination: "/opt/ezharness/native-tools.js", RW: false }])] };
+  await mkdir(config.stateRoot, { recursive: true, mode: 0o700 }); const roots = new ResourceRoot(config.stateRoot); const paths = await roots.initialize("resource");
+  const configDigest = configurationDigest(config, limits); await roots.writeMetadata("resource", { resourceId: "resource", containerId, containerName, configDigest, scope: input().call.scope, state: "stopped", limits });
+  const live = { Id: containerId, Name: containerName, Image: config.imageId, Config: { Image: config.imageReference, User: "0:0", Labels: { [RESOURCE_LABEL]: resourceKey("resource"), [CONFIG_LABEL]: configDigest } }, HostConfig: { NetworkMode: "none", UsernsMode: "", ReadonlyRootfs: true, Memory: limits.memoryBytes, MemorySwap: limits.memoryBytes, NanoCpus: limits.milliCpu * 1_000_000, PidsLimit: limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }, ...(nativeToolsArtifact === undefined ? [] : [{ Type: "bind", Source: nativeToolsArtifact, Destination: "/opt/ezharness/native-tools.js", RW: false }])] };
   await writeFile(inspect, JSON.stringify([live]));
   return { driver: new LocalPodmanDriver(config), log, config, inspect, live, fail, root };
 }
@@ -31,10 +31,11 @@ describe("local lifecycle journal integration", () => {
       ["container name", (live) => { live.Name = "other"; }],
       ["resource ownership label", (live) => { live.Config.Labels[RESOURCE_LABEL] = "wrong"; }],
       ["configuration label", (live) => { live.Config.Labels[CONFIG_LABEL] = "wrong"; }],
-      ["pinned image ID", (live) => { live.Image = `sha256:${"d".repeat(64)}`; }],
+      ["pinned image ID", (live) => { live.Image = "d".repeat(64); }],
       ["pinned image reference", (live) => { live.Config.Image = `sha256:${"b".repeat(64)}`; }],
-      ["workspace user", (live) => { live.Config.User = "0:0"; }],
+      ["workspace user", (live) => { live.Config.User = "1000:1000"; }],
       ["network", (live) => { live.HostConfig.NetworkMode = "bridge"; }],
+      ["user namespace", (live) => { live.HostConfig.UsernsMode = "private"; }],
       ["read-only root", (live) => { live.HostConfig.ReadonlyRootfs = false; }],
       ["memory", (live) => { live.HostConfig.Memory += 1; }],
       ["memory swap", (live) => { live.HostConfig.MemorySwap += 1; }],
@@ -44,10 +45,10 @@ describe("local lifecycle journal integration", () => {
       ["workspace mode", (live) => { live.Mounts[0].RW = false; }],
       ["unexpected bind mount", (live) => { live.Mounts.push({ Type: "bind", Source: "/tmp/extra", Destination: "/extra", RW: true }); }],
     ];
-    for (const [index, [, change]] of changes.entries()) {
+    for (const [index, [name, change]] of changes.entries()) {
       const { driver, inspect, live, log } = await fixture(); change(live); await writeFile(inspect, JSON.stringify([live]));
-      const calls = [driver.inspect(input()), driver.start({ ...input(), call: { ...input().call, operationId: `${index}-start`, idempotencyKey: `${index}-start` } }), driver.stop({ ...input(), call: { ...input().call, operationId: `${index}-stop`, idempotencyKey: `${index}-stop` } }), driver.destroy({ ...input(), call: { ...input().call, operationId: `${index}-destroy`, idempotencyKey: `${index}-destroy` } })];
-      const results = await Promise.all(calls); for (const result of results) { expect(result.receipt).toMatchObject({ outcome: "failed", error: { code: "identity_mismatch" } }); }
+      const calls = [() => driver.inspect(input()), () => driver.start({ ...input(), call: { ...input().call, operationId: `${index}-start`, idempotencyKey: `${index}-start` } }), () => driver.stop({ ...input(), call: { ...input().call, operationId: `${index}-stop`, idempotencyKey: `${index}-stop` } }), () => driver.destroy({ ...input(), call: { ...input().call, operationId: `${index}-destroy`, idempotencyKey: `${index}-destroy` } })];
+      for (const invoke of calls) { const result = await invoke(); expect(result.receipt, name).toMatchObject({ outcome: "failed", error: { code: "identity_mismatch" } }); }
       await expect(readFile(log, "utf8")).rejects.toThrow();
     }
   });
@@ -63,5 +64,9 @@ describe("local lifecycle journal integration", () => {
   });
   test("rejects an unsafe request before filesystem or Podman effects", async () => {
     const { driver, log } = await fixture(); await expect(driver.start({ ...input(), resourceId: "../escape" })).rejects.toThrow(); await expect(readFile(log, "utf8")).rejects.toThrow();
+  });
+  test("rejects a different resource scope before the journal or Podman effects", async () => {
+    const { driver, log, config } = await fixture(); const foreign = { ...input(), call: { ...input().call, scope: { ...input().call.scope, projectId: "foreign" } } }; const result = await driver.start(foreign);
+    expect(result.receipt).toMatchObject({ outcome: "failed", error: { code: "scope_mismatch" } }); await expect(readFile(log, "utf8")).rejects.toThrow(); await expect(readdir(`${config.stateRoot}/operations`)).rejects.toThrow();
   });
 });

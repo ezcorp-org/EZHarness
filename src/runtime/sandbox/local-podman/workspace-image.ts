@@ -1,11 +1,10 @@
 import { mkdir, rm, stat } from "node:fs/promises";
-import type { LocalPodmanHostConfig } from "./commands";
+import { runBoundedCommand, type LocalPodmanHostConfig } from "./commands";
 
 async function run(argv: string[]): Promise<string> {
-  const proc = Bun.spawn(argv, { stdout: "pipe", stderr: "pipe" });
-  const [code, out, err] = await Promise.all([proc.exited, new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
-  if (code !== 0) throw new Error(`${argv[0]} exited ${code}: ${err.trim()}`);
-  return out;
+  const result = await runBoundedCommand(argv, { timeoutMs: 30_000, maxOutputBytes: 64 * 1024 });
+  if (result.code !== 0 || result.timedOut) throw new Error(`${argv[0]} failed`);
+  return result.stdout;
 }
 
 export class WorkspaceImage {
@@ -20,12 +19,11 @@ export class WorkspaceImage {
   async mount(image: string, mount: string): Promise<void> { await run([this.config.fuse2fsPath, "-o", "fakeroot", image, mount]); }
   async unmount(mount: string): Promise<void> { await run(["fusermount3", "-u", mount]); }
   async check(image: string): Promise<void> {
-    const proc = Bun.spawn(["e2fsck", "-p", "-f", image], { stdout: "ignore", stderr: "pipe" });
-    const code = await proc.exited;
-    if (code !== 0 && code !== 1) throw new Error(`e2fsck exited ${code}: ${await new Response(proc.stderr).text()}`);
+    const result = await runBoundedCommand(["e2fsck", "-p", "-f", image], { timeoutMs: 30_000, maxOutputBytes: 64 * 1024 });
+    if (result.timedOut || (result.code !== 0 && result.code !== 1)) throw new Error("e2fsck failed");
   }
   async destroy(image: string, mount: string): Promise<void> {
-    try { await this.unmount(mount); } finally { await rm(image, { force: true }); await rm(mount, { recursive: true, force: true }); }
+    await this.unmount(mount); await rm(image); await rm(mount, { recursive: true });
   }
   async allocatedBytes(image: string): Promise<number> { return (await stat(image)).blocks * 512; }
 }

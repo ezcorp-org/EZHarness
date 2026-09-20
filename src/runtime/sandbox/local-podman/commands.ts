@@ -42,15 +42,14 @@ export async function runBoundedCommand(argv: string[], options: BoundedCommandO
 }
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
-const DIGEST = /^sha256:[a-f0-9]{64}$/;
 const IMAGE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[a-f0-9]{64}$/;
 
 export function validateHostConfig(config: LocalPodmanHostConfig): LocalPodmanHostConfig {
   if (!resolve(config.stateRoot).startsWith(`${sep}var${sep}`) && !resolve(config.stateRoot).startsWith(`${sep}tmp${sep}`)) throw new Error("stateRoot must be absolute and private");
   if (!IMAGE_REFERENCE.test(config.imageReference)) throw new Error("imageReference must be qualified and digest-pinned");
-  if (!DIGEST.test(config.imageId)) throw new Error("imageId must be an exact sha256 ID");
+  if (!/^[a-f0-9]{64}$/.test(config.imageId)) throw new Error("imageId must be an exact full image ID");
   for (const key of ["podmanPath", "fuse2fsPath", "supervisorPath"] as const) if (!isAbsolute(config[key])) throw new Error(`${key} must be absolute`);
-  for (const key of ["workspaceUid", "workspaceGid"] as const) if (!Number.isSafeInteger(config[key]) || config[key] < 1 || config[key] > 2_147_483_647) throw new Error(`${key} must be a positive 32-bit integer`);
+  for (const key of ["workspaceUid", "workspaceGid"] as const) if (!Number.isSafeInteger(config[key]) || config[key] < 0 || config[key] > 2_147_483_647) throw new Error(`${key} must be a non-negative 32-bit integer`);
   if (config.nativeToolsArtifact !== undefined && !isAbsolute(config.nativeToolsArtifact)) throw new Error("nativeToolsArtifact must be absolute");
   return Object.freeze({
     ...config,
