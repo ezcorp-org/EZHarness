@@ -367,6 +367,20 @@ describe("where a release may publish", () => {
     }
   });
 
+  test("an S3 prefix is a key path, not an identity", () => {
+    // Found by a real startup: validating the prefix as an identity refused
+    // every realistic one, because an identity has no `/`.
+    for (const prefix of ["ordinary", "ordinary/w09b-release", "a/b/c", "releases.v2/2026"]) {
+      expect(parseFactoryStartupConfig(valid({ release: { ...release, destinations: [{ ...s3, prefix }, github] } })).release?.destinations[0])
+        .toMatchObject({ prefix });
+    }
+    // And it refuses exactly what `factoryS3PublicationDirectory` would refuse,
+    // so a prefix this document accepts is one the provider also accepts.
+    for (const prefix of ["", "/leading", "trailing/", "double//slash", "a/./b", "a/../b", "-starts-with-dash".replace("-", "/"), 7]) {
+      expect(reject(valid({ release: { ...release, destinations: [{ ...s3, prefix }, github] } })).invalid).toContain("release.destinations[0]");
+    }
+  });
+
   test("a destination name declared twice would make a profile depend on order", () => {
     expect(reject(valid({ release: { ...release, destinations: [s3, { ...github, name: "ordinary" }] } })).invalid).toContain("release.destinations");
   });

@@ -389,6 +389,19 @@ function wellFormedRunnerProfile(value: unknown): boolean {
   return wellFormedResourceProfile(value.allocation);
 }
 
+/**
+ * An S3 prefix, which is a key path and not an identity.
+ *
+ * The same rules `factoryS3PublicationDirectory` enforces when it builds the
+ * key, so a prefix this document accepts is one the provider will also accept:
+ * no empty segment, no `.` or `..`, no leading or trailing slash. Validating it
+ * as an identity refused every realistic prefix, which a real startup found.
+ */
+function wellFormedS3Prefix(value: unknown): boolean {
+  if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,900}$/.test(value)) return false;
+  return !value.includes("//") && !value.endsWith("/") && !value.split("/").some((part) => part === "." || part === "..");
+}
+
 /** A repository this installation may publish to, as `owner/name`. */
 function wellFormedRepository(value: unknown): boolean {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(value);
@@ -408,7 +421,7 @@ function wellFormedReleaseDestination(value: unknown): boolean {
     const required = ["name", "kind", "endpoint", "bucket", "account", "credentialsPath"];
     if (!exactKeys(value, required) && !exactKeys(value, [...required, "prefix"])) return false;
     return httpsUrl(value.endpoint) && wellFormed("identity", value.bucket) && wellFormed("identity", value.account)
-      && (value.prefix === undefined || wellFormed("identity", value.prefix)) && wellFormed("path", value.credentialsPath);
+      && (value.prefix === undefined || wellFormedS3Prefix(value.prefix)) && wellFormed("path", value.credentialsPath);
   }
   if (value.kind === "github") {
     return exactKeys(value, ["name", "kind", "repository", "tokenPath"])
