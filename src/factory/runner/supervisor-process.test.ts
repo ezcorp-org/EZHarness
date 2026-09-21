@@ -750,7 +750,7 @@ describe("the real supervisor entry", () => {
       console.error = error;
     }
     expect(process.exitCode).toBe(1);
-    process.exitCode = previous;
+    process.exitCode = previous ?? 0;
     expect(printed).toHaveLength(1);
     expect(String(printed[0]![1])).toContain("supervisor configuration refused");
 
@@ -763,7 +763,7 @@ describe("the real supervisor entry", () => {
     } finally {
       console.error = error;
     }
-    process.exitCode = previous;
+    process.exitCode = previous ?? 0;
     expect(String(second[0]![1])).toBe("factory-configuration-invalid");
   });
 

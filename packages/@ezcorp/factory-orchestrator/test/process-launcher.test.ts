@@ -142,7 +142,7 @@ test("the real entry prints the cause before it sets the exit code", () => {
     console.error = error;
   }
   assert.equal(process.exitCode, 1);
-  process.exitCode = previousExitCode;
+  process.exitCode = previousExitCode ?? 0;
   assert.equal(printed.length, 2);
   assert.match(String(printed[0]?.[1]), /configuration refused/);
   assert.match(String(printed[1]?.[1]), /missing temporal address/);
@@ -155,7 +155,7 @@ test("the real entry prints the cause before it sets the exit code", () => {
   } finally {
     console.error = error;
   }
-  process.exitCode = previousExitCode;
+  process.exitCode = previousExitCode ?? 0;
   assert.equal(second.length, 1);
   assert.match(String(second[0]?.[1]), /factory-configuration-invalid/);
 });
