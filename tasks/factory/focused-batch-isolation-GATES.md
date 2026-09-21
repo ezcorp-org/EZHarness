@@ -73,6 +73,15 @@ printed.
   `pool-failure-isolation.txt`, `sample-loop-contention.txt`, `sample-loop-import-graph.txt`,
   `source-change-hunks.txt`
 
+- [ ] G12: The four other suites that register `$server/db/connection` themselves no longer hijack
+  it. Each is paired with `installer-idempotent-local.test.ts`, which reaches the alias through a
+  `web/` route, and each must be green alone AND with that victim.
+  CHECK: `bash tools/run-batch.sh sweep2-<suite>-withvictim ./src/__tests__/<suite>.test.ts ./src/__tests__/installer-idempotent-local.test.ts`
+  EXPECT: phase-2b-e2e 24, mentions-search-workflow-branch 34, mentions-search-symlink-integration
+  29, scratchpad-e2e 21 — all 0 fail; before the fix the first three were 2, 1 and 1 fail
+  EVIDENCE: `/tmp/factory-platform-evidence/w00-focused-triage/sweep-before.txt`,
+  `sweep-after-pairs.txt`
+
 - [ ] G10: Static gates stay green.
   CHECK: `bun run typecheck && bun run lint && bun scripts/gate-integrity.ts`
   EXPECT: all three pass

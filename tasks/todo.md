@@ -2935,6 +2935,16 @@ process. All nine pass alone. Gates: `tasks/factory/focused-batch-isolation-GATE
       recovery timers; both suites call it.
 - [x] Verified: batch green in one process (2747 pass, 0 fail, 222 files, at 78c27fec0); every
       changed file green alone; typecheck, lint, gate-integrity and factory boundaries green.
+- [x] Sweep (coordinator's follow-up): the four other suites that register `$server/db/connection`
+      themselves, fixed the same way and each proved against `installer-idempotent-local.test.ts`,
+      the victim that reaches the alias through a web route. `phase-2b-e2e` cost it two tests;
+      `mentions-search-workflow-branch` and `mentions-search-symlink-integration` cost it its whole
+      file twice over, first on `checkProjectRole` and then on `listProjects` — each repair exposed
+      the next partial alias in the same block. `scratchpad-e2e` broke no victim and is still
+      changed, because its export set was frozen at `getDb` either way. Two pure pass-throughs were
+      deleted outright; the two genuine stubs moved onto relative paths that `restoreModuleMocks()`
+      can restore, and the middleware stub takes the spread-and-revert pattern. No assertion
+      changed. Pairs now 24 / 34 / 29 / 21 pass, 0 fail.
 - [ ] The per-file pool is NOT green on this host, and not because of this branch. Two runs, two
       different untouched real-subprocess suites: `sample-loop/index.integration.test.ts` (1 test)
       then `production-image-lifecycle-launch.integration.test.ts` (3 tests), each passing alone at
