@@ -313,9 +313,12 @@ export function factoryBudgetsConformance(createFixture: () => Promise<{ db: Tra
     // A settlement that still holds a cost leaves the hold on the list; one
     // that resolves it takes the reservation out of `uncertain` entirely.
     const digest = (fill: string) => `sha256:${fill.repeat(64)}`;
+    // A provider receipt digest is the C02 bare form; the digests this process
+    // seals itself stay prefixed. Coordinator ruling, 2026-09-20.
+    const providerReceipt = "d".repeat(64);
     await fixture.db.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${tenantId},${projectId},${runId},'scan-a',1,'scan-attempt','stop','0','3',1,${digest("b")},'{}',${digest("c")})`);
     expect((await list()).map(entry => entry.reservationId)).toEqual(["scan-a", "scan-b", "scan-c"]);
-    await fixture.db.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${tenantId},${projectId},${runId},'scan-a',2,'scan-attempt','reconciliation','3',${digest("d")},2,${digest("e")},'{}',${digest("f")})`);
+    await fixture.db.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${tenantId},${projectId},${runId},'scan-a',2,'scan-attempt','reconciliation','3',${providerReceipt},2,${digest("e")},'{}',${digest("f")})`);
     expect((await list()).map(entry => entry.reservationId)).toEqual(["scan-b", "scan-c"]);
     // Settling the reservation itself removes it for the same reason.
     await budgets.settle({ projectId, runId, reservationId: "scan-b" }, amount(3), receipt);
