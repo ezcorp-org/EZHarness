@@ -12,8 +12,8 @@ import { validateProviderMethodExchange } from "@ezcorp/extension-contract";
 const temporaryRoots: string[] = [];
 afterEach(async () => { await Promise.all(temporaryRoots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
 async function fixture(nativeToolsArtifact?: string, processStatus = "NoNewPrivs:\t1\nSeccomp:\t2\n") {
-  const root = await mkdtemp(`${tmpdir()}/ez-driver-`); temporaryRoots.push(root); const log = `${root}/effects`; const podman = `${root}/podman`; const inspect = `${root}/inspect.json`; const fail = `${root}/fail`; const stopFail = `${root}/stop-fail`; const running = `${root}/running`;
-  await writeFile(podman, `#!/bin/sh\nif [ "$2" = info ]; then printf 'true v2 true\\n'; exit 0; fi\nif [ "$2" = inspect ]; then if [ -f '${running}' ]; then sed 's/"State":{"Running":false,"Pid":0}/"State":{"Running":true,"Pid":4242}/' '${inspect}'; else cat '${inspect}'; fi; exit 0; fi\nprintf '%s\\n' "$*" >> '${log}'\nif [ -f '${fail}' ] || { [ "$2" = stop ] && [ -f '${stopFail}' ]; }; then head -c 131072 /dev/zero | tr '\\000' x >&2; printf '%s' '${root}/private' >&2; exit 1; fi\nif [ "$2" = start ]; then touch '${running}'; fi\nif [ "$2" = stop ]; then rm -f '${running}'; fi\nexit 0\n`); await chmod(podman, 0o700);
+  const root = await mkdtemp(`${tmpdir()}/ez-driver-`); temporaryRoots.push(root); const log = `${root}/effects`; const podman = `${root}/podman`; const inspect = `${root}/inspect.json`; const fail = `${root}/fail`; const stopFail = `${root}/stop-fail`; const running = `${root}/running`; const pauseInspect = `${root}/pause-inspect`; const inspectEntered = `${root}/inspect-entered`; const releaseInspect = `${root}/release-inspect`;
+  await writeFile(podman, `#!/bin/sh\nif [ "$2" = info ]; then printf 'true v2 true\\n'; exit 0; fi\nif [ "$2" = inspect ]; then if [ -f '${pauseInspect}' ] && [ ! -f '${releaseInspect}' ]; then touch '${inspectEntered}'; while [ ! -f '${releaseInspect}' ]; do sleep 0.01; done; fi; if [ -f '${running}' ]; then sed 's/"State":{"Running":false,"Pid":0}/"State":{"Running":true,"Pid":4242}/' '${inspect}'; else cat '${inspect}'; fi; exit 0; fi\nprintf '%s\\n' "$*" >> '${log}'\nif [ -f '${fail}' ] || { [ "$2" = stop ] && [ -f '${stopFail}' ]; }; then head -c 131072 /dev/zero | tr '\\000' x >&2; printf '%s' '${root}/private' >&2; exit 1; fi\nif [ "$2" = start ]; then touch '${running}'; fi\nif [ "$2" = stop ]; then rm -f '${running}'; fi\nexit 0\n`); await chmod(podman, 0o700);
   const config = { stateRoot: `${root}/state`, imageReference: `localhost/ezharness-local@sha256:${"a".repeat(64)}`, imageId: "b".repeat(64), podmanPath: podman, fuse2fsPath: podman, supervisorPath: podman, workspaceUid: 0, workspaceGid: 0, nativeToolsArtifact };
   const limits = { memoryBytes: 128 * 1024 * 1024, milliCpu: 500, pids: 32, diskBytes: 32 * 1024 * 1024 }; const containerId = "c".repeat(64); const containerName = "container";
   await mkdir(config.stateRoot, { recursive: true, mode: 0o700 }); const roots = new ResourceRoot(config.stateRoot); const paths = await roots.initialize("resource");
@@ -21,7 +21,7 @@ async function fixture(nativeToolsArtifact?: string, processStatus = "NoNewPrivs
   const configDigest = configurationDigest(config, limits); await roots.writeMetadata("resource", { resourceId: "resource", containerId, containerName, configDigest, scope: input().call.scope, state: "stopped", limits });
   const capDrop = ["CAP_CHOWN", "CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_FSETID", "CAP_KILL", "CAP_NET_BIND_SERVICE", "CAP_SETFCAP", "CAP_SETGID", "CAP_SETPCAP", "CAP_SETUID", "CAP_SYS_CHROOT"]; const live = { Id: containerId, Name: containerName, Image: config.imageId, State: { Running: false, Pid: 0 }, Config: { Image: config.imageReference, User: "0:0", Labels: { [RESOURCE_LABEL]: resourceKey("resource"), [CONFIG_LABEL]: configDigest } }, HostConfig: { NetworkMode: "none", UsernsMode: "", PidMode: "private", IpcMode: "private", UtsMode: null, Privileged: false, CapDrop: capDrop, SecurityOpt: ["no-new-privileges"], ReadonlyRootfs: true, Memory: limits.memoryBytes, MemorySwap: limits.memoryBytes, NanoCpus: limits.milliCpu * 1_000_000, PidsLimit: limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }, ...(nativeToolsArtifact === undefined ? [] : [{ Type: "bind", Source: nativeToolsArtifact, Destination: "/opt/ezharness/native-tools.js", RW: false }])] };
   await writeFile(inspect, JSON.stringify([live]));
-  return { driver: new LocalPodmanDriver(config, { readProcessStatus: async () => processStatus }), log, config, inspect, live, fail, stopFail, running, root };
+  return { driver: new LocalPodmanDriver(config, { readProcessStatus: async () => processStatus }), log, config, inspect, live, fail, stopFail, running, root, pauseInspect, inspectEntered, releaseInspect };
 }
 const input = () => ({ call: { scope: { projectId: "p", bindingId: "b", generation: 1 }, operationId: "op", idempotencyKey: "key", requestDigest: "a".repeat(64) }, resourceId: "resource" });
 describe("local lifecycle journal integration", () => {
@@ -60,6 +60,56 @@ describe("local lifecycle journal integration", () => {
 
     expect(results.map((result) => result.receipt.outcome)).toEqual(["succeeded", "succeeded", "succeeded"]);
     expect((await readFile(log, "utf8")).trim().split("\n").filter((line) => line.split(" ")[1] === "start")).toHaveLength(1);
+  });
+  test("serializes transition recovery across driver instances sharing one state root", async () => {
+    const { driver, config, log, pauseInspect, inspectEntered, releaseInspect } = await fixture();
+    const other = new LocalPodmanDriver(config, { readProcessStatus: async () => "NoNewPrivs:\t1\nSeccomp:\t2\n" });
+    await writeFile(pauseInspect, "pause");
+    const first = driver.start(input());
+    for (let attempts = 0; attempts < 200; attempts += 1) {
+      if (await stat(inspectEntered).then(() => true, () => false)) break;
+      await Bun.sleep(5);
+    }
+    await stat(inspectEntered);
+    const second = other.start(input());
+    await Bun.sleep(100);
+    await writeFile(releaseInspect, "release");
+
+    const results = await Promise.all([first, second]);
+
+    expect(results.map((result) => result.receipt.outcome)).toEqual(["succeeded", "succeeded"]);
+    expect((await readFile(log, "utf8")).trim().split("\n").filter((line) => line.split(" ")[1] === "start")).toHaveLength(1);
+  });
+  test("recovers a transition lock after the owning process crashes", async () => {
+    const { driver, config, root } = await fixture();
+    const operations = `${config.stateRoot}/operations`;
+    await mkdir(operations, { recursive: true, mode: 0o700 });
+    const key = `${input().call.scope.projectId}\0${input().call.scope.bindingId}\0${input().call.scope.generation}`;
+    const lockPath = `${operations}/transition-${createHash("sha256").update(key).digest("hex")}.lock`;
+    const acquiredPath = `${root}/transition-lock-acquired`;
+    const supervisorModule = new URL("../runtime/sandbox/local-podman/supervisor.ts", import.meta.url).pathname;
+    const holder = Bun.spawn([process.execPath, "-e", `
+      import { open, writeFile } from "node:fs/promises";
+      import { flock, LOCK_EXCLUSIVE_NONBLOCKING } from ${JSON.stringify(supervisorModule)};
+      const lock = await open(${JSON.stringify(lockPath)}, "a+", 0o600);
+      if (flock(lock.fd, LOCK_EXCLUSIVE_NONBLOCKING) !== 0) process.exit(2);
+      await writeFile(${JSON.stringify(acquiredPath)}, "acquired");
+      await new Promise(() => {});
+    `], { stdout: "ignore", stderr: "pipe" });
+    for (let attempts = 0; attempts < 200; attempts += 1) {
+      if (await stat(acquiredPath).then(() => true, () => false)) break;
+      await Bun.sleep(5);
+    }
+    await stat(acquiredPath);
+    let settled = false;
+    const start = driver.start(input()).finally(() => { settled = true; });
+    await Bun.sleep(50);
+    expect(settled).toBeFalse();
+
+    holder.kill();
+    await holder.exited;
+
+    await expect(start).resolves.toMatchObject({ receipt: { outcome: "succeeded" } });
   });
   test("fails closed and stops a container whose process confinement cannot be verified", async () => {
     const { driver, log } = await fixture(undefined, "NoNewPrivs:\t1\nSeccomp:\t0\n");

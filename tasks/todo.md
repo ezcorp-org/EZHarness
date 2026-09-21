@@ -321,3 +321,16 @@ Plan review: use the existing clean PR worktree at the exact GitHub head. Treat 
 - Added focused tests for all 24 lines. Pinned Bun coverage records setup-tools line 1701 and subscribe-bridge line 442; V8 coverage records every route body branch, including the feature sort comparator. The new suites pass 9/9 backend and 8/8 web tests; final typecheck, lint, and diff checks pass.
 - Expanded real qualification coverage for dispose-while-running and browser reconnect cancellation. Added mapped mobile visual evidence and fixed the Feature Index search row and project favicon controls at 390 px.
 - Verification: pinned focused tests 64/64; pinned full suite 25,950/25,950 across 1,665 files; coverage producers 26,756/26,756 across 1,623 shards; typecheck and lint clean; production build passes; mobile/desktop evidence 4/4. The local coverage aggregate correctly refused to run without CI's separate browser-coverage receipt. The hosted per-file gate supplies that artifact and is the final aggregate proof.
+
+### Publication-gate recovery repairs
+
+- [ ] Reproduce API/UI recovery of an unknown start or stop with a new idempotency key.
+- [ ] Reuse only the exact pending same-actor, same-action lifecycle operation and reject conflicts.
+- [ ] Reproduce reviewed-call abort while a raw observation still runs and preserve the lifecycle fence until authoritative completion.
+- [ ] Reproduce concurrent start/stop recovery through two driver instances sharing one state root.
+- [ ] Add a crash-recoverable cross-process transition lock without weakening identity or ambiguity checks.
+- [ ] Merge current `origin/main` and preserve the sandbox recovery and runner-image changes.
+- [ ] Run focused tests, patch coverage, CRAP, lint, typecheck, builds, gate integrity, and diff checks.
+- [ ] Commit locally without pushing and record the exact verification result.
+
+Plan review: test the public lifecycle controller and UI seams, the reviewed-to-raw provider invocation seam, and two real driver instances sharing one durable state root. Recovery may reuse only existing authority. A lifecycle transition must wait for authoritative raw completion, and transition serialization must survive process replacement.

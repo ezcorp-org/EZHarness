@@ -10,6 +10,7 @@ type Row = Record<string, unknown>;
 type ProviderResult = { receipt: ProviderReceipt; resource?: SandboxResource };
 type ProcessResult = { receipt: ProviderReceipt; process?: { identity: { bootId: string; processId: string }; state: string; exitCode?: number; outputCursor: number } };
 type MethodKind = "writer" | "observation" | "cancel" | "invalid";
+const activeRawOperations = new Map<string, Promise<unknown>>();
 
 function rows(value: unknown): Row[] { return (value as { rows?: Row[] }).rows ?? []; }
 function parse<T>(value: unknown): T { return typeof value === "string" ? JSON.parse(value) as T : value as T; }
@@ -73,7 +74,6 @@ async function requireNoActiveMethod(tx: DbTransaction, bindingId: string): Prom
 
 export function createSandboxController(driver: LocalSandboxDriver, runtime: Pick<ReleaseRuntimeDependencies, "resolve"> = getReleaseRuntime(), invoke?: SandboxProviderInvocation, clock = { now: () => Date.now(), sleep: (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)) }): SandboxController {
   const reviewedOperations = new Set<string>();
-  const rawOperations = new Map<string, Promise<unknown>>();
   const freshMethodAdmissions = new Set<string>();
   const executingMethods = new Set<string>();
   function requireReviewedWindow(operationId: string): void {
@@ -286,7 +286,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     `));
     for (const operation of pending) {
       const id = String(operation.id);
-      if (freshMethodAdmissions.has(id) || executingMethods.has(id)) continue;
+      if (freshMethodAdmissions.has(id) || executingMethods.has(id) || activeRawOperations.has(id)) continue;
       const kind = methodKind(operation.method_group, operation.method);
       if (kind === "cancel" && operation.state === "running") {
         await getDb().execute(sql`UPDATE sandbox_method_operations SET state='unknown',completed_at=NOW() WHERE id=${id} AND state='running'`);
@@ -384,11 +384,11 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     },
     async executeAdmittedLocalSandboxOperationRaw(userId, operationId, signal) {
       requireReviewedWindow(operationId);
-      const active = rawOperations.get(operationId);
+      const active = activeRawOperations.get(operationId);
       if (active) return active;
       const pending = executeRaw(userId, operationId, signal);
-      rawOperations.set(operationId, pending);
-      try { return await pending; } finally { rawOperations.delete(operationId); }
+      activeRawOperations.set(operationId, pending);
+      try { return await pending; } finally { activeRawOperations.delete(operationId); }
     },
     async reconcileSandboxProcess(userId, projectId, signal) {
       const current = await status(userId, projectId);
@@ -484,12 +484,10 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         if (refreshedResource?.observed_state === "destroyed") throw new SandboxControllerError("RESOURCE_DESTROYED", "This sandbox has been disposed");
         const existing = rows(await tx.execute(sql`SELECT * FROM sandbox_operations WHERE binding_id=${current.bindingId} AND idempotency_key=${input.idempotencyKey}`))[0];
         if (existing) return replay(existing);
-        if (input.action === "destroy") {
-          const pendingDestroy = rows(await tx.execute(sql`SELECT * FROM sandbox_operations WHERE binding_id=${current.bindingId} AND resource_id=(SELECT id FROM sandbox_resources WHERE binding_id=${current.bindingId}) AND action='destroy' AND state IN ('admitted','running','unknown') ORDER BY created_at DESC LIMIT 1`))[0];
-          if (pendingDestroy) {
-            if (pendingDestroy.actor_id !== userId) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox operation is already admitted or awaiting recovery");
-            return replay(pendingDestroy);
-          }
+        const pendingSameAction = rows(await tx.execute(sql`SELECT * FROM sandbox_operations WHERE binding_id=${current.bindingId} AND resource_id=(SELECT id FROM sandbox_resources WHERE binding_id=${current.bindingId}) AND action=${input.action} AND state IN ('admitted','running','unknown') ORDER BY created_at DESC LIMIT 1`))[0];
+        if (pendingSameAction) {
+          if (pendingSameAction.actor_id !== userId) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox operation is already admitted or awaiting recovery");
+          return replay(pendingSameAction);
         }
         await requireNoActiveLifecycle(tx, current.bindingId);
         await requireNoActiveMethod(tx, current.bindingId);

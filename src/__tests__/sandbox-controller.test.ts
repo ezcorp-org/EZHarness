@@ -129,6 +129,32 @@ for (const action of ["start", "stop"] as const) {
   });
 }
 
+for (const action of ["start", "stop"] as const) {
+  test(`recovers an unknown ${action} through a normal API retry with a new idempotency key`, async () => {
+    const context = await fixture();
+    const create = await admitCreate(context);
+    await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+    if (action === "stop") {
+      const start = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "prepare-api-retry-running-resource" });
+      await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, start.id);
+    }
+    let attempts = 0;
+    context.local[action] = mock(async (input: any) => attempts++ === 0
+      ? { receipt: { ...receipt(input.call), outcome: "unknown" as const, error: { code: `${action}_unknown`, message: "Lifecycle outcome is unknown.", retryable: true } } }
+      : { receipt: receipt(input.call), resource: { resourceId: input.resourceId, desiredState: action === "start" ? "running" as const : "stopped" as const, observedState: action === "start" ? "running" as const : "stopped" as const, limits } });
+    const first = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action, idempotencyKey: `${action}-first-key` });
+    expect((await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, first.id)).operation).toMatchObject({ id: first.id, state: "unknown" });
+
+    const restarted = context.restartController();
+    await expect(restarted.requestSandboxAction(context.owner.id, create.projectId, { action: action === "start" ? "stop" : "start", idempotencyKey: `${action}-conflicting-key` })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+    const recovered = await restarted.requestSandboxAction(context.owner.id, create.projectId, { action, idempotencyKey: `${action}-fresh-key` });
+
+    expect(recovered).toMatchObject({ id: first.id, action, state: "unknown" });
+    expect((await restarted.executeAdmittedLocalSandboxOperation(context.owner.id, recovered.id)).operation).toMatchObject({ id: first.id, state: "succeeded" });
+    expect(attempts).toBe(2);
+  });
+}
+
 test("replays a concurrent lifecycle admission after its insert conflicts", async () => {
   const context = await fixture();
   const create = await admitCreate(context);
@@ -244,6 +270,41 @@ test("an executing observation remains fenced until its provider call settles", 
   await expect(context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "start-during-executing-read" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
   release.resolve();
   await expect(executing).resolves.toMatchObject({ state: "succeeded" });
+});
+
+test("a reviewed abort keeps an active raw observation fenced across controller replacement", async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let rawController!: ReturnType<typeof createSandboxController>;
+  let rawCompletion: Promise<unknown> | undefined;
+  const context = await fixture(async (userId, _projectId, _provider, _group, _operation, input, signal) => {
+    rawCompletion = rawController.executeAdmittedLocalSandboxOperationRaw(userId, (input as { call: { operationId: string } }).call.operationId, signal);
+    return Promise.race([
+      rawCompletion,
+      new Promise<never>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true })),
+    ]);
+  });
+  rawController = context.controller;
+  context.local.fileRead = mock(async (input: any) => {
+    entered.resolve();
+    await release.promise;
+    return { receipt: receipt(input.call), path: input.path, revision: "revision", offsetBytes: 0, nextOffsetBytes: 0, eof: true, encoding: "utf8" as const, data: "" };
+  });
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const read = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "read", idempotencyKey: "aborted-reviewed-read", payload: { path: "/a", offsetBytes: 0, lengthBytes: 1 } });
+  const abort = new AbortController();
+  const executing = context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id, abort.signal);
+  await entered.promise;
+  abort.abort(new Error("Reviewed invocation aborted."));
+  await expect(executing).rejects.toThrow("Reviewed invocation aborted.");
+
+  const restarted = context.restartController();
+  await expect(restarted.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "start-during-orphaned-raw-read" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+
+  release.resolve();
+  await rawCompletion;
+  await expect(restarted.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "start-after-raw-read" })).resolves.toMatchObject({ state: "admitted" });
 });
 
 test("keeps the writer lease through a running process and releases it after terminal process inspection", async () => {

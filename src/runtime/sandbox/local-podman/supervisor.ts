@@ -75,10 +75,10 @@ type LockFile = (descriptor: number, operation: number) => number;
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const MAX_STATUS_BYTES = 2 * 1024 * 1024;
-const LOCK_EXCLUSIVE_NONBLOCKING = 2 | 4;
-const LOCK_RELEASE = 8;
+export const LOCK_EXCLUSIVE_NONBLOCKING = 2 | 4;
+export const LOCK_RELEASE = 8;
 let flockCall: ((descriptor: number, operation: number) => number) | undefined;
-function flock(descriptor: number, operation: number): number {
+export function flock(descriptor: number, operation: number): number {
 	flockCall ??= dlopen("libc.so.6", { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } }).symbols.flock;
 	return flockCall(descriptor, operation);
 }

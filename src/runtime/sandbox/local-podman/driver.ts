@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
-import { open, readFile } from "node:fs/promises";
+import { mkdir, open, readFile } from "node:fs/promises";
 import { validateProviderMethodValue, type ProviderCall, type ProviderError, type ProviderFailedReceipt, type ProviderReceipt, type ProviderSucceededReceipt, type ProviderUnknownReceipt, type SandboxCreateInput, type SandboxCreateResult, type SandboxDestroyInput, type SandboxDestroyResult, type SandboxFileChmodInput, type SandboxFileChmodResult, type SandboxFileListInput, type SandboxFileListResult, type SandboxFileMkdirInput, type SandboxFileMkdirResult, type SandboxFileReadInput, type SandboxFileReadResult, type SandboxFileRemoveInput, type SandboxFileRemoveResult, type SandboxFileStat, type SandboxFileStatInput, type SandboxFileStatResult, type SandboxFileWriteInput, type SandboxFileWriteResult, type SandboxInspectInput, type SandboxInspectResult, type SandboxProcessCancelInput, type SandboxProcessCancelResult, type SandboxProcessInspectInput, type SandboxProcessInspectResult, type SandboxProcessReadOutputInput, type SandboxProcessReadOutputResult, type SandboxProcessStartInput, type SandboxProcessStartResult, type SandboxStartInput, type SandboxStartResult, type SandboxStopInput, type SandboxStopResult } from "@ezcorp/extension-contract";
 import { CONFIG_LABEL, RESOURCE_LABEL, configurationDigest, containerIdFromCreateOutput, createContainerArgv, expectedContainerIdentity, resourcePaths, runBoundedCommand, validateHostConfig, validateProcessConfinement, type BoundedCommandResult, type LocalPodmanHostConfig } from "./commands";
 import { ResourceRoot } from "./resource-root";
 import { WorkspaceImage } from "./workspace-image";
 import { DurableOperationJournal, type RecoverableMutationBegin } from "./journal";
-import { LocalProcessSupervisor, type OwnedProcessResource } from "./supervisor";
+import { flock, LocalProcessSupervisor, LOCK_EXCLUSIVE_NONBLOCKING, LOCK_RELEASE, type OwnedProcessResource } from "./supervisor";
 import { LocalWorkspaceFileError, LocalWorkspaceFiles } from "./files";
 
 type Metadata = { resourceId: string; containerId: string; containerName: string; configDigest: string; scope: ProviderCall["scope"]; bootId?: string; state: "stopped" | "running" | "destroying" | "unknown"; limits: SandboxCreateInput["limits"] };
@@ -53,13 +53,29 @@ export class LocalPodmanDriver {
   }
   private async recoverableTransition<T extends { receipt: ProviderReceipt }>(call: ProviderCall, effect: () => Promise<T>): Promise<T> {
     const key = `${call.scope.projectId}\0${call.scope.bindingId}\0${call.scope.generation}`;
-    return serialized(this.transitionLocks, key, async () => {
-      const begun = await this.journal.beginRecoverable<T>(call);
-      if (begun.kind === "replay" && begun.result.receipt.outcome !== "unknown") return begun.result;
-      const result = await effect();
-      if (result.receipt.outcome !== "unknown") await this.journal.completeRecovered(call, result);
-      return result;
-    });
+    return serialized(this.transitionLocks, key, () => this.withTransitionLock(key, async () => {
+        const begun = await this.journal.beginRecoverable<T>(call);
+        if (begun.kind === "replay" && begun.result.receipt.outcome !== "unknown") return begun.result;
+        const result = await effect();
+        if (result.receipt.outcome !== "unknown") await this.journal.completeRecovered(call, result);
+        return result;
+      }));
+  }
+  private async withTransitionLock<T>(key: string, effect: () => Promise<T>): Promise<T> {
+    const root = `${this.config.stateRoot}/operations`;
+    await mkdir(root, { recursive: true, mode: 0o700 });
+    const digest = createHash("sha256").update(key).digest("hex");
+    const lock = await open(`${root}/transition-${digest}.lock`, "a+", 0o600);
+    let acquired = false;
+    try {
+      await lock.chmod(0o600);
+      while (flock(lock.fd, LOCK_EXCLUSIVE_NONBLOCKING) !== 0) await Bun.sleep(5);
+      acquired = true;
+      return await effect();
+    } finally {
+      if (acquired) flock(lock.fd, LOCK_RELEASE);
+      await lock.close();
+    }
   }
   private interruptedFileMutation<T>(call: ProviderCall): T {
     return { receipt: receipt(call, "failed", { code: "interrupted_mutation_aborted", message: "The interrupted workspace mutation has no verified state transition.", retryable: false }) } as T;
