@@ -81,42 +81,6 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     send(response, 200, { workerId: data.workerId });
   }
 
-  /** Long-poll the attached session's queue, then answer reverse calls before notifications. */
-  async function pollEvents(request: IncomingMessage, response: ServerResponse, data: RunnerRequestBody): Promise<void> {
-    const session = sessions.get(identifier(data.workerId));
-    if (!session?.attached || session.wake) throw new RunnerError("unknown_worker", "Worker event stream is unavailable or already attached");
-    if (session.events.length === 0) await new Promise<void>(resolve => {
-      let finished = false;
-      const wake = () => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timer);
-        session!.wake = undefined;
-        response.off("close", detach);
-        request.off("aborted", detach);
-        resolve();
-      };
-      const detach = () => {
-        if (finished) return;
-        finished = true;
-        clearTimeout(timer);
-        session!.wake = undefined;
-        session!.attached = false;
-        resolve();
-      };
-      const timer = setTimeout(wake, 20_000);
-      session.wake = wake;
-      response.once("close", detach);
-      request.once("aborted", detach);
-    });
-    // Reverse calls stay queued until their matching reply is accepted.
-    // A replacement client can therefore resume after a dropped poll.
-    const events = session.events.filter(event => event.id !== undefined);
-    const notifications = session.events.filter(event => event.id === undefined);
-    session.events.splice(0, session.events.length, ...events);
-    send(response, 200, { events: [...events, ...notifications] });
-  }
-
   /** Settle one reverse call and retire the queued event that carried it. */
   function replyToHost(response: ServerResponse, data: RunnerRequestBody): void {
     const session = sessions.get(identifier(data.workerId));
@@ -146,7 +110,41 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
         send(response, 200, { result: await session.execution.request(data.method, data.params) });
         return;
       }
-      case "/v4/events": return pollEvents(request, response, data);
+      case "/v4/events": {
+        const session = sessions.get(identifier(data.workerId));
+        if (!session?.attached || session.wake) throw new RunnerError("unknown_worker", "Worker event stream is unavailable or already attached");
+        if (session.events.length === 0) await new Promise<void>(resolve => {
+          let finished = false;
+          const wake = () => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            session!.wake = undefined;
+            response.off("close", detach);
+            request.off("aborted", detach);
+            resolve();
+          };
+          const detach = () => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            session!.wake = undefined;
+            session!.attached = false;
+            resolve();
+          };
+          const timer = setTimeout(wake, 20_000);
+          session.wake = wake;
+          response.once("close", detach);
+          request.once("aborted", detach);
+        });
+        // Reverse calls stay queued until their matching reply is accepted.
+        // A replacement client can therefore resume after a dropped poll.
+        const events = session.events.filter(event => event.id !== undefined);
+        const notifications = session.events.filter(event => event.id === undefined);
+        session.events.splice(0, session.events.length, ...events);
+        send(response, 200, { events: [...events, ...notifications] });
+        return;
+      }
       case "/v4/attach": {
         const session = sessions.get(identifier(data.workerId));
         if (!session || session.attached) throw new RunnerError("unknown_worker", "Worker is unavailable or already attached");
