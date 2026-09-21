@@ -84,6 +84,13 @@ it can be: G4 parses `releases.ts` and requires every statement naming `factory_
 to be a `SELECT`, and requires no `INSERT INTO`, `UPDATE`, or `DELETE FROM` against it anywhere in
 the file. No `REQUIRED_SHARED_IMPORTS` row was added, because `releases.ts` gained no import.
 
+## Commits
+
+| SHA | Subject |
+| --- | --- |
+| `fdf9ec914` | `feat(factory): read the one consent a claimable release already has` |
+| *(this commit)* | `docs(factory): stamp the W07b gate receipts` |
+
 ## Gates
 
 - [x] G1: One claimable operation yields exactly the consent that exists, on PGlite.
@@ -144,12 +151,21 @@ the file. No `REQUIRED_SHARED_IMPORTS` row was added, because `releases.ts` gain
       CHECK: `bun run typecheck`, `bun run lint`, `bun scripts/check-factory-boundaries.ts`,
       `bun scripts/gate-integrity.ts`
       EXPECT: exit 0 each; lint reports the same pre-existing infos and no errors or warnings.
-      EVIDENCE: receipts `typecheck`, `lint`, `boundaries`, `gate-integrity`.
+      EVIDENCE: receipts `typecheck`, `lint`, `boundaries`, `gate-integrity`, and the same four
+      re-run at the commit as `final-typecheck`, `final-lint`, `final-boundaries`,
+      `final-gate-integrity`. The focused release suites at the commit are `final-focused`
+      (64 pass, 0 fail, 552 assertions).
 - [x] G9: Coverage of every changed executable line.
       CHECK: the backend coverage leg, then
       `bun scripts/merge-lcov.ts "/tmp/factory-platform-evidence/w07b/lcov/*/lcov.info" coverage/lcov.info && BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts && BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
-      EXPECT: exit 0 from both gates; `src/factory/releases.ts` fully measured.
+      EXPECT: 101 pass, 0 fail, 895 assertions in the backend leg; then "merged 569 source files",
+      "New-file coverage gate PASSED: no new source files in this diff.", and "Patch coverage gate
+      PASSED: all changed executable lines covered (1 file(s))."
       EVIDENCE: receipts `coverage-backend`, `coverage-gate`.
+      MEASURED: `src/factory/releases.ts` is 553 of 560 lines in this leg. The seven unmeasured
+      lines are `dispatchNotification` and `enqueueCommandApprovalInTransaction`, which predate this
+      leaf and are covered by the command-approval suites rather than by the release producers named
+      above. The patch gate confirms every line this leaf changed is covered.
 
 ## Open
 

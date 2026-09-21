@@ -902,3 +902,5 @@
   one in release-authority.ts; the package's focused set and the validator's reruns both passed, and
   the combined integration run failed 17 cases. Grep for every `"<lastKey>"]` list and run every
   suite that constructs the type, not only the owning package's suites.
+- Never edit a shell script while an instance of it is running. A `sed` typo had a receipt recorder writing to `w07bb` instead of `w07b`; correcting the file mid-run made the executing bash re-read it and pick up the new value partway through, so one run's log and JSON landed in different directories than the four before it. Write a new file and switch callers to it, then clean up.
+- A patch-coverage gate measures the committed diff, so running it before the commit reports "0 file(s)" and passes vacuously. Commit first, then run the gate, and read the file count in its output as the check that it actually looked at something.
