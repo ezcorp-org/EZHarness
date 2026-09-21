@@ -60,6 +60,22 @@ function storage(kind: string) {
   return { endpoint: `https://127.0.0.1:8443/${kind}`, bucket: `tenant-01-${kind}`, prefix: `factory-${kind}`, credentialSet: `${kind}-set`, credentialsPath: `/run/secrets/${kind}.json` };
 }
 
+/** A readable credential set, which is what the release store needs to compose at all. */
+async function credentialFile(root: string, kind: string): Promise<string> {
+  const path = join(root, "secrets", `${kind}-credentials.json`);
+  await writeFile(path, JSON.stringify({ identities: [{ name: "tenant-01", credentials: [{ accessKey: `${kind}-key`, secretKey: `${kind}-secret` }] }] }), { mode: 0o600 });
+  await chmod(path, 0o600);
+  return path;
+}
+
+/** The storage section an installation whose release store really composes declares. */
+async function readableStorage(root: string): Promise<Record<string, unknown>> {
+  return {
+    ordinary: { ...storage("ordinary"), credentialsPath: await credentialFile(root, "ordinary") },
+    archive: { ...storage("archive"), credentialsPath: await credentialFile(root, "archive") },
+  };
+}
+
 function document(root: string): Record<string, unknown> {
   return {
     schemaVersion: FACTORY_STARTUP_CONFIG_SCHEMA,
@@ -622,23 +638,11 @@ describe("the notification inbox step, across the tenant's projects", () => {
 });
 
 describe("the release store, and the role it unblocks", () => {
-  async function credentialFile(root: string, kind: string): Promise<string> {
-    const path = join(root, "secrets", `${kind}-credentials.json`);
-    await writeFile(path, JSON.stringify({ identities: [{ name: "tenant-01", credentials: [{ accessKey: `${kind}-key`, secretKey: `${kind}-secret` }] }] }), { mode: 0o600 });
-    await chmod(path, 0o600);
-    return path;
-  }
-
   test("composes from the startup document and registers notification-inbox-delivery", async () => {
     const before = reported.length;
     const root = await privateRoot();
     await writeReadyRecords(root);
-    const configPath = await writeConfig(root, {
-      storage: {
-        ordinary: { ...storage("ordinary"), credentialsPath: await credentialFile(root, "ordinary") },
-        archive: { ...storage("archive"), credentialsPath: await credentialFile(root, "archive") },
-      },
-    } as never);
+    const configPath = await writeConfig(root, { storage: await readableStorage(root) } as never);
 
     const startup = await startFactoryInstallation({
       host: host(),
@@ -764,7 +768,7 @@ describe("the roles this installation assembles", () => {
     };
   }
 
-  async function start(root: string, overrides: Record<string, unknown>) {
+  async function start(root: string, overrides: Record<string, unknown>, extra: Partial<Parameters<typeof startFactoryInstallation>[0]> = {}) {
     const startup = await startFactoryInstallation({
       host: host(),
       blobs: memoryBlobs(),
@@ -773,6 +777,7 @@ describe("the roles this installation assembles", () => {
       configPath: await writeConfig(root, overrides),
       boot: bootConfig(root),
       dependencies: { gateway: { health: async () => true } },
+      ...extra,
     });
     started.push(startup);
     return startup;
@@ -796,6 +801,56 @@ describe("the roles this installation assembles", () => {
     expect(held).not.toContain("stop-settlement");
     expect(held).not.toContain("usage-reconciliation");
     expect([...running, ...held].sort()).toEqual([...FACTORY_WORKER_ROLES].sort());
+  });
+
+  test("release-outcome holds on the one thing the document cannot name: where to publish", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const startup = await start(root, { ...await transport(root), storage: await readableStorage(root) });
+
+    const report = startup.runtime.report();
+    // The store composed, which the inbox role witnesses.
+    expect(report.workers.map((worker) => worker.name)).toContain("notification-inbox-delivery");
+    expect(report.workers.map((worker) => worker.name)).not.toContain("release-outcome");
+    const held = new Map(report.heldWorkers.map((worker) => [worker.role, worker.reason]));
+    // The consent is no longer the reason — W07b's reader landed and the
+    // driver reads it. What is missing is a provider to publish through.
+    expect(held.get("release-outcome")).toContain("FactoryReleaseProvider");
+    expect(held.get("release-outcome")).toContain("no release destination");
+    expect(held.get("release-outcome")).not.toContain("consent");
+  });
+
+  test("a release store that did not compose holds the role on the store, not on the provider", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    // The default storage section points at credential files that do not
+    // exist, which is the ordinary shape of a misconfigured installation.
+    const startup = await start(root, await transport(root));
+
+    const report = startup.runtime.report();
+    expect(report.workers.map((worker) => worker.name)).not.toContain("notification-inbox-delivery");
+    const held = new Map(report.heldWorkers.map((worker) => [worker.role, worker.reason]));
+    expect(held.get("release-outcome")).toContain("release store itself");
+    expect(held.get("release-outcome")).toContain("release-store role");
+  });
+
+  test("release-outcome registers and runs the moment a deployment supplies a provider", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const resolved: unknown[] = [];
+    const startup = await start(root, { ...await transport(root), storage: await readableStorage(root) }, {
+      releaseProviders: { resolve: (operation) => { resolved.push(operation); return {} as never; } },
+    });
+
+    const report = startup.runtime.report();
+    expect(report.workers.map((worker) => worker.name)).toContain("release-outcome");
+    expect(report.heldWorkers.map((worker) => worker.role)).not.toContain("release-outcome");
+    // The composed role really scans this tenant's projects through the real
+    // release store: an installation with no claimable release is no work, and
+    // no provider is resolved because nothing was claimed.
+    const role = report.workers.find((worker) => worker.name === "release-outcome");
+    expect(role?.running).toBe(true);
+    expect(resolved).toEqual([]);
   });
 
   test("holds all three by name when the document declares no host launch endpoint", async () => {

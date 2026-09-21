@@ -8,7 +8,7 @@
  * measured — so its "unknown" path is asserted twice, once for the refusal and
  * once for the disposition that keeps it retryable.
  */
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -22,15 +22,19 @@ import { FactoryTaskStops } from "./task-stops";
 import type { PoolAdmissionClient } from "./pool/client";
 import type { FactoryStartupConfig } from "./startup-config";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
-import type { FactoryClaimableRelease, FactoryReleaseOperation, FactoryReleaseProvider } from "./releases";
+import { FactoryReleaseError, FactoryReleases, type FactoryClaimableRelease, type FactoryReleaseConsentResult, type FactoryReleaseOperation, type FactoryReleaseProvider } from "./releases";
 import type { FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryUncertainHold } from "./budgets";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryPrincipal } from "./grants";
 import {
+  FACTORY_RELEASE_CONSENT_FAULT_REASONS,
+  FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES,
   FACTORY_STOP_SETTLEMENT_TRANSIENT_CODES,
+  FactoryReleaseConsentAbsentError,
   FactoryUnknownReleaseProviderError,
   FactoryUnresolvedHoldError,
+  factoryReleaseOutcomeDisposition,
   factoryReleaseOutcomeDriver,
   factoryReleaseProviderResolver,
   factoryStopSettlementDisposition,
@@ -42,7 +46,6 @@ import {
 } from "./dispatch-composition";
 
 const SERVICE: TrustedFactoryServiceIdentity = { subject: "tenant-a", tenantId: "tenant-01" };
-const REQUESTER: FactoryPrincipal = { kind: "service", id: "worker", authentication: "service" } as FactoryPrincipal;
 const SIGNAL = new AbortController().signal;
 
 function database(): TransactionalDb {
@@ -214,51 +217,216 @@ describe("the release provider resolver", () => {
 });
 
 describe("the release-outcome step", () => {
-  const claimable = (operationId: string, projectId = "project-1"): FactoryClaimableRelease =>
-    ({ operationId, projectId }) as unknown as FactoryClaimableRelease;
-  const consent = () => ({ kind: "policy", policyId: "policy-1", expectedRevision: 1 }) as never;
+  const claimable = (operationId: string, projectId = "project-1", runId = "run-1"): FactoryClaimableRelease =>
+    ({ operationId, projectId, runId }) as unknown as FactoryClaimableRelease;
+  const INITIATOR: FactoryPrincipal = { kind: "user", id: "run-owner", authentication: "api-key" };
+  const APPROVAL = Object.freeze({ kind: "approval", consent: Object.freeze({ kind: "approval", approvalId: "approval-1" }), approvedBy: "session-1", expiresAtMs: 4_000, expectedGeneration: 1 });
+  const operation = (tenantId = "tenant-01") => ({ tenantId, operationId: "op-1", state: "pending", destination: { provider: "s3" } }) as unknown as FactoryReleaseOperation;
 
-  test("claims and dispatches to the provider the claim's destination names", async () => {
+  /**
+   * One release store whose consent reader answers what the test names, and
+   * which records every call so "no claim" can be asserted as zero calls
+   * rather than as an absent side effect.
+   */
+  function store(options: {
+    readonly claimables?: (projectId: string) => readonly FactoryClaimableRelease[];
+    readonly consent?: FactoryReleaseConsentResult | (() => never);
+    readonly inspect?: FactoryReleaseOperation | null;
+    readonly claim?: () => unknown;
+  }) {
+    const calls = { inspected: [] as string[], consents: [] as unknown[][], claims: [] as unknown[][], dispatches: [] as unknown[][] };
+    const releases = {
+      async listClaimableInTransaction(_t: MigrationDb, projectId: string, limit?: number) {
+        return (options.claimables ?? ((p: string) => (p === "project-1" ? [claimable("op-1")] : [])))(projectId).map((item) => ({ ...item, ...(limit === undefined ? {} : {}) }));
+      },
+      async inspect(projectId: string, operationId: string) {
+        calls.inspected.push(`${projectId}/${operationId}`);
+        return options.inspect === undefined ? operation() : options.inspect;
+      },
+      async readConsentInTransaction(transaction: MigrationDb, requester: unknown, subject: unknown) {
+        calls.consents.push([transaction, requester, subject]);
+        if (typeof options.consent === "function") return options.consent();
+        return options.consent ?? (APPROVAL as unknown as FactoryReleaseConsentResult);
+      },
+      async claim(requester: unknown, projectId: string, operationId: string, granted: unknown) {
+        calls.claims.push([requester, projectId, operationId, granted]);
+        return (options.claim ?? (() => ({ operationId, destination: { provider: "s3" } })))();
+      },
+      async dispatch(claim: unknown, chosen: unknown) { calls.dispatches.push([claim, chosen]); return {} as never; },
+    };
+    return { releases: releases as never, calls };
+  }
+
+  /** The run lifecycle, which answers the one principal a claim is made as. */
+  const runs = (initiator: FactoryPrincipal = INITIATOR) => ({
+    async readExecutionPlanInTransaction(transaction: MigrationDb, key: { projectId: string; runId: string }) {
+      plans.push([transaction, key]);
+      return { fence: {}, compiled: {}, initiator } as never;
+    },
+  }) as never;
+  let plans: unknown[][] = [];
+  beforeEach(() => { plans = []; });
+
+  test("the consent it claims over is the one the reader returned, for the run's own initiator", async () => {
     const provider = { name: "s3" } as unknown as FactoryReleaseProvider;
-    const dispatched: unknown[] = [];
-    const driver = factoryReleaseOutcomeDriver(database(), {
-      async listClaimableInTransaction(_t: MigrationDb, projectId: string) { return projectId === "project-1" ? [claimable("op-1")] : []; },
-      async claim() { return { operationId: "op-1", destination: { provider: "s3" } } as never; },
-      async dispatch(claim: unknown, chosen: unknown) { dispatched.push([claim, chosen]); return {} as never; },
-    } as never, async () => ["project-1"], factoryReleaseProviderResolver({ s3: provider }), REQUESTER, consent, () => {});
+    const { releases, calls } = store({});
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: provider }), () => {});
 
     expect(await driver.step(SIGNAL)).toBe(true);
-    expect((dispatched[0] as unknown[])[1]).toBe(provider);
+    // Exactly one claim, and its consent is the reader's own value rather than
+    // anything this composition chose.
+    expect(calls.claims).toHaveLength(1);
+    expect(calls.claims[0]![3]).toBe(APPROVAL.consent);
+    expect(calls.claims[0]![0]).toBe(INITIATOR);
+    expect(calls.claims[0]!.slice(1, 3)).toEqual(["project-1", "op-1"]);
+    // One outcome, dispatched to the provider the persisted destination names.
+    expect(calls.dispatches).toHaveLength(1);
+    expect(calls.dispatches[0]![1]).toBe(provider);
+    // The consent read is asked about the operation that was inspected, under
+    // the initiator the lifecycle returned.
+    expect(calls.inspected).toEqual(["project-1/op-1"]);
+    expect(calls.consents[0]![1]).toBe(INITIATOR);
+  });
+
+  test("the initiator and the consent are read in ONE transaction", async () => {
+    // Two workers that read consent in different transactions can disagree
+    // about why a claim failed, which is the isolation W07b's answer fixes.
+    const { releases, calls } = store({});
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), () => {});
+
+    expect(await driver.step(SIGNAL)).toBe(true);
+    expect(plans).toHaveLength(1);
+    expect(calls.consents).toHaveLength(1);
+    expect(calls.consents[0]![0]).toBe(plans[0]![0]);
+  });
+
+  test("no consent leaves the operation untouched, and is named rather than failed", async () => {
+    const reported: [string, unknown][] = [];
+    const { releases, calls } = store({ consent: { kind: "none", reason: "no_consent" } });
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role, error) => { reported.push([role, error]); });
+
+    // Not progress, so the worker idles instead of spinning on a page it
+    // cannot move.
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(calls.claims).toEqual([]);
+    expect(calls.dispatches).toEqual([]);
+    expect(reported.map(([role]) => role)).toEqual(["release-outcome:transient:op-1"]);
+    expect(reported[0]![1]).toBeInstanceOf(FactoryReleaseConsentAbsentError);
+    expect((reported[0]![1] as FactoryReleaseConsentAbsentError).reason).toBe("no_consent");
+  });
+
+  test("an ambiguous policy is untouched, named, and needs a person", async () => {
+    const reported: [string, unknown][] = [];
+    const { releases, calls } = store({ consent: { kind: "none", reason: "policy_ambiguous" } });
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role, error) => { reported.push([role, error]); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(calls.claims).toEqual([]);
+    // Two human-created authorities over one operation clear only when an
+    // operator revokes one, so this is the loud column.
+    expect(reported.map(([role]) => role)).toEqual(["release-outcome:fault:op-1"]);
+    expect((reported[0]![1] as FactoryReleaseConsentAbsentError).reason).toBe("policy_ambiguous");
+  });
+
+  test("every other absence is a not-yet, and a corrupt pairing is not", () => {
+    for (const reason of ["no_consent", "approval_generation_stale", "approval_not_approved", "approval_expired", "policy_expired", "policy_revoked", "policy_exhausted", "operation_absent"] as const) {
+      expect(factoryReleaseOutcomeDisposition(new FactoryReleaseConsentAbsentError(reason))).toBe("transient");
+    }
+    for (const reason of FACTORY_RELEASE_CONSENT_FAULT_REASONS) {
+      expect(factoryReleaseOutcomeDisposition(new FactoryReleaseConsentAbsentError(reason))).toBe("fault");
+    }
+    // A claim the other worker won, and a run that ended, are contention.
+    for (const code of FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES) expect(factoryReleaseOutcomeDisposition(failure(code))).toBe("transient");
+    expect(factoryReleaseOutcomeDisposition(failure("factory_release_corrupt"))).toBe("fault");
+    expect(factoryReleaseOutcomeDisposition(new Error("unclassified"))).toBe("fault");
+  });
+
+  test("an operation that left the work list between the scan and the claim is not claimed", async () => {
+    const reported: string[] = [];
+    const { releases, calls } = store({ inspect: null });
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role) => { reported.push(role); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(calls.consents).toEqual([]);
+    expect(calls.claims).toEqual([]);
+    expect(reported).toEqual(["release-outcome:transient:op-1"]);
+  });
+
+  test("two drivers over the same claimable operation leave exactly one winner", async () => {
+    // `listClaimableInTransaction` takes no row lock, so both list it. The
+    // exclusion is the claim's own, and the loser must read as contention.
+    let claimed = 0;
+    const reported: string[] = [];
+    const build = () => {
+      const { releases, calls } = store({ claim: () => { if (claimed++ > 0) throw failure("factory_release_claim_lost"); return { operationId: "op-1", destination: { provider: "s3" } }; } });
+      return { driver: factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role) => { reported.push(role); }), calls };
+    };
+    const first = build();
+    const second = build();
+    const outcomes = await Promise.all([first.driver.step(SIGNAL), second.driver.step(SIGNAL)]);
+
+    expect(outcomes.filter(Boolean)).toHaveLength(1);
+    expect(first.calls.dispatches.length + second.calls.dispatches.length).toBe(1);
+    expect(reported).toEqual(["release-outcome:transient:op-1"]);
+  });
+
+  test("a failure between the read and the claim leaves nothing half done", async () => {
+    // The read half mutates nothing, so the only mutating step is the claim's
+    // own transaction: a claim that raises leaves no dispatch and no retry
+    // inside the same pass.
+    const reported: string[] = [];
+    const { releases, calls } = store({ claim: () => { throw failure("factory_release_stale"); } });
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role) => { reported.push(role); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(calls.claims).toHaveLength(1);
+    expect(calls.dispatches).toEqual([]);
+    expect(reported).toEqual(["release-outcome:fault:op-1"]);
+  });
+
+  test("an operation from another tenant is refused by the reader and never claimed", async () => {
+    // The scope check is W07's and runs before any row is read; what this
+    // driver owes is that the refusal reaches the report and nothing is
+    // claimed over it.
+    const reported: [string, unknown][] = [];
+    const scoped = new FactoryReleases(database(), "tenant-01", { tenantId: "tenant-01" } as never, { tenantId: "tenant-01" } as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+    const { releases, calls } = store({ inspect: operation("tenant-99"), consent: () => { throw new FactoryReleaseError("factory_release_scope"); } });
+    expect(scoped.tenantId).toBe("tenant-01");
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role, error) => { reported.push([role, error]); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(calls.claims).toEqual([]);
+    expect(reported.map(([role]) => role)).toEqual(["release-outcome:fault:op-1"]);
+    expect((reported[0]![1] as { code?: string }).code).toBe("factory_release_scope");
   });
 
   test("stops at the first project with work, so one busy project cannot starve the rest", async () => {
     const scanned: string[] = [];
-    const driver = factoryReleaseOutcomeDriver(database(), {
-      async listClaimableInTransaction(_t: MigrationDb, projectId: string) { scanned.push(projectId); return projectId === "project-2" ? [claimable("op-2", projectId)] : []; },
-      async claim() { return { operationId: "op-2", destination: { provider: "s3" } } as never; },
-      async dispatch() { return {} as never; },
-    } as never, async () => ["project-1", "project-2", "project-3"], factoryReleaseProviderResolver({ s3: {} as never }), REQUESTER, consent, () => {});
+    const { releases } = store({ claimables: (projectId) => { scanned.push(projectId); return projectId === "project-2" ? [claimable("op-1", projectId)] : []; } });
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1", "project-2", "project-3"], factoryReleaseProviderResolver({ s3: {} as never }), () => {});
 
     expect(await driver.step(SIGNAL)).toBe(true);
     expect(scanned).toEqual(["project-1", "project-2"]);
   });
 
   test("a tenant with nothing claimable is no work, and a failure is reported by operation", async () => {
-    const quiet = factoryReleaseOutcomeDriver(database(), {
-      async listClaimableInTransaction() { return []; },
-      async claim() { throw new Error("nothing to claim"); },
-      async dispatch() { return {} as never; },
-    } as never, async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), REQUESTER, consent, () => {});
+    const { releases: quietStore } = store({ claimables: () => [] });
+    const quiet = factoryReleaseOutcomeDriver(database(), quietStore, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), () => {});
     expect(await quiet.step(SIGNAL)).toBe(false);
 
     const reported: string[] = [];
-    const failing = factoryReleaseOutcomeDriver(database(), {
-      async listClaimableInTransaction(_t: MigrationDb, _p: string, limit?: number) { expect(limit).toBe(3); return [claimable("op-bad")]; },
+    const limits: (number | undefined)[] = [];
+    const bad = {
+      async listClaimableInTransaction(_t: MigrationDb, _p: string, limit?: number) { limits.push(limit); return [claimable("op-bad")]; },
+      async inspect() { return operation(); },
+      async readConsentInTransaction() { return APPROVAL as unknown as FactoryReleaseConsentResult; },
       async claim() { throw failure("factory_release_conflict"); },
       async dispatch() { return {} as never; },
-    } as never, async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), REQUESTER, consent, (role) => { reported.push(role); }, 3);
+    } as never;
+    const failing = factoryReleaseOutcomeDriver(database(), bad, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role) => { reported.push(role); }, 3);
 
     expect(await failing.step(SIGNAL)).toBe(false);
+    expect(limits).toEqual([3]);
     expect(reported).toEqual(["release-outcome:fault:op-bad"]);
   });
 });

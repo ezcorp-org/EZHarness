@@ -100,18 +100,26 @@ describe("registerFactoryRuntimeWorkers", () => {
   });
 
   test("distinguishes the two reasons a release outcome can be held", () => {
-    const withoutSeams = registerFactoryRuntimeWorkers(collaborators());
-    expect(withoutSeams.held.find((held) => held.role === "release-outcome")!.reason).toContain("sender fence");
+    // No store, and no collaborators to build one from: the reason points at
+    // the role that already reported the exact cause rather than guessing it.
+    const withoutStore = registerFactoryRuntimeWorkers(collaborators());
+    const missingStore = withoutStore.held.find((held) => held.role === "release-outcome")!.reason;
+    expect(missingStore).toContain("release store itself");
+    expect(missingStore).toContain("release-store role");
 
-    // Once every release collaborator is present the reason must name the one
-    // thing still missing, not repeat the collaborator list. The resolver this
-    // reason used to name is built and covered (`factoryReleaseProviderResolver`),
-    // the claimable scan landed, and the composition enumerates a tenant's
-    // projects — so the remaining gap moved to the consent `claim` requires.
-    const withSeams = registerFactoryRuntimeWorkers(collaborators({ seams: releaseSeams() }));
-    const reason = withSeams.held.find((held) => held.role === "release-outcome")!.reason;
-    expect(reason).toContain("approved approval");
-    expect(reason).toContain("automatic policy");
+    // Once the store is there the reason must name the one thing still
+    // missing, not repeat the collaborator list. The consent is no longer it:
+    // W07b's `readConsentInTransaction` landed and the driver reads it. What
+    // no production code builds is a provider to publish through.
+    const reasons = [
+      registerFactoryRuntimeWorkers(collaborators({ seams: releaseSeams() })),
+      registerFactoryRuntimeWorkers(collaborators({ notificationInbox: { deliverNextAcrossProjects: async () => false } })),
+    ].map((set) => set.held.find((held) => held.role === "release-outcome")!.reason);
+    for (const reason of reasons) {
+      expect(reason).toContain("FactoryReleaseProvider");
+      expect(reason).toContain("no release destination");
+      expect(reason).not.toContain("consent");
+    }
   });
 
   test("maps every non-idle compute status to progress and only idle to no work", async () => {

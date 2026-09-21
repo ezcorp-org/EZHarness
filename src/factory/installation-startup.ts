@@ -50,7 +50,8 @@ import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
 import { factoryInstallationStores, type FactoryInstallationStores } from "./installation-stores";
 import { composeFactoryAttemptDispatch, factoryPackageReadiness, type FactoryHostPhysicalStopper } from "./attempt-composition";
-import { composeFactorySettlement } from "./dispatch-composition";
+import { composeFactorySettlement, factoryReleaseOutcomeDriver } from "./dispatch-composition";
+import type { FactoryReleaseProviderResolver } from "./release-application";
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
 import type { FactoryStorageProbeTarget } from "./service-probes";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
@@ -119,6 +120,22 @@ export interface FactoryInstallationStartOptions {
   readonly blobs?: BlobStore;
   /** Overridden in tests so provider readiness is not a real credential lookup. */
   readonly providerReadiness?: Parameters<typeof factoryProviderReadiness>[1];
+  /**
+   * Where a release publishes, when this deployment holds one.
+   *
+   * The LAST collaborator `release-outcome` needs, and the one this process
+   * cannot build. A `FactoryReleaseProvider` binds a destination account and
+   * its credentials — `S3FactoryReleaseProvider` refuses any account but its
+   * own, and `FactoryGitHubReleaseProvider` takes a repository and a token
+   * reader — and the startup document names no release destination at all.
+   * Choosing one would publish to a place nobody declared.
+   *
+   * This is the collaborator, not the finished role: supplying it composes the
+   * role here, over the same stores and the same run lifecycle every other
+   * role uses. `seams.releaseProviders` is the other half of the pair, and
+   * REPLACES the composition for a host that drives the role itself.
+   */
+  readonly releaseProviders?: FactoryReleaseProviderResolver;
 }
 
 /**
@@ -445,7 +462,7 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
   const provider = await composeFactoryProviderBroker(config.modelProvider, options.providerReadiness ?? {});
   if (provider !== undefined && provider.broker === undefined) host.report("model-provider", new Error(`factory_provider_not_ready: ${JSON.stringify(provider.readiness.failures)}`));
   const composed = supplied.workers === undefined
-    ? await installationCollaborators(config, host, blobs, transitions)
+    ? await installationCollaborators(config, host, blobs, transitions, options.releaseProviders)
     : undefined;
   const storage = supplied.storage ?? factoryStorageProbeTarget(blobs);
   const gateway = supplied.gateway ?? factoryGatewayProbeTarget(config);
@@ -501,6 +518,7 @@ async function installationCollaborators(
   host: FactoryInstallationHost,
   blobs: BlobStore,
   transitions: FactoryTransitionArtifacts,
+  releaseProviders?: FactoryReleaseProviderResolver,
 ): Promise<{
   readonly workers: FactoryRuntimeDependencies["workers"];
   readonly seams: FactoryRuntimeDependencies["seams"];
@@ -562,11 +580,22 @@ async function installationCollaborators(
   const attempts = await composeAttemptDispatch(config, host, blobs, stores, application.grants, pool, stopper);
   const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
 
-  // The release store, and the one role it unblocks here. `release-outcome`
-  // needs a second half this process still cannot build — see its held reason.
+  // The release store, and the two roles it feeds. `notification-inbox-delivery`
+  // composes from the store alone. `release-outcome` composes from the store,
+  // this tenant's projects and the run lifecycle — and from a destination this
+  // process cannot name, so it holds unless the deployment supplies one.
   const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
+  const releaseOutcome = release === undefined || releaseProviders === undefined ? undefined
+    : factoryReleaseOutcomeDriver(
+      host.database,
+      release.releases,
+      application.runs,
+      () => factoryTenantProjectIds(host.database, factoryTenantProjects(config.tenantId)),
+      releaseProviders,
+      host.report,
+    );
 
   const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops);
 
@@ -579,6 +608,7 @@ async function installationCollaborators(
     },
     seams: {
       childSettlement: factoryChildSettlementDriver(host.database, stores.children, service, host.report),
+      ...(releaseOutcome === undefined ? {} : { releaseProviders: releaseOutcome }),
       ...(settlement === undefined ? {} : {
         physicalStopper: settlement.stopSettlement,
         usageReconciler: settlement.usageReconciliation,

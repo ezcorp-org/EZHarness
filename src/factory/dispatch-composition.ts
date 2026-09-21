@@ -21,9 +21,9 @@ import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryStopHostKey, type FactoryStoppableAttempt } from "./task-stops";
 import type { FactoryBudgets, FactoryUncertainHold } from "./budgets";
 import { FactoryUsageReconciliation } from "./usage-settlement";
-import type { FactoryClaimableRelease, FactoryReleaseOperation, FactoryReleaseProvider, FactoryReleases } from "./releases";
+import type { FactoryClaimableRelease, FactoryReleaseConsentAbsence, FactoryReleaseOperation, FactoryReleaseProvider, FactoryReleases } from "./releases";
 import type { FactoryReleaseProviderResolver } from "./release-application";
-import type { FactoryPrincipal } from "./grants";
+import type { FactoryRunLifecycle } from "./run-lifecycle";
 import { createFactoryHostStopClient } from "./host-stop-client";
 import { privateDirectory, readPrivateBounded } from "./private-files";
 import type { PoolAdmissionClient } from "./pool/client";
@@ -184,20 +184,100 @@ export function factoryReleaseProviderResolver(
 }
 
 /**
+ * One claimable operation cannot be claimed on this pass, and exactly why.
+ *
+ * W07b's reader answers a typed absence rather than raising, and an absence is
+ * an ORDINARY state: nobody has approved this release yet, or the human
+ * authority that covered it has lapsed. So no claim is attempted, the
+ * operation is left exactly as it was, and the reason is reported by name.
+ *
+ * It is carried as a thrown value because that is what the page driver reads:
+ * a `settle` that returns counts as progress, and counting a release nobody
+ * consented to as work done is how a role spins on a page it can never move.
+ * Raising puts it in the deferred column with its reason attached, which is
+ * the same shape `FactoryUnresolvedHoldError` and `FactoryUncertainStopError`
+ * already use in this file. It never escapes the driver.
+ */
+export type FactoryReleaseUnclaimableReason = FactoryReleaseConsentAbsence | "operation_absent";
+
+export class FactoryReleaseConsentAbsentError extends Error {
+  readonly code = "factory_release_consent_absent";
+  constructor(readonly reason: FactoryReleaseUnclaimableReason) {
+    super(`factory_release_consent_absent: ${reason}`);
+    this.name = "FactoryReleaseConsentAbsentError";
+  }
+}
+
+/**
+ * Two absences need a person; every other one clears itself.
+ *
+ * `policy_ambiguous` is two human-created authorities matching one operation,
+ * which only an operator can resolve by revoking one — W07b refuses to pick
+ * and so does this. `approval_foreign_decision` is an approval row paired with
+ * a decision that is not its operation's, which W07b records as a corrupt
+ * pairing rather than an ordinary state. The rest — nothing approved yet, an
+ * expired approval, a revoked or exhausted policy — are the authority simply
+ * not being there, and a later pass finds it or does not.
+ */
+export const FACTORY_RELEASE_CONSENT_FAULT_REASONS: readonly FactoryReleaseUnclaimableReason[] =
+  Object.freeze(["policy_ambiguous", "approval_foreign_decision"]);
+
+/**
+ * A claim the other worker won, and a run that ended, are contention rather
+ * than faults. `listClaimableInTransaction` takes no row lock, so two workers
+ * routinely list the same operation and exactly one of them commits it.
+ */
+export const FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES: readonly string[] =
+  Object.freeze(["factory_release_claim_lost", "factory_release_not_claimable", "factory_run_stopped"]);
+
+export function factoryReleaseOutcomeDisposition(error: unknown): FactoryItemDisposition {
+  if (error instanceof FactoryReleaseConsentAbsentError) {
+    return FACTORY_RELEASE_CONSENT_FAULT_REASONS.includes(error.reason) ? "fault" : "transient";
+  }
+  const code = (error as { code?: unknown } | null | undefined)?.code;
+  return typeof code === "string" && FACTORY_RELEASE_OUTCOME_TRANSIENT_CODES.includes(code) ? "transient" : "fault";
+}
+
+/**
  * Claim and dispatch the next claimable release, across the tenant's projects.
  *
  * `listClaimableInTransaction` is per project, so the installation-wide shape is
  * that scan plus the project enumerator. One pass stops at the first project
  * that had work, which keeps a pass bounded and stops a busy project starving
  * the rest for the length of its backlog.
+ *
+ * **The consent is READ, never chosen.** W07b's
+ * `readConsentInTransaction` returns the one consent that already exists —
+ * the approved approval, or the automatic policy — or a typed reason there is
+ * none. This driver takes whatever it says and nothing else; an earlier
+ * revision took the consent as an injected function, which is a hole a caller
+ * could fill with a release nobody approved.
+ *
+ * **The requester is the run's own initiator, re-derived live.** A background
+ * role holds no authority of its own, and inventing an installation principal
+ * would be an authority nobody granted. `readExecutionPlanInTransaction` is
+ * the platform's existing answer for exactly this — "private command admission
+ * uses the exact published plan and the live initiator" — and it is the same
+ * principal `FactoryProtectedCommandEffects.requestRelease` prepared the
+ * operation under. It confers nothing either: `claim` re-authorizes that
+ * principal for `factory.release` inside its own transaction, and a policy is
+ * keyed by the principal it was created for.
+ *
+ * **What is in one transaction, and what cannot be.** The initiator and the
+ * consent are read in ONE transaction, which is what stops two workers reading
+ * different consents and then disagreeing about why a claim failed (W07b's
+ * recorded answer). `claim` opens its own transaction — it is W07's method and
+ * takes no transaction argument — and re-derives acceptance, trust, the
+ * destination reservation and the consent itself there. So the read half
+ * mutates nothing and the mutating half is exactly one transaction: a failure
+ * anywhere between them leaves the operation untouched rather than half done.
  */
 export function factoryReleaseOutcomeDriver(
   database: TransactionalDb,
-  releases: Pick<FactoryReleases, "listClaimableInTransaction" | "claim" | "dispatch">,
+  releases: Pick<FactoryReleases, "listClaimableInTransaction" | "inspect" | "readConsentInTransaction" | "claim" | "dispatch">,
+  runs: Pick<FactoryRunLifecycle, "readExecutionPlanInTransaction">,
   projectIds: () => Promise<readonly string[]>,
   providers: FactoryReleaseProviderResolver,
-  requester: FactoryPrincipal,
-  consent: (claimable: FactoryClaimableRelease) => Parameters<FactoryReleases["claim"]>[3],
   report: (role: string, error: unknown) => void,
   limit?: number,
 ): FactoryRoleDriver {
@@ -211,12 +291,24 @@ export function factoryReleaseOutcomeDriver(
       return [];
     },
     settle: async (claimable, _signal) => {
-      const claim = await releases.claim(requester, claimable.projectId, claimable.operationId, consent(claimable));
+      // The operation the consent is read against. `readConsentInTransaction`
+      // re-validates every byte of it and `claim` re-reads it under a lock, so
+      // an operation that moved between the scan and here costs a refusal by
+      // name rather than a wrong claim.
+      const operation = await releases.inspect(claimable.projectId, claimable.operationId);
+      if (operation === null) throw new FactoryReleaseConsentAbsentError("operation_absent");
+      const { requester, consent } = await database.transaction(async (transaction: MigrationDb) => {
+        const { initiator } = await runs.readExecutionPlanInTransaction(transaction, { projectId: claimable.projectId, runId: claimable.runId });
+        return { requester: initiator, consent: await releases.readConsentInTransaction(transaction, initiator, operation) };
+      });
+      if (consent.kind === "none") throw new FactoryReleaseConsentAbsentError(consent.reason);
+      const claim = await releases.claim(requester, claimable.projectId, claimable.operationId, consent.consent);
       // A claim IS the operation (`FactoryReleaseClaim extends
       // FactoryReleaseOperation`), so the destination the resolver reads is the
       // one already persisted against this release.
       await releases.dispatch(claim, await providers.resolve(claim));
     },
+    classify: factoryReleaseOutcomeDisposition,
     report: (claimable, error, disposition) => { report(`release-outcome:${disposition}:${claimable.operationId}`, error); },
   });
 }

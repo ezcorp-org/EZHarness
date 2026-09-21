@@ -220,23 +220,37 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
 
   seamRole("child-settlement", "childSettlement",
     "the installation composes this from W06's scan and settle; it holds only where neither is reachable");
-  // `release-outcome` is the one role whose last collaborator is still absent,
-  // and the reason moved again. The resolver this package used to wait for is
-  // built (`factoryReleaseProviderResolver`), the claimable scan and the project
-  // enumerator both landed, and `factoryReleaseOutcomeDriver` is written and
-  // covered. What no production code produces is the CONSENT `FactoryReleases.claim`
-  // requires: an approved `factory_release_approvals` row or an automatic
-  // `factory_release_policies` row, selected for one claimable operation.
-  // `grep -n "factory_release_approvals\|factory_release_policies" src/factory/*.ts`
-  // finds only writers and by-id consumers — `assurance.ts` consumes an approval
-  // by id, `releases.ts` consumes a policy by id, and the only reader that
-  // returns an approval id is `listDeliveredNotifications`, an actor-scoped
-  // console read that needs grants a background role does not hold. Supplying a
-  // consent this composition chose would authorize a release nobody approved,
-  // which is the one substitute that cannot be walked back.
-  seamRole("release-outcome", "releaseProviders", factoryReleaseSeamsPresent(collaborators.seams)
-    ? "no production reader maps a claimable operation to its approved approval or its automatic policy, and claim needs one (W05 owns factory_release_approvals, W07 owns the claimable scan)"
-    : "a release outcome needs the provider resolver, the destination reservation, and the sender fence");
+  // `release-outcome` is the one role still held, and the reason moved again —
+  // forward, to the LAST collaborator.
+  //
+  // The consent is no longer it. W07b landed
+  // `FactoryReleases.readConsentInTransaction`, the driver reads it, and the
+  // requester is the run's own live initiator rather than an invented
+  // background principal. The claimable scan, the project enumerator and the
+  // provider resolver function were already built.
+  //
+  // What no production code produces is a `FactoryReleaseProvider` — the thing
+  // that actually publishes. Every implementation binds a destination and its
+  // credentials: `S3FactoryReleaseProvider` and
+  // `S3FactoryManifestReleaseProvider` refuse any account but their own,
+  // `FactoryGitHubReleaseProvider` takes a repository and a token reader. The
+  // startup document names no release destination, so
+  // `factoryReleaseProviderResolver` has nothing to resolve, and picking a
+  // destination here would publish to a place nobody declared. A deployment
+  // that holds one supplies it as `releaseProviders`, and this process then
+  // composes the role itself.
+  //
+  // Which of the two reasons applies is decided by whether the release STORE
+  // composed, and the inbox driver is the honest witness of that: the
+  // installation builds both from the same `FactoryReleases`, so an inbox
+  // means the store is there. `factoryReleaseSeamsPresent` answers the other
+  // half — a caller that supplies the store's five collaborators rather than
+  // letting this process compose it. A store that did not compose reports its
+  // exact cause under the `release-store` role already, and repeating a guess
+  // at it here would be a second, worse answer.
+  seamRole("release-outcome", "releaseProviders", inbox !== undefined || factoryReleaseSeamsPresent(collaborators.seams)
+    ? "no production code builds a FactoryReleaseProvider and the startup document names no release destination, so there is nowhere to publish (W07 owns the adapters; the destination is a per-installation declaration the interface freeze does not name)"
+    : "a release outcome needs the release store itself, which did not compose; the composition reports the exact cause under the release-store role");
   seamRole("usage-reconciliation", "usageReconciler",
     "the reconciler composes with the stop settlement it shares a settlement authority with; both need the pool, the hostLaunch endpoint, and the configured hostStopKeys");
   seamRole("notification-send", "notificationSender",

@@ -8,6 +8,8 @@ web_vitest_coverage_args() {
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/trust/+server.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/control/+server.ts"
     "--coverage.include=src/routes/api/factories/_shared.ts"
+    "--coverage.include=src/lib/server/factory-boot.ts"
+    "--coverage.include=src/lib/server/context.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/definitions/[[]factoryId]/versions/+server.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/grants/[[]principalKind]/[[]principalId]/[[]action]/+server.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/contracts/[[]contractId]/+server.ts"
