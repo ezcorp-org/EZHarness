@@ -10,6 +10,103 @@ the two host services the supervisor had nowhere to live in, the private worker
 API the product had never bound, and the proof that a run submitted over public
 HTTP reaches a real container.
 
+## Round 3 — where a release publishes, declared
+
+The coordinator ruled the startup document is W09's own surface and that the
+release destination belongs in it. It does now, and `release-outcome` composes
+from it.
+
+### The declaration
+
+`src/factory/startup-config.ts` gains a `release` section, validated in the
+idiom `runnerProfiles` and `hostStopKeys` already use: one shape function per
+entry, because their leaves are data rather than field names.
+
+```jsonc
+"release": {
+  "destinations": [
+    { "name": "ordinary", "kind": "s3", "endpoint": "https://…", "bucket": "…",
+      "account": "tenant-01", "prefix": "releases",
+      "credentialsPath": "/run/secrets/publish.json" },
+    { "name": "upstream", "kind": "github",
+      "repository": "ezcorp-org/factory-platform-publication-tests",
+      "tokenPath": "/run/secrets/github.token" }
+  ],
+  "profiles": [
+    { "adapter": { "package": "…", "manifestName": "…", "version": "…",
+                   "digest": "sha256:…", "export": "…" },
+      "action": "factory.release.publish", "destination": "ordinary",
+      "estimatedSpendMicros": 1000 }
+  ]
+}
+```
+
+**Every credential is a path, and no value appears in any refusal.** Each one is
+read through `readPrivateBounded`, which refuses a file that is missing, not a
+regular file, not owned by this process, or readable by anyone else. The error
+names the destination and what is wrong with the FILE. A test asserts the access
+key and the secret key never appear in the message.
+
+**Five things are refused at boot that would otherwise refuse at the first
+release**, each by name: either half of the section without the other; a
+malformed destination by index and by kind (an S3 entry carrying a `tokenPath`,
+a GitHub entry carrying a `bucket`); a destination name declared twice, which
+would make a profile depend on declaration order; an adapter declared twice,
+which `FactoryProtectedCommandEffects` refuses at construction so the document
+would compose nothing rather than pick one; and a profile naming an undeclared
+destination, reported as `release.profiles[0].destination` rather than as a
+broken destination.
+
+### The composition
+
+`src/factory/release-declaration.ts` builds both halves.
+
+**A profile names where it publishes and nothing about the payload.** `build`
+is the identity on the request: it IS the accepted candidate the decision
+sealed, so a profile can never publish bytes the acceptance never sealed. What
+it adds is the destination and the declared cost. The definition's release node
+supplies the object and may pin an `expectedVersion`; a node naming a field the
+deployment owns, or restating a provider or account that disagrees with the
+declaration, is refused rather than silently overridden — an author who moved a
+release elsewhere must not publish into the deployment's own account.
+
+**A GitHub provider is built per operation.** `FactoryGitHubReleaseProvider`
+binds a project for the shared transport's audit and takes an `authorize` that
+runs immediately before every network call. Bound to the operation, that recheck
+re-reads it and refuses unless it is still `executing` at the generation the
+claim took and under the same sender token, so a claim this worker has lost
+cannot send and a settled release cannot be re-sent. `readToken` re-reads the
+token file per call, so rotating the file rotates what the next release sends
+with nothing restarted; an emptied file is an ABSENT credential rather than an
+empty one, which is what the transport's `string | null` distinguishes.
+`factoryGitHubReleaseOptions` is exported so both closures are tested on public
+surface instead of through the provider's private options.
+
+**S3 publishers are built once**, over `S3FactoryManifestReleaseProvider`,
+sharing the scoped reader and the publication provenance the archive writer
+already holds — a second reader would read members under another scope.
+
+### The one ruling that could not be implemented as written
+
+`FactoryReleases.claim` opens its own transaction and takes none, and
+`readInTransaction` is private, so a literal single-transaction read-and-claim
+is not expressible against W07's surface. The coordinator accepted the two
+transactions as written, because `claim` re-derives the consent and the
+destination inside its own transaction. The test that ruling asked for is
+added: a consent revoked between the read and the claim fails the claim with a
+typed error, exactly one claim is attempted over exactly the consent that was
+read, nothing is dispatched, and the refusal reaches the report.
+**`claimInTransaction` on W07's surface is a possible follow-up, not a
+requirement.**
+
+### What `S3FactoryReleaseProvider` would need
+
+The declaration builds the manifest publisher only. Both publishers register
+under the provider string `s3`, and a resolver keyed by
+`operation.destination.provider` can serve one of them. If a deployment needs
+the single-object byte publisher, the declaration needs a discriminator. The
+design did not need one here, so none was invented. **Owner to decide: W08.**
+
 ## Round 2 — the consent reader, and the coverage legs that were never run
 
 Two things changed after the first round's gates were stamped.
@@ -48,7 +145,7 @@ that moved again and is proved below rather than asserted.
 | `attempt-dispatch` | **running** | composed over W01b's driver, the W09 preflight, and `FactoryRemoteAttemptRuntime` through the host launch transport |
 | `stop-settlement` | **running** | `FactoryTaskStops` over the host stop transport, the configured host public keys, and `PoolAdmissionClient.confirmStopped` |
 | `usage-reconciliation` | **running** | the page driver over the uncertain-hold scan, settling only on `resolve` → `resolved` |
-| `release-outcome` | held | composed and tested end to end; it holds because no production code builds a `FactoryReleaseProvider` and the startup document names no release destination, so there is nowhere to publish |
+| `release-outcome` | **runs when a destination is declared** | composed end to end from `config.release`: the consent reader, the run's live initiator, the declared providers and the declared profile set. It holds only on an installation that declares no destination, and the reason then names the field to fill in |
 
 ### The store set, and why it is one construction
 
@@ -442,12 +539,15 @@ transport status.
 
 ## What this package did NOT deliver, and what each one needs
 
-**One thing remains, and it is one declaration rather than three.** The
-`release-outcome` role, the release provider resolver, and the release command
-profile all wait on the same missing fact: where a release publishes. Round 1's
-other two entries are closed — the consent reader landed with W07b and is
-consumed here, and W13's legacy-engine adapter landed with the `integ/w00`
-merge. The third entry below is kept as the record of that.
+**Nothing in this section is still missing.** Round 1 held three things: the
+consent reader (landed with W07b, consumed here), W13's legacy-engine adapter
+(landed with the `integ/w00` merge), and the release destination (declared in
+Round 3, composed, and the role runs over it). The sections below are kept as
+the record of how each one moved, because the reasons changed twice and a gate
+file that silently rewrites its own history teaches nothing.
+
+What remains is PROOF, not code: the publication has not been run end to end
+against a live store. See "PENDING on the shared stores".
 
 ### `release-outcome`: the consent is delivered, the destination is not
 
@@ -607,18 +707,21 @@ daemon's own reader rather than reading the environment variable a second way.
 
 ## PENDING on the shared stores, with the exact commands
 
-Every shared store this package's heavy producers need is down, and repairing
-one is the coordinator's. Measured in this worktree at `214d7251e`, receipt
+The stores were down for Rounds 2 and most of 3, and came back during Round 3.
+Measured in this worktree, receipt
 `/tmp/factory-platform-evidence/w09b/receipts/shared-store-state.json`:
 
-| Store | State |
-| --- | --- |
-| PostgreSQL proof database | `factory-platform-proof-postgres` is `Exited (0)`, publishes no port |
-| S3 (SeaweedFS) | no container exists, not even an exited record |
-| S3 secrets directory | `/run/user/1001/ezcorp-factory-storage.8yWJyCIQ` does not exist, so **the path in `common.md` is stale** |
+| Store | At `214d7251e` | At `edd04b1e3` |
+| --- | --- | --- |
+| PostgreSQL proof database | `Exited (0)`, no published port | **Up**, published on `127.0.0.1:46343` |
+| S3 (SeaweedFS) | no container, not even an exited record | endpoints `18333` and `18334` answering; still NO container, so it runs as a host process |
+| S3 secrets directory | `…8yWJyCIQ` gone | **`/run/user/1001/ezcorp-factory-storage.0yXaRPtQ`** |
 
 Nothing here started, restarted, or reconfigured any of them, and
-`EZCORP_FACTORY_STORAGE_SECRETS_DIR` was not re-pointed at a substitute.
+`EZCORP_FACTORY_STORAGE_SECRETS_DIR` was never re-pointed at a substitute. Five
+of the six `tests/postgres` producers passed as soon as PostgreSQL returned; the
+sixth needed the new secrets directory exported, which Round 2's stale-path fix
+had deliberately left empty rather than wrong.
 
 **The red logs are kept as evidence**, not deleted and not re-run into silence:
 `/tmp/factory-platform-evidence/w09b/logs/store-down-214d7251e/*.store-down.log`
@@ -631,12 +734,31 @@ line the postgres and pool legs would measure is also measured by a PGlite suite
 in the focused pool. What is pending is the refresh of receipts whose earlier
 round ran against live stores.
 
-| Pending | Gate it refreshes | Why it needs a store |
+| Producer | Gate | State at `edd04b1e3` |
 | --- | --- | --- |
-| `tests/postgres/factory-{boot,schema,private-service,migration-restart,tenant-projects,host-launch}.test.ts` | the `postgres-producers` receipt, and real-PostgreSQL schema parity | real PostgreSQL |
-| the `postgres` and `pool` coverage legs | the `legs` block of the G14 receipt, which currently records `1` for both | real PostgreSQL |
-| `rebuild-and-run-three.sh` | G10b and G11 at the final head | PostgreSQL, S3, the pool, the supervisor, Temporal |
-| `negative-control.sh` | G12 at the final head | the same stack |
+| `tests/postgres/factory-{boot,schema,private-service,migration-restart,tenant-projects,host-launch}.test.ts` | the `postgres-producers` receipt and real-PostgreSQL schema parity | **DONE**, 6 files, 29 pass, 0 fail |
+| the `postgres` and `pool` coverage legs | the `legs` block of the G14 receipt | **DONE**, both exit 0 |
+| `rebuild-and-run-three.sh` | G10b and G11 at the final head, and the four-running-roles answer | PENDING |
+| `negative-control.sh` | G12 at the final head | PENDING |
+| the release publication proof | a new gate for Round 3 C | PENDING, and it needs harness work as well as a store — see below |
+
+**The publication proof needs more than a live store.** `rebuild-and-run-three.sh`
+proves G11's real-guest run and creates no release operation. Proving that the
+running role claims and publishes needs a claimable operation made through the
+production path: a release node in the guest definition, and an approval or an
+automatic policy written through W05's production writers. That harness work is
+not done, and it is the one pending item that is not blocked purely on a store.
+
+**The GitHub half is workable on this host**, measured rather than assumed:
+`gh repo view ezcorp-org/factory-platform-publication-tests` answers
+`{"isPrivate":true,…,"viewerPermission":"ADMIN"}`.
+`repro/github-token-file.sh --write` materialises the token under
+`/tmp/factory-platform-evidence/w09b/secrets/github.token` with `umask 077`,
+mode 600, straight from `gh auth token` into the file — never echoed, never in
+argv, never anywhere else. Proved end to end this round: written (41 bytes, mode
+600), searched for with `grep -rlF` across the whole evidence directory with
+zero hits, then deleted. The resume script writes it, exports its path, removes
+it on every exit path including a signal, and ends with that same leak scan.
 
 One command runs all four once the coordinator names the new S3 secrets
 directory and confirms the PostgreSQL port. It refuses by name rather than
@@ -689,10 +811,18 @@ account, with which credentials. The freeze forbids adding the field here. This
 is the single remaining blocker for a fourth running role, and it is one
 decision rather than three.
 
-**3. For the coordinator — every shared store is down, and `common.md`'s S3 path
-is stale.** The PostgreSQL proof database publishes no port, no SeaweedFS
-container exists at all, and the S3 secrets directory `common.md` names is gone.
-Nothing in this worktree touched any of them. The four pending producers and the
-single command that runs them are set out under "PENDING on the shared stores".
-When the stores return, `common.md` needs the new secrets directory written into
-it, or the next worker will follow the same dead path.
+**3. For the coordinator — `common.md` is wrong in two places, measured.**
+The stores came back during Round 3, and the document that tells a worker how to
+reach them did not.
+
+- The S3 secrets directory is now `/run/user/1001/ezcorp-factory-storage.0yXaRPtQ`.
+  `common.md` still names `…8yWJyCIQ`, which no longer exists.
+- `common.md` points at `bun scripts/verify-factory-storage.ts` as the readiness
+  check. Despite its name it RESTARTS the local SeaweedFS as part of its
+  durability check, which is coordinator-only work. I ran it before reading it;
+  it failed immediately because it shells out to `docker` on a podman host, so
+  no store state changed — verified before and after, no SeaweedFS container
+  exists either way and PostgreSQL stayed up. It is removed from this package's
+  resume path and replaced with a read-only TCP probe of ports 18333 and 18334.
+  A worker who is told a store is coordinator-only should not be pointed at a
+  script that restarts one.

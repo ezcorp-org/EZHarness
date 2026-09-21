@@ -2904,14 +2904,13 @@ end-to-end proof that a submitted run reaches a real guest.
       `FactoryReleases.readConsentInTransaction` and claims as the run's own
       live initiator; the injected-consent parameter is gone. A typed absence
       leaves the operation untouched and is named.
-- [ ] `release-outcome` REGISTERS, but still holds on the real startup path.
-      The reason moved forward to the last collaborator: no production code
-      builds a `FactoryReleaseProvider`, and the startup document names no
-      release destination, so `factoryReleaseProviderResolver` has nothing to
-      resolve. Supplying one through `FactoryInstallationStartOptions.releaseProviders`
-      registers and runs the role, which the startup suite proves. W07 owns the
-      adapters; the destination is a per-installation declaration the interface
-      freeze does not name. Grep and full reasoning in the gate file.
+- [x] `release-outcome` composes from the startup document and runs. The
+      coordinator ruled the document is W09's own surface, so it gained a
+      `release` section: named destinations (S3 and GitHub, credentials by path
+      only) and the profiles that point at them. `release-declaration.ts` turns
+      that into the provider resolver and the `FactoryReleaseCommandProfile`
+      set; the startup suite proves the role registers and runs from the
+      document alone, with nothing supplied by the caller. Grep and full reasoning in the gate file.
 - [x] The supervisor process hosts W01b's host launch service and W03's host
       stop service, owns the one `PodmanRunner`, and holds the host key. One
       listener, one runner, one key — no third process.
@@ -2939,15 +2938,16 @@ end-to-end proof that a submitted run reaches a real guest.
 - [x] The full sweep at the final head with a clean tree: typecheck, lint,
       boundaries, gate integrity, schema drift, the focused suites, the Podman
       suites, and both coverage gates.
-- [ ] PENDING on the shared stores, all four of them, with one command to run
-      them: `tests/postgres/factory-*` producers, the `postgres` and `pool`
-      coverage legs, `rebuild-and-run-three.sh` (G10b, G11), and
-      `negative-control.sh` (G12). Every shared store is down — PostgreSQL
-      publishes no port, no SeaweedFS container exists, and the S3 secrets
-      directory `common.md` names is gone. Not repaired here; a shared store is
-      the coordinator's. It did not block G14. Command, refusal behaviour and
-      the kept red logs are under "PENDING on the shared stores" in the gate
-      file.
+- [x] The `tests/postgres/factory-*` producers and the `postgres` and `pool`
+      coverage legs, rerun once the stores came back: 6 files, 29 pass, 0 fail,
+      and all seven coverage legs exit 0 for the first time.
+- [ ] PENDING: `rebuild-and-run-three.sh` (G10b, G11), `negative-control.sh`
+      (G12), and the Round 3 C publication proof. The first two need only the
+      stores. The third also needs harness work nobody has done: a release node
+      in the guest definition and an approval or policy written through W05's
+      production writers, so a claimable operation exists for the running role
+      to publish. Command and detail under "PENDING on the shared stores" in
+      the gate file.
 
 ### W09b review
 
