@@ -1,8 +1,17 @@
 # Gates: W01e guest model broker frame contract
 
-Branch `wp/w01e-guest-broker`, cut from `integ/w00` at `8810d6eae`.
-Two code commits: `75ae5582b` is the leaf, `90ee7f3e3` is the round-2 fixes for the validator's
-REJECT at `1095a8613`. Everything else on the branch is this gate file and the freeze entry.
+Branch `wp/w01e-guest-broker`, cut from `integ/w00` at `8810d6eae`, then merged once with
+`integ/w00` at `332bec1bc` for round 3.
+
+| Commit | What it is |
+| --- | --- |
+| `75ae5582b` | the leaf |
+| `90ee7f3e3` | round-2 fixes for the REJECT at `1095a8613` |
+| `9b12e7eb0` | G5 closed with a real receipt; a readiness failure I reported that did not exist, withdrawn |
+| `2357594be` | the `integ/w00` merge at `332bec1bc` |
+| `3c2c080ea` | round-3 fixes for the ACCEPT-WITH-FIXES at `e54cbfb29`: the C02 bare receipt digest |
+
+Everything else on the branch is this gate file and the freeze entry.
 Evidence: `/tmp/factory-platform-evidence/w01e/`, indexed in `INDEX.md` with `SHA256SUMS`.
 
 Note on the base ref: `integ/w00` has since moved to `63cd5afdc`, which is a descendant of the
@@ -70,8 +79,9 @@ the one interface, the adapter, and a real proof.
   PostgreSQL.
   CHECK: `bun test --timeout 120000 ./src/factory/runner/guest-model-journal.integration.test.ts`; `FACTORY_TEST_POSTGRES_URL=… bun test --timeout 300000 ./tests/postgres/factory-guest-model-journal.test.ts`
   EXPECT: exit 0 on both
-  EVIDENCE: `postgres-guest-model-journal.log` — 1 pass / 0 fail, 28 expect() calls, 5.38s on the
-  real server at `e54cbfb29` with a clean tree — and `unit-suites.log` 2 pass. One conformance suite,
+  EVIDENCE: `postgres-guest-model-journal.log` — 2 pass / 0 fail, 41 expect() calls, 4.64s on the
+  real server at `3c2c080ea` with a clean tree, the second test being the terminal verification in
+  G13 — and `unit-suites.log` 4 pass. One conformance suite,
   `src/__tests__/helpers/factory-guest-model-journal-suite.ts`, runs against both stores; the
   PostgreSQL leg is registered in `.github/workflows/db-postgres.yml`, which
   `scripts/factory-postgres-suite-registration.test.ts` enforces (5 pass). The suite reads the
@@ -168,8 +178,9 @@ the one interface, the adapter, and a real proof.
   `new-file-coverage.log`, `patch-coverage.log`, `python-coverage.log`.
   `New-file coverage gate PASSED: 3 new source file(s) gated.`
   `Patch coverage gate PASSED: all changed executable lines covered (11 file(s)).`
-  The host shard ran all 1786 files: `26623 pass | 0 fail`, no retry sweep needed. Python coverage
-  is 100% across the locked distribution, including `factory_validation.py` and `guest.py`.
+  Round 3, on the merged tree at `3c2c080ea` with a clean working tree: the host shard ran all
+  1798 files at `26747 pass | 0 fail`, no retry sweep needed. Python coverage is 100% across the
+  locked distribution, including `factory_validation.py` and `guest.py`.
 
   Measured from `coverage/lcov.info`, every file this leaf adds or changes:
 
@@ -184,8 +195,10 @@ the one interface, the adapter, and a real proof.
   | `packages/@ezcorp/factory-sdk/src/validation.ts` | 839/839 |
   | `packages/@ezcorp/factory-sdk/src/schema.ts` | 96/96 |
   | `packages/@ezcorp/factory-sdk/src/types.ts` | 42/42 |
-  | `packages/@ezcorp/factory-sdk/src/index.ts` | 13/13 |
+  | `packages/@ezcorp/factory-sdk/src/index.ts` | 14/14 |
   | `scripts/check-factory-lanes.ts` | 200/200 |
+  | `src/factory/journal-validation.ts` | 151/151 |
+  | `src/factory/usage-settlement.ts` | 215/215 |
 
   **Why the lcov was assembled rather than taken from `bun run test:coverage`.** Full mode
   requires a browser-route coverage receipt (`BROWSER_COVERAGE_RAW`, `BROWSER_COVERAGE_LCOV`),
