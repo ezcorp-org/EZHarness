@@ -243,6 +243,31 @@ function validProdEnv(lines: string[] = [], publicUrl = "http://localhost:4000")
   ].join("\n");
 }
 
+function isolatedRunnerEnv(runnerDir: string, tokenFile: string): string {
+  return validProdEnv([
+    `EZ_RUNNER_SOCKET_DIR=${runnerDir}`,
+    `EZ_RUNNER_TOKEN_FILE=${tokenFile}`,
+    "EZ_RUNNER_GROUP=1",
+  ]);
+}
+
+async function withLiveRunnerSocket<T>(runnerDir: string, runTest: () => T | Promise<T>): Promise<T> {
+  mkdirSync(runnerDir, { recursive: true });
+  const server = createServer();
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(join(runnerDir, "runner.sock"), () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  try {
+    return await runTest();
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  }
+}
+
 describe("setup-podman.sh — the env file", () => {
   test("parses under the selected Bash; the macOS lane selects and verifies Apple Bash 3.2", () => {
     const version = Bun.spawnSync({ cmd: [BASH, "--version"], stdout: "pipe", stderr: "pipe" });
@@ -406,6 +431,32 @@ ${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}
     expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
   });
 
+  test.each([
+    "not-a-url",
+    "ftp://chat.example.com",
+    "http://",
+    "http://bad host.example.com",
+    "http://[broken",
+    "https://chat.example.com:65536",
+  ])("refuses malformed production public URL %s without changing the file", (publicUrl) => {
+    const env = scratch("Darwin");
+    const original = validProdEnv(
+      [
+        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+        `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+      ],
+      publicUrl,
+    );
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    const r = run(["--no-start"], env);
+
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("EZCORP_PUBLIC_URL");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
+    expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
+  });
+
   test("pre-creates the four bind-mount sources without any chown", () => {
     const env = scratch("Darwin");
     run(["--no-start", "--accept-unsandboxed-extensions"], env);
@@ -449,6 +500,20 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     expect(r.stderr).toContain("EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml");
     expect(r.stderr).toContain(`${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`);
     expect(statSync(env.EZ_SETUP_ENV_FILE).mode & 0o777).toBe(0o600);
+  });
+
+  test("--check stops at an incomplete existing runner instead of claiming it would start", () => {
+    const env = scratch("Darwin");
+    const original = validProdEnv(["# runner decision is intentionally unresolved"]);
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    const r = run(["--check"], env);
+
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("Existing environment files are never modified");
+    expect(r.stdout).not.toContain("bind-mount directories");
+    expect(r.stdout).not.toContain("would run: bash scripts/podman-compose.sh");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
   });
 
   test("concurrent accepted runs publish one complete trusted-local block", async () => {
@@ -598,38 +663,61 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
   test("Linux with a provisioned runner already in the env file: leaves it alone", async () => {
     const env = scratch("Linux");
     const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "runner");
-    const runnerSocket = join(runnerDir, "runner.sock");
     const runnerToken = join(runnerDir, "runner-token");
     mkdirSync(runnerDir, { recursive: true });
-    writeFileSync(runnerToken, "runner-credential\n", { mode: 0o600 });
-    const server = createServer();
-    await new Promise<void>((resolve, reject) => {
-      server.once("error", reject);
-      server.listen(runnerSocket, () => {
-        server.off("error", reject);
-        resolve();
-      });
-    });
+    writeFileSync(runnerToken, "0123456789abcdef0123456789abcdef\n", { mode: 0o600 });
     // A PROVISIONED runner is all three values. The example ships two of them
     // pre-filled with EZ_RUNNER_GROUP empty, which is precisely the state the
     // script must NOT mistake for configured.
-    writeFileSync(
-      env.EZ_SETUP_ENV_FILE,
-      validProdEnv([
-        `EZ_RUNNER_SOCKET_DIR=${runnerDir}`,
-        `EZ_RUNNER_TOKEN_FILE=${runnerToken}`,
-        "EZ_RUNNER_GROUP=1",
-      ]),
-      { mode: 0o600 },
-    );
-    try {
+    writeFileSync(env.EZ_SETUP_ENV_FILE, isolatedRunnerEnv(runnerDir, runnerToken), { mode: 0o600 });
+    await withLiveRunnerSocket(runnerDir, () => {
       const r = run(["--no-start"], env);
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("already configured");
       expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(false);
-    } finally {
-      await new Promise<void>((resolve) => server.close(() => resolve()));
-    }
+    });
+  });
+
+  test("Linux rejects runner credential sources that production cannot read", async () => {
+    const env = scratch("Linux");
+    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "runner");
+    const tokenDir = join(runnerDir, "token-directory");
+    const shortToken = join(runnerDir, "short-token");
+    const unsafeToken = join(runnerDir, "unsafe-token");
+    const symlinkTarget = join(runnerDir, "symlink-target");
+    const symlinkToken = join(runnerDir, "symlink-token");
+    const oversizedToken = join(runnerDir, "oversized-token");
+    const whitespaceToken = join(runnerDir, "whitespace-token");
+    const nulToken = join(runnerDir, "nul-token");
+    mkdirSync(tokenDir, { recursive: true });
+    writeFileSync(shortToken, "too-short\n", { mode: 0o600 });
+    writeFileSync(unsafeToken, "0123456789abcdef0123456789abcdef\n", { mode: 0o600 });
+    chmodSync(unsafeToken, 0o620);
+    writeFileSync(symlinkTarget, "0123456789abcdef0123456789abcdef\n", { mode: 0o600 });
+    symlinkSync(symlinkTarget, symlinkToken);
+    writeFileSync(oversizedToken, `${"a".repeat(4097)}\n`, { mode: 0o600 });
+    writeFileSync(whitespaceToken, "0123456789abcdef 123456789abcdef0\n", { mode: 0o600 });
+    writeFileSync(nulToken, Buffer.from(`0123456789abcdef0123456789abcdef\0`), { mode: 0o600 });
+
+    await withLiveRunnerSocket(runnerDir, () => {
+      for (const tokenFile of [
+        tokenDir,
+        shortToken,
+        unsafeToken,
+        symlinkToken,
+        oversizedToken,
+        whitespaceToken,
+        nulToken,
+        "relative-token",
+      ]) {
+        const original = isolatedRunnerEnv(runnerDir, tokenFile);
+        writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+        const r = run(["--no-start"], env);
+        expect({ tokenFile, exitCode: r.exitCode }).toEqual({ tokenFile, exitCode: 2 });
+        expect(r.stdout).not.toContain("already configured");
+        expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
+      }
+    });
   });
 
   test("Linux does not call runner path strings provisioned when the host objects are absent", () => {
@@ -809,9 +897,9 @@ describe("setup-podman.sh — the engine and the check mode", () => {
     expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
   });
 
-  test("--check changes nothing on disk and calls no engine", () => {
+  test("--check with an accepted runner changes nothing on disk and calls no engine", () => {
     const env = scratch("Darwin");
-    const r = run(["--check"], env);
+    const r = run(["--check", "--accept-unsandboxed-extensions"], env);
     expect(r.exitCode).toBe(0);
     expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
     expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
@@ -837,9 +925,11 @@ describe("setup-podman.sh — the engine and the check mode", () => {
   test("Linux --check reports the Linux runner decision", () => {
     const env = scratch("Linux");
     const r = run(["--check"], env);
-    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).toBe(2);
     expect(r.stdout).toContain("on Linux select an isolated runner");
     expect(r.stdout).not.toContain("on macOS this script would ask");
+    expect(r.stdout).not.toContain("bind-mount directories");
+    expect(r.stdout).not.toContain("would run: bash scripts/podman-compose.sh");
   });
 });
 

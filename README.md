@@ -40,7 +40,8 @@ If it is private, has non-placeholder production secrets and URL, and has a
 supported runner mode, setup leaves every byte unchanged. Otherwise setup
 prints the exact manual settings and stops. It also refuses a file with group
 or other permission bits. On Linux, an isolated runner counts as provisioned
-only when its numeric group, live Unix socket, and non-empty token file exist.
+only when its numeric group, live Unix socket, and production-valid credential
+file exist.
 
 On macOS the isolated extension runner cannot work, so fresh setup shows what
 `trusted-local` costs and asks before adding it to the private candidate

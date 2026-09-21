@@ -240,6 +240,37 @@ trim_env_whitespace() {
   printf '%s' "$trim_value"
 }
 
+# GNU and BSD stat use different format flags. Keep that portability detail in
+# one place because both the environment file and runner credential depend on
+# metadata checks.
+portable_stat_value() {
+  local gnu_format="$1"
+  local bsd_format="$2"
+  local stat_path="$3"
+  stat -c "$gnu_format" "$stat_path" 2>/dev/null || stat -f "$bsd_format" "$stat_path" 2>/dev/null
+}
+
+# This intentionally accepts a conservative HTTP(S) URL subset: a DNS name,
+# IPv4 address, or bracketed IPv6 literal, with an optional valid port and
+# path/query/fragment. Production uses this value as ORIGIN, so another scheme,
+# missing authority, whitespace, or an out-of-range port is never useful.
+valid_public_url() {
+  local public_url="$1"
+  local public_url_pattern public_rest public_authority public_port
+  public_url_pattern='^([Hh][Tt][Tt][Pp]|[Hh][Tt][Tt][Pp][Ss])://(\[[0-9A-Fa-f:.]+\]|[[:alnum:]]([[:alnum:].-]*[[:alnum:]])?)(:[0-9]+)?([/?#][^[:space:][:cntrl:]]*)?$'
+  [[ "$public_url" =~ $public_url_pattern ]] || return 1
+  public_rest="${public_url#*://}"
+  public_authority="${public_rest%%[/?#]*}"
+  case "$public_authority" in
+    \[*\]) return 0 ;;
+    \[*\]:*) public_port="${public_authority##*:}" ;;
+    *:*) public_port="${public_authority##*:}" ;;
+    *) return 0 ;;
+  esac
+  case "$public_port" in '' | *[!0-9]*) return 1 ;; esac
+  [ "$public_port" -gt 0 ] && [ "$public_port" -le 65535 ]
+}
+
 # Decode the plain scalar forms used by this repository and accepted by
 # Compose: unquoted values with an optional whitespace-prefixed comment, or a
 # matching pair of single/double quotes. Never source the operator-owned file.
@@ -291,6 +322,9 @@ check_required_value() {
   [ -n "$required_value" ] || required_bad=1
   [ "${#required_value}" -ge "$required_minimum" ] || required_bad=1
   case "$required_value" in *"$required_placeholder"*) required_bad=1 ;; esac
+  if [ "$required_name" = EZCORP_PUBLIC_URL ] && ! valid_public_url "$required_value"; then
+    required_bad=1
+  fi
   if [ "$required_bad" = 1 ]; then
     required_invalid="${required_invalid}${required_invalid:+, }$required_name"
   fi
@@ -333,13 +367,40 @@ runner_configured_file() {
   runner_token_file="$(effective_env_value "$runner_file" EZ_RUNNER_TOKEN_FILE)"
   runner_group="$(effective_env_value "$runner_file" EZ_RUNNER_GROUP)"
   case "$runner_group" in '' | *[!0-9]*) return 1 ;; esac
-  [ -S "$runner_socket_dir/runner.sock" ] && [ -s "$runner_token_file" ]
+  [ -S "$runner_socket_dir/runner.sock" ] && runner_credential_usable "$runner_token_file"
+}
+
+# Mirror src/extensions/runner-connection.ts without sourcing the credential or
+# exposing it in a child argv/log: absolute regular non-symlink, at most 4096
+# bytes, no group/other write bits, and a trimmed token of at least 32
+# whitespace/control-free characters.
+runner_credential_usable() {
+  local runner_token_file="$1"
+  local runner_token_mode runner_token_size runner_token_value
+  case "$runner_token_file" in /*) ;; *) return 1 ;; esac
+  [ -f "$runner_token_file" ] && [ ! -L "$runner_token_file" ] || return 1
+  runner_token_mode="$(portable_stat_value %a %Lp "$runner_token_file")" || return 1
+  case "$runner_token_mode" in
+    *[2367][0-7] | *[0-7][2367]) return 1 ;;
+  esac
+  runner_token_size="$(portable_stat_value %s %z "$runner_token_file")" || return 1
+  case "$runner_token_size" in '' | *[!0-9]*) return 1 ;; esac
+  [ "$runner_token_size" -le 4096 ] || return 1
+  # Bash variables cannot retain NUL bytes. Compare the file to a NUL-stripped
+  # stream before reading it so one cannot disappear and make an invalid token
+  # look valid. Neither command prints the credential.
+  # shellcheck disable=SC2094 # cmp only reads the file; no command writes it.
+  LC_ALL=C tr -d '\000' <"$runner_token_file" | cmp -s - "$runner_token_file" || return 1
+  runner_token_value="$(cat "$runner_token_file")" || return 1
+  runner_token_value="$(trim_env_whitespace "$runner_token_value")"
+  [ "${#runner_token_value}" -ge 32 ] || return 1
+  case "$runner_token_value" in *[[:space:][:cntrl:]]*) return 1 ;; esac
 }
 
 validate_existing_env() {
   # GNU and BSD spell stat differently. Accept only modes with no group/other
   # bits. 0400 and 0600 are both private.
-  env_mode="$(stat -c %a "$ENV_FILE" 2>/dev/null || stat -f %Lp "$ENV_FILE" 2>/dev/null)" ||
+  env_mode="$(portable_stat_value %a %Lp "$ENV_FILE")" ||
     die "could not inspect permissions for $ENV_FILE"
   case "$env_mode" in
     [0-7]00 | 0[0-7]00) ;;
@@ -430,14 +491,6 @@ ensure_existing_runner() {
     ok "runner already configured — environment file left byte-for-byte unchanged"
     return 0
   fi
-  if [ "$CHECK_ONLY" = 1 ]; then
-    if [ "$OS" = "Darwin" ]; then
-      todo "not configured; on macOS add the exact trusted-local settings manually"
-    else
-      todo "not configured; on Linux select an isolated runner or explicitly accept trusted-local"
-    fi
-    return 0
-  fi
   print_manual_runner_action existing
   exit 2
 }
@@ -519,9 +572,11 @@ elif [ "$CHECK_ONLY" = 1 ]; then
   if [ "$ACCEPT_UNSANDBOXED" = 1 ]; then
     todo "would add trusted-local to the private candidate after explicit acceptance"
   elif [ "$OS" = "Darwin" ]; then
-    todo "fresh setup would ask before adding trusted-local to the private candidate"
+    todo "blocked until trusted-local risk is accepted; no environment file or stack would be created"
+    exit 2
   else
     todo "not configured; on Linux select an isolated runner or explicitly accept trusted-local"
+    exit 2
   fi
 else
   build_fresh_candidate
