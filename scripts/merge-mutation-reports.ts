@@ -27,7 +27,7 @@
 import { Glob } from "bun";
 import { REPO_ROOT } from "./coverage-config.ts";
 import { filesWithoutCoverage } from "./mutation.ts";
-import { loadGates, writeReport } from "./quality-gates.ts";
+import { loadGates, MUTATION_REPORT_FILE, writeReport } from "./quality-gates.ts";
 import { type MutationReport, mutationTotals } from "./quality-report.ts";
 
 /**
@@ -82,7 +82,7 @@ async function main(): Promise<void> {
     found.map(async (p) => JSON.parse(await Bun.file(p).text()) as MutationReport),
   );
   const merged = mergeMutationReports(reports);
-  const out = await writeReport("mutation.json", merged);
+  const out = await writeReport(MUTATION_REPORT_FILE, merged);
   const totals = mutationTotals(merged);
   const gates = await loadGates();
   const threshold = gates.mutation.scoreThreshold;

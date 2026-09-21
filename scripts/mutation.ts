@@ -38,16 +38,45 @@ import { existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
 import { Glob } from "bun";
 import { escapeGlob, REPO_ROOT } from "./coverage-config.ts";
-import { changedLines, loadGates, REPORT_DIR, writeReport } from "./quality-gates.ts";
+import {
+  changedLines,
+  loadGates,
+  MUTATION_REPORT_FILE,
+  MUTATION_SKIPPED_FILE,
+  REPORT_DIR,
+  writeReport,
+} from "./quality-gates.ts";
 
 const WEB_DIR = resolve(REPO_ROOT, "web");
-/** Stryker's json reporter writes here — web/stryker.config.json `jsonReporter.fileName`. */
-const MUTATION_REPORT = resolve(REPORT_DIR, "mutation.json");
+/** Stryker's derived run config writes here. */
+const MUTATION_REPORT = resolve(REPORT_DIR, MUTATION_REPORT_FILE);
 /** --changed's early-exit receipt when the diff touched nothing mutatable. */
-const MUTATION_SKIPPED = resolve(REPORT_DIR, "mutation-summary.json");
+const MUTATION_SKIPPED = resolve(REPORT_DIR, MUTATION_SKIPPED_FILE);
 
 export type StrykerRun = { status: number | null; signal: NodeJS.Signals | null };
 export type MutationVerdict = { code: number; reason: string };
+
+/** Add runtime-only mutation policy to Stryker's committed mechanics config. */
+export function deriveStrykerRunConfig(
+  baseConfig: Readonly<Record<string, unknown>>,
+  scoreThreshold: number,
+): Record<string, unknown> {
+  return {
+    ...baseConfig,
+    // Keep Stryker's generated report aligned with every script that reads it.
+    jsonReporter: {
+      ...(baseConfig.jsonReporter as Record<string, unknown>),
+      fileName: `../coverage/quality/${MUTATION_REPORT_FILE}`,
+    },
+    thresholds: {
+      break: scoreThreshold,
+      // `low`/`high` only colour the reporter. Pinning them to the break score
+      // keeps the console output from calling a failing run "high quality".
+      low: scoreThreshold,
+      high: scoreThreshold,
+    },
+  };
+}
 
 /**
  * Turn a finished Stryker process into this script's exit code, honouring
@@ -279,7 +308,7 @@ async function main(): Promise<void> {
         `Mutation: no mutatable file in the diff against ${baseRef} ` +
           `(scope: ${gates.mutation.mutateGlobs.join(", ")}) — nothing to do.`,
       );
-      await writeReport("mutation-summary.json", {
+      await writeReport(MUTATION_SKIPPED_FILE, {
         generatedAt: new Date().toISOString(),
         mode: "changed",
         skipped: true,
@@ -368,16 +397,7 @@ async function main(): Promise<void> {
   const baseConfig = JSON.parse(await Bun.file(BASE_CONFIG).text()) as Record<string, unknown>;
   delete baseConfig._comment; // documentation, not configuration
   delete baseConfig.$schema; // relative to the committed file's name
-  const runConfig = {
-    ...baseConfig,
-    thresholds: {
-      break: gates.mutation.scoreThreshold,
-      // `low`/`high` only colour the reporter. Pinning them to the break score
-      // keeps the console output from calling a failing run "high quality".
-      low: gates.mutation.scoreThreshold,
-      high: gates.mutation.scoreThreshold,
-    },
-  };
+  const runConfig = deriveStrykerRunConfig(baseConfig, gates.mutation.scoreThreshold);
 
   const strykerArgs = [
     "stryker",

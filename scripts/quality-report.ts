@@ -39,19 +39,19 @@
  */
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { loadGates, REPORT_DIR, writeReport } from "./quality-gates.ts";
+import {
+  GATE_NAMES,
+  GATE_REPORT_FILE,
+  loadGates,
+  MUTATION_SKIPPED_FILE,
+  REPORT_DIR,
+  type GateName,
+  writeReport,
+} from "./quality-gates.ts";
 
-export type GateName = "coverage" | "crap" | "mutation";
-export const GATE_NAMES: readonly GateName[] = ["coverage", "crap", "mutation"];
-
-/** The report file each gate is responsible for writing. */
-export const GATE_REPORT_FILE: Readonly<Record<GateName, string>> = {
-  coverage: "global-coverage.json",
-  crap: "crap.json",
-  mutation: "mutation.json",
-};
-/** mutation.ts --changed writes this instead when the diff had nothing to mutate. */
-export const MUTATION_SKIPPED_FILE = "mutation-summary.json";
+// Kept here as a public API for existing callers.
+export { GATE_NAMES, GATE_REPORT_FILE, MUTATION_SKIPPED_FILE } from "./quality-gates.ts";
+export type { GateName } from "./quality-gates.ts";
 
 export type Finding = {
   gate: GateName;

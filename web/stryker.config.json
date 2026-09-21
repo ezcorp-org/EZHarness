@@ -77,7 +77,6 @@
   ],
 
   "reporters": ["json", "clear-text", "progress"],
-  "jsonReporter": { "fileName": "../coverage/quality/mutation.json" },
   "clearTextReporter": { "maxTestsToLog": 2 },
 
   "incrementalFile": "../.cache/stryker-incremental.json",

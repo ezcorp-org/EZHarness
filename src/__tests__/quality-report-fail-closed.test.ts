@@ -16,12 +16,13 @@
  *                                without overlap, and score the way Stryker
  *                                scores.
  *
- * Both scripts export their decision logic as pure functions, so this is
- * fixture-driven and touches no files.
+ * The decision logic is fixture-driven. One contract test reads the committed
+ * Stryker config to ensure its report path cannot diverge from the scripts.
  */
 import { describe, expect, test } from "bun:test";
 import { mergeMutationReports } from "../../scripts/merge-mutation-reports.ts";
 import {
+  deriveStrykerRunConfig,
   filesWithoutCoverage,
   mutationExitCode,
   parseShard,
@@ -32,12 +33,19 @@ import {
   type CrapReport,
   type CoverageReport,
   GATE_NAMES,
+  MUTATION_SKIPPED_FILE as REPORT_MUTATION_SKIPPED_FILE,
   type MutationReport,
   mutationTotals,
   parseExpected,
   renderText,
   type SummaryInputs,
 } from "../../scripts/quality-report.ts";
+import {
+  GATE_NAMES as CANONICAL_GATE_NAMES,
+  GATE_REPORT_FILE,
+  MUTATION_REPORT_FILE,
+  MUTATION_SKIPPED_FILE,
+} from "../../scripts/quality-gates.ts";
 
 const passingCoverage: CoverageReport = {
   threshold: 90,
@@ -125,6 +133,23 @@ describe("parseExpected", () => {
   test("every gate name the summary knows is accepted", () => {
     expect(parseExpected(["--expect", GATE_NAMES.join(",")])).toEqual([...GATE_NAMES]);
   });
+
+  test("the quality-report public API re-exports the canonical gate tuple", () => {
+    expect(GATE_NAMES).toBe(CANONICAL_GATE_NAMES);
+  });
+
+  test("the mutation report filenames share one contract", () => {
+    expect(GATE_REPORT_FILE.mutation).toBe(MUTATION_REPORT_FILE);
+    expect(REPORT_MUTATION_SKIPPED_FILE).toBe(MUTATION_SKIPPED_FILE);
+  });
+
+  test("the committed Stryker config delegates its report path to the shared contract", async () => {
+    const config = JSON.parse(await Bun.file("web/stryker.config.json").text()) as Record<string, unknown>;
+    expect(config).not.toHaveProperty("jsonReporter");
+    expect(deriveStrykerRunConfig(config, 80).jsonReporter).toEqual({
+      fileName: `../coverage/quality/${MUTATION_REPORT_FILE}`,
+    });
+  });
 });
 
 describe("buildSummary — fail closed on a missing report", () => {
@@ -150,7 +175,7 @@ describe("buildSummary — fail closed on a missing report", () => {
     const f = s.findings[0];
     expect(f?.gate).toBe("mutation");
     expect(f?.severity).toBe("error");
-    expect(f?.file).toBe("coverage/quality/mutation.json");
+    expect(f?.file).toBe(`coverage/quality/${MUTATION_REPORT_FILE}`);
     expect(f?.what).toMatch(/expected to run but wrote no report/);
     expect(f?.what).toMatch(/not a pass/);
   });
