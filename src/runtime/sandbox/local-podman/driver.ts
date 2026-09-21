@@ -90,19 +90,27 @@ export class LocalPodmanDriver {
     const stopped = await this.podman(["stop", "--time", "1", value.containerId]);
     throw new ContainerConfinementError(stopped.code === 0 && !stopped.timedOut);
   }
+  private matchesContainerIdentity(live: InspectContainer, value: Metadata, expected: ReturnType<typeof expectedContainerIdentity>): boolean {
+    return live.Id === value.containerId && live.Name === expected.containerName && live.Image === expected.imageId && live.Config?.Image === expected.imageReference && live.Config?.User === expected.user && live.Config?.Labels?.[RESOURCE_LABEL] === expected.labels[RESOURCE_LABEL] && live.Config?.Labels?.[CONFIG_LABEL] === value.configDigest && value.configDigest === expected.labels[CONFIG_LABEL] && typeof live.State?.Running === "boolean";
+  }
+  private matchesHostProfile(live: InspectContainer, expected: ReturnType<typeof expectedContainerIdentity>, bindMounts: Array<{ source: string | undefined; destination: string | undefined; readWrite: boolean | undefined }>, expectedMounts: Array<{ source: string; destination: string; readWrite: boolean }>): boolean {
+    return live.HostConfig?.NetworkMode === expected.networkMode && live.HostConfig?.UsernsMode === "" && live.HostConfig?.PidMode === expected.pidMode && live.HostConfig?.IpcMode === expected.ipcMode && (live.HostConfig?.UtsMode ?? null) === expected.utsMode && live.HostConfig?.Privileged === expected.privileged && JSON.stringify(live.HostConfig?.CapDrop) === JSON.stringify(expected.capDrop) && JSON.stringify(live.HostConfig?.SecurityOpt) === JSON.stringify(expected.securityOpt) && live.HostConfig?.ReadonlyRootfs === expected.readonlyRootfs && live.HostConfig?.Memory === expected.memoryBytes && live.HostConfig?.MemorySwap === expected.memorySwapBytes && live.HostConfig?.NanoCpus === expected.nanoCpus && live.HostConfig?.PidsLimit === expected.pids && JSON.stringify(bindMounts) === JSON.stringify(expectedMounts);
+  }
+  private async verifyProcessConfinement(value: Metadata, live: InspectContainer): Promise<void> {
+    if (!live.State?.Running) return;
+    if (!Number.isSafeInteger(live.State.Pid) || live.State.Pid! <= 0) return this.rejectUnconfinedContainer(value);
+    try { validateProcessConfinement(await this.readProcessStatus(live.State.Pid!)); }
+    catch { return this.rejectUnconfinedContainer(value); }
+  }
   private async verify(value: Metadata): Promise<boolean> {
     const { code, stdout, timedOut } = await this.podman(["inspect", value.containerId]); if (code !== 0 || timedOut) throw new Error("owned container identity is unavailable");
     const parsed = JSON.parse(stdout) as unknown; if (!Array.isArray(parsed) || parsed.length !== 1) throw new Error("owned container identity mismatch");
     const live = parsed[0] as InspectContainer; const paths = resourcePaths(this.config.stateRoot, value.resourceId); const expected = expectedContainerIdentity(this.config, value.resourceId, value.containerName, paths.mount, value.limits);
     const bindMounts = (live.Mounts ?? []).filter((entry) => entry.Type === "bind").map((entry) => ({ source: entry.Source, destination: entry.Destination, readWrite: entry.RW })).sort((left, right) => String(left.destination).localeCompare(String(right.destination)));
     const expectedMounts = expected.bindMounts.map((entry) => ({ source: entry.source, destination: entry.destination, readWrite: entry.readWrite })).sort((left, right) => left.destination.localeCompare(right.destination));
-    if (live.Id !== value.containerId || live.Name !== expected.containerName || live.Image !== expected.imageId || live.Config?.Image !== expected.imageReference || live.Config?.User !== expected.user || live.Config?.Labels?.[RESOURCE_LABEL] !== expected.labels[RESOURCE_LABEL] || live.Config?.Labels?.[CONFIG_LABEL] !== value.configDigest || value.configDigest !== expected.labels[CONFIG_LABEL] || typeof live.State?.Running !== "boolean" || live.HostConfig?.NetworkMode !== expected.networkMode || live.HostConfig?.UsernsMode !== "" || live.HostConfig?.PidMode !== expected.pidMode || live.HostConfig?.IpcMode !== expected.ipcMode || (live.HostConfig?.UtsMode ?? null) !== expected.utsMode || live.HostConfig?.Privileged !== expected.privileged || JSON.stringify(live.HostConfig?.CapDrop) !== JSON.stringify(expected.capDrop) || JSON.stringify(live.HostConfig?.SecurityOpt) !== JSON.stringify(expected.securityOpt) || live.HostConfig?.ReadonlyRootfs !== expected.readonlyRootfs || live.HostConfig?.Memory !== expected.memoryBytes || live.HostConfig?.MemorySwap !== expected.memorySwapBytes || live.HostConfig?.NanoCpus !== expected.nanoCpus || live.HostConfig?.PidsLimit !== expected.pids || JSON.stringify(bindMounts) !== JSON.stringify(expectedMounts)) throw new Error("owned container identity mismatch");
-    if (live.State.Running) {
-      if (!Number.isSafeInteger(live.State.Pid) || live.State.Pid! <= 0) return this.rejectUnconfinedContainer(value);
-      try { validateProcessConfinement(await this.readProcessStatus(live.State.Pid!)); }
-      catch { return this.rejectUnconfinedContainer(value); }
-    }
-    return live.State.Running;
+    if (!this.matchesContainerIdentity(live, value, expected) || !this.matchesHostProfile(live, expected, bindMounts, expectedMounts)) throw new Error("owned container identity mismatch");
+    await this.verifyProcessConfinement(value, live);
+    return live.State?.Running === true;
   }
   private identityMismatch(call: SandboxCreateInput["call"]) { return { receipt: receipt(call, "failed", { code: "identity_mismatch", message: "Owned container identity mismatch.", retryable: false }) }; }
   private confinementFailure(call: ProviderCall, error: ContainerConfinementError) {
