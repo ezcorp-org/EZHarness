@@ -905,3 +905,46 @@
 - Never edit a shell script while an instance of it is running. A `sed` typo had a receipt recorder writing to `w07bb` instead of `w07b`; correcting the file mid-run made the executing bash re-read it and pick up the new value partway through, so one run's log and JSON landed in different directories than the four before it. Write a new file and switch callers to it, then clean up.
 - A patch-coverage gate measures the committed diff, so running it before the commit reports "0 file(s)" and passes vacuously. Commit first, then run the gate, and read the file count in its output as the check that it actually looked at something.
 - A guard is untested until an assertion changes when you remove it. Two of my consent guards were listed as covered because a line in the test named them, but the suite built every operation from one shared decision id, so the `UPDATE ... SET decision_id=<the same value>` that "moved" a decision was a no-op and the guard never fired. Coverage counted the line as executed, which is exactly how this hides. Build the disagreement the guard is about — here a second real acceptance decision row belonging to no operation in the suite — and then delete the guard once and record that the case goes red.
+
+## 2026-09-20 — W13 composition and the legacy adapter
+
+- A declared field that nothing reads is not a feature, and its type will not tell you. `releaseMode`
+  had a union in `types.ts`, an `enum` in five generated JSON Schemas, a `required` entry in each,
+  and three literals in the reference definitions — and no runtime code anywhere read it, so the
+  composite definition it configured could not have executed at all. Grep for the READER before
+  believing a declared enum is implemented; `grep` for the writer finds the literals and reassures.
+- `Omit<T, K>` does not stop a caller handing in a whole `T`. A seal built as
+  `digestObject({ schemaVersion, ...value })` silently folded the excluded `revoked` flag and the
+  seal itself back in, so every stored attestation read back as corrupt. Name every field a digest
+  covers; a spread into a sealing function is a spread into the seal.
+- A `const` initialised with a string literal still WIDENS in an object-literal property, so
+  `typeof MY_CONST` as a field type stops matching the moment the value is read rather than inlined.
+  `as const` on the declaration, not at the use site, is what fixes it — and `as const` applied to a
+  reference is a compile error that names something else entirely.
+- `isUniqueViolation` looks exactly one level down from what it is handed, and drizzle already
+  spends that level. A caller that wraps the error again — `persistCritical` wraps it in a
+  `WorkflowCursorWriteError` — puts the SQLSTATE out of reach without changing a line of either
+  module. Unwrap the one envelope you know you added; walking `cause` blindly would make an
+  unrelated nested error look like a conflict.
+- Revert the fix and watch the test go red, even when the fix is two tokens. Mine looked obviously
+  right; the revert is what showed that exactly two of the four new cases depended on it, and which
+  two.
+- Attribute a derived finding to the walk that produced it. The shared closure walk yields
+  capabilities per DEFINITION, so a classifier's findings are per definition; inventing per-step
+  attribution would have meant a second walk of the same graph, which is the divergence the one
+  shared walk exists to prevent. Say what the attribution is in the type's doc rather than implying
+  a precision the data does not have.
+- Two trees that may not import each other can still be held equal by a parity test that reads one
+  as TEXT. The factory cannot import a bundled v4 extension to learn its storage key layout, and a
+  mirrored copy silently rots; a test that parses the extension's own `const` declarations and
+  compares them fails on the rename instead of the exclusion quietly matching nothing.
+- A crash-recovery path that runs only after a crash is a path nothing exercises. Making the
+  key lookup unconditional — every start looks the run up before creating one — removed the special
+  case, and the same code is now covered by the ordinary test as well as the crash test.
+- A secret passed as `env VAR=value <command>` is a secret published. `/proc/<pid>/cmdline` is
+  world-readable on a shared host, and `receipt.py` copies the command array verbatim into
+  `receipts.jsonl`, so the same shape that leaks to every process also writes the value into a
+  document. The brief said to EXPORT the URL and I read past it. Assemble a credential inside a
+  script file whose own argv is just its path, and make the last step of the producer a
+  `grep -rlF` for the value over the whole evidence directory — a scan that can fail is worth more
+  than an intention not to leak.

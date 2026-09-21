@@ -81,6 +81,12 @@ const MODULE_PATHS = [
   // gate's grant branch without a DB. Snapshot it: a leaked stub would answer
   // the RBAC scope question for every later file, which is a silent ALLOW.
   "../../auth/extension-rbac",
+  // workflow-nested-idempotency-conflict.test.ts forces
+  // `workflowReleaseCanExecute` true so an extension-sourced start reaches the
+  // insert whose unique-key conflict it is about. Snapshot it: a leaked stub
+  // would grant release authority to every later file, which is the same class
+  // of silent ALLOW as the line above.
+  "../../runtime/workflow-release-assets",
   // The wire gate itself. `conversation-extensions-route.test.ts` stubs
   // `partitionWirableExtensions` with an ALLOW-BIASED fake (it allows every
   // candidate the test did not explicitly deny). A leaked stub would answer
