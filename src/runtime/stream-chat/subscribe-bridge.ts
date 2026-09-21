@@ -92,6 +92,8 @@ export interface SubscribeBridgeConvRecord {
   provider?: string | null;
 }
 
+type BridgeEvent<T extends AgentEvent["type"]> = Extract<AgentEvent, { type: T }>;
+
 /**
  * Wire the pi-agent-core event stream into the executor's local
  * EventBus, persist tool calls + per-turn assistant messages, and
@@ -133,460 +135,484 @@ export function subscribeBridge(
     ctx.dbQueue = ctx.dbQueue.then(fn).catch((err) => { log.error("DB error", { error: String(err) }); ctx.domainEventFailure = err instanceof LifecycleError ? err : new LifecycleError("event_persist_failed", "Conversation state and its event were not committed."); });
   };
 
+  const handleTurnStart = () => {
+    ctx.turnText = "";
+    ctx.turnThinking = "";
+    ctx.turnHasToolCalls = false;
+    host.bus.emit("run:status", { runId: run.id, status: "Thinking..." });
+  };
+
+  const handleMessageStart = (event: BridgeEvent<"message_start">) => {
+    // P4 §1.2 — steered-row reconciliation (PERSISTENCE LAYER seam; Phase 2's
+    // session live-append should hook the same ordering here). When a steer
+    // is DELIVERED, pi drains it and emits message_start carrying the exact
+    // UserMessage object steerConversation queued. If the caller persisted a
+    // DB row for that steer up-front (agent-chat, for immediate feed
+    // visibility), its parent was the leaf-at-REQUEST — but the LLM sees the
+    // steer HERE, at a later branch position. Re-parent the row to the current
+    // branch leaf and thread later turns through it, so the NEXT run's
+    // loadHistory rebuilds the exact sequence the LLM saw.
+    //
+    // Serialized on ctx.dbQueue with the turn-save chain (no double-write
+    // race): the preceding turn's save — which advances ctx.lastSavedMessageId
+    // — is queued before this, so when the reparent runs ctx.lastSavedMessageId
+    // IS the pre-injection leaf; setting it to the steer row then makes the
+    // next turn_end parent onto the steer. The executor's `consumeSteerPersistedId`
+    // latch fires at most once per steer, and returns undefined for a steer
+    // with no persisted row (send_to_agent — an ephemeral prompt, like every
+    // sub-agent prompt: nothing to reconcile) or a non-steer message.
+    const injected = event.message;
+    if (
+      host.persist &&
+      injected &&
+      typeof injected === "object" &&
+      "role" in injected &&
+      injected.role === "user"
+    ) {
+      const persistedId = host.executor.consumeSteerPersistedId(run.id, injected);
+      if (persistedId) {
+        queueDb(async () => {
+          const currentLeaf = ctx.lastSavedMessageId;
+          if (currentLeaf && currentLeaf !== persistedId) {
+            const { reparentMessage } = await import("../../db/queries/conversations");
+            await reparentMessage(conversationId, persistedId, currentLeaf);
+          }
+          // Thread subsequent turns through the steer row even when there was
+          // no pre-injection leaf to reparent onto (injection at run start).
+          ctx.lastSavedMessageId = persistedId;
+
+          // Mirror the reconciled steer row into the session tree at its
+          // injection position (parent = the pre-injection leaf), so the
+          // session chain matches the reparented messages chain and the
+          // next turn_end append threads through it (design §5). Gated on
+          // the run's history-producer flag. Steer content is a plain
+          // string; non-string content is left for the catch-up to heal.
+          // Fail-open.
+          const steerContent = (injected as { content?: unknown }).content;
+          if (options.sessionHistoryProducer && typeof steerContent === "string") {
+            await appendSavedMessageEntry(
+              conversationId,
+              { id: persistedId, role: "user", content: steerContent, createdAt: new Date() },
+              currentLeaf,
+            );
+          }
+        });
+      }
+    }
+  };
+
+  const handleMessageUpdate = (event: BridgeEvent<"message_update">) => {
+    const ame = event.assistantMessageEvent;
+    if (ame.type === "text_delta") {
+      ctx.turnText += ame.delta;
+      ctx.allTurnsText += ame.delta;
+      // First client-visible output → past the pre-stream failover
+      // boundary (see StreamChatContext.emittedToClient / WS2).
+      ctx.emittedToClient = true;
+      host.bus.emit("run:token", { runId: run.id, token: ame.delta, kind: "text" });
+    } else if (ame.type === "thinking_delta") {
+      ctx.turnThinking += ame.delta;
+      ctx.emittedToClient = true;
+      host.bus.emit("run:token", { runId: run.id, token: ame.delta, kind: "thinking" });
+    }
+  };
+
+  const handleToolExecutionStart = (event: BridgeEvent<"tool_execution_start">) => {
+    ctx.turnHasToolCalls = true;
+    // A tool card is client-visible committed output → past the
+    // pre-stream failover boundary (see WS2 / emittedToClient).
+    ctx.emittedToClient = true;
+    const args = (event.args ?? {}) as Record<string, unknown>;
+    ctx.pendingToolArgs.set(event.toolCallId, args);
+    // invoke_agent has its own agent:spawn/agent:complete events — skip tool:start
+    if (event.toolName === "invoke_agent") return;
+    // Build descriptive status from tool name + primary arg
+    const primaryArg = args.file_path ?? args.path ?? args.pattern ?? args.command ?? args.query ?? args.url;
+    const statusDetail = primaryArg ? `: ${String(primaryArg).slice(0, 60)}` : '';
+    host.bus.emit("run:status", { runId: run.id, status: `Running ${event.toolName}${statusDetail}...` });
+    const toolDef = ctx.builtinToolDefsMap.get(event.toolName);
+    // Extension tools live in the registry under `<ext>__<tool>`;
+    // built-ins are bare names. Same lookup logic as tool_execution_end.
+    const startRegistered = !toolDef && event.toolName.includes("__")
+      ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
+      : undefined;
+    // cardLayout fan-out: normalize unknown values to "inline" (fail-open)
+    // and only emit when explicitly declared. Mirrors cardType resolution.
+    const startCardLayout = normalizeCardLayout(
+      toolDef?.cardLayout ?? startRegistered?.cardLayout,
+      event.toolName,
+    );
+    const startCardType = toolDef?.cardType ?? startRegistered?.cardType;
+    host.bus.emit("tool:start", {
+      conversationId, extensionId: "", toolName: event.toolName,
+      input: event.args, timestamp: Date.now(),
+      cardType: startCardType,
+      ...(startCardLayout ? { cardLayout: startCardLayout } : {}),
+      category: toolDef?.category,
+      // Propagate the pi-agent tool call id so the client can correlate
+      // this start with the later complete/error event (and with the
+      // persisted DB row — see the DB insert in tool_execution_end).
+      invocationId: event.toolCallId,
+    });
+    // Register the in-flight call with the watchdog so it (a) defers
+    // the idle kill until the declared callTimeoutMs is exceeded —
+    // pi-agent-core emits no events while awaiting the tool result, so
+    // otherwise the activity tracker would trip — and (b) can
+    // synthesize a `tool:error` event for this call if the watchdog
+    // ends up killing the run anyway.
+    //
+    // Precedence: extension manifest `resources.callTimeoutMs` >
+    // built-in `BuiltinToolDef.callTimeoutMs` > the principled default
+    // (DEFAULT_BUILTIN_CALL_TIMEOUT_MS == WATCHDOG_IDLE_MS, i.e.
+    // pre-Tier-2 behavior). The two paths are mutually exclusive in
+    // practice (extensions are registered, built-ins are in
+    // builtinToolDefsMap), so this is one fallback chain — no new
+    // helper needed.
+    const startManifest = startRegistered
+      ? ExtensionRegistry.getInstance().getManifest(startRegistered.extensionId)
+      : undefined;
+    const manifestCallTimeout = startManifest?.resources?.callTimeoutMs;
+    const builtinCallTimeout = toolDef?.callTimeoutMs;
+    const callTimeoutMs =
+      // F1: a host long-blocking orchestration tool (currently only
+      // `collect_agent_result` reaches this — `invoke_agent`'s tool:start is
+      // suppressed above) gets a BOUNDED, widened watchdog defer budget so a
+      // synchronous collect isn't idle-killed at ~90s while legitimately
+      // awaiting a background child. Keyed on the BARE `event.toolName`
+      // because the orchestration tool is wired bare and `startRegistered`
+      // (resolved from that bare name) is null — the same reason the manifest
+      // path below can't see its `resources.callTimeoutMs`. Host-controlled:
+      // only host wiring produces these bare names (see filter.ts).
+      LONG_BLOCKING_ORCHESTRATION_TOOLS.has(event.toolName)
+        ? LONG_BLOCKING_WATCHDOG_BUDGET_MS
+        : typeof manifestCallTimeout === "number" && manifestCallTimeout > 0
+          ? manifestCallTimeout
+          : typeof builtinCallTimeout === "number" && builtinCallTimeout > 0
+            ? builtinCallTimeout
+            : DEFAULT_BUILTIN_CALL_TIMEOUT_MS;
+    host.watchdog.noteToolStart(run.id, event.toolCallId, {
+      toolName: event.toolName,
+      conversationId,
+      extensionId: startRegistered?.extensionId ?? "",
+      startedAt: Date.now(),
+      callTimeoutMs,
+      ...(startCardType ? { cardType: startCardType } : {}),
+      ...(startCardLayout ? { cardLayout: startCardLayout } : {}),
+      ...(startRegistered?.requiresUserInput === true
+        ? { requiresUserInput: true }
+        : {}),
+    });
+  };
+
+  const handleToolExecutionEnd = (event: BridgeEvent<"tool_execution_end">) => {
+    const details = event.result?.details;
+    const toolFailed = event.isError || (details !== null && typeof details === "object" && "isError" in details && details.isError === true);
+    // Drop the watchdog inflight entry on both success and error
+    // paths — the run is no longer waiting on this call. Safe if the
+    // entry was never recorded (e.g. invoke_agent below skips
+    // noteToolStart, the matching noteToolEnd is then a no-op).
+    host.watchdog.noteToolEnd(run.id, event.toolCallId);
+    // invoke_agent uses agent:spawn/agent:complete — skip tool:complete/error WS events
+    // but still persist to DB below
+    // cardType lookup: built-ins are in builtinToolDefsMap; extension
+    // tools are namespaced (`<ext>__<tool>`) and live in the registry.
+    // Without this, the chat UI's ToolCardRouter falls through to
+    // DefaultCard for every extension tool — including custom canvas
+    // cards like claude-design's design-canvas.
+    const endToolDef = ctx.builtinToolDefsMap.get(event.toolName);
+    const endRegistered = !endToolDef && event.toolName.includes("__")
+      ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
+      : undefined;
+    const endCardType = endToolDef?.cardType ?? endRegistered?.cardType;
+    // Same normalization as tool:start. Only emitted when explicitly
+    // "dock" — undefined keeps the wire payload identical to today.
+    const endCardLayout = normalizeCardLayout(
+      endToolDef?.cardLayout ?? endRegistered?.cardLayout,
+      event.toolName,
+    );
+    const toolEvent: DomainExtensionEvent | undefined = event.toolName === "invoke_agent" ? undefined : {
+      id: crypto.randomUUID(), type: toolFailed ? "tool:error" : "tool:complete", conversationId,
+      payload: {
+        conversationId, extensionId: "", toolName: event.toolName, duration: 0,
+        ...(toolFailed ? { error: typeof event.result === "string" ? event.result : JSON.stringify(event.result) } : { output: event.result, success: true }),
+        cardType: endCardType, ...(endCardLayout ? { cardLayout: endCardLayout } : {}), invocationId: event.toolCallId,
+      },
+    };
+    if (!host.persist && toolEvent) host.bus.emit(toolEvent.type, toolEvent.payload as never);
+    // Persist built-in tool calls to DB so diff panel survives page refresh.
+    // `providerToolCallId: event.toolCallId` (NOT `id` — see the doc on
+    // `ToolCallRow`/`toolCalls.id` in schema.ts) is what lets streaming
+    // events and hydrated DB rows share a client-visible key
+    // (`toolCallRowToSummary` reads it back) so the client can dedupe
+    // without fuzzy matching when a page reload overlaps an in-flight
+    // run. `id` itself stays the DB-generated surrogate: the LLM's own
+    // wire id is provider-controlled and NOT globally unique (the mock
+    // LLM defaults an unset id to positional `call_0`, and so do
+    // plenty of real OpenAI-compatible local servers) — pinning the PK
+    // to it let two conversations collide and silently drop the
+    // second tool call's row.
+    if (host.persist) {
+      const args = ctx.pendingToolArgs.get(event.toolCallId) ?? {};
+      ctx.pendingToolArgs.delete(event.toolCallId);
+      // Anchored to turn message in turn_end handler (messageId: null here).
+      // persistToolCall is the single insert site for tool_calls — keeps
+      // the four analytics dimensions (user/agent/model/provider) in
+      // lockstep with the extension-tool write path.
+      queueDb(async () => { await persistToolCall({
+        providerToolCallId: event.toolCallId,
+        conversationId,
+        messageId: null,
+        extensionId: "builtin",
+        toolName: event.toolName,
+        input: args,
+        output: { content: event.result?.content ?? [] },
+        success: !toolFailed,
+        durationMs: 0,
+        cardType: endCardType ?? null,
+        cardLayout: endCardLayout ?? null,
+        userId: convRecord?.userId ?? null,
+        agentConfigId: options.agentConfigId ?? convRecord?.agentConfigId ?? null,
+        model: options.model ?? convRecord?.model ?? null,
+        provider: options.provider ?? convRecord?.provider ?? null,
+      }, toolEvent); if (toolEvent) emitPersistedDomainEvent(host.bus, toolEvent); });
+    }
+  };
+
+  const handleTurnEnd = (event: BridgeEvent<"turn_end">) => {
+    const msg = event.message;
+    if (msg && "role" in msg && msg.role === "assistant") {
+      const am = msg as AssistantMessage;
+      // Keep the provider's exact terminal error at the event boundary.
+      // The failover loop reads this after `prompt()` returns; relying
+      // only on an Agent state mirror turns some adapters' 4xx responses
+      // into a false successful empty turn.
+      if (am.stopReason === "error" && am.errorMessage) {
+        ctx.providerErrorMessage = am.errorMessage;
+      }
+      ctx.totalUsage = am.usage;
+      host.bus.emit("run:usage", { runId: run.id, usage: am.usage });
+
+      // ── Prompt-cache observability (WS0) ──────────────────────────────
+      // pi-ai already parses cacheRead/cacheWrite off the stream; surface
+      // it. Once-per-turn `info` summary (segmented by provider+model);
+      // per-block detail at `debug` (raise via EZCORP_DEBUG). Token counts
+      // only — never secrets.
+      const cacheStats = computeTurnCacheStats(am.usage);
+      runCacheTurns.push({
+        provider: turnProvider,
+        model: turnModel,
+        input: am.usage.input,
+        output: am.usage.output,
+        cacheRead: am.usage.cacheRead,
+        cacheWrite: am.usage.cacheWrite,
+        cacheWrite1h: am.usage.cacheWrite1h ?? 0,
+      });
+      log.info("turn cache", {
+        provider: turnProvider,
+        model: turnModel,
+        hitRate: Number(cacheStats.hitRate.toFixed(4)),
+        cachedTokens: cacheStats.cachedTokens,
+        cacheWriteTokens: cacheStats.cacheWriteTokens,
+        cacheWrite1hTokens: cacheStats.cacheWrite1hTokens,
+        promptTokens: cacheStats.promptTokens,
+      });
+      log.debug("turn cache detail", {
+        input: am.usage.input,
+        output: am.usage.output,
+        cacheRead: am.usage.cacheRead,
+        cacheWrite: am.usage.cacheWrite,
+      });
+
+      // Persist this turn as its own assistant message
+      // Extract text and thinking separately from the final AssistantMessage content array
+      const textContent = am.content
+        .filter((c: { type: string }) => c.type === "text")
+        .map((c: { type: string; text?: string }) => c.text ?? "")
+        .join("");
+      const thinkingContent = am.content
+        .filter((c: { type: string }) => c.type === "thinking")
+        .map((c: { type: string; thinking?: string }) => c.thinking ?? "")
+        .join("");
+      // Fallback: use accumulated streaming text if the final message lacks text blocks
+      // (some providers stream text_delta but don't include text in the final message)
+      const resolvedText = textContent || ctx.turnText;
+      const resolvedThinking = thinkingContent || ctx.turnThinking;
+
+      if (!textContent && ctx.turnText) {
+        log.warn("turn_end message missing text blocks but turnText has content", { turnTextPreview: ctx.turnText.slice(0, 100), contentTypes: am.content.map((c: { type: string }) => c.type).join(", ") });
+      }
+      if (!resolvedText && !ctx.turnHasToolCalls) {
+        log.warn("turn_end with no text and no tool calls", { contentTypes: am.content.map((c: { type: string }) => c.type).join(", ") });
+      }
+
+      if (host.persist && (resolvedText || ctx.turnHasToolCalls)) {
+        const capturedText = resolvedText;
+        const capturedThinking = resolvedThinking || undefined;
+        // A turn with no tool calls terminates the agent loop — no further
+        // turn will stream into a follow-up placeholder. Captured here
+        // because turnHasToolCalls is reset on the next turn_start, which
+        // can run before this queued DB callback fires.
+        const isFinalTurn = !ctx.turnHasToolCalls;
+        queueDb(async () => {
+          // Read the branch leaf at dbQueue-EXECUTION time (NOT a sync
+          // capture): the queue is FIFO, so any task queued before this one
+          // — a preceding turn's save, or a P4 §1.2 steer reconcile queued at
+          // an intervening message_start — has already advanced
+          // lastSavedMessageId. Reading it here makes the parent chain
+          // structural instead of dependent on inter-turn latency happening
+          // to drain the queue: a steered turn threads through the steer row,
+          // and back-to-back turns can't fork off a shared stale leaf.
+          // (text/thinking/isFinalTurn stay sync — they snapshot per-turn
+          // state that the next turn_start resets; lastSavedMessageId is
+          // never reset, only advanced forward by queued task completions.)
+          const capturedParent = ctx.lastSavedMessageId;
+          const committed = await withConvSessionLock<{ messageId: string; event: DomainExtensionEvent }>(conversationId, () => getDb().transaction(async (transaction: DbTransaction) => {
+            const { createMessage } = await import("../../db/queries/conversations");
+            const turnMsg = await createMessage(conversationId, {
+              role: "assistant",
+              content: capturedText,
+              thinkingContent: capturedThinking,
+              model: options.model,
+              provider: options.provider,
+              usage: {
+                inputTokens: am.usage.input,
+                outputTokens: am.usage.output,
+                cacheReadTokens: cacheStats.cachedTokens,
+                cacheWriteTokens: cacheStats.cacheWriteTokens,
+                cacheWrite1hTokens: cacheStats.cacheWrite1hTokens,
+                cacheHitRate: cacheStats.hitRate,
+                // Routing provenance (WS3) — written only when the caller
+                // (the executor's subscribe seam) supplied it, so direct
+                // subscribeBridge callers keep today's usage shape. The
+                // SERVED identity is NOT duplicated here — it lives in the
+                // message row's model/provider columns above.
+                ...(options.requestedProvider !== undefined ? { requestedProvider: options.requestedProvider } : {}),
+                ...(options.requestedModel !== undefined ? { requestedModel: options.requestedModel } : {}),
+                ...(options.routedTier !== undefined ? { routedTier: options.routedTier } : {}),
+                ...(options.failover !== undefined ? { failover: options.failover } : {}),
+                // WS5 routing provenance — same conditional-spread contract
+                // as the fields above: a pinned turn (and any direct
+                // subscribeBridge caller) writes no key at all, so legacy
+                // rows and pinned rows stay distinguishable from routed ones.
+                ...(options.routingSignals !== undefined ? { routingSignals: options.routingSignals } : {}),
+                ...(options.routingConfig !== undefined ? { routingConfig: options.routingConfig } : {}),
+              },
+              runId: run.id,
+              parentMessageId: capturedParent ?? undefined,
+            }, transaction);
+
+            // Anchor unanchored tool calls to this turn's message. Both the
+            // built-in path (tool_execution_end above) and the extension
+            // path (`extensionToAgentTool`'s `messageId` — see its doc
+            // comment) insert with `messageId: null` because the turn's
+            // assistant message doesn't exist yet at tool-call time; this
+            // is the single re-parent step that anchors ALL of them once
+            // it does. (A prior "also handle extension tools that used
+            // run.id as placeholder" second UPDATE was removed here: that
+            // never matched anything — `tool_calls.message_id` is a
+            // non-deferrable FK to `messages(id)`, so an insert carrying
+            // `run.id` — never a real message id — always violated the
+            // constraint and the row never landed, rather than landing
+            // with a stale id for this step to fix up.)
+            await transaction
+              .update(toolCalls)
+              .set({ messageId: turnMsg.id })
+              .where(and(
+                eq(toolCalls.conversationId, conversationId),
+                isNull(toolCalls.messageId),
+              ));
+
+            // Anchor agent sub-conversations created during this turn to the assistant message
+            await transaction
+              .update(conversations)
+              .set({ parentMessageId: turnMsg.id })
+              .where(and(
+                eq(conversations.parentConversationId, conversationId),
+                isNull(conversations.parentMessageId),
+              ));
+
+            // Live-append this assistant turn to the pi session tree
+            // (design §5) so the session mirror stays hot for the next
+            // run's read. Keyed by the row id (mirror invariant), parented
+            // on the SAME structural parent the messages row got. Gated by
+            // the run's history-producer flag.
+            if (options.sessionHistoryProducer) {
+              await appendSavedMessageEntryInTransaction(
+                transaction,
+                conversationId,
+                { id: turnMsg.id, role: "assistant", content: capturedText, createdAt: turnMsg.createdAt },
+                capturedParent,
+              );
+            }
+
+            const event: DomainExtensionEvent = { id: turnMsg.id, type: "run:turn_saved", conversationId, payload: {
+              runId: run.id,
+              conversationId,
+              messageId: turnMsg.id,
+              parentMessageId: capturedParent,
+              content: capturedText,
+              thinkingContent: capturedThinking,
+              final: isFinalTurn,
+            } };
+            await publishDomainEvent(transaction, event);
+            return { messageId: turnMsg.id, event };
+          }));
+          ctx.lastSavedMessageId = committed.messageId;
+          emitPersistedDomainEvent(host.bus, committed.event);
+          host.bus.emit("run:turn_text_reset", { runId: run.id });
+        });
+      }
+    }
+    if (ctx.turnHasToolCalls) {
+      host.bus.emit("run:status", { runId: run.id, status: "Analyzing results..." });
+    } else if (runCacheTurns.length > 0) {
+      // Terminal turn (no tool calls → the agent loop ends here): emit a
+      // once-per-run conversation cache summary, segmented by provider+model.
+      const convCache = aggregateCacheStats(runCacheTurns);
+      log.info("conversation cache summary", {
+        turns: runCacheTurns.length,
+        overallHitRate: Number(convCache.overall.hitRate.toFixed(4)),
+        cachedTokens: convCache.overall.cachedTokens,
+        promptTokens: convCache.overall.promptTokens,
+        segments: convCache.segments.map((s) => ({
+          provider: s.provider,
+          model: s.model,
+          hitRate: Number(s.hitRate.toFixed(4)),
+          cachedTokens: s.cachedTokens,
+          cacheWrite1hTokens: s.cacheWrite1hTokens,
+          turns: s.turnCount,
+        })),
+      });
+    }
+    ctx.turnText = "";
+  };
+
   // Subscribe to AgentEvents and bridge to local EventBus
   ctx.unsub = piAgent.subscribe((event: AgentEvent) => {
     // Any pi-agent-core event counts as progress for the watchdog — LLM is actively producing output.
     host.watchdog.bumpActivity(run.id);
     switch (event.type) {
       case "turn_start":
-        ctx.turnText = "";
-        ctx.turnThinking = "";
-        ctx.turnHasToolCalls = false;
-        host.bus.emit("run:status", { runId: run.id, status: "Thinking..." });
+        handleTurnStart();
         break;
       case "message_start": {
-        // P4 §1.2 — steered-row reconciliation (PERSISTENCE LAYER seam; Phase 2's
-        // session live-append should hook the same ordering here). When a steer
-        // is DELIVERED, pi drains it and emits message_start carrying the exact
-        // UserMessage object steerConversation queued. If the caller persisted a
-        // DB row for that steer up-front (agent-chat, for immediate feed
-        // visibility), its parent was the leaf-at-REQUEST — but the LLM sees the
-        // steer HERE, at a later branch position. Re-parent the row to the current
-        // branch leaf and thread later turns through it, so the NEXT run's
-        // loadHistory rebuilds the exact sequence the LLM saw.
-        //
-        // Serialized on ctx.dbQueue with the turn-save chain (no double-write
-        // race): the preceding turn's save — which advances ctx.lastSavedMessageId
-        // — is queued before this, so when the reparent runs ctx.lastSavedMessageId
-        // IS the pre-injection leaf; setting it to the steer row then makes the
-        // next turn_end parent onto the steer. The executor's `consumeSteerPersistedId`
-        // latch fires at most once per steer, and returns undefined for a steer
-        // with no persisted row (send_to_agent — an ephemeral prompt, like every
-        // sub-agent prompt: nothing to reconcile) or a non-steer message.
-        const injected = event.message;
-        if (
-          host.persist &&
-          injected &&
-          typeof injected === "object" &&
-          "role" in injected &&
-          injected.role === "user"
-        ) {
-          const persistedId = host.executor.consumeSteerPersistedId(run.id, injected);
-          if (persistedId) {
-            queueDb(async () => {
-              const currentLeaf = ctx.lastSavedMessageId;
-              if (currentLeaf && currentLeaf !== persistedId) {
-                const { reparentMessage } = await import("../../db/queries/conversations");
-                await reparentMessage(conversationId, persistedId, currentLeaf);
-              }
-              // Thread subsequent turns through the steer row even when there was
-              // no pre-injection leaf to reparent onto (injection at run start).
-              ctx.lastSavedMessageId = persistedId;
-
-              // Mirror the reconciled steer row into the session tree at its
-              // injection position (parent = the pre-injection leaf), so the
-              // session chain matches the reparented messages chain and the
-              // next turn_end append threads through it (design §5). Gated on
-              // the run's history-producer flag. Steer content is a plain
-              // string; non-string content is left for the catch-up to heal.
-              // Fail-open.
-              const steerContent = (injected as { content?: unknown }).content;
-              if (options.sessionHistoryProducer && typeof steerContent === "string") {
-                await appendSavedMessageEntry(
-                  conversationId,
-                  { id: persistedId, role: "user", content: steerContent, createdAt: new Date() },
-                  currentLeaf,
-                );
-              }
-            });
-          }
-        }
+        handleMessageStart(event);
         break;
       }
       case "message_update": {
-        const ame = event.assistantMessageEvent;
-        if (ame.type === "text_delta") {
-          ctx.turnText += ame.delta;
-          ctx.allTurnsText += ame.delta;
-          // First client-visible output → past the pre-stream failover
-          // boundary (see StreamChatContext.emittedToClient / WS2).
-          ctx.emittedToClient = true;
-          host.bus.emit("run:token", { runId: run.id, token: ame.delta, kind: "text" });
-        } else if (ame.type === "thinking_delta") {
-          ctx.turnThinking += ame.delta;
-          ctx.emittedToClient = true;
-          host.bus.emit("run:token", { runId: run.id, token: ame.delta, kind: "thinking" });
-        }
+        handleMessageUpdate(event);
         break;
       }
       case "tool_execution_start": {
-        ctx.turnHasToolCalls = true;
-        // A tool card is client-visible committed output → past the
-        // pre-stream failover boundary (see WS2 / emittedToClient).
-        ctx.emittedToClient = true;
-        const args = (event.args ?? {}) as Record<string, unknown>;
-        ctx.pendingToolArgs.set(event.toolCallId, args);
-        // invoke_agent has its own agent:spawn/agent:complete events — skip tool:start
-        if (event.toolName === "invoke_agent") break;
-        // Build descriptive status from tool name + primary arg
-        const primaryArg = args.file_path ?? args.path ?? args.pattern ?? args.command ?? args.query ?? args.url;
-        const statusDetail = primaryArg ? `: ${String(primaryArg).slice(0, 60)}` : '';
-        host.bus.emit("run:status", { runId: run.id, status: `Running ${event.toolName}${statusDetail}...` });
-        const toolDef = ctx.builtinToolDefsMap.get(event.toolName);
-        // Extension tools live in the registry under `<ext>__<tool>`;
-        // built-ins are bare names. Same lookup logic as tool_execution_end.
-        const startRegistered = !toolDef && event.toolName.includes("__")
-          ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
-          : undefined;
-        // cardLayout fan-out: normalize unknown values to "inline" (fail-open)
-        // and only emit when explicitly declared. Mirrors cardType resolution.
-        const startCardLayout = normalizeCardLayout(
-          toolDef?.cardLayout ?? startRegistered?.cardLayout,
-          event.toolName,
-        );
-        const startCardType = toolDef?.cardType ?? startRegistered?.cardType;
-        host.bus.emit("tool:start", {
-          conversationId, extensionId: "", toolName: event.toolName,
-          input: event.args, timestamp: Date.now(),
-          cardType: startCardType,
-          ...(startCardLayout ? { cardLayout: startCardLayout } : {}),
-          category: toolDef?.category,
-          // Propagate the pi-agent tool call id so the client can correlate
-          // this start with the later complete/error event (and with the
-          // persisted DB row — see the DB insert in tool_execution_end).
-          invocationId: event.toolCallId,
-        });
-        // Register the in-flight call with the watchdog so it (a) defers
-        // the idle kill until the declared callTimeoutMs is exceeded —
-        // pi-agent-core emits no events while awaiting the tool result, so
-        // otherwise the activity tracker would trip — and (b) can
-        // synthesize a `tool:error` event for this call if the watchdog
-        // ends up killing the run anyway.
-        //
-        // Precedence: extension manifest `resources.callTimeoutMs` >
-        // built-in `BuiltinToolDef.callTimeoutMs` > the principled default
-        // (DEFAULT_BUILTIN_CALL_TIMEOUT_MS == WATCHDOG_IDLE_MS, i.e.
-        // pre-Tier-2 behavior). The two paths are mutually exclusive in
-        // practice (extensions are registered, built-ins are in
-        // builtinToolDefsMap), so this is one fallback chain — no new
-        // helper needed.
-        const startManifest = startRegistered
-          ? ExtensionRegistry.getInstance().getManifest(startRegistered.extensionId)
-          : undefined;
-        const manifestCallTimeout = startManifest?.resources?.callTimeoutMs;
-        const builtinCallTimeout = toolDef?.callTimeoutMs;
-        const callTimeoutMs =
-          // F1: a host long-blocking orchestration tool (currently only
-          // `collect_agent_result` reaches this — `invoke_agent`'s tool:start is
-          // suppressed above) gets a BOUNDED, widened watchdog defer budget so a
-          // synchronous collect isn't idle-killed at ~90s while legitimately
-          // awaiting a background child. Keyed on the BARE `event.toolName`
-          // because the orchestration tool is wired bare and `startRegistered`
-          // (resolved from that bare name) is null — the same reason the manifest
-          // path below can't see its `resources.callTimeoutMs`. Host-controlled:
-          // only host wiring produces these bare names (see filter.ts).
-          LONG_BLOCKING_ORCHESTRATION_TOOLS.has(event.toolName)
-            ? LONG_BLOCKING_WATCHDOG_BUDGET_MS
-            : typeof manifestCallTimeout === "number" && manifestCallTimeout > 0
-              ? manifestCallTimeout
-              : typeof builtinCallTimeout === "number" && builtinCallTimeout > 0
-                ? builtinCallTimeout
-                : DEFAULT_BUILTIN_CALL_TIMEOUT_MS;
-        host.watchdog.noteToolStart(run.id, event.toolCallId, {
-          toolName: event.toolName,
-          conversationId,
-          extensionId: startRegistered?.extensionId ?? "",
-          startedAt: Date.now(),
-          callTimeoutMs,
-          ...(startCardType ? { cardType: startCardType } : {}),
-          ...(startCardLayout ? { cardLayout: startCardLayout } : {}),
-          ...(startRegistered?.requiresUserInput === true
-            ? { requiresUserInput: true }
-            : {}),
-        });
+        handleToolExecutionStart(event);
         break;
       }
       case "tool_execution_end": {
-        const details = event.result?.details;
-        const toolFailed = event.isError || (details !== null && typeof details === "object" && "isError" in details && details.isError === true);
-        // Drop the watchdog inflight entry on both success and error
-        // paths — the run is no longer waiting on this call. Safe if the
-        // entry was never recorded (e.g. invoke_agent below skips
-        // noteToolStart, the matching noteToolEnd is then a no-op).
-        host.watchdog.noteToolEnd(run.id, event.toolCallId);
-        // invoke_agent uses agent:spawn/agent:complete — skip tool:complete/error WS events
-        // but still persist to DB below
-        // cardType lookup: built-ins are in builtinToolDefsMap; extension
-        // tools are namespaced (`<ext>__<tool>`) and live in the registry.
-        // Without this, the chat UI's ToolCardRouter falls through to
-        // DefaultCard for every extension tool — including custom canvas
-        // cards like claude-design's design-canvas.
-        const endToolDef = ctx.builtinToolDefsMap.get(event.toolName);
-        const endRegistered = !endToolDef && event.toolName.includes("__")
-          ? ExtensionRegistry.getInstance().getRegisteredTool(event.toolName)
-          : undefined;
-        const endCardType = endToolDef?.cardType ?? endRegistered?.cardType;
-        // Same normalization as tool:start. Only emitted when explicitly
-        // "dock" — undefined keeps the wire payload identical to today.
-        const endCardLayout = normalizeCardLayout(
-          endToolDef?.cardLayout ?? endRegistered?.cardLayout,
-          event.toolName,
-        );
-        const toolEvent: DomainExtensionEvent | undefined = event.toolName === "invoke_agent" ? undefined : {
-          id: crypto.randomUUID(), type: toolFailed ? "tool:error" : "tool:complete", conversationId,
-          payload: {
-            conversationId, extensionId: "", toolName: event.toolName, duration: 0,
-            ...(toolFailed ? { error: typeof event.result === "string" ? event.result : JSON.stringify(event.result) } : { output: event.result, success: true }),
-            cardType: endCardType, ...(endCardLayout ? { cardLayout: endCardLayout } : {}), invocationId: event.toolCallId,
-          },
-        };
-        if (!host.persist && toolEvent) host.bus.emit(toolEvent.type, toolEvent.payload as never);
-        // Persist built-in tool calls to DB so diff panel survives page refresh.
-        // `providerToolCallId: event.toolCallId` (NOT `id` — see the doc on
-        // `ToolCallRow`/`toolCalls.id` in schema.ts) is what lets streaming
-        // events and hydrated DB rows share a client-visible key
-        // (`toolCallRowToSummary` reads it back) so the client can dedupe
-        // without fuzzy matching when a page reload overlaps an in-flight
-        // run. `id` itself stays the DB-generated surrogate: the LLM's own
-        // wire id is provider-controlled and NOT globally unique (the mock
-        // LLM defaults an unset id to positional `call_0`, and so do
-        // plenty of real OpenAI-compatible local servers) — pinning the PK
-        // to it let two conversations collide and silently drop the
-        // second tool call's row.
-        if (host.persist) {
-          const args = ctx.pendingToolArgs.get(event.toolCallId) ?? {};
-          ctx.pendingToolArgs.delete(event.toolCallId);
-          // Anchored to turn message in turn_end handler (messageId: null here).
-          // persistToolCall is the single insert site for tool_calls — keeps
-          // the four analytics dimensions (user/agent/model/provider) in
-          // lockstep with the extension-tool write path.
-          queueDb(async () => { await persistToolCall({
-            providerToolCallId: event.toolCallId,
-            conversationId,
-            messageId: null,
-            extensionId: "builtin",
-            toolName: event.toolName,
-            input: args,
-            output: { content: event.result?.content ?? [] },
-            success: !toolFailed,
-            durationMs: 0,
-            cardType: endCardType ?? null,
-            cardLayout: endCardLayout ?? null,
-            userId: convRecord?.userId ?? null,
-            agentConfigId: options.agentConfigId ?? convRecord?.agentConfigId ?? null,
-            model: options.model ?? convRecord?.model ?? null,
-            provider: options.provider ?? convRecord?.provider ?? null,
-          }, toolEvent); if (toolEvent) emitPersistedDomainEvent(host.bus, toolEvent); });
-        }
+        handleToolExecutionEnd(event);
         break;
       }
       case "turn_end": {
-        const msg = event.message;
-        if (msg && "role" in msg && msg.role === "assistant") {
-          const am = msg as AssistantMessage;
-          // Keep the provider's exact terminal error at the event boundary.
-          // The failover loop reads this after `prompt()` returns; relying
-          // only on an Agent state mirror turns some adapters' 4xx responses
-          // into a false successful empty turn.
-          if (am.stopReason === "error" && am.errorMessage) {
-            ctx.providerErrorMessage = am.errorMessage;
-          }
-          ctx.totalUsage = am.usage;
-          host.bus.emit("run:usage", { runId: run.id, usage: am.usage });
-
-          // ── Prompt-cache observability (WS0) ──────────────────────────────
-          // pi-ai already parses cacheRead/cacheWrite off the stream; surface
-          // it. Once-per-turn `info` summary (segmented by provider+model);
-          // per-block detail at `debug` (raise via EZCORP_DEBUG). Token counts
-          // only — never secrets.
-          const cacheStats = computeTurnCacheStats(am.usage);
-          runCacheTurns.push({
-            provider: turnProvider,
-            model: turnModel,
-            input: am.usage.input,
-            output: am.usage.output,
-            cacheRead: am.usage.cacheRead,
-            cacheWrite: am.usage.cacheWrite,
-            cacheWrite1h: am.usage.cacheWrite1h ?? 0,
-          });
-          log.info("turn cache", {
-            provider: turnProvider,
-            model: turnModel,
-            hitRate: Number(cacheStats.hitRate.toFixed(4)),
-            cachedTokens: cacheStats.cachedTokens,
-            cacheWriteTokens: cacheStats.cacheWriteTokens,
-            cacheWrite1hTokens: cacheStats.cacheWrite1hTokens,
-            promptTokens: cacheStats.promptTokens,
-          });
-          log.debug("turn cache detail", {
-            input: am.usage.input,
-            output: am.usage.output,
-            cacheRead: am.usage.cacheRead,
-            cacheWrite: am.usage.cacheWrite,
-          });
-
-          // Persist this turn as its own assistant message
-          // Extract text and thinking separately from the final AssistantMessage content array
-          const textContent = am.content
-            .filter((c: { type: string }) => c.type === "text")
-            .map((c: { type: string; text?: string }) => c.text ?? "")
-            .join("");
-          const thinkingContent = am.content
-            .filter((c: { type: string }) => c.type === "thinking")
-            .map((c: { type: string; thinking?: string }) => c.thinking ?? "")
-            .join("");
-          // Fallback: use accumulated streaming text if the final message lacks text blocks
-          // (some providers stream text_delta but don't include text in the final message)
-          const resolvedText = textContent || ctx.turnText;
-          const resolvedThinking = thinkingContent || ctx.turnThinking;
-
-          if (!textContent && ctx.turnText) {
-            log.warn("turn_end message missing text blocks but turnText has content", { turnTextPreview: ctx.turnText.slice(0, 100), contentTypes: am.content.map((c: { type: string }) => c.type).join(", ") });
-          }
-          if (!resolvedText && !ctx.turnHasToolCalls) {
-            log.warn("turn_end with no text and no tool calls", { contentTypes: am.content.map((c: { type: string }) => c.type).join(", ") });
-          }
-
-          if (host.persist && (resolvedText || ctx.turnHasToolCalls)) {
-            const capturedText = resolvedText;
-            const capturedThinking = resolvedThinking || undefined;
-            // A turn with no tool calls terminates the agent loop — no further
-            // turn will stream into a follow-up placeholder. Captured here
-            // because turnHasToolCalls is reset on the next turn_start, which
-            // can run before this queued DB callback fires.
-            const isFinalTurn = !ctx.turnHasToolCalls;
-            queueDb(async () => {
-              // Read the branch leaf at dbQueue-EXECUTION time (NOT a sync
-              // capture): the queue is FIFO, so any task queued before this one
-              // — a preceding turn's save, or a P4 §1.2 steer reconcile queued at
-              // an intervening message_start — has already advanced
-              // lastSavedMessageId. Reading it here makes the parent chain
-              // structural instead of dependent on inter-turn latency happening
-              // to drain the queue: a steered turn threads through the steer row,
-              // and back-to-back turns can't fork off a shared stale leaf.
-              // (text/thinking/isFinalTurn stay sync — they snapshot per-turn
-              // state that the next turn_start resets; lastSavedMessageId is
-              // never reset, only advanced forward by queued task completions.)
-              const capturedParent = ctx.lastSavedMessageId;
-              const committed = await withConvSessionLock<{ messageId: string; event: DomainExtensionEvent }>(conversationId, () => getDb().transaction(async (transaction: DbTransaction) => {
-                const { createMessage } = await import("../../db/queries/conversations");
-                const turnMsg = await createMessage(conversationId, {
-                  role: "assistant",
-                  content: capturedText,
-                  thinkingContent: capturedThinking,
-                  model: options.model,
-                  provider: options.provider,
-                  usage: {
-                    inputTokens: am.usage.input,
-                    outputTokens: am.usage.output,
-                    cacheReadTokens: cacheStats.cachedTokens,
-                    cacheWriteTokens: cacheStats.cacheWriteTokens,
-                    cacheWrite1hTokens: cacheStats.cacheWrite1hTokens,
-                    cacheHitRate: cacheStats.hitRate,
-                    // Routing provenance (WS3) — written only when the caller
-                    // (the executor's subscribe seam) supplied it, so direct
-                    // subscribeBridge callers keep today's usage shape. The
-                    // SERVED identity is NOT duplicated here — it lives in the
-                    // message row's model/provider columns above.
-                    ...(options.requestedProvider !== undefined ? { requestedProvider: options.requestedProvider } : {}),
-                    ...(options.requestedModel !== undefined ? { requestedModel: options.requestedModel } : {}),
-                    ...(options.routedTier !== undefined ? { routedTier: options.routedTier } : {}),
-                    ...(options.failover !== undefined ? { failover: options.failover } : {}),
-                    // WS5 routing provenance — same conditional-spread contract
-                    // as the fields above: a pinned turn (and any direct
-                    // subscribeBridge caller) writes no key at all, so legacy
-                    // rows and pinned rows stay distinguishable from routed ones.
-                    ...(options.routingSignals !== undefined ? { routingSignals: options.routingSignals } : {}),
-                    ...(options.routingConfig !== undefined ? { routingConfig: options.routingConfig } : {}),
-                  },
-                  runId: run.id,
-                  parentMessageId: capturedParent ?? undefined,
-                }, transaction);
-
-                // Anchor unanchored tool calls to this turn's message. Both the
-                // built-in path (tool_execution_end above) and the extension
-                // path (`extensionToAgentTool`'s `messageId` — see its doc
-                // comment) insert with `messageId: null` because the turn's
-                // assistant message doesn't exist yet at tool-call time; this
-                // is the single re-parent step that anchors ALL of them once
-                // it does. (A prior "also handle extension tools that used
-                // run.id as placeholder" second UPDATE was removed here: that
-                // never matched anything — `tool_calls.message_id` is a
-                // non-deferrable FK to `messages(id)`, so an insert carrying
-                // `run.id` — never a real message id — always violated the
-                // constraint and the row never landed, rather than landing
-                // with a stale id for this step to fix up.)
-                await transaction
-                  .update(toolCalls)
-                  .set({ messageId: turnMsg.id })
-                  .where(and(
-                    eq(toolCalls.conversationId, conversationId),
-                    isNull(toolCalls.messageId),
-                  ));
-
-                // Anchor agent sub-conversations created during this turn to the assistant message
-                await transaction
-                  .update(conversations)
-                  .set({ parentMessageId: turnMsg.id })
-                  .where(and(
-                    eq(conversations.parentConversationId, conversationId),
-                    isNull(conversations.parentMessageId),
-                  ));
-
-                // Live-append this assistant turn to the pi session tree
-                // (design §5) so the session mirror stays hot for the next
-                // run's read. Keyed by the row id (mirror invariant), parented
-                // on the SAME structural parent the messages row got. Gated on
-                // the run's history-producer flag.
-                if (options.sessionHistoryProducer) {
-                  await appendSavedMessageEntryInTransaction(
-                    transaction,
-                    conversationId,
-                    { id: turnMsg.id, role: "assistant", content: capturedText, createdAt: turnMsg.createdAt },
-                    capturedParent,
-                  );
-                }
-
-                const event: DomainExtensionEvent = { id: turnMsg.id, type: "run:turn_saved", conversationId, payload: {
-                  runId: run.id,
-                  conversationId,
-                  messageId: turnMsg.id,
-                  parentMessageId: capturedParent,
-                  content: capturedText,
-                  thinkingContent: capturedThinking,
-                  final: isFinalTurn,
-                } };
-                await publishDomainEvent(transaction, event);
-                return { messageId: turnMsg.id, event };
-              }));
-              ctx.lastSavedMessageId = committed.messageId;
-              emitPersistedDomainEvent(host.bus, committed.event);
-              host.bus.emit("run:turn_text_reset", { runId: run.id });
-            });
-          }
-        }
-        if (ctx.turnHasToolCalls) {
-          host.bus.emit("run:status", { runId: run.id, status: "Analyzing results..." });
-        } else if (runCacheTurns.length > 0) {
-          // Terminal turn (no tool calls → the agent loop ends here): emit a
-          // once-per-run conversation cache summary, segmented by provider+model.
-          const convCache = aggregateCacheStats(runCacheTurns);
-          log.info("conversation cache summary", {
-            turns: runCacheTurns.length,
-            overallHitRate: Number(convCache.overall.hitRate.toFixed(4)),
-            cachedTokens: convCache.overall.cachedTokens,
-            promptTokens: convCache.overall.promptTokens,
-            segments: convCache.segments.map((s) => ({
-              provider: s.provider,
-              model: s.model,
-              hitRate: Number(s.hitRate.toFixed(4)),
-              cachedTokens: s.cachedTokens,
-              cacheWrite1hTokens: s.cacheWrite1hTokens,
-              turns: s.turnCount,
-            })),
-          });
-        }
-        ctx.turnText = "";
+        handleTurnEnd(event);
         break;
       }
     }

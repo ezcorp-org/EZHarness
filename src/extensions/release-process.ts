@@ -68,6 +68,29 @@ export class ReleaseProcess extends ExtensionProcess {
     return resolveActiveRelease(this.extensionId, this.runtime!);
   }
 
+  private async resolveInvocationTarget(method: string, params: Record<string, unknown>, snapshot: ActiveExtensionRelease, invocationGuard: InvocationGuard | undefined) {
+    if (snapshot.release.manifest.methods?.some(contribution => contribution.name === method && contribution.sensitivity === "sensitive")) {
+      throw new ContractError("SENSITIVE_METHOD_REQUIRES_BROKER", "Sensitive runtime methods require a credential broker");
+    }
+    const meta = params._meta && typeof params._meta === "object" && !Array.isArray(params._meta) ? params._meta as Record<string, unknown> : {};
+    if ((meta.releaseId !== undefined && meta.releaseId !== snapshot.release.id) || (meta.expectedGeneration !== undefined && meta.expectedGeneration !== snapshot.installation.generation) || (meta.expectedReleaseBinding !== undefined && meta.expectedReleaseBinding !== await sha256(releaseBinding(snapshot)))) throw new ContractError("RELEASE_CHANGED", "Invocation no longer targets the active release generation and grants");
+    const token = typeof meta.ezCallId === "string" ? meta.ezCallId : undefined;
+    const provenance = token ? resolveCallProvenance(token) : undefined;
+    const serviceInvocation = provenance?.serviceInvocation;
+    if (!token || !provenance || provenance.actorExtensionId !== this.extensionId || provenance.ownerless || (serviceInvocation ? !isServiceInvocation(serviceInvocation) || serviceInvocation.kind !== "sealed" || provenance.onBehalfOf !== null || typeof provenance.invocationGuard !== "function" : !provenance.onBehalfOf)) throw new ContractError("INVALID_CALL_TOKEN", "An active call token for this extension and principal is required");
+    if (serviceInvocation || provenance.invocationGuard) {
+      const upstreamGuard = invocationGuard;
+      const tokenGuard = provenance.invocationGuard;
+      invocationGuard = async database => {
+        await upstreamGuard?.(database);
+        if (tokenGuard !== upstreamGuard) await tokenGuard?.(database);
+        await serviceInvocation?.assertActive(database);
+      };
+      await invocationGuard();
+    }
+    return { meta, token, provenance, serviceInvocation, invocationGuard };
+  }
+
   override async call(method: string, params: Record<string, unknown> = {}, options?: ReleaseCallOptions): Promise<JsonRpcResponse> {
     if (options?.signal?.aborted) throw new ContractError("CANCELLED", "Extension invocation cancelled");
     this.ensureRunning();
@@ -89,25 +112,9 @@ export class ReleaseProcess extends ExtensionProcess {
     const snapshot = await this.active();
     checkCancellation();
     if (method === "tools/list") return { tools: snapshot.release.manifest.tools ?? [] };
-    if (snapshot.release.manifest.methods?.some(contribution => contribution.name === method && contribution.sensitivity === "sensitive")) {
-      throw new ContractError("SENSITIVE_METHOD_REQUIRES_BROKER", "Sensitive runtime methods require a credential broker");
-    }
-    const meta = params._meta && typeof params._meta === "object" && !Array.isArray(params._meta) ? params._meta as Record<string, unknown> : {};
-    if ((meta.releaseId !== undefined && meta.releaseId !== snapshot.release.id) || (meta.expectedGeneration !== undefined && meta.expectedGeneration !== snapshot.installation.generation) || (meta.expectedReleaseBinding !== undefined && meta.expectedReleaseBinding !== await sha256(releaseBinding(snapshot)))) throw new ContractError("RELEASE_CHANGED", "Invocation no longer targets the active release generation and grants");
-    const token = typeof meta.ezCallId === "string" ? meta.ezCallId : undefined;
-    const provenance = token ? resolveCallProvenance(token) : undefined;
-    const serviceInvocation = provenance?.serviceInvocation;
-    if (!token || !provenance || provenance.actorExtensionId !== this.extensionId || provenance.ownerless || (serviceInvocation ? !isServiceInvocation(serviceInvocation) || serviceInvocation.kind !== "sealed" || provenance.onBehalfOf !== null || typeof provenance.invocationGuard !== "function" : !provenance.onBehalfOf)) throw new ContractError("INVALID_CALL_TOKEN", "An active call token for this extension and principal is required");
-    if (serviceInvocation || provenance.invocationGuard) {
-      const upstreamGuard = invocationGuard;
-      const tokenGuard = provenance.invocationGuard;
-      invocationGuard = async database => {
-        await upstreamGuard?.(database);
-        if (tokenGuard !== upstreamGuard) await tokenGuard?.(database);
-        await serviceInvocation?.assertActive(database);
-      };
-      await invocationGuard();
-    }
+    const target = await this.resolveInvocationTarget(method, params, snapshot, invocationGuard);
+    const { meta, token, provenance, serviceInvocation } = target;
+    invocationGuard = target.invocationGuard;
     const workerId = crypto.randomUUID();
     const metadata: Record<string, JsonValue> = { ezConversationId: provenance.conversationId };
     if (serviceInvocation) Object.assign(metadata, { principalKind: "service", serviceId: serviceInvocation.serviceId, delegationId: serviceInvocation.delegationId, workflowRunId: serviceInvocation.workflowRunId });

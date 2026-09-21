@@ -210,60 +210,85 @@ async function listProjectFiles(
 	return scored.slice(0, limit).map((x) => x.c);
 }
 
-export const GET: RequestHandler = async ({ url, locals }) => {
-	const scopeErr = requireScope(locals, "read");
-	if (scopeErr) return scopeErr;
-	const user = requireAuth(locals);
+type MentionSearchContext = {
+	url: URL;
+	user: ReturnType<typeof requireAuth>;
+	q: string;
+	type: FileType | null;
+	projectId: string | null;
+	results: MentionSearchResult[];
+	lowerQ: string;
+	pattern: string;
+};
 
+type SpecializedSearch = (context: MentionSearchContext) => Promise<Response>;
+
+function createSearchContext(
+	url: URL,
+	user: ReturnType<typeof requireAuth>,
+): MentionSearchContext {
 	const q = url.searchParams.get("q") ?? "";
-	const type = url.searchParams.get("type") as FileType | null;
-	const projectId = url.searchParams.get("projectId");
-	const results: MentionSearchResult[] = [];
-	const lowerQ = q.toLowerCase();
-	const pattern = `%${q}%`;
+	return {
+		url,
+		user,
+		q,
+		type: url.searchParams.get("type") as FileType | null,
+		projectId: url.searchParams.get("projectId"),
+		results: [],
+		lowerQ: q.toLowerCase(),
+		pattern: `%${q}%`,
+	};
+}
+
+/** Search the command registry and the built-in `/goal` interceptor. */
+async function searchCommands({
+	q,
+	user,
+	projectId,
+	results,
+}: MentionSearchContext): Promise<Response> {
 
 	// Slash-command searches are mutually exclusive with other kinds.
 	// The registry merges filesystem + DB sources; we fuzzy-rank by name
 	// (or description) and return at most MAX_RESULTS entries. Unlike
 	// `type=path`, missing projectId is tolerated — registry falls back
 	// to home + DB commands only.
-	if (type === "cmd") {
-		let projectPath: string | null = null;
-		if (projectId) {
-			if (await projectRequiresSandbox(projectId)) return json([]);
-			const project = await projectQueries.getProject(projectId);
-			projectPath = project?.path ? resolve(project.path) : null;
-		}
-		const registry = getCommandRegistry();
-		const cmds = await registry.listCommands({
-			userId: user.id,
-			projectId: projectId ?? "global",
-			projectPath,
-		});
+	let projectPath: string | null = null;
+	if (projectId) {
+		if (await projectRequiresSandbox(projectId)) return json([]);
+		const project = await projectQueries.getProject(projectId);
+		projectPath = project?.path ? resolve(project.path) : null;
+	}
+	const registry = getCommandRegistry();
+	const cmds = await registry.listCommands({
+		userId: user.id,
+		projectId: projectId ?? "global",
+		projectPath,
+	});
 
 		// Rank registry commands (filesystem + DB). Empty query → natural
 		// order; otherwise fuzzy-rank by name or description.
-		let ranked: typeof cmds;
-		if (!q) {
-			ranked = cmds;
-		} else {
-			const scored: Array<{ c: typeof cmds[number]; score: number }> = [];
-			for (const c of cmds) {
-				const best = bestFuzzyScore([fuzzyScore(q, c.name), fuzzyScore(q, c.description)]);
-				if (best !== null) scored.push({ c, score: best });
-			}
-			scored.sort((a, b) => b.score - a.score);
-			ranked = scored.map((s) => s.c);
+	let ranked: typeof cmds;
+	if (!q) {
+		ranked = cmds;
+	} else {
+		const scored: Array<{ c: typeof cmds[number]; score: number }> = [];
+		for (const c of cmds) {
+			const best = bestFuzzyScore([fuzzyScore(q, c.name), fuzzyScore(q, c.description)]);
+			if (best !== null) scored.push({ c, score: best });
 		}
-		for (const c of ranked) {
-			results.push({
-				name: c.name,
-				description: c.description,
-				kind: "command",
-				source: c.source,
-				body: c.body,
-			});
-		}
+		scored.sort((a, b) => b.score - a.score);
+		ranked = scored.map((s) => s.c);
+	}
+	for (const c of ranked) {
+		results.push({
+			name: c.name,
+			description: c.description,
+			kind: "command",
+			source: c.source,
+			body: c.body,
+		});
+	}
 
 		// Surface the built-in `/goal` autopilot as a first-class, discoverable
 		// entry. It's a server-side text interceptor (src/runtime/goal-host.ts),
@@ -271,21 +296,24 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		// kill-switch the messages route honors, so a disabled server never
 		// advertises it. Selecting it inserts LITERAL `/goal ` via `insertText`
 		// (a `/[cmd:goal]` token would never match `isGoalCommand()`).
-		if (
-			parseGoalEnabled(process.env.EZCORP_GOAL_ENABLED) &&
-			(!q || fuzzyScore(q, "goal") !== null)
-		) {
-			results.unshift({
-				name: "goal",
-				description: "Set an autonomous goal — the AI keeps working until it's met",
-				kind: "command",
-				source: "builtin",
-				insertText: "/goal ",
-			});
-		}
-
-		return json(results.slice(0, MAX_RESULTS));
+	if (
+		parseGoalEnabled(process.env.EZCORP_GOAL_ENABLED) &&
+		(!q || fuzzyScore(q, "goal") !== null)
+	) {
+		results.unshift({
+			name: "goal",
+			description: "Set an autonomous goal — the AI keeps working until it's met",
+			kind: "command",
+			source: "builtin",
+			insertText: "/goal ",
+		});
 	}
+
+	return json(results.slice(0, MAX_RESULTS));
+}
+
+/** Search the global EZ-action registry. */
+async function searchEzActions({ q, lowerQ, results }: MentionSearchContext): Promise<Response> {
 
 	// EZ Actions searches are mutually exclusive with other kinds — the
 	// `!EZ:` prefix's popover lists only EZ actions from the in-memory
@@ -302,70 +330,82 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	// — see `listEzActions()`'s contract. This is defense-in-depth: even
 	// if the registry shape ever grew more fields, the route would have
 	// to be updated explicitly to leak them.
-	if (type === "EZ") {
-		const { listEzActions } = await import(
-			"$server/runtime/ez-actions/registry"
-		);
-		const actions = listEzActions();
-		const matched = q
-			? actions.filter(
-					(a) =>
-						a.name.toLowerCase().includes(lowerQ) ||
-						a.description.toLowerCase().includes(lowerQ),
-				)
-			: actions;
-		for (const a of matched.slice(0, MAX_RESULTS)) {
-			results.push({ name: a.name, description: a.description, kind: "EZ" });
-		}
-		return json(results);
+	const { listEzActions } = await import(
+		"$server/runtime/ez-actions/registry"
+	);
+	const actions = listEzActions();
+	const matched = q
+		? actions.filter(
+				(a) =>
+					a.name.toLowerCase().includes(lowerQ) ||
+					a.description.toLowerCase().includes(lowerQ),
+			)
+		: actions;
+	for (const a of matched.slice(0, MAX_RESULTS)) {
+		results.push({ name: a.name, description: a.description, kind: "EZ" });
 	}
+	return json(results);
+}
+
+/** Search feature-index entries scoped to the active project. */
+async function searchFeatures({
+	q,
+	projectId,
+	results,
+}: MentionSearchContext): Promise<Response> {
 
 	// Feature-Index searches are mutually exclusive with other kinds —
 	// the `$` sigil's popover shows only Feature Index entries scoped to
 	// the active project. If no active project (or unknown project),
 	// return an empty list instead of falling through to agent/ext/team
 	// results. Mirrors the `type === "path"` branch directly below.
-	if (type === "feature") {
-		if (!projectId) return json([]);
-		const project = await projectQueries.getProject(projectId);
-		if (!project) return json([]);
-		const { listFeatures } = await import("$server/db/queries/features");
-		const features = await listFeatures(projectId);
+	if (!projectId) return json([]);
+	const project = await projectQueries.getProject(projectId);
+	if (!project) return json([]);
+	const { listFeatures } = await import("$server/db/queries/features");
+	const features = await listFeatures(projectId);
 
-		const matched = q
-			? features
-					.map((f) => ({
-						f,
-						score: bestFuzzyScore([fuzzyScore(q, f.name), fuzzyScore(q, f.description)]),
-					}))
-					.filter((x): x is { f: typeof features[number]; score: number } => x.score !== null)
-					.sort((a, b) => b.score - a.score)
-					.map((x) => x.f)
-			: features;
+	const matched = q
+		? features
+				.map((f) => ({
+					f,
+					score: bestFuzzyScore([fuzzyScore(q, f.name), fuzzyScore(q, f.description)]),
+				}))
+				.filter((x): x is { f: typeof features[number]; score: number } => x.score !== null)
+				.sort((a, b) => b.score - a.score)
+				.map((x) => x.f)
+		: features;
 
-		for (const f of matched.slice(0, MAX_RESULTS)) {
-			results.push({
-				name: f.name,
-				description: f.description,
-				kind: "feature",
-				fileCount: f.fileCount,
-			});
-		}
-		return json(results);
+	for (const f of matched.slice(0, MAX_RESULTS)) {
+		results.push({
+			name: f.name,
+			description: f.description,
+			kind: "feature",
+			fileCount: f.fileCount,
+		});
 	}
+	return json(results);
+}
+
+/** Search lessons visible to the requesting user in the active project. */
+async function searchLessons({
+	projectId,
+	user,
+	q,
+	results,
+}: MentionSearchContext): Promise<Response> {
 
 	// Lesson searches are mutually exclusive with other kinds — the `%`
 	// sigil's popover shows only lesson entries, scoped to the active
 	// project AND the requesting user (visibility precedence is enforced
 	// inside `searchLessons`: user-scoped beats project-scoped beats
 	// global at the same slug). Mirrors the `type === "feature"` branch.
-	if (type === "lesson") {
-		if (!projectId) return json([]);
-		const project = await projectQueries.getProject(projectId);
-		if (!project) return json([]);
-		const { searchLessons } = await import("$server/db/queries/lessons");
-		const lessons = await searchLessons(projectId, user.id, q, MAX_RESULTS);
-		for (const lesson of lessons) {
+	if (!projectId) return json([]);
+	const project = await projectQueries.getProject(projectId);
+	if (!project) return json([]);
+	const { searchLessons } = await import("$server/db/queries/lessons");
+	const lessons = await searchLessons(projectId, user.id, q, MAX_RESULTS);
+	for (const lesson of lessons) {
 			// Body excerpt drives the popover preview (Builder A's spec).
 			// 60-char cap keeps the chip compact; the full body is
 			// rendered server-side at expansion time, not here. Append `…`
@@ -377,33 +417,48 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 				lesson.body.length > 60
 					? lesson.body.slice(0, 59) + "…"
 					: lesson.body;
-			results.push({
-				name: lesson.slug,
-				description,
-				kind: "lesson",
-			});
-		}
-		return json(results);
+		results.push({
+			name: lesson.slug,
+			description,
+			kind: "lesson",
+		});
 	}
+	return json(results);
+}
 
-	if (type === "workflow") {
-		const workflows = await listVisibleWorkflows(user, projectId);
-		const matched = q
-			? workflows
-					.map((w) => ({
-						w,
-						score: bestFuzzyScore([fuzzyScore(q, w.name), fuzzyScore(q, w.description)]),
-					}))
-					.filter((x): x is { w: typeof workflows[number]; score: number } => x.score !== null)
-					.sort((a, b) => b.score - a.score)
-					.map((x) => x.w)
-			: workflows;
+/** Search caller-visible workflows from the merged workflow cache. */
+async function searchWorkflows({
+	user,
+	projectId,
+	q,
+	results,
+}: MentionSearchContext): Promise<Response> {
 
-		for (const w of matched.slice(0, MAX_RESULTS)) {
-			results.push({ name: w.name, description: w.description, kind: "workflow" });
-		}
-		return json(results);
+	const workflows = await listVisibleWorkflows(user, projectId);
+	const matched = q
+		? workflows
+				.map((w) => ({
+					w,
+					score: bestFuzzyScore([fuzzyScore(q, w.name), fuzzyScore(q, w.description)]),
+				}))
+				.filter((x): x is { w: typeof workflows[number]; score: number } => x.score !== null)
+				.sort((a, b) => b.score - a.score)
+				.map((x) => x.w)
+		: workflows;
+
+	for (const w of matched.slice(0, MAX_RESULTS)) {
+		results.push({ name: w.name, description: w.description, kind: "workflow" });
 	}
+	return json(results);
+}
+
+/** Search tools exposed by one installed extension. */
+async function searchTools({
+	url,
+	q,
+	lowerQ,
+	results,
+}: MentionSearchContext): Promise<Response> {
 
 	// Phase 4 — tool listing for a specific extension. Used by the
 	// `![ext:<name>/` autocomplete path to surface every tool the
@@ -417,15 +472,14 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 	// would explode across every installed extension. Missing param =>
 	// empty array (mirrors the empty-projectId fallback for path/feature
 	// searches).
-	if (type === "tool") {
-		const extensionName = url.searchParams.get("extension");
-		if (!extensionName) return json([]);
-		const { ExtensionRegistry } = await import(
-			"$server/extensions/registry"
-		);
-		const registry = ExtensionRegistry.getInstance();
-		const manifest = registry.getManifestByName(extensionName);
-		if (!manifest) return json([]);
+	const extensionName = url.searchParams.get("extension");
+	if (!extensionName) return json([]);
+	const { ExtensionRegistry } = await import(
+		"$server/extensions/registry"
+	);
+	const registry = ExtensionRegistry.getInstance();
+	const manifest = registry.getManifestByName(extensionName);
+	if (!manifest) return json([]);
 
 		// Tool list = hand-rolled tools (already stored on the manifest)
 		// + the SDK-auto-generated entity tools the registry surfaces.
@@ -435,15 +489,15 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 		//
 		// `getToolsForExtension` returns RegisteredTool[], keyed by the
 		// DB id; we need to find that id from the manifest's name first.
-		let allTools: Array<{
-			name: string;
-			description: string;
-			entityType?: string;
-		}> = [];
-		for (const [extId, m] of registry.getAllManifests()) {
-			if (m.name !== extensionName) continue;
-			const registered = registry.getToolsForExtension(extId);
-			allTools = registered.map((t) => ({
+	let allTools: Array<{
+		name: string;
+		description: string;
+		entityType?: string;
+	}> = [];
+	for (const [extId, m] of registry.getAllManifests()) {
+		if (m.name !== extensionName) continue;
+		const registered = registry.getToolsForExtension(extId);
+		allTools = registered.map((t) => ({
 				// originalName is the unnamespaced tool name (what the
 				// LLM/composer references after `!ext:<name>/`); skip
 				// the namespaced form (`<ext>__<tool>`) — that's the
@@ -451,147 +505,195 @@ export const GET: RequestHandler = async ({ url, locals }) => {
 				name: t.originalName,
 				description: t.description,
 				...(t.entityType ? { entityType: t.entityType } : {}),
-			}));
-			break;
-		}
-
-		const matched = q
-			? allTools.filter(
-					(t) =>
-						t.name.toLowerCase().includes(lowerQ) ||
-						t.description.toLowerCase().includes(lowerQ),
-				)
-			: allTools;
-		for (const t of matched.slice(0, MAX_RESULTS)) {
-			results.push({
-				name: t.name,
-				description: t.description,
-				kind: "tool",
-				...(t.entityType ? { entityType: t.entityType } : {}),
-			});
-		}
-		return json(results);
+		}));
+		break;
 	}
+
+	const matched = q
+		? allTools.filter(
+				(t) =>
+					t.name.toLowerCase().includes(lowerQ) ||
+					t.description.toLowerCase().includes(lowerQ),
+			)
+		: allTools;
+	for (const t of matched.slice(0, MAX_RESULTS)) {
+		results.push({
+			name: t.name,
+			description: t.description,
+			kind: "tool",
+			...(t.entityType ? { entityType: t.entityType } : {}),
+		});
+	}
+	return json(results);
+}
+
+/** Search project files and directories with the sandbox/path policy. */
+async function searchPaths({
+	q,
+	projectId,
+	results,
+}: MentionSearchContext): Promise<Response> {
 
 	// Path searches are mutually exclusive with other kinds — when the `@`
 	// sigil is active the popover lists files + dirs only. If no active
 	// project (or unknown project), return an empty list instead of falling
 	// through to agent/ext/team results.
-	if (type === "path") {
-		if (!projectId) return json([]);
-		if (await projectRequiresSandbox(projectId)) return json([]);
-		const project = await projectQueries.getProject(projectId);
-		const projectPath = project?.path ? resolve(project.path) : null;
-		if (!projectPath) return json([]);
-		const paths = await listProjectFiles(projectPath, q, MAX_RESULTS);
-		for (const p of paths) {
-			results.push({ name: p.name, description: p.description, kind: p.kind });
-		}
-		return json(results);
+	if (!projectId) return json([]);
+	if (await projectRequiresSandbox(projectId)) return json([]);
+	const project = await projectQueries.getProject(projectId);
+	const projectPath = project?.path ? resolve(project.path) : null;
+	if (!projectPath) return json([]);
+	const paths = await listProjectFiles(projectPath, q, MAX_RESULTS);
+	for (const p of paths) {
+		results.push({ name: p.name, description: p.description, kind: p.kind });
 	}
+	return json(results);
+}
 
-	// Search teams first (unless filtered to agents or extensions only)
-	if (type !== "agent" && type !== "ext") {
-		const teamConditions = [eq(agentConfigs.category, "team")];
-		if (q) {
-			teamConditions.push(or(ilike(agentConfigs.name, pattern), ilike(agentConfigs.description, pattern))!);
-		}
-		const teams = await getDb()
-			.select({ name: agentConfigs.name, description: agentConfigs.description })
-			.from(agentConfigs)
-			.where(and(...teamConditions))
-			.limit(MAX_RESULTS);
-		for (const t of teams) {
-			results.push({ name: t.name, description: t.description, kind: "team" });
-			if (results.length >= MAX_RESULTS) break;
-		}
+async function searchTeams({
+	q,
+	pattern,
+	results,
+}: MentionSearchContext): Promise<void> {
+	const teamConditions = [eq(agentConfigs.category, "team")];
+	if (q) {
+		teamConditions.push(or(ilike(agentConfigs.name, pattern), ilike(agentConfigs.description, pattern))!);
 	}
-
-	// Search agents (unless filtered to extensions or teams only)
-	if (type !== "ext" && type !== "team" && results.length < MAX_RESULTS) {
-		const teamNames = new Set(results.filter((r) => r.kind === "team").map((r) => r.name));
-		const executor = getExecutor();
-		const agents = executor.listAgents();
-		for (const a of agents) {
-			if (teamNames.has(a.name)) continue;
-			if (!q || a.name.toLowerCase().includes(lowerQ) || a.description.toLowerCase().includes(lowerQ)) {
-				results.push({ name: a.name, description: a.description, kind: "agent" });
-			}
-			if (results.length >= MAX_RESULTS) break;
-		}
+	const teams = await getDb()
+		.select({ name: agentConfigs.name, description: agentConfigs.description })
+		.from(agentConfigs)
+		.where(and(...teamConditions))
+		.limit(MAX_RESULTS);
+	for (const t of teams) {
+		results.push({ name: t.name, description: t.description, kind: "team" });
+		if (results.length >= MAX_RESULTS) break;
 	}
+}
 
-	// Search extensions (unless filtered to agents or teams only)
-	if (type !== "agent" && type !== "team" && results.length < MAX_RESULTS) {
-		const remaining = MAX_RESULTS - results.length;
-		const conditions = [eq(extensions.enabled, true)];
-		if (q) {
-			conditions.push(or(ilike(extensions.name, pattern), ilike(extensions.description, pattern))!);
+function searchAgents({
+	q,
+	lowerQ,
+	results,
+}: MentionSearchContext): void {
+	const teamNames = new Set(results.filter((r) => r.kind === "team").map((r) => r.name));
+	const executor = getExecutor();
+	const agents = executor.listAgents();
+	for (const a of agents) {
+		if (teamNames.has(a.name)) continue;
+		if (!q || a.name.toLowerCase().includes(lowerQ) || a.description.toLowerCase().includes(lowerQ)) {
+			results.push({ name: a.name, description: a.description, kind: "agent" });
 		}
-		// The gate decides on COLUMNS (kind / isBundled / creatorUserId), so
-		// select them — `enabled` alone was the only filter here.
-		const exts = await getDb()
-			.select({
-				id: extensions.id,
-				name: extensions.name,
-				description: extensions.description,
-				manifest: extensions.manifest,
-				source: extensions.source,
-				isBundled: extensions.isBundled,
-				creatorUserId: extensions.creatorUserId,
-			})
-			.from(extensions)
-			.where(and(...conditions))
-			.limit(remaining);
-		// Don't OFFER what the user cannot USE. `![ext:…]` wiring drops a
-		// denied extension silently — correct, because an error there would be
-		// an existence oracle — but the composer was advertising the very
-		// extensions that would then do nothing: the user picks a suggestion
-		// and the product produces no tool, no message and no signal. Filtering
-		// discovery leaves the silent no-op applying only to a name typed by
-		// hand, which is exactly the case the mention-grammar contract
-		// describes. The actor is resolved at most ONCE per request, and not at
-		// all when no MCP extension matched (see
-		// `partitionWirableExtensionsForUser`).
-		const { deniedNames } = await partitionWirableExtensionsForUser(exts, {
-			userId: user.id,
-			projectId,
-		});
-		// Filter by the denied NAME set rather than iterating `allowed`: the
-		// row type here carries `description`, which the gate's minimal
-		// `WirableExtension` shape does not, and `deniedNames` is a plain
-		// `string[]` either way.
-		const denied = new Set(deniedNames);
-		for (const e of exts) {
-			if (denied.has(e.name)) continue;
-			results.push({ name: e.name, description: e.description, kind: "extension" });
-		}
+		if (results.length >= MAX_RESULTS) break;
 	}
+}
 
-	// Search built-in tool categories (unless filtered to agents or teams only)
-	if (type !== "agent" && type !== "team" && results.length < MAX_RESULTS) {
-		const { getBuiltInCategories } = await import("$server/runtime/tools/builtin-registry");
-		const existingNames = new Set(results.map(r => r.name));
-		for (const cat of getBuiltInCategories()) {
-			if (existingNames.has(cat.name)) continue;
-			if (!q || cat.name.toLowerCase().includes(lowerQ) || cat.description.toLowerCase().includes(lowerQ)) {
-				results.push({ name: cat.name, description: cat.description, kind: "extension" });
-			}
-			if (results.length >= MAX_RESULTS) break;
-		}
+async function searchExtensions({
+	user,
+	projectId,
+	q,
+	pattern,
+	results,
+}: MentionSearchContext): Promise<void> {
+	const remaining = MAX_RESULTS - results.length;
+	const conditions = [eq(extensions.enabled, true)];
+	if (q) {
+		conditions.push(or(ilike(extensions.name, pattern), ilike(extensions.description, pattern))!);
 	}
+	// The gate decides on COLUMNS (kind / isBundled / creatorUserId), so
+	// select them — `enabled` alone was the only filter here.
+	const exts = await getDb()
+		.select({
+			id: extensions.id,
+			name: extensions.name,
+			description: extensions.description,
+			manifest: extensions.manifest,
+			source: extensions.source,
+			isBundled: extensions.isBundled,
+			creatorUserId: extensions.creatorUserId,
+		})
+		.from(extensions)
+		.where(and(...conditions))
+		.limit(remaining);
+	// Don't OFFER what the user cannot USE. `![ext:…]` wiring drops a
+	// denied extension silently — correct, because an error there would be
+	// an existence oracle — but the composer was advertising the very
+	// extensions that would then do nothing: the user picks a suggestion
+	// and the product produces no tool, no message and no signal. Filtering
+	// discovery leaves the silent no-op applying only to a name typed by
+	// hand, which is exactly the case the mention-grammar contract
+	// describes. The actor is resolved at most ONCE per request, and not at
+	// all when no MCP extension matched (see
+	// `partitionWirableExtensionsForUser`).
+	const { deniedNames } = await partitionWirableExtensionsForUser(exts, {
+		userId: user.id,
+		projectId,
+	});
+	// Filter by the denied NAME set rather than iterating `allowed`: the
+	// row type here carries `description`, which the gate's minimal
+	// `WirableExtension` shape does not, and `deniedNames` is a plain
+	// `string[]` either way.
+	const denied = new Set(deniedNames);
+	for (const e of exts) {
+		if (denied.has(e.name)) continue;
+		results.push({ name: e.name, description: e.description, kind: "extension" });
+	}
+}
 
-	// Merge the two GLOBAL `!`-family kinds into the no-colon `!` fallback.
-	// `type === "EZ"` / `type === "workflow"` are already handled by their
-	// dedicated branches above, so these fire only when the user typed bare
-	// `!` / `!e` / `!wo` etc. — discoverability parity with agent/ext/team.
-	// Skipped when explicitly filtering to a sibling kind (`!agent:` /
-	// `!ext:` / `!team:`).
+async function searchBuiltinCategories({
+	q,
+	lowerQ,
+	results,
+}: MentionSearchContext): Promise<void> {
+	const { getBuiltInCategories } = await import("$server/runtime/tools/builtin-registry");
+	const existingNames = new Set(results.map((r) => r.name));
+	for (const cat of getBuiltInCategories()) {
+		if (existingNames.has(cat.name)) continue;
+		if (!q || cat.name.toLowerCase().includes(lowerQ) || cat.description.toLowerCase().includes(lowerQ)) {
+			results.push({ name: cat.name, description: cat.description, kind: "extension" });
+		}
+		if (results.length >= MAX_RESULTS) break;
+	}
+}
+
+async function searchGlobalKinds({
+	type,
+	user,
+	projectId,
+	lowerQ,
+	results,
+}: MentionSearchContext): Promise<void> {
 	if (type !== "agent" && type !== "ext" && type !== "team") {
 		const { listEzActions } = await import("$server/runtime/ez-actions/registry");
 		mergeGlobalBangKind(results, listEzActions(), "ez", "EZ", lowerQ);
 		mergeGlobalBangKind(results, await listVisibleWorkflows(user, projectId), "workflow", "workflow", lowerQ);
 	}
+}
 
+/** Search teams, agents, extensions, built-in categories, and global kinds. */
+async function searchGeneral(context: MentionSearchContext): Promise<Response> {
+	const { type, results } = context;
+	if (type !== "agent" && type !== "ext") await searchTeams(context);
+	if (type !== "ext" && type !== "team" && results.length < MAX_RESULTS) searchAgents(context);
+	if (type !== "agent" && type !== "team" && results.length < MAX_RESULTS) await searchExtensions(context);
+	if (type !== "agent" && type !== "team" && results.length < MAX_RESULTS) await searchBuiltinCategories(context);
+	await searchGlobalKinds(context);
 	return json(results);
+}
+
+const specializedSearches: Partial<Record<FileType, SpecializedSearch>> = {
+	cmd: searchCommands,
+	EZ: searchEzActions,
+	feature: searchFeatures,
+	lesson: searchLessons,
+	workflow: searchWorkflows,
+	tool: searchTools,
+	path: searchPaths,
+};
+
+export const GET: RequestHandler = async ({ url, locals }) => {
+	const scopeErr = requireScope(locals, "read");
+	if (scopeErr) return scopeErr;
+	const context = createSearchContext(url, requireAuth(locals));
+	const specialized = context.type ? specializedSearches[context.type] : undefined;
+	return specialized ? specialized(context) : searchGeneral(context);
 };

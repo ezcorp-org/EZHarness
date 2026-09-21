@@ -206,6 +206,8 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 - [x] Run focused checks, then repository-level lint, type checks, tests, build, coverage, and visual verification as applicable.
 - [x] Commit and push the repair, watch every PR check to completion, and resolve only review threads addressed by the repair.
 - [x] Record the final review findings, exact verification evidence, and remaining human decisions.
+- [x] Reduce every remaining touched-function CRAP violation reported by the hosted aggregate without changing behavior.
+- [ ] Re-run focused tests, lint, type checks, the changed-function CRAP gate, then push and watch all checks green.
 
 Plan review: use the existing clean PR worktree at the exact GitHub head. Treat the four red jobs as independent signals until their logs prove a shared cause. Preserve the sandbox security model and keep all repairs on the PR branch. Do not weaken coverage, visual-evidence, or test gates.
 
@@ -217,5 +219,8 @@ Plan review: use the existing clean PR worktree at the exact GitHub head. Treat 
 - Closed two standards-review gaps: bounded Podman output drains queued chunks before reader cancellation, and failed process stops escalate, persist `unknown`, and terminate the local helper.
 - The first hosted rerun exposed one more inherited-pipe hang under coverage. The supervisor now bounds its own final output drain and cancels readers after container stop; the exact isolated coverage reproduction passes 10/10 tests.
 - The next hosted aggregate passed every coverage gate but caught a CRAP regression in `LocalPodmanDriver.verify`. Split identity, host-profile, and process-confinement checks remove that new complexity regression while preserving 100% coverage.
+- The following aggregate confirmed all coverage thresholds, then reported nine older high-complexity functions elsewhere in this PR's diff. These are now a required part of the repair; the gate remains unchanged.
+- Split the nine reported functions into focused, reusable helpers. The highest resulting complexity in the seven affected files is 24, below the gate limit of 30; every originally reported function is now below the limit.
+- Post-refactor verification: typecheck, lint, and diff checks pass. Focused contract tests pass 12/12; delegated focused suites pass 198 tests. A monolithic local Bun pool showed 10 cross-file mock-pollution failures and then stalled, but all affected files pass in isolated pinned-runtime processes: tokenizer 6/6, hub render 27/27, and phase 2b 8/8.
 - Expanded real qualification coverage for dispose-while-running and browser reconnect cancellation. Added mapped mobile visual evidence and fixed the Feature Index search row and project favicon controls at 390 px.
 - Verification: pinned focused tests 64/64; pinned full suite 25,950/25,950 across 1,665 files; coverage producers 26,756/26,756 across 1,623 shards; typecheck and lint clean; production build passes; mobile/desktop evidence 4/4. The local coverage aggregate correctly refused to run without CI's separate browser-coverage receipt. The hosted per-file gate supplies that artifact and is the final aggregate proof.

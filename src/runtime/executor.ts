@@ -436,6 +436,98 @@ export class AgentExecutor {
     return { ...accountDefaults, ...projectPath, ...projectVars, ...input };
   }
 
+  private async prepareAgentInvocation(name: string, input: Record<string, unknown>, projectId: string | undefined, userId: string | undefined, control: AgentExecutionControl | undefined) {
+    const serviceInvocation = control?.serviceInvocation;
+    if (serviceInvocation && (!isServiceInvocation(serviceInvocation) || userId || (projectId ?? null) !== serviceInvocation.projectId)) throw new Error("Service agents require their exact host-issued service and project authority, without a human identity");
+    const assertActive = async () => {
+      control?.signal?.throwIfAborted();
+      await serviceInvocation?.assertActive();
+      await control?.invocationGuard?.();
+      control?.signal?.throwIfAborted();
+    };
+    await assertActive();
+    const sandboxBound = this.persist && !serviceInvocation && await (await import("./workspace/target")).projectRequiresSandbox(projectId);
+    const agent = this.agents.get(name);
+    if (!agent) throw new Error(`Agent not found: ${name}`);
+    const resolvedInput = serviceInvocation ? { ...input } : await this.resolveInput(input, projectId);
+    await assertActive();
+    return { serviceInvocation, assertActive, sandboxBound, agent, resolvedInput };
+  }
+
+  private createAgentContext({ resolvedInput, projectId, userId, modelOverride, control, controller, serviceInvocation, sandboxBound, assertActive, appendLog }: {
+    resolvedInput: Record<string, unknown>;
+    projectId: string | undefined;
+    userId: string | undefined;
+    modelOverride?: import("../types").ModelOverride;
+    control?: AgentExecutionControl;
+    controller: AbortController;
+    serviceInvocation?: import("../extensions/service-invocation").ServiceInvocation;
+    sandboxBound: boolean;
+    assertActive: () => Promise<void>;
+    appendLog: (message: string, level?: LogLevel) => void;
+  }): { ctx: AgentContext; piLlm: PiLlmAdapter } {
+    const denyServiceAdapter = (): never => { throw new Error("Direct host file, shell and LLM adapters are unavailable to service agents. Use an approved extension tool with explicit service capabilities instead."); };
+    const denySandboxHostAdapter = (): never => { throw new Error("Direct host file and shell adapters are unavailable for a sandbox-bound project."); };
+    const piLlm: PiLlmAdapter = serviceInvocation ? { complete: denyServiceAdapter, stream: denyServiceAdapter } : createPiLlmAdapter(modelOverride, (message) => appendLog(message, "warn"), control ? { beforeCall: assertActive, signal: controller.signal } : undefined);
+    const guarded = async <Result>(effect: () => Promise<Result>): Promise<Result> => {
+      controller.signal.throwIfAborted();
+      await assertActive();
+      controller.signal.throwIfAborted();
+      return effect();
+    };
+    const shell: ShellProvider = serviceInvocation ? { run: denyServiceAdapter } : sandboxBound ? { run: denySandboxHostAdapter } : control ? { run: (...args) => guarded(() => this.shell.run(...args)) } : this.shell;
+    const file: FileProvider = serviceInvocation ? { read: denyServiceAdapter, write: denyServiceAdapter, exists: denyServiceAdapter } : sandboxBound ? { read: denySandboxHostAdapter, write: denySandboxHostAdapter, exists: denySandboxHostAdapter } : control ? {
+      read: (...args) => guarded(() => this.file.read(...args)),
+      write: (...args) => guarded(() => this.file.write(...args)),
+      exists: (...args) => guarded(() => this.file.exists(...args)),
+    } : this.file;
+    const ctx: AgentContext = {
+      input: resolvedInput,
+      // biome-ignore lint/suspicious/noExplicitAny: `AgentContext.llm` is deliberately open (see src/types.ts) because code-based agents receive whatever LLM wrapper the runtime built; this is the one site that installs the pi-ai adapter into it.
+      llm: piLlm as any,
+      shell,
+      file,
+      log: appendLog,
+      signal: controller.signal,
+      run: async (agentName, childInput) => {
+        const childRun = await this.runAgent(agentName, childInput, projectId, userId, undefined, control ? { ...control, signal: controller.signal } : undefined);
+        return childRun.result ?? { success: false, output: null, error: "No result" };
+      },
+    };
+    return { ctx, piLlm };
+  }
+
+  private async wireAgentTools(input: Record<string, unknown>, userId: string | undefined, control: AgentExecutionControl | undefined, run: AgentRun, controller: AbortController, ctx: AgentContext): Promise<void> {
+    const agentConfigId = input.agentConfigId as string | undefined;
+    if (!agentConfigId || control?.serviceInvocation?.kind === "host") return;
+    try {
+      const registry = ExtensionRegistry.getInstance();
+      const extTools = await registry.getToolsForAgent(agentConfigId);
+      if (extTools.length === 0) return;
+      const engine = getPermissionEngine({ registry, bus: this.bus, db: { _token: "executor" } });
+      const toolExec = new ToolExecutor(registry, engine, { bus: this.bus });
+      if (userId) toolExec.setCurrentUserId(userId);
+      if (this._stateMediator) toolExec.setStateMediator(this._stateMediator);
+      const conversationId = control?.serviceInvocation ? workflowScopeKey(control.serviceInvocation.workflowRunId) : run.id;
+      ctx.tools = toolExec.createToolsContext(conversationId, control?.serviceInvocation ? null : run.id, { signal: controller.signal, ...(control?.invocationGuard ? { invocationGuard: control.invocationGuard } : {}), ...(control?.serviceInvocation ? { serviceInvocation: control.serviceInvocation } : {}) });
+    } catch {
+      // Extension loading failure is non-fatal for code-based agents
+    }
+  }
+
+  private async persistAgentRun(run: AgentRun, piLlm: PiLlmAdapter): Promise<void> {
+    if (piLlm.lastResolved) {
+      run.provider = piLlm.lastResolved.provider;
+      run.model = piLlm.lastResolved.model;
+    }
+    if (piLlm.usage) {
+      run.inputTokens = piLlm.usage.inputTokens;
+      run.outputTokens = piLlm.usage.outputTokens;
+    }
+    this.controllers.delete(run.id);
+    if (this.persist) await dbRuns.updateRun(run);
+  }
+
   /**
    * Run a registered agent by name.
    *
@@ -459,25 +551,8 @@ export class AgentExecutor {
     modelOverride?: import("../types").ModelOverride,
     control?: AgentExecutionControl,
   ): Promise<AgentRun> {
-    const serviceInvocation = control?.serviceInvocation;
-    if (serviceInvocation && (!isServiceInvocation(serviceInvocation) || userId || (projectId ?? null) !== serviceInvocation.projectId)) throw new Error("Service agents require their exact host-issued service and project authority, without a human identity");
-    const assertActive = async () => {
-      control?.signal?.throwIfAborted();
-      await serviceInvocation?.assertActive();
-      await control?.invocationGuard?.();
-      control?.signal?.throwIfAborted();
-    };
-    await assertActive();
-    // Code agents receive direct shell/file adapters, unlike chat's built-in
-    // tool catalog. A persisted sandbox target therefore denies this legacy
-    // host path until a reviewed sandbox-native agent adapter exists.
-    const sandboxBound = this.persist && !serviceInvocation
-      && await (await import("./workspace/target")).projectRequiresSandbox(projectId);
-    const agent = this.agents.get(name);
-    if (!agent) throw new Error(`Agent not found: ${name}`);
-
-    const resolvedInput = serviceInvocation ? { ...input } : await this.resolveInput(input, projectId);
-    await assertActive();
+    const prepared = await this.prepareAgentInvocation(name, input, projectId, userId, control);
+    const { serviceInvocation, assertActive, sandboxBound, agent, resolvedInput } = prepared;
 
     const run: AgentRun = {
       id: crypto.randomUUID(),
@@ -512,71 +587,8 @@ export class AgentExecutor {
       }
     };
 
-    // Build a pi-ai-backed LLM wrapper for code-based agents.
-    //
-    // The second argument is where a DROPPED `effort` becomes audible. A
-    // workflow step's `model: { effort }` is the one knob whose failure was
-    // pure silence: a local/custom model resolves to `reasoning: false`, pi-ai
-    // clamps the level to "off", and nothing about the request or the response
-    // says the step did not get what it asked for. Routing it into the run's
-    // own log (`warn`) puts it on `/runs/[id]` next to the step that asked —
-    // the same fact the delegation consent dialog already shows before a grant
-    // (`findEffortNoops`), now at the moment it actually bites.
-    const denyServiceAdapter = (): never => { throw new Error("Direct host file, shell and LLM adapters are unavailable to service agents. Use an approved extension tool with explicit service capabilities instead."); };
-    const denySandboxHostAdapter = (): never => { throw new Error("Direct host file and shell adapters are unavailable for a sandbox-bound project."); };
-    const piLlm: PiLlmAdapter = serviceInvocation ? { complete: denyServiceAdapter, stream: denyServiceAdapter } : createPiLlmAdapter(modelOverride, (message) => appendLog(message, "warn"), control ? { beforeCall: assertActive, signal: controller.signal } : undefined);
-    const guarded = async <Result>(effect: () => Promise<Result>): Promise<Result> => {
-      controller.signal.throwIfAborted();
-      await assertActive();
-      controller.signal.throwIfAborted();
-      return effect();
-    };
-
-    const ctx: AgentContext = {
-      input: resolvedInput,
-      // biome-ignore lint/suspicious/noExplicitAny: `AgentContext.llm` is deliberately open (see src/types.ts) because code-based agents receive whatever LLM wrapper the runtime built; this is the one site that installs the pi-ai adapter into it.
-      llm: piLlm as any,
-      shell: serviceInvocation ? { run: denyServiceAdapter } : sandboxBound ? { run: denySandboxHostAdapter } : control ? { run: (...args) => guarded(() => this.shell.run(...args)) } : this.shell,
-      file: serviceInvocation ? { read: denyServiceAdapter, write: denyServiceAdapter, exists: denyServiceAdapter } : sandboxBound ? { read: denySandboxHostAdapter, write: denySandboxHostAdapter, exists: denySandboxHostAdapter } : control ? {
-        read: (...args) => guarded(() => this.file.read(...args)),
-        write: (...args) => guarded(() => this.file.write(...args)),
-        exists: (...args) => guarded(() => this.file.exists(...args)),
-      } : this.file,
-      log: appendLog,
-      signal: controller.signal,
-      // A nested spawn inherits IDENTITY (project + user), never the
-      // caller's `modelOverride`: the override binds the agent THIS call
-      // names, and silently re-pointing a sub-agent that was deliberately
-      // bound to a different model would be the more surprising of the two
-      // defaults. A caller that wants the child rebound passes its own.
-      run: async (agentName, childInput) => {
-        const childRun = await this.runAgent(agentName, childInput, projectId, userId, undefined, control ? { ...control, signal: controller.signal } : undefined);
-        return childRun.result ?? { success: false, output: null, error: "No result" };
-      },
-    };
-
-    // Wire tools for code-based agents with extensions
-    const agentConfigId = input.agentConfigId as string | undefined;
-    if (agentConfigId && control?.serviceInvocation?.kind !== "host") {
-      try {
-        const registry = ExtensionRegistry.getInstance();
-        const extTools = await registry.getToolsForAgent(agentConfigId);
-        if (extTools.length > 0) {
-          const engine = getPermissionEngine({
-            registry,
-            bus: this.bus,
-            db: { _token: "executor" },
-          });
-          const toolExec = new ToolExecutor(registry, engine, { bus: this.bus });
-          if (userId) toolExec.setCurrentUserId(userId);
-          if (this._stateMediator) toolExec.setStateMediator(this._stateMediator);
-          const conversationId = control?.serviceInvocation ? workflowScopeKey(control.serviceInvocation.workflowRunId) : run.id;
-          ctx.tools = toolExec.createToolsContext(conversationId, control?.serviceInvocation ? null : run.id, { signal: controller.signal, ...(control?.invocationGuard ? { invocationGuard: control.invocationGuard } : {}), ...(control?.serviceInvocation ? { serviceInvocation: control.serviceInvocation } : {}) });
-        }
-      } catch {
-        // Extension loading failure is non-fatal for code-based agents
-      }
-    }
+    const { ctx, piLlm } = this.createAgentContext({ resolvedInput, projectId, userId, modelOverride, control, controller, serviceInvocation, sandboxBound, assertActive, appendLog });
+    await this.wireAgentTools(input, userId, control, run, controller, ctx);
 
     const onAbort = () => { this.cancelRun(run.id); };
     control?.signal?.addEventListener("abort", onAbort, { once: true });
@@ -624,31 +636,7 @@ export class AgentExecutor {
       }
     } finally {
       control?.signal?.removeEventListener("abort", onAbort);
-      // Record the binding the LLM call actually resolved to (the
-      // override, the agent's own, or the router's pick — already
-      // collapsed into one answer by `resolveModel`). Stamped in the
-      // `finally` so a FAILED run still reports what it tried to run on,
-      // which is exactly the case an operator debugs. In-memory + the bus
-      // payload only: `runs` has no provider/model column, and
-      // `updateRun` writes status/finishedAt/result alone.
-      if (piLlm.lastResolved) {
-        run.provider = piLlm.lastResolved.provider;
-        run.model = piLlm.lastResolved.model;
-      }
-      // Same `finally`, same reason: a run that FAILED still consumed the
-      // tokens it consumed, and that is exactly the run whose cost an
-      // operator goes looking for. Guarded rather than defaulted — the
-      // adapter only creates `usage` when a call actually reported finite
-      // counts, so "no call reported" stays undefined all the way to SQL
-      // NULL instead of becoming a zero that SUM believes.
-      if (piLlm.usage) {
-        run.inputTokens = piLlm.usage.inputTokens;
-        run.outputTokens = piLlm.usage.outputTokens;
-      }
-      this.controllers.delete(run.id);
-      if (this.persist) {
-        await dbRuns.updateRun(run);
-      }
+      await this.persistAgentRun(run, piLlm);
     }
 
     return run;

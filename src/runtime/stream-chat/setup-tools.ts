@@ -1134,6 +1134,7 @@ export async function setupTools(
         watchdog: host.watchdog,
       };
 
+      async function loadProjectBuiltinTools(): Promise<void> {
       // 2a. Built-in project file tools
       if (options.projectId) {
         try {
@@ -1173,7 +1174,10 @@ export async function setupTools(
           }
         } catch { /* Built-in tool loading failure is non-fatal */ }
       }
+      }
+      await loadProjectBuiltinTools();
 
+      async function loadAgentConfigTools(): Promise<void> {
       // 2b. Extension tools
       if (options.agentConfigId) {
         try {
@@ -1232,11 +1236,15 @@ export async function setupTools(
           }
         } catch { /* Extension loading failure is non-fatal */ }
       }
+      }
+      await loadAgentConfigTools();
 
+      async function loadMentionedExtensions(): Promise<void> {
       // 2c. Mentioned extensions
       try {
         const { wireMentionedExtensions } = await import("../mention-wiring");
         const { getConversationExtensionIds } = await import("../../db/queries/conversation-extensions");
+        await (async function wireMentionedTurnHosts(): Promise<void> {
         // Phase 3 intended task-tracking as wire-on-first-use, but its
         // `/api/tool-invoke` hook only fires for MANUAL UI tool clicks —
         // LLM-driven tool calls go through the in-process agentTools
@@ -1391,6 +1399,8 @@ export async function setupTools(
           options.parentMessageId ?? run.id,
           { userId: convRecord?.userId ?? null, projectId: options.projectId ?? null },
         );
+        })();
+        await (async function wireConversationExtensions(): Promise<void> {
         const convExtIds = await getConversationExtensionIds(conversationId);
         if (convExtIds.length > 0) {
           const registry = ExtensionRegistry.getInstance();
@@ -1409,6 +1419,10 @@ export async function setupTools(
           toolExec.setCurrentModel(options.model ?? convRecord?.model);
           toolExec.setCurrentProvider(options.provider ?? convRecord?.provider);
           toolExec.setCurrentAgentConfigId(options.agentConfigId ?? convRecord?.agentConfigId);
+
+          async function wireConversationExtensionTools(
+            extensionIds: string[],
+          ): Promise<void> {
           // SINGLE-SOURCE orchestration: `wireOrchestrationToolsForTurn` (2d
           // below) is the SOLE owner of the orchestration tools — it wires
           // `invoke_agent` with the per-turn `agentConfigId` enum allowlist +
@@ -1419,7 +1433,7 @@ export async function setupTools(
           // allowlist. Skip it.
           const { getOrchestrationExtensionId } = await import("../orchestration-host");
           const orchExtId = await getOrchestrationExtensionId();
-          for (const extId of convExtIds) {
+          for (const extId of extensionIds) {
             if (orchExtId && extId === orchExtId) continue;
             for (const t of registry.getToolsForExtension(extId)) {
               if (!ctx.agentTools.some(at => at.name === t.name)) {
@@ -1430,7 +1444,14 @@ export async function setupTools(
               }
             }
           }
+          }
+          await wireConversationExtensionTools(convExtIds);
 
+          async function runConversationPreprocessors(
+            extensionIds: string[],
+            extensionRegistry: ExtensionRegistry,
+            executor: ToolExecutor,
+          ): Promise<void> {
           // Deterministic extension pre-processing (spec:
           // tasks/deterministic-preprocess.md). Runs AFTER
           // wireMentionedExtensions so a same-message `![ext:…]` mention
@@ -1459,10 +1480,10 @@ export async function setupTools(
             const preprocessResult = await runPreprocessorsForTurn({
               runId: run.id,
               attachments: turnAttachments,
-              extensionIds: convExtIds,
-              registry,
+              extensionIds,
+              registry: extensionRegistry,
               executeToolCall: (toolName, input) =>
-                toolExec.executeToolCall(toolName, input, conversationId, null, { signal: host.controllers.get(run.id)?.signal }),
+                executor.executeToolCall(toolName, input, conversationId, null, { signal: host.controllers.get(run.id)?.signal }),
               getAttachmentSizes: async () => {
                 // This turn's attachments all hang off the user message
                 // (options.parentMessageId) — one query resolves every
@@ -1515,8 +1536,13 @@ export async function setupTools(
               ctx.turnParentMessageId = preprocessResult.lastRowId;
             }
           }
+          }
+          await runConversationPreprocessors(convExtIds, registry, toolExec);
         }
+        })();
       } catch { /* Dynamic tool wiring failure is non-fatal */ }
+      }
+      await loadMentionedExtensions();
 
       // 2c-mode. Mode-attached extensions: wire any extensions declared
       // by the active mode (mode.extensionIds) the same way as
@@ -1529,6 +1555,7 @@ export async function setupTools(
       // catch but their failure shouldn't strip the user's mode tools.
       // Additive: dedupe by tool name against tools already added by 2b
       // (agent-config) or 2c (mentions / auto-wired hosts).
+      async function loadModeExtensions(): Promise<void> {
       if (options.modeId) {
         try {
           const { getMode } = await import("../../db/queries/modes");
@@ -1583,11 +1610,14 @@ export async function setupTools(
           });
         }
       }
+      }
+      await loadModeExtensions();
 
       // 2c-caller. Caller-executed tools this conversation declared. Wired
       // LAST of the per-turn families and deliberately AFTER §2b's
       // `ctx.agentTools = extTools.map(...)` — that line is an ASSIGNMENT, so
       // anything pushed before it is discarded.
+      async function loadCallerTools(): Promise<void> {
       if (convRecord?.userId) {
         const { createExtensionControlTools } = await import("../tools/extensions");
         const { getExtensionControl } = await import("../../extensions/extension-lifecycle-service");
@@ -1611,9 +1641,12 @@ export async function setupTools(
           ? { callerToolAllowlist: options.callerToolAllowlist }
           : {}),
       });
+      }
+      await loadCallerTools();
 
       // 2d. Multi-agent orchestration: resolve mentions, auto-wire references, inject tools
       // NOTE: system prompt injection is deferred until after Promise.all to avoid race with memory injection
+      async function loadOrchestrationTools(): Promise<void> {
       try {
         const depth = options.orchestrationDepth ?? 0;
         const MAX_ORCHESTRATION_DEPTH = 3;
@@ -1644,6 +1677,8 @@ export async function setupTools(
 
           // 2d-iii. Auto-wire references.agents from agent config (teams & supervisor agents)
           // If subAgentMembers is provided (nested invocation), use it directly
+          async function resolveConfiguredAgents(): Promise<void> {
+          async function resolveSubAgentMembers(): Promise<void> {
           if (options.subAgentMembers?.length) {
             try {
               const { getAgentConfigsByIds } = await import("../../db/queries/agent-configs");
@@ -1663,8 +1698,11 @@ export async function setupTools(
                   log.warn(`Sub-agent member ${member.agentConfigId} not found in DB — skipped`);
                 }
               }
-            } catch { /* Sub-agent member wiring failure is non-fatal */ }
-          } else if (options.agentConfigId) {
+          } catch { /* Sub-agent member wiring failure is non-fatal */ }
+          }
+          }
+          async function resolveAgentConfigReferences(): Promise<void> {
+          if (options.agentConfigId) {
             try {
               const { getAgentConfig, getAgentConfigsByIds } = await import("../../db/queries/agent-configs");
               const config = await getAgentConfig(options.agentConfigId);
@@ -1704,6 +1742,11 @@ export async function setupTools(
               }
             } catch { /* Agent config ref wiring failure is non-fatal */ }
           }
+          }
+          await resolveSubAgentMembers();
+          if (!options.subAgentMembers?.length) await resolveAgentConfigReferences();
+          }
+          await resolveConfiguredAgents();
 
           log.info("Agent orchestration resolution", {
             userMessage: userMessage.slice(0, 100),
@@ -1713,6 +1756,7 @@ export async function setupTools(
           });
 
           if (allAvailableAgents.length > 0) {
+            await (async function wireActiveOrchestration(): Promise<void> {
             // Resolve memberOverrides: from options (nested call) or from team config refs
             const resolvedMemberOverrides = options.memberOverrides ?? orchRun._memberOverrides;
             const resolvedSubAgentMembers = options.subAgentMembers ?? orchRun._subAgentMembers;
@@ -1824,7 +1868,9 @@ export async function setupTools(
             if (orchRun._teamConfig?.autoSpinUp) {
               orchRun._pendingAutoSpinUp = true;
             }
+            })();
           } else {
+            await (async function wireFollowUpOrchestration(): Promise<void> {
             // No @mentioned agents this turn. If orchestration is ALREADY wired
             // to this conversation (a prior invoke_agent), keep
             // collect_agent_result available so the orchestrator can collect a
@@ -1871,11 +1917,14 @@ export async function setupTools(
                 userId: convRecord?.userId ?? undefined,
               });
             }
+            })();
           }
         }
       } catch (agentWireErr) {
         log.error("Agent orchestration wiring failed", { error: String(agentWireErr), stack: agentWireErr instanceof Error ? agentWireErr.stack : undefined });
       }
+      }
+      await loadOrchestrationTools();
 
       // Phase 3 commit-5: task-tracking moved to a bundled extension.
       // Tools flow through the ExtensionRegistry path like every other
