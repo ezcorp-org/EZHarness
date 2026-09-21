@@ -330,3 +330,33 @@ truthful source state; a real Compose render proves that clean and dirty values 
 Verification: both regressions failed before the repair and passed after it. Six focused files pass
 89 tests under Bun 1.3.14. Full typecheck and lint over 4,610 files pass. Svelte check reports zero
 errors and warnings. Gate integrity, Bash/sh syntax, and `git diff --check` pass.
+
+## Repair PR #284 final independent audit — 2026-09-21
+
+- [x] Reproduce the runtime false negative for a Git-ignored Docker input.
+- [x] Reproduce the false dirty stamp for a tracked Docker-excluded file.
+- [x] Apply one Docker-context resolver to tracked and untracked changes.
+- [x] Make the startup warning use that shared resolver.
+- [x] Add regressions for both reproduced failures.
+- [x] Run focused tests and the full relevant static gates.
+- [x] Review and commit the repair locally without pushing.
+
+Plan review: keep one source of truth for Docker build-context state. Filter tracked and untracked
+changes through the same ordered `.dockerignore` matcher, then use the resolver for both image
+build stamps and startup comparison. Preserve Compose precedence, safe recovery commands, and the
+recoverable `unknown` result when Git metadata cannot be read.
+
+Review: the resolver now enumerates tracked changes, deletions, both sides of renames, and every
+untracked Docker input, including files hidden by Git ignore rules. It filters all candidates with
+one ordered matcher derived from the active Dockerfile-specific or root ignore file. The startup
+warning calls that resolver instead of `git status`, prints one rebuild command for current context
+drift, and stamps a truthful `unknown` revision when Git metadata is unavailable. The resolver also
+removes inherited repository/index overrides before it reads the checkout or creates its private
+matcher.
+
+Verification: both new regressions failed before the repair and now pass. The focused provenance,
+wrapper, engine, and release-blob set passes 85 tests across five files. Full typecheck, lint over
+4,610 files, Svelte check, the production build, gate integrity, Bash/sh syntax, and
+`git diff --check` pass. A focused regression also proves inherited Git overrides cannot change the
+checkout's `core.bare=false` setting. The production build needed the Nix store's `libstdc++.so.6` on
+`LD_LIBRARY_PATH`; after that environment correction it completed successfully.

@@ -351,3 +351,7 @@
 - A passing shard can hide a first-attempt failure. Audit raw failed-test summaries and the actual `Retry sweep` / `isolated plain re-run` messages before accepting CI.
 - A readiness timeout must kill and reap the owned child. Drain stdout and stderr from spawn, bound exit after the signal, and retain diagnostics on early exit. Use the current executable rather than an ambient `bun` binary.
 - Shutdown tests need a real writable database, not repeated catalog creation inside the signal handshake. Build a closed empty catalog once, give each child a private copy, and keep writes and data-survival checks in the real child/reopen path. Verify the unchanged deadline under the same load that reproduced the failure.
+
+## 2026-09-21 — Isolated Git fixtures
+
+- Never delegate `git init` from a fake Git shim that can inherit the caller's repository variables. Use a real temporary repository with every `GIT_*` variable removed, and assert that provenance probes leave `core.bare=false`.

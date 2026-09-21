@@ -8,11 +8,11 @@ repo_dir="${EZCORP_REPO_DIR:-/repo}"
 image_commit="${EZCORP_IMAGE_BUILD_COMMIT:-unknown}"
 image_source_state="${EZCORP_IMAGE_BUILD_SOURCE_STATE:-unknown}"
 checkout_commit="$(git -C "$repo_dir" rev-parse --verify HEAD 2>/dev/null || true)"
-checkout_status_readable=1
-checkout_dirty="$(git -C "$repo_dir" status --porcelain 2>/dev/null)" || checkout_status_readable=0
+script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+checkout_source_state="$(bash "$script_dir/resolve-dev-image-source-state.sh" "$repo_dir" 2>/dev/null || echo unknown)"
 
 print_rebuild_commands() {
-  revision="${checkout_commit:-\$(git rev-parse --verify HEAD)}"
+  revision="${checkout_commit:-unknown}"
   source_state='$(bash scripts/resolve-dev-image-source-state.sh)'
   printf '         Docker: EZCORP_BUILD_COMMIT=%s EZCORP_BUILD_SOURCE_STATE=%s docker compose up -d --build\n' "$revision" "$source_state" >&2
   echo "         Rootless Podman: bun run podman up -d --build" >&2
@@ -38,7 +38,7 @@ case "$image_source_state" in
   clean) ;;
   dirty)
     echo "WARNING: This dev image was built from uncommitted source changes." >&2
-    echo "         Its image-backed dependencies and generated assets may not match the current clean checkout." >&2
+    echo "         Its image-backed dependencies and generated assets may not match the current checkout." >&2
     print_rebuild=1
     ;;
   *)
@@ -49,13 +49,19 @@ case "$image_source_state" in
     ;;
 esac
 
+case "$checkout_source_state" in
+  clean) ;;
+  dirty)
+    echo "WARNING: /repo has uncommitted Docker build-context changes; matching HEAD revisions cannot prove image-backed files match." >&2
+    echo "         Rebuild the image, or restore the Docker build context to HEAD before relying on the revision comparison." >&2
+    print_rebuild=1
+    ;;
+  *)
+    echo "WARNING: Cannot inspect /repo for uncommitted Docker build-context changes; the revision comparison is incomplete." >&2
+    print_rebuild=1
+    ;;
+esac
+
 if [ "$print_rebuild" = 1 ]; then
   print_rebuild_commands
-fi
-
-if [ "$checkout_status_readable" = 0 ]; then
-  echo "WARNING: Cannot inspect /repo for uncommitted changes; the revision comparison is incomplete." >&2
-elif [ -n "$checkout_dirty" ]; then
-  echo "WARNING: /repo has uncommitted changes; matching HEAD revisions cannot prove image-backed files match." >&2
-  echo "         Commit or stash the changes before relying on the revision comparison." >&2
 fi

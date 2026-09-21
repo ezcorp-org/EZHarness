@@ -39,6 +39,7 @@ import {
   copyFileSync,
   mkdirSync,
   mkdtempSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
@@ -66,6 +67,7 @@ const SOCKET = join(SANDBOX, "podman.sock");
 const RUNNER_SOCKET = join(SANDBOX, "runner.sock");
 const WRAPPER = join(SANDBOX, "scripts/podman-compose.sh");
 const TRACKED_SOURCE = join(SANDBOX, "image-backed-source.txt");
+const TRACKED_DOCKER_EXCLUDED_SOURCE = join(SANDBOX, "tasks/audit-note.md");
 const UNTRACKED_BUILD_SOURCE = join(SANDBOX, "build-relevant-untracked.conf");
 const PROVENANCE_WARNING = join(REPO_ROOT, "scripts/warn-dev-image-provenance.sh");
 
@@ -80,6 +82,8 @@ symlinkSync(RESOLVER, join(SANDBOX, "scripts/resolve-runner-group.sh"));
 symlinkSync(SOURCE_STATE_RESOLVER, join(SANDBOX, "scripts/resolve-dev-image-source-state.sh"));
 symlinkSync(Bun.which("dirname") ?? "/usr/bin/dirname", join(BIN_NO_DOCKER, "dirname"));
 writeFileSync(TRACKED_SOURCE, "clean source\n");
+mkdirSync(join(SANDBOX, "tasks"));
+writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
 copyFileSync(join(REPO_ROOT, ".dockerignore"), join(SANDBOX, ".dockerignore"));
 appendFileSync(
   join(SANDBOX, ".dockerignore"),
@@ -164,7 +168,7 @@ writeFileSync(
     "",
   ].join("\n"),
 );
-sandboxGit("add", "image-backed-source.txt", ".dockerignore", "docker-compose.yml", "compose.podman.yml", "scripts");
+sandboxGit("add", "image-backed-source.txt", "tasks/audit-note.md", ".dockerignore", "docker-compose.yml", "compose.podman.yml", "scripts");
 sandboxGit("-c", "user.name=Wrapper test", "-c", "user.email=wrapper@example.invalid", "commit", "-qm", "fixture");
 const DEFAULT_BUILD_COMMIT = sandboxGit("rev-parse", "--verify", "HEAD");
 
@@ -510,6 +514,29 @@ describe("podman wrapper — the invocation it guarantees", () => {
     expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
   });
 
+  test("ignores tracked changes that Docker excludes from the build context", () => {
+    writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "changed but still not an image input\n");
+    try {
+      expect(run(["up", "-d", "--build"]).invocation?.buildSourceStateDefault).toBe(
+        "clean",
+      );
+      rmSync(TRACKED_DOCKER_EXCLUDED_SOURCE);
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+    }
+  });
+
+  test("records an included tracked file moved under a Docker exclusion", () => {
+    const excludedDestination = join(SANDBOX, "tasks/moved-image-source.txt");
+    renameSync(TRACKED_SOURCE, excludedDestination);
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      renameSync(excludedDestination, TRACKED_SOURCE);
+    }
+  });
+
   test("records an untracked Docker input and retains its warning after cleanup", () => {
     writeFileSync(UNTRACKED_BUILD_SOURCE, "affects the image\n");
     let imageSourceState = "";
@@ -548,6 +575,21 @@ describe("podman wrapper — the invocation it guarantees", () => {
       );
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
       expect(advertisedDockerBuildArgs().EZCORP_BUILD_SOURCE_STATE).toBe("dirty");
+      const warning = Bun.spawnSync({
+        cmd: ["sh", PROVENANCE_WARNING],
+        env: {
+          ...baseEnv,
+          EZCORP_IMAGE_BUILD_COMMIT: DEFAULT_BUILD_COMMIT,
+          EZCORP_IMAGE_BUILD_SOURCE_STATE: "clean",
+          EZCORP_REPO_DIR: SANDBOX,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(warning.exitCode).toBe(0);
+      expect(warning.stderr.toString()).toContain(
+        "/repo has uncommitted Docker build-context changes",
+      );
     } finally {
       rmSync(ignoredByGit, { force: true });
     }
