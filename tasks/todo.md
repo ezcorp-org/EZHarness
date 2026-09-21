@@ -332,14 +332,23 @@ Plan review: keep one Bash 3.2-compatible validation path for effective environm
 - [x] Run all non-mutating template, effective-env, port, and timeout validation before `--check` can succeed.
 - [x] Restrict installer-approved runner credentials to portable printable ASCII and cover Unicode whitespace.
 - [x] Use `PODMAN_SOCKET` consistently from engine validation through wrapper launch.
-- [ ] Run focused tests, Bash syntax, ShellCheck, lint, typecheck, workflow parsing, gate integrity, and diff checks.
+- [x] Run focused tests, Bash syntax, ShellCheck, lint, typecheck, workflow parsing, gate integrity, and diff checks.
 - [x] Review the complete change for secret exposure, temporary artifacts, duplication, and Bash 3.2 compatibility.
-- [ ] Commit the repair locally without pushing.
+- [x] Commit the repair locally without pushing.
 
 Plan review: use Compose as the single source of truth for quoting, interpolation,
 comments, and exported-shell precedence. Keep its resolved output private and
 read only a fixed whitelist. Keep URL and credential validation conservative,
 portable, and independent of JavaScript tooling.
+
+### Review
+
+- The installer now reads its fixed effective-environment whitelist from the selected Compose client's `config --environment` output. Private sibling temporary files contain resolver output and errors, and traps remove them.
+- Public URLs must be exact canonical HTTP(S) origins. Curl supplies maintained URL parsing without a network request; installer checks reject userinfo, paths, query strings, fragments, malformed IP literals, and invalid ports.
+- `--check` validates template shape, actual Compose resolution, effective values, runner credentials, ports, and readiness limits without generating or writing real secrets.
+- Installer-approved runner tokens use a documented portable printable-ASCII subset. Regression tests cover NBSP and BOM input.
+- `PODMAN_SOCKET` is used consistently for engine checks and wrapper launch.
+- Merged current `origin/main` at `d81f98387f7636603edb4f30aede740922fff700` after the repair. Verification passed: 88 focused tests with 358 assertions; 25,946 backend tests across 1,655 files; lint across 4,611 files; all backend, web, backend-test, and web-E2E typecheck legs; ShellCheck; workflow YAML parsing; gate integrity; Bash syntax; and `git diff --check`.
 
 ## PR #290 CI failure diagnosis
 
