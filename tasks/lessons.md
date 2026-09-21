@@ -1007,9 +1007,10 @@ Long final messages are cut at a few thousand characters and the tail is lost. E
   needs no second constant, because the outstanding call already carries its own timeout and
   deletes itself when it expires. Read the consumer's loop before choosing any interval that
   expires on its silence.
-- Pass `--close` to every `flock` that wraps a heavy producer. Without it a child the producer
-  spawns inherits the lock descriptor, and when the wrapper exits the kernel still reports the dead
-  wrapper's PID as the holder while the orphan keeps the lock. Observed on 2026-09-21: an orphaned
-  `temporal-test-server`, reparented to PID 1, held the shared heavy lock with three producers
-  queued behind it. `/proc/locks` naming a PID that `ps` cannot find is the tell, and the fix
-  belongs in the wrapper, not in a kill. The common brief now requires `--close`.
+- How to recognise an inherited lock descriptor before waiting on it: `/proc/locks` names a holder
+  PID that `ps` cannot find, and some surviving child has the lock file on a descriptor
+  (`ls -l /proc/<pid>/fd`). That child is the real holder and it is usually reparented to PID 1.
+  Read the holder rather than the queue length, and report it instead of killing another worker's
+  process; the `flock --close` rule below is the repair.
+## A child inherits the flock descriptor; use `flock --close` (2026-09-21)
+A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-validation-heavy.lock ...` outlived its wrapper and held the lock for thirteen minutes, blocking three queued producers. `flock --close` (`-o`) closes the lock descriptor before the command runs, so no child can inherit it; every heavy-producer wrapper uses it from now on. And run a package's suite only through its own test script: `bun test` on `packages/@ezcorp/factory-orchestrator` is the wrong harness (the package tests run under `node --test`), which is how the server was orphaned in the first place.

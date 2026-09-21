@@ -3017,3 +3017,56 @@ gone, so those events were lost to the replacement host; a released attachment n
 and keeps the whole queue. And `node:http`'s `maxHeaderSize` had no `Bun.serve` equivalent, so
 rather than let a declared control disappear in a refactor it became an explicit check in the
 handler with its own test.
+## W18a-app — complexity of the application half of the feature diff (branch `wp/w18a-app`)
+
+Worktree `.worktrees/w18a-app` from `integ/w00` at `bf010dece`. Gate file
+`tasks/factory/w18a-app-GATES.md`, receipts `/tmp/factory-platform-evidence/w18a-app/`.
+
+- [x] Split all twelve application functions the coordinator measured above CRAP 30, with no behaviour change: `assertReferenceImageLock` 92→5, the `listDeliveredNotifications` transaction 80→8, `handleApp` 80→14, `executeFrom` 47→23, `reconcileReferenceData` 46→13, the execution-gateway handler 43→17, `assertFactoryGitHubPublicationRequest` 43→1, the provisioning transaction 42→14, `stageInTransaction` 38→9, `assertReferenceDataManifest` 36→7, the pool admission handler 31→7, `finalizeTransitionArtifact` 31→6. Worst function anywhere in those twelve files is now cc 29 (`runWorkflow`, untouched).
+- [x] Proved each split with the EXISTING tests, unmodified. No test file was edited. Ten of the twelve files read exactly 100% line coverage on the merged lcov; the two remainders are pre-existing uncovered lines the patch gate confirms are not this branch's.
+- [x] Added one test file, for branches the split gave names to: five untested security controls in `web/src/hooks.server.ts` (legacy `pi_session` on both sides of its sec-M4 expiry, the fail-closed 503, the unjudgeable-cookie pass-through, the peer-address fallback, HSTS). Measured against `integ/w00`'s own web lcov, those lines were already at zero hits before the split.
+- [x] Compiled workspace output no longer reaches the merged lcov. `BASE_REF=integ/w00` new-file and patch gates both pass.
+- [x] Recorded the global floor and the mutation status rather than chasing them.
+
+Review (W18a-app): the twelve splits are extractions by responsibility, and the
+shape of each was decided by the code rather than by the score — one assertion
+per locked section, one parse step per manifest section, one phase per claim
+dependency, one handler per route family, one unit per notification kind, one
+named terminal per exception class. Three of them removed real duplication on
+the way: the artifact staging path wrote its seventeen-column locked SELECT
+twice and its conflict comparison twice, the release projection re-read the
+same nullable join columns in three places, and the gateway reduced five route
+matches through a `??` chain that the material handler then could not ask about.
+Two things are worth flagging to the coordinator rather than burying.
+
+The first is that the dist ruling's diagnosis was wrong in a way that matters
+for where the fix belongs. The ruling says compiled output "leaves the lcov
+through the vitest leg's product-source filter". It does not: that leg already
+pipes its lcov through `scripts/filter-web-vitest-lcov.ts`, whose allowlist
+drops every record that is not a configured web product source, and measured
+here it emits zero dist records. The fifteen that DO appear come from the Bun
+SDK leg, because `packages/@ezcorp/factory-sdk/src/guest-model-exports.test.ts`
+imports the BUILT barrel deliberately, to prove the compiled package re-exports
+its guest-model bounds as values and not as a type-only re-export. That test is
+correct and must keep doing it. So the rule went where every leg passes through
+— `scripts/merge-lcov.ts`, which `scripts/test-coverage.sh` delegates to for
+both the shard pre-merge and the host merge, and which the CI coverage job uses
+to build `coverage/lcov.info` — and not into one leg's filter, which would have
+fixed the one leg that never had the problem. It is not an `EXCLUDES` entry
+either, for the reason the ruling gives: `dist` is not un-gated source, it is
+not source at all.
+
+The second is that the global floor cannot be honestly measured on this host.
+It reads 67.37% (74496/110570 lines, 1299 files) against a 90% floor over the
+fullest local merge the combined runner's leg list can build, and that number is
+not the CI number and should not be quoted as one. The leg list has no producer
+for `src/extensions/**`, `src/runtime/**`, `src/db/**` or
+`packages/@ezcorp/sdk/**` — their producer is the sharded backend pool, which
+`tasks/lessons.md` already records as CI-only — and the browser-route receipt
+cannot be produced locally at all. Every one of the fifteen files owing the most
+lines is pre-existing main code this branch does not touch, led by
+`src/extensions/manifest.ts` (860 lines owed at 6.8%). The same leg-list gap is
+why `check-coverage.ts` reports 932 files under threshold locally while the
+diff-scoped gates both pass: the local merge is a factory-surface merge, not a
+product merge. The floor is therefore reported, not fixed, and the twelve
+functions' own contribution to it is the ten files now at exactly 100%.

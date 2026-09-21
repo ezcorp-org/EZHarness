@@ -1,0 +1,483 @@
+W18a-sdk — independent validation report
+========================================
+Validator: independent agent, read-only with respect to source.
+Package brief: /tmp/factory-platform-evidence/w00/briefs/w18a.md
+Worker report: /tmp/factory-platform-evidence/w18a-sdk/report.txt
+Evidence dir:  /tmp/factory-platform-evidence/w18a-sdk-validation/
+
+VERDICT: ACCEPT  (two documentation corrections, no code change required)
+
+The central claim — twenty functions split with no behavior change — holds. I read every
+hunk of all eight source diffs in full, reconstructed the original control flow for each
+split, and found no semantic drift: no changed error code, no changed message, no changed
+path array, no reordered check, no changed thrown type, and no new non-deterministic
+construct in the Temporal workflow. Complexity, schemas, the Python parity lanes and the
+static gates all reproduce independently.
+
+
+1. TREE STATE, HEAD, COMMITS
+----------------------------
+  git status --porcelain                    empty (clean tree)
+  HEAD                                      9e7866e2bb4abd92bcda3fbf788a07b43219bb3a  (matches claim)
+  branch                                    wp/w18a-sdk
+  merge-base with integ/w00                 c1377122b3f7d0be22a45e4fd7e2df8fd19f7e2c  (matches claim)
+  integ/w00 now at                          bbcb2e34f (moved on; 3-dot diff used throughout)
+  commits integ/w00..HEAD                   11, every SHA the report names is present and on the branch
+
+  git diff integ/w00...HEAD --stat -- '*.test.ts'   EMPTY.
+  No test file was changed, added or removed. Confirmed.
+
+  git diff integ/w00...HEAD --name-status: 8 source files modified, plus
+  tasks/factory/w18a-sdk-GATES.md (added) and tasks/todo.md. Nothing else.
+  No threshold file, no coverage-config, no gate script, no biome.json, no ci.yml.
+
+  Commits 3da743620 and 9e7866e2b touch only tasks/. The last CODE commit is 26a63cbbb,
+  so every producer the worker measured at 26a63cbbb is valid for HEAD.
+
+
+2. BEHAVIOR PRESERVATION — the central claim, file by file
+----------------------------------------------------------
+Method: for each split I read the base body and the head bodies side by side and checked
+(a) the order of checks, (b) every error code / message / path / thrown type, (c) the
+short-circuit and fall-through semantics, (d) accumulator identity. I then ran a
+mechanical line-set difference over each diff: every line removed that is not re-added,
+and every line added that is not a removed line. All 101 removed-only lines and all
+138 added-only lines are accounted for by the extraction plumbing. NO added line
+introduces a condition, a code, a message or a throw that did not exist at the base.
+(diffs/, removed-only.txt)
+
+workflow.ts (factoryWorkflow, Temporal) — DETERMINISM PRESERVED
+  Imports byte-identical base vs head (verified by diff of lines 1-58). No new import,
+  no Date/Math/random, no new Map/Set iteration.
+  loadWorkflowPlan keeps the exact activity order: validateWorkflowInput ->
+  loadPartitionKernelPlan | loadCompiledFactory+validateCompiledFactoryShape ->
+  createKernelState, each with its original catch and its original failure type
+  (FACTORY_INPUT_INVALID / FACTORY_DEFINITION_INVALID / FACTORY_INPUT_INVALID).
+  loadTransitionArtifact still runs after the plan and before resolveStartState, as before.
+  resolveStartState keeps all four continuation identity checks in order.
+  rearmContinuationTimers arms the same timers in the same Object.entries order.
+  selectNextEvent is the base's two-expression form verbatim (commit e49f3d21b restored it).
+  routeCommands: `terminalResult = routeCommands(...) ?? terminalResult` is equivalent to
+  the base loop because terminal() (workflow.ts:73) always returns an object literal and
+  never undefined, so the ?? only fires when the batch held no terminal command — which is
+  exactly when the base loop left terminalResult untouched. VERIFIED, not assumed.
+  drained() is a pure rename of the two inline conjunctions; the condition() predicate at
+  workflow.ts:291 keeps its own inline activeScopes.size === 0, unchanged.
+  Same signals, same handlers, same timers, same continueAsNew payload.
+
+kernel.ts (advanceKernel, applyRepair)
+  applyEvent is typed over DispatchedEvent = KernelEvent minus usage-settled and cancel.
+  Both of those kinds RETURN unconditionally earlier in advanceKernel (kernel.ts:166-179),
+  so no run can reach the table with them; the switch is exhaustive over the remaining 13
+  kinds and needs no default. Verified against the 15 kinds in kernel-types.ts.
+  applyStart == the base `case "start"` body including the status guard.
+  applyRepair: order preserved exactly, including the one ordering that matters — the
+  sealed-input computation (which can THROW FactoryKernelError) still runs BEFORE the
+  aggregate-scope walk (which can RETURN state). repairIsAdmissible keeps the protected-
+  contract check before the replan check.
+  ONE SUBTLETY REVIEWED AND SAFE: emitPartitionInvalidations is passed `next` where the
+  base block read `state`. They differ only in `pendingRepair`; the helper reads
+  .partition and .nodes, both shared by reference through the spread, so the values are
+  identical. The base already used `next` for commandFor/next = command.state. Equivalent.
+
+validation.ts (8 functions)
+  validateSchemaNode: the $ref arm now RETURNS the referenced node's verdict instead of
+  falling through on success. This is still fall-through in effect, because the caller
+  checks `typing.ok` and continues to validateSchemaBoundOrder and validateSchemaChildren.
+  The referencing node keeps its own $defs walk. The worker's stated reasoning is correct.
+  validateCompiledFactory: the phases run in the base order, with the execution-manifest
+  check still between the index checks and the partition manifests. Three accumulators are
+  REBUILT rather than threaded. I verified each rebuild is value-identical:
+    nodeIds       - validateCompiledGraph rejects any duplicate id (COMPILED_NODE_ID), so
+                    new Set(nodes.map(id)) equals the loop-built set.
+    dependencies  - validateCompiledIndexes returns ok only when every node passed, and
+                    declaredDependencies is pure, so the rebuilt map is value-identical.
+    partitionByNode / partitionIds - validateCompiledPartitionManifests rejects a node in
+                    two partitions and a duplicate partition id, and requires every id to
+                    be a top-level node, so partitionByNodeIndex produces the same map with
+                    no extra entries.
+  contained / validateValueNode / validateFactoryRunnerRequest / validateFactoryApiRequest
+  / validateFactoryApiResponse: each is a contiguous, in-order partition of the base's flat
+  check sequence, with early return on failure. No check moved across a boundary.
+
+compiler.ts
+  declareGraphNode reproduces base pass one in exactly its 24-step order; checkGraphNode
+  reproduces base pass two in exactly its 8-step order. Diagnostics append to the same
+  context.diagnostics array, so diagnostic ORDER is preserved (this matters: the compiler
+  reports issues[0]).
+  ONE SUBTLETY REVIEWED AND SAFE: isOrderedPair is now called only under `left && right`,
+  where the base computed schemaTypes unconditionally. schemaTypes (compiler.ts:299) is
+  pure, and the base guarded the diagnostic with the same `left && right`, so no diagnostic
+  changes. Equivalent.
+  checkDefinitionBounds / checkDependencyPins / collectGeneratorPackages /
+  checkAcceptanceContract / checkGraphOutputs / buildCompiledIndexes all keep their base
+  position and order.
+
+schema.ts, expressions.ts
+  schema.ts validate: $ref -> anyOf -> type(string) -> type(array) -> const -> enum ->
+  array -> string -> number -> object -> true. Identical.
+  expressions.ts: budget.steps is still incremented once per evaluate() call before
+  dispatch, and recursion still goes through evaluate(), so budget accounting is
+  unchanged. depth+1 appears in exactly the base places.
+
+service.ts, podman.ts
+  readRequestBody keeps the same limit, the same two error codes and the same object
+  check, and still runs after the auth and method/content-type checks (argument evaluation
+  order guarantees the body is read before dispatch is entered).
+  startSession / replyToHost are the base case bodies verbatim; errors thrown inside them
+  still reject handle()'s promise.
+  podman build: assertBuildInput, assertProvisionedPaths, typecheckAndCompile and
+  runFeatureTests are all PRIVATE and each reproduces its base block in order and in place.
+  The evidence pushes still land as typecheck, compile, browser-compile, feature:*.
+
+EXPORTED SURFACE
+  For all eight files the sorted list of `export (function|const|class|type|interface)`
+  declarations is IDENTICAL between c1377122b and HEAD. The four new podman methods are
+  private, so the Runner interface implementation is unchanged.
+  Typecheck exit 0 confirms the type-level equivalences.
+
+NO SEMANTIC DRIFT FOUND. I have nothing to name under this heading.
+
+
+3. COMPLEXITY
+-------------
+Measured independently with the AST rules documented in scripts/crap-score.ts
+(isDecisionPoint / complexityOf / nameOf), over the eight files at c1377122b and at HEAD.
+Tool: cc-report.ts; output: cc-base.txt, cc-head.txt, cc-head-full.txt.
+
+  at c1377122b: 570 functions scored, 20 over 30, max 86
+  at HEAD:      677 functions scored,  0 over 30, max 30
+
+The 20 over the ceiling at base are EXACTLY the twenty the report names, at exactly the
+file:line and value it claims. Every "after" value reproduces exactly:
+
+  function                                          claimed  measured
+  validation.ts validateCompiledFactory              86 -> 8       8
+  validation.ts validateFactoryApiRequest            82 -> 11     11
+  validation.ts validateSchemaNode                   71 -> 9       9
+  validation.ts validateNodeSemantics                69 -> 6       6
+  validation.ts validateFactoryApiResponse           68 -> 10     10
+  validation.ts contained                            50 -> 9       9
+  validation.ts validateFactoryRunnerRequest         43 -> 8       8
+  validation.ts validateValueNode                    39 -> 19     19
+  compiler.ts   graph pass one (anon)                86 -> 1       1  (declareGraphNode 7)
+  compiler.ts   graph pass two (anon)                51 -> 1       1  (checkGraphNode 1)
+  compiler.ts   compileFactory                       51 -> 9       9
+  compiler.ts   inferExpressionSchema                36 -> 13     13
+  schema.ts     validate                             52 -> 14     14
+  kernel.ts     applyRepair                          49 -> 20     20
+  kernel.ts     advanceKernel                        32 -> 17     17
+  expressions.ts evaluate                            46 -> 9       9
+  expressions.ts inspect                             31 -> 12     12
+  workflow.ts   factoryWorkflow                      47 -> 25     25
+  service.ts    handle                               34 -> 6       6
+  podman.ts     build                                33 -> 15     15
+
+No function in the eight files rose above 30. The two highest at HEAD are kernel.ts:351
+applyUsage and kernel.ts:1256 progressMap, both exactly 30 and both untouched by the diff
+(they read 30 at the base too). CONFIRMED.
+
+Cosmetic: the gate file says "678 scored", I measure 677. Immaterial; both report 0 over 30.
+
+
+4. SCHEMAS AND PARITY
+---------------------
+  bun scripts/check-schema-generate-drift.ts            exit 0
+    "schema drift gate passed: 13 generated schema(s) match 'schema:generate' byte for byte."
+  No *.schema.json appears in the diff at all, and types.ts was not touched.
+
+  bash scripts/python-quality.sh all                    exit 0
+    interpreter 3.13.12 (matches .python-version), `uv sync --locked` reproduced both locks.
+    2 locked projects: src/factory/runner/python, src/factory/reference-image/python.
+    ruff + strict mypy + unittest discovery + coverage, all green.
+    src/factory/runner/python 100% (1212 stmts), reference-image 100% (691 stmts).
+  This is the pair that matters here: src/factory/runner/python/factory_schema.py is the
+  Python port of the schema.ts matcher this package split. It still agrees.
+  (python-quality.log)
+
+
+5. OPEN 2 — the six service.ts detach lines. JUDGMENT: HONEST, NOT A COVERAGE DODGE
+-----------------------------------------------------------------------------------
+Three independent checks, all supporting the worker.
+
+  (a) The lines are not in the diff, and not by accident of measurement. I computed the
+      head-side added-line set from the diff for every file. service.ts added lines span
+      10-169 but contain NONE of 127-132. The /v4/events case body is byte-identical to
+      the base and sits between two hunks, untouched. Commit 26a63cbbb deliberately
+      reverted an earlier extraction to keep it that way, and says so in its message.
+
+  (b) The lines were already uncovered at the merge base. I extracted the base tree with
+      git archive into base-tree/ and ran the same suite against it:
+        c1377122b  service.ts  163/169  uncovered = 105,106,107,108,109,110
+        HEAD       service.ts  165/171  uncovered = 127,128,129,130,131,132
+      Base 105-110 and head 127-132 are the SAME six lines: `const detach = () => {` plus
+      its five statements. Over all sixteen non-container runner and contract legs merged,
+      service.ts is still 165/171 with exactly those six uncovered. The split added two
+      executable lines and BOTH are covered. Coverage went up, not down.
+      (base-service.log, head-service.log, coverage/runner-partial.lcov)
+
+  (c) The unreachability claim is true, and I verified it myself rather than taking it.
+      My first probe, registering the handlers while the request stream was still open,
+      DID fire "aborted" for three of four close forms — so the claim is not trivially
+      true and deserved checking. But service.ts drains the whole body
+      (`for await (const chunk of request)`) BEFORE it registers response.once("close")
+      and request.once("aborted"), and Node does not emit "aborted" after a message has
+      ended. Reproducing that exact order under bun 1.3.14:
+        request.abort()     -> neither handler fires
+        request.destroy()   -> neither handler fires
+        socket.end()        -> neither handler fires
+        socket.destroy()    -> neither handler fires
+      detach is genuinely unreachable from any test in this repository.
+      (bun-detach-probe.ts / detach-probe.log, bun-detach-probe2.ts / detach-probe2.log)
+
+  Conclusion: the alternative to keeping the case inline was to put six provably
+  unexecutable lines into the patch-coverage gate's view, which could only be answered by
+  a fake assertion or a weakened gate. The worker took the honest third option, left the
+  behavior untouched, and reported the gap. I would have done the same.
+
+  The worker's PRODUCT QUESTION is real and my probe confirms it: under Bun a host that
+  drops its event stream never releases the worker's attachment (session.attached stays
+  true), so no replacement client can reattach. That is a latent runner defect, correctly
+  flagged, correctly left out of a complexity refactor's scope. It belongs to the runner's
+  owner. I did not fix it, as instructed.
+
+  Same test applied to the other function the worker flags: validation.ts:1069
+  validateDurableInputPorts, line 1078 (`continue;`). Head added lines for validation.ts
+  span 101-1354 but contain none of 1069-1080. Not in the diff; not this package's.
+
+
+6. GATE INTEGRITY AND DRY
+-------------------------
+  bun run typecheck                          exit 0
+  bun run lint                               exit 0
+  bun scripts/check-factory-boundaries.ts    exit 0
+  bun scripts/gate-integrity.ts              exit 0
+  (static-checks.log)
+
+  No lowered threshold: scripts/coverage-thresholds.json is not in the diff.
+  No new EXCLUDES: scripts/coverage-config.ts is not in the diff.
+  No .skip / .only / .todo, no biome-ignore, no eslint-disable, no @ts-ignore,
+  no @ts-expect-error, no istanbul/c8/v8 ignore, no `as any` added anywhere in the diff.
+  No new source file, so no new coverage-thresholds key is owed.
+  No test file changed, so the assertion-free / empty-catch / fixed-sleep / wall-clock
+  checks have nothing to bite on.
+  check-factory-boundaries green with no REQUIRED_SHARED_IMPORTS change: the split adds no
+  import to any shared module, it only moves statements inside files already listed.
+
+  DRY. I ran a normalized near-duplicate body scan over all 250 function bodies in the
+  eight head files. Two pairs exceed 0.80 similarity and BOTH are pre-existing, neither in
+  the diff:
+    compiler.ts:634 expandedGraphCount  <->  validation.ts:462 expandedNodeCount   (0.88)
+    schema.ts:48 typeMatches            <->  validation.ts:214 valueTypeMatches    (1.00)
+  The split introduced NO new duplication.
+  Shared helpers are genuinely shared, not copied: declaredDependencies has two call sites
+  (validation.ts:654 and :779); validateSchemaNode is the single recursion point for the
+  $ref arm, properties, items and $defs; collectGeneratorPackages recurses into itself.
+
+  ONE MINOR DRY OBSERVATION (not a defect, no fix requested):
+  validateCompiledPartitionManifests (validation.ts:669) builds partitionByNode inline,
+  and partitionByNodeIndex (validation.ts:742) builds the same map a second time for the
+  caller. The worker documents the rationale — do not carry a half-filled accumulator out
+  of a loop that can still fail — which is a defensible trade, and I verified the two maps
+  are identical once the manifests phase has passed. It costs three extra O(n) passes over
+  the graph in validateCompiledFactory. Worth a comment at integration, not a change now.
+
+
+7. RERUN RESULTS
+----------------
+Every number below is from my own run in the worker's worktree at HEAD, not from the
+worker's receipts.
+
+  package builds (extension-contract, factory-sdk, factory-transport,
+      factory-orchestrator)                                         exit 0   builds.log
+  bun run typecheck                                                 exit 0   static-checks.log
+  bun run lint                                                      exit 0   static-checks.log
+  bun scripts/check-factory-boundaries.ts                           exit 0   static-checks.log
+  bun scripts/gate-integrity.ts                                     exit 0   static-checks.log
+  bun scripts/check-schema-generate-drift.ts                        exit 0   static-checks.log
+  factory-SDK suite, 29 per-file coverage legs      196 pass 0 fail 1435 assertions
+                                                                             sdk-coverage.log
+  extension-runner + extension-contract, 16 non-container legs
+                                                     63 pass 0 fail, every leg exit 0
+                                                                             light-run.log
+  bash scripts/python-quality.sh all                                exit 0   python-quality.log
+  merge-base baseline service.ts coverage leg                       exit 0   base-service.log
+  Bun detach reachability probe                                     exit 0   detach-probe2.log
+
+  Per-file coverage from my SDK legs alone, for the five SDK files:
+    compiler.ts     735/735   100%   (every new function is reached by existing tests)
+    expressions.ts  167/167   100%
+    kernel.ts      1261/1261  100%
+    schema.ts       100/102   uncovered 141,145 - the guest-model type guards, outside the
+                              diff, covered by the Python guest legs
+    validation.ts   975/1000  uncovered: the guest-model validators 918-956 (outside the
+                              diff, Python guest legs) and 1078 (outside the diff)
+  That compiler.ts, expressions.ts and kernel.ts reach 100 percent from the SDK suite
+  alone is strong evidence the splits stranded no dead code.
+
+HEAVY LEGS — see section 8.
+
+
+8. HEAVY LEGS (shared lock)
+---------------------------
+Queued behind flock for 47 minutes and run under
+`flock -w 7200 /tmp/ezcorp-validation-heavy.lock timeout 5400 ...`. No holder was killed.
+Every leg exit 0; 82 pass, 0 fail. (heavy-run.log)
+
+  pkg-binary-assets.integration                        exit 0
+  pkg-browser.integration                              exit 0
+  pkg-main.integration                                 exit 0
+  pkg-native-network.integration                       exit 0
+  pkg-podman-devices.integration                       exit 0
+  pkg-podman.integration                               exit 0   <- required by the brief
+  pkg-provision.integration                            exit 0
+  srcfactory-package-preparation.podman.integration    exit 0   <- required by the brief
+  srcfactory-package-preparation.integration           exit 0
+  srcfactory-supervisor.podman.integration             exit 0
+  srcfactory-sandbox-stop                              exit 0
+  srcfactory-sandbox-stop.podman.integration           exit 0
+  srcfactory-python-guest.integration                  exit 0
+  srcfactory-python-runner.integration                 exit 0
+  orchestrator-node                                    exit 0   80 tests, 10 suites, 80 pass, 0 fail
+  orchestrator-coverage (Temporal test server)         exit 0   80 pass, 0 fail
+
+The orchestrator coverage leg ran scripts/factory-orchestrator-coverage.sh with
+FACTORY_TEMPORAL_TEST_SERVER set to the pinned 1.38.0 binary, and temporal-replay.test.ts
+did exercise it (fake_replay_queue appears in the progress log). The `factory Temporal
+workflow` suite — the one that actually drives the split factoryWorkflow — passes in both
+the plain Node leg and the coverage leg.
+
+COVERAGE GATES over my own 61-leg merged lcov
+(sha256 b6f8853b901ca564c8a95734eb64d2dd79f3e7eb2fcad86d0a985a18a685ce29, 653 source files)
+
+  BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts     exit 0
+    "no new source files in this diff"
+  BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts        exit 0
+    "all changed executable lines covered (8 file(s))"   <- reproduces the worker's claim
+  (coverage-gates.log)
+
+  BASE_REF=origin/main bun scripts/crap-score.ts --changed      exit 1
+    76 violations over the whole feature diff, and ZERO inside the eight W18a-sdk files.
+    Every remaining violation is under src/**; not one is under packages/@ezcorp/**.
+    The worker reported 70; the count differs only because my merge holds a different leg
+    set, and the conclusion is the same. This is the worker's OPEN 1, confirmed.
+    (crap-changed.log, coverage/quality/crap.json)
+
+PER-FILE COVERAGE of the eight files over the full merge
+
+  compiler.ts      735/735   100.00%
+  schema.ts        102/102   100.00%
+  kernel.ts       1261/1261  100.00%
+  expressions.ts   167/167   100.00%
+  workflow.ts      224/224   100.00%   <- the split factoryWorkflow is fully covered
+  podman.ts        426/426   100.00%
+  validation.ts   1007/1008   99.90%   uncovered 1078 only
+  service.ts       165/171    96.49%   uncovered 127-132 only
+
+  bun scripts/check-coverage.ts exits 1, but almost entirely because this merge holds only
+  the factory legs and not the whole-repo shards (hundreds of web/** and worker/** files
+  have no record). The only two entries naming this package's files are the two above:
+    packages/@ezcorp/extension-runner/src/service.ts: 96.49% < 100% — missed 127..132
+    packages/@ezcorp/factory-sdk/src/validation.ts:   99.90% < 100% — missed 1078
+  Both are outside the diff. service.ts is measured uncovered at the merge base too, so
+  that per-file threshold was already unmet before this branch. validation.ts:1078 sits in
+  validateDurableInputPorts, which is byte-identical at base and head with no test change,
+  so its coverage is necessarily identical — that one I argue rather than measure, and I
+  say so. Neither is a regression this package caused. (check-coverage.log)
+
+
+9. WHAT THE WORKER OVERSTATED
+-----------------------------
+Two documentation inaccuracies. Neither affects the verdict; both should be corrected in
+the record so the coordinator's integration notes are right.
+
+  F1 (low) — STALE DIFF-STAT IN THE REPORT AND THE GATE FILE.
+    Both claim the eight source files are "1167 insertions, 547 deletions".
+    At HEAD and at 26a63cbbb the true figure is 1130 insertions, 512 deletions.
+      git diff integ/w00...HEAD --shortstat -- 'packages/@ezcorp/**'
+        -> 8 files changed, 1130 insertions(+), 512 deletions(-)
+      git diff integ/w00...e49f3d21b --shortstat -- 'packages/@ezcorp/**'
+        -> 8 files changed, 1167 insertions(+), 547 deletions(-)
+    The recorded diff-stat.txt was captured at e49f3d21b, BEFORE commit 26a63cbbb inlined
+    the /v4/events case, yet the gate file states "All measured at 26a63cbbb". The
+    qualitative claims it supports (8 source files, 0 test lines) are correct.
+
+  F2 (low) — GATE FILE NAMES A STALE HEAD.
+    tasks/factory/w18a-sdk-GATES.md:5 says "Branch wp/w18a-sdk at 26a63cbbb" and the
+    Results section says "All measured at 26a63cbbb", but HEAD is 9e7866e2b. 9e7866e2b is
+    docs-only (it edits that same gate file), so no measurement is invalidated. The header
+    simply cannot name the commit that writes it.
+
+  F3 (info) — THE ORCHESTRATOR COUNT IS UNDERSTATED, NOT OVERSTATED.
+    The report's summary line says "factory-orchestrator Node suites 48 pass, 0 fail".
+    That is a 12-file subset, which the gate file does disclose ("the 12 Node suites").
+    The package has 14 test files; running them all gives 80 tests across 10 suites. The
+    two files the subset omits, gateway-activities.test.ts and temporal-replay.test.ts,
+    carry three suites including `factory Temporal workflow` — the suite that drives the
+    split factoryWorkflow. The worker covered those through the coverage leg instead. I
+    ran all 14 files in BOTH legs: 80 pass, 0 fail each time. The claim is true and the
+    evidence is stronger than the summary line suggests; the summary line just reads as if
+    48 were the whole suite.
+
+  F4 (info) — ONE CAUSE MISATTRIBUTED.
+    The report explains validation.ts:1078 as "a leg this branch does not merge". It is
+    still uncovered in my 61-leg merge, which includes the Python guest and runner lanes
+    and the full orchestrator V8 leg. So it is a genuine pre-existing coverage gap, not a
+    missing leg. It is outside the diff either way, so nothing about patch coverage or
+    this package's verdict changes.
+
+  Also noted, not a finding: the report says service.ts is "164/170 with the same six
+  after the split". I measure 165/171, both from service.test.ts alone and from all
+  sixteen non-container legs merged. The six uncovered lines are identical either way, so
+  the substance stands; only the two totals differ, presumably a different leg set.
+
+  HANDOFF, outside this package's scope: src/factory/orchestration-process.ts:68
+  parseFactoryOrchestratorProcessConfig reads cc=37 at 100 percent coverage. Because CRAP
+  equals complexity at full coverage, no amount of testing can clear it — some package
+  must split it before the whole-diff CRAP gate can go green. W18a-sdk correctly left it
+  alone; it is not one of its eight files.
+
+
+10. SECURITY POSTURE
+--------------------
+  No credential value appears in any file I wrote or any log I produced. The S3 credential
+  directory is referenced only through EZCORP_FACTORY_STORAGE_SECRETS_DIR.
+  No authority check was removed or weakened. In service.ts the bearer-token comparison is
+  still timingSafeEqual on equal-length buffers and still runs BEFORE the method and
+  content-type checks and before any body is read (service.ts:163-168). The peer-UID and
+  token-strength preconditions in startRunnerService are untouched.
+  In podman.ts the four provisioning guards (toolchain_unavailable, sdk_invalid,
+  toolchain_invalid, reserved_path) keep their order and their codes, so a source tree
+  still cannot replace a provisioned dependency.
+  In validation.ts and compiler.ts no refusal was dropped: the set of reachable error
+  codes is identical, verified line by line and by the added-line scan in section 2.
+  Nothing became reachable by a guest.
+
+
+APPENDIX — files in this evidence directory
+-------------------------------------------
+  report.txt                this report
+  results.json              machine-readable rerun table
+  builds.log                package builds
+  static-checks.log         typecheck, lint, boundaries, gate-integrity, schema drift
+  sdk-coverage.log          29 factory-SDK per-file coverage legs
+  light-run.log             16 non-container runner and contract legs
+  heavy-run.log             16 container and Temporal legs under the shared lock, all exit 0
+  orchestrator-node.log     factory-orchestrator Node suite
+  orchestrator-coverage.log factory-orchestrator Temporal test-server coverage leg
+  python-quality.log        uv/ruff/mypy/unittest/coverage over both locked Python projects
+  base-service.log          merge-base baseline coverage for service.ts
+  head-service.log          HEAD coverage for service.ts
+  detach-probe.log          Bun probe, handlers registered before the body is drained
+  detach-probe2.log         Bun probe, faithful order (the decisive one)
+  cc-base.txt cc-head.txt cc-head-full.txt   complexity sweeps
+  removed-only.txt          mechanical removed-only line scan per diff
+  diffs/                    per-file diffs plus base and head snapshots
+  base-tree/                git archive of c1377122b, used for baseline measurement
+  coverage/                 61 lcov legs, the merged lcov, and the crap.json report
+  coverage-gates.log        new-file and patch coverage over my merged lcov
+  crap-changed.log          BASE_REF=origin/main crap-score.ts --changed
+  check-coverage.log        per-file coverage gate
+  base-validation.log       merge-base validation.ts probe
+  run-sdk.sh run-light.sh run-heavy.sh cc-report.ts bun-detach-probe*.ts
+                            the exact producers behind the numbers above

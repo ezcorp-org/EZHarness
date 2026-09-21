@@ -1,0 +1,460 @@
+w00-verify-engine — verify-factory-storage.ts container-engine rule + safe default
+====================================================================================
+
+Scope: scripts/verify-factory-storage.ts must follow the repository's
+container-engine rule (scripts/lib/container-engine.sh) and default to NOT
+restarting the shared SeaweedFS stores.
+
+Worktree
+--------
+Path:   /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-verify-engine
+Branch: wp/w00-verify-engine
+Base:   integ/w00 @ c1377122b3f7d0be22a45e4fd7e2df8fd19f7e2c
+Created with: git worktree add ./.worktrees/w00-verify-engine -b wp/w00-verify-engine integ/w00
+Toolchain: /tmp/factory-tools/bun-1.3.14/bun-linux-x64 prepended to PATH for
+every command. bun --version = 1.3.14 (pinned). node --version = v24.14.1
+(matches .bun-version / required pin).
+Dependencies: this was a freshly created worktree (not pre-populated), so
+both installs were run:
+  bun install --frozen-lockfile            (root; built @ezcorp/sdk,
+                                             factory-sdk, factory-transport)
+  bun install --cwd web --frozen-lockfile
+
+Commits (HEAD = 93caa43ce)
+--------------------------
+cda01b325 feat(factory-storage): port the container-engine resolution rule to TypeScript
+  - scripts/lib/container-engine.ts (new)
+  - scripts/lib/container-engine.test.ts (new)
+
+93caa43ce feat(factory-storage): make verify-factory-storage.ts safe by default
+  - scripts/lib/verify-factory-storage-cli.ts (new)
+  - scripts/lib/verify-factory-storage-cli.test.ts (new)
+  - scripts/verify-factory-storage.ts (changed)
+  - scripts/coverage-thresholds.json (changed — 2 new 100% keys)
+  - docs/factory-local-storage.md (changed)
+  - .github/workflows/ci.yml (changed — 1 line)
+
+Working tree at HEAD: clean (`git status --short` empty).
+Diffstat integ/w00..HEAD: 8 files changed, 636 insertions(+), 17 deletions(-).
+
+Deliverable 1 — scripts/lib/container-engine.ts
+------------------------------------------------
+Exports:
+  - resolveEngine(env, hasCommand) -> "podman" | "docker"
+    Same rule as scripts/lib/container-engine.sh, in order:
+      1. EZCORP_CONTAINER_ENGINE wins if set (validated to podman|docker,
+         and must be present on hasCommand).
+      2. CI set + docker present -> docker.
+      3. podman present -> podman.
+      4. docker present -> docker.
+      5. else throws NoContainerEngineError.
+    Named errors: InvalidContainerEngineError, ContainerEngineNotFoundError,
+    NoContainerEngineError — messages match the shell script's stderr text.
+  - resolveComposeDockerHost(engine, env, uid, socketExists) -> string | undefined
+    Docker: passes through any already-set DOCKER_HOST untouched (undefined
+    if unset). Podman: honours an already-exported DOCKER_HOST untouched;
+    otherwise builds /run/user/<uid>/podman/podman.sock and returns
+    `unix://<path>`; if that socket does not exist, throws
+    PodmanSocketNotFoundError (a named error) instead of guessing — this
+    helper deliberately does NOT implement the shell resolver's macOS
+    `podman machine inspect` fallback (documented in the file header as
+    Linux-only, matching this repo's Bun tooling hosts).
+  - hasCommandOnPath / isUnixSocket: production adapters (Bun.which / fs
+    statSync) — both dependency-injected everywhere else so tests never
+    touch the real PATH or filesystem.
+Comment block above resolveEngine is verbatim-matched (same 4-point rule
+text) to the header comment in scripts/lib/container-engine.sh so the two
+cannot drift silently.
+
+scripts/lib/container-engine.test.ts — 19 tests, 42 expect() calls, 0 fail.
+Parity harness: for every required branch (EZCORP_CONTAINER_ENGINE set to
+each value, an invalid value, CI+both->docker, CI+podman-only->podman,
+developer+both->podman, developer+docker-only->docker, an engine named but
+not installed, neither installed) it builds a stub $PATH directory, asks
+`bash -c 'source scripts/lib/container-engine.sh && printf ...'` to resolve
+against it AND asks resolveEngine() to resolve against the identical
+directory via an injected hasCommand, and asserts they agree — plus two
+extra cases (empty-string EZCORP_CONTAINER_ENGINE / CI treated as unset,
+matching the shell's `[ -n ... ]` test). Separately covers every
+resolveComposeDockerHost branch (docker no-op, docker passthrough, podman
+honours preset DOCKER_HOST without probing a socket, podman builds the
+uid-scoped socket path, podman throws PodmanSocketNotFoundError naming the
+exact socket path and both remediation lines, empty-string DOCKER_HOST
+treated as unset) and the two production adapters (hasCommandOnPath against
+a real "bash" and a nonexistent name; isUnixSocket against a real listening
+Bun.listen unix socket, a regular file, and a missing path).
+
+Coverage: scripts/lib/container-engine.ts — 63/63 lines (100.00%), missed: [].
+
+Deliverable 2 — scripts/verify-factory-storage.ts safe default
+----------------------------------------------------------------
+scripts/lib/verify-factory-storage-cli.ts (new, thin-runner support module):
+  - RESTART_STORES_FLAG = "--restart-stores"
+  - HELP_TEXT: names the flag, states in capitals that it "RESTARTS BOTH
+    shared SeaweedFS stores" naming both container names, documents -h/--help
+    and the required EZCORP_FACTORY_STORAGE_SECRETS_DIR env var.
+  - RESTART_LEG_SKIPPED_MESSAGE: one line, names the flag and the reason
+    ("RESTARTS BOTH shared SeaweedFS stores").
+  - parseArgs(argv) -> { restartStores, help }; unknown argument throws
+    UnknownArgumentError (message includes the full help text) instead of
+    being silently ignored.
+  - RESTART_LEG_SERVICES = ["factory-storage-ordinary", "factory-storage-archive"].
+  - restartLegInvocations({engine, dockerHost, projectName, baseEnv}) builds
+    the stop / up -d --wait `docker compose` argv pairs against BOTH
+    services, with COMPOSE_PROJECT_NAME set and DOCKER_HOST forwarded only
+    when resolved (podman case).
+
+scripts/verify-factory-storage.ts (changed): parses argv first; `--help`
+prints HELP_TEXT and exits 0 BEFORE requiring
+EZCORP_FACTORY_STORAGE_SECRETS_DIR. Every existing check (10 tenant
+identities x 2 services, cross-tenant denial, conditional-create race,
+version reads, multipart, prefix/archive isolation) is unchanged and always
+runs. The restart-persistence leg now runs ONLY when `--restart-stores` is
+passed: it resolves the engine and Compose DOCKER_HOST via
+scripts/lib/container-engine.ts, builds both invocations via
+restartLegInvocations(), stops then restarts BOTH shared stores (previously
+only factory-storage-ordinary was restarted, despite docs/common.md already
+describing "both" — this closes that doc/code mismatch), and verifies both
+the ordinary and archive objects survive the restart. Without the flag, it
+prints RESTART_LEG_SKIPPED_MESSAGE and exits 0 once every other check
+passed. The final "Factory local S3 conformance passed..." line is
+unchanged.
+
+scripts/lib/verify-factory-storage-cli.test.ts — 17 tests, 27 expect() calls,
+0 fail. Covers: every parseArgs branch (no args, --restart-stores, --help,
+-h, both together, unknown argument + its message contains HELP_TEXT);
+HELP_TEXT content assertions (names the flag, "RESTARTS", "BOTH shared
+SeaweedFS stores", both container names, the required env var, -h/--help
+documented); RESTART_LEG_SKIPPED_MESSAGE content; restartLegInvocations
+(exact stop/up argv against both services, COMPOSE_PROJECT_NAME set,
+DOCKER_HOST omitted when unresolved vs forwarded when resolved, baseEnv
+entries preserved and undefined-valued ones dropped, both invocations in a
+pair share identical env).
+
+Coverage: scripts/lib/verify-factory-storage-cli.ts — 31/31 lines (100.00%),
+missed: [].
+
+Docs and CI
+-----------
+docs/factory-local-storage.md: rewrote the verify-factory-storage.ts
+paragraph to describe the new safe default and the --restart-stores flag in
+plain language, stated when it is safe to pass (a store this run owns
+exclusively: CI's own ephemeral per-job stack, or a long-lived local stack
+after confirming with its owner) and when not (a shared host's long-lived
+stores without that confirmation); updated the "Engine, and recovery after a
+reboot" section to name both the shell rule (used by setup-factory-storage.sh)
+and its new TypeScript port (used by verify-factory-storage.ts's restart
+leg), stating they share one rule text.
+
+.github/workflows/ci.yml: the factory-deployment-operations job's "Verify the
+deployed object storage is real and reachable" step now runs
+`bun scripts/verify-factory-storage.ts --restart-stores`, with a comment
+explaining why that's safe there (the job creates and tears down its own
+ephemeral storage stack in the same job, confirmed by reading the job: it
+runs `scripts/setup-factory-storage.sh up` before this step and
+`scripts/setup-factory-storage.sh down` in an `if: always()` step after).
+This preserves CI's existing restart-persistence coverage, which the new
+opt-in default would otherwise have silently dropped. Verified
+scripts/check-factory-lanes.ts (which substring-matches
+"bun scripts/verify-factory-storage.ts" as a required producer for the
+"Factory deployment and operations" lane) still passes with the flag
+appended.
+
+Out-of-scope finding (not fixed, flagging for the coordinator/owner):
+scripts/verify-factory-archive-writer.ts has the identical bug this task
+fixed — it spawns a hardcoded `["docker", "compose", ...]` with no engine
+resolution or DOCKER_HOST handling, so it will not reach the Podman-backed
+local stores via `docker` either. It was left untouched; it is outside this
+task's named scope (only verify-factory-storage.ts was named) and touching
+it would be a scope change.
+
+Read-only proof on this host (Deliverable 4)
+---------------------------------------------
+Shared stores confirmed up before the proof run (podman ps, both healthy,
+"Up 2 hours"):
+  ezcorp-factory-storage-1001-factory-storage-ordinary-1   Up 2 hours (healthy)
+  ezcorp-factory-storage-1001-factory-storage-archive-1    Up 2 hours (healthy)
+
+Command (no --restart-stores):
+  EZCORP_FACTORY_STORAGE_SECRETS_DIR=/run/user/1001/ezcorp-factory-storage.0yXaRPtQ \
+    bun scripts/verify-factory-storage.ts
+Exit code: 0
+Output:
+  Restart-persistence leg skipped (pass --restart-stores to run it; that flag
+  RESTARTS BOTH shared SeaweedFS stores — coordinator-only on a shared host,
+  see docs/factory-local-storage.md).
+  Factory local S3 conformance passed for 10 tenant identities across
+  ordinary and archive storage.
+
+StartedAt timestamps (podman inspect .State.StartedAt), captured
+immediately before and immediately after the run — IDENTICAL, proving no
+restart, stop, start, or recreate happened:
+  factory-storage-ordinary-1: 2026-09-21 15:02:31.29704286 -0400 EDT  (before == after)
+  factory-storage-archive-1:  2026-09-21 15:02:09.248505301 -0400 EDT (before == after)
+`diff` of the full before/after `podman ps -a --filter name=factory-storage`
+snapshots (Names, Status, CreatedAt, ID) was empty.
+No `--restart-stores` was passed at any point in this session; no
+`scripts/setup-factory-storage.sh`, `docker compose ... up/restart`, or
+`podman start/restart` command was run against the shared stores.
+
+`bun scripts/verify-factory-storage.ts --help` also verified: prints
+HELP_TEXT and exits 0 without EZCORP_FACTORY_STORAGE_SECRETS_DIR set (help
+is handled before the secrets-dir requirement).
+
+Sweep (Deliverable 5)
+----------------------
+bun run typecheck                                            PASS (backend,
+  web/SvelteKit, backend-tests, web-e2e, and the two locked Python projects
+  via mypy --strict — "Typecheck passed.")
+bun run lint                                                  PASS ("Checked
+  5319 files in 1133ms. No fixes applied.")
+bun scripts/gate-integrity.ts                                 PASS ("Gate
+  integrity PASSED: no gate-weakening or test-cheating changes detected.")
+bun scripts/check-factory-boundaries.ts                       PASS ("Factory
+  boundary checks passed (F07 deterministic validator and F13 shared-module
+  reuse).")
+bun scripts/check-factory-lanes.ts                             PASS ("C11
+  lane inventory passed: 7 lanes with declared producers, artifacts, and
+  runner labels.") — confirms the ci.yml --restart-stores edit did not break
+  the "Factory deployment and operations" lane's producer match.
+
+Focused tests with coverage:
+  bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+    --coverage-dir=.../lcov/container-engine ./scripts/lib/container-engine.test.ts
+    -> 19 pass / 0 fail / 42 expect()
+  bun test --timeout 30000 --coverage --coverage-reporter=lcov \
+    --coverage-dir=.../lcov/verify-factory-storage-cli ./scripts/lib/verify-factory-storage-cli.test.ts
+    -> 17 pass / 0 fail / 27 expect()
+  (both also ran again automatically via the repo's pre-commit hook at
+  commit time, same pass counts, plus the existing shell-side
+  src/__tests__/container-engine.test.ts: 26 pass / 0 fail / 37 expect(),
+  confirming the new TS helper did not regress the existing shell-rule test.)
+
+bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w00-verify-engine/lcov/*/lcov.info' coverage/lcov.info
+  -> "merged 514 source files → coverage/lcov.info" (514 = every module
+  transitively loaded by the two focused test files, per Bun's coverage
+  instrumentation; coverage/lcov.info is gitignored, never committed).
+
+Per-file coverage read directly from the merged lcov (scripts/check-coverage.ts
+itself was not run — it walks ALL threshold keys and requires the FULL test
+pool, which this focused sweep does not run; per common.md's own "before you
+report a package complete" list, this package is required to run only the
+new-file/patch diff gates below, not the whole-repo per-file gate):
+  scripts/lib/container-engine.ts             63/63  (100.00%)
+  scripts/lib/verify-factory-storage-cli.ts   31/31  (100.00%)
+
+BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts
+  -> "New-file coverage gate PASSED: no new source files in this diff."
+  (Expected: scripts/lib/** is not matched by SOURCE_GLOBS in
+  scripts/coverage-config.ts — only specific scripts/*.ts files are listed
+  there, e.g. scripts/lib/ci-registration.ts, and scripts/lib/container-engine.ts
+  / verify-factory-storage-cli.ts were deliberately NOT added to that list,
+  since coverage-config.ts is a CODEOWNERS-owned gate file per CLAUDE.md and
+  editing it needs human review/the gate-change-approved label, which a
+  worker cannot apply. Existing scripts like scripts/backfill-embeddings.ts,
+  scripts/routing-export.ts, and scripts/routing-sweep.ts follow the same
+  pattern: a coverage-thresholds.json key without a SOURCE_GLOBS entry. Both
+  new files DO have explicit 100% coverage-thresholds.json keys per
+  common.md rule #1, and both measure 100% as shown above.)
+
+BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts
+  -> "Patch coverage gate PASSED: all changed executable lines covered
+  (0 file(s))." (Same reason: scripts/verify-factory-storage.ts is not
+  matched by SOURCE_GLOBS either — same pre-existing repo pattern — so it
+  contributes 0 files to this diff-scoped check. Its correctness is instead
+  proven by the read-only proof run above, since it cannot be meaningfully
+  unit-tested without real S3/Compose infrastructure; that is exactly why
+  the brief asked for its testable logic to be extracted into the two helper
+  modules, which ARE fully unit-tested at 100%.)
+
+Working tree: clean at HEAD (git status --short empty).
+
+Plan-bullet status
+-------------------
+1. TypeScript container-engine helper, rule-identical comment, shell-parity
+   test across every required branch: DONE (scripts/lib/container-engine.ts,
+   scripts/lib/container-engine.test.ts, commit cda01b325).
+2. verify-factory-storage.ts uses the helper; restart leg gated behind
+   --restart-stores; help text + docs state plainly it restarts both stores;
+   testable logic moved to a second module: DONE (commit 93caa43ce).
+3. Tests behavior-first, no network/real store, 100% coverage of both new
+   files with coverage-thresholds.json keys, no lowered thresholds / EXCLUDES
+   / skip-only-todo: DONE.
+4. Read-only proof on this host without the flag, containers' StartedAt
+   unchanged before/after: DONE, see above.
+5. Sweep (typecheck, lint, gate-integrity, factory-boundaries,
+   focused-coverage, merge-lcov, new-file/patch coverage gates): DONE, all
+   green; receipts above.
+
+Nothing left open for this package. The one out-of-scope finding
+(verify-factory-archive-writer.ts has the same hardcoded-docker bug) is
+reported above for the coordinator's judgment, not fixed here.
+
+====================================================================================
+FOLLOW-UP — apply the same fix to scripts/verify-factory-archive-writer.ts
+====================================================================================
+
+Same worktree/branch, two more commits:
+
+f1c69b7b3 refactor(factory-storage): extract shared CLI/compose pieces for verify scripts
+  - scripts/lib/factory-storage-cli.ts (new) + scripts/lib/factory-storage-cli.test.ts (new)
+  - scripts/lib/verify-factory-storage-cli.ts (changed — now built on the shared module;
+    dropped an unused `engine` field from restartLegInvocations' input type,
+    found while doing this refactor — DOCKER_HOST forwarding was already
+    decided purely by whether `dockerHost` was defined, `engine` was never read)
+  - scripts/lib/verify-factory-storage-cli.test.ts (changed — dropped the
+    now-invalid `engine:` fields from restartLegInvocations() test calls)
+  - scripts/verify-factory-storage.ts (changed — one-line call-site update)
+  No behavior change to verify-factory-storage.ts; its own test suite still
+  asserts the identical compose invocations, help text, and skip message.
+
+b50598e81 feat(factory-storage): make verify-factory-archive-writer.ts safe by default
+  - scripts/lib/verify-factory-archive-writer-cli.ts (new) + test (new)
+  - scripts/verify-factory-archive-writer.ts (changed)
+  - scripts/coverage-thresholds.json (changed — 2 new 100% keys)
+  - docs/factory-local-storage.md (changed)
+
+HEAD is now b50598e81a321b961c3e06f062a88d3006458a06. Working tree clean.
+
+What changed in scripts/verify-factory-archive-writer.ts
+----------------------------------------------------------
+It previously spawned a hardcoded `["docker", "compose", ...]` with no engine
+resolution or DOCKER_HOST handling (same bug flagged, out of scope, in the
+first report above) AND unconditionally stopped then restarted the shared
+factory-storage-ordinary container mid-script as part of proving the
+archive answers independently of the product store during an outage (its
+"product-store-outage leg").
+
+Now: parses argv first; `--help` prints HELP_TEXT and exits 0 before
+requiring EZCORP_FACTORY_STORAGE_SECRETS_DIR. The full ten-tenant
+archive-writer proof (conditional create, checksum, version reads,
+inventory, every product/restore/cross-tenant denial — previously lines
+100-173) is unchanged and always runs. The product-store-outage leg
+(previously lines 175-229: create a product object, an archive "loss"
+object, a release claim, verify-before, stop ordinary, prove independence +
+settlement-blocked, restart ordinary in a `finally`, verify-after) now runs
+ONLY with `--restart-stores`, driving Compose through
+scripts/lib/container-engine.ts exactly like verify-factory-storage.ts.
+Without the flag: prints one line (RESTART_LEG_SKIPPED_MESSAGE) and sets
+the written receipt's `ordinaryStoreLoss` to
+`{ skipped: true, reason: "..." }` instead of the outage-proof fields, then
+completes normally (exit 0). scripts/lib/verify-factory-archive-writer-cli.ts
+holds outageLegInvocations(), which restarts ONLY factory-storage-ordinary
+(not archive — this leg's whole point is the archive answering while
+ordinary alone is down), reusing the shared stopThenUpInvocations() builder.
+
+No CI workflow invokes verify-factory-archive-writer.ts (grepped .github/
+and scripts/*.sh — none found; it is coordinator-run only per
+docs/factory-local-storage.md's existing `flock` guidance), so no ci.yml
+edit was needed here (unlike verify-factory-storage.ts's CI job, which does
+invoke it and needed --restart-stores added).
+
+Tests and coverage
+-------------------
+scripts/lib/factory-storage-cli.test.ts — 14 pass / 21 expect(), 0 fail.
+  Direct tests of parseRestartFlagArgs (every branch, plus the
+  caller-supplied help text appearing verbatim in UnknownArgumentError),
+  UnknownArgumentError's own shape, composeEnv (DOCKER_HOST omit/forward,
+  baseEnv preserved minus undefined entries, projectName always wins over a
+  same-named baseEnv entry), and stopThenUpInvocations (exact stop/up argv
+  for one and for multiple services, both invocations share identical env).
+
+scripts/lib/verify-factory-archive-writer-cli.test.ts — 19 pass / 28
+  expect(), 0 fail. Mirrors verify-factory-storage-cli.test.ts's structure:
+  every parseArgs branch; HELP_TEXT content (names the flag, "STOPS then
+  RESTARTS", factory-storage-ordinary, explicitly asserts it does NOT
+  mention factory-storage-archive, documents the env var and -h/--help);
+  RESTART_LEG_SKIPPED_MESSAGE content; outageLegInvocations (exact stop/up
+  argv against ONLY factory-storage-ordinary, asserts factory-storage-archive
+  never appears in either invocation, COMPOSE_PROJECT_NAME/DOCKER_HOST
+  handling, baseEnv preserved, both invocations share identical env).
+
+Re-ran all four scripts/lib/*.test.ts files together: 69 pass / 0 fail / 118
+expect() calls total (19 container-engine + 14 factory-storage-cli + 17
+verify-factory-storage-cli + 19 verify-factory-archive-writer-cli).
+
+Per-file coverage from the freshly re-merged lcov (516 source files merged;
+same reasoning as above for why the diff-scoped new-file/patch gates report
+0 files — scripts/lib/** still isn't in coverage-config.ts's SOURCE_GLOBS,
+untouched again since it is CODEOWNERS-owned):
+  scripts/lib/container-engine.ts                      63/63  (100.00%)
+  scripts/lib/factory-storage-cli.ts                   30/30 (100.00%)
+  scripts/lib/verify-factory-storage-cli.ts            11/11 (100.00%)
+  scripts/lib/verify-factory-archive-writer-cli.ts     11/11 (100.00%)
+
+BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts
+  -> "New-file coverage gate PASSED: no new source files in this diff."
+BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts
+  -> "Patch coverage gate PASSED: all changed executable lines covered (0 file(s))."
+
+Re-ran the full sweep against HEAD b50598e81:
+  bun run typecheck                    PASS ("Typecheck passed.")
+  bun run lint                         PASS ("Checked 5323 files ... No fixes applied.")
+  bun scripts/gate-integrity.ts        PASS
+  bun scripts/check-factory-boundaries.ts   PASS
+  bun scripts/check-factory-lanes.ts   PASS (confirms the earlier ci.yml
+    --restart-stores addition for verify-factory-storage.ts is still intact
+    and matched)
+
+Read-only proof on this host — archive-writer script
+-------------------------------------------------------
+Shared stores confirmed up before the run (same containers as the first
+proof, unchanged since): both "Up 2 hours (healthy)".
+
+Command (no --restart-stores; output redirected to this package's own
+evidence path, NOT the default /tmp/factory-platform-evidence/w04a/
+archive-writer-real.json, to avoid overwriting another package's existing
+evidence file there):
+  EZCORP_FACTORY_STORAGE_SECRETS_DIR=/run/user/1001/ezcorp-factory-storage.0yXaRPtQ \
+  FACTORY_ARCHIVE_WRITER_PROOF_OUTPUT=/tmp/factory-platform-evidence/w00-verify-engine/archive-writer-proof-no-flag.json \
+    bun scripts/verify-factory-archive-writer.ts
+Exit code: 0
+Output (skip line, then the written result on stdout):
+  Product-store-outage leg skipped (pass --restart-stores to run it; that
+  flag STOPS then RESTARTS the shared factory-storage-ordinary store —
+  coordinator-only on a shared host, see docs/factory-local-storage.md).
+  {"testedAt":"2026-09-21T21:13:15.545Z","tenants":10,"readinessPasses":10,
+  "refusedAttempts":130,"refusalStatuses":{"403":130},
+  "endpoints":["127.0.0.1:18333","127.0.0.1:18334"],
+  "failureDomain":"same-host-not-independent",
+  "unmetCriteria":["deployed-independent-failure-domain"],
+  "credentialsSeparated":true,"deployedIndependenceProven":false,
+  "ordinaryStoreLoss":{"skipped":true,"reason":"product-store-outage leg not
+  run: pass --restart-stores to run it (it STOPS then RESTARTS the shared
+  factory-storage-ordinary store)."},
+  "receipt":"/tmp/factory-platform-evidence/w00-verify-engine/archive-writer-proof-no-flag.json"}
+(all 10 tenants passed readiness; 130 refused attempts, all HTTP 403, same
+shape as the historical wave1 real run recorded in
+docs/validation/factory/wave1/w04a-validation-report.md)
+
+StartedAt timestamps (podman inspect .State.StartedAt), captured
+immediately before and immediately after this run — IDENTICAL to each other
+AND identical to the first proof's readings, proving no restart:
+  factory-storage-ordinary-1: 2026-09-21 15:02:31.29704286 -0400 EDT  (before == after)
+  factory-storage-archive-1:  2026-09-21 15:02:09.248505301 -0400 EDT (before == after)
+Full `podman ps -a --filter name=factory-storage` before/after diff: empty.
+No `--restart-stores` was passed at any point; no
+`scripts/setup-factory-storage.sh`, `docker compose ... up/restart`, or
+`podman start/restart` command was run against the shared stores.
+
+`bun scripts/verify-factory-archive-writer.ts --help` also verified: prints
+HELP_TEXT and exits 0 without EZCORP_FACTORY_STORAGE_SECRETS_DIR set.
+
+Plan-bullet status (follow-up)
+--------------------------------
+- Same engine resolution + DOCKER_HOST under Podman applied to
+  verify-factory-archive-writer.ts: DONE.
+- Store-mutating leg (product-store-outage) behind --restart-stores, same
+  safe default, one skip line: DONE.
+- Testable logic in a small module, 100% coverage: DONE
+  (scripts/lib/verify-factory-archive-writer-cli.ts, built on the new
+  shared scripts/lib/factory-storage-cli.ts — also 100%).
+- Docs and any CI job updated: docs/factory-local-storage.md updated; no
+  CI job invokes this script, confirmed by grep, so none needed updating.
+- Sweep rerun (typecheck, lint, gate-integrity, check-factory-lanes, both
+  coverage gates, manual lcov check): DONE, all green, receipts above.
+- Read-only proof on this host, no flag, identical StartedAt before/after:
+  DONE, see above.
+- Clean tree, report appended: DONE.
+
+Nothing left open for this follow-up.

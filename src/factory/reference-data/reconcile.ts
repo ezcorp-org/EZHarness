@@ -166,6 +166,118 @@ function describe(bucket: Map<string, { count: number; sum: bigint }>): string {
   return [...bucket.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)).map(([name, total]) => `${name}=${total.count}/${total.sum}`).join(" ");
 }
 
+/** How a reconciliation step records one defect against one claim. */
+type Fail = (claim: ReferenceDataClaimId, reasonCode: string, detail: string) => void;
+
+/** The running state one pass over the exported partitions accumulates. */
+interface ExportPass {
+  readonly source: SourceRows;
+  readonly exported: Accounting;
+  readonly inputTotals: Accounting;
+  readonly identifiers: IdentifierIndex;
+  /** The next row's index in export order, counted across every member. */
+  position: number;
+  /** The schema is the export's, so it is read from the first member only. */
+  schemaChecked: boolean;
+  decodedEvery: boolean;
+}
+
+/**
+ * Which members exist, before any of them is decoded.
+ *
+ * The manifest names its members; the export supplies them. A disagreement
+ * about WHICH files exist is a partition-sequence failure, and it is checked
+ * before anything is decoded so a missing member is named rather than
+ * discovered as a short row count.
+ */
+function checkPartitionSequence(input: ReferenceDataReconciliationInput, manifest: ReferenceDataManifest, fail: Fail): void {
+  const supplied = input.parts.map(part => part.name.slice(part.name.lastIndexOf("/") + 1));
+  const declared = manifest.files.map(file => file.name);
+  for (const [index, name] of supplied.entries()) {
+    if (referenceDataPartitionIndex(name) !== index) fail("partition-sequence-complete", "partition_out_of_order", `Exported member ${index} is ${name}, not ${referenceDataPartitionName(index)}.`);
+  }
+  for (const name of declared) if (!supplied.includes(name)) fail("partition-sequence-complete", "partition_missing", `The manifest names ${name} and the export does not hold it.`);
+  for (const name of supplied) if (!declared.includes(name)) fail("partition-sequence-complete", "partition_unexpected", `The export holds ${name} and the manifest does not name it.`);
+}
+
+/** The decoded columns, against the one schema the definition fixes. */
+function checkPartitionSchema(partName: string, schema: ReturnType<typeof readReferenceDataParquet>["schema"], fail: Fail): void {
+  for (const [column, field] of schema.entries()) {
+    const expected = REFERENCE_DATA_PARQUET_SCHEMA[column] as (typeof REFERENCE_DATA_PARQUET_SCHEMA)[number];
+    if (field.name !== expected.name || field.physicalType !== expected.physicalType || field.logicalType !== expected.logicalType || field.repetition !== expected.repetition) {
+      fail("output-schema", "schema_mismatch", `${partName} column ${column} is ${field.name}:${field.physicalType}/${field.logicalType}/${field.repetition}.`);
+    }
+  }
+}
+
+/**
+ * One member's rows, compared position by position with the immutable input.
+ *
+ * Order is part of the claim, so the input is pulled one row per exported row
+ * and never matched as a set.
+ */
+async function accountPartitionRows(partName: string, rows: ReturnType<typeof readReferenceDataParquet>["rows"], pass: ExportPass, fail: Fail): Promise<void> {
+  for (const row of rows) {
+    const position = pass.position;
+    if (row.amountCents < 0n) fail("no-null-negative-overflow", "amount_negative", `${partName} row ${position} holds ${row.amountCents}.`);
+    else if (row.amountCents > REFERENCE_DATA_LIMITS.maxAmountCents) fail("no-null-negative-overflow", "amount_overflow", `${partName} row ${position} holds ${row.amountCents}, past the declared domain.`);
+    if (row.recordId.length === 0 || row.category.length === 0) fail("no-null-negative-overflow", "value_empty", `${partName} row ${position} holds an empty identifier or category.`);
+    if (!pass.identifiers.add(row.recordId)) fail("row-count-unique-ids", "record_id_duplicate", `${partName} row ${position} repeats record_id ${row.recordId}.`);
+    const expected = await pass.source.next();
+    if (!expected) {
+      // A refused INPUT is reported once, by the caller, as its own reason.
+      // Saying "the export holds a row the input does not" about an input that
+      // was never readable would name the wrong side of the comparison.
+      if (!pass.source.failure) fail("source-row-values", "row_unmatched", `The export holds row ${position} and the input does not.`);
+    } else {
+      pass.inputTotals.add(expected.category, expected.amountCents);
+      if (expected.recordId !== row.recordId || expected.category !== row.category || expected.amountCents !== row.amountCents) {
+        fail("source-row-values", "row_changed", `Row ${position} is ${row.recordId},${row.category},${row.amountCents} in the export and ${expected.recordId},${expected.category},${expected.amountCents} in the input.`);
+      }
+    }
+    pass.exported.add(row.category, row.amountCents);
+    pass.position += 1;
+  }
+}
+
+/** Decodes one exported member and folds it into the running accounting. */
+async function accountPartition(part: ReferenceDataExportPart, index: number, partCount: number, manifest: ReferenceDataManifest, pass: ExportPass, fail: Fail): Promise<void> {
+  let decoded: ReturnType<typeof readReferenceDataParquet>;
+  try {
+    decoded = readReferenceDataParquet(await part.read());
+  } catch (error) {
+    pass.decodedEvery = false;
+    const reason = error instanceof ReferenceDataParquetError ? error.code : "parquet_unreadable";
+    fail("output-schema", reason, `${part.name} is not readable as the declared Parquet: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+  if (!pass.schemaChecked) {
+    pass.schemaChecked = true;
+    checkPartitionSchema(part.name, decoded.schema, fail);
+  }
+  const last = index === partCount - 1;
+  if (!last && decoded.rowCount !== manifest.partitionRows) fail("partition-sequence-complete", "partition_short", `${part.name} holds ${decoded.rowCount} row(s) and only the last partition may hold fewer than ${manifest.partitionRows}.`);
+  if (decoded.rowCount === 0 || decoded.rowCount > manifest.partitionRows) fail("partition-sequence-complete", "partition_size", `${part.name} holds ${decoded.rowCount} row(s), outside 1..${manifest.partitionRows}.`);
+
+  await accountPartitionRows(part.name, decoded.rows, pass, fail);
+}
+
+/**
+ * The recomputed accounting against both other sides of the claim.
+ *
+ * Both comparisons are made, and the INPUT one is what stops a transform
+ * certifying itself: a defect that also wrote a matching manifest agrees with
+ * itself and still disagrees with the immutable source.
+ */
+function checkRecomputedTotals(manifest: ReferenceDataManifest, pass: ExportPass, fail: Fail): void {
+  const { exported, inputTotals, identifiers } = pass;
+  if (exported.rowCount !== manifest.rowCount) fail("row-count-unique-ids", "row_count_manifest", `The export holds ${exported.rowCount} row(s) and the manifest declares ${manifest.rowCount}.`);
+  if (exported.rowCount !== inputTotals.rowCount) fail("row-count-unique-ids", "row_count_source", `The export holds ${exported.rowCount} row(s) and the immutable input holds ${inputTotals.rowCount}.`);
+  if (identifiers.size !== exported.rowCount) fail("row-count-unique-ids", "record_id_not_unique", `The export holds ${exported.rowCount} row(s) with ${identifiers.size} distinct record_id(s).`);
+  compare(exported, inputTotals, "source", fail);
+  compare(exported, manifestAccounting(manifest), "manifest", fail);
+}
+
 /**
  * Recomputes every mandatory claim from the immutable input and the exported
  * bytes, and reports one strict claim report.
@@ -173,12 +285,16 @@ function describe(bucket: Map<string, { count: number; sum: bigint }>): string {
  * A claim that could not be measured is `INCONCLUSIVE`, never a pass: C10's
  * decision rule treats only `PASS` as satisfying a required claim, and a
  * reconciliation that could not read the export has not agreed with it.
+ *
+ * The phases run in the order the claims depend on each other: the manifest is
+ * parsed, the member list is checked, every member is decoded and accounted,
+ * and only then are the recomputed totals compared.
  */
 export async function reconcileReferenceData(input: ReferenceDataReconciliationInput): Promise<FactoryValidatorClaimReport> {
   const measured = input.measuredAtMs;
   const findings: Finding[] = [];
   const unmeasured = new Set<ReferenceDataClaimId>();
-  const fail = (claim: ReferenceDataClaimId, reasonCode: string, detail: string) => findings.push({ claim, reasonCode, detail });
+  const fail: Fail = (claim, reasonCode, detail) => findings.push({ claim, reasonCode, detail });
 
   let manifest: ReferenceDataManifest | undefined;
   try {
@@ -190,96 +306,40 @@ export async function reconcileReferenceData(input: ReferenceDataReconciliationI
     return report(findings, unmeasured, measured);
   }
 
-  // The manifest names its members; the export supplies them. A disagreement
-  // about WHICH files exist is a partition-sequence failure, and it is checked
-  // before anything is decoded so a missing member is named rather than
-  // discovered as a short row count.
-  const supplied = input.parts.map(part => part.name.slice(part.name.lastIndexOf("/") + 1));
-  const declared = manifest.files.map(file => file.name);
-  for (const [index, name] of supplied.entries()) {
-    if (referenceDataPartitionIndex(name) !== index) fail("partition-sequence-complete", "partition_out_of_order", `Exported member ${index} is ${name}, not ${referenceDataPartitionName(index)}.`);
-  }
-  for (const name of declared) if (!supplied.includes(name)) fail("partition-sequence-complete", "partition_missing", `The manifest names ${name} and the export does not hold it.`);
-  for (const name of supplied) if (!declared.includes(name)) fail("partition-sequence-complete", "partition_unexpected", `The export holds ${name} and the manifest does not name it.`);
+  checkPartitionSequence(input, manifest, fail);
 
-  const source = new SourceRows(input.source());
-  const exported = new Accounting();
-  const inputTotals = new Accounting();
-  const identifiers = new IdentifierIndex();
-  let position = 0;
-  let schemaChecked = false;
-  let decodedEvery = true;
+  const pass: ExportPass = {
+    source: new SourceRows(input.source()),
+    exported: new Accounting(),
+    inputTotals: new Accounting(),
+    identifiers: new IdentifierIndex(),
+    position: 0,
+    schemaChecked: false,
+    decodedEvery: true,
+  };
 
   for (const [index, part] of input.parts.entries()) {
-    let decoded: ReturnType<typeof readReferenceDataParquet>;
-    try {
-      decoded = readReferenceDataParquet(await part.read());
-    } catch (error) {
-      decodedEvery = false;
-      const reason = error instanceof ReferenceDataParquetError ? error.code : "parquet_unreadable";
-      fail("output-schema", reason, `${part.name} is not readable as the declared Parquet: ${error instanceof Error ? error.message : String(error)}`);
-      continue;
-    }
-    if (!schemaChecked) {
-      schemaChecked = true;
-      for (const [column, field] of decoded.schema.entries()) {
-        const expected = REFERENCE_DATA_PARQUET_SCHEMA[column] as (typeof REFERENCE_DATA_PARQUET_SCHEMA)[number];
-        if (field.name !== expected.name || field.physicalType !== expected.physicalType || field.logicalType !== expected.logicalType || field.repetition !== expected.repetition) {
-          fail("output-schema", "schema_mismatch", `${part.name} column ${column} is ${field.name}:${field.physicalType}/${field.logicalType}/${field.repetition}.`);
-        }
-      }
-    }
-    const last = index === input.parts.length - 1;
-    if (!last && decoded.rowCount !== manifest.partitionRows) fail("partition-sequence-complete", "partition_short", `${part.name} holds ${decoded.rowCount} row(s) and only the last partition may hold fewer than ${manifest.partitionRows}.`);
-    if (decoded.rowCount === 0 || decoded.rowCount > manifest.partitionRows) fail("partition-sequence-complete", "partition_size", `${part.name} holds ${decoded.rowCount} row(s), outside 1..${manifest.partitionRows}.`);
-
-    for (const row of decoded.rows) {
-      if (row.amountCents < 0n) fail("no-null-negative-overflow", "amount_negative", `${part.name} row ${position} holds ${row.amountCents}.`);
-      else if (row.amountCents > REFERENCE_DATA_LIMITS.maxAmountCents) fail("no-null-negative-overflow", "amount_overflow", `${part.name} row ${position} holds ${row.amountCents}, past the declared domain.`);
-      if (row.recordId.length === 0 || row.category.length === 0) fail("no-null-negative-overflow", "value_empty", `${part.name} row ${position} holds an empty identifier or category.`);
-      if (!identifiers.add(row.recordId)) fail("row-count-unique-ids", "record_id_duplicate", `${part.name} row ${position} repeats record_id ${row.recordId}.`);
-      const expected = await source.next();
-      if (!expected) {
-        // A refused INPUT is reported once, below, as its own reason. Saying
-        // "the export holds a row the input does not" about an input that was
-        // never readable would name the wrong side of the comparison.
-        if (!source.failure) fail("source-row-values", "row_unmatched", `The export holds row ${position} and the input does not.`);
-      } else {
-        inputTotals.add(expected.category, expected.amountCents);
-        if (expected.recordId !== row.recordId || expected.category !== row.category || expected.amountCents !== row.amountCents) {
-          fail("source-row-values", "row_changed", `Row ${position} is ${row.recordId},${row.category},${row.amountCents} in the export and ${expected.recordId},${expected.category},${expected.amountCents} in the input.`);
-        }
-      }
-      exported.add(row.category, row.amountCents);
-      position += 1;
-    }
+    await accountPartition(part, index, input.parts.length, manifest, pass, fail);
   }
 
-  const leftOver = await source.drain(inputTotals);
-  if (source.failure) {
+  const leftOver = await pass.source.drain(pass.inputTotals);
+  if (pass.source.failure) {
     // The input itself is refused. That is not an export defect, so every claim
     // that rests on comparing the two is unmeasurable rather than failed.
-    fail("source-row-values", "source_refused", `The immutable input is refused by the strict grammar: ${source.failure.message}`);
+    fail("source-row-values", "source_refused", `The immutable input is refused by the strict grammar: ${pass.source.failure.message}`);
     unmeasured.add("category-and-global-totals");
     unmeasured.add("row-count-unique-ids");
-  } else if (leftOver > 0 && decodedEvery) {
-    fail("source-row-values", "row_dropped", `The input holds ${leftOver} row(s) the export's ${position} do not.`);
+  } else if (leftOver > 0 && pass.decodedEvery) {
+    fail("source-row-values", "row_dropped", `The input holds ${leftOver} row(s) the export's ${pass.position} do not.`);
   }
 
-  if (!decodedEvery) {
+  if (!pass.decodedEvery) {
     for (const claim of ["row-count-unique-ids", "source-row-values", "category-and-global-totals", "no-null-negative-overflow"] as const) unmeasured.add(claim);
   } else if (!unmeasured.has("category-and-global-totals")) {
-    // Both comparisons are made, and the INPUT one is what stops a transform
-    // certifying itself: a defect that also wrote a matching manifest agrees
-    // with itself and still disagrees with the immutable source.
-    if (exported.rowCount !== manifest.rowCount) fail("row-count-unique-ids", "row_count_manifest", `The export holds ${exported.rowCount} row(s) and the manifest declares ${manifest.rowCount}.`);
-    if (exported.rowCount !== inputTotals.rowCount) fail("row-count-unique-ids", "row_count_source", `The export holds ${exported.rowCount} row(s) and the immutable input holds ${inputTotals.rowCount}.`);
-    if (identifiers.size !== exported.rowCount) fail("row-count-unique-ids", "record_id_not_unique", `The export holds ${exported.rowCount} row(s) with ${identifiers.size} distinct record_id(s).`);
-    compare(exported, inputTotals, "source", fail);
-    compare(exported, manifestAccounting(manifest), "manifest", fail);
+    checkRecomputedTotals(manifest, pass, fail);
   }
 
-  return report(findings, unmeasured, measured, describe(exported.categories), exported.rowCount, exported.total);
+  return report(findings, unmeasured, measured, describe(pass.exported.categories), pass.exported.rowCount, pass.exported.total);
 }
 
 /** The accounting the manifest states, so both comparisons run through one routine. */
@@ -292,7 +352,7 @@ function manifestAccounting(manifest: ReferenceDataManifest): Accounting {
 }
 
 /** Compares the export's recomputed accounting with one other side of the claim. */
-function compare(exported: Accounting, other: Accounting, side: "source" | "manifest", fail: (claim: ReferenceDataClaimId, reasonCode: string, detail: string) => void): void {
+function compare(exported: Accounting, other: Accounting, side: "source" | "manifest", fail: Fail): void {
   if (exported.total !== other.total) fail("category-and-global-totals", `total_${side}`, `The export totals ${exported.total} and the ${side} says ${other.total}.`);
   for (const [name, totals] of exported.categories) {
     const stated = other.categories.get(name);

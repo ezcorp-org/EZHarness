@@ -19,7 +19,11 @@ fields = dict(l.split('=', 1) for l in (root / 'postgres.env').read_text().split
 endpoint = subprocess.check_output(['podman', 'port', 'factory-platform-proof-postgres', '5432'], text=True).strip()
 env.pop('DATABASE_URL', None); env.pop('GATE_CHANGE_APPROVED', None)
 env['FACTORY_TEST_POSTGRES_URL'] = f"postgres://{fields['POSTGRES_USER']}:{fields['POSTGRES_PASSWORD']}@{endpoint}/{fields['POSTGRES_DB']}"
-env['EZCORP_FACTORY_STORAGE_SECRETS_DIR'] = '/run/user/1001/ezcorp-factory-storage.8yWJyCIQ'
+# The S3 credential directory lives on tmpfs and changes on every reboot: take it from the
+# environment, else discover the single generated directory, else fail by name.
+_secrets = os.environ.get('EZCORP_FACTORY_STORAGE_SECRETS_DIR') or (lambda d: d[0] if len(d) == 1 else None)(sorted(glob.glob('/run/user/%d/ezcorp-factory-storage.*' % os.getuid())))
+if not _secrets or not os.path.isdir(_secrets): sys.exit('no factory storage credential directory: export EZCORP_FACTORY_STORAGE_SECRETS_DIR or run scripts/setup-factory-storage.sh up|recover')
+env['EZCORP_FACTORY_STORAGE_SECRETS_DIR'] = _secrets
 env['FACTORY_TEMPORAL_TEST_SERVER'] = '/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server'
 workflow = (repo / '.github/workflows/db-postgres.yml').read_text()
 ci_files = [l.strip() for l in workflow.splitlines() if l.strip().startswith('./tests/postgres/factory-')]

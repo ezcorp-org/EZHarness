@@ -391,6 +391,31 @@ export function isExcluded(relPath: string): boolean {
   return excludeGlobs.some((g) => g.match(relPath));
 }
 
+/** `packages/<pkg>/dist/**` and `packages/@scope/<pkg>/dist/**`. */
+const COMPILED_WORKSPACE_OUTPUT = /^packages\/(?:@[^/]+\/)?[^/]+\/dist\//;
+
+/**
+ * True if a repo-relative path is COMPILED workspace output rather than source.
+ *
+ * A workspace package ships both its TypeScript sources and the JavaScript
+ * `tsc` emits from them. Only Bun honours the `"bun"` export condition that
+ * points a workspace import at `src`; every Node-resolved producer — the
+ * Vitest leg, `node --test`, anything the built app itself loads — resolves
+ * the same import to `dist/*.js`. Its instrumenter then reports coverage for
+ * the BUILD ARTEFACT beside the source it was compiled from: the same code
+ * measured twice, the second time under a path no threshold key names and no
+ * test was ever written against.
+ *
+ * This is NOT an un-gating rule and belongs nowhere near one. `dist` is not
+ * source that goes unenforced; it is not source at all. The sources it was
+ * compiled from stay measured by their own producers, which is exactly what
+ * the `packages/@ezcorp/*` source globs above are gated on — so dropping the
+ * artefact can only ever REMOVE a duplicate, never hide a measured file.
+ */
+export function isCompiledWorkspaceOutput(relPath: string): boolean {
+  return COMPILED_WORKSPACE_OUTPUT.test(relPath.replaceAll("\\", "/"));
+}
+
 /**
  * True if a repo-relative path is gateable product code: matches a source
  * glob and is not a test/spec/type file. (EXCLUDES is applied separately by
