@@ -16,8 +16,8 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends git \
  && rm -rf /var/lib/apt/lists/*
 
-# The dev stack runs as root for its trusted-local runner socket, but all
-# image-backed app files must belong to UID:GID 1000. Set ownership while each
+# The default isolated-runner stack runs as root to read its runner socket, but
+# all image-backed app files must belong to UID:GID 1000. Set ownership while each
 # small tree is created; a recursive chown after dependency installs copies
 # every lower-layer inode up through overlayfs.
 RUN mkdir -p /app/state /app/cache /app/web/.ezcorp /app/.ezcorp/extension-releases \
@@ -62,8 +62,9 @@ COPY --chown=1000:1000 . .
 RUN bun run --cwd packages/@ezcorp/sdk build --force \
  && bun run --cwd packages/@ezcorp/harness-client build --force
 
-# The root runtime identity is intentional: it reads the trusted-local runner
-# socket while rootless Podman maps that identity to the invoking host user.
+# The root runtime identity is intentional for isolated-runner socket access;
+# rootless Podman maps that identity to the invoking host user. The trusted-local
+# override runs the app as UID:GID 1000 and does not mount a runner socket.
 USER root
 
 EXPOSE 3000
