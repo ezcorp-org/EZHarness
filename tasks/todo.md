@@ -340,3 +340,74 @@ Plan review: use Compose as the single source of truth for quoting, interpolatio
 comments, and exported-shell precedence. Keep its resolved output private and
 read only a fixed whitelist. Keep URL and credential validation conservative,
 portable, and independent of JavaScript tooling.
+
+## PR #290 CI failure diagnosis
+
+- [x] Capture the completed run and raw failed-job logs for run 35631461630.
+- [x] Build and run the smallest end-user-aligned real-auth web-search E2E reproduction.
+- [x] Compare the failure with main/PR #291 and classify it as product defect, test defect, or infrastructure flake.
+- [x] Inspect every production-proof failure and separate root failures from downstream failures.
+- [x] If a defect exists, add regression evidence, implement the smallest root-cause fix, and verify it. Otherwise, make no source edit.
+- [x] Record the final evidence, commit any fix, and confirm clean worktree status.
+- [x] Merge current `origin/main` (including merged PR #291), rerun focused checks, and leave a push-ready commit without pushing.
+
+Plan review: preserve the PR's multi-architecture runner-image change. Diagnose the first causal failure before downstream coverage consumers. Do not add retries or waits without a reproduced product defect.
+
+### Review
+
+- Run 35631461630 had two independent producer failures. Real-auth passed 104 tests before one tools-endpoint GET ended with `socket hang up`; recovery passed R1, then the archived-image seed rejected missing or stale build evidence. Browser coverage, per-file coverage, production lifecycle, and aggregate E2E failures were downstream.
+- Both signatures were transient. PR #291 passed the same three web-search tests and used the same archived source successfully. Among the latest 30 CI runs, PR #290 was the only completed real-auth failure and the only recovery failure; recovery was 15 passes to one failure.
+- The exact real-auth web-search Playwright spec passed 3/3 on the original PR head and 3/3 after merging main. No source or test workaround was added.
+- Merged `origin/main` at `0f949c307`; focused checks passed: runner image pin 3/3, container engine 26/26, lifecycle launch 4/4, lint, and typecheck.
+
+## PR #290 runner-profile upgrade repair
+
+- [x] Reproduce and classify the repeated historical-upgrade failure from both CI attempts.
+- [x] Run the archived app with the archived runner image profile, then switch to the candidate profile.
+- [x] Prove that an old release is refused after the profile change and must be rebuilt and reapproved.
+- [x] Add focused regression tests for the profile transition without weakening strict digest checks.
+- [x] Run focused tests and the closest practical production-upgrade proof with Bun 1.3.14.
+- [x] Run relevant full gates, review the diff, and commit the repair without pushing.
+
+Plan review: keep exact runner-image equality. The proof must model the real service upgrade instead of making OCI index and child digests interchangeable. Preserve installation identity, conversation wiring, stored extension data, and human approval semantics through the required rebuild.
+
+### Review
+
+- Both attempts of CI run 35638868572 failed only after the archived app was paired with the candidate runner profile. PR #291 passed the same archived source with the old profile.
+- The proof now derives both runner images from their immutable source revisions. It seeds with the archived profile, restarts with the candidate profile, proves the old release cannot execute, then rebuilds and reapproves it under the new profile.
+- The production lifecycle's exact image comparison remains unchanged. Installation identity, owner, scope, grants, workspace, old release and approval records, conversation wiring, and extension storage are verified across both the live upgrade and backup restore.
+- Real rootless-Podman semantic upgrade passed end to end: archived seed, candidate rebuild, independent restore rebuild, and clean cleanup. Focused tests passed 44/44. Bun 1.3.14 lint and typecheck passed.
+
+## PR #290 final proof hardening
+
+- [x] Add negative regressions that reject unrelated old-release failures.
+- [x] Require the precise runtime-profile mismatch refusal.
+- [x] Compare the complete pre-rebuild installation snapshot with the seeded receipt.
+- [x] Run focused tests and the real semantic upgrade when the local engines permit it.
+- [x] Run pinned Bun lint and typecheck, review the diff, and commit locally without pushing.
+
+Plan review: change only the historical-upgrade proof. Keep the production runner's strict image equality and the existing post-rebuild identity checks unchanged.
+
+### Review
+
+- The old-profile assertion now accepts only the stable API message produced by `runtime_profile_changed`. Explicit negative tests prove that a successful invocation, an unrelated runner failure, and a missing error cannot satisfy the gate.
+- The candidate phase compares the complete installation record with the archived receipt before it attempts the old release or starts a rebuild. The existing post-rebuild identity, approval, wiring, and storage checks remain in place.
+- The exact current candidate passed the real rootless-Podman semantic upgrade and independent restore. Both phases rebuilt and reapproved the archived release under the multi-architecture index profile; cleanup passed.
+- Focused tests passed 10/10. Full Bun 1.3.14 lint checked 4,610 files, and full typecheck passed all backend, web, backend-test, and web-e2e surfaces.
+
+## PR #290 final audit repair
+
+- [x] Move the runner-profile transition regression suite into the default backend test gate.
+- [x] Assert the rebuilt release keeps the archived installation, workspace, revision, and source contract.
+- [x] Add negative regressions for each rebuilt-release provenance field.
+- [x] Run default discovery, focused tests, pinned lint, typecheck, and the real semantic upgrade when available.
+- [x] Review the exact diff and commit locally without pushing.
+
+Plan review: keep the runtime's exact image equality unchanged. Reuse one assertion helper so the unit proof and real historical-upgrade proof cannot drift.
+
+### Review
+
+- The transition suite now runs under the configured `src/__tests__` root. Default discovery passed 4 tests with 15 assertions; the combined focused set passed 11 tests with 59 assertions.
+- One shared assertion now binds rebuilt releases to the archived installation ID, workspace ID, workspace revision, and source digest. Negative cases reject drift in each field.
+- The real rootless-Podman proof passed the live candidate rebuild and the independent restore rebuild. Both retained the old stored value and produced clean command and cleanup exits.
+- Bun 1.3.14 full lint checked 4,610 files, full typecheck passed all surfaces, and the backend pool passed 25,866 tests across 1,654 files with no failures.
