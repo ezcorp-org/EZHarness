@@ -9,7 +9,29 @@ import { FramedExecution, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
 
-export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834";
+/**
+ * The runner image, pinned to the OCI **index** of `oven/bun:1.3.14` rather
+ * than to one platform's manifest.
+ *
+ * The previous pin, `sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834`, was the index's linux/amd64 child on its own.
+ * That is byte-identical to what an amd64 host resolves from this index —
+ * nothing changes on CI or on Linux/amd64 — but on an arm64 host (every
+ * Apple-silicon `podman machine`) a single-platform digest cannot be
+ * satisfied natively, so podman pulled the amd64 image with a
+ * platform-mismatch warning and ran every build and execution under
+ * qemu-user emulation. The index has a native linux/arm64 child
+ * (`sha256:d8a4c24744b290bf789d58966a6f2521fc4d8bec36ec02cead6c541147b7d550`); podman resolves it without a warning and `--pull=never` works
+ * against the index reference (measured: `uname -m` → aarch64, bun 1.3.14).
+ *
+ * Still an immutable digest, so the `image_unpinned` check below is satisfied
+ * and reproducibility is unchanged: an index digest fixes both children.
+ * What a recipe records as `image` is this string, and a runner whose image
+ * differs from a release's recipe refuses to execute it
+ * (`runtime_profile_changed`) — so changing this value, like any image change,
+ * means releases built before it must be rebuilt. See the PR that introduced
+ * this pin for the migration note.
+ */
+export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4";
 const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
 const builderProgram = `const result = await Bun.build({entrypoints:[process.argv[1]],target:"bun",format:"esm",packages:"bundle",minify:false,sourcemap:"none"}); if(!result.success){console.error(JSON.stringify(result.logs));process.exit(1);} console.log(JSON.stringify({code:await result.outputs[0].text()}));`;
 const testProgram = `const child=Bun.spawn([process.execPath,"test","--config=/dev/null",process.argv[1],"--timeout",process.argv[2],"--bail","--reporter=junit","--reporter-outfile=/tmp/feature-tests.xml"],{stdout:"inherit",stderr:"inherit"});const code=await child.exited;if(code!==0)process.exit(code);const report=await Bun.file('/tmp/feature-tests.xml').text();const root=report.match(/<testsuites\\b[^>]*>/)?.[0]??report.match(/<testsuite\\b[^>]*>/)?.[0]??'';const count=Number(root.match(/\\btests="(\\d+)"/)?.[1]);if(!count||/<skipped\\b|<failure\\b|<error\\b/.test(report)||/\\b(?:failures|errors|skipped)="[1-9]/.test(root)){console.error('Feature tests missing, skipped, or failed');process.exit(1)}`;

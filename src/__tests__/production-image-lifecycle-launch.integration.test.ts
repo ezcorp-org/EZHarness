@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { DEFAULT_IMAGE } from "@ezcorp/extension-runner";
 
 const root = resolve(import.meta.dir, "../..");
 
@@ -243,8 +244,8 @@ test("long persistent state keeps the authenticated runner transport below the U
     const launched = launch(fixture, [
       "bun",
       "-e",
-      'const {inspectProductionRunner}=await import("./scripts/lib/production-lifecycle-client.ts");const inspection=await inspectProductionRunner("launcher-readiness");if(inspection.id!=="launcher-readiness"||inspection.state!=="unknown")throw new Error("Unexpected runner inspection: "+JSON.stringify(inspection));await Bun.write(process.env.PROBE_OUTPUT,JSON.stringify({stateRoot:process.env.EZ_PRODUCTION_RUN_ROOT,id:inspection.id,state:inspection.state})+"\\n");',
-    ]);
+      'const {inspectProductionRunner}=await import("./scripts/lib/production-lifecycle-client.ts");const inspection=await inspectProductionRunner("launcher-readiness");if(inspection.id!=="launcher-readiness"||inspection.state!=="unknown")throw new Error("Unexpected runner inspection: "+JSON.stringify(inspection));await Bun.write(process.env.PROBE_OUTPUT,JSON.stringify({stateRoot:process.env.EZ_PRODUCTION_RUN_ROOT,runnerImage:process.env.EZ_EXTENSION_RUNNER_IMAGE,id:inspection.id,state:inspection.state})+"\\n");',
+    ], { EZ_PRODUCTION_RUNNER_IMAGE: DEFAULT_IMAGE });
     child = launched;
     deadline = setTimeout(() => {
       timedOut = true;
@@ -258,7 +259,7 @@ test("long persistent state keeps the authenticated runner transport below the U
     const diagnostics = await launcherDiagnostics(fixture.receipt);
     expect(timedOut, `launcher exceeded the 20s deadline\n${diagnostics}\nstdout:\n${stdout}\nstderr:\n${stderr}`).toBe(false);
     expect(exit, `${stdout}\n${stderr}`).toBe(0);
-    expect(await readFile(fixture.commandEnvironment, "utf8")).toBe(`${JSON.stringify({ stateRoot: fixture.state, id: "launcher-readiness", state: "unknown" })}\n`);
+    expect(await readFile(fixture.commandEnvironment, "utf8")).toBe(`${JSON.stringify({ stateRoot: fixture.state, runnerImage: DEFAULT_IMAGE, id: "launcher-readiness", state: "unknown" })}\n`);
     const generatedCompose = await readFile(fixture.compose, "utf8");
     const [mountedRunnerRoot, mountedRunnerToken] = (await readFile(fixture.runnerTransport, "utf8")).trim().split("\n");
     expect(mountedRunnerToken).toBeDefined();
@@ -267,6 +268,7 @@ test("long persistent state keeps the authenticated runner transport below the U
     expect(generatedCompose).toContain("$" + "{RUNNER_ROOT}:/run/ez-extension-runner:ro");
     expect(generatedCompose).toContain("$" + "{RUN_ROOT}/app-data:/app/data");
     expect(generatedCompose).toContain("$" + "{RUN_ROOT}/extension-state:/app/.ezcorp");
+    expect(generatedCompose).toContain('EZCORP_EXTENSION_RUNNER_IMAGE: "' + "$" + '{EZ_PRODUCTION_RUNNER_IMAGE}"');
     expect(generatedCompose).not.toContain("$" + "{RUN_ROOT}/socket:/run/ez-extension-runner:ro");
     expect(await readFile(join(fixture.state, "persistent-sentinel.txt"), "utf8")).toBe("retain persistent state");
     expect(existsSync(mountedRunnerRoot!)).toBe(false);
