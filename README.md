@@ -40,7 +40,13 @@ mkdir -p .ezcorp/data && sudo chown -R 1000:1000 .ezcorp/data
 
 # Before the first start, set up the host extension runner:
 # deploy/extension-runner/README.md
-docker compose -f compose.prod.yml --env-file .env.prod up -d --build
+# Podman is the default engine. The wrapper points Compose at the rootless
+# Podman socket (or the `podman machine` one on macOS) and layers the Podman
+# override — both silently wrong when done by hand.
+bun run podman --prod up -d --build
+
+# Docker instead? Same stack, minus the Podman override:
+#   docker compose -f compose.prod.yml --env-file .env.prod up -d --build
 ```
 
 The first `up` builds the image locally (a couple of minutes); subsequent ups reuse the Docker layer cache. When build is done, open [http://localhost:4000](http://localhost:4000), create your admin account, and start chatting. Your data lives in `./.ezcorp/data/` in the working tree (a host bind mount, not a docker-managed volume), so it survives `docker compose down`, `down -v`, and image upgrades — backing up is just backing up that host directory. See [Data persistence](#data-persistence) below.
@@ -128,8 +134,8 @@ What to know before letting an agent loose on it:
 `docker-compose.yml` (dev) and `compose.prod.yml` (prod) declare distinct project names (`ez-corp-ai` and `ezcorp-prod`) and bind to different host ports (`3000` and `4000` by default), so the two stacks run independently — same source tree, different runtimes, different volumes. Bringing one up never touches the other:
 
 ```bash
-docker compose up -d                                              # dev
-docker compose -f compose.prod.yml --env-file .env.prod up -d     # prod
+bun run podman up -d            # dev  (docker compose up -d)
+bun run podman --prod up -d     # prod (docker compose -f compose.prod.yml …)
 docker compose -f compose.prod.yml --env-file .env.prod down      # stop prod, dev keeps running
 ```
 
