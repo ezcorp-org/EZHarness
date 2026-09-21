@@ -56,7 +56,7 @@ const workspace = { id: "workspace", installationId: installation.id, revision: 
 
 function pageData(approval = false, canApprove = true): ComponentProps<typeof AuthorPage>["data"] {
   const state: InstallationState = { installation, workspaces: { workspace }, revisions: {}, operations: {}, releases: {}, approvals: approval ? { approval: { id: "approval", installationId: installation.id, releaseId: "release", releaseDigest: "exact-release-digest", principalId: "owner", scope: "global", grants: ['["storage",true]'], runnerProfile: "podman", expectedActiveReleaseId: null, expectedGeneration: 0, status: "pending", createdAt: "2026-09-04" } } : {} };
-  return { state, extensionName: null, breadcrumbTail: null, workspace, files: { "extension.ts": "original", "src/helper.ts": "helper" }, installations: [{ ...installation, name: null }], sourceUnavailable: null, canApprove, canBindProject: false, projects: [], projectBinding: null } as ComponentProps<typeof AuthorPage>["data"];
+  return { state, extensionName: null, breadcrumbTail: null, workspace, files: { "extension.ts": "original", "src/helper.ts": "helper" }, installations: [{ ...installation, name: null }], sourceUnavailable: null, extensionRunnerMode: "isolated", trustedLocalProfile: "trusted-local-v4", unsandboxedOmittedControls: [], canApprove, canBindProject: false, projects: [], projectBinding: null } as ComponentProps<typeof AuthorPage>["data"];
 }
 
 function emptyPageData(): ComponentProps<typeof AuthorPage>["data"] {
@@ -283,6 +283,30 @@ test("approved activation and disable send explicit lifecycle actions", async ()
   await fireEvent.click(view.getByRole("button", { name: "Disable installation" }));
   await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(4));
   expect(JSON.parse(String(fetcher.mock.calls[2]![1]?.body))).toMatchObject({ tool: "extensions_release", input: { action: "disable" } });
+});
+
+test.each(["Save and build", "Activate approved release"])("%s works without the secure-context UUID API", async (button) => {
+  vi.stubGlobal("crypto", { getRandomValues: globalThis.crypto.getRandomValues.bind(globalThis.crypto) });
+  const data = pageData(true);
+  data.state!.approvals.approval!.status = "approved";
+  const requests: Array<{ tool: string; input: Record<string, unknown> }> = [];
+  vi.stubGlobal("fetch", vi.fn(async (_url, options) => {
+    const body = JSON.parse(String(options?.body));
+    requests.push(body);
+    return Response.json(body.tool === "extensions_inspect" ? data.state : { id: "operation" });
+  }));
+  const view = render(AuthorPage, { data });
+  await fireEvent.click(view.getByRole("button", { name: button }));
+  await waitFor(() => expect(requests).toHaveLength(2));
+  expect(requests[0]).toMatchObject({
+    tool: button === "Save and build" ? "extensions_build" : "extensions_release",
+    input: {
+      installationId: "installation",
+      idempotencyKey: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/),
+    },
+  });
+  expect(requests[1]?.tool).toBe("extensions_inspect");
+  expect(view.queryByRole("alert")).not.toBeInTheDocument();
 });
 
 function verifiedRelease(name = "native-network"): InstallationState["releases"][string] {

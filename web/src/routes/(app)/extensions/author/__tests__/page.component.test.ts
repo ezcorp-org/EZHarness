@@ -1,5 +1,5 @@
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render } from "@testing-library/svelte";
+import { cleanup, fireEvent, render } from "@testing-library/svelte";
 import { afterEach, expect, test, vi } from "vitest";
 import AuthorPage from "../+page.svelte";
 
@@ -121,4 +121,61 @@ test("an installation with no known name falls back to its id alone", () => {
   expect(view.getByRole("link", { name: /installation-b/ })).toHaveAttribute("href", "?installation=installation-b");
   expect(view.container.querySelector(".installation-id")).toBeNull();
   expect(view.getByText("disabled")).toHaveClass("installation-status");
+});
+
+// ── trusted-local (unsandboxed) mode: the two acknowledgement points ──────
+// The server refuses a build or an approval without the acknowledgement
+// (`unsandboxed_acknowledgement_required`); these prove the page never lets
+// a person reach that refusal, and that an isolated host shows none of it.
+const TRUSTED_LOCAL = { extensionRunnerMode: "trusted-local", trustedLocalProfile: "trusted-local-v4", unsandboxedOmittedControls: ["filesystem-isolation", "cgroup-memory"] };
+
+function pendingApproval(runnerProfile: string) {
+  return { id: "approval", installationId: "installation", releaseId: "release", releaseDigest: "release-digest", principalId: "owner", scope: "global", grants: [], runnerProfile, expectedActiveReleaseId: "release", expectedGeneration: 4, status: "pending", createdAt: "now" };
+}
+
+test("an isolated host shows no unsandboxed notes and Build needs no acknowledgement", () => {
+  const input = data();
+  input.state.approvals = { approval: pendingApproval("podman") };
+  const view = render(AuthorPage, { data: input });
+  expect(view.queryByTestId("unsandboxed-build-note")).not.toBeInTheDocument();
+  expect(view.queryByTestId("unsandboxed-approval-note")).not.toBeInTheDocument();
+  expect(view.queryByLabelText(/without a sandbox/)).not.toBeInTheDocument();
+  expect(view.getByRole("button", { name: "Save and build" })).toBeEnabled();
+  expect(view.getByText("Build in isolation. Review the exact release. Activate only after approval.")).toBeVisible();
+});
+
+test("on a trusted-local host, Build names the missing controls and stays disabled until acknowledged", async () => {
+  const view = render(AuthorPage, { data: data(TRUSTED_LOCAL) });
+  expect(view.getByText(/No sandbox on this host\. Every build and every release/)).toBeVisible();
+  const note = view.getByTestId("unsandboxed-build-note");
+  expect(note).toHaveAttribute("role", "note");
+  expect(note).toHaveTextContent("filesystem-isolation, cgroup-memory");
+  const build = view.getByRole("button", { name: "Save and build" });
+  expect(build).toBeDisabled();
+  await fireEvent.click(view.getByLabelText("I understand this build runs without a sandbox."));
+  expect(build).toBeEnabled();
+});
+
+test("an approval for a trusted-local release needs BOTH checkboxes before Approve exact release enables", async () => {
+  const input = data(TRUSTED_LOCAL);
+  input.state.approvals = { approval: pendingApproval("trusted-local-v4") };
+  const view = render(AuthorPage, { data: input });
+  expect(view.getByTestId("unsandboxed-approval-note")).toHaveTextContent("Not isolated");
+  const approve = view.getByRole("button", { name: "Approve exact release" });
+  expect(approve).toBeDisabled();
+  await fireEvent.click(view.getByLabelText("I reviewed this release and its permissions."));
+  // The ordinary review checkbox alone is not enough here.
+  expect(approve).toBeDisabled();
+  await fireEvent.click(view.getByLabelText("I understand this extension will run without a sandbox."));
+  expect(approve).toBeEnabled();
+  // Rejecting never needs the acknowledgement.
+  expect(view.getByRole("button", { name: "Reject" })).toBeEnabled();
+});
+
+test("the approval's OWN profile decides, not the host's mode — a podman-built approval shows no unsandboxed note even on a trusted-local host", () => {
+  const input = data(TRUSTED_LOCAL);
+  input.state.approvals = { approval: pendingApproval("podman") };
+  const view = render(AuthorPage, { data: input });
+  expect(view.queryByTestId("unsandboxed-approval-note")).not.toBeInTheDocument();
+  expect(view.queryByLabelText("I understand this extension will run without a sandbox.")).not.toBeInTheDocument();
 });

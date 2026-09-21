@@ -3011,6 +3011,10 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addExtensionEventReceipts(db);
   const { up: addExtensionProjectAuthority } = await import("./migrations/add-extension-project-authority");
   await addExtensionProjectAuthority(db);
+  // Trusted-local (unsandboxed) per-digest approvals. References
+  // extension_release_installations, so it must follow add-extension-releases.
+  const { up: addExtensionTrustedLocalApprovals } = await import("./migrations/add-extension-trusted-local-approvals");
+  await addExtensionTrustedLocalApprovals(db);
   const { up: addManagedExtensionAgents } = await import("./migrations/add-managed-extension-agents");
   await addManagedExtensionAgents(db);
   const { up: addRunDomainEventIntents } = await import("./migrations/add-run-domain-event-intents");

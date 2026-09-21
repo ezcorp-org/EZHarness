@@ -53,6 +53,25 @@ export interface LifecycleDependencies {
   onBuildSettled?(deferredByRunner: boolean): void;
   now?: () => number;
   leaseMs?: number;
+  /**
+   * Present only when the host runs `TrustedLocalRunner`
+   * (`runner-mode.ts` → `trusted-local`). That runner refuses every build
+   * and every worker start without a live approval for the exact
+   * (phase, digest); these hooks are how the lifecycle's two human
+   * acknowledgement points — Build, and "Approve exact release" — write and
+   * withdraw it. Absent in isolated mode, where no acknowledgement is asked
+   * for and none is recorded.
+   */
+  trustedLocal?: {
+    recordApproval(input: { phase: "build" | "execute"; digest: string; installationId: string; approvedBy: string }): Promise<void>;
+    /**
+     * Extend the build acknowledgement for `sourceDigest` to a SHORT window of
+     * execution for the artifact it produced, so candidate verification —
+     * which starts a worker — can run. Derived, never asked for separately.
+     */
+    recordVerificationApproval(input: { installationId: string; sourceDigest: string; artifactDigest: string }): Promise<void>;
+    revokeApprovals(installationId: string, digest?: string): Promise<void>;
+  };
 }
 
 export class LifecycleError extends Error {

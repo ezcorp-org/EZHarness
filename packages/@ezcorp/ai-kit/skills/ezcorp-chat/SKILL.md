@@ -22,7 +22,7 @@ export EZCORP_API_KEY="ezk_..."
 
 MCP server registered: `bunx @ezcorp/ai-kit install claude-code`
 
-For mention grammar details see the root [CLAUDE.md mention grammar table](../../../../CLAUDE.md).
+For mention grammar details see the root [AGENTS.md mention grammar table](../../../../AGENTS.md).
 
 ## Recipes
 

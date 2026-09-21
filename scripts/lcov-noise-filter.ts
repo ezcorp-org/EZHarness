@@ -42,7 +42,7 @@
  */
 
 const COMMENT_LINE = /^\s*(\/\/|\/\*|\*\/|\*\s|\*$|\*\*\s*$)/;
-const BRACE_PUNCT_ONLY = /^\s*[{}\[\]\(\),;:>?]+\s*$/;
+const BRACE_PUNCT_ONLY = /^\s*[{}\x5b\x5d(),;:>?]+\s*$/;
 const BLANK = /^\s*$/;
 
 // TS type-annotation continuation: ` foo: T;`, ` foo?: T,`, `: T;`.
@@ -92,7 +92,7 @@ const TS_MEMBER_DECL =
 // (optionally `<`), `{` object type, `(` function/parenthesised type, `[`
 // tuple. `(` and `{` are attested in-tree; `[` is included so the rule covers
 // the class instead of the instances and this tax stops recurring.
-const RETURN_TYPE_OPEN = /^\s*\)\s*:\s*(?:[A-Z]\w*<?)?[{<\[(]?\s*$/;
+const RETURN_TYPE_OPEN = /^\s*\)\s*:\s*(?:[A-Z]\w*<?)?[{<\x5b(]?\s*$/;
 
 // Standalone generic type continuation.
 const TYPE_GENERIC_LINE =

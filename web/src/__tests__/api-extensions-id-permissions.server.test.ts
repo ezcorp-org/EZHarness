@@ -132,7 +132,7 @@ describe("exact release permission approval", () => {
     const response = await approve(approvalEvent({ approvalId: "approval", decision: true }));
     expect(response.status).toBe(200);
     expect(await response.json()).toEqual({ status: "approved" });
-    expect(approval).toHaveBeenCalledExactlyOnceWith({ principalId: "user", scope: "global", kind: "human" }, "installation", "approval", true);
+    expect(approval).toHaveBeenCalledExactlyOnceWith({ principalId: "user", scope: "global", kind: "human" }, "installation", "approval", true, { acknowledgeUnsandboxed: undefined });
   });
   test("malformed approval identities and decisions cannot reach the lifecycle", async () => {
     for (const body of [null, {}, { approvalId: 3, decision: true }, { approvalId: "approval", decision: "true" }]) {

@@ -261,7 +261,7 @@ describe("(g) rbacScopes declarations never trip the clamp", () => {
       // assertions a race against the millisecond boundary. Measured at ~0.36%
       // (181 mismatches in 50,000 iterations): rare enough to look like an
       // unrelated CI blip, frequent enough to hit. Pinning the varying term is
-      // the fix the root CLAUDE.md prescribes, and it makes the assertions
+      // the fix the root AGENTS.md prescribes, and it makes the assertions
       // STRONGER — they become exact equalities instead of "equal if the two
       // calls happened to land in the same millisecond".
       grantedAt: { eventSubscriptions: FROZEN_GRANTED_AT, storage: FROZEN_GRANTED_AT },

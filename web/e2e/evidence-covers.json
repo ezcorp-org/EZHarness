@@ -1,4 +1,9 @@
 {
+  "web/e2e/extension-author-trusted-local.spec.ts": [
+    "web/src/routes/(app)/extensions/author/+page.svelte",
+    "web/src/lib/components/UnsandboxedExtensionsBanner.svelte",
+    "web/src/routes/(app)/+layout.svelte"
+  ],
   "web/e2e/agent-detail-breadcrumb.spec.ts": [
     "web/src/routes/(app)/+layout.svelte",
     "web/src/routes/(app)/agents/[name]/+page.svelte"
@@ -13,6 +18,9 @@
     "web/src/routes/(app)/extensions/author/+page.svelte"
   ],
   "web/e2e/extension-author-installations.spec.ts": [
+    "web/src/routes/(app)/extensions/author/+page.svelte"
+  ],
+  "web/e2e/extensions.spec.ts": [
     "web/src/routes/(app)/extensions/author/+page.svelte"
   ],
   "web/e2e/streaming-toolbar.spec.ts": [
