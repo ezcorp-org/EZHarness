@@ -107,6 +107,56 @@ under the provider string `s3`, and a resolver keyed by
 the single-object byte publisher, the declaration needs a discriminator. The
 design did not need one here, so none was invented. **Owner to decide: W08.**
 
+## Round 3 C — the declared destination, proved against the live store
+
+- [x] G17: A destination declared in the startup document reaches the real S3
+      store with the credentials the declaration points at, and a wrong secret
+      does not.
+      CHECK: `EZCORP_FACTORY_STORAGE_SECRETS_DIR=<dir> bun
+      /tmp/factory-platform-evidence/w09b/repro/s3-destination-proof.ts`
+      EXPECT: `outcome: "passed"`, and nothing written to the shared store.
+      MEASURED: `composeFactoryReleaseDestinations` read the real credential set
+      by path through the private bounded reader and built a real
+      `S3FactoryManifestReleaseProvider`; that provider issued real
+      authenticated HEADs the live SeaweedFS answered, so an operation nobody
+      published reads as no effect; **the same declaration with a wrong secret
+      was refused by the store**, which is what makes the passing arm evidence
+      that it reached the store at all rather than evidence that it did not;
+      and an account nobody declared was refused `factory_release_destination_unknown`.
+      Every call is a HEAD, so `wroteToStore: false` and there are no keys to
+      clean up.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/s3-destination-proof.json`
+
+**What G17 does NOT prove, and what it needs.** The full production path:
+`requestRelease` creating the operation from a definition's release node, an
+approval or an automatic policy written through W05's production writers, and
+the running `release-outcome` role claiming and publishing it. That needs the
+acceptance and provenance chain `factoryS3PublicationConformance` already
+builds, plus a guest definition carrying a release node — `publish` opens a
+material scope through `FactoryS3PublicationProvenance`, which is a database
+read, so it cannot be proved with a fake. Recorded as pending, and it is the
+one pending item that is not blocked purely on a store.
+
+### Two operational findings this proof measured
+
+**The provisioned credential sets are world-readable.** Both
+`ordinary.json` and `archive.json` in
+`/run/user/1001/ezcorp-factory-storage.0yXaRPtQ` are mode `0644`. The factory's
+own `readPrivateBounded` refuses any file with group or other bits, so a real
+installation pointed straight at them cannot compose its release store OR its
+archive writer — `loadFactoryStorageCredentials` is the same reader on both
+paths. The proof used a private `0600` copy under a directory with no
+world-writable ancestor and deleted it; **the shared files were not changed,
+because repairing a shared store is the coordinator's.**
+
+**A declared prefix must stay inside the tenant's entitled root.** Measured
+against the live store with the tenant's own credentials: a HEAD under
+`ordinary/…` answers `404`, and the same HEAD under a sibling root answers
+`403`. A declaration whose prefix leaves `ordinary/` therefore cannot tell an
+absent object from a denied one, and `proveNoEffect` would raise instead of
+answering. Worth stating in whatever document tells an operator how to write a
+destination.
+
 ## Round 2 — the consent reader, and the coverage legs that were never run
 
 Two things changed after the first round's gates were stamped.
