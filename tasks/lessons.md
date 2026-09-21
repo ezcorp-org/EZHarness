@@ -966,3 +966,6 @@ Long final messages are cut at a few thousand characters and the tail is lost. E
 
 ## Main's pooled coverage command is CI-only (2026-09-21)
 `bun run test:coverage` aborts before writing `coverage/lcov.info` when the browser-route coverage receipt is absent, so the global floor and CRAP gates read "lcov not found" (or a stale file) on a developer host. Measure them over the combined runner's merged lcov, and never score a gate against a `coverage/lcov.info` older than the tree.
+
+## A child inherits the flock descriptor; use `flock --close` (2026-09-21)
+A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-validation-heavy.lock ...` outlived its wrapper and held the lock for thirteen minutes, blocking three queued producers. `flock --close` (`-o`) closes the lock descriptor before the command runs, so no child can inherit it; every heavy-producer wrapper uses it from now on. And run a package's suite only through its own test script: `bun test` on `packages/@ezcorp/factory-orchestrator` is the wrong harness (the package tests run under `node --test`), which is how the server was orphaned in the first place.
