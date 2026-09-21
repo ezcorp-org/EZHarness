@@ -2894,3 +2894,36 @@ sweep is a sub-tick and not new infrastructure.
 - Main's new gates, measured: `bun run test:coverage` cannot produce `coverage/lcov.info` on this host because the browser-route coverage receipt is CI-only (main's own tree fails identically), so the global floor and CRAP gates are measured here only over the combined runner's merged lcov. In CI both sit inside the required check "Per-file coverage gate" and BLOCK; "Mutation (changed files)" is report-only.
 - Rulings: (1) compiled workspace output (`packages/**/dist/**`) leaves the lcov through the vitest leg's product-source filter, never through EXCLUDES; (2) the 38 functions above complexity 30 on the feature diff are split with no behaviour change under W18a (w18a-sdk: 20 in factory-sdk, factory-orchestrator, extension-runner; w18a-app: 12 in src/factory, src/runtime, web/src plus the dist filter and the floor measurement; 6 in five W09b-owned files wait for W09b); (3) the combined runner records the floor and CRAP results on every run (`--quality-blocking` folds them into the exit code once W18a lands); (4) W09b declares release destinations and profiles in the startup document (W09's own surface; plan W09 line 270) with credentials by reference, and the release-outcome worker claims as the run's live initiator, reading the consent and claiming in two transactions because `claim` re-validates the consent in its own.
 - [ ] In flight: W09b round 3 (release destinations, running release-outcome role, real-store producers, G14 already green at 214d7251e), w18a-sdk, w18a-app. Next: validate and merge W09b; combined run with `--podman`; second W18a pass on the W09b files; W14, W15, W16 in parallel; W17; W18 final gate; W19; W20.
+
+### W07c — the release declare race (2026-09-21)
+
+Branch `wp/w07c-declare-race`, cut from `integ/w00` at `bbcb2e34f`. Gates:
+`tasks/factory/w07c-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w07c/`.
+
+- [x] Reproduce the C04 archive-writer concurrency case against the real proof PostgreSQL, before
+      any code change, and capture the failing statement verbatim.
+- [x] Find the cause in the declare path and write it in the gate file.
+- [x] Fix at the root, with no new identity and no widened acceptance.
+- [x] Drive the race instead of waiting for it, and prove the producer red before the fix.
+- [x] Keep the refusal-by-name behaviour for a declaration that is genuinely different.
+- [x] Pin the primary-key collision with a case that has no timing dependence.
+- [x] Sweep: typecheck, lint, factory boundaries, gate integrity, schema drift, the release
+      suites, the real-PostgreSQL producers, and both coverage gates.
+
+**Review.** The C04 archive-writer concurrency case failed with 23505 on
+`factory_release_operations_pkey` since 2026-09-14 in the w07, w08, w10 and wave4a runs. The declare
+statement listed the nine-column identity index as its only `ON CONFLICT` target. PostgreSQL
+arbitrates only the index a conflict target names, and the operation id is a digest of a strict
+superset of those nine columns, so two identical declarations always collide on the primary key as
+well; whichever declaration lost the microsecond race between the arbiter pre-check and the index
+write hit the primary key first and raised. The fix removes the conflict target, which makes every
+unique index arbitrate. That widens what converges, not what is accepted: the exact durable reread
+after the insert already decided identity and still does, so a declaration that shares the nine
+identity columns under a different id is refused as `factory_release_conflict` and a primary key
+that collides without a matching identity is refused as `factory_release_corrupt`. Both of those
+cases pass against the unfixed code as well, which is the evidence that the arbiter widened and the
+contract did not. Reproduction went from 1 failure in 20 ambient runs to 17 in 20 once a
+`BEFORE INSERT` trigger parked both declarations ahead of the arbiter pre-check; after the fix the
+driven producer is green and the original case runs fifty times clean. The one structural change is
+that the C04 world moved out of the conformance closure so the new producer reuses it rather than
+building a second one; the conformance's own behaviour is unchanged.

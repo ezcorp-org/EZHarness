@@ -966,3 +966,23 @@ Long final messages are cut at a few thousand characters and the tail is lost. E
 
 ## Main's pooled coverage command is CI-only (2026-09-21)
 `bun run test:coverage` aborts before writing `coverage/lcov.info` when the browser-route coverage receipt is absent, so the global floor and CRAP gates read "lcov not found" (or a stale file) on a developer host. Measure them over the combined runner's merged lcov, and never score a gate against a `coverage/lcov.info` older than the tree.
+
+## 2026-09-21 — A conflict target is an arbiter list, not a uniqueness statement
+
+- Name every unique index that a row can collide on in `ON CONFLICT`, or name none. PostgreSQL
+  resolves a conflict only on the index the target names; a collision on any other unique index is
+  a plain 23505. A derived primary key whose input is a superset of a unique index means both
+  always collide together, so targeting one of them alone converges some interleavings and raises
+  on the rest.
+- Read a conflict target against the table's whole index set, not against the concept it was
+  written for. The nine-column identity index expressed the C04 rule exactly and was still the
+  wrong arbiter list.
+- `ON CONFLICT DO NOTHING` with no target is not a widening of what is accepted when the durable
+  reread that follows decides identity. Prove that by keeping the refusal cases and showing they
+  pass before and after the change.
+- A race that fails one run in twenty is evidence of a window, not of its cause. A `BEFORE INSERT`
+  row trigger runs before the arbiter pre-check, so it parks concurrent writers at the exact point
+  the window opens; release them together and assert on `pg_locks` that both are parked, so the
+  test drives the interleaving instead of waiting for the host to produce it.
+- Pair a driven race with one timing-free case that pins the same property. Wake order belongs to
+  the host, so a forced race is strong evidence and a poor gate on its own.
