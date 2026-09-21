@@ -56,9 +56,9 @@ if a.podman:
  for f in ['./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts','./src/factory/runner/attempt-runtime.integration.test.ts','./src/factory/runner/supervisor.podman.integration.test.ts','./src/factory/package-preparation.podman.integration.test.ts']:
   if (repo / f).exists(): checks.append(('podman-' + Path(f).stem.split('.')[0], ['bun','test','--timeout','300000',f]))
 with open('/tmp/ezcorp-validation-heavy.lock', 'w') as lock:
+ dirty = subprocess.check_output(['git','status','--porcelain'], cwd=repo, text=True)
  if dirty and not a.allow_dirty: sys.exit(f'dirty tree:\n{dirty}')
  fcntl.flock(lock, fcntl.LOCK_EX)
- dirty = subprocess.check_output(['git','status','--porcelain'], cwd=repo, text=True)
  sha = subprocess.check_output(['git','rev-parse','HEAD'], cwd=repo, text=True).strip()
  reuse = [r for r in a.reuse_from.split(',') if r]
  def reusable(label):
