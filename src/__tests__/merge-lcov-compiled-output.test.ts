@@ -14,8 +14,15 @@
  *   module measured twice: once under the path `scripts/coverage-thresholds.json`
  *   keys, and once under a path no key names, no test targets, and no
  *   reviewer reads. It also silently moves the aggregate floor
- *   (`scripts/check-global-coverage.ts`), because a bundle's top level runs on
- *   every import and so scores near 100% whatever its sources are worth.
+ *   (`scripts/check-global-coverage.ts`), and DOWNWARD, which is the opposite
+ *   of what a build artefact's reputation suggests. Measured on this tree the
+ *   fifteen compiled modules carry 3964 lines at 12.06%, while the sources
+ *   they were compiled from carry theirs at 99.2-100%: an importer that reads
+ *   two constants off the built barrel runs its module top level and almost
+ *   none of its function bodies, whereas the suite exercises the sources. So
+ *   the duplicate is not merely redundant, it is a large block of
+ *   near-uncovered lines the floor has to carry. Dropping it RAISED the local
+ *   floor from 65.46% to 67.37%.
  *
  *   Dropping it at the MERGE rather than in one leg's own filter is what makes
  *   the rule hold everywhere: the shard pre-merge, the local host merge, and
