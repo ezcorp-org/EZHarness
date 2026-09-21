@@ -8,6 +8,7 @@ import { digestObject } from "../extensions/v4/blobs";
 import { FactoryAssuranceClaimError, type FactoryAcceptanceDecision, type FactoryClaimFailure, type FactoryGroupFailure } from "./assurance";
 import type { FactoryAssurance } from "./assurance";
 import type { FactoryCommandAuthority, FactoryAuthorizedAcceptanceCommand, FactoryAuthorizedReleaseCommand } from "./command-authority";
+import { factoryChildAcceptanceResult, type FactoryChildAcceptanceResult } from "./child-release-mode";
 import { resolveFactoryProtectedNodeSource, resolveFactoryProtectedTaskSource, type FactoryProtectedTaskSource } from "./protected-command-provenance";
 import { FactoryReleaseProfileError, sealFactoryReleaseProfileResult, type FactoryAsyncReleaseProfile } from "./release-profile";
 import type { FactoryReleaseAuthorityStore } from "./release-authority";
@@ -161,7 +162,32 @@ interface ReleaseReceipt extends PreparedRelease {
   readonly requestDigest: string;
 }
 
-type ProtectedReceipt = AcceptanceReceipt | FactoryRejectionReceipt | ReleaseReceipt;
+/**
+ * What an acceptance-only child records instead of a release operation (C10).
+ *
+ * Structurally distinct from {@link ReleaseReceipt} rather than a widened
+ * version of it: there is no operation id, no request, and no profile, because
+ * none of those things happened. `releaseMode` is the discriminator, so a
+ * reader cannot mistake one for the other, and a replay returns the recorded
+ * kernel event rather than reaching for an archive that does not exist.
+ */
+interface AcceptanceOnlyReleaseReceipt {
+  readonly schemaVersion: "factory.protected-command-receipt.v1";
+  readonly kind: "request-release";
+  readonly releaseMode: "none";
+  readonly reference: TrustedFactoryCommandReference;
+  readonly commandDigest: string;
+  readonly acceptanceReference: TrustedFactoryCommandReference;
+  readonly result: FactoryChildAcceptanceResult;
+  readonly event: AcceptanceEvent;
+}
+
+type ProtectedReceipt = AcceptanceReceipt | FactoryRejectionReceipt | ReleaseReceipt | AcceptanceOnlyReleaseReceipt;
+
+/** Which of the two `request-release` receipts this is. */
+function isAcceptanceOnlyReceipt(receipt: ProtectedReceipt): receipt is AcceptanceOnlyReleaseReceipt {
+  return receipt.kind === "request-release" && "releaseMode" in receipt;
+}
 interface ReceiptRow { readonly kind: ProtectedReceipt["kind"]; readonly command_digest: string; readonly receipt_json: string; readonly receipt_digest: string; readonly decision: FactoryProtectedDecision | null }
 
 export class FactoryProtectedCommandEffectError extends Error {
@@ -242,15 +268,24 @@ export class FactoryProtectedCommandEffects {
    * A replay reads the recorded receipt and completes its archive rather than resolving again: the
    * operation already exists, and a second resolve could only produce bytes the first one did not.
    */
-  requestRelease = async (serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference, signal?: AbortSignal): Promise<null> => {
+  requestRelease = async (serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference, signal?: AbortSignal): Promise<KernelEvent | null> => {
     const { service, reference } = this.capture(serviceValue, referenceValue);
     const existing = await this.database.transaction(transaction => this.readReceipt(transaction, reference, "request-release"));
     if (existing) {
+      if (isAcceptanceOnlyReceipt(existing)) return snapshot(existing.event);
       const receipt = existing as ReleaseReceipt;
       const operation = await this.releases.ensureArchived(receipt.requester, receipt.request.projectId, receipt.operationId);
       this.assertOperation(receipt, operation);
       return null;
     }
+    // A child composed in acceptance-only mode creates no release operation at
+    // all, so this branch runs BEFORE the profile is resolved and before
+    // `releases.prepare` is reached. The authority that decides it is the live
+    // ancestry walk, not a flag on the request.
+    const acceptanceOnly = await this.database.transaction(transaction =>
+      this.authority.withCurrentReleaseInTransaction(transaction, service, reference, (tx, context) =>
+        context.inheritedReleaseMode === "none" ? this.acceptanceOnly(tx, reference, context) : Promise.resolve(null)));
+    if (acceptanceOnly) return snapshot(acceptanceOnly.event);
     const prepared = await this.authority.withCurrentRelease(service, reference, (transaction, context) => this.prepareRelease(transaction, reference, context));
     const preparation = await this.resolveRelease(prepared, signal);
     const operation = await this.releases.prepare(prepared.requester, preparation, releaseKey(reference));
@@ -332,7 +367,15 @@ export class FactoryProtectedCommandEffects {
       || completion.authority.nodeInstanceId !== source.nodeInstanceId || completion.authority.candidateGeneration !== source.candidateGeneration || completion.authority.attemptNumber !== source.attempt.attempt || completion.authority.attemptId !== completion.receipt.terminal.attemptId) throw new FactoryProtectedCommandEffectError("factory_protected_effect_untrusted");
   }
 
-  private async prepareRelease(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedReleaseCommand): Promise<PreparedRelease> {
+  /**
+   * The accepted candidate this release command names, proven from its receipt.
+   *
+   * Shared by the two release paths so both are bound to the same acceptance:
+   * an acceptance-only child returns exactly the decision an authorized
+   * release would have published, which is what makes the two modes the same
+   * contract with one effect removed.
+   */
+  private async resolveAcceptedRelease(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedReleaseCommand): Promise<{ acceptance: AcceptanceReceipt; acceptanceReference: TrustedFactoryCommandReference; releaseInput: { acceptedCandidate: JsonValue; destination: JsonValue } }> {
     const input = context.command.input;
     if (!input || typeof input !== "object" || Array.isArray(input) || !Object.hasOwn(input, "acceptedCandidate") || !Object.hasOwn(input, "destination")) throw new FactoryProtectedCommandEffectError("factory_protected_effect_invalid");
     const releaseInput = input as { acceptedCandidate: JsonValue; destination: JsonValue };
@@ -342,6 +385,43 @@ export class FactoryProtectedCommandEffects {
     if (!stored) throw new FactoryProtectedCommandEffectError("factory_protected_effect_missing");
     const acceptance = stored as AcceptanceReceipt;
     if (acceptance.event.nodeId !== source.nodeInstanceId || acceptance.event.candidateGeneration !== source.candidateGeneration || acceptance.event.attempt !== source.attempt.attempt || !same(acceptance.acceptedCandidate, releaseInput.acceptedCandidate)) throw new FactoryProtectedCommandEffectError("factory_protected_effect_untrusted");
+    return { acceptance, acceptanceReference, releaseInput };
+  }
+
+  /**
+   * Completes an acceptance-only child's release node with a typed result.
+   *
+   * No operation row, no profile call, no destination reservation, no effect
+   * claim, and no approval consumption: `releaseMode: "none"` means the child
+   * "returns accepted artifact/evidence references without creating release
+   * operations", and this is the whole of that. The node's own output port is
+   * what refuses the shape if the parent declared a publishing child.
+   */
+  private async acceptanceOnly(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedReleaseCommand): Promise<AcceptanceOnlyReleaseReceipt> {
+    const { acceptance, acceptanceReference } = await this.resolveAcceptedRelease(transaction, reference, context);
+    const result = factoryChildAcceptanceResult({
+      decisionId: acceptance.decision.decisionId,
+      contractDigest: acceptance.decision.contractDigest,
+      candidateDigest: acceptance.decision.candidateDigest,
+      evidenceSetDigest: acceptance.decision.evidenceSetDigest,
+      artifact: acceptance.acceptedCandidate,
+    });
+    const event: AcceptanceEvent = {
+      kind: "node-result", id: `acceptance-only-release:${context.command.id}`, atMs: context.commandState.nowMs,
+      nodeId: context.command.nodeId, commandId: context.command.id, candidateGeneration: context.command.candidateGeneration, attempt: context.attempt.attempt,
+      output: { receipt: result as unknown as JsonValue },
+    };
+    if (!validateNodeOutput(context.node, event.output)) throw new FactoryProtectedCommandEffectError("factory_protected_effect_invalid");
+    const receipt: AcceptanceOnlyReleaseReceipt = {
+      schemaVersion: "factory.protected-command-receipt.v1", kind: "request-release", releaseMode: "none",
+      reference, commandDigest: context.commandDigest, acceptanceReference, result, event,
+    };
+    await this.writeReceipt(transaction, receipt);
+    return (await this.readReceipt(transaction, reference, "request-release")) as AcceptanceOnlyReleaseReceipt;
+  }
+
+  private async prepareRelease(transaction: MigrationDb, reference: TrustedFactoryCommandReference, context: FactoryAuthorizedReleaseCommand): Promise<PreparedRelease> {
+    const { acceptance, acceptanceReference, releaseInput } = await this.resolveAcceptedRelease(transaction, reference, context);
     const key = profileKey(context.node.adapter);
     const profile = this.profiles.get(key);
     if (!profile || !same(profile.adapter, context.node.adapter)) throw new FactoryProtectedCommandEffectError("factory_protected_effect_untrusted");

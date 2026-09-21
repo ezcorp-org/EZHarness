@@ -884,6 +884,73 @@
 - A reserved name in a shared adapter is a real constraint, not a naming preference. `manifest.json` belongs to the S3 publication manifest and no member may take it, which is obvious in hindsight and cost a full real-services run to discover. Read the member grammar before choosing member names.
 - A receipt taken while the tree is changing is not a receipt. I started a fifteen-minute producer, then edited three files, and the recorded "no dirty files" was true at start and false by the end. Commit first, run second, and re-run everything on the final tree.
 - `argparse.REMAINDER` swallows flags that follow the positional. `receipt.py label --lock -- cmd` put `--lock` into the command; `receipt.py --lock label -- cmd` is the working order. Worth knowing before losing a long run to it.
+## 2026-09-14 — W01d material handover
+
+- A rule written into a review is not enforced until production does it. My review forbade `0o777` on the material directory, and then my own integration test used exactly that, which hid from everyone that production set no mode or owner at all and no guest could write. When a review's rule needs a mode or an owner set, check which side actually sets it; if the answer is "the test", the rule is not in force.
+- The v4 build type-checks the guest source, so a guest program must be strict TypeScript. An untyped diagnostic object fails the BUILD, which surfaces as `build.state === "failed"` rather than as the assertion you were aiming at.
+- `writeFile(path, data, { mode })` is masked by the process umask, so a file meant to be `0o644` can land `0o600` and an isolated guest reads EACCES. Set the mode with an explicit `chmod` after the write; the runner's own staging already did this and the reason is now recorded.
+- When a container test fails with a generic handler error, make the guest report each step's outcome instead of throwing. One rerun then names the failing operation and its errno, where guessing costs a lock cycle each time.
+
+- Only the coordinator manages the shared stores. A worker's proof harness ran `compose up` from its
+  own worktree, whose compose file still carried the old 768 MiB limit, and recreated the ordinary
+  store twenty minutes after the coordinator had raised it to 2 GiB; it was OOM-killed again. Docker's
+  labels (`com.docker.compose.project.working_dir`, `config_files`) name the worktree that created a
+  container, so read them before blaming the workload. A proof verifies a shared service is up and
+  records a named readiness failure if it is not; it never creates, recreates, or restarts one.
+- A shared type change is not done until every hand-written key allow-list knows the new field. W02b
+  added the required `manifestName`, updated the allow-list in package-preparation.ts, and missed the
+  one in release-authority.ts; the package's focused set and the validator's reruns both passed, and
+  the combined integration run failed 17 cases. Grep for every `"<lastKey>"]` list and run every
+  suite that constructs the type, not only the owning package's suites.
+- Never edit a shell script while an instance of it is running. A `sed` typo had a receipt recorder writing to `w07bb` instead of `w07b`; correcting the file mid-run made the executing bash re-read it and pick up the new value partway through, so one run's log and JSON landed in different directories than the four before it. Write a new file and switch callers to it, then clean up.
+- A patch-coverage gate measures the committed diff, so running it before the commit reports "0 file(s)" and passes vacuously. Commit first, then run the gate, and read the file count in its output as the check that it actually looked at something.
+- A guard is untested until an assertion changes when you remove it. Two of my consent guards were listed as covered because a line in the test named them, but the suite built every operation from one shared decision id, so the `UPDATE ... SET decision_id=<the same value>` that "moved" a decision was a no-op and the guard never fired. Coverage counted the line as executed, which is exactly how this hides. Build the disagreement the guard is about — here a second real acceptance decision row belonging to no operation in the suite — and then delete the guard once and record that the case goes red.
+
+## 2026-09-20 — W13 composition and the legacy adapter
+
+- A declared field that nothing reads is not a feature, and its type will not tell you. `releaseMode`
+  had a union in `types.ts`, an `enum` in five generated JSON Schemas, a `required` entry in each,
+  and three literals in the reference definitions — and no runtime code anywhere read it, so the
+  composite definition it configured could not have executed at all. Grep for the READER before
+  believing a declared enum is implemented; `grep` for the writer finds the literals and reassures.
+- `Omit<T, K>` does not stop a caller handing in a whole `T`. A seal built as
+  `digestObject({ schemaVersion, ...value })` silently folded the excluded `revoked` flag and the
+  seal itself back in, so every stored attestation read back as corrupt. Name every field a digest
+  covers; a spread into a sealing function is a spread into the seal.
+- A `const` initialised with a string literal still WIDENS in an object-literal property, so
+  `typeof MY_CONST` as a field type stops matching the moment the value is read rather than inlined.
+  `as const` on the declaration, not at the use site, is what fixes it — and `as const` applied to a
+  reference is a compile error that names something else entirely.
+- `isUniqueViolation` looks exactly one level down from what it is handed, and drizzle already
+  spends that level. A caller that wraps the error again — `persistCritical` wraps it in a
+  `WorkflowCursorWriteError` — puts the SQLSTATE out of reach without changing a line of either
+  module. Unwrap the one envelope you know you added; walking `cause` blindly would make an
+  unrelated nested error look like a conflict.
+- Revert the fix and watch the test go red, even when the fix is two tokens. Mine looked obviously
+  right; the revert is what showed that exactly two of the four new cases depended on it, and which
+  two.
+- Attribute a derived finding to the walk that produced it. The shared closure walk yields
+  capabilities per DEFINITION, so a classifier's findings are per definition; inventing per-step
+  attribution would have meant a second walk of the same graph, which is the divergence the one
+  shared walk exists to prevent. Say what the attribution is in the type's doc rather than implying
+  a precision the data does not have.
+- Two trees that may not import each other can still be held equal by a parity test that reads one
+  as TEXT. The factory cannot import a bundled v4 extension to learn its storage key layout, and a
+  mirrored copy silently rots; a test that parses the extension's own `const` declarations and
+  compares them fails on the rename instead of the exclusion quietly matching nothing.
+- A crash-recovery path that runs only after a crash is a path nothing exercises. Making the
+  key lookup unconditional — every start looks the run up before creating one — removed the special
+  case, and the same code is now covered by the ordinary test as well as the crash test.
+- A secret passed as `env VAR=value <command>` is a secret published. `/proc/<pid>/cmdline` is
+  world-readable on a shared host, and `receipt.py` copies the command array verbatim into
+  `receipts.jsonl`, so the same shape that leaks to every process also writes the value into a
+  document. The brief said to EXPORT the URL and I read past it. Assemble a credential inside a
+  script file whose own argv is just its path, and make the last step of the producer a
+  `grep -rlF` for the value over the whole evidence directory — a scan that can fail is worth more
+  than an intention not to leak.
+
+## 2026-09-20 — W01e guest model broker
+
 - PGlite settles a query through the MICROTASK queue; a real server settles it through a socket, which is a macrotask. So `while (!done) await Promise.resolve()` in front of a query passes on PGlite and starves a real server forever: every turn enqueues a fresh microtask, the event loop never reaches its I/O phase, the result can never arrive, and bun's own `--timeout` never fires because that timer is a macrotask too. Measured: 4.25 seconds green versus killed at 120 seconds with nothing printed but the banner, same code, same suite. This is the third spin in this file (the grace-loop poll and the lazy `SQLQuery`), and the rule is the same each time: await the thing you are waiting for. Have the collaborator resolve a promise when the event you care about happens, and await that. If a suite must run against both stores, pace one leg's round trips onto macrotasks so the fast store can no longer hide the defect.
 - A gate you check off without running is worse than a gate you leave open. I wrote "CI runs ./tests/postgres/..." into a gate file and cited the PGlite leg as its evidence. The suite I had just registered in a shared 25-suite CI job hung it, which would have taken five unrelated suites and the coverage artifact down with it. Cite the receipt for the lane you are claiming, or do not claim the lane.
 - One digest, one shape, checked end to end. The receipt digest went to the journal as bare 64-hex while `FactoryUsageReconciliation` enforces `^sha256:[0-9a-f]{64}$` in both entry points, so every receipt this leaf wrote would have been refused — through the same branch the resolver uses for a TAMPERED digest, which makes a legitimate receipt indistinguishable from an attack. Neither typecheck nor any test caught it, because both sides were internally consistent. When a value crosses into another worker's surface, grep that surface for the pattern it enforces before writing the value.

@@ -9,7 +9,7 @@ import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject } from "../extensions/v4/blobs";
 import type { FactoryAttemptAuthority, FactoryJournalOperationEvidence } from "./executions";
 import type { FactoryUncertainHold } from "./budgets";
-import { validateFactoryOperationUsage } from "./journal-validation";
+import { isFactoryProviderReceiptDigest, validateFactoryOperationUsage } from "./journal-validation";
 import type { FactoryInbox } from "./inbox";
 import { lockFactoryScope } from "./locks";
 import { assertFactoryIdentity, encodeFactoryPayload } from "./records";
@@ -115,8 +115,6 @@ export interface FactoryUsageReconciler {
   ): Promise<FactoryUsageSettlement>;
 }
 
-const RECEIPT_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
-
 function opaqueText(value: unknown): boolean {
   return typeof value === "string" && value.length > 0 && value.length <= 512 && ![...value].some(character => (character.codePointAt(0) ?? 0) < 0x20);
 }
@@ -145,7 +143,7 @@ export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput):
   if (input.source !== "stop" && input.source !== "reconciliation") throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (typeof input.knownCostMicros !== "string" || !isUnsignedDecimal(input.knownCostMicros)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   if (input.unknownCostMicros !== undefined && (typeof input.unknownCostMicros !== "string" || !isUnsignedDecimal(input.unknownCostMicros))) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
-  if (input.providerReceiptDigest !== undefined && !RECEIPT_DIGEST_PATTERN.test(input.providerReceiptDigest)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+  if (input.providerReceiptDigest !== undefined && !isFactoryProviderReceiptDigest(input.providerReceiptDigest)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
   if (input.source === "reconciliation" && input.providerReceiptDigest === undefined) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
   if (input.attemptId !== input.authority.attemptId) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
   const event: FactoryUsageSettledEvent = Object.freeze({
@@ -260,7 +258,7 @@ export class FactoryUsageSettlements {
 
   /** The settlement one verified provider receipt already produced, if any. */
   async readByReceiptInTransaction(transaction: MigrationDb, scope: Pick<FactoryUsageSettlementScope, "projectId" | "runId" | "reservationId">, providerReceiptDigest: string): Promise<FactoryUsageSettlement | undefined> {
-    if (!RECEIPT_DIGEST_PATTERN.test(providerReceiptDigest)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+    if (!isFactoryProviderReceiptDigest(providerReceiptDigest)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
     return (await this.rows(transaction, scope, false)).map(row => this.decode(row)).find(entry => entry.providerReceiptDigest === providerReceiptDigest);
   }
 
@@ -407,7 +405,7 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
     if ((candidate.usage as { kind?: string }).kind !== "measured") return Object.freeze({ kind: "unknown" as const, reservationId, reason: "usage-still-unknown" as const });
     // A digest the reconciler would refuse is refused here, where the caller can
     // still tell a tampered row from a settlement conflict.
-    if (!RECEIPT_DIGEST_PATTERN.test(candidate.providerReceiptDigest!)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+    if (!isFactoryProviderReceiptDigest(candidate.providerReceiptDigest!)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
     return Object.freeze({
       kind: "resolved" as const, reservationId, attemptId: scope.authority.attemptId,
       operationId: candidate.operationId, providerReceiptDigest: candidate.providerReceiptDigest!,
@@ -421,7 +419,7 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
   ): Promise<FactoryUsageSettlement> {
     const input = Object.freeze({ ...value, usage: Object.freeze({ ...value.usage }) });
     assertFactoryIdentity(input.reservationId, input.attemptId, input.operationId);
-    if (!RECEIPT_DIGEST_PATTERN.test(input.providerReceiptDigest)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
+    if (!isFactoryProviderReceiptDigest(input.providerReceiptDigest)) throw new FactoryUsageSettlementError("factory_usage_settlement_receipt_invalid");
     if (input.usage.kind !== "measured" || !isUnsignedDecimal(input.usage.costMicros) || !settlementCounter(input.usage.inputTokens, 0) || !settlementCounter(input.usage.outputTokens, 0) || !settlementCounter(input.usage.computeMs, 0)) throw new FactoryUsageSettlementError("factory_usage_settlement_invalid");
     signal?.throwIfAborted();
     const prior = await this.database.transaction(async transaction => {
@@ -444,7 +442,13 @@ export class FactoryUsageReconciliation implements FactoryUsageReconciler {
     return this.database.transaction(async transaction => {
       const settlement = await this.settlements.recordInTransaction(transaction, scope, { source: "reconciliation", knownCostMicros: input.usage.costMicros, providerReceiptDigest: input.providerReceiptDigest });
       if (settlement.providerReceiptDigest === input.providerReceiptDigest && settlement.source === "reconciliation") {
-        await this.budgets.settleInTransaction(transaction, { projectId: scope.projectId, runId: scope.runId, reservationId: scope.reservationId }, { costMicros: input.usage.costMicros, tokens: input.usage.inputTokens + input.usage.outputTokens, computeMs: input.usage.computeMs }, input.providerReceiptDigest);
+        // The budget's receipt names the evidence that settled the reservation,
+        // and that evidence is this sealed settlement, whose digest is over its
+        // own canonical bytes and already carries the provider receipt inside
+        // them. The provider's own digest is the C02 bare form and is not a
+        // `sha256:` digest of anything this process computed, so it is not what
+        // the budget row records.
+        await this.budgets.settleInTransaction(transaction, { projectId: scope.projectId, runId: scope.runId, reservationId: scope.reservationId }, { costMicros: input.usage.costMicros, tokens: input.usage.inputTokens + input.usage.outputTokens, computeMs: input.usage.computeMs }, settlement.settlementDigest);
       }
       return settlement;
     });

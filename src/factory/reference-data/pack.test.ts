@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReverseRpc, Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
@@ -93,6 +93,16 @@ function completed(report: Uint8Array): JsonValue {
   } as unknown as JsonValue;
 }
 
+/**
+ * Writes a file the way a GUEST would: straight into the flat material
+ * directory, not through `stage`, which records a name as this host's input and
+ * therefore excludes it from `produced()`.
+ */
+async function guestWrote(directory: ReferenceDataGuestDirectory, name: string, bytes: Uint8Array): Promise<void> {
+  await writeFile(join(directory.root, name), bytes);
+  await chmod(join(directory.root, name), 0o644);
+}
+
 async function withDirectory<Result>(run: (directory: ReferenceDataGuestDirectory, workRoot: string) => Promise<Result>): Promise<Result> {
   const workRoot = await mkdtemp(join(tmpdir(), "refdata-pack-"));
   const directory = await ReferenceDataGuestDirectory.create(workRoot);
@@ -109,13 +119,13 @@ const command = (report: string) => ({ kind: "snapshotCsv", input: "in/source.cs
 test("a completed attempt carries its own material directory and returns the report the guest wrote", async () => {
   await withDirectory(async (directory, workRoot) => {
     const report = new TextEncoder().encode(JSON.stringify({ digest: `sha256:${"1".repeat(64)}`, totalBytes: 7 }));
-    await directory.stage(ReferenceDataGuestDirectory.output("report.json"), (async function* () { yield report; })());
+    await guestWrote(directory, "report.json", report);
     const world = host(() => completed(report));
-    const attempt = await dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command(ReferenceDataGuestDirectory.output("report.json")), directory);
+    const attempt = await dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory);
     expect(attempt.export).toBe("snapshotCsv");
     expect(attempt.nodeInstanceId).toBe("node-a");
     expect(attempt.report).toEqual({ digest: `sha256:${"1".repeat(64)}`, totalBytes: 7 });
-    expect(attempt.produced.map(entry => entry.name)).toEqual([ReferenceDataGuestDirectory.output("report.json")]);
+    expect(attempt.produced.map(entry => entry.name)).toEqual(["report.json"]);
     expect(attempt.requestDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
     // The attempt really was given its own directory, read-write, and nothing else.
     expect(world.starts[0]?.materials).toBe(directory.root);
@@ -128,7 +138,7 @@ test("a request the shared contract would not admit never reaches a guest", asyn
   await withDirectory(async (directory, workRoot) => {
     const world = host(() => completed(new Uint8Array([1])));
     const options = { ...optionsFor(world.runner, workRoot), authority: { ...AUTHORITY, nextOperationIndex: 5 } };
-    await expect(dispatchReferenceDataAttempt(options, "snapshotCsv", "node-a", command("out/report.json"), directory)).rejects.toMatchObject({ code: "reference_data_request_invalid" });
+    await expect(dispatchReferenceDataAttempt(options, "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_request_invalid" });
     expect(world.starts).toEqual([]);
   });
 });
@@ -136,7 +146,7 @@ test("a request the shared contract would not admit never reaches a guest", asyn
 test("a result the shared contract would not admit is refused before anything reads it", async () => {
   await withDirectory(async (directory, workRoot) => {
     const world = host(() => ({ schemaVersion: "factory.runner.result.v1", status: "completed" }));
-    await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("out/report.json"), directory)).rejects.toMatchObject({ code: "reference_data_result_invalid" });
+    await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_result_invalid" });
     expect(world.closed()).toBe(1);
   });
 });
@@ -148,7 +158,7 @@ test("an attempt that did not complete carries the guest's own reason", async ()
       resultDigest: "a".repeat(64), error: { code: "amount_overflow", message: "line 2", retryable: false },
     };
     const world = host(() => failed);
-    const failure = await dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("out/report.json"), directory).catch((error: unknown) => error);
+    const failure = await dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory).catch((error: unknown) => error);
     expect(failure).toMatchObject({ code: "reference_data_attempt_failed" });
     expect((failure as Error).message).toContain("amount_overflow");
   });
@@ -158,12 +168,12 @@ test("a report the guest did not write, or wrote differently than it said, is re
   await withDirectory(async (directory, workRoot) => {
     const claimed = new TextEncoder().encode(JSON.stringify({ a: 1 }));
     const absent = host(() => completed(claimed));
-    await expect(dispatchReferenceDataAttempt(optionsFor(absent.runner, workRoot), "snapshotCsv", "node-a", command("out/report.json"), directory)).rejects.toMatchObject({ code: "reference_data_report_invalid" });
+    await expect(dispatchReferenceDataAttempt(optionsFor(absent.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_report_invalid" });
 
     // Different bytes than the guest reported.
-    await directory.stage(ReferenceDataGuestDirectory.output("report.json"), (async function* () { yield new TextEncoder().encode(JSON.stringify({ a: 2 })); })());
+    await guestWrote(directory, "report.json", new TextEncoder().encode(JSON.stringify({ a: 2 })));
     const lying = host(() => completed(claimed));
-    await expect(dispatchReferenceDataAttempt(optionsFor(lying.runner, workRoot), "snapshotCsv", "node-a", command("out/report.json"), directory)).rejects.toMatchObject({ code: "reference_data_guest_disagrees" });
+    await expect(dispatchReferenceDataAttempt(optionsFor(lying.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_guest_disagrees" });
   });
 });
 
@@ -171,9 +181,9 @@ test("a report that is not readable JSON, or not an object, is refused", async (
   for (const payload of ["{not json", "[1,2,3]", "\"text\""]) {
     await withDirectory(async (directory, workRoot) => {
       const bytes = new TextEncoder().encode(payload);
-      await directory.stage(ReferenceDataGuestDirectory.output("report.json"), (async function* () { yield bytes; })());
+      await guestWrote(directory, "report.json", bytes);
       const world = host(() => completed(bytes));
-      await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("out/report.json"), directory)).rejects.toMatchObject({ code: "reference_data_report_invalid" });
+      await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_report_invalid" });
     });
   }
 });
@@ -181,16 +191,16 @@ test("a report that is not readable JSON, or not an object, is refused", async (
 test("a guest that asks for a reverse capability it does not have is refused", async () => {
   await withDirectory(async (directory, workRoot) => {
     const world = host(() => completed(new Uint8Array([1])), { reverse: true });
-    await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("out/report.json"), directory)).rejects.toMatchObject({ code: "reference_data_unexpected_output" });
+    await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_unexpected_output" });
   });
 });
 
 test("the node instance of every step is deterministic, so two runs name the same nodes", async () => {
   await withDirectory(async (directory, workRoot) => {
     const report = new TextEncoder().encode("{}");
-    await directory.stage(ReferenceDataGuestDirectory.output("report.json"), (async function* () { yield report; })());
+    await guestWrote(directory, "report.json", report);
     const world = host(() => completed(report));
-    const first = await dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "reference-data:snapshotCsv", command(ReferenceDataGuestDirectory.output("report.json")), directory);
+    const first = await dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "reference-data:snapshotCsv", command("report.json"), directory);
     expect(first.nodeInstanceId).toBe("reference-data:snapshotCsv");
     expect(first.requestDigest).toMatch(/^sha256:/);
   });
@@ -201,7 +211,7 @@ test("a guest that dies mid-invocation closes its worker and fails the attempt",
     const world = host(() => {
       throw new Error("worker exited before response");
     });
-    await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("out/report.json"), directory)).rejects.toThrow("worker exited");
+    await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toThrow("worker exited");
     // The worker is closed on the failure path too, so a dead guest does not
     // leave a container behind for the next attempt to collide with.
     expect(world.closed()).toBe(1);
@@ -215,26 +225,26 @@ test("a runner that refuses to start surfaces its own refusal rather than a repo
         throw new Error("runner_busy");
       },
     };
-    await expect(dispatchReferenceDataAttempt(optionsFor(runner, workRoot), "snapshotCsv", "node-a", command("out/report.json"), directory)).rejects.toThrow("runner_busy");
+    await expect(dispatchReferenceDataAttempt(optionsFor(runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toThrow("runner_busy");
   });
 });
 
 test("the invocation deadline never outlives the attempt's own authority", async () => {
   await withDirectory(async (directory, workRoot) => {
     const report = new TextEncoder().encode("{}");
-    await directory.stage(ReferenceDataGuestDirectory.output("report.json"), (async function* () { yield report; })());
+    await guestWrote(directory, "report.json", report);
     const near = Date.now() + 5_000;
     const world = host(() => completed(report));
     const options = { ...optionsFor(world.runner, workRoot), authority: { ...AUTHORITY, deadlineAtMs: near } };
-    await dispatchReferenceDataAttempt(options, "snapshotCsv", "node-a", command(ReferenceDataGuestDirectory.output("report.json")), directory);
+    await dispatchReferenceDataAttempt(options, "snapshotCsv", "node-a", command("report.json"), directory);
     // The guest is never given longer than the attempt itself holds.
     expect(world.starts[0]?.context.deadline).toBeLessThanOrEqual(near);
     const far = host(() => completed(report));
     const generous = { ...optionsFor(far.runner, workRoot), authority: { ...AUTHORITY, deadlineAtMs: Date.now() + 86_400_000 } };
     const directory2 = await ReferenceDataGuestDirectory.create(workRoot);
     try {
-      await directory2.stage(ReferenceDataGuestDirectory.output("report.json"), (async function* () { yield report; })());
-      await dispatchReferenceDataAttempt(generous, "snapshotCsv", "node-a", command(ReferenceDataGuestDirectory.output("report.json")), directory2);
+      await guestWrote(directory2, "report.json", report);
+      await dispatchReferenceDataAttempt(generous, "snapshotCsv", "node-a", command("report.json"), directory2);
       // And never longer than one execution's own ceiling either.
       expect(far.starts[0]?.context.deadline).toBeLessThan(Date.now() + 86_400_000);
     } finally {

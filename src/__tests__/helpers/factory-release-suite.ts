@@ -14,7 +14,7 @@ import { FACTORY_GITHUB_BASE_FILES, FACTORY_GITHUB_CANDIDATE_FILES, FACTORY_GITH
 import { FactoryGitHubReleaseProvider } from "../../factory/release-github";
 import { FactoryDestinationReservations, FactoryStoreSenderFence } from "../../factory/release-destinations";
 import { FACTORY_RELEASE_RESOLVE_TIMEOUT_MS, sealFactoryReleaseProfileResult } from "../../factory/release-profile";
-import { factoryRequestedReleaseProfile, FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
+import { factoryRequestedReleaseProfile, FactoryReleases, type FactoryArchiveObject, type FactoryReleaseApprovalConsent, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
 import { FACTORY_BRANCH_NAMESPACE, FACTORY_BRANCH_REF_PREFIX, factoryGitBranchBinding, factoryOperationIdFromRef } from "../../factory/release-git-refs";
 import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
 
@@ -845,6 +845,146 @@ test("the F04 reconciliation matrix runs against the real GitHub adapter", async
   await expect(releases.claim(admin, projectId, unsentOperation.operationId, { kind: "approval", approvalId: unsentApproval })).rejects.toThrow();
   const freshApproval = await approved(reopened);
   await expect(releases.claim(admin, projectId, reopened.operationId, { kind: "approval", approvalId: freshApproval })).resolves.toMatchObject({ dispatchGeneration: 2 });
+});
+
+test("the consent reader returns exactly the one consent that already exists", async () => {
+  const read = (operation: FactoryReleaseOperation, actor: FactoryPrincipal = service) =>
+    database.transaction(transaction => releases.readConsentInTransaction(transaction, actor, operation));
+  const consentPolicy = { projectId, policyId: "consent-policy", principal: service, action: "publish", destinationProvider: "fixture", destinationAccount: "account-a", destinationPrefix: "releases/consent", contractDigest: digest("f"), revision: 1, maxOperations: 3, maxSpendMicros: 20, expiresAtMs: now + 5_000 } as const;
+  const consentRequest = (suffix: string, overrides: Partial<FactoryReleaseRequest> = {}) => request(`consent/${suffix}`, overrides);
+
+  // Nothing approved and nothing in scope: no consent, and the reason says so rather than guessing.
+  const bare = await prepareRelease(service, consentRequest("bare"));
+  expect(await read(bare)).toEqual({ kind: "none", reason: "no_consent" });
+
+  // An approved approval is returned with the generation a claim would take and who approved it.
+  const approvalOperation = await prepareRelease(service, consentRequest("approval"));
+  const approvalId = await approved(approvalOperation, service);
+  expect(await read(approvalOperation)).toEqual({
+    kind: "approval", consent: { kind: "approval", approvalId },
+    approvedBy: admin.id, expiresAtMs: now + 1_000, expectedGeneration: 1,
+  });
+  // Two concurrent readers agree, and the claim over what they returned succeeds exactly once.
+  const [left, right] = await Promise.all([read(approvalOperation), read(approvalOperation)]);
+  expect(left).toEqual(right);
+  const raced = await Promise.allSettled([
+    releases.claim(service, projectId, approvalOperation.operationId, (left as FactoryReleaseApprovalConsent).consent),
+    releases.claim(service, projectId, approvalOperation.operationId, (right as FactoryReleaseApprovalConsent).consent),
+  ]);
+  expect(raced.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  // The consumed approval is no longer a consent, and it names why.
+  expect(await read(approvalOperation)).toMatchObject({ kind: "none" });
+
+  // A policy in scope is returned with its exact revision and what is left of its budget.
+  await createReleasePolicy(admin, consentPolicy, "consent-policy-create");
+  const policyOperation = await prepareRelease(service, consentRequest("policy"));
+  expect(await read(policyOperation)).toEqual({
+    kind: "policy", consent: { kind: "policy", policyId: "consent-policy", expectedRevision: 1 },
+    remainingOperations: 3, remainingSpendMicros: 20, expiresAtMs: now + 5_000,
+  });
+  // And the claim over it succeeds, exactly once, under that revision.
+  const policyClaim = await Promise.allSettled([
+    releases.claim(service, projectId, policyOperation.operationId, { kind: "policy", policyId: "consent-policy", expectedRevision: 1 }),
+    releases.claim(service, projectId, policyOperation.operationId, { kind: "policy", policyId: "consent-policy", expectedRevision: 1 }),
+  ]);
+  expect(policyClaim.filter(result => result.status === "fulfilled")).toHaveLength(1);
+
+  // Both present: the approval wins, and the policy budget is untouched by the read.
+  const both = await prepareRelease(service, consentRequest("both"));
+  const bothApproval = await approved(both, service);
+  expect(await read(both)).toMatchObject({ kind: "approval", consent: { kind: "approval", approvalId: bothApproval } });
+  expect(rows<{ used_operations: number | string }>(await database.execute(sql`SELECT used_operations FROM factory_release_policies WHERE policy_id='consent-policy'`)).map(row => Number(row.used_operations))).toEqual([1]);
+
+  // An approval for another operation is unreachable: it binds an operation id, and that id
+  // digests the run, node instance, candidate, action, and destination.
+  const foreignNode = await prepareRelease(service, consentRequest("foreign-node"));
+  expect((await read(foreignNode)).kind).toBe("policy");
+  await database.execute(sql`UPDATE factory_release_approvals SET operation_id=${foreignNode.operationId} WHERE approval_id=${bothApproval}`);
+  // The approval is now unreachable from `both`, and only the policy that already covered it is
+  // left. The approval did not follow the operation; it followed the id it is bound to.
+  expect(await read(both)).toMatchObject({ kind: "policy", consent: { policyId: "consent-policy" } });
+  expect((await read(foreignNode)).kind).toBe("approval");
+  await database.execute(sql`UPDATE factory_release_approvals SET operation_id=${both.operationId} WHERE approval_id=${bothApproval}`);
+
+  // An approval whose decision is not the operation's decision serves nothing, whatever else
+  // matches. Every operation in this suite is accepted under one decision, so the disagreement has
+  // to be built: a SECOND acceptance decision row, real enough for the approvals table's foreign
+  // key, that no operation here was prepared under.
+  const otherDecisionId = "consent-other-decision";
+  await database.execute(sql`INSERT INTO factory_acceptance_decisions (tenant_id,project_id,decision_id,contract_id,contract_revision,contract_digest,candidate_digest,evidence_set_digest,decision_digest,run_id,node_instance_id,candidate_generation,execution_epoch,cancellation_epoch) VALUES (${tenantId},${projectId},${otherDecisionId},'contract',1,${digest("f")},${trusted.candidateDigest},${digest("7")},${digest("8")},${candidate.runId},'another-decision-node',${candidate.candidateGeneration},1,0) ON CONFLICT DO NOTHING`);
+  const foreignDecision = await prepareRelease(service, request("solo/foreign-decision"));
+  const foreignDecisionApproval = await approved(foreignDecision, service);
+  expect((await read(foreignDecision)).kind).toBe("approval");
+  await database.execute(sql`UPDATE factory_release_approvals SET decision_id=${otherDecisionId} WHERE approval_id=${foreignDecisionApproval}`);
+  expect(rows<{ decision_id: string }>(await database.execute(sql`SELECT decision_id FROM factory_release_approvals WHERE approval_id=${foreignDecisionApproval}`))).toEqual([{ decision_id: otherDecisionId }]);
+  expect(otherDecisionId).not.toBe(foreignDecision.decisionId);
+  expect(await read(foreignDecision)).toEqual({ kind: "none", reason: "approval_foreign_decision" });
+  // Put it back and it serves again, so the refusal was the decision and nothing else about the row.
+  await database.execute(sql`UPDATE factory_release_approvals SET decision_id=${foreignDecision.decisionId} WHERE approval_id=${foreignDecisionApproval}`);
+  expect((await read(foreignDecision)).kind).toBe("approval");
+
+  // A stale generation, an unapproved status, and an expired approval each have their own reason.
+  // These run outside the policy prefix, because a policy that also covered them would serve as
+  // the consent and the approval's reason would never surface — which is the intended precedence.
+  const stale = await prepareRelease(service, request("solo/stale-generation"));
+  const staleApproval = await approved(stale, service);
+  await database.execute(sql`UPDATE factory_release_approvals SET expected_generation=7 WHERE approval_id=${staleApproval}`);
+  expect(await read(stale)).toEqual({ kind: "none", reason: "approval_generation_stale" });
+  await database.execute(sql`UPDATE factory_release_approvals SET expected_generation=1,status='pending' WHERE approval_id=${staleApproval}`);
+  expect(await read(stale)).toEqual({ kind: "none", reason: "approval_not_approved" });
+  await database.execute(sql`UPDATE factory_release_approvals SET status='approved',approved_by=NULL WHERE approval_id=${staleApproval}`);
+  expect(await read(stale)).toEqual({ kind: "none", reason: "approval_not_approved" });
+  // An `approved` row that records who approved it but not under which grant revision is the third
+  // way this check fails. `consumeApprovalInTransaction` refuses the same row, so returning it
+  // would hand a worker a consent no claim could ever take.
+  await database.execute(sql`UPDATE factory_release_approvals SET approved_by=${admin.id},approved_grant_revision=NULL WHERE approval_id=${staleApproval}`);
+  expect(rows<{ approved_by: string | null; approved_grant_revision: number | string | null }>(await database.execute(sql`SELECT approved_by,approved_grant_revision FROM factory_release_approvals WHERE approval_id=${staleApproval}`))).toEqual([{ approved_by: admin.id, approved_grant_revision: null }]);
+  expect(await read(stale)).toEqual({ kind: "none", reason: "approval_not_approved" });
+  await database.execute(sql`UPDATE factory_release_approvals SET approved_grant_revision=1 WHERE approval_id=${staleApproval}`);
+  expect((await read(stale)).kind).toBe("approval");
+  await database.execute(sql`UPDATE factory_release_approvals SET approved_by=NULL WHERE approval_id=${staleApproval}`);
+  await database.execute(sql`UPDATE factory_release_approvals SET approved_by=${admin.id},expires_at_ms=${now} WHERE approval_id=${staleApproval}`);
+  expect(await read(stale)).toEqual({ kind: "none", reason: "approval_expired" });
+  await database.execute(sql`UPDATE factory_release_approvals SET expires_at_ms=${now + 1_000},decision_id=${decisionId} WHERE approval_id=${staleApproval}`);
+  expect((await read(stale)).kind).toBe("approval");
+
+  // Policy scope: a foreign account, provider, action, prefix, contract, or principal is out of it.
+  for (const overrides of [
+    { destination: { provider: "fixture", account: "account-b", object: "releases/consent/x" } },
+    { destination: { provider: "other", account: "account-a", object: "releases/consent/x" } },
+    { action: "publish-elsewhere" },
+    { destination: { provider: "fixture", account: "account-a", object: "releases/elsewhere/x" } },
+  ] as Partial<FactoryReleaseRequest>[]) {
+    const outside = await prepareRelease(service, consentRequest(`outside-${Object.keys(overrides)[0]}-${++mutationSequence}`, overrides));
+    expect([JSON.stringify(overrides).slice(0, 40), await read(outside)]).toEqual([JSON.stringify(overrides).slice(0, 40), { kind: "none", reason: "no_consent" }]);
+  }
+  // The policy names one principal, so another principal is not inside it either.
+  const otherPrincipal = await prepareRelease(service, consentRequest("other-principal"));
+  expect(await read(otherPrincipal, admin)).toEqual({ kind: "none", reason: "no_consent" });
+
+  // Exhausted, expired, and revoked each have their own reason.
+  const budget = await prepareRelease(service, consentRequest("budget"));
+  await database.execute(sql`UPDATE factory_release_policies SET used_operations=max_operations WHERE policy_id='consent-policy'`);
+  expect(await read(budget)).toEqual({ kind: "none", reason: "policy_exhausted" });
+  await database.execute(sql`UPDATE factory_release_policies SET used_operations=0,used_spend_micros=max_spend_micros WHERE policy_id='consent-policy'`);
+  expect(await read(budget)).toEqual({ kind: "none", reason: "policy_exhausted" });
+  await database.execute(sql`UPDATE factory_release_policies SET used_spend_micros=0,expires_at_ms=${now} WHERE policy_id='consent-policy'`);
+  expect(await read(budget)).toEqual({ kind: "none", reason: "policy_expired" });
+  await database.execute(sql`UPDATE factory_release_policies SET expires_at_ms=${now + 5_000} WHERE policy_id='consent-policy'`);
+  await revokeReleasePolicy(admin, projectId, "consent-policy", 1, "consent-policy-revoke");
+  expect(await read(budget)).toEqual({ kind: "none", reason: "policy_revoked" });
+  await database.execute(sql`UPDATE factory_release_policies SET revoked_at_ms=NULL,revision=1 WHERE policy_id='consent-policy'`);
+  expect((await read(budget)).kind).toBe("policy");
+
+  // Two policies that both match are an ambiguity a worker may not resolve for itself.
+  await createReleasePolicy(admin, { ...consentPolicy, policyId: "consent-policy-second" }, "consent-policy-second-create");
+  expect(await read(budget)).toEqual({ kind: "none", reason: "policy_ambiguous" });
+  await revokeReleasePolicy(admin, projectId, "consent-policy-second", 1, "consent-policy-second-revoke");
+  expect((await read(budget)).kind).toBe("policy");
+
+  // The reader confers nothing and validates what it is handed.
+  await expect(read({ ...budget, tenantId: "another-tenant" })).rejects.toMatchObject({ code: "factory_release_scope" });
+  await expect(read({ ...budget, requestDigest: digest("9") })).rejects.toMatchObject({ code: "factory_release_corrupt" });
 });
 
 test("a principal without the release grant cannot claim, and no other path reaches the provider", async () => {

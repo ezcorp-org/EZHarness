@@ -22,6 +22,8 @@ const MAX_TEXT = 512;
 /** The C04 request envelope. `release-profile.ts` bounds a resolved request by the same value. */
 export const FACTORY_RELEASE_MAX_REQUEST_BYTES = 1024 * 1024;
 const MAX_REASON_BYTES = 4096;
+/** How many approval or policy rows one consent read may consider before it is a scan. */
+export const FACTORY_RELEASE_CONSENT_SCAN_LIMIT = 100;
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
 const encoder = new TextEncoder();
 
@@ -96,6 +98,43 @@ export interface FactoryReleasePreparation {
  * a caller that already holds its own request can satisfy this without inventing one.
  */
 export type FactoryReleaseProfileResolver = Pick<FactoryAsyncReleaseProfile, "action" | "resolve">;
+
+/** Why one claimable operation has no consent a worker may claim over. */
+export type FactoryReleaseConsentAbsence =
+  | "no_consent"
+  | "approval_generation_stale"
+  | "approval_not_approved"
+  | "approval_expired"
+  | "approval_foreign_decision"
+  | "policy_ambiguous"
+  | "policy_expired"
+  | "policy_revoked"
+  | "policy_exhausted";
+
+export interface FactoryReleaseApprovalConsent {
+  readonly kind: "approval";
+  readonly consent: Extract<FactoryReleaseConsent, { readonly kind: "approval" }>;
+  /** The human session that approved it. Recorded so a caller can say who authorized the send. */
+  readonly approvedBy: string;
+  readonly expiresAtMs: number;
+  /** The generation this approval is bound to, which is the one a claim would take. */
+  readonly expectedGeneration: number;
+}
+
+export interface FactoryReleasePolicyConsent {
+  readonly kind: "policy";
+  readonly consent: Extract<FactoryReleaseConsent, { readonly kind: "policy" }>;
+  readonly remainingOperations: number;
+  readonly remainingSpendMicros: number;
+  readonly expiresAtMs: number;
+}
+
+export interface FactoryReleaseNoConsent {
+  readonly kind: "none";
+  readonly reason: FactoryReleaseConsentAbsence;
+}
+
+export type FactoryReleaseConsentResult = FactoryReleaseApprovalConsent | FactoryReleasePolicyConsent | FactoryReleaseNoConsent;
 
 export interface FactoryClaimableRelease {
   readonly projectId: string;
@@ -925,6 +964,99 @@ export class FactoryReleases {
   }
 
   async inspect(projectId: string, operationId: string): Promise<FactoryReleaseOperation | null> { text(projectId, operationId); return this.readInTransaction(this.database, projectId, operationId, "none"); }
+
+  /**
+   * The one consent a worker may claim this operation over, or a typed reason there is none.
+   *
+   * A background release-outcome worker cannot choose a consent for itself: choosing would
+   * authorize a release nobody approved. This reads the consent that already exists and hands back
+   * exactly it. `claim` remains the authority — it re-derives acceptance, trust, the destination
+   * reservation, and the consent itself inside its own transaction — so what comes back here
+   * confers nothing. It is a work-list filter, the same way `listClaimableInTransaction` is.
+   *
+   * Three rules decide what comes back:
+   *
+   * 1. **An approval binds one operation id**, which digests the run, node instance, candidate,
+   *    action, and destination. Matching on that id is therefore what makes a foreign run, a
+   *    foreign node, or a stale candidate unreachable; there is no separate check to forget. The
+   *    approval must also be bound to the generation a claim would take, be `approved` by a human
+   *    session that is still recorded, be unexpired, and name this operation's decision.
+   * 2. **An approval wins over a policy.** Both mean yes, and the approval is the narrower, single
+   *    use, deliberate one; spending policy budget while a human approval sat unconsumed and then
+   *    expired would be the worse outcome. The alternative — refusing when both exist — would make
+   *    a project with a standing policy unable to also carry a per-operation approval without an
+   *    operator revoking something first, which turns an ordinary state into a stuck operation.
+   * 3. **Several matching policies are ambiguous, not a menu.** A worker picking between two
+   *    human-created authorities is the choice this method exists to prevent, so it refuses and
+   *    names `policy_ambiguous`. An operator resolves it by revoking one.
+   *
+   * The approvals table is W05's. This reads it and never writes it; `consumeApprovalInTransaction`
+   * is still the only thing that changes a row.
+   */
+  async readConsentInTransaction(transaction: MigrationDb, requester: FactoryPrincipal, operation: FactoryReleaseOperation): Promise<FactoryReleaseConsentResult> {
+    [requester, operation] = canonical([requester, operation]);
+    text(requester.id);
+    assertOperation(operation);
+    if (operation.tenantId !== this.tenantId) throw new FactoryReleaseError("factory_release_scope");
+    const generation = operation.dispatchGeneration + 1;
+    const approval = await this.readApprovalConsentInTransaction(transaction, operation, generation);
+    if (approval.kind === "approval") return approval;
+    const policy = await this.readPolicyConsentInTransaction(transaction, requester, operation);
+    // The approval's reason is the more specific one when an approval row exists but cannot serve.
+    return policy.kind === "none" && approval.reason !== "no_consent" ? approval : policy;
+  }
+
+  private async readApprovalConsentInTransaction(transaction: MigrationDb, operation: FactoryReleaseOperation, generation: number): Promise<FactoryReleaseApprovalConsent | FactoryReleaseNoConsent> {
+    const found = rows<{ approval_id: string; status: string; decision_id: string; expected_generation: number | string; expires_at_ms: number | string; approved_by: string | null; approved_grant_revision: number | string | null }>(await transaction.execute(sql`
+      SELECT approval_id,status,decision_id,expected_generation,expires_at_ms,approved_by,approved_grant_revision
+      FROM factory_release_approvals
+      WHERE tenant_id=${this.tenantId} AND project_id=${operation.projectId} AND operation_id=${operation.operationId}
+      ORDER BY expected_generation DESC LIMIT ${FACTORY_RELEASE_CONSENT_SCAN_LIMIT} FOR SHARE`));
+    if (!found.length) return { kind: "none", reason: "no_consent" };
+    const current = found.find(row => Number(row.expected_generation) === generation);
+    if (!current) return { kind: "none", reason: "approval_generation_stale" };
+    if (current.decision_id !== operation.decisionId) return { kind: "none", reason: "approval_foreign_decision" };
+    if (current.status !== "approved" || !current.approved_by || current.approved_grant_revision === null) return { kind: "none", reason: "approval_not_approved" };
+    const expiresAtMs = Number(current.expires_at_ms);
+    if (!Number.isSafeInteger(expiresAtMs) || expiresAtMs <= this.now()) return { kind: "none", reason: "approval_expired" };
+    text(current.approval_id, current.approved_by);
+    return Object.freeze({ kind: "approval", consent: Object.freeze({ kind: "approval" as const, approvalId: current.approval_id }), approvedBy: current.approved_by, expiresAtMs, expectedGeneration: generation });
+  }
+
+  private async readPolicyConsentInTransaction(transaction: MigrationDb, requester: FactoryPrincipal, operation: FactoryReleaseOperation): Promise<FactoryReleasePolicyConsent | FactoryReleaseNoConsent> {
+    // The scope a policy must already match is pushed into the query; what stays in TypeScript is
+    // the prefix test and the three budget rules, which SQL cannot express as cheaply.
+    const found = rows<{ policy_id: string; destination_prefix: string; revision: number | string; max_operations: number | string; used_operations: number | string; max_spend_micros: number | string; used_spend_micros: number | string; expires_at_ms: number | string; revoked_at_ms: number | string | null }>(await transaction.execute(sql`
+      SELECT policy_id,destination_prefix,revision,max_operations,used_operations,max_spend_micros,used_spend_micros,expires_at_ms,revoked_at_ms
+      FROM factory_release_policies
+      WHERE tenant_id=${this.tenantId} AND project_id=${operation.projectId}
+        AND principal_kind=${requester.kind} AND principal_id=${requester.id}
+        AND action=${operation.action}
+        AND destination_provider=${operation.destination.provider} AND destination_account=${operation.destination.account}
+        AND contract_digest=${operation.contractDigest}
+      ORDER BY policy_id LIMIT ${FACTORY_RELEASE_CONSENT_SCAN_LIMIT} FOR SHARE`));
+    const scoped = found.filter(row => operation.destination.object.startsWith(row.destination_prefix));
+    if (!scoped.length) return { kind: "none", reason: "no_consent" };
+    const live = scoped.filter(row => row.revoked_at_ms === null);
+    if (!live.length) return { kind: "none", reason: "policy_revoked" };
+    const unexpired = live.filter(row => Number(row.expires_at_ms) > this.now());
+    if (!unexpired.length) return { kind: "none", reason: "policy_expired" };
+    const usable = unexpired.filter(row => Number(row.used_operations) < Number(row.max_operations) && Number(row.used_spend_micros) + operation.estimatedSpendMicros <= Number(row.max_spend_micros));
+    if (!usable.length) return { kind: "none", reason: "policy_exhausted" };
+    if (usable.length > 1) return { kind: "none", reason: "policy_ambiguous" };
+    const row = usable[0]!;
+    text(row.policy_id);
+    const revision = Number(row.revision);
+    count(revision, true);
+    return Object.freeze({
+      kind: "policy",
+      consent: Object.freeze({ kind: "policy" as const, policyId: row.policy_id, expectedRevision: revision }),
+      remainingOperations: Number(row.max_operations) - Number(row.used_operations),
+      remainingSpendMicros: Number(row.max_spend_micros) - Number(row.used_spend_micros),
+      expiresAtMs: Number(row.expires_at_ms),
+    });
+  }
+
 
   /**
    * The pending operations a release worker may try to claim, oldest deadline first.

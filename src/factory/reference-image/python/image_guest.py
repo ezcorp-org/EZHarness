@@ -50,6 +50,11 @@ from reference_image.sdxl import (
 )
 
 GUEST_VERSION: Final = "factory.reference-image-guest.v1"
+#: Where the host bind-mounts the per-attempt material directory. It is the one
+#: writable path a guest has, and the only way bytes larger than a control frame
+#: leave. Fixed rather than read from the environment, because the isolation
+#: profile permits a guest exactly three declared variables and this is not one.
+MATERIALS_PATH: Final = "/materials"
 MAX_FRAME_BYTES: Final = 1024 * 1024
 #: Raw bytes per transfer piece. Base64 grows this by a third and still leaves
 #: room inside the frame ceiling for the envelope.
@@ -77,6 +82,7 @@ MANIFEST: Final[dict[str, Any]] = {
             ("claims", "Measure the deterministic and OCR claims over one held image"),
             ("runtime", "Report the observed generation runtime"),
             ("fixtures", "Draw the caption negative fixture and its blank control"),
+            ("emit", "Write a held image into the material mount and declare it"),
         )
     ],
 }
@@ -174,6 +180,35 @@ class Guest:
 
     def runtime(self, _params: Any) -> dict[str, Any]:  # noqa: ANN401
         return {"guest": GUEST_VERSION, "runtime": runtime_facts()}
+
+    def emit(self, params: Any) -> dict[str, Any]:  # noqa: ANN401
+        """Writes one held image into the material mount and declares what it wrote.
+
+        The declaration is the point. The host re-hashes every file it finds and
+        refuses on any disagreement, so a truncated write fails there rather
+        than arriving as a picture that still decodes. Writing to a temporary
+        name and renaming keeps a partially written file from ever being
+        visible under the declared name.
+
+        Nothing here reads the mount back or trusts anything already in it.
+        """
+        identity = _require_str(params, "digest")
+        name = _require_str(params, "path")
+        media_type = _require_str(params, "mediaType")
+        if name.startswith("/") or ".." in name.split("/"):
+            raise GuestError(f"material path {name!r} must stay inside the mount")
+        data = self.held.get(identity)
+        if data is None:
+            raise GuestError(f"no held image {identity}")
+        root = Path(MATERIALS_PATH)
+        if not root.is_dir():
+            raise GuestError("the material mount is not present for this attempt")
+        target = root / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        staging = target.with_name(f"{target.name}.partial")
+        staging.write_bytes(data)
+        staging.replace(target)
+        return {"path": name, "digest": identity, "bytes": len(data), "mediaType": media_type}
 
     def fixtures(self, params: Any) -> dict[str, Any]:  # noqa: ANN401
         """Draws the caption fixture and the blank control, and holds both.
@@ -302,6 +337,7 @@ class Guest:
             "claims": self.claims,
             "runtime": self.runtime,
             "fixtures": self.fixtures,
+            "emit": self.emit,
         }
         handler = handlers.get(name if isinstance(name, str) else "")
         if handler is None:

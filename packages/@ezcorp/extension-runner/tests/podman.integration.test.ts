@@ -1,6 +1,6 @@
 import { workspaceText } from "@ezcorp/extension-contract";
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { chmod, lstat, mkdtemp, rm } from "node:fs/promises";
+import { chmod, lstat, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -193,21 +193,29 @@ test("a guest writes real bytes to its material mount and the host reads them ba
   const materials = await mkdtemp(join(tmpdir(), "ez-runner-materials-"));
   const files = source(`async () => {
     const fs = require("node:fs");
-    fs.writeFileSync("/materials/report.json", JSON.stringify({ rows: 3 }));
-    fs.mkdirSync("/materials/partitions");
-    fs.writeFileSync("/materials/partitions/part-0.bin", "0123456789");
-    // A guest CAN do this; the host's reader is what refuses to follow it. The
-    // outcome is reported rather than swallowed, so the test asserts that the
-    // link was really planted instead of assuming it.
-    let planted = "no";
-    try { fs.symlinkSync("/etc/passwd", "/materials/escape"); planted = "yes"; }
-    catch (error) { planted = String(error && error.code); }
-    return { complete: true, planted };
+    // The guest source is type-checked by the build, so this is strict TypeScript.
+    const step: Record<string, unknown> = {};
+    const run = (name: string, action: () => unknown) => { try { step[name] = action(); } catch (error) { step[name] = String((error as { code?: string } | undefined)?.code ?? error); } };
+    run("readInput", () => (JSON.parse(fs.readFileSync("/materials/input.json", "utf8")) as { seed: number }).seed);
+    run("report", () => { fs.writeFileSync("/materials/report.json", JSON.stringify({ rows: step.readInput })); return "ok"; });
+    run("partition", () => { fs.mkdirSync("/materials/partitions"); fs.writeFileSync("/materials/partitions/part-0.bin", "0123456789"); return "ok"; });
+    // A guest CAN do this; the host's reader is what refuses to follow it. Every
+    // step reports its outcome rather than throwing, so a failure names itself
+    // instead of arriving as a generic handler error.
+    run("planted", () => { fs.symlinkSync("/etc/passwd", "/materials/escape"); return "yes"; });
+    return { complete: true, step };
   }`);
   try {
-    // The directory is the host's, 0o700 to the runner, opened to the mapped
-    // guest uid only as far as writing into it requires.
-    await chmod(materials, 0o777);
+    // The caller creates the directory 0o700 and does nothing else to it. No
+    // mode or ownership change happens on this side: the runner performs the
+    // handover itself, which is the whole point of this case.
+    await chmod(materials, 0o700);
+    // An input the caller placed before the start must still be readable. The
+    // mode is set explicitly after the write because a process umask silently
+    // strips the mode argument, which is why the runner's own staging does the
+    // same: measured here as the guest reading EACCES on a 0o600 file.
+    await writeFile(join(materials, "input.json"), JSON.stringify({ seed: 7 }));
+    await chmod(join(materials, "input.json"), 0o644);
     const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
     expect(build.state).toBe("succeeded");
     const workerId = `materials-${randomUUID()}`;
@@ -216,7 +224,8 @@ test("a guest writes real bytes to its material mount and the host reads them ba
     try {
       // The guest reports that it really could create the symlink, so the
       // host-side refusal below is a refusal of something that happened.
-      expect(await worker.request("extension/invoke", { name: "echo", input: {}, context })).toEqual({ complete: true, planted: "yes" });
+      expect(await worker.request("extension/invoke", { name: "echo", input: {}, context }))
+        .toEqual({ complete: true, step: { readInput: 7, report: "ok", partition: "ok", planted: "yes" } });
     } finally { await worker.close(); }
 
     // The guest really planted the link, so the refusal below is not vacuous.
@@ -226,11 +235,12 @@ test("a guest writes real bytes to its material mount and the host reads them ba
     // With the link removed, the ordinary files round-trip exactly.
     await rm(join(materials, "escape"));
     expect(await listRunnerMaterials(materials)).toEqual([
+      { path: "input.json", bytes: 10 },
       { path: "partitions/part-0.bin", bytes: 10 },
       { path: "report.json", bytes: 10 },
     ]);
     const handle = await openRunnerMaterial(materials, "report.json");
-    try { expect(JSON.parse((await handle.readFile()).toString())).toEqual({ rows: 3 }); }
+    try { expect(JSON.parse((await handle.readFile()).toString())).toEqual({ rows: 7 }); }
     finally { await handle.close(); }
   } finally {
     // A guest's subdirectories belong to a mapped subuid, so the host cannot
@@ -241,6 +251,54 @@ test("a guest writes real bytes to its material mount and the host reads them ba
     await rm(materials, { recursive: true, force: true }).catch(() => undefined);
   }
 }, 180_000);
+
+test("the runner's material handover leaves the directory closed to everyone but the guest and itself", async () => {
+  const { listRunnerMaterials } = await import("../src/materials");
+  const materials = await mkdtemp(join(tmpdir(), "ez-runner-handover-"));
+  const files = source(`async () => { require("node:fs").writeFileSync("/materials/ok.bin", "x"); return { complete: true }; }`);
+  try {
+    await chmod(materials, 0o700);
+    const build = await runner.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+    expect(build.state).toBe("succeeded");
+    const workerId = `handover-${randomUUID()}`;
+    const context = { workerId, invocationId: randomUUID(), releaseId: build.artifactDigest!, principalId: "owner", scopeId: "global", token: "handover-token", deadline: Date.now() + 60_000 };
+    const worker = await runner.start({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits, materials }, async () => null);
+    try { expect(await worker.request("extension/invoke", { name: "echo", input: {}, context })).toEqual({ complete: true }); }
+    finally { await worker.close(); }
+
+    const handed = await lstat(materials);
+    // Exactly 0o770: the guest owns it, the runner's group reaches it, and the
+    // rest of the host gets nothing. Never 0o777, and never world-readable.
+    expect(handed.mode & 0o777).toBe(0o770);
+    expect(handed.mode & 0o007).toBe(0);
+    // Ownership moved to the guest's mapped uid, away from the runner, while the
+    // group stayed the runner's so it can still read the results back.
+    expect(handed.uid).not.toBe(process.getuid?.());
+    expect(handed.gid).toBe(process.getgid?.());
+    // And the runner really can still read what the guest wrote.
+    expect(await listRunnerMaterials(materials)).toEqual([{ path: "ok.bin", bytes: 1 }]);
+  } finally {
+    await command("podman", ["unshare", "rm", "-rf", materials]).catch(() => undefined);
+    await rm(materials, { recursive: true, force: true }).catch(() => undefined);
+  }
+}, 180_000);
+
+test("a material directory the runner does not own refuses the start and launches nothing", async () => {
+  const workerId = `refused-${randomUUID()}`;
+  const context = { workerId, invocationId: randomUUID(), releaseId: artifactDigest, principalId: "owner", scopeId: "global", token: "refused-token", deadline: Date.now() + 60_000 };
+  // `/` is owned by root on every host this runs on, and the runner is never
+  // root, so the handover must refuse it rather than chmod the filesystem root.
+  const refused = await runner.start({ workerId, artifactDigest, context, limits: executionLimits, materials: "/" }, async () => null)
+    .then(() => undefined, (error: unknown) => error as { code?: string; message?: string });
+  expect(refused?.code).toBe("material_directory_invalid");
+  expect(refused?.message).toContain("is not owned by the runner");
+
+  // Nothing was launched: no container carries this worker's name.
+  const name = `ez-v4-${(await import("../src/core")).sha256(`${root}:${workerId}`).slice(0, 32)}`;
+  expect(await command("podman", ["ps", "-a", "--filter", `name=${name}`, "--format={{.Names}}"])).toBe("");
+  // And the filesystem root is untouched.
+  expect((await lstat("/")).uid).toBe(0);
+}, 120_000);
 
 test("real isolated worker drains admitted host calls before invocation teardown", async () => {
   const files = source("(_input,ctx) => { void ctx.call('lifetime.probe',{}).catch(()=>undefined); return {complete:true}; }");
