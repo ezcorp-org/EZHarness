@@ -24,7 +24,7 @@ const DEFAULT_EVENT_POLL_TIMEOUT_MS = 20_000;
 const MINIMUM_EVENT_POLL_TIMEOUT_MS = 100;
 const MAXIMUM_EVENT_POLL_TIMEOUT_MS = 300_000;
 /**
- * A host holds its attachment under a lease that every event-stream poll
+ * A host holds its attachment under a lease that every request from that host
  * renews. Measured on Bun 1.3.14: `Request.signal` aborts within ~10 ms when a
  * host drops the connection, which releases the attachment at once. The lease
  * bounds the one form Bun reports nothing for, a client that half-closes its
@@ -108,8 +108,19 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
   let starting = 0;
   /** Take the one host attachment for this worker and arm its lease. */
   function attachHost(session: Session): void { session.attached = true; renewAttachment(session); }
-  /** Renew the attachment lease. Every event-stream poll renews it, so a host that stops collecting is released within one lease. */
-  function renewAttachment(session: Session): void { clearTimeout(session.lease); session.lease = setTimeout(() => releaseAttachment(session), attachmentLeaseMs); }
+  /**
+   * Renew the attachment lease. Every request from the holder renews it, so a
+   * host that stops talking is released within one lease. While the host still
+   * owes a reply to a queued reverse call the lease re-arms instead of
+   * releasing: that call carries its own timeout and deletes itself when it
+   * expires, so a host that has truly gone is released one lease after its last
+   * outstanding call, and a host that is merely busy is never evicted.
+   */
+  function renewAttachment(session: Session): void {
+    if (!session.attached) return;
+    clearTimeout(session.lease);
+    session.lease = setTimeout(() => { if (session.pending.size === 0) releaseAttachment(session); else renewAttachment(session); }, attachmentLeaseMs);
+  }
   /** Open one worker session and wire its reverse-RPC and notification queues. */
   async function startSession(data: RunnerRequestBody): Promise<Response> {
     identifier(data.workerId);
@@ -144,6 +155,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     const session = sessions.get(identifier(data.workerId));
     const pending = session?.pending.get(data.id);
     if (!pending) throw new RunnerError("unknown_request", "Host reply ID is stale or invalid");
+    renewAttachment(session!);
     clearTimeout(pending.timer);
     session?.pending.delete(data.id);
     const eventIndex = session?.events.findIndex(event => event.id === data.id) ?? -1;
@@ -181,6 +193,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       case "/v4/request": {
         const session = sessions.get(identifier(data.workerId));
         if (!session || typeof data.method !== "string" || data.method.length > 128) throw new RunnerError("unknown_worker", "Worker is unavailable");
+        renewAttachment(session);
         return respond(200, { result: await session.execution.request(data.method, data.params) });
       }
       case "/v4/events": return collectEvents(request, data);

@@ -89,6 +89,11 @@ function dropEventStream(poll: ClientRequest, drop: Drop): void {
 /** Await an observed service state. The enclosing test budget is the only bound. */
 async function until(observed: () => boolean): Promise<void> { while (!observed()) await Bun.sleep(1); }
 
+/** Handle a reverse call's outcome now, so a failing assertion elsewhere cannot leave it unhandled. */
+function settled<Value>(promise: Promise<Value>): Promise<{ resolved: Value } | { rejected: string }> {
+  return promise.then(resolved => ({ resolved }), error => ({ rejected: error instanceof Error ? error.message : String(error) }));
+}
+
 function startBody(workerId: string): Record<string, unknown> {
   return { workerId, artifactDigest: "a".repeat(64), context: { workerId, invocationId: "invocation", releaseId: "release", principalId: "user", scopeId: "scope", token: "capability", deadline: Date.now() + 600_000 }, limits: { ...executionLimits, timeoutMs: 600_000 } };
 }
@@ -197,7 +202,7 @@ test("a released attachment keeps every queued reverse call and notification for
     dropEventStream(poll, "socket.destroy");
     await until(() => harness.service.attachments().length === 0);
 
-    const answered = harness.reverse("worker", "storage.get", { key: "hello" });
+    const answered = settled(harness.reverse("worker", "storage.get", { key: "hello" }));
     harness.notify("worker", "changed", { key: "updated" });
     expect((await call(harness.socketPath, "/v4/attach", { workerId: "worker" })).status).toBe(200);
 
@@ -209,7 +214,30 @@ test("a released attachment keeps every queued reverse call and notification for
     expect(events[1]).toEqual({ method: "changed", params: { key: "updated" } });
 
     expect((await call(harness.socketPath, "/v4/reply", { workerId: "worker", id: events[0]!.id, result: { value: "world" } })).status).toBe(200);
-    expect(await answered).toEqual({ value: "world" });
+    expect(await answered).toEqual({ resolved: { value: "world" } });
+  } finally { await harness.close(); }
+}, 30_000);
+
+test("a host busy with a reverse call is never evicted while it still owes a reply", async () => {
+  const harness = await startHarness();
+  try {
+    await startAndAttach(harness, "worker");
+    const answered = settled(harness.reverse("worker", "slow.work", { size: 1 }));
+    const collected = await call(harness.socketPath, "/v4/events", { workerId: "worker" });
+    const events = (collected.body as { events: { id?: string }[] }).events;
+    expect(events).toHaveLength(1);
+    // Hold the call for longer than the lease, as a real host handling slow
+    // work does. The lease must re-arm while a reply is still owed, because
+    // that call already carries its own timeout.
+    await Bun.sleep(LEASE_MS * 2);
+    expect(harness.service.attachments()).toEqual(["worker"]);
+
+    expect((await call(harness.socketPath, "/v4/reply", { workerId: "worker", id: events[0]!.id, result: "done" })).status).toBe(200);
+    expect(await answered).toEqual({ resolved: "done" });
+    // The stream still belongs to the same host: a replacement is refused and
+    // the host's own next poll is served.
+    expect((await call(harness.socketPath, "/v4/attach", { workerId: "worker" })).status).toBe(400);
+    expect((await call(harness.socketPath, "/v4/events", { workerId: "worker" })).body).toEqual({ events: [] });
   } finally { await harness.close(); }
 }, 30_000);
 
