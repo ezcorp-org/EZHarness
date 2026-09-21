@@ -4,7 +4,7 @@ interface Job {
   uses?: string;
   if?: string;
   needs?: string[];
-  steps?: Array<{ run?: string }>;
+  steps?: Array<{ name?: string; run?: string; uses?: string; with?: Record<string, string> }>;
 }
 
 const workflow = Bun.YAML.parse(
@@ -18,6 +18,22 @@ test("external Postgres runs through the required Backend tests check", async ()
     await Bun.file(new URL("../../.github/workflows/db-postgres.yml", import.meta.url)).text(),
   ) as { on: Record<string, unknown> };
   expect(Object.keys(postgres.on)).toEqual(["workflow_call"]);
+});
+
+test("dev image provenance installs pinned Bun and frozen dependencies before its resolver probe", async () => {
+  const steps = workflow.jobs["dev-image-provenance"]?.steps ?? [];
+  const setupIndex = steps.findIndex((step) => step.uses === "./.github/actions/setup");
+  const resolverIndex = steps.findIndex((step) => step.run?.includes("resolve-dev-image-source-state.sh"));
+  expect(setupIndex).toBeGreaterThanOrEqual(0);
+  expect(resolverIndex).toBeGreaterThan(setupIndex);
+
+  const setup = Bun.YAML.parse(
+    await Bun.file(new URL("../../.github/actions/setup/action.yml", import.meta.url)).text(),
+  ) as { runs: { steps: Array<{ name?: string; run?: string; uses?: string; with?: Record<string, string> }> } };
+  const bunIndex = setup.runs.steps.findIndex((step) => /^oven-sh\/setup-bun@[a-f0-9]{40}$/.test(step.uses ?? ""));
+  const installIndex = setup.runs.steps.findIndex((step) => step.run?.includes("bun install --frozen-lockfile"));
+  expect(setup.runs.steps[bunIndex]?.with?.["bun-version-file"]).toBe(".bun-version");
+  expect(installIndex).toBeGreaterThan(bunIndex);
 });
 
 for (const name of ["backend-tests", "e2e-mock"]) {

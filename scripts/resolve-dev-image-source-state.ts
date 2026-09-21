@@ -218,8 +218,11 @@ try {
       bytes = readlinkSync(absolute, { encoding: "buffer" });
     } else if (expected.mode === "100644" || expected.mode === "100755") {
       if (!stat.isFile() || stat.isSymbolicLink()) dirty(`tracked regular-file type changed: ${path}`);
-      const executable = (stat.mode & 0o111) !== 0;
-      if ((expected.mode === "100755") !== executable) dirty(`tracked executable mode changed: ${path}`);
+      // A local Docker context preserves all permission bits. Git's canonical
+      // checkout modes are 0644 and 0755, so comparing only the executable bit
+      // can falsely call a chmod 0600/0700/0775 context clean.
+      const expectedPermissions = expected.mode === "100755" ? 0o755 : 0o644;
+      if ((stat.mode & 0o7777) !== expectedPermissions) dirty(`tracked permission mode changed: ${path}`);
       bytes = readFileSync(absolute);
     } else {
       throw new UnknownSourceState();

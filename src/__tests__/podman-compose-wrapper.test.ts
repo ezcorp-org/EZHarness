@@ -538,6 +538,8 @@ describe("podman wrapper — the invocation it guarantees", () => {
       writeFileSync(TRACKED_SOURCE, "clean source\n");
       chmodSync(TRACKED_SOURCE, 0o755);
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+      chmodSync(TRACKED_SOURCE, 0o600);
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
     } finally {
       writeFileSync(TRACKED_SOURCE, "clean source\n");
       chmodSync(TRACKED_SOURCE, 0o644);

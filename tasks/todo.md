@@ -495,3 +495,30 @@ Plan review: keep the runtime's exact image equality unchanged. Reuse one assert
 - One shared assertion now binds rebuilt releases to the archived installation ID, workspace ID, workspace revision, and source digest. Negative cases reject drift in each field.
 - The real rootless-Podman proof passed the live candidate rebuild and the independent restore rebuild. Both retained the old stored value and produced clean command and cleanup exits.
 - Bun 1.3.14 full lint checked 4,610 files, full typecheck passed all surfaces, and the backend pool passed 25,866 tests across 1,654 files with no failures.
+
+## Repair PR #284 CI bootstrap and file-mode provenance — 2026-09-21
+
+- [x] Reproduce the fresh-runner bootstrap failure and local file-mode false-clean result.
+- [x] Install pinned Bun and frozen root dependencies before the CI source-state probe.
+- [x] Compare complete regular-file permission bits with the canonical `HEAD` tree mode.
+- [x] Add workflow-order and non-executable mode regressions.
+- [x] Run focused tests, workflow validation, static gates, and review the exact diff.
+- [x] Commit the publication-gate repair locally without pushing.
+
+Plan review: reuse the repository's composite setup action so Bun pinning, dependency caching, and
+the frozen root install keep one source of truth. Keep the source-state comparison direct: Git tree
+mode `100644` maps to local `0644`, and `100755` maps to local `0755`; any other permission bits
+change the local Docker context because Docker preserves local `COPY` permissions.
+
+Review: the dev-image job now completes the shared setup action before it invokes the source-state
+resolver. That action installs the exact `.bun-version`, restores the shared package cache, and runs
+the frozen root install that supplies `@balena/dockerignore`. A workflow regression pins both the job
+ordering and the composite action's pinned-runtime/frozen-install contract. The resolver now compares
+all regular-file permission bits with Git's canonical `0644` or `0755` mode, so local modes such as
+`0600`, `0700`, or `0775` cannot be mislabeled clean.
+
+Verification: the focused CI/provenance set passes 93 tests and 235 assertions. Actionlint, Bash/sh
+syntax, `git diff --check`, gate integrity, full lint over 4,614 files, full typecheck, Svelte check
+(0 errors and 0 warnings), and the production build pass. The canonical backend pool passes 25,903
+tests across 1,657 files with zero failures. The production build required the known Nix host
+`libstdc++.so.6` library-path correction and then completed successfully.
