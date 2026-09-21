@@ -19,6 +19,8 @@
  * usable from `bun:test` without jsdom.
  */
 
+import { randomId } from "../utils/random-id";
+
 /**
  * Render-side contract for an extension toolbar icon. The host turns
  * each `ExtensionToolbarItem` into one `ExtensionAction` per row by
@@ -212,7 +214,7 @@ export async function postExtensionEvent(
   try {
     const res = await deps.fetcher(url, {
       method: "POST",
-      headers: { "content-type": "application/json", "Idempotency-Key": crypto.randomUUID() },
+      headers: { "content-type": "application/json", "Idempotency-Key": randomId() },
       body: JSON.stringify(payload),
     });
     if (!res.ok) {
