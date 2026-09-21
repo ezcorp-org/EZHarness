@@ -423,19 +423,19 @@ runner and the backend pool's per-file `mock.module` isolation fights perTest
 coverage, so it drives the Node/Vitest leg the coverage job already provisions.
 PRs mutate **only the changed files** (a full run is far too slow for a PR —
 measured 2m02s for 2 files); `mutation-nightly.yml` runs the whole set as a
-**matrix of shards**. One job cannot: 186 files instrument to 18,797 mutants,
-and a single hosted runner reached 99.4% at 5h52m before the 6-hour job cap
-killed it. Each shard runs `mutation.ts --full --shard I/N` (a deterministic
+**matrix of shards**. A single hosted runner reached 99.4% at 5h52m before the
+6-hour job cap killed it. Each shard runs `mutation.ts --full --shard I/N` (a deterministic
 round-robin slice of the sorted scope) with `--report-only`, uploads its
 report, and `scripts/merge-mutation-reports.ts` merges exactly N of them and
 decides the threshold verdict once, on the merged score. Fewer than N reports
 is a failure, never a score over a partial tree.
 
 Scope is the **intersection** of `mutation.mutateGlobs` and the
-`--coverage.include` allowlist in `test-coverage.sh`, minus `src/lib/server/**`:
-469 files match the globs, **68** survive the intersection. Three measured traps
-produced that number, and each one silently returned a WRONG score rather than
-an error:
+`--coverage.include` allowlist in `test-coverage.sh`, minus `src/lib/server/**`.
+`scripts/mutation.ts` derives that list for every run; do not copy its counts
+into documentation. Stryker omits selected files that produce no mutants from
+its report, so report entries can be fewer than selected files. Three measured
+traps silently returned a WRONG score rather than an error:
 
 1. **Files the vitest leg does not measure.** `workflow-yaml.ts` is covered to
    100% — by the *bun* leg. Mutating it under vitest gave 62 NoCoverage mutants
