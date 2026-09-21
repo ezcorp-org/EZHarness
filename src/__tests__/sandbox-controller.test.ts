@@ -202,6 +202,26 @@ test("an admitted file read blocks a lifecycle transition", async () => {
   await expect(context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "start-during-read" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
 });
 
+test("an executing observation remains fenced until its provider call settles", async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const context = await fixture();
+  context.local.fileRead = mock(async (input: any) => {
+    entered.resolve();
+    await release.promise;
+    return { receipt: receipt(input.call), path: input.path, revision: "r1", offsetBytes: input.offsetBytes, nextOffsetBytes: input.offsetBytes, eof: true, encoding: "utf8" as const, data: "" };
+  });
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const read = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "read", idempotencyKey: "executing-read", payload: { path: "/a", offsetBytes: 0, lengthBytes: 1 } });
+  const executing = context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id);
+  await entered.promise;
+
+  await expect(context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "start-during-executing-read" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+  release.resolve();
+  await expect(executing).resolves.toMatchObject({ state: "succeeded" });
+});
+
 test("keeps the writer lease through a running process and releases it after terminal process inspection", async () => {
   let processState: "running" | "exited" = "running";
   const context = await fixture();
@@ -284,6 +304,129 @@ for (const interruption of ["unknown receipt", "provider exception"] as const) {
     expect(destroy.state).toBe("admitted");
   });
 }
+
+const observationMethods = [
+  { group: "sandbox.lifecycle.v1", operation: "inspect", payload: {}, driver: "inspect" },
+  { group: "sandbox.process.v1", operation: "inspect", payload: { identity: { bootId: "orphan-boot", processId: "orphan-process" } }, driver: "processInspect" },
+  { group: "sandbox.process.v1", operation: "readOutput", payload: { identity: { bootId: "orphan-boot", processId: "orphan-process" }, cursor: 0, maxBytes: 1024 }, driver: "processReadOutput" },
+  { group: "sandbox.files.v1", operation: "stat", payload: { path: "/orphan" }, driver: "fileStat" },
+  { group: "sandbox.files.v1", operation: "list", payload: { path: "/", limit: 10 }, driver: "fileList" },
+  { group: "sandbox.files.v1", operation: "read", payload: { path: "/orphan", offsetBytes: 0, lengthBytes: 10 }, driver: "fileRead" },
+] as const;
+
+for (const retainedState of ["admitted", "running"] as const) {
+  for (const method of observationMethods) {
+    test(`fails an orphaned ${retainedState} ${method.group}:${method.operation} without replay before lifecycle admission`, async () => {
+      const context = await fixture();
+      const create = await admitCreate(context);
+      await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+      const admitted = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: method.group, operation: method.operation, idempotencyKey: `orphan-${retainedState}-${method.group}-${method.operation}`, payload: method.payload });
+      await context.database.execute(sql`UPDATE sandbox_method_operations SET state=${retainedState} WHERE id=${admitted.id}`);
+
+      const destroy = await context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: `destroy-after-${retainedState}-${method.group}-${method.operation}` });
+
+      expect(destroy.state).toBe("admitted");
+      expect((await context.controller.getSandboxOperationResult(context.owner.id, admitted.id)).state).toBe("failed");
+      expect((context.local as any)[method.driver]).not.toHaveBeenCalled();
+    });
+  }
+}
+
+for (const method of observationMethods) {
+  test(`keeps a completed unknown ${method.group}:${method.operation} for audit without retaining its lifecycle fence`, async () => {
+    const context = await fixture();
+    const create = await admitCreate(context);
+    await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+    const admitted = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: method.group, operation: method.operation, idempotencyKey: `completed-unknown-${method.group}-${method.operation}`, payload: method.payload });
+    await context.database.execute(sql`UPDATE sandbox_method_operations SET state='unknown',completed_at=NOW() WHERE id=${admitted.id}`);
+
+    const destroy = await context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: `destroy-after-completed-unknown-${method.group}-${method.operation}` });
+
+    expect(destroy.state).toBe("admitted");
+    expect((await context.controller.getSandboxOperationResult(context.owner.id, admitted.id)).state).toBe("unknown");
+    expect((context.local as any)[method.driver]).not.toHaveBeenCalled();
+  });
+}
+
+test("fails an orphaned admitted cancel without dispatch before lifecycle admission", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const cancel = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "cancel", idempotencyKey: "orphan-admitted-cancel", payload: { identity: { bootId: "orphan-boot", processId: "orphan-process" } } });
+
+  const destroy = await context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "destroy-after-orphan-admitted-cancel" });
+
+  expect(destroy.state).toBe("admitted");
+  expect((await context.controller.getSandboxOperationResult(context.owner.id, cancel.id)).state).toBe("failed");
+  expect(context.local.processCancel).not.toHaveBeenCalled();
+});
+
+test("an executing cancel remains fenced even after a concurrent terminal inspection", async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const context = await fixture();
+  const identity = { bootId: "executing-cancel-boot", processId: "executing-cancel-process" };
+  context.local.processStart = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity, state: "running" as const, outputCursor: 0 } }));
+  context.local.processInspect = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity, state: "exited" as const, exitCode: 0, outputCursor: 0 } }));
+  context.local.processCancel = mock(async (input: any) => {
+    entered.resolve();
+    await release.promise;
+    return { receipt: receipt(input.call), process: { identity: input.identity, state: "cancelled" as const, outputCursor: 0 } };
+  });
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "start-before-executing-cancel", payload: { argv: ["sleep"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
+  await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id);
+  const cancel = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "cancel", idempotencyKey: "executing-cancel", payload: { identity } });
+  const executing = context.controller.executeAdmittedSandboxMethod(context.owner.id, cancel.id);
+  await entered.promise;
+
+  await expect(context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "destroy-during-executing-cancel" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+  release.resolve();
+  await expect(executing).resolves.toMatchObject({ state: "succeeded" });
+});
+
+for (const retainedState of ["running", "unknown"] as const) {
+  for (const inspection of ["terminal", "live", "ambiguous"] as const) {
+    test(`${inspection} exact-process evidence controls a retained ${retainedState} cancel lifecycle fence`, async () => {
+      const context = await fixture();
+      const identity = { bootId: "cancel-boot", processId: `cancel-${retainedState}-${inspection}` };
+      context.local.processStart = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity, state: "running" as const, outputCursor: 0 } }));
+      context.local.processInspect = mock(async (input: any) => inspection === "ambiguous"
+        ? { receipt: { ...receipt(input.call), outcome: "unknown" as const, error: { code: "process_unknown", message: "Process state is temporarily unavailable.", retryable: true } } }
+        : { receipt: receipt(input.call), process: { identity: input.identity, state: inspection === "terminal" ? "exited" as const : "running" as const, ...(inspection === "terminal" ? { exitCode: 0 } : {}), outputCursor: 0 } });
+      const create = await admitCreate(context);
+      await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+      const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: `start-before-${retainedState}-${inspection}`, payload: { argv: ["sleep"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
+      await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id);
+      const cancel = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "cancel", idempotencyKey: `retained-${retainedState}-${inspection}-cancel`, payload: { identity } });
+      if (retainedState === "unknown") await context.database.execute(sql`UPDATE sandbox_method_operations SET state='unknown',completed_at=NOW() WHERE id=${cancel.id}`);
+      else await context.database.execute(sql`UPDATE sandbox_method_operations SET state='running' WHERE id=${cancel.id}`);
+
+      const lifecycle = context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: `destroy-after-${retainedState}-${inspection}-cancel` });
+      if (inspection === "terminal") await expect(lifecycle).resolves.toMatchObject({ state: "admitted" });
+      else await expect(lifecycle).rejects.toMatchObject({ code: "WRITER_LEASED" });
+
+      expect((await context.controller.getSandboxOperationResult(context.owner.id, cancel.id)).state).toBe("unknown");
+      expect(context.local.processCancel).not.toHaveBeenCalled();
+    });
+  }
+}
+
+test("terminal proof for another process identity does not supersede an interrupted cancel", async () => {
+  const context = await fixture();
+  const identity = { bootId: "exact-boot", processId: "exact-process" };
+  context.local.processStart = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity, state: "running" as const, outputCursor: 0 } }));
+  context.local.processInspect = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity, state: "exited" as const, exitCode: 0, outputCursor: 0 } }));
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "exact-start", payload: { argv: ["sleep"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
+  await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id);
+  const cancel = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "cancel", idempotencyKey: "other-identity-cancel", payload: { identity: { ...identity, processId: "other-process" } } });
+  await context.database.execute(sql`UPDATE sandbox_method_operations SET state='unknown',completed_at=NOW() WHERE id=${cancel.id}`);
+
+  await expect(context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "destroy-after-other-identity-cancel" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+});
 
 test("a failed process start creates no process and releases its writer lease", async () => {
   const context = await fixture();
@@ -557,6 +700,19 @@ test("identical method admission replays its durable operation", async () => {
   expect(replay).toEqual(admitted);
 });
 
+test("an idempotent replay reclaims its orphaned method before lifecycle recovery", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const input = { group: "sandbox.files.v1" as const, operation: "read", idempotencyKey: "reclaimed-read", payload: { path: "/a", offsetBytes: 0, lengthBytes: 1 } };
+  const admitted = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, input);
+  const restarted = context.restartController();
+
+  expect(await restarted.admitSandboxMethod(context.owner.id, create.projectId, input)).toEqual(admitted);
+  await expect(restarted.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "destroy-during-reclaimed-read" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+  expect(context.local.fileRead).not.toHaveBeenCalled();
+});
+
 test("invalid host driver output becomes an unknown durable method operation", async () => {
   const context = await fixture();
   const create = await admitCreate(context);
@@ -567,13 +723,18 @@ test("invalid host driver output becomes an unknown durable method operation", a
   expect((await context.controller.getSandboxOperationResult(context.owner.id, admitted.id)).state).toBe("unknown");
 });
 
-test("a valid but unsupported generic lifecycle method is durably marked unknown", async () => {
+test("rejects lifecycle effects through the generic method admission path", async () => {
   const context = await fixture();
   const create = await admitCreate(context);
   await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
-  const admitted = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.lifecycle.v1", operation: "start", idempotencyKey: "unsupported", payload: {} });
-  await expect(context.controller.executeAdmittedSandboxMethod(context.owner.id, admitted.id)).rejects.toMatchObject({ code: "INVALID_OPERATION" });
-  expect((await context.controller.getSandboxOperationResult(context.owner.id, admitted.id)).state).toBe("unknown");
+  for (const [group, operation] of [
+    ["sandbox.lifecycle.v1", "start"],
+    ["sandbox.process.v1", "unsupported"],
+    ["sandbox.files.v1", "unsupported"],
+    ["unsupported", "unsupported"],
+  ] as const) {
+    await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: group as any, operation, idempotencyKey: `unsupported-${group}`, payload: {} })).rejects.toMatchObject({ code: "INVALID_OPERATION" });
+  }
 });
 
 test("raw dispatcher persists canonical cancel and file method results", async () => {

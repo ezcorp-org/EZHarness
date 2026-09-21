@@ -243,6 +243,19 @@ Plan review: exercise recovery through `requestSandboxAction`, the public lifecy
 
 Repair review: lifecycle admission now keeps historical unknown inspection receipts for audit but stops treating them as active after a later successful inspection proves the same process identity terminal. Provider exceptions and unknown receipts recover on the next terminal proof. Repeated ambiguous and live inspections remain fenced. Pinned Bun 1.3.14 verification passed: controller tests 42/42, lint over 4,668 files, full typecheck, gate integrity against `bd6fd97143b66c524e28b7896309fe6fd24d4261`, focused Biome, and diff checks.
 
+### Final non-writer recovery repair
+
+- [x] Add restart regressions for every non-writer provider method and each retained operation state.
+- [x] Close abandoned read-only admissions without replaying their provider calls.
+- [x] Reconcile interrupted cancel operations only through exact process identity and terminal evidence.
+- [x] Preserve current-call, live-process, ambiguous-process, authorization, and lifecycle serialization fences.
+- [x] Run focused controller tests, lint, typecheck, gate integrity, and diff checks.
+- [x] Record exact verification and commit locally without pushing.
+
+Plan review: classify provider methods once. A restarted controller may fail an observation that never completed, but it must not replay it. A completed unknown observation remains an audit record and no longer acts like live work. Cancel is different: an admitted cancel is known not to have run, while a claimed cancel stays ambiguous until an exact-identity inspection proves the process terminal. Fresh and currently executing calls remain fenced.
+
+Repair review: the controller now classifies every supported provider method once. Fresh, reclaimed, and executing methods have explicit in-memory fences. After restart, orphaned admitted/running observations become failed without provider replay, while completed unknown observations remain durable audit records but no longer impersonate live work. An admitted cancel is safely failed before dispatch; a claimed cancel becomes unknown and stays fenced until the exact process identity is terminal. Live, ambiguous, and wrong-identity evidence remains blocked. Generic method admission now rejects lifecycle effects. Pinned Bun 1.3.14 verification passed: 71 controller tests with 230 assertions; 44 driver/journal/supervisor tests; 5 provider-invoker tests; focused controller coverage reported 96.30% functions and 98.24% lines; lint checked 4,668 files; full typecheck, gate integrity against `bd6fd97143b66c524e28b7896309fe6fd24d4261`, focused Biome, and diff checks passed. The changed-function CRAP command could not run without the repository's full `coverage/lcov.info`; no gate was weakened.
+
 ### Final audit repairs
 
 - [x] Add red restart tests for ambiguous and failed file-mutation recovery.
