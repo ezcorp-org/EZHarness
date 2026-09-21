@@ -105,6 +105,30 @@ test("replays a settled operation without a second provider effect and admits id
   expect(context.local.start).toHaveBeenCalledTimes(1);
 });
 
+for (const action of ["start", "stop"] as const) {
+  test(`retries the same unknown ${action} operation before admitting a later lifecycle action`, async () => {
+    const context = await fixture();
+    const create = await admitCreate(context);
+    await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+    if (action === "stop") {
+      const start = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "prepare-running-resource" });
+      await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, start.id);
+    }
+    let attempts = 0;
+    context.local[action] = mock(async (input: any) => attempts++ === 0
+      ? { receipt: { ...receipt(input.call), outcome: "unknown" as const, error: { code: `${action}_unknown`, message: "Lifecycle outcome is unknown.", retryable: true } } }
+      : { receipt: receipt(input.call), resource: { resourceId: input.resourceId, desiredState: action === "start" ? "running" as const : "stopped" as const, observedState: action === "start" ? "running" as const : "stopped" as const, limits } });
+    const operation = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action, idempotencyKey: `${action}-unknown-retry` });
+
+    expect((await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, operation.id)).operation).toMatchObject({ id: operation.id, state: "unknown" });
+    expect((await context.restartController().executeAdmittedLocalSandboxOperation(context.owner.id, operation.id)).operation).toMatchObject({ id: operation.id, state: "succeeded" });
+
+    expect(attempts).toBe(2);
+    const next = await context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: action === "start" ? "stop" : "destroy", idempotencyKey: `${action}-follow-up` });
+    expect(next.state).toBe("admitted");
+  });
+}
+
 test("replays a concurrent lifecycle admission after its insert conflicts", async () => {
   const context = await fixture();
   const create = await admitCreate(context);

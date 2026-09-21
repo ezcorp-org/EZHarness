@@ -219,6 +219,18 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 
 ## PR #292 — full review and CI repair
 
+### Final lifecycle journal recovery repair
+
+- [x] Add restart regressions for interrupted and durable-unknown start and stop operations.
+- [x] Reconcile start and stop from authoritative container identity and state without blind duplicate effects.
+- [x] Keep ambiguous state fenced and reject wrong identity without effects while allowing verified completion to terminalize the original operation.
+- [x] Run focused lifecycle, journal, controller, type, lint, build, gate, and diff checks.
+- [x] Record exact verification and commit locally without pushing.
+
+Plan review: reuse the original durable call and exact owned-container identity. Recovery may complete only after authoritative inspection proves the requested state. A still-ambiguous result remains unknown and blocks later lifecycle work. The same idempotency key must never create a second effect.
+
+Repair review: start and stop now retain unknown journal entries for authoritative retry, inspect the exact owned container before another idempotent state command, and terminalize only the matching durable unknown receipt. Recovery preserves a committed boot generation and creates one when Podman started before metadata commit. Ambiguous confinement remains unknown without a second start; wrong container identity remains a terminal no-effect failure. Same-binding transition retries share one in-process queue, so concurrent calls cannot pass authoritative inspection together or duplicate the Podman command. The controller can retry the same durable operation after restart and then admit later lifecycle work. Verification passed on pinned Bun 1.3.14: 124 focused lifecycle/controller/journal/supervisor tests, contract build and schema parity, sandbox tool and supervisor builds, full typecheck, lint over 4,668 files, gate integrity against `bd6fd97143b66c524e28b7896309fe6fd24d4261`, focused Biome, and diff checks. Post-commit patch coverage reports 100% on both changed source files, and all touched functions pass the CRAP 30 gate. The real lifecycle test received a 15-second per-test budget after its prior 5-second default reproduced a load-sensitive timeout; its assertions are unchanged.
+
 ### Final process-start recovery repair
 
 - [x] Reproduce retained `running` and `succeeded` process-start lifecycle wedges with controller regressions.

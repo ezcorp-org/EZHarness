@@ -14,6 +14,20 @@ describe("durable local operation journal", () => {
   test("scopes equal keys independently", async () => { root = await mkdtemp(`${tmpdir()}/ez-journal-`); const journal = new DurableOperationJournal(root); expect((await journal.begin(call())).kind).toBe("new"); expect((await journal.begin({ ...call(), scope: { ...call().scope, projectId: "other" } })).kind).toBe("new"); });
   test("allows exactly one concurrent publisher", async () => { root = await mkdtemp(`${tmpdir()}/ez-journal-`); const results = await Promise.all([new DurableOperationJournal(root).begin(call()), new DurableOperationJournal(root).begin(call())]); expect(results.filter((x) => x.kind === "new")).toHaveLength(1); expect(results.filter((x) => x.kind === "unknown")).toHaveLength(1); });
   test("completion requires the matching pending operation", async () => { root = await mkdtemp(`${tmpdir()}/ez-journal-`); const journal = new DurableOperationJournal(root); await expect(journal.complete(call(), { ok: true })).rejects.toThrow("not begun"); await journal.begin(call()); await expect(journal.complete(call("b".repeat(64)), { ok: true })).rejects.toThrow("conflicts"); await journal.complete(call(), { ok: true }); await expect(journal.complete(call(), { ok: false })).rejects.toThrow("different result"); });
+  test("terminalizes only a matching durable unknown during authoritative recovery", async () => {
+    root = await mkdtemp(`${tmpdir()}/ez-journal-`);
+    const journal = new DurableOperationJournal(root);
+    const unknown = { receipt: { operationId: "op", idempotencyKey: "key", requestDigest: "a".repeat(64), outcome: "unknown", error: { code: "unknown", message: "Unknown", retryable: true } } };
+    const succeeded = { receipt: { operationId: "op", idempotencyKey: "key", requestDigest: "a".repeat(64), outcome: "succeeded" } };
+    await journal.begin(call());
+    await journal.complete(call(), unknown);
+
+    await journal.completeRecovered(call(), succeeded);
+
+    expect(await journal.begin(call())).toEqual({ kind: "replay", result: succeeded });
+    await expect(journal.completeRecovered(call(), unknown)).rejects.toThrow("different result");
+    await expect(journal.completeRecovered(call(), { receipt: { ...succeeded.receipt, outcome: "failed" } })).rejects.toThrow("different result");
+  });
   test("allows only create-specific recovery of a matching pending call", async () => { root = await mkdtemp(`${tmpdir()}/ez-journal-`); const journal = new DurableOperationJournal(root); expect(await journal.beginRecoverable(call())).toEqual({ kind: "new" }); expect(await journal.beginRecoverable(call())).toEqual({ kind: "recover" }); const result = { ok: true }; await journal.complete(call(), result); expect(await journal.beginRecoverable(call())).toEqual({ kind: "replay", result }); });
   test("persists mutation recovery data and rejects a legacy pending record", async () => {
     root = await mkdtemp(`${tmpdir()}/ez-journal-`);

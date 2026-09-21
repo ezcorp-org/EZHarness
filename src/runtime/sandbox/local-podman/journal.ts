@@ -86,11 +86,18 @@ export class DurableOperationJournal {
       const existing = await this.destroyed<T>(resourceId, call.scope); if (JSON.stringify(existing) !== JSON.stringify(result)) throw new Error("destroyed resource already has a different result");
     }
   }
-  async complete<T>(call: ProviderCall, result: T): Promise<void> {
+  private async storeCompletion<T>(call: ProviderCall, result: T, replaceUnknown: boolean): Promise<void> {
     const path = this.path(call); let current: RecordValue<T>;
     try { current = JSON.parse(await readFile(path, "utf8")) as RecordValue<T>; } catch (error) { if (error instanceof Error && "code" in error && error.code === "ENOENT") throw new Error("operation was not begun"); throw error; }
     if (!same(current.call, call)) throw new Error("idempotency key conflicts with another request");
-    if (current.state === "complete") { if (JSON.stringify(current.result) !== JSON.stringify(result)) throw new Error("operation already has a different result"); return; }
+    if (current.state === "complete") {
+      if (JSON.stringify(current.result) === JSON.stringify(result)) return;
+      const previousOutcome = (current.result as { receipt?: { outcome?: unknown } })?.receipt?.outcome;
+      const nextOutcome = (result as { receipt?: { outcome?: unknown } })?.receipt?.outcome;
+      if (!replaceUnknown || previousOutcome !== "unknown" || nextOutcome === "unknown") throw new Error("operation already has a different result");
+    }
     await this.publish(path, { version: 1, state: "complete", call, result } satisfies Complete<T>, false);
   }
+  async complete<T>(call: ProviderCall, result: T): Promise<void> { await this.storeCompletion(call, result, false); }
+  async completeRecovered<T>(call: ProviderCall, result: T): Promise<void> { await this.storeCompletion(call, result, true); }
 }

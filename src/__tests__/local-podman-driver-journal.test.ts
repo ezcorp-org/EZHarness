@@ -21,7 +21,7 @@ async function fixture(nativeToolsArtifact?: string, processStatus = "NoNewPrivs
   const configDigest = configurationDigest(config, limits); await roots.writeMetadata("resource", { resourceId: "resource", containerId, containerName, configDigest, scope: input().call.scope, state: "stopped", limits });
   const capDrop = ["CAP_CHOWN", "CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_FSETID", "CAP_KILL", "CAP_NET_BIND_SERVICE", "CAP_SETFCAP", "CAP_SETGID", "CAP_SETPCAP", "CAP_SETUID", "CAP_SYS_CHROOT"]; const live = { Id: containerId, Name: containerName, Image: config.imageId, State: { Running: false, Pid: 0 }, Config: { Image: config.imageReference, User: "0:0", Labels: { [RESOURCE_LABEL]: resourceKey("resource"), [CONFIG_LABEL]: configDigest } }, HostConfig: { NetworkMode: "none", UsernsMode: "", PidMode: "private", IpcMode: "private", UtsMode: null, Privileged: false, CapDrop: capDrop, SecurityOpt: ["no-new-privileges"], ReadonlyRootfs: true, Memory: limits.memoryBytes, MemorySwap: limits.memoryBytes, NanoCpus: limits.milliCpu * 1_000_000, PidsLimit: limits.pids }, Mounts: [{ Type: "bind", Source: paths.mount, Destination: "/workspace", RW: true }, ...(nativeToolsArtifact === undefined ? [] : [{ Type: "bind", Source: nativeToolsArtifact, Destination: "/opt/ezharness/native-tools.js", RW: false }])] };
   await writeFile(inspect, JSON.stringify([live]));
-  return { driver: new LocalPodmanDriver(config, { readProcessStatus: async () => processStatus }), log, config, inspect, live, fail, stopFail, root };
+  return { driver: new LocalPodmanDriver(config, { readProcessStatus: async () => processStatus }), log, config, inspect, live, fail, stopFail, running, root };
 }
 const input = () => ({ call: { scope: { projectId: "p", bindingId: "b", generation: 1 }, operationId: "op", idempotencyKey: "key", requestDigest: "a".repeat(64) }, resourceId: "resource" });
 describe("local lifecycle journal integration", () => {
@@ -51,8 +51,16 @@ describe("local lifecycle journal integration", () => {
     const recovered = await new LocalPodmanDriver(config, { workspaceImage: images }).create({ ...createInput, call: recoverCall }); expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, resource: { resourceId: recoveredId } });
     const preJournalCall = { ...input().call, operationId: "pre-reservation", idempotencyKey: "pre-reservation" }; await new DurableOperationJournal(`${stateRoot}/operations`).beginRecoverable(preJournalCall); await writeFile(fail, "");
     expect((await new LocalPodmanDriver(config, { workspaceImage: images }).create({ ...createInput, call: preJournalCall })).receipt.outcome).toBe("succeeded");
-  });
+  }, 15_000);
   test("replays a completed mutation without another effect", async () => { const { driver, log } = await fixture(); const first = await driver.start(input()); const second = await driver.start(input()); expect(second).toEqual(first); expect((await readFile(log, "utf8")).trim().split("\n")).toHaveLength(1); });
+  test("serializes concurrent transition retries before their authoritative inspection", async () => {
+    const { driver, log } = await fixture();
+
+    const results = await Promise.all([driver.start(input()), driver.start(input()), driver.start(input())]);
+
+    expect(results.map((result) => result.receipt.outcome)).toEqual(["succeeded", "succeeded", "succeeded"]);
+    expect((await readFile(log, "utf8")).trim().split("\n").filter((line) => line.split(" ")[1] === "start")).toHaveLength(1);
+  });
   test("fails closed and stops a container whose process confinement cannot be verified", async () => {
     const { driver, log } = await fixture(undefined, "NoNewPrivs:\t1\nSeccomp:\t0\n");
     const result = await driver.start(input());
@@ -72,7 +80,95 @@ describe("local lifecycle journal integration", () => {
     expect(result.receipt).toMatchObject({ outcome: "unknown", error: { code: "running_unknown", retryable: true } });
   });
   test("accepts Podman's omitted UTS mode as its normalized private namespace", async () => { const { driver, live, inspect } = await fixture(); delete (live.HostConfig as Record<string, unknown>).UtsMode; await writeFile(inspect, JSON.stringify([live])); expect((await driver.start(input())).receipt.outcome).toBe("succeeded"); });
-  test("recovers pending mutation as unknown without an effect", async () => { const { driver, log, config } = await fixture(); await new DurableOperationJournal(`${config.stateRoot}/operations`).begin(input().call); const result = await driver.start(input()); expect(result.receipt.outcome).toBe("unknown"); await expect(readFile(log, "utf8")).rejects.toThrow(); });
+  test("recovers a pending start from authoritative state without another effect", async () => {
+    const { config, log, running } = await fixture();
+    await new DurableOperationJournal(`${config.stateRoot}/operations`).begin(input().call);
+    await writeFile(running, "running");
+
+    const recovered = await new LocalPodmanDriver(config, { readProcessStatus: async () => "NoNewPrivs:\t1\nSeccomp:\t2\n" }).start(input());
+
+    expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, resource: { observedState: "running" } });
+    await expect(readFile(log, "utf8")).rejects.toThrow();
+    const metadata = await new ResourceRoot(config.stateRoot).readMetadata<any>("resource");
+    expect(metadata).toMatchObject({ state: "running" });
+    expect(metadata.bootId).toBeString();
+  });
+
+  test("preserves the accepted boot generation when recovery starts after metadata commit", async () => {
+    const { config, log, running } = await fixture();
+    const roots = new ResourceRoot(config.stateRoot);
+    const metadata = await roots.readMetadata<any>("resource");
+    await roots.writeMetadata("resource", { ...metadata, state: "running", bootId: "accepted-boot" });
+    await writeFile(running, "running");
+    const call = { ...input().call, operationId: "start-after-metadata", idempotencyKey: "start-after-metadata" };
+    await new DurableOperationJournal(`${config.stateRoot}/operations`).begin(call);
+
+    const recovered = await new LocalPodmanDriver(config, { readProcessStatus: async () => "NoNewPrivs:\t1\nSeccomp:\t2\n" }).start({ ...input(), call });
+
+    expect(recovered.receipt.outcome).toBe("succeeded");
+    expect(await roots.readMetadata<any>("resource")).toMatchObject({ state: "running", bootId: "accepted-boot" });
+    await expect(readFile(log, "utf8")).rejects.toThrow();
+  });
+
+  test("recovers a pending stop from authoritative state without another effect", async () => {
+    const { config, log, running } = await fixture();
+    const roots = new ResourceRoot(config.stateRoot);
+    const metadata = await roots.readMetadata<any>("resource");
+    await roots.writeMetadata("resource", { ...metadata, state: "running", bootId: "prior-boot" });
+    await writeFile(running, "running");
+    const call = { ...input().call, operationId: "stop-pending", idempotencyKey: "stop-pending" };
+    await new DurableOperationJournal(`${config.stateRoot}/operations`).begin(call);
+    await rm(running);
+
+    const recovered = await new LocalPodmanDriver(config).stop({ ...input(), call });
+
+    expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, resource: { observedState: "stopped" } });
+    await expect(readFile(log, "utf8")).rejects.toThrow();
+    expect(await roots.readMetadata<any>("resource")).toMatchObject({ state: "stopped", bootId: "prior-boot" });
+  });
+
+  test("reconciles a durable unknown start and retries only after exact stopped-state proof", async () => {
+    const { config, inspect, log } = await fixture();
+    const journal = new DurableOperationJournal(`${config.stateRoot}/operations`);
+    const request = input();
+    await journal.begin(request.call);
+    await journal.complete(request.call, { receipt: { ...request.call, outcome: "unknown", error: { code: "start_unknown", message: "Start outcome is unknown.", retryable: true } } });
+
+    expect(await new LocalPodmanDriver(config, { readProcessStatus: async () => "NoNewPrivs:\t1\nSeccomp:\t2\n" }).start(request)).toMatchObject({ receipt: { outcome: "succeeded" }, resource: { observedState: "running" } });
+    await writeFile(inspect, "[]");
+    expect(await new LocalPodmanDriver(config, { readProcessStatus: async () => "NoNewPrivs:\t1\nSeccomp:\t2\n" }).start(request)).toMatchObject({ receipt: { outcome: "succeeded" }, resource: { observedState: "running" } });
+
+    expect((await readFile(log, "utf8")).trim().split("\n").filter((line) => line.split(" ")[1] === "start")).toHaveLength(1);
+  });
+
+  test("reconciles and terminalizes a durable unknown stop after restart", async () => {
+    const { config, inspect, log, running } = await fixture();
+    const roots = new ResourceRoot(config.stateRoot);
+    const metadata = await roots.readMetadata<any>("resource");
+    await roots.writeMetadata("resource", { ...metadata, state: "running", bootId: "active-boot" });
+    await writeFile(running, "running");
+    const request = { ...input(), call: { ...input().call, operationId: "stop-unknown", idempotencyKey: "stop-unknown" } };
+    const journal = new DurableOperationJournal(`${config.stateRoot}/operations`);
+    await journal.begin(request.call);
+    await journal.complete(request.call, { receipt: { ...request.call, outcome: "unknown", error: { code: "stop_unknown", message: "Stop outcome is unknown.", retryable: true } } });
+
+    expect(await new LocalPodmanDriver(config, { readProcessStatus: async () => "NoNewPrivs:\t1\nSeccomp:\t2\n" }).stop(request)).toMatchObject({ receipt: { outcome: "succeeded" }, resource: { observedState: "stopped" } });
+    await writeFile(inspect, "[]");
+    expect(await new LocalPodmanDriver(config).stop(request)).toMatchObject({ receipt: { outcome: "succeeded" }, resource: { observedState: "stopped" } });
+
+    expect((await readFile(log, "utf8")).trim().split("\n").filter((line) => line.split(" ")[1] === "stop")).toHaveLength(1);
+  });
+
+  test("keeps an ambiguous recovered start unknown without issuing another start", async () => {
+    const { driver, config, log, stopFail } = await fixture(undefined, "NoNewPrivs:\t1\nSeccomp:\t0\n");
+    await writeFile(stopFail, "fail");
+    expect((await driver.start(input())).receipt.outcome).toBe("unknown");
+
+    expect((await new LocalPodmanDriver(config, { readProcessStatus: async () => "NoNewPrivs:\t1\nSeccomp:\t0\n" }).start(input())).receipt.outcome).toBe("unknown");
+
+    const effects = (await readFile(log, "utf8")).trim().split("\n").map((line) => line.split(" ")[1]);
+    expect(effects.filter((effect) => effect === "start")).toHaveLength(1);
+  });
   test("recovers file mutations after their filesystem effects but before journal completion", async () => {
     const { config } = await fixture();
     const paths = resourcePaths(config.stateRoot, "resource");

@@ -31,8 +31,18 @@ function receipt(call: ProviderCall, outcome: "succeeded" | "failed" | "unknown"
   return { ...identity, outcome, error };
 }
 
+async function serialized<T>(locks: Map<string, Promise<void>>, key: string, effect: () => Promise<T>): Promise<T> {
+  const previous = locks.get(key) ?? Promise.resolve();
+  const lock = Promise.withResolvers<void>();
+  const queued = previous.then(() => lock.promise);
+  locks.set(key, queued);
+  await previous;
+  try { return await effect(); }
+  finally { lock.resolve(); if (locks.get(key) === queued) locks.delete(key); }
+}
+
 export class LocalPodmanDriver {
-  private readonly config: LocalPodmanHostConfig; private readonly roots: ResourceRoot; private readonly images: WorkspaceImage; private readonly journal: DurableOperationJournal; private readonly supervisor: LocalProcessSupervisor; private readonly fileSystems = new Map<string, LocalWorkspaceFiles>(); private readonly destroyLocks = new Map<string, Promise<void>>(); private runtimeProof?: Promise<void>;
+  private readonly config: LocalPodmanHostConfig; private readonly roots: ResourceRoot; private readonly images: WorkspaceImage; private readonly journal: DurableOperationJournal; private readonly supervisor: LocalProcessSupervisor; private readonly fileSystems = new Map<string, LocalWorkspaceFiles>(); private readonly destroyLocks = new Map<string, Promise<void>>(); private readonly transitionLocks = new Map<string, Promise<void>>(); private runtimeProof?: Promise<void>;
   private readonly readProcessStatus: (pid: number) => Promise<string>;
   constructor(config: LocalPodmanHostConfig, dependencies: { workspaceImage?: WorkspaceImage; readProcessStatus?: (pid: number) => Promise<string> } = {}) { this.config = validateHostConfig(config); this.roots = new ResourceRoot(this.config.stateRoot); this.images = dependencies.workspaceImage ?? new WorkspaceImage(this.config); this.readProcessStatus = dependencies.readProcessStatus ?? ((pid) => readFile(`/proc/${pid}/status`, "utf8")); this.journal = new DurableOperationJournal(`${this.config.stateRoot}/operations`); this.supervisor = new LocalProcessSupervisor({ stateRoot: this.config.stateRoot, podmanPath: this.config.podmanPath, supervisorPath: this.config.supervisorPath, maxOutputBytes: 1024 * 1024, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid }, (resourceId) => this.resolveProcessResource(resourceId)); }
   private async mutate<T extends { receipt: unknown }>(call: SandboxCreateInput["call"], effect: () => Promise<T>): Promise<T> {
@@ -40,6 +50,16 @@ export class LocalPodmanDriver {
     if (begun.kind === "replay") return begun.result;
     if (begun.kind === "unknown") return { receipt: begun.receipt } as T;
     const result = await effect(); await this.journal.complete(call, result); return result;
+  }
+  private async recoverableTransition<T extends { receipt: ProviderReceipt }>(call: ProviderCall, effect: () => Promise<T>): Promise<T> {
+    const key = `${call.scope.projectId}\0${call.scope.bindingId}\0${call.scope.generation}`;
+    return serialized(this.transitionLocks, key, async () => {
+      const begun = await this.journal.beginRecoverable<T>(call);
+      if (begun.kind === "replay" && begun.result.receipt.outcome !== "unknown") return begun.result;
+      const result = await effect();
+      if (result.receipt.outcome !== "unknown") await this.journal.completeRecovered(call, result);
+      return result;
+    });
   }
   private interruptedFileMutation<T>(call: ProviderCall): T {
     return { receipt: receipt(call, "failed", { code: "interrupted_mutation_aborted", message: "The interrupted workspace mutation has no verified state transition.", retryable: false }) } as T;
@@ -162,7 +182,7 @@ export class LocalPodmanDriver {
     if (value.state === "destroying") return { receipt: receipt(input.call, "failed", { code: "resource_destroying", message: "Resource destruction is in progress.", retryable: false }) };
     let running: boolean; try { running = await this.verify(value); } catch (error) {
       return this.verificationFailure(input.call, error);
-    } if (running === (target === "running")) { value.state = target; await this.roots.writeMetadata(value.resourceId, value); return { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: target, observedState: target, limits: value.limits } }; } const result = await this.podman([target === "running" ? "start" : "stop", value.containerId]);
+    } if (running === (target === "running")) { const enteredRunning = target === "running" && value.state !== "running"; value.state = target; if (enteredRunning) value.bootId = crypto.randomUUID(); await this.roots.writeMetadata(value.resourceId, value); return { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: target, observedState: target, limits: value.limits } }; } const result = await this.podman([target === "running" ? "start" : "stop", value.containerId]);
     if (result.code !== 0 || result.timedOut) return { receipt: receipt(input.call, "unknown", { code: `${target}_unknown`, message: `Container ${target} outcome is unknown.`, retryable: true }) };
     if (target === "running") {
       try { if (!(await this.verify(value))) throw new Error("container did not start"); }
@@ -176,8 +196,8 @@ export class LocalPodmanDriver {
     value.state = target; if (target === "running") value.bootId = crypto.randomUUID(); await this.roots.writeMetadata(value.resourceId, value);
     return { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: target, observedState: target, limits: value.limits } };
   }
-  async start(input: SandboxStartInput): Promise<SandboxStartResult> { validateProviderMethodValue("sandbox.lifecycle.v1", "start", "input", input); const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; return this.mutate(input.call, () => this.transition(input, "running", authorized.value)); }
-  async stop(input: SandboxStopInput): Promise<SandboxStopResult> { validateProviderMethodValue("sandbox.lifecycle.v1", "stop", "input", input); const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; return this.mutate(input.call, () => this.transition(input, "stopped", authorized.value)); }
+  async start(input: SandboxStartInput): Promise<SandboxStartResult> { validateProviderMethodValue("sandbox.lifecycle.v1", "start", "input", input); const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; return this.recoverableTransition(input.call, () => this.transition(input, "running", authorized.value)); }
+  async stop(input: SandboxStopInput): Promise<SandboxStopResult> { validateProviderMethodValue("sandbox.lifecycle.v1", "stop", "input", input); const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; return this.recoverableTransition(input.call, () => this.transition(input, "stopped", authorized.value)); }
   private async finishDestroyed(input: SandboxDestroyInput, result: SandboxDestroyResult): Promise<SandboxDestroyResult> {
     if (!("resource" in result) || result.resource.resourceId !== input.resourceId) throw new Error("destroyed resource identity mismatch");
     try { await this.roots.destroy(result.resource.resourceId); }
@@ -187,8 +207,7 @@ export class LocalPodmanDriver {
   async destroy(input: SandboxDestroyInput): Promise<SandboxDestroyResult> {
     validateProviderMethodValue("sandbox.lifecycle.v1", "destroy", "input", input);
     await this.roots.verifyPrivateRoot();
-    const previous = this.destroyLocks.get(input.resourceId) ?? Promise.resolve(); const lock = Promise.withResolvers<void>(); const queued = previous.then(() => lock.promise); this.destroyLocks.set(input.resourceId, queued); await previous;
-    try {
+    return serialized(this.destroyLocks, input.resourceId, async () => {
       const replay = await this.journal.completed<SandboxDestroyResult>(input.call);
       if (replay) return replay.receipt.outcome === "succeeded" ? await this.finishDestroyed(input, replay) : replay;
       let tombstone: SandboxDestroyResult | undefined;
@@ -214,7 +233,7 @@ export class LocalPodmanDriver {
       await this.journal.recordDestroyed(value.resourceId, input.call, result);
       await this.journal.complete(input.call, result);
       return await this.finishDestroyed(input, result);
-    } finally { lock.resolve(); if (this.destroyLocks.get(input.resourceId) === queued) this.destroyLocks.delete(input.resourceId); }
+    });
   }
   private async resolveProcessResource(resourceId: string): Promise<OwnedProcessResource> {
     await this.roots.verifyPrivateRoot(); const value = await this.roots.readMetadata<Metadata>(resourceId); if (!value.bootId || value.state === "destroying") throw new Error("Resource has no process generation"); await this.verify(value); const paths = resourcePaths(this.config.stateRoot, resourceId);
