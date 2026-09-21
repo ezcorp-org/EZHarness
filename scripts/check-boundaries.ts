@@ -42,7 +42,7 @@ export const REPO_ROOT = resolve(import.meta.dir, "..");
 const PACKAGE_PREFIX = "packages/@ezcorp/";
 
 /**
- * The ONLY backend surface the Cloudflare Worker may import. CLAUDE.md
+ * The ONLY backend surface the Cloudflare Worker may import. AGENTS.md
  * describes `worker/` as "LLM-only agents reusing `src/runtime/executor` with
  * stubbed shell/file providers", and worker/src/index.ts imports exactly
  * `src/types` + three `src/runtime/*` modules. Stated as an ALLOWLIST rather

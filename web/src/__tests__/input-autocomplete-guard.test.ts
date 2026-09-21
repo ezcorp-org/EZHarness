@@ -18,7 +18,7 @@
  * PARSED, NEVER IMPORTED — two independent reasons:
  *   1. `.svelte` needs the Svelte compiler at import, which bun lacks (that is
  *      what the Vitest leg exists for; see web/CLAUDE.md).
- *   2. The coverage trap in the root CLAUDE.md: a `bun:test` that imports a
+ *   2. The coverage trap in the root AGENTS.md: a `bun:test` that imports a
  *      module the Vitest leg measures gets bun's zero-hit `DA` records for
  *      multi-line function signatures merged into V8's, and the module's
  *      coverage DROPS without a line of it becoming less tested. Reading the

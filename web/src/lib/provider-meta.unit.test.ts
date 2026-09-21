@@ -8,7 +8,7 @@
  *
  * The backend table is PARSED, not imported. A vitest-leg module that imports
  * across the tree poisons the merged lcov for the imported file (root
- * CLAUDE.md); reading the source keeps the assertion honest and the coverage
+ * AGENTS.md); reading the source keeps the assertion honest and the coverage
  * clean.
  */
 

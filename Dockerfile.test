@@ -41,6 +41,28 @@ RUN cd web && bunx playwright install --with-deps chromium
 # Copy all source including tests
 COPY . .
 
+# ── Did the tests actually land? ───────────────────────────────────────────
+#
+# `Dockerfile.test.dockerignore` keeps the test sources that the root
+# `.dockerignore` removes from the production image. Current Docker, Podman,
+# and Buildah select that companion ignore file when `Dockerfile.test` is the
+# build file. A renamed/missing companion file, an unsupported engine, or the
+# wrong build context can still strip the tests before `COPY . .` runs.
+#
+# Without a guard, that image can build "successfully" with every test stripped
+# out of it, and the failure surfaces much later as
+# `error: preload not found "./src/__tests__/preload.ts"` — once per test file,
+# naming neither the missing build-context input nor the engine.
+RUN if [ ! -f src/__tests__/preload.ts ] || \
+       [ -z "$(find web/e2e -type f -name '*.spec.ts' -print -quit 2>/dev/null)" ]; then \
+      echo "" >&2; \
+      echo "error: the test sources are missing from this image's build context." >&2; \
+      echo "  build from the repository root and keep Dockerfile.test.dockerignore" >&2; \
+      echo "  beside Dockerfile.test so backend and browser tests remain in context." >&2; \
+      echo "" >&2; \
+      exit 1; \
+    fi
+
 # Generate SvelteKit types ($lib alias resolution for web tests)
 RUN cd web && bunx svelte-kit sync
 

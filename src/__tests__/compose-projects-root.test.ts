@@ -43,7 +43,7 @@ import {
  * Plus the third artifact that has to agree: ProjectForm.svelte's default
  * path, which is what a user actually gets. It is READ here, not imported —
  * a `bun:test` that imports a `web/src/lib/**` module poisons that module's
- * merged coverage (see the coverage trap in CLAUDE.md).
+ * merged coverage (see the coverage trap in AGENTS.md).
  */
 
 const ROOT = join(import.meta.dir, "..", "..");

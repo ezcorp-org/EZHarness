@@ -19,7 +19,7 @@ EZCorp is a self-hosted AI platform that brings together multi-model chat, long-
 - **Extensions and marketplace** -- Install community extensions or build your own tools, skills, and agents.
 - **Slash commands** -- Type `/review`, `/commit`, `/deploy` to expand reusable prompt templates. Compatible with Claude Code (`.claude/commands/`), Codex CLI (`.codex/prompts/`), and plain `agents/` folders. See [docs/slash-commands.md](docs/slash-commands.md).
 - **Teams** -- Multi-user support with team workspaces and shared conversations.
-- **Self-hosted** -- Your data stays on your infrastructure. Runs on a single Docker container with zero external dependencies.
+- **Self-hosted** -- Your data stays on your infrastructure. Chat runs in one app container. Extensions use a separate isolated host runner.
 
 ## Quick Start (self-hosted, builds from source)
 
@@ -38,12 +38,27 @@ cp .env.prod.example .env.prod && chmod 600 .env.prod
 # runtime can't write it — PGlite then fails to open on first boot.
 mkdir -p .ezcorp/data && sudo chown -R 1000:1000 .ezcorp/data
 
-docker compose -f compose.prod.yml --env-file .env.prod up -d --build
+# Before the first start, set up the host extension runner:
+# deploy/extension-runner/README.md
+# Podman is the default engine. The wrapper points Compose at the rootless
+# Podman socket (or the `podman machine` one on macOS) and layers the Podman
+# override — both silently wrong when done by hand.
+bun run podman --prod up -d --build
+
+# Docker instead? Same stack, minus the Podman override:
+#   docker compose -f compose.prod.yml --env-file .env.prod up -d --build
 ```
 
 The first `up` builds the image locally (a couple of minutes); subsequent ups reuse the Docker layer cache. When build is done, open [http://localhost:4000](http://localhost:4000), create your admin account, and start chatting. Your data lives in `./.ezcorp/data/` in the working tree (a host bind mount, not a docker-managed volume), so it survives `docker compose down`, `down -v`, and image upgrades — backing up is just backing up that host directory. See [Data persistence](#data-persistence) below.
 
+Both Compose stacks connect to the isolated extension runner by default. Set up the [host runner](deploy/extension-runner/README.md) before starting the app. Missing mounts or a failed authenticated connection stop startup with an error. Linux is required for the isolated runner; other hosts must explicitly choose the trusted-local mode described in that guide.
+
 For HTTPS, backups, external Postgres, and auto-updates, see the **[production guide](docs/production-guide.md)**.
+
+> **Using rootless Podman?** The development wrapper is Linux-only. The
+> production stack runs on Linux or macOS with `compose.podman-prod.yml`, and
+> the Docker-only `chown` step does not apply. See
+> [Running the production stack under rootless Podman](docs/deployment.md#running-the-production-stack-under-rootless-podman).
 
 > **Pre-built image (future):** once a release is published to a container registry, you can skip the build by setting `EZCORP_IMAGE=ghcr.io/<owner>/<image>:<tag>` in `.env.prod`. The `image:` line in `compose.prod.yml` already honors that override.
 
@@ -61,6 +76,8 @@ cp .env.example .env
 #   EZCORP_ENCRYPTION_SALT    →  openssl rand -base64 16
 #   EZCORP_JWT_SECRET         →  openssl rand -base64 32
 
+# Before the first start, set up the host extension runner:
+# deploy/extension-runner/README.md
 docker compose up -d                               # → http://localhost:3000
 ```
 
@@ -117,8 +134,8 @@ What to know before letting an agent loose on it:
 `docker-compose.yml` (dev) and `compose.prod.yml` (prod) declare distinct project names (`ez-corp-ai` and `ezcorp-prod`) and bind to different host ports (`3000` and `4000` by default), so the two stacks run independently — same source tree, different runtimes, different volumes. Bringing one up never touches the other:
 
 ```bash
-docker compose up -d                                              # dev
-docker compose -f compose.prod.yml --env-file .env.prod up -d     # prod
+bun run podman up -d            # dev  (docker compose up -d)
+bun run podman --prod up -d     # prod (docker compose -f compose.prod.yml …)
 docker compose -f compose.prod.yml --env-file .env.prod down      # stop prod, dev keeps running
 ```
 

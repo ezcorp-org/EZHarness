@@ -608,7 +608,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   //
   // The 75 control routes that were on disk and absent from this file,
   // carried as the frozen `KNOWN_UNREGISTERED` debt set in
-  // `web/src/__tests__/route-contract.test.ts`. CLAUDE.md makes registration
+  // `web/src/__tests__/route-contract.test.ts`. AGENTS.md makes registration
   // binding for EVERY `/api/*` route; each of these was a standing violation.
   //
   // THE RULE FOLLOWED HERE, and it is the only one that keeps this file

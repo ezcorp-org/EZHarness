@@ -9,7 +9,7 @@ export interface ProviderMeta {
 	 * its models. Mirrors `keylessFreeTier` in the backend's provider table
 	 * (`src/runtime/routing/llm-providers.ts`); pinned to it by
 	 * `provider-meta.unit.test.ts`, which parses that file rather than
-	 * importing it (the cross-tree coverage trap in the root CLAUDE.md).
+	 * importing it (the cross-tree coverage trap in the root AGENTS.md).
 	 *
 	 * Drives the provider card: "Not configured" is wrong and discouraging for
 	 * a provider that is, in fact, already usable.

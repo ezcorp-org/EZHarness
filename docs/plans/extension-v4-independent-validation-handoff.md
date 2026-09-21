@@ -25,7 +25,7 @@ These values can change. The local implementation worktree was still at `61ffa8f
 
 - [ ] Fetch the PR and base. Record exact head, base, merge base, and tree hashes in your audit report.
 - [ ] Create an isolated worktree from the fetched PR head. Preserve the dirty original checkout at `/home/dev/work/EZCorp/EZHarness` and other agents' worktrees.
-- [ ] Read `CLAUDE.md`, `src/extensions/CLAUDE.md`, `web/CLAUDE.md`, and any applicable `AGENTS.md` files in that worktree.
+- [ ] Read `AGENTS.md`, `src/extensions/CLAUDE.md`, `web/CLAUDE.md`, and any applicable `AGENTS.md` files in that worktree.
 - [ ] Read `docs/development-lifecycle.md`, `PLAN.md`, `GATES.md`, `docs/extension-v4-validation.md`, `gates/final-validation.md`, and the current PR body.
 - [ ] Create an audit checklist in `tasks/todo.md`. This directory is ignored and does not transfer between worktrees. Keep final findings in a tracked report.
 

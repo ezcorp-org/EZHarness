@@ -8,7 +8,7 @@ import argparse, os, subprocess, json, fcntl, shutil, sys, datetime, glob
 ap = argparse.ArgumentParser()
 ap.add_argument('--repo', required=True); ap.add_argument('--prefix', required=True)
 ap.add_argument('--skip', default=''); ap.add_argument('--patch-bases', default='644987ada,2588c9f19edcae24273f4a2049eb3ac37bd6f920')
-ap.add_argument('--allow-dirty', action='store_true'); ap.add_argument('--podman', action='store_true', help='also run the real Podman suites (serially)'); ap.add_argument('--focused-extra', default=''); ap.add_argument('--reuse-from', default=''); ap.add_argument('--auto-extra-base', default='', help='also run every added/changed *.test.ts (bun-runnable, outside web/ and tests/postgres/) since this ref')
+ap.add_argument('--quality-base', default='origin/main', help='BASE_REF for crap-score --changed (what CI diffs against)'); ap.add_argument('--quality-blocking', action='store_true', help='fold the global-floor and CRAP results into the exit code (default: record only, until W18a lands)'); ap.add_argument('--allow-dirty', action='store_true'); ap.add_argument('--podman', action='store_true', help='also run the real Podman suites (serially)'); ap.add_argument('--focused-extra', default=''); ap.add_argument('--reuse-from', default=''); ap.add_argument('--auto-extra-base', default='', help='also run every added/changed *.test.ts (bun-runnable, outside web/ and tests/postgres/) since this ref')
 a = ap.parse_args()
 root = Path('/tmp/factory-platform-evidence'); repo = Path(a.repo); P = a.prefix
 skip = set(filter(None, a.skip.split(',')))
@@ -120,6 +120,16 @@ with open('/tmp/ezcorp-validation-heavy.lock', 'w') as lock:
       r = subprocess.run(['bun',script], cwd=repo, env=e, stdout=log, stderr=subprocess.STDOUT)
      covres['checks'].append({'name': label, 'base': base, 'exitCode': r.returncode}); print(json.dumps(covres['checks'][-1]), flush=True)
      if r.returncode: failed = True
+  if m.returncode == 0:
+   # main's quality gates (CI runs both over the same merged lcov): the global
+   # line-coverage floor and CRAP on the files this branch changed against main.
+   for label, cmd, extra_env in [('global-floor', ['bun','scripts/check-global-coverage.ts'], {}), ('crap-changed', ['bun','scripts/crap-score.ts','--changed'], {'BASE_REF': a.quality_base})]:
+    if not (repo / cmd[1]).exists(): covres['checks'].append({'name': label, 'skipped': 'script absent'}); continue
+    e = env.copy(); e.update(extra_env)
+    with (root / f'{P}-quality-{label}.log').open('w') as log:
+     r = subprocess.run(cmd, cwd=repo, env=e, stdout=log, stderr=subprocess.STDOUT)
+    covres['checks'].append({'name': label, 'base': extra_env.get('BASE_REF'), 'exitCode': r.returncode, 'blocking': a.quality_blocking}); print(json.dumps(covres['checks'][-1]), flush=True)
+    if r.returncode and a.quality_blocking: failed = True
   shutil.copyfile(out, root / f'{P}-merged-lcov.info')
  (root / f'{P}-coverage-results.json').write_text(json.dumps(covres, indent=1) + '\n')
  print('DONE failed=%s' % failed, flush=True)

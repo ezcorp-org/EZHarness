@@ -81,6 +81,7 @@ Every handler runs `requireScope(...)` then `requireAuth(...)`. Non-admin access
 - **`/agents/new`** — create flow; `?type=team` switches to the team builder, `?prefill=<draftId>` hydrates from an Ez-generated draft.
 - **`/agents/[name]`** — edit an existing agent.
 - **`AgentConfigForm.svelte`** (`web/src/lib/components/`) — the shared form: name, description, system prompt, output format, model/provider picker (`ModelSearchPicker`, with a "reset to current chat model" → sentinel), temperature, maxTokens, category, the dynamic **input-fields** builder, and the **Tools & Extensions** section (`ExtensionSearchPicker` / `ExtensionAttachPicker` + `ExtensionToolSelector` for per-extension narrowing).
+  - The selected-extension chips are drag-reorderable (`svelte-dnd-action`, keyboard mode included). The zone sets `useCursorForDetection`, so for mouse and touch drags the drop index is the chip **under the pointer** (keyboard mode is unaffected). The library default measures the centre of its drag ghost instead; a chip is as wide as an extension name and the row wraps, so that centre can come to rest a whole line away from the pointer and the index stops following it. Covered by `web/e2e/chip-reorder.spec.ts` (mouse, touch, keyboard) and the `ExtensionSearchPicker-reorder` component test.
 
 ### In-chat invocation
 

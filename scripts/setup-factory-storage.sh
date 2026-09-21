@@ -3,10 +3,20 @@ set -euo pipefail
 
 # Generates local-test credentials outside the repository. Credential values are
 # never printed. The two SeaweedFS instances read separate generated files.
-readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly repo_root
 readonly compose_file="$repo_root/compose.factory-storage.local.yml"
 readonly runtime_base="${XDG_RUNTIME_DIR:-}"
 readonly project_name="ezcorp-factory-storage-${UID}"
+
+# One engine rule for the whole repository (scripts/lib/container-engine.sh):
+# Podman by default on a developer host, Docker under CI, and
+# EZCORP_CONTAINER_ENGINE to choose. Compose is only a client; under Podman
+# `resolve_compose` points it at the rootless socket through DOCKER_HOST.
+# shellcheck source-path=SCRIPTDIR
+# shellcheck source=lib/container-engine.sh
+. "$repo_root/scripts/lib/container-engine.sh"
+resolve_compose || exit 2
 
 fail() { printf '%s\n' "$1" >&2; exit 1; }
 
@@ -23,7 +33,7 @@ require_runtime() {
 }
 
 compose() {
-  COMPOSE_PROJECT_NAME="$project_name" docker compose -f "$compose_file" --profile factory-storage "$@"
+  COMPOSE_PROJECT_NAME="$project_name" "${COMPOSE[@]}" -f "$compose_file" --profile factory-storage "$@"
 }
 
 require_owned_credentials() {
@@ -67,7 +77,7 @@ seed_buckets() {
 start() {
   require_loopback
   require_runtime
-  if docker ps -aq --filter "label=com.docker.compose.project=$project_name" | read -r _; then
+  if "$ENGINE" ps -aq --filter "label=com.docker.compose.project=$project_name" | read -r _; then
     fail 'Factory storage containers already exist. Use their credential directory or stop them first.'
   fi
   local secrets_dir
@@ -91,8 +101,26 @@ stop() {
   rm -rf -- "$EZCORP_FACTORY_STORAGE_SECRETS_DIR"
 }
 
+# After a host reboot the credential directory (tmpfs below XDG_RUNTIME_DIR) is
+# gone while the containers and their data volumes remain, so `up` refuses the
+# existing containers and `down` cannot prove ownership. Recover by removing
+# the containers only (volumes stay) and starting again with fresh credentials.
+recover() {
+  require_loopback
+  require_runtime
+  if ! "$ENGINE" ps -aq --filter "label=com.docker.compose.project=$project_name" | read -r _; then
+    fail 'No factory storage containers exist. Use up.'
+  fi
+  if ls -d "${runtime_base%/}"/ezcorp-factory-storage.* >/dev/null 2>&1; then
+    fail 'A credential directory still exists. Use down, then up.'
+  fi
+  EZCORP_FACTORY_STORAGE_SECRETS_DIR=/nonexistent compose down
+  start
+}
+
 case "${1:-up}" in
   up) start ;;
   down) stop ;;
-  *) fail 'Usage: scripts/setup-factory-storage.sh [up|down]' ;;
+  recover) recover ;;
+  *) fail 'Usage: scripts/setup-factory-storage.sh [up|down|recover]' ;;
 esac

@@ -75,6 +75,24 @@
 # P — the pass/fail set.
 # Script behavior tests belong to both P and C. Discover them together so a
 # new migration or test-fixture regression cannot fall outside every CI job.
+# ── bash 4+ required ───────────────────────────────────────────────────────
+#
+# This file uses associative arrays (`declare -A`, the leg registry below).
+# macOS ships bash 3.2 as /bin/bash — GPLv2, frozen in 2007 — where that is a
+# syntax the shell does not have. `set -e` in the callers turns it into a hard
+# exit, which is correct, but the message it exits with is
+# `declare: -A: invalid option` from a line 500-odd deep in a sourced library,
+# which does not tell a Mac developer what to install. Fail here instead,
+# while the fix is still obvious.
+if [ -z "${BASH_VERSINFO:-}" ] || [ "${BASH_VERSINFO[0]}" -lt 4 ]; then
+  echo "error: this script needs bash 4 or newer (running: ${BASH_VERSION:-unknown})." >&2
+  echo "  macOS ships bash 3.2 as /bin/bash and that is what \`bash scripts/...\` picks up." >&2
+  echo "  fix:  brew install bash   # then use Homebrew's bin directory first in \$PATH" >&2
+  echo "  check: bash --version" >&2
+  exit 1
+fi
+
+
 script_test_files() {
   find scripts -name "*.test.ts" ! -path "*/node_modules/*"
 }

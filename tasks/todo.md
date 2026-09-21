@@ -653,156 +653,216 @@ Scope: EZHarness current origin/main, a1837d51181ae0b2d1093483166f7d50d1fbc134, 
 - [x] Record results, limits, and the final review.
 
 Plan review: compare local commands with CI, test failure handling as well as successful runs, and keep complete logs. Use private test databases and unused browser ports. Do not weaken checks.
+# Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
+
+Branch: `feat/trusted-local-runner` (worktree `worktrees/trusted-local`, from `main` @ 2588c9f19).
+Decision record: `docs/decisions/2026-09-12-extension-runner-install-burden.md` (Finding 3 + Proposal).
+
+Contract: `TrustedLocalRunner` (built, tested, never wired) enforces per-(phase, digest) admin
+approval with approver + expiry + acknowledged omitted controls, then audits. This work only
+supplies the ignition: a fail-closed two-key operator gate, the approval store, the two human
+acknowledgement points (Build, Approve exact release), and the loud signals (boot log, banner,
+health). No bypass of `authorize()`. `runnerProfile` flips to `trusted-local-v4` so every existing
+approval goes stale and must be re-approved under the new terms (free, via `checkApproval`).
+
+## Backend — all implemented; see Review for verification
+
+- [x] `packages/@ezcorp/extension-runner/src/trusted-local.ts`: export `trustedLocalImage(bunDigest)`
+      (single definition of the `localhost/trusted-local@sha256:` format) and use it in the ctor.
+- [ ] `src/extensions/runner-mode.ts` (new): `getExtensionRunnerMode()` — `isolated` | `trusted-local`;
+      fail-closed on `EZCORP_EXTENSION_RUNNER` unknown value, on `trusted-local` without
+      `EZCORP_EXTENSIONS_UNSANDBOXED_ACK` === exact sentence, and on `trusted-local` + isolated
+      socket vars both set. `TRUSTED_LOCAL_PROFILE = "trusted-local-v4"`, `trustedLocalBunDigest()`
+      memoized sha256 of `process.execPath`.
+- [ ] `src/db/migrations/add-extension-trusted-local-approvals.ts` (new) + `src/db/migrate.ts` call +
+      `src/db/schema.ts` table: `extension_trusted_local_approvals (installation_id FK cascade,
+      phase, digest, approved_by, expires_at, omitted_controls JSON text, created_at)`
+      PK `(installation_id, phase, digest)`, index `(phase, digest)`.
+- [ ] `src/db/queries/extension-trusted-local-approvals.ts` (new): `recordTrustedLocalApproval`,
+      `findTrustedLocalApproval(phase, digest)` (live rows only), `revokeTrustedLocalApprovals`
+      (by installation, optionally by digest). TTL 180 days.
+- [ ] `src/extensions/trusted-local-runner.ts` (new): `createTrustedLocalRunner(): Runner` — lazy
+      async init (bunDigest, `provisionToolchain` with explicit sdkEntrypoint, `initialize()`),
+      `approvalFor` → query module, `audit` → `insertAuditEntry`. Root
+      `<projectRoot>/.ezcorp/extension-trusted-local`.
+- [ ] `src/extensions/runner-connection.ts`: select by mode; return type `Runner`.
+- [ ] `src/extensions/v4/types.ts`: optional `LifecycleDependencies.trustedLocal`
+      `{ recordApproval(phase, digest, installationId, actor); revoke(installationId, digest?) }`.
+- [ ] `src/extensions/v4/lifecycle.ts`: `build()` takes `acknowledgeUnsandboxed?`; when
+      `trustedLocal` set → require it (`unsandboxed_acknowledgement_required`) and record
+      `(build, sourceDigest)`. `approve()` takes options `{ acknowledgeUnsandboxed? }`; on
+      approve when `trustedLocal` set → require it and record `(execute, artifactDigest)`.
+      `revokeApproval()` and `stop()` → revoke rows.
+- [ ] `src/extensions/extension-lifecycle-service.ts`: profile/image/dependency by mode.
+- [ ] `src/extensions/extension-control.ts`: `extensions_build` schema + handler pass
+      `acknowledgeUnsandboxed` (additionalProperties:false makes this mandatory).
+- [ ] `web/src/routes/api/extensions/releases/[installationId]/approve/+server.ts`: accept
+      optional boolean `acknowledgeUnsandboxed`.
+- [x] `src/env-validation.ts`: call `getExtensionRunnerMode()` (boot fails closed on misconfig) and
+      log error-level when trusted-local. (`context.ts` untouched — it already calls `validateEnv()`
+      and has no logger of its own.)
+- [ ] `src/health.ts`: detail gains `extensions: { runner: mode }`.
+- [ ] `web/src/routes/api/auth/me/+server.ts`: add `extensionRunner: mode` (session-authenticated,
+      no anonymous leak — the app shell already fetches this).
+
+## Web
+
+- [ ] `web/src/routes/(app)/extensions/author/+page.server.ts`: expose `extensionRunnerMode`.
+- [ ] `web/src/routes/(app)/extensions/author/+page.svelte`: Build — unsandboxed note listing the
+      seven omitted controls + required checkbox → `acknowledgeUnsandboxed: true`. Approval card —
+      when `approval.runnerProfile === "trusted-local-v4"`, note + second required checkbox →
+      approve body `acknowledgeUnsandboxed: true`. Header copy reflects the mode.
+- [ ] `web/src/lib/components/UnsandboxedExtensionsBanner.svelte` (+ `.helpers.ts`, bun-tested):
+      persistent, non-dismissable, mounted in `(app)/+layout.svelte` from the `/api/auth/me` fetch.
+
+## Tests / gates
+
+- [ ] `src/extensions/runner-mode.test.ts` — every fail-closed branch + both valid modes.
+- [ ] `src/extensions/runner-connection.test.ts` — trusted-local selection returns a Runner that is
+      not a `RunnerClient`; isolated path unchanged.
+- [ ] `src/__tests__/extension-trusted-local-approvals.test.ts` — record/find/expiry/revoke (PGlite).
+- [ ] `src/__tests__/lifecycle-trusted-local-ack.test.ts` — build/approve require ack when the
+      dependency is set; record + revoke hooks called with exact digests; no-op when unset.
+- [ ] Integration: `src/__tests__/trusted-local-runner-in-process.integration.test.ts` — the REAL
+      `TrustedLocalRunner` through `createTrustedLocalRunner()` against PGlite approvals: build
+      refused without row, allowed with row, execute likewise, audit rows written.
+- [ ] `web/src/lib/components/UnsandboxedExtensionsBanner.helpers.test.ts`.
+- [ ] e2e (real tier, own lane): `web/e2e/extension-author-trusted-local.spec.ts` `@evidence` —
+      preview started by new `scripts/start-trusted-local-preview.sh`; workspace → build (ack) →
+      approve (ack) → activate → banner visible → `captureEvidence`. Config
+      `web/playwright.trusted-local.config.ts`. CI lane wiring is a CODEOWNERS change — note in PR.
+- [ ] `scripts/coverage-thresholds.json` keys for every new source file (100).
+- [ ] `docs/extensions/security.md` + `deploy/extension-runner/README.md`: document the mode.
+- [ ] `bun run typecheck && bun run lint`; targeted suites; full pool vs. baseline (box is flaky).
 
 ## Review
 
-Completed review. Fixed two omitted script test suites and the missing local dependency-boundary check in commit `a1b5a6835`. Backend: 24,875 passes, plus 10 restored script tests. Web Bun: 4,094 passes. Node Vitest: 7,146 passes. Browser lanes: 256 mock + 3 setup + 62 real-auth passes, with 13 configured mock skips. Full coverage passes all 1,265 thresholds (26,141 Bun tests and 4,717 Node tests). Types, lint, Svelte check, build, manifest, boundary, gate-integrity, and diff-coverage checks pass.
+**What the production-build lane found that source-mode tests could not** (all fixed, all now
+covered by that lane — `web/playwright.trusted-local.config.ts`):
 
-Current main CI has 35 successful jobs, including production-image and Firefox/WebKit proofs. Its separate external-Postgres job still has an unexplained 5-second pool-one test timeout; 11 complete local Postgres runs and 20 focused runs passed without a retry or timeout change. The report records 226 unwired browser specs and existing warning/type-check backlogs. Local test databases and the review Postgres container were cleaned up. The primary checkout is unchanged; no push or settings change occurred. Full local report and logs: `tasks/testing-infrastructure-review-2026-09-09.md`.
+1. `seccomp.json` resolved via `import.meta.url` into `web/build/server/` — passed explicitly.
+2. The trusted toolchain resolved from the bundle's location: `web/node_modules` (TypeScript 6, no
+   `@types/bun`) instead of the pinned root closure — `provisionToolchain` gained `toolchainRoot`;
+   also a correctness fix for "only from the installed trusted release".
+3. Candidate verification (`verifyExtensionCandidate` → `runner.start`) is an `execute` of an artifact
+   that has no release approval yet — refused by the runner. Fixed by deriving a fifteen-minute
+   execute window from the build acknowledgement (`recordTrustedLocalVerificationApproval`), recorded
+   in `runBuild` before verification. The build note on the author page names the verification run.
 
-## Close coverage gaps with Terra team — 2026-09-09
+**Layering correction on the way:** `runner-connection.ts` must stay free of `db/` imports (a static
+path into `db/connection` joins the repo's known import cycle and the server bundle then defers
+module evaluation). The DB-backed hooks are built by `trusted-local-hooks.ts` and injected by the
+lifecycle service (`configureTrustedLocalRunner`), which already loads `db/` lazily.
 
-- [x] Write ownership contracts and acceptance gates before delegation.
-- [ ] Close browser coverage and CI discovery gaps.
-- [ ] Enforce excluded executable source coverage.
-- [ ] Remove all test type-check exclusions.
-- [x] Resolve and verify the real Postgres timeout.
-- [ ] Independently verify integration and measure performance.
-- [ ] Record final review and evidence.
+**Diagnostics closed:** the lifecycle's generic `operation_failed` branch now logs the unclassified
+error with stack (it used to point at host diagnostics that did not exist); `trusted_approval_required`
+is mapped to a legible operation diagnostic; the host's `approvalFor` warns with phase + digest when no
+live acknowledgement exists.
 
-Plan review: four isolated Terra agents own disjoint work; the parent verifies and integrates. Heavy work uses one shared lock. No weakened gates or unverified completion.
+**Behaviour to know:** in trusted-local mode the bundled first-party extensions are NOT auto-built at
+boot — each build needs a human acknowledgement (twelve `Bundled source staging requires attention`
+lines per boot; consistent with "bundled status does not imply trust"). The CLI's offline verify
+cannot build in this mode (no acknowledgement to record) and says so.
 
-Integration review: all13 migration producers now have direct real-database tests and100% measured lines. Parent Postgres validation passes24default-pool cases andtwo one-connection runs; wrongpool config and required-CI dependency controls fail as intended. Parent Canvas repair passes15browser cases on a freshbuild, plus3 focused cases after sharedfixture cleanup. Typeleaf removes49exclusions and passes808changed backendtests; parent integration exposed two fixture/migration signature errors and one assertion-free legacy test, with repairs under verification. New fullbrowser and original-source coverage work remains active.
+**Box note:** one lane attempt (rerun 8) never started — Bun 1.3.9 segfaulted during the SvelteKit
+build (`panic(main thread): Segmentation fault … a bug in Bun`), the same panic class the backend pool
+showed on unmodified `main` earlier the same evening. Re-run after the pool finished.
 
-- Parent visual review: opened final Canvas mobile before/after swipe and desktop dark captures from `tasks/testing-gaps/canvas-evidence-final-blob/`; controls fit, text is readable, and native swipe closes the dock. The final affected three-case browser run passed.
+**Merge with `main` (PR #269 conflicts):** eleven commits landed on `main` after the branch point;
+nine files conflicted, all "both sides added". Resolved as the union in every case — #262's
+`isExtensionRunnerConfigured()` beside the async-capable lazy wrapper (it now answers true in
+trusted-local mode, without socket settings), #260/#265's named heading and installation rows beside
+the unsandboxed acknowledgement UI, both JSON manifests merged, and the e2e fixture's shared
+`BuildDeadline` kept positional with `extra` moved last (two of `main`'s callers pass the deadline
+third). Re-verified: typecheck, lint, svelte-check, runner-connection 7/7 (incl. #262's probe),
+bundled-v4-bootstrap 59/59, e2e-lanes 21/21, visual-evidence 7/7, vitest author-page/server-load/
+routes 58/58, and the trusted-local production-build lane.
 
-- Parent integration review: 23 design/shared-form browser cases passed with fresh build (45.5s, two workers); committed 53e66faf0. Shared-form setup uses the supported !ext mention and removes fixed waits.
-- Parent coverage review rejected the initial mapping-point converter. The integrated replacement uses the Vitest AST converter; eight independent controls pass (550ms). Corrected an agent-worktree absolute path in the guard test (0a142a15d).
-- Parent actual CI aggregator/discovery checks: 41 pass, 163 assertions (4.96s). Required E2E check name preserved; Postgres remains required by Backend tests.
-- Expanded browser baseline correction: the first complete log showed 201 failures but did not support the inferred 1,253 pass count. The later complete snapshot reports 1,194 pass, 147 fail, 113 skip of 1,454 in 18.2 minutes. Team repairs remain in progress; this is not complete coverage.
-- Parent native chip diagnostics: startup splash intercepted early raw gestures. After native hit-target readiness, original component still corrupts the selected list with the drag placeholder. Full item-state fix and regression test pending final five-case real-auth receipt.
-- Full integrated typecheck exposed new errors in coverage imports/types, CDP fixture, and shared UI fixture. Owners are fixing those without adding type exclusions.
-- Real-auth negative provider test escaped to a real Kilo fallback. Types owner is adding central test-mode provider isolation and adversarial guards; do not run external provider failure paths until isolated.
-- Parent chip closure: five real-auth cases passed in51.6s, including native mouse/touch, keyboard, Escape, and zero axe violations. Save response, database read, and reload preserve exact order. Four PNGs are in `tasks/testing-gaps/chip-evidence-blob/`; parent viewed both mobile captures and confirmed the long-name header and controls no longer overlap.
-- Parent Worker check:11cases/60assertions pass with real portable pi-ai adapters and stubbed HTTP transport; backend typecheck passes after the catalog generic repair. Browser capture/coverage guards:58pass244assertions2.62s.
-- Scheduling refinement: full suites keep the heavy lock. One short private-port repair run may run beside a full two-worker browser suite under a separate focused lock; measuredhost32CPUs/about12GBavailable. Never build and sync the same worktree concurrently.
+**CI round on PR #269 (two Opus agents in isolated worktrees):**
+- Web shards 2/3: two pre-existing vitest files asserted the approve route's old four-argument
+  `lifecycle.approve` call; now assert the exact fifth argument `{ acknowledgeUnsandboxed: undefined }`
+  (`51e524124`).
+- Coverage shard 0: a genuine regression of this PR. Keying the provisioning memo on
+  `toolchainRoot` rebuilt the identical SDK bundle once per root, and a second `Bun.build()` in one
+  `bun test` process trips a Bun file-descriptor reuse defect (`EISDIR` on regular files under the
+  isolated `node_modules/.bun` store; reproduced standalone; `main`'s shard 0 is green). Fixed by
+  caching the SDK bundle per entrypoint and the toolchain per root, sequentially; the new test counts
+  real builds with a call-through spy (`78629cbf3`). CI-equivalent shard 0 run: 1902 pass / 0 fail.
+- Also merged `main`'s #268 (repairs the #267 quality gates the first run used) — `3d94146e6`.
+- Note for future agent runs: the harness cut both agent worktrees from `main`, not from the PR
+  branch; both agents had to re-base onto the PR head themselves (`git switch -c`, since
+  `git reset --hard` is blocked for them). Cherry-picked their commits onto the PR branch.
 
-- Parent final provider recovery: 31 backend checks/112 assertions pass in693ms. Two real-auth compaction cases pass in42.7s, including unchanged mock model on the second send after a visible provider400; no external transport. Direct bridge coverage and fail-closed fetch guard are integrated.
-- Parent coverage merge review:70checks/279assertions pass in3.81s. Explicit Node/V8 producer tags survive a two-stage merge; loss of tags fails the strict old/full source-hit comparator.
-- Parent Worker proof: actual workerd run passed against a private fake-key OpenAI HTTP server, including create/list/read/missing404. All11Worker tests/60assertions and backend types pass.
-- Parent browser repair52235966d:21run/project/keyboard checks plus3independent inline-tool checks pass in17.6s on the source-matched production build. Nine selector fixmes are restored. Missing-run404 and Back→projectchat faults were reproduced then fixed. Viewed missing-run PNG at tasks/testing-gaps/run-selector-verified-blob/missing-run-error.png.
-- Parent collector/discovery review:21checks/150assertions pass in3.14s. Browser agent measured two-test V8 aggregation reducing3,337,601bytes to735,224bytes with one AST conversion inabout1second. Full-suite overhead remains to be measured.
-- Memory repair plan: match current projectIds/injectionEligible API fields, use shared memory mocks, restore native project-scope controls, replace fixed sleeps with exact request and visible-state checks, and verify all affected memory specs.
+**CI round 2 — Per-file coverage gate** (`extension-lifecycle-service.ts` 99.02%, `runner-mode.ts`
+90.63%, `trusted-local-runner.ts` 42.42%): the proof for all three lived in `*integration*` suites,
+which the residual job runs WITHOUT coverage. Duplicated the proof outside it:
+- `src/__tests__/trusted-local-runner-wiring.test.ts` — the host wiring with the runner PACKAGE
+  stubbed: every option handed to the runner, the two hooks, unconfigured refusal, forget-on-failure,
+  memoisation, and the SDK-entry override.
+- `src/__tests__/extension-lifecycle-service-trusted-local.test.ts` — the SERVICE in trusted-local
+  mode on real PGlite with the runner MODULE stubbed: hooks installed once and real (audit row +
+  store), build refused without / recorded with the acknowledgement, `runBuild` records the
+  fifteen-minute verification grant (shorter than the build row, same omitted controls), disable
+  revokes.
+- `trustedLocalBunDigest()` lost its catch-reset: the binary does not change while the process runs,
+  so the memo now holds the failure too (three fewer lines to prove, and a clearer contract).
+- **Bun coverage trap, measured:** bun keeps ONE lcov record per source path and the module copy
+  loaded LAST owns it. A `?fresh=<uuid>` copy per test therefore reports any line only an earlier
+  copy executed as a miss (8 missed lines with copies, 0 without, same assertions). The wiring test
+  walks the module lifecycle in file order on the canonical instance instead.
 
-- Parent memory closurea44018a26:44/44browser checks pass in29.1s across six specs. Scope GETs assert exactprojectId andselectedscope; status/category/search assert excludedrows. Existing injection togglechecks prove PATCH body and500rollback. No fixedwaits remain in thethree repairedspecs.
-- Parent goal-binding review:174unitchecks/399assertions pass in1.218s; actual goal evaluatorjourney remains underdiagnosis.
+**CI round 3 — Coverage shard 7:** `mock-cleanup-coverage.test.ts` (meta-test) flagged the service
+test's `mock.module("../extensions/trusted-local-runner")` as unsnapshotted. Added the path to
+`MODULE_PATHS` in `src/__tests__/helpers/mock-cleanup.ts` (cheap import graph, no db/daemon) so
+`restoreModuleMocks()` can undo the stub. Every other check in that run was green; production
+proofs were still pending.
 
-- Parent browser verification: tool history 6/6 passed (6.1 s); streamed cards 13/13 passed (48.8 s), restoring 12 skipped cases. Fixed the real `3 filees` label and viewed its screenshot. Native tool anchoring 3/3 passed (7.0 s), including persisted order and fallback position.
-- Parent API coverage verification: 119 checks and 477 assertions passed (3.86 s). The API transport has 96.7% line coverage; wrong or blank producer tags cannot supply its coverage record.
-- Parent integration: file mentions, sub-conversations, and immediate tools passed 46/46 (54.9 s). Custom cards and rendering edge cases passed 10/10 (10.0 s). A mistyped custom-card filename in the first command was detected and tested in the second group.
-- Parent executor fallback check: 5 tests and 49 assertions passed (3.05 s). The served fallback model now remains bound to the run for goal continuation.
-- Parent CI review: duplicate selected Vitest work is removed. Coverage producer capacity is enforced, security runs after that pool, and Vitest has an explicit worker limit. Parent guard: 41/41 passed. Full coverage is running with three host workers; no full-suite result claimed yet.
-- Recovery UI baseline: 47 passed and 5 failed (1.0 min). Memory and orphaned-run fixtures used stale transport. The memory warning has no visible consumer in current UI; a native-send reproduction also fails. Restoring the warning and verifying recovery, duplicate suppression, and run scope.
-- Real-data plan: replace signup's conditional passes/skips with real invites, anonymous form submission, and session persistence; replace the hard-coded production-history IDs with a gated, owned PGlite seed. All 14 seed/reset database checks pass (41 assertions, 1.073 s); browser verification pending the shared build lock.
+**Verification results (final):**
+- `bun run typecheck` ✓ (0 errors) · `bun run lint` ✓ (8 pre-existing infos, none in touched files).
+- Unit/integration (one process per file): runner-mode 11/11 · runner-connection 6/6 ·
+  trusted-local approvals 13/13 · lifecycle acknowledgement 12/12 · env-validation 14/14 ·
+  health 9/9 · e2e-lanes 21/21 · hydration gate 6/6 · migrate idempotency 6/6 ·
+  visual-evidence covers 7/7 (after adding the manifest entry) · runner package trusted-local 1/1 ·
+  **real in-process runner integration 3/3**.
+- Vitest: banner (component + unit) 7/7 · author page 7/7 · control/approve routes 9/9.
+- Playwright: `extension-author-trusted-local.spec.ts` under the **trusted-local production build:
+  1/1** (rerun 10; reruns 8–9 were killed by the box, not by code) and under the ordinary
+  **isolated** real-auth server: 1/1.
+- Full pool `PARALLEL=3`: 25590 pass / 12 fail in 9 files — eight green when run alone (box load;
+  baseline `main` failed 14 in 8 files the same evening, disjoint sets), one real: the
+  evidence-covers manifest, fixed above.
 
-- Parent real-data results: goals5, signup4 and saved-history5 pass against real auth/PGlite. A later18-case run passed16 and exposed2 new cookie checks: login redirects also retain returnTo; early API401 responses omit the expiry Set-Cookie. The latter is a product defect under repair. Seed/helper coverage:15tests56assertions, with30/30 new history-helper lines,17/17 picker-helper lines and107/107 seed-route lines.
-- Parent browser results:92/93passed in59.4s; the search parameter is consumed by the chat. After changing the test to check the actual highlighted message, that case passes4.2s. The changed PWA/error/reliability group also passes; warning screenshots exposed light-theme contrast, now under correction with light/dark axe checks.
-- Parent task-card verification:23cases pass, including9restored full actions. Request assertions now check exact input, conversation ownership and nonempty invocation id. Removed the last obsolete store-import type bridge and replaced shared-form fake WebSocket dispatch with the enabled native composer.
-- Parent context and mock-provider checks:context2tests pass2.46s with131/144lines(90.97%); separate Bun mock-LLM route/store43tests111assertions pass508ms. The initial Vitest filter did not collect these Bun files; their dedicated run confirms collection.
+## PR #277 dependency validation
 
-- Parent final cookie repair: the native/API reproduction found no expiry Set-Cookie on early-hook401. The shared cookie helper now carries it onto direct responses. Real-auth5/5passes39.1s, including invalid-cookie page warning/returnTo, API rejection and logged-out token replay with both cookie names cleared. Cookie/picker13unitchecks pass918ms; the broader hooks/cookie/Kokoro group passed123/123 in5.76s before the added direct-response unit.
-- Parent memory/Kokoro closure:19/19browser checks pass14.7s. Memory warning uses theme text and light amber surface, hides the raw internal status, shows only for the active run, clears on recovery and does not duplicate. Both light/dark axe scans have zero violations. Parent viewed both final PNGs in tasks/testing-gaps/memory-kokoro-images/.
-- Parent extension closure:e4393f40a passes15/15browser checks16.1s, including actual authenticated rootless CLI build success, mutated feature-test rejection, unattended-approval refusal, effective-policy display/empty-state, modification gates, saved settings and exact reset default. Runner teardown has bounded waits and cancels its timers.
-- Parent integrated typecheck passes allfourlegs with zeroexclusions at e4393f40a. Lint exitstatus is0 but99warnings/9infos remain; assigned for cleanup. Full browser/coverage/gates are still pending.
+- [x] Review every changed dependency manifest and both Bun lockfiles against current `main`.
+- [x] Keep `@types/bun` aligned with the repository's Bun 1.3.14 runtime pin.
+- [x] Hold AI-kit Zod at 4.5.4 so its manifest, override, isolated npm lock, and root Bun lock agree.
+- [x] Verify both frozen Bun locks and rerun the sole failed full-suite test.
+- [x] Record the final dependency review and validation results.
 
-- Parent restoration review: 143/143 browser cases passed in 1.8 minutes; the two actual editor/palette files then passed 22/22 in 19.1 seconds. The first filter used nonexistent names for those two files; their later receipt verifies collection. Parent viewed all ten screenshots from the 143-case run.
-- Parent audit closure: 24/24 audit, moderation, and shared extension-review cases pass in 18.8 seconds. Native failed-request retry passes with the exact 200 response and new visible row (three audit cases, 3.8 seconds). Audit stats have zero scoped axe violations (one case, 3.1 seconds). Parent viewed global audit and expanded extension audit screenshots. These controlled loader tests prove client behavior; real role and audit persistence tests remain with the real-auth owner.
-- Parent integration 470deed46: restored session-history parent links, current workflow routes, safe lint cleanup, and browser receipt validation are integrated. Browser collection/merge/discovery guards pass 83 tests and 459 assertions in 7.28 seconds. The browser-only Node shim now has a separate direct contract with a required 100% floor and unique producer tag.
-- Latest complete browser diagnostic remains 1,586 passed, 34 failed, and 96 skipped of 1,716 in 13.6 minutes. It predates the current integrated repairs. It is not a final pass. All five browser coverage lanes must supply receipts from the same final mapped build before route floors and the final merge can pass.
+### Review
 
-- Parent common checkpoint e79a7c97f passes all four typecheck legs with zero exclusions. Gate parser and receipt-verifier controls pass 202 tests/436 assertions in 829ms. Production File Organizer proof independently inspected: 13/13, 3.5 minutes, all command/cleanup exits zero; owned rootless image and 45-second SSE heartbeat proof retained. All three migration leaf gates now have reviewed evidence.
-- Picker baseline restores all nine real entry points and retains three mobile dismissal paths plus desktop use and safe-area/accessibility checks in 19 cases (47 old skipped starts reduced to 19 active starts). Baseline: 12 pass/7 fail in 1.3 minutes; one fixture selector is corrected and passes2/2 in5.0s. Native mobile focus/reopen and desktop model click defects are with the types owner. Root is fixing duplicate mobile extension-attach headings/close controls and the 1-tools label; 14 component cases pass1.04s after updating the old typo assertion. Final browser proof remains pending.
-- Lint checks 4,493 files with zero errors/warnings and eight informational hints in1.129s. Both large validation JSON receipts remain checked through exact-file32MiB limits; excluding them took0.694s but weakened lint and was rejected during review.
+- The original full suite reported 25,827 passes and one failed file. The only failure was the
+  bundled-source lock mismatch caused by AI-kit declaring Zod 4.6.4 while its approved source lock
+  still represented 4.5.4.
+- Zod 4.6.4 resolved through the production extension-runner, but it produced MCP schema type errors
+  in AI-kit's production source. AI-kit remains on 4.5.4. The web app keeps its independent 4.6.4
+  upgrade.
+- Root and web frozen installs pass with Bun 1.3.14. The production extension resolver fetched the
+  AI-kit closure and confirmed Zod 4.5.4. The manifest freshness check passes, and the formerly
+  failing bundled-source test now passes 2/2.
 
-- Parent native picker closure: all 19 Chromium cases pass, including real search and selection in all five search sheets. Shared-body regression found the input hidden behind the modal; the new shared input fixes it. The full affected group passes 46/46 in 38.8s. Parent viewed all five search screenshots and sidebar/dialog evidence. Firefox passes the same 19 cases; WebKit installation is pending (the required binary is absent).
-- Login coverage now uses the actual Svelte component instead of copied HTML. All 16 native login cases plus three shared-loader moderation cases pass in 9.0s, including exact normalized POST data, response-gated loading, and network retry. Light-theme visual review then found alert contrast failures; actual axe reports ratios 1.44 and 1.06. Dark mode passes. Theme repair is under final native verification.
+## PR #279 — agent instructions and complete Podman runbook
 
-- Final integration c6673270c: all four type checks pass with zero exclusions. Lint checks 4,503 files with zero errors/warnings and eight informational hints in 1.06s. Gate integrity passes against the fixed base. CI lane controls pass 211 cases/608 assertions; required-job failure aggregation independently passes 32 cases/38 assertions. All 64 scripted routes now have exact floors (61 at 80%, three retained at 100%).
-- Parent picker/login visual closure: all 19 picker cases pass in Chromium, Firefox, and WebKit (WebKit 25.1s after installing its Nix runtime libraries). Native login and pending-gate group passes 19/19 in 11.2s; light/dark warning and error axe scans report zero violations. Parent viewed the final captures.
-- Parent local-command review found `ci-local.sh` did not collect the newly required browser receipt before full coverage, and repeated browser/V8 work. The first full collection was stopped after 25 passing cases to fix this before freezing final evidence. The initial shared-port attempt is retained separately; the owned private port is 4357. No complete suite pass is claimed yet.
+- [x] Confirm the PR branch, base, review state, existing instruction-file references, and current Podman docs.
+- [x] Rename the root `CLAUDE.md` to the standard root `AGENTS.md` without changing its existing rules.
+- [x] Add concise, complete development and production Podman run instructions to `AGENTS.md` and link to detailed deployment guidance instead of duplicating it.
+- [x] Audit every Podman statement and command against the repository configuration, rendered Compose output, executable tests, and current primary Podman/Compose documentation.
+- [x] Close documentation and test gaps found in the full PR diff while keeping the change focused.
+- [x] Run focused tests, formatting/lint checks, and repository-level checks that cover all changed files.
+- [x] Merge the current PR base if needed, commit, push to the PR branch, and watch all reported checks.
 
-- Final shutdown review: permission-audit tail writes now drain before database close. Parent real PGlite/coalescer group passes 37 tests/515 assertions in 3.36s. The stronger awaited-write test covers both an open window and an already-started threshold flush; removing the await fails both controls, and the restored source passes both.
-- Parent local CI review verifies browser collection precedes full coverage, avoids the duplicate plain V8/build/browser runs, and retains browser raw data on any failed full run. Exact command-level success/failure paths are covered by the CLI harness. Provider-only isolation rejects before configuration reads; nine provider tests pass in454ms. The visual-evidence gate passes for24 changed visual surfaces and138 changed specs.
-
-### Final browser diagnostic follow-up (2fcc1fa4e)
-
-- [x] Preserve the all-five diagnostic: 2,124 passes, 17 failures; strict raw conversion rejected two unmapped routes.
-- [x] Review and integrate the verified reconnect, mobile, MCP, capability and provider-order repairs.
-- [x] Fix the stored-model load race with a controlled slow real HTTP response; require a failing baseline and passing fixed browser run.
-- [x] Isolate invite counters between serial real-auth cases while retaining the actual ten-attempt limit within each case.
-- [x] Restore the retired authoring journey through the current workspace, build, approval and activation flow.
-Final execution remains pending in [the task gates](testing-gaps/GATES.md). Those result files are outside source control so their completion records do not change the frozen revision being tested.
-
-- Parent follow-up evidence: real model-load failing baseline and repaired goals/compaction pass; adjacent invite cases prove independent ten-attempt budgets; current v4 dependency build/approval/activation passes. Mention color regression reproduced nine light-theme failures; fixed six history cases and all six light/dark checks across three engines pass.
-
-- Parent integrated route review: 63/63 browser cases pass in 1.1 minutes. Source identity now rejects dirty tracked/staged/untracked files while allowing ignored build artifacts; parent guard tests pass 8/8. All final suite and timing claims remain pending in the task gates.
-
-- Parent final preparation: coverage retains old-document counts before awaited browser navigation. Independent raw and source-map checks confirm the saved handlers execute; real native preview and proposal/reload journeys pass their unchanged 100% route floors. A shared typed wrapper avoids duplicate navigation logic. Final source checks also remove an unnecessary readonly assertion from the agent journey table. Task-only leaf gate files remain on disk with local ignore rules, so final receipts can be recorded without changing the tested revision.
-
-- Parent preflight caught the invite limiter test in the plain web pool but absent from the coverage producer. The actual file-set regression first failed, then passed after adding it to the shared host list. All15 selection checks and the three direct invite checks pass. The new route retains its exact100% floor. The6e0c browser diagnostic was stopped after256 mock-gate passes; its interrupted cases are cancellation artifacts. Final execution restarts from the corrected source and stays pending in the local gates.
-
-- Parent complete browser diagnostic at f8dd6b217: all64 route floors pass, but the actual runner exits1 with2,148 passes and15 failures. Fourteen failures came from a model-list mock that also intercepted capabilities and default-selection requests; the shared complete route fixture passes66 related cases in Chromium and Firefox. The remaining Canvas fixture blocked first-load readiness. Its repaired test permits native send, holds a stale history read across live completion, and asserts the dock survives before any authoritative third read; both Canvas cases pass. All five lanes, full backend producers, selected-V8 preservation, and static checks will now run from the next fixed revision. Final receipts remain in the ignored task gates.
-
-### Full-producer coverage closure
-
-- [x] Preserve the complete a746 diagnostic and classify all 91 failed source floors.
-- [x] Prove full V8 preserves the old selected producer: 559 source records retained.
-- [x] Repair native help Escape and deferred composer focus; verify all three engines.
-- [x] Reproduce nested Unix socket failure and preserve an active socket when duplicate startup fails.
-- [x] Assign one trusted producer per incompatible source map; retain strict missing-producer controls.
-- [x] Collect existing direct utility tests in the coverage producer without duplicate execution.
-- [x] Add direct behavior tests for uncovered components, stores, and error paths.
-- [ ] Run all five browser lanes, all backend producers, all source floors, and final static gates on one clean revision.
-- [ ] Recompute the live shard plan and complete all 23 task gates with actual receipts.
-
-Review: a746 had 2,162 browser passes and one failure; all 64 route floors passed. Full backend had 7,164 Vitest passes, two Unix runner failures, a browser-route ownership error, and 91 aggregate coverage misses. These are diagnostic receipts, not a completed green run. Terra agents own disjoint coverage and component clusters.
-
-Combined review: all 25 utility sources have direct Bun producers; panel persistence runs inside a real Svelte host. Direct component coverage closes the remaining source gaps, including FeatureIndex94.84%, TaskPanel90.86%, TeamChatPanel93.62%, and PanelChatInput100%. Independent review strengthened saved-result assertions and mock cleanup. The first combined preflight passed300/301 tests and exposed an entity-table readiness race; its corrected12-test suite passes. Invalid component and fetch fixtures are repaired. Final complete browser/backend coverage and all23 task gates remain pending until receipts from one clean revision pass.
-
-### Full f4 verification follow-up
-
-- [x] Preserve all-five browser success: 2,163 passes, zero failures or skips; all 64 route and 16 browser component floors pass.
-- [x] Preserve full backend diagnostic: 7,358 Node/V8 tests pass; all producers emit valid receipts; one source floor and one verifier fixture fail.
-- [x] Repair the verifier fixture and missing agent-state producer ownership; existing direct tests measure all 29 lines and execute once.
-- [x] Add measured coverage for the moderation loader and extension upload handler exposed by the actual patch gate.
-- [x] Repeat full coverage, selected-V8 preservation, coverage gates and static checks at clean dee94c744: all 21 stages passed.
-- [x] Inspect initial failures and final exit codes: all 1,586 host files passed initially at dee94c744; retain the earlier Bun cleanup diagnostic without claiming a cause.
-
-Review: f4 browser is green, but its backend run is not. A native Bun cleanup error passed the runner retry and 12 separate diagnostic repeats; no project cause is established. The final patch-gate preflight also rejects two changed server routes with no measured records. These remain open until their real producers and final gates pass.
-
-Final repair preflight: all 1,624 enforced source floors, 92 changed source files, and 10 new source files pass using retained diagnostic receipts plus the new direct producers. Moderation is 3/3 measured lines; uploads is 99/99. All four type sections pass with zero exclusions, Svelte has zero errors/warnings, lint has zero errors/warnings and eight infos, and integrity, visual, boundaries, manifest, and discovery pass. These diagnostics do not replace the next clean full run.
-
-- Final243 browser diagnostic: mock gate256passes and mock-full1420passes/1failure. The chat-list assertion used page-wide text that became ambiguous after auto-open rendered the same title. A deterministic real-browser control first fails; the scoped navigation/button selector passes all5chat cases twice and retains the visible opened-title check. The known-red full driver was stopped with actualexit143 after evidence was saved; no cancellation is counted as a test success. Final verification restarts from the next clean revision.
-
-### Submit and merge testing infrastructure PR
-
-- [x] Confirm the review branch is clean and still based on current origin/main.
-- [x] Check the final 21-stage receipts and 23 task gates against the exact source revision.
-- [x] Make the gate script readable by text-search tools without changing runtime behavior; byte-identical compiled output and all241 gate controls pass.
-- [x] Run required local validation and check the final diff, PR template, and repository merge rules.
-- [x] Push the branch and open PR #256 with scope, evidence, and remaining limits.
-- [ ] Fix any CI or review failures, verify required checks and approval, then squash-merge the verified PR head.
-- [ ] Verify the merge and record its result.
-
-Review: prior full validation passed at dee94c744. The merge base is unchanged at a1837d511. Main requires strict green checks, a non-author approval, and CODEOWNERS review. No approval or check will be bypassed.
-
-## PR256 browser build-transfer repair
-
-- [x] Reproduce hosted consumer failure from run 34486963513 and inspect its downloaded build artifact.
-- [x] Transfer the complete SvelteKit preview output in the shared browser artifact.
-- [x] Add a clean-checkout artifact restore and preview regression.
-- [x] Verify every five-lane consumer and the route merger validate the restored artifact.
-- [x] Run focused CI-contract and restored-preview checks; document results.
+Plan review: preserve the original Podman fix, use `AGENTS.md` because that is the supported agent-instruction filename, keep one canonical detailed runbook, and prove commands before describing them as supported.
 
 ### Review
 
@@ -3065,3 +3125,16 @@ sweep is a sub-tick and not new infrastructure.
 - [x] Merged: W01e (71e8cc9ed). Combined run wave3f green at 3d7fed172 on every producer, the four Podman suites, and both coverage gates; the wave3d patch-gate miss and the runner fixes are recorded in `docs/validation/factory/wave3/README.md`.
 - [ ] In flight: W09b (four roles assembled, legacy engine adapter landed, G11 real-guest proof, G12, G14, the sweep).
 - [ ] Next: validate and merge W09b; combined run; fast-forward feat; W14, W15, W16, W17, W18 final gate, W19, W20.
+- Renamed the root instruction file to `AGENTS.md` and updated all live root-file references. Nested, scope-specific `CLAUDE.md` files remain unchanged.
+- Added tested rootless Podman commands for the Linux development stack and the Linux/macOS production stack. Renamed the production override to `compose.podman-prod.yml`.
+- Proved the uid/gid and bind-mount contract with executable tests, rendered Compose output, the production image user, and real rootless Podman write tests.
+- Merged the current `main` and the concurrent PR-head merge without conflicts. The merged source tree is identical to the fully validated tree.
+- Verification passed: lint, typecheck, production build, focused tests, 2,185 browser tests, 26,602 coverage tests, and all 1,631 enforced coverage files.
+
+### Coordinator log — host reboot, main merge, quality gates (2026-09-21)
+
+- [x] Host reboot at 03:40 local took every shared store down. Repair on podman: the existing `factory-platform-proof-postgres` container (pgvector/pgvector:pg16, data volume kept) was started; the two SeaweedFS stores were recreated through the rootless podman compose socket with a fresh credential directory (`/run/user/1001/ezcorp-factory-storage.0yXaRPtQ`), 2 GiB limits honoured, conformance passed. The old Docker-daemon containers remain exited and unused. Logs: `/tmp/factory-platform-evidence/w00/proof-postgres-start-reboot.log`, `storage-recreate-podman.log`.
+- [x] `origin/main` merged into `integ/w00` (user instruction "use podman, pull the latest main"): b43558b34 (podman default entry point, CI quality gates, pi 0.85.1) at 53346001b, 0f949c307 (container-engine helper) at bf010dece, bd6fd9714 (Dependabot bump) at f50b041c3. Conflicts: both lockfiles (main's file, then `bun install`, verified additive), package.json (both sides), tasks/todo.md (union), web graph layout header, ci.yml node pin (main's literal `node-version: "22"` replaced by `node-version-file: .node-version`, which our pin test demands). Full backend pool 27576 pass, 0 fail at f50b041c3. Receipts: `/tmp/factory-platform-evidence/w00/main-merge*/`.
+- Main's new gates, measured: `bun run test:coverage` cannot produce `coverage/lcov.info` on this host because the browser-route coverage receipt is CI-only (main's own tree fails identically), so the global floor and CRAP gates are measured here only over the combined runner's merged lcov. In CI both sit inside the required check "Per-file coverage gate" and BLOCK; "Mutation (changed files)" is report-only.
+- Rulings: (1) compiled workspace output (`packages/**/dist/**`) leaves the lcov through the vitest leg's product-source filter, never through EXCLUDES; (2) the 38 functions above complexity 30 on the feature diff are split with no behaviour change under W18a (w18a-sdk: 20 in factory-sdk, factory-orchestrator, extension-runner; w18a-app: 12 in src/factory, src/runtime, web/src plus the dist filter and the floor measurement; 6 in five W09b-owned files wait for W09b); (3) the combined runner records the floor and CRAP results on every run (`--quality-blocking` folds them into the exit code once W18a lands); (4) W09b declares release destinations and profiles in the startup document (W09's own surface; plan W09 line 270) with credentials by reference, and the release-outcome worker claims as the run's live initiator, reading the consent and claiming in two transactions because `claim` re-validates the consent in its own.
+- [ ] In flight: W09b round 3 (release destinations, running release-outcome role, real-store producers, G14 already green at 214d7251e), w18a-sdk, w18a-app. Next: validate and merge W09b; combined run with `--podman`; second W18a pass on the W09b files; W14, W15, W16 in parallel; W17; W18 final gate; W19; W20.

@@ -26,3 +26,8 @@ vite.config.ts.timestamp-*
 test-results/
 playwright-report/
 blob-report/
+
+# Stryker mutation-testing sandbox (scripts/mutation.ts)
+.stryker-tmp/
+# Derived Stryker run config (scripts/mutation.ts writes + deletes it)
+.stryker-run.json

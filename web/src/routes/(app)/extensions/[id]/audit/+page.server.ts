@@ -39,6 +39,10 @@ export const load: PageServerLoad = async ({ params, locals }) => {
   ]);
 
   return {
+    // Names the subject in the Command Deck breadcrumb strip. `[id]` is a
+    // reference, so the resolved name is the only readable form — the raw
+    // param may be a uuid. See `$lib/breadcrumb-tail.svelte.ts`.
+    breadcrumbTail: ext.name,
     extension: {
       id: ext.id,
       name: ext.name,

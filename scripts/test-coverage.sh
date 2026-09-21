@@ -175,7 +175,7 @@ trap 'rm -rf "$TMPDIR"' EXIT
 # flake there reds CI on someone else's load.
 #
 # Raising a ceiling a healthy run never reaches is not weakening a gate — the
-# wall-clock ASSERTION rule in CLAUDE.md is about tests that measure the host;
+# wall-clock ASSERTION rule in AGENTS.md is about tests that measure the host;
 # this is the pool budget that stops the host measuring the tests.
 #
 # docs/extensions/examples/** USED to be carved out to bun's 5s fast-fail, on

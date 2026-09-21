@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { chmodSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createLazyExtensionRunner, getConfiguredExtensionRunner } from "./runner-connection";
+import { createLazyExtensionRunner, getConfiguredExtensionRunner, isExtensionRunnerConfigured } from "./runner-connection";
+import { UNSANDBOXED_ACK_SENTENCE } from "./runner-mode";
 import { RunnerClient } from "@ezcorp/extension-runner";
 import type { Runner } from "@ezcorp/extension-contract";
 
@@ -88,4 +89,73 @@ test("lazy runner forwards every operation and resolves the current connection e
   await runner.build(input); await runner.start(input, reverse); await runner.cancel("id"); await runner.inspect("id"); await runner.collectArtifacts("digest");
   expect(calls).toEqual([["build", input], ["start", input, reverse], ["cancel", "id"], ["inspect", "id"], ["collectArtifacts", "digest"]]);
   expect(resolutions).toBe(5);
+});
+
+test("the configuration probe reports host settings as a boolean instead of throwing", () => {
+  const names = ["EZCORP_EXTENSION_RUNNER_SOCKET", "EZCORP_EXTENSION_RUNNER_TOKEN", "EZCORP_EXTENSION_RUNNER_TOKEN_FILE"];
+  const previous = names.map((name) => process.env[name]);
+  const directory = mkdtempSync(join(tmpdir(), "runner-probe-"));
+  const tokenFile = join(directory, "token");
+  const socket = "/tmp/runner-probe.sock";
+  const token = "a".repeat(32);
+  const apply = (settings: Record<string, string | undefined>) => { for (const name of names) { const value = settings[name]; if (value === undefined) delete process.env[name]; else process.env[name] = value; } };
+  try {
+    writeFileSync(tokenFile, `${token}\n`, { mode: 0o600 });
+    for (const settings of [
+      {},
+      { EZCORP_EXTENSION_RUNNER_TOKEN: token },
+      { EZCORP_EXTENSION_RUNNER_SOCKET: "relative/socket", EZCORP_EXTENSION_RUNNER_TOKEN: token },
+      { EZCORP_EXTENSION_RUNNER_SOCKET: socket },
+    ]) {
+      apply(settings);
+      expect(isExtensionRunnerConfigured()).toBe(false);
+    }
+    for (const settings of [
+      { EZCORP_EXTENSION_RUNNER_SOCKET: socket, EZCORP_EXTENSION_RUNNER_TOKEN: token },
+      { EZCORP_EXTENSION_RUNNER_SOCKET: socket, EZCORP_EXTENSION_RUNNER_TOKEN_FILE: tokenFile },
+    ]) {
+      apply(settings);
+      expect(isExtensionRunnerConfigured()).toBe(true);
+    }
+  } finally {
+    names.forEach((name, index) => { if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index]; });
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test("lazy runner accepts an async resolver — the in-process trusted-local runner initialises on first use", async () => {
+  let resolutions = 0;
+  const built = { state: "succeeded" } as never;
+  const resolved = { build: async () => built } as unknown as Runner;
+  const runner = createLazyExtensionRunner(async () => { resolutions++; return resolved; });
+  expect(resolutions).toBe(0);
+  expect(await runner.build({} as never)).toBe(built);
+  expect(resolutions).toBe(1);
+});
+
+test("trusted-local mode selects the in-process runner and never reads the socket settings", () => {
+  const names = ["EZCORP_EXTENSION_RUNNER", "EZCORP_EXTENSIONS_UNSANDBOXED_ACK", "EZCORP_EXTENSION_RUNNER_SOCKET", "EZCORP_EXTENSION_RUNNER_TOKEN", "EZCORP_EXTENSION_RUNNER_TOKEN_FILE"] as const;
+  const previous = names.map((name) => process.env[name]);
+  try {
+    for (const name of names) delete process.env[name];
+    process.env.EZCORP_EXTENSION_RUNNER = "trusted-local";
+    process.env.EZCORP_EXTENSIONS_UNSANDBOXED_ACK = UNSANDBOXED_ACK_SENTENCE;
+    // Selection is cheap: nothing is digested or bundled until a method runs.
+    const runner = getConfiguredExtensionRunner();
+    expect(runner).not.toBeInstanceOf(RunnerClient);
+    for (const method of ["build", "start", "cancel", "inspect", "collectArtifacts"] as const) expect(typeof runner[method]).toBe("function");
+    // The configuration probe (#262) answers "is a runner configured" — in
+    // this mode it is, without any socket settings.
+    expect(isExtensionRunnerConfigured()).toBe(true);
+    // A misconfigured gate is its own error, not folded into runner_unconfigured:
+    // the two need different fixes — and the probe reads it as not configured.
+    process.env.EZCORP_EXTENSION_RUNNER_SOCKET = "/tmp/runner-test.sock";
+    expect(() => getConfiguredExtensionRunner()).toThrow("both configured");
+    expect(isExtensionRunnerConfigured()).toBe(false);
+    delete process.env.EZCORP_EXTENSION_RUNNER_SOCKET;
+    delete process.env.EZCORP_EXTENSIONS_UNSANDBOXED_ACK;
+    expect(() => getConfiguredExtensionRunner()).toThrow(UNSANDBOXED_ACK_SENTENCE);
+  } finally {
+    names.forEach((name, index) => { if (previous[index] === undefined) delete process.env[name]; else process.env[name] = previous[index]; });
+  }
 });

@@ -761,7 +761,11 @@ jobs:
   e2e-real-auth:
     name: E2E (real auth + real DB)
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # Green runs take ~16 min. The extension round-trip spec may legitimately
+    # wait up to 15 min behind the boot-time bundled builds
+    # (web/e2e/fixtures/extension-v4.ts budget arithmetic); a job kill would
+    # discard the report that names which bound tripped.
+    timeout-minutes: 35
     needs: [browser-coverage-build]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -802,9 +806,10 @@ jobs:
           retention-days: 3
           if-no-files-found: error
       # Post-mortem debuggability: keep traces/screenshots when the gate fails
-      # (the real config uses trace: retain-on-failure).
+      # (the real config uses trace: retain-on-failure). `always()` so a
+      # job-level cancel or timeout still uploads whatever Playwright wrote.
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: failure()
+        if: always()
         with:
           name: e2e-real-auth-test-results
           path: web/test-results/
@@ -1141,7 +1146,15 @@ jobs:
 
   # Required check (branch protection): merges every shard + extras lcov and
   # enforces scripts/coverage-thresholds.json + the diff-scoped new-file/patch
-  # gates. No `bun install` — the gate scripts use only bun + node: builtins.
+  # gates.
+  #
+  # This job used to run without `bun install`, because every gate script here
+  # imported only `bun` and `node:` builtins. `scripts/crap-score.ts` broke that
+  # property: it reads the TypeScript AST for McCabe complexity, so it imports
+  # the real `typescript` package. Bun does not fail that import when the
+  # package is absent — it hands back an object whose members are all
+  # `undefined`, so the step died on `ts.ScriptTarget.Latest` rather than on a
+  # missing module. Install before running the gates.
   coverage:
     name: Per-file coverage gate
     runs-on: ubuntu-latest
@@ -1167,9 +1180,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      - id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version # single pin source; see note at top
+      # Root only: `scripts/crap-score.ts` needs `typescript`, and no gate
+      # script in this job reaches into `web/`.
+      - run: bun install --frozen-lockfile
       - run: git fetch --no-tags origin main
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -1199,6 +1216,102 @@ jobs:
         env:
           BASE_REF: origin/main
         run: bun scripts/check-patch-coverage.ts
+      # ── Quality gates (scripts/quality-gates.json) ────────────────────────
+      # They live in THIS job because it is the one place the merged
+      # coverage/lcov.info exists. Both read that artifact and re-run nothing.
+      - name: Global coverage floor
+        run: bun scripts/check-global-coverage.ts
+      # Scored against the functions this PR TOUCHED, not the whole tree — the
+      # full-repo CRAP ratchet runs nightly (mutation-nightly.yml).
+      - name: CRAP gate (touched functions)
+        env:
+          BASE_REF: origin/main
+        run: bun scripts/crap-score.ts --changed
+      # Runs even when a gate above FAILED — that is when the summary is most
+      # useful. But it must not run when the job never got a bun: the
+      # producers-check step above sits BEFORE setup-bun, so on a producer
+      # cascade a bare always() fired with no interpreter and added a bogus
+      # `bun: command not found` (exit 127) on top of the real failure.
+      - name: Quality summary
+        if: always() && steps.bun.outcome == 'success'
+        run: bun scripts/quality-report.ts --text
+      - name: Upload quality reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: quality-reports
+          path: coverage/quality
+          retention-days: 7
+
+  # ── Mutation testing (PR-scoped) ────────────────────────────────────────────
+  # Diff-scoped ON PURPOSE: a full mutation run is far too slow for a PR (6
+  # files measured at ~6 min), so this mutates only the changed files inside
+  # mutation.mutateGlobs and exits 0 early when a PR touches none of them. The
+  # whole set runs in mutation-nightly.yml.
+  #
+  # Stryker has no Bun runner, so this drives the Vitest leg on Node 22 — the
+  # same leg cov-extras provisions. Scope is web/src/lib/** pure logic.
+  mutation:
+    name: Mutation (changed files)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # fetch-depth: 0 + an explicit fetch of main so --changed can resolve the
+      # merge-base; PR checkouts are otherwise shallow.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - id: bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version # single pin source; see note at top
+      # StrykerJS 10 requires Node >= 22, and the vitest runner is a Node
+      # process — Bun cannot host it. The floor is read from the single Node
+      # pin (`.node-version`, 24.14.1) rather than a literal `node-version:
+      # "22"`: `src/__tests__/runtime-version-pins.test.ts` fails any literal
+      # in this workflow, and a floating 22.x is the drift that pin exists to
+      # stop. 24.14.1 satisfies Stryker's `>= 22`.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - run: git fetch --no-tags origin main
+      - run: bun install --frozen-lockfile
+      # web is NOT a bun workspace — without this second install web/node_modules
+      # is empty and every vitest-backed step fails in a way that names no cause.
+      - run: bun install --cwd web --frozen-lockfile
+      # Generates web/.svelte-kit/tsconfig.json, which web/tsconfig.json extends
+      # and Stryker's git-seeded sandbox would otherwise omit.
+      - run: bunx --bun svelte-kit sync
+        working-directory: web
+      # NON-BLOCKING PILOT (--report-only). Do NOT add this job to branch
+      # protection until a calibration pass lands.
+      #
+      # The mechanics work: a 20-file PR mutated in 1m16s (line-range scoped),
+      # scoring 81.82% on mutants tests actually reach. The blocker is SCOPE.
+      # web-vitest-coverage-includes.sh carries a broad `src/lib/**`, and "V8 is
+      # asked to report on it" is not "a vitest test executes it" — 7 of those
+      # 20 files had NO vitest coverage at all, pulling the total to 68.95%.
+      # Blocking on that number would fail PRs for files whose tests live in the
+      # bun leg, which teaches people to bypass the gate rather than fix tests.
+      #
+      # To promote: work the `NO test coverage at all` list (exclude bun-owned
+      # files in mutation.mutateGlobs, or make their tests import in a form
+      # vitest's module graph can follow), then drop --report-only and add
+      # "Mutation (changed files)" to required_status_checks.
+      - name: Mutation gate (report-only pilot)
+        env:
+          BASE_REF: origin/main
+        run: bun scripts/mutation.ts --changed --report-only
+      - name: Quality summary
+        if: always() && steps.bun.outcome == 'success'
+        run: bun scripts/quality-report.ts --text
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-report-pr
+          path: coverage/quality
+          retention-days: 7
 
   visual-evidence:
     # WF1 of the visual-evidence feature. SECURITY: this job runs UNTRUSTED PR
@@ -1311,12 +1424,26 @@ jobs:
               bunx playwright install-deps chromium
             fi
           )
-          # The helper splits mock and real-auth evidence. Real-auth uses the
-          # production runner transport, so make it available before capture.
-          if grep -qx '__ALL__' "$SPECS_FILE" || grep -q '^e2e/real-auth/' "$SPECS_FILE"; then
-            source scripts/setup-extension-runner-ci.sh --install
-            export EZCORP_EVIDENCE_RUNNER_READY=1
-          fi
+          # The helper splits mock and real-auth evidence by lanes.json
+          # membership (root-level real-auth journeys included). Real-auth uses
+          # the production runner transport, so make it available before
+          # capture whenever the helper says that tier will run. Exit 1 means
+          # "no real tier"; anything else is an error and must not read as no.
+          set +e
+          bash scripts/visual-evidence/capture.sh --has-real-auth "$SPECS_FILE"
+          NEEDS_REAL_AUTH=$?
+          set -e
+          case "$NEEDS_REAL_AUTH" in
+            0)
+              source scripts/setup-extension-runner-ci.sh --install
+              export EZCORP_EVIDENCE_RUNNER_READY=1
+              ;;
+            1) ;;
+            *)
+              echo "::error::visual-evidence lane query failed (exit $NEEDS_REAL_AUTH)"
+              exit "$NEEDS_REAL_AUTH"
+              ;;
+          esac
           bash scripts/visual-evidence/capture.sh "$SPECS_FILE"
           if ! grep -qx '__ALL__' "$SPECS_FILE"; then
             echo "credited_ok=1" >> "$GITHUB_OUTPUT"

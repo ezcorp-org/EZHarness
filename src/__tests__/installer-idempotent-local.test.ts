@@ -338,3 +338,18 @@ test("the author loader keeps lifecycle history when its real workspace blob is 
 
   expect(await loadAuthorPage(event)).toMatchObject({ state: { installation: { id: created.installation.id }, workspaces: { [created.workspace.id]: { sourceDigest: created.workspace.sourceDigest } } }, workspace: null, files: {}, sourceUnavailable: { workspaceId: created.workspace.id }, canApprove: false });
 });
+
+test("the author loader names listed installations in bulk and leaves a fresh workspace unnamed", async () => {
+  const created = await lifecycle.createWorkspace(owner, { files });
+  const projection = await legacy();
+  const state = await repository.read(created.installation.id);
+  await repository.create({ ...state!, installation: { ...state!.installation, id: projection.id }, workspaces: {}, revisions: {} });
+  const user = (await getUserById(owner.principalId))!;
+  const event = { url: new URL("http://localhost/extensions/author"), locals: { user, authMethod: "session" } } as unknown as Parameters<typeof loadAuthorPage>[0];
+  const loaded = await loadAuthorPage(event);
+  const { installations } = loaded as unknown as { installations: { id: string; name: string | null }[] };
+  const names = new Map(installations.map((installation) => [installation.id, installation.name]));
+  expect(names.get(projection.id)).toBe(projection.name);
+  expect(names.get(created.installation.id)).toBeNull();
+  expect(loaded).toMatchObject({ state: null, extensionName: null, breadcrumbTail: null });
+});

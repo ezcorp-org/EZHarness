@@ -57,12 +57,31 @@ const NODE_MODULES = join(REPO_ROOT, "node_modules");
 const CHECK_BUN_VERSION_TS = join(REPO_ROOT, "scripts/check-bun-version.ts");
 const BUN_VERSION_CHECK_SH = join(REPO_ROOT, "scripts/lib/bun-version-check.sh");
 
+/**
+ * Drop every `GIT_*` variable. Git exports GIT_DIR, GIT_INDEX_FILE, GIT_PREFIX
+ * and friends to hook processes, and the pre-commit staged-test map runs THIS
+ * file inside a hook whenever it is staged. Left in place, they point every
+ * fixture's git command at the REAL repository: `git init` in a tmpdir
+ * re-initialised the outer repo as bare, `git config` wrote the fixture
+ * identity into its shared config, and `git worktree add` registered tmp
+ * worktrees on it. Each fixture builds its own repo, so nothing from the
+ * parent's git context is ever wanted.
+ */
+function withoutGitContext(env: Record<string, string>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(env)) {
+    if (!k.startsWith("GIT_")) out[k] = v;
+  }
+  return out;
+}
+
 // Env with CI + EZ_SKIP_HOOKS stripped so the ambient runner (which may set CI)
 // can't mask the "hooks actually run / setup actually wires" default paths.
-const baseEnv: Record<string, string> = {};
+const rawEnv: Record<string, string> = {};
 for (const [k, v] of Object.entries(process.env)) {
-  if (v !== undefined) baseEnv[k] = v;
+  if (v !== undefined) rawEnv[k] = v;
 }
+const baseEnv = withoutGitContext(rawEnv);
 delete baseEnv.CI;
 delete baseEnv.EZ_SKIP_HOOKS;
 
@@ -338,5 +357,41 @@ describe("setup-git-hooks.sh", () => {
     // Nothing git-related should have been created.
     const isRepo = sh(["git", "rev-parse", "--is-inside-work-tree"], { cwd: dir });
     expect(isRepo.exitCode).not.toBe(0);
+  });
+});
+
+describe("hook-lib > staged_test_targets", () => {
+  const HOOK_LIB = join(REPO_ROOT, "scripts/lib/hook-lib.sh");
+
+  /** Resolve staged paths through the REAL helper, sourced as the hooks source it. */
+  function targets(...staged: string[]): string[] {
+    const res = sh(["bash", "-c", `source "${HOOK_LIB}" && staged_test_targets "$@"`, "_", ...staged], {
+      cwd: REPO_ROOT,
+    });
+    expect(res.exitCode).toBe(0);
+    return res.out.split("\n").filter(Boolean);
+  }
+
+  test("a staged unit test maps to itself", () => {
+    const unit = "web/src/__tests__/breadcrumb-tail.unit.test.ts";
+    expect(targets(unit)).toEqual([unit]);
+  });
+
+  test("a staged Playwright spec under web/e2e maps to NOTHING", () => {
+    // REGRESSION: every web/playwright*.config.ts sets `testDir: ./e2e`, so
+    // nothing there is a unit test for either runner. Before the guard, a
+    // staged `web/e2e/*.spec.ts` matched the `*.spec.ts` self-map and fell
+    // through to the vitest leg, which found no test file and failed EVERY
+    // commit that touched an e2e spec. Pre-push and CI own Playwright.
+    expect(targets("web/e2e/breadcrumb-tail.spec.ts", "web/e2e/fixtures/breadcrumb.ts")).toEqual([]);
+  });
+});
+
+describe("fixture env isolation", () => {
+  test("drops the git context a hook exports, so fixtures never touch the real repo", () => {
+    expect(
+      withoutGitContext({ GIT_DIR: "/real/.git", GIT_INDEX_FILE: "/real/index", GIT_PREFIX: "", PATH: "/bin" }),
+    ).toEqual({ PATH: "/bin" });
+    for (const k of Object.keys(baseEnv)) expect(k.startsWith("GIT_")).toBe(false);
   });
 });
