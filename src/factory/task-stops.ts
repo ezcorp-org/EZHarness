@@ -386,7 +386,18 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     if (launch.tenantId !== reference.tenantId || launch.projectId !== reference.projectId || launch.runId !== reference.logicalRunId || launch.requestDigest !== authority.requestDigest || launch.grantRevision !== authority.grantRevision) throw new FactoryTaskStopError("factory_task_stop_stale");
     const material = await this.compute.readRetainedAdmittedInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: launch.reservationId });
     const { lease } = material.receipt;
-    if (!lease.hostId || lease.hostId !== launch.hostId || lease.holderGeneration !== launch.holderGeneration || lease.allocationGeneration !== launch.allocationGeneration || lease.allocationToken !== launch.allocationToken || lease.allocationGeneration !== authority.reservationGeneration) throw new FactoryTaskStopError("factory_task_stop_stale");
+    // The pool pins a host only for an allocation that binds a whole one, so an
+    // ordinary CPU reservation has none — which is the same reasoning `confirm`
+    // already applies to `confirmStopped` below: having no opinion is not a
+    // contradiction. Requiring one here made every CPU attempt unstoppable: the
+    // guest ran, its result became durable, the kernel issued `cancel-node`, and
+    // this refused it `factory_task_stop_stale` on every pass while the run sat
+    // in `stopping`. Measured end to end, not reasoned about.
+    //
+    // The host the stop addresses comes from the durable launch record, which
+    // sealed it when the attempt was prepared. A lease that DOES name a host
+    // must still agree with it.
+    if ((lease.hostId !== undefined && lease.hostId !== launch.hostId) || !launch.hostId || lease.holderGeneration !== launch.holderGeneration || lease.allocationGeneration !== launch.allocationGeneration || lease.allocationToken !== launch.allocationToken || lease.allocationGeneration !== authority.reservationGeneration) throw new FactoryTaskStopError("factory_task_stop_stale");
     if (outcome && (outcome.authority.attemptId !== authority.attemptId || outcome.receipt.reservationId !== launch.reservationId || outcome.authority.candidateGeneration !== authority.candidateGeneration || outcome.authority.attemptNumber !== authority.attemptNumber)) throw new FactoryTaskStopError("factory_task_stop_stale");
     stopCount(launch.holderGeneration, 1); stopCount(launch.allocationGeneration, 1);
     return Object.freeze({
