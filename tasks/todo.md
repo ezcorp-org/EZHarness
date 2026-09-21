@@ -2894,3 +2894,49 @@ sweep is a sub-tick and not new infrastructure.
 - Main's new gates, measured: `bun run test:coverage` cannot produce `coverage/lcov.info` on this host because the browser-route coverage receipt is CI-only (main's own tree fails identically), so the global floor and CRAP gates are measured here only over the combined runner's merged lcov. In CI both sit inside the required check "Per-file coverage gate" and BLOCK; "Mutation (changed files)" is report-only.
 - Rulings: (1) compiled workspace output (`packages/**/dist/**`) leaves the lcov through the vitest leg's product-source filter, never through EXCLUDES; (2) the 38 functions above complexity 30 on the feature diff are split with no behaviour change under W18a (w18a-sdk: 20 in factory-sdk, factory-orchestrator, extension-runner; w18a-app: 12 in src/factory, src/runtime, web/src plus the dist filter and the floor measurement; 6 in five W09b-owned files wait for W09b); (3) the combined runner records the floor and CRAP results on every run (`--quality-blocking` folds them into the exit code once W18a lands); (4) W09b declares release destinations and profiles in the startup document (W09's own surface; plan W09 line 270) with credentials by reference, and the release-outcome worker claims as the run's live initiator, reading the consent and claiming in two transactions because `claim` re-validates the consent in its own.
 - [ ] In flight: W09b round 3 (release destinations, running release-outcome role, real-store producers, G14 already green at 214d7251e), w18a-sdk, w18a-app. Next: validate and merge W09b; combined run with `--podman`; second W18a pass on the W09b files; W14, W15, W16 in parallel; W17; W18 final gate; W19; W20.
+
+## W18a-sdk — split the twenty high-complexity workspace functions (2026-09-21)
+
+Branch `wp/w18a-sdk` from `integ/w00` at `bf010dece`, merged `integ/w00` again at `c1377122b`.
+Scope: reduce cyclomatic complexity below the new CRAP gate's ceiling of 30 in
+`packages/@ezcorp/factory-sdk`, `packages/@ezcorp/factory-orchestrator`, and
+`packages/@ezcorp/extension-runner`, with no behavior change.
+
+- [x] `factory-sdk/src/validation.ts` — 8 functions split into per-responsibility validators.
+- [x] `factory-sdk/src/compiler.ts` — the two graph passes, `compileFactory`, and `inferExpressionSchema`.
+- [x] `factory-sdk/src/schema.ts` — the generated-schema matcher, one matcher per JSON value kind.
+- [x] `factory-sdk/src/kernel.ts` — `applyRepair` phases and the `advanceKernel` reducer table.
+- [x] `factory-sdk/src/expressions.ts` — `evaluate` and `inspect`, one unit per expression family.
+- [x] `factory-orchestrator/src/workflow.ts` — `factoryWorkflow` phases (deterministic, no new imports).
+- [x] `extension-runner/src/service.ts` — the HTTP dispatcher and three endpoint handlers.
+- [x] `extension-runner/src/podman.ts` — `build` assertions, compile, and feature tests.
+- [x] No test changed. No threshold changed. No new file, so no new coverage-thresholds key.
+- [x] Gates: typecheck, lint, factory boundaries, gate integrity, schema-generate drift.
+
+### Review
+
+Every one of the twenty functions was over the CRAP gate's ceiling because it carried a whole
+subsystem's decision table in one body, not because any single decision was complicated. So the
+split is by responsibility and never by line count: one validator per schema keyword family, one
+per JSON value kind, one per compiled node kind, one per API resource family, one reducer per
+kernel event kind, one phase per workflow stage, one handler per runner endpoint. Each parent is
+now a short sequence that reads as the list of things the subsystem checks, in the order it checks
+them.
+
+The binding constraint was that the existing tests had to pass unchanged, which they do: the SDK's
+196 tests, the orchestrator's 48 Node tests, and the runner's suites are byte-identical to what
+they were. That is only safe because every split preserves the order of checks, the error codes,
+the messages, the paths, and the thrown types exactly. Two places needed care. In
+`validateSchemaNode` the `$ref` arm must fall back to the caller rather than return, because a
+reference node still owes its own `$defs` walk; returning early would silently drop that
+validation. In `advanceKernel` the reducer table is typed over `DispatchedEvent`, the event union
+minus the two kinds the caller answers before the table, so the switch stays exhaustive without a
+`default` branch that no run could ever reach and no test could ever cover.
+
+The other thing worth naming is what the split does NOT do. `validateCompiledFactory` used to
+thread four accumulators through one 110-line pass; the phases now rebuild each index from the
+graph the previous phase proved canonical, which is the same values by construction and makes each
+phase independently readable. `repair` and `replan` became one fall-through case because both
+already called the same reducer. Neither is a behavior change, and both are the kind of duplication
+the gate was pointing at.
+
