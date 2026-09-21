@@ -52,6 +52,7 @@ const BASH = Bun.which("bash") ?? "/usr/bin/env bash";
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "podman-wrapper-"));
 const BIN = join(SANDBOX, "bin");
+const BIN_STANDALONE = join(SANDBOX, "bin-standalone");
 // PATH for the "docker CLI is missing" case. `dirname` is the one external
 // the script runs BEFORE the docker check, so it has to stay reachable —
 // otherwise that test would pass for the wrong reason.
@@ -61,6 +62,7 @@ const RUNNER_SOCKET = join(SANDBOX, "runner.sock");
 const WRAPPER = join(SANDBOX, "scripts/podman-compose.sh");
 
 mkdirSync(BIN);
+mkdirSync(BIN_STANDALONE);
 mkdirSync(BIN_NO_DOCKER);
 mkdirSync(join(SANDBOX, "scripts"));
 symlinkSync(WRAPPER_SOURCE, WRAPPER);
@@ -69,23 +71,25 @@ symlinkSync(Bun.which("dirname") ?? "/usr/bin/dirname", join(BIN_NO_DOCKER, "dir
 
 // Records what the wrapper handed to Compose, then exits 0 — the wrapper
 // `exec`s it, so this is the last word on what the invocation actually was.
-await Bun.write(
-  join(BIN, "docker"),
-  [
-    "#!/usr/bin/env bash",
-    // Braceless shell expansions on purpose: biome reads a `${...}` inside a
-    // JS string as a mistyped template literal. The wrapper exports both
-    // variables before it execs, so there is no default to fall back to.
-    'printf "COMPOSE_FILE=%s\\n" "$COMPOSE_FILE"',
-    'printf "DOCKER_HOST=%s\\n" "$DOCKER_HOST"',
-    'printf "EZCORP_BUILD_COMMIT=%s\\n" "$EZCORP_BUILD_COMMIT"',
-    'printf "EZ_RUNNER_GROUP=%s\\n" "$EZ_RUNNER_GROUP"',
-    'if test -v EZ_RUNNER_GROUP; then printf "EZ_RUNNER_GROUP_SET=1\\n"; else printf "EZ_RUNNER_GROUP_SET=0\\n"; fi',
-    'printf "ARGV=%s\\n" "$*"',
-    "",
-  ].join("\n"),
-);
+const composeRecorder = [
+  "#!/usr/bin/env bash",
+  // Braceless shell expansions on purpose: biome reads a `${...}` inside a
+  // JS string as a mistyped template literal. The wrapper exports both
+  // variables before it execs, so there is no default to fall back to.
+  'printf "COMPOSE_FILE=%s\\n" "$COMPOSE_FILE"',
+  'printf "DOCKER_HOST=%s\\n" "$DOCKER_HOST"',
+  'printf "EZCORP_BUILD_COMMIT=%s\\n" "$EZCORP_BUILD_COMMIT"',
+  'printf "EZ_RUNNER_GROUP=%s\\n" "$EZ_RUNNER_GROUP"',
+  'if test -v EZ_RUNNER_GROUP; then printf "EZ_RUNNER_GROUP_SET=1\\n"; else printf "EZ_RUNNER_GROUP_SET=0\\n"; fi',
+  'printf "ARGV=%s\\n" "$*"',
+  "",
+].join("\n");
+await Bun.write(join(BIN, "docker"), composeRecorder);
 chmodSync(join(BIN, "docker"), 0o755);
+await Bun.write(join(BIN_STANDALONE, "docker"), "#!/usr/bin/env bash\nexit 1\n");
+await Bun.write(join(BIN_STANDALONE, "docker-compose"), composeRecorder);
+chmodSync(join(BIN_STANDALONE, "docker"), 0o755);
+chmodSync(join(BIN_STANDALONE, "docker-compose"), 0o755);
 
 const socketServer = Bun.listen({ unix: SOCKET, socket: { data() {} } });
 const runnerSocketServer = Bun.listen({ unix: RUNNER_SOCKET, socket: { data() {} } });
@@ -331,6 +335,67 @@ describe("podman wrapper — the invocation it guarantees", () => {
     expect(run(["up", "-d"]).invocation?.buildCommit).toBe(DEFAULT_BUILD_COMMIT);
     expect(run(["up", "-d"], { EZCORP_BUILD_COMMIT: "f".repeat(40) }).invocation?.buildCommit).toBe("f".repeat(40));
   });
+
+  test("preserves the revision stamp with the standalone Compose client", () => {
+    const result = run(["up", "-d"], {
+      PATH: `${BIN_STANDALONE}:${baseEnv.PATH}`,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.argv).toBe("up -d");
+    expect(result.invocation?.buildCommit).toBe(DEFAULT_BUILD_COMMIT);
+  });
+});
+
+describe("podman wrapper — the prod stack (`--prod`)", () => {
+  // .env.prod is gitignored and absent in CI, so the wrapper's env-file
+  // branch is pointed at a temp file instead of the real one.
+  const ENV_FILE = join(SANDBOX, "env.prod");
+  writeFileSync(ENV_FILE, "EZCORP_PUBLIC_URL=http://localhost:4000\n");
+
+  test("swaps the file list for the prod stack and its override", () => {
+    const result = run(["--prod", "up", "-d"], { EZ_COMPOSE_ENV_FILE: ENV_FILE });
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.composeFile).toBe(
+      "compose.prod.yml:compose.podman-prod.yml",
+    );
+    expect(result.invocation?.buildCommit).toBe(DEFAULT_BUILD_COMMIT);
+  });
+
+  test("injects --env-file, because Compose ignores COMPOSE_ENV_FILE", () => {
+    // Measured on Compose 5.5.1: with only COMPOSE_ENV_FILE set, every
+    // `${VAR:?}` in compose.prod.yml reads as unset and the deploy aborts.
+    // The flag has to be on the command line, ahead of the subcommand.
+    const result = run(["--prod", "up", "-d"], { EZ_COMPOSE_ENV_FILE: ENV_FILE });
+    expect(result.invocation?.argv).toBe(`compose --env-file ${ENV_FILE} up -d`);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+  });
+
+  test("does not add a second --env-file when the caller passed one", () => {
+    const argv = run(["--prod", "--env-file", "custom.env", "config"], {
+      EZ_COMPOSE_ENV_FILE: ENV_FILE,
+    }).invocation?.argv;
+    expect(argv).toBe("compose --env-file custom.env config");
+  });
+
+  test("refuses to run when the env file is missing, naming the fix", () => {
+    const result = run(["--prod", "up", "-d"], {
+      EZ_COMPOSE_ENV_FILE: join(SANDBOX, "does-not-exist.env"),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.invocation).toBeNull();
+    expect(result.stderr).toContain("cp .env.prod.example .env.prod");
+  });
+
+  test("every prod file it layers exists in the repo", async () => {
+    const layered =
+      run(["--prod", "up", "-d"], { EZ_COMPOSE_ENV_FILE: ENV_FILE }).invocation?.composeFile.split(
+        ":",
+      ) ?? [];
+    expect(layered.length).toBeGreaterThan(0);
+    for (const file of layered) {
+      expect(await Bun.file(join(REPO_ROOT, file)).exists(), `${file} is missing`).toBe(true);
+    }
+  });
 });
 
 describe("podman wrapper — a `-f` cannot silently drop the override", () => {
@@ -417,9 +482,14 @@ describe("podman wrapper — host preconditions", () => {
     expect(result.invocation).toBeNull();
   });
 
-  test("says the docker CLI is required when it is not on PATH", () => {
+  test("names BOTH Compose spellings when neither is on PATH", () => {
+    // The wrapper accepts `docker compose` or the standalone `docker-compose`.
+    // A Podman-only Mac (`brew install docker-compose`) has no `docker`
+    // executable at all, so an error naming only that one is a dead end.
     const result = run(["up", "-d"], { PATH: BIN_NO_DOCKER });
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("'docker' CLI");
+    expect(result.stderr).toContain("Docker Compose CLI");
+    expect(result.stderr).toContain("brew install docker-compose");
+    expect(result.invocation).toBeNull();
   });
 });

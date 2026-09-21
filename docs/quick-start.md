@@ -24,8 +24,8 @@ mkdir -p .ezcorp/data .ezcorp/extensions .ezcorp/extension-data .ezcorp/projects
 Before the first start, run `sudo chown -R 1000:1000 .ezcorp` with Docker. With rootless Podman, run `podman unshare chown -R 1000:1000 .ezcorp` instead because container UID 1000 maps through the user namespace. Then start the stack:
 
 ```bash
-docker compose --env-file .env.prod -f compose.prod.yml config --quiet
-docker compose --env-file .env.prod -f compose.prod.yml up -d --build
+bun run podman --prod config --quiet
+bun run podman --prod up -d --build
 ```
 
 The checkout is required because the production Compose file extends the shared extension-runner fragments and builds the image from the same release. A single downloaded `compose.prod.yml` is incomplete. Open the `EZCORP_PUBLIC_URL` you set in `.env.prod`, create your admin account, then go to **Settings > Provider Keys** to add an LLM provider key.
@@ -49,7 +49,7 @@ Data lives in `./.ezcorp/data/` in the working tree (`.ezcorp/` is gitignored), 
 
 ```bash
 git pull --ff-only
-docker compose --env-file .env.prod -f compose.prod.yml up -d --build
+bun run podman --prod up -d --build
 ```
 
 The safe boot sequence snapshots the DB before running migrations and rolls back if anything fails. See [production-guide.md §2](production-guide.md#2-boot-sequence-and-migration-safety).

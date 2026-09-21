@@ -196,3 +196,30 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 - Proved the uid/gid and bind-mount contract with executable tests, rendered Compose output, the production image user, and real rootless Podman write tests.
 - Merged the current `main` and the concurrent PR-head merge without conflicts. The merged source tree is identical to the fully validated tree.
 - Verification passed: lint, typecheck, production build, focused tests, 2,185 browser tests, 26,602 coverage tests, and all 1,631 enforced coverage files.
+
+## Repair PR #284 against current main — 2026-09-21
+
+- [x] Confirm the exact PR head and current `origin/main` in an isolated worktree.
+- [x] Run the focused wrapper test on the PR head as a baseline.
+- [x] Merge `origin/main` and resolve the wrapper and test conflicts as a semantic union.
+- [x] Add or adjust regression coverage for the combined behavior.
+- [x] Run focused tests, shell syntax, typecheck, lint, and Svelte checks.
+- [x] Review and commit the repair without pushing.
+
+Plan review: preserve PR #284 release diagnostics, provenance reporting, and cache reuse while
+retaining `main`/#286's default wrapper behavior. Compare the base and both parents for each
+conflict, and do not change behavior outside the conflict repair unless a regression test exposes a
+required correction.
+
+Review: merged PR head `47aa41a25` with `origin/main` `b43558b34`. The wrapper now exports PR
+#284's checkout revision before it executes #286's selected Compose client with the selected stack's
+environment-file arguments. The merged test keeps the PR's isolated Git fixture and adds positive
+proof that the revision reaches both the standalone Compose client and the production stack.
+
+Verification: under pinned Bun 1.3.14, the PR-head baseline passed 28 tests and 64 assertions. The
+merged focused set passed 45 tests and 135 assertions, including image provenance, bounded
+release-blob diagnostics, both wrapper stacks, and the macOS trusted-local documentation contract.
+A real Podman-socket-backed Compose render listed all development and production services after
+explicit test-only runner inputs; missing inputs failed at the intended preflight guards. `bash -n`,
+full typecheck, lint over
+4,609 files, and Svelte check passed with zero errors. No blocker remains.
