@@ -3001,13 +3001,18 @@ end-to-end proof that a submitted run reaches a real guest.
 - [x] The `tests/postgres/factory-*` producers and the `postgres` and `pool`
       coverage legs, rerun once the stores came back: 6 files, 29 pass, 0 fail,
       and all seven coverage legs exit 0 for the first time.
-- [ ] PENDING: `rebuild-and-run-three.sh` (G10b, G11), `negative-control.sh`
-      (G12), and the Round 3 C publication proof. The first two need only the
-      stores. The third also needs harness work nobody has done: a release node
-      in the guest definition and an approval or policy written through W05's
-      production writers, so a claimable operation exists for the running role
-      to publish. Command and detail under "PENDING on the shared stores" in
-      the gate file.
+- [x] G10b, G11 and G12 refreshed against the live stores, and the harness's
+      startup document now declares an S3 destination: `/api/ready` reports
+      ALL FOUR roles W09 held running, with only `notification-send` (W17)
+      held. Three consecutive passes, each on a fresh product database.
+- [x] G17: the declared destination reaches the real S3 store with the
+      credentials it points at, a wrong secret is refused by the store, and an
+      undeclared account is refused by name. Nothing written to the store.
+- [ ] PENDING: a PUBLISHED release end to end. `release-outcome` runs and its
+      scan finds nothing, because the proof guest's definition carries no
+      release node and no approval or policy was written. Closing it needs a
+      release node in the definition plus an approval or policy through W05's
+      production writers — harness work, not a store.
 
 ### W09b review
 
