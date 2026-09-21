@@ -68,6 +68,95 @@ function failure(error: unknown): FactoryPrivateResponse {
   return response(error instanceof Error && error.message.includes("conflicts") ? 409 : 400, { error: "invalid_request" });
 }
 
+/** Which route family a path belongs to. At most one member is ever non-null. */
+interface GatewayRoutes {
+  readonly execution: RegExpMatchArray | null;
+  readonly chunk: RegExpMatchArray | null;
+  readonly seal: RegExpMatchArray | null;
+  readonly material: RegExpMatchArray | null;
+  readonly list: RegExpMatchArray | null;
+  /** The matched route, whichever family it came from. Its group 1 is the attempt id. */
+  readonly matched: RegExpMatchArray | null;
+}
+
+function gatewayRoutes(path: string): GatewayRoutes {
+  const execution = path.match(EXECUTION_PATH);
+  const chunk = path.match(MATERIAL_CHUNK_PATH);
+  const seal = path.match(MATERIAL_SEAL_PATH);
+  const material = path.match(MATERIAL_PATH);
+  const list = path.match(MATERIAL_LIST_PATH);
+  return { execution, chunk, seal, material, list, matched: execution ?? chunk ?? seal ?? material ?? list };
+}
+
+/** One verified gateway call, past version, envelope, and attempt authentication. */
+interface GatewayCall {
+  readonly method: string;
+  readonly headers: Readonly<Record<string, string>>;
+  readonly body: Buffer;
+  /** True when the body is an octet-stream material chunk rather than JSON. */
+  readonly raw: boolean;
+  readonly request: unknown;
+  readonly attempt: FactoryAttemptAuthority;
+}
+
+/** The four execution operations: admit, status, cancel. */
+async function handleExecution(options: FactoryGatewayOptions, call: GatewayCall, route: RegExpMatchArray): Promise<FactoryPrivateResponse> {
+  if (call.raw) throw new Error("Gateway version or content type is invalid.");
+  if (call.method === "PUT" && !route[2]) {
+    const runnerRequest = call.request as FactoryRunnerRequest;
+    if (factoryRunnerRequestDigest(runnerRequest) !== call.attempt.requestDigest) throw new Error("Factory runner request does not match signed attempt.");
+    await options.authorizeAttempt(call.attempt);
+    const admitted = await options.journal.admit({ ...call.attempt, request: runnerRequest });
+    return response(admitted.reused ? 200 : 201, { attemptId: call.attempt.attemptId, ...admitted });
+  }
+  if (call.method === "GET" && !route[2]) return response(200, await options.journal.status(call.attempt));
+  if (call.method === "POST" && route[2] === "/cancel") return response(202, { accepted: await options.journal.cancel(call.attempt) });
+  return response(405, { error: "method_not_allowed" });
+}
+
+/** One material chunk, written raw and read back raw. */
+async function handleMaterialChunk(materials: FactoryAttemptMaterials, call: GatewayCall, identity: Parameters<FactoryAttemptMaterials["chunks"]>[0], route: RegExpMatchArray): Promise<FactoryPrivateResponse> {
+  const index = count(route[5]!, FACTORY_MATERIAL_LIMITS.maxChunks - 1);
+  if (call.method === "PUT") {
+    if (!call.raw) throw new Error("Gateway version or content type is invalid.");
+    const digest = call.headers["x-ezcorp-factory-chunk-digest"];
+    if (typeof digest !== "string") throw new Error("Gateway chunk digest header is missing.");
+    const record = await materials.writeChunk(identity, { index, digest, encodedBytes: call.body.byteLength }, call.body);
+    return response(200, { material: record });
+  }
+  if (call.method === "GET") return bytes(200, await materials.readChunk(identity, index));
+  return response(405, { error: "method_not_allowed" });
+}
+
+/** The auxiliary material operations, served only when the gateway was given a material service. */
+async function handleMaterials(options: FactoryGatewayOptions, call: GatewayCall, routes: GatewayRoutes, route: RegExpMatchArray): Promise<FactoryPrivateResponse> {
+  if (!options.materials) return response(404, { error: "not_found" });
+  const materials = options.materials(call.attempt);
+  const scope = materials.scope(segment(route[2]!));
+
+  if (routes.list) {
+    if (call.method !== "GET") return response(405, { error: "method_not_allowed" });
+    return response(200, { materials: await materials.list(scope) });
+  }
+
+  const identity = { ...scope, objectName: segment(route[3]!), version: count(route[4]!, Number.MAX_SAFE_INTEGER) };
+  if (routes.chunk) return handleMaterialChunk(materials, call, identity, routes.chunk);
+
+  if (routes.seal) {
+    if (call.method !== "POST") return response(405, { error: "method_not_allowed" });
+    const artifact = await materials.seal(identity, String((call.request as { digest?: unknown }).digest));
+    return response(200, { artifact });
+  }
+
+  if (call.method === "PUT") {
+    const input = call.request as { mediaType?: unknown; totalBytes?: unknown; chunkCount?: unknown };
+    const record = await materials.begin(identity, String(input.mediaType), Number(input.totalBytes), Number(input.chunkCount));
+    return response(record.sealed ? 200 : 201, { material: record });
+  }
+  if (call.method === "GET") return response(200, { chunks: await materials.chunks(identity) });
+  return response(405, { error: "method_not_allowed" });
+}
+
 /** The shared private transport supplies the verified client certificate identity. */
 export function startFactoryExecutionGateway(options: FactoryGatewayOptions): { url: string; stop(): void } {
   const envelope = options.materials ? FACTORY_GATEWAY_MATERIAL_ENVELOPE_BYTES : FACTORY_GATEWAY_CONTROL_ENVELOPE_BYTES;
@@ -76,71 +165,20 @@ export function startFactoryExecutionGateway(options: FactoryGatewayOptions): { 
     tls: options.tls, hostname: options.hostname, port: options.port, maxBodyBytes: envelope, maxResponseBytes: envelope,
     async handle({ peerIdentity, method, path, headers, body }) {
       try {
-        const match = path.match(EXECUTION_PATH);
-        const chunkMatch = path.match(MATERIAL_CHUNK_PATH);
-        const sealMatch = path.match(MATERIAL_SEAL_PATH);
-        const materialMatch = path.match(MATERIAL_PATH);
-        const listMatch = path.match(MATERIAL_LIST_PATH);
-        const route = match ?? chunkMatch ?? sealMatch ?? materialMatch ?? listMatch;
+        const routes = gatewayRoutes(path);
+        const route = routes.matched;
         const raw = method !== "GET" && headers["content-type"] === "application/octet-stream";
         if (headers["x-ezcorp-factory-version"] !== "1" || (method !== "GET" && !raw && headers["content-type"] !== "application/json")) throw new Error("Gateway version or content type is invalid.");
         // Only a material chunk may use the large envelope; every other route keeps its original bound.
-        if (!chunkMatch && body.byteLength > FACTORY_GATEWAY_CONTROL_ENVELOPE_BYTES) return response(413, { error: "request_too_large" });
+        if (!routes.chunk && body.byteLength > FACTORY_GATEWAY_CONTROL_ENVELOPE_BYTES) return response(413, { error: "request_too_large" });
         const request = !raw && body.byteLength ? JSON.parse(body.toString("utf8")) : {};
         const token = headers.authorization;
         const attempt = token?.startsWith("Bearer ") ? await verifyFactoryAttemptToken(token.slice(7), options.jwtSecret, options.installationId) : null;
         if (!route || !attempt || attempt.attemptId !== decodeURIComponent(route[1]!) || peerIdentity !== attempt.tenantId) return response(401, { error: "unauthorized" });
 
-        if (match) {
-          if (raw) throw new Error("Gateway version or content type is invalid.");
-          if (method === "PUT" && !match[2]) {
-            const runnerRequest = request as FactoryRunnerRequest;
-            if (factoryRunnerRequestDigest(runnerRequest) !== attempt.requestDigest) throw new Error("Factory runner request does not match signed attempt.");
-            await options.authorizeAttempt(attempt);
-            const admitted = await options.journal.admit({ ...attempt, request: runnerRequest });
-            return response(admitted.reused ? 200 : 201, { attemptId: attempt.attemptId, ...admitted });
-          }
-          if (method === "GET" && !match[2]) return response(200, await options.journal.status(attempt));
-          if (method === "POST" && match[2] === "/cancel") return response(202, { accepted: await options.journal.cancel(attempt) });
-          return response(405, { error: "method_not_allowed" });
-        }
-
-        if (!options.materials) return response(404, { error: "not_found" });
-        const materials = options.materials(attempt);
-        const scope = materials.scope(segment(route[2]!));
-
-        if (listMatch) {
-          if (method !== "GET") return response(405, { error: "method_not_allowed" });
-          return response(200, { materials: await materials.list(scope) });
-        }
-
-        const identity = { ...scope, objectName: segment(route[3]!), version: count(route[4]!, Number.MAX_SAFE_INTEGER) };
-        if (chunkMatch) {
-          const index = count(chunkMatch[5]!, FACTORY_MATERIAL_LIMITS.maxChunks - 1);
-          if (method === "PUT") {
-            if (!raw) throw new Error("Gateway version or content type is invalid.");
-            const digest = headers["x-ezcorp-factory-chunk-digest"];
-            if (typeof digest !== "string") throw new Error("Gateway chunk digest header is missing.");
-            const record = await materials.writeChunk(identity, { index, digest, encodedBytes: body.byteLength }, body);
-            return response(200, { material: record });
-          }
-          if (method === "GET") return bytes(200, await materials.readChunk(identity, index));
-          return response(405, { error: "method_not_allowed" });
-        }
-
-        if (sealMatch) {
-          if (method !== "POST") return response(405, { error: "method_not_allowed" });
-          const artifact = await materials.seal(identity, String((request as { digest?: unknown }).digest));
-          return response(200, { artifact });
-        }
-
-        if (method === "PUT") {
-          const input = request as { mediaType?: unknown; totalBytes?: unknown; chunkCount?: unknown };
-          const record = await materials.begin(identity, String(input.mediaType), Number(input.totalBytes), Number(input.chunkCount));
-          return response(record.sealed ? 200 : 201, { material: record });
-        }
-        if (method === "GET") return response(200, { chunks: await materials.chunks(identity) });
-        return response(405, { error: "method_not_allowed" });
+        const call: GatewayCall = { method, headers, body, raw, request, attempt };
+        if (routes.execution) return await handleExecution(options, call, routes.execution);
+        return await handleMaterials(options, call, routes, route);
       } catch (error) { return failure(error); }
     },
   });
