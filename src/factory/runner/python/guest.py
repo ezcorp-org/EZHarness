@@ -34,7 +34,12 @@ from pathlib import Path
 from typing import Any, Final, TextIO
 
 from factory_ijson import canonicalize_json
-from factory_validation import validate_factory_runner_request, validate_factory_runner_result
+from factory_validation import (
+    validate_factory_guest_model_request,
+    validate_factory_guest_model_response,
+    validate_factory_runner_request,
+    validate_factory_runner_result,
+)
 
 Json = Any
 
@@ -159,9 +164,20 @@ def load_schema(path: Path) -> dict[str, Json]:
 class Guest:
     """One guest process. It holds the two pinned schemas and nothing else."""
 
-    def __init__(self, request_schema: dict[str, Json], result_schema: dict[str, Json]) -> None:
+    def __init__(
+        self,
+        request_schema: dict[str, Json],
+        result_schema: dict[str, Json],
+        guest_model_request_schema: dict[str, Json] | None = None,
+        guest_model_response_schema: dict[str, Json] | None = None,
+    ) -> None:
         self.request_schema = request_schema
         self.result_schema = result_schema
+        # The guest model pair is optional because a pack that stages only the
+        # runner schemas must keep working. Asking for a guest model verdict
+        # without them is refused rather than answered from a default.
+        self.guest_model_request_schema = guest_model_request_schema
+        self.guest_model_response_schema = guest_model_response_schema
 
     def verdict(self, kind: str, value: Json) -> dict[str, Json]:
         """One envelope's verdict, in the shape the equivalence suite compares."""
@@ -171,13 +187,27 @@ class Guest:
         elif kind == "result":
             result = validate_factory_runner_result(value, self.result_schema)
             schema_id = self.result_schema.get("$id")
+        elif kind == "guest-model-request":
+            schema = self._guest_model_schema(self.guest_model_request_schema, kind)
+            result = validate_factory_guest_model_request(value, schema)
+            schema_id = schema.get("$id")
+        elif kind == "guest-model-response":
+            schema = self._guest_model_schema(self.guest_model_response_schema, kind)
+            result = validate_factory_guest_model_response(value, schema)
+            schema_id = schema.get("$id")
         else:
-            raise GuestError("envelope kind must be request or result")
+            raise GuestError("envelope kind must be request, result, guest-model-request, or guest-model-response")
         answer: dict[str, Json] = {"ok": result.ok, "schemaId": schema_id, "runtime": GUEST_VERSION}
         if result.issue is not None:
             answer["code"] = result.issue.code
             answer["path"] = list(result.issue.path)
         return answer
+
+    @staticmethod
+    def _guest_model_schema(schema: dict[str, Json] | None, kind: str) -> dict[str, Json]:
+        if schema is None:
+            raise GuestError(f"this guest was not given the {kind} schema")
+        return schema
 
     def run(self, request: Json) -> dict[str, Json]:
         """Answer a real attempt.
@@ -397,4 +427,18 @@ def main(directory: Path = SCHEMA_DIRECTORY) -> int:
     """The launcher the in-guest shim starts calls exactly this."""
     request_schema = load_schema(directory / "factory-runner-request.schema.json")
     result_schema = load_schema(directory / "factory-runner-result.schema.json")
-    return serve(Guest(request_schema, result_schema), sys.stdin, sys.stdout)
+    return serve(Guest(request_schema, result_schema, *_optional_guest_model_schemas(directory)), sys.stdin, sys.stdout)
+
+
+def _optional_guest_model_schemas(directory: Path) -> tuple[dict[str, Json] | None, dict[str, Json] | None]:
+    """The guest model pair when this distribution staged it.
+
+    A pack that stages only the runner schemas keeps working, and one that
+    stages a corrupt guest model schema still fails closed through
+    ``load_schema`` rather than silently running without it.
+    """
+    pair: list[dict[str, Json] | None] = []
+    for name in ("factory-guest-model-request.schema.json", "factory-guest-model-response.schema.json"):
+        path = directory / name
+        pair.append(load_schema(path) if path.exists() else None)
+    return pair[0], pair[1]

@@ -9,8 +9,10 @@ import factoryApiResponseJsonSchema from "./factory-api-response.schema.json" wi
 import factoryValidatorClaimsJsonSchema from "./factory-validator-claims.schema.json" with { type: "json" };
 import factoryValidatorReportJsonSchema from "./factory-validator-report.schema.json" with { type: "json" };
 import factoryDurableInputJsonSchema from "./factory-durable-input.schema.json" with { type: "json" };
+import factoryGuestModelRequestJsonSchema from "./factory-guest-model-request.schema.json" with { type: "json" };
+import factoryGuestModelResponseJsonSchema from "./factory-guest-model-response.schema.json" with { type: "json" };
 import { jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
-import type { CompiledExecutionManifest, CompiledFactory, CompiledPartitionArtifact, FactoryApiRequest, FactoryApiResponse, FactoryDurableInput, FactoryRunnerRequest, FactoryRunnerResult, FactoryValidatorClaimReport, FactoryValidatorReport, JsonValue } from "./types.js";
+import type { CompiledExecutionManifest, CompiledFactory, CompiledPartitionArtifact, FactoryApiRequest, FactoryApiResponse, FactoryDurableInput, FactoryGuestModelRequest, FactoryGuestModelResponse, FactoryRunnerRequest, FactoryRunnerResult, FactoryValidatorClaimReport, FactoryValidatorReport, JsonValue } from "./types.js";
 
 export {
   compiledFactoryJsonSchema,
@@ -24,6 +26,8 @@ export {
   factoryValidatorClaimsJsonSchema,
   factoryValidatorReportJsonSchema,
   factoryDurableInputJsonSchema,
+  factoryGuestModelRequestJsonSchema,
+  factoryGuestModelResponseJsonSchema,
 };
 
 type SchemaObject = Readonly<Record<string, unknown>>;
@@ -115,6 +119,14 @@ export function isFactoryRunnerRequest(value: unknown): value is FactoryRunnerRe
 
 export function isFactoryRunnerResult(value: unknown): value is FactoryRunnerResult {
   return matchesGeneratedSchema(factoryRunnerResultJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryGuestModelRequest(value: unknown): value is FactoryGuestModelRequest {
+  return matchesGeneratedSchema(factoryGuestModelRequestJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryGuestModelResponse(value: unknown): value is FactoryGuestModelResponse {
+  return matchesGeneratedSchema(factoryGuestModelResponseJsonSchema as SchemaObject, value);
 }
 
 export function isFactoryApiRequest(value: unknown): value is FactoryApiRequest {

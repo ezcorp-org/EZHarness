@@ -17,7 +17,7 @@ export const FACTORY_PYTHON_GUEST_DISTRIBUTIONS = Object.freeze(["pip==25.3"]);
 /** No model weights are pinned for the conformance guest; it runs no model. */
 export const FACTORY_PYTHON_GUEST_MODELS = Object.freeze([] as readonly string[]);
 
-const GENERATED_SCHEMAS = Object.freeze(["factory-runner-request.schema.json", "factory-runner-result.schema.json"]);
+const GENERATED_SCHEMAS = Object.freeze(["factory-runner-request.schema.json", "factory-runner-result.schema.json", "factory-guest-model-request.schema.json", "factory-guest-model-response.schema.json"]);
 
 function repositoryRoot(): string {
   return join(import.meta.dir, "../../..");

@@ -112,6 +112,7 @@ export const FACTORY_LANES: readonly FactoryLane[] = [
       "bash scripts/verify-factory-local-gpu.sh",
       "./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
       "./src/factory/runner/validator-guest.podman.integration.test.ts",
+      "./src/factory/runner/guest-model.podman.integration.test.ts",
     ],
     artifacts: [],
     requires: ["factory-runner-readiness"],

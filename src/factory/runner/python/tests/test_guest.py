@@ -13,21 +13,36 @@ from unittest import mock
 
 import c02_runner
 from factory_validation import validate_factory_runner_result
-from guest import MANIFEST, Guest, GuestError, _execute_from_tmp, load_schema, main, read_control, serve
+from guest import (
+    MANIFEST,
+    Guest,
+    GuestError,
+    _execute_from_tmp,
+    _optional_guest_model_schemas,
+    load_schema,
+    main,
+    read_control,
+    serve,
+)
 from tests import (
     REQUEST_SCHEMA,
     RESULT_SCHEMA,
     at,
+    guest_model_request,
+    guest_model_response,
+    guest_model_schemas,
     request,
     result,
     schema_path,
 )
 
+GUEST_MODEL_REQUEST_SCHEMA, GUEST_MODEL_RESPONSE_SCHEMA = guest_model_schemas()
+
 Json = Any
 
 
 def guest() -> Guest:
-    return Guest(REQUEST_SCHEMA, RESULT_SCHEMA)
+    return Guest(REQUEST_SCHEMA, RESULT_SCHEMA, GUEST_MODEL_REQUEST_SCHEMA, GUEST_MODEL_RESPONSE_SCHEMA)
 
 
 def frames(*bodies: str) -> tuple[list[Json], str]:
@@ -69,6 +84,35 @@ class VerdictTest(unittest.TestCase):
     def test_an_unknown_envelope_kind_is_refused(self) -> None:
         with self.assertRaises(GuestError):
             guest().verdict("checkpoint", {})
+
+    def test_the_guest_model_pair_is_answered_with_its_own_schema_identity(self) -> None:
+        asked = guest().verdict("guest-model-request", guest_model_request())
+        self.assertEqual((asked["ok"], asked["schemaId"]), (True, "urn:ezcorp:factory:guest-model-request:v1"))
+        answered = guest().verdict("guest-model-response", guest_model_response())
+        self.assertEqual((answered["ok"], answered["schemaId"]), (True, "urn:ezcorp:factory:guest-model-response:v1"))
+        refused = guest().verdict("guest-model-request", at(guest_model_request(), ["maxOutputTokens"], 0))
+        self.assertEqual(
+            (refused["ok"], refused["code"], refused["path"]),
+            (False, "GUEST_MODEL_OUTPUT", ["maxOutputTokens"]),
+        )
+
+    def test_a_guest_that_staged_no_guest_model_schema_refuses_rather_than_guessing(self) -> None:
+        """A pack that stages only the runner schemas keeps working, and asking
+        it for a model verdict is an error rather than an answer from a default
+        the Bun runtime never agreed to."""
+        bare = Guest(REQUEST_SCHEMA, RESULT_SCHEMA)
+        for kind in ("guest-model-request", "guest-model-response"):
+            with self.assertRaises(GuestError):
+                bare.verdict(kind, guest_model_request())
+
+    def test_the_optional_pair_is_loaded_when_staged_and_absent_otherwise(self) -> None:
+        self.assertEqual(_optional_guest_model_schemas(Path(tempfile.gettempdir()) / "absent"), (None, None))
+        asked, answered = _optional_guest_model_schemas(schema_path("factory-guest-model-request.schema.json").parent)
+        self.assertIsNotNone(asked)
+        self.assertIsNotNone(answered)
+        assert asked is not None and answered is not None
+        self.assertEqual(asked["$id"], "urn:ezcorp:factory:guest-model-request:v1")
+        self.assertEqual(answered["$id"], "urn:ezcorp:factory:guest-model-response:v1")
 
 
 class RunExportTest(unittest.TestCase):
@@ -301,6 +345,10 @@ class C02RunnerTest(unittest.TestCase):
             str(schema_path("factory-runner-request.schema.json")),
             "--result-schema",
             str(schema_path("factory-runner-result.schema.json")),
+            "--guest-model-request-schema",
+            str(schema_path("factory-guest-model-request.schema.json")),
+            "--guest-model-response-schema",
+            str(schema_path("factory-guest-model-response.schema.json")),
         ]
         stdout = io.StringIO()
         with (
@@ -317,6 +365,18 @@ class C02RunnerTest(unittest.TestCase):
         self.assertEqual(payload["schemaId"], "urn:ezcorp:factory:runner-request:v1")
         code, payload = self.run_main(json.dumps({"kind": "result", "value": result()}))
         self.assertEqual((code, payload["schemaId"]), (0, "urn:ezcorp:factory:runner-result:v1"))
+
+    def test_the_guest_model_pair_crosses_the_host_entry_point_too(self) -> None:
+        code, payload = self.run_main(json.dumps({"kind": "guest-model-request", "value": guest_model_request()}))
+        self.assertEqual((code, payload["schemaId"]), (0, "urn:ezcorp:factory:guest-model-request:v1"))
+        code, payload = self.run_main(json.dumps({"kind": "guest-model-response", "value": guest_model_response()}))
+        self.assertEqual((code, payload["schemaId"]), (0, "urn:ezcorp:factory:guest-model-response:v1"))
+        code, payload = self.run_main(
+            json.dumps(
+                {"kind": "guest-model-response", "value": at(guest_model_response(), ["providerReceiptDigest"], "zz")}
+            )
+        )
+        self.assertEqual((code, payload["code"]), (1, "GUEST_MODEL_RECEIPT"))
 
     def test_a_rejection_exits_one_and_reports_its_issue_code(self) -> None:
         code, payload = self.run_main(

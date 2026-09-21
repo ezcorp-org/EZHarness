@@ -48,6 +48,18 @@ def load(name: str) -> dict[str, Json]:
 REQUEST_SCHEMA: dict[str, Json] = load("factory-runner-request.schema.json")
 RESULT_SCHEMA: dict[str, Json] = load("factory-runner-result.schema.json")
 
+
+def guest_model_schemas() -> tuple[dict[str, Json], dict[str, Json]]:
+    """The guest model pair, loaded on demand rather than at package import.
+
+    Importing this package must not require them. The reference data pack stages
+    this same test package beside its own tests and stages only the two runner
+    schemas, so loading the pair here would break a pack that never calls a
+    model. A module that does need them calls this and fails loudly when they
+    were not staged, which is the opposite of skipping.
+    """
+    return load("factory-guest-model-request.schema.json"), load("factory-guest-model-response.schema.json")
+
 DIGEST = "a" * 64
 OTHER_DIGEST = "b" * 64
 
@@ -160,3 +172,52 @@ def without(value: Json, path: list[str | int]) -> Json:
         target = target[key]
     del target[path[-1]]
     return copied
+
+
+def guest_model_request(**overrides: Json) -> dict[str, Json]:
+    """One guest model request the Bun validator also admits."""
+    value: dict[str, Json] = {
+        "schemaVersion": "factory.guest-model-request.v1",
+        "operationId": "run-python:node-python:1:2",
+        "operationIndex": 2,
+        "model": {
+            "provider": "pinned-provider",
+            "model": "pinned-model",
+            "configuration": {"temperature": 0},
+            "configurationDigest": f"sha256:{OTHER_DIGEST}",
+            "policy": {"redact": True},
+            "policyDigest": f"sha256:{DIGEST}",
+        },
+        "messages": [
+            {"role": "system", "text": "Answer exactly what was asked."},
+            {"role": "user", "text": "Summarise the staged diff."},
+        ],
+        "maxOutputTokens": 1024,
+    }
+    value.update(overrides)
+    return value
+
+
+def guest_model_response(**overrides: Json) -> dict[str, Json]:
+    """One completed guest model response carrying a receipt and measured usage."""
+    value: dict[str, Json] = {
+        "schemaVersion": "factory.guest-model-response.v1",
+        "status": "completed",
+        "operationId": "run-python:node-python:1:2",
+        "text": "The staged diff renames one export and adds a test.",
+        "providerReceiptDigest": DIGEST,
+        "usage": {"kind": "measured", "inputTokens": 11, "outputTokens": 7, "computeMs": 21, "costMicros": "1200"},
+    }
+    value.update(overrides)
+    return value
+
+
+def guest_model_refusal(**overrides: Json) -> dict[str, Json]:
+    value: dict[str, Json] = {
+        "schemaVersion": "factory.guest-model-response.v1",
+        "status": "refused",
+        "operationId": "run-python:node-python:1:2",
+        "refusal": {"code": "model_pin_mismatch", "message": "A guest may only call the model its attempt pinned."},
+    }
+    value.update(overrides)
+    return value
