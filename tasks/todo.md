@@ -292,11 +292,16 @@ tracked diff with untracked files filtered by Git's standard ignores and the act
 `.dockerignore`. The regression covers a build-relevant untracked file, ignored/generated noise,
 root-only Docker ignore semantics, cleanup back to a clean checkout, quoted duplicate dotenv
 values, both env-file spellings, and a no-Git archive. A new CI job builds `Dockerfile.dev` through the existing Buildx GHA cache and the
-shared engine verifier inspects the loaded image's OCI labels and runtime environment.
+shared engine verifier inspects the loaded image's OCI labels and runtime environment. A real
+two-build Podman check exposed stale label and environment metadata when only late build arguments
+changed. The Dockerfile now materializes those arguments in a small layer before metadata is set,
+so provenance refreshes while the dependency and workspace layers remain cached.
 
 Verification: merged current `origin/main` `bd6fd9714` (#277 dependency updates) without conflict,
 then refreshed both lockfile installs under pinned Bun 1.3.14. The real Podman dev build completed
 and inspected the requested revision plus source-state `dirty` in both OCI labels and runtime env.
+An immediate cached rebuild with a different revision and `clean` state also inspected the new
+values in both channels, with the heavy build layers cached.
 Eight focused files passed in isolated processes: 103 tests and
 309 assertions. Full typecheck, lint over 4,610 files, Svelte check (0 errors, 0 warnings), gate
 integrity, `bash -n`, `sh -n`, and `git diff --check` passed.

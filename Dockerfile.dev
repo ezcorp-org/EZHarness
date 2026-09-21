@@ -64,6 +64,14 @@ RUN mkdir -p /app/state /app/cache /app/web/.ezcorp /app/.ezcorp/extension-relea
 # FROM would invalidate the dependency and workspace-build cache on each commit.
 ARG EZCORP_BUILD_COMMIT=unknown
 ARG EZCORP_BUILD_SOURCE_STATE=unknown
+# Podman can reuse LABEL/ENV cache entries when only a late build-arg value
+# changes. Materialize both values in one tiny layer so its content changes the
+# parent identity before the metadata instructions. Heavy filesystem layers
+# above remain cached, while a metadata-only rebuild cannot retain stale
+# provenance.
+RUN printf 'revision=%s\nsource-state=%s\n' \
+      "$EZCORP_BUILD_COMMIT" "$EZCORP_BUILD_SOURCE_STATE" \
+      > /app/.ezcorp-image-provenance
 # The Bun base image carries its own OCI revision. Override it so the dev
 # image identifies the EZHarness checkout that supplied its image-backed files.
 LABEL org.opencontainers.image.revision=$EZCORP_BUILD_COMMIT
