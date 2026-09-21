@@ -437,6 +437,13 @@ transport status.
 
 ## What this package did NOT deliver, and what each one needs
 
+**One thing remains, and it is one declaration rather than three.** The
+`release-outcome` role, the release provider resolver, and the release command
+profile all wait on the same missing fact: where a release publishes. Round 1's
+other two entries are closed — the consent reader landed with W07b and is
+consumed here, and W13's legacy-engine adapter landed with the `integ/w00`
+merge. The third entry below is kept as the record of that.
+
 ### `release-outcome`: the consent is delivered, the destination is not
 
 **The consent half is done.** W07b landed
