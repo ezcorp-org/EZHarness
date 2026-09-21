@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeExtension as makeExtensionFixture, makeProject, type ExtensionData } from "./fixtures/data.js";
 
 type ExtensionDetailOverrides = Partial<ExtensionData> & {
@@ -1123,7 +1123,7 @@ test.describe("Extensions Install + Activate Flow", () => {
 		await fixture.close();
 	});
 
-	test("build and activation work without the secure-context UUID API", async ({ page, mockApi }) => {
+	test("build and activation work without the secure-context UUID API @evidence", async ({ page, mockApi }, testInfo) => {
 		await page.addInitScript(() => Object.defineProperty(crypto, "randomUUID", { value: undefined }));
 		await mockApi({ projects: [proj], extensions: [] });
 		const fixture = await installReviewFlow(page);
@@ -1135,6 +1135,7 @@ test.describe("Extensions Install + Activate Flow", () => {
 		await page.getByRole("button", { name: "Approve exact release", exact: true }).click();
 		await page.getByRole("button", { name: "Activate approved release", exact: true }).click();
 		await expect(page.locator(".state-badge")).toHaveText("active · generation 1");
+		await captureEvidence(page, testInfo, "extension-author-http-active", { fullPage: true });
 		const keys = [fixture.actions[0]?.input.idempotencyKey, fixture.actions[2]?.input.idempotencyKey];
 		for (const key of keys) expect(key).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 		expect(keys[0]).not.toBe(keys[1]);
