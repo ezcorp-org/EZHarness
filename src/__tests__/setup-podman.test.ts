@@ -1,7 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
   chmodSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -12,6 +11,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
+import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UNSANDBOXED_ACK_SENTENCE, UNSANDBOXED_ACK_VARIABLE } from "../extensions/runner-mode";
@@ -85,6 +85,8 @@ function stub(name: string, body: string) {
 }
 stub("brew", `if [ "$1 $2" = "install podman" ] && [ -n "\${EZ_TEST_BREW_BIN:-}" ]; then
   "${REAL_LN}" -s "$EZ_TEST_BREW_PODMAN_SOURCE" "$EZ_TEST_BREW_BIN/podman"
+elif [ "$1 $2" = "install docker-compose" ] && [ -n "\${EZ_TEST_BREW_BIN:-}" ]; then
+  "${REAL_LN}" -s "$EZ_TEST_BREW_COMPOSE_SOURCE" "$EZ_TEST_BREW_BIN/docker-compose"
 fi
 exit 0`);
 stub("podman", `case "$1 $2" in
@@ -226,6 +228,20 @@ function ackIsSet(text: string): boolean {
 }
 
 const PLACEHOLDERS = readFileSync(EXAMPLE, "utf8").match(/replace-with-openssl-rand-base64-\d+/g) ?? [];
+const VALID_ENCRYPTION_SECRET = "valid-encryption-secret-for-setup-tests";
+const VALID_ENCRYPTION_SALT = "valid-encryption-salt-for-setup-tests";
+const VALID_JWT_SECRET = "valid-jwt-secret-for-setup-tests";
+
+function validProdEnv(lines: string[] = [], publicUrl = "http://localhost:4000"): string {
+  return [
+    `EZCORP_ENCRYPTION_SECRET=${VALID_ENCRYPTION_SECRET}`,
+    `EZCORP_ENCRYPTION_SALT=${VALID_ENCRYPTION_SALT}`,
+    `EZCORP_JWT_SECRET=${VALID_JWT_SECRET}`,
+    `EZCORP_PUBLIC_URL=${publicUrl}`,
+    ...lines,
+    "",
+  ].join("\n");
+}
 
 describe("setup-podman.sh — the env file", () => {
   test("parses under the selected Bash; the macOS lane selects and verifies Apple Bash 3.2", () => {
@@ -321,6 +337,75 @@ describe("setup-podman.sh — the env file", () => {
     expect(readdirSync(dir).some((name) => name.startsWith("env.prod.tmp."))).toBe(false);
   });
 
+  test("refuses known production placeholders in an existing trusted-local env", () => {
+    const env = scratch("Darwin");
+    const original = `${readFileSync(EXAMPLE, "utf8")}
+EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml
+${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}
+`;
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    const r = run(["--no-start"], env);
+
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("invalid required production values");
+    expect(r.stderr).toContain("EZCORP_ENCRYPTION_SECRET");
+    expect(r.stderr).toContain("EZCORP_ENCRYPTION_SALT");
+    expect(r.stderr).toContain("EZCORP_JWT_SECRET");
+    expect(r.stderr).toContain("EZCORP_PUBLIC_URL");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
+    expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
+  });
+
+  test("refuses known production placeholders in an existing isolated-runner env", () => {
+    const env = scratch("Linux");
+    const original = readFileSync(EXAMPLE, "utf8").replace(
+      /^EZ_RUNNER_GROUP=$/m,
+      "EZ_RUNNER_GROUP=1",
+    );
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    const r = run(["--no-start"], env);
+
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("invalid required production values");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
+    expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
+  });
+
+  test("refuses a missing required production secret without changing the file", () => {
+    const env = scratch("Darwin");
+    const original = validProdEnv([
+      "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+      `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+    ]).replace(/^EZCORP_ENCRYPTION_SALT=.*\n/m, "");
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    const r = run(["--no-start"], env);
+
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("EZCORP_ENCRYPTION_SALT");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
+  });
+
+  test("rejects a placeholder shell override even when the file value is safe", () => {
+    const env = scratch("Darwin");
+    const original = validProdEnv([
+      "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+      `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+    ]);
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    const r = run(
+      ["--no-start"],
+      { ...env, EZCORP_JWT_SECRET: "replace-with-openssl-rand-base64-32" },
+    );
+
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("EZCORP_JWT_SECRET");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
+  });
+
   test("pre-creates the four bind-mount sources without any chown", () => {
     const env = scratch("Darwin");
     run(["--no-start", "--accept-unsandboxed-extensions"], env);
@@ -350,13 +435,10 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
 
   test("never rewrites an existing env file and prints the exact manual trusted-local lines", () => {
     const env = scratch("Darwin");
-    const original = [
+    const original = validProdEnv([
       "# operator-owned production settings",
-      "EZCORP_ENCRYPTION_SECRET=a-secret-that-must-survive",
-      "EZCORP_JWT_SECRET=another-secret-that-must-survive",
       "CUSTOM_VALUE=with spaces and # literal text",
-      "",
-    ].join("\n");
+    ]);
     writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
 
     const r = run(["--no-start", "--accept-unsandboxed-extensions"], env);
@@ -393,7 +475,10 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     const env = scratch("Darwin");
     writeFileSync(
       env.EZ_SETUP_ENV_FILE,
-      `EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml\n${UNSANDBOXED_ACK_VARIABLE}=wrong\n`,
+      validProdEnv([
+        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+        `${UNSANDBOXED_ACK_VARIABLE}=wrong`,
+      ]),
       { mode: 0o600 },
     );
     const original = readFileSync(env.EZ_SETUP_ENV_FILE, "utf8");
@@ -410,14 +495,13 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     const env = scratch("Linux");
     writeFileSync(
       env.EZ_SETUP_ENV_FILE,
-      [
+      validProdEnv([
         "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
         `${UNSANDBOXED_ACK_VARIABLE}=wrong`,
         "EZ_RUNNER_SOCKET_DIR=/run/ez-extension-runner",
         "EZ_RUNNER_TOKEN_FILE=/etc/ezharness/extension-runner-token",
         "EZ_RUNNER_GROUP=1",
-        "",
-      ].join("\n"),
+      ]),
       { mode: 0o600 },
     );
 
@@ -434,7 +518,10 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     const env = scratch("Darwin");
     writeFileSync(
       env.EZ_SETUP_ENV_FILE,
-      `EZCORP_RUNNER_COMPOSE_FILE=custom-compose.yml\n${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}\n`,
+      validProdEnv([
+        "EZCORP_RUNNER_COMPOSE_FILE=custom-compose.yml",
+        `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+      ]),
       { mode: 0o600 },
     );
     const original = readFileSync(env.EZ_SETUP_ENV_FILE, "utf8");
@@ -450,12 +537,11 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     const env = scratch("Darwin");
     writeFileSync(
       env.EZ_SETUP_ENV_FILE,
-      [
+      validProdEnv([
         "EZ_RUNNER_SOCKET_DIR=/run/ez-extension-runner",
         "EZ_RUNNER_TOKEN_FILE=/etc/ezharness/extension-runner-token",
         "EZ_RUNNER_GROUP=1",
-        "",
-      ].join("\n"),
+      ]),
       { mode: 0o600 },
     );
     const original = readFileSync(env.EZ_SETUP_ENV_FILE, "utf8");
@@ -509,26 +595,60 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
   });
 
-  test("Linux with a provisioned runner already in the env file: leaves it alone", () => {
+  test("Linux with a provisioned runner already in the env file: leaves it alone", async () => {
     const env = scratch("Linux");
-    mkdirSync(join(env.EZ_SETUP_ENV_FILE, ".."), { recursive: true });
+    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "runner");
+    const runnerSocket = join(runnerDir, "runner.sock");
+    const runnerToken = join(runnerDir, "runner-token");
+    mkdirSync(runnerDir, { recursive: true });
+    writeFileSync(runnerToken, "runner-credential\n", { mode: 0o600 });
+    const server = createServer();
+    await new Promise<void>((resolve, reject) => {
+      server.once("error", reject);
+      server.listen(runnerSocket, () => {
+        server.off("error", reject);
+        resolve();
+      });
+    });
     // A PROVISIONED runner is all three values. The example ships two of them
     // pre-filled with EZ_RUNNER_GROUP empty, which is precisely the state the
     // script must NOT mistake for configured.
     writeFileSync(
       env.EZ_SETUP_ENV_FILE,
-      [
-        "EZ_RUNNER_SOCKET_DIR=/run/ez-extension-runner",
-        "EZ_RUNNER_TOKEN_FILE=/etc/ezharness/extension-runner-token",
+      validProdEnv([
+        `EZ_RUNNER_SOCKET_DIR=${runnerDir}`,
+        `EZ_RUNNER_TOKEN_FILE=${runnerToken}`,
         "EZ_RUNNER_GROUP=1",
-        "",
-      ].join("\n"),
+      ]),
       { mode: 0o600 },
     );
+    try {
+      const r = run(["--no-start"], env);
+      expect(r.exitCode).toBe(0);
+      expect(r.stdout).toContain("already configured");
+      expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(false);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  test("Linux does not call runner path strings provisioned when the host objects are absent", () => {
+    const env = scratch("Linux");
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      validProdEnv([
+        "EZ_RUNNER_SOCKET_DIR=/missing/runner-directory",
+        "EZ_RUNNER_TOKEN_FILE=/missing/runner-token",
+        "EZ_RUNNER_GROUP=not-a-number",
+      ]),
+      { mode: 0o600 },
+    );
+
     const r = run(["--no-start"], env);
-    expect(r.exitCode).toBe(0);
-    expect(r.stdout).toContain("already configured");
-    expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(false);
+
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("provision");
+    expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
   });
 
   test("the example's pre-filled paths with an EMPTY group do not count as configured", () => {
@@ -537,14 +657,20 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     // first version of the script tested for the variable's presence and
     // skipped the decision on every fresh install.
     const env = scratch("Linux");
-    copyFileSync(EXAMPLE, env.EZ_SETUP_ENV_FILE);
-    chmodSync(env.EZ_SETUP_ENV_FILE, 0o600);
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      validProdEnv([
+        "EZ_RUNNER_SOCKET_DIR=/run/ez-extension-runner",
+        "EZ_RUNNER_TOKEN_FILE=/etc/ezharness/extension-runner-token",
+        "EZ_RUNNER_GROUP=",
+      ]),
+      { mode: 0o600 },
+    );
     const r = run(["--no-start"], env);
     expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toMatch(/^EZ_RUNNER_GROUP=$/m);
     expect(r.exitCode).toBe(2);
     expect(r.stdout).not.toContain("already configured");
   });
-
 });
 
 describe("setup-podman.sh — the engine and the check mode", () => {
@@ -553,6 +679,56 @@ describe("setup-podman.sh — the engine and the check mode", () => {
     const r = run(["--no-start", "--accept-unsandboxed-extensions"], env);
     expect(r.calls.some((c) => c.startsWith("brew install"))).toBe(false);
     expect(r.calls.some((c) => /podman machine (init|start)/.test(c))).toBe(false);
+  });
+
+  test("macOS accepts a working docker compose plugin without Homebrew or standalone Compose", () => {
+    const env = scratch("Darwin");
+    const path = isolatedPathWithout("brew", "docker-compose");
+
+    const r = run(
+      ["--no-start", "--accept-unsandboxed-extensions"],
+      env,
+      {},
+      { EZ_TEST_DOCKER_COMPOSE_WORKS: "1", PATH: path },
+    );
+
+    expect(r.exitCode).toBe(0);
+    expect(r.calls).toContain("docker compose version");
+    expect(r.calls.some((call) => call.startsWith("brew "))).toBe(false);
+  });
+
+  test("macOS installs and verifies standalone Compose when no Compose client works", () => {
+    const env = scratch("Darwin");
+    const path = isolatedPathWithout("docker", "docker-compose");
+
+    const r = run(
+      ["--no-start", "--accept-unsandboxed-extensions"],
+      env,
+      {},
+      {
+        EZ_TEST_BREW_BIN: path,
+        EZ_TEST_BREW_COMPOSE_SOURCE: join(BIN, "docker-compose"),
+        PATH: path,
+      },
+    );
+
+    expect(r.exitCode).toBe(0);
+    expect(r.calls).toContain("brew install docker-compose");
+    expect(r.calls).toContain("docker-compose version");
+  });
+
+  test("macOS rejects Compose executables that cannot answer the version probe", () => {
+    const env = scratch("Darwin");
+    const r = run(
+      ["--no-start", "--accept-unsandboxed-extensions"],
+      env,
+      {},
+      { EZ_TEST_DOCKER_COMPOSE_WORKS: "0", EZ_TEST_STANDALONE_COMPOSE_WORKS: "0" },
+    );
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("working Compose CLI");
+    expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
   });
 
   test("macOS installs Podman when it is missing", () => {
@@ -640,8 +816,22 @@ describe("setup-podman.sh — the engine and the check mode", () => {
     expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
     expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
     expect(
-      r.calls.filter((c) => !c.startsWith("podman machine list") && !c.startsWith("grep ")),
+      r.calls.filter((c) =>
+        !c.startsWith("podman machine list") &&
+        !c.startsWith("grep ") &&
+        !c.startsWith("docker compose version") &&
+        !c.startsWith("docker-compose version")
+      ),
     ).toEqual([]);
+  });
+
+  test("--check reports an already accepted fresh trusted-local choice", () => {
+    const env = scratch("Linux");
+    const r = run(["--check", "--accept-unsandboxed-extensions"], env);
+
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("would add trusted-local");
+    expect(r.stdout).not.toContain("select an isolated runner");
   });
 
   test("Linux --check reports the Linux runner decision", () => {
@@ -674,13 +864,14 @@ describe("setup-podman.sh — start and readiness", () => {
     const env = scratch("Darwin");
     writeFileSync(
       env.EZ_SETUP_ENV_FILE,
-      [
-        "EZCORP_PORT_HOST=5123",
-        "EZCORP_PUBLIC_URL=https://chat.example.com",
-        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
-        `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
-        "",
-      ].join("\n"),
+      validProdEnv(
+        [
+          "EZCORP_PORT_HOST=5123",
+          "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+          `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+        ],
+        "https://chat.example.com",
+      ),
       { mode: 0o600 },
     );
 
@@ -695,13 +886,14 @@ describe("setup-podman.sh — start and readiness", () => {
     const env = scratch("Darwin");
     writeFileSync(
       env.EZ_SETUP_ENV_FILE,
-      [
-        "EZCORP_PORT_HOST=5123",
-        "EZCORP_PUBLIC_URL=https://chat.example.com",
-        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
-        `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
-        "",
-      ].join("\n"),
+      validProdEnv(
+        [
+          "EZCORP_PORT_HOST=5123",
+          "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+          `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+        ],
+        "https://chat.example.com",
+      ),
       { mode: 0o600 },
     );
     const readyUrl = "http://127.0.0.1:6123/custom-ready";
@@ -713,6 +905,50 @@ describe("setup-podman.sh — start and readiness", () => {
     expect(r.calls.some((call) => call.includes("localhost:5123"))).toBe(false);
     expect(r.stdout).toContain("Open https://chat.example.com and create the admin account");
     expect(r.stdout).not.toContain(`Open ${readyUrl}`);
+  });
+
+  test("uses shell overrides before env-file values for readiness and the admin URL", () => {
+    const env = scratch("Darwin");
+    const prepared = run(["--no-start", "--accept-unsandboxed-extensions"], env);
+    expect(prepared.exitCode).toBe(0);
+
+    const r = run(
+      [],
+      {
+        ...env,
+        EZCORP_PORT_HOST: "6123",
+        EZCORP_PUBLIC_URL: "https://shell-override.example.com",
+      },
+      {},
+      { EZ_TEST_CURL_SUCCESS: "1" },
+    );
+
+    expect(r.exitCode).toBe(0);
+    expect(r.calls).toContain("curl -fsS --max-time 5 http://localhost:6123/api/ready");
+    expect(r.calls.some((call) => call.includes("localhost:4000"))).toBe(false);
+    expect(r.stdout).toContain("Open https://shell-override.example.com and create the admin account");
+  });
+
+  test("reads quoted Compose scalars when deriving readiness and the admin URL", () => {
+    const env = scratch("Darwin");
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      validProdEnv(
+        [
+          'EZCORP_PORT_HOST="5123" # custom published port',
+          "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+          `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+        ],
+        '"https://quoted.example.com" # operator URL',
+      ),
+      { mode: 0o600 },
+    );
+
+    const r = run([], env, {}, { EZ_TEST_CURL_SUCCESS: "1" });
+
+    expect(r.exitCode).toBe(0);
+    expect(r.calls).toContain("curl -fsS --max-time 5 http://localhost:5123/api/ready");
+    expect(r.stdout).toContain("Open https://quoted.example.com and create the admin account");
   });
 
   test("fast failed probes do not consume the advertised readiness duration", () => {

@@ -285,3 +285,24 @@ Plan review: existing operator files are immutable. Only a private fresh candida
 - Readiness uses a private FIFO plus Bash 3.2 `read -t` as one relative watchdog. Fast failures no longer spend synthetic time, active curl/sleep children are stopped at timeout, the probe honors the explicit URL or host port, and the completion message uses `EZCORP_PUBLIC_URL`.
 - Added fresh macOS install, stopped-machine, new-machine, unsafe publication race, immutable file, full-duration retry, watchdog, and public-URL regressions.
 - Verification passed with Bun 1.3.14: focused suite 37/37 and 134 assertions; Bash syntax; ShellCheck; full lint; all backend, web, backend-test, and web-E2E typecheck legs; workflow YAML parse; gate integrity; and `git diff --check`.
+
+## PR #288 independent final-audit repair
+
+- [x] Add failing regressions for placeholder production secrets, Compose environment precedence, macOS Compose probing, and false isolated-runner provisioning.
+- [x] Preserve existing environment files while rejecting unsafe or incomplete effective production configuration with exact manual fixes.
+- [x] Use Compose precedence for readiness and admin URLs.
+- [x] Share functional Compose probing across macOS and Linux, and require Homebrew only when installation is necessary.
+- [x] Require a numeric isolated-runner GID, a live Unix socket, and a non-empty token file.
+- [x] Make `--check --accept-unsandboxed-extensions` report the accepted path accurately.
+- [x] Run focused tests, syntax/static checks, repository gates, and inspect the final diff.
+- [x] Commit the repair locally without pushing.
+
+Plan review: keep existing operator files immutable. Validate the values Compose will actually use, with shell overrides taking precedence over the environment file. Reuse one Compose capability probe on both operating systems. Keep every check compatible with Apple Bash 3.2 and avoid printing or passing secret values to child-process arguments.
+
+### Review
+
+- Existing files remain immutable, but setup now stops before data-directory or stack changes when required production values are missing, too short, or still use the public example placeholders. The error names only variable names and exact generation commands; it never prints a secret.
+- Readiness and the printed admin URL now use exported shell values before parsed env-file values, matching Compose. Quoted scalar and inline-comment cases are covered.
+- macOS accepts either working Compose spelling, installs standalone Compose only when needed, verifies the installed command, and no longer requires Homebrew on a fully provisioned host.
+- Linux isolated mode now requires a numeric container GID, a real Unix socket, and a non-empty credential file. The positive test uses a live Unix socket instead of placeholder paths.
+- Verification passed: 80 focused setup/wrapper tests with 250 assertions; full lint over 4,608 files; full typecheck including backend tests and web E2E; Bash syntax; ShellCheck 0.11; workflow YAML parse; gate integrity; real Linux `--check` with no filesystem changes; `git diff --check`; and Bash 3.2 syntax plus indirect-expansion behavior in the official `bash:3.2` image.

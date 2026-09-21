@@ -36,9 +36,11 @@ bash scripts/setup-podman.sh
 A fresh environment file stays private and unpublished until the runner choice
 is complete. The script then publishes that complete mode-600 file once; a
 concurrent file is never replaced. An existing `.env.prod` is never modified.
-If it is private and has the required settings for a supported runner mode,
-setup leaves every byte unchanged. Otherwise setup prints the exact manual
-settings and stops. It also refuses a file with group or other permission bits.
+If it is private, has non-placeholder production secrets and URL, and has a
+supported runner mode, setup leaves every byte unchanged. Otherwise setup
+prints the exact manual settings and stops. It also refuses a file with group
+or other permission bits. On Linux, an isolated runner counts as provisioned
+only when its numeric group, live Unix socket, and non-empty token file exist.
 
 On macOS the isolated extension runner cannot work, so fresh setup shows what
 `trusted-local` costs and asks before adding it to the private candidate

@@ -137,18 +137,56 @@ do_or_report() {
   fi
 }
 
+# Probe the actual Compose capability, not an executable name. The production
+# wrapper accepts either spelling, so setup must use the same rule on both
+# operating systems and must not require Homebrew when a working client already
+# exists.
+COMPOSE_CLI_LABEL=""
+probe_compose_cli() {
+  if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    COMPOSE_CLI_LABEL="docker compose"
+    return 0
+  fi
+  if command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
+    COMPOSE_CLI_LABEL="docker-compose"
+    return 0
+  fi
+  COMPOSE_CLI_LABEL=""
+  return 1
+}
+
 # ── 1. Engine ──────────────────────────────────────────────────────────────
 say "container engine"
 case "$OS" in
   Darwin)
-    command -v brew >/dev/null 2>&1 || die "Homebrew is required on macOS: https://brew.sh"
-    for pkg in podman docker-compose; do
-      if command -v "$pkg" >/dev/null 2>&1; then
-        ok "$pkg installed"
-      else
-        do_or_report brew install "$pkg"
+    podman_missing=0
+    compose_missing=0
+    if command -v podman >/dev/null 2>&1; then
+      ok "podman installed"
+    else
+      podman_missing=1
+    fi
+    if probe_compose_cli; then
+      ok "$COMPOSE_CLI_LABEL installed"
+    else
+      compose_missing=1
+    fi
+    if [ "$podman_missing" = 1 ] || [ "$compose_missing" = 1 ]; then
+      command -v brew >/dev/null 2>&1 ||
+        die "Homebrew is required to install missing Podman or Compose tools on macOS: https://brew.sh"
+    fi
+    if [ "$podman_missing" = 1 ]; then
+      do_or_report brew install podman
+      if [ "$CHECK_ONLY" != 1 ]; then
+        command -v podman >/dev/null 2>&1 || die "Homebrew did not install a working podman executable"
       fi
-    done
+    fi
+    if [ "$compose_missing" = 1 ]; then
+      do_or_report brew install docker-compose
+      if [ "$CHECK_ONLY" != 1 ]; then
+        probe_compose_cli || die "Homebrew did not install a working Compose CLI"
+      fi
+    fi
     if command -v podman >/dev/null 2>&1; then
       # `podman machine list` prints one row per machine; a running one shows
       # "Currently running" in the LAST UP column on every podman 4-6.
@@ -162,16 +200,15 @@ case "$OS" in
         do_or_report podman machine init --cpus "$MACHINE_CPUS" --memory "$MACHINE_MEMORY" --disk-size "$MACHINE_DISK"
         do_or_report podman machine start
       fi
+    elif [ "$CHECK_ONLY" = 1 ]; then
+      todo "would run: podman machine init --cpus $MACHINE_CPUS --memory $MACHINE_MEMORY --disk-size $MACHINE_DISK"
+      todo "would run: podman machine start"
     fi
     ;;
   Linux)
     command -v podman >/dev/null 2>&1 || die "podman is required: install it from your distro, then re-run"
-    # Match podman-compose.sh: a `docker` executable is not proof that its
-    # optional Compose plugin exists. Probe the subcommand before accepting it.
-    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-      ok "docker compose installed"
-    elif command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
-      ok "docker-compose installed"
+    if probe_compose_cli; then
+      ok "$COMPOSE_CLI_LABEL installed"
     else
       die "a Compose CLI is required (docker-compose-plugin or docker-compose); it is a client only, no Docker daemon is needed"
     fi
@@ -192,22 +229,111 @@ esac
 # decision against one private candidate, validates that complete candidate,
 # and then publishes it once without replacement. This removes both the
 # compare/rename race and the need for a setup lock.
-env_value_from() { sed -n "s|^$2=||p" "$1" | tail -1; }
+trim_env_whitespace() {
+  local trim_value="$1"
+  while :; do
+    case "$trim_value" in [[:space:]]*) trim_value="${trim_value#?}" ;; *) break ;; esac
+  done
+  while :; do
+    case "$trim_value" in *[[:space:]]) trim_value="${trim_value%?}" ;; *) break ;; esac
+  done
+  printf '%s' "$trim_value"
+}
+
+# Decode the plain scalar forms used by this repository and accepted by
+# Compose: unquoted values with an optional whitespace-prefixed comment, or a
+# matching pair of single/double quotes. Never source the operator-owned file.
+env_value_from() {
+  local env_raw
+  env_raw="$(sed -n "s|^$2=||p" "$1" | tail -1)"
+  env_raw="${env_raw%$'\r'}"
+  env_raw="$(trim_env_whitespace "$env_raw")"
+  case "$env_raw" in
+    \"*) env_raw="${env_raw#\"}"; printf '%s' "${env_raw%%\"*}" ;;
+    \'*) env_raw="${env_raw#\'}"; printf '%s' "${env_raw%%\'*}" ;;
+    *)
+      case "$env_raw" in *[[:space:]]\#*) env_raw="${env_raw%%[[:space:]]\#*}" ;; esac
+      trim_env_whitespace "$env_raw"
+      ;;
+  esac
+}
+
+# Compose gives exported shell values priority over --env-file. Keep setup's
+# validation and user-facing URLs on that same precedence path. The whitelist
+# makes Bash 3.2's indirect expansion safe without eval, and no secret is ever
+# placed in a child process argument.
+effective_env_value() {
+  local effective_file="$1"
+  local effective_name="$2"
+  case "$effective_name" in
+    EZCORP_ENCRYPTION_SECRET | EZCORP_ENCRYPTION_SALT | EZCORP_JWT_SECRET | \
+      EZCORP_PUBLIC_URL | EZCORP_PORT_HOST | EZCORP_RUNNER_COMPOSE_FILE | \
+      EZCORP_EXTENSIONS_UNSANDBOXED_ACK | EZ_RUNNER_SOCKET_DIR | \
+      EZ_RUNNER_TOKEN_FILE | EZ_RUNNER_GROUP) ;;
+    *) die "internal error: unsupported environment value: $effective_name" ;;
+  esac
+  if [ "${!effective_name+x}" = x ]; then
+    printf '%s' "${!effective_name}"
+    return 0
+  fi
+  env_value_from "$effective_file" "$effective_name"
+}
+
+required_invalid=""
+check_required_value() {
+  local required_file="$1"
+  local required_name="$2"
+  local required_placeholder="$3"
+  local required_minimum="$4"
+  local required_value
+  local required_bad=0
+  required_value="$(effective_env_value "$required_file" "$required_name")"
+  [ -n "$required_value" ] || required_bad=1
+  [ "${#required_value}" -ge "$required_minimum" ] || required_bad=1
+  case "$required_value" in *"$required_placeholder"*) required_bad=1 ;; esac
+  if [ "$required_bad" = 1 ]; then
+    required_invalid="${required_invalid}${required_invalid:+, }$required_name"
+  fi
+}
+
+validate_required_values() {
+  required_invalid=""
+  check_required_value "$1" EZCORP_ENCRYPTION_SECRET replace-with-openssl-rand-base64-32 16
+  check_required_value "$1" EZCORP_ENCRYPTION_SALT replace-with-openssl-rand-base64-16 16
+  check_required_value "$1" EZCORP_JWT_SECRET replace-with-openssl-rand-base64-32 16
+  check_required_value "$1" EZCORP_PUBLIC_URL https://ezcorp.example.com 1
+  [ -z "$required_invalid" ] || {
+    printf 'error: invalid required production values: %s\n' "$required_invalid" >&2
+    cat >&2 <<EOF
+  Existing environment files are never changed. Exported shell values override
+  $1, so correct or unset those overrides first. Then set the invalid file
+  values with:
+    EZCORP_ENCRYPTION_SECRET=<output of: openssl rand -base64 32>
+    EZCORP_ENCRYPTION_SALT=<output of: openssl rand -base64 16>
+    EZCORP_JWT_SECRET=<output of: openssl rand -base64 32>
+    EZCORP_PUBLIC_URL=<the real http:// or https:// URL for this deployment>
+EOF
+    exit 2
+  }
+}
 
 runner_configured_file() {
-  runner_file="$1"
-  runner_compose="$(env_value_from "$runner_file" EZCORP_RUNNER_COMPOSE_FILE)"
+  local runner_file="$1"
+  local runner_compose runner_socket_dir runner_token_file runner_group
+  runner_compose="$(effective_env_value "$runner_file" EZCORP_RUNNER_COMPOSE_FILE)"
   if [ "$runner_compose" = "$TRUSTED_LOCAL_COMPOSE" ] &&
-    [ "$(env_value_from "$runner_file" "$ACK_VARIABLE")" = "$ACK_SENTENCE" ]; then
+    [ "$(effective_env_value "$runner_file" "$ACK_VARIABLE")" = "$ACK_SENTENCE" ]; then
     return 0
   fi
   # A non-empty non-exact override is a topology this script cannot validate.
   # Never borrow stale isolated values and call that custom topology usable.
   [ -z "$runner_compose" ] || return 1
   [ "$OS" = "Linux" ] || return 1
-  [ -n "$(env_value_from "$runner_file" EZ_RUNNER_SOCKET_DIR)" ] &&
-    [ -n "$(env_value_from "$runner_file" EZ_RUNNER_TOKEN_FILE)" ] &&
-    [ -n "$(env_value_from "$runner_file" EZ_RUNNER_GROUP)" ]
+  runner_socket_dir="$(effective_env_value "$runner_file" EZ_RUNNER_SOCKET_DIR)"
+  runner_token_file="$(effective_env_value "$runner_file" EZ_RUNNER_TOKEN_FILE)"
+  runner_group="$(effective_env_value "$runner_file" EZ_RUNNER_GROUP)"
+  case "$runner_group" in '' | *[!0-9]*) return 1 ;; esac
+  [ -S "$runner_socket_dir/runner.sock" ] && [ -s "$runner_token_file" ]
 }
 
 validate_existing_env() {
@@ -219,6 +345,7 @@ validate_existing_env() {
     [0-7]00 | 0[0-7]00) ;;
     *) die "$ENV_FILE has unsafe permissions ($env_mode); run: chmod 600 $ENV_FILE" ;;
   esac
+  validate_required_values "$ENV_FILE"
   ok "exists with private permissions — left byte-for-byte unchanged"
 }
 
@@ -389,7 +516,9 @@ if [ -f "$ENV_FILE" ]; then
 elif [ "$CHECK_ONLY" = 1 ]; then
   todo "would create one complete mode-600 file from $ENV_EXAMPLE with generated secrets"
   say "extension runner"
-  if [ "$OS" = "Darwin" ]; then
+  if [ "$ACCEPT_UNSANDBOXED" = 1 ]; then
+    todo "would add trusted-local to the private candidate after explicit acceptance"
+  elif [ "$OS" = "Darwin" ]; then
     todo "fresh setup would ask before adding trusted-local to the private candidate"
   else
     todo "not configured; on Linux select an isolated runner or explicitly accept trusted-local"
@@ -398,6 +527,7 @@ else
   build_fresh_candidate
   say "extension runner"
   select_fresh_runner "$env_tmp"
+  validate_required_values "$env_tmp"
   runner_configured_file "$env_tmp" || die "the private environment candidate has no usable extension runner"
   if ln "$env_tmp" "$ENV_FILE" 2>/dev/null; then
     rm -f "$env_tmp"
@@ -431,7 +561,7 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$NO_START" = 1 ]; then
   exit 0
 fi
 if [ -z "$READY_URL" ]; then
-  ready_port="$(env_value_from "$ENV_FILE" EZCORP_PORT_HOST)"
+  ready_port="$(effective_env_value "$ENV_FILE" EZCORP_PORT_HOST)"
   [ -n "$ready_port" ] || ready_port=4000
   case "$ready_port" in
     *[!0-9]*) die "EZCORP_PORT_HOST must be a whole-number port so setup can check readiness" ;;
@@ -445,7 +575,7 @@ case "$READY_TIMEOUT" in
 esac
 [ "$READY_TIMEOUT" -gt 0 ] || die "EZ_SETUP_READY_TIMEOUT must be greater than zero"
 
-admin_url="$(env_value_from "$ENV_FILE" EZCORP_PUBLIC_URL)"
+admin_url="$(effective_env_value "$ENV_FILE" EZCORP_PUBLIC_URL)"
 [ -n "$admin_url" ] || admin_url="${READY_URL%/api/ready}"
 
 EZ_COMPOSE_ENV_FILE="$ENV_FILE" bash scripts/podman-compose.sh --prod up -d --build
