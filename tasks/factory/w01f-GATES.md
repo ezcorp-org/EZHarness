@@ -168,15 +168,20 @@ no `idleTimeout`; its type rejects the option.
   timing fix landed at `869ab1542` — and none of the four producers loads any of them;
   `service.ts` was committed and clean. Hashes: `logs/heavy-run-1-tree-state.txt`.
 
-  **Batch 2 is queued, not passed, and is not claimed.** It runs six further runner integration
-  suites (`channel-identity`, `provision`, `binary-assets`, `browser`, `native-network`,
-  `podman-devices`), none of which loads `service.ts`. It has been at the head of the lock's wait
-  queue since 23:32:52Z because the lock is held by an ORPHAN, not by a producer: `/proc/locks`
-  names PID 3470529 as the holder and that PID no longer exists, while PID 3530151, an orphaned
-  `temporal-test-server` reparented to PID 1 with the w00-integration factory-orchestrator open,
-  still holds its inherited descriptor. It belongs to another worker, so it was reported to the
-  coordinator and not killed. Evidence: `logs/stuck-lock-report.txt`. The two producers the brief
-  named are both in batch 1 above and both green.
+  Batch 2 at the final head `10a1170b3`, clean tree, lock held 23:48:22Z to 23:49:09Z, every exit 0:
+  `channel-identity` 3 pass, `provision.integration` 3 pass, `binary-assets.integration` 1 pass,
+  `browser.integration` 1 pass, `native-network.integration` 1 pass,
+  `podman-devices.integration` 6 pass, all 0 fail.
+
+  Batch 2 waited sixteen minutes because the lock was held by an ORPHAN rather than a producer:
+  `/proc/locks` named PID 3470529 as the holder, that PID no longer existed, and PID 3530151, an
+  orphaned `temporal-test-server` reparented to PID 1 with the w00-integration
+  factory-orchestrator open, still held its inherited descriptor. It belonged to another worker, so
+  it was reported to the coordinator rather than killed (`logs/stuck-lock-report.txt`); the
+  coordinator cleared it and added `flock --close` to the common brief so a spawned child can never
+  inherit the lock again. Neither of my two batches orphaned anything: both released the lock at the
+  timestamps above and the queue moved on. The archived `heavy-run-*.sh.txt` are the scripts as
+  executed, so they still read plain `flock`; any later run of them should carry `--close`.
 
 - [x] G12: Coverage of every new file and every changed executable line, against this branch's base.
   CHECK: `BASE_REF=wp/w18a-sdk bun scripts/check-new-file-coverage.ts`;

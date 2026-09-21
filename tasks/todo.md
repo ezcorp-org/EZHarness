@@ -2965,9 +2965,9 @@ Branch `wp/w01f-detach`, cut from `wp/w18a-sdk` at `9e7866e2b`. One product defe
       refusals, and the header, absent-body and unknown-endpoint paths.
 - [x] `service.ts` at 183/183 lines, including the six lines that were unreachable before.
 - [x] Static gates: typecheck, lint, factory boundaries, gate integrity.
-- [x] Real-Podman producers under the shared heavy lock: the two the brief named plus the
-      production service end to end, all exit 0. A second batch of six suites that do not load the
-      changed file is still queued behind an orphaned lock holder, reported to the coordinator.
+- [x] Real-Podman producers under the shared heavy lock, in two batches, all exit 0: the two the
+      brief named, the production service end to end, the factory supervisor, and six further
+      runner integration suites.
 - [x] `BASE_REF=wp/w18a-sdk` new-file and patch coverage over the merged LCOV.
 - [x] Diagnose and remove the one observed test failure's dependence on host timing, rather than
       retrying it.

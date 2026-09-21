@@ -1007,3 +1007,9 @@ Long final messages are cut at a few thousand characters and the tail is lost. E
   needs no second constant, because the outstanding call already carries its own timeout and
   deletes itself when it expires. Read the consumer's loop before choosing any interval that
   expires on its silence.
+- Pass `--close` to every `flock` that wraps a heavy producer. Without it a child the producer
+  spawns inherits the lock descriptor, and when the wrapper exits the kernel still reports the dead
+  wrapper's PID as the holder while the orphan keeps the lock. Observed on 2026-09-21: an orphaned
+  `temporal-test-server`, reparented to PID 1, held the shared heavy lock with three producers
+  queued behind it. `/proc/locks` naming a PID that `ps` cannot find is the tell, and the fix
+  belongs in the wrapper, not in a kill. The common brief now requires `--close`.
