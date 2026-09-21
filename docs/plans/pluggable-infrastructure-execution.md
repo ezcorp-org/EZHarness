@@ -18,7 +18,9 @@ Use the existing v4 contract, schema generator, approval engine, broker and test
 
 gates/pluggable-root.md tracks review, repository implementation, verification and live acceptance. tasks/todo.md retains every backlog item. No task is closed merely because a subset passes.
 
-## Status
+## Implementation history
+
+The entries below record intermediate findings. Final status is in the integrated local candidate section and [validation report](../validation/pluggable-local-mvp.md).
 
 - 2026-09-20: Fetched origin/main and created three worktrees. Sol and Terra reviews running. Requested test connection locations, original PRD and optional scope.
 
@@ -63,6 +65,9 @@ projection and the persisted installation approval shape.
 
 Focused controller, invoker, runtime, startup, route, and UI tests pass. The real
 runtime control receipt and separate production-driver recovery receipt are in
-`tasks/evidence/pluggable-local/`. The complete live application journey and
-full repository coverage remain acceptance gates. External infrastructure and
-all optional R4 features remain deferred.
+`tasks/evidence/pluggable-local/`. The live application journey, full coverage, browser suites, production build,
+and gate-integrity checks passed. All 32 new source files have 100% measured
+line coverage; all changed executable lines across 52 files are covered.
+See the [final validation report](../validation/pluggable-local-mvp.md) for exact
+revisions, results, and limits. External infrastructure and all optional R4
+features remain deferred.

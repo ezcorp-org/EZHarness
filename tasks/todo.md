@@ -8,8 +8,8 @@ Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout pr
 - [x] Complete independent plan audits and record corrections before code.
 - [x] Establish initial decisions, shared interfaces, ownership, and checks.
 - [x] Implement the local MVP subset: provider contract, persistent binding, actual local sandbox, seven tools, restart/log/cancel/cleanup, minimal user flow.
-- [ ] Verify full changed-source coverage and canonical build/test lanes.
-- [ ] Complete real local provider/security/recovery qualification and local evidence.
+- [x] Verify full changed-source coverage and canonical build/test lanes.
+- [x] Complete real local provider/security/recovery qualification and local evidence.
 - External-host networking/deployment: later milestone by user direction.
 
 ## Local MVP progress
@@ -22,8 +22,8 @@ Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout pr
 - [x] Complete reviewed provider invocation and production startup wiring; focused authorization and startup checks pass.
 - [x] Verify real rootless lifecycle cleanup and compiled supervisor process execution.
 - [x] Finish file-provider wiring and the persisted native process controller loop; 20 controller cases pass with 350/350 executable lines covered.
-- [ ] Prove all native tools, cancellation, restart and explicit disposal through the live application.
-- [ ] Run all build/test/coverage gates and inspect desktop/mobile browser evidence.
+- [x] Prove all native tools, cancellation, restart and explicit disposal through the live application.
+- [x] Run all build/test/coverage gates and inspect desktop/mobile browser evidence.
 
 ## Original roadmap (deferred except MVP subset)
 
@@ -104,7 +104,7 @@ The local provider, reviewed dispatch, durable binding, native tools, process su
 
 That journey exposed and fixed provider grant comparison, project-list refresh, HTTP idle timeout, and returned tool-error reporting. Immediate shell and grep completion also revealed retained deadline timers; a shared cleanup helper and real subprocess regressions now prove prompt exit.
 
-Final validation remains open. The first complete backend run found 15 failures in five files: an outdated source count, old tool-loop fixtures, missing mock cleanup registration, and host-project policy fixtures. These were repaired without removing security assertions. The next canonical run passed 25,834 backend tests, 3,626 web Bun tests, and all 2,187 browser cases. The eighth live journey also proved graceful application restart, Start/Stop/Open chat, and desktop/mobile layouts. Screenshot review led to a shared disabled-button style fix. The full coverage test producers passed, but the receipt check rejected documentation edits made during the run. Restoring the clean worktree and rebuilding did not reproduce the same browser assets, so that receipt cannot be reused. The production build and gate-integrity check passed. A final audit found and repaired interrupted disposal: durable scoped cleanup records, idempotent filesystem removal, serialized final cleanup, and same-user controller retry now pass 22 driver/workspace tests and 23 controller tests. A real FUSE probe recovered all three partial-removal phases with no mounts or images left. A fresh immutable browser/coverage run and the final live journey remain required.
+The earlier validation findings and repairs are retained here as history. The first complete backend run found 15 failures in five files: an outdated source count, old tool-loop fixtures, missing mock cleanup registration, and host-project policy fixtures. These were repaired without removing security assertions. The next canonical run passed 25,834 backend tests, 3,626 web Bun tests, and all 2,187 browser cases. The eighth live journey also proved graceful application restart, Start/Stop/Open chat, and desktop/mobile layouts. Screenshot review led to a shared disabled-button style fix. The full coverage test producers passed, but the receipt check rejected documentation edits made during the run. Restoring the clean worktree and rebuilding did not reproduce the same browser assets, so that receipt cannot be reused. The production build and gate-integrity check passed. A final audit found and repaired interrupted disposal: durable scoped cleanup records, idempotent filesystem removal, serialized final cleanup, and same-user controller retry now pass 22 driver/workspace tests and 23 controller tests. A real FUSE probe recovered all three partial-removal phases with no mounts or images left. The final live journey at 8ea169e05 passed. The last three coverage gaps were closed with persisted-policy and rejected-dispatch regressions plus the missing web collector entry. The immutable final run at 0d74fc441 passed every gate: 26,652 coverage tests, 7,450 web Vitest tests, 2,187 browser cases, all 32 new source files at 100% measured coverage, all changed executable lines across 52 files, static checks, production build, and gate integrity. Production sources exactly match the live-tested revision. The final report is docs/validation/pluggable-local-mvp.md.
 
 External hosts, Infisical, all R4 features, Compose services, and Claude/Codex guest workers remain outside this MVP.
 

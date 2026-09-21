@@ -2,7 +2,7 @@
 
 Date: 20 September 2026
 
-Status: local MVP implemented in `feat/pluggable-infrastructure`; final integrated validation remains in progress
+Status: local MVP implemented and validated in `feat/pluggable-infrastructure`; [final results](../validation/pluggable-local-mvp.md). External roadmap remains deferred.
 
 The original plan below is a deferred roadmap. The active scope is the local native MVP in section 11. No AMD/Xeon, Incus, or Infisical deployment is configured or claimed.
 
