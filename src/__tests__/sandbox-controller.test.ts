@@ -67,6 +67,10 @@ async function admitCreate(context: Awaited<ReturnType<typeof fixture>>) {
   return context.controller.createSandboxProject(context.owner.id, { name: "Sandbox project", idempotencyKey: "create-once", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits });
 }
 
+async function expireMethodClaim(database: ReturnType<typeof getTestDb>, operationId: string): Promise<void> {
+  await database.execute(sql`UPDATE sandbox_method_operations SET claim_expires_at=NOW() - INTERVAL '1 second' WHERE id=${operationId}`);
+}
+
 test("startup accessor fails closed until a host driver configures it", () => {
   expect(() => getSandboxController()).toThrow("Local sandbox controller is not configured");
   const configured = configureSandboxController(driver(), { resolve: async () => null });
@@ -321,6 +325,31 @@ test("a reviewed abort keeps an active raw observation fenced across controller 
   await expect(restarted.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "start-after-raw-read" })).resolves.toMatchObject({ state: "admitted" });
 });
 
+test("a second controller cannot redispatch or clear a live writer claim", async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const context = await fixture();
+  context.local.fileWrite = mock(async (input: any) => {
+    entered.resolve();
+    await release.promise;
+    return { receipt: receipt(input.call), entry: { path: input.path, kind: "file" as const, revision: "revision", sizeBytes: 1, mode: 0o600 } };
+  });
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const write = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "live-cross-controller-write", payload: { path: "/a", encoding: "utf8", data: "x" } });
+  const executing = context.controller.executeAdmittedSandboxMethod(context.owner.id, write.id);
+  await entered.promise;
+
+  const competing = context.restartController();
+  await expect(competing.executeAdmittedSandboxMethod(context.owner.id, write.id)).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+  await expect(competing.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "start-during-cross-controller-write" })).rejects.toMatchObject({ code: "WRITER_LEASED" });
+  expect(context.local.fileWrite).toHaveBeenCalledTimes(1);
+
+  release.resolve();
+  await expect(executing).resolves.toMatchObject({ state: "succeeded" });
+  expect(context.local.fileWrite).toHaveBeenCalledTimes(1);
+});
+
 test("keeps the writer lease through a running process and releases it after terminal process inspection", async () => {
   let processState: "running" | "exited" = "running";
   const context = await fixture();
@@ -421,6 +450,7 @@ for (const retainedState of ["admitted", "running"] as const) {
       await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
       const admitted = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: method.group, operation: method.operation, idempotencyKey: `orphan-${retainedState}-${method.group}-${method.operation}`, payload: method.payload });
       await context.database.execute(sql`UPDATE sandbox_method_operations SET state=${retainedState} WHERE id=${admitted.id}`);
+      await expireMethodClaim(context.database, admitted.id);
 
       const destroy = await context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: `destroy-after-${retainedState}-${method.group}-${method.operation}` });
 
@@ -452,6 +482,7 @@ test("fails an orphaned admitted cancel without dispatch before lifecycle admiss
   const create = await admitCreate(context);
   await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
   const cancel = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "cancel", idempotencyKey: "orphan-admitted-cancel", payload: { identity: { bootId: "orphan-boot", processId: "orphan-process" } } });
+  await expireMethodClaim(context.database, cancel.id);
 
   const destroy = await context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "destroy-after-orphan-admitted-cancel" });
 
@@ -501,6 +532,7 @@ for (const retainedState of ["running", "unknown"] as const) {
       const cancel = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "cancel", idempotencyKey: `retained-${retainedState}-${inspection}-cancel`, payload: { identity } });
       if (retainedState === "unknown") await context.database.execute(sql`UPDATE sandbox_method_operations SET state='unknown',completed_at=NOW() WHERE id=${cancel.id}`);
       else await context.database.execute(sql`UPDATE sandbox_method_operations SET state='running' WHERE id=${cancel.id}`);
+      await expireMethodClaim(context.database, cancel.id);
 
       const lifecycle = context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: `destroy-after-${retainedState}-${inspection}-cancel` });
       if (inspection === "terminal") await expect(lifecycle).resolves.toMatchObject({ state: "admitted" });
@@ -567,6 +599,7 @@ for (const retainedState of ["admitted", "running", "failed"] as const) {
     await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Retained process start')`);
     const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: `retained-${retainedState}`, conversationId, payload: { argv: ["false"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
     await context.database.execute(sql`UPDATE sandbox_method_operations SET state=${retainedState} WHERE id=${start.id}`);
+    await expireMethodClaim(context.database, start.id);
 
     const destroy = await context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: `destroy-after-${retainedState}` });
 

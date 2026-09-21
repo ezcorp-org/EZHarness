@@ -389,8 +389,7 @@ describe("local lifecycle journal integration", () => {
     await chmod(f.config.stateRoot, 0o700); expect((await stat(resourcePaths(f.config.stateRoot, "resource").root)).isDirectory()).toBe(true);
   });
   test("rejects an idempotency collision before an effect", async () => { const { driver, log } = await fixture(); await driver.start(input()); await expect(driver.start({ ...input(), call: { ...input().call, requestDigest: "b".repeat(64) } })).rejects.toThrow("conflicts"); expect((await readFile(log, "utf8")).trim().split("\n")).toHaveLength(1); });
-  test("denies inspect, start, stop, and destroy before effects when exact identity differs", async () => {
-    const changes: [string, (live: Record<string, any>) => void][] = [
+  const identityChanges: [string, (live: Record<string, any>) => void][] = [
       ["container ID", (live) => { live.Id = "d".repeat(64); }],
       ["container name", (live) => { live.Name = "other"; }],
       ["resource ownership label", (live) => { live.Config.Labels[RESOURCE_LABEL] = "wrong"; }],
@@ -414,13 +413,13 @@ describe("local lifecycle journal integration", () => {
       ["workspace source", (live) => { live.Mounts[0].Source = "/tmp/other"; }],
       ["workspace mode", (live) => { live.Mounts[0].RW = false; }],
       ["unexpected bind mount", (live) => { live.Mounts.push({ Type: "bind", Source: "/tmp/extra", Destination: "/extra", RW: true }); }],
-    ];
-    for (const [index, [name, change]] of changes.entries()) {
-      const { driver, inspect, live, log } = await fixture(); change(live); await writeFile(inspect, JSON.stringify([live]));
-      const calls = [() => driver.inspect(input()), () => driver.start({ ...input(), call: { ...input().call, operationId: `${index}-start`, idempotencyKey: `${index}-start` } }), () => driver.stop({ ...input(), call: { ...input().call, operationId: `${index}-stop`, idempotencyKey: `${index}-stop` } }), () => driver.destroy({ ...input(), call: { ...input().call, operationId: `${index}-destroy`, idempotencyKey: `${index}-destroy` } })];
-      for (const invoke of calls) { const result = await invoke(); expect(result.receipt, name).toMatchObject({ outcome: "failed", error: { code: "identity_mismatch" } }); }
-      await expect(readFile(log, "utf8")).rejects.toThrow();
-    }
+  ];
+  test.each(identityChanges)("denies inspect, start, stop, and destroy before effects when %s differs", async (name, change) => {
+    const suffix = name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-");
+    const { driver, inspect, live, log } = await fixture(); change(live); await writeFile(inspect, JSON.stringify([live]));
+    const calls = [() => driver.inspect(input()), () => driver.start({ ...input(), call: { ...input().call, operationId: `${suffix}-start`, idempotencyKey: `${suffix}-start` } }), () => driver.stop({ ...input(), call: { ...input().call, operationId: `${suffix}-stop`, idempotencyKey: `${suffix}-stop` } }), () => driver.destroy({ ...input(), call: { ...input().call, operationId: `${suffix}-destroy`, idempotencyKey: `${suffix}-destroy` } })];
+    for (const invoke of calls) { const result = await invoke(); expect(result.receipt, name).toMatchObject({ outcome: "failed", error: { code: "identity_mismatch" } }); }
+    await expect(readFile(log, "utf8")).rejects.toThrow();
   });
   test("requires the configured native tools artifact at its fixed read-only mount", async () => {
     const tools = "/tmp/native-tools.js"; const { driver, inspect, live, log } = await fixture(tools); live.Mounts.pop(); await writeFile(inspect, JSON.stringify([live]));
