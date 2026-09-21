@@ -181,3 +181,29 @@ the file. No `REQUIRED_SHARED_IMPORTS` row was added, because `releases.ts` gain
    since lost `factory.release` is still returned, and the claim then refuses it. That boundary is
    deliberate — the reader does not duplicate the authority — and it is why a returned consent is
    never a promise that a claim will succeed.
+
+## Nothing is waiting
+
+Every gate above is closed with a receipt at `fdf9ec914` or later, including the real-PostgreSQL
+leg. G7 queued behind the shared heavy lock for roughly ninety minutes while other sessions held it,
+which is the expected cost of that lock and not a blocker; it then ran and passed at 39 pass, 0 fail,
+3178 assertions (receipt `postgres-releases`). The coverage leg queued the same way and passed
+(receipt `coverage-backend`, 101 pass, 0 fail, 895 assertions). No work is uncommitted and no
+collaborator is missing.
+
+## Interface questions for the coordinator
+
+1. **Confirm the approval-wins precedence.** When a usable approval and a usable policy both cover
+   one operation, the reader returns the approval and leaves the policy budget untouched. The
+   reasoning and the rejected alternative are under "The three decisions this leaf had to make".
+   This is a policy choice rather than a default, so it should be confirmed rather than inherited.
+2. **Decide where the table-ownership rule belongs.** "W05's approvals table is read, never
+   written" is enforced today by a source-parsing case in `releases.integration.test.ts`, because
+   the C13 gate expresses module imports and adding `assurance.ts` to `SHARED_REUSE_MODULES` reds
+   it (measured; the three duplicate findings are quoted above). If a table-access dimension is
+   wanted in `check-factory-boundaries.ts`, that is a gate change and therefore the coordinator's.
+3. **Name the consumer's transaction boundary.** The reader takes a `MigrationDb`, so a worker may
+   call it inside the same transaction as `listClaimableInTransaction` or in its own. Both are
+   correct, because the result confers nothing and `claim` re-derives everything. W09 should pick
+   one and record it, so two workers do not read consent under different isolation and then
+   disagree about why a claim failed.
