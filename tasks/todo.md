@@ -832,6 +832,26 @@ proofs were still pending.
   baseline `main` failed 14 in 8 files the same evening, disjoint sets), one real: the
   evidence-covers manifest, fixed above.
 
+## PR #277 dependency validation
+
+- [x] Review every changed dependency manifest and both Bun lockfiles against current `main`.
+- [x] Keep `@types/bun` aligned with the repository's Bun 1.3.14 runtime pin.
+- [x] Hold AI-kit Zod at 4.5.4 so its manifest, override, isolated npm lock, and root Bun lock agree.
+- [x] Verify both frozen Bun locks and rerun the sole failed full-suite test.
+- [x] Record the final dependency review and validation results.
+
+### Review
+
+- The original full suite reported 25,827 passes and one failed file. The only failure was the
+  bundled-source lock mismatch caused by AI-kit declaring Zod 4.6.4 while its approved source lock
+  still represented 4.5.4.
+- Zod 4.6.4 resolved through the production extension-runner, but it produced MCP schema type errors
+  in AI-kit's production source. AI-kit remains on 4.5.4. The web app keeps its independent 4.6.4
+  upgrade.
+- Root and web frozen installs pass with Bun 1.3.14. The production extension resolver fetched the
+  AI-kit closure and confirmed Zod 4.5.4. The manifest freshness check passes, and the formerly
+  failing bundled-source test now passes 2/2.
+
 ## PR #279 — agent instructions and complete Podman runbook
 
 - [x] Confirm the PR branch, base, review state, existing instruction-file references, and current Podman docs.
@@ -2866,3 +2886,11 @@ sweep is a sub-tick and not new infrastructure.
 - Proved the uid/gid and bind-mount contract with executable tests, rendered Compose output, the production image user, and real rootless Podman write tests.
 - Merged the current `main` and the concurrent PR-head merge without conflicts. The merged source tree is identical to the fully validated tree.
 - Verification passed: lint, typecheck, production build, focused tests, 2,185 browser tests, 26,602 coverage tests, and all 1,631 enforced coverage files.
+
+### Coordinator log — host reboot, main merge, quality gates (2026-09-21)
+
+- [x] Host reboot at 03:40 local took every shared store down. Repair on podman: the existing `factory-platform-proof-postgres` container (pgvector/pgvector:pg16, data volume kept) was started; the two SeaweedFS stores were recreated through the rootless podman compose socket with a fresh credential directory (`/run/user/1001/ezcorp-factory-storage.0yXaRPtQ`), 2 GiB limits honoured, conformance passed. The old Docker-daemon containers remain exited and unused. Logs: `/tmp/factory-platform-evidence/w00/proof-postgres-start-reboot.log`, `storage-recreate-podman.log`.
+- [x] `origin/main` merged into `integ/w00` (user instruction "use podman, pull the latest main"): b43558b34 (podman default entry point, CI quality gates, pi 0.85.1) at 53346001b, 0f949c307 (container-engine helper) at bf010dece, bd6fd9714 (Dependabot bump) at f50b041c3. Conflicts: both lockfiles (main's file, then `bun install`, verified additive), package.json (both sides), tasks/todo.md (union), web graph layout header, ci.yml node pin (main's literal `node-version: "22"` replaced by `node-version-file: .node-version`, which our pin test demands). Full backend pool 27576 pass, 0 fail at f50b041c3. Receipts: `/tmp/factory-platform-evidence/w00/main-merge*/`.
+- Main's new gates, measured: `bun run test:coverage` cannot produce `coverage/lcov.info` on this host because the browser-route coverage receipt is CI-only (main's own tree fails identically), so the global floor and CRAP gates are measured here only over the combined runner's merged lcov. In CI both sit inside the required check "Per-file coverage gate" and BLOCK; "Mutation (changed files)" is report-only.
+- Rulings: (1) compiled workspace output (`packages/**/dist/**`) leaves the lcov through the vitest leg's product-source filter, never through EXCLUDES; (2) the 38 functions above complexity 30 on the feature diff are split with no behaviour change under W18a (w18a-sdk: 20 in factory-sdk, factory-orchestrator, extension-runner; w18a-app: 12 in src/factory, src/runtime, web/src plus the dist filter and the floor measurement; 6 in five W09b-owned files wait for W09b); (3) the combined runner records the floor and CRAP results on every run (`--quality-blocking` folds them into the exit code once W18a lands); (4) W09b declares release destinations and profiles in the startup document (W09's own surface; plan W09 line 270) with credentials by reference, and the release-outcome worker claims as the run's live initiator, reading the consent and claiming in two transactions because `claim` re-validates the consent in its own.
+- [ ] In flight: W09b round 3 (release destinations, running release-outcome role, real-store producers, G14 already green at 214d7251e), w18a-sdk, w18a-app. Next: validate and merge W09b; combined run with `--podman`; second W18a pass on the W09b files; W14, W15, W16 in parallel; W17; W18 final gate; W19; W20.

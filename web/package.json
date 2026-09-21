@@ -33,14 +33,14 @@
 		"@types/jsdom": "^30.0.0",
 		"@typescript/native": "npm:typescript@7.0.2",
 		"@vitest/coverage-v8": "4.1.11",
-		"ast-v8-to-istanbul": "1.0.5",
+		"ast-v8-to-istanbul": "1.0.6",
 		"jsdom": "^30.0.1",
 		"rollup-plugin-visualizer": "^7.1.1",
 		"svelte": "^5.57.0",
 		"svelte-check": "^4.7.6",
 		"tailwindcss": "^4.2.1",
 		"typescript": "^6.0.3",
-		"vite": "^8.2.2",
+		"vite": "^8.3.0",
 		"vitest": "4.1.11"
 	},
 	"dependencies": {
@@ -52,14 +52,14 @@
 		"diff2html": "^3.4.56",
 		"elkjs": "0.12.0",
 		"highlight.js": "^11.12.0",
-		"isomorphic-dompurify": "^4.1.0",
+		"isomorphic-dompurify": "^4.2.0",
 		"kokoro-js": "^1.2.0",
 		"linkedom": "^0.18.12",
 		"lucide-svelte": "^1.0.1",
-		"marked": "^18.0.11",
+		"marked": "^18.0.13",
 		"svelte-adapter-bun": "^1.0.1",
 		"svelte-dnd-action": "^0.9.79",
-		"zod": "^4.5.4"
+		"zod": "^4.6.4"
 	},
 	"overrides": {
 		"sharp": "0.35.4"
