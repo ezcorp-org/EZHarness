@@ -966,3 +966,10 @@ Long final messages are cut at a few thousand characters and the tail is lost. E
 
 ## Main's pooled coverage command is CI-only (2026-09-21)
 `bun run test:coverage` aborts before writing `coverage/lcov.info` when the browser-route coverage receipt is absent, so the global floor and CRAP gates read "lcov not found" (or a stale file) on a developer host. Measure them over the combined runner's merged lcov, and never score a gate against a `coverage/lcov.info` older than the tree.
+
+## Cross-file state in one bun test process (2026-09-21)
+- `mock.restore()` undoes spies only. It does NOT undo `mock.module()`, so every module stub a file registers survives for the rest of the process. Restore with the shared `restoreModuleMocks()` helper, and name the modules in its MODULE_PATHS list.
+- A `mock.module()` over a module that was ALREADY loaded overrides only the keys its factory returns; the other exports keep their real values. Over a specifier that was never loaded — every `$server/*` alias — the factory DEFINES the whole export set, and no later registration can add a missing export back. A later file then fails to link and its entire test file is lost, which a batch reports as one unhandled error, not as the tests it silently dropped. Spread the real module into any alias factory, and make the override itself revert.
+- Registering a `$server/*` alias also hijacks it for every later file: the specifier stops resolving through the importer's own tsconfig, so the suite's own `mock.module("../../X")` and `spyOn` reach a different instance than the route under test does. Do not re-register aliases in shared cleanup.
+- Before making a victim "own" a process-wide cache by clearing it, check what the cache is protecting. A second `Bun.build()` in one bun process reads the wrong files (`EISDIR`); the SDK bundle cache exists for that reason, so the test must settle the owed build outside its spy and assert the delta, not clear the cache.
+- A test that asserts an absolute count of a process-wide effect is asserting file order. Say what the test's own actions cause, and keep a separate assertion for the floor the count no longer carries.

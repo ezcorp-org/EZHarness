@@ -2894,3 +2894,57 @@ sweep is a sub-tick and not new infrastructure.
 - Main's new gates, measured: `bun run test:coverage` cannot produce `coverage/lcov.info` on this host because the browser-route coverage receipt is CI-only (main's own tree fails identically), so the global floor and CRAP gates are measured here only over the combined runner's merged lcov. In CI both sit inside the required check "Per-file coverage gate" and BLOCK; "Mutation (changed files)" is report-only.
 - Rulings: (1) compiled workspace output (`packages/**/dist/**`) leaves the lcov through the vitest leg's product-source filter, never through EXCLUDES; (2) the 38 functions above complexity 30 on the feature diff are split with no behaviour change under W18a (w18a-sdk: 20 in factory-sdk, factory-orchestrator, extension-runner; w18a-app: 12 in src/factory, src/runtime, web/src plus the dist filter and the floor measurement; 6 in five W09b-owned files wait for W09b); (3) the combined runner records the floor and CRAP results on every run (`--quality-blocking` folds them into the exit code once W18a lands); (4) W09b declares release destinations and profiles in the startup document (W09's own surface; plan W09 line 270) with credentials by reference, and the release-outcome worker claims as the run's live initiator, reading the consent and claiming in two transactions because `claim` re-validates the consent in its own.
 - [ ] In flight: W09b round 3 (release destinations, running release-outcome role, real-store producers, G14 already green at 214d7251e), w18a-sdk, w18a-app. Next: validate and merge W09b; combined run with `--podman`; second W18a pass on the W09b files; W14, W15, W16 in parallel; W17; W18 final gate; W19; W20.
+
+### Focused-batch cross-file isolation — wave4a (2026-09-21)
+
+Nine failures in the combined run's `focused` check, which puts 222 files in ONE `bun test`
+process. All nine pass alone. Gates: `tasks/factory/focused-batch-isolation-GATES.md`. Receipts:
+`/tmp/factory-platform-evidence/w00-focused-triage/`.
+
+- [x] Reproduced the batch at `c1377122b`: 2723 pass, 9 fail, 222 files, 599s.
+- [x] Bisected each victim against the files before it. Four leaks, each reproduced in two files.
+- [x] `src/__tests__/bundled-v4-bootstrap.test.ts` — `afterAll(() => mock.restore())` cannot undo
+      `mock.module()`. Its stub `DatabaseLifecycleRepository` persisted, so
+      `bundled-wiring-activation.test.ts` wrote no installation row and `publishExtensionGeneration`
+      refused with `generation_superseded` (3 tests). Now also calls `restoreModuleMocks()`.
+- [x] `src/__tests__/trusted-local-runner-in-process.integration.test.ts` — left the module-level
+      `hooks` and memoised `runner` of `src/extensions/trusted-local-runner.ts` set, so
+      `trusted-local-runner-wiring.test.ts` never saw the unconfigured start it walks from
+      (4 tests). Added `resetTrustedLocalRunner()` beside `configureTrustedLocalRunner`; the
+      integration suite calls it in `afterAll`, the wiring suite in its own `beforeAll`.
+- [x] `packages/@ezcorp/extension-runner/tests/provision.integration.test.ts` — asserted it owned the
+      process's first SDK bundle, which the podman suites build first through `tests/helpers.ts`
+      (1 test). The cache cannot be emptied to force ownership: a second `Bun.build()` in one
+      process really does read the wrong files, measured as `EISDIR` on four packages. The suite now
+      settles the owed build outside the spy and requires its three toolchain roots to add none.
+- [x] `src/__tests__/executor-slash-command-expansion-e2e.test.ts` plus the two shared test helpers
+      — a `mock.module("$server/…")` is permanent and freezes the specifier, so a partial factory
+      deletes the other exports for good. `installer-idempotent-local.test.ts` could not link
+      `checkProjectRole` and its whole file was lost (1 unhandled error, 16 tests never run). The
+      suite now spreads the real middleware and reverts its one override; `mock-request.ts` no
+      longer registers `$server/db/connection`; `mock-cleanup.ts` no longer re-registers `$server/*`
+      aliases, which its own SERVER_ALIAS_PREFIXES comment already says it should not.
+- [x] `src/__tests__/bundled-wiring-activation.test.ts` — a FIFTH leak, which the first one had been
+      hiding: its `beforeAll` initialises the `services` singleton of
+      `src/extensions/extension-lifecycle-service.ts` against its own PGlite and its `afterAll`
+      closes that PGlite. While `bundled-v4-bootstrap.test.ts` still leaked a stub over
+      `getExtensionLifecycle`, that call never reached the real initialisation, so the singleton
+      stayed empty and `extension-lifecycle-service-trusted-local.test.ts` built its own. Repairing
+      the stub exposed the real dependency: 4 tests failed with "PGlite is closed" and with the
+      trusted-local hooks never installed. Added `resetExtensionServices()`, which also clears the
+      recovery timers; both suites call it.
+- [x] Verified: batch green in one process; every changed file green alone; `bun run test` pool
+      green; typecheck, lint and gate-integrity green.
+
+Review. The five leaks are one shape: process-global state that a test file sets and does not put
+back. Two of them were stacked — the module stub that broke the activation suite was also
+suppressing a lifecycle singleton the trusted-local service suite depends on, so the batch had to be
+re-run after each repair rather than once at the end. Two are module variables (a bun module-mock registry entry, a memoised runner), one is a
+process-wide build cache that is correct in production and only wrong as a test premise, and one is
+bun's alias-mock registry, which has no unregister at all — so the only safe alias mock is one whose
+export set is complete and whose behaviour reverts. The provision suite is the one place a premise,
+not a leak, had to change: its assertion moved from "this process built once" to "these three
+toolchain roots built none", with a new assertion that the bundle really was bundled, because
+forcing the build it assumed is a measured crash. Main's `bun run test` and `test-coverage.sh` host
+pool both run one file per process, so none of these four pairs can share a process in CI today;
+the repair protects the combined runner now and CI against any future grouping.
