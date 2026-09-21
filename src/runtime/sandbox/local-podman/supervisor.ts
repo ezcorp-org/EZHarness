@@ -1,4 +1,4 @@
-import { chmod, mkdir, open, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 import type {
@@ -69,6 +69,11 @@ export interface SupervisorStatus {
 	chunks: Array<{ cursor: number; stream: "stdout" | "stderr"; data: string; byteLength: number }>;
 }
 
+export interface SupervisorCancellation {
+	version: 1;
+	identity: { bootId: string; processId: string };
+}
+
 type ResolveOwnedResource = (resourceId: string) => Promise<OwnedProcessResource>;
 type LaunchDetached = (argv: string[]) => void;
 type LockFile = (descriptor: number, operation: number) => number;
@@ -133,8 +138,18 @@ async function processStartTime(pid: number): Promise<string | undefined> {
 function asProcess(status: SupervisorStatus): SandboxProcess {
 	return { identity: status.identity, state: status.state, ...(status.exitCode === undefined ? {} : { exitCode: status.exitCode }), outputCursor: status.outputCursor };
 }
+function sameIdentity(left: { bootId: string; processId: string }, right: { bootId: string; processId: string }): boolean { return left.bootId === right.bootId && left.processId === right.processId; }
 function sameCall(left: ProviderCall, right: ProviderCall): boolean { return JSON.stringify(left) === JSON.stringify(right); }
 function sameCallKey(left: ProviderCall, right: ProviderCall): boolean { return left.idempotencyKey === right.idempotencyKey && JSON.stringify(left.scope) === JSON.stringify(right.scope); }
+
+async function removeCancellation(path: string, identity: { bootId: string; processId: string }): Promise<void> {
+	try {
+		const cancellation = JSON.parse(await readFile(path, "utf8")) as SupervisorCancellation;
+		if (cancellation.version === 1 && cancellation.identity && sameIdentity(cancellation.identity, identity)) await rm(path, { force: true });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT" && !(error instanceof SyntaxError)) throw error;
+	}
+}
 
 export function launchDetachedSupervisor(argv: string[]): void {
 	const child = Bun.spawn(argv, { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
@@ -154,6 +169,22 @@ export class LocalProcessSupervisor {
 		const resource = await this.resolveOwnedResource(input.resourceId);
 		assertOwned(this.config, resource, input);
 		return resource;
+	}
+
+	private async acquireProcessLock(resource: OwnedProcessResource, wait: boolean): Promise<FileHandle | undefined> {
+		const lockPath = `${resource.processRoot}/start.lock`;
+		const lock = await open(lockPath, "a+", 0o600); await chmod(lockPath, 0o600);
+		try {
+			for (let attempts = 0; ; attempts += 1) {
+				if (this.lockFile(lock.fd, LOCK_EXCLUSIVE_NONBLOCKING) === 0) return lock;
+				if (!wait || attempts >= 399) { await lock.close(); return undefined; }
+				await Bun.sleep(5);
+			}
+		} catch (error) { await lock.close(); throw error; }
+	}
+
+	private async releaseProcessLock(lock: FileHandle): Promise<void> {
+		try { this.lockFile(lock.fd, LOCK_RELEASE); } finally { await lock.close(); }
 	}
 
 	private async stopAndVerify(resource: OwnedProcessResource): Promise<boolean> {
@@ -187,10 +218,8 @@ export class LocalProcessSupervisor {
 			const paths = this.paths(resource);
 			await mkdir(resource.processRoot, { recursive: true, mode: 0o700 });
 			await chmod(resource.processRoot, 0o700);
-			const lockPath = `${resource.processRoot}/start.lock`;
-			const lock = await open(lockPath, "a+", 0o600); await chmod(lockPath, 0o600);
-			let lockResult: number; try { lockResult = this.lockFile(lock.fd, LOCK_EXCLUSIVE_NONBLOCKING); } catch (error) { await lock.close(); throw error; }
-			if (lockResult !== 0) { await lock.close(); return failure(input.call, "process_busy", "A process start is already in progress"); }
+			const lock = await this.acquireProcessLock(resource, false);
+			if (!lock) return failure(input.call, "process_busy", "Another process operation is already in progress");
 				try {
 					try {
 						const stored = await readStatus(paths.status);
@@ -218,7 +247,7 @@ export class LocalProcessSupervisor {
 					this.acceptedStarts.set(resource.resourceId, { call: input.call, result });
 					return result;
 			} finally {
-					this.lockFile(lock.fd, LOCK_RELEASE); await lock.close();
+					await this.releaseProcessLock(lock);
 			}
 		} catch (error) { return failure(input.call, "process_start_failed", error instanceof Error ? error.message : "Process start failed"); }
 	}
@@ -228,7 +257,7 @@ export class LocalProcessSupervisor {
 		try {
 				const resource = await this.owned(input); const path = this.paths(resource).status; const stored = await readStatus(path);
 				if (input.identity.bootId !== resource.bootId) return failure(input.call, "process_not_found", "Process boot generation does not match");
-			if (stored.identity.bootId !== input.identity.bootId || stored.identity.processId !== input.identity.processId) return failure(input.call, "process_not_found", "Process identity does not match");
+			if (!sameIdentity(stored.identity, input.identity)) return failure(input.call, "process_not_found", "Process identity does not match");
 			const status = await this.recover(resource, stored, path);
 			return { receipt: receipt(input.call), process: asProcess(status) };
 		} catch { return failure(input.call, "process_unknown", "Process state cannot be verified", "unknown"); }
@@ -239,7 +268,7 @@ export class LocalProcessSupervisor {
 		try {
 				const resource = await this.owned(input); const status = await readStatus(this.paths(resource).status);
 				if (input.identity.bootId !== resource.bootId) return failure(input.call, "process_not_found", "Process boot generation does not match");
-			if (status.identity.bootId !== input.identity.bootId || status.identity.processId !== input.identity.processId || input.cursor > status.outputCursor) return failure(input.call, "process_not_found", "Process output identity or cursor does not match");
+			if (!sameIdentity(status.identity, input.identity) || input.cursor > status.outputCursor) return failure(input.call, "process_not_found", "Process output identity or cursor does not match");
 			let budget = input.maxBytes; let cursor = input.cursor; const chunks: SandboxProcessOutputChunk[] = [];
 			for (const chunk of status.chunks) {
 				if (chunks.length >= 256) break;
@@ -254,16 +283,31 @@ export class LocalProcessSupervisor {
 	async cancel(input: SandboxProcessCancelInput): Promise<SandboxProcessCancelResult> {
 		validateProviderMethodValue("sandbox.process.v1", "cancel", "input", input);
 		try {
-				const resource = await this.owned(input); const paths = this.paths(resource); const status = await readStatus(paths.status);
+			const resource = await this.owned(input); const paths = this.paths(resource);
+			const lock = await this.acquireProcessLock(resource, true);
+			if (!lock) return failure(input.call, "process_cancel_unknown", "Cancellation could not acquire the process operation lock", "unknown");
+			try {
+				const status = await readStatus(paths.status);
 				if (input.identity.bootId !== resource.bootId) return failure(input.call, "process_not_found", "Process boot generation does not match");
-			if (status.identity.bootId !== input.identity.bootId || status.identity.processId !== input.identity.processId) return failure(input.call, "process_not_found", "Process identity does not match");
-			await writeFile(paths.cancel, input.identity.processId, { mode: 0o600 });
-			for (let attempts = 0; attempts < 400; attempts += 1) {
-				const current = await readStatus(paths.status);
-				if (current.state !== "starting" && current.state !== "running") return { receipt: receipt(input.call), process: asProcess(current) };
-				await Bun.sleep(5);
+				if (!sameIdentity(status.identity, input.identity)) return failure(input.call, "process_not_found", "Process identity does not match");
+				if (status.state !== "starting" && status.state !== "running") {
+					await removeCancellation(paths.cancel, input.identity);
+					return { receipt: receipt(input.call), process: asProcess(status) };
+				}
+				await atomicJson(paths.cancel, { version: 1, identity: input.identity } satisfies SupervisorCancellation);
+				for (let attempts = 0; attempts < 400; attempts += 1) {
+					const current = await readStatus(paths.status);
+					if (!sameIdentity(current.identity, input.identity)) return failure(input.call, "process_cancel_unknown", "Process identity changed during cancellation", "unknown");
+					if (current.state !== "starting" && current.state !== "running") {
+						await removeCancellation(paths.cancel, input.identity);
+						return { receipt: receipt(input.call), process: asProcess(current) };
+					}
+					await Bun.sleep(5);
+				}
+				return failure(input.call, "process_cancel_unknown", "Cancellation did not reach a verified terminal state", "unknown");
+			} finally {
+				await this.releaseProcessLock(lock);
 			}
-			return failure(input.call, "process_cancel_unknown", "Cancellation did not reach a verified terminal state", "unknown");
 		} catch { return failure(input.call, "process_cancel_unknown", "Cancellation cannot be verified", "unknown"); }
 	}
 }

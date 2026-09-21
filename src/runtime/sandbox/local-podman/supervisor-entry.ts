@@ -1,10 +1,11 @@
 import { chmod, open, readFile, rename, rm, stat } from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import { dirname } from "node:path";
-import type { SupervisorLaunch, SupervisorStatus } from "./supervisor";
+import type { SupervisorCancellation, SupervisorLaunch, SupervisorStatus } from "./supervisor";
 import { runBoundedCommand } from "./commands";
 
 const MAX_LAUNCH_BYTES = 128 * 1024;
+const MAX_CANCELLATION_BYTES = 1024;
 
 async function atomicStatus(path: string, value: SupervisorStatus): Promise<void> {
 	const temporary = `${path}.${crypto.randomUUID()}.tmp`;
@@ -36,6 +37,15 @@ async function stopAndVerify(launch: SupervisorLaunch): Promise<boolean> {
 async function helperStartTime(): Promise<string> {
 	const value = await readFile(`/proc/${process.pid}/stat`, "utf8");
 	return value.slice(value.lastIndexOf(") ") + 2).split(" ")[19] ?? "unknown";
+}
+
+async function cancellationRequested(launch: SupervisorLaunch): Promise<boolean> {
+	try {
+		const info = await stat(launch.cancelPath);
+		if (!info.isFile() || info.size > MAX_CANCELLATION_BYTES || (info.mode & 0o077) !== 0) return false;
+		const cancellation = JSON.parse(await readFile(launch.cancelPath, "utf8")) as SupervisorCancellation;
+		return cancellation.version === 1 && cancellation.identity.bootId === launch.identity.bootId && cancellation.identity.processId === launch.identity.processId;
+	} catch { return false; }
 }
 
 export async function runSupervisorEntry(launchPath: string): Promise<void> {
@@ -72,7 +82,7 @@ export async function runSupervisorEntry(launchPath: string): Promise<void> {
 		while (!childDone) {
 			await Bun.sleep(25);
 			timedOut = Date.now() >= status.deadlineAt;
-			cancelled = await Bun.file(launch.cancelPath).exists();
+			cancelled = await cancellationRequested(launch);
 			if (timedOut || cancelled) {
 				if (!(await stopAndVerify(launch))) { status.state = "unknown"; await persist(); }
 				try { child.kill("SIGKILL"); } catch { await Promise.resolve(); }
@@ -81,7 +91,7 @@ export async function runSupervisorEntry(launchPath: string): Promise<void> {
 		}
 	})();
 	const exitCode = await child.exited; childDone = true; await watcher;
-	cancelled ||= await Bun.file(launch.cancelPath).exists();
+	cancelled ||= await cancellationRequested(launch);
 	timedOut ||= Date.now() >= status.deadlineAt;
 	const isStopped = await stopAndVerify(launch);
 	await Promise.race([Promise.all(output.map(item => item.done.catch(() => undefined))), Bun.sleep(100)]);

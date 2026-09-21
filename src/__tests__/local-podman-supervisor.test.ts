@@ -4,7 +4,7 @@ import { dlopen, FFIType } from "bun:ffi";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ProviderCall, SandboxProcessStartInput } from "@ezcorp/extension-contract";
-import { launchDetachedSupervisor, LocalProcessSupervisor, type OwnedProcessResource } from "../runtime/sandbox/local-podman/supervisor";
+import { flock, launchDetachedSupervisor, LocalProcessSupervisor, type OwnedProcessResource } from "../runtime/sandbox/local-podman/supervisor";
 import { runSupervisorEntry, supervisorEntryMain } from "../runtime/sandbox/local-podman/supervisor-entry";
 
 const roots: string[] = [];
@@ -17,26 +17,31 @@ async function fixture(outputBytes = 12, stopFails = false) {
 	const root = await mkdtemp(join(tmpdir(), "ez-supervisor-")); roots.push(root);
 	const processRoot = join(root, "resource", "process"); await mkdir(processRoot, { recursive: true, mode: 0o700 });
 	const runtimeState = join(root, "runtime-state"); await writeFile(runtimeState, "running");
-	const descendantPid = join(root, "descendant-pid"); const execArgs = join(root, "exec-args");
+	const descendantPid = join(root, "descendant-pid"); const execArgs = join(root, "exec-args"); const stopGate = join(root, "stop-gate");
 	const podman = join(root, "podman");
 	await writeFile(podman, `#!${bunExecutable}
 import { readFile, writeFile } from "node:fs/promises";
 const args = process.argv.slice(2); const state = ${JSON.stringify(runtimeState)}; const descendantPid = ${JSON.stringify(descendantPid)};
-if (args.includes("exec")) { await writeFile(${JSON.stringify(execArgs)}, JSON.stringify(args)); if (args.includes("utf8")) { process.stdout.write(new Uint8Array([0xe2])); await Bun.sleep(5); process.stdout.write(new Uint8Array([0x82, 0xac])); } else { process.stdout.write("abcdefghij"); process.stderr.write("KLMNOPQRST"); } if (args.includes("background")) { const child = Bun.spawn(["/bin/sh", "-c", "sleep 30"], { stdout: "inherit", stderr: "inherit" }); await writeFile(descendantPid, String(child.pid)); process.exit(0); } while ((await readFile(state, "utf8")) === "running") await Bun.sleep(5); process.exit(0); }
-if (args.includes("stop") || args.includes("kill")) { if (${stopFails}) process.exit(1); await writeFile(state, "stopped"); try { process.kill(Number(await readFile(descendantPid, "utf8")), "SIGKILL"); } catch { await Promise.resolve(); } process.exit(0); }
+if (args.includes("exec")) { await writeFile(${JSON.stringify(execArgs)}, JSON.stringify(args)); if (args.includes("utf8")) { process.stdout.write(new Uint8Array([0xe2])); await Bun.sleep(5); process.stdout.write(new Uint8Array([0x82, 0xac])); } else { process.stdout.write("abcdefghij"); process.stderr.write("KLMNOPQRST"); } if (args.includes("background")) { const child = Bun.spawn(["/bin/sh", "-c", "sleep 30"], { stdout: "inherit", stderr: "inherit" }); await writeFile(descendantPid, String(child.pid)); process.exit(0); } if (args.includes("identity-check")) process.exit(0); while ((await readFile(state, "utf8")) === "running") await Bun.sleep(5); process.exit(0); }
+if (args.includes("stop") || args.includes("kill")) { if (${stopFails}) process.exit(1); while (await Bun.file(${JSON.stringify(stopGate)}).exists()) await Bun.sleep(5); await writeFile(state, "stopped"); try { process.kill(Number(await readFile(descendantPid, "utf8")), "SIGKILL"); } catch { await Promise.resolve(); } process.exit(0); }
 if (args.includes("inspect")) { const running = (await readFile(state, "utf8")) === "running"; console.log(args.some(value => value.includes(".Name")) ? "containerid containername " + running : "containerid " + running); process.exit(0); }
 process.exit(2);
 `); await chmod(podman, 0o700);
 	const resource: OwnedProcessResource = { resourceId: "resource", containerId: "containerid", containerName: "containername", scope: call.scope, processRoot, bootId: "boot-id" };
 	const entries: Promise<void>[] = [];
-	const supervisor = new LocalProcessSupervisor({ stateRoot: root, podmanPath: podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: outputBytes, workspaceUid: 0, workspaceGid: 0 }, async () => resource, argv => { entries.push(runSupervisorEntry(argv[1]!)); });
+	const config = { stateRoot: root, podmanPath: podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: outputBytes, workspaceUid: 0, workspaceGid: 0 };
+	const supervisor = new LocalProcessSupervisor(config, async () => resource, argv => { entries.push(runSupervisorEntry(argv[1]!)); });
 	const input: SandboxProcessStartInput = { call, resourceId: "resource", argv: ["tool"], env: { SAFE: "yes" }, cwd: "/", user: "workspace", timeoutMs: 2_000 };
-	return { root, processRoot, runtimeState, execArgs, podman, resource, entries, supervisor, input };
+	return { root, processRoot, runtimeState, execArgs, stopGate, podman, resource, entries, supervisor, input, config };
 }
 
 async function terminal(f: Awaited<ReturnType<typeof fixture>>, identity: { bootId: string; processId: string }) {
 	await Promise.all(f.entries);
 	return f.supervisor.inspect({ call, resourceId: "resource", identity });
+}
+
+async function writeCancellation(processRoot: string, identity: { bootId: string; processId: string }): Promise<void> {
+	await writeFile(join(processRoot, "cancel"), JSON.stringify({ version: 1, identity }), { mode: 0o600 });
 }
 
 describe("LocalProcessSupervisor", () => {
@@ -47,7 +52,7 @@ describe("LocalProcessSupervisor", () => {
 		expect(f.entries).toHaveLength(1);
 		expect((await f.supervisor.start({ ...f.input, call: { ...call, requestDigest: "b".repeat(64) } })).receipt).toMatchObject({ outcome: "failed", error: { code: "idempotency_conflict" } });
 		const busy = await f.supervisor.start({ ...f.input, call: { ...call, operationId: "other" } }); expect(busy.receipt.outcome).toBe("failed");
-		await writeFile(join(f.processRoot, "cancel"), started.process.identity.processId);
+		await writeCancellation(f.processRoot, started.process.identity);
 		const inspected = await terminal(f, started.process.identity); expect(inspected).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "cancelled", outputCursor: 12 } });
 		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
 		expect(JSON.parse(await readFile(f.execArgs, "utf8"))).toContain("0:0");
@@ -69,6 +74,62 @@ describe("LocalProcessSupervisor", () => {
 		expect((await f.supervisor.inspect({ call, resourceId: "resource", identity: started.process.identity })).receipt.outcome).toBe("unknown");
 	});
 
+	test("ignores a cancellation marker for a different exact process identity", async () => {
+		const f = await fixture(64); const launches: string[][] = [];
+		const supervisor = new LocalProcessSupervisor(f.config, async () => f.resource, argv => { launches.push(argv); });
+		const wrongIdentities = [
+			(identity: { bootId: string; processId: string }) => ({ bootId: "other-boot", processId: identity.processId }),
+			(identity: { bootId: string; processId: string }) => ({ bootId: identity.bootId, processId: crypto.randomUUID() }),
+		];
+		for (const [index, wrongIdentity] of wrongIdentities.entries()) {
+			await writeFile(f.runtimeState, "running");
+			const processCall = { ...call, operationId: `identity-${index}`, idempotencyKey: `identity-${index}` };
+			const started = await supervisor.start({ ...f.input, call: processCall, argv: ["identity-check"] }); if (!("process" in started)) throw new Error("missing process");
+			const launch = launches.shift(); if (!launch) throw new Error("missing launch");
+			await writeCancellation(f.processRoot, wrongIdentity(started.process.identity));
+			await runSupervisorEntry(launch[1]!);
+			expect(await supervisor.inspect({ call: processCall, resourceId: "resource", identity: started.process.identity })).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "exited" } });
+		}
+	});
+
+	test("serializes cancellation with later starts through the durable process lock", async () => {
+		const f = await fixture(64); const started = await f.supervisor.start(f.input); if (!("process" in started)) throw new Error("missing process");
+		for (let attempt = 0; attempt < 200 && !(await Bun.file(f.execArgs).exists()); attempt += 1) await Bun.sleep(5);
+		await writeFile(f.stopGate, "hold");
+
+		const lockPath = join(f.processRoot, "start.lock"); const readyPath = join(f.root, "lock-ready"); const releasePath = join(f.root, "lock-release"); const holderPath = join(f.root, "lock-holder.ts");
+		await writeFile(holderPath, `import { open, writeFile } from "node:fs/promises";\nimport { dlopen, FFIType } from "bun:ffi";\nconst [lockPath, readyPath, releasePath] = process.argv.slice(2);\nif (!lockPath || !readyPath || !releasePath) throw new Error("missing lock arguments");\nconst handle = await open(lockPath, "a+", 0o600);\nconst libc = dlopen("libc.so.6", { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } });\nif (libc.symbols.flock(handle.fd, 2) !== 0) throw new Error("lock failed");\nawait writeFile(readyPath, "ready");\nwhile (!(await Bun.file(releasePath).exists())) await Bun.sleep(5);\nlibc.symbols.flock(handle.fd, 8);\nawait handle.close();\nlibc.close();\n`);
+		const holder = Bun.spawn([bunExecutable, holderPath, lockPath, readyPath, releasePath], { stdout: "pipe", stderr: "pipe" });
+		let cancellation: ReturnType<LocalProcessSupervisor["cancel"]> | undefined;
+		try {
+			for (let attempt = 0; attempt < 200 && !(await Bun.file(readyPath).exists()); attempt += 1) await Bun.sleep(5);
+			expect(await Bun.file(readyPath).exists()).toBe(true);
+			let attemptedResolve!: () => void; const attempted = new Promise<void>(resolve => { attemptedResolve = resolve; });
+			const supervisor = new LocalProcessSupervisor(f.config, async () => f.resource, argv => { f.entries.push(runSupervisorEntry(argv[1]!)); }, (descriptor, operation) => { attemptedResolve(); return flock(descriptor, operation); });
+			cancellation = supervisor.cancel({ call, resourceId: "resource", identity: started.process.identity });
+			await Promise.race([attempted, cancellation.then(() => { throw new Error("cancellation bypassed the held durable lock"); })]);
+			expect(await Bun.file(join(f.processRoot, "cancel")).exists()).toBe(false);
+			await writeFile(releasePath, "release");
+			for (let attempt = 0; attempt < 200 && !(await Bun.file(join(f.processRoot, "cancel")).exists()); attempt += 1) await Bun.sleep(5);
+			expect(await Bun.file(join(f.processRoot, "cancel")).exists()).toBe(true);
+			const nextCall = { ...call, operationId: "next", idempotencyKey: "next" };
+			expect((await supervisor.start({ ...f.input, call: nextCall })).receipt).toMatchObject({ outcome: "failed", error: { code: "process_busy" } });
+			await rm(f.stopGate);
+			expect((await cancellation).receipt.outcome).toBe("succeeded");
+			expect(await Bun.file(join(f.processRoot, "cancel")).exists()).toBe(false);
+			await writeFile(f.runtimeState, "running");
+			const next = await supervisor.start({ ...f.input, call: nextCall }); if (!("process" in next)) throw new Error("missing next process");
+			let nextState = next.process.state;
+			for (let attempt = 0; attempt < 200 && nextState === "starting"; attempt += 1) {
+				await Bun.sleep(5); const inspected = await supervisor.inspect({ call: nextCall, resourceId: "resource", identity: next.process.identity }); if ("process" in inspected) nextState = inspected.process.state;
+			}
+			expect(nextState).toBe("running");
+			await supervisor.cancel({ call: nextCall, resourceId: "resource", identity: next.process.identity }); await Promise.all(f.entries);
+		} finally {
+			await rm(f.stopGate, { force: true }); await writeFile(releasePath, "release").catch(() => undefined); await holder.exited; await cancellation?.catch(() => undefined); await Promise.allSettled(f.entries);
+		}
+	});
+
 	test("fails closed for invalid host configuration, state artifacts, and cursors", async () => {
 		const f = await fixture();
 		expect(() => new LocalProcessSupervisor({ stateRoot: "relative", podmanPath: f.input.argv[0]!, supervisorPath: "relative", maxOutputBytes: 0, workspaceUid: -1, workspaceGid: -1 }, async () => f.resource)).toThrow();
@@ -76,7 +137,7 @@ describe("LocalProcessSupervisor", () => {
 		expect((await f.supervisor.start(f.input)).receipt).toMatchObject({ outcome: "failed", error: { code: "process_busy" } }); libc.symbols.flock(held.fd, 8); await held.close(); libc.close();
 		await writeFile(lockPath, "orphaned host crash artifact", { mode: 0o600 });
 		const started = await f.supervisor.start(f.input); if (!("process" in started)) throw new Error("missing process");
-		await writeFile(join(f.processRoot, "cancel"), started.process.identity.processId); await terminal(f, started.process.identity);
+		await writeCancellation(f.processRoot, started.process.identity); await terminal(f, started.process.identity);
 		const badCursor = await f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 999, maxBytes: 1 }); expect(badCursor.receipt.outcome).toBe("failed");
 		await chmod(join(f.processRoot, "status.json"), 0o644);
 		expect((await f.supervisor.inspect({ call, resourceId: "resource", identity: started.process.identity })).receipt.outcome).toBe("unknown");
@@ -138,7 +199,7 @@ describe("LocalProcessSupervisor", () => {
 
 	test("does not report an unverified persisted process start as successful", async () => {
 		const f = await fixture(64); let launches = 0; let now = 1_000;
-		const supervisor = new LocalProcessSupervisor({ stateRoot: f.root, podmanPath: f.podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: 64, workspaceUid: 0, workspaceGid: 0 }, async () => f.resource, () => { launches += 1; throw new Error("crash boundary"); }, undefined, { now: () => now });
+		const supervisor = new LocalProcessSupervisor(f.config, async () => f.resource, () => { launches += 1; throw new Error("crash boundary"); }, undefined, { now: () => now });
 		const first = await supervisor.start(f.input); expect(first.receipt.outcome).toBe("unknown");
 		const pending = await supervisor.start(f.input); expect(pending.receipt.outcome).toBe("unknown");
 		now += 5_001;
@@ -150,7 +211,7 @@ describe("LocalProcessSupervisor", () => {
 
 	test("does not load the native lock binding during import or configuration", async () => {
 		const f = await fixture(64); let nativeCalls = 0;
-		const supervisor = new LocalProcessSupervisor({ stateRoot: f.root, podmanPath: f.podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: 64, workspaceUid: 0, workspaceGid: 0 }, async () => f.resource, () => undefined, () => { nativeCalls += 1; throw new Error("native binding unavailable"); });
+		const supervisor = new LocalProcessSupervisor(f.config, async () => f.resource, () => undefined, () => { nativeCalls += 1; throw new Error("native binding unavailable"); });
 		expect(nativeCalls).toBe(0);
 		expect((await supervisor.start(f.input)).receipt).toMatchObject({ outcome: "failed", error: { code: "process_start_failed" } }); expect(nativeCalls).toBe(1);
 	});
