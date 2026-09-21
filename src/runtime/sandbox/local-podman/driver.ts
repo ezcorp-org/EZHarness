@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { open } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 import { validateProviderMethodValue, type ProviderCall, type ProviderError, type ProviderFailedReceipt, type ProviderReceipt, type ProviderSucceededReceipt, type ProviderUnknownReceipt, type SandboxCreateInput, type SandboxCreateResult, type SandboxDestroyInput, type SandboxDestroyResult, type SandboxFileChmodInput, type SandboxFileChmodResult, type SandboxFileListInput, type SandboxFileListResult, type SandboxFileMkdirInput, type SandboxFileMkdirResult, type SandboxFileReadInput, type SandboxFileReadResult, type SandboxFileRemoveInput, type SandboxFileRemoveResult, type SandboxFileStatInput, type SandboxFileStatResult, type SandboxFileWriteInput, type SandboxFileWriteResult, type SandboxInspectInput, type SandboxInspectResult, type SandboxProcessCancelInput, type SandboxProcessCancelResult, type SandboxProcessInspectInput, type SandboxProcessInspectResult, type SandboxProcessReadOutputInput, type SandboxProcessReadOutputResult, type SandboxProcessStartInput, type SandboxProcessStartResult, type SandboxStartInput, type SandboxStartResult, type SandboxStopInput, type SandboxStopResult } from "@ezcorp/extension-contract";
-import { CONFIG_LABEL, RESOURCE_LABEL, configurationDigest, containerIdFromCreateOutput, createContainerArgv, expectedContainerIdentity, resourcePaths, runBoundedCommand, validateHostConfig, type BoundedCommandResult, type LocalPodmanHostConfig } from "./commands";
+import { CONFIG_LABEL, RESOURCE_LABEL, configurationDigest, containerIdFromCreateOutput, createContainerArgv, expectedContainerIdentity, resourcePaths, runBoundedCommand, validateHostConfig, validateProcessConfinement, type BoundedCommandResult, type LocalPodmanHostConfig } from "./commands";
 import { ResourceRoot } from "./resource-root";
 import { WorkspaceImage } from "./workspace-image";
 import { DurableOperationJournal } from "./journal";
@@ -11,10 +11,14 @@ import { LocalWorkspaceFileError, LocalWorkspaceFiles } from "./files";
 type Metadata = { resourceId: string; containerId: string; containerName: string; configDigest: string; scope: ProviderCall["scope"]; bootId?: string; state: "stopped" | "running" | "destroying" | "unknown"; limits: SandboxCreateInput["limits"] };
 type CreateReservation = { version: 1; state: "creating"; phase: "reserved" | "workspace" | "container"; resourceId: string; containerName: string; configDigest: string; scope: ProviderCall["scope"]; call: ProviderCall; limits: SandboxCreateInput["limits"] };
 type InspectMount = { Type?: string; Source?: string; Destination?: string; RW?: boolean };
-type InspectContainer = { Id?: string; Name?: string; Image?: string; State?: { Running?: boolean }; Config?: { Image?: string; User?: string; Labels?: Record<string, string> }; HostConfig?: { NetworkMode?: string; UsernsMode?: string; PidMode?: string; IpcMode?: string; UtsMode?: string | null; Privileged?: boolean; CapDrop?: string[]; SecurityOpt?: string[]; ReadonlyRootfs?: boolean; Memory?: number; MemorySwap?: number; NanoCpus?: number; PidsLimit?: number }; Mounts?: InspectMount[] };
+type InspectContainer = { Id?: string; Name?: string; Image?: string; State?: { Running?: boolean; Pid?: number }; Config?: { Image?: string; User?: string; Labels?: Record<string, string> }; HostConfig?: { NetworkMode?: string; UsernsMode?: string; PidMode?: string; IpcMode?: string; UtsMode?: string | null; Privileged?: boolean; CapDrop?: string[]; SecurityOpt?: string[]; ReadonlyRootfs?: boolean; Memory?: number; MemorySwap?: number; NanoCpus?: number; PidsLimit?: number }; Mounts?: InspectMount[] };
 const PODMAN_OUTPUT_LIMIT = 64 * 1024;
 const PODMAN_TIMEOUT_MS = 30_000;
 const PODMAN_CREATE_TIMEOUT_MS = 120_000;
+
+class ContainerConfinementError extends Error {
+  constructor(readonly stopped: boolean) { super("container process confinement is unavailable"); }
+}
 
 function receipt(call: ProviderCall, outcome: "succeeded"): ProviderSucceededReceipt;
 function receipt(call: ProviderCall, outcome: "failed", error: ProviderError): ProviderFailedReceipt;
@@ -28,7 +32,8 @@ function receipt(call: ProviderCall, outcome: "succeeded" | "failed" | "unknown"
 
 export class LocalPodmanDriver {
   private readonly config: LocalPodmanHostConfig; private readonly roots: ResourceRoot; private readonly images: WorkspaceImage; private readonly journal: DurableOperationJournal; private readonly supervisor: LocalProcessSupervisor; private readonly fileSystems = new Map<string, LocalWorkspaceFiles>(); private readonly destroyLocks = new Map<string, Promise<void>>(); private runtimeProof?: Promise<void>;
-  constructor(config: LocalPodmanHostConfig, dependencies: { workspaceImage?: WorkspaceImage } = {}) { this.config = validateHostConfig(config); this.roots = new ResourceRoot(this.config.stateRoot); this.images = dependencies.workspaceImage ?? new WorkspaceImage(this.config); this.journal = new DurableOperationJournal(`${this.config.stateRoot}/operations`); this.supervisor = new LocalProcessSupervisor({ stateRoot: this.config.stateRoot, podmanPath: this.config.podmanPath, supervisorPath: this.config.supervisorPath, maxOutputBytes: 1024 * 1024, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid }, (resourceId) => this.resolveProcessResource(resourceId)); }
+  private readonly readProcessStatus: (pid: number) => Promise<string>;
+  constructor(config: LocalPodmanHostConfig, dependencies: { workspaceImage?: WorkspaceImage; readProcessStatus?: (pid: number) => Promise<string> } = {}) { this.config = validateHostConfig(config); this.roots = new ResourceRoot(this.config.stateRoot); this.images = dependencies.workspaceImage ?? new WorkspaceImage(this.config); this.readProcessStatus = dependencies.readProcessStatus ?? ((pid) => readFile(`/proc/${pid}/status`, "utf8")); this.journal = new DurableOperationJournal(`${this.config.stateRoot}/operations`); this.supervisor = new LocalProcessSupervisor({ stateRoot: this.config.stateRoot, podmanPath: this.config.podmanPath, supervisorPath: this.config.supervisorPath, maxOutputBytes: 1024 * 1024, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid }, (resourceId) => this.resolveProcessResource(resourceId)); }
   private async mutate<T extends { receipt: unknown }>(call: SandboxCreateInput["call"], effect: () => Promise<T>): Promise<T> {
     const begun = await this.journal.begin<T>(call);
     if (begun.kind === "replay") return begun.result;
@@ -76,11 +81,15 @@ export class LocalPodmanDriver {
     validateProviderMethodValue("sandbox.lifecycle.v1", "inspect", "input", input);
     const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized;
     const value = authorized.value;
-    if (value.state !== "destroying") { try { const running = await this.verify(value); if (value.state !== "unknown" && (value.state === "running") !== running) { value.state = running ? "running" : "stopped"; await this.roots.writeMetadata(value.resourceId, value); } } catch { return this.identityMismatch(input.call); } }
+    if (value.state !== "destroying") { try { const running = await this.verify(value); if (value.state !== "unknown" && (value.state === "running") !== running) { value.state = running ? "running" : "stopped"; await this.roots.writeMetadata(value.resourceId, value); } } catch (error) { return this.verificationFailure(input.call, error); } }
     return { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: value.state === "running" ? "running" : value.state === "destroying" ? "destroyed" : "stopped", observedState: value.state, limits: value.limits } as const };
   }
   private podman(args: string[]): Promise<BoundedCommandResult> { return runBoundedCommand([this.config.podmanPath, "--remote=false", ...args], { timeoutMs: PODMAN_TIMEOUT_MS, maxOutputBytes: PODMAN_OUTPUT_LIMIT }); }
-  private verifyRuntime(): Promise<void> { return this.runtimeProof ??= (async () => { const result = await this.podman(["info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}}"]); if (result.code !== 0 || result.timedOut || result.stdout.trim() !== "true v2") throw new Error("Local runtime requires rootless Podman with cgroup v2"); })(); }
+  private verifyRuntime(): Promise<void> { return this.runtimeProof ??= (async () => { const result = await this.podman(["info", "--format", "{{.Host.Security.Rootless}} {{.Host.CgroupsVersion}} {{.Host.Security.SeccompEnabled}}"]); if (result.code !== 0 || result.timedOut || result.stdout.trim() !== "true v2 true") throw new Error("Local runtime requires rootless Podman with cgroup v2 and seccomp"); })(); }
+  private async rejectUnconfinedContainer(value: Metadata): Promise<never> {
+    const stopped = await this.podman(["stop", "--time", "1", value.containerId]);
+    throw new ContainerConfinementError(stopped.code === 0 && !stopped.timedOut);
+  }
   private async verify(value: Metadata): Promise<boolean> {
     const { code, stdout, timedOut } = await this.podman(["inspect", value.containerId]); if (code !== 0 || timedOut) throw new Error("owned container identity is unavailable");
     const parsed = JSON.parse(stdout) as unknown; if (!Array.isArray(parsed) || parsed.length !== 1) throw new Error("owned container identity mismatch");
@@ -88,9 +97,19 @@ export class LocalPodmanDriver {
     const bindMounts = (live.Mounts ?? []).filter((entry) => entry.Type === "bind").map((entry) => ({ source: entry.Source, destination: entry.Destination, readWrite: entry.RW })).sort((left, right) => String(left.destination).localeCompare(String(right.destination)));
     const expectedMounts = expected.bindMounts.map((entry) => ({ source: entry.source, destination: entry.destination, readWrite: entry.readWrite })).sort((left, right) => left.destination.localeCompare(right.destination));
     if (live.Id !== value.containerId || live.Name !== expected.containerName || live.Image !== expected.imageId || live.Config?.Image !== expected.imageReference || live.Config?.User !== expected.user || live.Config?.Labels?.[RESOURCE_LABEL] !== expected.labels[RESOURCE_LABEL] || live.Config?.Labels?.[CONFIG_LABEL] !== value.configDigest || value.configDigest !== expected.labels[CONFIG_LABEL] || typeof live.State?.Running !== "boolean" || live.HostConfig?.NetworkMode !== expected.networkMode || live.HostConfig?.UsernsMode !== "" || live.HostConfig?.PidMode !== expected.pidMode || live.HostConfig?.IpcMode !== expected.ipcMode || (live.HostConfig?.UtsMode ?? null) !== expected.utsMode || live.HostConfig?.Privileged !== expected.privileged || JSON.stringify(live.HostConfig?.CapDrop) !== JSON.stringify(expected.capDrop) || JSON.stringify(live.HostConfig?.SecurityOpt) !== JSON.stringify(expected.securityOpt) || live.HostConfig?.ReadonlyRootfs !== expected.readonlyRootfs || live.HostConfig?.Memory !== expected.memoryBytes || live.HostConfig?.MemorySwap !== expected.memorySwapBytes || live.HostConfig?.NanoCpus !== expected.nanoCpus || live.HostConfig?.PidsLimit !== expected.pids || JSON.stringify(bindMounts) !== JSON.stringify(expectedMounts)) throw new Error("owned container identity mismatch");
+    if (live.State.Running) {
+      if (!Number.isSafeInteger(live.State.Pid) || live.State.Pid! <= 0) return this.rejectUnconfinedContainer(value);
+      try { validateProcessConfinement(await this.readProcessStatus(live.State.Pid!)); }
+      catch { return this.rejectUnconfinedContainer(value); }
+    }
     return live.State.Running;
   }
   private identityMismatch(call: SandboxCreateInput["call"]) { return { receipt: receipt(call, "failed", { code: "identity_mismatch", message: "Owned container identity mismatch.", retryable: false }) }; }
+  private confinementFailure(call: ProviderCall, error: ContainerConfinementError) {
+    if (error.stopped) return { receipt: receipt(call, "failed", { code: "confinement_unverified", message: "Container process confinement could not be verified.", retryable: false }) };
+    return { receipt: receipt(call, "unknown", { code: "running_unknown", message: "Container confinement could not be verified and stop outcome is unknown.", retryable: true }) };
+  }
+  private verificationFailure(call: ProviderCall, error: unknown) { return error instanceof ContainerConfinementError ? this.confinementFailure(call, error) : this.identityMismatch(call); }
   private async authorize(resourceId: string, call: ProviderCall): Promise<{ value: Metadata } | { receipt: ProviderFailedReceipt }> {
     await this.roots.verifyPrivateRoot(); await this.verifyRuntime();
     let value: Metadata; try { value = await this.roots.readMetadata<Metadata>(resourceId); } catch { return { receipt: receipt(call, "failed", { code: "not_found", message: "Resource not found.", retryable: false }) }; }
@@ -99,8 +118,19 @@ export class LocalPodmanDriver {
   }
   private async transition(input: SandboxStartInput | SandboxStopInput, target: "running" | "stopped", value: Metadata): Promise<SandboxStartResult | SandboxStopResult> {
     if (value.state === "destroying") return { receipt: receipt(input.call, "failed", { code: "resource_destroying", message: "Resource destruction is in progress.", retryable: false }) };
-    let running: boolean; try { running = await this.verify(value); } catch { return this.identityMismatch(input.call); } if (running === (target === "running")) { value.state = target; await this.roots.writeMetadata(value.resourceId, value); return { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: target, observedState: target, limits: value.limits } }; } const result = await this.podman([target === "running" ? "start" : "stop", value.containerId]);
+    let running: boolean; try { running = await this.verify(value); } catch (error) {
+      return this.verificationFailure(input.call, error);
+    } if (running === (target === "running")) { value.state = target; await this.roots.writeMetadata(value.resourceId, value); return { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: target, observedState: target, limits: value.limits } }; } const result = await this.podman([target === "running" ? "start" : "stop", value.containerId]);
     if (result.code !== 0 || result.timedOut) return { receipt: receipt(input.call, "unknown", { code: `${target}_unknown`, message: `Container ${target} outcome is unknown.`, retryable: true }) };
+    if (target === "running") {
+      try { if (!(await this.verify(value))) throw new Error("container did not start"); }
+      catch (error) {
+        if (error instanceof ContainerConfinementError) return this.confinementFailure(input.call, error);
+        const stopped = await this.podman(["stop", "--time", "1", value.containerId]);
+        if (stopped.code !== 0 || stopped.timedOut) return { receipt: receipt(input.call, "unknown", { code: "running_unknown", message: "Container confinement could not be verified and stop outcome is unknown.", retryable: true }) };
+        return { receipt: receipt(input.call, "failed", { code: "confinement_unverified", message: "Container process confinement could not be verified.", retryable: false }) };
+      }
+    }
     value.state = target; if (target === "running") value.bootId = crypto.randomUUID(); await this.roots.writeMetadata(value.resourceId, value);
     return { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: target, observedState: target, limits: value.limits } };
   }
@@ -132,10 +162,10 @@ export class LocalPodmanDriver {
       const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized;
       const begun = await this.journal.beginRecoverable<SandboxDestroyResult>(input.call); if (begun.kind === "replay") return begun.result.receipt.outcome === "succeeded" ? await this.finishDestroyed(input, begun.result) : begun.result;
       const value = authorized.value;
-      if (value.state !== "destroying") { try { await this.verify(value); } catch { const failed = this.identityMismatch(input.call); await this.journal.complete(input.call, failed); return failed; } value.state = "destroying"; await this.roots.writeMetadata(value.resourceId, value); }
+      if (value.state !== "destroying") { try { await this.verify(value); } catch (error) { const failed = this.verificationFailure(input.call, error); await this.journal.complete(input.call, failed); return failed; } value.state = "destroying"; await this.roots.writeMetadata(value.resourceId, value); }
       const live = await this.podman(["inspect", value.containerId]);
       if (live.timedOut) return { receipt: receipt(input.call, "unknown", { code: "destroy_unknown", message: "Container destroy outcome is unknown.", retryable: true }) };
-      if (live.code === 0) { try { await this.verify(value); } catch { const failed = this.identityMismatch(input.call); await this.journal.complete(input.call, failed); return failed; } const removed = await this.podman(["rm", "--force", "--volumes", value.containerId]); if (removed.code !== 0 || removed.timedOut) return { receipt: receipt(input.call, "unknown", { code: "destroy_unknown", message: "Container destroy outcome is unknown.", retryable: true }) }; }
+      if (live.code === 0) { try { await this.verify(value); } catch (error) { const failed = this.verificationFailure(input.call, error); await this.journal.complete(input.call, failed); return failed; } const removed = await this.podman(["rm", "--force", "--volumes", value.containerId]); if (removed.code !== 0 || removed.timedOut) return { receipt: receipt(input.call, "unknown", { code: "destroy_unknown", message: "Container destroy outcome is unknown.", retryable: true }) }; }
       else { const absent = await this.podman(["container", "exists", value.containerName]); if (absent.timedOut || absent.code !== 1) return { receipt: receipt(input.call, "unknown", { code: "destroy_unknown", message: "Container destroy outcome is unknown.", retryable: true }) }; }
       const paths = resourcePaths(this.config.stateRoot, value.resourceId); try { await this.images.destroy(paths.image, paths.mount); } catch { return { receipt: receipt(input.call, "unknown", { code: "cleanup_unknown", message: "Workspace cleanup outcome is unknown.", retryable: true }) }; }
       const result = { receipt: receipt(input.call, "succeeded"), resource: { resourceId: value.resourceId, desiredState: "destroyed", observedState: "destroyed", limits: value.limits } } as SandboxDestroyResult;
@@ -148,13 +178,13 @@ export class LocalPodmanDriver {
     await this.roots.verifyPrivateRoot(); const value = await this.roots.readMetadata<Metadata>(resourceId); if (!value.bootId || value.state === "destroying") throw new Error("Resource has no process generation"); await this.verify(value); const paths = resourcePaths(this.config.stateRoot, resourceId);
     return { resourceId, containerId: value.containerId, containerName: value.containerName, scope: value.scope, processRoot: `${paths.output}/process`, bootId: value.bootId };
   }
-  async processStart(input: SandboxProcessStartInput): Promise<SandboxProcessStartResult> { const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; if (authorized.value.state !== "running" || !(await this.verify(authorized.value))) return { receipt: receipt(input.call, "failed", { code: "resource_not_running", message: "Process start requires a running resource.", retryable: false }) }; return this.supervisor.start(input); }
+  async processStart(input: SandboxProcessStartInput): Promise<SandboxProcessStartResult> { const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; let running: boolean; try { running = await this.verify(authorized.value); } catch (error) { return this.verificationFailure(input.call, error); } if (authorized.value.state !== "running" || !running) return { receipt: receipt(input.call, "failed", { code: "resource_not_running", message: "Process start requires a running resource.", retryable: false }) }; return this.supervisor.start(input); }
   processInspect(input: SandboxProcessInspectInput): Promise<SandboxProcessInspectResult> { return this.supervisor.inspect(input); }
   processReadOutput(input: SandboxProcessReadOutputInput): Promise<SandboxProcessReadOutputResult> { return this.supervisor.readOutput(input); }
   processCancel(input: SandboxProcessCancelInput): Promise<SandboxProcessCancelResult> { return this.supervisor.cancel(input); }
   private fileFailure(call: ProviderCall, error: unknown) { const code = error instanceof LocalWorkspaceFileError ? error.code : "file_failed"; return { receipt: receipt(call, "failed", { code, message: "Workspace file operation failed.", retryable: false }) }; }
-  private async fileContext(input: { resourceId: string; call: ProviderCall }): Promise<{ files: LocalWorkspaceFiles } | { receipt: ProviderFailedReceipt }> {
-    const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; let running: boolean; try { running = await this.verify(authorized.value); } catch { return this.identityMismatch(input.call); } if (!running && authorized.value.state === "running") { authorized.value.state = "stopped"; await this.roots.writeMetadata(input.resourceId, authorized.value); } if (running || authorized.value.state !== "stopped") return { receipt: receipt(input.call, "failed", { code: "resource_not_stopped", message: "Workspace files require a stopped resource.", retryable: false }) };
+  private async fileContext(input: { resourceId: string; call: ProviderCall }): Promise<{ files: LocalWorkspaceFiles } | { receipt: ProviderFailedReceipt | ProviderUnknownReceipt }> {
+    const authorized = await this.authorize(input.resourceId, input.call); if (!("value" in authorized)) return authorized; let running: boolean; try { running = await this.verify(authorized.value); } catch (error) { return this.verificationFailure(input.call, error); } if (!running && authorized.value.state === "running") { authorized.value.state = "stopped"; await this.roots.writeMetadata(input.resourceId, authorized.value); } if (running || authorized.value.state !== "stopped") return { receipt: receipt(input.call, "failed", { code: "resource_not_stopped", message: "Workspace files require a stopped resource.", retryable: false }) };
     const paths = resourcePaths(this.config.stateRoot, input.resourceId); const statusPath = `${paths.output}/process/status.json`; try { const file = await open(statusPath, "r"); try { const info = await file.stat(); if (info.size > 2 * 1024 * 1024) throw new Error("invalid process status"); const status = JSON.parse(await file.readFile("utf8")) as { state?: string }; if (status.state === "starting" || status.state === "running") return { receipt: receipt(input.call, "failed", { code: "process_active", message: "Workspace has an active process.", retryable: false }) }; } finally { await file.close(); } } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") return { receipt: receipt(input.call, "failed", { code: "process_state_unknown", message: "Process state cannot be verified.", retryable: false }) }; }
     let files = this.fileSystems.get(input.resourceId); if (!files) { files = new LocalWorkspaceFiles(paths.mount, { maxReadBytes: 256 * 1024, maxWriteBytes: 256 * 1024, maxListEntries: 256 }); this.fileSystems.set(input.resourceId, files); } return { files };
   }

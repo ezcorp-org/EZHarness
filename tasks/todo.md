@@ -196,3 +196,24 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 - Proved the uid/gid and bind-mount contract with executable tests, rendered Compose output, the production image user, and real rootless Podman write tests.
 - Merged the current `main` and the concurrent PR-head merge without conflicts. The merged source tree is identical to the fully validated tree.
 - Verification passed: lint, typecheck, production build, focused tests, 2,185 browser tests, 26,602 coverage tests, and all 1,631 enforced coverage files.
+
+## PR #292 — full review and CI repair
+
+- [x] Confirm the PR head, base, worktree, review state, and failing checks.
+- [x] Reproduce and diagnose each failing CI check from its complete log.
+- [x] Review the full diff against repository standards and the infrastructure plan with separate Standards and Spec reviewers.
+- [x] Fix every confirmed defect with focused regression coverage and no gate weakening.
+- [x] Run focused checks, then repository-level lint, type checks, tests, build, coverage, and visual verification as applicable.
+- [x] Commit and push the repair, watch every PR check to completion, and resolve only review threads addressed by the repair.
+- [x] Record the final review findings, exact verification evidence, and remaining human decisions.
+
+Plan review: use the existing clean PR worktree at the exact GitHub head. Treat the four red jobs as independent signals until their logs prove a shared cause. Preserve the sandbox security model and keep all repairs on the PR branch. Do not weaken coverage, visual-evidence, or test gates.
+
+### Review
+
+- Reproduced the red coverage shard on Bun 1.3.14. Test helpers used a machine-local Bun path. They now use the active runtime executable. The exact failed supervisor file passes 9/9 on the pinned runtime.
+- Added transactional disposal fencing. A destroy request and new sandbox access cannot both be admitted. Active writers and methods block disposal. Pending disposal blocks new access.
+- Added effective container confinement checks. Running containers must report seccomp filter mode and no-new-privileges through `/proc/<pid>/status`. Unverified containers are stopped, or return an unknown outcome if stop cannot be proved.
+- Closed two standards-review gaps: bounded Podman output drains queued chunks before reader cancellation, and failed process stops escalate, persist `unknown`, and terminate the local helper.
+- Expanded real qualification coverage for dispose-while-running and browser reconnect cancellation. Added mapped mobile visual evidence and fixed the Feature Index search row and project favicon controls at 390 px.
+- Verification: pinned focused tests 64/64; pinned full suite 25,950/25,950 across 1,665 files; coverage producers 26,756/26,756 across 1,623 shards; typecheck and lint clean; production build passes; mobile/desktop evidence 4/4. The local coverage aggregate correctly refused to run without CI's separate browser-coverage receipt. The hosted per-file gate supplies that artifact and is the final aggregate proof.

@@ -154,7 +154,7 @@ def main() -> int:
         }
         record(controls, "rootless", host["security"]["rootless"] is True, host["security"]["rootless"])
         record(controls, "cgroups-v2", host["cgroupVersion"] == "v2", host["cgroupVersion"])
-        record(controls, "seccomp", host["security"]["seccompEnabled"] is True, host["security"])
+        host_seccomp_enabled = host["security"]["seccompEnabled"] is True
 
         image = podman("image", "inspect", args.image, "--format", "{{.Id}}", check=False)
         if image.returncode != 0:
@@ -189,6 +189,10 @@ def main() -> int:
         record(controls, "no-new-privileges", "no-new-privileges" in inspect["HostConfig"]["SecurityOpt"], inspect["HostConfig"]["SecurityOpt"])
         cap_eff = podman("exec", container, "sh", "-c", "awk '/^CapEff:/ {print $2}' /proc/self/status").stdout.strip()
         record(controls, "capabilities-dropped", cap_eff == "0000000000000000", {"CapEff": cap_eff, "inspect": host_config["CapDrop"]})
+        process_status = podman("exec", container, "sh", "-c", "awk '/^(NoNewPrivs|Seccomp):/ {print $1 $2}' /proc/self/status").stdout.splitlines()
+        confinement = {key.strip(): value.strip() for key, value in (line.split(":", 1) for line in process_status if ":" in line)}
+        record(controls, "seccomp", host_seccomp_enabled and confinement.get("Seccomp") == "2" and confinement.get("NoNewPrivs") == "1",
+               {"hostEnabled": host_seccomp_enabled, "Seccomp": confinement.get("Seccomp"), "NoNewPrivs": confinement.get("NoNewPrivs")})
         record(controls, "network-disabled", host_config["NetworkMode"] == "none", host_config["NetworkMode"])
         record(controls, "read-only-root", host_config["ReadonlyRootfs"] is True, host_config["ReadonlyRootfs"])
         receipt["containerIsolation"] = {key: host_config.get(key) for key in ("NetworkMode", "PidMode", "IpcMode", "UtsMode", "UsernsMode", "Privileged", "CapDrop", "SecurityOpt")}

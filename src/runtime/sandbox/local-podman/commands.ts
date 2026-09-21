@@ -31,7 +31,7 @@ export interface BoundedCommandOptions { timeoutMs: number; maxOutputBytes: numb
 function captureBounded(stream: ReadableStream<Uint8Array>, limit: number) {
   const reader = stream.getReader(); const chunks: Uint8Array[] = []; let retained = 0;
   const done = (async () => { for (;;) { const value = await reader.read(); if (value.done) break; if (retained < limit) { const part = value.value.subarray(0, limit - retained); chunks.push(part); retained += part.byteLength; } } })();
-  return async () => { await Promise.resolve(); await reader.cancel().catch(() => undefined); await done.catch(() => undefined); const joined = new Uint8Array(retained); let offset = 0; for (const chunk of chunks) { joined.set(chunk, offset); offset += chunk.byteLength; } return new TextDecoder().decode(joined); };
+  return async () => { await Promise.race([done.catch(() => undefined), Bun.sleep(100)]); await reader.cancel().catch(() => undefined); await done.catch(() => undefined); const joined = new Uint8Array(retained); let offset = 0; for (const chunk of chunks) { joined.set(chunk, offset); offset += chunk.byteLength; } return new TextDecoder().decode(joined); };
 }
 
 export async function runBoundedCommand(argv: string[], options: BoundedCommandOptions): Promise<BoundedCommandResult> {
@@ -64,6 +64,14 @@ export function resourceKey(resourceId: string): string {
 }
 export function configurationDigest(config: LocalPodmanHostConfig, limits: LocalResourceLimits): string { return createHash("sha256").update(JSON.stringify({ imageReference: config.imageReference, imageId: config.imageId, workspaceUid: config.workspaceUid, workspaceGid: config.workspaceGid, limits, nativeToolsArtifact: config.nativeToolsArtifact ?? null })).digest("hex"); }
 export function containerIdFromCreateOutput(output: string): string | null { const value = output.trim(); return /^[a-f0-9]{64}$/.test(value) ? value : null; }
+
+export function validateProcessConfinement(status: string): void {
+  const fields = new Map(status.split("\n").flatMap((line) => {
+    const separator = line.indexOf(":");
+    return separator === -1 ? [] : [[line.slice(0, separator), line.slice(separator + 1).trim()] as const];
+  }));
+  if (fields.get("Seccomp") !== "2" || fields.get("NoNewPrivs") !== "1") throw new Error("container process confinement is unavailable");
+}
 
 export interface ExpectedContainerIdentity {
   containerName: string;

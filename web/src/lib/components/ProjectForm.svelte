@@ -116,7 +116,7 @@
 	<!-- Icon -->
 	<div>
 		<div class="mb-2 block text-sm font-medium text-[var(--color-text-secondary)]">Icon</div>
-		<div class="flex items-center gap-4">
+		<div class="flex items-start gap-4">
 			<!-- Preview -->
 			<div class="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl {icon ? '' : hashColor(name || 'P')}">
 				{#if icon}
@@ -126,7 +126,7 @@
 				{/if}
 			</div>
 
-			<div class="flex flex-col gap-2">
+			<div class="flex min-w-0 flex-1 flex-col gap-2">
 				<div class="flex gap-2">
 					<label class="cursor-pointer rounded-md bg-[var(--color-surface-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-tertiary)]">
 						Upload
@@ -142,11 +142,11 @@
 						</button>
 					{/if}
 				</div>
-				<div class="flex gap-2">
+				<div class="flex min-w-0 gap-2">
 					<input
 						type="text"
 						bind:value={faviconUrl}
-						class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
+						class="min-w-0 flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none"
 						placeholder="https://example.com"
 					/>
 					<button

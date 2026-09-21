@@ -28,6 +28,8 @@ async function ownedAndRunning(launch: SupervisorLaunch): Promise<boolean> {
 
 async function stopAndVerify(launch: SupervisorLaunch): Promise<boolean> {
 	await runBoundedCommand([launch.podmanPath, "--remote=false", "stop", "--time", "1", launch.containerId], { timeoutMs: 10_000, maxOutputBytes: 4096 });
+	if (await stopped(launch)) return true;
+	await runBoundedCommand([launch.podmanPath, "--remote=false", "kill", launch.containerId], { timeoutMs: 10_000, maxOutputBytes: 4096 });
 	return stopped(launch);
 }
 
@@ -68,7 +70,11 @@ export async function runSupervisorEntry(launchPath: string): Promise<void> {
 			await Bun.sleep(25);
 			timedOut = Date.now() >= status.deadlineAt;
 			cancelled = await Bun.file(launch.cancelPath).exists();
-			if (timedOut || cancelled) { if (!(await stopAndVerify(launch))) status.state = "unknown"; return; }
+			if (timedOut || cancelled) {
+				if (!(await stopAndVerify(launch))) { status.state = "unknown"; await persist(); }
+				try { child.kill("SIGKILL"); } catch { await Promise.resolve(); }
+				return;
+			}
 		}
 	})();
 	const exitCode = await child.exited; childDone = true; await watcher;

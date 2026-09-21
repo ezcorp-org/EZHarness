@@ -422,7 +422,7 @@
 				type="text"
 				bind:value={searchQuery}
 				placeholder="Search features..."
-				class="min-w-0 flex-1 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none sm:flex-none"
+				class="min-w-0 flex-1 basis-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none sm:basis-auto sm:flex-none"
 			/>
 			<button
 				onclick={() => (newFeatureOpen = !newFeatureOpen)}

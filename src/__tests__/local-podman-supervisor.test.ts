@@ -8,21 +8,22 @@ import { launchDetachedSupervisor, LocalProcessSupervisor, type OwnedProcessReso
 import { runSupervisorEntry, supervisorEntryMain } from "../runtime/sandbox/local-podman/supervisor-entry";
 
 const roots: string[] = [];
+const bunExecutable = process.execPath;
 afterEach(async () => { await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
 const call: ProviderCall = { scope: { projectId: "project", bindingId: "binding", generation: 1 }, operationId: "operation", idempotencyKey: "key", requestDigest: "a".repeat(64) };
 
-async function fixture(outputBytes = 12) {
+async function fixture(outputBytes = 12, stopFails = false) {
 	const root = await mkdtemp(join(tmpdir(), "ez-supervisor-")); roots.push(root);
 	const processRoot = join(root, "resource", "process"); await mkdir(processRoot, { recursive: true, mode: 0o700 });
 	const runtimeState = join(root, "runtime-state"); await writeFile(runtimeState, "running");
 	const descendantPid = join(root, "descendant-pid"); const execArgs = join(root, "exec-args");
 	const podman = join(root, "podman");
-	await writeFile(podman, `#!/tmp/bun-pinned/bin/bun
+	await writeFile(podman, `#!${bunExecutable}
 import { readFile, writeFile } from "node:fs/promises";
 const args = process.argv.slice(2); const state = ${JSON.stringify(runtimeState)}; const descendantPid = ${JSON.stringify(descendantPid)};
 if (args.includes("exec")) { await writeFile(${JSON.stringify(execArgs)}, JSON.stringify(args)); if (args.includes("utf8")) { process.stdout.write(new Uint8Array([0xe2])); await Bun.sleep(5); process.stdout.write(new Uint8Array([0x82, 0xac])); } else { process.stdout.write("abcdefghij"); process.stderr.write("KLMNOPQRST"); } if (args.includes("background")) { const child = Bun.spawn(["/bin/sh", "-c", "sleep 30"], { stdout: "inherit", stderr: "inherit" }); await writeFile(descendantPid, String(child.pid)); process.exit(0); } while ((await readFile(state, "utf8")) === "running") await Bun.sleep(5); process.exit(0); }
-if (args.includes("stop")) { await writeFile(state, "stopped"); try { process.kill(Number(await readFile(descendantPid, "utf8")), "SIGKILL"); } catch { await Promise.resolve(); } process.exit(0); }
+if (args.includes("stop") || args.includes("kill")) { if (${stopFails}) process.exit(1); await writeFile(state, "stopped"); try { process.kill(Number(await readFile(descendantPid, "utf8")), "SIGKILL"); } catch { await Promise.resolve(); } process.exit(0); }
 if (args.includes("inspect")) { const running = (await readFile(state, "utf8")) === "running"; console.log(args.some(value => value.includes(".Name")) ? "containerid containername " + running : "containerid " + running); process.exit(0); }
 process.exit(2);
 `); await chmod(podman, 0o700);
@@ -81,7 +82,7 @@ describe("LocalProcessSupervisor", () => {
 		expect((await f.supervisor.inspect({ call, resourceId: "resource", identity: started.process.identity })).receipt.outcome).toBe("unknown");
 		await expect(supervisorEntryMain(["bun", "entry"])).rejects.toThrow("Missing supervisor launch path");
 		const marker = join(f.root, "detached"); const child = join(f.root, "child");
-		await writeFile(child, `#!/tmp/bun-pinned/bin/bun\nawait Bun.write(${JSON.stringify(marker)}, "done");`); await chmod(child, 0o700);
+		await writeFile(child, `#!${bunExecutable}\nawait Bun.write(${JSON.stringify(marker)}, "done");`); await chmod(child, 0o700);
 		launchDetachedSupervisor([child]);
 		for (let attempt = 0; attempt < 100 && !(await Bun.file(marker).exists()); attempt += 1) await Bun.sleep(5);
 		expect(await readFile(marker, "utf8")).toBe("done");
@@ -97,6 +98,13 @@ describe("LocalProcessSupervisor", () => {
 		const recovered = await f.supervisor.inspect({ call, resourceId: "resource", identity: deadIdentity });
 		expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "unknown" } });
 		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
+	});
+
+	test("persists unknown and exits when stop escalation cannot verify termination", async () => {
+		const f = await fixture(64, true); const started = await f.supervisor.start(f.input); if (!("process" in started)) throw new Error("missing process");
+		await f.supervisor.cancel({ call, resourceId: "resource", identity: started.process.identity });
+		const result = await Promise.race([terminal(f, started.process.identity), Bun.sleep(2_000).then(() => { throw new Error("supervisor did not exit after failed stop escalation"); })]);
+		expect(result).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "unknown" } });
 	});
 
 	test("stops background descendants before waiting for inherited output pipes", async () => {

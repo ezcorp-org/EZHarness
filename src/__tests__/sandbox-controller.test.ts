@@ -100,30 +100,13 @@ test("replays a concurrent lifecycle admission after its insert conflicts", asyn
   const context = await fixture();
   const create = await admitCreate(context);
   await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
-  const database = context.database as unknown as { execute(query: unknown): Promise<unknown> };
-  const execute = database.execute.bind(database);
-  let lookupCount = 0;
-  let releaseLookups!: () => void;
-  const bothLookups = new Promise<void>(resolve => { releaseLookups = resolve; });
-  database.execute = async query => {
-    const text = ((query as { queryChunks?: Array<{ value?: string }> }).queryChunks ?? []).map(chunk => chunk.value ?? "").join("");
-    if (text.includes("SELECT * FROM sandbox_operations WHERE binding_id=") && !text.includes("ORDER BY")) {
-      lookupCount++;
-      if (lookupCount === 2) releaseLookups();
-      await bothLookups;
-    }
-    return execute(query);
-  };
-  try {
-    const [first, second] = await Promise.all([
-      context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "concurrent-start" }),
-      context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "concurrent-start" }),
-    ]);
-    expect(lookupCount).toBe(3);
-    expect(second).toEqual(first);
-  } finally {
-    database.execute = execute;
-  }
+  const [first, second] = await Promise.all([
+    context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "concurrent-start" }),
+    context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "concurrent-start" }),
+  ]);
+  expect(second).toEqual(first);
+  const stored = await context.database.execute(sql`SELECT id FROM sandbox_operations WHERE binding_id=${create.bindingId} AND idempotency_key='concurrent-start'`) as { rows: Array<{ id: string }> };
+  expect(stored.rows).toEqual([{ id: first.id }]);
 });
 
 test("persists a process writer lease and denies an interleaved file writer", async () => {
@@ -135,8 +118,35 @@ test("persists a process writer lease and denies an interleaved file writer", as
   const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "process-start", conversationId, payload: { argv: ["echo", "ok"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
   expect(start.state).toBe("admitted");
   await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "write-during-process", conversationId, payload: { path: "/a", encoding: "utf8", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
+  await expect(context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "destroy-during-process" })).rejects.toMatchObject({ code: "WRITER_LEASED" });
   const persisted = await context.controller.getSandboxOperationResult(context.owner.id, start.id);
   expect(persisted).toMatchObject({ id: start.id, group: "sandbox.process.v1", operation: "start", state: "admitted" });
+});
+
+test("serializes disposal against new sandbox access", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Dispose race')`);
+  const destroy = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "destroy-first" });
+  expect(destroy.state).toBe("admitted");
+  await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "stat", idempotencyKey: "stat-after-destroy", conversationId, payload: { path: "/a" } })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+});
+
+test("admits either disposal or a racing writer, never both", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Dispose writer race')`);
+  const results = await Promise.allSettled([
+    context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "racing-write", conversationId, payload: { path: "/a", encoding: "utf8", data: "x" } }),
+    context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "racing-destroy" }),
+  ]);
+  expect(results.filter(result => result.status === "fulfilled")).toHaveLength(1);
+  const rejected = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+  expect(rejected?.reason).toMatchObject({ code: expect.stringMatching(/^(OPERATION_IN_PROGRESS|WRITER_LEASED)$/) });
 });
 
 test("keeps the writer lease through a running process and releases it only after stopped inspection", async () => {
