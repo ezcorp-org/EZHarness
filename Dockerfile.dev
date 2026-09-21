@@ -54,6 +54,12 @@ COPY . .
 RUN bun run --cwd packages/@ezcorp/sdk build --force \
  && bun run --cwd packages/@ezcorp/harness-client build --force
 
+# trusted-local deliberately runs the dev app as uid 1000. Create every named
+# volume target before runtime, then keep image-backed dependencies and generated
+# files writable by that unprivileged user. Host binds remain operator-owned.
+RUN mkdir -p /app/state /app/cache /app/web/.ezcorp /app/.ezcorp/extension-releases \
+ && chown -R 1000:1000 /app
+
 EXPOSE 3000
 
 ENV EZCORP_PORT=3000

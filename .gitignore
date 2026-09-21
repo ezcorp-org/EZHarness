@@ -99,7 +99,7 @@ web/e2e/.validate-auth.json
 #
 # Both spellings are in use and neither pattern covers the other: a leading dot
 # makes a different directory name, so `worktrees/` never matched `.worktrees/`.
-# CLAUDE.md documents `./worktrees/<slug>`; agents that hide the dir pick
+# AGENTS.md documents `./worktrees/<slug>`; agents that hide the dir pick
 # `.worktrees/`. (`.claude/worktrees/`, which the Agent tool's
 # `isolation: "worktree"` creates, is already covered by `.claude/*` below.)
 worktrees/

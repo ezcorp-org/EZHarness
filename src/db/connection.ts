@@ -653,7 +653,7 @@ function applyExecuteNormalization(db: Database): void {
 
   // Single-line cast on purpose: bun's coverage emitter attributes a zero-hit
   // DA record to the CLOSING line of a multi-line type annotation, which no
-  // test can ever reach — the trap documented in CLAUDE.md's coverage notes.
+  // test can ever reach — the trap documented in AGENTS.md's coverage notes.
   type TxRunner = (fn: (tx: DbTransaction) => unknown, config?: unknown) => Promise<unknown>;
   const origTransaction = db.transaction.bind(db) as TxRunner;
   db.transaction = (fn: (tx: DbTransaction) => unknown, config?: unknown) =>

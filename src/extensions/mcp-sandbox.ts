@@ -229,7 +229,7 @@ function isSandboxRequired(): boolean {
 // EZCORP_PROJECT_ROOT (host-computed — deliberately NOT overridable by
 // the manifest's `spec.env`).
 // ─────────────────────────────────────────────────────────────────────
-let projectRootOverride: string | null | undefined = undefined;
+let projectRootOverride: string | null | undefined;
 
 export function _setProjectRootOverrideForTests(
   v: string | null | undefined,

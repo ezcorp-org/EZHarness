@@ -18,7 +18,9 @@ export const load: PageServerLoad = async ({ locals, params, url, setHeaders }) 
     const projects = (await Promise.all((await listProjects()).map(async project => (scope === "global" || scope === `project:${project.id}`) && !(await checkProjectRole({ user }, project.id, "member") instanceof Response) ? { id: project.id, name: project.name } : null))).filter(project => project !== null);
     const conversations = (await listRecentConversationsForUser(user.id, { limit: 100 })).filter(conversation => projects.some(project => project.id === conversation.projectId)).map(({ id, title, projectId }) => ({ id, title, projectId }));
     setHeaders({ "Cache-Control": "private, no-store", "Permissions-Policy": "camera=(self), microphone=(), geolocation=()" });
-    return { name: authority.extension.name, binding: authority.binding, nonce: crypto.randomUUID(), conversationId: conversationId ?? null, tools: bundle.spec.tools, conversations, projects };
+    // `breadcrumbTail` names the subject in the Command Deck strip; `[id]` is
+    // a reference and may be a uuid. See `$lib/breadcrumb-tail.svelte.ts`.
+    return { name: authority.extension.name, breadcrumbTail: authority.extension.name, binding: authority.binding, nonce: crypto.randomUUID(), conversationId: conversationId ?? null, tools: bundle.spec.tools, conversations, projects };
   } catch { throw error(404, "Extension preview is unavailable or access changed."); }
 };
 

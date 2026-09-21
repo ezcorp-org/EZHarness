@@ -2,10 +2,12 @@
  * Pure layered DAG layout for the chat graph panel (`ChatGraphPanel` /
  * `GraphCanvas`).
  *
- * The chat graph ships no graph library (no d3 / dagre / elk / cytoscape /
- * svelte-flow). This small implementation keeps the read-only chat DAG pure
- * and deterministic. Other graph surfaces can choose a scoped library under
- * their own reviewed boundary. This module uses a Sugiyama-lite layered
+ * The chat graph ships NO graph library (no d3 / dagre / elk / cytoscape /
+ * svelte-flow): adding one for this surface is against the dependency policy
+ * in the root AGENTS.md, and this module is the replacement. It keeps the
+ * read-only chat DAG pure and deterministic. Other graph surfaces can choose a
+ * scoped library under their own reviewed boundary. This module uses a
+ * Sugiyama-lite layered
  * layout: longest-path ranking, deterministic within-rank ordering, even
  * coordinate assignment, cubic-bezier edge routing.
  *

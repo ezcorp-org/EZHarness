@@ -21,10 +21,23 @@ export interface TrustedLocalRunnerOptions extends Omit<PodmanRunnerOptions, "im
   audit(event: { mode: "trusted-local"; approval: TrustedLocalApproval }): Promise<void>;
 }
 
+/**
+ * The pseudo image digest every trusted-local build is stamped with. ONE
+ * definition on purpose: the lifecycle refuses a build whose `imageDigest`
+ * differs from the host's configured `runnerImageDigest`
+ * (`v4/lifecycle.ts` → `verification_failed`), so the host must derive its
+ * expectation from this exact function rather than re-spell the format. The
+ * `localhost/trusted-local@` prefix is what makes a release built without
+ * isolation distinguishable forever, on every screen that shows the digest.
+ */
+export function trustedLocalImage(bunDigest: string): string {
+  return `localhost/trusted-local@sha256:${digest(bunDigest)}`;
+}
+
 export class TrustedLocalRunner extends PodmanRunner {
   private readonly children = new Map<string, ChildProcessWithoutNullStreams>();
   constructor(private readonly trusted: TrustedLocalRunnerOptions) {
-    super({ ...trusted, image: `localhost/trusted-local@sha256:${digest(trusted.bunDigest)}` });
+    super({ ...trusted, image: trustedLocalImage(trusted.bunDigest) });
   }
   protected override async probeSecurity(): Promise<void> {
     if (process.platform !== "linux" || !Number.isSafeInteger(this.trusted.dedicatedUid) || this.trusted.dedicatedUid === 0 || process.getuid?.() !== this.trusted.dedicatedUid) throw new RunnerError("trusted_account_required", "Trusted-local runner requires its configured non-root dedicated OS account");

@@ -78,10 +78,9 @@ test.describe("Agent Detail", () => {
 		});
 		await page.goto("/agents/summarizer");
 
-		// Desktop has "← Back to Agents" link; mobile uses Breadcrumb "Agents" link.
-		// Pick whichever is visible at the current viewport — both target /agents.
-		const backLink = page.locator(".md\\:block:visible a[href='/agents'], nav[aria-label='Breadcrumb']:visible a[href='/agents']");
-		await backLink.click();
+		// One "← Back to Agents" link at every viewport. The phone-only page
+		// breadcrumb is gone; the Command Deck strip names the agent instead.
+		await page.getByTestId("agent-back-link").click();
 		await expect(page).toHaveURL("/agents");
 	});
 });

@@ -33,12 +33,21 @@
  * `[ -S ]` probe, so nothing needs Podman, Docker, or a container.
  */
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
-const WRAPPER = join(REPO_ROOT, "scripts/podman-compose.sh");
+const WRAPPER_SOURCE = join(REPO_ROOT, "scripts/podman-compose.sh");
+const RESOLVER = join(REPO_ROOT, "scripts/resolve-runner-group.sh");
 const BASH = Bun.which("bash") ?? "/usr/bin/env bash";
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "podman-wrapper-"));
@@ -48,9 +57,14 @@ const BIN = join(SANDBOX, "bin");
 // otherwise that test would pass for the wrong reason.
 const BIN_NO_DOCKER = join(SANDBOX, "bin-no-docker");
 const SOCKET = join(SANDBOX, "podman.sock");
+const RUNNER_SOCKET = join(SANDBOX, "runner.sock");
+const WRAPPER = join(SANDBOX, "scripts/podman-compose.sh");
 
 mkdirSync(BIN);
 mkdirSync(BIN_NO_DOCKER);
+mkdirSync(join(SANDBOX, "scripts"));
+symlinkSync(WRAPPER_SOURCE, WRAPPER);
+symlinkSync(RESOLVER, join(SANDBOX, "scripts/resolve-runner-group.sh"));
 symlinkSync(Bun.which("dirname") ?? "/usr/bin/dirname", join(BIN_NO_DOCKER, "dirname"));
 
 // Records what the wrapper handed to Compose, then exits 0 — the wrapper
@@ -64,6 +78,8 @@ await Bun.write(
     // variables before it execs, so there is no default to fall back to.
     'printf "COMPOSE_FILE=%s\\n" "$COMPOSE_FILE"',
     'printf "DOCKER_HOST=%s\\n" "$DOCKER_HOST"',
+    'printf "EZ_RUNNER_GROUP=%s\\n" "$EZ_RUNNER_GROUP"',
+    'if test -v EZ_RUNNER_GROUP; then printf "EZ_RUNNER_GROUP_SET=1\\n"; else printf "EZ_RUNNER_GROUP_SET=0\\n"; fi',
     'printf "ARGV=%s\\n" "$*"',
     "",
   ].join("\n"),
@@ -71,9 +87,19 @@ await Bun.write(
 chmodSync(join(BIN, "docker"), 0o755);
 
 const socketServer = Bun.listen({ unix: SOCKET, socket: { data() {} } });
+const runnerSocketServer = Bun.listen({ unix: RUNNER_SOCKET, socket: { data() {} } });
+const RUNNER_HOST_GID = statSync(RUNNER_SOCKET).gid;
+const DEFAULT_GID_MAP = `0 ${RUNNER_HOST_GID} 1`;
+
+await Bun.write(
+  join(BIN, "podman"),
+  ["#!/usr/bin/env bash", 'printf "%s\\n" "$PODMAN_GID_MAP"', ""].join("\n"),
+);
+chmodSync(join(BIN, "podman"), 0o755);
 
 afterAll(() => {
   socketServer.stop(true);
+  runnerSocketServer.stop(true);
   rmSync(SANDBOX, { recursive: true, force: true });
 });
 
@@ -86,23 +112,35 @@ for (const [key, value] of Object.entries(process.env)) {
 }
 delete baseEnv.COMPOSE_FILE;
 delete baseEnv.DOCKER_HOST;
+delete baseEnv.EZ_RUNNER_GROUP;
 
 interface Run {
   exitCode: number;
   stdout: string;
   stderr: string;
   /** What the stub Compose CLI was exec'd with, or null when it never ran. */
-  invocation: { composeFile: string; dockerHost: string; argv: string } | null;
+  invocation: { composeFile: string; dockerHost: string; runnerGroup: string; runnerGroupSet: string; argv: string } | null;
 }
 
-function run(args: string[], env: Record<string, string> = {}): Run {
+function run(args: string[], env: Record<string, string> = {}, dotenv?: string): Run {
+  const envFile = join(SANDBOX, ".env");
+  rmSync(envFile, { force: true });
+  if (dotenv !== undefined) writeFileSync(envFile, dotenv);
   const proc = Bun.spawnSync({
     cmd: [BASH, WRAPPER, ...args],
     cwd: SANDBOX,
-    env: { ...baseEnv, PATH: `${BIN}:${baseEnv.PATH}`, PODMAN_SOCKET: SOCKET, ...env },
+    env: {
+      ...baseEnv,
+      PATH: `${BIN}:${baseEnv.PATH}`,
+      PODMAN_SOCKET: SOCKET,
+      PODMAN_GID_MAP: DEFAULT_GID_MAP,
+      EZ_RUNNER_SOCKET_DIR: SANDBOX,
+      ...env,
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
+  rmSync(envFile, { force: true });
   const stdout = proc.stdout.toString();
   const read = (key: string) => stdout.match(new RegExp(`^${key}=(.*)$`, "m"))?.[1] ?? "";
   return {
@@ -113,9 +151,33 @@ function run(args: string[], env: Record<string, string> = {}): Run {
       ? {
           composeFile: read("COMPOSE_FILE"),
           dockerHost: read("DOCKER_HOST"),
+          runnerGroup: read("EZ_RUNNER_GROUP"),
+          runnerGroupSet: read("EZ_RUNNER_GROUP_SET"),
           argv: read("ARGV"),
         }
       : null,
+  };
+}
+
+function resolveRunnerGroup(mode: "--docker" | "--podman", env: Record<string, string> = {}): Run {
+  const proc = Bun.spawnSync({
+    cmd: [BASH, RESOLVER, mode],
+    cwd: SANDBOX,
+    env: {
+      ...baseEnv,
+      PATH: `${BIN}:${baseEnv.PATH}`,
+      PODMAN_GID_MAP: DEFAULT_GID_MAP,
+      EZ_RUNNER_SOCKET_DIR: SANDBOX,
+      ...env,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    exitCode: proc.exitCode,
+    stdout: proc.stdout.toString(),
+    stderr: proc.stderr.toString(),
+    invocation: null,
   };
 }
 
@@ -128,6 +190,99 @@ describe("podman wrapper — the invocation it guarantees", () => {
     );
     expect(result.invocation?.dockerHost).toBe(`unix://${SOCKET}`);
     expect(result.invocation?.argv).toBe("compose up -d");
+  });
+
+  test("derives the mapped runner group when the fresh environment leaves it unset", () => {
+    const result = run(["config", "--services"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroup).toBe("0");
+  });
+
+  test("uses the runner socket host GID for direct Docker", () => {
+    const result = resolveRunnerGroup("--docker");
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe(String(RUNNER_HOST_GID));
+  });
+
+  test("maps a socket GID through the matching subordinate range", () => {
+    const containerStart = 7;
+    const result = resolveRunnerGroup("--podman", {
+      PODMAN_GID_MAP: `0 ${RUNNER_HOST_GID + 1} 1\n${containerStart} 0 ${RUNNER_HOST_GID + 1}`,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe(String(containerStart + RUNNER_HOST_GID));
+  });
+
+  test("rejects a socket GID outside the rootless Podman map", () => {
+    const result = resolveRunnerGroup("--podman", {
+      PODMAN_GID_MAP: `0 ${RUNNER_HOST_GID + 1} 1`,
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(`runner socket host GID ${RUNNER_HOST_GID} is not mapped`);
+  });
+
+  test("names a configured runner socket that does not exist", () => {
+    const missingDirectory = join(SANDBOX, "missing-runner");
+    const result = resolveRunnerGroup("--docker", { EZ_RUNNER_SOCKET_DIR: missingDirectory });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain(`no extension-runner socket at ${missingDirectory}/runner.sock`);
+  });
+
+  test("the fresh environment example leaves the group unset for the wrapper", async () => {
+    const example = await Bun.file(join(REPO_ROOT, ".env.example")).text();
+    expect(example).not.toContain("\nEZ_RUNNER_GROUP=");
+  });
+
+  test("rejects an explicit empty runner group before Compose can interpolate it", () => {
+    const result = run(["config", "--services"], { EZ_RUNNER_GROUP: "" });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("explicitly set but is empty");
+    expect(result.invocation).toBeNull();
+  });
+
+  test("rejects an explicit non-numeric runner group", () => {
+    const result = run(["config", "--services"], { EZ_RUNNER_GROUP: "runner" });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("must be a numeric");
+    expect(result.invocation).toBeNull();
+  });
+
+  test("leaves a runner-group declaration in Compose's .env file to Compose", () => {
+    const result = run(["config", "--services"], {}, "EZ_RUNNER_GROUP=\n");
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+  });
+
+  test("does not parse non-numeric runner groups in Compose's .env file", () => {
+    const result = run(["config", "--services"], {}, "EZ_RUNNER_GROUP=runner\n");
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+  });
+
+  test("does not guess at quoted or duplicate Compose dotenv assignments", () => {
+    const result = run(["config", "--services"], {}, 'EZ_RUNNER_GROUP="7"\r\nEZ_RUNNER_GROUP=8\n');
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+  });
+
+  test("uses a numeric shell runner group without reading Compose's .env file", () => {
+    const explicit = run(["config", "--services"], { EZ_RUNNER_GROUP: "7" });
+    expect(explicit.exitCode).toBe(0);
+    expect(explicit.invocation?.runnerGroup).toBe("7");
+  });
+
+  test("leaves a global --env-file runner group to Compose", () => {
+    const result = run(["--env-file", "custom.env", "config", "--services"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+    expect(result.invocation?.argv).toBe("compose --env-file custom.env config --services");
+  });
+
+  test("leaves the global --env-file=value spelling to Compose too", () => {
+    const result = run(["--env-file=custom.env", "config", "--services"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+    expect(result.invocation?.argv).toBe("compose --env-file=custom.env config --services");
   });
 
   test("every compose file it layers exists in the repo", async () => {
@@ -155,6 +310,57 @@ describe("podman wrapper — the invocation it guarantees", () => {
     expect(run(["--profile", "ollama", "up", "-d"]).invocation?.argv).toBe(
       "compose --profile ollama up -d",
     );
+  });
+});
+
+describe("podman wrapper — the prod stack (`--prod`)", () => {
+  // .env.prod is gitignored and absent in CI, so the wrapper's env-file
+  // branch is pointed at a temp file instead of the real one.
+  const ENV_FILE = join(SANDBOX, "env.prod");
+  writeFileSync(ENV_FILE, "EZCORP_PUBLIC_URL=http://localhost:4000\n");
+
+  test("swaps the file list for the prod stack and its override", () => {
+    const result = run(["--prod", "up", "-d"], { EZ_COMPOSE_ENV_FILE: ENV_FILE });
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.composeFile).toBe(
+      "compose.prod.yml:compose.podman-prod.yml",
+    );
+  });
+
+  test("injects --env-file, because Compose ignores COMPOSE_ENV_FILE", () => {
+    // Measured on Compose 5.5.1: with only COMPOSE_ENV_FILE set, every
+    // `${VAR:?}` in compose.prod.yml reads as unset and the deploy aborts.
+    // The flag has to be on the command line, ahead of the subcommand.
+    const result = run(["--prod", "up", "-d"], { EZ_COMPOSE_ENV_FILE: ENV_FILE });
+    expect(result.invocation?.argv).toBe(`compose --env-file ${ENV_FILE} up -d`);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+  });
+
+  test("does not add a second --env-file when the caller passed one", () => {
+    const argv = run(["--prod", "--env-file", "custom.env", "config"], {
+      EZ_COMPOSE_ENV_FILE: ENV_FILE,
+    }).invocation?.argv;
+    expect(argv).toBe("compose --env-file custom.env config");
+  });
+
+  test("refuses to run when the env file is missing, naming the fix", () => {
+    const result = run(["--prod", "up", "-d"], {
+      EZ_COMPOSE_ENV_FILE: join(SANDBOX, "does-not-exist.env"),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.invocation).toBeNull();
+    expect(result.stderr).toContain("cp .env.prod.example .env.prod");
+  });
+
+  test("every prod file it layers exists in the repo", async () => {
+    const layered =
+      run(["--prod", "up", "-d"], { EZ_COMPOSE_ENV_FILE: ENV_FILE }).invocation?.composeFile.split(
+        ":",
+      ) ?? [];
+    expect(layered.length).toBeGreaterThan(0);
+    for (const file of layered) {
+      expect(await Bun.file(join(REPO_ROOT, file)).exists(), `${file} is missing`).toBe(true);
+    }
   });
 });
 
@@ -242,9 +448,14 @@ describe("podman wrapper — host preconditions", () => {
     expect(result.invocation).toBeNull();
   });
 
-  test("says the docker CLI is required when it is not on PATH", () => {
+  test("names BOTH Compose spellings when neither is on PATH", () => {
+    // The wrapper accepts `docker compose` or the standalone `docker-compose`.
+    // A Podman-only Mac (`brew install docker-compose`) has no `docker`
+    // executable at all, so an error naming only that one is a dead end.
     const result = run(["up", "-d"], { PATH: BIN_NO_DOCKER });
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("'docker' CLI");
+    expect(result.stderr).toContain("Docker Compose CLI");
+    expect(result.stderr).toContain("brew install docker-compose");
+    expect(result.invocation).toBeNull();
   });
 });

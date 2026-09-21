@@ -401,9 +401,9 @@ export async function ensureInitialized(): Promise<void> {
   // distillation works the same way (Phase 53.3,
   // `extensions/lessons-distiller/index.ts`). Conversation→extension
   // wiring is auto-populated by `autoWireBundledExtensions` (new convs)
-  // and one-time backfills (existing convs:
-  // `migrateLessonsDistillerConversationWiring` for distiller +
-  // `migrateMemoryExtractorConversationWiring` for memory-extractor).
+  // and by `reconcileBundledConversationWiring`, which
+  // `ensureBundledExtensions()` above already ran for every existing
+  // conversation and which activation re-runs with no restart.
 
   // `/goal` host-side autopilot controller (PRD §7.2 / D9). Singleton
   // owned by ensureInitialized — same lifecycle slot as the executor's

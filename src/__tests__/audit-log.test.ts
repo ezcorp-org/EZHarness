@@ -335,7 +335,7 @@ describe("resolveAuditRetentionDays", () => {
     //
     // Read as TEXT, never imported: a `bun:test` under src/ that imports a
     // module the vitest coverage leg also measures poisons the merged lcov
-    // (see the merge trap in CLAUDE.md).
+    // (see the merge trap in AGENTS.md).
     // `import.meta.dir` + join, NOT `new URL(...).pathname` — the route
     // path contains `[id]`, which URL percent-encodes into a path that
     // does not exist.

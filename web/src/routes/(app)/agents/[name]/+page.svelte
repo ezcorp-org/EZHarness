@@ -8,7 +8,6 @@
 	import AgentInputForm from "$lib/components/AgentInputForm.svelte";
 	import TeamBuilderForm from "$lib/components/TeamBuilderForm.svelte";
 	import AgentConfigForm from "$lib/components/AgentConfigForm.svelte";
-	import Breadcrumb from "$lib/components/Breadcrumb.svelte";
 
 
 	let inputText = $state("{}");
@@ -233,9 +232,16 @@
 {/snippet}
 
 <div class="space-y-6">
-	<Breadcrumb items={[{ label: "Agents", href: "/agents" }, { label: agentName ?? "" }]} />
-	<div class="hidden md:block">
-		<a href="/agents" class="text-sm text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)]">&larr; Back to Agents</a>
+	<!--
+		The Command Deck strip in `(app)/+layout.svelte` is the only breadcrumb
+		at every viewport, and it names this agent via the `PARAM_NAME_ROUTES`
+		table in `$lib/breadcrumb-tail.svelte.ts`, which reads this route's
+		`[name]` param directly — there is no `+page.ts` here. This link is the
+		in-page way BACK, so it shows on phones too — the strip's "Agents"
+		crumb is now a link to the same place.
+	-->
+	<div>
+		<a href="/agents" data-testid="agent-back-link" class="text-sm text-[var(--color-text-muted)] transition-colors hover:text-[var(--color-text-primary)]">&larr; Back to Agents</a>
 	</div>
 
 	{#if agent}

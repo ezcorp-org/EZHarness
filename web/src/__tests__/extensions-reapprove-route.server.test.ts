@@ -79,7 +79,7 @@ test("human rejection targets the pending release without changing its decision 
   const response = await approve(approvalEvent({ approvalId: "replacement", decision: false }));
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ status: "denied" });
-  expect(approval).toHaveBeenCalledExactlyOnceWith({ principalId: "user", scope: "global", kind: "human" }, "installation", "replacement", false);
+  expect(approval).toHaveBeenCalledExactlyOnceWith({ principalId: "user", scope: "global", kind: "human" }, "installation", "replacement", false, { acknowledgeUnsandboxed: undefined });
 });
 
 test("a stale release approval stays a conflict and cannot be silently retried", async () => {

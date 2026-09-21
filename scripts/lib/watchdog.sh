@@ -18,7 +18,7 @@
 # WHY NOT A WALL-CLOCK KILL: this repo's own measurements make that actively
 # wrong. A DB suite's `beforeAll` restores a migrated PGlite datadir at
 # 3.2-6.4s per process on a loaded box (vs. 0.7-0.9s warm) — see
-# src/__tests__/helpers/pglite-snapshot-cache.ts and CLAUDE.md. 20 concurrent
+# src/__tests__/helpers/pglite-snapshot-cache.ts and AGENTS.md. 20 concurrent
 # copies of one file go 20/20 red under bun's bare 5s hook budget and 20/20
 # green at 30s, same code, purely load. A pool whose honest slow path is
 # already ~8x its fast path will have healthy workers that LOOK stalled by

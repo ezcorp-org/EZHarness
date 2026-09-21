@@ -221,7 +221,7 @@ under `docs/*.md` use normal relative Markdown links (`[text](../../slug.md)`),
 - `docs/features/tools/web-search.md` — canonical example (SDK usage, env/settings, stale-upstream-doc gotcha).
 - `docs/features/platform/projects.md` — canonical example (two-concept disambiguation, containment asymmetry gotcha).
 - `docs/features/README.md` — the grouped index of all feature docs (exists; every new doc must add its `- [Title](folder/slug.md) — summary.` entry under the right domain heading).
-- `CLAUDE.md` — the binding **Development lifecycle**, **Remote testability contract**, and **Mention grammar** that feature docs must stay consistent with.
+- `AGENTS.md` — the binding **Development lifecycle**, **Remote testability contract**, and **Mention grammar** that feature docs must stay consistent with.
 - `docs/development-lifecycle.md` — the full trunk-based lifecycle a doc-change PR follows.
 - `docs/harness-contract.md` — the remote-testability spec referenced from any doc that adds an `/api/*` route.
 
@@ -230,7 +230,7 @@ under `docs/*.md` use normal relative Markdown links (`[text](../../slug.md)`),
 - [[conversations]] — the canonical template exemplar; mirror its section shape and gotcha style.
 - [[web-search]] — exemplar for SDK + env/settings usage and the "upstream README is stale" gotcha pattern.
 - [[projects]] — exemplar for disambiguating two same-named concepts and recording a containment asymmetry.
-- [[mention-grammar]] — composer docs document the **five** real sigils (`! @ / $ %`); keep them in sync with CLAUDE.md's five-sigil table (see Notes).
+- [[mention-grammar]] — composer docs document the **five** real sigils (`! @ / $ %`); keep them in sync with AGENTS.md's five-sigil table (see Notes).
 
 (These `[[…]]` links resolve once the index lists their targets; the three
 exemplar docs already exist.)
@@ -240,7 +240,7 @@ exemplar docs already exist.)
 - [docs/development-lifecycle.md](../development-lifecycle.md) — trunk-based branch → PR → squash-merge flow a doc change follows.
 - [docs/harness-contract.md](../harness-contract.md) — remote-testability contract; cite it whenever a feature doc covers a new route.
 - [docs/slash-commands.md](../slash-commands.md), [docs/context-compaction.md](../context-compaction.md), [docs/extensions/data-storage.md](../extensions/data-storage.md) — examples of the deep specs feature docs should **link, not duplicate**.
-- `CLAUDE.md` (repo root) — the project-instruction source of truth feature docs must not contradict.
+- `AGENTS.md` (repo root) — the project-instruction source of truth feature docs must not contradict.
 
 ## Notes & gotchas
 
@@ -271,16 +271,16 @@ exemplar docs already exist.)
     that hides an open one, and invites someone to "re-fix" what is already
     fixed. Keep the structural hazard (a new child route starts life
     unprotected) even when retiring the instance — that part never expires.
-  - **Five sigils — keep CLAUDE.md and the composer docs in lockstep.**
+  - **Five sigils — keep AGENTS.md and the composer docs in lockstep.**
     `web/src/lib/mention-logic.ts` defines **five** mention sigils (`!`, `@`,
     `/`, `$`, **`%`** for `lesson` / Lessons-Keeper), and the `!` sigil nests
     the `EZ` runtime-action kind (`![EZ:name]`) **and the `workflow` kind**
     (`![workflow:name]`). Adding a KIND under an existing sigil does NOT
     change the sigil count — `workflow` was added under `!` and the count
-    stayed five; don't "fix" it to six. CLAUDE.md's "Mention grammar"
+    stayed five; don't "fix" it to six. AGENTS.md's "Mention grammar"
     table already lists all five rows plus the `EZ` kind; composer/chat docs
     (e.g. `conversations.md`, `mention-grammar.md`) must stay consistent with
-    it. If the grammar changes in source, update CLAUDE.md, the composer docs,
+    it. If the grammar changes in source, update AGENTS.md, the composer docs,
     and this list together — don't let any of the three drift.
   - **Coverage of `docs/features/` is broad but never assume it's complete.**
     Absence of a doc does not mean absence of a feature — when in doubt, grep the
@@ -298,14 +298,14 @@ exemplar docs already exist.)
   re-derive the spec's full content, because two copies drift. When a feature
   has no deep spec, the feature doc *is* the primary reference and should say so.
 
-- **Stay consistent with CLAUDE.md's binding contracts.** A doc that adds an
+- **Stay consistent with AGENTS.md's binding contracts.** A doc that adds an
   `/api/*` route must note the **Remote testability contract** (register it in
   `src/api-registry.ts` with a scope); a doc covering a `/api/__test/**` route
   must note the fail-closed test-surface gate. Don't restate the whole contract
   — link `docs/harness-contract.md` — but never document a route in a way that
   contradicts it.
 
-- **A doc change is still a lifecycle change.** Per CLAUDE.md's **Development
+- **A doc change is still a lifecycle change.** Per AGENTS.md's **Development
   lifecycle**, edits here go on a `docs/…` branch, through a PR with a non-author
   review, squash-merged to `main`. Docs-only changes don't trip the coverage
   gate, but they do need the review.

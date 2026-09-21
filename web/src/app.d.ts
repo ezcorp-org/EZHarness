@@ -45,7 +45,16 @@ declare global {
 			 */
 			onboardedAt?: Date | null;
 		}
-		// interface PageData {}
+		interface PageData {
+			/**
+			 * Optional trailing crumb for the Command Deck breadcrumb strip,
+			 * e.g. the extension name on the author page. Highest priority
+			 * of three sources; the other two (runtime tail, route param)
+			 * are `$lib/breadcrumb-tail.svelte.ts`. The `(app)` layout
+			 * renders the resolved tail after the section label.
+			 */
+			breadcrumbTail?: string | null;
+		}
 		// interface PageState {}
 		interface Platform {
 			server?: {

@@ -111,3 +111,27 @@ export async function createDatabaseLifecycleRepository(): Promise<DatabaseLifec
   const { getDb } = await import("../connection");
   return new DatabaseLifecycleRepository(getDb());
 }
+
+/**
+ * The reserved extension name of each installation in `installationIds`, as a
+ * `Map<installationId, name>`. Ids with no reserved name are simply absent.
+ *
+ * `extension_release_names` is written by `transact` above when an installation
+ * ACTIVATES a release, so a row here is the name that installation currently
+ * owns. Reading it is the batch answer to "what is this installation called" —
+ * one `IN (...)` round-trip for a whole list, where `inspect`-per-installation
+ * would be one full state read each.
+ *
+ * Empty input returns an empty map WITHOUT a round-trip. Ids are bound as
+ * parameters (never interpolated), so a caller-supplied id cannot reach the SQL
+ * text.
+ */
+export async function getReleaseNamesByInstallationIds(installationIds: string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (installationIds.length === 0) return names;
+  const unique = [...new Set(installationIds)].map((id) => sql`${id}`);
+  const { getDb } = await import("../connection");
+  const rows = releaseRows<{ name: string; installation_id: string }>(await getDb().execute(sql`SELECT name, installation_id FROM extension_release_names WHERE installation_id IN (${sql.join(unique, sql`, `)})`));
+  for (const row of rows) names.set(row.installation_id, row.name);
+  return names;
+}

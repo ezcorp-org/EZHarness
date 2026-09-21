@@ -4,7 +4,9 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
 	evidenceGroups,
+	isRealAuthSpec,
 	parseEvidenceSelection,
+	realAuthSpecs,
 	runEvidenceGroups,
 } from "../../scripts/run-visual-evidence";
 
@@ -27,6 +29,34 @@ describe("visual evidence runner", () => {
 				],
 			},
 		]);
+	});
+
+	test("a real-auth lane member at the e2e root is grouped by membership, not by path prefix", () => {
+		const members = realAuthSpecs({ "real-auth": ["web/e2e/chip-reorder.spec.ts"] });
+		const groups = evidenceGroups(
+			parseEvidenceSelection("e2e/chip-reorder\\.spec\\.ts\ne2e/theme-sidebar\\.spec\\.ts\n"),
+			true,
+			members,
+		);
+		expect(groups).toEqual([
+			{
+				name: "mock",
+				commands: [["bunx", "playwright", "test", "--project=chromium", "--grep", "@evidence", "e2e/theme-sidebar\\.spec\\.ts"]],
+			},
+			{
+				name: "real-auth",
+				commands: [
+					["bunx", "playwright", "test", "--config", "playwright.real.config.ts", "--grep", "@evidence", "e2e/chip-reorder\\.spec\\.ts"],
+				],
+			},
+		]);
+	});
+
+	test("the default lane set is read from web/e2e/lanes.json", () => {
+		expect(isRealAuthSpec("e2e/chip-reorder\\.spec\\.ts")).toBe(true);
+		expect(isRealAuthSpec("e2e/real-auth/extension-browser-scanner\\.spec\\.ts")).toBe(true);
+		expect(isRealAuthSpec("e2e/import-wizard\\.spec\\.ts")).toBe(false);
+		expect(realAuthSpecs({})).toEqual(new Set());
 	});
 
 	test("the all fallback runs both suites and trusts a runner prepared in the parent process", () => {

@@ -92,3 +92,20 @@
 /web/playwright.real.config.ts      @EZArchy
 /web/playwright.validate.config.ts  @EZArchy
 /web/vitest.config.ts               @EZArchy
+
+# Code-quality gates: the global coverage floor, CRAP and mutation testing.
+# quality-gates.json is the SINGLE source of truth for all three thresholds —
+# it is to these gates what coverage-thresholds.json is to the per-file gate,
+# and gate-integrity.ts ratchets it the same way (per-key direction, since a
+# CRAP ceiling gets stricter going DOWN while a coverage floor gets stricter
+# going UP). The scripts are owned too: each one decides its own verdict, so
+# editing the enforcement is the same power as editing the number.
+/scripts/quality-gates.json         @EZArchy
+/scripts/quality-gates.ts           @EZArchy
+/scripts/crap-score.ts              @EZArchy
+/scripts/check-global-coverage.ts   @EZArchy
+/scripts/mutation.ts                @EZArchy
+/web/stryker.config.json            @EZArchy
+# The mutation scope is derived from this file's --coverage.include allowlist,
+# so it now governs two gates, not one.
+/scripts/test-coverage.sh           @EZArchy

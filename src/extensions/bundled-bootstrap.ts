@@ -7,8 +7,9 @@ import { listUsers } from "../db/queries/users";
 import { extensionLogger } from "../logger";
 import { getExtensionLifecycle } from "./extension-lifecycle-service";
 import { getProjectRoot } from "./project-root";
+import { isExtensionRunnerConfigured } from "./runner-connection";
 import { digestObject } from "./v4/blobs";
-import type { LifecycleActor } from "./v4/types";
+import type { InstallationState, LifecycleActor, LifecycleOperation } from "./v4/types";
 
 const log = extensionLogger("bundled", "bootstrap");
 let buildQueue = Promise.resolve();
@@ -16,6 +17,32 @@ let buildQueue = Promise.resolve();
 export function bundledInstallationId(name: string): string {
   const digest = createHash("sha256").update(`ezcorp-first-party-v4:${name}`).digest("hex");
   return `${digest.slice(0, 8)}-${digest.slice(8, 12)}-4${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`;
+}
+
+// A host that boots before its extension runner exists fails every bundled build
+// with this one diagnostic and nothing else. That is the only outcome the
+// bootstrap may attempt again; any other diagnostic stays a durable failure.
+function failedWithoutRunner(operation: LifecycleOperation): boolean {
+  return operation.state === "failed" && operation.diagnostics.length > 0 && operation.diagnostics.every((diagnostic) => diagnostic.code === "runner_unconfigured");
+}
+
+// Lifecycle idempotency is deliberately absolute: one key names one outcome
+// forever. So a retry needs its own key. Walk the chain of keys for this source
+// digest and stop at the first attempt that is absent (build it) or that
+// recorded any other outcome (keep it). `previous` is set only when the next key
+// is free, which makes at most one new attempt per boot.
+function plannedBuild(state: InstallationState, baseKey: string): { key: string; previous?: LifecycleOperation } {
+  const operations = Object.values(state.operations);
+  let previous: LifecycleOperation | undefined;
+  let key = baseKey;
+  for (let attempt = 1; attempt <= operations.length; attempt += 1) {
+    const existing = operations.find((operation) => operation.idempotencyKey === key);
+    if (!existing) return { key, previous };
+    if (!failedWithoutRunner(existing)) return { key };
+    previous = existing;
+    key = `${baseKey}:retry-${attempt}`;
+  }
+  return { key, previous };
 }
 
 export async function stageBundledExtensionSources(entries: readonly { name: string; path: string }[]): Promise<void> {
@@ -26,6 +53,7 @@ export async function stageBundledExtensionSources(entries: readonly { name: str
     return;
   }
   const lifecycle = await getExtensionLifecycle();
+  const runnerConfigured = isExtensionRunnerConfigured();
   const repository = new DatabaseLifecycleRepository(getDb());
   for (const entry of entries) {
     try {
@@ -56,7 +84,10 @@ export async function stageBundledExtensionSources(entries: readonly { name: str
       const sourceDigest = digestObject(snapshot.files);
       const workspace = Object.values(state.workspaces).find((candidate) => candidate.sourceDigest === sourceDigest)
         ?? (await lifecycle.createWorkspace(actor, { installationId, files: snapshot.files })).workspace;
-      const operation = await lifecycle.build(actor, { installationId, workspaceId: workspace.id, expectedRevision: workspace.revision, entrypoint: snapshot.source.entrypoint, idempotencyKey: `bundled-bootstrap:${sourceDigest}` });
+      const baseKey = `bundled-bootstrap:${sourceDigest}`;
+      const planned = runnerConfigured ? plannedBuild(state, baseKey) : { key: baseKey, previous: undefined };
+      if (planned.previous) log.info("Retrying a bundled build that failed before the extension runner was configured", { name: entry.name, installationId, previousOperationId: planned.previous.id });
+      const operation = await lifecycle.build(actor, { installationId, workspaceId: workspace.id, expectedRevision: workspace.revision, entrypoint: snapshot.source.entrypoint, idempotencyKey: planned.key });
       if (operation.state === "queued") {
         buildQueue = buildQueue.then(async () => {
           try { await lifecycle.runBuild(actor, installationId, operation.id); }

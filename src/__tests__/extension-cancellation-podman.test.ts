@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,24 +8,39 @@ import { ReleaseProcess } from "../extensions/release-process";
 import { releaseRuntimeFixture } from "./helpers/release-runtime";
 import { registerCallProvenance, releaseCallProvenance } from "../extensions/call-provenance";
 
-test("caller cancellation stops only its isolated worker and permits later calls", async () => {
-  const root = await mkdtemp(join(tmpdir(), "ez-cancel-worker-"));
-  const runner = new PodmanRunner({ root, ...await provisionToolchain() });
-  const manifest: ExtensionManifestV4 = { schemaVersion: 4, name: "cancel-worker", version: "1.0.0", description: "Cancellation fixture", author: { name: "Tests" }, permissions: {}, tools: [{ name: "hold", description: "Wait for cancellation", inputSchema: { type: "object" }, outputSchema: { type: "object" } }, { name: "echo", description: "Return normally", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
+const root = await mkdtemp(join(tmpdir(), "ez-cancel-worker-"));
+let runner: PodmanRunner | undefined;
+let artifactDigest: string;
+const manifest: ExtensionManifestV4 = { schemaVersion: 4, name: "cancel-worker", version: "1.0.0", description: "Cancellation fixture", author: { name: "Tests" }, permissions: {}, tools: [{ name: "hold", description: "Wait for cancellation", inputSchema: { type: "object" }, outputSchema: { type: "object" } }, { name: "echo", description: "Return normally", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
+
+// Compile the fixture before testing cancellation. Native build setup has its
+// own budget; the cancellation scenario keeps its original 30-second limit.
+beforeAll(async () => {
+  runner = new PodmanRunner({ root, ...await provisionToolchain() });
   const files = {
     "manifest.json": JSON.stringify(manifest),
     "extension.ts": `import {defineExtension,serve,validateManifest} from '@ezcorp/sdk/v4';import manifest from './manifest.json';await serve(defineExtension({manifest:validateManifest(manifest),tools:{hold:async(_input,context)=>{await context.call('ezcorp/test.ready',{});await new Promise<void>(resolve=>context.signal.addEventListener('abort',()=>resolve(),{once:true}));return {text:'stopped'};},echo:async(_input,context)=>{await context.call('ezcorp/test.echo',{});return {text:'still available'};}}}));`,
     "source.test.ts": "import {expect,test} from 'bun:test';import manifest from './manifest.json';test('two declared tools',()=>expect(manifest.tools).toHaveLength(2));",
   };
+  const build = await runner.build({ operationId: crypto.randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+  expect(build.diagnostics).toEqual([]);
+  expect(build.artifactDigest).toBeDefined();
+  artifactDigest = build.artifactDigest!;
+}, 120_000);
+
+afterAll(async () => {
+  try { await runner?.close(); }
+  finally { await rm(root, { recursive: true, force: true }); }
+});
+
+test("caller cancellation stops only its isolated worker and permits later calls", async () => {
   let process: ReleaseProcess | undefined;
   let token: string | undefined;
   const resumeEcho = Promise.withResolvers<void>();
   try {
-    const build = await runner.build({ operationId: crypto.randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
-    expect(build.diagnostics).toEqual([]);
-    const fixture = releaseRuntimeFixture(crypto.randomUUID(), manifest, { artifactDigest: build.artifactDigest! });
+    const fixture = releaseRuntimeFixture(crypto.randomUUID(), manifest, { artifactDigest });
     fixture.snapshot.limits.timeoutMs = 10_000;
-    process = new ReleaseProcess(fixture.snapshot.installation.id, { runner: async () => runner, resolve: async () => fixture.snapshot });
+    process = new ReleaseProcess(fixture.snapshot.installation.id, { runner: async () => runner!, resolve: async () => fixture.snapshot });
     const started = Promise.withResolvers<void>();
     const echoStarted = Promise.withResolvers<void>();
     process.setRequestHandler(async request => {
@@ -49,5 +64,5 @@ test("caller cancellation stops only its isolated worker and permits later calls
     expect(process.inFlightCallCount).toBe(0);
     expect(process.isRunning).toBe(true);
     expect(await process.callTool("echo", {}, { ezCallId: token })).toMatchObject({ content: [{ type: "text", text: '{"text":"still available"}' }], isError: false });
-  } finally { resumeEcho.resolve(); process?.kill(); if (token) releaseCallProvenance(token); await runner.close(); await rm(root, { recursive: true, force: true }); }
+  } finally { resumeEcho.resolve(); process?.kill(); if (token) releaseCallProvenance(token); }
 }, 30_000);

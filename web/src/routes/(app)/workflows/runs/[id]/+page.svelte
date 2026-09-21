@@ -3,6 +3,7 @@
 	import { page } from "$app/stores";
 	import { runErrorText, runOutput, statusColor } from "$lib/workflow-run-display";
 	import RunPayload from "$lib/components/workflows/RunPayload.svelte";
+	import { setBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
 	import {
 		canRetryFrom,
 		COST_UNAVAILABLE_HINT,
@@ -29,6 +30,10 @@
 	let retryOutcome = $state<{ tone: "ok" | "error"; text: string } | null>(null);
 
 	const runId = $derived($page.params.id ?? "");
+
+	// Name this run in the Command Deck breadcrumb strip by its workflow. The
+	// route param is a uuid, which reads as noise in chrome.
+	$effect(() => setBreadcrumbTail(trace?.run.workflowName));
 
 	async function load() {
 		loading = true;

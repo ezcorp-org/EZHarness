@@ -1,5 +1,5 @@
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
-import type { InstallationState, LifecycleActor } from "../extensions/v4/types";
+import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import type { InstallationState, LifecycleActor, LifecycleOperation } from "../extensions/v4/types";
 import { digestObject } from "../extensions/v4/blobs";
 
 const states = new Map<string, InstallationState>();
@@ -305,5 +305,117 @@ describe("host-owned bundled source staging", () => {
     expect(runBuild).toHaveBeenCalledTimes(2);
     expect(state.installation.activeReleaseId).toBeNull();
     expect(state.installation.enabled).toBe(false);
+  });
+});
+
+describe("retrying a bundled build that only lacked an extension runner", () => {
+  const runnerSettings = ["EZCORP_EXTENSION_RUNNER_SOCKET", "EZCORP_EXTENSION_RUNNER_TOKEN", "EZCORP_EXTENSION_RUNNER_TOKEN_FILE"];
+  let restored: (string | undefined)[] = [];
+  let failure: string[] | undefined;
+
+  function key(suffix = ""): string {
+    return `bundled-bootstrap:${digestObject(files)}${suffix}`;
+  }
+  function keys(): (string | undefined)[] {
+    return build.mock.calls.map((call) => call[1].idempotencyKey);
+  }
+  function operations(state: InstallationState): LifecycleOperation[] {
+    return Object.values(state.operations);
+  }
+
+  beforeEach(() => {
+    restored = runnerSettings.map((name) => process.env[name]);
+    delete process.env.EZCORP_EXTENSION_RUNNER_TOKEN_FILE;
+    process.env.EZCORP_EXTENSION_RUNNER_SOCKET = "/tmp/bundled-bootstrap-retry.sock";
+    process.env.EZCORP_EXTENSION_RUNNER_TOKEN = "a".repeat(32);
+    failure = ["runner_unconfigured"];
+    build.mockImplementation(async (_actor, input) => {
+      const state = states.get(input.installationId)!;
+      const previous = Object.values(state.operations).find((operation) => operation.idempotencyKey === input.idempotencyKey);
+      if (previous) return previous;
+      const operation: LifecycleOperation = { id: `operation-${Object.keys(state.operations).length + 1}`, kind: "build", state: "queued", idempotencyKey: input.idempotencyKey, inputDigest: digestObject(input), diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString() };
+      state.operations[operation.id] = operation;
+      return operation;
+    });
+    runBuild.mockImplementation(async (_actor, installationId, operationId) => {
+      if (!failure) return;
+      const operation = states.get(installationId)!.operations[operationId]!;
+      operation.state = "failed";
+      operation.diagnostics = failure.map((code) => ({ code, stage: "build", retryable: false, message: "Configure an absolute extension runner socket and one valid host credential: token or token file." }));
+    });
+  });
+  afterEach(() => {
+    runnerSettings.forEach((name, index) => { const value = restored[index]; if (value === undefined) delete process.env[name]; else process.env[name] = value; });
+  });
+
+  test("builds again under a fresh key once the runner exists", async () => {
+    const state = await stage();
+    expect(operations(state)).toMatchObject([{ state: "failed", idempotencyKey: key() }]);
+    failure = undefined;
+    await stage();
+    expect(keys()).toEqual([key(), key(":retry-1")]);
+    expect(operations(state)).toMatchObject([{ state: "failed" }, { state: "queued", idempotencyKey: key(":retry-1") }]);
+    expect(runBuild).toHaveBeenCalledTimes(2);
+  });
+
+  test("leaves the failed build alone while the runner is still unconfigured", async () => {
+    const state = await stage();
+    delete process.env.EZCORP_EXTENSION_RUNNER_SOCKET;
+    await stage();
+    expect(keys()).toEqual([key(), key()]);
+    expect(operations(state)).toHaveLength(1);
+    expect(runBuild).toHaveBeenCalledTimes(1);
+  });
+
+  for (const diagnostics of [["command_failed"], ["runner_unconfigured", "command_failed"], []]) {
+    test(`does not retry a build whose diagnostics are ${JSON.stringify(diagnostics)}`, async () => {
+      failure = diagnostics;
+      const state = await stage();
+      await stage();
+      expect(keys()).toEqual([key(), key()]);
+      expect(operations(state)).toHaveLength(1);
+      expect(runBuild).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  for (const reached of ["verified", "active"] as const) {
+    test(`does not retry an operation that reached ${reached}`, async () => {
+      failure = undefined;
+      const state = await stage();
+      operations(state)[0]!.state = reached;
+      await stage();
+      expect(keys()).toEqual([key(), key()]);
+      expect(operations(state)).toHaveLength(1);
+      expect(runBuild).toHaveBeenCalledTimes(1);
+    });
+  }
+
+  test("a second missing-runner failure moves on to the next retry key", async () => {
+    const state = await stage();
+    await stage();
+    await stage();
+    expect(keys()).toEqual([key(), key(":retry-1"), key(":retry-2")]);
+    expect(operations(state).map((operation) => operation.state)).toEqual(["failed", "failed", "failed"]);
+  });
+
+  test("issues one attempt per boot and waits while that attempt is queued", async () => {
+    await stage();
+    failure = undefined;
+    const state = await stage();
+    await stage();
+    expect(keys()).toEqual([key(), key(":retry-1"), key(":retry-1")]);
+    expect(operations(state)).toHaveLength(2);
+    expect(workspace).toHaveBeenCalledTimes(1);
+  });
+
+  test("retries only the digest that failed, leaving another source's operation untouched", async () => {
+    const first = key();
+    const state = await stage();
+    files = { ...files, "extra.ts": "export const extra = true" };
+    await stage();
+    failure = undefined;
+    await stage();
+    expect(keys()).toEqual([first, key(), key(":retry-1")]);
+    expect(operations(state).map((operation) => operation.idempotencyKey)).toEqual([first, key(), key(":retry-1")]);
   });
 });
