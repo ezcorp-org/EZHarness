@@ -2,6 +2,14 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { resolve } from "node:path";
 import { DeleteObjectCommand, GetObjectCommand, ListObjectVersionsCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { S3BlobStore } from "../src/extensions/v4/blobs";
+import { hasCommandOnPath, isUnixSocket, resolveComposeDockerHost, resolveEngine } from "./lib/container-engine.ts";
+import { HELP_TEXT, parseArgs, RESTART_LEG_SKIPPED_MESSAGE, restartLegInvocations, type ComposeInvocation } from "./lib/verify-factory-storage-cli.ts";
+
+const args = parseArgs(Bun.argv.slice(2));
+if (args.help) {
+  console.log(HELP_TEXT);
+  process.exit(0);
+}
 
 interface Identity { name: string; credentials: Array<{ accessKey: string; secretKey: string }> }
 interface S3Config { identities: Identity[] }
@@ -33,14 +41,14 @@ const bodyBytes = async (body: unknown) => {
   if (!body || typeof (body as { transformToByteArray?: unknown }).transformToByteArray !== "function") throw new Error("S3 response had no readable body.");
   return (body as { transformToByteArray(): Promise<Uint8Array> }).transformToByteArray();
 };
-const run = async (args: string[]) => {
-  const child = Bun.spawn(["docker", ...args], {
+const runCompose = async ({ cmd, env }: ComposeInvocation): Promise<void> => {
+  const child = Bun.spawn([...cmd], {
     cwd: resolve(import.meta.dir, ".."),
-    env: { ...process.env, COMPOSE_PROJECT_NAME: `ezcorp-factory-storage-${process.getuid?.() ?? "local"}` },
+    env: { ...process.env, ...env },
     stdout: "ignore",
     stderr: "ignore",
   });
-  if (await child.exited !== 0) throw new Error("Local SeaweedFS restart failed.");
+  if (await child.exited !== 0) throw new Error(`Local SeaweedFS ${cmd.slice(1).join(" ")} failed.`);
 };
 const waitForReadAfterRestart = async (read: () => Promise<Uint8Array>) => {
   let lastError: unknown;
@@ -114,13 +122,28 @@ const multipartVersions = await ordinaryClient.send(new ListObjectVersionsComman
 if (multipartVersions.Versions?.filter((entry) => entry.Key === `ordinary/${multipartDigest}`).length !== 1) throw new Error("Multipart conditional create race produced more than one object version.");
 
 await expectRejected(() => ordinaryClient.send(new PutObjectCommand({ Bucket: "tenant-01", Key: `outside/${randomUUID()}`, Body: bytes(8) })), "Prefix credentials wrote outside ordinary/.");
-const archiveDigest = await archive.put(bytes(64));
+const archiveImmutable = bytes(64);
+const archiveDigest = await archive.put(archiveImmutable);
 const foreignArchiveClient = client("archive", ordinaryCredentials);
 await expectRejected(() => foreignArchiveClient.send(new PutObjectCommand({ Bucket: "tenant-01", Key: `archive/${randomUUID()}`, Body: bytes(8) })), "Ordinary credentials wrote the archive service.");
 await expectRejected(() => foreignArchiveClient.send(new DeleteObjectCommand({ Bucket: "tenant-01", Key: `archive/${archiveDigest}` })), "Ordinary credentials deleted an archive object.");
 
-await run(["compose", "-f", "compose.factory-storage.local.yml", "--profile", "factory-storage", "stop", "factory-storage-ordinary"]);
-await run(["compose", "-f", "compose.factory-storage.local.yml", "--profile", "factory-storage", "up", "-d", "--wait", "factory-storage-ordinary"]);
-if (Buffer.compare(Buffer.from(await waitForReadAfterRestart(() => ordinary.get(digest))), Buffer.from(immutable)) !== 0) throw new Error("S3 object did not survive a service restart.");
+// The restart-persistence leg RESTARTS BOTH shared SeaweedFS stores, so it is
+// gated behind an explicit flag (see scripts/lib/verify-factory-storage-cli.ts
+// and docs/factory-local-storage.md). Every check above is read-only and
+// always runs; only this leg touches the shared containers.
+if (args.restartStores) {
+  const engine = resolveEngine({ EZCORP_CONTAINER_ENGINE: process.env.EZCORP_CONTAINER_ENGINE, CI: process.env.CI }, hasCommandOnPath);
+  const dockerHost = resolveComposeDockerHost(engine, { DOCKER_HOST: process.env.DOCKER_HOST }, process.getuid?.() ?? 0, isUnixSocket);
+  const projectName = `ezcorp-factory-storage-${process.getuid?.() ?? "local"}`;
+  const [stopInvocation, upInvocation] = restartLegInvocations({ engine, dockerHost, projectName, baseEnv: process.env });
+  await runCompose(stopInvocation);
+  await runCompose(upInvocation);
+  if (Buffer.compare(Buffer.from(await waitForReadAfterRestart(() => ordinary.get(digest))), Buffer.from(immutable)) !== 0) throw new Error("S3 object did not survive an ordinary-service restart.");
+  if (Buffer.compare(Buffer.from(await waitForReadAfterRestart(() => archive.get(archiveDigest))), Buffer.from(archiveImmutable)) !== 0) throw new Error("S3 object did not survive an archive-service restart.");
+  console.log("Restart-persistence leg passed: objects survived a restart of both factory-storage-ordinary and factory-storage-archive.");
+} else {
+  console.log(RESTART_LEG_SKIPPED_MESSAGE);
+}
 
 console.log("Factory local S3 conformance passed for 10 tenant identities across ordinary and archive storage.");

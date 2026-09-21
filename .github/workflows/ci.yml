@@ -271,7 +271,11 @@ jobs:
           echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
           echo "EZCORP_FACTORY_STORAGE_SECRETS_DIR=$storage_dir" >> "$GITHUB_ENV"
       - name: Verify the deployed object storage is real and reachable
-        run: bun scripts/verify-factory-storage.ts
+        # --restart-stores is safe here only because this job creates and
+        # tears down its own ephemeral storage stack above/below (never pass
+        # it against a shared host's long-lived stores — see
+        # docs/factory-local-storage.md).
+        run: bun scripts/verify-factory-storage.ts --restart-stores
       - name: Provision a tenant against the real engine
         run: bun test --timeout 120000 ./tests/postgres/factory-provisioning.test.ts
       - name: Prove a compatible upgrade preserves data

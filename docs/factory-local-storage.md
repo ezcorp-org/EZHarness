@@ -30,9 +30,22 @@ required for a deployed archive.
 Compose health confirms that the S3 gateway answers authorization requests.
 Run `bun scripts/verify-factory-storage.ts` with the generated credential
 directory exported to test all ten tenant identities, cross-tenant denials,
-conditional writes, multipart uploads, version reads, and restart persistence.
-After a restart, the conformance runner also waits for an object read because
-SeaweedFS registers durable volumes after its master election completes.
+conditional writes, multipart uploads, and version reads. This is the default
+behavior and is read-only against the shared stores; it exits 0 once every
+check passes and prints one line noting that the restart-persistence leg was
+skipped.
+
+Pass `--restart-stores` to also run the restart-persistence leg. That flag
+RESTARTS BOTH shared SeaweedFS stores (`factory-storage-ordinary` and
+`factory-storage-archive`) to prove an object survives a service restart. Use
+it only against a store this run owns exclusively: CI's own ephemeral
+per-job stack (started and torn down in the same job), or a long-lived local
+stack after you have confirmed with its owner that a restart is safe right
+now. Never pass it against a shared host's long-lived stores without that
+confirmation. After a restart, the conformance runner also waits for an
+object read because SeaweedFS registers durable volumes after its master
+election completes. `bun scripts/verify-factory-storage.ts --help` prints
+the exact wording.
 
 Run `bun scripts/verify-factory-archive-writer.ts` with the same credential
 directory exported to test the archive-writer role itself: conditional create,
@@ -58,11 +71,16 @@ configuration. A recreate keeps the named data volumes and the credential files.
 
 ## Engine, and recovery after a reboot
 
-The script drives Compose through `scripts/lib/container-engine.sh`: Podman by
-default on a developer host (Compose is pointed at the rootless socket through
-`DOCKER_HOST`), Docker under CI, and `EZCORP_CONTAINER_ENGINE=podman|docker` to
-choose. A host reboot clears the credential directory, which lives on tmpfs
-below `XDG_RUNTIME_DIR`, while the containers and their data volumes survive.
+`scripts/setup-factory-storage.sh` drives Compose through
+`scripts/lib/container-engine.sh`: Podman by default on a developer host
+(Compose is pointed at the rootless socket through `DOCKER_HOST`), Docker
+under CI, and `EZCORP_CONTAINER_ENGINE=podman|docker` to choose.
+`scripts/verify-factory-storage.ts`'s restart-persistence leg
+(`--restart-stores`) drives Compose the same way, through the TypeScript port
+of that same rule, `scripts/lib/container-engine.ts` — both files keep one
+rule text so they cannot drift apart. A host reboot clears the credential
+directory, which lives on tmpfs below `XDG_RUNTIME_DIR`, while the containers
+and their data volumes survive.
 `scripts/setup-factory-storage.sh recover` removes only the containers, keeps
 the volumes, and starts again with a fresh credential set; `up` refuses to run
 while the old containers exist, and `down` needs the directory that is gone.
