@@ -8,7 +8,7 @@ import { configureFactoryApplication, getFactoryApplication } from "./applicatio
 import { FactoryBootError, type FactoryBootConfig } from "./boot";
 import { createFactoryPoolReadinessWriter } from "./pool/readiness";
 import { FACTORY_STARTUP_CONFIG_SCHEMA, FactoryStartupConfigError } from "./startup-config";
-import { FactoryDisabledError, startFactoryRuntime, type FactoryRuntimeDependencies, type FactoryStartedListener } from "./runtime-composition";
+import { FactoryDisabledError, factoryRuntimeWait, startFactoryRuntime, type FactoryRuntimeDependencies, type FactoryStartedListener } from "./runtime-composition";
 
 const roots: string[] = [];
 const started: Array<{ stop(): Promise<void> }> = [];
@@ -655,5 +655,46 @@ describe("the readiness retry converges a distributed bring-up", () => {
     }), new AbortController().signal, bootConfig(root)));
     expect(error.code).toBe("factory-services-unavailable");
     expect(stops).toEqual(["private-service"]);
+  });
+});
+
+describe("the retry window's real timer", () => {
+  test("releases when the delay elapses", async () => {
+    // Awaited rather than timed: the assertion is that it settles, not how
+    // long it took. A clock assertion here would measure the host.
+    const controller = new AbortController();
+    await factoryRuntimeWait(1, controller.signal);
+    // The listener it armed is gone, so a long-lived signal does not
+    // accumulate one per round.
+    controller.abort();
+    expect(controller.signal.aborted).toBe(true);
+  });
+
+  test("a signal that was already aborted arms no timer at all", async () => {
+    // The loop re-checks `aborted` before every call, so this exit exists for
+    // the caller that does not — and a timer armed here would outlive the stop
+    // that aborted it.
+    const controller = new AbortController();
+    controller.abort();
+    let armed = 0;
+    const realTimeout = globalThis.setTimeout;
+    globalThis.setTimeout = ((...args: Parameters<typeof setTimeout>) => { armed += 1; return realTimeout(...args); }) as typeof setTimeout;
+    try {
+      await factoryRuntimeWait(60_000, controller.signal);
+    } finally {
+      globalThis.setTimeout = realTimeout;
+    }
+    expect(armed).toBe(0);
+  });
+
+  test("aborting while the timer is pending releases it, so a stop never waits out a window", async () => {
+    const controller = new AbortController();
+    // A delay no test would ever wait out: the abort is what settles it.
+    const waiting = factoryRuntimeWait(600_000, controller.signal);
+    controller.abort();
+    await waiting;
+    // The one listener it added was removed as it settled, so nothing is left
+    // holding a reference to the promise's resolver.
+    expect(controller.signal.aborted).toBe(true);
   });
 });

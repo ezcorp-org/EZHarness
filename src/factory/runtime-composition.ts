@@ -51,8 +51,18 @@ import { factoryRuntimeSeams, factorySeamStates, type FactoryRuntimeSeamInputs, 
 import { registerFactoryRuntimeWorkers, type FactoryHeldWorker, type FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryBackgroundWorkers, FactoryBackgroundWorkerState } from "./background-workers";
 
-/** A real timer that releases on abort, so a stop never waits out a window. */
-function defaultWait(milliseconds: number, signal: AbortSignal): Promise<void> {
+/**
+ * A real timer that releases on abort, so a stop never waits out a window.
+ *
+ * Exported because the retry loop cannot reach both of its exits: the loop
+ * re-checks `signal.aborted` immediately before every call, so the
+ * already-aborted exit is only reachable by calling this directly. It is one
+ * function with three outcomes — the delay elapses, the signal was already
+ * aborted, or the signal aborts while the timer is pending — and a timer that
+ * leaked its listener or outlived a stop is exactly the defect this shape
+ * exists to prevent.
+ */
+export function factoryRuntimeWait(milliseconds: number, signal: AbortSignal): Promise<void> {
   return new Promise((settle) => {
     if (signal.aborted) return settle();
     const done = () => { clearTimeout(timer); signal.removeEventListener("abort", done); settle(); };
@@ -296,7 +306,7 @@ export async function startFactoryRuntime(
     // The listener stays bound and admission stays closed while this runs, so
     // a peer whose own readiness depends on reaching this process can.
     const retry = dependencies.readinessRetry;
-    const wait = dependencies.wait ?? defaultWait;
+    const wait = dependencies.wait ?? factoryRuntimeWait;
     // The window is spent in whole delays rather than measured against a clock.
     // A loop that read the wall clock would be a loop whose bound depends on how
     // busy the host is, and this repo's rule against asserting on elapsed time

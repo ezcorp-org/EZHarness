@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { TransactionalDb } from "../db/migrations/types";
@@ -139,7 +139,7 @@ describe("composeFactoryPrivateService", () => {
   const assurance = { tenantId } as unknown as FactoryAssurance;
   const stops = { async stop() { return { state: "stopped", event: STOPPED_EVENT } as FactoryTaskStopReceipt; } } as unknown as FactoryTaskStops;
 
-  async function material(): Promise<{ root: string; config: FactoryStartupConfig }> {
+  async function material(): Promise<{ root: string; config: FactoryStartupConfig; certs: Awaited<ReturnType<typeof certificates>>; keys: { publicKey: KeyObject; privateKey: KeyObject }; write: (name: string, value: string) => Promise<string> }> {
     const root = await mkdtemp(join(process.env.HOME!, ".w09b-private-"));
     directories.push(root);
     await chmod(root, 0o700);
@@ -150,12 +150,16 @@ describe("composeFactoryPrivateService", () => {
       await chmod(path, 0o600);
       return path;
     };
-    const { publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const { publicKey } = keys;
     const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
     const port = probe.port;
     probe.stop(true);
     return {
       root,
+      certs,
+      keys,
+      write,
       config: {
         schemaVersion: FACTORY_STARTUP_CONFIG_SCHEMA,
         installationId: "installation-private",
@@ -172,7 +176,7 @@ describe("composeFactoryPrivateService", () => {
           tokens: {
             issuer: "https://factory.example.test",
             audience: "factory-private-service",
-            publicKeyPaths: { proof: await write("token.pem", publicKey.export({ type: "spki", format: "pem" }).toString()) },
+            publicKeyPaths: { test: await write("token.pem", publicKey.export({ type: "spki", format: "pem" }).toString()) },
           },
         },
         runnerProfiles: RUNNER_PROFILES,
@@ -190,6 +194,50 @@ describe("composeFactoryPrivateService", () => {
     });
     listeners.push(listener);
     expect(listener.url).toMatch(/^https:\/\/127\.0\.0\.1:\d+$/);
+  });
+
+  test("the accepted signing keys are read per request, so rotating a file rotates the set", async () => {
+    // The whole point of reading the key files inside the handler rather than
+    // once at composition: an operator rotates a key by writing the file, and
+    // the running product accepts the new one without a restart. Composing the
+    // set once would mean a restart per rotation, and a restart is the thing a
+    // commanded installation cannot afford mid-run.
+    const { nodeHttpsRequest, signedServiceToken } = await import("../__tests__/helpers/factory-certificates");
+    const { config, certs, keys, write } = await material();
+    const db = database();
+    const composed = stores(db);
+    const listener = await composeFactoryPrivateService({
+      database: db, config, application: composed.application, stores: composed.stores,
+      transitions: composed.transitions, releases, assurance, stops,
+    });
+    listeners.push(listener);
+
+    const claim = (privateKey: Parameters<typeof signedServiceToken>[0]) => nodeHttpsRequest(
+      `${listener.url}/internal/factory/v1/outbox/claim`, certs,
+      {
+        body: {},
+        token: signedServiceToken(privateKey, {
+          sub: subject, iss: "https://factory.example.test", aud: "factory-private-service",
+          exp: Math.floor(Date.now() / 1_000) + 60, scope: ["factory:orchestrate"],
+        }),
+      },
+    );
+
+    // The configured key is accepted: the route runs and answers from the
+    // composed queue rather than refusing the caller.
+    expect((await claim(keys.privateKey)).status).not.toBe(401);
+
+    // A key the file never named is not.
+    const rotated = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    expect((await claim(rotated.privateKey)).status).toBe(401);
+
+    // Write the new public key over the file the document points at. Nothing
+    // is restarted and nothing is re-composed.
+    await write("token.pem", rotated.publicKey.export({ type: "spki", format: "pem" }).toString());
+    expect((await claim(rotated.privateKey)).status).not.toBe(401);
+    // And the key that was rotated OUT stops being accepted, which is the half
+    // that makes a rotation a revocation.
+    expect((await claim(keys.privateKey)).status).toBe(401);
   });
 
   test("refuses by name when the installation configures no token verifier", async () => {

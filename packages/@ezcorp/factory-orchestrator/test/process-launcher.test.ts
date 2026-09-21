@@ -8,6 +8,7 @@ import {
   loadFactoryTemporalCredentials,
   parseFactoryOrchestratorProcessConfig,
   runConfiguredFactoryOrchestrator,
+  productionMainDependencies,
   runFactoryOrchestratorMain,
   startFactoryOrchestratorMain,
 } from "../../../../src/factory/orchestration-process.ts";
@@ -124,4 +125,37 @@ test("the process main removes signal handlers and reports only a bounded failur
   startFactoryOrchestratorMain(["node", fileURLToPath(new URL("../../../../src/factory/orchestration-process.ts", import.meta.url))], new URL("../../../../src/factory/orchestration-process.ts", import.meta.url).href, dependencies);
   await new Promise((resolve) => setImmediate(resolve));
   assert.equal(failed, 1);
+});
+
+test("the real entry prints the cause before it sets the exit code", () => {
+  // A silent exit 1 is the one symptom a reader cannot act on, and this
+  // default is what the process actually runs with. The order matters: the
+  // lines are written first, so a reader still sees them if anything later in
+  // the shutdown path throws.
+  const printed: unknown[][] = [];
+  const error = console.error;
+  const previousExitCode = process.exitCode;
+  console.error = (...parts: unknown[]) => { printed.push(parts); assert.equal(process.exitCode, previousExitCode); };
+  try {
+    productionMainDependencies.fail(Object.assign(new Error("configuration refused"), { stack: undefined, cause: new Error("missing temporal address") }));
+  } finally {
+    console.error = error;
+  }
+  assert.equal(process.exitCode, 1);
+  process.exitCode = previousExitCode;
+  assert.equal(printed.length, 2);
+  assert.match(String(printed[0]?.[1]), /configuration refused/);
+  assert.match(String(printed[1]?.[1]), /missing temporal address/);
+
+  // A non-Error refusal, and one with no cause, still print exactly once.
+  const second: unknown[][] = [];
+  console.error = (...parts: unknown[]) => { second.push(parts); };
+  try {
+    productionMainDependencies.fail("factory-configuration-invalid");
+  } finally {
+    console.error = error;
+  }
+  process.exitCode = previousExitCode;
+  assert.equal(second.length, 1);
+  assert.match(String(second[0]?.[1]), /factory-configuration-invalid/);
 });

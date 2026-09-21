@@ -529,7 +529,12 @@ export async function runConfiguredFactorySupervisor(
   }
 }
 
-const productionMainDependencies: FactorySupervisorMainDependencies = {
+/**
+ * The wiring the real process entry uses, exported so its one behaviour can be
+ * proved: it PRINTS before it sets the exit code. A default that is only ever
+ * replaced in tests is a default nothing measures.
+ */
+export const productionMainDependencies: FactorySupervisorMainDependencies = {
   runConfigured: runConfiguredFactorySupervisor,
   once: (event, listener) => { process.once(event, listener); },
   removeListener: (event, listener) => { process.removeListener(event, listener); },

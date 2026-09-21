@@ -17,6 +17,7 @@ import {
   runFactorySupervisorMain,
   startFactorySupervisorMain,
   factorySupervisorProductionDependencies,
+  productionMainDependencies,
   type FactorySupervisorProcessConfig,
   type FactorySupervisorProcessDependencies,
 } from "./supervisor-process";
@@ -730,5 +731,50 @@ describe("the host services this supervisor publishes", () => {
     } finally {
       listener.stop();
     }
+  });
+});
+
+describe("the real supervisor entry", () => {
+  test("prints the cause before it sets the exit code", () => {
+    // A silent exit 1 is the one symptom a reader cannot act on, and this
+    // default is what the process actually runs with. The line is written
+    // first, so a reader still sees it if anything later in the shutdown path
+    // throws.
+    const printed: unknown[][] = [];
+    const error = console.error;
+    const previous = process.exitCode;
+    console.error = (...parts: unknown[]) => { printed.push(parts); expect(process.exitCode).toBe(previous); };
+    try {
+      productionMainDependencies.fail(new Error("supervisor configuration refused"));
+    } finally {
+      console.error = error;
+    }
+    expect(process.exitCode).toBe(1);
+    process.exitCode = previous;
+    expect(printed).toHaveLength(1);
+    expect(String(printed[0]![1])).toContain("supervisor configuration refused");
+
+    // A refusal that is not an Error still names itself rather than printing
+    // "[object Object]".
+    const second: unknown[][] = [];
+    console.error = (...parts: unknown[]) => { second.push(parts); };
+    try {
+      productionMainDependencies.fail("factory-configuration-invalid");
+    } finally {
+      console.error = error;
+    }
+    process.exitCode = previous;
+    expect(String(second[0]![1])).toBe("factory-configuration-invalid");
+  });
+
+  test("the signal hooks it installs are the process's own", () => {
+    // `once` and `removeListener` are the pair that lets a SIGTERM stop the
+    // supervisor exactly once; a default nothing measures is a default that
+    // can be wrong.
+    const listener = () => {};
+    productionMainDependencies.once("SIGTERM", listener);
+    expect(process.listeners("SIGTERM")).toContain(listener);
+    productionMainDependencies.removeListener("SIGTERM", listener);
+    expect(process.listeners("SIGTERM")).not.toContain(listener);
   });
 });

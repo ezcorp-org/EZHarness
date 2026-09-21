@@ -136,7 +136,13 @@ export async function runConfiguredFactoryOrchestrator(
   });
 }
 
-const productionMainDependencies: FactoryOrchestratorMainDependencies = {
+/**
+ * The wiring the real process entry uses, exported so its one behaviour can be
+ * proved: it PRINTS before it sets the exit code. A default that is only ever
+ * replaced in tests is a default nothing measures, and this one is the reason a
+ * silent exit 1 cost a full debugging round.
+ */
+export const productionMainDependencies: FactoryOrchestratorMainDependencies = {
   runConfigured: runConfiguredFactoryOrchestrator,
   once: (event, listener) => process.once(event, listener),
   removeListener: (event, listener) => process.removeListener(event, listener),
