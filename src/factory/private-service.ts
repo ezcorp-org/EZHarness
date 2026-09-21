@@ -16,7 +16,7 @@ export interface FactoryPrivateServiceCommands {
   execute(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<KernelEvent | null>;
   resolveFactory(service: TrustedFactoryServiceIdentity, request: Parameters<FactoryActivities["resolveFactory"]>[0]): Promise<FactoryDefinitionSource>;
 }
-export interface FactoryPrivateServiceOptions extends Pick<FactoryPrivateHttpsOptions, "tls" | "hostname" | "port"> {
+export interface FactoryPrivateServiceOptions extends Pick<FactoryPrivateHttpsOptions, "tls" | "hostname" | "port" | "requestTimeoutMs"> {
   readonly tenantId: string;
   readonly certificateIdentity: string;
   tokens(): Promise<PoolTokenVerifierOptions>;
@@ -56,6 +56,12 @@ export function startFactoryPrivateService(options: FactoryPrivateServiceOptions
   const service = Object.freeze({ subject: certificateIdentity, tenantId });
   return startFactoryPrivateHttps({
     tls: options.tls, hostname: options.hostname, port: options.port, maxBodyBytes: MAX_TRANSPORT_ENVELOPE_BYTES, maxResponseBytes: MAX_TRANSPORT_ENVELOPE_BYTES,
+    // The caller sets this above the longest effect this service serves. The
+    // transport's own default is 15 s and `cancel-node` asks a host to stop a
+    // guest, which C02 gives ten seconds of cleanup before a kill — so the
+    // default cut the socket mid-stop, the caller saw "socket hang up", and the
+    // command was retried against a host that was already stopping the guest.
+    ...(options.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: options.requestTimeoutMs }),
     async handle(request) {
       try {
         const bearer = request.headers.authorization;

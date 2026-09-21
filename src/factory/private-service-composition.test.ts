@@ -16,6 +16,7 @@ import type { FactoryTaskStops, FactoryTaskStopReceipt } from "./task-stops";
 import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import {
+  FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS,
   composeFactoryPrivateService,
   factoryCancelNodeEffect,
   factoryRunnerProfiles,
@@ -235,5 +236,22 @@ describe("composeFactoryPrivateService", () => {
       application: composed.application, stores: composed.stores, transitions: composed.transitions,
       releases, assurance, stops,
     })).rejects.toMatchObject({ code: "factory_private_service_profiles_missing" });
+  });
+});
+
+describe("the private service's request timeout", () => {
+  test("outlives the longest effect it serves", async () => {
+    // Not a number chosen for comfort. `cancel-node` asks a host to stop a
+    // guest, and that is bounded by C02's ten seconds of cleanup grace plus ten
+    // of kill-and-confirm. The transport's own default is fifteen seconds, so it
+    // cut the socket mid-stop: the caller read `socket hang up` and retried the
+    // command against a host already stopping the same guest.
+    const { FACTORY_PHYSICAL_STOP_TIMEOUT_MS } = await import("./task-stops");
+    expect(FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS).toBeGreaterThan(FACTORY_PHYSICAL_STOP_TIMEOUT_MS);
+    // And inside the transport's own ceiling, or the listener would refuse to
+    // bind at all.
+    const { FACTORY_PRIVATE_MAX_ENVELOPE_BYTES } = await import("./private-https");
+    expect(FACTORY_PRIVATE_MAX_ENVELOPE_BYTES).toBeGreaterThan(0);
+    expect(FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(60_000);
   });
 });

@@ -54,11 +54,26 @@ import type { FactoryStartupConfig, FactoryStartupRunnerProfile } from "./startu
 import { FactoryNativeRunnerPolicy, type FactoryNativeRunnerProfile } from "./native-runner-policy";
 import { FactoryTaskAdmission, type FactoryTaskResourceProfile } from "./task-admission";
 import { FactoryTaskExecutionAdmission } from "./task-execution-admission";
-import type { FactoryTaskStops } from "./task-stops";
+import { FACTORY_PHYSICAL_STOP_TIMEOUT_MS, type FactoryTaskStops } from "./task-stops";
 import type { FactoryTransitionArtifacts } from "./transition-artifacts";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 const MAX_PRIVATE_MATERIAL_BYTES = 64 * 1024;
+
+/**
+ * Longer than the longest effect this service serves, and measured rather than
+ * chosen.
+ *
+ * `cancel-node` asks a host to stop a guest, and `FactoryTaskStops` bounds that
+ * at `FACTORY_PHYSICAL_STOP_TIMEOUT_MS` — ten seconds of C02 cleanup grace plus
+ * ten of kill-and-confirm. The private transport's own default is fifteen
+ * seconds, so a real stop outlived the socket: the caller saw `socket hang up`,
+ * its dispatcher treated that as the loop failing, and the run sat in
+ * `stopping` while the command was retried against a host already stopping the
+ * same guest. The margin is one more stop bound, so a slow host costs a wait
+ * rather than a lost connection.
+ */
+export const FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS = FACTORY_PHYSICAL_STOP_TIMEOUT_MS * 2;
 
 export type FactoryPrivateServiceCompositionCode =
   | "factory_private_service_tokens_missing"
@@ -231,6 +246,7 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     certificateIdentity: config.privateService.certificateIdentity,
     hostname: config.privateService.hostname,
     port: config.privateService.port,
+    requestTimeoutMs: FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS,
     tls: { ca, cert, key },
     // Read per request, so rotating a key file rotates the accepted set without
     // restarting the product.
