@@ -841,6 +841,24 @@ script passes `bash -n`. `common.md` itself still names the dead path and needs
 the new one written into it. G10b's "three running roles" answer is expected to be unchanged: the fourth
 role waits on a declaration, not on a store.
 
+## One red that is not W09b's, proved rather than asserted
+
+`bun run typecheck` exits 1 at the final head. Every one of its 25 errors is in
+`packages/@ezcorp/ai-kit/src/mcp/tools/` — `server.tool()` overload mismatches
+against the bumped Model Context Protocol SDK and zod. The web, backend-tests,
+e2e and Python legs all pass; only the backend leg fails, and only there.
+
+**It arrived with the merge, not with this package.**
+`git diff integ/w00 HEAD --stat -- packages/@ezcorp/ai-kit bun.lock package.json`
+is EMPTY, so those trees are byte-identical between this branch and
+`integ/w00`. The bump reached the branch through `f50b041c3`
+(`bd6fd9714`, bun-minor-and-patch group, ten updates). W09b has never touched
+`ai-kit`.
+
+Not fixed here: this round was scoped to fixing breakage in W09b's files, and a
+wrong fix in another package's MCP surface is worse than a reported red.
+EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/inherited-typecheck-failure.json`.
+
 ## Interface questions
 
 **1. For W07 — `claim` cannot join a caller's transaction, so read-and-claim
