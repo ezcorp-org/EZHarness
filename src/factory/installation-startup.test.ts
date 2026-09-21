@@ -815,8 +815,8 @@ describe("the roles this installation assembles", () => {
     const held = new Map(report.heldWorkers.map((worker) => [worker.role, worker.reason]));
     // The consent is no longer the reason — W07b's reader landed and the
     // driver reads it. What is missing is a provider to publish through.
-    expect(held.get("release-outcome")).toContain("FactoryReleaseProvider");
-    expect(held.get("release-outcome")).toContain("no release destination");
+    expect(held.get("release-outcome")).toContain("declares no release destination");
+    expect(held.get("release-outcome")).toContain("release.destinations");
     expect(held.get("release-outcome")).not.toContain("consent");
   });
 
@@ -832,6 +832,67 @@ describe("the roles this installation assembles", () => {
     const held = new Map(report.heldWorkers.map((worker) => [worker.role, worker.reason]));
     expect(held.get("release-outcome")).toContain("release store itself");
     expect(held.get("release-outcome")).toContain("release-store role");
+  });
+
+  test("a declared destination registers release-outcome from the document alone", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const publish = await credentialFile(root, "publish");
+    const startup = await start(root, {
+      ...await transport(root),
+      storage: await readableStorage(root),
+      release: {
+        destinations: [{
+          name: "ordinary", kind: "s3",
+          endpoint: "https://127.0.0.1:8443/ordinary", bucket: "tenant-01-published", account: "tenant-01", prefix: "releases",
+          credentialsPath: publish,
+        }],
+        profiles: [{
+          adapter: { package: "@ezcorp/release", manifestName: "release", version: "1.0.0", digest: `sha256:${"b".repeat(64)}`, export: "publish" },
+          action: "factory.release.publish", destination: "ordinary", estimatedSpendMicros: 1_000,
+        }],
+      },
+    });
+
+    const report = startup.runtime.report();
+    // Nothing was supplied by the caller: the document alone composed the
+    // providers, the resolver and the profile set.
+    expect(report.workers.map((worker) => worker.name)).toContain("release-outcome");
+    expect(report.heldWorkers.map((worker) => worker.role)).not.toContain("release-outcome");
+    expect(report.workers.find((worker) => worker.name === "release-outcome")?.running).toBe(true);
+    // The store composed too, so the same declaration also reached the private
+    // service's trusted profile set.
+    expect(report.workers.map((worker) => worker.name)).toContain("notification-inbox-delivery");
+  });
+
+  test("a declared destination whose credential file anyone can read holds the release store by name", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const shared = join(root, "secrets", "world-readable.json");
+    await writeFile(shared, JSON.stringify({ identities: [{ name: "tenant-01", credentials: [{ accessKey: "k", secretKey: "s" }] }] }), { mode: 0o644 });
+    await chmod(shared, 0o644);
+    const before = reported.length;
+    const startup = await start(root, {
+      ...await transport(root),
+      storage: await readableStorage(root),
+      release: {
+        destinations: [{ name: "ordinary", kind: "s3", endpoint: "https://127.0.0.1:8443/ordinary", bucket: "tenant-01-published", account: "tenant-01", credentialsPath: shared }],
+        profiles: [{
+          adapter: { package: "@ezcorp/release", manifestName: "release", version: "1.0.0", digest: `sha256:${"b".repeat(64)}`, export: "publish" },
+          action: "factory.release.publish", destination: "ordinary", estimatedSpendMicros: 1_000,
+        }],
+      },
+    });
+
+    // A declaration that cannot be read is NOT a silent absence: the operator
+    // is looking at their declaration, so "nothing declared" would be the
+    // wrong answer.
+    const failures = reported.slice(before).filter((entry) => entry.role === "release-store");
+    expect(failures).not.toEqual([]);
+    expect(String((failures[0]!.error as Error).message)).toContain("factory_release_destination_unreadable");
+    // And the secret never travels with the refusal.
+    expect(String((failures[0]!.error as Error).message)).not.toContain("secretKey");
+    expect(startup.runtime.report().heldWorkers.map((worker) => worker.role)).toContain("release-outcome");
   });
 
   test("release-outcome registers and runs the moment a deployment supplies a provider", async () => {

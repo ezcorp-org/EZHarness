@@ -116,8 +116,8 @@ describe("registerFactoryRuntimeWorkers", () => {
       registerFactoryRuntimeWorkers(collaborators({ notificationInbox: { deliverNextAcrossProjects: async () => false } })),
     ].map((set) => set.held.find((held) => held.role === "release-outcome")!.reason);
     for (const reason of reasons) {
-      expect(reason).toContain("FactoryReleaseProvider");
-      expect(reason).toContain("no release destination");
+      expect(reason).toContain("declares no release destination");
+      expect(reason).toContain("release.destinations");
       expect(reason).not.toContain("consent");
     }
   });

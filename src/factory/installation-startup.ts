@@ -51,6 +51,7 @@ import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-c
 import { factoryInstallationStores, type FactoryInstallationStores } from "./installation-stores";
 import { composeFactoryAttemptDispatch, factoryPackageReadiness, type FactoryHostPhysicalStopper } from "./attempt-composition";
 import { composeFactorySettlement, factoryReleaseOutcomeDriver } from "./dispatch-composition";
+import { composeFactoryReleaseDestinations, type FactoryComposedReleaseDestinations } from "./release-declaration";
 import type { FactoryReleaseProviderResolver } from "./release-application";
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
 import type { FactoryStorageProbeTarget } from "./service-probes";
@@ -314,16 +315,17 @@ async function installationReleases(
   artifacts: FactoryArtifacts,
   stores: Pick<FactoryApplication, "grants" | "runs" | "journal" | "releaseAuthority">,
   report: (role: string, error: unknown) => void,
-): Promise<{ readonly releases: FactoryReleases; readonly assurance: FactoryAssurance } | undefined> {
+): Promise<{ readonly releases: FactoryReleases; readonly assurance: FactoryAssurance; readonly destinations?: FactoryComposedReleaseDestinations } | undefined> {
   try {
     const validators = new FactoryTrustedValidators(database, config.tenantId, stores.runs, stores.journal, artifacts, stores.releaseAuthority, []);
     const assurance = new FactoryAssurance(database, config.tenantId, stores.grants, validators, factoryReleaseFenceReader(stores.runs), validators);
     const provenance = new FactoryS3PublicationProvenance({ database, tenantId: config.tenantId });
+    const reader = new FactoryScopedMaterials({ database, artifacts, blobs });
     const archive = composeFactoryArchiveWriter({
       tenantId: config.tenantId,
       ordinary: config.storage.ordinary,
       archive: config.storage.archive,
-      reader: new FactoryScopedMaterials({ database, artifacts, blobs }),
+      reader,
       resolveMembers: (tenantId, operationId, material, signal) => provenance.sourcesFor(tenantId, operationId, material, signal),
       archiveCredentials: await loadFactoryStorageCredentials(config.storage.archive, config.tenantId),
     });
@@ -333,11 +335,18 @@ async function installationReleases(
       archive,
       new FactoryStoreSenderFence({ database, tenantId: config.tenantId }),
     );
+    // Where this installation may publish, from its own document. It is built
+    // here rather than beside the roles because it needs the same scoped reader
+    // and the same publication provenance the archive already holds: a second
+    // reader would read members under another scope.
+    const destinations = await composeFactoryReleaseDestinations(config, {
+      database, tenantId: config.tenantId, reader, attempts: provenance, releases,
+    });
     // The assurance travels with the store: `FactoryProtectedCommandEffects`
     // takes both, and a second assurance built over the same tables would
     // evaluate a claim by one instance's validator set and consume the approval
     // through another's.
-    return Object.freeze({ releases, assurance });
+    return Object.freeze({ releases, assurance, ...(destinations === undefined ? {} : { destinations }) });
   } catch (error) {
     // Never silently. A release store that cannot compose holds two roles, and
     // an operator who can see the roles held but not the reason has to guess
@@ -587,13 +596,16 @@ async function installationCollaborators(
   const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
-  const releaseOutcome = release === undefined || releaseProviders === undefined ? undefined
+  // The caller's resolver wins, so a host that holds a provider this document
+  // cannot describe is not overruled by it; otherwise the declared one serves.
+  const resolver = releaseProviders ?? release?.destinations?.providers;
+  const releaseOutcome = release === undefined || resolver === undefined ? undefined
     : factoryReleaseOutcomeDriver(
       host.database,
       release.releases,
       application.runs,
       () => factoryTenantProjectIds(host.database, factoryTenantProjects(config.tenantId)),
-      releaseProviders,
+      resolver,
       host.report,
     );
 
@@ -633,7 +645,7 @@ async function composePrivateService(
   stores: FactoryInstallationStores,
   transitions: FactoryTransitionArtifacts,
   application: FactoryApplication,
-  release: { readonly releases: FactoryReleases; readonly assurance: FactoryAssurance } | undefined,
+  release: { readonly releases: FactoryReleases; readonly assurance: FactoryAssurance; readonly destinations?: FactoryComposedReleaseDestinations } | undefined,
   stops: FactoryTaskStops | undefined,
 ): Promise<FactoryStartedListener | undefined> {
   if (config.privateService.tokens === undefined) return undefined;
@@ -646,6 +658,7 @@ async function composePrivateService(
       stores,
       transitions,
       ...(release === undefined ? {} : { releases: release.releases, assurance: release.assurance }),
+      ...(release?.destinations === undefined ? {} : { releaseProfiles: release.destinations.profiles }),
       ...(stops === undefined ? {} : { stops }),
       report: host.report,
     });

@@ -352,6 +352,26 @@ describe("the release-outcome step", () => {
     expect(reported).toEqual(["release-outcome:transient:op-1"]);
   });
 
+  test("a consent revoked between the read and the claim fails the claim, and nothing is sent", async () => {
+    // The read and the claim are two transactions, because `claim` owns its
+    // own and takes none. That is safe precisely because `claim` re-derives the
+    // consent inside its transaction: a human who revokes an approval after
+    // this driver read it gets a refusal, not a release.
+    const reported: [string, unknown][] = [];
+    const { releases, calls } = store({ claim: () => { throw failure("factory_release_approval_consumed"); } });
+    const driver = factoryReleaseOutcomeDriver(database(), releases, runs(), async () => ["project-1"], factoryReleaseProviderResolver({ s3: {} as never }), (role, error) => { reported.push([role, error]); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    // The consent was read and the claim was attempted over exactly it.
+    expect(calls.consents).toHaveLength(1);
+    expect(calls.claims).toHaveLength(1);
+    expect(calls.claims[0]![3]).toBe(APPROVAL.consent);
+    // Nothing was published, and the refusal is the one a person must see.
+    expect(calls.dispatches).toEqual([]);
+    expect(reported.map(([role]) => role)).toEqual(["release-outcome:fault:op-1"]);
+    expect((reported[0]![1] as { code?: string }).code).toBe("factory_release_approval_consumed");
+  });
+
   test("two drivers over the same claimable operation leave exactly one winner", async () => {
     // `listClaimableInTransaction` takes no row lock, so both list it. The
     // exclusion is the claim's own, and the loser must read as contention.

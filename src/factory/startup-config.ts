@@ -137,7 +137,84 @@ export interface FactoryStartupConfig {
     readonly brokerAudience: string;
     readonly profiles: readonly FactoryStartupRunnerProfile[];
   };
+  /**
+   * Where a release may publish, and which adapter publishes to which one.
+   *
+   * The last deployment fact the factory needed and did not have. A release
+   * provider binds a destination — `S3FactoryManifestReleaseProvider` refuses
+   * any account but its own configured one, `FactoryGitHubReleaseProvider`
+   * takes a repository — so with nothing declared there is nowhere to publish
+   * and `release-outcome` holds. Nothing in a factory definition can say which
+   * bucket or repository this installation owns.
+   *
+   * Optional, because an installation that publishes nothing needs none, and a
+   * default would publish to a place nobody declared. Present, both halves are
+   * required: destinations with no profile name nothing, and a profile with no
+   * destinations has nowhere to send.
+   *
+   * Credentials are by REFERENCE only. Every path here is read at composition
+   * through the private bounded reader, which refuses a file that is missing,
+   * not a regular file, not owned by this process, or readable by anyone else.
+   * No credential value appears in this document.
+   */
+  readonly release?: {
+    readonly destinations: readonly FactoryStartupReleaseDestination[];
+    readonly profiles: readonly FactoryStartupReleaseProfile[];
+  };
   readonly workers?: FactoryWorkerTuning;
+}
+
+/**
+ * One place a release may publish, named so a profile can point at it.
+ *
+ * `name` is this document's own handle for the destination and never reaches
+ * the wire; what reaches the wire is the provider's account, which is the
+ * bucket's account or the repository. Two destinations may not share a name,
+ * because a profile naming one of them would then depend on declaration order.
+ */
+export type FactoryStartupReleaseDestination =
+  | {
+      readonly name: string;
+      readonly kind: "s3";
+      readonly endpoint: string;
+      readonly bucket: string;
+      /** Matched against the operation's `destination.account`. */
+      readonly account: string;
+      readonly prefix?: string;
+      /** The credential SET file, by reference. Read privately, never logged. */
+      readonly credentialsPath: string;
+    }
+  | {
+      readonly name: string;
+      readonly kind: "github";
+      /** `owner/name`, matched against the operation's `destination.account`. */
+      readonly repository: string;
+      /** The token file, by reference. Read privately per call, never logged. */
+      readonly tokenPath: string;
+    };
+
+/**
+ * One definition's release-node adapter, and the destination it publishes to.
+ *
+ * `FactoryProtectedCommandEffects` keys its profile set by a digest of the
+ * adapter reference, so the adapter here is the same five fields a definition's
+ * release node names. What the deployment adds is the destination and the cost:
+ * neither is a fact a factory definition can state.
+ */
+export interface FactoryStartupReleaseProfile {
+  readonly adapter: {
+    readonly package: string;
+    readonly manifestName: string;
+    readonly version: string;
+    readonly digest: string;
+    readonly export: string;
+  };
+  /** The protected action this profile owns, as the definition names it. */
+  readonly action: string;
+  /** The `name` of a declared destination. An undeclared one is refused. */
+  readonly destination: string;
+  /** What one release through this adapter is budgeted to cost, in micros. */
+  readonly estimatedSpendMicros: number;
 }
 
 export interface FactoryStartupRunnerProfile {
@@ -312,6 +389,49 @@ function wellFormedRunnerProfile(value: unknown): boolean {
   return wellFormedResourceProfile(value.allocation);
 }
 
+/** A repository this installation may publish to, as `owner/name`. */
+function wellFormedRepository(value: unknown): boolean {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}\/[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(value);
+}
+
+/**
+ * One declared destination, by kind.
+ *
+ * `exactKeys` per kind rather than a shared optional bag: an S3 destination
+ * carrying a `tokenPath`, or a GitHub one carrying a `bucket`, is an operator
+ * who edited the wrong entry, and reading past it would compose a provider
+ * against half a declaration.
+ */
+function wellFormedReleaseDestination(value: unknown): boolean {
+  if (!record(value) || !wellFormed("identity", value.name)) return false;
+  if (value.kind === "s3") {
+    const required = ["name", "kind", "endpoint", "bucket", "account", "credentialsPath"];
+    if (!exactKeys(value, required) && !exactKeys(value, [...required, "prefix"])) return false;
+    return httpsUrl(value.endpoint) && wellFormed("identity", value.bucket) && wellFormed("identity", value.account)
+      && (value.prefix === undefined || wellFormed("identity", value.prefix)) && wellFormed("path", value.credentialsPath);
+  }
+  if (value.kind === "github") {
+    return exactKeys(value, ["name", "kind", "repository", "tokenPath"])
+      && wellFormedRepository(value.repository) && wellFormed("path", value.tokenPath);
+  }
+  return false;
+}
+
+/** One adapter reference, its action, its destination, and its cost. */
+function wellFormedReleaseProfile(value: unknown): boolean {
+  if (!record(value) || !exactKeys(value, ["adapter", "action", "destination", "estimatedSpendMicros"])) return false;
+  const adapter = value.adapter;
+  const adapterKeys = ["package", "manifestName", "version", "digest", "export"];
+  if (!record(adapter) || !exactKeys(adapter, adapterKeys)
+    || adapterKeys.some((key) => typeof adapter[key] !== "string" || (adapter[key] as string).length === 0 || (adapter[key] as string).length > 512)
+    || !/^sha256:[a-f0-9]{64}$/.test(adapter.digest as string)) return false;
+  // A micro-denominated release cost is bounded well above a runner budget and
+  // well below a safe integer, so the policy ledger's addition cannot overflow.
+  return wellFormed("identity", value.action) && wellFormed("identity", value.destination)
+    && Number.isSafeInteger(value.estimatedSpendMicros) && (value.estimatedSpendMicros as number) >= 0
+    && (value.estimatedSpendMicros as number) <= 1_000_000_000_000;
+}
+
 /** A task's pool vector, its memory, and the budget it may spend. */
 function wellFormedResourceProfile(value: unknown): boolean {
   if (!record(value) || !exactKeys(value, ["resources", "memoryBytes", "budget"])) return false;
@@ -332,8 +452,15 @@ function wellFormedResourceProfile(value: unknown): boolean {
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles",
+  "release.destinations", "release.profiles",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
+
+/** One adapter reference as a comparable string, for the duplicate scan. */
+function canonicalAdapter(value: unknown): string {
+  if (!record(value)) return JSON.stringify(value);
+  return JSON.stringify(Object.keys(value).sort().map((key) => [key, value[key]]));
+}
 
 /** Exactly these keys, no more and no fewer. */
 function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boolean {
@@ -352,7 +479,8 @@ function leaves(value: unknown, prefix = ""): string[] {
     // Three branches are maps whose KEYS are data — a key id, a resource class
     // — so recursing into them would name a value as a field. Each is checked
     // by shape below instead.
-    if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths") { found.push(field); continue; }
+    if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths"
+      || field === "release.destinations" || field === "release.profiles") { found.push(field); continue; }
     found.push(...(record(nested) ? leaves(nested, field) : [field]));
   }
   return found;
@@ -442,6 +570,43 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
       // depend on declaration order, which is not a fact an operator states.
       const classes = section.profiles.map((profile) => (profile as { resourceClass?: unknown }).resourceClass);
       if (new Set(classes).size !== classes.length) invalid.push("runnerProfiles.profiles");
+    }
+  }
+  // Where a release may publish. Both halves or neither: destinations nothing
+  // points at publish nothing, and a profile with no destinations has nowhere
+  // to send — and either half alone reads as configured while refusing at the
+  // first release.
+  const releaseHalves = ["release.destinations", "release.profiles"];
+  const releasePresent = releaseHalves.filter((field) => read(value, field).present);
+  if (releasePresent.length === 1) missing.push(releaseHalves.find((field) => !releasePresent.includes(field))!);
+  if (releasePresent.length === 2) {
+    const destinations = read(value, "release.destinations").value;
+    const profiles = read(value, "release.profiles").value;
+    let names: string[] | undefined;
+    if (!Array.isArray(destinations) || destinations.length === 0 || destinations.length > 64) invalid.push("release.destinations");
+    else {
+      for (const [index, entry] of destinations.entries()) {
+        if (!wellFormedReleaseDestination(entry)) invalid.push(`release.destinations[${index}]`);
+      }
+      names = destinations.map((entry) => (entry as { name?: unknown }).name).filter((name): name is string => typeof name === "string");
+      // A name declared twice makes "which destination" depend on declaration
+      // order, which is not a fact an operator stated.
+      if (new Set(names).size !== names.length) invalid.push("release.destinations");
+    }
+    if (!Array.isArray(profiles) || profiles.length === 0 || profiles.length > 64) invalid.push("release.profiles");
+    else {
+      const declared = new Set(names ?? []);
+      for (const [index, entry] of profiles.entries()) {
+        if (!wellFormedReleaseProfile(entry)) { invalid.push(`release.profiles[${index}]`); continue; }
+        // A profile pointing at a destination nobody declared would compose a
+        // profile with nowhere to publish, and `requestRelease` would refuse it
+        // at the first release instead of at boot.
+        if (names !== undefined && !declared.has((entry as { destination: string }).destination)) invalid.push(`release.profiles[${index}].destination`);
+      }
+      // Two profiles for one adapter make the trusted set depend on order, and
+      // `FactoryProtectedCommandEffects` refuses the second at construction.
+      const adapters = profiles.map((entry) => canonicalAdapter((entry as { adapter?: unknown }).adapter));
+      if (new Set(adapters).size !== adapters.length) invalid.push("release.profiles");
     }
   }
   if (missing.length > 0 || invalid.length > 0) throw new FactoryStartupConfigError(missing, invalid);

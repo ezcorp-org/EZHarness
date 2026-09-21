@@ -229,16 +229,14 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
   // background principal. The claimable scan, the project enumerator and the
   // provider resolver function were already built.
   //
-  // What no production code produces is a `FactoryReleaseProvider` — the thing
-  // that actually publishes. Every implementation binds a destination and its
-  // credentials: `S3FactoryReleaseProvider` and
-  // `S3FactoryManifestReleaseProvider` refuse any account but their own,
-  // `FactoryGitHubReleaseProvider` takes a repository and a token reader. The
-  // startup document names no release destination, so
-  // `factoryReleaseProviderResolver` has nothing to resolve, and picking a
-  // destination here would publish to a place nobody declared. A deployment
-  // that holds one supplies it as `releaseProviders`, and this process then
-  // composes the role itself.
+  // What is left is a declaration, not code. Every provider binds a
+  // destination and its credentials — `S3FactoryManifestReleaseProvider`
+  // refuses any account but its own, `FactoryGitHubReleaseProvider` takes a
+  // repository and a token reader — and the startup document's `release`
+  // section is where an installation says which bucket or repository it owns.
+  // Declare one and this process composes the providers, the resolver and the
+  // profile set, and the role runs. Declare none and it holds here, because
+  // picking a destination would publish to a place nobody chose.
   //
   // Which of the two reasons applies is decided by whether the release STORE
   // composed, and the inbox driver is the honest witness of that: the
@@ -249,7 +247,7 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
   // exact cause under the `release-store` role already, and repeating a guess
   // at it here would be a second, worse answer.
   seamRole("release-outcome", "releaseProviders", inbox !== undefined || factoryReleaseSeamsPresent(collaborators.seams)
-    ? "no production code builds a FactoryReleaseProvider and the startup document names no release destination, so there is nowhere to publish (W07 owns the adapters; the destination is a per-installation declaration the interface freeze does not name)"
+    ? "the startup document declares no release destination, so there is nowhere to publish; declare one under `release.destinations` and `release.profiles` and this process composes the providers, the resolver and the profile set"
     : "a release outcome needs the release store itself, which did not compose; the composition reports the exact cause under the release-store role");
   seamRole("usage-reconciliation", "usageReconciler",
     "the reconciler composes with the stop settlement it shares a settlement authority with; both need the pool, the hostLaunch endpoint, and the configured hostStopKeys");

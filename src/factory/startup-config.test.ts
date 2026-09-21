@@ -320,3 +320,95 @@ describe("the runner profiles this installation dispatches to", () => {
       .toContain("runnerProfiles.profiles");
   });
 });
+
+describe("where a release may publish", () => {
+  const s3 = { name: "ordinary", kind: "s3", endpoint: "https://127.0.0.1:8443/ordinary", bucket: "tenant-01-published", account: "tenant-01", prefix: "releases", credentialsPath: "/run/secrets/publish.json" };
+  const github = { name: "upstream", kind: "github", repository: "ezcorp-org/factory-platform-publication-tests", tokenPath: "/run/secrets/github.token" };
+  const profile = {
+    adapter: { package: "@ezcorp/release", manifestName: "release", version: "1.0.0", digest: `sha256:${"b".repeat(64)}`, export: "publish" },
+    action: "factory.release.publish",
+    destination: "ordinary",
+    estimatedSpendMicros: 1_000,
+  };
+  const release = { destinations: [s3, github], profiles: [profile] };
+
+  test("accepts a complete section, and an absent one", () => {
+    expect(parseFactoryStartupConfig(valid({ release })).release).toEqual(release as never);
+    expect(parseFactoryStartupConfig(valid()).release).toBeUndefined();
+    // The S3 prefix is the one optional field, because a destination may be a
+    // whole bucket.
+    const { prefix: _dropped, ...withoutPrefix } = s3;
+    expect(parseFactoryStartupConfig(valid({ release: { ...release, destinations: [withoutPrefix, github] } })).release?.destinations).toHaveLength(2);
+  });
+
+  test("a section is both halves or neither, because either alone publishes nothing", () => {
+    expect(reject(valid({ release: { destinations: [s3] } })).missing).toContain("release.profiles");
+    expect(reject(valid({ release: { profiles: [profile] } })).missing).toContain("release.destinations");
+    expect(reject(valid({ release: { destinations: [], profiles: [profile] } })).invalid).toContain("release.destinations");
+    expect(reject(valid({ release: { destinations: [s3], profiles: [] } })).invalid).toContain("release.profiles");
+  });
+
+  test("names the exact destination that is malformed, by index", () => {
+    for (const broken of [
+      { ...s3, kind: "ftp" },
+      { ...s3, account: "" },
+      { ...s3, endpoint: "not-a-url" },
+      { ...s3, credentialsPath: "" },
+      { ...s3, tokenPath: "/run/secrets/x" },
+      { ...github, repository: "no-owner" },
+      { ...github, repository: "owner/name/extra" },
+      { ...github, tokenPath: 7 },
+      { ...github, bucket: "b" },
+      { name: "nameless" },
+      "ordinary",
+    ]) {
+      expect(reject(valid({ release: { destinations: [broken], profiles: [{ ...profile, destination: "ordinary" }] } })).invalid)
+        .toContain("release.destinations[0]");
+    }
+  });
+
+  test("a destination name declared twice would make a profile depend on order", () => {
+    expect(reject(valid({ release: { ...release, destinations: [s3, { ...github, name: "ordinary" }] } })).invalid).toContain("release.destinations");
+  });
+
+  test("names the exact profile that is malformed, by index", () => {
+    for (const broken of [
+      { ...profile, adapter: { ...profile.adapter, digest: "not-a-digest" } },
+      { ...profile, adapter: { ...profile.adapter, export: "" } },
+      { ...profile, adapter: { package: "p" } },
+      { ...profile, action: "" },
+      { ...profile, estimatedSpendMicros: -1 },
+      { ...profile, estimatedSpendMicros: 1.5 },
+      { ...profile, estimatedSpendMicros: 1_000_000_000_001 },
+      { ...profile, extra: true },
+    ]) {
+      expect(reject(valid({ release: { ...release, profiles: [broken] } })).invalid).toContain("release.profiles[0]");
+    }
+  });
+
+  test("a profile naming an undeclared destination is refused at boot, not at the first release", () => {
+    // `requestRelease` would answer `factory_protected_effect_untrusted` on the
+    // first release instead, which is a refusal an operator reads long after
+    // they wrote the typo.
+    expect(reject(valid({ release: { ...release, profiles: [{ ...profile, destination: "nowhere" }] } })).invalid)
+      .toContain("release.profiles[0].destination");
+    // The destination itself is still well formed, so only the pairing is named.
+    expect(reject(valid({ release: { ...release, profiles: [{ ...profile, destination: "nowhere" }] } })).invalid)
+      .not.toContain("release.destinations[0]");
+  });
+
+  test("one adapter may be declared once, because the trusted set refuses the second", () => {
+    // `FactoryProtectedCommandEffects` throws `factory_protected_effect_invalid`
+    // on a duplicate adapter, so a document that declared two would compose
+    // nothing at all rather than pick one.
+    expect(reject(valid({ release: { ...release, profiles: [profile, { ...profile, destination: "upstream" }] } })).invalid)
+      .toContain("release.profiles");
+    // Two profiles for two different adapters are ordinary.
+    expect(parseFactoryStartupConfig(valid({ release: { ...release, profiles: [profile, { ...profile, adapter: { ...profile.adapter, export: "publish-other" }, destination: "upstream" }] } })).release?.profiles)
+      .toHaveLength(2);
+  });
+
+  test("an unknown field inside the section is named rather than ignored", () => {
+    expect(reject(valid({ release: { ...release, extra: 1 } })).invalid).toContain("release.extra");
+  });
+});
