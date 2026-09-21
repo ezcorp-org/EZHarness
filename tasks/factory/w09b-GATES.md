@@ -653,7 +653,16 @@ It verifies the stores first (`bun scripts/verify-factory-storage.ts`), then
 runs `postgres-producers.sh`, `coverage-gates.sh` (the full leg set, including
 the two legs that could not run, then both gates), `rebuild-and-run-three.sh`
 and `negative-control.sh`, and rewrites each receipt with the head that produced
-it. G10b's "three running roles" answer is expected to be unchanged: the fourth
+it.
+
+**Six repro scripts had `common.md`'s S3 path hard-coded**, so a resumed run
+would have exported the dead directory over the live one the coordinator
+supplies. All six now read
+`${EZCORP_FACTORY_STORAGE_SECRETS_DIR:-}` and let the caller win:
+`coverage-legs.sh`, `postgres-producers.sh`, `negative-control.sh`,
+`one-run.sh`, `run-three.sh`. `grep -rl 8yWJyCIQ repro/` is now empty, and every
+script passes `bash -n`. `common.md` itself still names the dead path and needs
+the new one written into it. G10b's "three running roles" answer is expected to be unchanged: the fourth
 role waits on a declaration, not on a store.
 
 ## Interface questions
