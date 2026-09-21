@@ -187,15 +187,16 @@ paths that carry none.
 
 ## What changed, and why each one is not wiring
 
-Three of the four roles now register and run. The fourth holds, for a reason
-that moved again and is proved below rather than asserted.
+**All four roles W09 held now register and run in the real started
+application.** The fourth took three rounds and its reason moved twice; both
+moves are recorded below rather than quietly rewritten.
 
 | Role | State | The one thing |
 | --- | --- | --- |
 | `attempt-dispatch` | **running** | composed over W01b's driver, the W09 preflight, and `FactoryRemoteAttemptRuntime` through the host launch transport |
 | `stop-settlement` | **running** | `FactoryTaskStops` over the host stop transport, the configured host public keys, and `PoolAdmissionClient.confirmStopped` |
 | `usage-reconciliation` | **running** | the page driver over the uncertain-hold scan, settling only on `resolve` → `resolved` |
-| `release-outcome` | **runs when a destination is declared** | composed end to end from `config.release`: the consent reader, the run's live initiator, the declared providers and the declared profile set. It holds only on an installation that declares no destination, and the reason then names the field to fill in |
+| `release-outcome` | **running** | composed end to end from `config.release`: the consent reader, the run's live initiator, the declared providers and the declared profile set. Proved running on the real started application at `45183071f`. It holds only on an installation that declares no destination, and the reason then names the field to fill in |
 
 ### The store set, and why it is one construction
 
@@ -403,15 +404,18 @@ wrapper that catches adds context rather than removing it.
       the orchestrator publishes `ready`; the guest package builds and prepares
       for real.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/roles-running.json`
-      STILL THREE, AND WHY. Round 2 was asked to make this four. It is three,
-      and the fourth cannot honestly be running on this document: the composed
-      `release-outcome` role needs a `FactoryReleaseProvider`, the startup
-      document declares no release destination, and adding a field the
-      interface freeze does not name is forbidden. The composition is
-      delivered and proved — `installation-startup.test.ts` registers and runs
-      the role against the real startup path the moment a resolver is supplied,
-      and holds it by name when one is not. What is missing is a declaration,
-      not code.
+      **NOW FOUR, measured at `45183071f`.** The coordinator ruled the startup
+      document is W09's own surface, the `release` section landed, and the
+      harness's document declares one S3 destination. `/api/ready` on the real
+      started application reports nine roles running including
+      `release-outcome`, and one held — `notification-send`, which is W17's as
+      planned. All four roles W09 held now run: `attempt-dispatch`,
+      `stop-settlement`, `usage-reconciliation`, `release-outcome`.
+      The declaration is the whole difference, and
+      `installation-startup.test.ts` proves both sides against the real startup
+      path: declare a destination and the role registers and runs from the
+      document alone; declare none and it holds with a reason naming the field
+      to fill in.
 - [x] G11: A durable run submitted over public HTTP executes a real guest in the
       supervisor's container runner, reaches a terminal projected status,
       survives restart, and shuts down with no survivors — three consecutive
