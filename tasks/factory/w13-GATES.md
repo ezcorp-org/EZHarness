@@ -26,7 +26,10 @@ UTC start and end, the pass/fail/assertion counts, and the log's own SHA-256; ea
 the final head, with an empty `git status --porcelain` before and after. That is the whole cited
 set: `head-classification`, `head-adapter`, `head-composition`, `head-sdk-references`,
 `head-lifecycle`, `head-nested-conflict-control`, `head-static-gates`, `head-backend-pool`,
-`head-postgres`, `head-coverage`.
+`head-postgres`, `head-coverage`. Two more, `confirm-static-gates` and `confirm-coverage`, were
+produced at this documentation commit itself to show the gates still pass over it;
+`git diff --name-only 91bb818bc HEAD` is exactly `tasks/factory/w13-GATES.md`, so the code under
+test is byte-identical to the producer head.
 
 The earlier `focused-*`, `static-gates`, `merge-*`, `merge2-*` and `final-*` records are retained
 for the four intermediate heads they were produced at, and no gate cites them. An earlier revision
