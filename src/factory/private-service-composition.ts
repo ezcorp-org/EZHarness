@@ -179,6 +179,8 @@ export interface FactoryPrivateServiceCompositionOptions {
    * adapter it would lift.
    */
   readonly releaseProfiles?: Iterable<FactoryReleaseCommandProfile>;
+  /** The host's reporter, so a refusal this service could not classify is readable. */
+  readonly report?: (role: string, error: unknown) => void;
 }
 
 /**
@@ -263,5 +265,8 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     ),
     artifacts: createFactoryArtifactActivities(new FactoryDefinitionArtifacts(application.artifacts), options.transitions),
     commands,
+    ...(options.report === undefined ? {} : {
+      report: ({ method, path, error }) => { options.report!(`private-service:${method}:${path}`, error); },
+    }),
   });
 }

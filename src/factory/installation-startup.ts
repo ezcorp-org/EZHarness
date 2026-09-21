@@ -617,6 +617,7 @@ async function composePrivateService(
       transitions,
       ...(release === undefined ? {} : { releases: release.releases, assurance: release.assurance }),
       ...(stops === undefined ? {} : { stops }),
+      report: host.report,
     });
   } catch (error) {
     host.report("private-service", error);

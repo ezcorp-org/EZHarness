@@ -80,7 +80,10 @@ describe("the stop-settlement step", () => {
 
     expect(await driver.step(SIGNAL)).toBe(false);
     expect(reported).toEqual([{ role: "stop-settlement:transient:open", error: cause }]);
-    expect(driver.progress).toMatchObject({ scanned: 1, settled: 0, deferred: 1, failed: 0 });
+    // Deferred, not settled: the step reports no progress, which is what makes
+    // the worker wait its idle delay instead of spinning on a row it cannot move.
+    expect((driver as unknown as { progress: { scanned: number; settled: number; deferred: number; failed: number } }).progress)
+      .toMatchObject({ scanned: 1, settled: 0, deferred: 1, failed: 0 });
   });
 
   test("an uncertain receipt with no cause still names the attempt", async () => {

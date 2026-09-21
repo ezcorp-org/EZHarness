@@ -23,6 +23,16 @@ export interface FactoryPrivateServiceOptions extends Pick<FactoryPrivateHttpsOp
   readonly queue: FactoryCommandQueue & Required<Pick<FactoryCommandQueue, "confirmInboxIdentity">>;
   readonly artifacts: ReturnType<typeof createFactoryArtifactActivities>;
   readonly commands: FactoryPrivateServiceCommands;
+  /**
+   * Where a refusal this service could not classify is reported.
+   *
+   * The wire answer stays opaque — a caller learns `request_failed` and nothing
+   * more — but the operator who owns this installation needs the cause, and
+   * until now it existed nowhere: a stored command whose effect threw answered
+   * 500, the caller retried it forever, and the run sat waiting with no line
+   * anywhere to read.
+   */
+  report?(context: { readonly method: string; readonly path: string; readonly error: unknown }): void;
 }
 
 class PrivateRequestError extends Error {
@@ -33,13 +43,16 @@ function object(value: unknown): Record<string, unknown> { if (!value || typeof 
 function json(status: number, value: unknown): FactoryPrivateResponse { return { status, body: Buffer.from(JSON.stringify(value)) }; }
 function bytes(value: Uint8Array): FactoryPrivateResponse { return { status: 200, body: value, contentType: "application/octet-stream" }; }
 function manifestBytes(value: { self: unknown }): FactoryPrivateResponse { const { self: _self, ...stored } = value; return bytes(artifactJson.canonical(stored)); }
-function errorResponse(error: unknown): FactoryPrivateResponse {
+function errorResponse(error: unknown, report?: FactoryPrivateServiceOptions["report"], context?: { method: string; path: string }): FactoryPrivateResponse {
   if (error instanceof PrivateRequestError) return json(error.status, { error: error.code });
   if (error instanceof FactoryArtifactError || error instanceof FactoryDefinitionError || error instanceof FactoryInboxError || error instanceof FactoryOutboxError || error instanceof FactoryRecordError) {
     const code = error.code;
     const status = code.includes("conflict") || code === "delivery_lease_lost" ? 409 : code.includes("scope") || code.includes("tenant_denied") ? 403 : code.includes("not_found") ? 404 : 400;
     return json(status, { error: code });
   }
+  // Only the unclassified case: every code above is already the answer, and
+  // reporting those too would turn an ordinary refusal into noise.
+  if (context) report?.({ ...context, error });
   return json(error instanceof SyntaxError || error instanceof TypeError ? 400 : 500, { error: "request_failed" });
 }
 
@@ -132,7 +145,7 @@ export function startFactoryPrivateService(options: FactoryPrivateServiceOptions
           return event === null ? { status: 204, body: Buffer.alloc(0) } : json(200, event);
         }
         return json(404, { error: "not_found" });
-      } catch (error) { return errorResponse(error); }
+      } catch (error) { return errorResponse(error, options.report, { method: request.method, path: request.path }); }
     },
   });
 }

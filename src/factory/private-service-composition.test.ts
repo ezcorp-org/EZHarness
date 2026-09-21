@@ -255,3 +255,66 @@ describe("the private service's request timeout", () => {
     expect(FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(60_000);
   });
 });
+
+describe("a refusal the private service could not classify", () => {
+  test("reaches the host's reporter while the wire answer stays opaque", async () => {
+    const { startFactoryPrivateService } = await import("./private-service");
+    const { nodeHttpsRequest, signedServiceToken } = await import("../__tests__/helpers/factory-certificates");
+    const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const certs = await certificates(directories, "tenant-a");
+    const reported: Array<{ method: string; path: string; error: unknown }> = [];
+    const boom = Object.assign(new Error("the stored command's effect refused"), { code: "effect_refused" });
+    const listener = startFactoryPrivateService({
+      tenantId, certificateIdentity: "tenant-a",
+      hostname: "127.0.0.1", port: 0,
+      tls: { ca: certs.ca, cert: certs.serverCert, key: certs.serverKey },
+      tokens: async () => ({ issuer: "https://factory.example.test", audience: "factory-private-service", publicKeys: { test: keys.publicKey.export({ type: "spki", format: "pem" }).toString() } }),
+      queue: { async claim() { throw boom; }, async settle() {}, async confirmInboxIdentity() { return false; } } as never,
+      artifacts: {} as never,
+      commands: { async execute() { throw boom; }, async resolveFactory() { throw boom; } },
+      report: (context) => { reported.push(context); },
+    });
+    listeners.push(listener);
+
+    const token = signedServiceToken(keys.privateKey, {
+      sub: "tenant-a", iss: "https://factory.example.test", aud: "factory-private-service",
+      exp: Math.floor(Date.now() / 1_000) + 60, scope: ["factory:orchestrate"],
+    });
+    const response = await nodeHttpsRequest(`${listener.url}/internal/factory/v1/outbox/claim`, certs, { body: {}, token });
+
+    // The caller learns nothing beyond "it failed", which is the point.
+    expect(response.status).toBe(500);
+    expect(JSON.parse(response.body.toString())).toEqual({ error: "request_failed" });
+    // The operator learns which route and which error, which is also the point.
+    expect(reported).toEqual([{ method: "POST", path: "/internal/factory/v1/outbox/claim", error: boom }]);
+  });
+
+  test("an ordinary classified refusal is answered, not reported", async () => {
+    const { startFactoryPrivateService } = await import("./private-service");
+    const { nodeHttpsRequest, signedServiceToken } = await import("../__tests__/helpers/factory-certificates");
+    const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const certs = await certificates(directories, "tenant-a");
+    const reported: unknown[] = [];
+    const listener = startFactoryPrivateService({
+      tenantId, certificateIdentity: "tenant-a",
+      hostname: "127.0.0.1", port: 0,
+      tls: { ca: certs.ca, cert: certs.serverCert, key: certs.serverKey },
+      tokens: async () => ({ issuer: "https://factory.example.test", audience: "factory-private-service", publicKeys: { test: keys.publicKey.export({ type: "spki", format: "pem" }).toString() } }),
+      queue: { async claim() { return null; }, async settle() {}, async confirmInboxIdentity() { return false; } } as never,
+      artifacts: {} as never,
+      commands: { async execute() { return null; }, async resolveFactory() { throw new Error("unused"); } },
+      report: (context) => { reported.push(context); },
+    });
+    listeners.push(listener);
+
+    const token = signedServiceToken(keys.privateKey, {
+      sub: "tenant-a", iss: "https://factory.example.test", aud: "factory-private-service",
+      exp: Math.floor(Date.now() / 1_000) + 60, scope: ["factory:orchestrate"],
+    });
+    // A malformed body is a 400 the service already explains; reporting it too
+    // would bury the unclassified case this seam exists for.
+    const response = await nodeHttpsRequest(`${listener.url}/internal/factory/v1/outbox/claim`, certs, { body: { tenantId: "foreign" }, token });
+    expect(response.status).toBe(400);
+    expect(reported).toEqual([]);
+  });
+});
