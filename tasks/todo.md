@@ -2933,8 +2933,15 @@ process. All nine pass alone. Gates: `tasks/factory/focused-batch-isolation-GATE
       the stub exposed the real dependency: 4 tests failed with "PGlite is closed" and with the
       trusted-local hooks never installed. Added `resetExtensionServices()`, which also clears the
       recovery timers; both suites call it.
-- [x] Verified: batch green in one process; every changed file green alone; `bun run test` pool
-      green; typecheck, lint and gate-integrity green.
+- [x] Verified: batch green in one process (2747 pass, 0 fail, 222 files, at 78c27fec0); every
+      changed file green alone; typecheck, lint, gate-integrity and factory boundaries green.
+- [ ] The per-file pool is NOT green on this host, and not because of this branch. Two runs, two
+      different untouched real-subprocess suites: `sample-loop/index.integration.test.ts` (1 test)
+      then `production-image-lifecycle-launch.integration.test.ts` (3 tests), each passing alone at
+      the same load, on a box carrying several other agents' pools at load 21 and 36. Left as
+      found: raising a timeout to make a saturated machine green is the gate-weakening CLAUDE.md
+      names. The pool still shows 27575 and 27573 passes over 1860 files with no failure in any
+      file this branch touches, and the two source files changed by addition only.
 
 Review. The five leaks are one shape: process-global state that a test file sets and does not put
 back. Two of them were stacked — the module stub that broke the activation suite was also

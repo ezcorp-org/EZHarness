@@ -63,9 +63,15 @@ printed.
   EVIDENCE: `/tmp/factory-platform-evidence/w00-focused-triage/fixed-full.receipt.txt`
 
 - [ ] G9: The shared helpers this changes still hold for the per-file pool CI runs.
-  CHECK: `bun run test`
-  EXPECT: 0 fail
-  EVIDENCE: `/tmp/factory-platform-evidence/w00-focused-triage/pool-test.log`
+  CHECK: `PARALLEL=3 bun run test` (twice)
+  EXPECT: no failure in any file this branch changed. NOT MET as "0 fail": run 1 was 27575 pass / 1
+  fail and run 2 was 27573 pass / 3 fail, a DIFFERENT untouched real-subprocess suite each time
+  (`docs/extensions/examples/sample-loop/index.integration.test.ts`, then
+  `src/__tests__/production-image-lifecycle-launch.integration.test.ts`), each green alone at the
+  same host load, on a box running several other agents' pools at load 21 and 36.
+  EVIDENCE: `/tmp/factory-platform-evidence/w00-focused-triage/pool-test.log`, `pool-test-2.log`,
+  `pool-failure-isolation.txt`, `sample-loop-contention.txt`, `sample-loop-import-graph.txt`,
+  `source-change-hunks.txt`
 
 - [ ] G10: Static gates stay green.
   CHECK: `bun run typecheck && bun run lint && bun scripts/gate-integrity.ts`
