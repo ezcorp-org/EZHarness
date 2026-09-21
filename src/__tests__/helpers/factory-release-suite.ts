@@ -903,10 +903,25 @@ test("the consent reader returns exactly the one consent that already exists", a
   // The approval is now unreachable from `both`, and only the policy that already covered it is
   // left. The approval did not follow the operation; it followed the id it is bound to.
   expect(await read(both)).toMatchObject({ kind: "policy", consent: { policyId: "consent-policy" } });
-  // Moved onto another operation it still cannot serve, because its decision no longer matches.
-  await database.execute(sql`UPDATE factory_release_approvals SET decision_id=${decisionId} WHERE approval_id=${bothApproval}`);
   expect((await read(foreignNode)).kind).toBe("approval");
   await database.execute(sql`UPDATE factory_release_approvals SET operation_id=${both.operationId} WHERE approval_id=${bothApproval}`);
+
+  // An approval whose decision is not the operation's decision serves nothing, whatever else
+  // matches. Every operation in this suite is accepted under one decision, so the disagreement has
+  // to be built: a SECOND acceptance decision row, real enough for the approvals table's foreign
+  // key, that no operation here was prepared under.
+  const otherDecisionId = "consent-other-decision";
+  await database.execute(sql`INSERT INTO factory_acceptance_decisions (tenant_id,project_id,decision_id,contract_id,contract_revision,contract_digest,candidate_digest,evidence_set_digest,decision_digest,run_id,node_instance_id,candidate_generation,execution_epoch,cancellation_epoch) VALUES (${tenantId},${projectId},${otherDecisionId},'contract',1,${digest("f")},${trusted.candidateDigest},${digest("7")},${digest("8")},${candidate.runId},'another-decision-node',${candidate.candidateGeneration},1,0) ON CONFLICT DO NOTHING`);
+  const foreignDecision = await prepareRelease(service, request("solo/foreign-decision"));
+  const foreignDecisionApproval = await approved(foreignDecision, service);
+  expect((await read(foreignDecision)).kind).toBe("approval");
+  await database.execute(sql`UPDATE factory_release_approvals SET decision_id=${otherDecisionId} WHERE approval_id=${foreignDecisionApproval}`);
+  expect(rows<{ decision_id: string }>(await database.execute(sql`SELECT decision_id FROM factory_release_approvals WHERE approval_id=${foreignDecisionApproval}`))).toEqual([{ decision_id: otherDecisionId }]);
+  expect(otherDecisionId).not.toBe(foreignDecision.decisionId);
+  expect(await read(foreignDecision)).toEqual({ kind: "none", reason: "approval_foreign_decision" });
+  // Put it back and it serves again, so the refusal was the decision and nothing else about the row.
+  await database.execute(sql`UPDATE factory_release_approvals SET decision_id=${foreignDecision.decisionId} WHERE approval_id=${foreignDecisionApproval}`);
+  expect((await read(foreignDecision)).kind).toBe("approval");
 
   // A stale generation, an unapproved status, and an expired approval each have their own reason.
   // These run outside the policy prefix, because a policy that also covered them would serve as
@@ -919,6 +934,15 @@ test("the consent reader returns exactly the one consent that already exists", a
   expect(await read(stale)).toEqual({ kind: "none", reason: "approval_not_approved" });
   await database.execute(sql`UPDATE factory_release_approvals SET status='approved',approved_by=NULL WHERE approval_id=${staleApproval}`);
   expect(await read(stale)).toEqual({ kind: "none", reason: "approval_not_approved" });
+  // An `approved` row that records who approved it but not under which grant revision is the third
+  // way this check fails. `consumeApprovalInTransaction` refuses the same row, so returning it
+  // would hand a worker a consent no claim could ever take.
+  await database.execute(sql`UPDATE factory_release_approvals SET approved_by=${admin.id},approved_grant_revision=NULL WHERE approval_id=${staleApproval}`);
+  expect(rows<{ approved_by: string | null; approved_grant_revision: number | string | null }>(await database.execute(sql`SELECT approved_by,approved_grant_revision FROM factory_release_approvals WHERE approval_id=${staleApproval}`))).toEqual([{ approved_by: admin.id, approved_grant_revision: null }]);
+  expect(await read(stale)).toEqual({ kind: "none", reason: "approval_not_approved" });
+  await database.execute(sql`UPDATE factory_release_approvals SET approved_grant_revision=1 WHERE approval_id=${staleApproval}`);
+  expect((await read(stale)).kind).toBe("approval");
+  await database.execute(sql`UPDATE factory_release_approvals SET approved_by=NULL WHERE approval_id=${staleApproval}`);
   await database.execute(sql`UPDATE factory_release_approvals SET approved_by=${admin.id},expires_at_ms=${now} WHERE approval_id=${staleApproval}`);
   expect(await read(stale)).toEqual({ kind: "none", reason: "approval_expired" });
   await database.execute(sql`UPDATE factory_release_approvals SET expires_at_ms=${now + 1_000},decision_id=${decisionId} WHERE approval_id=${staleApproval}`);
