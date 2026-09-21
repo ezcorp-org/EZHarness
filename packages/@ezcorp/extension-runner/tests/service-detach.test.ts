@@ -9,8 +9,13 @@ import { executionLimits } from "../src/core";
 const TOKEN = "test-service-credential-32-bytes-minimum";
 /** Short enough that a whole disconnect matrix runs inside one test budget. */
 const POLL_MS = 150;
-const LEASE_MS = 600;
-/** Long enough that no test can reach it: a release under this lease came from the runtime. */
+/**
+ * Used only by the cases that must observe a lease expiry. Long enough that no
+ * amount of setup can exhaust it first: a pre-drop assertion must never depend
+ * on how fast the host got through a dozen Unix round trips.
+ */
+const LEASE_MS = 3_000;
+/** The default everywhere else: no case that is not about the lease can reach it. */
 const UNREACHABLE_LEASE_MS = 300_000;
 
 /** Every client-side close a host can perform on its event stream. */
@@ -43,7 +48,7 @@ async function startHarness(overrides: Partial<RunnerServiceOptions> = {}): Prom
     cancel: async () => {},
     inspect: async (id: string) => ({ id, state: "running", diagnostics: [] }),
   } as unknown as Runner;
-  const service = await startRunnerService({ runner, socketPath, token: TOKEN, allowedUid: process.getuid!(), eventPollTimeoutMs: POLL_MS, attachmentLeaseMs: LEASE_MS, ...overrides });
+  const service = await startRunnerService({ runner, socketPath, token: TOKEN, allowedUid: process.getuid!(), eventPollTimeoutMs: POLL_MS, attachmentLeaseMs: UNREACHABLE_LEASE_MS, ...overrides });
   return {
     service,
     socketPath,
@@ -105,12 +110,11 @@ async function startAndAttach(harness: Harness, workerId: string): Promise<void>
 
 test("every host disconnect form releases the worker attachment and a replacement host attaches again", async () => {
   for (const drop of DROPS) {
-    const harness = await startHarness();
+    // socket.end() raises no abort on this runtime, so this table needs a lease.
+    const harness = await startHarness({ attachmentLeaseMs: LEASE_MS });
     try {
       await startAndAttach(harness, "worker");
       expect(harness.service.attachments()).toEqual(["worker"]);
-      const refused = await call(harness.socketPath, "/v4/attach", { workerId: "worker" });
-      expect(refused.status).toBe(400);
 
       const poll = await openEventStream(harness.socketPath, "worker");
       dropEventStream(poll, drop);
@@ -131,6 +135,11 @@ test("a dropped connection releases the attachment from the runtime's own signal
   const harness = await startHarness({ attachmentLeaseMs: UNREACHABLE_LEASE_MS });
   try {
     await startAndAttach(harness, "worker");
+    // While one host holds the stream a second is refused. This lives here,
+    // under a lease that cannot fire, so the assertion tests exclusivity and
+    // never how fast the box answered.
+    expect((await call(harness.socketPath, "/v4/attach", { workerId: "worker" })).status).toBe(400);
+
     const poll = await openEventStream(harness.socketPath, "worker");
     dropEventStream(poll, "request.destroy");
     await until(() => harness.service.attachments().length === 0);
@@ -142,7 +151,7 @@ test("a dropped connection releases the attachment from the runtime's own signal
 test("a host that half-closes and stops collecting is released within one attachment lease", async () => {
   // Measured on Bun 1.3.14: a half-close with the client still reading raises
   // no abort, so the lease is the only mechanism that can release this one.
-  const harness = await startHarness();
+  const harness = await startHarness({ attachmentLeaseMs: LEASE_MS });
   try {
     await startAndAttach(harness, "worker");
     const poll = await openEventStream(harness.socketPath, "worker");
@@ -178,7 +187,7 @@ test("one host's disconnect never releases another worker's attachment", async (
 }, 30_000);
 
 test("a process whose hosts all disconnect holds no attachment afterwards", async () => {
-  const harness = await startHarness();
+  const harness = await startHarness({ attachmentLeaseMs: LEASE_MS });
   const workers = ["alpha", "beta", "gamma", "delta"];
   try {
     for (const workerId of workers) await startAndAttach(harness, workerId);
@@ -219,7 +228,7 @@ test("a released attachment keeps every queued reverse call and notification for
 }, 30_000);
 
 test("a host busy with a reverse call is never evicted while it still owes a reply", async () => {
-  const harness = await startHarness();
+  const harness = await startHarness({ attachmentLeaseMs: LEASE_MS });
   try {
     await startAndAttach(harness, "worker");
     const answered = settled(harness.reverse("worker", "slow.work", { size: 1 }));
