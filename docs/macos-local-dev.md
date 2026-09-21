@@ -90,6 +90,84 @@ The remainder need a **privileged Linux host**, not merely a Linux userland:
 These pass on CI's runners. Do not treat them as your regression unless CI
 says so — the same files fail identically on a clean checkout.
 
+## Extensions on macOS: the isolated runner is not available
+
+`compose.prod.yml` and `docker-compose.yml` both default to the **isolated
+extension runner**, a host service the app reaches over a bind-mounted unix
+socket (`deploy/extension-runner/README.md`). On macOS that connection cannot
+be made, so the app fails its 15-second startup check and restarts forever:
+
+```
+Extension runner is not ready. Check its service, socket, credential and application UID.
+```
+
+### Why — and it is not the runner's fault
+
+The runner itself provisions and runs correctly inside the `podman machine`
+VM. Measured on podman 6.1.2 / Fedora CoreOS, with the service active and the
+gateway enforcing `SO_PEERCRED`:
+
+```
+socket   srw-rw----  ezrunner:ezshared  /run/ez-extension-runner/runner.sock
+connect from the VM as the app's uid  →  OK
+connect from ANY container            →  EACCES
+```
+
+**Containers in that VM cannot connect to a bind-mounted host unix socket.**
+The following were each ruled out, one at a time:
+
+| Hypothesis | Result |
+|---|---|
+| File permissions | Fails as container-root holding `CAP_DAC_OVERRIDE`, with the socket's group mapped, and at mode `0666` owned by the mapped uid |
+| SELinux | Socket and directory relabelled `container_file_t`; **zero AVCs** with `dontaudit` disabled (`semodule -DB`) and `auditd` confirmed active |
+| User namespace | Fails under `--userns=keep-id` and under the default rootless mapping |
+| Network namespace | Fails with `--network host` |
+| Read-only mount | Fails read-write too |
+| Bind mounts in general | A host-side `mount --bind` of the same directory connects fine |
+| AF_UNIX inside containers | A container-local socket connects fine |
+| Something specific to this socket | Podman's **own** `podman.sock` fails the same way |
+
+The mechanism is not identified here. What is established is that the
+architecture's one hard requirement — app-in-container reaching a
+host-provided unix socket — does not hold on this platform.
+
+Note for anyone debugging this: **Bun reports the `EACCES` as `ENOENT`** from
+`net.connect`, which reads like a missing socket and sends you looking in the
+wrong place. `socat` reports the true errno.
+
+### What to do instead
+
+Use the `trusted-local` adapter, which `deploy/extension-runner/README.md`
+already documents for exactly this case. In `.env.prod`:
+
+```
+EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml
+EZCORP_EXTENSIONS_UNSANDBOXED_ACK=I-understand-extensions-run-with-the-apps-full-powers
+```
+
+**Understand what you are accepting.** Extensions then run as plain processes
+inside the app container with the app's full reach — no filesystem, network,
+seccomp or cgroup limits. The app is the blast radius. It says so at error
+level on every boot:
+
+```
+EZCORP_EXTENSION_RUNNER=trusted-local: extensions build and run WITHOUT a
+sandbox on this host — no filesystem, network, seccomp, or cgroup limits;
+the app itself is the blast radius.
+```
+
+and it shows a standing banner on every page. Each bundled extension then
+refuses to build until you acknowledge that exact source digest in the UI:
+
+```
+LifecycleError: This host builds and runs extensions WITHOUT a sandbox.
+Acknowledge that for this exact source before building.
+```
+
+That per-digest acknowledgement is the only control left, so read what you are
+approving. If that trade is not acceptable, run the stack on a Linux host,
+where the isolated runner works as designed.
+
 ## Two warts worth knowing
 
 - **The container writes into your tree.** It runs with `EZCORP_DB_PATH=:memory:`
