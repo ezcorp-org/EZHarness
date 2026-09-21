@@ -397,7 +397,8 @@ export class PodmanRunner implements Runner {
       return directory;
     } catch (error) { await rm(directory, { recursive: true, force: true }); throw error; }
   }
-  async build(input: { operationId: string; sourceDigest: string; files: WorkspaceFiles; entrypoint: string; limits: ResourceLimits }): Promise<BuildResult> {
+  /** The frozen source is self-consistent: bounded files, a present entrypoint, an exact digest. */
+  private assertBuildInput(input: { operationId: string; sourceDigest: string; files: WorkspaceFiles; entrypoint: string }): void {
     identifier(input.operationId);
     digest(input.sourceDigest);
     validateFiles(input.files);
@@ -405,6 +406,57 @@ export class PodmanRunner implements Runner {
     if (!(input.entrypoint in input.files)) throw new RunnerError("missing_entrypoint", "Entrypoint is absent");
     workspaceText(input.files[input.entrypoint], input.entrypoint);
     if (filesDigest(input.files) !== input.sourceDigest) throw new RunnerError("source_digest_mismatch", "Frozen source digest does not match bytes");
+  }
+
+  /** Each provision stays in its own tree, and no source file may replace one. */
+  private assertProvisionedPaths(files: WorkspaceFiles, sdk: WorkspaceFiles, toolchain: WorkspaceFiles): void {
+    if (!toolchain["node_modules/typescript/bin/tsc"]) throw new RunnerError("toolchain_unavailable", "Pinned TypeScript toolchain must be provisioned by the runner administrator", "typecheck");
+    for (const path of Object.keys(sdk)) if (!path.startsWith("node_modules/@ezcorp/sdk/") && !path.startsWith("node_modules/@ezcorp/extension-contract/")) throw new RunnerError("sdk_invalid", "SDK provision must remain in its trusted packages");
+    for (const path of Object.keys(toolchain)) if (!path.startsWith("node_modules/")) throw new RunnerError("toolchain_invalid", "Toolchain provision must remain in node_modules");
+    for (const path of Object.keys(files)) if (path.startsWith("node_modules/") || path.startsWith(".runner/")) throw new RunnerError("reserved_path", "Source cannot replace provisioned dependencies or runner files");
+  }
+
+  /** Typecheck, compile, and — when the source declares one — build the browser bundle. */
+  private async typecheckAndCompile(input: { operationId: string; files: WorkspaceFiles; entrypoint: string }, limits: ResourceLimits, staged: string, result: BuildResult): Promise<{ code: string; browser: ReturnType<typeof browserBuild>; browserArtifacts: WorkspaceFiles }> {
+    this.requireBuilding(input.operationId);
+    const typescriptFiles = Object.keys(input.files).filter(path => /\.[cm]?tsx?$/.test(path));
+    if (typescriptFiles.length) {
+      await this.run(input.operationId, limits, staged, ["node_modules/typescript/bin/tsc", "--noEmit", "--strictNullChecks", "--allowImportingTsExtensions", "--module", "preserve", "--moduleResolution", "bundler", "--target", "ESNext", "--skipLibCheck", "--allowJs", "--types", "bun", ...typescriptFiles.map(path => `./${path}`)]);
+      await this.remove(input.operationId);
+    }
+    result.evidence.tests.push({ name: "typecheck", passed: true });
+    this.requireBuilding(input.operationId);
+    const compiled = JSON.parse(await this.run(input.operationId, limits, staged, ["-e", builderProgram, `./${input.entrypoint}`], 20 * 1024 ** 2));
+    await this.remove(input.operationId);
+    if (typeof compiled.code !== "string") throw new RunnerError("build_output_invalid", "Compiler returned invalid output");
+    result.evidence.tests.push({ name: "compile", passed: true });
+    const browser = browserBuild(input.files);
+    const browserArtifacts: WorkspaceFiles = {};
+    if (browser) {
+      const compiledBrowser = JSON.parse(await this.run(input.operationId, limits, staged, ["-e", browserBuilderProgram, canonicalJson(browser)], 20 * 1024 ** 2));
+      await this.remove(input.operationId);
+      if (typeof compiledBrowser.html !== "string" || Buffer.byteLength(compiledBrowser.html) > 12 * 1024 ** 2) throw new RunnerError("browser_build_invalid", "Browser compiler returned invalid output");
+      browserArtifacts[".runner/browser.html"] = compiledBrowser.html;
+      browserArtifacts[".runner/browser.json"] = canonicalJson(browser);
+      result.evidence.tests.push({ name: "browser-compile", passed: true });
+    }
+    return { code: compiled.code, browser, browserArtifacts };
+  }
+
+  /** Run every declared feature test, each in its own container. A build without tests fails. */
+  private async runFeatureTests(operationId: string, limits: ResourceLimits, staged: string, files: WorkspaceFiles, result: BuildResult): Promise<void> {
+    const testFiles = Object.keys(files).filter(path => /(?:^|\/)[^/]+\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path));
+    if (testFiles.length === 0) throw new RunnerError("tests_missing", "At least one feature test is required", "test");
+    for (const test of testFiles) {
+      this.requireBuilding(operationId);
+      await this.run(operationId, limits, staged, ["-e", testProgram, `./${test}`, String(Math.min(limits.timeoutMs, 30_000))]);
+      await this.remove(operationId);
+      result.evidence.tests.push({ name: `feature:${test}`, passed: true });
+    }
+  }
+
+  async build(input: { operationId: string; sourceDigest: string; files: WorkspaceFiles; entrypoint: string; limits: ResourceLimits }): Promise<BuildResult> {
+    this.assertBuildInput(input);
     const limits = limitsWithin(input.limits, this.options.buildCeiling ?? buildLimits);
     await this.prepare(false);
     await this.authorize("build", input.sourceDigest);
@@ -421,44 +473,14 @@ export class PodmanRunner implements Runner {
       const dependencies = await fetchLockedDependencies(input.files, controller.signal);
       const sdk = this.options.sdkFiles ?? {};
       const toolchain = this.options.toolchainFiles ?? {};
-      if (!toolchain["node_modules/typescript/bin/tsc"]) throw new RunnerError("toolchain_unavailable", "Pinned TypeScript toolchain must be provisioned by the runner administrator", "typecheck");
-      for (const path of Object.keys(sdk)) if (!path.startsWith("node_modules/@ezcorp/sdk/") && !path.startsWith("node_modules/@ezcorp/extension-contract/")) throw new RunnerError("sdk_invalid", "SDK provision must remain in its trusted packages");
-      for (const path of Object.keys(toolchain)) if (!path.startsWith("node_modules/")) throw new RunnerError("toolchain_invalid", "Toolchain provision must remain in node_modules");
-      for (const path of Object.keys(input.files)) if (path.startsWith("node_modules/") || path.startsWith(".runner/")) throw new RunnerError("reserved_path", "Source cannot replace provisioned dependencies or runner files");
+      this.assertProvisionedPaths(input.files, sdk, toolchain);
       staged = await this.stage({ ...input.files, ...dependencies.text, ...sdk, ...toolchain });
       for (const [path, bytes] of Object.entries(dependencies.binary)) {
         await this.writeStaged(staged, path, bytes, dependencies.executable.includes(path));
       }
-      this.requireBuilding(input.operationId);
-      const typescriptFiles = Object.keys(input.files).filter(path => /\.[cm]?tsx?$/.test(path));
-      if (typescriptFiles.length) {
-        await this.run(input.operationId, limits, staged, ["node_modules/typescript/bin/tsc", "--noEmit", "--strictNullChecks", "--allowImportingTsExtensions", "--module", "preserve", "--moduleResolution", "bundler", "--target", "ESNext", "--skipLibCheck", "--allowJs", "--types", "bun", ...typescriptFiles.map(path => `./${path}`)]);
-        await this.remove(input.operationId);
-      }
-      result.evidence.tests.push({ name: "typecheck", passed: true });
-      this.requireBuilding(input.operationId);
-      const compiled = JSON.parse(await this.run(input.operationId, limits, staged, ["-e", builderProgram, `./${input.entrypoint}`], 20 * 1024 ** 2));
-      await this.remove(input.operationId);
-      if (typeof compiled.code !== "string") throw new RunnerError("build_output_invalid", "Compiler returned invalid output");
-      result.evidence.tests.push({ name: "compile", passed: true });
-      const browser = browserBuild(input.files);
-      const browserArtifacts: WorkspaceFiles = {};
-      if (browser) {
-        const compiledBrowser = JSON.parse(await this.run(input.operationId, limits, staged, ["-e", browserBuilderProgram, canonicalJson(browser)], 20 * 1024 ** 2));
-        await this.remove(input.operationId);
-        if (typeof compiledBrowser.html !== "string" || Buffer.byteLength(compiledBrowser.html) > 12 * 1024 ** 2) throw new RunnerError("browser_build_invalid", "Browser compiler returned invalid output");
-        browserArtifacts[".runner/browser.html"] = compiledBrowser.html;
-        browserArtifacts[".runner/browser.json"] = canonicalJson(browser);
-        result.evidence.tests.push({ name: "browser-compile", passed: true });
-      }
-      const testFiles = Object.keys(input.files).filter(path => /(?:^|\/)[^/]+\.(?:test|spec)\.[cm]?[jt]sx?$/.test(path));
-      if (testFiles.length === 0) throw new RunnerError("tests_missing", "At least one feature test is required", "test");
-      for (const test of testFiles) {
-        this.requireBuilding(input.operationId);
-        await this.run(input.operationId, limits, staged, ["-e", testProgram, `./${test}`, String(Math.min(limits.timeoutMs, 30_000))]);
-        await this.remove(input.operationId);
-        result.evidence.tests.push({ name: `feature:${test}`, passed: true });
-      }
+      const compiled = await this.typecheckAndCompile(input, limits, staged, result);
+      const { browser, browserArtifacts } = compiled;
+      await this.runFeatureTests(input.operationId, limits, staged, input.files, result);
       const artifacts = { ...input.files, ...browserArtifacts, ".runner/extension.js": compiled.code, ".runner/recipe.json": canonicalJson({ image: this.image, sdkDigest: filesDigest(sdk), toolchainDigest: filesDigest(toolchain), seccompDigest: sha256(await readFile(this.seccompPath)), limits, entrypoint: input.entrypoint }), ".runner/executables.json": JSON.stringify(dependencies.executable), ".runner/dependencies.json": JSON.stringify(Object.fromEntries(Object.entries(dependencies.binary).map(([path, bytes]) => [path, Buffer.from(bytes).toString("base64")]))) };
       const artifactDigest = filesDigest(artifacts);
       await this.storeArtifact(artifactDigest, artifacts);
