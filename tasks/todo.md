@@ -221,15 +221,17 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 
 ### Final audit repairs
 
-- [ ] Add red restart tests for ambiguous and failed file-mutation recovery.
-- [ ] Make mutation recovery prove a recorded filesystem state transition and terminalize verified aborts.
-- [ ] Add red supervisor/controller tests for an unlaunched persisted process start and disposal recovery.
-- [ ] Reconcile unverified starts to a terminal state without blind success replay.
-- [ ] Add red UTF-8/base64 gap cursor tests and enforce the decoded-byte lower bound.
-- [ ] Run focused tests, contract/schema/build, lint, typecheck, gate integrity, and diff checks.
-- [ ] Recheck `origin/main`, merge it if needed, commit without pushing, and record the exact verification result.
+- [x] Add red restart tests for ambiguous and failed file-mutation recovery.
+- [x] Make mutation recovery prove a recorded filesystem state transition and terminalize verified aborts.
+- [x] Add red supervisor/controller tests for an unlaunched persisted process start and disposal recovery.
+- [x] Reconcile unverified starts to a terminal state without blind success replay.
+- [x] Add red UTF-8/base64 gap cursor tests and enforce the decoded-byte lower bound.
+- [x] Run focused tests, contract/schema/build, lint, typecheck, gate integrity, and diff checks.
+- [x] Recheck `origin/main`, merge it if needed, commit without pushing, and record the exact verification result.
 
 Plan review: use the provider validator, real journal restart, supervisor status artifact, and public controller lifecycle as the test seams. Preserve the shared binding-row serialization invariant. Keep unknown outcomes conservative, but provide a verified terminal path that releases the writer lease and allows explicit disposal.
+
+Repair review: file mutation journals now record the full prior stat and recover only after a proved revision transition or removal. Missing paths are distinct from other stat errors. Ambiguous write, mkdir, chmod, and remove outcomes become durable `interrupted_mutation_aborted` failures, and controller reconciliation releases their leases. Persisted process starts return success only for an accepted in-memory launch or a live helper; restart recovery verifies stop, persists failure, releases the lease, and admits disposal. Process-output validation uses decoded bytes: gap-free responses advance exactly, while gap responses advance by at least the returned byte count. After merging `origin/main` at `bd6fd9714`, pinned Bun 1.3.14 verification passed: 88 focused tests, contract build, schema test, compiled supervisor build, dependency audit for both lockfiles, lint over 4,668 files, full typecheck, gate integrity, and diff checks.
 
 ### Independent audit repair
 
