@@ -251,8 +251,39 @@ test("an unknown process inspection retains the persisted writer lease", async (
   const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "start-unknown", conversationId, payload: { argv: ["echo"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
   await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id);
   await context.controller.reconcileSandboxProcess(context.owner.id, create.projectId);
+  await expect(context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "stop", idempotencyKey: "stop-during-first-unknown-inspection" })).rejects.toMatchObject({ code: "WRITER_LEASED" });
+  await expect(context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "stop", idempotencyKey: "stop-during-second-unknown-inspection" })).rejects.toMatchObject({ code: "WRITER_LEASED" });
   await expect(context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "write", idempotencyKey: "still-blocked", conversationId, payload: { path: "/a", encoding: "utf8", data: "x" } })).rejects.toMatchObject({ code: "WRITER_LEASED" });
 });
+
+for (const interruption of ["unknown receipt", "provider exception"] as const) {
+  test(`a terminal process inspection clears an earlier ${interruption} lifecycle fence`, async () => {
+    let terminal = false;
+    const context = await fixture();
+    const interruptionKey = interruption.replace(" ", "-");
+    const identity = { bootId: "boot", processId: `transient-${interruptionKey}-process` };
+    context.local.processStart = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity, state: "running" as const, outputCursor: 0 } }));
+    context.local.processInspect = mock(async (input: any) => {
+      if (terminal) return { receipt: receipt(input.call), process: { identity: input.identity, state: "exited" as const, exitCode: 0, outputCursor: 0 } };
+      if (interruption === "provider exception") throw new Error("Process inspection crashed.");
+      return { receipt: { ...receipt(input.call), outcome: "unknown" as const, error: { code: "process_unknown", message: "Process state is temporarily unavailable.", retryable: true } } };
+    });
+    const create = await admitCreate(context);
+    await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+    const conversationId = crypto.randomUUID();
+    await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Transient process inspection')`);
+    const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: `transient-${interruptionKey}`, conversationId, payload: { argv: ["sleep"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
+    expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id)).state).toBe("succeeded");
+
+    const blocked = context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: `destroy-during-${interruptionKey}` });
+    if (interruption === "provider exception") await expect(blocked).rejects.toThrow("Process inspection crashed.");
+    else await expect(blocked).rejects.toMatchObject({ code: "WRITER_LEASED" });
+    terminal = true;
+
+    const destroy = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: `destroy-after-${interruptionKey}` });
+    expect(destroy.state).toBe("admitted");
+  });
+}
 
 test("a failed process start creates no process and releases its writer lease", async () => {
   const context = await fixture();
@@ -341,8 +372,9 @@ test("inspects a retained succeeded process and keeps lifecycle fenced while it 
   expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id)).state).toBe("succeeded");
 
   await expect(context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "destroy-during-live-process" })).rejects.toMatchObject({ code: "WRITER_LEASED" });
+  await expect(context.restartController().requestSandboxAction(context.owner.id, create.projectId, { action: "stop", idempotencyKey: "stop-during-live-process" })).rejects.toMatchObject({ code: "WRITER_LEASED" });
 
-  expect(context.local.processInspect).toHaveBeenCalledTimes(1);
+  expect(context.local.processInspect).toHaveBeenCalledTimes(2);
   expect(context.local.inspect).not.toHaveBeenCalled();
   const leases = await context.database.execute(sql`SELECT operation_id,state FROM sandbox_writer_leases WHERE binding_id=${create.bindingId}`) as { rows: Array<{ operation_id: string; state: string }> };
   expect(leases.rows).toEqual([{ operation_id: start.id, state: "running" }]);

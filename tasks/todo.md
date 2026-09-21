@@ -231,6 +231,18 @@ Plan review: recover unsettled starts through their durable provider call, inspe
 
 Repair review: lifecycle admission now resumes retained admitted, running, and unknown process starts through their original durable call. It removes stale failed leases, inspects the exact process created by a succeeded start, and releases that exact lease on a verified terminal process even while the sandbox resource remains running. Fresh in-process admissions remain fenced until their authorized caller starts execution, and verified live or ambiguous processes keep the lifecycle blocked. Pinned Bun 1.3.14 verification passed: 81 focused tests, contract build and schema parity, sandbox supervisor and native-tools builds, lint over 4,668 files, full typecheck, gate integrity against `bd6fd97143b66c524e28b7896309fe6fd24d4261`, and diff checks.
 
+### Post-audit transient process-inspection recovery
+
+- [x] Add a public-controller regression for an unknown process inspection followed by a terminal authoritative inspection.
+- [x] Prove repeated ambiguous and live inspections keep lifecycle changes fenced.
+- [x] Reconcile historical unknown process-inspect operations after later terminal proof without weakening other active-method fences.
+- [x] Run focused controller tests, lint, typecheck, and diff checks.
+- [x] Record verification and commit locally without pushing.
+
+Plan review: exercise recovery through `requestSandboxAction`, the public lifecycle-admission seam. A later terminal inspection may clear only historical unknown inspections for the exact retained process; ambiguous and live results must keep both the writer lease and lifecycle fence.
+
+Repair review: lifecycle admission now keeps historical unknown inspection receipts for audit but stops treating them as active after a later successful inspection proves the same process identity terminal. Provider exceptions and unknown receipts recover on the next terminal proof. Repeated ambiguous and live inspections remain fenced. Pinned Bun 1.3.14 verification passed: controller tests 42/42, lint over 4,668 files, full typecheck, gate integrity against `bd6fd97143b66c524e28b7896309fe6fd24d4261`, focused Biome, and diff checks.
+
 ### Final audit repairs
 
 - [x] Add red restart tests for ambiguous and failed file-mutation recovery.

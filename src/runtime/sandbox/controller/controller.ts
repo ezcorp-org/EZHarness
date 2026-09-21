@@ -30,7 +30,35 @@ async function requireNoActiveLifecycle(tx: DbTransaction, bindingId: string): P
   if (active) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox lifecycle transition is already active or awaiting recovery");
 }
 async function requireNoActiveMethod(tx: DbTransaction, bindingId: string): Promise<void> {
-  const active = rows(await tx.execute(sql`SELECT operation.id,lease.operation_id AS writer_id FROM sandbox_method_operations operation LEFT JOIN sandbox_writer_leases lease ON lease.operation_id=operation.id WHERE operation.binding_id=${bindingId} AND (operation.state IN ('admitted','running','unknown') OR lease.operation_id IS NOT NULL) ORDER BY operation.created_at LIMIT 1`))[0];
+  // Keep unknown methods fenced unless a later inspection has proved that the
+  // exact process is terminal. The historical receipt remains unknown for
+  // audit purposes, but it no longer blocks lifecycle recovery forever.
+  const active = rows(await tx.execute(sql`
+    SELECT operation.id, lease.operation_id AS writer_id
+    FROM sandbox_method_operations operation
+    LEFT JOIN sandbox_writer_leases lease ON lease.operation_id=operation.id
+    WHERE operation.binding_id=${bindingId}
+      AND (
+        lease.operation_id IS NOT NULL
+        OR (
+          operation.state IN ('admitted','running','unknown')
+          AND NOT (
+            operation.state='unknown'
+            AND operation.method_group='sandbox.process.v1'
+            AND operation.method='inspect'
+            AND EXISTS (
+              SELECT 1
+              FROM sandbox_processes process
+              WHERE process.binding_id=operation.binding_id
+                AND process.state IN ('exited','cancelled','failed')
+                AND process.result->'process'->'identity'=operation.input->'identity'
+            )
+          )
+        )
+      )
+    ORDER BY operation.created_at
+    LIMIT 1
+  `))[0];
   if (active) throw activeMethodError(active);
 }
 
