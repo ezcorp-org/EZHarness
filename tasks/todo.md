@@ -2818,6 +2818,6 @@ sweep is a sub-tick and not new infrastructure.
 
 ### Coordinator log — wave 3, third integration run (2026-09-21)
 
-- [x] Merged: W01e (71e8cc9ed). Combined run wave3f green at b01af1bcc on every producer, the four Podman suites, and both coverage gates; the wave3d patch-gate miss and the runner fixes are recorded in `docs/validation/factory/wave3/README.md`.
+- [x] Merged: W01e (71e8cc9ed). Combined run wave3f green at 3d7fed172 on every producer, the four Podman suites, and both coverage gates; the wave3d patch-gate miss and the runner fixes are recorded in `docs/validation/factory/wave3/README.md`.
 - [ ] In flight: W09b (four roles assembled, legacy engine adapter landed, G11 real-guest proof, G12, G14, the sweep).
 - [ ] Next: validate and merge W09b; combined run; fast-forward feat; W14, W15, W16, W17, W18 final gate, W19, W20.

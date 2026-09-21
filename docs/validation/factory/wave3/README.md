@@ -13,5 +13,5 @@ on four executor lines (`src/runtime/workflow-executor.ts` 1296, 1322, 1404 and
 suites, which the runner's focused set did not include, and the runner's final verdict did not
 fold the gate exit codes in. Both defects are fixed in the runner (it now always runs those suites,
 fails on a red gate, and refuses a dirty tree before taking the lock); `wave3e` proved three of the
-four lines and `wave3f` (head `b01af1bcc`, after the W01e merge) is green on every producer and
+four lines and `wave3f` (head `3d7fed172`, after the W01e merge and the runner corrections) is green on every producer and
 both gates. The `wave3d` files are kept as recorded.
