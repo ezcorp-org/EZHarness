@@ -76,7 +76,7 @@ test("dev image provenance warns only when the image and bind-mounted checkout d
   expect(unreadable.stderr).toContain(
     dockerRebuildCommand("unknown"),
   );
-  expect(run(commit, "clean", sandbox, { TMPDIR: join(sandbox, "missing-tmp") }).stderr).toContain("revision comparison is incomplete");
+  expect(run(commit, "clean", sandbox, { TMPDIR: join(sandbox, "missing-tmp") }).stderr).toBe("");
 });
 
 test("a dirty image build still warns after the checkout becomes clean", () => {

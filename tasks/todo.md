@@ -393,6 +393,38 @@ Post-merge verification: merged `origin/main` `d81f98387` (#290) and preserved b
 there were no product-code conflicts. The combined #284/#290 focused set passes 107 tests with one
 intentional container-only skip and 338 assertions. Typecheck, lint over 4,613 files, Svelte check,
 production build, gate integrity, shell syntax, and the staged diff check pass.
+
+## Repair PR #284 publication-gate context truth — 2026-09-21
+
+- [x] Reproduce Docker's parent-exclusion and negated-child behavior against a real image build.
+- [x] Replace Git-ignore translation with a pinned Docker-compatible matcher.
+- [x] Compare every included tracked path directly with the `HEAD` blob, type, and executable mode.
+- [x] Detect context changes hidden by Git stat shortcuts, `core.symlinks`, index hints, and Git ignores.
+- [x] Preserve excluded tracked, untracked, empty-directory, and nested-test controls.
+- [x] Run focused tests, full static gates, the production build, and a real dev-image metadata proof.
+- [x] Review and commit the repair locally without pushing.
+
+Plan review: use Docker's matcher for Docker rules and the `HEAD` tree for committed truth. Do not
+infer build inputs from Git ignore or index state. Walk excluded directories only when a scoped
+negation can restore a descendant; return `unknown` when safe pruning cannot be proved.
+
+Review: the resolver now delegates ordered ignore and negation semantics to
+`@balena/dockerignore`. It walks the real context for untracked files and empty directories, then
+hashes included regular files and symlink targets directly against `HEAD` with executable-mode
+checks. Sanitized Git is used only to identify the repository, revision, object format, and tree;
+index flags, stat caches, replacement objects, inherited Git variables, and host configuration
+cannot produce a false `clean`. The shell entry point still degrades to `unknown` without Bun or
+Git. The image-provenance CI timeout is 40 minutes because a lockfile change invalidates both
+frozen installs and the existing image-wide ownership layer; cached runs remain fast.
+
+Verification: adversarial fixtures reproduced both publication-gate failures before the repair.
+The parent-excluded negated child was present in an actual Docker image while the old resolver said
+`clean`; same-size content with a restored mtime and a symlink replaced under `core.symlinks=false`
+also returned false `clean`. The focused provenance suite now passes 60 tests and 192 assertions;
+release-blob diagnostics pass 6 tests and 29 assertions. Full typecheck, lint over 4,614 files,
+Svelte check, production build, gate integrity, shell syntax, and `git diff --check` pass. A cold
+real Docker build installed the new dependency and verified the requested revision and `dirty`
+state in both OCI labels and runtime environment.
 ## PR #290 CI failure diagnosis
 
 - [x] Capture the completed run and raw failed-job logs for run 35631461630.

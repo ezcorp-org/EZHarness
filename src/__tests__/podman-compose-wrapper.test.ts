@@ -43,6 +43,7 @@ import {
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -52,6 +53,7 @@ const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const WRAPPER_SOURCE = join(REPO_ROOT, "scripts/podman-compose.sh");
 const RESOLVER = join(REPO_ROOT, "scripts/resolve-runner-group.sh");
 const SOURCE_STATE_RESOLVER = join(REPO_ROOT, "scripts/resolve-dev-image-source-state.sh");
+const SOURCE_STATE_IMPLEMENTATION = join(REPO_ROOT, "scripts/resolve-dev-image-source-state.ts");
 const BASH = Bun.which("bash") ?? "/usr/bin/env bash";
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "podman-wrapper-"));
@@ -67,6 +69,7 @@ const SOCKET = join(SANDBOX, "podman.sock");
 const RUNNER_SOCKET = join(SANDBOX, "runner.sock");
 const WRAPPER = join(SANDBOX, "scripts/podman-compose.sh");
 const TRACKED_SOURCE = join(SANDBOX, "image-backed-source.txt");
+const TRACKED_LINK = join(SANDBOX, "image-backed-link.txt");
 const TRACKED_DOCKER_EXCLUDED_SOURCE = join(SANDBOX, "tasks/audit-note.md");
 const UNTRACKED_BUILD_SOURCE = join(SANDBOX, "build-relevant-untracked.conf");
 const PROVENANCE_WARNING = join(REPO_ROOT, "scripts/warn-dev-image-provenance.sh");
@@ -80,14 +83,18 @@ mkdirSync(join(SANDBOX, "scripts"));
 symlinkSync(WRAPPER_SOURCE, WRAPPER);
 symlinkSync(RESOLVER, join(SANDBOX, "scripts/resolve-runner-group.sh"));
 symlinkSync(SOURCE_STATE_RESOLVER, join(SANDBOX, "scripts/resolve-dev-image-source-state.sh"));
+symlinkSync(SOURCE_STATE_IMPLEMENTATION, join(SANDBOX, "scripts/resolve-dev-image-source-state.ts"));
 symlinkSync(Bun.which("dirname") ?? "/usr/bin/dirname", join(BIN_NO_DOCKER, "dirname"));
 writeFileSync(TRACKED_SOURCE, "clean source\n");
+symlinkSync("image-backed-source.txt", TRACKED_LINK);
 mkdirSync(join(SANDBOX, "tasks"));
 writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+mkdirSync(join(SANDBOX, "extensions/example/__tests__"), { recursive: true });
+writeFileSync(join(SANDBOX, "extensions/example/__tests__/baseline.ts"), "tracked extension fixture\n");
 copyFileSync(join(REPO_ROOT, ".dockerignore"), join(SANDBOX, ".dockerignore"));
 appendFileSync(
   join(SANDBOX, ".dockerignore"),
-  "\n# Test-harness files, not fixture image inputs.\nbin*\n*.sock\nenv.prod\ncaller-*.env\nignored-generated/\ncase-excluded.conf\n",
+  "\n# Test-harness files, not fixture image inputs.\nbin*\n*.sock\nenv.prod\ncaller-*.env\nignored-generated/\ncase-excluded.conf\nweb/playwright-report\nweb/test-results\nparent-excluded\n!parent-excluded/reincluded.txt\n",
 );
 writeFileSync(
   join(SANDBOX, "docker-compose.yml"),
@@ -165,10 +172,12 @@ writeFileSync(
     "caller-*.env",
     "ignored-generated/",
     "gitignored-build-input.conf",
+    "web/playwright-report/",
+    "web/test-results/",
     "",
   ].join("\n"),
 );
-sandboxGit("add", "image-backed-source.txt", "tasks/audit-note.md", ".dockerignore", "docker-compose.yml", "compose.podman.yml", "scripts");
+sandboxGit("add", "image-backed-source.txt", "image-backed-link.txt", "tasks/audit-note.md", "extensions", ".dockerignore", "docker-compose.yml", "compose.podman.yml", "scripts");
 sandboxGit("-c", "user.name=Wrapper test", "-c", "user.email=wrapper@example.invalid", "commit", "-qm", "fixture");
 const DEFAULT_BUILD_COMMIT = sandboxGit("rev-parse", "--verify", "HEAD");
 const foreignGitDir = Bun.spawnSync({
@@ -485,11 +494,12 @@ describe("podman wrapper — the invocation it guarantees", () => {
   });
 
   test("provides checkout defaults without replacing explicit shell provenance", () => {
-    const defaultBuild = run(["up", "-d"]).invocation;
+    const defaultResult = run(["up", "-d"]);
+    const defaultBuild = defaultResult.invocation;
     expect(defaultBuild?.buildCommit).toBe("");
     expect(defaultBuild?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
     expect(defaultBuild?.buildSourceState).toBe("");
-    expect(defaultBuild?.buildSourceStateDefault).toBe("clean");
+    expect(defaultBuild?.buildSourceStateDefault, defaultResult.stderr).toBe("clean");
 
     const explicit = run(["up", "-d"], {
       EZCORP_BUILD_COMMIT: "f".repeat(40),
@@ -546,6 +556,41 @@ describe("podman wrapper — the invocation it guarantees", () => {
     } finally {
       writeFileSync(TRACKED_SOURCE, "clean source\n");
       sandboxGit("update-index", "--no-skip-worktree", "image-backed-source.txt");
+    }
+  });
+
+  test("compares bytes directly when local Git stat shortcuts hide a change", () => {
+    const cachedTime = new Date(Date.now() - 60_000);
+    utimesSync(TRACKED_SOURCE, cachedTime, cachedTime);
+    sandboxGit("update-index", "--really-refresh", "image-backed-source.txt");
+    sandboxGit("config", "core.trustctime", "false");
+    sandboxGit("config", "core.checkStat", "minimal");
+    try {
+      // Same length and restored mtime: Git's configured stat shortcut reports
+      // this path clean, but Docker sends the changed bytes.
+      writeFileSync(TRACKED_SOURCE, "dirty source\n");
+      utimesSync(TRACKED_SOURCE, cachedTime, cachedTime);
+      expect(sandboxGit("diff", "--name-only", "HEAD", "--", "image-backed-source.txt")).toBe("");
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      sandboxGit("config", "--unset-all", "core.trustctime");
+      sandboxGit("config", "--unset-all", "core.checkStat");
+      sandboxGit("update-index", "--really-refresh", "image-backed-source.txt");
+    }
+  });
+
+  test("compares tracked symlink type independently of core.symlinks", () => {
+    sandboxGit("config", "core.symlinks", "false");
+    rmSync(TRACKED_LINK);
+    writeFileSync(TRACKED_LINK, "image-backed-source.txt");
+    try {
+      expect(sandboxGit("diff", "--name-only", "HEAD", "--", "image-backed-link.txt")).toBe("");
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(TRACKED_LINK, { force: true });
+      symlinkSync("image-backed-source.txt", TRACKED_LINK);
+      sandboxGit("config", "--unset-all", "core.symlinks");
     }
   });
 
@@ -639,6 +684,17 @@ describe("podman wrapper — the invocation it guarantees", () => {
     }
   });
 
+  test("honors a negated child beneath a Docker-excluded parent", () => {
+    const restored = join(SANDBOX, "parent-excluded/reincluded.txt");
+    mkdirSync(join(SANDBOX, "parent-excluded"));
+    writeFileSync(restored, "Docker restores this child\n");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(join(SANDBOX, "parent-excluded"), { recursive: true, force: true });
+    }
+  });
+
   test("ignores inherited Git repository and config overrides", () => {
     const caseDifferentInput = join(SANDBOX, "Case-Excluded.conf");
     writeFileSync(caseDifferentInput, "Docker includes this case-different input\n");
@@ -710,13 +766,23 @@ describe("podman wrapper — the invocation it guarantees", () => {
   });
 
   test("honors Docker negation patterns that restore extension tests", () => {
-    const restoredTest = join(SANDBOX, "extensions/example/restored.test.ts");
-    mkdirSync(join(SANDBOX, "extensions/example"), { recursive: true });
+    const restoredTest = join(SANDBOX, "extensions/restored-example/restored.test.ts");
+    mkdirSync(join(SANDBOX, "extensions/restored-example"), { recursive: true });
     writeFileSync(restoredTest, "Docker restores this test after the broad exclusion\n");
     try {
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
     } finally {
-      rmSync(join(SANDBOX, "extensions"), { recursive: true, force: true });
+      rmSync(join(SANDBOX, "extensions/restored-example"), { recursive: true, force: true });
+    }
+  });
+
+  test("honors a restored file inside an existing **/__tests__ directory", () => {
+    const restored = join(SANDBOX, "extensions/example/__tests__/restored.ts");
+    writeFileSync(restored, "Docker restores this nested test fixture\n");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(restored, { force: true });
     }
   });
 
