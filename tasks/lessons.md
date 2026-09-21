@@ -1199,6 +1199,41 @@
   both against the same CA. That is the sidecar a real deployment uses. Passing
   a different `connect` dependency to make the light turn green would have been
   the substitute.
+- **Six faults, found by running it and by nothing else.** Every one of these
+  passed typecheck, lint and its own unit tests; each cost a full proof cycle,
+  and none of them would have been found by reading the code they were in.
+  - `toolchain.ts` versus `provision.ts`: the harness provisioned the runner
+    toolchain through the wrong module and got a store the builder could not
+    read.
+  - The built web server predated the C11 config field, so the startup document
+    read as invalid. Rebuild before believing any receipt about a built server.
+  - The pool answered 401 to every compute call, because the harness keyed the
+    pool's tenant identity by tenant id and `authorizePoolRequest` looks it up
+    by the client certificate's common name.
+  - The guest's `failed` result was missing `resultDigest` and
+    `error.retryable`, the host launch route refused it as `invalid_result`, and
+    the attempt settled `outcome_unknown` — the runtime doing exactly the right
+    thing with a result it could not validate.
+  - `journalCursor: 0` where the column defaults to `-1`. Zero says "operation
+    zero is settled"; an attempt that performed none has settled nothing.
+  - The private service's 15-second request timeout sat inside the 20-second
+    physical stop bound, so every real stop was cut off by the transport before
+    the host could answer. Two independently reasonable numbers, one of which
+    has to be larger than the other.
+- **`present()` reads `unknown` as PRESENT, and that is right for a worker this
+  host never had and wrong for one it just ran.** A guest that RETURNED had its
+  execution closed by the host itself, so `inspect` can no longer find it —
+  which is the runtime agreeing, not withholding. Without a first-hand record of
+  which workers this host ran to a result, every normal finish raised
+  `sandbox_stop_unconfirmed`, the kernel's `cancel-node` never settled, and the
+  run sat in `stopping` forever. When a predicate is deliberately conservative
+  about an absence, ask who is entitled to know better, and let them say so.
+- **A retry that re-reads durable state loses the reason it just learned.**
+  `markUncertain` returned the durable row whenever the row was already
+  uncertain, and a durable row carries the sealed event, not the error. So the
+  first failing pass named its cause and the next thirty named nothing. The
+  identity of an uncertainty is durable and must not be re-minted; the CAUSE
+  belongs to the pass that learned it. Keep them apart.
 ## 2026-09-14 — W01d material handover
 
 - A rule written into a review is not enforced until production does it. My review forbade `0o777` on the material directory, and then my own integration test used exactly that, which hid from everyone that production set no mode or owner at all and no guest could write. When a review's rule needs a mode or an owner set, check which side actually sets it; if the answer is "the test", the rule is not in force.

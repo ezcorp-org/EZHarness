@@ -156,7 +156,7 @@ wrapper that catches adds context rather than removing it.
 - [x] G1: One construction of every durable store the roles share, with the
       scope guards that refuse a mismatched tenant, journal, or queue.
       CHECK: `bun test --timeout 30000 ./src/factory/installation-stores.test.ts`
-      EXPECT: 5 pass / 0 fail; the journal is the application's own instance and
+      EXPECT: 6 pass / 0 fail; the journal is the application's own instance and
       the attempt queue holds the same transactional database.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-installation-stores.log`
 - [x] G2: `attempt-dispatch` composes from the document, and the physical stop
@@ -169,14 +169,16 @@ wrapper that catches adds context rather than removing it.
 - [x] G3: Both settlement roles compose over one `FactoryTaskStops`, and neither
       composes without the pool, the endpoint, and a configured host key.
       CHECK: `bun test --timeout 60000 ./src/factory/dispatch-composition.test.ts`
-      EXPECT: 21 pass / 0 fail; `factory_stop_transport_missing` and
+      EXPECT: 23 pass / 0 fail; `factory_stop_transport_missing` and
       `factory_stop_host_keys_missing` are named refusals.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-dispatch-composition.log`
 - [x] G4: The supervisor hosts both host routes over one runner and one key, and
       the guest broker refuses by name.
       CHECK: `bun test --timeout 60000 ./src/factory/runner/supervisor-services.test.ts`
-      EXPECT: 14 pass / 0 fail; a real stop crosses the router and comes back
-      signed; an unconfirmed stop raises instead of being signed.
+      EXPECT: 17 pass / 0 fail; a real stop crosses the router and comes back
+      signed; an unconfirmed stop raises instead of being signed; a guest this
+      host ran to a result is confirmed stopped without the runner being asked
+      to prove an absence it can no longer speak to.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-runner-supervisor-services.log`
 - [x] G5: The supervisor binds its services once after the first good probe,
       publishes `hostServicesReady`, and releases the listener before it says
@@ -187,7 +189,7 @@ wrapper that catches adds context rather than removing it.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-runner-supervisor-process.log`
 - [x] G6: The private service composes, and every refusal is named.
       CHECK: `bun test --timeout 60000 ./src/factory/private-service-composition.test.ts`
-      EXPECT: 11 pass / 0 fail; `cancel-node` answers `null` for an uncertain
+      EXPECT: 14 pass / 0 fail; `cancel-node` answers `null` for an uncertain
       stop and the event only for a confirmed one.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-private-service-composition.log`
 - [x] G7: The readiness retry converges a distributed bring-up without opening
@@ -226,25 +228,47 @@ wrapper that catches adds context rather than removing it.
       the orchestrator publishes `ready`; the guest package builds and prepares
       for real.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/roles-running.json`
-- [ ] G11: A durable run submitted over public HTTP executes a real guest in the
+- [x] G11: A durable run submitted over public HTTP executes a real guest in the
       supervisor's container runner, reaches a terminal projected status,
       survives restart, and shuts down with no survivors — three consecutive
       clean passes, each on a fresh product database.
       CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 5400 bash
       /tmp/factory-platform-evidence/w09b/repro/rebuild-and-run-three.sh`
       EXPECT: three runs, each `outcome: "passed"`, `recordFresh: true`, exit 0.
+      MEASURED at `ca101ff19`: three passes, `recordFresh: true` and exit 0 on
+      each, `["queued","running","failed"]` reaching terminal at poll 6, the
+      restarted server reading the same run back as `failed`, shutdown exit 0
+      with zero survivors and the port refused. Eight roles running and two held
+      on every pass. Record digests
+      `601ea1a1…`, `c4577e7f…`, `f0b6da69…`, each verified against its receipt.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/full-stack-run-{1,2,3}.json`
-- [ ] G12: The harness records its own failures rather than crashing on them.
-      CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 1800 bash
+- [x] G12: The harness records its own failures rather than crashing on them.
+      CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 1200 bash
       /tmp/factory-platform-evidence/w09b/repro/negative-control.sh`
       EXPECT: exit 1, `outcome: "failed"` with the cause named, every child's log
       kept, no supervisor left behind.
+      MEASURED at `ca101ff19`: exit 1, `failure: "the server never reported
+      ready"`, seven child logs kept, supervisor processes before 0 and after 0,
+      record digest `34afc222…`.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/negative-control.json`
 - [x] G13: The static gates, each with its own exit code.
       CHECK: `bash /tmp/factory-platform-evidence/w09b/repro/static-gates.sh`
       EXPECT: typecheck, lint, boundaries, gate-integrity and the PostgreSQL
       suite registration all exit 0.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/{typecheck,lint,boundaries,gate-integrity,postgres-suite-registration}.json`
+- [x] G15: W13's `FactoryLegacyEngine` over the real executor, with `lookup`
+      provably unable to create a run.
+      CHECK: `bun test --timeout 60000 ./src/factory/legacy-engine.test.ts`
+      EXPECT: 11 pass / 0 fail; `start` returns at the durable-row boundary while
+      the engine is still running; a start that never confirmed a row raises
+      `factory_legacy_engine_unconfirmed` instead of naming one; a lookup that
+      missed leaves the `workflow_runs` row count unchanged.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-legacy-engine.log`
+- [x] G16: A retried uncertain stop reports the reason this pass learned.
+      CHECK: `bun test --timeout 60000 ./src/__tests__/factory-task-stops.test.ts`
+      EXPECT: 18 pass / 0 fail; two failing passes share one sealed event and
+      carry two different causes.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src---tests--factory-task-stops.log`
 - [ ] G14: Every new source file at 100% line coverage with its own threshold
       key, and both `BASE_REF=integ/w00` gates green over this package's own
       merged LCOV.
@@ -267,6 +291,68 @@ because a proof that hides its own false starts teaches nothing.
 The third is the interesting one. The composition was right, the roles ran, and
 the role that could not do its work said so on every pass — which is exactly the
 behaviour the report-and-step-over shape exists to produce.
+
+## What a passing run actually proves, including its terminal status
+
+The run ends `failed`, and that is the correct end for this guest rather than a
+shortfall. The guest returns the canonical `cancelled` runner result — the one
+member of the union that needs no staged output artifact. `FactoryTaskOutcomes`
+maps a cancelled result to a `node-failed` event with `error:
+"RUNNER_CANCELLED"`, the kernel stops the attempt with `cancel-node`, and with
+no failure handler on the node `failNode` begins stopping and `finish` issues
+`fail-run`. The kernel's own command trail on a passing run reads:
+
+```
+run:start-timer:1  work:request-admission:2  work:start-timer:3
+work:dispatch-node:4  work:cancel-node:5  run:fail-run:6
+```
+
+So the proof exercises the whole path — admission against the real pool,
+dispatch through the preflight and the remote runtime, a real guest in a real
+container, a durable terminal result, a physically confirmed stop signed by the
+host and settled with the pool, a settled budget hold, and a projected terminal
+status — and the run's verdict is the verdict that path produces.
+
+### Four faults this run found that nothing else would have
+
+Each passed typecheck, lint, and its own unit tests, and each cost a full
+proof cycle.
+
+1. **A guest that returned could never be confirmed stopped.**
+   `factoryRunnerSandboxControl.present` reads `unknown` as PRESENT, which is
+   right for a worker this host never had and wrong for one it just ran to a
+   result and closed. Every normal finish raised `sandbox_stop_unconfirmed`.
+   Fixed by having the router carry one fact from its launch half to its stop
+   half: the workers this host itself finished.
+
+2. **The pool was never told the process group was gone.** C03 releases a
+   host's capacity only on a trusted supervisor's word; the product's own
+   confirmation READS the ledger and fails closed until then. Nothing made that
+   call, so every signed receipt was refused with HTTP 409 and the run sat in
+   `stopping` forever. Fixed by `supervisor-pool-client.ts` and a router that
+   presents the receipt before answering the caller.
+
+3. **A CPU host's supervisor could not be declared to the pool.** The pool
+   config required a supervisor's `hostIds` to be GPU hosts, and the ledger
+   records a host only for a whole-host allocation — so a CPU-only installation
+   could register no supervisor at all. Fixed with `resources.hosts`, which
+   grants nothing and still refuses a typo.
+
+4. **The guest withheld the one usage only it could report.** A terminal result
+   without measured usage becomes an `unknown_held` reservation, the stop event
+   is marked `uncertain`, and the kernel refuses to terminate a run with an
+   uncertain attempt — while `usage-reconciliation` answers
+   `no-operation-receipt` forever, because it resolves a hold from an uncertain
+   JOURNAL OPERATION and a guest that called no model performed none. The guest
+   now reports the zero-sum usage the contract defines. Reporting its own
+   elapsed time instead was refused by `validateFactoryTerminalUsage`, which
+   requires a measured terminal usage to EQUAL the sum over operations — a real
+   measurement of the wrong quantity, and the runtime was right to refuse it.
+
+Two of those four were found only because the diagnosis was made cheaper first:
+a retried uncertain stop now reports the reason that pass learned instead of a
+causeless durable read, and the host's own refusal code now travels with the
+transport status.
 
 ## What this package did NOT deliver, and what each one needs
 
@@ -308,24 +394,53 @@ publishes to, so it is a per-installation declaration and the startup document
 has no field for one. W05 owns `factorySynchronousReleaseProfile`; W07 owns the
 GitHub adapter it would lift.
 
-### W13's `FactoryLegacyEngine` adapter
+### W13's `FactoryLegacyEngine` adapter — delivered
 
-`src/factory/legacy-workflow/` does not exist on this branch:
+This was held for one branch and is now built. W13 reached `integ/w00`, this
+branch merged it, and the adapter landed in the same commit because it does not
+compile without the merge.
 
-```
-ls src/factory/legacy-workflow            → No such file or directory
-grep -rn "FactoryLegacyEngine" src/       → no matches
-```
+`src/factory/legacy-engine.ts` implements W13's three-method seam over the real
+engine: `runWorkflow` for `start`, `findWorkflowRunByIdempotencyKey` for
+`lookup`, and `getWorkflowRunRow` plus the run's `workflow_step_runs` for
+`facts`. `FactoryLegacyWorkflows` and `FactoryLegacyImports` are constructed in
+the shared store set, where every other collaborator-checking class is built.
 
-W13 is at `f06ec9861` on `wp/w13-composition` and is not on `integ/w00`, and a
-package may not consume another package's branch. The adapter is three methods
-over functions that all exist here —
-`WorkflowExecutor.runWorkflow` (`src/runtime/workflow-executor.ts:803`),
-`findWorkflowRunByIdempotencyKey` (`src/db/queries/workflow-runs.ts:193`), and
-`getWorkflowRunRow` (`src/db/queries/workflow-runs.ts:863`) — with `lookup`
-staying a read. It lands the moment W13 reaches `integ/w00`; writing it now
-would not compile, and committing a file that does not compile is worse than
-naming the wait.
+Two properties are worth a reader's time, because both are the kind that reads
+as correct while being wrong:
+
+**`start` returns at the durable-row boundary, not at the end of the run.**
+`runWorkflow` awaits the whole graph. The journal needs the run's identity
+before anything else observes the attempt, so the run is left unawaited and
+polled through `facts`, which is what C10 describes. `onRunCreated` is the
+engine's own name for that boundary — "called after a new durable row is
+confirmed, or an existing keyed run is found" — and the async HTTP run route
+answers its 202 from the same one.
+
+**A start that never confirms a row refuses by name.** `runWorkflow` has
+refusal paths (`run-persistence-failed`) that return a `WorkflowRun` whose row
+was never written. Reading an id off one would journal a legacy run id that
+names nothing, and every later `facts` call would read it as deleted — a
+failure indistinguishable from an ordinary one. The adapter raises
+`factory_legacy_engine_unconfirmed` instead.
+
+**The lookup stays a read.** `findWorkflowRunByIdempotencyKey` is one `SELECT`
+served by the partial unique index on `(workflow_name, idempotency_key)`.
+Nothing on that path inserts. The test asserts the row count is unchanged
+across a lookup that missed, because that is the property the crash path
+depends on: without it the lookup would be the second start it exists to
+prevent.
+
+The merge itself had four conflicts, all resolved by keeping both sides, and is
+described in the merge commit. One is worth naming here: the integration branch
+unified the guest broker onto a single `FactoryGuestBroker` interface, so the
+supervisor's refusal changed shape. The refusal itself still stands, and its
+reason is now narrower and better: the payload IS defined now
+(`FactoryGuestModelRequest`, served product-side by
+`createFactoryOneHopProvider`), but the supervisor process holds no tenant
+credential and no route exists from a host back to the provider that would
+serve it. A deployment that grows that route supplies its own broker through
+`FactoryHostServiceOptions`.
 
 ## Files touched outside W09's ownership, disclosed
 

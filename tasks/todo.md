@@ -2891,23 +2891,39 @@ W09 left four roles held with every design question settled. This package is the
 composition volume, the host services the supervisor must carry, and the
 end-to-end proof that a submitted run reaches a real guest.
 
-- [ ] One construction of every durable store the roles share (`installation-stores.ts`).
-- [ ] `attempt-dispatch`: the preflight, `FactoryRemoteAttemptRuntime` over the
+- [x] One construction of every durable store the roles share (`installation-stores.ts`).
+- [x] `attempt-dispatch`: the preflight, `FactoryRemoteAttemptRuntime` over the
       host launch client, `FactoryPackagePreparations` over the shared v4 runner
       client, and W01b's dispatch driver.
-- [ ] `stop-settlement`: `FactoryTaskStops` over the host stop transport, the
+- [x] `stop-settlement`: `FactoryTaskStops` over the host stop transport, the
       configured host public keys, and `PoolAdmissionClient.confirmStopped`.
-- [ ] `usage-reconciliation`: the page driver over the uncertain-hold scan,
+- [x] `usage-reconciliation`: the page driver over the uncertain-hold scan,
       settling only on `resolve` → `resolved`.
-- [ ] `release-outcome`: the claimable scan, the project enumerator, and the
-      provider resolver keyed by `operation.destination.provider`.
-- [ ] The supervisor process hosts W01b's host launch service and W03's host
-      stop service, owns the one `PodmanRunner`, and holds the host key.
-- [ ] The product process starts the private service the Node orchestrator calls.
+- [ ] `release-outcome`: HELD. The claimable scan, the project enumerator and the
+      provider resolver are all built and covered. What no production code
+      produces is the CONSENT `FactoryReleases.claim` requires — an approved
+      `factory_release_approvals` row or an automatic `factory_release_policies`
+      row selected for one claimable operation. Grep in the gate file; W05 owns
+      the approvals table, W07 owns the claimable scan. The driver already takes
+      the consent as an injected function, so the role registers the moment a
+      reader exists.
+- [x] The supervisor process hosts W01b's host launch service and W03's host
+      stop service, owns the one `PodmanRunner`, and holds the host key. One
+      listener, one runner, one key — no third process.
+- [x] The product process starts the private service the Node orchestrator calls.
+      It had no production caller at all, which is why a submitted run had no
+      path off `queued` however well the roles were composed.
 - [ ] G14: a run submitted over public HTTP executes a real guest, three
       consecutive clean passes on fresh product databases.
-- [ ] W13 follow-ons: the `FactoryLegacyEngine` adapter, and the C11 sweep bound
-      as a named factory readiness setting.
+- [x] W13 follow-on: the `FactoryLegacyEngine` adapter, over `runWorkflow`,
+      `findWorkflowRunByIdempotencyKey` and `getWorkflowRunRow`, with
+      `FactoryLegacyWorkflows` and `FactoryLegacyImports` in the store set.
+      Landed with the `integ/w00` merge, which is what unblocked it.
+- [x] W13 follow-on: C11's thirty-second orphan detection bound is a declared
+      factory readiness setting (`orphanSweepIntervalMs`), checked against the
+      daemon's own reader by `assertFactoryOrphanDetectionBound` on `boot.ts`'s
+      readiness surface, next to the C09 required-service list. A longer
+      interval is a named readiness failure, never a silent pass.
 - [ ] 100% line coverage on every new file, both `BASE_REF=integ/w00` gates, and
       the full sweep at the final head with a clean tree.
 
