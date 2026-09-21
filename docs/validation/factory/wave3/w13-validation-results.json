@@ -1,0 +1,249 @@
+{
+  "verdict": "ACCEPT-WITH-FIXES",
+  "head": "f06ec9861b297239a3b108a080eec1ed3fc998f6",
+  "package": "w13",
+  "branch": "wp/w13-composition",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w13-composition",
+  "mergeBase": "cfbc3c767846170a201727547ad9794b155b910a",
+  "mergeBaseEqualsIntegW00": true,
+  "codeHead": "655616b0bc3f72a68b08a89921426279b80d0656",
+  "headCommitTouchesOnlyGateFile": true,
+  "treeCleanBefore": true,
+  "treeCleanAfter": true,
+  "commitsOnBranch": 12,
+  "allNamedCommitsPresent": true,
+  "laterCommitFound": null,
+  "report": "/tmp/factory-platform-evidence/w13-validation/report.md",
+  "receipts": "/tmp/factory-platform-evidence/w13-validation/receipts.jsonl",
+  "mergedLcov": "/tmp/factory-platform-evidence/w13-validation/lcov-merged.info",
+  "reruns": [
+    {
+      "record": "val-static",
+      "command": "bash /tmp/factory-platform-evidence/w13-validation/v-static.sh",
+      "checks": ["bun run typecheck", "bun run lint", "bun scripts/check-factory-boundaries.ts", "bun scripts/gate-integrity.ts", "bun scripts/check-schema-generate-drift.ts", "bun test ./scripts/factory-c13-inventory.test.ts", "bun test ./src/__tests__/factory-ci-registration.test.ts", "bun test ./src/__tests__/mock-cleanup-coverage.test.ts"],
+      "exitCode": 0,
+      "pass": 32,
+      "fail": 0,
+      "log": "/tmp/factory-platform-evidence/w13-validation/logs/val-static-20260920T210900Z.log"
+    },
+    {
+      "record": "val-lanes",
+      "command": "bash /tmp/factory-platform-evidence/w13-validation/v-static2.sh",
+      "checks": ["bun scripts/check-factory-lanes.ts", "bun test ./scripts/check-factory-lanes.test.ts", "bun test ./scripts/factory-postgres-suite-registration.test.ts"],
+      "exitCode": 0,
+      "pass": 25,
+      "fail": 0,
+      "note": "C11 lane inventory passed: 7 lanes with declared producers, artifacts, and runner labels",
+      "log": "/tmp/factory-platform-evidence/w13-validation/logs/val-lanes-20260920T210954Z.log"
+    },
+    {
+      "record": "val-focused",
+      "command": "bash /tmp/factory-platform-evidence/w13-validation/v-focused.sh",
+      "exitCode": 0,
+      "legs": [
+        {"files": "legacy-workflow classification+status+import-parity", "pass": 29, "fail": 0, "assertions": 87},
+        {"files": "legacy-workflow adapter", "pass": 22, "fail": 0, "assertions": 77},
+        {"files": "child-release-mode+reference-catalog catalog+pack", "pass": 24, "fail": 0, "assertions": 122},
+        {"files": "factory-legacy-orphan-sweep", "pass": 4, "fail": 0, "assertions": 18},
+        {"files": "workflow-nested-idempotency-conflict", "pass": 4, "fail": 0, "assertions": 9},
+        {"files": "factory-sdk child-acceptance+reference-execution+compiler+schema+kernel-remediation+manifest-name", "pass": 46, "fail": 0, "assertions": 380},
+        {"files": "factory-run-lifecycle+factory-migration-restart", "pass": 74, "fail": 0, "assertions": 1126}
+      ],
+      "log": "/tmp/factory-platform-evidence/w13-validation/logs/val-focused-20260920T214645Z.log"
+    },
+    {
+      "record": "val-coverage",
+      "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 3600 bash /tmp/factory-platform-evidence/w13-validation/v-coverage.sh",
+      "exitCode": 0,
+      "legs": 13,
+      "legFailures": 0,
+      "baseRef": "cfbc3c767846170a201727547ad9794b155b910a",
+      "newFileGate": {"result": "PASSED", "newSourceFiles": 9, "exitCode": 0},
+      "patchGate": {"result": "PASSED", "files": 19, "exitCode": 0},
+      "newFileLineCoverage": {
+        "packages/@ezcorp/factory-sdk/src/child-acceptance.ts": "67/67",
+        "src/db/migrations/add-factory-legacy-workflow-adapters.ts": "9/9",
+        "src/factory/child-release-mode.ts": "8/8",
+        "src/factory/legacy-workflow/adapter.ts": "198/198",
+        "src/factory/legacy-workflow/classification.ts": "45/45",
+        "src/factory/legacy-workflow/import.ts": "96/96",
+        "src/factory/legacy-workflow/status.ts": "50/50",
+        "src/factory/reference-catalog/catalog.ts": "139/139",
+        "src/factory/reference-catalog/pack.ts": "59/59"
+      },
+      "log": "/tmp/factory-platform-evidence/w13-validation/logs/val-coverage-20260920T210629Z.log"
+    },
+    {
+      "record": "val-postgres",
+      "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 2400 bash /tmp/factory-platform-evidence/w13-validation/v-postgres.sh",
+      "files": ["./tests/postgres/factory-legacy-workflow.test.ts", "./tests/postgres/factory-schema.test.ts", "./tests/postgres/factory-migration-restart.test.ts", "./tests/postgres/factory-run-lifecycle.test.ts", "./tests/postgres/factory-child-artifacts.test.ts"],
+      "exitCode": 0,
+      "pass": 103,
+      "fail": 0,
+      "assertions": 4226,
+      "realPostgres": true,
+      "realS3": true,
+      "log": "/tmp/factory-platform-evidence/w13-validation/logs/val-postgres-20260920T215635Z.log"
+    },
+    {
+      "record": "val-backend-pool",
+      "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 2700 bun run test",
+      "exitCode": 0,
+      "pass": 27347,
+      "fail": 0,
+      "files": 1835,
+      "legacyCoverage": {"ezFactorySuites": 17, "workflowSuites": 85, "approvalSuites": 11, "hostMaintenanceDaemonSuites": 1},
+      "log": "/tmp/factory-platform-evidence/w13-validation/logs/val-backend-pool-20260920T220147Z.log"
+    },
+    {
+      "record": "gate-cited-commands-at-head",
+      "exitCode": 0,
+      "focusedCompositionFiveFiles": {"pass": 32, "fail": 0, "assertions": 149, "gateFileClaims": {"pass": 33, "assertions": 157}},
+      "g8LifecycleAlone": {"pass": 60, "fail": 0, "assertions": 954, "gateFileClaims": {"pass": 60}},
+      "g11ReferenceExecutionAlone": {"pass": 3, "fail": 0, "assertions": 43, "gateFileClaims": {"pass": 3}}
+    },
+    {
+      "record": "secret-scan",
+      "command": "bash /tmp/factory-platform-evidence/w13-validation/secret-scan.sh",
+      "exitCode": 0,
+      "credentialValueInW13Evidence": false,
+      "credentialValueInValidationEvidence": false,
+      "credentialValueInWorktree": false,
+      "credentialValueInAnyProcessArgv": false
+    }
+  ],
+  "ciRegistration": {
+    "testsPostgresFactoryLegacyWorkflowRegistered": true,
+    "workflowFile": ".github/workflows/db-postgres.yml",
+    "line": 263,
+    "job": "factory-assurance-release",
+    "enforcedBy": "scripts/factory-postgres-suite-registration.test.ts",
+    "enforcementPasses": true
+  },
+  "planBulletProof": {
+    "catalogAcceptanceOnlyNoChildReleaseOperation": {
+      "status": "proven",
+      "test": "src/__tests__/helpers/factory-run-lifecycle-suite.ts :: an acceptance-only child returns its accepted artifact and creates no release operation",
+      "control": "src/__tests__/helpers/factory-run-lifecycle-suite.ts :: an authorized child still creates exactly one release operation"
+    },
+    "actualAcceptedBytesEmbedded": {"status": "proven", "test": "src/factory/reference-catalog/catalog.test.ts", "enforcedAt": "src/factory/reference-catalog/catalog.ts:108-111"},
+    "parentOwnChecksAndAcceptance": {"status": "proven", "test": "src/factory/reference-catalog/catalog.test.ts + pack.test.ts", "code": "src/factory/reference-catalog/catalog.ts:240"},
+    "catalogRunsEndToEnd": {"status": "proven", "test": "packages/@ezcorp/factory-sdk/src/reference-execution.test.ts", "pass": 3},
+    "childBudgets": {"status": "proven", "test": "factory-run-lifecycle-suite.ts acceptance-only test budget assertions"},
+    "exactAliases": {"status": "proven-by-construction", "note": "no direct end-to-end alias binding from an acceptance-only receipt; precondition (decisionId identity) proven, binding proven by pre-existing tests/postgres/factory-child-artifacts.test.ts", "finding": "F5"},
+    "pinnedRevisionsAndParentAuthority": {"status": "proven", "code": "src/factory/command-authority.ts assertLiveAncestors"},
+    "cancellation": {"status": "proven", "test": "factory-run-lifecycle-suite.ts :: cancelling the parent stops an acceptance-only child's release rather than completing it"},
+    "outputSchemaBoundaries": {"status": "proven", "test": "src/factory/child-release-mode.test.ts + packages/@ezcorp/factory-sdk/src/child-acceptance.test.ts (identity, not equality)"},
+    "childAcceptanceNeverGrantsParentAcceptance": {"status": "proven", "negativeTest": "factory-run-lifecycle-suite.ts asserts factory_acceptance_decisions is empty for the parent run"},
+    "legacyFactoryStartIdentity": {"status": "proven", "test": "src/__tests__/helpers/factory-legacy-workflow-suite.ts", "dbEnforced": "CHECK (idempotency_key LIKE 'factory:%')"},
+    "journalBeforeStart": {"status": "proven", "test": "engine reads journal state 'journaled' while running"},
+    "lookupAfterCrash": {"status": "proven", "test": "src/__tests__/helpers/factory-legacy-workflow-suite.ts:230 :: a crash between journal and start creates no duplicate legacy run", "realCrashSimulation": true, "note": "failAfterCreate makes start() create the run then throw; recovery adopts with startCalls still 1"},
+    "uniqueConflictClassification": {"status": "proven", "test": "src/__tests__/workflow-nested-idempotency-conflict.test.ts", "redToGreenControl": "oldGateFailures=2 newGateFailures=0, file restored byte for byte"},
+    "orphanSweepSubTick": {"status": "proven", "test": "src/__tests__/factory-legacy-orphan-sweep.test.ts", "note": "sub-tick predates this package; host-maintenance-daemon.ts unchanged in the diff; W13 adds the proof"},
+    "everyC10StatusRow": {"status": "proven", "tests": ["src/factory/legacy-workflow/status.test.ts", "src/__tests__/helpers/factory-legacy-workflow-suite.ts"]},
+    "digestVerifiedImportOnly": {"status": "proven", "code": "src/factory/legacy-workflow/import.ts:125"},
+    "ezFactoryJobStoreExcluded": {"status": "proven", "test": "src/factory/legacy-workflow/import-parity.test.ts reads extensions/ez-factory/lib/jobs.ts as text"},
+    "shellBearingUnattestedDenied": {"status": "proven", "test": "factory-legacy-workflow-suite.ts :: a shell-bearing workflow without an attestation is denied, and journals nothing"},
+    "publicationBypassDenied": {"status": "proven", "tests": ["child-release-mode.test.ts :: a publishing child's provider receipt can never satisfy that port", "catalog.test.ts :: a receipt that is not an acceptance-only result is refused", "factory-run-lifecycle-suite.ts no release operation"]},
+    "legacyRegressionSuitesPass": {"status": "proven", "producer": "val-backend-pool", "pass": 27347, "fail": 0, "files": 1835},
+    "realCatalogPullRequestWithChildBytes": {"status": "open", "reason": "no Anthropic credential resolves on this host", "corroboration": "/tmp/factory-platform-evidence/w10/logs/provider-readiness.log ready=false failures=[provider_not_configured]"}
+  },
+  "openItems": [
+    {"item": "real reference.catalog.v1 pull request with actual child bytes", "honest": true, "corroborated": true},
+    {"item": "C11 detection bound for an orphaned legacy run", "honest": true, "corroborated": true, "evidence": "src/extensions/host-maintenance-daemon.ts:101 DEFAULT_WAKE_MS = 3_600_000; MIN_WAKE_MS = 1000 at line 106", "routedTo": "W09b"},
+    {"item": "production composition of the legacy adapter not in createFactoryApplication", "honest": true, "corroborated": true, "routedTo": "W09b"}
+  ],
+  "gateIntegrity": {
+    "gateIntegrityScript": "passed",
+    "skipOnlyTodo": 0,
+    "loweredThresholds": 0,
+    "newExcludes": 0,
+    "emptyCatchInTests": 0,
+    "wallClockAssertions": 0,
+    "fixedSleepsAsProof": 0,
+    "biomeOptOuts": 0,
+    "coverageThresholdsAdded": 8,
+    "requiredSharedImportsAdded": 5,
+    "boundaryGate": "passed",
+    "schemaDriftGate": "passed",
+    "secondQueueApprovalBlobOrAuditPath": false
+  },
+  "securityPosture": {
+    "credentialValueInAnyOutput": false,
+    "argvExposureResidue": false,
+    "authorityCheckRemoved": false,
+    "acceptanceOnlyStillFullyAuthorized": true,
+    "failClosedOnPortMismatch": true,
+    "destructiveActions": 0
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "medium",
+      "title": "The gate file claims every cited receipt was produced at the final head; six were produced at 185ff682a, and their counts no longer reproduce",
+      "location": "tasks/factory/w13-GATES.md (the sentence after the commit table) and the EVIDENCE lines of G1-G13",
+      "reproduction": "bun test --timeout 300000 ./src/factory/child-release-mode.test.ts ./src/factory/reference-catalog/catalog.test.ts ./src/factory/reference-catalog/pack.test.ts ./src/__tests__/factory-legacy-orphan-sweep.test.ts ./src/__tests__/workflow-nested-idempotency-conflict.test.ts",
+      "expectedByGateFile": "33 pass, 157 expect() calls",
+      "observedAtHead": "32 pass, 149 expect() calls",
+      "cause": "655616b0b consolidated the host declaration into the SDK and removed one test from child-release-mode.test.ts",
+      "impact": "evidence bookkeeping only; every gate is green at the head and final-coverage and final-backend-pool at 655616b0b do execute all of those files",
+      "fix": "restate the sentence for the four final-* receipts, correct the focused-composition counts, and re-point G1-G13 EVIDENCE at receipts produced at the final head"
+    },
+    {
+      "id": "F2",
+      "severity": "low",
+      "title": "Stale SDK comment names childAcceptanceSchema, which no longer exists, and the fixture still hand-writes the shape the SDK now owns",
+      "location": "packages/@ezcorp/factory-sdk/src/reference-execution.test.ts:11-19",
+      "reproduction": "grep -rn \"childAcceptanceSchema\" packages/ src/  # returns only this comment",
+      "containment": "advanceKernel validates node output against factoryChildAcceptancePortSchema at packages/@ezcorp/factory-sdk/src/kernel.ts:412, so a drifted fixture fails the catalog simulation",
+      "fix": "rewrite the comment and build the fixture with factoryChildAcceptanceResult(...)"
+    },
+    {
+      "id": "F3",
+      "severity": "low",
+      "title": "src/__tests__/helpers/mock-cleanup.ts is changed but absent from the gate file's shared-file disclosure table",
+      "location": "src/__tests__/helpers/mock-cleanup.ts (+6 lines) versus tasks/factory/w13-GATES.md shared-file table",
+      "mitigation": "disclosed in the G14 narrative; not in interface freeze section 12; strictly additive and forced by src/__tests__/mock-cleanup-coverage.test.ts",
+      "fix": "add the row to the table"
+    },
+    {
+      "id": "F4",
+      "severity": "low",
+      "title": "Third writer on src/factory/protected-command-effects.ts, which the freeze calls the only two-writer file, with no recorded owner sign-off",
+      "location": "src/factory/protected-command-effects.ts (+86 lines); docs/plans/2026-09-13-composable-factory-platform-interfaces.md section 12",
+      "mitigation": "disclosed in the gate file with both owners named; the decision logic lives in src/factory/child-release-mode.ts",
+      "fix": "obtain and record W05/W06 sign-off the way coordinator answer 4 is recorded"
+    },
+    {
+      "id": "F5",
+      "severity": "low",
+      "title": "The plan's 'exact aliases' bullet is proven by construction rather than by a direct test",
+      "location": "tasks/todo.md W13 checklist bullet 3; src/factory/child-artifacts.ts untouched by the diff",
+      "mitigation": "the decisionId identity precondition is asserted in the acceptance-only lifecycle test, and tests/postgres/factory-child-artifacts.test.ts proves the binding (ran green)",
+      "fix": "annotate the bullet with its dependency on W09b's wiring round"
+    },
+    {
+      "id": "F6",
+      "severity": "low",
+      "title": "The worker's static-gates receipts record pass=13 where the producer's own log shows 32",
+      "location": "/tmp/factory-platform-evidence/w13/receipts.jsonl records static-gates, merge-static-gates, merge2-static-gates, final-static-gates",
+      "mitigation": "the log is complete and every one of the eight checks is exit 0, which is what G15 claims",
+      "fix": "sum every 'N pass' line in receipt.py, or drop the field for multi-file producers"
+    }
+  ],
+  "overstatements": [
+    "Every receipt named below was produced at 655616b0b, the final head -- true of four receipts, not of the six the gates cite (F1)",
+    "focused-composition 33 pass / 157 assertions -- 32 pass / 149 assertions at the validated head (F1)",
+    "tasks/todo.md checks the 'exact aliases' bullet without qualification (F5)"
+  ],
+  "interfaceDeviations": [
+    {"deviation": "release mode read from the live ancestry walk rather than widening KernelCommand run-child", "justified": true, "recorded": true, "note": "no SDK kernel file touched; no new event kind"},
+    {"deviation": "catalog subfactory output ports are the acceptance-only receipt, not {artifact, evidence, candidate}", "justified": true, "recorded": true, "note": "as written the catalog could not execute; no child definition produces those ports"},
+    {"deviation": "classifier findings attributed per definition rather than per step", "justified": true, "recorded": true, "note": "sound over-approximation from the one shared closure walk"},
+    {"deviation": "git excluded by excluding shell", "justified": true, "recorded": true, "verified": "no git capability exists in the codebase"},
+    {"deviation": "workflowClosureCapabilities extracted from computeWorkflowConsentHash", "justified": true, "recorded": true, "behaviourPreserving": true},
+    {"deviation": "FactoryChildAcceptanceResult and its port schema moved into the SDK", "justified": true, "recorded": true, "authorizedBy": "coordinator interface answer 4"}
+  ],
+  "unprovenBullets": [],
+  "blockingIssues": []
+}

@@ -1,0 +1,66 @@
+{
+  "package": "w01d",
+  "round": 2,
+  "verdict": "ACCEPT",
+  "head": "10546de2d81d411b912ec2e1d708055dc3f68656",
+  "branch": "wp/w01d-materials-handover",
+  "base": "integ/w00 (merge-base f30da62fac9a6ebcf175d129e9e649470597950b, confirmed unchanged; current integ/w00 tip 8810d6eae is far ahead but irrelevant to the triple-dot diff the coverage gates use)",
+  "prior_head": "f64697be606580c2a622f3e3967e79e7f810f7ca (round 1, ACCEPT-WITH-FIXES)",
+  "delta_commits": [
+    "12070ce49 test(runner): cover every refusal branch of the material handover",
+    "10546de2d docs(factory): name the refusal-coverage commit in the W01d gate file"
+  ],
+  "verdict_summary": "ACCEPT. This closes the one gap from round 1. A new committed test in materials.test.ts constructs a PodmanRunner subclass (HandoverProbe) that reaches the private handOverMaterials method without widening its production visibility, and - critically - configures the runner's podman binary as a path that cannot execute, so if any guard clause were removed the test would fail with a spawn error rather than pass silently: reaching podman at all is itself proof the guard fired first. Four cases are covered: a missing directory, a regular file in its place, a symlink to a good directory (with an added assertion that the symlink's target was never chmodded, proving no side effect leaked through before the refusal), and a directory the runner does not own. A second new test in podman.integration.test.ts proves the same guarantee through the real start() path: materials: '/' is refused with the typed error, no container carries the worker's name afterwards (checked via podman ps -a --filter), and the filesystem root is untouched. tasks/factory/w01d-GATES.md's G3 now cites real CHECK commands and receipts like every other gate, and explicitly credits the finding: 'The validator found these three branches untested, which was correct.' All static gates, the materials unit suite, and the full shared Podman suite pass at this exact head; the coverage gates pass cleanly with my own merged LCOV.",
+  "tree_state": {
+    "git_status_porcelain_empty": true,
+    "head_matches_task": true
+  },
+  "diff_scope_since_round1_head": {
+    "files": [
+      "packages/@ezcorp/extension-runner/tests/materials.test.ts",
+      "packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
+      "tasks/factory/w01d-GATES.md"
+    ],
+    "no_production_code_changed": "confirmed - packages/@ezcorp/extension-runner/src/podman.ts is byte-identical to round 1's head; this round is pure test-coverage addition",
+    "all_within_terra_runtime_ownership": true
+  },
+  "reruns": [
+    { "step": "bun install (root + web)", "exit_code": 0 },
+    { "step": "bun run typecheck", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/typecheck-r2.log" },
+    { "step": "bun run lint", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/lint-r2.log", "result": "8 pre-existing infos, no errors" },
+    { "step": "check-factory-boundaries", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/boundaries-r2.log" },
+    { "step": "gate-integrity", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/gate-integrity-r2.log" },
+    { "step": "grep 0o777 in production and tests", "exit_code": 0, "result": "all matches are `mode & 0o777` bitmask reads or 'Never 0o777' comments; no mode-setting occurrence anywhere, including the new tests" },
+    { "step": "gate-weakening scan on the delta (.skip/.only/.todo/empty catch)", "exit_code": 1, "result": "no matches" },
+    { "step": "materials.test.ts (standalone)", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/materials-test-r2.log", "result": "8 pass / 0 fail / 32 expect() calls - matches worker's r2-materials-unit.json exactly" },
+    { "step": "combined coverage run: shared Podman suite + materials.test.ts + factory Podman suite, one bun test invocation under the lock", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 1800 bun test --timeout 30000 --coverage --coverage-reporter=lcov ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts ./packages/@ezcorp/extension-runner/tests/materials.test.ts ./src/factory/package-preparation.podman.integration.test.ts", "exit_code": 0, "result": "28 pass / 0 fail / 141 expect() calls (19 + 8 + 1 tests). Matches the worker's own r2-podman-suite.json (27 pass/135 expects for the shared suite+materials combined) plus the one additional factory-suite test exactly." },
+    { "step": "new-file coverage gate", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/new-file-coverage-r2.log", "result": "no new source files" },
+    { "step": "patch coverage gate", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/patch-coverage-r2.log", "result": "PASSED, all changed executable lines in podman.ts covered (unchanged from round 1's own code, still fully covered)" }
+  ],
+  "g3_fix_verification": {
+    "unit_level_test": {
+      "file": "packages/@ezcorp/extension-runner/tests/materials.test.ts",
+      "test_name": "the handover refuses a directory it cannot vouch for, before touching podman",
+      "technique": "a HandoverProbe subclass of PodmanRunner exposes handOverMaterials via a public wrapper method, reaching the private method without loosening production visibility; the runner is constructed with podman: '/nonexistent/podman-must-never-run' so any guard removal would surface as a spawn/exec error instead of a silent pass",
+      "cases_covered": [
+        "missing directory -> material_directory_invalid, 'does not exist'",
+        "a regular file in place of the directory -> material_directory_invalid, 'is not a directory'",
+        "a symlink pointing at a real, valid directory -> material_directory_invalid, 'is not a directory'; additionally asserts the symlink's target directory's mode was NOT changed to 0o770, proving no side effect occurred before the refusal",
+        "a directory the runner does not own (/) -> material_directory_invalid, 'is not owned by the runner'; additionally asserts / itself is untouched (uid still 0)"
+      ]
+    },
+    "integration_level_test": {
+      "file": "packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
+      "test_name": "a material directory the runner does not own refuses the start and launches nothing",
+      "proves": "through the real runner.start() path (not just the private-method probe), materials: '/' is refused with material_directory_invalid, no container matching the worker's computed name exists afterwards (verified via `podman ps -a --filter name=... --format={{.Names}}` returning empty), and / itself is untouched (uid still 0 after the attempt)"
+    },
+    "satisfies_this_round's_explicit_requirement": "the team lead asked that 'the tests would fail if the guard were removed' - the unusable podman binary path is exactly the mechanism that makes this true: removing any of the three guard clauses would let handOverMaterials reach `command(this.podman, [...])`, which would then fail with a spawn error (ENOENT) rather than the expected RunnerError, failing the test's `.code`/`.message` assertions"
+  },
+  "gates_file_review": {
+    "g3_now_has_check_commands": true,
+    "g3_receipts": "logs/r2-materials-unit.json (8 pass), logs/r2-podman-suite.json (27 pass) - both independently reproduced by me with identical counts",
+    "g3_credits_the_finding": "GATES.md text: 'The validator found these three branches untested, which was correct.'",
+    "branch_head_named": "GATES.md now states 'Head `12070ce49`' and notes integ/w00 moved to 8810d6eae without requiring a merge for this leaf",
+    "sha256sums_check": "all 10 logs in /tmp/factory-platform-evidence/w01d/ (round 1 + round 2 combined) verify OK against SHA256SUMS"
+  }
+}

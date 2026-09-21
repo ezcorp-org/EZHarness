@@ -1,0 +1,113 @@
+{
+  "verdict": "ACCEPT-WITH-FIXES",
+  "head": "e54cbfb2944b0d8091099c0ef9c0e9f8aa76a690",
+  "round": 2,
+  "package": "w01e",
+  "branch": "wp/w01e-guest-broker",
+  "mergeBase": "8810d6eae0e8abe5b67b55e3664b3fe570d78b13",
+  "previousRound": { "head": "1095a861390f18e039406c50dcecdea6d94f8c57", "verdict": "REJECT" },
+  "delta": { "fixes": "90ee7f3e3", "receipts": "e54cbfb29" },
+  "treeClean": true,
+  "round1FindingsStatus": {
+    "F1_blocker_microtask_spin": {
+      "status": "FIXED",
+      "evidence": "src/__tests__/helpers/factory-guest-model-journal-suite.ts:139 awaits a promise the provider double resolves. Real PostgreSQL suite now 1 pass / 0 fail, 28 expects, 5.02s, exit 0 (round 1: killed at 7 min, 91% CPU). A second macrotask-paced PGlite leg is a regression guard; the worker's controlled-fault receipt shows 2 pass in 4.25s with the fix and exit 124 after 120s with the spin restored."
+    },
+    "F2_high_digest_shape_and_discarded_completion": {
+      "status": "FIXED",
+      "evidence": "factoryProviderReceiptDigest emits sha256:${hex}; SDK and Python response validators require the prefixed form; new committed rejection case guest-model-response-receipt-not-prefixed. New journal.hold seam settles uncertain with exactly the receipt and usage. The suite drives the real FactoryUsageReconciliation.resolve and .reconcile through real FactoryUsageSettlements, a real FactoryInbox and a real reservation row.",
+      "caveat": "The completed path proves validateFactoryTerminalUsage accepts the summed usage and rejects an under-reported sum, but does not drive terminal acceptance or a budget settlement. See R2-F1."
+    },
+    "F3_medium_unimportable_bounds": { "status": "FIXED", "evidence": "index.ts:3 value-export list; guest-model-exports.test.ts asserts from the BUILT package; 2 pass." },
+    "F4_medium_podman_proof_not_in_ci": { "status": "FIXED", "evidence": ".github/workflows/ci.yml:186 factory-isolation lane and scripts/check-factory-lanes.ts:115 FACTORY_LANES; lane inventory test 20 pass." },
+    "F5_low_duplicated_digest_formula": { "status": "FIXED", "evidence": "provider-one-hop.ts:100 spreads factoryGuestModelOperation(request); no cycle; typecheck green." },
+    "F6_low_lint_warning": { "status": "FIXED", "evidence": "Array.isArray replaces instanceof Array; bun run lint reports 8 infos and ZERO warnings across 5222 files." },
+    "F7_sdk_ownership": { "status": "WAIVED", "evidence": "Waived as disclosed by the coordinator; the crossings table retains the disclosure." }
+  },
+  "newFindings": [
+    {
+      "id": "R2-F1",
+      "severity": "high",
+      "title": "An attempt that calls a model can no longer settle a terminal result",
+      "detail": "The prefixed digest now lands in factory_execution_operations.provider_receipt_digest on both the completed and uncertain paths. verifyRunnerResultInTransaction imposes two conditions that cannot both be met: executions.ts:361 calls validateFactoryRunnerResult, whose validateOperation requires validDigest(providerReceiptDigest, false) i.e. BARE 64-hex (factory-sdk/src/validation.ts:626); and executions.ts:368 requires the result to MIRROR the journal row, prefix included.",
+      "proof": "/tmp/w01e-terminal-probe.ts against PGlite with the real journal: 'MIRRORED result: REJECTED — Factory terminal result is invalid: RUNNER_OPERATION.' and 'STRIPPED result: REJECTED — Factory terminal result does not match settled journal evidence.'",
+      "reachability": "src/factory/task-outcomes.ts:119,176 and src/factory/executions.ts:318,339",
+      "forced": "The leaf's choice is forced, not careless: FactoryUsageReconciliation.resolve reads the raw journal row and enforces the prefix at usage-settlement.ts:410, so the row must be prefixed for W03c to work at all.",
+      "disclosure": "The worker disclosed the disagreement in the freeze line and a gate-file section, but framed it as 'a pre-existing disagreement on W03's own two surfaces' without stating this consequence.",
+      "ownership": "Neither surface belongs to W01: factory-sdk/src/validation.ts is Sol controls', usage-settlement.ts is W03's (interface freeze section 12).",
+      "fix": "Coordinator ruling to unify the operation receipt digest shape on one surface, then make the guest model path match."
+    },
+    {
+      "id": "R2-F2",
+      "severity": "medium",
+      "title": "The named readiness failure factory-postgres-store-down is false; the store is up",
+      "detail": "The gate file leaves G5 unchecked and asks the coordinator to recreate the store. The container runs under podman, not docker, so the worker's `docker ps -a` check could not list it.",
+      "measured": {
+        "podman ps": "factory-platform-proof-postgres  Up 7 days  127.0.0.1:46343->5432/tcp",
+        "connectivity": "CONNECTED in 8 ms, PostgreSQL 16.14",
+        "suite": "1 pass / 0 fail, exit 0, 5.02s"
+      },
+      "impact": "G5 is marked open when it passes, and the gate file requests recreation of a healthy shared store that seven other agents were queued against, which common.md forbids anyone but the coordinator from doing and which previously caused an OOM kill.",
+      "fix": "Check G5 with the receipt and delete the readiness-failure paragraph."
+    }
+  ],
+  "briefConfirmations": {
+    "real_postgres_suite_completes": { "confirmed": true, "exit": 0, "wallSeconds": 5, "pass": 1, "fail": 0, "expects": 28 },
+    "not_passing_only_on_pglite": { "confirmed": true, "note": "Real server run above, plus a macrotask-paced PGlite leg as a regression guard with a controlled-fault receipt." },
+    "resolver_settles_a_cost_from_a_receipt_this_leaf_wrote": { "confirmed": true, "note": "Real FactoryUsageReconciliation.resolve reads the leaf's prefixed digest off the real journal row; .reconcile settles once through real FactoryUsageSettlements, a real FactoryInbox and a real reservation row; reconciling twice returns the same settlement and moves the budget once." },
+    "completed_path_carries_measured_usage_into_the_budget": { "confirmed": "partial", "note": "The real validateFactoryTerminalUsage accepts the summed usage and rejects an under-reported sum. Terminal acceptance and the budget leg are not driven, and per R2-F1 terminal acceptance currently cannot succeed." }
+  },
+  "reruns": [
+    { "name": "pg-guest-model-journal", "exit": 0, "wallSeconds": 5, "pass": 1, "fail": 0, "expects": 28, "store": "real PostgreSQL 16.14" },
+    { "name": "pg-factory-schema", "exit": 0, "wallSeconds": 5, "pass": 2, "fail": 0, "expects": 2857, "store": "real PostgreSQL" },
+    { "name": "guest-model-journal.integration (both PGlite legs)", "exit": 0, "wallSeconds": 6, "pass": 2, "fail": 0, "expects": 56 },
+    { "name": "extension-runner podman.integration", "exit": 0, "wallSeconds": 83, "pass": 17, "fail": 0, "expects": 92 },
+    { "name": "guest-model.podman.integration", "exit": 0, "wallSeconds": 7, "pass": 1, "fail": 0, "expects": 16 },
+    { "name": "attempt-runtime.integration", "exit": 0, "wallSeconds": 15, "pass": 7, "fail": 0, "expects": 31 },
+    { "name": "host-launch-transport.integration", "exit": 0, "wallSeconds": 9, "pass": 5, "fail": 0, "expects": 71 },
+    { "name": "host-launch-e2e.podman.integration", "exit": 0, "wallSeconds": 7, "pass": 1, "fail": 0, "expects": 13 },
+    { "name": "validator-guest.podman.integration", "exit": 0, "wallSeconds": 7, "pass": 1, "fail": 0, "expects": 15 },
+    { "name": "supervisor.podman.integration", "exit": 0, "wallSeconds": 13, "pass": 2, "fail": 0, "expects": 6 },
+    { "name": "python-runner.integration", "exit": 0, "wallSeconds": 7, "pass": 4, "fail": 0, "expects": 150 },
+    { "name": "python-guest.integration", "exit": 0, "wallSeconds": 36, "pass": 12, "fail": 0, "expects": 151 },
+    { "name": "broker + one-hop + journal units", "exit": 0, "wallSeconds": 4, "pass": 17, "fail": 0, "expects": 127 },
+    { "name": "factory-sdk suite", "exit": 0, "wallSeconds": 17, "pass": 191, "fail": 0, "expects": 1403 },
+    { "name": "check-factory-lanes.test.ts", "exit": 0, "wallSeconds": 1, "pass": 20, "fail": 0, "expects": 44 },
+    { "name": "python-quality.sh all", "exit": 0, "wallSeconds": 7, "result": "ruff, mypy --strict, 223 + 176 tests, 100% both locked projects" },
+    { "name": "check-schema-generate-drift.ts", "exit": 0, "result": "13 generated schemas match byte for byte; tree clean after" },
+    { "name": "typecheck", "exit": 0, "result": "TS + backend tests + web/e2e + mypy --strict" },
+    { "name": "lint", "exit": 0, "result": "8 infos, ZERO warnings across 5222 files" },
+    { "name": "check-factory-boundaries.ts", "exit": 0, "result": "F07 and F13 passed" },
+    { "name": "gate-integrity.ts", "exit": 0, "result": "no gate weakening or test cheating detected" },
+    { "name": "merge-lcov (7 validator lcovs)", "exit": 0, "result": "merged 620 source files" },
+    { "name": "BASE_REF=8810d6eae check-new-file-coverage.ts", "exit": 0, "result": "PASSED: 3 new source file(s) gated" },
+    { "name": "BASE_REF=8810d6eae check-patch-coverage.ts", "exit": 0, "result": "PASSED: all changed executable lines covered (11 file(s))" }
+  ],
+  "perFileCoverage": {
+    "note": "validator's own merged LCOV; the two shortfalls are narrower suite selection and both gates passed",
+    "src/factory/runner/guest-model-broker.ts": { "claimed": "60/60", "measured": "60/60" },
+    "src/factory/runner/guest-model-journal.ts": { "claimed": "82/82", "measured": "82/82" },
+    "src/factory/runner/provider-one-hop.ts": { "claimed": "56/56", "measured": "56/56" },
+    "src/factory/runner/host-launch-supervisor.ts": { "claimed": "62/62", "measured": "62/62" },
+    "src/factory/runner/python-guest.ts": { "claimed": "37/37", "measured": "37/37" },
+    "packages/@ezcorp/factory-sdk/src/schema.ts": { "claimed": "96/96", "measured": "96/96" },
+    "packages/@ezcorp/factory-sdk/src/types.ts": { "claimed": "42/42", "measured": "42/42" },
+    "packages/@ezcorp/factory-sdk/src/index.ts": { "claimed": "13/13", "measured": "13/13" },
+    "scripts/check-factory-lanes.ts": { "claimed": "200/200", "measured": "200/200" },
+    "packages/@ezcorp/factory-sdk/src/validation.ts": { "claimed": "839/839", "measured": "838/839" },
+    "src/factory/runner/attempt-runtime.ts": { "claimed": "379/379", "measured": "360/377" }
+  },
+  "lockNote": "The shared heavy lock was held continuously for about three hours with seven to eight agents queued. Every remaining producer was consolidated into a single hold. One attempt to run outside the lock was blocked by the permission system as interfering with workloads; it was not worked around, and no producer in this report ran outside the lock.",
+  "artifacts": {
+    "report": "/tmp/factory-platform-evidence/w01e-validation/report-r2.md",
+    "consolidatedRun": "/tmp/factory-platform-evidence/w01e-validation/r2-all.log",
+    "staticGates": "/tmp/factory-platform-evidence/w01e-validation/r2-static.log",
+    "inProcessSuites": "/tmp/factory-platform-evidence/w01e-validation/r2-inprocess.log",
+    "coverageGates": "/tmp/factory-platform-evidence/w01e-validation/r2-coverage-gates.log",
+    "perFileCoverage": "/tmp/factory-platform-evidence/w01e-validation/r2-per-file-coverage.txt",
+    "terminalCollisionProof": "/tmp/factory-platform-evidence/w01e-validation/r2-terminal-collision-probe.txt",
+    "runnerResultValidatorProbe": "/tmp/factory-platform-evidence/w01e-validation/r2-runner-result-probe.txt",
+    "build": "/tmp/factory-platform-evidence/w01e-validation/r2-build.log",
+    "lcovs": "/tmp/factory-platform-evidence/w01e-validation/lcov-flat2/"
+  }
+}
