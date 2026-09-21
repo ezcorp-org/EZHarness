@@ -11,6 +11,7 @@ export function runnerProfileChanged(previous: ReleaseRecord, currentRunnerImage
 
 export function assertOldProfileRefused(result: ToolInvocationResult): void {
   assert.equal(result.success, false, "An old-profile release executed under the new runner profile without a rebuild");
+  assert.equal(result.error, "Runtime image or isolation policy differs from the built release", "Old-profile release failed without the expected runtime profile mismatch");
 }
 
 export function assertInstallationIdentityPreserved(previous: InstallationRecord, current: InstallationRecord): void {

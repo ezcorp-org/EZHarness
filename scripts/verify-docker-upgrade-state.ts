@@ -81,6 +81,7 @@ if (mode === "seed") {
   assert.equal(expected.release.imageDigest, expected.runnerImage, "Seed receipt runner profile differs from its release evidence");
   assert.deepEqual(ownerSnapshot(await sessionJson("/api/auth/me")), expected.owner, "Exact owner record changed");
   const state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: expected.installation.id });
+  assert.deepEqual(installationSnapshot(state), expected.installation, "Installation owner, identity, generation, grants, or activation changed before the runner-profile rebuild");
   assert.deepEqual(state.workspaces[expected.workspace.id], expected.workspace, "Exact workspace record changed");
   assert.deepEqual(state.releases[expected.release.id], expected.release, "Exact verified release record changed");
   assert.deepEqual(state.approvals[expected.approval.id], expected.approval, "Exact human approval record changed");
@@ -117,7 +118,6 @@ if (mode === "seed") {
     console.log(`RUNNER_PROFILE_REBUILT ${expected.runnerImage} -> ${currentRunnerImage}`);
   } else {
     assert.equal(currentRunnerImage, expected.runnerImage, "Release profile matches but the recorded runner profile changed");
-    assert.deepEqual(installationSnapshot(state), expected.installation, "Installation owner, identity, generation, grants, or activation changed");
   }
 
   const result = await client.invokeExtensionTool(expected.conversationId, expected.name, "echo");

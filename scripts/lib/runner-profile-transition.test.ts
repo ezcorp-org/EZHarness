@@ -24,8 +24,10 @@ describe("runner profile transition", () => {
   });
 
   test("requires the old release to be refused before a profile migration", () => {
-    expect(() => assertOldProfileRefused({ success: false, error: "Runtime image differs" })).not.toThrow();
+    expect(() => assertOldProfileRefused({ success: false, error: "Runtime image or isolation policy differs from the built release" })).not.toThrow();
     expect(() => assertOldProfileRefused({ success: true, output: {} })).toThrow("without a rebuild");
+    expect(() => assertOldProfileRefused({ success: false, error: "Runner unavailable" })).toThrow("profile mismatch");
+    expect(() => assertOldProfileRefused({ success: false })).toThrow("profile mismatch");
   });
 
   test("allows release generation to change but preserves installation identity and policy", () => {
