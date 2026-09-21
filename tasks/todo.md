@@ -219,6 +219,18 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 
 ## PR #292 — full review and CI repair
 
+### Final process-start recovery repair
+
+- [x] Reproduce retained `running` and `succeeded` process-start lifecycle wedges with controller regressions.
+- [x] Reconcile every retained process-start writer before lifecycle admission without duplicating a live process.
+- [x] Release failed and terminal-process leases while keeping a verified live process fenced.
+- [x] Run focused tests, lint, typecheck, sandbox builds, gate integrity, and diff checks.
+- [x] Record exact verification and commit without pushing.
+
+Plan review: recover unsettled starts through their durable provider call, inspect persisted successful processes through their exact identity, and preserve the binding-row admission fence. A verified live helper must continue to block lifecycle changes; only failed or terminal work may release its writer lease.
+
+Repair review: lifecycle admission now resumes retained admitted, running, and unknown process starts through their original durable call. It removes stale failed leases, inspects the exact process created by a succeeded start, and releases that exact lease on a verified terminal process even while the sandbox resource remains running. Fresh in-process admissions remain fenced until their authorized caller starts execution, and verified live or ambiguous processes keep the lifecycle blocked. Pinned Bun 1.3.14 verification passed: 81 focused tests, contract build and schema parity, sandbox supervisor and native-tools builds, lint over 4,668 files, full typecheck, gate integrity against `bd6fd97143b66c524e28b7896309fe6fd24d4261`, and diff checks.
+
 ### Final audit repairs
 
 - [x] Add red restart tests for ambiguous and failed file-mutation recovery.

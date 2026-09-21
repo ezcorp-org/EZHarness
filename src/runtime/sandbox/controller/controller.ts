@@ -37,6 +37,7 @@ async function requireNoActiveMethod(tx: DbTransaction, bindingId: string): Prom
 export function createSandboxController(driver: LocalSandboxDriver, runtime: Pick<ReleaseRuntimeDependencies, "resolve"> = getReleaseRuntime(), invoke?: SandboxProviderInvocation, clock = { now: () => Date.now(), sleep: (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)) }): SandboxController {
   const reviewedOperations = new Set<string>();
   const rawOperations = new Map<string, Promise<unknown>>();
+  const freshWriterAdmissions = new Set<string>();
   function requireReviewedWindow(operationId: string): void {
     if (!reviewedOperations.has(operationId)) throw new SandboxControllerError("RAW_DISPATCH_DENIED", "Raw sandbox dispatch requires an active reviewed invocation");
   }
@@ -188,7 +189,10 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
           }
           if (operation.method_group === "sandbox.process.v1" && (operation.method === "inspect" || operation.method === "cancel")) {
             const process = result.process;
-            if (process) await tx.execute(sql`UPDATE sandbox_processes SET state=${process.state},result=${JSON.stringify(result)},updated_at=NOW() WHERE binding_id=${operation.binding_id} AND provider_process_id=${process.identity.processId}`);
+            if (process) {
+              await tx.execute(sql`UPDATE sandbox_processes SET state=${process.state},result=${JSON.stringify(result)},updated_at=NOW() WHERE binding_id=${operation.binding_id} AND provider_process_id=${process.identity.processId}`);
+              if (isTerminalProcess(process.state)) await tx.execute(sql`DELETE FROM sandbox_writer_leases WHERE binding_id=${operation.binding_id} AND EXISTS (SELECT 1 FROM sandbox_processes p WHERE p.operation_id=sandbox_writer_leases.operation_id AND p.binding_id=${operation.binding_id} AND p.provider_process_id=${process.identity.processId} AND p.state IN ('exited','cancelled','failed'))`);
+            }
           }
           if (operation.method_group === "sandbox.files.v1" && result.receipt!.outcome !== "unknown") await tx.execute(sql`DELETE FROM sandbox_writer_leases WHERE operation_id=${operationId}`);
           if (operation.method_group === "sandbox.lifecycle.v1" && operation.method === "inspect") {
@@ -207,6 +211,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
   }
   async function executeMethod(userId: string, operationId: string, signal?: AbortSignal): Promise<SandboxOperationResult> {
     const current = await methodResult(userId, operationId);
+    freshWriterAdmissions.delete(operationId);
     if (["succeeded", "failed"].includes(current.state)) return current;
     const operation = rows(await getDb().execute(sql`SELECT operation.*,binding.project_id,resource.provider_resource_id FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id JOIN sandbox_resources resource ON resource.id=operation.resource_id WHERE operation.id=${operationId}`))[0]!;
     await reviewed(userId, String(operation.project_id), current.provider, current.group, current.operation, await wireMethodInput(operation, current.provider), "sandbox_method_operations", signal);
@@ -214,11 +219,18 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
   }
   async function reconcileFileWriter(bindingId: string, signal?: AbortSignal): Promise<void> {
     const pending = rows(await getDb().execute(sql`SELECT operation.id,operation.actor_id FROM sandbox_writer_leases lease JOIN sandbox_method_operations operation ON operation.id=lease.operation_id WHERE lease.binding_id=${bindingId} AND operation.method_group='sandbox.files.v1' AND operation.state IN ('admitted','running','unknown')`))[0];
-    if (pending) await executeMethod(String(pending.actor_id), String(pending.id), signal);
+    if (pending && !freshWriterAdmissions.has(String(pending.id))) await executeMethod(String(pending.actor_id), String(pending.id), signal);
   }
-  async function reconcileProcessStart(bindingId: string, states: ReadonlySet<string>, signal?: AbortSignal): Promise<void> {
+  async function reconcileProcessStart(bindingId: string, signal?: AbortSignal): Promise<Row | undefined> {
     const pending = rows(await getDb().execute(sql`SELECT op.id,op.actor_id,op.state FROM sandbox_writer_leases lease JOIN sandbox_method_operations op ON op.id=lease.operation_id WHERE lease.binding_id=${bindingId} AND op.method_group='sandbox.process.v1' AND op.method='start'`))[0];
-    if (pending && states.has(String(pending.state))) await executeMethod(String(pending.actor_id), String(pending.id), signal);
+    if (!pending) return undefined;
+    if (pending.state === "failed") {
+      await getDb().execute(sql`DELETE FROM sandbox_writer_leases WHERE binding_id=${bindingId} AND operation_id=${pending.id} AND EXISTS (SELECT 1 FROM sandbox_method_operations op WHERE op.id=${pending.id} AND op.state='failed')`);
+      return undefined;
+    }
+    if (pending.state === "admitted" && freshWriterAdmissions.has(String(pending.id))) return pending;
+    if (["admitted", "running", "unknown"].includes(String(pending.state))) await executeMethod(String(pending.actor_id), String(pending.id), signal);
+    return pending;
   }
   return {
     async listLocalSandboxProviders(_userId) {
@@ -274,7 +286,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const writer = (input.group === "sandbox.process.v1" && input.operation === "start") || (input.group === "sandbox.files.v1" && ["write", "mkdir", "remove", "chmod"].includes(input.operation));
       const wire = await wireMethodInput({ input: input.payload, provider_resource_id: current.resource.resourceId, method_group: input.group, method: input.operation, project_id: projectId, binding_id: current.bindingId, id, idempotency_key: input.idempotencyKey }, current.provider);
       validateProviderMethodValue(input.group, input.operation as never, "input", wire);
-      return getDb().transaction(async (tx: DbTransaction) => {
+      const admitted = await getDb().transaction(async (tx: DbTransaction) => {
         await tx.execute(sql`SELECT id FROM sandbox_provider_bindings WHERE id=${current.bindingId} FOR UPDATE`);
         const refreshedResource = rows(await tx.execute(sql`SELECT observed_state FROM sandbox_resources WHERE binding_id=${current.bindingId}`))[0];
         if (refreshedResource?.observed_state === "destroyed") throw new SandboxControllerError("RESOURCE_DESTROYED", "This sandbox has been disposed");
@@ -294,6 +306,8 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       }
       return { id, group: input.group, operation: input.operation, state: "admitted" as const, provider: current.provider };
       });
+      if (writer && admitted.id === id) freshWriterAdmissions.add(id);
+      return admitted;
     },
     getSandboxOperationResult: methodResult,
     async executeAdmittedSandboxMethod(userId, operationId, signal) {
@@ -309,18 +323,14 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     },
     async reconcileSandboxProcess(userId, projectId, signal) {
       const current = await status(userId, projectId);
-      await reconcileProcessStart(current.bindingId, new Set(["admitted", "running", "unknown"]), signal);
-      const process = rows(await getDb().execute(sql`SELECT process.*,binding.id AS binding_id,resource.provider_resource_id FROM sandbox_processes process JOIN sandbox_provider_bindings binding ON binding.id=process.binding_id JOIN sandbox_resources resource ON resource.id=process.resource_id WHERE binding.project_id=${projectId} ORDER BY process.updated_at DESC LIMIT 1`))[0];
+      const retained = await reconcileProcessStart(current.bindingId, signal);
+      if (!retained) return null;
+      const process = rows(await getDb().execute(sql`SELECT process.*,binding.id AS binding_id,resource.provider_resource_id FROM sandbox_processes process JOIN sandbox_provider_bindings binding ON binding.id=process.binding_id JOIN sandbox_resources resource ON resource.id=process.resource_id WHERE process.operation_id=${retained.id} AND binding.project_id=${projectId}`))[0];
       if (!process) return null;
       const result = parse<ProcessResult>(process.result);
       if (!result.process?.identity) throw new SandboxControllerError("PROCESS_IDENTITY_UNAVAILABLE", "A process identity is required for reconciliation");
       const admitted = await this.admitSandboxMethod(userId, projectId, { group: "sandbox.process.v1", operation: "inspect", idempotencyKey: crypto.randomUUID(), payload: { identity: result.process.identity } });
       const inspected = await this.executeAdmittedSandboxMethod(userId, admitted.id, signal);
-      const processResult = inspected.result as ProcessResult | undefined;
-      if (processResult?.process && isTerminalProcess(processResult.process.state)) {
-        const lifecycle = await this.admitSandboxMethod(userId, projectId, { group: "sandbox.lifecycle.v1", operation: "inspect", idempotencyKey: crypto.randomUUID(), payload: {} });
-        await this.executeAdmittedSandboxMethod(userId, lifecycle.id, signal);
-      }
       return inspected;
     },
     async runNativeWorkspaceProcess(target, command, signal, principal) {
@@ -391,7 +401,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const current = await status(userId, projectId); if (!current.resource) throw new SandboxControllerError("RESOURCE_MISSING", "Sandbox resource is not created");
       if (current.resource.observedState === "destroyed") throw new SandboxControllerError("RESOURCE_DESTROYED", "This sandbox has been disposed");
       if (!input.idempotencyKey) throw new SandboxControllerError("INVALID_INPUT", "An idempotency key is required");
-      await reconcileProcessStart(current.bindingId, new Set(["unknown"]));
+      await this.reconcileSandboxProcess(userId, projectId);
       await reconcileFileWriter(current.bindingId);
       const value = { resourceId: current.resource.resourceId }; const digest = await sha256(canonicalJson(value)); const id = crypto.randomUUID();
       const replay = (operation: Row) => {
