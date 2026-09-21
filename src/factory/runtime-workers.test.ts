@@ -231,3 +231,43 @@ describe("registerFactoryRuntimeWorkers", () => {
     expect(set.workers.names().length + set.held.length).toBe(FACTORY_WORKER_ROLES.length);
   });
 });
+
+describe("an attempt whose outcome the product refused to record", () => {
+  test("reports the cause rather than leaving an unknown outcome unexplained", async () => {
+    const seen: Array<{ role: string; error: unknown }> = [];
+    const cause = Object.assign(new Error("factory_task_outcome_stale"), { code: "factory_task_outcome_stale" });
+    // One pass, so the assertion is about one report rather than about how many
+    // times a bounded batch repeats it.
+    const set = registerFactoryRuntimeWorkers(collaborators({
+      attempts: { dispatchOne: async () => ({ kind: "outcome_unknown", attemptId: "attempt-1", cause }) },
+      report: (role, error) => { seen.push({ role, error }); },
+      tuning: { batch: 1 },
+    }));
+    // The pass DID work — an attempt moved — so it reports progress rather than
+    // failing the role, and the cause reaches the operator's stream.
+    expect(await set.workers.get("attempt-dispatch").runBatch(new AbortController().signal)).toBe("worked");
+    expect(seen).toEqual([{ role: "attempt-dispatch:outcome-unknown:attempt-1", error: cause }]);
+  });
+
+  test("an unknown outcome with no cause still names the attempt", async () => {
+    const seen: string[] = [];
+    const set = registerFactoryRuntimeWorkers(collaborators({
+      attempts: { dispatchOne: async () => ({ kind: "outcome_unknown" }) },
+      report: (role) => { seen.push(role); },
+      tuning: { batch: 1 },
+    }));
+    await set.workers.get("attempt-dispatch").runBatch(new AbortController().signal);
+    expect(seen).toEqual(["attempt-dispatch:outcome-unknown:unknown"]);
+  });
+
+  test("an ordinary dispatch reports nothing", async () => {
+    const seen: string[] = [];
+    const set = registerFactoryRuntimeWorkers(collaborators({
+      attempts: { dispatchOne: async () => ({ kind: "cancelled", attemptId: "attempt-2" }) },
+      report: (role) => { seen.push(role); },
+      tuning: { batch: 1 },
+    }));
+    expect(await set.workers.get("attempt-dispatch").runBatch(new AbortController().signal)).toBe("worked");
+    expect(seen).toEqual([]);
+  });
+});

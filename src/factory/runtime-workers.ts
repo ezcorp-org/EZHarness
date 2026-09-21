@@ -31,7 +31,7 @@ export interface FactoryComputeAdmissionDriver {
 }
 
 export interface FactoryAttemptDispatchDriver {
-  dispatchOne(): Promise<{ readonly kind: string }>;
+  dispatchOne(): Promise<{ readonly kind: string; readonly attemptId?: string; readonly cause?: unknown }>;
 }
 
 /**
@@ -180,7 +180,17 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
   // moment `createFactoryAttemptDispatchDriver` is supplied either way.
   const attempts = collaborators.attempts;
   role("attempt-dispatch",
-    attempts && (async () => progress((await attempts.dispatchOne()).kind === "idle")),
+    attempts && (async () => {
+      const dispatched = await attempts.dispatchOne();
+      // An attempt whose outcome the product refused to record is the one case
+      // a pass can move an attempt and leave nothing to read. It is not the
+      // role failing — the pass did work — so it is reported rather than
+      // thrown, and the report carries the cause the dispatcher now keeps.
+      if (dispatched.kind === "outcome_unknown") {
+        collaborators.report(`attempt-dispatch:outcome-unknown:${dispatched.attemptId ?? "unknown"}`, dispatched.cause ?? new Error("the attempt settled with an unknown outcome"));
+      }
+      return progress(dispatched.kind === "idle");
+    }),
     "attempt-dispatcher", "W09",
     "this installation declares no hostLaunch endpoint, or its pool admission client could not be built, so no attempt can be launched or its completion recorded");
 
