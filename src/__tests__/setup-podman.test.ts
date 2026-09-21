@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UNSANDBOXED_ACK_SENTENCE, UNSANDBOXED_ACK_VARIABLE } from "../extensions/runner-mode";
@@ -36,6 +36,9 @@ import { UNSANDBOXED_ACK_SENTENCE, UNSANDBOXED_ACK_VARIABLE } from "../extension
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const SCRIPT = join(REPO_ROOT, "scripts", "setup-podman.sh");
 const EXAMPLE = join(REPO_ROOT, ".env.prod.example");
+const BASH = Bun.which("bash") ?? (() => {
+  throw new Error("setup-podman tests require bash on PATH");
+})();
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "setup-podman-"));
 const BIN = join(SANDBOX, "bin");
@@ -65,9 +68,9 @@ function run(
 ): Run {
   rmSync(CALLS, { force: true });
   const proc = Bun.spawnSync({
-    cmd: ["/bin/bash", SCRIPT, ...args],
+    cmd: [BASH, SCRIPT, ...args],
     cwd: REPO_ROOT,
-    env: { ...process.env, PATH: `${BIN}:/usr/bin:/bin`, ...env, ...extraEnv },
+    env: { ...process.env, PATH: `${BIN}:${process.env.PATH}`, ...env, ...extraEnv },
     stdin: opts.stdin === undefined ? "ignore" : new TextEncoder().encode(opts.stdin),
     stdout: "pipe",
     stderr: "pipe",
@@ -87,6 +90,7 @@ function scratch(os: "Darwin" | "Linux"): Record<string, string> {
     EZ_SETUP_OS: os,
     EZ_SETUP_ENV_FILE: join(dir, "env.prod"),
     EZ_SETUP_DATA_ROOT: join(dir, "ezcorp"),
+    EZ_SETUP_PODMAN_SOCKET: join(dir, "podman.sock"),
   };
 }
 
@@ -124,6 +128,23 @@ describe("setup-podman.sh — the env file", () => {
     expect(r.stdout).toContain("left untouched");
   });
 
+  test("does not publish a partial file when the example shape is invalid", () => {
+    const env = scratch("Darwin");
+    const dir = join(env.EZ_SETUP_ENV_FILE, "..");
+    const invalidExample = join(dir, "invalid.env.example");
+    writeFileSync(invalidExample, "EZCORP_PUBLIC_URL=https://ezcorp.example.com\n");
+
+    const r = run(["--no-start", "--accept-unsandboxed-extensions"], {
+      ...env,
+      EZ_SETUP_ENV_EXAMPLE: invalidExample,
+    });
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("placeholder substitution failed");
+    expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
+    expect(readdirSync(dir).some((name) => name.startsWith("env.prod.tmp."))).toBe(false);
+  });
+
   test("pre-creates the four bind-mount sources without any chown", () => {
     const env = scratch("Darwin");
     run(["--no-start", "--accept-unsandboxed-extensions"], env);
@@ -149,6 +170,24 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     const text = readFileSync(env.EZ_SETUP_ENV_FILE, "utf8");
     expect(ackIsSet(text)).toBe(true);
     expect(text).toMatch(/^EZCORP_RUNNER_COMPOSE_FILE=deploy\/extension-runner\/compose\.trusted-local\.yml$/m);
+  });
+
+  test("macOS does not mistake isolated Linux runner values for a usable runner", () => {
+    const env = scratch("Darwin");
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      [
+        "EZ_RUNNER_SOCKET_DIR=/run/ez-extension-runner",
+        "EZ_RUNNER_TOKEN_FILE=/etc/ezharness/extension-runner-token",
+        "EZ_RUNNER_GROUP=1",
+        "",
+      ].join("\n"),
+    );
+
+    const r = run(["--no-start", "--accept-unsandboxed-extensions"], env);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).not.toContain("already configured");
+    expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(true);
   });
 
   test("macOS, a pipe on stdin carrying 'y': is NOT consent — fails closed", () => {
@@ -250,5 +289,13 @@ describe("setup-podman.sh — the engine and the check mode", () => {
     expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
     expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
     expect(r.calls.filter((c) => !c.startsWith("podman machine list"))).toEqual([]);
+  });
+
+  test("Linux --check reports the Linux runner decision", () => {
+    const env = scratch("Linux");
+    const r = run(["--check"], env);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("on Linux select an isolated runner");
+    expect(r.stdout).not.toContain("on macOS this script would ask");
   });
 });

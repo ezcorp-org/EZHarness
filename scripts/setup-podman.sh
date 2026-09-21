@@ -137,7 +137,7 @@ case "$OS" in
     else
       die "a Compose CLI is required (docker-compose-plugin or docker-compose); it is a client only, no Docker daemon is needed"
     fi
-    SOCKET="/run/user/$(id -u)/podman/podman.sock"
+    SOCKET="${EZ_SETUP_PODMAN_SOCKET:-/run/user/$(id -u)/podman/podman.sock}"
     if [ -S "$SOCKET" ]; then
       ok "podman socket at $SOCKET"
     elif command -v systemctl >/dev/null 2>&1; then
@@ -158,23 +158,46 @@ elif [ "$CHECK_ONLY" = 1 ]; then
 else
   [ -f "$ENV_EXAMPLE" ] || die "$ENV_EXAMPLE is missing"
   command -v openssl >/dev/null 2>&1 || die "openssl is required to generate secrets"
+  command -v mktemp >/dev/null 2>&1 || die "mktemp is required to create $ENV_FILE safely"
   secret32="$(openssl rand -base64 32)"
   salt16="$(openssl rand -base64 16)"
   jwt32="$(openssl rand -base64 32)"
+  # Build the complete file privately beside its destination. A hard link is
+  # then an atomic, no-clobber install: concurrent setup runs cannot replace
+  # one another, and an interruption cannot leave a partial final file.
+  env_tmp="$(umask 077 && mktemp "${ENV_FILE}.tmp.XXXXXX")" || die "could not create a private temporary environment file"
+  cleanup_env_tmp() { [ -n "${env_tmp:-}" ] && rm -f "$env_tmp"; }
+  trap cleanup_env_tmp EXIT
+  trap 'exit 1' HUP INT TERM
   # `|` as the sed delimiter: base64 contains `/` and `+`, never `|`.
   sed \
     -e "s|^EZCORP_ENCRYPTION_SECRET=replace-with-openssl-rand-base64-32|EZCORP_ENCRYPTION_SECRET=$secret32|" \
     -e "s|^EZCORP_ENCRYPTION_SALT=replace-with-openssl-rand-base64-16|EZCORP_ENCRYPTION_SALT=$salt16|" \
     -e "s|^EZCORP_JWT_SECRET=replace-with-openssl-rand-base64-32|EZCORP_JWT_SECRET=$jwt32|" \
     -e "s|^EZCORP_PUBLIC_URL=https://ezcorp.example.com|EZCORP_PUBLIC_URL=http://localhost:4000|" \
-    "$ENV_EXAMPLE" >"$ENV_FILE"
-  chmod 600 "$ENV_FILE"
-  # Prove the placeholders are gone rather than trust the sed matched.
-  if grep -q "replace-with-openssl" "$ENV_FILE"; then
-    rm -f "$ENV_FILE"
-    die "placeholder substitution failed — $ENV_EXAMPLE changed shape; not leaving a half-filled $ENV_FILE behind"
+    "$ENV_EXAMPLE" >"$env_tmp"
+  chmod 600 "$env_tmp"
+  # Prove each expected substitution happened. Merely checking that no
+  # placeholder remains would accept an example that removed a line.
+  if ! grep -Fqx "EZCORP_ENCRYPTION_SECRET=$secret32" "$env_tmp" ||
+    ! grep -Fqx "EZCORP_ENCRYPTION_SALT=$salt16" "$env_tmp" ||
+    ! grep -Fqx "EZCORP_JWT_SECRET=$jwt32" "$env_tmp" ||
+    ! grep -Fqx "EZCORP_PUBLIC_URL=http://localhost:4000" "$env_tmp"; then
+    die "placeholder substitution failed — $ENV_EXAMPLE changed shape; no $ENV_FILE was created"
   fi
-  ok "created with fresh secrets, mode 600, EZCORP_PUBLIC_URL=http://localhost:4000"
+  if ln "$env_tmp" "$ENV_FILE" 2>/dev/null; then
+    rm -f "$env_tmp"
+    env_tmp=""
+    trap - EXIT HUP INT TERM
+    ok "created with fresh secrets, mode 600, EZCORP_PUBLIC_URL=http://localhost:4000"
+  elif [ -f "$ENV_FILE" ]; then
+    cleanup_env_tmp
+    env_tmp=""
+    trap - EXIT HUP INT TERM
+    ok "another setup created $ENV_FILE — left untouched"
+  else
+    die "could not install $ENV_FILE without replacing an existing file"
+  fi
 fi
 
 # ── 3. Bind-mount sources ──────────────────────────────────────────────────
@@ -199,6 +222,10 @@ env_value() { sed -n "s|^$1=||p" "$ENV_FILE" | tail -1; }
 runner_configured() {
   [ -f "$ENV_FILE" ] || return 1
   [ -n "$(env_value EZCORP_RUNNER_COMPOSE_FILE)" ] && return 0
+  # The isolated bind-mounted socket works only on Linux. Treating these
+  # values as usable on macOS skips the required trusted-local decision and
+  # produces a stack that cannot reach its runner.
+  [ "$OS" = "Linux" ] || return 1
   [ -n "$(env_value EZ_RUNNER_SOCKET_DIR)" ] &&
     [ -n "$(env_value EZ_RUNNER_TOKEN_FILE)" ] &&
     [ -n "$(env_value EZ_RUNNER_GROUP)" ]
@@ -233,7 +260,11 @@ write_trusted_local() {
 if runner_configured; then
   ok "already configured in $ENV_FILE — left as is"
 elif [ "$CHECK_ONLY" = 1 ]; then
-  todo "not configured; on macOS this script would ask before selecting trusted-local"
+  if [ "$OS" = "Darwin" ]; then
+    todo "not configured; on macOS this script would ask before selecting trusted-local"
+  else
+    todo "not configured; on Linux select an isolated runner or explicitly accept trusted-local"
+  fi
 elif [ "$OS" = "Darwin" ]; then
   if [ "$ACCEPT_UNSANDBOXED" = 1 ]; then
     write_trusted_local
