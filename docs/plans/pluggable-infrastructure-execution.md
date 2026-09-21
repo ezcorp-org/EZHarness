@@ -16,7 +16,7 @@ Use the existing v4 contract, schema generator, approval engine, broker and test
 
 ## Acceptance gates
 
-gates/pluggable-root.md tracks review, repository implementation, verification and live acceptance. tasks/todo.md retains every backlog item. No task is closed merely because a subset passes.
+gates/pluggable-root.md tracks review, repository implementation, verification and live acceptance. tasks/pluggable-infrastructure.md retains the completed MVP task record and deferred backlog. No task is closed merely because a subset passes.
 
 ## Implementation history
 

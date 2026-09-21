@@ -38,4 +38,4 @@ Follow the [local provider setup](../../extensions/local-sandbox/README.md) and 
 
 Claude/Codex guest workers are excluded. All R4 features, external-host networking, Incus, Infisical, second-provider portability, previews, and Compose services are deferred. Graceful application restart is qualified. Host reboot, general helper-crash recovery, automatic resumption of an interrupted model run, and migration of an existing host project are not qualified.
 
-[Receipt digests](pluggable-local-mvp/receipts.json) identify the retained local evidence under `tasks/evidence/`. Raw browser reports remain private. No deployment, push, pull request, or merge was performed.
+[Receipt digests](pluggable-local-mvp/receipts.json) identify the retained local evidence under `tasks/evidence/`. Raw browser reports remain private. This report records local validation before publication; it does not claim deployment or merge.
