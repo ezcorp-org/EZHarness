@@ -57,7 +57,7 @@ OS="${EZ_SETUP_OS:-$(uname -s)}"
 MACHINE_CPUS="${EZ_MACHINE_CPUS:-4}"
 MACHINE_MEMORY="${EZ_MACHINE_MEMORY:-8192}"
 MACHINE_DISK="${EZ_MACHINE_DISK:-60}"
-READY_URL="${EZ_SETUP_READY_URL:-http://localhost:4000/api/ready}"
+READY_URL="${EZ_SETUP_READY_URL:-}"
 READY_TIMEOUT="${EZ_SETUP_READY_TIMEOUT:-180}"
 
 CHECK_ONLY=0
@@ -85,15 +85,22 @@ ACK_SENTENCE="I-understand-extensions-run-with-the-apps-full-powers"
 
 # Every temporary artifact is a sibling of the destination, so the final
 # rename stays on one filesystem and is atomic on both BSD and GNU hosts.
-# The lock serializes concurrent setup processes. It is intentionally a plain
-# mkdir/rmdir lock: both operations and every utility below ship on macOS.
+# The lock serializes concurrent setup processes. Its PID-named owner marker
+# makes an interrupted owner's directory recoverable using only utilities that
+# ship on macOS.
 env_tmp=""
+secret_tmp=""
 trusted_tmp=""
+snapshot_tmp=""
 env_lock=""
+env_lock_owner=""
 # shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap below.
 cleanup_setup_artifacts() {
   [ -z "$env_tmp" ] || rm -f "$env_tmp"
+  [ -z "$secret_tmp" ] || rm -f "$secret_tmp"
   [ -z "$trusted_tmp" ] || rm -f "$trusted_tmp"
+  [ -z "$snapshot_tmp" ] || rm -f "$snapshot_tmp"
+  [ -z "$env_lock_owner" ] || rm -f "$env_lock_owner"
   [ -z "$env_lock" ] || rmdir "$env_lock" 2>/dev/null || true
 }
 trap cleanup_setup_artifacts EXIT
@@ -187,29 +194,71 @@ else
   [ -f "$ENV_EXAMPLE" ] || die "$ENV_EXAMPLE is missing"
   command -v openssl >/dev/null 2>&1 || die "openssl is required to generate secrets"
   command -v mktemp >/dev/null 2>&1 || die "mktemp is required to create $ENV_FILE safely"
-  secret32="$(openssl rand -base64 32)"
-  salt16="$(openssl rand -base64 16)"
-  jwt32="$(openssl rand -base64 32)"
   # Build the complete file privately beside its destination. A hard link is
   # then an atomic, no-clobber install: concurrent setup runs cannot replace
   # one another, and an interruption cannot leave a partial final file.
   env_tmp="$(umask 077 && mktemp "${ENV_FILE}.tmp.XXXXXX")" || die "could not create a private temporary environment file"
-  # `|` as the sed delimiter: base64 contains `/` and `+`, never `|`.
-  sed \
-    -e "s|^EZCORP_ENCRYPTION_SECRET=replace-with-openssl-rand-base64-32|EZCORP_ENCRYPTION_SECRET=$secret32|" \
-    -e "s|^EZCORP_ENCRYPTION_SALT=replace-with-openssl-rand-base64-16|EZCORP_ENCRYPTION_SALT=$salt16|" \
-    -e "s|^EZCORP_JWT_SECRET=replace-with-openssl-rand-base64-32|EZCORP_JWT_SECRET=$jwt32|" \
-    -e "s|^EZCORP_PUBLIC_URL=https://ezcorp.example.com|EZCORP_PUBLIC_URL=http://localhost:4000|" \
-    "$ENV_EXAMPLE" >"$env_tmp"
-  chmod 600 "$env_tmp"
-  # Prove each expected substitution happened. Merely checking that no
-  # placeholder remains would accept an example that removed a line.
-  if ! grep -Fqx "EZCORP_ENCRYPTION_SECRET=$secret32" "$env_tmp" ||
-    ! grep -Fqx "EZCORP_ENCRYPTION_SALT=$salt16" "$env_tmp" ||
-    ! grep -Fqx "EZCORP_JWT_SECRET=$jwt32" "$env_tmp" ||
-    ! grep -Fqx "EZCORP_PUBLIC_URL=http://localhost:4000" "$env_tmp"; then
+  secret_tmp="$(umask 077 && mktemp "${ENV_FILE}.secrets.XXXXXX")" || die "could not create a private secret file"
+  # Keep generated values out of argv, the environment, and shell tracing.
+  # openssl writes directly into a private data file; the fixed AWK program
+  # reads that file and never receives a secret as an argument.
+  generate_secret() {
+    printf '%s=' "$1"
+    openssl rand -base64 "$2"
+  }
+  {
+    generate_secret EZCORP_ENCRYPTION_SECRET 32
+    generate_secret EZCORP_ENCRYPTION_SALT 16
+    generate_secret EZCORP_JWT_SECRET 32
+  } >"$secret_tmp"
+  chmod 600 "$secret_tmp"
+  if ! awk '
+    BEGIN {
+      placeholder["EZCORP_ENCRYPTION_SECRET"] = "replace-with-openssl-rand-base64-32"
+      placeholder["EZCORP_ENCRYPTION_SALT"] = "replace-with-openssl-rand-base64-16"
+      placeholder["EZCORP_JWT_SECRET"] = "replace-with-openssl-rand-base64-32"
+    }
+    NR == FNR {
+      separator = index($0, "=")
+      name = substr($0, 1, separator - 1)
+      value = substr($0, separator + 1)
+      if (separator < 2 || !(name in placeholder) || value == "" || secret_seen[name]++) bad = 1
+      secrets[name] = value
+      next
+    }
+    $0 == "EZCORP_PUBLIC_URL=https://ezcorp.example.com" {
+      print "EZCORP_PUBLIC_URL=http://localhost:4000"
+      public_url_replaced++
+      next
+    }
+    {
+      separator = index($0, "=")
+      name = ""
+      value = ""
+      if (separator > 1) {
+        name = substr($0, 1, separator - 1)
+        value = substr($0, separator + 1)
+      }
+      if ((name in placeholder) && value == placeholder[name]) {
+        print name "=" secrets[name]
+        replaced[name]++
+        next
+      }
+      print
+    }
+    END {
+      for (name in placeholder) {
+        if (secret_seen[name] != 1 || replaced[name] != 1) bad = 1
+      }
+      if (public_url_replaced != 1) bad = 1
+      if (bad) exit 1
+    }
+  ' "$secret_tmp" "$ENV_EXAMPLE" >"$env_tmp"; then
     die "placeholder substitution failed — $ENV_EXAMPLE changed shape; no $ENV_FILE was created"
   fi
+  rm -f "$secret_tmp"
+  secret_tmp=""
+  chmod 600 "$env_tmp"
   if ln "$env_tmp" "$ENV_FILE" 2>/dev/null; then
     rm -f "$env_tmp"
     env_tmp=""
@@ -244,10 +293,15 @@ say "extension runner"
 env_value() { sed -n "s|^$1=||p" "$ENV_FILE" | tail -1; }
 runner_configured() {
   [ -f "$ENV_FILE" ] || return 1
-  if [ "$(env_value EZCORP_RUNNER_COMPOSE_FILE)" = "$TRUSTED_LOCAL_COMPOSE" ] &&
+  runner_compose="$(env_value EZCORP_RUNNER_COMPOSE_FILE)"
+  if [ "$runner_compose" = "$TRUSTED_LOCAL_COMPOSE" ] &&
     [ "$(env_value "$ACK_VARIABLE")" = "$ACK_SENTENCE" ]; then
     return 0
   fi
+  # Any non-empty override selects a runner topology of its own. It must not
+  # fall through and borrow stale isolated-runner variables as proof that the
+  # selected Compose file is valid.
+  [ -z "$runner_compose" ] || return 1
   # The isolated bind-mounted socket works only on Linux. Treating these
   # values as usable on macOS skips the required trusted-local decision and
   # produces a stack that cannot reach its runner.
@@ -279,36 +333,87 @@ write_trusted_local() {
   # not append a duplicate block or replace it with an older snapshot.
   lock_path="${ENV_FILE}.setup.lock"
   lock_waited=0
-  while ! mkdir "$lock_path" 2>/dev/null; do
-    if runner_configured; then
-      ok "trusted-local was configured by another setup process"
-      return 0
+  while :; do
+    while ! mkdir "$lock_path" 2>/dev/null; do
+      if runner_configured; then
+        ok "trusted-local was configured by another setup process"
+        return 0
+      fi
+      lock_live=0
+      lock_known=0
+      for owner_file in "$lock_path"/owner.*; do
+        [ -e "$owner_file" ] || continue
+        lock_known=1
+        owner_pid="${owner_file##*.}"
+        case "$owner_pid" in
+          '' | *[!0-9]*) continue ;;
+        esac
+        if kill -0 "$owner_pid" 2>/dev/null; then
+          lock_live=1
+        else
+          # The marker name includes the dead PID. Removing that exact name can
+          # never remove a new owner's marker after another process recreates the
+          # directory, so concurrent stale-lock recovery remains safe.
+          rm -f "$owner_file"
+        fi
+      done
+      if [ "$lock_live" = 0 ] && rmdir "$lock_path" 2>/dev/null; then
+        if [ "$lock_known" = 1 ]; then
+          todo "recovered stale setup lock"
+        fi
+        continue
+      fi
+      [ "$lock_waited" -lt 30 ] || die "timed out waiting for another setup process to update $ENV_FILE"
+      sleep 1
+      lock_waited=$((lock_waited + 1))
+    done
+    candidate_owner="$lock_path/owner.$$"
+    # A concurrent stale reaper can remove the new empty directory before this
+    # marker is written. If so, retry instead of proceeding without ownership.
+    if (umask 077 && : >"$candidate_owner") 2>/dev/null; then
+      env_lock="$lock_path"
+      env_lock_owner="$candidate_owner"
+      break
     fi
-    [ "$lock_waited" -lt 30 ] || die "timed out waiting for another setup process to update $ENV_FILE"
-    sleep 1
-    lock_waited=$((lock_waited + 1))
+    rmdir "$lock_path" 2>/dev/null || true
   done
-  env_lock="$lock_path"
 
   if runner_configured; then
+    rm -f "$env_lock_owner"
+    env_lock_owner=""
     rmdir "$env_lock"
     env_lock=""
     ok "trusted-local already configured in $ENV_FILE"
     return 0
   fi
   [ ! -L "$ENV_FILE" ] || die "cannot atomically update symbolic-link environment file $ENV_FILE; update its target manually"
+  snapshot_tmp="$(umask 077 && mktemp "${ENV_FILE}.snapshot.XXXXXX")" ||
+    die "could not snapshot $ENV_FILE before updating it"
+  cat "$ENV_FILE" >"$snapshot_tmp"
+  chmod 600 "$snapshot_tmp"
   trusted_tmp="$(umask 077 && mktemp "${ENV_FILE}.trusted-local.XXXXXX")" ||
     die "could not create a private temporary environment file"
   {
-    cat "$ENV_FILE"
+    cat "$snapshot_tmp"
     printf '\n# ─── Extension runner: trusted-local (written by scripts/setup-podman.sh) ──\n'
     printf '# No sandbox applies to extensions in this mode. See docs/macos-local-dev.md.\n'
     printf 'EZCORP_RUNNER_COMPOSE_FILE=%s\n' "$TRUSTED_LOCAL_COMPOSE"
     printf '%s=%s\n' "$ACK_VARIABLE" "$ACK_SENTENCE"
   } >"$trusted_tmp"
   chmod 600 "$trusted_tmp"
+  # Portable shell has no compare-and-swap rename. Comparing immediately
+  # before mv detects every completed external content edit; only the tiny
+  # instruction-level interval between this cmp and mv is fundamentally
+  # uncloseable without a platform-specific rename primitive.
+  if [ -L "$ENV_FILE" ] || [ ! -f "$ENV_FILE" ] || ! cmp -s "$snapshot_tmp" "$ENV_FILE"; then
+    die "$ENV_FILE changed while trusted-local was being prepared; left the external update untouched"
+  fi
   mv -f "$trusted_tmp" "$ENV_FILE"
   trusted_tmp=""
+  rm -f "$snapshot_tmp"
+  snapshot_tmp=""
+  rm -f "$env_lock_owner"
+  env_lock_owner=""
   rmdir "$env_lock"
   env_lock=""
   ok "trusted-local selected in $ENV_FILE"
@@ -367,28 +472,38 @@ if [ "$CHECK_ONLY" = 1 ] || [ "$NO_START" = 1 ]; then
 fi
 EZ_COMPOSE_ENV_FILE="$ENV_FILE" bash scripts/podman-compose.sh --prod up -d --build
 
+if [ -z "$READY_URL" ]; then
+  ready_port="$(env_value EZCORP_PORT_HOST)"
+  [ -n "$ready_port" ] || ready_port=4000
+  case "$ready_port" in
+    *[!0-9]*) die "EZCORP_PORT_HOST must be a whole-number port so setup can check readiness" ;;
+  esac
+  [ "$ready_port" -gt 0 ] && [ "$ready_port" -le 65535 ] ||
+    die "EZCORP_PORT_HOST must be between 1 and 65535"
+  READY_URL="http://localhost:${ready_port}/api/ready"
+fi
 say "waiting for $READY_URL (up to ${READY_TIMEOUT}s)"
 case "$READY_TIMEOUT" in
   '' | *[!0-9]*) die "EZ_SETUP_READY_TIMEOUT must be a positive whole number of seconds" ;;
 esac
 [ "$READY_TIMEOUT" -gt 0 ] || die "EZ_SETUP_READY_TIMEOUT must be greater than zero"
-now="$(date +%s)" || die "could not read the system clock"
-deadline=$((now + READY_TIMEOUT))
-while [ "$now" -lt "$deadline" ]; do
-  remaining=$((deadline - now))
+remaining="$READY_TIMEOUT"
+while [ "$remaining" -gt 0 ]; do
   curl_timeout=5
   [ "$remaining" -ge "$curl_timeout" ] || curl_timeout="$remaining"
   if body="$(curl -fsS --max-time "$curl_timeout" "$READY_URL" 2>/dev/null)" && [ -n "$body" ]; then
     ok "ready: $body"
-    printf '\nOpen http://localhost:4000 and create the admin account.\n'
+    printf '\nOpen %s and create the admin account.\n' "${READY_URL%/api/ready}"
     exit 0
   fi
-  now="$(date +%s)" || die "could not read the system clock"
-  [ "$now" -lt "$deadline" ] || break
-  remaining=$((deadline - now))
+  # Charge the full maximum curl allocation even when curl returns early. This
+  # conservative accounting gives the blocking operations a strict upper
+  # budget without trusting a wall clock that NTP or an operator can move.
+  remaining=$((remaining - curl_timeout))
+  [ "$remaining" -gt 0 ] || break
   sleep_for=5
   [ "$remaining" -ge "$sleep_for" ] || sleep_for="$remaining"
   sleep "$sleep_for"
-  now="$(date +%s)" || die "could not read the system clock"
+  remaining=$((remaining - sleep_for))
 done
 die "the app did not report ready within ${READY_TIMEOUT}s — see: bash scripts/podman-compose.sh --prod logs app"

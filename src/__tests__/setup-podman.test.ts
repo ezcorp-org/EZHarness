@@ -40,11 +40,20 @@ const EXAMPLE = join(REPO_ROOT, ".env.prod.example");
 const BASH = process.env.EZ_SETUP_TEST_BASH ?? Bun.which("bash") ?? (() => {
   throw new Error("setup-podman tests require bash on PATH");
 })();
-const REAL_DATE = Bun.which("date") ?? (() => {
-  throw new Error("setup-podman tests require date on PATH");
-})();
 const REAL_MV = Bun.which("mv") ?? (() => {
   throw new Error("setup-podman tests require mv on PATH");
+})();
+const REAL_CMP = Bun.which("cmp") ?? (() => {
+  throw new Error("setup-podman tests require cmp on PATH");
+})();
+const REAL_AWK = Bun.which("awk") ?? (() => {
+  throw new Error("setup-podman tests require awk on PATH");
+})();
+const REAL_SED = Bun.which("sed") ?? (() => {
+  throw new Error("setup-podman tests require sed on PATH");
+})();
+const REAL_GREP = Bun.which("grep") ?? (() => {
+  throw new Error("setup-podman tests require grep on PATH");
 })();
 const REAL_SLEEP = Bun.which("sleep") ?? (() => {
   throw new Error("setup-podman tests require sleep on PATH");
@@ -53,6 +62,7 @@ const REAL_SLEEP = Bun.which("sleep") ?? (() => {
 const SANDBOX = mkdtempSync(join(tmpdir(), "setup-podman-"));
 const BIN = join(SANDBOX, "bin");
 const CALLS = join(SANDBOX, "calls.log");
+const SECRET_SENTINEL = "audit-secret-never-in-child-argv";
 mkdirSync(BIN, { recursive: true });
 
 // Stubs record their argv and answer the few probes the script makes.
@@ -67,20 +77,18 @@ stub("docker", `[ "$1 $2" = "compose version" ] && [ "\${EZ_TEST_DOCKER_COMPOSE_
 stub("docker-compose", `[ "$1" = version ] && [ "\${EZ_TEST_STANDALONE_COMPOSE_WORKS:-1}" = 1 ]`);
 stub("systemctl", "exit 0");
 stub("bash", "exit 0");
+stub("openssl", `printf '%s\\n' '${SECRET_SENTINEL}'`);
 stub("curl", `[ "\${EZ_TEST_CURL_SUCCESS:-0}" = 1 ] && printf '%s\\n' '{"ready":true}'`);
 stub("sleep", `[ "\${EZ_TEST_FAST_SLEEP:-0}" = 1 ] && exit 0
 exec "${REAL_SLEEP}" "$@"`);
-stub(
-  "date",
-  `[ -n "\${EZ_TEST_DATE_FILE:-}" ] || exec "${REAL_DATE}" "$@"
-value="$(sed -n '1p' "$EZ_TEST_DATE_FILE")"
-[ -n "$value" ] || exit 1
-sed '1d' "$EZ_TEST_DATE_FILE" > "$EZ_TEST_DATE_FILE.next"
-"${REAL_MV}" "$EZ_TEST_DATE_FILE.next" "$EZ_TEST_DATE_FILE"
-printf '%s\\n' "$value"`,
-);
+stub("date", "exit 99");
 stub("mv", `[ "\${EZ_TEST_MV_FAIL:-0}" != 1 ] || exit 73
 exec "${REAL_MV}" "$@"`);
+stub("cmp", `[ -z "\${EZ_TEST_DRIFT_FILE:-}" ] || printf '%s\\n' 'EXTERNAL_SETTING=must-survive' > "$EZ_TEST_DRIFT_FILE"
+exec "${REAL_CMP}" "$@"`);
+stub("awk", `exec "${REAL_AWK}" "$@"`);
+stub("sed", `exec "${REAL_SED}" "$@"`);
+stub("grep", `exec "${REAL_GREP}" "$@"`);
 
 afterAll(() => rmSync(SANDBOX, { recursive: true, force: true }));
 
@@ -164,6 +172,20 @@ describe("setup-podman.sh — the env file", () => {
     for (const p of PLACEHOLDERS) expect(text).not.toContain(p);
     expect(text).toContain("EZCORP_PUBLIC_URL=http://localhost:4000");
     expect(statSync(env.EZ_SETUP_ENV_FILE).mode & 0o777).toBe(0o600);
+  });
+
+  test("never places generated secrets in child argv or process output", () => {
+    const env = scratch("Darwin");
+    const r = run(["--no-start", "--accept-unsandboxed-extensions"], env);
+
+    expect(r.exitCode).toBe(0);
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toContain(
+      `EZCORP_ENCRYPTION_SECRET=${SECRET_SENTINEL}`,
+    );
+    expect([r.stdout, r.stderr, ...r.calls].join("\n")).not.toContain(SECRET_SENTINEL);
+    expect(
+      readdirSync(join(env.EZ_SETUP_ENV_FILE, "..")).filter((name) => name.includes(".secrets.")),
+    ).toEqual([]);
   });
 
   test("does not rotate secrets or rewrite an already configured file on re-run", () => {
@@ -274,6 +296,27 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     expect(readdirSync(join(env.EZ_SETUP_ENV_FILE, "..")).filter((name) => name.includes("trusted-local"))).toEqual([]);
   });
 
+  test("refuses an external edit made after the snapshot and preserves that edit", () => {
+    const env = scratch("Darwin");
+    writeFileSync(env.EZ_SETUP_ENV_FILE, "ORIGINAL_SETTING=keep\n", { mode: 0o600 });
+
+    const r = run(
+      ["--no-start", "--accept-unsandboxed-extensions"],
+      env,
+      {},
+      { EZ_TEST_DRIFT_FILE: env.EZ_SETUP_ENV_FILE },
+    );
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("changed while trusted-local was being prepared");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe("EXTERNAL_SETTING=must-survive\n");
+    expect(
+      readdirSync(join(env.EZ_SETUP_ENV_FILE, "..")).filter((name) =>
+        name.includes("snapshot") || name.includes("trusted-local") || name.includes("setup.lock")
+      ),
+    ).toEqual([]);
+  });
+
   test("concurrent accepted runs publish one complete trusted-local block", async () => {
     const env = scratch("Darwin");
     writeFileSync(env.EZ_SETUP_ENV_FILE, "EZCORP_ENCRYPTION_SECRET=keep-this-secret\n", { mode: 0o600 });
@@ -304,6 +347,30 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     expect(r.exitCode).toBe(0);
     expect(r.stdout).not.toContain("already configured");
     expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(true);
+  });
+
+  test("Linux never lets an invalid trusted-local override fall through to stale isolated values", () => {
+    const env = scratch("Linux");
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      [
+        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+        `${UNSANDBOXED_ACK_VARIABLE}=wrong`,
+        "EZ_RUNNER_SOCKET_DIR=/run/ez-extension-runner",
+        "EZ_RUNNER_TOKEN_FILE=/etc/ezharness/extension-runner-token",
+        "EZ_RUNNER_GROUP=1",
+        "",
+      ].join("\n"),
+      { mode: 0o600 },
+    );
+
+    const r = run(["--no-start"], env);
+
+    expect(r.exitCode).toBe(2);
+    expect(r.stdout).not.toContain("already configured");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).not.toMatch(
+      new RegExp(`^${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}$`, "m"),
+    );
   });
 
   test("an unrelated Compose override does not count as trusted-local configuration", () => {
@@ -418,6 +485,39 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     expect(r.exitCode).toBe(2);
     expect(r.stdout).not.toContain("already configured");
   });
+
+  test("recovers a lock left by a dead setup PID", () => {
+    const env = scratch("Darwin");
+    writeFileSync(env.EZ_SETUP_ENV_FILE, "ORIGINAL_SETTING=keep\n", { mode: 0o600 });
+    const lock = `${env.EZ_SETUP_ENV_FILE}.setup.lock`;
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner.99999999"), "", { mode: 0o600 });
+
+    const r = run(["--no-start", "--accept-unsandboxed-extensions"], env);
+
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("recovered stale setup lock");
+    expect(existsSync(lock)).toBe(false);
+    expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(true);
+  });
+
+  test("concurrent runs safely recover one dead-owner lock", async () => {
+    const env = scratch("Darwin");
+    writeFileSync(env.EZ_SETUP_ENV_FILE, "ORIGINAL_SETTING=keep\n", { mode: 0o600 });
+    const lock = `${env.EZ_SETUP_ENV_FILE}.setup.lock`;
+    mkdirSync(lock);
+    writeFileSync(join(lock, "owner.99999999"), "", { mode: 0o600 });
+
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => runAsync(["--no-start", "--accept-unsandboxed-extensions"], env)),
+    );
+
+    expect(results.map((result) => result.exitCode)).toEqual(Array(8).fill(0));
+    const updated = readFileSync(env.EZ_SETUP_ENV_FILE, "utf8");
+    expect(updated.match(/^EZCORP_RUNNER_COMPOSE_FILE=/gm)?.length).toBe(1);
+    expect(updated.match(new RegExp(`^${UNSANDBOXED_ACK_VARIABLE}=`, "gm"))?.length).toBe(1);
+    expect(existsSync(lock)).toBe(false);
+  });
 });
 
 describe("setup-podman.sh — the engine and the check mode", () => {
@@ -462,7 +562,9 @@ describe("setup-podman.sh — the engine and the check mode", () => {
     expect(r.exitCode).toBe(0);
     expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
     expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
-    expect(r.calls.filter((c) => !c.startsWith("podman machine list"))).toEqual([]);
+    expect(
+      r.calls.filter((c) => !c.startsWith("podman machine list") && !c.startsWith("grep ")),
+    ).toEqual([]);
   });
 
   test("Linux --check reports the Linux runner decision", () => {
@@ -491,15 +593,54 @@ describe("setup-podman.sh — start and readiness", () => {
     expect(r.stdout).toContain('ready: {"ready":true}');
   });
 
+  test("derives readiness and the completion URL from the documented host port", () => {
+    const env = scratch("Darwin");
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      [
+        "EZCORP_PORT_HOST=5123",
+        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+        `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+        "",
+      ].join("\n"),
+      { mode: 0o600 },
+    );
+
+    const r = run([], env, {}, { EZ_TEST_CURL_SUCCESS: "1" });
+
+    expect(r.exitCode).toBe(0);
+    expect(r.calls).toContain("curl -fsS --max-time 5 http://localhost:5123/api/ready");
+    expect(r.stdout).toContain("Open http://localhost:5123 and create the admin account");
+  });
+
+  test("an explicit readiness URL overrides the env file's host port", () => {
+    const env = scratch("Darwin");
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      [
+        "EZCORP_PORT_HOST=5123",
+        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+        `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+        "",
+      ].join("\n"),
+      { mode: 0o600 },
+    );
+    const readyUrl = "http://127.0.0.1:6123/custom-ready";
+
+    const r = run([], { ...env, EZ_SETUP_READY_URL: readyUrl }, {}, { EZ_TEST_CURL_SUCCESS: "1" });
+
+    expect(r.exitCode).toBe(0);
+    expect(r.calls).toContain(`curl -fsS --max-time 5 ${readyUrl}`);
+    expect(r.calls.some((call) => call.includes("localhost:5123"))).toBe(false);
+  });
+
   test("counts curl time toward the deadline and caps the final sleep", () => {
     const env = scratch("Darwin");
-    const dateFile = join(env.EZ_SETUP_ENV_FILE, "..", "dates");
-    writeFileSync(dateFile, "100\n105\n107\n");
     const r = run(
       ["--accept-unsandboxed-extensions"],
       { ...env, EZ_SETUP_READY_TIMEOUT: "7" },
       {},
-      { EZ_TEST_DATE_FILE: dateFile, EZ_TEST_FAST_SLEEP: "1" },
+      { EZ_TEST_FAST_SLEEP: "1" },
     );
 
     expect(r.exitCode).toBe(1);
@@ -507,18 +648,17 @@ describe("setup-podman.sh — start and readiness", () => {
       `curl -fsS --max-time 5 ${env.EZ_SETUP_READY_URL ?? "http://localhost:4000/api/ready"}`,
     ]);
     expect(r.calls.filter((call) => call.startsWith("sleep "))).toEqual(["sleep 2"]);
+    expect(r.calls.some((call) => call.startsWith("date "))).toBe(false);
     expect(r.stderr).toContain("within 7s");
   });
 
   test("caps curl itself when the deadline is less than five seconds away", () => {
     const env = scratch("Darwin");
-    const dateFile = join(env.EZ_SETUP_ENV_FILE, "..", "dates");
-    writeFileSync(dateFile, "200\n203\n");
     const r = run(
       ["--accept-unsandboxed-extensions"],
       { ...env, EZ_SETUP_READY_TIMEOUT: "3" },
       {},
-      { EZ_TEST_DATE_FILE: dateFile, EZ_TEST_FAST_SLEEP: "1" },
+      { EZ_TEST_FAST_SLEEP: "1" },
     );
 
     expect(r.exitCode).toBe(1);
@@ -526,5 +666,6 @@ describe("setup-podman.sh — start and readiness", () => {
       "curl -fsS --max-time 3 http://localhost:4000/api/ready",
     ]);
     expect(r.calls.some((call) => call.startsWith("sleep "))).toBe(false);
+    expect(r.calls.some((call) => call.startsWith("date "))).toBe(false);
   });
 });
