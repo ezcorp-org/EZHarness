@@ -120,8 +120,8 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutation-nightly-shard-${{ matrix.shard }}
-          path: coverage/quality/mutation.json
-          # A shard that died has no report. The merge below counts reports
+          path: coverage/quality
+          # A shard that died has no quality report. The merge below counts reports
           # and fails on a shortfall, so this must not add a second red here.
           if-no-files-found: warn
           retention-days: 3
@@ -168,12 +168,12 @@ jobs:
         run: |
           if [ "$ENFORCE" = "true" ]; then
             echo "enforce=true — a below-threshold merged score will FAIL this run"
-            bun scripts/merge-mutation-reports.ts --shards "$MUTATION_SHARDS" --enforce "mutation-shards/*/mutation.json"
+            bun scripts/merge-mutation-reports.ts --shards "$MUTATION_SHARDS" --enforce "mutation-shards/*/*.json"
           else
-            bun scripts/merge-mutation-reports.ts --shards "$MUTATION_SHARDS" "mutation-shards/*/mutation.json"
+            bun scripts/merge-mutation-reports.ts --shards "$MUTATION_SHARDS" "mutation-shards/*/*.json"
           fi
       # --expect names the gate this workflow ran. If the merge above wrote no
-      # mutation.json the summary is FAIL with a finding that says so — it must
+      # report the summary is FAIL with a finding that says so — it must
       # never report PASS over a run that measured nothing. (It did: the
       # summary read "PASS / No failures" on a night when every step had died.)
       - name: Quality summary

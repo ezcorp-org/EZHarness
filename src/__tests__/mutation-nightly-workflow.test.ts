@@ -9,7 +9,7 @@ interface WorkflowJob {
   outputs?: Record<string, string>;
   strategy?: { matrix?: string };
   if?: string;
-  steps?: Array<{ id?: string; name?: string; run?: string }>;
+  steps?: Array<{ id?: string; name?: string; run?: string; with?: Record<string, string> }>;
 }
 
 const workflow = Bun.YAML.parse(
@@ -24,6 +24,8 @@ test("nightly mutation derives its shard matrix and merge count from one value",
   const summary = workflow.jobs.summary;
   const plannerScript = planner?.steps?.find((step) => step.id === "shards")?.run;
   const mutationCommand = shard?.steps?.find((step) => step.name === "Mutate shard")?.run;
+  const shardUpload = shard?.steps?.find((step) => step.name === "Upload shard report");
+  const mergeCommand = summary?.steps?.find((step) => step.name === "Merge shard reports")?.run;
 
   expect(planner?.env?.MUTATION_SHARDS).toBe("6");
   expect(planner?.outputs).toEqual({
@@ -47,7 +49,10 @@ test("nightly mutation derives its shard matrix and merge count from one value",
   expect(shard?.needs).toEqual(["shard-plan"]);
   expect(shard?.strategy?.matrix).toBe(gha("fromJSON(needs.shard-plan.outputs.matrix)"));
   expect(mutationCommand).toContain('"$SHARD/$SHARD_TOTAL"');
+  expect(shardUpload?.with?.path).toBe("coverage/quality");
   expect(summary?.needs).toEqual(["shard-plan", "mutation-shard"]);
   expect(summary?.if).toBe("always()");
   expect(summary?.env?.MUTATION_SHARDS).toBe(gha("needs.shard-plan.outputs.count"));
+  expect(mergeCommand).toContain('"mutation-shards/*/*.json"');
+  expect(mergeCommand).not.toContain("mutation.json");
 });
