@@ -20,7 +20,7 @@ import { join } from "node:path";
  * ## Why this is not a tautology
  *
  * The rule is exercised, not read: each case runs the real lib under
- * /bin/bash with a $PATH containing only the stub engines that case needs,
+ * Bash with a $PATH containing only the stub engines that case needs,
  * and reads back which one it chose. The second suite reads the converted
  * scripts from disk and asserts the shape that makes the rule apply to them
  * at all — they source the lib, and no engine call bypasses "$ENGINE".
@@ -28,12 +28,19 @@ import { join } from "node:path";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const LIB = join(REPO_ROOT, "scripts", "lib", "container-engine.sh");
+const BASH = Bun.which("bash") ?? (() => {
+  throw new Error("container-engine tests require bash on PATH");
+})();
 const SANDBOX = mkdtempSync(join(tmpdir(), "container-engine-"));
 afterAll(() => rmSync(SANDBOX, { recursive: true, force: true }));
 
-/** A $PATH dir holding only the named stub engines. */
+/** A $PATH dir holding only the named engines plus deterministic shell utilities. */
 function pathWith(...engines: string[]): string {
   const dir = mkdtempSync(join(SANDBOX, "bin-"));
+  writeFileSync(join(dir, "id"), "#!/bin/sh\n[ \"$1\" = -u ] && printf '1000\\n'\n");
+  writeFileSync(join(dir, "head"), "#!/bin/sh\nIFS= read -r line && printf '%s\\n' \"$line\"\n");
+  chmodSync(join(dir, "id"), 0o755);
+  chmodSync(join(dir, "head"), 0o755);
   for (const e of engines) {
     writeFileSync(join(dir, e), "#!/bin/sh\nexit 0\n");
     chmodSync(join(dir, e), 0o755);
@@ -45,8 +52,8 @@ function resolve(path: string, env: Record<string, string> = {}): { engine: stri
   // A clean environment: only what the case sets. `CI` in particular must not
   // leak in from the machine running this suite.
   const proc = Bun.spawnSync({
-    cmd: ["/bin/bash", "-c", `source "${LIB}" && printf '%s' "$ENGINE"`],
-    env: { PATH: `${path}:/usr/bin:/bin`, ...env },
+    cmd: [BASH, "-c", `source "${LIB}" && printf '%s' "$ENGINE"`],
+    env: { PATH: path, ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -115,8 +122,8 @@ const BARE_DOCKER = /(?<![\w\-./`'"])docker (compose|rm|rmi|build|inspect|run|lo
 
 function resolveCompose(path: string, env: Record<string, string> = {}): { compose: string; dockerHost: string; exitCode: number; stderr: string } {
   const proc = Bun.spawnSync({
-    cmd: ["/bin/bash", "-c", `source "${LIB}" && resolve_compose && printf '%s\\n%s' "\${COMPOSE[*]}" "\${DOCKER_HOST:-}"`],
-    env: { PATH: `${path}:/usr/bin:/bin`, ...env },
+    cmd: [BASH, "-c", `source "${LIB}" && resolve_compose && printf '%s\\n%s' "\${COMPOSE[*]}" "\${DOCKER_HOST:-}"`],
+    env: { PATH: path, ...env },
     stdout: "pipe",
     stderr: "pipe",
   });
