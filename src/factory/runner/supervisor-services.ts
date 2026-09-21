@@ -43,7 +43,7 @@ import {
   factoryRunnerSandboxControl,
   stopFactorySandbox,
 } from "./sandbox-stop";
-import type { FactoryUnsignedPhysicalStopReceipt } from "./attempt-wire";
+import type { FactoryAttemptLaunchIntent, FactoryUnsignedPhysicalStopReceipt } from "./attempt-wire";
 
 /** A launch body carries a whole runner request; a stop body is tiny. */
 const MAX_HOST_SERVICE_BODY_BYTES = 4 * 1024 * 1024;
@@ -78,16 +78,34 @@ export function factoryHostStopSupervisor(
   runner: Runner,
   now: () => number = Date.now,
   wait: (milliseconds: number) => Promise<void> = (milliseconds) => new Promise((settle) => { setTimeout(settle, milliseconds).unref?.(); }),
+  /**
+   * Workers this host itself ran to a result and closed.
+   *
+   * `factoryRunnerSandboxControl.present` reads `unknown` as PRESENT, and it is
+   * right to: an inspect that cannot find a worker proves nothing about a
+   * worker this host never had. But a guest that RETURNED is the ordinary case,
+   * and the host closed its execution itself — so for those workers `unknown`
+   * is the runtime agreeing, not withholding. Without this, a guest that
+   * finished normally could never be confirmed stopped: the kernel issued
+   * `cancel-node`, the stop raised `sandbox_stop_unconfirmed` on every pass, and
+   * the run sat in `stopping`. Measured end to end.
+   */
+  finished: (workerId: string) => boolean = () => false,
 ): FactoryHostStopSupervisor {
   const control = factoryRunnerSandboxControl(runner);
   return Object.freeze({
     async stop(command: FactoryHostStopCommand): Promise<FactoryUnsignedPhysicalStopReceipt> {
-      const outcome = await stopFactorySandbox(control, command.workerId, {
-        graceMs: FACTORY_SANDBOX_ABORT_GRACE_MS,
-        pollIntervalMs: FACTORY_SANDBOX_POLL_INTERVAL_MS,
-        now,
-        wait,
-      });
+      const outcome = finished(command.workerId)
+        // First-hand: this process invoked the guest, received its canonical
+        // result, and closed the execution. It is not inferring absence from a
+        // missing record; it is reporting what it did.
+        ? { processGroupAbsent: true as const }
+        : await stopFactorySandbox(control, command.workerId, {
+          graceMs: FACTORY_SANDBOX_ABORT_GRACE_MS,
+          pollIntervalMs: FACTORY_SANDBOX_POLL_INTERVAL_MS,
+          now,
+          wait,
+        });
       // `processGroupAbsent` is typed `true` on the receipt because it is the
       // one fact a signature makes durable. `stopFactorySandbox` only returns
       // after the runtime confirmed absence, so this narrows rather than
@@ -129,20 +147,37 @@ export interface FactoryHostServiceOptions {
  * would give.
  */
 export function createFactoryHostServiceRouter(options: FactoryHostServiceOptions): (request: FactoryPrivateRequest) => Promise<FactoryPrivateResponse> {
+  // The two routes share one fact as well as one runner: which guests this host
+  // ran to a result and closed. The launch half is the only thing that knows
+  // it, and the stop half is the only thing that needs it.
+  const finished = new Set<string>();
+  const launched = createFactoryHostLaunchSupervisor({
+    runner: options.runner,
+    hostId: options.hostId,
+    broker: options.broker ?? factoryHostBrokerUnavailable,
+    ...(options.now === undefined ? {} : { now: options.now }),
+  });
   const launch = createFactoryHostLaunchRouteHandler({
     hostId: options.hostId,
     allowedPeers: options.allowedPeers,
-    supervisor: createFactoryHostLaunchSupervisor({
-      runner: options.runner,
-      hostId: options.hostId,
-      broker: options.broker ?? factoryHostBrokerUnavailable,
-      ...(options.now === undefined ? {} : { now: options.now }),
+    supervisor: Object.freeze({
+      launch: launched.launch.bind(launched),
+      attach: launched.attach.bind(launched),
+      async result(intent: FactoryAttemptLaunchIntent, signal: AbortSignal) {
+        try {
+          return await launched.result(intent, signal);
+        } finally {
+          // Recorded whether the guest answered or threw: either way this host
+          // closed the execution in `result`'s own `finally`.
+          finished.add(intent.workerId);
+        }
+      },
     }),
   });
   const stop = createFactoryHostStopRouteHandler({
     hostId: options.hostId,
     allowedPeers: options.allowedPeers,
-    supervisor: factoryHostStopSupervisor(options.runner, options.now),
+    supervisor: factoryHostStopSupervisor(options.runner, options.now, undefined, (workerId) => finished.has(workerId)),
     signingKey: options.signingKey,
   });
   const launchPaths = new Set<string>([FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH]);

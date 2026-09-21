@@ -4,7 +4,9 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Runner, RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryPrivateRequest } from "../private-https";
+import { factoryAttemptLaunchIntentToWire, snapshotIntent, type FactoryAttemptLaunchIntent } from "./attempt-wire";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
 import { FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH } from "./host-launch-service";
 import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
@@ -56,6 +58,36 @@ const command = {
   hostId,
   reason: "completed" as const,
 };
+
+const launchDigest = `sha256:${"a".repeat(64)}`;
+
+/**
+ * One valid launch intent, built the way the product builds it.
+ *
+ * Every identity on the wire is derived and rechecked on arrival, so a literal
+ * would be refused; `snapshotIntent` is the only thing that can produce one.
+ * Nothing here is durable, which is what keeps this an in-process test.
+ */
+function launchIntent(): FactoryAttemptLaunchIntent {
+  const runner = { package: "runner", manifestName: "runner", version: "1", digest: launchDigest, export: "run", model: "m", configurationDigest: launchDigest };
+  const runnerRequest: FactoryRunnerRequest = {
+    schemaVersion: "factory.runner.request.v1",
+    authority: {
+      attemptId: "attempt-1", tenantId: "tenant-a", projectId: "project-a", runId: "run-a", nodeInstanceId: "node-a",
+      candidateGeneration: 2, attemptNumber: 3, grantRevision: 4, reservationGeneration: 5, executionEpoch: 6,
+      cancellationEpoch: 0, deadlineAtMs: 4_102_444_800_000, nextOperationIndex: 0,
+    },
+    runner,
+    input: { kind: "inline", value: { prompt: "one" } },
+    grants: [], resources: {}, tools: [],
+    broker: { audience: "gateway", attemptToken: "ephemeral" },
+  };
+  return snapshotIntent(
+    runnerRequest,
+    { reservationId: "reservation-1", grantRevision: 4, allocationGeneration: 5, holderGeneration: 5, allocationToken: "allocation-1", hostId },
+    { projectId: "project-a", reference: runner, trustRevision: 1, packageTrustDigest: launchDigest, releaseDigest: launchDigest, sourceDigest: launchDigest, artifactDigest: "a".repeat(64), imageDigest: launchDigest, manifestDigest: launchDigest, evidenceDigest: launchDigest, buildIdentity: "build-1", receiptDigest: launchDigest },
+  );
+}
 
 function request(overrides: Partial<FactoryPrivateRequest> = {}): FactoryPrivateRequest {
   return {
@@ -240,5 +272,66 @@ describe("startFactoryHostServices", () => {
     } finally {
       listener.stop();
     }
+  });
+});
+
+describe("a guest this host ran to a result", () => {
+  test("is confirmed stopped without asking the runtime to prove an absence it cannot", async () => {
+    // `factoryRunnerSandboxControl.present` reads `unknown` as PRESENT, and it
+    // is right to: an inspect that cannot find a worker proves nothing about a
+    // worker this host never had. A guest that RETURNED is the other case
+    // entirely — this host invoked it and closed its execution itself.
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "unknown"]]);
+    const terminated: string[] = [];
+    const runner = fakeRunner(states, { onTerminate: (id) => terminated.push(id) });
+    const receipt = await factoryHostStopSupervisor(runner, () => 7, async () => {}, (workerId) => workerId === "worker-1")
+      .stop(command, new AbortController().signal);
+    expect(receipt).toMatchObject({ processGroupAbsent: true, workerId: "worker-1", stoppedAtMs: 7 });
+    // Nothing was signalled or killed, because there was nothing left to kill.
+    expect(terminated).toEqual([]);
+    expect(states.get("worker-1")).toBe("unknown");
+  });
+
+  test("a worker this host never finished still has to be proved absent", async () => {
+    // Same `unknown` observation, no first-hand finish: the three phases run
+    // and the confirmation fails rather than being assumed.
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "unknown"]]);
+    let clock = 0;
+    const runner: Runner = { ...fakeRunner(states), async abort() {} };
+    await expect(factoryHostStopSupervisor(runner, () => { clock += 4_000; return clock; }, async () => {}, () => false).stop(command, new AbortController().signal))
+      .rejects.toMatchObject({ code: "sandbox_stop_unconfirmed" });
+  });
+
+  test("the router carries the finish from the result route to the stop route", async () => {
+    const touched: string[] = [];
+    const runner: Runner = {
+      ...fakeRunner(new Map()),
+      async inspect(id): Promise<RunnerInspection> { touched.push(`inspect:${id}`); return { id, state: "unknown", diagnostics: [] }; },
+      async cancel(id) { touched.push(`cancel:${id}`); },
+      async abort(id) { touched.push(`abort:${id}`); },
+    };
+    const handle = createFactoryHostServiceRouter({ hostId, allowedPeers: [peer], runner, signingKey: await keyMaterial() });
+    const intent = launchIntent();
+    const stop = { ...command, workerId: intent.workerId, reservationId: intent.lease.reservationId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration };
+
+    // Before the result route runs, this host knows nothing about the worker,
+    // so the stop is an ordinary three-phase proof — and `unknown` defeats it.
+    expect(body(await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) })))).toEqual({ error: "stop_failed" });
+    expect(touched.length).toBeGreaterThan(0);
+
+    // The result route is reached with a real intent. This host never launched
+    // the worker, so the supervisor refuses — and the finish is recorded from
+    // `result`'s own `finally`, exactly as it is when a guest answers.
+    const collected = await handle(request({ path: FACTORY_HOST_RESULT_PATH, body: Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) })) }));
+    expect(collected.status).toBe(409);
+    expect(body(collected)).toEqual({ error: "attempt_uncertain" });
+
+    // Now the same stop is first-hand knowledge and comes back signed, without
+    // the runner being asked a second time.
+    touched.length = 0;
+    const settled = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) }));
+    expect(settled.status).toBe(200);
+    expect(body(settled)).toMatchObject({ workerId: intent.workerId, processGroupAbsent: true, hostId, hostKeyId: "host-key-1" });
+    expect(touched).toEqual([]);
   });
 });
