@@ -23,6 +23,24 @@ EZCorp is a self-hosted AI platform that brings together multi-model chat, long-
 
 ## Quick Start (self-hosted, builds from source)
 
+**One command, Podman, macOS or Linux** — installs the engine if missing,
+creates `.env.prod` with real secrets, pre-creates the bind mounts, brings the
+stack up and waits for it to report ready:
+
+```bash
+git clone <repo-url> && cd ez-corp-ai
+bash scripts/setup-podman.sh
+```
+
+It never rewrites an existing `.env.prod`, and `--check` reports what it
+would do without changing anything. One decision it will **not** make for
+you: on macOS the isolated extension runner cannot work, so it shows you what
+`trusted-local` mode costs and asks (`--accept-unsandboxed-extensions` for
+non-interactive use); on Linux it keeps the isolated runner and tells you how
+to provision it. See [docs/macos-local-dev.md](docs/macos-local-dev.md).
+
+The manual steps it automates, for the record or for Docker:
+
 ```bash
 git clone <repo-url> && cd ez-corp-ai
 cp .env.prod.example .env.prod && chmod 600 .env.prod
