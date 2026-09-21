@@ -355,3 +355,5 @@
 - `tasks/` is gitignored but `tasks/todo.md` and `tasks/lessons.md` are force-tracked. Append a section; never overwrite either file, and check `git status` after writing under `tasks/`.
 - A report-only flag must suppress only the verdict it was made for. Classify a tool exit by whether the tool produced its report this run; delete the previous report first so a stale file cannot vouch for a crash.
 - A summary reporter must be told which gates ran. Absence of a report is a failure, never an omission; there is no safe default for the expected set.
+- A PR in conflict with its base gets no pull_request workflow runs at all; GitHub cannot build the merge ref. When checks are silently absent, check `mergeable` before suspecting the workflow. Merge or rebase, then reinstall dependencies before the pre-push typecheck when the base moved a lockfile.
+- Budget a hosted-runner job against the 360-minute cap with a measured rate, not a guess. When one job cannot finish, shard the work and merge with an exact-count check so a missing slice fails instead of shrinking the denominator.
