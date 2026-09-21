@@ -46,8 +46,10 @@ way `listClaimableInTransaction` is.
    approval sat unconsumed and then expired is the worse outcome. The alternative — refusing when
    both exist — would leave a project that carries a standing policy unable to also carry a
    per-operation approval without an operator revoking something first, turning an ordinary state
-   into a stuck operation. Recorded here because the coordinator asked for the decision, not a
-   default. The test proves the policy's `used_operations` does not move when the approval serves.
+   into a stuck operation. The test proves the policy's `used_operations` does not move when the
+   approval serves. **Confirmed as the platform's policy by the coordinator:** a human's explicit
+   consent takes the release, and the automatic policy budget stays untouched. It is no longer this
+   leaf's choice to revisit.
 
 3. **Two matching policies are an ambiguity, not a menu.** A worker choosing between two
    human-created authorities is exactly what this method exists to prevent, so it returns
@@ -83,6 +85,11 @@ retroactive"), and there is no suppression mechanism. So the rule is enforced ex
 it can be: G4 parses `releases.ts` and requires every statement naming `factory_release_approvals`
 to be a `SELECT`, and requires no `INSERT INTO`, `UPDATE`, or `DELETE FROM` against it anywhere in
 the file. No `REQUIRED_SHARED_IMPORTS` row was added, because `releases.ts` gained no import.
+
+**Settled by the coordinator:** the source-parsing case stays the enforcement for this wave. A
+table-access dimension in `check-factory-boundaries.ts` is a gate change that is not being made now;
+it is recorded as a **W18 final-gate candidate**, so whoever owns the final gate sweep can decide
+whether table ownership joins module ownership in the same executable inventory.
 
 ## Commits
 
@@ -191,19 +198,34 @@ which is the expected cost of that lock and not a blocker; it then ran and passe
 (receipt `coverage-backend`, 101 pass, 0 fail, 895 assertions). No work is uncommitted and no
 collaborator is missing.
 
-## Interface questions for the coordinator
+## Interface answers from the coordinator
 
-1. **Confirm the approval-wins precedence.** When a usable approval and a usable policy both cover
-   one operation, the reader returns the approval and leaves the policy budget untouched. The
-   reasoning and the rejected alternative are under "The three decisions this leaf had to make".
-   This is a policy choice rather than a default, so it should be confirmed rather than inherited.
-2. **Decide where the table-ownership rule belongs.** "W05's approvals table is read, never
-   written" is enforced today by a source-parsing case in `releases.integration.test.ts`, because
-   the C13 gate expresses module imports and adding `assurance.ts` to `SHARED_REUSE_MODULES` reds
-   it (measured; the three duplicate findings are quoted above). If a table-access dimension is
-   wanted in `check-factory-boundaries.ts`, that is a gate change and therefore the coordinator's.
-3. **Name the consumer's transaction boundary.** The reader takes a `MigrationDb`, so a worker may
-   call it inside the same transaction as `listClaimableInTransaction` or in its own. Both are
-   correct, because the result confers nothing and `claim` re-derives everything. W09 should pick
-   one and record it, so two workers do not read consent under different isolation and then
-   disagree about why a claim failed.
+All three questions this leaf raised are settled. They are recorded here rather than left open, so
+nobody re-derives them.
+
+1. **Approval-wins precedence: confirmed as the policy.** A human's explicit consent takes the
+   release and the automatic policy budget stays untouched. See decision 2 above, which now states
+   it as platform policy rather than as this leaf's choice.
+2. **The table-ownership rule stays a source-parsing case.** A table-access dimension in
+   `check-factory-boundaries.ts` is a gate change the coordinator is not making in this wave. It is
+   recorded as a **W18 final-gate candidate**; the measurement that rules out the
+   `SHARED_REUSE_MODULES` route is quoted under "Ownership" above, so W18 does not have to rediscover
+   it.
+3. **The consumer reads consent inside the same transaction as `listClaimableInTransaction`, and
+   claims in that transaction.** W09b records that choice on its side. The reader was written to
+   work either way — it takes a `MigrationDb` and confers nothing — so this fixes the isolation two
+   workers see, which is the reason the question was worth asking: under one transaction, two
+   workers cannot read consent differently and then disagree about why a claim failed.
+
+## Branch head
+
+| SHA | Subject |
+| --- | --- |
+| `fdf9ec914` | `feat(factory): read the one consent a claimable release already has` |
+| `6593bc1c1` | `docs(factory): stamp the W07b gate receipts` |
+| `c942a7dfb` | `docs(factory): record the W07b interface questions and open items` — the revision under validation |
+| *(this commit)* | `docs(factory): record the coordinator's answers to the W07b questions` — the branch head, docs only |
+
+This last commit changes no source, no test, and no gate script: `git diff --name-only c942a7dfb..HEAD`
+names `tasks/factory/w07b-GATES.md` alone. Every gate receipt therefore still describes the code the
+validator is reading at `c942a7dfb`.
