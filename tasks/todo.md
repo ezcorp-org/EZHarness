@@ -350,6 +350,44 @@ portable, and independent of JavaScript tooling.
 - `PODMAN_SOCKET` is used consistently for engine checks and wrapper launch.
 - Merged current `origin/main` at `d81f98387f7636603edb4f30aede740922fff700` after the repair. Verification passed: 88 focused tests with 358 assertions; 25,946 backend tests across 1,655 files; lint across 4,611 files; all backend, web, backend-test, and web-E2E typecheck legs; ShellCheck; workflow YAML parsing; gate integrity; Bash syntax; and `git diff --check`.
 
+## PR #288 final publication gate
+
+- [x] Reject effective Compose values that cannot be represented by the line-oriented resolver output.
+- [x] Publish a fresh environment file to the exact target without following a directory or symlink race.
+- [x] Reject stale runner sockets, URL forms that the application runtime cannot parse, and bind-source conflicts during `--check`.
+- [x] Add end-to-end regressions for every publication-gate finding.
+- [x] Run focused tests, Bash 3.2/static checks, lint, typecheck, workflow parsing, gate integrity, and diff checks.
+- [x] Review the final diff, document verification, and commit locally without pushing.
+
+Plan review: keep Compose as the source of truth for dotenv semantics, but reject
+control or multiline values before line-oriented extraction can truncate them.
+Use the POSIX `link` utility for an exact no-clobber hard link, then require the
+published path to be the same regular non-symlink inode as the private candidate.
+Keep every new validation read-only in `--check` and compatible with Apple Bash
+3.2.
+
+### Review
+
+- Effective exported values now reject control characters before Compose runs.
+  Dotenv double-quoted control escapes and physical multiline quotes fail before
+  resolution; ambiguous multiline or duplicate resolved output fails afterward.
+  Exact shell, quoted-newline, and interpolated-newline regressions do not print
+  their values.
+- Fresh publication now uses the POSIX `link` utility, which targets one exact
+  pathname instead of treating a directory as a destination. Existing
+  directories and symlinks fail closed, directory races cannot receive a nested
+  secret, and success requires the exact target to be the same regular inode as
+  the private candidate.
+- Linux isolated-runner validation now requires an answering HTTP Unix socket,
+  not only a socket inode. URL validation rejects IPv6 zone identifiers that
+  curl accepts but Bun's WHATWG parser rejects. `--check` rejects bind sources
+  that exist as non-directories.
+- Verification passed on the exact tree: setup and wrapper tests 118/118 with
+  412 assertions; full backend pool 25,955/25,955 across 1,655 files; lint over
+  4,611 files; full typecheck; Bash syntax; ShellCheck; official Bash 3.2
+  syntax/indirect-control/`-ef`/`link` behavior; workflow YAML parsing; gate
+  integrity; real Compose adversarial probes; and `git diff --check`.
+
 ## PR #290 CI failure diagnosis
 
 - [x] Capture the completed run and raw failed-job logs for run 35631461630.

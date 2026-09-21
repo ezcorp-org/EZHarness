@@ -82,6 +82,7 @@ done
 TRUSTED_LOCAL_COMPOSE="deploy/extension-runner/compose.trusted-local.yml"
 ACK_VARIABLE="EZCORP_EXTENSIONS_UNSANDBOXED_ACK"
 ACK_SENTENCE="I-understand-extensions-run-with-the-apps-full-powers"
+EFFECTIVE_ENV_NAMES="EZCORP_ENCRYPTION_SECRET EZCORP_ENCRYPTION_SALT EZCORP_JWT_SECRET EZCORP_PUBLIC_URL EZCORP_PORT_HOST EZCORP_RUNNER_COMPOSE_FILE EZCORP_EXTENSIONS_UNSANDBOXED_ACK EZ_RUNNER_SOCKET_DIR EZ_RUNNER_TOKEN_FILE EZ_RUNNER_GROUP"
 
 # Every secret-bearing temporary artifact is a private sibling of the
 # destination. A fresh complete candidate is installed with one atomic hard
@@ -279,6 +280,10 @@ valid_public_url() {
     \[*\]*)
       public_host="${public_authority%%]*}"
       public_host="${public_host#\[}"
+      # Curl accepts RFC 6874 zone identifiers, but the WHATWG URL parser used
+      # by Bun/SvelteKit rejects them. ORIGIN must work in the application, not
+      # merely in curl's broader URL grammar.
+      case "$public_host" in *%*) return 1 ;; esac
       remainder="${public_authority#*]}"
       case "$remainder" in '') ;; :*) public_port="${remainder#:}" ;; *) return 1 ;; esac
       # Curl has already parsed this as IPv6. No DNS-label check applies.
@@ -317,12 +322,85 @@ valid_public_url() {
   '
 }
 
+# `config --environment` is deliberately line-oriented and does not escape
+# newlines inside resolved values. Reject the two ways a whitelisted shell or
+# dotenv value can become multiline before a valid first line is mistaken for
+# the complete value. Compose still owns all quoting and interpolation rules;
+# this check only narrows accepted values to the output format we can read
+# without exposing secrets to argv or logs.
+validate_exported_effective_values() {
+  local env_name env_value
+  local LC_ALL=C
+  for env_name in $EFFECTIVE_ENV_NAMES; do
+    if [ -n "${!env_name+x}" ]; then
+      env_value="${!env_name}"
+      case "$env_value" in
+        *[[:cntrl:]]*) die "$env_name must not contain newline or control characters" ;;
+      esac
+    fi
+  done
+}
+
+validate_env_source_line_safety() {
+  local resolve_file="$1"
+  LC_ALL=C awk '
+    function reject() { bad = 1; exit }
+    {
+      line = $0
+      sub(/\r$/, "", line)
+      sub(/^[[:space:]]*/, "", line)
+      if (line == "" || substr(line, 1, 1) == "#") next
+      sub(/^export[[:space:]]+/, "", line)
+      separator = index(line, "=")
+      if (separator < 2) next
+      value = substr(line, separator + 1)
+      sub(/^[[:space:]]*/, "", value)
+      quote = substr(value, 1, 1)
+      if (quote == "\047") {
+        if (index(substr(value, 2), "\047") == 0) reject()
+        next
+      }
+      if (quote != "\"") next
+      escaped = 0
+      closed = 0
+      for (i = 2; i <= length(value); i++) {
+        character = substr(value, i, 1)
+        if (escaped) {
+          if (character == "n" || character == "r" || character == "t") reject()
+          escaped = 0
+        } else if (character == "\\") {
+          escaped = 1
+        } else if (character == "\"") {
+          closed = 1
+          break
+        }
+      }
+      if (!closed) reject()
+    }
+    END { if (bad) exit 1 }
+  ' "$resolve_file" || die "$resolve_file contains a multiline or control-character value that setup cannot validate safely"
+}
+
+validate_resolved_environment_shape() {
+  LC_ALL=C awk '
+    {
+      separator = index($0, "=")
+      name = substr($0, 1, separator - 1)
+      if (separator < 2 || name !~ /^[A-Za-z_][A-Za-z0-9_]*$/ ||
+          $0 ~ /[[:cntrl:]]/ || seen[name]++) bad = 1
+    }
+    END { if (bad) exit 1 }
+  ' "$resolved_env_tmp" || die "resolved Compose environment contains a multiline, control-character, or ambiguous value"
+}
+
 # Compose owns .env quoting, comments, interpolation and shell precedence. Ask
 # the selected real Compose client for its resolved environment instead of
 # maintaining a second, inevitably divergent parser here. The output contains
 # secrets, so both stdout and stderr stay in private files and are never shown.
 resolve_compose_environment() {
   local resolve_file="$1"
+  validate_exported_effective_values
+  validate_env_source_line_safety "$resolve_file"
   command -v mktemp >/dev/null 2>&1 || die "mktemp is required to validate $resolve_file safely"
   [ -z "$resolved_env_tmp" ] || rm -f "$resolved_env_tmp"
   [ -z "$resolved_env_error_tmp" ] || rm -f "$resolved_env_error_tmp"
@@ -347,6 +425,7 @@ EOF
   then
     die "$resolve_file is not valid Compose environment syntax; run the production Compose config command for details"
   fi
+  validate_resolved_environment_shape
   rm -f "$resolved_env_error_tmp"
   resolved_env_error_tmp=""
 }
@@ -355,11 +434,8 @@ EOF
 # Compose emits one NAME=value line for each effective interpolation value.
 effective_env_value() {
   local effective_name="$1"
-  case "$effective_name" in
-    EZCORP_ENCRYPTION_SECRET | EZCORP_ENCRYPTION_SALT | EZCORP_JWT_SECRET | \
-      EZCORP_PUBLIC_URL | EZCORP_PORT_HOST | EZCORP_RUNNER_COMPOSE_FILE | \
-      EZCORP_EXTENSIONS_UNSANDBOXED_ACK | EZ_RUNNER_SOCKET_DIR | \
-      EZ_RUNNER_TOKEN_FILE | EZ_RUNNER_GROUP) ;;
+  case " $EFFECTIVE_ENV_NAMES " in
+    *" $effective_name "*) ;;
     *) die "internal error: unsupported environment value: $effective_name" ;;
   esac
   sed -n "s|^$effective_name=||p" "$resolved_env_tmp" | tail -1
@@ -420,7 +496,15 @@ runner_configured() {
   runner_token_file="$(effective_env_value EZ_RUNNER_TOKEN_FILE)"
   runner_group="$(effective_env_value EZ_RUNNER_GROUP)"
   case "$runner_group" in '' | *[!0-9]*) return 1 ;; esac
-  [ -S "$runner_socket_dir/runner.sock" ] && runner_credential_usable "$runner_token_file"
+  runner_credential_usable "$runner_token_file" && runner_socket_usable "$runner_socket_dir/runner.sock"
+}
+
+runner_socket_usable() {
+  local runner_socket="$1"
+  [ -S "$runner_socket" ] || return 1
+  # The runner is an HTTP service. Any HTTP response proves that the socket is
+  # accepting requests; an unauthenticated probe normally receives 401.
+  curl -sS -o /dev/null --max-time 2 --noproxy '*' --unix-socket "$runner_socket" http://localhost/ 2>/dev/null
 }
 
 # Mirror src/extensions/runner-connection.ts without sourcing the credential or
@@ -561,6 +645,7 @@ build_fresh_candidate() {
   local candidate_kind="${1:-real}"
   [ -f "$ENV_EXAMPLE" ] || die "$ENV_EXAMPLE is missing"
   command -v mktemp >/dev/null 2>&1 || die "mktemp is required to create $ENV_FILE safely"
+  command -v link >/dev/null 2>&1 || die "the POSIX link utility is required to publish $ENV_FILE safely"
   env_tmp="$(umask 077 && mktemp "${ENV_FILE}.tmp.XXXXXX")" || die "could not create a private temporary environment file"
   secret_tmp="$(umask 077 && mktemp "${ENV_FILE}.secrets.XXXXXX")" || die "could not create a private secret file"
   if [ "$candidate_kind" = real ]; then
@@ -629,8 +714,44 @@ build_fresh_candidate() {
   chmod 600 "$env_tmp"
 }
 
+existing_env_is_regular() {
+  if [ -L "$ENV_FILE" ]; then
+    die "$ENV_FILE must be a regular file, not a symbolic link"
+  fi
+  if [ -e "$ENV_FILE" ]; then
+    [ -f "$ENV_FILE" ] || die "$ENV_FILE exists but is not a regular file"
+    return 0
+  fi
+  return 1
+}
+
+publish_fresh_candidate() {
+  local candidate="$1"
+  local candidate_parent candidate_name candidate_absolute
+  local target_parent target_name target_parent_absolute target_absolute
+  candidate_parent="$(dirname "$candidate")"
+  candidate_name="$(basename "$candidate")"
+  candidate_parent="$(cd "$candidate_parent" && pwd -P)" || die "could not resolve the candidate directory"
+  candidate_absolute="$candidate_parent/$candidate_name"
+  target_parent="$(dirname "$ENV_FILE")"
+  target_name="$(basename "$ENV_FILE")"
+  target_parent_absolute="$(cd "$target_parent" && pwd -P)" || die "could not resolve the environment-file directory"
+  target_absolute="$target_parent_absolute/$target_name"
+
+  # Unlike `ln SOURCE TARGET`, POSIX `link SOURCE TARGET` never treats an
+  # existing TARGET directory as a destination directory. It calls link(2) on
+  # this exact basename and therefore fails without creating a nested secret.
+  if (cd "$target_parent_absolute" && link "$candidate_absolute" "./$target_name" 2>/dev/null); then
+    [ -f "$target_absolute" ] && [ ! -L "$target_absolute" ] &&
+      [ "$candidate_absolute" -ef "$target_absolute" ] ||
+      die "could not verify the exact published environment file"
+    return 0
+  fi
+  return 1
+}
+
 say "environment file ($ENV_FILE)"
-if [ -f "$ENV_FILE" ]; then
+if existing_env_is_regular; then
   validate_existing_env
   say "extension runner"
   ensure_existing_runner
@@ -658,11 +779,11 @@ else
   resolve_compose_environment "$env_tmp"
   validate_required_values
   runner_configured || die "the private environment candidate has no usable extension runner"
-  if ln "$env_tmp" "$ENV_FILE" 2>/dev/null; then
+  if publish_fresh_candidate "$env_tmp"; then
     rm -f "$env_tmp"
     env_tmp=""
     ok "published one complete mode-600 environment file with fresh secrets and trusted-local"
-  elif [ -f "$ENV_FILE" ]; then
+  elif existing_env_is_regular; then
     rm -f "$env_tmp"
     env_tmp=""
     todo "another process created $ENV_FILE; validating that file from the beginning"
@@ -702,6 +823,8 @@ say "bind-mount directories under $DATA_ROOT"
 for d in data extensions extension-data projects; do
   if [ -d "$DATA_ROOT/$d" ]; then
     ok "$DATA_ROOT/$d"
+  elif [ -e "$DATA_ROOT/$d" ] || [ -L "$DATA_ROOT/$d" ]; then
+    die "$DATA_ROOT/$d exists but is not a directory"
   else
     do_or_report mkdir -p "$DATA_ROOT/$d"
   fi

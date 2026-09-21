@@ -70,6 +70,9 @@ const REAL_CURL = Bun.which("curl") ?? (() => {
 const REAL_LN = Bun.which("ln") ?? (() => {
   throw new Error("setup-podman tests require ln on PATH");
 })();
+const REAL_LINK = Bun.which("link") ?? (() => {
+  throw new Error("setup-podman tests require the POSIX link utility on PATH");
+})();
 const REAL_CHMOD = Bun.which("chmod") ?? (() => {
   throw new Error("setup-podman tests require chmod on PATH");
 })();
@@ -108,7 +111,10 @@ for (const sourceLine of readFileSync(file, "utf8").split(/\\r?\\n/)) {
     const closing = raw.indexOf(quote, 1);
     if (closing < 0 || !/^(?:\\s+#.*)?$/.test(raw.slice(closing + 1))) process.exit(1);
     value = raw.slice(1, closing);
-    if (quote === '"') value = expand(value);
+    if (quote === '"') {
+      value = value.replace(/\\\\n/g, "\\n").replace(/\\\\r/g, "\\r").replace(/\\\\t/g, "\\t");
+      value = expand(value);
+    }
   } else {
     raw = raw.replace(/\\s+#.*$/, "").trimEnd();
     value = expand(raw);
@@ -177,6 +183,7 @@ fi
 exit 0`);
 stub("openssl", `printf '%s\\n' '${SECRET_SENTINEL}'`);
 stub("curl", `case " $* " in *" %{url_effective} "*) exec "${REAL_CURL}" "$@" ;; esac
+case " $* " in *" --unix-socket "*) exec "${REAL_CURL}" "$@" ;; esac
 if [ "\${EZ_TEST_CURL_SUCCESS:-0}" = 1 ]; then
   printf '%s\\n' '{"ready":true}'
 elif [ -n "\${EZ_TEST_CURL_SUCCEED_AFTER:-}" ]; then
@@ -192,14 +199,19 @@ stub("date", "exit 99");
 stub("awk", `exec "${REAL_AWK}" "$@"`);
 stub("sed", `exec "${REAL_SED}" "$@"`);
 stub("grep", `exec "${REAL_GREP}" "$@"`);
-stub("ln", `if [ -n "\${EZ_TEST_LN_RACE_FILE:-}" ] && [ ! -e "$EZ_TEST_LN_RACE_FILE" ]; then
+stub("ln", `exec "${REAL_LN}" "$@"`);
+stub("link", `if [ -n "\${EZ_TEST_LINK_RACE_FILE:-}" ] && [ ! -e "$EZ_TEST_LINK_RACE_FILE" ]; then
   {
     printf '%s\\n' 'EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml'
     printf '%s\\n' 'EZCORP_EXTENSIONS_UNSANDBOXED_ACK=I-understand-extensions-run-with-the-apps-full-powers'
-  } > "$EZ_TEST_LN_RACE_FILE"
-  "${REAL_CHMOD}" 644 "$EZ_TEST_LN_RACE_FILE"
+  } > "$EZ_TEST_LINK_RACE_FILE"
+  "${REAL_CHMOD}" 644 "$EZ_TEST_LINK_RACE_FILE"
 fi
-exec "${REAL_LN}" "$@"`);
+if [ -n "\${EZ_TEST_LINK_DIRECTORY_RACE:-}" ] && [ ! -e "$EZ_TEST_LINK_DIRECTORY_RACE" ]; then
+  mkdir "$EZ_TEST_LINK_DIRECTORY_RACE"
+fi
+[ "\${EZ_TEST_LINK_FALSE_SUCCESS:-0}" != 1 ] || exit 0
+exec "${REAL_LINK}" "$@"`);
 
 afterAll(() => rmSync(SANDBOX, { recursive: true, force: true }));
 
@@ -268,6 +280,7 @@ function isolatedPathWithout(...excluded: string[]): string {
   const dir = mkdtempSync(join(SANDBOX, "path-"));
   const commands = [
     "awk",
+    "basename",
     "bash",
     "brew",
     "cat",
@@ -279,6 +292,7 @@ function isolatedPathWithout(...excluded: string[]): string {
     "grep",
     "id",
     "ln",
+    "link",
     "mkdir",
     "mktemp",
     "openssl",
@@ -334,9 +348,19 @@ function isolatedRunnerEnv(runnerDir: string, tokenFile: string): string {
   ]);
 }
 
-async function withLiveRunnerSocket<T>(runnerDir: string, runTest: () => T | Promise<T>): Promise<T> {
+async function withRunnerSocket<T>(
+  runnerDir: string,
+  responsive: boolean,
+  runTest: () => T | Promise<T>,
+): Promise<T> {
   mkdirSync(runnerDir, { recursive: true });
-  const server = createServer();
+  const server = createServer(responsive
+    ? (connection) => {
+      connection.once("data", () => {
+        connection.end("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+      });
+    }
+    : undefined);
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(join(runnerDir, "runner.sock"), () => {
@@ -421,13 +445,62 @@ describe("setup-podman.sh — the env file", () => {
       ["--no-start", "--accept-unsandboxed-extensions"],
       env,
       {},
-      { EZ_TEST_LN_RACE_FILE: env.EZ_SETUP_ENV_FILE },
+      { EZ_TEST_LINK_RACE_FILE: env.EZ_SETUP_ENV_FILE },
     );
 
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain("unsafe permissions");
     expect(statSync(env.EZ_SETUP_ENV_FILE).mode & 0o777).toBe(0o644);
     expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
+  });
+
+  test("refuses an existing directory or symlink instead of treating it as an env file", () => {
+    for (const targetKind of ["directory", "symlink"] as const) {
+      const env = scratch("Darwin");
+      if (targetKind === "directory") {
+        mkdirSync(env.EZ_SETUP_ENV_FILE);
+      } else {
+        const target = `${env.EZ_SETUP_ENV_FILE}.target`;
+        writeFileSync(target, "keep-this-target\n", { mode: 0o600 });
+        symlinkSync(target, env.EZ_SETUP_ENV_FILE);
+      }
+
+      const r = run(["--no-start", "--accept-unsandboxed-extensions"], env);
+
+      expect({ targetKind, exitCode: r.exitCode }).toEqual({ targetKind, exitCode: 1 });
+      expect(r.stderr).toContain(targetKind === "directory" ? "not a regular file" : "symbolic link");
+      expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
+    }
+  });
+
+  test("a directory created at publication time cannot capture the private candidate", () => {
+    const env = scratch("Darwin");
+    const r = run(
+      ["--no-start", "--accept-unsandboxed-extensions"],
+      env,
+      {},
+      { EZ_TEST_LINK_DIRECTORY_RACE: env.EZ_SETUP_ENV_FILE },
+    );
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("not a regular file");
+    expect(readdirSync(env.EZ_SETUP_ENV_FILE)).toEqual([]);
+    expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
+  });
+
+  test("does not report publication until the exact target is the candidate inode", () => {
+    const env = scratch("Darwin");
+    const r = run(
+      ["--no-start", "--accept-unsandboxed-extensions"],
+      env,
+      {},
+      { EZ_TEST_LINK_FALSE_SUCCESS: "1" },
+    );
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("verify the exact published environment file");
+    expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
+    expect(r.stdout).not.toContain("published one complete");
   });
 
   test("does not publish a partial file when the example shape is invalid", () => {
@@ -516,6 +589,22 @@ ${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}
     expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
   });
 
+  test("rejects a multiline shell override before Compose output can truncate it", () => {
+    const env = scratch("Darwin");
+    const original = validProdEnv([
+      "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+      `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+    ]);
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    const r = run(["--check"], { ...env, EZCORP_PUBLIC_URL: "http://localhost:4000\nnot-an-origin" });
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("EZCORP_PUBLIC_URL must not contain newline or control characters");
+    expect(r.stderr).not.toContain("not-an-origin");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
+  });
+
   test.each([
     "not-a-url",
     "ftp://chat.example.com",
@@ -532,6 +621,7 @@ ${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}
     "http://999.999.999.999",
     "http://[:::]",
     "http://[2001:db8::1::2]",
+    "http://[fe80::1%25eth0]",
   ])("refuses malformed production public URL %s without changing the file", (publicUrl) => {
     const env = scratch("Darwin");
     const original = validProdEnv(
@@ -589,6 +679,27 @@ ${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}
     expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
   });
 
+  test("rejects a multiline value introduced by Compose interpolation", () => {
+    const env = scratch("Darwin");
+    const original = validProdEnv([
+      "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+      `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+    ]).replace("EZCORP_PUBLIC_URL=http://localhost:4000", `EZCORP_PUBLIC_URL=\${EZ_TEST_MULTILINE_ORIGIN}`);
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    const r = run(
+      ["--check"],
+      env,
+      {},
+      { EZ_TEST_MULTILINE_ORIGIN: "http://localhost:4000\nnot-an-origin" },
+    );
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("resolved Compose environment contains a multiline");
+    expect(r.stderr).not.toContain("not-an-origin");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
+  });
+
   test("rejects malformed Compose quoting without exposing the bad line", () => {
     const env = scratch("Darwin");
     const original = validProdEnv([
@@ -600,8 +711,25 @@ ${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}
     const r = run(["--no-start"], env);
 
     expect(r.exitCode).toBe(1);
-    expect(r.stderr).toContain("not valid Compose environment syntax");
+    expect(r.stderr).toContain("multiline or control-character value");
     expect(r.stderr).not.toContain('EZCORP_PUBLIC_URL="https://chat.example.com');
+  });
+
+  test("rejects a quoted newline escape before resolved output can truncate the URL", () => {
+    const env = scratch("Darwin");
+    const original = validProdEnv([
+      "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+      `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+    ], '"http://localhost:4000\\nnot-an-origin"');
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    const r = run(["--check"], env);
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("multiline or control-character value");
+    expect(r.stderr).not.toContain("not-an-origin");
+    expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
+    expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
   });
 
   test("pre-creates the four bind-mount sources without any chown", () => {
@@ -818,11 +946,29 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     // pre-filled with EZ_RUNNER_GROUP empty, which is precisely the state the
     // script must NOT mistake for configured.
     writeFileSync(env.EZ_SETUP_ENV_FILE, isolatedRunnerEnv(runnerDir, runnerToken), { mode: 0o600 });
-    await withLiveRunnerSocket(runnerDir, () => {
-      const r = run(["--no-start"], env);
+    await withRunnerSocket(runnerDir, true, async () => {
+      const r = await runAsync(["--no-start"], env);
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("already configured");
       expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(false);
+    });
+  });
+
+  test("Linux rejects a Unix socket inode that does not answer as a runner", async () => {
+    const env = scratch("Linux");
+    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "unresponsive-runner");
+    const runnerToken = join(runnerDir, "runner-token");
+    mkdirSync(runnerDir, { recursive: true });
+    writeFileSync(runnerToken, "0123456789abcdef0123456789abcdef\n", { mode: 0o600 });
+    const original = isolatedRunnerEnv(runnerDir, runnerToken);
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    await withRunnerSocket(runnerDir, false, async () => {
+      const r = await runAsync(["--check"], env);
+      expect(r.exitCode).toBe(2);
+      expect(r.stdout).not.toContain("already configured");
+      expect(r.stderr).toContain("provision it first");
+      expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
     });
   });
 
@@ -851,7 +997,7 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     writeFileSync(nbspToken, "0123456789abcdef\u00a00123456789abcdef\n", { mode: 0o600 });
     writeFileSync(bomToken, "0123456789abcdef\ufeff0123456789abcdef\n", { mode: 0o600 });
 
-    await withLiveRunnerSocket(runnerDir, () => {
+    await withRunnerSocket(runnerDir, true, () => {
       for (const tokenFile of [
         tokenDir,
         shortToken,
@@ -1033,7 +1179,7 @@ describe("setup-podman.sh — the engine and the check mode", () => {
   test("Linux honors a live PODMAN_SOCKET and does not enable another socket", async () => {
     const env = scratch("Linux");
     const socketDir = join(env.EZ_SETUP_ENV_FILE, "..", "podman");
-    await withLiveRunnerSocket(socketDir, () => {
+    await withRunnerSocket(socketDir, true, () => {
       const podmanSocket = join(socketDir, "runner.sock");
       const r = run(["--no-start", "--accept-unsandboxed-extensions"], {
         ...env,
@@ -1093,6 +1239,27 @@ describe("setup-podman.sh — the engine and the check mode", () => {
     expect(r.stderr).toContain("whole-number port");
     expect(r.stdout).not.toContain("would run: bash scripts/podman-compose.sh");
     expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
+  });
+
+  test("--check rejects a bind source that exists as a non-directory", () => {
+    const env = scratch("Darwin");
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      validProdEnv([
+        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+        `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+      ]),
+      { mode: 0o600 },
+    );
+    mkdirSync(env.EZ_SETUP_DATA_ROOT, { recursive: true });
+    const conflict = join(env.EZ_SETUP_DATA_ROOT, "data");
+    writeFileSync(conflict, "not a directory\n");
+
+    const r = run(["--check"], env);
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain(`${conflict} exists but is not a directory`);
+    expect(r.stdout).not.toContain("would run: bash scripts/podman-compose.sh");
   });
 
   test("--check rejects an invalid readiness timeout", () => {
