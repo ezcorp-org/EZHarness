@@ -35,6 +35,15 @@ test("toolchainRoot names the tree the trusted toolchain comes from; the default
   // regular files under the isolated node_modules/.bun layout). Counting
   // real builds — the spy calls through — is the only assertion that still
   // holds once bun fixes that, so it, not the crash, is the gate.
+  //
+  // That one build belongs to the PROCESS, not to this file: the bundle is
+  // cached per SDK entrypoint for the life of the process, and in a pooled
+  // run the podman suites provision through `tests/helpers.ts` before this
+  // file sorts in. Emptying that cache to own the build is not an option —
+  // it IS the second build, and it crashes exactly as described above
+  // (measured). So settle the build the process still owes, if any, OUTSIDE
+  // the spy, and require the three toolchain roots below to add none.
+  await provisionToolchain();
   const build = spyOn(Bun, "build");
   try {
     const explicit = await provisionToolchain({ toolchainRoot: repoRoot });
@@ -48,9 +57,16 @@ test("toolchainRoot names the tree the trusted toolchain comes from; the default
     // this module happens to live.
     const empty = await mkdtemp("/tmp/ez-toolchain-empty-");
     try { await expect(provisionToolchain({ toolchainRoot: empty })).rejects.toThrow(); } finally { await rm(empty, { recursive: true, force: true }); }
-    // Three toolchain roots, one SDK build — this test owns the first
-    // provision in its process, so the count is absolute, not a delta.
-    expect(build.mock.calls.length).toBe(1);
+    // Three toolchain roots, no further SDK build. Keying the bundle on the
+    // toolchain root as well as the entrypoint — the regression this guards —
+    // would build once per root and read 2 here, whatever ran before.
+    expect(build.mock.calls.length).toBe(0);
+    // The floor the count above cannot carry once the build may have happened
+    // before this test: the bundle really was BUNDLED. Every `.js` in it is a
+    // `Bun.build` output — the two package trees copied in beside them are
+    // declaration-only — so a provision that silently skipped the bundler
+    // would leave none.
+    expect(Object.keys(explicit.sdkFiles).filter(name => name.endsWith(".js"))).not.toEqual([]);
   } finally { build.mockRestore(); }
 }, 120_000);
 
