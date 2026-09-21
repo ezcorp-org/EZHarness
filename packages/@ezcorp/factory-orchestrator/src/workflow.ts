@@ -207,9 +207,8 @@ function rearmContinuationTimers(state: KernelState, scheduleTimer: (command: Ti
  * the acknowledged sequence never advances past work still in hand.
  */
 function selectNextEvent(inbox: KernelEvent[], delivery: FactoryInboxEnvelope | undefined): { readonly event: KernelEvent; readonly delivery?: FactoryInboxEnvelope } {
-  if (inbox.length > 0) return { event: inbox.shift()! };
-  const selected = delivery!;
-  return { event: selected.event, delivery: selected };
+  const selected = inbox.length > 0 ? undefined : delivery!;
+  return { event: selected ? selected.event : inbox.shift()!, delivery: selected };
 }
 
 /** Sort one command batch: timers are armed, terminals are recorded, the rest queue. */
