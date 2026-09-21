@@ -734,6 +734,7 @@
   "web/src/lib/mention-logic.ts": 99,
   "web/src/lib/markdown.ts": 98,
   "web/src/lib/chat-input-logic.ts": 100,
+  "web/src/lib/utils/random-id.ts": 100,
   "web/src/lib/utils/relative-time.ts": 100,
   "web/src/lib/server/http-errors.ts": 100,
   "web/src/lib/server/shutdown.ts": 98,
