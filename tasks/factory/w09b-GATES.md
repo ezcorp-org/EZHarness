@@ -215,6 +215,17 @@ wrapper that catches adds context rather than removing it.
       CHECK: `bash /tmp/w09b-probe/orch/run-probe.sh`
       EXPECT: `lifecycle: "ready"`, `workerPolling: true`, `dispatcherLive: true`.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/orchestrator-mtls-readiness.json`
+- [x] G10b: The three assembled roles RUN in the real started application, over
+      real PostgreSQL, real S3, the real pool, the real host supervisor, the real
+      Node orchestrator and a real Temporal server, and `/api/ready` says so.
+      CHECK: `GET /api/ready` during
+      `flock /tmp/ezcorp-validation-heavy.lock timeout 1200 bash /tmp/factory-platform-evidence/w09b/repro/one-run.sh`
+      EXPECT: `running` carries `attempt-dispatch`, `stop-settlement` and
+      `usage-reconciliation`; `held` carries only `release-outcome` and
+      `notification-send`; the supervisor publishes `hostServicesReady: true`;
+      the orchestrator publishes `ready`; the guest package builds and prepares
+      for real.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/roles-running.json`
 - [ ] G11: A durable run submitted over public HTTP executes a real guest in the
       supervisor's container runner, reaches a terminal projected status,
       survives restart, and shuts down with no survivors — three consecutive
@@ -240,6 +251,22 @@ wrapper that catches adds context rather than removing it.
       CHECK: `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts && BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
       EXPECT: PASSED for both.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/coverage-gates.json`
+
+## What the first full runs measured, including their faults
+
+The roles were proved running before the run reached a guest, and both faults
+that stopped it were the harness's rather than the product's. Both are recorded
+because a proof that hides its own false starts teaches nothing.
+
+| Run | What it reached | What stopped it |
+| --- | --- | --- |
+| 1 | shared stores, guest build | the harness's key-wrap store handed back base64 where `InstallationDataKey.loadOrCreate` re-reads bytes |
+| 2 | pool, supervisor, Temporal | the built web server predated the C11 config field, so the document read as invalid — "rebuild before believing a receipt", again |
+| 3 | every process `ready`, all three roles running, a real package built and prepared, the run accepted and projected `queued` → `running` | the pool answered HTTP 401 to every compute call: this harness keyed the pool's tenant identity by tenant id, and `authorizePoolRequest` looks it up by the client certificate's common name |
+
+The third is the interesting one. The composition was right, the roles ran, and
+the role that could not do its work said so on every pass — which is exactly the
+behaviour the report-and-step-over shape exists to produce.
 
 ## What this package did NOT deliver, and what each one needs
 
