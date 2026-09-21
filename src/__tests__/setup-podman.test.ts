@@ -190,6 +190,7 @@ exit 0`);
 stub("openssl", `printf '%s\\n' '${SECRET_SENTINEL}'`);
 stub("curl", `case " $* " in *" %{url_effective} "*) exec "${REAL_CURL}" "$@" ;; esac
 case " $* " in *" --unix-socket "*) exec "${REAL_CURL}" "$@" ;; esac
+[ "\${EZ_TEST_CURL_REAL_ALL:-0}" != 1 ] || exec "${REAL_CURL}" "$@"
 if [ "\${EZ_TEST_CURL_SUCCESS:-0}" = 1 ]; then
   printf '%s\\n' '{"ready":true}'
 elif [ -n "\${EZ_TEST_CURL_SUCCEED_AFTER:-}" ]; then
@@ -985,6 +986,56 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     });
   });
 
+  test("curl defaults cannot alter validation, readiness, or persist the runner credential", async () => {
+    const env = scratch("Linux");
+    const testRoot = join(env.EZ_SETUP_ENV_FILE, "..");
+    const runnerDir = join(testRoot, "runner-with-hostile-curlrc");
+    const runnerToken = join(runnerDir, "runner-token");
+    const curlHome = join(testRoot, "curl-home");
+    const curlTrace = join(testRoot, "curl-trace.log");
+    const curlOutput = join(testRoot, "curl-output.log");
+    mkdirSync(runnerDir, { recursive: true });
+    mkdirSync(curlHome, { recursive: true });
+    writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
+    writeFileSync(env.EZ_SETUP_ENV_FILE, isolatedRunnerEnv(runnerDir, runnerToken), { mode: 0o600 });
+    writeFileSync(
+      join(curlHome, ".curlrc"),
+      [
+        `trace-ascii = "${curlTrace}"`,
+        `output = "${curlOutput}"`,
+        'header = "X-Curlrc-Injected: yes"',
+        "silent",
+        "",
+      ].join("\n"),
+    );
+    const readiness = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      fetch: () => Response.json({ ready: true }),
+    });
+
+    try {
+      await withRunnerSocket(runnerDir, true, async () => {
+        const r = await runAsync([], {
+          ...env,
+          CURL_HOME: curlHome,
+          EZ_SETUP_READY_URL: `http://127.0.0.1:${readiness.port}/api/ready`,
+          EZ_SETUP_READY_TIMEOUT: "3",
+          EZ_TEST_CURL_REAL_ALL: "1",
+        });
+
+        expect(r.exitCode).toBe(0);
+        expect(r.stdout).toContain('ready: {"ready":true}');
+        expect(`${r.stdout}${r.stderr}`).not.toContain(RUNNER_TOKEN);
+        expect(existsSync(curlTrace)).toBe(false);
+        expect(existsSync(curlOutput)).toBe(false);
+        expect(setupArtifacts(testRoot)).toEqual([]);
+      });
+    } finally {
+      readiness.stop(true);
+    }
+  });
+
   test("Linux rejects a Unix socket inode that does not answer as a runner", async () => {
     const env = scratch("Linux");
     const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "unresponsive-runner");
@@ -1513,7 +1564,7 @@ describe("setup-podman.sh — start and readiness", () => {
     const r = run([], env, {}, { EZ_TEST_CURL_SUCCESS: "1" });
 
     expect(r.exitCode).toBe(0);
-    expect(r.calls).toContain("curl -fsS --max-time 5 http://localhost:5123/api/ready");
+    expect(r.calls).toContain("curl -q -fsS --max-time 5 http://localhost:5123/api/ready");
     expect(r.stdout).toContain("Open https://chat.example.com and create the admin account");
   });
 
@@ -1536,7 +1587,7 @@ describe("setup-podman.sh — start and readiness", () => {
     const r = run([], { ...env, EZ_SETUP_READY_URL: readyUrl }, {}, { EZ_TEST_CURL_SUCCESS: "1" });
 
     expect(r.exitCode).toBe(0);
-    expect(r.calls).toContain(`curl -fsS --max-time 5 ${readyUrl}`);
+    expect(r.calls).toContain(`curl -q -fsS --max-time 5 ${readyUrl}`);
     expect(r.calls.some((call) => call.includes("localhost:5123"))).toBe(false);
     expect(r.stdout).toContain("Open https://chat.example.com and create the admin account");
     expect(r.stdout).not.toContain(`Open ${readyUrl}`);
@@ -1559,7 +1610,7 @@ describe("setup-podman.sh — start and readiness", () => {
     );
 
     expect(r.exitCode).toBe(0);
-    expect(r.calls).toContain("curl -fsS --max-time 5 http://localhost:6123/api/ready");
+    expect(r.calls).toContain("curl -q -fsS --max-time 5 http://localhost:6123/api/ready");
     expect(r.calls.some((call) => call.includes("localhost:4000"))).toBe(false);
     expect(r.stdout).toContain("Open https://shell-override.example.com and create the admin account");
   });
@@ -1582,7 +1633,7 @@ describe("setup-podman.sh — start and readiness", () => {
     const r = run([], env, {}, { EZ_TEST_CURL_SUCCESS: "1" });
 
     expect(r.exitCode).toBe(0);
-    expect(r.calls).toContain("curl -fsS --max-time 5 http://localhost:5123/api/ready");
+    expect(r.calls).toContain("curl -q -fsS --max-time 5 http://localhost:5123/api/ready");
     expect(r.stdout).toContain("Open https://quoted.example.com and create the admin account");
   });
 

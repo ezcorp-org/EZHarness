@@ -276,7 +276,7 @@ valid_public_url() {
   case "$public_authority" in
     '' | *[/?#@[:space:][:cntrl:]]*) return 1 ;;
   esac
-  parsed_url="$(curl -sS -o /dev/null --connect-timeout 1 --max-time 1 \
+  parsed_url="$(curl -q -sS -o /dev/null --connect-timeout 1 --max-time 1 \
     --proto '=http,https' --unix-socket /__ezcorp_origin_validation_no_socket__ \
     -w '%{url_effective}' "$public_url" 2>/dev/null || true)"
   [ "$parsed_url" = "$public_url/" ] || return 1
@@ -340,7 +340,7 @@ valid_readiness_url() {
   case "$readiness_url" in
     *[[:space:][:cntrl:]]* | *@*) return 1 ;;
   esac
-  parsed_url="$(curl -sS -o /dev/null --connect-timeout 1 --max-time 1 \
+  parsed_url="$(curl -q -sS -o /dev/null --connect-timeout 1 --max-time 1 \
     --proto '=http,https' --unix-socket /__ezcorp_readiness_validation_no_socket__ \
     -w '%{url_effective}' --url "$readiness_url" 2>/dev/null)" || curl_status="$?"
   case "$curl_status" in 0 | 7) ;; *) return 1 ;; esac
@@ -567,7 +567,7 @@ runner_socket_usable() {
   runner_header_tmp="$(umask 077 && mktemp "${ENV_FILE}.runner-header.XXXXXX")" || return 1
   runner_probe_tmp="$(umask 077 && mktemp "${ENV_FILE}.runner-probe.XXXXXX")" || return 1
   printf 'Authorization: Bearer %s\n' "$validated_runner_token" >"$runner_header_tmp" || return 1
-  runner_status="$(curl -sS -o "$runner_probe_tmp" -w '%{http_code}' --max-time 2 --noproxy '*' \
+  runner_status="$(curl -q -sS -o "$runner_probe_tmp" -w '%{http_code}' --max-time 2 --noproxy '*' \
     --unix-socket "$runner_socket" -H "@$runner_header_tmp" -H 'content-type: application/json' \
     --data-binary '{"id":"setup-podman-probe"}' http://localhost/v4/inspect 2>/dev/null)" || {
     rm -f "$runner_header_tmp" "$runner_probe_tmp"
@@ -983,7 +983,7 @@ ready_probe_tmp="$(umask 077 && mktemp "${ENV_FILE}.ready.XXXXXX")" ||
   die "could not create a private readiness response file"
 while [ "$readiness_timed_out" = 0 ]; do
   : >"$ready_probe_tmp"
-  curl -fsS --max-time 5 "$READY_URL" >"$ready_probe_tmp" 2>/dev/null &
+  curl -q -fsS --max-time 5 "$READY_URL" >"$ready_probe_tmp" 2>/dev/null &
   readiness_active_pid="$!"
   probe_status=0
   wait "$readiness_active_pid" || probe_status="$?"
