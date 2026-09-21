@@ -54,6 +54,7 @@ async function makeFixture(): Promise<LaunchFixture> {
   await executable(join(bin, "docker"), `#!/bin/sh
 set -eu
 printf '%s\n' "$*" >> "$FAKE_DOCKER_LOG"
+[ "$1 $2" = "compose version" ] && exit 0
 case "$1" in
   container|network) exit 1 ;;
   image) printf 'image_id=sha256:test revision=test\n'; exit 0 ;;
@@ -120,6 +121,7 @@ function launch(fixture: LaunchFixture, command: string[], environment: Record<s
     env: {
       ...process.env,
       PATH: `${fixture.bin}:${process.env.PATH}`,
+      EZCORP_CONTAINER_ENGINE: "docker",
       EZ_PRODUCTION_IMAGE: "lifecycle-launch-test",
       EZ_PRODUCTION_RECEIPT_DIR: fixture.receipt,
       EZ_PRODUCTION_STATE_DIR: fixture.state,
