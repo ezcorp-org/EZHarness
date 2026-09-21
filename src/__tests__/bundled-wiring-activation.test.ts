@@ -46,7 +46,7 @@ import { createConversation } from "../db/queries/conversations";
 import { createProject } from "../db/queries/projects";
 import { ExtensionRegistry } from "../extensions/registry";
 import { requestedReleaseGrants } from "../extensions/extension-control";
-import { getExtensionLifecycle, publishExtensionGeneration } from "../extensions/extension-lifecycle-service";
+import { getExtensionLifecycle, publishExtensionGeneration, resetExtensionServices } from "../extensions/extension-lifecycle-service";
 import { conversationExtensions, conversations, extensions, users } from "../db/schema";
 import { releaseRuntimeFixture } from "./helpers/release-runtime";
 
@@ -89,6 +89,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   ExtensionRegistry.resetInstance();
+  // `getExtensionLifecycle()` above memoises a repository, delivery queue and
+  // migrations bound to THIS database, in module state that outlives the file.
+  // Drop them before closing it, or the next suite in a pooled process
+  // inherits a lifecycle whose PGlite is gone.
+  resetExtensionServices();
   restoreModuleMocks();
   await closeTestDb();
 });
