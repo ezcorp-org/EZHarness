@@ -1,5 +1,6 @@
 <script lang="ts">
   import { goto } from "$app/navigation";
+  import { randomId } from "$lib/utils/random-id";
   import { untrack } from "svelte";
   import type { PageData } from "./$types";
   import type { InstallationState, LifecycleOperation, WorkspaceRecord } from "$server/extensions/v4/types";
@@ -105,7 +106,7 @@
     await run("Building", async () => {
       if (dirty) await save();
       if (!workspace) return;
-      const operation = await control<LifecycleOperation>("extensions_build", { workspaceId: workspace.id, expectedRevision: workspace.revision, idempotencyKey: crypto.randomUUID(), ...(unsandboxed ? { acknowledgeUnsandboxed: true } : {}) });
+      const operation = await control<LifecycleOperation>("extensions_build", { workspaceId: workspace.id, expectedRevision: workspace.revision, idempotencyKey: randomId(), ...(unsandboxed ? { acknowledgeUnsandboxed: true } : {}) });
       await refresh(operation.id);
       notice = "Build queued. It continues if you close this page. Refresh to see its status.";
     });
@@ -236,7 +237,7 @@
         {#if installationState.releases[approval.releaseId]?.manifest.permissions.secretRead?.length}<p role="note"><strong>Raw credential extraction:</strong> Native code can read these provider secrets, return them in tool output, or send them to an approved network destination. Only active administrators can use this grant. Prefer opaque credential handles. Approval does not grant access to another user's or project's credentials.</p>{/if}
         {#if approval.runnerProfile === data.trustedLocalProfile}<p role="note" data-testid="unsandboxed-approval-note"><strong>Not isolated:</strong> this release was built without a sandbox and will run as a plain process with the app's full powers — database, provider keys, every user's data, unbounded CPU and memory. Not applied: {data.unsandboxedOmittedControls.join(", ")}.</p>{/if}
         {#if approval.status === "pending"}<label class="review-check"><input type="checkbox" checked={reviewedApproval === approval.id} onchange={(event) => reviewedApproval = event.currentTarget.checked ? approval.id : ""} disabled={!!busy || !data.canApprove} />I reviewed this release and its permissions.</label>{#if approval.runnerProfile === data.trustedLocalProfile}<label class="review-check"><input type="checkbox" checked={acknowledgedUnsandboxedApproval === approval.id} onchange={(event) => acknowledgedUnsandboxedApproval = event.currentTarget.checked ? approval.id : ""} disabled={!!busy || !data.canApprove} />I understand this extension will run without a sandbox.</label>{/if}<div class="actions"><button class="primary" disabled={!!busy || !data.canApprove || reviewedApproval !== approval.id || (approval.runnerProfile === data.trustedLocalProfile && acknowledgedUnsandboxedApproval !== approval.id)} onclick={() => approve(approval.id, true)}>Approve exact release</button><button disabled={!!busy || !data.canApprove} onclick={() => approve(approval.id, false)}>Reject</button></div>{#if !data.canApprove}<p class="muted">An administrator must review this release in a human session. API keys cannot approve.</p>{/if}
-        {:else}<button class="primary" disabled={!!busy || installationState.installation.uninstalled} onclick={() => releaseAction("activate", { approvalId: approval.id, idempotencyKey: crypto.randomUUID() })}>Activate approved release</button>{/if}
+        {:else}<button class="primary" disabled={!!busy || installationState.installation.uninstalled} onclick={() => releaseAction("activate", { approvalId: approval.id, idempotencyKey: randomId() })}>Activate approved release</button>{/if}
       </article>{/each}
     </section>
     {#if installationState.installation.enabled && installationState.installation.activeReleaseId}
