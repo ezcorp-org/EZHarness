@@ -208,6 +208,7 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 - [x] Record the final review findings, exact verification evidence, and remaining human decisions.
 - [x] Reduce every remaining touched-function CRAP violation reported by the hosted aggregate without changing behavior.
 - [ ] Re-run focused tests, lint, type checks, the changed-function CRAP gate, then push and watch all checks green.
+- [x] Cover every newly extracted executable branch reported by the hosted patch-coverage gate.
 
 Plan review: use the existing clean PR worktree at the exact GitHub head. Treat the four red jobs as independent signals until their logs prove a shared cause. Preserve the sandbox security model and keep all repairs on the PR branch. Do not weaken coverage, visual-evidence, or test gates.
 
@@ -222,5 +223,7 @@ Plan review: use the existing clean PR worktree at the exact GitHub head. Treat 
 - The following aggregate confirmed all coverage thresholds, then reported nine older high-complexity functions elsewhere in this PR's diff. These are now a required part of the repair; the gate remains unchanged.
 - Split the nine reported functions into focused, reusable helpers. The highest resulting complexity in the seven affected files is 24, below the gate limit of 30; every originally reported function is now below the limit.
 - Post-refactor verification: typecheck, lint, and diff checks pass. Focused contract tests pass 12/12; delegated focused suites pass 198 tests. A monolithic local Bun pool showed 10 cross-file mock-pollution failures and then stalled, but all affected files pass in isolated pinned-runtime processes: tokenizer 6/6, hub render 27/27, and phase 2b 8/8.
+- Hosted CI then passed all 47 producer and quality checks, including the CRAP gate, but the final patch-coverage aggregate found 24 newly extracted branch lines without direct execution. Focused branch tests are required before the final rerun.
+- Added focused tests for all 24 lines. Pinned Bun coverage records setup-tools line 1701 and subscribe-bridge line 442; V8 coverage records every route body branch, including the feature sort comparator. The new suites pass 9/9 backend and 8/8 web tests; final typecheck, lint, and diff checks pass.
 - Expanded real qualification coverage for dispose-while-running and browser reconnect cancellation. Added mapped mobile visual evidence and fixed the Feature Index search row and project favicon controls at 390 px.
 - Verification: pinned focused tests 64/64; pinned full suite 25,950/25,950 across 1,665 files; coverage producers 26,756/26,756 across 1,623 shards; typecheck and lint clean; production build passes; mobile/desktop evidence 4/4. The local coverage aggregate correctly refused to run without CI's separate browser-coverage receipt. The hosted per-file gate supplies that artifact and is the final aggregate proof.

@@ -118,6 +118,13 @@ mock.module("../db/queries/conversation-extensions", () => ({
   getConversationExtensionIds: async () => convExtIds,
 }));
 
+mock.module("../db/queries/agent-configs", () => ({
+  getAgentConfigsByIds: async () => {
+    throw new Error("agent-config lookup unavailable");
+  },
+  getAgentConfig: async () => null,
+}));
+
 // Orchestration host: the SOLE owner. Spy the wire helper + mimic its real
 // contract (collect always; invoke only when there are available agents).
 const wireCalls: Array<{
@@ -260,5 +267,22 @@ describe("FU1: single-source orchestration wiring", () => {
     expect(names).not.toContain("invoke_agent");
     // 2d helper was not invoked — a plain chat doesn't get collect_agent_result.
     expect(wireCalls).toHaveLength(0);
+  });
+
+  test("sub-agent member lookup failure is fail-soft", async () => {
+    const bus = new EventBus<AgentEvents>();
+    const exec = new AgentExecutor(new Map(), bus, { persist: false });
+    capturedAgentOpts = null;
+    wireCalls.length = 0;
+    mentionedAgents = [];
+    convExtIds = [];
+
+    await expect(exec.streamChat(convId, "continue the nested task", {
+      projectId,
+      subAgentMembers: [{ agentConfigId: "missing-member" }],
+    })).resolves.toBeDefined();
+
+    expect(wireCalls).toHaveLength(0);
+    expect(toolNames()).not.toContain("invoke_agent");
   });
 });
