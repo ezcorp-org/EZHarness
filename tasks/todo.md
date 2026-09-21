@@ -324,3 +324,19 @@ Plan review: keep one Bash 3.2-compatible validation path for effective environm
 - Check mode now returns exit 2 at unresolved existing or fresh runner decisions and does not claim that bind-directory or stack work would follow.
 - Effective public URLs must be parseable HTTP(S) values with a host and valid optional port before setup proceeds. Existing files stay byte-for-byte unchanged on rejection.
 - Verification passed: 88 setup/wrapper tests with 305 assertions; 18 production runner contract tests with 92 assertions; full lint; full backend, web, backend-test, and web-E2E typecheck; ShellCheck; Bash syntax; gate integrity; `git diff --check`; and direct credential/URL behavior under the official Bash 3.2 image.
+
+## PR #288 publication-gate repair
+
+- [x] Replace local env-file parsing with the selected Compose client's resolved environment.
+- [x] Require `EZCORP_PUBLIC_URL` to be one canonical HTTP(S) origin, including strict IPv4 and IPv6 validation.
+- [x] Run all non-mutating template, effective-env, port, and timeout validation before `--check` can succeed.
+- [x] Restrict installer-approved runner credentials to portable printable ASCII and cover Unicode whitespace.
+- [x] Use `PODMAN_SOCKET` consistently from engine validation through wrapper launch.
+- [ ] Run focused tests, Bash syntax, ShellCheck, lint, typecheck, workflow parsing, gate integrity, and diff checks.
+- [x] Review the complete change for secret exposure, temporary artifacts, duplication, and Bash 3.2 compatibility.
+- [ ] Commit the repair locally without pushing.
+
+Plan review: use Compose as the single source of truth for quoting, interpolation,
+comments, and exported-shell precedence. Keep its resolved output private and
+read only a fixed whitelist. Keep URL and credential validation conservative,
+portable, and independent of JavaScript tooling.

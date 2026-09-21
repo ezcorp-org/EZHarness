@@ -94,6 +94,8 @@ watchdog_pid=""
 watchdog_fd_open=0
 ready_probe_tmp=""
 readiness_active_pid=""
+resolved_env_tmp=""
+resolved_env_error_tmp=""
 # shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap below.
 cleanup_setup_artifacts() {
   if [ -n "$readiness_active_pid" ]; then
@@ -114,6 +116,8 @@ cleanup_setup_artifacts() {
   [ -z "$env_tmp" ] || rm -f "$env_tmp"
   [ -z "$secret_tmp" ] || rm -f "$secret_tmp"
   [ -z "$ready_probe_tmp" ] || rm -f "$ready_probe_tmp"
+  [ -z "$resolved_env_tmp" ] || rm -f "$resolved_env_tmp"
+  [ -z "$resolved_env_error_tmp" ] || rm -f "$resolved_env_error_tmp"
 }
 trap cleanup_setup_artifacts EXIT
 trap 'exit 1' HUP INT TERM
@@ -212,7 +216,7 @@ case "$OS" in
     else
       die "a Compose CLI is required (docker-compose-plugin or docker-compose); it is a client only, no Docker daemon is needed"
     fi
-    SOCKET="${EZ_SETUP_PODMAN_SOCKET:-/run/user/$(id -u)/podman/podman.sock}"
+    SOCKET="${PODMAN_SOCKET:-/run/user/$(id -u)/podman/podman.sock}"
     if [ -S "$SOCKET" ]; then
       ok "podman socket at $SOCKET"
     elif command -v systemctl >/dev/null 2>&1; then
@@ -250,52 +254,107 @@ portable_stat_value() {
   stat -c "$gnu_format" "$stat_path" 2>/dev/null || stat -f "$bsd_format" "$stat_path" 2>/dev/null
 }
 
-# This intentionally accepts a conservative HTTP(S) URL subset: a DNS name,
-# IPv4 address, or bracketed IPv6 literal, with an optional valid port and
-# path/query/fragment. Production uses this value as ORIGIN, so another scheme,
-# missing authority, whitespace, or an out-of-range port is never useful.
+# EZCORP_PUBLIC_URL is passed directly to SvelteKit as ORIGIN. It must be a
+# canonical origin, never a base URL. Curl's maintained URL parser validates
+# schemes and IPv6 without a network request (the deliberately absent Unix
+# socket makes the transfer fail after parsing). The small AWK check adds the
+# DNS/IPv4 rules that curl intentionally leaves to name resolution.
 valid_public_url() {
   local public_url="$1"
-  local public_url_pattern public_rest public_authority public_port
-  public_url_pattern='^([Hh][Tt][Tt][Pp]|[Hh][Tt][Tt][Pp][Ss])://(\[[0-9A-Fa-f:.]+\]|[[:alnum:]]([[:alnum:].-]*[[:alnum:]])?)(:[0-9]+)?([/?#][^[:space:][:cntrl:]]*)?$'
-  [[ "$public_url" =~ $public_url_pattern ]] || return 1
-  public_rest="${public_url#*://}"
-  public_authority="${public_rest%%[/?#]*}"
+  local parsed_url public_authority public_host public_port="" remainder
+  command -v curl >/dev/null 2>&1 || die "curl is required to validate EZCORP_PUBLIC_URL"
+  case "$public_url" in
+    http://*) public_authority="${public_url#http://}" ;;
+    https://*) public_authority="${public_url#https://}" ;;
+    *) return 1 ;;
+  esac
   case "$public_authority" in
-    \[*\]) return 0 ;;
-    \[*\]:*) public_port="${public_authority##*:}" ;;
-    *:*) public_port="${public_authority##*:}" ;;
-    *) return 0 ;;
+    '' | *[/?#@[:space:][:cntrl:]]*) return 1 ;;
   esac
-  case "$public_port" in '' | *[!0-9]*) return 1 ;; esac
-  [ "$public_port" -gt 0 ] && [ "$public_port" -le 65535 ]
-}
-
-# Decode the plain scalar forms used by this repository and accepted by
-# Compose: unquoted values with an optional whitespace-prefixed comment, or a
-# matching pair of single/double quotes. Never source the operator-owned file.
-env_value_from() {
-  local env_raw
-  env_raw="$(sed -n "s|^$2=||p" "$1" | tail -1)"
-  env_raw="${env_raw%$'\r'}"
-  env_raw="$(trim_env_whitespace "$env_raw")"
-  case "$env_raw" in
-    \"*) env_raw="${env_raw#\"}"; printf '%s' "${env_raw%%\"*}" ;;
-    \'*) env_raw="${env_raw#\'}"; printf '%s' "${env_raw%%\'*}" ;;
-    *)
-      case "$env_raw" in *[[:space:]]\#*) env_raw="${env_raw%%[[:space:]]\#*}" ;; esac
-      trim_env_whitespace "$env_raw"
+  parsed_url="$(curl -sS -o /dev/null --connect-timeout 1 --max-time 1 \
+    --proto '=http,https' --unix-socket /__ezcorp_origin_validation_no_socket__ \
+    -w '%{url_effective}' "$public_url" 2>/dev/null || true)"
+  [ "$parsed_url" = "$public_url/" ] || return 1
+  case "$public_authority" in
+    \[*\]*)
+      public_host="${public_authority%%]*}"
+      public_host="${public_host#\[}"
+      remainder="${public_authority#*]}"
+      case "$remainder" in '') ;; :*) public_port="${remainder#:}" ;; *) return 1 ;; esac
+      # Curl has already parsed this as IPv6. No DNS-label check applies.
+      public_host=""
       ;;
+    *:*)
+      public_host="${public_authority%:*}"
+      public_port="${public_authority##*:}"
+      case "$public_host" in *:*) return 1 ;; esac
+      ;;
+    *) public_host="$public_authority" ;;
   esac
+  if [ -n "$public_port" ]; then
+    case "$public_port" in *[!0-9]*) return 1 ;; esac
+    [ "$public_port" -gt 0 ] && [ "$public_port" -le 65535 ] || return 1
+  fi
+  [ -z "$public_host" ] || awk -v hostname="$public_host" '
+    BEGIN {
+      if (hostname == "" || length(hostname) > 253 || hostname ~ /^\./ || hostname ~ /\.$/) exit 1
+      if (hostname ~ /^[0-9.]+$/) {
+        count = split(hostname, octets, ".")
+        if (count != 4) exit 1
+        for (i = 1; i <= 4; i++) {
+          if (octets[i] !~ /^[0-9]+$/ || octets[i] + 0 > 255 ||
+              (length(octets[i]) > 1 && substr(octets[i], 1, 1) == "0")) exit 1
+        }
+        exit 0
+      }
+      count = split(hostname, labels, ".")
+      for (i = 1; i <= count; i++) {
+        label = labels[i]
+        if (label == "" || length(label) > 63 || label !~ /^[0-9A-Za-z-]+$/ ||
+            label !~ /^[0-9A-Za-z]/ || label !~ /[0-9A-Za-z]$/) exit 1
+      }
+    }
+  '
 }
 
-# Compose gives exported shell values priority over --env-file. Keep setup's
-# validation and user-facing URLs on that same precedence path. The whitelist
-# makes Bash 3.2's indirect expansion safe without eval, and no secret is ever
-# placed in a child process argument.
+# Compose owns .env quoting, comments, interpolation and shell precedence. Ask
+# the selected real Compose client for its resolved environment instead of
+# maintaining a second, inevitably divergent parser here. The output contains
+# secrets, so both stdout and stderr stay in private files and are never shown.
+resolve_compose_environment() {
+  local resolve_file="$1"
+  command -v mktemp >/dev/null 2>&1 || die "mktemp is required to validate $resolve_file safely"
+  [ -z "$resolved_env_tmp" ] || rm -f "$resolved_env_tmp"
+  [ -z "$resolved_env_error_tmp" ] || rm -f "$resolved_env_error_tmp"
+  resolved_env_tmp="$(umask 077 && mktemp "${ENV_FILE}.resolved.XXXXXX")" ||
+    die "could not create a private resolved-environment file"
+  resolved_env_error_tmp="$(umask 077 && mktemp "${ENV_FILE}.resolve-error.XXXXXX")" ||
+    die "could not create a private Compose error file"
+  if [ "$COMPOSE_CLI_LABEL" = "docker compose" ]; then
+    if ! docker compose --env-file "$resolve_file" -f - config --environment >"$resolved_env_tmp" 2>"$resolved_env_error_tmp" <<'EOF'
+services:
+  setup_env_probe:
+    image: scratch
+EOF
+    then
+      die "$resolve_file is not valid Compose environment syntax; run the production Compose config command for details"
+    fi
+  elif ! docker-compose --env-file "$resolve_file" -f - config --environment >"$resolved_env_tmp" 2>"$resolved_env_error_tmp" <<'EOF'
+services:
+  setup_env_probe:
+    image: scratch
+EOF
+  then
+    die "$resolve_file is not valid Compose environment syntax; run the production Compose config command for details"
+  fi
+  rm -f "$resolved_env_error_tmp"
+  resolved_env_error_tmp=""
+}
+
+# Read only the fixed setup whitelist from Compose's private resolved output.
+# Compose emits one NAME=value line for each effective interpolation value.
 effective_env_value() {
-  local effective_file="$1"
-  local effective_name="$2"
+  local effective_name="$1"
   case "$effective_name" in
     EZCORP_ENCRYPTION_SECRET | EZCORP_ENCRYPTION_SALT | EZCORP_JWT_SECRET | \
       EZCORP_PUBLIC_URL | EZCORP_PORT_HOST | EZCORP_RUNNER_COMPOSE_FILE | \
@@ -303,22 +362,17 @@ effective_env_value() {
       EZ_RUNNER_TOKEN_FILE | EZ_RUNNER_GROUP) ;;
     *) die "internal error: unsupported environment value: $effective_name" ;;
   esac
-  if [ "${!effective_name+x}" = x ]; then
-    printf '%s' "${!effective_name}"
-    return 0
-  fi
-  env_value_from "$effective_file" "$effective_name"
+  sed -n "s|^$effective_name=||p" "$resolved_env_tmp" | tail -1
 }
 
 required_invalid=""
 check_required_value() {
-  local required_file="$1"
-  local required_name="$2"
-  local required_placeholder="$3"
-  local required_minimum="$4"
+  local required_name="$1"
+  local required_placeholder="$2"
+  local required_minimum="$3"
   local required_value
   local required_bad=0
-  required_value="$(effective_env_value "$required_file" "$required_name")"
+  required_value="$(effective_env_value "$required_name")"
   [ -n "$required_value" ] || required_bad=1
   [ "${#required_value}" -ge "$required_minimum" ] || required_bad=1
   case "$required_value" in *"$required_placeholder"*) required_bad=1 ;; esac
@@ -332,15 +386,15 @@ check_required_value() {
 
 validate_required_values() {
   required_invalid=""
-  check_required_value "$1" EZCORP_ENCRYPTION_SECRET replace-with-openssl-rand-base64-32 16
-  check_required_value "$1" EZCORP_ENCRYPTION_SALT replace-with-openssl-rand-base64-16 16
-  check_required_value "$1" EZCORP_JWT_SECRET replace-with-openssl-rand-base64-32 16
-  check_required_value "$1" EZCORP_PUBLIC_URL https://ezcorp.example.com 1
+  check_required_value EZCORP_ENCRYPTION_SECRET replace-with-openssl-rand-base64-32 16
+  check_required_value EZCORP_ENCRYPTION_SALT replace-with-openssl-rand-base64-16 16
+  check_required_value EZCORP_JWT_SECRET replace-with-openssl-rand-base64-32 16
+  check_required_value EZCORP_PUBLIC_URL https://ezcorp.example.com 1
   [ -z "$required_invalid" ] || {
     printf 'error: invalid required production values: %s\n' "$required_invalid" >&2
     cat >&2 <<EOF
   Existing environment files are never changed. Exported shell values override
-  $1, so correct or unset those overrides first. Then set the invalid file
+  $ENV_FILE, so correct or unset those overrides first. Then set the invalid file
   values with:
     EZCORP_ENCRYPTION_SECRET=<output of: openssl rand -base64 32>
     EZCORP_ENCRYPTION_SALT=<output of: openssl rand -base64 16>
@@ -351,21 +405,20 @@ EOF
   }
 }
 
-runner_configured_file() {
-  local runner_file="$1"
+runner_configured() {
   local runner_compose runner_socket_dir runner_token_file runner_group
-  runner_compose="$(effective_env_value "$runner_file" EZCORP_RUNNER_COMPOSE_FILE)"
+  runner_compose="$(effective_env_value EZCORP_RUNNER_COMPOSE_FILE)"
   if [ "$runner_compose" = "$TRUSTED_LOCAL_COMPOSE" ] &&
-    [ "$(effective_env_value "$runner_file" "$ACK_VARIABLE")" = "$ACK_SENTENCE" ]; then
+    [ "$(effective_env_value "$ACK_VARIABLE")" = "$ACK_SENTENCE" ]; then
     return 0
   fi
   # A non-empty non-exact override is a topology this script cannot validate.
   # Never borrow stale isolated values and call that custom topology usable.
   [ -z "$runner_compose" ] || return 1
   [ "$OS" = "Linux" ] || return 1
-  runner_socket_dir="$(effective_env_value "$runner_file" EZ_RUNNER_SOCKET_DIR)"
-  runner_token_file="$(effective_env_value "$runner_file" EZ_RUNNER_TOKEN_FILE)"
-  runner_group="$(effective_env_value "$runner_file" EZ_RUNNER_GROUP)"
+  runner_socket_dir="$(effective_env_value EZ_RUNNER_SOCKET_DIR)"
+  runner_token_file="$(effective_env_value EZ_RUNNER_TOKEN_FILE)"
+  runner_group="$(effective_env_value EZ_RUNNER_GROUP)"
   case "$runner_group" in '' | *[!0-9]*) return 1 ;; esac
   [ -S "$runner_socket_dir/runner.sock" ] && runner_credential_usable "$runner_token_file"
 }
@@ -373,7 +426,9 @@ runner_configured_file() {
 # Mirror src/extensions/runner-connection.ts without sourcing the credential or
 # exposing it in a child argv/log: absolute regular non-symlink, at most 4096
 # bytes, no group/other write bits, and a trimmed token of at least 32
-# whitespace/control-free characters.
+# whitespace/control-free ASCII characters. Production accepts a wider Unicode
+# set, but setup deliberately provisions the portable credential subset whose
+# byte and character counts are identical across Linux and macOS locales.
 runner_credential_usable() {
   local runner_token_file="$1"
   local runner_token_mode runner_token_size runner_token_value
@@ -394,6 +449,7 @@ runner_credential_usable() {
   runner_token_value="$(cat "$runner_token_file")" || return 1
   runner_token_value="$(trim_env_whitespace "$runner_token_value")"
   [ "${#runner_token_value}" -ge 32 ] || return 1
+  (LC_ALL=C; export LC_ALL; case "$runner_token_value" in *[!\ -~]*) exit 1 ;; esac) || return 1
   case "$runner_token_value" in *[[:space:][:cntrl:]]*) return 1 ;; esac
 }
 
@@ -406,7 +462,8 @@ validate_existing_env() {
     [0-7]00 | 0[0-7]00) ;;
     *) die "$ENV_FILE has unsafe permissions ($env_mode); run: chmod 600 $ENV_FILE" ;;
   esac
-  validate_required_values "$ENV_FILE"
+  resolve_compose_environment "$ENV_FILE"
+  validate_required_values
   ok "exists with private permissions — left byte-for-byte unchanged"
 }
 
@@ -487,7 +544,7 @@ select_fresh_runner() {
 }
 
 ensure_existing_runner() {
-  if runner_configured_file "$ENV_FILE"; then
+  if runner_configured; then
     ok "runner already configured — environment file left byte-for-byte unchanged"
     return 0
   fi
@@ -501,16 +558,27 @@ generate_secret() {
 }
 
 build_fresh_candidate() {
+  local candidate_kind="${1:-real}"
   [ -f "$ENV_EXAMPLE" ] || die "$ENV_EXAMPLE is missing"
-  command -v openssl >/dev/null 2>&1 || die "openssl is required to generate secrets"
   command -v mktemp >/dev/null 2>&1 || die "mktemp is required to create $ENV_FILE safely"
   env_tmp="$(umask 077 && mktemp "${ENV_FILE}.tmp.XXXXXX")" || die "could not create a private temporary environment file"
   secret_tmp="$(umask 077 && mktemp "${ENV_FILE}.secrets.XXXXXX")" || die "could not create a private secret file"
-  {
-    generate_secret EZCORP_ENCRYPTION_SECRET 32
-    generate_secret EZCORP_ENCRYPTION_SALT 16
-    generate_secret EZCORP_JWT_SECRET 32
-  } >"$secret_tmp"
+  if [ "$candidate_kind" = real ]; then
+    command -v openssl >/dev/null 2>&1 || die "openssl is required to generate secrets"
+    {
+      generate_secret EZCORP_ENCRYPTION_SECRET 32
+      generate_secret EZCORP_ENCRYPTION_SALT 16
+      generate_secret EZCORP_JWT_SECRET 32
+    } >"$secret_tmp"
+  else
+    # Dry-run values exercise the exact substitution and Compose-resolution
+    # path without generating credentials or placing a real secret anywhere.
+    {
+      printf '%s\n' 'EZCORP_ENCRYPTION_SECRET=check-only-encryption-secret-0001'
+      printf '%s\n' 'EZCORP_ENCRYPTION_SALT=check-only-salt-01'
+      printf '%s\n' 'EZCORP_JWT_SECRET=check-only-session-secret-000001'
+    } >"$secret_tmp"
+  fi
   chmod 600 "$secret_tmp"
   if ! awk '
     BEGIN {
@@ -567,9 +635,11 @@ if [ -f "$ENV_FILE" ]; then
   say "extension runner"
   ensure_existing_runner
 elif [ "$CHECK_ONLY" = 1 ]; then
+  build_fresh_candidate check
   todo "would create one complete mode-600 file from $ENV_EXAMPLE with generated secrets"
   say "extension runner"
   if [ "$ACCEPT_UNSANDBOXED" = 1 ]; then
+    append_trusted_local "$env_tmp"
     todo "would add trusted-local to the private candidate after explicit acceptance"
   elif [ "$OS" = "Darwin" ]; then
     todo "blocked until trusted-local risk is accepted; no environment file or stack would be created"
@@ -578,12 +648,16 @@ elif [ "$CHECK_ONLY" = 1 ]; then
     todo "not configured; on Linux select an isolated runner or explicitly accept trusted-local"
     exit 2
   fi
+  resolve_compose_environment "$env_tmp"
+  validate_required_values
+  runner_configured || die "the private environment candidate has no usable extension runner"
 else
-  build_fresh_candidate
+  build_fresh_candidate real
   say "extension runner"
   select_fresh_runner "$env_tmp"
-  validate_required_values "$env_tmp"
-  runner_configured_file "$env_tmp" || die "the private environment candidate has no usable extension runner"
+  resolve_compose_environment "$env_tmp"
+  validate_required_values
+  runner_configured || die "the private environment candidate has no usable extension runner"
   if ln "$env_tmp" "$ENV_FILE" 2>/dev/null; then
     rm -f "$env_tmp"
     env_tmp=""
@@ -599,6 +673,30 @@ else
   fi
 fi
 
+# Validate every non-mutating start precondition before --check can report
+# success or a real run creates bind-mount directories.
+validate_readiness_configuration() {
+  if [ -z "$READY_URL" ]; then
+    ready_port="$(effective_env_value EZCORP_PORT_HOST)"
+    [ -n "$ready_port" ] || ready_port=4000
+    case "$ready_port" in
+      *[!0-9]*) die "EZCORP_PORT_HOST must be a whole-number port so setup can check readiness" ;;
+    esac
+    [ "$ready_port" -gt 0 ] && [ "$ready_port" -le 65535 ] ||
+      die "EZCORP_PORT_HOST must be between 1 and 65535"
+    READY_URL="http://localhost:${ready_port}/api/ready"
+  fi
+  case "$READY_TIMEOUT" in
+    '' | *[!0-9]*) die "EZ_SETUP_READY_TIMEOUT must be a positive whole number of seconds" ;;
+  esac
+  [ "$READY_TIMEOUT" -gt 0 ] || die "EZ_SETUP_READY_TIMEOUT must be greater than zero"
+  admin_url="$(effective_env_value EZCORP_PUBLIC_URL)"
+  [ -n "$admin_url" ] || admin_url="${READY_URL%/api/ready}"
+}
+if [ "$CHECK_ONLY" = 1 ] || [ "$NO_START" != 1 ]; then
+  validate_readiness_configuration
+fi
+
 # ── 3. Bind-mount sources ──────────────────────────────────────────────────
 say "bind-mount directories under $DATA_ROOT"
 for d in data extensions extension-data projects; do
@@ -611,29 +709,16 @@ done
 
 # ── 5. Up ──────────────────────────────────────────────────────────────────
 say "stack"
-if [ "$CHECK_ONLY" = 1 ] || [ "$NO_START" = 1 ]; then
+if [ "$CHECK_ONLY" = 1 ]; then
   todo "would run: bash scripts/podman-compose.sh --prod up -d --build"
   exit 0
 fi
-if [ -z "$READY_URL" ]; then
-  ready_port="$(effective_env_value "$ENV_FILE" EZCORP_PORT_HOST)"
-  [ -n "$ready_port" ] || ready_port=4000
-  case "$ready_port" in
-    *[!0-9]*) die "EZCORP_PORT_HOST must be a whole-number port so setup can check readiness" ;;
-  esac
-  [ "$ready_port" -gt 0 ] && [ "$ready_port" -le 65535 ] ||
-    die "EZCORP_PORT_HOST must be between 1 and 65535"
-  READY_URL="http://localhost:${ready_port}/api/ready"
+if [ "$NO_START" = 1 ]; then
+  todo "start skipped (--no-start)"
+  exit 0
 fi
-case "$READY_TIMEOUT" in
-  '' | *[!0-9]*) die "EZ_SETUP_READY_TIMEOUT must be a positive whole number of seconds" ;;
-esac
-[ "$READY_TIMEOUT" -gt 0 ] || die "EZ_SETUP_READY_TIMEOUT must be greater than zero"
 
-admin_url="$(effective_env_value "$ENV_FILE" EZCORP_PUBLIC_URL)"
-[ -n "$admin_url" ] || admin_url="${READY_URL%/api/ready}"
-
-EZ_COMPOSE_ENV_FILE="$ENV_FILE" bash scripts/podman-compose.sh --prod up -d --build
+PODMAN_SOCKET="${PODMAN_SOCKET:-${SOCKET:-}}" EZ_COMPOSE_ENV_FILE="$ENV_FILE" bash scripts/podman-compose.sh --prod up -d --build
 say "waiting for $READY_URL (up to ${READY_TIMEOUT}s)"
 
 # Bash 3.2's `read -t` is a relative kernel timer: changing the wall clock
