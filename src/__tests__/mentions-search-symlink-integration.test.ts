@@ -18,7 +18,7 @@
  */
 
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
-import { unavailableWorkflowAccess } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, unavailableWorkflowAccess } from "./helpers/mock-cleanup";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,12 +28,28 @@ import { join } from "node:path";
 
 let nextProject: { id: string; path: string } | null = null;
 
-mock.module("$server/db/queries/projects", () => ({
+// Relative path, like the database and schema stubs below: the route resolves
+// `$server/db/queries/projects` to this same module, and registering the alias
+// would freeze it on an export set of exactly `getProject` for the rest of the
+// process. `installer-idempotent-local.test.ts` imports `listProjects` from
+// that alias and could not link past it. Over the real module a partial
+// factory overrides only the key it names, and `restoreModuleMocks()` in
+// afterAll puts that key back.
+mock.module("../db/queries/projects", () => ({
   getProject: async (_id: string) => nextProject,
 }));
 
+// Spread the real module, and revert the one override in afterAll. A
+// `mock.module("$server/…")` cannot be withdrawn, and a PARTIAL factory does
+// not merely shadow the other exports — it deletes them for the rest of the
+// process, because no module was ever loaded under that specifier for a
+// snapshot to restore from. Dropping `checkProjectRole` here stopped
+// `installer-idempotent-local.test.ts` from linking at all, losing its
+// sixteen tests to one unhandled error.
+let stubRequireAuth = true;
 mock.module("$server/auth/middleware", () => ({
-  requireAuth: () => ({ id: "test-user", role: "admin" }),
+  ...require("../auth/middleware"),
+  requireAuth: (locals: unknown) => (stubRequireAuth ? { id: "test-user", role: "admin" } : require("../auth/middleware").requireAuth(locals)),
 }));
 
 mock.module("$lib/server/security/api-keys", () => ({
@@ -54,7 +70,13 @@ mock.module("$lib/server/context", () => ({
   getWorkflows: () => [],
 }));
 
-mock.module("$server/db/connection", () => ({
+// Mocked on the RELATIVE path, not on `$server/db/connection`: the route
+// resolves that alias through its own tsconfig to this same module, so the
+// stub still reaches it, and nothing registers the alias — which would hijack
+// the specifier for every later file and freeze it on this empty database.
+// `restoreModuleMocks()` in afterAll then puts the real module back, which it
+// could never do for an alias.
+mock.module("../db/connection", () => ({
   getDb: () => ({
     select: () => ({
       from: () => ({
@@ -64,7 +86,7 @@ mock.module("$server/db/connection", () => ({
   }),
 }));
 
-mock.module("$server/db/schema", () => ({
+mock.module("../db/schema", () => ({
   extensions: {},
   agentConfigs: {},
 }));
@@ -81,10 +103,15 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
 }));
 
 afterAll(() => {
+  stubRequireAuth = false;
   mock.module("$lib/server/workflow-access", unavailableWorkflowAccess);
   mock.module("$server/runtime/tools/builtin-registry", () =>
     require("../runtime/tools/builtin-registry"),
   );
+  // Puts the relative modules stubbed above back for the next file. Only a
+  // relative path can be restored this way; that is why the database stub is
+  // registered on one.
+  restoreModuleMocks();
 });
 
 // Import AFTER mocks.
