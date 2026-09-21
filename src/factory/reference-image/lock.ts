@@ -115,23 +115,11 @@ function canonical(value: unknown): string {
 }
 
 /**
- * Accepts only a lock that pins every field this pack reads.
- *
- * The checks are deliberately about bindings rather than shape: a revision that
- * is not a commit, an unpinned image, an out-of-order or duplicated file list,
- * a quorum larger than the number of evaluations, or a normalization that
- * permits a chunk outside the allowed set would each let an execution-time
- * decision back in.
+ * The guest closure: both images by digest, the interpreter, the distributions
+ * the launched interpreter reports, and where the weights are mounted.
  */
-export function assertReferenceImageLock(value: unknown): asserts value is ReferenceImageLock {
-  if (typeof value !== "object" || value === null) invalid("The reference image lock must be an object");
-  const lock = value as Record<string, unknown>;
-  if (lock.schemaVersion !== REFERENCE_IMAGE_LOCK_SCHEMA_VERSION) invalid(`The reference image lock schema must be ${REFERENCE_IMAGE_LOCK_SCHEMA_VERSION}`);
-  if (lock.definitionId !== "reference.image.v1") invalid("The reference image lock must name reference.image.v1");
-
-  assertReferenceImageModelLock(lock.model);
-
-  const runtime = lock.runtime as Record<string, unknown> | undefined;
+function assertRuntimeLock(value: unknown): void {
+  const runtime = value as Record<string, unknown> | undefined;
   if (typeof runtime?.baseImage !== "string" || !IMAGE.test(runtime.baseImage)) invalid("The runtime base image must be pinned by registry digest");
   if (typeof runtime.guestImage !== "string" || !IMAGE.test(runtime.guestImage)) invalid("The runtime guest image must be pinned by registry digest");
   if (!Array.isArray(runtime.distributions) || runtime.distributions.length === 0) invalid("The runtime must record the guest's importable distributions");
@@ -144,8 +132,11 @@ export function assertReferenceImageLock(value: unknown): asserts value is Refer
   if (typeof runtime.pythonVersion !== "string" || !/^\d+\.\d+\.\d+$/.test(runtime.pythonVersion)) invalid("The runtime must pin an exact interpreter version");
   if (typeof runtime.resourceClass !== "string" || runtime.resourceClass.length === 0) invalid("The runtime must name its resource class");
   if (typeof runtime.modelDirectory !== "string" || !runtime.modelDirectory.startsWith("/")) invalid("The runtime must name an absolute model directory");
+}
 
-  const generation = lock.generation as Record<string, unknown> | undefined;
+/** Exactly the C10 generation settings, every one a fixed input. */
+function assertGenerationLock(value: unknown): void {
+  const generation = value as Record<string, unknown> | undefined;
   if (!Array.isArray(generation?.seeds) || generation.seeds.length === 0) invalid("The generation lock must record its seeds");
   let seed = -1;
   for (const entry of generation.seeds as readonly unknown[]) {
@@ -161,8 +152,11 @@ export function assertReferenceImageLock(value: unknown): asserts value is Refer
   for (const field of ["dtype", "scheduler", "device", "selector"] as const) {
     if (typeof generation[field] !== "string" || (generation[field] as string).length === 0) invalid(`The generation lock must pin ${field}`);
   }
+}
 
-  const normalization = lock.normalization as Record<string, unknown> | undefined;
+/** The PNG normalization: one byte layout, and only the chunks it allows. */
+function assertNormalizationLock(value: unknown): void {
+  const normalization = value as Record<string, unknown> | undefined;
   if (normalization?.format !== "PNG") invalid("The normalization lock must produce PNG");
   if (typeof normalization.colorMode !== "string" || !["RGB", "RGBA"].includes(normalization.colorMode)) invalid("The normalization lock must pin an RGB or RGBA colour mode");
   if (normalization.bitDepth !== 8) invalid("The normalization lock must pin eight-bit samples");
@@ -176,8 +170,11 @@ export function assertReferenceImageLock(value: unknown): asserts value is Refer
     if (!(normalization.allowedChunks as readonly string[]).includes(required)) invalid(`The normalization lock must allow the critical chunk ${required}`);
   }
   if (typeof normalization.maximumBytes !== "number" || !Number.isSafeInteger(normalization.maximumBytes) || normalization.maximumBytes <= 0) invalid("The normalization lock must pin a maximum size");
+}
 
-  const ocr = lock.ocr as Record<string, unknown> | undefined;
+/** The OCR engine, its language, its modes, and what counts as recognized text. */
+function assertOcrLock(value: unknown): void {
+  const ocr = value as Record<string, unknown> | undefined;
   if (typeof ocr?.engine !== "string" || ocr.engine.length === 0) invalid("The OCR lock must name its engine");
   if (typeof ocr.language !== "string" || !/^[a-z]{3}$/.test(ocr.language)) invalid("The OCR lock must name a three-letter language");
   for (const field of ["pageSegmentationMode", "engineMode"] as const) {
@@ -185,8 +182,11 @@ export function assertReferenceImageLock(value: unknown): asserts value is Refer
     if (typeof item !== "number" || !Number.isSafeInteger(item) || item < 0) invalid(`The OCR lock must pin ${field}`);
   }
   if (typeof ocr.minimumWordConfidence !== "number" || !Number.isSafeInteger(ocr.minimumWordConfidence) || ocr.minimumWordConfidence < 0 || ocr.minimumWordConfidence > 100) invalid("The OCR lock must pin a word confidence threshold between zero and one hundred");
+}
 
-  const evaluation = lock.evaluation as Record<string, unknown> | undefined;
+/** The semantic evaluation: its model, its fields, and its quorum. */
+function assertEvaluationLock(value: unknown): void {
+  const evaluation = value as Record<string, unknown> | undefined;
   if (typeof evaluation?.model !== "string" || evaluation.model.length === 0) invalid("The evaluation lock must name its model");
   if (!Array.isArray(evaluation.fields) || evaluation.fields.length === 0) invalid("The evaluation lock must list its boolean fields");
   let field = "";
@@ -202,6 +202,33 @@ export function assertReferenceImageLock(value: unknown): asserts value is Refer
   if (evaluation.requireAllDecisive !== true) invalid("The evaluation lock must require every evaluation to be decisive");
   if (typeof evaluation.maxOutputTokens !== "number" || !Number.isSafeInteger(evaluation.maxOutputTokens) || evaluation.maxOutputTokens <= 0) invalid("The evaluation lock must pin an output ceiling");
   if (typeof evaluation.temperature !== "number" || !Number.isFinite(evaluation.temperature) || evaluation.temperature < 0) invalid("The evaluation lock must pin a temperature");
+}
+
+/**
+ * Accepts only a lock that pins every field this pack reads.
+ *
+ * The checks are deliberately about bindings rather than shape: a revision that
+ * is not a commit, an unpinned image, an out-of-order or duplicated file list,
+ * a quorum larger than the number of evaluations, or a normalization that
+ * permits a chunk outside the allowed set would each let an execution-time
+ * decision back in.
+ *
+ * One assertion per locked section, in the order a reader of the document
+ * meets them. The order matters to the caller: the first unpinned field is the
+ * one reported, so the sections run exactly as they were written inline.
+ */
+export function assertReferenceImageLock(value: unknown): asserts value is ReferenceImageLock {
+  if (typeof value !== "object" || value === null) invalid("The reference image lock must be an object");
+  const lock = value as Record<string, unknown>;
+  if (lock.schemaVersion !== REFERENCE_IMAGE_LOCK_SCHEMA_VERSION) invalid(`The reference image lock schema must be ${REFERENCE_IMAGE_LOCK_SCHEMA_VERSION}`);
+  if (lock.definitionId !== "reference.image.v1") invalid("The reference image lock must name reference.image.v1");
+
+  assertReferenceImageModelLock(lock.model);
+  assertRuntimeLock(lock.runtime);
+  assertGenerationLock(lock.generation);
+  assertNormalizationLock(lock.normalization);
+  assertOcrLock(lock.ocr);
+  assertEvaluationLock(lock.evaluation);
 }
 
 function frozen(value: ReferenceImageLock): ReferenceImageLock {
