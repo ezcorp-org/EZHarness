@@ -199,6 +199,18 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 
 ## PR #292 — full review and CI repair
 
+### Final audit repairs
+
+- [ ] Add red restart tests for ambiguous and failed file-mutation recovery.
+- [ ] Make mutation recovery prove a recorded filesystem state transition and terminalize verified aborts.
+- [ ] Add red supervisor/controller tests for an unlaunched persisted process start and disposal recovery.
+- [ ] Reconcile unverified starts to a terminal state without blind success replay.
+- [ ] Add red UTF-8/base64 gap cursor tests and enforce the decoded-byte lower bound.
+- [ ] Run focused tests, contract/schema/build, lint, typecheck, gate integrity, and diff checks.
+- [ ] Recheck `origin/main`, merge it if needed, commit without pushing, and record the exact verification result.
+
+Plan review: use the provider validator, real journal restart, supervisor status artifact, and public controller lifecycle as the test seams. Preserve the shared binding-row serialization invariant. Keep unknown outcomes conservative, but provide a verified terminal path that releases the writer lease and allows explicit disposal.
+
 ### Independent audit repair
 
 - [x] Reproduce lifecycle admission during active file/process methods and add one binding-level serialization invariant.

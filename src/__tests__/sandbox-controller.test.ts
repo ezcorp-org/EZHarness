@@ -1,10 +1,14 @@
-import { afterAll, beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeEach, expect, mock, test } from "bun:test";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { validateManifest } from "@ezcorp/extension-contract";
 import { providerMethodSchemas } from "../../packages/@ezcorp/extension-contract/src/validation";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import type { LocalSandboxDriver } from "../runtime/sandbox/controller/types";
 import type { SandboxProviderInvocation } from "../runtime/sandbox/controller/types";
+import { LocalProcessSupervisor } from "../runtime/sandbox/local-podman/supervisor";
 import { users } from "../db/schema";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 
@@ -13,6 +17,8 @@ const { configureSandboxController, createSandboxController, getSandboxControlle
 
 afterAll(closeTestDb);
 beforeEach(setupTestDb);
+const temporaryRoots: string[] = [];
+afterEach(async () => { await Promise.all(temporaryRoots.splice(0).map(root => rm(root, { recursive: true, force: true }))); });
 
 const limits = { memoryBytes: 1_048_576, milliCpu: 1000, pids: 64, diskBytes: 10_485_760 };
 const receipt = (call: { operationId: string; idempotencyKey: string; requestDigest: string }) => ({ operationId: call.operationId, idempotencyKey: call.idempotencyKey, requestDigest: call.requestDigest, outcome: "succeeded" as const });
@@ -260,12 +266,46 @@ test("an unknown process start retains only its unknown writer lease", async () 
   expect(leases.rows).toEqual([{ operation_id: start.id, state: "unknown" }]);
 });
 
+test("reconciles an unverified process start after supervisor restart before disposal", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ez-controller-process-restart-")); temporaryRoots.push(root);
+  const processRoot = join(root, "process"); await mkdir(processRoot, { recursive: true, mode: 0o700 });
+  const runtimeState = join(root, "runtime-state"); await writeFile(runtimeState, "running");
+  const podman = join(root, "podman");
+  await writeFile(podman, `#!${process.execPath}
+import { readFile, writeFile } from "node:fs/promises";
+const args = process.argv.slice(2); const state = ${JSON.stringify(runtimeState)};
+if (args.includes("stop")) { await writeFile(state, "stopped"); process.exit(0); }
+if (args.includes("inspect")) { console.log("containerid " + ((await readFile(state, "utf8")) === "running")); process.exit(0); }
+process.exit(2);
+`); await chmod(podman, 0o700);
+  const resource = { resourceId: "resource-1", containerId: "containerid", containerName: "containername", scope: { projectId: "pending", bindingId: "pending", generation: 4 }, processRoot, bootId: "boot-id" };
+  let now = 1_000;
+  const makeSupervisor = () => new LocalProcessSupervisor({ stateRoot: root, podmanPath: podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: 64, workspaceUid: 0, workspaceGid: 0 }, async () => resource, () => { throw new Error("crash boundary"); }, undefined, { now: () => now });
+  let supervisor = makeSupervisor();
+  const context = await fixture();
+  context.local.processStart = async input => { resource.scope = input.call.scope; return supervisor.start(input); };
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Restarted process')`);
+  const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "restart-start", conversationId, payload: { argv: ["maybe"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 10_000 } });
+  expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id)).state).toBe("unknown");
+
+  supervisor = makeSupervisor();
+  now += 5_001;
+  const destroy = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "destroy-after-start-recovery" });
+  expect(destroy.state).toBe("admitted");
+  expect((await context.controller.getSandboxOperationResult(context.owner.id, start.id)).state).toBe("failed");
+  const leases = await context.database.execute(sql`SELECT operation_id FROM sandbox_writer_leases WHERE binding_id=${create.bindingId}`) as { rows: unknown[] };
+  expect(leases.rows).toEqual([]);
+});
+
 test("a recovered file mutation terminalizes and releases its writer lease", async () => {
   const context = await fixture();
   let interrupted = true;
   context.local.fileWrite = mock(async (input: any) => interrupted
     ? { receipt: { ...receipt(input.call), outcome: "unknown" as const, error: { code: "operation_outcome_unknown", message: "Interrupted.", retryable: true } } }
-    : { receipt: receipt(input.call), entry: { path: input.path, kind: "file" as const, revision: "recovered", sizeBytes: 1, mode: 0o600 } });
+    : { receipt: { ...receipt(input.call), outcome: "failed" as const, error: { code: "interrupted_mutation_aborted", message: "No state transition was verified.", retryable: false } } });
   const create = await admitCreate(context);
   await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
   const conversationId = crypto.randomUUID();
@@ -275,7 +315,7 @@ test("a recovered file mutation terminalizes and releases its writer lease", asy
   interrupted = false;
   const stop = await context.controller.requestSandboxAction(context.owner.id, create.projectId, { action: "stop", idempotencyKey: "stop-after-recovery" });
   expect(stop.state).toBe("admitted");
-  expect((await context.controller.getSandboxOperationResult(context.owner.id, write.id)).state).toBe("succeeded");
+  expect((await context.controller.getSandboxOperationResult(context.owner.id, write.id)).state).toBe("failed");
   const leases = await context.database.execute(sql`SELECT operation_id FROM sandbox_writer_leases WHERE binding_id=${create.bindingId}`) as { rows: unknown[] };
   expect(leases.rows).toEqual([]);
 });

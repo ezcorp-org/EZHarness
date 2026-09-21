@@ -388,7 +388,8 @@ function validateProcessOutputExchange(request: ProviderRecord, response: Provid
   const bytes = chunks.reduce((total, chunk) => total + providerEncodedBytes(chunk.encoding, chunk.data), 0);
   const requestCursor = request.cursor as number;
   const responseCursor = response.cursor as number;
-  if (responseCursor < requestCursor || bytes > (request.maxBytes as number) || (response.gap === false && responseCursor !== requestCursor + bytes)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider output exceeded its requested cursor or byte range");
+  const minimumCursor = requestCursor + bytes;
+  if (responseCursor < minimumCursor || bytes > (request.maxBytes as number) || (response.gap === false && responseCursor !== minimumCursor)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider output exceeded its requested cursor or byte range");
 }
 
 function validateFileReadIdentity(request: ProviderRecord, response: ProviderRecord): void {

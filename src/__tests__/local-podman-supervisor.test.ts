@@ -96,7 +96,8 @@ describe("LocalProcessSupervisor", () => {
 		const deadIdentity = { bootId: "boot-id", processId: crypto.randomUUID() };
 		await writeFile(statusPath, JSON.stringify({ version: 1, identity: deadIdentity, call, state: "running", startedAt: 1, deadlineAt: 2, helperPid: 99999999, helperStartTime: "missing", outputCursor: 0, gap: false, chunks: [] }), { mode: 0o600 });
 		const recovered = await f.supervisor.inspect({ call, resourceId: "resource", identity: deadIdentity });
-		expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "unknown" } });
+		expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, process: { state: "failed" } });
+		expect(await f.supervisor.start({ ...f.input, call })).toMatchObject({ receipt: { outcome: "failed", error: { code: "process_start_failed" } } });
 		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
 	});
 
@@ -135,11 +136,16 @@ describe("LocalProcessSupervisor", () => {
 		const bytes = Buffer.concat(output.chunks.map((chunk) => Buffer.from(chunk.data, "base64"))); expect(bytes.toString("utf8")).toBe("€"); expect(output.cursor).toBe(3);
 	});
 
-	test("retains a replayable identity when detached launch throws", async () => {
-		const f = await fixture(64); let launches = 0;
-		const supervisor = new LocalProcessSupervisor({ stateRoot: f.root, podmanPath: f.podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: 64, workspaceUid: 0, workspaceGid: 0 }, async () => f.resource, () => { launches += 1; throw new Error("crash boundary"); });
+	test("does not report an unverified persisted process start as successful", async () => {
+		const f = await fixture(64); let launches = 0; let now = 1_000;
+		const supervisor = new LocalProcessSupervisor({ stateRoot: f.root, podmanPath: f.podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: 64, workspaceUid: 0, workspaceGid: 0 }, async () => f.resource, () => { launches += 1; throw new Error("crash boundary"); }, undefined, { now: () => now });
 		const first = await supervisor.start(f.input); expect(first.receipt.outcome).toBe("unknown");
-		const replayed = await supervisor.start(f.input); expect(replayed.receipt.outcome).toBe("succeeded"); expect("process" in replayed && replayed.process.state).toBe("starting"); expect(launches).toBe(1);
+		const pending = await supervisor.start(f.input); expect(pending.receipt.outcome).toBe("unknown");
+		now += 5_001;
+		const terminal = await supervisor.start(f.input); expect(terminal.receipt).toMatchObject({ outcome: "failed", error: { code: "process_start_failed", retryable: false } });
+		expect(await supervisor.start(f.input)).toEqual(terminal);
+		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
+		expect(launches).toBe(1);
 	});
 
 	test("does not load the native lock binding during import or configuration", async () => {

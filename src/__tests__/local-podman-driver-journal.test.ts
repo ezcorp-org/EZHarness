@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { LocalPodmanDriver } from "../runtime/sandbox/local-podman/driver";
 import { DurableOperationJournal } from "../runtime/sandbox/local-podman/journal";
@@ -81,50 +81,116 @@ describe("local lifecycle journal integration", () => {
 
     const call = { ...input().call, operationId: "write-recovery", idempotencyKey: "write-recovery" };
     const request = { call, resourceId: "resource", path: "/recovered.txt", encoding: "utf8" as const, data: "recovered" };
-    await journal.beginRecoverableMutation(call, async () => ({ priorRevision: null }));
+    await journal.beginRecoverableMutation(call, async () => ({ version: 1, prior: null }));
     await writeFile(`${paths.mount}/recovered.txt`, "recovered");
     const recovered = await new LocalPodmanDriver(config).fileWrite(request);
     expect(recovered).toMatchObject({ receipt: { outcome: "succeeded" }, entry: { path: "/recovered.txt", sizeBytes: 9 } });
     expect(await new LocalPodmanDriver(config).fileWrite(request)).toEqual(recovered);
 
     const mkdirCall = recoveryCall("mkdir");
-    await journal.beginRecoverableMutation(mkdirCall, async () => ({}));
+    await journal.beginRecoverableMutation(mkdirCall, async () => ({ version: 1, prior: null }));
     await mkdir(`${paths.mount}/recovered-dir`);
     expect(await new LocalPodmanDriver(config).fileMkdir({ call: mkdirCall, resourceId: "resource", path: "/recovered-dir", recursive: false })).toMatchObject({ receipt: { outcome: "succeeded" }, entry: { kind: "directory" } });
 
     await writeFile(`${paths.mount}/mode.txt`, "mode");
     const chmodCall = recoveryCall("chmod");
-    await journal.beginRecoverableMutation(chmodCall, async () => ({}));
+    const beforeChmod = await new LocalPodmanDriver(config).fileStat({ call: recoveryCall("chmod-stat"), resourceId: "resource", path: "/mode.txt" });
+    if (!("entry" in beforeChmod)) throw new Error("missing chmod revision");
+    await journal.beginRecoverableMutation(chmodCall, async () => ({ version: 1, prior: beforeChmod.entry }));
     await chmod(`${paths.mount}/mode.txt`, 0o640);
-    expect(await new LocalPodmanDriver(config).fileChmod({ call: chmodCall, resourceId: "resource", path: "/mode.txt", mode: 0o640 })).toMatchObject({ receipt: { outcome: "succeeded" }, entry: { mode: 0o640 } });
+    expect(await new LocalPodmanDriver(config).fileChmod({ call: chmodCall, resourceId: "resource", path: "/mode.txt", expectedRevision: beforeChmod.entry.revision, mode: 0o640 })).toMatchObject({ receipt: { outcome: "succeeded" }, entry: { mode: 0o640 } });
 
     await writeFile(`${paths.mount}/removed.txt`, "removed");
     const removeCall = recoveryCall("remove");
     const beforeRemove = await new LocalPodmanDriver(config).fileStat({ call: recoveryCall("remove-stat"), resourceId: "resource", path: "/removed.txt" });
     if (!("entry" in beforeRemove)) throw new Error("missing removal revision");
-    await journal.beginRecoverableMutation(removeCall, async () => ({ priorRevision: beforeRemove.entry.revision }));
+    await journal.beginRecoverableMutation(removeCall, async () => ({ version: 1, prior: beforeRemove.entry }));
     await rm(`${paths.mount}/removed.txt`);
-    expect(await new LocalPodmanDriver(config).fileRemove({ call: removeCall, resourceId: "resource", path: "/removed.txt", recursive: false })).toMatchObject({ receipt: { outcome: "succeeded" }, removedRevision: beforeRemove.entry.revision });
+    expect(await new LocalPodmanDriver(config).fileRemove({ call: removeCall, resourceId: "resource", path: "/removed.txt", expectedRevision: beforeRemove.entry.revision, recursive: false })).toMatchObject({ receipt: { outcome: "succeeded" }, removedRevision: beforeRemove.entry.revision });
   });
 
   test("terminalizes an interrupted file mutation whose effect is absent", async () => {
     const { config } = await fixture();
     const call = { ...input().call, operationId: "write-abort", idempotencyKey: "write-abort" };
     const request = { call, resourceId: "resource", path: "/missing.txt", encoding: "utf8" as const, data: "not-written" };
-    await new DurableOperationJournal(`${config.stateRoot}/operations`).beginRecoverableMutation(call, async () => ({ priorRevision: null }));
+    await new DurableOperationJournal(`${config.stateRoot}/operations`).beginRecoverableMutation(call, async () => ({ version: 1, prior: null }));
     const failed = await new LocalPodmanDriver(config).fileWrite(request);
-    expect(failed.receipt).toMatchObject({ outcome: "failed", error: { code: "interrupted_mutation", retryable: false } });
+    expect(failed.receipt).toMatchObject({ outcome: "failed", error: { code: "interrupted_mutation_aborted", retryable: false } });
     expect(await new LocalPodmanDriver(config).fileWrite(request)).toEqual(failed);
     const paths = resourcePaths(config.stateRoot, "resource");
     await writeFile(`${paths.mount}/same.txt`, "same");
     const mismatchCall = { ...input().call, operationId: "write-cas-abort", idempotencyKey: "write-cas-abort" };
     const observed = await new LocalPodmanDriver(config).fileStat({ call: { ...mismatchCall, operationId: "write-cas-stat", idempotencyKey: "write-cas-stat" }, resourceId: "resource", path: "/same.txt" });
     if (!("entry" in observed)) throw new Error("missing file revision");
-    await new DurableOperationJournal(`${config.stateRoot}/operations`).beginRecoverableMutation(mismatchCall, async () => ({ priorRevision: observed.entry.revision }));
+    await new DurableOperationJournal(`${config.stateRoot}/operations`).beginRecoverableMutation(mismatchCall, async () => ({ version: 1, prior: observed.entry }));
     const mismatch = await new LocalPodmanDriver(config).fileWrite({ call: mismatchCall, resourceId: "resource", path: "/same.txt", expectedRevision: "different", encoding: "utf8", data: "same" });
-    expect(mismatch.receipt).toMatchObject({ outcome: "failed", error: { code: "interrupted_mutation" } });
+    expect(mismatch.receipt).toMatchObject({ outcome: "failed", error: { code: "interrupted_mutation_aborted" } });
     const fresh = await new LocalPodmanDriver(config).fileWrite({ ...request, call: { ...call, operationId: "write-after-abort", idempotencyKey: "write-after-abort" } });
     expect(fresh.receipt.outcome).toBe("succeeded");
+  });
+  test("does not fabricate a recovered write when the desired content pre-existed", async () => {
+    const { config } = await fixture();
+    const paths = resourcePaths(config.stateRoot, "resource");
+    await writeFile(`${paths.mount}/same.txt`, "same");
+    const call = { ...input().call, operationId: "write-preexisting", idempotencyKey: "write-preexisting" };
+    const request = { call, resourceId: "resource", path: "/same.txt", encoding: "utf8" as const, data: "same" };
+    const before = await new LocalPodmanDriver(config).fileStat({ call: { ...call, operationId: "write-preexisting-stat", idempotencyKey: "write-preexisting-stat" }, resourceId: "resource", path: "/same.txt" });
+    if (!("entry" in before)) throw new Error("missing prior file state");
+    await new DurableOperationJournal(`${config.stateRoot}/operations`).beginRecoverableMutation(call, async () => ({ version: 1, prior: before.entry }));
+
+    const recovered = await new LocalPodmanDriver(config).fileWrite(request);
+    expect(recovered.receipt).toMatchObject({ outcome: "failed", error: { code: "interrupted_mutation_aborted", retryable: false } });
+    expect(await new LocalPodmanDriver(config).fileWrite(request)).toEqual(recovered);
+  });
+  test("does not fabricate recovered mkdir or chmod when the desired state pre-existed", async () => {
+    const { config } = await fixture();
+    const paths = resourcePaths(config.stateRoot, "resource");
+    const journal = new DurableOperationJournal(`${config.stateRoot}/operations`);
+    await mkdir(`${paths.mount}/existing-dir`);
+    await writeFile(`${paths.mount}/existing-mode.txt`, "mode");
+    await chmod(`${paths.mount}/existing-mode.txt`, 0o640);
+    const statCall = (name: string) => ({ ...input().call, operationId: `${name}-stat`, idempotencyKey: `${name}-stat` });
+    const dirBefore = await new LocalPodmanDriver(config).fileStat({ call: statCall("mkdir-preexisting"), resourceId: "resource", path: "/existing-dir" });
+    const modeBefore = await new LocalPodmanDriver(config).fileStat({ call: statCall("chmod-preexisting"), resourceId: "resource", path: "/existing-mode.txt" });
+    if (!("entry" in dirBefore) || !("entry" in modeBefore)) throw new Error("missing prior filesystem state");
+    const mkdirCall = { ...input().call, operationId: "mkdir-preexisting", idempotencyKey: "mkdir-preexisting" };
+    const chmodCall = { ...input().call, operationId: "chmod-preexisting", idempotencyKey: "chmod-preexisting" };
+    await journal.beginRecoverableMutation(mkdirCall, async () => ({ version: 1, prior: dirBefore.entry }));
+    await journal.beginRecoverableMutation(chmodCall, async () => ({ version: 1, prior: modeBefore.entry }));
+
+    const made = await new LocalPodmanDriver(config).fileMkdir({ call: mkdirCall, resourceId: "resource", path: "/existing-dir", recursive: false });
+    const changed = await new LocalPodmanDriver(config).fileChmod({ call: chmodCall, resourceId: "resource", path: "/existing-mode.txt", expectedRevision: modeBefore.entry.revision, mode: 0o640 });
+    expect([made.receipt, changed.receipt]).toEqual([
+      expect.objectContaining({ outcome: "failed", error: expect.objectContaining({ code: "interrupted_mutation_aborted" }) }),
+      expect.objectContaining({ outcome: "failed", error: expect.objectContaining({ code: "interrupted_mutation_aborted" }) }),
+    ]);
+  });
+  test("does not fabricate a recovered remove while the recorded target still exists", async () => {
+    const { config } = await fixture();
+    const paths = resourcePaths(config.stateRoot, "resource");
+    await writeFile(`${paths.mount}/retained.txt`, "retained");
+    const call = { ...input().call, operationId: "remove-retained", idempotencyKey: "remove-retained" };
+    const before = await new LocalPodmanDriver(config).fileStat({ call: { ...call, operationId: "remove-retained-stat", idempotencyKey: "remove-retained-stat" }, resourceId: "resource", path: "/retained.txt" });
+    if (!("entry" in before)) throw new Error("missing prior removal state");
+    await new DurableOperationJournal(`${config.stateRoot}/operations`).beginRecoverableMutation(call, async () => ({ version: 1, prior: before.entry }));
+
+    const recovered = await new LocalPodmanDriver(config).fileRemove({ call, resourceId: "resource", path: "/retained.txt", expectedRevision: before.entry.revision, recursive: false });
+    expect(recovered.receipt).toMatchObject({ outcome: "failed", error: { code: "interrupted_mutation_aborted" } });
+    expect(await readFile(`${paths.mount}/retained.txt`, "utf8")).toBe("retained");
+  });
+  test("durably terminalizes an unexpected mutation preparation stat error", async () => {
+    const { config } = await fixture();
+    const paths = resourcePaths(config.stateRoot, "resource");
+    await writeFile(`${paths.mount}/target.txt`, "target");
+    await symlink("target.txt", `${paths.mount}/unsupported-link`);
+    const call = { ...input().call, operationId: "write-stat-error", idempotencyKey: "write-stat-error" };
+    const request = { call, resourceId: "resource", path: "/unsupported-link", encoding: "utf8" as const, data: "replacement" };
+
+    const failed = await new LocalPodmanDriver(config).fileWrite(request);
+    expect(failed.receipt).toMatchObject({ outcome: "failed", error: { code: "unsupported_file", retryable: false } });
+    await rm(`${paths.mount}/unsupported-link`);
+    expect(await new LocalPodmanDriver(config).fileWrite(request)).toEqual(failed);
+    expect(await Bun.file(`${paths.mount}/unsupported-link`).exists()).toBe(false);
   });
   test("recovers disposal after workspace cleanup was interrupted", async () => {
     const f = await fixture(); const paths = resourcePaths(f.config.stateRoot, "resource"); await writeFile(paths.image, "image");

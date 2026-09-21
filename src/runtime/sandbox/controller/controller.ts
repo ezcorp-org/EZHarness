@@ -216,6 +216,10 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     const pending = rows(await getDb().execute(sql`SELECT operation.id,operation.actor_id FROM sandbox_writer_leases lease JOIN sandbox_method_operations operation ON operation.id=lease.operation_id WHERE lease.binding_id=${bindingId} AND operation.method_group='sandbox.files.v1' AND operation.state IN ('admitted','running','unknown')`))[0];
     if (pending) await executeMethod(String(pending.actor_id), String(pending.id), signal);
   }
+  async function reconcileProcessStart(bindingId: string, states: ReadonlySet<string>, signal?: AbortSignal): Promise<void> {
+    const pending = rows(await getDb().execute(sql`SELECT op.id,op.actor_id,op.state FROM sandbox_writer_leases lease JOIN sandbox_method_operations op ON op.id=lease.operation_id WHERE lease.binding_id=${bindingId} AND op.method_group='sandbox.process.v1' AND op.method='start'`))[0];
+    if (pending && states.has(String(pending.state))) await executeMethod(String(pending.actor_id), String(pending.id), signal);
+  }
   return {
     async listLocalSandboxProviders(_userId) {
       const installations = rows(await getDb().execute(sql`SELECT id, payload FROM extension_release_installations`));
@@ -305,8 +309,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     },
     async reconcileSandboxProcess(userId, projectId, signal) {
       const current = await status(userId, projectId);
-      const pending = rows(await getDb().execute(sql`SELECT op.id FROM sandbox_writer_leases lease JOIN sandbox_method_operations op ON op.id=lease.operation_id WHERE lease.binding_id=${current.bindingId} AND op.method_group='sandbox.process.v1' AND op.method='start' AND op.state IN ('admitted','running','unknown')`))[0];
-      if (pending) await this.executeAdmittedSandboxMethod(userId, String(pending.id), signal);
+      await reconcileProcessStart(current.bindingId, new Set(["admitted", "running", "unknown"]), signal);
       const process = rows(await getDb().execute(sql`SELECT process.*,binding.id AS binding_id,resource.provider_resource_id FROM sandbox_processes process JOIN sandbox_provider_bindings binding ON binding.id=process.binding_id JOIN sandbox_resources resource ON resource.id=process.resource_id WHERE binding.project_id=${projectId} ORDER BY process.updated_at DESC LIMIT 1`))[0];
       if (!process) return null;
       const result = parse<ProcessResult>(process.result);
@@ -388,6 +391,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const current = await status(userId, projectId); if (!current.resource) throw new SandboxControllerError("RESOURCE_MISSING", "Sandbox resource is not created");
       if (current.resource.observedState === "destroyed") throw new SandboxControllerError("RESOURCE_DESTROYED", "This sandbox has been disposed");
       if (!input.idempotencyKey) throw new SandboxControllerError("INVALID_INPUT", "An idempotency key is required");
+      await reconcileProcessStart(current.bindingId, new Set(["unknown"]));
       await reconcileFileWriter(current.bindingId);
       const value = { resourceId: current.resource.resourceId }; const digest = await sha256(canonicalJson(value)); const id = crypto.randomUUID();
       const replay = (operation: Row) => {

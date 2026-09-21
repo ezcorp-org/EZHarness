@@ -143,7 +143,8 @@ export function launchDetachedSupervisor(argv: string[]): void {
 
 export class LocalProcessSupervisor {
 	private readonly config: LocalProcessSupervisorConfig;
-	constructor(config: LocalProcessSupervisorConfig, private readonly resolveOwnedResource: ResolveOwnedResource, private readonly launchDetached: LaunchDetached = launchDetachedSupervisor, private readonly lockFile: LockFile = flock) { this.config = assertConfig(config); }
+	private readonly acceptedStarts = new Map<string, { call: ProviderCall; result: SandboxProcessStartResult }>();
+	constructor(config: LocalProcessSupervisorConfig, private readonly resolveOwnedResource: ResolveOwnedResource, private readonly launchDetached: LaunchDetached = launchDetachedSupervisor, private readonly lockFile: LockFile = flock, private readonly clock = { now: () => Date.now() }) { this.config = assertConfig(config); }
 
 	private paths(resource: OwnedProcessResource) {
 		return { launch: `${resource.processRoot}/launch.json`, status: `${resource.processRoot}/status.json`, cancel: `${resource.processRoot}/cancel` };
@@ -163,14 +164,20 @@ export class LocalProcessSupervisor {
 
 	private async recover(resource: OwnedProcessResource, status: SupervisorStatus, path: string): Promise<SupervisorStatus> {
 		if (status.state !== "starting" && status.state !== "running") return status;
-		if (status.identity.bootId !== resource.bootId) { const recovered = { ...status, state: "unknown" as const }; await atomicJson(path, recovered); return recovered; }
-		if (status.state === "starting" && status.helperPid === 0 && Date.now() <= Math.min(status.deadlineAt, status.startedAt + 5_000)) return status;
+		if (status.identity.bootId !== resource.bootId) { const recovered = { ...status, state: "failed" as const }; await atomicJson(path, recovered); return recovered; }
+		if (status.state === "starting" && status.helperPid === 0 && this.clock.now() <= Math.min(status.deadlineAt, status.startedAt + 5_000)) return status;
 		const liveStart = await processStartTime(status.helperPid);
 		if (status.identity.bootId === resource.bootId && liveStart !== undefined && liveStart === status.helperStartTime) return status;
-		await this.stopAndVerify(resource);
-		const recovered = { ...status, state: "unknown" as const };
+		const stopped = await this.stopAndVerify(resource);
+		const recovered = { ...status, state: stopped ? "failed" as const : "unknown" as const };
 		await atomicJson(path, recovered);
 		return recovered;
+	}
+
+	private recoveredStart(call: ProviderCall, status: SupervisorStatus): SandboxProcessStartResult {
+		if (status.state === "unknown" || (status.state === "starting" && status.helperPid === 0)) return failure(call, "process_start_unknown", "The persisted process start cannot yet be verified", "unknown");
+		if (status.state === "failed") return failure(call, "process_start_failed", "The persisted process start was safely terminated");
+		return { receipt: receipt(call), process: asProcess(status) };
 	}
 
 	async start(input: SandboxProcessStartInput): Promise<SandboxProcessStartResult> {
@@ -184,10 +191,15 @@ export class LocalProcessSupervisor {
 			const lock = await open(lockPath, "a+", 0o600); await chmod(lockPath, 0o600);
 			let lockResult: number; try { lockResult = this.lockFile(lock.fd, LOCK_EXCLUSIVE_NONBLOCKING); } catch (error) { await lock.close(); throw error; }
 			if (lockResult !== 0) { await lock.close(); return failure(input.call, "process_busy", "A process start is already in progress"); }
-			try {
 				try {
-					const stored = await readStatus(paths.status);
-					if (stored.identity.bootId === resource.bootId && sameCall(stored.call, input.call)) return { receipt: receipt(input.call), process: asProcess(stored) };
+					try {
+						const stored = await readStatus(paths.status);
+						if (stored.identity.bootId === resource.bootId && sameCall(stored.call, input.call)) {
+							const accepted = this.acceptedStarts.get(resource.resourceId);
+							if (stored.state === "starting" && stored.helperPid === 0 && accepted && sameCall(accepted.call, input.call)) return accepted.result;
+							this.acceptedStarts.delete(resource.resourceId);
+							return this.recoveredStart(input.call, await this.recover(resource, stored, paths.status));
+						}
 					if (stored.identity.bootId === resource.bootId && sameCallKey(stored.call, input.call)) return failure(input.call, "idempotency_conflict", "The idempotency key belongs to a different process request");
 					const current = await this.recover(resource, stored, paths.status);
 					if (current.state === "starting" || current.state === "running") return failure(input.call, "process_busy", "The resource already has a managed process");
@@ -198,11 +210,13 @@ export class LocalProcessSupervisor {
 				const identity = { bootId: resource.bootId, processId: crypto.randomUUID() };
 					const launch: SupervisorLaunch = { version: 1, podmanPath: this.config.podmanPath, containerId: resource.containerId, containerName: resource.containerName, identity, call: input.call, argv: input.argv, env: input.env, cwd: input.cwd, timeoutMs: input.timeoutMs, maxOutputBytes: this.config.maxOutputBytes, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid, statusPath: paths.status, cancelPath: paths.cancel };
 				await atomicJson(paths.launch, launch);
-				const now = Date.now();
+					const now = this.clock.now();
 					await atomicJson(paths.status, { version: 1, identity, call: input.call, state: "starting", startedAt: now, deadlineAt: now + input.timeoutMs, helperPid: 0, helperStartTime: "pending", outputCursor: 0, gap: false, chunks: [] } satisfies SupervisorStatus);
 					try { this.launchDetached([this.config.supervisorPath, paths.launch]); }
 					catch { return failure(input.call, "process_start_unknown", "The supervisor launch outcome is unknown", "unknown"); }
-				return { receipt: receipt(input.call), process: { identity, state: "starting", outputCursor: 0 } };
+					const result = { receipt: receipt(input.call), process: { identity, state: "starting" as const, outputCursor: 0 } };
+					this.acceptedStarts.set(resource.resourceId, { call: input.call, result });
+					return result;
 			} finally {
 					this.lockFile(lock.fd, LOCK_RELEASE); await lock.close();
 			}

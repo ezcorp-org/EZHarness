@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import { open, readFile } from "node:fs/promises";
-import { validateProviderMethodValue, type ProviderCall, type ProviderError, type ProviderFailedReceipt, type ProviderReceipt, type ProviderSucceededReceipt, type ProviderUnknownReceipt, type SandboxCreateInput, type SandboxCreateResult, type SandboxDestroyInput, type SandboxDestroyResult, type SandboxFileChmodInput, type SandboxFileChmodResult, type SandboxFileListInput, type SandboxFileListResult, type SandboxFileMkdirInput, type SandboxFileMkdirResult, type SandboxFileReadInput, type SandboxFileReadResult, type SandboxFileRemoveInput, type SandboxFileRemoveResult, type SandboxFileStatInput, type SandboxFileStatResult, type SandboxFileWriteInput, type SandboxFileWriteResult, type SandboxInspectInput, type SandboxInspectResult, type SandboxProcessCancelInput, type SandboxProcessCancelResult, type SandboxProcessInspectInput, type SandboxProcessInspectResult, type SandboxProcessReadOutputInput, type SandboxProcessReadOutputResult, type SandboxProcessStartInput, type SandboxProcessStartResult, type SandboxStartInput, type SandboxStartResult, type SandboxStopInput, type SandboxStopResult } from "@ezcorp/extension-contract";
+import { validateProviderMethodValue, type ProviderCall, type ProviderError, type ProviderFailedReceipt, type ProviderReceipt, type ProviderSucceededReceipt, type ProviderUnknownReceipt, type SandboxCreateInput, type SandboxCreateResult, type SandboxDestroyInput, type SandboxDestroyResult, type SandboxFileChmodInput, type SandboxFileChmodResult, type SandboxFileListInput, type SandboxFileListResult, type SandboxFileMkdirInput, type SandboxFileMkdirResult, type SandboxFileReadInput, type SandboxFileReadResult, type SandboxFileRemoveInput, type SandboxFileRemoveResult, type SandboxFileStat, type SandboxFileStatInput, type SandboxFileStatResult, type SandboxFileWriteInput, type SandboxFileWriteResult, type SandboxInspectInput, type SandboxInspectResult, type SandboxProcessCancelInput, type SandboxProcessCancelResult, type SandboxProcessInspectInput, type SandboxProcessInspectResult, type SandboxProcessReadOutputInput, type SandboxProcessReadOutputResult, type SandboxProcessStartInput, type SandboxProcessStartResult, type SandboxStartInput, type SandboxStartResult, type SandboxStopInput, type SandboxStopResult } from "@ezcorp/extension-contract";
 import { CONFIG_LABEL, RESOURCE_LABEL, configurationDigest, containerIdFromCreateOutput, createContainerArgv, expectedContainerIdentity, resourcePaths, runBoundedCommand, validateHostConfig, validateProcessConfinement, type BoundedCommandResult, type LocalPodmanHostConfig } from "./commands";
 import { ResourceRoot } from "./resource-root";
 import { WorkspaceImage } from "./workspace-image";
-import { DurableOperationJournal } from "./journal";
+import { DurableOperationJournal, type RecoverableMutationBegin } from "./journal";
 import { LocalProcessSupervisor, type OwnedProcessResource } from "./supervisor";
 import { LocalWorkspaceFileError, LocalWorkspaceFiles } from "./files";
 
@@ -12,6 +12,7 @@ type Metadata = { resourceId: string; containerId: string; containerName: string
 type CreateReservation = { version: 1; state: "creating"; phase: "reserved" | "workspace" | "container"; resourceId: string; containerName: string; configDigest: string; scope: ProviderCall["scope"]; call: ProviderCall; limits: SandboxCreateInput["limits"] };
 type InspectMount = { Type?: string; Source?: string; Destination?: string; RW?: boolean };
 type InspectContainer = { Id?: string; Name?: string; Image?: string; State?: { Running?: boolean; Pid?: number }; Config?: { Image?: string; User?: string; Labels?: Record<string, string> }; HostConfig?: { NetworkMode?: string; UsernsMode?: string; PidMode?: string; IpcMode?: string; UtsMode?: string | null; Privileged?: boolean; CapDrop?: string[]; SecurityOpt?: string[]; ReadonlyRootfs?: boolean; Memory?: number; MemorySwap?: number; NanoCpus?: number; PidsLimit?: number }; Mounts?: InspectMount[] };
+type FileMutationRecovery = { version: 1; prior: SandboxFileStat | null };
 const PODMAN_OUTPUT_LIMIT = 64 * 1024;
 const PODMAN_TIMEOUT_MS = 30_000;
 const PODMAN_CREATE_TIMEOUT_MS = 120_000;
@@ -41,10 +42,12 @@ export class LocalPodmanDriver {
     const result = await effect(); await this.journal.complete(call, result); return result;
   }
   private interruptedFileMutation<T>(call: ProviderCall): T {
-    return { receipt: receipt(call, "failed", { code: "interrupted_mutation", message: "The interrupted workspace mutation did not reach its requested state.", retryable: false }) } as T;
+    return { receipt: receipt(call, "failed", { code: "interrupted_mutation_aborted", message: "The interrupted workspace mutation has no verified state transition.", retryable: false }) } as T;
   }
-  private async mutateFile<T extends { receipt: ProviderReceipt }, Recovery>(call: ProviderCall, prepare: () => Promise<Recovery>, effect: () => Promise<T>, recover: (recovery: Recovery) => Promise<T | undefined>): Promise<T> {
-    const begun = await this.journal.beginRecoverableMutation<T, Recovery>(call, prepare);
+  private async mutateFile<T extends { receipt: ProviderReceipt }>(call: ProviderCall, prepare: () => Promise<FileMutationRecovery>, effect: () => Promise<T>, recover: (recovery: FileMutationRecovery) => Promise<T | undefined>): Promise<T> {
+    let begun: RecoverableMutationBegin<T, FileMutationRecovery>;
+    try { begun = await this.journal.beginRecoverableMutation<T, FileMutationRecovery>(call, prepare); }
+    catch (error) { return this.mutate(call, async () => this.fileFailure(call, error) as T); }
     if (begun.kind === "replay") return begun.result;
     let result: T;
     if (begun.kind === "new") result = await effect();
@@ -58,12 +61,18 @@ export class LocalPodmanDriver {
   private statInput(input: { call: ProviderCall; resourceId: string; path: string }): SandboxFileStatInput {
     return { call: input.call, resourceId: input.resourceId, path: input.path };
   }
-  private async prepareFileMutation(files: LocalWorkspaceFiles, input: { call: ProviderCall; resourceId: string; path: string }): Promise<{ priorRevision: string | null }> {
-    try { return { priorRevision: (await files.stat(this.statInput(input))).entry.revision }; }
-    catch { return { priorRevision: null }; }
+  private async prepareFileMutation(files: LocalWorkspaceFiles, input: { call: ProviderCall; resourceId: string; path: string }): Promise<FileMutationRecovery> {
+    try { return { version: 1, prior: (await files.stat(this.statInput(input))).entry }; }
+    catch (error) {
+      if (error instanceof LocalWorkspaceFileError && error.reason === "not_found") return { version: 1, prior: null };
+      throw error;
+    }
   }
-  private expectedRevisionMatches(input: { expectedRevision?: string }, recovery: { priorRevision: string | null }): boolean {
-    return input.expectedRevision === undefined || input.expectedRevision === recovery.priorRevision;
+  private expectedRevisionMatches(input: { expectedRevision?: string }, recovery: FileMutationRecovery): boolean {
+    return recovery.version === 1 && (input.expectedRevision === undefined || input.expectedRevision === recovery.prior?.revision);
+  }
+  private stateTransitioned(recovery: FileMutationRecovery, observed: SandboxFileStat): boolean {
+    return recovery.version === 1 && (recovery.prior === null || recovery.prior.revision !== observed.revision);
   }
   async create(input: SandboxCreateInput): Promise<SandboxCreateResult> {
     validateProviderMethodValue("sandbox.lifecycle.v1", "create", "input", input);
@@ -230,7 +239,7 @@ export class LocalPodmanDriver {
       if (!this.expectedRevisionMatches(input, recovery)) return undefined;
       const expected = Buffer.from(input.data, input.encoding === "utf8" ? "utf8" : "base64");
       const observed = await context.files.stat(this.statInput(input));
-      if (observed.entry.kind !== "file" || observed.entry.sizeBytes !== expected.byteLength) return undefined;
+      if (!this.stateTransitioned(recovery, observed.entry) || observed.entry.kind !== "file" || observed.entry.sizeBytes !== expected.byteLength) return undefined;
       if (expected.byteLength > 0) {
         const value = await context.files.read({ call: input.call, resourceId: input.resourceId, path: input.path, revision: observed.entry.revision, offsetBytes: 0, lengthBytes: expected.byteLength });
         const bytes = Buffer.from(value.data, value.encoding === "utf8" ? "utf8" : "base64");
@@ -241,7 +250,8 @@ export class LocalPodmanDriver {
   }
   async fileMkdir(input: SandboxFileMkdirInput): Promise<SandboxFileMkdirResult> {
     validateProviderMethodValue("sandbox.files.v1", "mkdir", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context;
-    return this.mutateFile(input.call, async () => ({}), async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.mkdir(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }, async () => {
+    return this.mutateFile(input.call, () => this.prepareFileMutation(context.files, input), async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.mkdir(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }, async (recovery) => {
+      if (recovery.version !== 1 || recovery.prior !== null) return undefined;
       const observed = await context.files.stat(this.statInput(input));
       return observed.entry.kind === "directory" ? { receipt: receipt(input.call, "succeeded"), entry: observed.entry } : undefined;
     });
@@ -252,7 +262,7 @@ export class LocalPodmanDriver {
       if (!this.expectedRevisionMatches(input, recovery)) return undefined;
       try { await context.files.stat(this.statInput(input)); return undefined; }
       catch (error) {
-        if (error instanceof LocalWorkspaceFileError && error.code === "invalid_path" && recovery.priorRevision !== null) return { receipt: receipt(input.call, "succeeded"), removedRevision: recovery.priorRevision };
+        if (error instanceof LocalWorkspaceFileError && error.reason === "not_found" && recovery.prior !== null) return { receipt: receipt(input.call, "succeeded"), removedRevision: recovery.prior.revision };
         return undefined;
       }
     });
@@ -262,7 +272,7 @@ export class LocalPodmanDriver {
     return this.mutateFile(input.call, () => this.prepareFileMutation(context.files, input), async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.chmod(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }, async (recovery) => {
       if (!this.expectedRevisionMatches(input, recovery)) return undefined;
       const observed = await context.files.stat(this.statInput(input));
-      return observed.entry.mode === input.mode ? { receipt: receipt(input.call, "succeeded"), entry: observed.entry } : undefined;
+      return this.stateTransitioned(recovery, observed.entry) && observed.entry.mode === input.mode ? { receipt: receipt(input.call, "succeeded"), entry: observed.entry } : undefined;
     });
   }
 }

@@ -105,6 +105,13 @@ describe("sandbox provider wire contract", () => {
     expect(() => validate(output.group, output.operation, { ...output.input, cursor: 3 }, { ...output.result, cursor: 2 })).toThrow("cursor or byte range");
     expect(() => validate(output.group, output.operation, { ...output.input, maxBytes: 1 }, output.result)).toThrow("cursor or byte range");
     expect(() => validate(output.group, output.operation, output.input, { ...output.result, cursor: 1, chunks: [] })).toThrow("cursor or byte range");
+    for (const chunk of [
+      { stream: "stdout", encoding: "utf8", data: "€" },
+      { stream: "stdout", encoding: "base64", data: "wqM=" },
+    ] as const) {
+      expect(() => validate(output.group, output.operation, output.input, { ...output.result, cursor: 1, chunks: [chunk], gap: true })).toThrow("cursor or byte range");
+      expect(() => validate(output.group, output.operation, output.input, { ...output.result, cursor: chunk.encoding === "utf8" ? 3 : 2, chunks: [chunk], gap: true })).not.toThrow();
+    }
 
     const stat = methods.find(method => method.operation === "stat")!;
     expect(() => validate(stat.group, stat.operation, stat.input, { ...stat.result, entry: { ...entry, path: "/other" } })).toThrow("changed file path");

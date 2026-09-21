@@ -23,7 +23,7 @@ export interface LocalWorkspaceFileLimits {
 }
 
 export class LocalWorkspaceFileError extends Error {
-  constructor(public readonly code: "invalid_path" | "revision_conflict" | "limit_exceeded" | "unsupported_file" | "invalid_cursor", message: string) {
+  constructor(public readonly code: "invalid_path" | "revision_conflict" | "limit_exceeded" | "unsupported_file" | "invalid_cursor", message: string, public readonly reason?: "not_found") {
     super(message);
     this.name = "LocalWorkspaceFileError";
   }
@@ -142,7 +142,7 @@ export class LocalWorkspaceFiles {
     catch (error) {
       if (error instanceof LocalWorkspaceFileError) throw error;
       const code = (error as NodeJS.ErrnoException).code;
-      throw new LocalWorkspaceFileError(code === "ENOENT" ? "invalid_path" : "unsupported_file", code === "ENOENT" ? "Workspace path does not exist" : `Workspace filesystem operation was denied (${code ?? "unknown"})`);
+      throw new LocalWorkspaceFileError(code === "ENOENT" ? "invalid_path" : "unsupported_file", code === "ENOENT" ? "Workspace path does not exist" : `Workspace filesystem operation was denied (${code ?? "unknown"})`, code === "ENOENT" ? "not_found" : undefined);
     }
   }
 
