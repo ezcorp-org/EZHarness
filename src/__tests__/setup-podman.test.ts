@@ -84,6 +84,9 @@ const SANDBOX = mkdtempSync(join(tmpdir(), "setup-podman-"));
 const BIN = join(SANDBOX, "bin");
 const CALLS = join(SANDBOX, "calls.log");
 const SECRET_SENTINEL = "audit-secret-never-in-child-argv";
+const RUNNER_TOKEN = "0123456789abcdef0123456789abcdef";
+const RUNNER_CONTAINER_GID = 17;
+const RUNNER_HOST_GID = process.getgid?.() ?? 0;
 mkdirSync(BIN, { recursive: true });
 
 // The production script delegates env-file parsing and precedence to Compose.
@@ -154,6 +157,9 @@ stub("podman", `case "$1 $2" in
       stopped) echo "podman-machine-default  applehv  1 hour ago  Never" ;;
       none) ;;
     esac
+    ;;
+  "unshare cat")
+    printf '%s %s 1\n' '${RUNNER_CONTAINER_GID}' '${RUNNER_HOST_GID}'
     ;;
 esac
 exit 0`);
@@ -324,6 +330,12 @@ function ackIsSet(text: string): boolean {
   return new RegExp(`^${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}$`, "m").test(text);
 }
 
+function setupArtifacts(directory: string): string[] {
+  return readdirSync(directory).filter((name) =>
+    /\.(?:tmp|secrets|watchdog|ready|resolved|resolve-error|runner-header|runner-probe)\./.test(name)
+  );
+}
+
 const PLACEHOLDERS = readFileSync(EXAMPLE, "utf8").match(/replace-with-openssl-rand-base64-\d+/g) ?? [];
 const VALID_ENCRYPTION_SECRET = "valid-encryption-secret-for-setup-tests";
 const VALID_ENCRYPTION_SALT = "valid-encryption-salt-for-setup-tests";
@@ -344,7 +356,7 @@ function isolatedRunnerEnv(runnerDir: string, tokenFile: string): string {
   return validProdEnv([
     `EZ_RUNNER_SOCKET_DIR=${runnerDir}`,
     `EZ_RUNNER_TOKEN_FILE=${tokenFile}`,
-    "EZ_RUNNER_GROUP=1",
+    `EZ_RUNNER_GROUP=${RUNNER_CONTAINER_GID}`,
   ]);
 }
 
@@ -352,12 +364,38 @@ async function withRunnerSocket<T>(
   runnerDir: string,
   responsive: boolean,
   runTest: () => T | Promise<T>,
+  options: { token?: string; unrelated?: boolean } = {},
 ): Promise<T> {
   mkdirSync(runnerDir, { recursive: true });
   const server = createServer(responsive
     ? (connection) => {
-      connection.once("data", () => {
-        connection.end("HTTP/1.1 401 Unauthorized\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+      let request = "";
+      let responded = false;
+      connection.on("data", (chunk) => {
+        if (responded) return;
+        request += chunk.toString();
+        const headerEnd = request.indexOf("\r\n\r\n");
+        if (headerEnd < 0) return;
+        const headers = request.slice(0, headerEnd);
+        const contentLength = Number(headers.match(/\r\ncontent-length: (\d+)/i)?.[1] ?? 0);
+        const bodyText = request.slice(headerEnd + 4);
+        if (Buffer.byteLength(bodyText) < contentLength) return;
+        responded = true;
+        if (options.unrelated) {
+          const body = '{"service":"not-the-extension-runner"}';
+          connection.end(`HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+          return;
+        }
+        const expectedToken = options.token ?? RUNNER_TOKEN;
+        const authorization = headers.match(/\r\nauthorization: ([^\r\n]+)/i)?.[1];
+        const authenticated = authorization === `Bearer ${expectedToken}`;
+        const canonical = request.startsWith("POST /v4/inspect HTTP/1.1") &&
+          /\r\ncontent-type: application\/json(?:\r\n|$)/i.test(headers) &&
+          bodyText === '{"id":"setup-podman-probe"}';
+        const body = authenticated && canonical
+          ? '{"id":"setup-podman-probe","state":"unknown","diagnostics":[]}'
+          : '{"error":{"code":"unauthorized","message":"Runner authentication failed"}}';
+        connection.end(`HTTP/1.1 ${authenticated && canonical ? "200 OK" : "401 Unauthorized"}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
       });
     }
     : undefined);
@@ -406,11 +444,7 @@ describe("setup-podman.sh — the env file", () => {
       `EZCORP_ENCRYPTION_SECRET=${SECRET_SENTINEL}`,
     );
     expect([r.stdout, r.stderr, ...r.calls].join("\n")).not.toContain(SECRET_SENTINEL);
-    expect(
-      readdirSync(join(env.EZ_SETUP_ENV_FILE, "..")).filter((name) =>
-        name.includes(".secrets.") || name.includes(".resolved.") || name.includes(".resolve-error.")
-      ),
-    ).toEqual([]);
+    expect(setupArtifacts(join(env.EZ_SETUP_ENV_FILE, ".."))).toEqual([]);
   });
 
   test("does not rotate secrets or rewrite an already configured file on re-run", () => {
@@ -804,12 +838,7 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     expect(updated.match(/^EZCORP_RUNNER_COMPOSE_FILE=/gm)?.length).toBe(1);
     expect(updated.match(new RegExp(`^${UNSANDBOXED_ACK_VARIABLE}=`, "gm"))?.length).toBe(1);
     expect(updated.endsWith(`${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}\n`)).toBe(true);
-    expect(
-      readdirSync(join(env.EZ_SETUP_ENV_FILE, "..")).filter((name) =>
-        name.includes(".tmp.") || name.includes(".secrets.") || name.includes(".watchdog.") || name.includes(".ready.")
-          || name.includes(".resolved.") || name.includes(".resolve-error.")
-      ),
-    ).toEqual([]);
+    expect(setupArtifacts(join(env.EZ_SETUP_ENV_FILE, ".."))).toEqual([]);
   });
 
   test("the exact Compose path without the exact acknowledgement is not configured", () => {
@@ -941,7 +970,7 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "runner");
     const runnerToken = join(runnerDir, "runner-token");
     mkdirSync(runnerDir, { recursive: true });
-    writeFileSync(runnerToken, "0123456789abcdef0123456789abcdef\n", { mode: 0o600 });
+    writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
     // A PROVISIONED runner is all three values. The example ships two of them
     // pre-filled with EZ_RUNNER_GROUP empty, which is precisely the state the
     // script must NOT mistake for configured.
@@ -951,6 +980,8 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
       expect(r.exitCode).toBe(0);
       expect(r.stdout).toContain("already configured");
       expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(false);
+      expect(`${r.stdout}${r.stderr}${readFileSync(CALLS, "utf8")}`).not.toContain(RUNNER_TOKEN);
+      expect(setupArtifacts(join(env.EZ_SETUP_ENV_FILE, ".."))).toEqual([]);
     });
   });
 
@@ -959,7 +990,7 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "unresponsive-runner");
     const runnerToken = join(runnerDir, "runner-token");
     mkdirSync(runnerDir, { recursive: true });
-    writeFileSync(runnerToken, "0123456789abcdef0123456789abcdef\n", { mode: 0o600 });
+    writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
     const original = isolatedRunnerEnv(runnerDir, runnerToken);
     writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
 
@@ -968,6 +999,58 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
       expect(r.exitCode).toBe(2);
       expect(r.stdout).not.toContain("already configured");
       expect(r.stderr).toContain("provision it first");
+      expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
+    });
+  });
+
+  test("Linux rejects an unrelated HTTP service on the configured Unix socket", async () => {
+    const env = scratch("Linux");
+    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "unrelated-service");
+    const runnerToken = join(runnerDir, "runner-token");
+    mkdirSync(runnerDir, { recursive: true });
+    writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
+    writeFileSync(env.EZ_SETUP_ENV_FILE, isolatedRunnerEnv(runnerDir, runnerToken), { mode: 0o600 });
+
+    await withRunnerSocket(runnerDir, true, async () => {
+      const r = await runAsync(["--check"], env);
+      expect(r.exitCode).toBe(2);
+      expect(r.stderr).toContain("canonical authenticated endpoint");
+      expect(`${r.stdout}${r.stderr}`).not.toContain(RUNNER_TOKEN);
+    }, { unrelated: true });
+  });
+
+  test("Linux rejects a runner when the configured credential does not authenticate", async () => {
+    const env = scratch("Linux");
+    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "wrong-runner-token");
+    const runnerToken = join(runnerDir, "runner-token");
+    mkdirSync(runnerDir, { recursive: true });
+    writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
+    writeFileSync(env.EZ_SETUP_ENV_FILE, isolatedRunnerEnv(runnerDir, runnerToken), { mode: 0o600 });
+
+    await withRunnerSocket(runnerDir, true, async () => {
+      const r = await runAsync(["--check"], env);
+      expect(r.exitCode).toBe(2);
+      expect(r.stderr).toContain("canonical authenticated endpoint");
+      expect(`${r.stdout}${r.stderr}`).not.toContain(RUNNER_TOKEN);
+    }, { token: "different-runner-token-0123456789abcdef" });
+  });
+
+  test("Linux rejects a numeric runner group that does not map from the socket group", async () => {
+    const env = scratch("Linux");
+    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "wrong-runner-group");
+    const runnerToken = join(runnerDir, "runner-token");
+    mkdirSync(runnerDir, { recursive: true });
+    writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
+    const original = isolatedRunnerEnv(runnerDir, runnerToken).replace(
+      `EZ_RUNNER_GROUP=${RUNNER_CONTAINER_GID}`,
+      `EZ_RUNNER_GROUP=${RUNNER_CONTAINER_GID + 1}`,
+    );
+    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o600 });
+
+    await withRunnerSocket(runnerDir, true, async () => {
+      const r = await runAsync(["--check"], env);
+      expect(r.exitCode).toBe(2);
+      expect(r.stderr).toContain("rootless Podman group mapping");
       expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
     });
   });
@@ -987,9 +1070,9 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     const bomToken = join(runnerDir, "bom-token");
     mkdirSync(tokenDir, { recursive: true });
     writeFileSync(shortToken, "too-short\n", { mode: 0o600 });
-    writeFileSync(unsafeToken, "0123456789abcdef0123456789abcdef\n", { mode: 0o600 });
+    writeFileSync(unsafeToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
     chmodSync(unsafeToken, 0o620);
-    writeFileSync(symlinkTarget, "0123456789abcdef0123456789abcdef\n", { mode: 0o600 });
+    writeFileSync(symlinkTarget, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
     symlinkSync(symlinkTarget, symlinkToken);
     writeFileSync(oversizedToken, `${"a".repeat(4097)}\n`, { mode: 0o600 });
     writeFileSync(whitespaceToken, "0123456789abcdef 123456789abcdef0\n", { mode: 0o600 });
@@ -1262,6 +1345,49 @@ describe("setup-podman.sh — the engine and the check mode", () => {
     expect(r.stdout).not.toContain("would run: bash scripts/podman-compose.sh");
   });
 
+  test("--check rejects a bind source that is a symlink to a directory", () => {
+    const env = scratch("Darwin");
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      validProdEnv([
+        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+        `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+      ]),
+      { mode: 0o600 },
+    );
+    const redirected = join(env.EZ_SETUP_DATA_ROOT, "..", "redirected-data");
+    mkdirSync(redirected, { recursive: true });
+    mkdirSync(env.EZ_SETUP_DATA_ROOT, { recursive: true });
+    symlinkSync(redirected, join(env.EZ_SETUP_DATA_ROOT, "data"));
+
+    const r = run(["--check"], env);
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("must be a real directory, not a symbolic link");
+    expect(r.stdout).not.toContain("would run: bash scripts/podman-compose.sh");
+  });
+
+  test("--check rejects a symlink used as the bind-mount root", () => {
+    const env = scratch("Darwin");
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      validProdEnv([
+        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+        `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+      ]),
+      { mode: 0o600 },
+    );
+    const redirected = join(env.EZ_SETUP_DATA_ROOT, "..", "redirected-root");
+    mkdirSync(redirected, { recursive: true });
+    symlinkSync(redirected, env.EZ_SETUP_DATA_ROOT);
+
+    const r = run(["--check"], env);
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("must be a real directory, not a symbolic link");
+    expect(r.stdout).not.toContain("would run: bash scripts/podman-compose.sh");
+  });
+
   test("--check rejects an invalid readiness timeout", () => {
     const env = scratch("Darwin");
     writeFileSync(
@@ -1275,6 +1401,32 @@ describe("setup-podman.sh — the engine and the check mode", () => {
     const r = run(["--check"], { ...env, EZ_SETUP_READY_TIMEOUT: "0" });
     expect(r.exitCode).toBe(1);
     expect(r.stderr).toContain("greater than zero");
+    expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
+  });
+
+  test.each([
+    "file:///etc/passwd",
+    "--config=/tmp/curl-options",
+    "http://",
+    "http://[broken",
+    "https://user:password@example.com/api/ready",
+    "http://localhost:4000/api/ready\nnext",
+  ])("--check rejects invalid explicit readiness URL %s", (readyUrl) => {
+    const env = scratch("Darwin");
+    writeFileSync(
+      env.EZ_SETUP_ENV_FILE,
+      validProdEnv([
+        "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml",
+        `${UNSANDBOXED_ACK_VARIABLE}=${UNSANDBOXED_ACK_SENTENCE}`,
+      ]),
+      { mode: 0o600 },
+    );
+
+    const r = run(["--check"], { ...env, EZ_SETUP_READY_URL: readyUrl });
+
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("EZ_SETUP_READY_URL must be a valid http:// or https:// endpoint");
+    expect(r.stdout).not.toContain("would run: bash scripts/podman-compose.sh");
     expect(existsSync(env.EZ_SETUP_DATA_ROOT)).toBe(false);
   });
 

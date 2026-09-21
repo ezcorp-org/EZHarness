@@ -97,6 +97,8 @@ ready_probe_tmp=""
 readiness_active_pid=""
 resolved_env_tmp=""
 resolved_env_error_tmp=""
+runner_header_tmp=""
+runner_probe_tmp=""
 # shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap below.
 cleanup_setup_artifacts() {
   if [ -n "$readiness_active_pid" ]; then
@@ -119,6 +121,8 @@ cleanup_setup_artifacts() {
   [ -z "$ready_probe_tmp" ] || rm -f "$ready_probe_tmp"
   [ -z "$resolved_env_tmp" ] || rm -f "$resolved_env_tmp"
   [ -z "$resolved_env_error_tmp" ] || rm -f "$resolved_env_error_tmp"
+  [ -z "$runner_header_tmp" ] || rm -f "$runner_header_tmp"
+  [ -z "$runner_probe_tmp" ] || rm -f "$runner_probe_tmp"
 }
 trap cleanup_setup_artifacts EXIT
 trap 'exit 1' HUP INT TERM
@@ -322,6 +326,27 @@ valid_public_url() {
   '
 }
 
+# An explicit readiness target may include a path or query, but it is still an
+# HTTP endpoint. `--url` makes the value data even if it starts with a dash;
+# the deliberately absent Unix socket lets curl parse it without a network
+# request. Exit 7 is the expected connection failure after successful parsing.
+valid_readiness_url() {
+  local readiness_url="$1"
+  local parsed_url curl_status=0
+  case "$readiness_url" in
+    http://* | https://*) ;;
+    *) return 1 ;;
+  esac
+  case "$readiness_url" in
+    *[[:space:][:cntrl:]]* | *@*) return 1 ;;
+  esac
+  parsed_url="$(curl -sS -o /dev/null --connect-timeout 1 --max-time 1 \
+    --proto '=http,https' --unix-socket /__ezcorp_readiness_validation_no_socket__ \
+    -w '%{url_effective}' --url "$readiness_url" 2>/dev/null)" || curl_status="$?"
+  case "$curl_status" in 0 | 7) ;; *) return 1 ;; esac
+  [ -n "$parsed_url" ]
+}
+
 # `config --environment` is deliberately line-oriented and does not escape
 # newlines inside resolved values. Reject the two ways a whitelisted shell or
 # dotenv value can become multiline before a valid first line is mistaken for
@@ -481,8 +506,12 @@ EOF
   }
 }
 
+runner_configuration_error=""
+validated_runner_token=""
 runner_configured() {
   local runner_compose runner_socket_dir runner_token_file runner_group
+  runner_configuration_error=""
+  validated_runner_token=""
   runner_compose="$(effective_env_value EZCORP_RUNNER_COMPOSE_FILE)"
   if [ "$runner_compose" = "$TRUSTED_LOCAL_COMPOSE" ] &&
     [ "$(effective_env_value "$ACK_VARIABLE")" = "$ACK_SENTENCE" ]; then
@@ -490,21 +519,68 @@ runner_configured() {
   fi
   # A non-empty non-exact override is a topology this script cannot validate.
   # Never borrow stale isolated values and call that custom topology usable.
-  [ -z "$runner_compose" ] || return 1
+  if [ -n "$runner_compose" ]; then
+    runner_configuration_error="EZCORP_RUNNER_COMPOSE_FILE does not select a supported runner topology"
+    return 1
+  fi
   [ "$OS" = "Linux" ] || return 1
   runner_socket_dir="$(effective_env_value EZ_RUNNER_SOCKET_DIR)"
   runner_token_file="$(effective_env_value EZ_RUNNER_TOKEN_FILE)"
   runner_group="$(effective_env_value EZ_RUNNER_GROUP)"
-  case "$runner_group" in '' | *[!0-9]*) return 1 ;; esac
-  runner_credential_usable "$runner_token_file" && runner_socket_usable "$runner_socket_dir/runner.sock"
+  case "$runner_group" in
+    '' | *[!0-9]*)
+      runner_configuration_error="EZ_RUNNER_GROUP must be the numeric group mapped from the live runner socket"
+      return 1
+      ;;
+  esac
+  if ! runner_group_matches_socket "$runner_socket_dir/runner.sock" "$runner_group"; then
+    runner_configuration_error="EZ_RUNNER_GROUP does not match the live runner socket's rootless Podman group mapping"
+    return 1
+  fi
+  if ! runner_credential_usable "$runner_token_file"; then
+    runner_configuration_error="EZ_RUNNER_TOKEN_FILE is not a production-valid runner credential"
+    return 1
+  fi
+  if ! runner_socket_usable "$runner_socket_dir/runner.sock"; then
+    runner_configuration_error="the runner socket did not accept EZ_RUNNER_TOKEN_FILE on the canonical authenticated endpoint"
+    return 1
+  fi
+}
+
+runner_group_matches_socket() {
+  local runner_socket="$1"
+  local configured_group="$2"
+  local runner_socket_dir mapped_group
+  [ -S "$runner_socket" ] || return 1
+  runner_socket_dir="$(dirname "$runner_socket")"
+  mapped_group="$(EZ_RUNNER_SOCKET_DIR="$runner_socket_dir" \
+    "$BASH" "$REPO_ROOT/scripts/resolve-runner-group.sh" --podman 2>/dev/null)" || return 1
+  [ "$configured_group" = "$mapped_group" ]
 }
 
 runner_socket_usable() {
   local runner_socket="$1"
+  local runner_status runner_probe_body
   [ -S "$runner_socket" ] || return 1
-  # The runner is an HTTP service. Any HTTP response proves that the socket is
-  # accepting requests; an unauthenticated probe normally receives 401.
-  curl -sS -o /dev/null --max-time 2 --noproxy '*' --unix-socket "$runner_socket" http://localhost/ 2>/dev/null
+  [ -n "$validated_runner_token" ] || return 1
+  command -v mktemp >/dev/null 2>&1 || return 1
+  runner_header_tmp="$(umask 077 && mktemp "${ENV_FILE}.runner-header.XXXXXX")" || return 1
+  runner_probe_tmp="$(umask 077 && mktemp "${ENV_FILE}.runner-probe.XXXXXX")" || return 1
+  printf 'Authorization: Bearer %s\n' "$validated_runner_token" >"$runner_header_tmp" || return 1
+  runner_status="$(curl -sS -o "$runner_probe_tmp" -w '%{http_code}' --max-time 2 --noproxy '*' \
+    --unix-socket "$runner_socket" -H "@$runner_header_tmp" -H 'content-type: application/json' \
+    --data-binary '{"id":"setup-podman-probe"}' http://localhost/v4/inspect 2>/dev/null)" || {
+    rm -f "$runner_header_tmp" "$runner_probe_tmp"
+    runner_header_tmp=""
+    runner_probe_tmp=""
+    return 1
+  }
+  runner_probe_body="$(cat "$runner_probe_tmp")" || return 1
+  rm -f "$runner_header_tmp" "$runner_probe_tmp"
+  runner_header_tmp=""
+  runner_probe_tmp=""
+  [ "$runner_status" = 200 ] &&
+    [ "$runner_probe_body" = '{"id":"setup-podman-probe","state":"unknown","diagnostics":[]}' ]
 }
 
 # Mirror src/extensions/runner-connection.ts without sourcing the credential or
@@ -535,6 +611,7 @@ runner_credential_usable() {
   [ "${#runner_token_value}" -ge 32 ] || return 1
   (LC_ALL=C; export LC_ALL; case "$runner_token_value" in *[!\ -~]*) exit 1 ;; esac) || return 1
   case "$runner_token_value" in *[[:space:][:cntrl:]]*) return 1 ;; esac
+  validated_runner_token="$runner_token_value"
 }
 
 validate_existing_env() {
@@ -632,6 +709,7 @@ ensure_existing_runner() {
     ok "runner already configured — environment file left byte-for-byte unchanged"
     return 0
   fi
+  [ -z "$runner_configuration_error" ] || printf 'error: %s\n' "$runner_configuration_error" >&2
   print_manual_runner_action existing
   exit 2
 }
@@ -806,6 +884,8 @@ validate_readiness_configuration() {
     [ "$ready_port" -gt 0 ] && [ "$ready_port" -le 65535 ] ||
       die "EZCORP_PORT_HOST must be between 1 and 65535"
     READY_URL="http://localhost:${ready_port}/api/ready"
+  elif ! valid_readiness_url "$READY_URL"; then
+    die "EZ_SETUP_READY_URL must be a valid http:// or https:// endpoint without credentials or control characters"
   fi
   case "$READY_TIMEOUT" in
     '' | *[!0-9]*) die "EZ_SETUP_READY_TIMEOUT must be a positive whole number of seconds" ;;
@@ -820,13 +900,25 @@ fi
 
 # ── 3. Bind-mount sources ──────────────────────────────────────────────────
 say "bind-mount directories under $DATA_ROOT"
+if [ -L "$DATA_ROOT" ]; then
+  die "$DATA_ROOT must be a real directory, not a symbolic link"
+elif [ -e "$DATA_ROOT" ] && [ ! -d "$DATA_ROOT" ]; then
+  die "$DATA_ROOT exists but is not a directory"
+fi
 for d in data extensions extension-data projects; do
-  if [ -d "$DATA_ROOT/$d" ]; then
+  if [ -L "$DATA_ROOT/$d" ]; then
+    die "$DATA_ROOT/$d must be a real directory, not a symbolic link"
+  elif [ -d "$DATA_ROOT/$d" ]; then
     ok "$DATA_ROOT/$d"
-  elif [ -e "$DATA_ROOT/$d" ] || [ -L "$DATA_ROOT/$d" ]; then
+  elif [ -e "$DATA_ROOT/$d" ]; then
     die "$DATA_ROOT/$d exists but is not a directory"
   else
     do_or_report mkdir -p "$DATA_ROOT/$d"
+    if [ "$CHECK_ONLY" != 1 ]; then
+      [ ! -L "$DATA_ROOT" ] && [ -d "$DATA_ROOT" ] &&
+        [ ! -L "$DATA_ROOT/$d" ] && [ -d "$DATA_ROOT/$d" ] ||
+        die "$DATA_ROOT/$d was replaced while setup created it"
+    fi
   fi
 done
 
