@@ -28,7 +28,7 @@ coordinator's list and are named under G10 below.
 - [x] G3: The splits change no behaviour; the EXISTING tests prove it, unmodified.
   CHECK: the per-file suites listed below
   EXPECT: 0 fail, no existing test file edited
-  EVIDENCE: `w18a-app-final-results.json`. No test file was modified by this package. One test file was ADDED, for branches the split gave names to; see G7.
+  EVIDENCE: `w18a-app-final-results.json`. No test file was modified by this package. One test file was ADDED, for branches the split gave names to; see G7. The combined run's focused leg (57 files) and its 34-file real-PostgreSQL leg both ran at `07609bd79`; the web Vitest pool ran 598 files and 7501 tests with 0 fail at `6c25e304b`; and the three factory Playwright lanes (`ez-factory-console`, `ez-factory-job-editor`, `factory-authoring-console`) ran a booted preview server end to end — 58 passed, `e2e-factory.log`. One real-PostgreSQL case failed in the combined run, `C04 ... two concurrent preparations archive one member set`; it passes in isolation (10 pass, `archive-writer-retry.log`) and the same case has failed under load in at least three earlier packages' runs since 2026-09-14. It is a pre-existing race in `FactoryReleases.declare`, described under "Open" in `report.txt`, and is not in any code this package changed.
 
 - [x] G4: Each of the twelve files holds the line coverage its threshold requires.
   CHECK: per-file percentages over the merged lcov
@@ -73,7 +73,7 @@ coordinator's list and are named under G10 below.
 - [ ] G12: The mutation gate's status, recorded verbatim.
   CHECK: `BASE_REF=origin/main bun scripts/mutation.ts --changed`
   EXPECT: recorded, report-only
-  EVIDENCE: `mutation.log`. Its scope is `web/src/lib/**` against `origin/main`, which selects five files from the wider feature diff and none this package touched.
+  EVIDENCE: `mutation.log`. Score 78.58 against a break threshold of 80, exit 1, report-only in CI. 475 killed, 68 timeout, 139 survived, 9 with no coverage, 0 errors, over `web/src/lib/factory/{client,download,layout,model}.ts` and `web/src/lib/graph/layout.ts` — its scope is `web/src/lib/**` against `origin/main`, which selects five files from the wider feature diff and NONE this package touched. No surviving mutant lands on code this package split, so there is no assertion here to add.
 
 ## The twelve functions
 
