@@ -6,6 +6,7 @@ set -eu
 
 repo_dir="${EZCORP_REPO_DIR:-/repo}"
 image_commit="${EZCORP_IMAGE_BUILD_COMMIT:-unknown}"
+image_source_state="${EZCORP_IMAGE_BUILD_SOURCE_STATE:-unknown}"
 checkout_commit="$(git -C "$repo_dir" rev-parse --verify HEAD 2>/dev/null || true)"
 checkout_status_readable=1
 checkout_dirty="$(git -C "$repo_dir" status --porcelain 2>/dev/null)" || checkout_status_readable=0
@@ -22,12 +23,32 @@ if [ -z "$checkout_commit" ]; then
   exit 0
 fi
 
+print_rebuild=0
 if [ "$image_commit" = "unknown" ]; then
   echo "WARNING: Dev image provenance is unavailable; its build revision was not recorded." >&2
-  print_rebuild_commands
+  print_rebuild=1
 elif [ "$image_commit" != "$checkout_commit" ]; then
   echo "WARNING: Dev image revision ($image_commit) differs from /repo HEAD ($checkout_commit)." >&2
   echo "         Web source is bind-mounted; image-backed dependencies and generated assets may be stale." >&2
+  print_rebuild=1
+fi
+
+case "$image_source_state" in
+  clean) ;;
+  dirty)
+    echo "WARNING: This dev image was built from uncommitted source changes." >&2
+    echo "         Its image-backed dependencies and generated assets may not match the current clean checkout." >&2
+    print_rebuild=1
+    ;;
+  *)
+    if [ "$image_commit" != "unknown" ]; then
+      echo "WARNING: Dev image build source state is unavailable; a matching revision does not prove its image-backed files were clean." >&2
+      print_rebuild=1
+    fi
+    ;;
+esac
+
+if [ "$print_rebuild" = 1 ]; then
   print_rebuild_commands
 fi
 

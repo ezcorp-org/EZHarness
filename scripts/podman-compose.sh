@@ -261,12 +261,34 @@ elif [ -z "$REQUESTED_ENV_FILES" ] && ! dotenv_declares_runner_group; then
   export EZ_RUNNER_GROUP
 fi
 
-# Dockerfile.dev stores this value in its OCI revision label and runtime env.
-# Keep an explicit value for reproducible rebuilds, but make the documented
-# `bun run podman up -d --build` command record the checkout by default.
+# Dockerfile.dev stores these values in OCI labels and runtime env. Keep
+# explicit values for reproducible rebuilds, but make the documented
+# `bun run podman up -d --build` command describe the checkout by default.
+# Git metadata is diagnostic only: logs/down/ps/config must still work from a
+# source archive or any other checkout where Git cannot answer.
 if [ -z "${EZCORP_BUILD_COMMIT:-}" ]; then
-  EZCORP_BUILD_COMMIT="$(git rev-parse --verify HEAD)"
+  if ! EZCORP_BUILD_COMMIT="$(git rev-parse --verify HEAD 2>/dev/null)"; then
+    EZCORP_BUILD_COMMIT=unknown
+  fi
 fi
 export EZCORP_BUILD_COMMIT
+
+# The revision alone cannot say whether tracked bytes differed from HEAD when
+# the image was built. Preserve that fact as a small, reproducible enum. Do
+# not hash or enumerate untracked state: large local trees are not part of the
+# revision contract and the build context excludes the known ones.
+if [ -z "${EZCORP_BUILD_SOURCE_STATE:-}" ]; then
+  if git diff --quiet --no-ext-diff HEAD -- 2>/dev/null; then
+    EZCORP_BUILD_SOURCE_STATE=clean
+  else
+    GIT_DIFF_STATUS=$?
+    if [ "$GIT_DIFF_STATUS" = 1 ]; then
+      EZCORP_BUILD_SOURCE_STATE=dirty
+    else
+      EZCORP_BUILD_SOURCE_STATE=unknown
+    fi
+  fi
+fi
+export EZCORP_BUILD_SOURCE_STATE
 
 exec "${COMPOSE_CMD[@]}" "${ENV_FILE_ARGS[@]}" "$@"

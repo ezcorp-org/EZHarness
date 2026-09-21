@@ -223,3 +223,29 @@ A real Podman-socket-backed Compose render listed all development and production
 explicit test-only runner inputs; missing inputs failed at the intended preflight guards. `bash -n`,
 full typecheck, lint over
 4,609 files, and Svelte check passed with zero errors. No blocker remains.
+
+## Repair PR #284 provenance audit findings — 2026-09-21
+
+- [x] Merge `origin/main` at `0f949c307` and preserve the semantic union.
+- [x] Add red regression coverage for non-build wrapper commands outside a Git checkout.
+- [x] Add red regression coverage for a dirty image build followed by a clean checkout.
+- [x] Make Git-derived build identity optional while preserving explicit `EZCORP_BUILD_COMMIT`.
+- [x] Record and diagnose a reproducible build-time dirty/content marker.
+- [x] Run focused tests, Compose renders, shell syntax, lint, type checks, and Svelte checks.
+- [x] Review and commit the repair without pushing.
+
+Plan review: keep provenance useful but recoverable. Commands that do not build must work without
+Git metadata. Image provenance must retain whether image-backed tracked files were dirty at build
+time, even if the working tree is clean when diagnostics later run.
+
+Review: merged `origin/main` `0f949c307` without conflicts. Git lookup failures now produce the
+recoverable `unknown` revision and source state, so development and production `logs`, `down`,
+`ps`, and `config` still reach Compose. The wrapper records tracked build input state as the
+bounded `clean`/`dirty`/`unknown` enum; Dockerfile.dev stores it in an OCI label and runtime env,
+and the startup diagnostic warns when a dirty image meets a later-clean checkout.
+
+Verification: the new tests failed before the implementation and now pass. Focused provenance
+tests passed 41/41; the wider static Compose set passed 107/107. Real Podman-backed Compose
+renders passed for both stacks, and the rendered dev build carried the explicit revision and
+`dirty` marker. `bash -n`, `sh -n`, `git diff --check`, lint over 4,610 files, full typecheck, and
+Svelte check all passed with zero errors.

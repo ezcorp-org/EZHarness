@@ -39,6 +39,7 @@ services:
       dockerfile: Dockerfile.dev
       args:
         EZCORP_BUILD_COMMIT: ${EZCORP_BUILD_COMMIT:-unknown}
+        EZCORP_BUILD_SOURCE_STATE: ${EZCORP_BUILD_SOURCE_STATE:-unknown}
     # `network_mode: host` is dev-only convenience: it lets the dev's
     # browser hit the SvelteKit dev server on localhost without port
     # mapping. Production deployments use isolated container networking

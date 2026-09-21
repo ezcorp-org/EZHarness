@@ -63,10 +63,13 @@ RUN mkdir -p /app/state /app/cache /app/web/.ezcorp /app/.ezcorp/extension-relea
 # Keep commit-specific metadata after every filesystem layer. Putting it near
 # FROM would invalidate the dependency and workspace-build cache on each commit.
 ARG EZCORP_BUILD_COMMIT=unknown
+ARG EZCORP_BUILD_SOURCE_STATE=unknown
 # The Bun base image carries its own OCI revision. Override it so the dev
 # image identifies the EZHarness checkout that supplied its image-backed files.
 LABEL org.opencontainers.image.revision=$EZCORP_BUILD_COMMIT
+LABEL org.ezcorp.image.source-state=$EZCORP_BUILD_SOURCE_STATE
 ENV EZCORP_IMAGE_BUILD_COMMIT=$EZCORP_BUILD_COMMIT
+ENV EZCORP_IMAGE_BUILD_SOURCE_STATE=$EZCORP_BUILD_SOURCE_STATE
 
 EXPOSE 3000
 
