@@ -93,6 +93,17 @@ export interface FactoryTaskStopReceipt {
   readonly state: "uncertain" | "stopped";
   readonly event: Extract<KernelEvent, { readonly kind: "attempt-stopped" }>;
   readonly stopReceipt?: FactoryPhysicalStopReceipt;
+  /**
+   * Why this stop is uncertain, for the caller that will retry it.
+   *
+   * Never persisted and never part of the durable fact: the row is uncertain
+   * whatever the reason, and a later pass may fail for a different one. It
+   * exists because an uncertain stop retried forever is indistinguishable from
+   * a stop nobody is attempting, and the reason used to live only inside a
+   * `catch` — a run that sat in `stopping` for seven minutes had nothing
+   * anywhere to say which fact was wrong.
+   */
+  readonly cause?: unknown;
 }
 
 /** Widened from `string`. W14 maps each member to an HTTP status. */
@@ -253,7 +264,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     try {
       const physical = await this.withDeadline(signal => this.stopper.stop(accepted.request, signal));
       return await this.confirm(service, reference, physical);
-    } catch { return this.markUncertain(service, reference); }
+    } catch (error) { return this.markUncertain(service, reference, error); }
   }
 
   /** Reconciles a late host receipt without invoking or relaunching the runner. */
@@ -396,7 +407,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     });
   }
 
-  private async markUncertain(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<FactoryTaskStopReceipt> {
+  private async markUncertain(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, cause?: unknown): Promise<FactoryTaskStopReceipt> {
     return this.database.transaction(async transaction => {
       const current = await this.readSealed(transaction, service, reference, true);
       if (!current) throw new FactoryTaskStopError("factory_task_stop_not_found");
@@ -406,7 +417,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
       await this.retainUncertainBudget(transaction, reference, current.request.reservationId);
       await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, event);
       await transaction.execute(sql`UPDATE factory_task_stops SET state='uncertain',uncertain_event_json=${encodeFactoryPayload(event)},uncertain_event_digest=${stopHash(event)},updated_at=NOW() WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND cancel_command_id=${reference.commandId} AND state IN ('accepted','uncertain')`);
-      return Object.freeze({ state: "uncertain" as const, event });
+      return Object.freeze({ state: "uncertain" as const, event, ...(cause === undefined ? {} : { cause }) });
     });
   }
 

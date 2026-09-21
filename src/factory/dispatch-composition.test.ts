@@ -60,12 +60,39 @@ describe("the stop-settlement step", () => {
     const settled: unknown[] = [];
     const driver = factoryStopSettlementDriver(database(), {
       async listStoppableInTransaction() { return [stoppable("a"), stoppable("b")]; },
-      async stop(service: TrustedFactoryServiceIdentity, reference: unknown) { expect(service).toBe(SERVICE); settled.push(reference); return {} as never; },
+      async stop(service: TrustedFactoryServiceIdentity, reference: unknown) { expect(service).toBe(SERVICE); settled.push(reference); return { state: "stopped" } as never; },
     } as never, SERVICE, () => {});
 
     expect(await driver.step(SIGNAL)).toBe(true);
     // Nothing derived: the reference is the scan's own.
     expect(settled).toEqual([{ attemptId: "a" }, { attemptId: "b" }]);
+  });
+
+  test("an uncertain receipt is backpressure with its reason, not a settled stop", async () => {
+    // The row stays listed and a later pass retries it. Counting it as settled
+    // is how a run can sit in `stopping` while every pass reports success.
+    const reported: Array<{ role: string; error: unknown }> = [];
+    const cause = new Error("the host did not answer inside the bounded window");
+    const driver = factoryStopSettlementDriver(database(), {
+      async listStoppableInTransaction() { return [stoppable("open")]; },
+      async stop() { return { state: "uncertain", cause } as never; },
+    } as never, SERVICE, (role, error) => { reported.push({ role, error }); });
+
+    expect(await driver.step(SIGNAL)).toBe(false);
+    expect(reported).toEqual([{ role: "stop-settlement:transient:open", error: cause }]);
+    expect(driver.progress).toMatchObject({ scanned: 1, settled: 0, deferred: 1, failed: 0 });
+  });
+
+  test("an uncertain receipt with no cause still names the attempt", async () => {
+    const reported: Array<{ role: string; error: unknown }> = [];
+    const driver = factoryStopSettlementDriver(database(), {
+      async listStoppableInTransaction() { return [stoppable("open")]; },
+      async stop() { return { state: "uncertain" } as never; },
+    } as never, SERVICE, (role, error) => { reported.push({ role, error }); });
+
+    await driver.step(SIGNAL);
+    expect(reported[0]!.role).toBe("stop-settlement:transient:open");
+    expect(reported[0]!.error).toMatchObject({ code: "factory_task_stop_uncertain", attemptId: "open" });
   });
 
   test("an empty list is no work", async () => {
@@ -95,7 +122,7 @@ describe("the stop-settlement step", () => {
       async stop(_s: unknown, reference: { attemptId: string }) {
         if (reference.attemptId === "busy") throw failure("factory_task_stop_conflict");
         if (reference.attemptId === "bad") throw failure("factory_task_stop_corrupt");
-        return {} as never;
+        return { state: "stopped" } as never;
       },
     } as never, SERVICE, (role) => { reported.push(role); }, 5);
 

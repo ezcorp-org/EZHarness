@@ -50,7 +50,24 @@ export const FACTORY_STOP_SETTLEMENT_TRANSIENT_CODES: readonly string[] = Object
   "factory_task_stop_not_found",
 ]);
 
+/**
+ * A stop the host would not confirm inside its bounded window.
+ *
+ * Carries the cause the stop store kept, so the operator's stream says which
+ * fact refused rather than only that the stop is still open.
+ */
+export class FactoryUncertainStopError extends Error {
+  readonly code = "factory_task_stop_uncertain";
+  constructor(readonly attemptId: string, override readonly cause: unknown) {
+    super(`factory_task_stop_uncertain: ${attemptId}`);
+    this.name = "FactoryUncertainStopError";
+  }
+}
+
 export function factoryStopSettlementDisposition(error: unknown): FactoryItemDisposition {
+  // Durable uncertainty is backpressure: the row stays listed and a later pass
+  // retries it against the same sealed request.
+  if (error instanceof FactoryUncertainStopError) return "transient";
   const code = (error as { code?: unknown } | null | undefined)?.code;
   return typeof code === "string" && FACTORY_STOP_SETTLEMENT_TRANSIENT_CODES.includes(code) ? "transient" : "fault";
 }
@@ -66,9 +83,20 @@ export function factoryStopSettlementDriver(
     page: (_signal) => database.transaction((transaction) => stops.listStoppableInTransaction(transaction, limit === undefined ? {} : { limit })),
     // The scan returns the cancel command reference `stop` itself takes, so the
     // settle half needs nothing this file derived.
-    settle: (item, _signal) => stops.stop(service, item.reference).then(() => undefined),
+    //
+    // An UNCERTAIN receipt is not progress. It is the host declining to confirm,
+    // the row stays listed, and a later pass retries it — so raising it here is
+    // what puts it in the deferred column and, with it, the reason. Counting it
+    // as settled is how a run can sit in `stopping` while every pass reports
+    // success.
+    settle: async (item, _signal) => {
+      const receipt = await stops.stop(service, item.reference);
+      if (receipt.state !== "stopped") throw new FactoryUncertainStopError(item.attemptId, receipt.cause);
+    },
     classify: factoryStopSettlementDisposition,
-    report: (item, error, disposition) => { report(`stop-settlement:${disposition}:${item.attemptId}`, error); },
+    report: (item, error, disposition) => {
+      report(`stop-settlement:${disposition}:${item.attemptId}`, error instanceof FactoryUncertainStopError ? (error.cause ?? error) : error);
+    },
   });
 }
 
