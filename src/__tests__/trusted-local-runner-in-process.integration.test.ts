@@ -16,7 +16,7 @@ import { createUser } from "../db/queries/users";
 import { getConfiguredExtensionRunner } from "../extensions/runner-connection";
 import { trustedLocalBunDigest, UNSANDBOXED_ACK_SENTENCE } from "../extensions/runner-mode";
 import { createTrustedLocalHooks } from "../extensions/trusted-local-hooks";
-import { configureTrustedLocalRunner, resolveTrustedLocalRunner } from "../extensions/trusted-local-runner";
+import { configureTrustedLocalRunner, resetTrustedLocalRunner, resolveTrustedLocalRunner } from "../extensions/trusted-local-runner";
 
 /**
  * The join the unit tests cannot make: the REAL `TrustedLocalRunner`,
@@ -60,6 +60,11 @@ beforeAll(async () => {
 
 afterAll(async () => {
   await (await resolveTrustedLocalRunner()).close().catch(() => undefined);
+  // The hooks installed above and the runner memoised by the first
+  // resolution are MODULE state: they outlive this file in a pooled `bun
+  // test` process, and the next file to walk this module expects the
+  // unconfigured start a process gives it. Put it back.
+  resetTrustedLocalRunner();
   await closeTestDb();
   await rm(root, { recursive: true, force: true });
   for (const name of ENV) { const value = previous.get(name); if (value === undefined) delete process.env[name]; else process.env[name] = value; }
