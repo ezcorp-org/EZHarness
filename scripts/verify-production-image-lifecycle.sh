@@ -7,6 +7,12 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
+# Engine + Compose client — Podman on a developer machine, Docker under CI
+# (scripts/lib/container-engine.sh has the rule). Resolved before anything
+# else because the cleanup trap below drives compose too.
+# shellcheck source=scripts/lib/container-engine.sh
+source scripts/lib/container-engine.sh
+resolve_compose
 : "${EZ_PRODUCTION_IMAGE:?Set the exact production image tag}"
 : "${EZ_PRODUCTION_RECEIPT_DIR:?Set an empty owned receipt directory}"
 
@@ -104,9 +110,9 @@ cleanup() {
   verification_cleanup_exit=0
   stop_verification || verification_cleanup_exit=1
   if [[ "$compose_started" -eq 1 ]]; then
-    docker compose -p "$project" -f "$compose" logs --no-color > "$receipt_dir/compose.log" 2>&1
+    "${COMPOSE[@]}" -p "$project" -f "$compose" logs --no-color > "$receipt_dir/compose.log" 2>&1
     logs_exit=$?
-    docker compose -p "$project" -f "$compose" down --volumes --remove-orphans >> "$receipt_dir/compose.log" 2>&1
+    "${COMPOSE[@]}" -p "$project" -f "$compose" down --volumes --remove-orphans >> "$receipt_dir/compose.log" 2>&1
     cleanup_exit=$?
   fi
   if [[ -n "$runner_pid" ]]; then
@@ -140,7 +146,7 @@ export EZ_EXTENSION_RUNNER_TOKEN_FILE="$runner_token"
 export EZ_EXTENSION_RUNNER_STORE="$state_root/store"
 export EZ_EXTENSION_APP_UID="$runner_uid"
 
-if docker container inspect "$container" >/dev/null 2>&1 || docker network inspect "${project}_default" >/dev/null 2>&1; then
+if "$ENGINE" container inspect "$container" >/dev/null 2>&1 || "$ENGINE" network inspect "${project}_default" >/dev/null 2>&1; then
   echo "Refusing to reuse existing container or compose project: $container / $project" >&2
   exit 2
 fi
@@ -177,7 +183,7 @@ export EZ_PRODUCTION_PORT="$port" EZ_PRODUCTION_APP_CONTAINER="$container"
 {
   printf 'launcher_source=%s\n' "$(git rev-parse HEAD)"
   printf 'image=%s\nproject=%s\ncontainer=%s\nport=%s\n' "$EZ_PRODUCTION_IMAGE" "$project" "$container" "$port"
-  docker image inspect "$EZ_PRODUCTION_IMAGE" --format 'image_id={{.Id}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
+  "$ENGINE" image inspect "$EZ_PRODUCTION_IMAGE" --format 'image_id={{.Id}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
 } > "$receipt_dir/provenance.txt"
 
 bash scripts/start-extension-runner-e2e.sh > "$receipt_dir/runner.log" 2>&1 & runner_pid=$!
@@ -194,7 +200,7 @@ if (!response.ok || (await response.json()).state !== "unknown") throw new Error
 '
 
 compose_started=1
-docker compose -p "$project" -f "$compose" up -d
+"${COMPOSE[@]}" -p "$project" -f "$compose" up -d
 origin="http://127.0.0.1:$port"
 for _ in $(seq 1 120); do
   curl -fsS "$origin/api/health" >/dev/null 2>&1 && break

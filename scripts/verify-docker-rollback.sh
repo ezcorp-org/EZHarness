@@ -1,8 +1,10 @@
 #!/usr/bin/env bash
-# Docker failure-mode / rollback verification.
+# Container failure-mode / rollback verification.
 #
 # Validates that the circuit-breaker + recovery flow works end-to-end at
-# the Docker level, using the same image produced by verify-docker-image.sh:
+# the container level, using the same image produced by verify-docker-image.sh
+# (engine chosen by scripts/lib/container-engine.sh — Podman on a developer
+# machine, Docker under CI):
 #
 #   1. Seed a pre-existing DB + valid data in the volume.
 #   2. Inject a "previous boot failed" marker with the image's own SHA.
@@ -18,6 +20,10 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Podman on a developer machine, Docker under CI, EZCORP_CONTAINER_ENGINE to
+# choose — see the rule in the lib. Every engine call below is "$ENGINE".
+# shellcheck source=scripts/lib/container-engine.sh
+source scripts/lib/container-engine.sh
 
 IMAGE="ezcorp:verify"
 CONTAINER="ezcorp-verify-rollback"
@@ -35,24 +41,24 @@ die()  { echo "  ${RED}✗${RESET} $1" >&2; exit 1; }
 
 cleanup() {
   set +e
-  docker rm -f "$CONTAINER" >/dev/null 2>&1
-  docker volume rm "$VOLUME" >/dev/null 2>&1
+  "$ENGINE" rm -f "$CONTAINER" >/dev/null 2>&1
+  "$ENGINE" volume rm "$VOLUME" >/dev/null 2>&1
 }
 trap cleanup EXIT
 cleanup # pre-existing state
 
-docker image inspect "${IMAGE}" >/dev/null 2>&1 \
+"$ENGINE" image inspect "${IMAGE}" >/dev/null 2>&1 \
   || die "Image ${IMAGE} not found. Run: bash scripts/verify-docker-image.sh"
 
 # Extract the image's own EZCORP_IMAGE_SHA so our injected marker matches.
-IMAGE_SHA=$(docker inspect "${IMAGE}" --format '{{json .Config.Env}}' \
+IMAGE_SHA=$("$ENGINE" inspect "${IMAGE}" --format '{{json .Config.Env}}' \
   | jq -r '.[] | select(startswith("EZCORP_IMAGE_SHA=")) | split("=")[1]')
 [[ -n "${IMAGE_SHA}" && "${IMAGE_SHA}" != "unknown" ]] \
   || die "Image is missing EZCORP_IMAGE_SHA env (rebuild with --build-arg REVISION=...)"
 pass "Image SHA detected: ${IMAGE_SHA:0:12}"
 
 section "Phase 1: Seed a DB (one normal boot)"
-docker run -d \
+"$ENGINE" run -d \
   --name "${CONTAINER}" \
   -p "${PORT}:3000" \
   -v "${VOLUME}:/app/data" \
@@ -72,23 +78,23 @@ pass "Container booted cleanly on first start (readiness=200)"
 
 # Verify the volume holds the DB + we can read data via HTTP (we only need to
 # know it's non-empty; seeding occurs via migrate() + default settings).
-DB_ENTRIES=$(docker run --rm -v "${VOLUME}:/d" alpine sh -c 'ls /d/ezcorp 2>/dev/null | wc -l')
+DB_ENTRIES=$("$ENGINE" run --rm -v "${VOLUME}:/d" docker.io/library/alpine:latest sh -c 'ls /d/ezcorp 2>/dev/null | wc -l')
 (( DB_ENTRIES > 0 )) || die "DB dir empty after first boot"
 pass "DB populated with ${DB_ENTRIES} entries"
 
 section "Phase 2: Inject circuit-breaker marker + restart"
-docker stop "${CONTAINER}" >/dev/null
+"$ENGINE" stop "${CONTAINER}" >/dev/null
 # Write the marker directly into the volume. JSON must match readMarker()
 # shape: imageSha, error, ts.
 MARKER_BODY=$(jq -nc --arg sha "${IMAGE_SHA}" \
   '{imageSha: $sha, error: "simulated failure for docker rollback verification", ts: (now|todate)}')
 # Write as uid 1000 (the `bun` user inside the runtime image) so the
 # non-root container can actually read the 0600-permission marker.
-docker run --rm --user 1000:1000 -v "${VOLUME}:/d" alpine sh -c \
+"$ENGINE" run --rm --user 1000:1000 -v "${VOLUME}:/d" docker.io/library/alpine:latest sh -c \
   "printf '%s' '${MARKER_BODY}' > /d/.migration-failed && chmod 600 /d/.migration-failed"
 pass "Marker written to volume with matching image SHA"
 
-docker start "${CONTAINER}" >/dev/null
+"$ENGINE" start "${CONTAINER}" >/dev/null
 
 # Wait for the container to come up (it won't be 'ready', but the HTTP
 # listener should bind). Poll /api/ready — expect 503.
@@ -112,7 +118,7 @@ REASON=$(echo "${BODY}" | jq -r '.reason // empty')
 pass "state=degraded + reason=migration-blocked"
 
 # Container should STILL be running (not crash-looping) — degraded but alive.
-STATUS=$(docker inspect "${CONTAINER}" --format '{{.State.Status}}')
+STATUS=$("$ENGINE" inspect "${CONTAINER}" --format '{{.State.Status}}')
 [[ "${STATUS}" == "running" ]] || die "Container should be running (not crashed); got: ${STATUS}"
 pass "Container is 'running' — degraded, not crash-looping"
 
@@ -123,10 +129,10 @@ echo "${MSG}" | grep -q "simulated failure" \
 pass "Readiness body exposes marker error to operators"
 
 section "Phase 3: Clear marker + restart → recovery"
-docker exec "${CONTAINER}" sh -c 'rm -f /app/data/.migration-failed'
-pass "Marker cleared via \`docker exec\`"
+"$ENGINE" exec "${CONTAINER}" sh -c 'rm -f /app/data/.migration-failed'
+pass "Marker cleared via \`$ENGINE exec\`"
 
-docker restart "${CONTAINER}" >/dev/null
+"$ENGINE" restart "${CONTAINER}" >/dev/null
 deadline=$(( $(date +%s) + 60 ))
 while :; do
   code=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/api/ready" || true)
@@ -142,12 +148,12 @@ STATE=$(echo "${BODY}" | jq -r '.state')
 pass "state=ready"
 
 # DB should be intact (not wiped during recovery).
-DB_ENTRIES_AFTER=$(docker run --rm -v "${VOLUME}:/d" alpine sh -c 'ls /d/ezcorp 2>/dev/null | wc -l')
+DB_ENTRIES_AFTER=$("$ENGINE" run --rm -v "${VOLUME}:/d" docker.io/library/alpine:latest sh -c 'ls /d/ezcorp 2>/dev/null | wc -l')
 (( DB_ENTRIES_AFTER >= DB_ENTRIES )) \
   || die "DB entries shrank across recovery: ${DB_ENTRIES} → ${DB_ENTRIES_AFTER}"
 pass "DB data preserved (${DB_ENTRIES_AFTER} entries, ≥ pre-test ${DB_ENTRIES})"
 
-SNAPS=$(docker run --rm -v "${VOLUME}:/d" alpine sh -c 'ls /d/backups 2>/dev/null | grep -c "^pre-boot-" || echo 0')
+SNAPS=$("$ENGINE" run --rm -v "${VOLUME}:/d" docker.io/library/alpine:latest sh -c 'ls /d/backups 2>/dev/null | grep -c "^pre-boot-" || echo 0')
 (( SNAPS >= 1 )) || die "Recovery boot should have taken a fresh pre-boot snapshot"
 pass "Recovery created a pre-boot snapshot (total: ${SNAPS})"
 
