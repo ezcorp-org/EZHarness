@@ -98,7 +98,10 @@ await Bun.write(
 );
 chmodSync(join(BIN, "podman"), 0o755);
 
-const sandboxGitEnv = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")));
+const sandboxGitEnv: Record<string, string> = {};
+for (const [key, value] of Object.entries(process.env)) {
+  if (value !== undefined && !key.startsWith("GIT_")) sandboxGitEnv[key] = value;
+}
 
 function sandboxGit(...args: string[]): string {
   const result = Bun.spawnSync({ cmd: ["git", "-C", SANDBOX, ...args], env: sandboxGitEnv, stdout: "pipe", stderr: "pipe" });
