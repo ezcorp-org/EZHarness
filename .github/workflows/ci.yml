@@ -41,6 +41,32 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  dev-image-provenance:
+    name: Dev image provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build development image with provenance metadata
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          file: Dockerfile.dev
+          load: true
+          tags: ezcorp:verify-dev-provenance
+          build-args: |
+            EZCORP_BUILD_COMMIT=${{ github.sha }}
+            EZCORP_BUILD_SOURCE_STATE=dirty
+          cache-from: type=gha,scope=dev-image-provenance
+          cache-to: type=gha,mode=max,scope=dev-image-provenance
+      - name: Inspect OCI labels and runtime environment
+        env:
+          EZCORP_CONTAINER_ENGINE: docker
+          VERIFY_DEV_PROVENANCE_REVISION: ${{ github.sha }}
+          VERIFY_DEV_PROVENANCE_SOURCE_STATE: dirty
+        run: bash scripts/verify-dev-image-provenance.sh --no-build
+
   typecheck:
     name: Typecheck
     runs-on: ubuntu-latest

@@ -38,8 +38,12 @@ services:
       context: .
       dockerfile: Dockerfile.dev
       args:
-        EZCORP_BUILD_COMMIT: ${EZCORP_BUILD_COMMIT:-unknown}
-        EZCORP_BUILD_SOURCE_STATE: ${EZCORP_BUILD_SOURCE_STATE:-unknown}
+        # The wrapper exports only the *_DEFAULT variables. Keeping the
+        # operator-facing names out of its shell environment preserves
+        # Compose's native parsing and precedence: shell, then the selected
+        # dotenv source (.env or caller --env-file), then this derived default.
+        EZCORP_BUILD_COMMIT: ${EZCORP_BUILD_COMMIT:-${EZCORP_BUILD_COMMIT_DEFAULT:-unknown}}
+        EZCORP_BUILD_SOURCE_STATE: ${EZCORP_BUILD_SOURCE_STATE:-${EZCORP_BUILD_SOURCE_STATE_DEFAULT:-unknown}}
     # `network_mode: host` is dev-only convenience: it lets the dev's
     # browser hit the SvelteKit dev server on localhost without port
     # mapping. Production deployments use isolated container networking

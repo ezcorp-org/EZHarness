@@ -57,15 +57,3 @@ test("a dirty image build still warns after the checkout becomes clean", () => {
   expect(result.stderr).toContain("image-backed dependencies and generated assets may not match");
   expect(result.stderr).toContain("Rootless Podman: bun run podman up -d --build");
 });
-
-test("the dev compose build records a revision and runs the startup comparison", async () => {
-  const compose = await Bun.file(join(root, "docker-compose.yml")).text();
-  const dockerfile = await Bun.file(join(root, "Dockerfile.dev")).text();
-  expect(compose).toContain("EZCORP_BUILD_COMMIT");
-  expect(compose).toContain("EZCORP_BUILD_SOURCE_STATE");
-  expect(compose).toContain("sh /app/scripts/warn-dev-image-provenance.sh");
-  expect(dockerfile).toContain("org.opencontainers.image.revision");
-  expect(dockerfile).toContain("org.ezcorp.image.source-state");
-  expect(dockerfile).toContain("EZCORP_IMAGE_BUILD_SOURCE_STATE");
-  expect(dockerfile.indexOf("ARG EZCORP_BUILD_COMMIT")).toBeGreaterThan(dockerfile.indexOf("chown -R 1000:1000 /app"));
-});

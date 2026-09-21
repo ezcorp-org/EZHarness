@@ -35,6 +35,7 @@
 import { afterAll, describe, expect, test } from "bun:test";
 import {
   chmodSync,
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
   rmSync,
@@ -54,6 +55,7 @@ const SANDBOX = mkdtempSync(join(tmpdir(), "podman-wrapper-"));
 const BIN = join(SANDBOX, "bin");
 const BIN_STANDALONE = join(SANDBOX, "bin-standalone");
 const BIN_GIT_UNAVAILABLE = join(SANDBOX, "bin-git-unavailable");
+const BIN_REAL_COMPOSE = join(SANDBOX, "bin-real-compose");
 // PATH for the "docker CLI is missing" case. `dirname` is the one external
 // the script runs BEFORE the docker check, so it has to stay reachable —
 // otherwise that test would pass for the wrong reason.
@@ -62,16 +64,33 @@ const SOCKET = join(SANDBOX, "podman.sock");
 const RUNNER_SOCKET = join(SANDBOX, "runner.sock");
 const WRAPPER = join(SANDBOX, "scripts/podman-compose.sh");
 const TRACKED_SOURCE = join(SANDBOX, "image-backed-source.txt");
+const UNTRACKED_BUILD_SOURCE = join(SANDBOX, "build-relevant-untracked.conf");
+const PROVENANCE_WARNING = join(REPO_ROOT, "scripts/warn-dev-image-provenance.sh");
 
 mkdirSync(BIN);
 mkdirSync(BIN_STANDALONE);
 mkdirSync(BIN_GIT_UNAVAILABLE);
+mkdirSync(BIN_REAL_COMPOSE);
 mkdirSync(BIN_NO_DOCKER);
 mkdirSync(join(SANDBOX, "scripts"));
 symlinkSync(WRAPPER_SOURCE, WRAPPER);
 symlinkSync(RESOLVER, join(SANDBOX, "scripts/resolve-runner-group.sh"));
 symlinkSync(Bun.which("dirname") ?? "/usr/bin/dirname", join(BIN_NO_DOCKER, "dirname"));
 writeFileSync(TRACKED_SOURCE, "clean source\n");
+copyFileSync(join(REPO_ROOT, ".dockerignore"), join(SANDBOX, ".dockerignore"));
+writeFileSync(
+  join(SANDBOX, "docker-compose.yml"),
+  `services:
+  probe:
+    image: docker.io/library/alpine:latest
+    build:
+      context: .
+      args:
+        EZCORP_BUILD_COMMIT: \${EZCORP_BUILD_COMMIT:-\${EZCORP_BUILD_COMMIT_DEFAULT:-unknown}}
+        EZCORP_BUILD_SOURCE_STATE: \${EZCORP_BUILD_SOURCE_STATE:-\${EZCORP_BUILD_SOURCE_STATE_DEFAULT:-unknown}}
+`,
+);
+writeFileSync(join(SANDBOX, "compose.podman.yml"), "services: {}\n");
 
 // Records what the wrapper handed to Compose, then exits 0 — the wrapper
 // `exec`s it, so this is the last word on what the invocation actually was.
@@ -84,6 +103,8 @@ const composeRecorder = [
   'printf "DOCKER_HOST=%s\\n" "$DOCKER_HOST"',
   'printf "EZCORP_BUILD_COMMIT=%s\\n" "$EZCORP_BUILD_COMMIT"',
   'printf "EZCORP_BUILD_SOURCE_STATE=%s\\n" "$EZCORP_BUILD_SOURCE_STATE"',
+  'printf "EZCORP_BUILD_COMMIT_DEFAULT=%s\\n" "$EZCORP_BUILD_COMMIT_DEFAULT"',
+  'printf "EZCORP_BUILD_SOURCE_STATE_DEFAULT=%s\\n" "$EZCORP_BUILD_SOURCE_STATE_DEFAULT"',
   'printf "EZ_RUNNER_GROUP=%s\\n" "$EZ_RUNNER_GROUP"',
   'if test -v EZ_RUNNER_GROUP; then printf "EZ_RUNNER_GROUP_SET=1\\n"; else printf "EZ_RUNNER_GROUP_SET=0\\n"; fi',
   'printf "ARGV=%s\\n" "$*"',
@@ -97,6 +118,9 @@ chmodSync(join(BIN_STANDALONE, "docker"), 0o755);
 chmodSync(join(BIN_STANDALONE, "docker-compose"), 0o755);
 await Bun.write(join(BIN_GIT_UNAVAILABLE, "git"), "#!/usr/bin/env bash\nexit 127\n");
 chmodSync(join(BIN_GIT_UNAVAILABLE, "git"), 0o755);
+const realCompose = Bun.which("docker") ?? Bun.which("docker-compose");
+if (!realCompose) throw new Error("Docker Compose is required for wrapper interpolation tests");
+symlinkSync(realCompose, join(BIN_REAL_COMPOSE, realCompose.endsWith("docker-compose") ? "docker-compose" : "docker"));
 
 const socketServer = Bun.listen({ unix: SOCKET, socket: { data() {} } });
 const runnerSocketServer = Bun.listen({ unix: RUNNER_SOCKET, socket: { data() {} } });
@@ -121,7 +145,11 @@ function sandboxGit(...args: string[]): string {
 }
 
 sandboxGit("init", "-q");
-sandboxGit("add", "image-backed-source.txt");
+writeFileSync(
+  join(SANDBOX, ".git/info/exclude"),
+  ["bin*", "*.sock", "env.prod", "caller-*.env", "ignored-generated/", ""].join("\n"),
+);
+sandboxGit("add", "image-backed-source.txt", ".dockerignore", "docker-compose.yml", "compose.podman.yml", "scripts");
 sandboxGit("-c", "user.name=Wrapper test", "-c", "user.email=wrapper@example.invalid", "commit", "-qm", "fixture");
 const DEFAULT_BUILD_COMMIT = sandboxGit("rev-parse", "--verify", "HEAD");
 
@@ -138,7 +166,9 @@ const baseEnv: Record<string, string> = { ...sandboxGitEnv };
 delete baseEnv.COMPOSE_FILE;
 delete baseEnv.DOCKER_HOST;
 delete baseEnv.EZCORP_BUILD_COMMIT;
+delete baseEnv.EZCORP_BUILD_COMMIT_DEFAULT;
 delete baseEnv.EZCORP_BUILD_SOURCE_STATE;
+delete baseEnv.EZCORP_BUILD_SOURCE_STATE_DEFAULT;
 delete baseEnv.EZ_RUNNER_GROUP;
 
 interface Run {
@@ -146,7 +176,17 @@ interface Run {
   stdout: string;
   stderr: string;
   /** What the stub Compose CLI was exec'd with, or null when it never ran. */
-  invocation: { composeFile: string; dockerHost: string; buildCommit: string; buildSourceState: string; runnerGroup: string; runnerGroupSet: string; argv: string } | null;
+  invocation: {
+    composeFile: string;
+    dockerHost: string;
+    buildCommit: string;
+    buildCommitDefault: string;
+    buildSourceState: string;
+    buildSourceStateDefault: string;
+    runnerGroup: string;
+    runnerGroupSet: string;
+    argv: string;
+  } | null;
 }
 
 function run(args: string[], env: Record<string, string> = {}, dotenv?: string): Run {
@@ -179,13 +219,52 @@ function run(args: string[], env: Record<string, string> = {}, dotenv?: string):
           composeFile: read("COMPOSE_FILE"),
           dockerHost: read("DOCKER_HOST"),
           buildCommit: read("EZCORP_BUILD_COMMIT"),
+          buildCommitDefault: read("EZCORP_BUILD_COMMIT_DEFAULT"),
           buildSourceState: read("EZCORP_BUILD_SOURCE_STATE"),
+          buildSourceStateDefault: read("EZCORP_BUILD_SOURCE_STATE_DEFAULT"),
           runnerGroup: read("EZ_RUNNER_GROUP"),
           runnerGroupSet: read("EZ_RUNNER_GROUP_SET"),
           argv: read("ARGV"),
         }
       : null,
   };
+}
+
+function runWithRealCompose(
+  args: string[],
+  env: Record<string, string> = {},
+  dotenv?: string,
+): { exitCode: number; stderr: string; stdout: string } {
+  const envFile = join(SANDBOX, ".env");
+  rmSync(envFile, { force: true });
+  if (dotenv !== undefined) writeFileSync(envFile, dotenv);
+  const proc = Bun.spawnSync({
+    cmd: [BASH, WRAPPER, ...args],
+    cwd: SANDBOX,
+    env: {
+      ...baseEnv,
+      PATH: `${BIN_REAL_COMPOSE}:${baseEnv.PATH}`,
+      PODMAN_SOCKET: SOCKET,
+      EZ_RUNNER_GROUP: "0",
+      ...env,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  rmSync(envFile, { force: true });
+  return {
+    exitCode: proc.exitCode,
+    stderr: proc.stderr.toString(),
+    stdout: proc.stdout.toString(),
+  };
+}
+
+function renderedBuildArgs(result: { exitCode: number; stderr: string; stdout: string }): Record<string, string> {
+  expect(result.exitCode, result.stderr).toBe(0);
+  const config = JSON.parse(result.stdout) as {
+    services: { probe: { build: { args: Record<string, string> } } };
+  };
+  return config.services.probe.build.args;
 }
 
 function resolveRunnerGroup(mode: "--docker" | "--podman", env: Record<string, string> = {}): Run {
@@ -341,21 +420,74 @@ describe("podman wrapper — the invocation it guarantees", () => {
     );
   });
 
-  test("records the checkout revision by default while preserving an explicit build revision", () => {
+  test("provides checkout defaults without replacing explicit shell provenance", () => {
     const defaultBuild = run(["up", "-d"]).invocation;
-    expect(defaultBuild?.buildCommit).toBe(DEFAULT_BUILD_COMMIT);
-    expect(defaultBuild?.buildSourceState).toBe("clean");
-    expect(run(["up", "-d"], { EZCORP_BUILD_COMMIT: "f".repeat(40) }).invocation?.buildCommit).toBe("f".repeat(40));
+    expect(defaultBuild?.buildCommit).toBe("");
+    expect(defaultBuild?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
+    expect(defaultBuild?.buildSourceState).toBe("");
+    expect(defaultBuild?.buildSourceStateDefault).toBe("clean");
+
+    const explicit = run(["up", "-d"], {
+      EZCORP_BUILD_COMMIT: "f".repeat(40),
+      EZCORP_BUILD_SOURCE_STATE: "dirty",
+    }).invocation;
+    expect(explicit?.buildCommit).toBe("f".repeat(40));
+    expect(explicit?.buildSourceState).toBe("dirty");
+    expect(explicit?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
+    expect(explicit?.buildSourceStateDefault).toBe("clean");
   });
 
-  test("records tracked source changes at build time and returns to clean after restoration", () => {
+  test("records tracked source changes in the Docker-context default", () => {
     writeFileSync(TRACKED_SOURCE, "dirty source\n");
     try {
-      expect(run(["up", "-d", "--build"]).invocation?.buildSourceState).toBe("dirty");
+      expect(run(["up", "-d", "--build"]).invocation?.buildSourceStateDefault).toBe(
+        "dirty",
+      );
     } finally {
       writeFileSync(TRACKED_SOURCE, "clean source\n");
     }
-    expect(run(["config"]).invocation?.buildSourceState).toBe("clean");
+    expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+  });
+
+  test("records an untracked Docker input and retains its warning after cleanup", () => {
+    writeFileSync(UNTRACKED_BUILD_SOURCE, "affects the image\n");
+    let imageSourceState = "";
+    try {
+      imageSourceState =
+        run(["up", "-d", "--build"]).invocation?.buildSourceStateDefault ?? "";
+      expect(imageSourceState).toBe("dirty");
+    } finally {
+      rmSync(UNTRACKED_BUILD_SOURCE, { force: true });
+    }
+
+    expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    const warning = Bun.spawnSync({
+      cmd: ["sh", PROVENANCE_WARNING],
+      env: {
+        ...baseEnv,
+        EZCORP_IMAGE_BUILD_COMMIT: DEFAULT_BUILD_COMMIT,
+        EZCORP_IMAGE_BUILD_SOURCE_STATE: imageSourceState,
+        EZCORP_REPO_DIR: SANDBOX,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(warning.exitCode).toBe(0);
+    expect(warning.stderr.toString()).toContain(
+      "image was built from uncommitted source changes",
+    );
+  });
+
+  test("ignores untracked generated and Docker-excluded files", () => {
+    mkdirSync(join(SANDBOX, "ignored-generated"));
+    writeFileSync(join(SANDBOX, "ignored-generated/cache.txt"), "generated\n");
+    writeFileSync(join(SANDBOX, "excluded.test.ts"), "not copied by Docker\n");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      rmSync(join(SANDBOX, "ignored-generated"), { recursive: true, force: true });
+      rmSync(join(SANDBOX, "excluded.test.ts"), { force: true });
+    }
   });
 
   test("non-build commands reach Compose with recoverable provenance when Git metadata is unavailable", () => {
@@ -363,8 +495,8 @@ describe("podman wrapper — the invocation it guarantees", () => {
     for (const args of [["logs", "app"], ["down"], ["ps"], ["config"]]) {
       const result = run(args, noGit);
       expect(result.exitCode, args.join(" ")).toBe(0);
-      expect(result.invocation?.buildCommit).toBe("unknown");
-      expect(result.invocation?.buildSourceState).toBe("unknown");
+      expect(result.invocation?.buildCommitDefault).toBe("unknown");
+      expect(result.invocation?.buildSourceStateDefault).toBe("unknown");
     }
   });
 
@@ -376,7 +508,55 @@ describe("podman wrapper — the invocation it guarantees", () => {
     });
     expect(result.exitCode).toBe(0);
     expect(result.invocation?.buildCommit).toBe(revision);
-    expect(result.invocation?.buildSourceState).toBe("unknown");
+    expect(result.invocation?.buildCommitDefault).toBe("unknown");
+    expect(result.invocation?.buildSourceStateDefault).toBe("unknown");
+  });
+
+  test("Compose preserves quoted duplicate values from .env above derived defaults", () => {
+    const args = renderedBuildArgs(
+      runWithRealCompose(
+        ["config", "--format", "json"],
+        {},
+        [
+          "EZCORP_BUILD_COMMIT='first value'",
+          'EZCORP_BUILD_COMMIT="second # value"',
+          "EZCORP_BUILD_SOURCE_STATE=dirty",
+          "",
+        ].join("\n"),
+      ),
+    );
+    expect(args.EZCORP_BUILD_COMMIT).toBe("second # value");
+    expect(args.EZCORP_BUILD_SOURCE_STATE).toBe("dirty");
+  });
+
+  test("caller env-file spellings preserve explicit no-Git provenance", () => {
+    const callerEnv = join(SANDBOX, "caller-provenance.env");
+    writeFileSync(
+      callerEnv,
+      [
+        "EZCORP_BUILD_COMMIT='first archive value'",
+        'EZCORP_BUILD_COMMIT="archive # final"',
+        "EZCORP_BUILD_SOURCE_STATE=dirty",
+        "",
+      ].join("\n"),
+    );
+    try {
+      for (const spelling of [
+        ["--env-file", callerEnv],
+        [`--env-file=${callerEnv}`],
+      ]) {
+        const args = renderedBuildArgs(
+          runWithRealCompose(
+            [...spelling, "config", "--format", "json"],
+            { PATH: `${BIN_GIT_UNAVAILABLE}:${BIN_REAL_COMPOSE}:${baseEnv.PATH}` },
+          ),
+        );
+        expect(args.EZCORP_BUILD_COMMIT).toBe("archive # final");
+        expect(args.EZCORP_BUILD_SOURCE_STATE).toBe("dirty");
+      }
+    } finally {
+      rmSync(callerEnv, { force: true });
+    }
   });
 
   test("preserves the revision stamp with the standalone Compose client", () => {
@@ -385,7 +565,7 @@ describe("podman wrapper — the invocation it guarantees", () => {
     });
     expect(result.exitCode).toBe(0);
     expect(result.invocation?.argv).toBe("up -d");
-    expect(result.invocation?.buildCommit).toBe(DEFAULT_BUILD_COMMIT);
+    expect(result.invocation?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
   });
 });
 
@@ -401,7 +581,7 @@ describe("podman wrapper — the prod stack (`--prod`)", () => {
     expect(result.invocation?.composeFile).toBe(
       "compose.prod.yml:compose.podman-prod.yml",
     );
-    expect(result.invocation?.buildCommit).toBe(DEFAULT_BUILD_COMMIT);
+    expect(result.invocation?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
   });
 
   test("prod non-build commands reach Compose without Git metadata", () => {
@@ -412,8 +592,8 @@ describe("podman wrapper — the prod stack (`--prod`)", () => {
     for (const command of ["logs", "down", "ps", "config"]) {
       const result = run(["--prod", command], noGit);
       expect(result.exitCode, command).toBe(0);
-      expect(result.invocation?.buildCommit).toBe("unknown");
-      expect(result.invocation?.buildSourceState).toBe("unknown");
+      expect(result.invocation?.buildCommitDefault).toBe("unknown");
+      expect(result.invocation?.buildSourceStateDefault).toBe("unknown");
     }
   });
 

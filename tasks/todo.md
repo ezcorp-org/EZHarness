@@ -249,3 +249,19 @@ tests passed 41/41; the wider static Compose set passed 107/107. Real Podman-bac
 renders passed for both stacks, and the rendered dev build carried the explicit revision and
 `dirty` marker. `bash -n`, `sh -n`, `git diff --check`, lint over 4,610 files, full typecheck, and
 Svelte check all passed with zero errors.
+
+## Repair PR #284 final provenance audit findings — 2026-09-21
+
+- [ ] Detect every untracked, non-gitignored Docker build-context input without generated noise.
+- [ ] Preserve explicit provenance from shell, `.env`, `--env-file`, and `--env-file=value`.
+- [ ] Preserve recoverable `unknown` provenance outside Git without overriding explicit dotenv values.
+- [ ] Inspect the actual built dev image OCI labels and runtime environment.
+- [ ] Keep #286 wrapper and #291 container-engine behavior intact.
+- [ ] Run pinned focused tests, real Compose/image checks, lint, typecheck, Svelte check, shell syntax, and diff checks.
+- [ ] Review and commit the repair without pushing.
+
+Plan review: keep Compose as the only dotenv parser. Derive provenance into separate fallback
+variables consumed by nested Compose defaults, so shell, the repository `.env`, and caller env files
+keep their native Compose semantics. Source-state detection must compare tracked content and
+enumerate only untracked files that Git does not ignore and Docker can send. The final test must
+inspect container-engine image metadata, not source strings.
