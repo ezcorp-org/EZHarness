@@ -94,8 +94,45 @@ describe("factory pool process config", () => {
       { ...config, identities: { tenants: {}, supervisors: {} } },
       { ...config, identities: { tenants: config.identities.tenants, supervisors: { "tenant-a": { supervisorId: "s", tokenSubject: "s", hostIds: [] } } } },
       { ...config, identities: { tenants: config.identities.tenants, supervisors: { supervisor: { supervisorId: "s", tokenSubject: "s", hostIds: ["missing"] } } } },
+      // An ordinary host must still be well formed, unique, and not also a
+      // whole-host allocation: one host declared as each would be two different
+      // things under one name.
+      { ...config, resources: { capacities: { cpu: 1 }, gpuHosts: [], hosts: [""] } },
+      { ...config, resources: { capacities: { cpu: 1 }, gpuHosts: [], hosts: ["cpu-a", "cpu-a"] } },
+      { ...config, resources: { capacities: { cpu: 1 }, gpuHosts: ["gpu-a"], hosts: ["gpu-a"] } },
+      { ...config, resources: { capacities: { cpu: 1 }, gpuHosts: [], hosts: "cpu-a" } },
     ];
     for (const value of invalid) expect(() => parseFactoryPoolProcessConfig(value)).toThrow("factory pool config is invalid");
+  });
+
+  test("a supervisor may be authorized for an ordinary host, which is how a CPU stop ever settles", () => {
+    // The ledger records a host only for a whole-host allocation, so a CPU
+    // reservation has none and this pool tracks no such host. C03 still settles
+    // a CPU stop only on a trusted supervisor's word, and the supervisor must be
+    // authorized for the host it names — so with nowhere to declare an ordinary
+    // host, a CPU-only installation could register no supervisor at all and
+    // every signed stop was refused with "cannot be acknowledged before a
+    // supervisor confirms it". Measured on a real run.
+    const base = {
+      schemaVersion: "factory.pool-process.v1", installationId: "installation-a", poolId: "pool-a",
+      hostname: "127.0.0.1", port: 8443,
+      database: { credentialsPath: "/tmp/pool-db.json", expectedDatabase: "pool", expectedRole: "pool" },
+      tls: { privateKeyPath: "/tmp/server.key", certificatePath: "/tmp/server.pem", caPath: "/tmp/ca.pem" },
+      tokens: { issuer: "issuer", audience: "audience", publicKeyPaths: { key: "/tmp/key.pem" } },
+      readinessFilePath: "/tmp/pool-readiness.json",
+    };
+    const parsed = parseFactoryPoolProcessConfig({
+      ...base,
+      identities: { tenants: { "tenant-a": { tenantId: "tenant-a", tokenSubject: "tenant-a" } }, supervisors: { supervisor: { supervisorId: "supervisor-a", tokenSubject: "supervisor", hostIds: ["cpu-a"] } } },
+      resources: { capacities: { cpu: 4 }, gpuHosts: [], hosts: ["cpu-a"] },
+    });
+    expect(parsed.resources.hosts).toEqual(["cpu-a"]);
+    // Declaring the host grants nothing: a typo is still refused.
+    expect(() => parseFactoryPoolProcessConfig({
+      ...base,
+      identities: { tenants: { "tenant-a": { tenantId: "tenant-a", tokenSubject: "tenant-a" } }, supervisors: { supervisor: { supervisorId: "supervisor-a", tokenSubject: "supervisor", hostIds: ["cpu-b"] } } },
+      resources: { capacities: { cpu: 4 }, gpuHosts: [], hosts: ["cpu-a"] },
+    })).toThrow("factory pool config is invalid");
   });
 });
 
