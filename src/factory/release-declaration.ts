@@ -16,13 +16,32 @@
  * report line — a failure names the destination and the field, never the
  * bytes.
  *
- * **A profile names where it publishes and nothing else about the payload.**
- * The definition's release node supplies the object and the accepted candidate;
- * the deployment supplies the account, the credentials, and the cost. So
- * `build` combines the two and refuses a requested destination that disagrees
- * with the declaration. It never transforms the payload: a profile that
- * rewrote what a factory produced would publish bytes the acceptance decision
- * never sealed.
+ * **The declaration composes PROVIDERS, and deliberately composes no profile.**
+ * A provider publishes an operation somebody else prepared, and building one
+ * needs only a destination and its credentials — which is exactly what the
+ * declaration carries. A PROFILE is the other half: it turns a definition's
+ * release node into the request the provider will publish, and for an S3
+ * manifest destination W08 already publishes the real one,
+ * `S3FactoryManifestReleaseProfile`, which reads the verified attempt and the
+ * sealed materials so the bytes that reach S3 are the bytes the acceptance
+ * decision froze.
+ *
+ * This file does NOT invent a substitute for it. An identity profile — pass
+ * the accepted candidate through as the request — composes and then fails at
+ * the wrong moment: `requestRelease` would create the operation, the running
+ * role would CLAIM it, and `S3FactoryManifestReleaseProvider.publish` would
+ * refuse the request as invalid, leaving a claimed operation that can never
+ * succeed. Refusing at prepare time is the smaller failure and the honest one,
+ * so `requestRelease` keeps answering `factory_protected_effect_untrusted`
+ * until the owner's profile can be built.
+ *
+ * What blocks building it here is named rather than guessed:
+ * `S3FactoryManifestReleaseProfile` takes `Pick<FactoryMaterialService,
+ * "list">`, and the only implementation of that surface is
+ * `FactoryAttemptMaterials`, which is bound to ONE attempt's authority
+ * (`assertOwnScopeOnly` plus `authorizeMaterialReadInTransaction`). A release
+ * profile resolves for whichever attempt the decision names, so one instance
+ * cannot serve it. **Interface question for W04 and W08** in the gate file.
  *
  * **A GitHub provider is built per operation, not per installation.**
  * `FactoryGitHubReleaseProvider` binds a project for the shared transport's
@@ -38,10 +57,10 @@ import { privateDirectory, readPrivateBounded } from "./private-files";
 import { loadFactoryStorageCredentials, type FactoryStorageCredentials } from "./release-composition";
 import { S3FactoryManifestReleaseProvider } from "./release-s3-publication";
 import { FactoryGitHubReleaseProvider } from "./release-github";
-import { FactoryReleaseError, type FactoryReleaseDestination, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleases } from "./releases";
-import { factorySynchronousReleaseProfile, type FactoryReleaseCommandProfile, type FactoryReleaseCommandProfileInput, type FactoryReleaseCommandProfileResult } from "./protected-command-effects";
+import { FactoryReleaseError, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleases } from "./releases";
+import type { FactoryReleaseCommandProfile } from "./protected-command-effects";
 import type { FactoryReleaseProviderResolver } from "./release-application";
-import type { FactoryStartupConfig, FactoryStartupReleaseDestination, FactoryStartupReleaseProfile } from "./startup-config";
+import type { FactoryStartupConfig, FactoryStartupReleaseDestination } from "./startup-config";
 import type { FactoryS3PublicationAttempts } from "./release-s3-publication";
 import type { FactoryScopedArtifactReader } from "./artifact-materials";
 
@@ -135,74 +154,43 @@ export interface FactoryReleaseDestinationCollaborators {
 export interface FactoryComposedReleaseDestinations {
   /** Which provider publishes one operation, by its persisted destination. */
   readonly providers: FactoryReleaseProviderResolver;
-  /** The adapter profiles `FactoryProtectedCommandEffects` will trust. */
+  /**
+   * The adapter profiles `FactoryProtectedCommandEffects` will trust.
+   *
+   * Empty today, and that is a refusal rather than a gap: see this file's
+   * header. `requestRelease` answers `factory_protected_effect_untrusted`
+   * until an owner's profile can be built, which is a refusal at prepare time
+   * instead of a claimed operation that can never publish.
+   */
   readonly profiles: readonly FactoryReleaseCommandProfile[];
   /** The declared destination names, for the readiness report. */
   readonly destinations: readonly string[];
+  /** Each declared profile that could not be composed, and why. */
+  readonly uncomposedProfiles: readonly FactoryUncomposedReleaseProfile[];
+}
+
+/** Why a declared profile could not be composed, so the gap is readable. */
+export interface FactoryUncomposedReleaseProfile {
+  /** The declared profile's destination name. */
+  readonly destination: string;
+  readonly kind: "s3" | "github";
+  readonly reason: string;
 }
 
 /**
- * The destination a profile publishes to, as the wire will carry it.
+ * The profile a declared destination WOULD need, and why it is not built.
  *
- * The declaration fixes the provider and the account. The definition's release
- * node supplies the object, and may pin the version it expects to replace.
- * Anything else in the requested destination is an operator or an author
- * disagreeing about which field is theirs, and reading past it would publish to
- * a place one of them did not choose.
+ * Kept as data rather than as a comment so the readiness report can carry it:
+ * an operator who declared a destination and sees `requestRelease` refuse is
+ * otherwise looking for a bug that is really a missing collaborator.
  */
-function exactDestination(declared: FactoryStartupReleaseDestination, requested: unknown): FactoryReleaseDestination {
-  const account = declared.kind === "s3" ? declared.account : declared.repository;
-  if (typeof requested !== "object" || requested === null || Array.isArray(requested)) {
-    throw new FactoryReleaseDestinationError("factory_release_destination_foreign", declared.name, "the release node named no destination object");
-  }
-  const asked = requested as Record<string, unknown>;
-  const allowed = ["object", "expectedVersion", "provider", "account"];
-  if (Object.keys(asked).some((key) => !allowed.includes(key))) {
-    throw new FactoryReleaseDestinationError("factory_release_destination_foreign", declared.name, "the release node named a destination field the deployment owns");
-  }
-  if (typeof asked.object !== "string" || asked.object.length === 0 || asked.object.length > 1_024 || asked.object.includes("\0")) {
-    throw new FactoryReleaseDestinationError("factory_release_destination_foreign", declared.name, "the release node named no usable destination object");
-  }
-  // A definition may RESTATE the provider and account it expects, and that is
-  // worth honouring as a check: an author who moved a release to another
-  // repository should get a refusal here rather than a publication to the
-  // deployment's own account.
-  if (asked.provider !== undefined && asked.provider !== declared.kind) {
-    throw new FactoryReleaseDestinationError("factory_release_destination_foreign", declared.name, "the release node expects another provider");
-  }
-  if (asked.account !== undefined && asked.account !== account) {
-    throw new FactoryReleaseDestinationError("factory_release_destination_foreign", declared.name, "the release node expects another account");
-  }
-  if (asked.expectedVersion !== undefined && (typeof asked.expectedVersion !== "string" || asked.expectedVersion.length === 0 || asked.expectedVersion.length > 512)) {
-    throw new FactoryReleaseDestinationError("factory_release_destination_foreign", declared.name, "the release node named an unusable expected version");
-  }
+function uncomposedProfile(declared: FactoryStartupReleaseDestination): FactoryUncomposedReleaseProfile {
   return Object.freeze({
-    provider: declared.kind,
-    account,
-    object: asked.object,
-    ...(asked.expectedVersion === undefined ? {} : { expectedVersion: asked.expectedVersion as string }),
-  });
-}
-
-/**
- * One declared profile, lifted onto the asynchronous surface W05 published.
- *
- * `build` is deliberately the identity on the payload: the request IS the
- * accepted candidate the decision sealed, and `sealFactoryReleaseProfileResult`
- * binds it to that decision and the pinned material. What the profile adds is
- * the destination and the declared cost.
- */
-function composeProfile(declared: FactoryStartupReleaseProfile, destination: FactoryStartupReleaseDestination): FactoryReleaseCommandProfile {
-  return factorySynchronousReleaseProfile({
-    adapter: declared.adapter,
-    action: declared.action,
-    build(input: FactoryReleaseCommandProfileInput): FactoryReleaseCommandProfileResult {
-      return {
-        destination: exactDestination(destination, input.destination),
-        request: input.acceptedCandidate,
-        estimatedSpendMicros: declared.estimatedSpendMicros,
-      };
-    },
+    destination: declared.name,
+    kind: declared.kind,
+    reason: declared.kind === "s3"
+      ? "W08's S3FactoryManifestReleaseProfile is the real profile for this destination, and it takes Pick<FactoryMaterialService,\"list\">; the only implementation, FactoryAttemptMaterials, is bound to one attempt's authority, so this composition cannot build one that serves whichever attempt a decision names (W04 owns the material service; W08 owns the profile)"
+      : "no owner has published a release profile for a git destination; FactoryGitHubReleaseProvider publishes a plan it does not build, and inventing the plan here would publish a shape no adapter agreed to (W07 owns the adapter)",
   });
 }
 
@@ -279,10 +267,10 @@ export async function composeFactoryReleaseDestinations(
     },
   });
 
-  const profiles = declaration.profiles.map((profile) => composeProfile(profile, byName.get(profile.destination)!));
   return Object.freeze({
     providers,
-    profiles: Object.freeze(profiles),
+    profiles: Object.freeze([]),
     destinations: Object.freeze(declaration.destinations.map((destination) => destination.name)),
+    uncomposedProfiles: Object.freeze(declaration.profiles.map((profile) => uncomposedProfile(byName.get(profile.destination)!))),
   });
 }

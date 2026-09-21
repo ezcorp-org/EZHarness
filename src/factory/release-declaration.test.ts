@@ -96,7 +96,9 @@ describe("composeFactoryReleaseDestinations", () => {
       collaborators(),
     );
     expect(composed?.destinations).toEqual(["ordinary"]);
-    expect(composed?.profiles).toHaveLength(1);
+    // No profile: see "the profiles a declaration deliberately does not
+    // compose". The provider is the half that publishes.
+    expect(composed?.profiles).toEqual([]);
     expect(await composed!.providers.resolve(operation())).toBeInstanceOf(S3FactoryManifestReleaseProvider);
   });
 
@@ -206,83 +208,49 @@ describe("composeFactoryReleaseDestinations", () => {
   });
 });
 
-describe("the profile a declaration composes", () => {
-  async function built(root: string, destination?: Record<string, unknown>) {
-    const declared = destination ?? await s3Declaration(root);
+describe("the profiles a declaration deliberately does not compose", () => {
+  test("an S3 destination records why W08's real profile cannot be built here", async () => {
+    // Composing an identity profile would fail at the WRONG moment:
+    // `requestRelease` would create the operation, the running role would
+    // claim it, and the provider would refuse the request as invalid — a
+    // claimed operation that can never publish. Refusing at prepare time is
+    // the smaller failure.
+    const root = await privateRoot();
     const composed = await composeFactoryReleaseDestinations(
-      config({ destinations: [declared], profiles: [profile(declared.name as string)] }),
+      config({ destinations: [await s3Declaration(root)], profiles: [profile("ordinary")] }),
       collaborators(),
     );
-    return composed!.profiles[0]!;
-  }
-
-  const input = (destination: unknown): FactoryReleaseCommandProfileInput => ({
-    acceptedCandidate: { schemaVersion: "factory.s3-publication-request.v1", members: [] },
-    destination,
-    decision: {} as never,
-    material: {} as never,
-  } as unknown as FactoryReleaseCommandProfileInput);
-
-  test("the deployment names the account and the definition names the object", async () => {
-    const root = await privateRoot();
-    const result = (await built(root)).build(input({ object: "artifacts/one.tar" }));
-    expect(result.destination).toEqual({ provider: "s3", account: "tenant-01", object: "artifacts/one.tar" });
-    // The payload is the accepted candidate, unchanged: a profile that rewrote
-    // it would publish bytes the acceptance decision never sealed.
-    expect(result.request).toEqual(input({}).acceptedCandidate);
-    expect(result.estimatedSpendMicros).toBe(1_000);
+    expect(composed?.profiles).toEqual([]);
+    expect(composed?.uncomposedProfiles).toHaveLength(1);
+    const [uncomposed] = composed!.uncomposedProfiles;
+    expect(uncomposed).toMatchObject({ destination: "ordinary", kind: "s3" });
+    // The reason names the collaborator and its owners, not a vague gap.
+    expect(uncomposed!.reason).toContain("S3FactoryManifestReleaseProfile");
+    expect(uncomposed!.reason).toContain("FactoryAttemptMaterials");
+    expect(uncomposed!.reason).toContain("W08");
   });
 
-  test("a release node may pin the version it expects to replace", async () => {
+  test("a GitHub destination records that no owner has published a profile for it", async () => {
     const root = await privateRoot();
-    const result = (await built(root)).build(input({ object: "artifacts/one.tar", expectedVersion: "v7" }));
-    expect(result.destination).toEqual({ provider: "s3", account: "tenant-01", object: "artifacts/one.tar", expectedVersion: "v7" });
+    const composed = await composeFactoryReleaseDestinations(
+      config({ destinations: [await githubDeclaration(root)], profiles: [profile("upstream")] }),
+      collaborators(),
+    );
+    expect(composed?.profiles).toEqual([]);
+    expect(composed!.uncomposedProfiles[0]).toMatchObject({ destination: "upstream", kind: "github" });
+    expect(composed!.uncomposedProfiles[0]!.reason).toContain("W07");
   });
 
-  test("a release node that restates the provider and account is checked against the declaration", async () => {
+  test("the providers still compose, because publishing needs no profile", async () => {
+    // The two halves are independent: a provider publishes an operation
+    // somebody else prepared, which is why `release-outcome` runs even while
+    // `requestRelease` refuses.
     const root = await privateRoot();
-    const composed = await built(root);
-    // Agreeing is ordinary.
-    expect(composed.build(input({ object: "one", provider: "s3", account: "tenant-01" })).destination.object).toBe("one");
-    // Disagreeing is a refusal, not a silent override: an author who moved the
-    // release elsewhere must not publish into the deployment's own account.
-    for (const asked of [
-      { object: "one", provider: "github" },
-      { object: "one", account: "another-tenant" },
-    ]) {
-      expect(() => composed.build(input(asked))).toThrow(FactoryReleaseDestinationError);
-    }
-  });
-
-  test("a release node that names no usable object, or a field the deployment owns, is refused", async () => {
-    const root = await privateRoot();
-    const composed = await built(root);
-    for (const asked of [
-      undefined, null, "artifacts/one.tar", [], {},
-      { object: "" }, { object: 7 }, { object: "a\0b" }, { object: "x".repeat(1_025) },
-      { object: "one", bucket: "somewhere" },
-      { object: "one", expectedVersion: "" },
-      { object: "one", expectedVersion: 7 },
-    ]) {
-      expect(() => composed.build(input(asked))).toThrow(FactoryReleaseDestinationError);
-    }
-  });
-
-  test("a GitHub destination publishes under its repository, which is the account on the wire", async () => {
-    const root = await privateRoot();
-    const declared = await githubDeclaration(root);
-    const composed = await built(root, declared as unknown as Record<string, unknown>);
-    expect(composed.build(input({ object: "v1.0.0" })).destination)
-      .toEqual({ provider: "github", account: "ezcorp-org/factory-platform-publication-tests", object: "v1.0.0" });
-  });
-
-  test("the profile carries the adapter the definition's release node names", async () => {
-    const root = await privateRoot();
-    const composed = await built(root);
-    // `FactoryProtectedCommandEffects` keys its trusted set by a digest of this
-    // reference, so it is the definition's own five fields and not a copy.
-    expect(composed.adapter).toEqual(ADAPTER);
-    expect(composed.action).toBe("factory.release.publish");
-    expect(typeof composed.resolve).toBe("function");
+    const composed = await composeFactoryReleaseDestinations(
+      config({ destinations: [await s3Declaration(root)], profiles: [profile("ordinary")] }),
+      collaborators(),
+    );
+    expect(await composed!.providers.resolve(operation())).toBeInstanceOf(S3FactoryManifestReleaseProvider);
+    expect(composed?.destinations).toEqual(["ordinary"]);
   });
 });
