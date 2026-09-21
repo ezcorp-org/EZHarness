@@ -74,7 +74,6 @@ describe("RESTART_LEG_SKIPPED_MESSAGE", () => {
 describe("restartLegInvocations", () => {
   test("builds a stop then an up -d --wait command against BOTH shared services", () => {
     const [stopInvocation, upInvocation] = restartLegInvocations({
-      engine: "docker",
       dockerHost: undefined,
       projectName: "ezcorp-factory-storage-1001",
       baseEnv: {},
@@ -109,7 +108,6 @@ describe("restartLegInvocations", () => {
 
   test("sets COMPOSE_PROJECT_NAME and omits DOCKER_HOST when the caller resolved none (docker engine)", () => {
     const [stopInvocation] = restartLegInvocations({
-      engine: "docker",
       dockerHost: undefined,
       projectName: "ezcorp-factory-storage-1001",
       baseEnv: {},
@@ -120,7 +118,6 @@ describe("restartLegInvocations", () => {
 
   test("forwards a resolved DOCKER_HOST for the podman engine", () => {
     const [stopInvocation] = restartLegInvocations({
-      engine: "podman",
       dockerHost: "unix:///run/user/1001/podman/podman.sock",
       projectName: "ezcorp-factory-storage-1001",
       baseEnv: {},
@@ -130,7 +127,6 @@ describe("restartLegInvocations", () => {
 
   test("preserves existing baseEnv entries and drops undefined-valued ones", () => {
     const [stopInvocation] = restartLegInvocations({
-      engine: "docker",
       dockerHost: undefined,
       projectName: "ezcorp-factory-storage-1001",
       baseEnv: { PATH: "/usr/bin", MISSING: undefined },
@@ -141,7 +137,6 @@ describe("restartLegInvocations", () => {
 
   test("both invocations of a pair share identical env", () => {
     const [stopInvocation, upInvocation] = restartLegInvocations({
-      engine: "podman",
       dockerHost: "unix:///run/user/1001/podman/podman.sock",
       projectName: "ezcorp-factory-storage-1001",
       baseEnv: { PATH: "/usr/bin" },

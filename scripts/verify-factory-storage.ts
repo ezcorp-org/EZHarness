@@ -136,7 +136,7 @@ if (args.restartStores) {
   const engine = resolveEngine({ EZCORP_CONTAINER_ENGINE: process.env.EZCORP_CONTAINER_ENGINE, CI: process.env.CI }, hasCommandOnPath);
   const dockerHost = resolveComposeDockerHost(engine, { DOCKER_HOST: process.env.DOCKER_HOST }, process.getuid?.() ?? 0, isUnixSocket);
   const projectName = `ezcorp-factory-storage-${process.getuid?.() ?? "local"}`;
-  const [stopInvocation, upInvocation] = restartLegInvocations({ engine, dockerHost, projectName, baseEnv: process.env });
+  const [stopInvocation, upInvocation] = restartLegInvocations({ dockerHost, projectName, baseEnv: process.env });
   await runCompose(stopInvocation);
   await runCompose(upInvocation);
   if (Buffer.compare(Buffer.from(await waitForReadAfterRestart(() => ordinary.get(digest))), Buffer.from(immutable)) !== 0) throw new Error("S3 object did not survive an ordinary-service restart.");
