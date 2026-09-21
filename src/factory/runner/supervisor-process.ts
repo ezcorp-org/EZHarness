@@ -51,6 +51,7 @@ import { fileURLToPath } from "node:url";
 import type { Runner } from "@ezcorp/extension-contract";
 import { privateDirectory, readPrivateBounded } from "../private-files";
 import { startFactoryHostServices } from "./supervisor-services";
+import { createFactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
   createFactoryServiceReadinessWriter,
   factorySupervisorReadinessOptions,
@@ -96,6 +97,21 @@ export interface FactorySupervisorProcessConfig {
     readonly allowedPeers: readonly string[];
     readonly hostKeyIdPath: string;
     readonly tls: { readonly caPath: string; readonly certificatePath: string; readonly privateKeyPath: string };
+    /**
+     * The pool this supervisor tells that a guest's process group is gone.
+     *
+     * C03 releases a host's capacity only on a trusted supervisor's word, so a
+     * signed stop receipt that never leaves this process is one the pool will
+     * never honour and the product's own confirmation fails closed forever.
+     * Optional because an installation may run this host against no pool at
+     * all; when it is absent the stop route still signs, and the product still
+     * reports its own refusal by name rather than looping in silence.
+     */
+    readonly pool?: {
+      readonly baseUrl: string;
+      readonly serviceTokenPath: string;
+      readonly tls: { readonly caPath: string; readonly certificatePath: string; readonly privateKeyPath: string };
+    };
   };
 }
 
@@ -149,13 +165,27 @@ function integer(value: unknown, minimum: number, maximum: number): boolean {
 function serviceSection(value: unknown): boolean {
   if (!record(value)) return false;
   const required = ["hostname", "port", "allowedPeers", "hostKeyIdPath", "tls"];
-  if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !required.includes(key))) return false;
+  const allowed = [...required, "pool"];
+  if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !allowed.includes(key))) return false;
   if (!text(value.hostname) || !integer(value.port, 1, 65_535) || !text(value.hostKeyIdPath)) return false;
   if (!Array.isArray(value.allowedPeers) || value.allowedPeers.length < 1 || value.allowedPeers.length > 64
     || value.allowedPeers.some((peer) => !text(peer))) return false;
-  const tls = value.tls;
-  const tlsKeys = ["caPath", "certificatePath", "privateKeyPath"];
-  return record(tls) && tlsKeys.every((key) => text(tls[key])) && Object.keys(tls).every((key) => tlsKeys.includes(key));
+  if (value.pool !== undefined && !poolSection(value.pool)) return false;
+  return tlsSection(value.tls);
+}
+
+const TLS_KEYS = ["caPath", "certificatePath", "privateKeyPath"];
+
+function tlsSection(value: unknown): boolean {
+  return record(value) && TLS_KEYS.every((key) => text(value[key])) && Object.keys(value).every((key) => TLS_KEYS.includes(key));
+}
+
+/** The supervisor's own pool credential: a base URL, a token file, and mutual TLS. */
+function poolSection(value: unknown): boolean {
+  if (!record(value)) return false;
+  const required = ["baseUrl", "serviceTokenPath", "tls"];
+  if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !required.includes(key))) return false;
+  return text(value.baseUrl) && text(value.serviceTokenPath) && tlsSection(value.tls);
 }
 
 /** Strict parser. The document names paths and identities, never a key value. */
@@ -288,6 +318,19 @@ export async function startFactoryConfiguredHostServices(
     readPrivatePath(services.tls.privateKeyPath, MAX_KEY_BYTES),
   ]);
   const utf8 = (bytes: Uint8Array) => new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  // Built before the listener binds, so an unreachable pool is a bind failure
+  // that degrades this host by name rather than a listener that accepts stops
+  // it cannot get honoured.
+  const pool = services.pool === undefined ? undefined : await createFactorySupervisorPoolClient({
+    hostId: config.hostId,
+    baseUrl: services.pool.baseUrl,
+    tls: {
+      caPath: services.pool.tls.caPath,
+      certificatePath: services.pool.tls.certificatePath,
+      privateKeyPath: services.pool.tls.privateKeyPath,
+      serviceTokenPath: services.pool.serviceTokenPath,
+    },
+  });
   return startFactoryHostServices({
     hostId: config.hostId,
     allowedPeers: services.allowedPeers,
@@ -296,6 +339,7 @@ export async function startFactoryConfiguredHostServices(
     tls: { ca: utf8(ca), cert: utf8(cert), key: utf8(key) },
     hostname: services.hostname,
     port: services.port,
+    ...(pool === undefined ? {} : { pool }),
   });
 }
 

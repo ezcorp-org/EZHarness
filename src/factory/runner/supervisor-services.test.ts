@@ -336,3 +336,61 @@ describe("a guest this host ran to a result", () => {
     expect(touched).toEqual([]);
   });
 });
+
+describe("the pool hears about the stop before the caller does", () => {
+  /** A pool that records what it was told, and can refuse. */
+  function poolThat(refuse = false) {
+    const told: { reservationId: string; holderGeneration: number; hostId: string }[] = [];
+    return {
+      told,
+      client: {
+        async presentStopReceipt(receipt: { reservationId: string; holderGeneration: number; hostId: string }) {
+          if (refuse) throw new Error("the pool refused");
+          told.push({ reservationId: receipt.reservationId, holderGeneration: receipt.holderGeneration, hostId: receipt.hostId });
+          return { reservationId: receipt.reservationId, state: "settled", holderGeneration: receipt.holderGeneration };
+        },
+      },
+    };
+  }
+
+  async function router(pool?: { presentStopReceipt: (receipt: never) => Promise<unknown> }) {
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "running"]]);
+    return createFactoryHostServiceRouter({
+      hostId, allowedPeers: [peer], runner: fakeRunner(states), signingKey: await keyMaterial(),
+      ...(pool === undefined ? {} : { pool: pool as never }),
+    });
+  }
+
+  test("a signed stop is presented to the pool, then answered", async () => {
+    // C03 releases a host's capacity only on a trusted supervisor's word, so a
+    // receipt that never leaves this process is one the product's own
+    // confirmation can never act on.
+    const pool = poolThat();
+    const handle = await router(pool.client);
+    const response = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(command)) }));
+    expect(response.status).toBe(200);
+    expect(pool.told).toEqual([{ reservationId: "reservation-1", holderGeneration: 3, hostId }]);
+  });
+
+  test("a pool that would not take the receipt makes the stop a named failure, not a success", async () => {
+    // Answering 200 here would be a receipt the product cannot act on: it
+    // settles nothing, marks the stop uncertain, and retries in silence.
+    const handle = await router(poolThat(true).client);
+    const response = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(command)) }));
+    expect(response.status).toBe(502);
+    expect(body(response)).toEqual({ error: "pool_unconfirmed" });
+  });
+
+  test("a host configured against no pool still signs, and tells it nothing", async () => {
+    const handle = await router();
+    expect((await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(command)) }))).status).toBe(200);
+  });
+
+  test("a refused stop is never presented, because there is no receipt to present", async () => {
+    const pool = poolThat();
+    const handle = await router(pool.client);
+    const response = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify({ ...command, hostId: "host-elsewhere" })) }));
+    expect(response.status).toBe(403);
+    expect(pool.told).toEqual([]);
+  });
+});

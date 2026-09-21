@@ -1098,6 +1098,7 @@
   "src/factory/installation-stores.ts": 100,
   "src/factory/attempt-composition.ts": 100,
   "src/factory/runner/supervisor-services.ts": 100,
+  "src/factory/runner/supervisor-pool-client.ts": 100,
   "src/factory/private-service-composition.ts": 100,
   "src/factory/runner/attempt-wire.ts": 100
 }

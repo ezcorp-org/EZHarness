@@ -550,6 +550,32 @@ describe("the host services this supervisor publishes", () => {
     }
   });
 
+  test("the pool section is optional, complete, or refused", async () => {
+    const root = await privateRoot();
+    const complete = services(root);
+    const pool = {
+      baseUrl: "https://127.0.0.1:8700",
+      serviceTokenPath: join(root, "pool.token"),
+      tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
+    };
+    // With a pool this host can tell C03 that a process group is gone, which is
+    // the only way the product's own confirmation ever settles.
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, pool } } as never)).services?.pool).toEqual(pool as never);
+    // Without one it still signs; the product reports its own refusal by name.
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: complete } as never)).services?.pool).toBeUndefined();
+
+    for (const broken of [
+      { ...pool, baseUrl: "" },
+      { ...pool, serviceTokenPath: "" },
+      { ...pool, tls: { caPath: "a", certificatePath: "b" } },
+      { ...pool, tls: { ...pool.tls, extra: "x" } },
+      { ...pool, extra: "x" },
+      "not a record",
+    ]) {
+      expect(() => parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, pool: broken } } as never))).toThrow("factory supervisor config is invalid");
+    }
+  });
+
   test("binds once after the first good probe, publishes the fact, and releases on stop", async () => {
     const root = await privateRoot();
     await writeHostKey(root);
@@ -663,6 +689,41 @@ describe("the host services this supervisor publishes", () => {
     const port = probe.port;
     probe.stop(true);
     const parsed = parseFactorySupervisorProcessConfig(config(root, { services: { ...services(root), port } } as never));
+    const listener = await startFactoryConfiguredHostServices(parsed, { async initialize() {}, async close() {} } as never);
+    try {
+      expect(listener).toBeDefined();
+    } finally {
+      listener.stop();
+    }
+  });
+
+  test("a configured pool becomes the client the stop route presents to", async () => {
+    const root = await privateRoot();
+    const certs = await certificates(certificateRoots, "tenant-a");
+    for (const [name, value] of [["ca.pem", certs.ca], ["server.pem", certs.serverCert], ["server.key", certs.serverKey], ["client.pem", certs.clientCert], ["client.key", certs.clientKey]] as const) {
+      await writeFile(join(root, name), value, { mode: 0o600 });
+      await chmod(join(root, name), 0o600);
+    }
+    await writeFile(join(root, "host.kid"), "host-key-1", { mode: 0o600 });
+    await writeFile(join(root, "pool.token"), "supervisor-token", { mode: 0o600 });
+    await chmod(join(root, "pool.token"), 0o600);
+    await writeHostKey(root);
+    const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    const port = probe.port;
+    probe.stop(true);
+    // Built before the listener binds. The pool is not reached here — building
+    // the client reads its secrets and nothing else — so this asserts the
+    // configured material composes, not that a pool answered.
+    const parsed = parseFactorySupervisorProcessConfig(config(root, {
+      services: {
+        ...services(root), port,
+        pool: {
+          baseUrl: "https://127.0.0.1:1",
+          serviceTokenPath: join(root, "pool.token"),
+          tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
+        },
+      },
+    } as never));
     const listener = await startFactoryConfiguredHostServices(parsed, { async initialize() {}, async close() {} } as never);
     try {
       expect(listener).toBeDefined();

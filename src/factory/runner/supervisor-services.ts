@@ -33,6 +33,7 @@ import { startFactoryPrivateHttps, type FactoryPrivateRequest, type FactoryPriva
 import { FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_RESULT_PATH, createFactoryHostLaunchRouteHandler } from "./host-launch-service";
 import { createFactoryHostLaunchSupervisor } from "./host-launch-supervisor";
 import type { FactoryGuestBroker } from "./guest-model-broker";
+import type { FactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
   FACTORY_HOST_STOP_PATH,
   createFactoryHostStopRouteHandler,
@@ -47,7 +48,7 @@ import {
   factoryRunnerSandboxControl,
   stopFactorySandbox,
 } from "./sandbox-stop";
-import type { FactoryAttemptLaunchIntent, FactoryUnsignedPhysicalStopReceipt } from "./attempt-wire";
+import type { FactoryAttemptLaunchIntent, FactoryPhysicalStopReceipt, FactoryUnsignedPhysicalStopReceipt } from "./attempt-wire";
 
 /** A launch body carries a whole runner request; a stop body is tiny. */
 const MAX_HOST_SERVICE_BODY_BYTES = 4 * 1024 * 1024;
@@ -141,6 +142,20 @@ export interface FactoryHostServiceOptions {
   readonly runner: Runner;
   readonly signingKey: FactoryHostSigningKeySource;
   readonly broker?: FactoryGuestBroker;
+  /**
+   * The pool, as the only process allowed to tell it a guest is gone.
+   *
+   * C03 does not release a host's capacity on a tenant's word: the product's
+   * own confirmation READS the ledger and fails closed until a trusted
+   * supervisor has settled it. So a signed receipt that never leaves this
+   * process is a receipt the pool will never honour, and the attempt's stop
+   * stays durably uncertain however correct every other party was.
+   *
+   * Absent for an installation whose supervisor is not configured to reach the
+   * pool. That is a named degradation rather than a silent one: the route still
+   * signs, and the product still reports its own refusal by name.
+   */
+  readonly pool?: FactorySupervisorPoolClient;
   readonly now?: () => number;
 }
 
@@ -188,13 +203,40 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
   });
   const launchPaths = new Set<string>([FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH]);
   return async (request) => {
-    if (request.path === FACTORY_HOST_STOP_PATH) return stop(request);
+    if (request.path === FACTORY_HOST_STOP_PATH) return presentStop(await stop(request), options.pool);
     if (launchPaths.has(request.path)) return launch(request);
     // An unknown path reaches the launch handler, which authenticates the peer
     // first and then answers 404 — so an unauthenticated probe learns nothing
     // about which paths this host serves.
     return launch(request);
   };
+}
+
+/**
+ * Tell the pool the process group is gone, before telling the caller it is.
+ *
+ * The order matters and is the whole point. The product's own confirmation
+ * reads the pool's ledger, so a 200 returned before the pool knows is a 200 the
+ * product cannot act on: it settles nothing, marks the stop uncertain, and
+ * retries. Answering 502 instead keeps the retry and makes it say why — and the
+ * retry costs nothing, because a stop for a worker this host already finished
+ * is answered from first-hand knowledge rather than by stopping it again.
+ */
+async function presentStop(response: FactoryPrivateResponse, pool: FactorySupervisorPoolClient | undefined): Promise<FactoryPrivateResponse> {
+  if (response.status !== 200 || pool === undefined) return response;
+  let receipt: FactoryPhysicalStopReceipt;
+  try { receipt = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(response.body)) as FactoryPhysicalStopReceipt; }
+  catch { return response; }
+  try {
+    await pool.presentStopReceipt(receipt);
+    return response;
+  } catch {
+    return Object.freeze({
+      status: 502,
+      headers: { "content-type": "application/json" },
+      body: new TextEncoder().encode(JSON.stringify({ error: "pool_unconfirmed" })),
+    });
+  }
 }
 
 export interface FactoryHostServiceListenerOptions extends FactoryHostServiceOptions {
