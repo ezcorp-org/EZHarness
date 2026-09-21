@@ -267,9 +267,7 @@ fi
 # parsing for explicit shell, .env, --env-file, and --env-file=value values.
 # Git metadata is diagnostic only: every command must still work from a source
 # archive or any other checkout where Git cannot answer.
-if ! EZCORP_BUILD_COMMIT_DEFAULT="$(git rev-parse --verify HEAD 2>/dev/null)"; then
-  EZCORP_BUILD_COMMIT_DEFAULT=unknown
-fi
+EZCORP_BUILD_COMMIT_DEFAULT="$(bash "$REPO_ROOT/scripts/resolve-dev-image-source-state.sh" --revision "$REPO_ROOT")"
 export EZCORP_BUILD_COMMIT_DEFAULT
 
 # The revision alone cannot say whether Docker's build-context inputs differed

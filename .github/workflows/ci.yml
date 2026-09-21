@@ -48,6 +48,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Create an untracked empty Docker-context directory
+        run: |
+          mkdir .dev-image-empty-context-probe
+          test "$(bash scripts/resolve-dev-image-source-state.sh)" = dirty
       - name: Build development image with provenance metadata
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
@@ -65,6 +69,7 @@ jobs:
           EZCORP_CONTAINER_ENGINE: docker
           VERIFY_DEV_PROVENANCE_REVISION: ${{ github.sha }}
           VERIFY_DEV_PROVENANCE_SOURCE_STATE: dirty
+          VERIFY_DEV_PROVENANCE_CONTEXT_DIR: .dev-image-empty-context-probe
         run: bash scripts/verify-dev-image-provenance.sh --no-build
 
   typecheck:

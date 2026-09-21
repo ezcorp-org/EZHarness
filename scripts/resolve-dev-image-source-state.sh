@@ -4,13 +4,41 @@
 # controlled only by its active .dockerignore file.
 set -uo pipefail
 
+MODE=source-state
+if [ "${1:-}" = "--revision" ]; then
+  MODE=revision
+  shift
+fi
 REPO_ROOT="${1:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
 
-# Hooks and parent Git commands can export an alternate index or repository.
-# Provenance always describes REPO_ROOT's real checkout, and the private
-# Docker-ignore matcher below must use its own repository.
-unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_OBJECT_DIRECTORY
-unset GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_COMMON_DIR GIT_PREFIX
+# Run every provenance Git query behind one clean boundary. Hooks, parent Git
+# commands, and the dev container itself export GIT_* variables; none may point
+# this audit at another repository/index or alter Docker-ignore matching.
+# System/global config is diagnostic-host state, while the selected checkout's
+# local config is retained so linked worktrees continue to resolve correctly.
+sanitized_git() {
+  env -i \
+    PATH="${PATH:-/usr/bin:/bin}" \
+    HOME="${HOME:-/nonexistent}" \
+    LC_ALL=C \
+    GIT_CONFIG_NOSYSTEM=1 \
+    GIT_CONFIG_SYSTEM=/dev/null \
+    GIT_CONFIG_GLOBAL=/dev/null \
+    GIT_OPTIONAL_LOCKS=0 \
+    git -c safe.directory="$REPO_ROOT" "$@"
+}
+
+# Docker matching is case-sensitive on every host. Git commonly records
+# core.ignoreCase=true on macOS; force Docker's rule for source-state queries.
+source_state_git() {
+  sanitized_git \
+    -c core.ignoreCase=false \
+    -c core.fileMode=true \
+    -c core.fsmonitor=false \
+    -c core.ignoreStat=false \
+    -c core.excludesFile=/dev/null \
+    "$@"
+}
 
 unknown() {
   echo unknown
@@ -18,7 +46,12 @@ unknown() {
 }
 
 cd "$REPO_ROOT" 2>/dev/null || unknown
-git rev-parse --is-inside-work-tree >/dev/null 2>&1 || unknown
+sanitized_git rev-parse --is-inside-work-tree >/dev/null 2>&1 || unknown
+
+if [ "$MODE" = revision ]; then
+  sanitized_git rev-parse --verify HEAD 2>/dev/null || unknown
+  exit 0
+fi
 
 # Docker anchors a bare name at the context root, while Git's exclude matcher
 # applies it at every depth. Leading and trailing slashes are insignificant to
@@ -75,9 +108,12 @@ trap cleanup EXIT HUP INT TERM
 if ! {
   # Keep both sides of renames: moving an included file under an exclusion still
   # removes an input from the image.
-  git diff --name-only -z --no-ext-diff --no-renames HEAD --
-  git ls-files --others -z "${DOCKER_EXCLUDE_ARGS[@]}" --
-  git ls-files --others -z -- Dockerfile.dev "$DOCKERIGNORE_RELATIVE"
+  source_state_git diff --name-only -z --no-ext-diff --no-renames --ignore-submodules=none HEAD --
+  source_state_git ls-files --others -z "${DOCKER_EXCLUDE_ARGS[@]}" --
+  # Git normally omits empty untracked directories. Docker sends them, and
+  # COPY preserves them, so include untracked directory entries explicitly.
+  source_state_git ls-files --others --directory -z "${DOCKER_EXCLUDE_ARGS[@]}" --
+  source_state_git ls-files --others -z -- Dockerfile.dev "$DOCKERIGNORE_RELATIVE"
 } >"$CANDIDATES" 2>/dev/null; then
   unknown
 fi
@@ -90,7 +126,7 @@ fi
 # This keeps one ordered matcher for every candidate and does not read the
 # project's Git ignore files.
 MATCHER_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/ezcorp-dockerignore.XXXXXX")" || unknown
-git -C "$MATCHER_ROOT" init -q >/dev/null 2>&1 || unknown
+sanitized_git -C "$MATCHER_ROOT" init -q >/dev/null 2>&1 || unknown
 printf '%s\n' "$DOCKER_EXCLUDES" >"$MATCHER_ROOT/.git/info/exclude" || unknown
 
 while IFS= read -r -d '' path; do
@@ -102,7 +138,7 @@ while IFS= read -r -d '' path; do
     exit 0
   fi
 
-  git -C "$MATCHER_ROOT" check-ignore -q --no-index -- "$path" 2>/dev/null
+  source_state_git -C "$MATCHER_ROOT" check-ignore -q --no-index -- "$path" 2>/dev/null
   MATCH_STATUS=$?
   if [ "$MATCH_STATUS" = 1 ]; then
     echo dirty

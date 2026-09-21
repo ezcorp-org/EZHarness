@@ -7,8 +7,8 @@ set -eu
 repo_dir="${EZCORP_REPO_DIR:-/repo}"
 image_commit="${EZCORP_IMAGE_BUILD_COMMIT:-unknown}"
 image_source_state="${EZCORP_IMAGE_BUILD_SOURCE_STATE:-unknown}"
-checkout_commit="$(git -C "$repo_dir" rev-parse --verify HEAD 2>/dev/null || true)"
 script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+checkout_commit="$(bash "$script_dir/resolve-dev-image-source-state.sh" --revision "$repo_dir" 2>/dev/null || echo unknown)"
 checkout_source_state="$(bash "$script_dir/resolve-dev-image-source-state.sh" "$repo_dir" 2>/dev/null || echo unknown)"
 
 print_rebuild_commands() {
@@ -18,7 +18,7 @@ print_rebuild_commands() {
   echo "         Rootless Podman: bun run podman up -d --build" >&2
 }
 
-if [ -z "$checkout_commit" ]; then
+if [ "$checkout_commit" = unknown ]; then
   echo "WARNING: Cannot read the bind-mounted checkout commit; dev image provenance was not compared." >&2
   print_rebuild_commands
   exit 0

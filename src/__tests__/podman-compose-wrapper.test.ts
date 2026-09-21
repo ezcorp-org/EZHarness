@@ -87,7 +87,7 @@ writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
 copyFileSync(join(REPO_ROOT, ".dockerignore"), join(SANDBOX, ".dockerignore"));
 appendFileSync(
   join(SANDBOX, ".dockerignore"),
-  "\n# Test-harness files, not fixture image inputs.\nbin*\n*.sock\nenv.prod\ncaller-*.env\nignored-generated/\n",
+  "\n# Test-harness files, not fixture image inputs.\nbin*\n*.sock\nenv.prod\ncaller-*.env\nignored-generated/\ncase-excluded.conf\n",
 );
 writeFileSync(
   join(SANDBOX, "docker-compose.yml"),
@@ -171,6 +171,11 @@ writeFileSync(
 sandboxGit("add", "image-backed-source.txt", "tasks/audit-note.md", ".dockerignore", "docker-compose.yml", "compose.podman.yml", "scripts");
 sandboxGit("-c", "user.name=Wrapper test", "-c", "user.email=wrapper@example.invalid", "commit", "-qm", "fixture");
 const DEFAULT_BUILD_COMMIT = sandboxGit("rev-parse", "--verify", "HEAD");
+const foreignGitDir = Bun.spawnSync({
+  cmd: ["git", "-C", REPO_ROOT, "rev-parse", "--absolute-git-dir"],
+  env: sandboxGitEnv,
+  stdout: "pipe",
+}).stdout.toString().trim();
 
 afterAll(() => {
   socketServer.stop(true);
@@ -564,6 +569,42 @@ describe("podman wrapper — the invocation it guarantees", () => {
     expect(warning.stderr.toString()).toContain(
       "image was built from uncommitted source changes",
     );
+  });
+
+  test("records an included empty directory and ignores a Docker-excluded one", () => {
+    const included = join(SANDBOX, "empty-image-input");
+    mkdirSync(included);
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(included, { recursive: true, force: true });
+    }
+
+    const excluded = join(SANDBOX, "ignored-generated");
+    mkdirSync(excluded);
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      rmSync(excluded, { recursive: true, force: true });
+    }
+  });
+
+  test("ignores inherited Git repository and config overrides", () => {
+    const caseDifferentInput = join(SANDBOX, "Case-Excluded.conf");
+    writeFileSync(caseDifferentInput, "Docker includes this case-different input\n");
+    try {
+      const result = run(["config"], {
+        GIT_DIR: foreignGitDir,
+        GIT_WORK_TREE: REPO_ROOT,
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "core.ignoreCase",
+        GIT_CONFIG_VALUE_0: "true",
+      });
+      expect(result.invocation?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
+      expect(result.invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(caseDifferentInput, { force: true });
+    }
   });
 
   test("records a Git-ignored file when Docker includes it", () => {

@@ -12,6 +12,11 @@ if (!realGit) throw new Error("git is required for provenance tests");
 const cleanEnv = Object.fromEntries(
   Object.entries(process.env).filter(([key, value]) => !key.startsWith("GIT_") && value !== undefined),
 ) as Record<string, string>;
+const foreignGitDir = Bun.spawnSync({
+  cmd: [realGit, "-C", root, "rev-parse", "--absolute-git-dir"],
+  env: cleanEnv,
+  stdout: "pipe",
+}).stdout.toString().trim();
 
 function git(...args: string[]): string {
   const result = Bun.spawnSync({ cmd: [realGit, "-C", sandbox, ...args], env: cleanEnv, stdout: "pipe", stderr: "pipe" });
@@ -86,10 +91,16 @@ test("provenance inspection ignores inherited Git repository and index overrides
   writeFileSync(trackedInput, "dirty source\n");
   try {
     const result = run(commit, "clean", sandbox, {
-      GIT_DIR: join(sandbox, ".git"),
+      GIT_DIR: foreignGitDir,
+      GIT_WORK_TREE: root,
       GIT_INDEX_FILE: join(sandbox, "alternate-index"),
+      GIT_CONFIG_COUNT: "1",
+      GIT_CONFIG_KEY_0: "core.ignoreCase",
+      GIT_CONFIG_VALUE_0: "true",
     });
     expect(result.stderr).toContain("uncommitted Docker build-context changes");
+    expect(result.stderr).not.toContain("differs from /repo HEAD");
+    expect(result.stderr).not.toContain("provenance was not compared");
     expect(git("config", "--bool", "core.bare")).toBe("false");
   } finally {
     writeFileSync(trackedInput, "clean source\n");

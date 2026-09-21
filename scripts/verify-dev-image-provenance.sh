@@ -12,7 +12,7 @@ cd "$(dirname "$0")/.."
 source scripts/lib/container-engine.sh
 
 IMAGE="${VERIFY_DEV_PROVENANCE_IMAGE:-ezcorp:verify-dev-provenance}"
-REVISION="${VERIFY_DEV_PROVENANCE_REVISION:-$(git rev-parse HEAD 2>/dev/null || echo dev-verify)}"
+REVISION="${VERIFY_DEV_PROVENANCE_REVISION:-$(bash scripts/resolve-dev-image-source-state.sh --revision .)}"
 SOURCE_STATE="${VERIFY_DEV_PROVENANCE_SOURCE_STATE:-dirty}"
 
 die() {
@@ -41,5 +41,9 @@ echo "$image_env" | jq -e --arg expected "EZCORP_IMAGE_BUILD_COMMIT=$REVISION" '
   || die "runtime image environment is missing EZCORP_IMAGE_BUILD_COMMIT=$REVISION"
 echo "$image_env" | jq -e --arg expected "EZCORP_IMAGE_BUILD_SOURCE_STATE=$SOURCE_STATE" 'index($expected) != null' >/dev/null \
   || die "runtime image environment is missing EZCORP_IMAGE_BUILD_SOURCE_STATE=$SOURCE_STATE"
+if [ -n "${VERIFY_DEV_PROVENANCE_CONTEXT_DIR:-}" ]; then
+  "$ENGINE" run --rm --entrypoint test "$IMAGE" -d "/app/$VERIFY_DEV_PROVENANCE_CONTEXT_DIR" \
+    || die "runtime image is missing Docker-context directory $VERIFY_DEV_PROVENANCE_CONTEXT_DIR"
+fi
 
 echo "dev image provenance verified: revision=$REVISION source-state=$SOURCE_STATE engine=$ENGINE"
