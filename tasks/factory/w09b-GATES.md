@@ -279,6 +279,10 @@ wrapper that catches adds context rather than removing it.
       on every pass. Record digests
       `601ea1a1…`, `c4577e7f…`, `f0b6da69…`, each verified against its receipt.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/full-stack-run-{1,2,3}.json`
+      NOT REFRESHED at the final head: every shared store is down, so this
+      run cannot be repeated. The measurement above stands at `ca101ff19`;
+      nothing since then touched the run path. Pending command under "PENDING
+      on the shared stores".
 - [x] G12: The harness records its own failures rather than crashing on them.
       CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 1200 bash
       /tmp/factory-platform-evidence/w09b/repro/negative-control.sh`
@@ -288,6 +292,7 @@ wrapper that catches adds context rather than removing it.
       ready"`, seven child logs kept, supervisor processes before 0 and after 0,
       record digest `34afc222…`.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/negative-control.json`
+      NOT REFRESHED at the final head, for the same reason as G11.
 - [x] G13: The static gates, each with its own exit code.
       CHECK: `bash /tmp/factory-platform-evidence/w09b/repro/static-gates.sh`
       EXPECT: typecheck, lint, boundaries, gate-integrity and the PostgreSQL
@@ -600,6 +605,57 @@ serve it. A deployment that grows that route supplies its own broker through
 and not changed: the C11 check compares the factory's declaration against the
 daemon's own reader rather than reading the environment variable a second way.
 
+## PENDING on the shared stores, with the exact commands
+
+Every shared store this package's heavy producers need is down, and repairing
+one is the coordinator's. Measured in this worktree at `214d7251e`, receipt
+`/tmp/factory-platform-evidence/w09b/receipts/shared-store-state.json`:
+
+| Store | State |
+| --- | --- |
+| PostgreSQL proof database | `factory-platform-proof-postgres` is `Exited (0)`, publishes no port |
+| S3 (SeaweedFS) | no container exists, not even an exited record |
+| S3 secrets directory | `/run/user/1001/ezcorp-factory-storage.8yWJyCIQ` does not exist, so **the path in `common.md` is stale** |
+
+Nothing here started, restarted, or reconfigured any of them, and
+`EZCORP_FACTORY_STORAGE_SECRETS_DIR` was not re-pointed at a substitute.
+
+**The red logs are kept as evidence**, not deleted and not re-run into silence:
+`/tmp/factory-platform-evidence/w09b/logs/store-down-214d7251e/*.store-down.log`
+(six `tests/postgres` producers plus the postgres and pool coverage legs, each
+failing at connect with `ERR_POSTGRES_CONNECTION_CLOSED`).
+
+**What is pending, and what it does NOT block.** G14 is closed without these:
+both `BASE_REF=integ/w00` gates pass over the legs that could run, because every
+line the postgres and pool legs would measure is also measured by a PGlite suite
+in the focused pool. What is pending is the refresh of receipts whose earlier
+round ran against live stores.
+
+| Pending | Gate it refreshes | Why it needs a store |
+| --- | --- | --- |
+| `tests/postgres/factory-{boot,schema,private-service,migration-restart,tenant-projects,host-launch}.test.ts` | the `postgres-producers` receipt, and real-PostgreSQL schema parity | real PostgreSQL |
+| the `postgres` and `pool` coverage legs | the `legs` block of the G14 receipt, which currently records `1` for both | real PostgreSQL |
+| `rebuild-and-run-three.sh` | G10b and G11 at the final head | PostgreSQL, S3, the pool, the supervisor, Temporal |
+| `negative-control.sh` | G12 at the final head | the same stack |
+
+One command runs all four once the coordinator names the new S3 secrets
+directory and confirms the PostgreSQL port. It refuses by name rather than
+guessing if a store is still missing, and it assembles the database URL inside
+the script so no credential reaches an argv:
+
+```
+flock /tmp/ezcorp-validation-heavy.lock timeout 7200 \
+  bash /tmp/factory-platform-evidence/w09b/repro/resume-store-producers.sh \
+    --secrets-dir /run/user/1001/<new-ezcorp-factory-storage-dir>
+```
+
+It verifies the stores first (`bun scripts/verify-factory-storage.ts`), then
+runs `postgres-producers.sh`, `coverage-gates.sh` (the full leg set, including
+the two legs that could not run, then both gates), `rebuild-and-run-three.sh`
+and `negative-control.sh`, and rewrites each receipt with the head that produced
+it. G10b's "three running roles" answer is expected to be unchanged: the fourth
+role waits on a declaration, not on a store.
+
 ## Interface questions
 
 **1. For W07 — `claim` cannot join a caller's transaction, so read-and-claim
@@ -624,8 +680,10 @@ account, with which credentials. The freeze forbids adding the field here. This
 is the single remaining blocker for a fourth running role, and it is one
 decision rather than three.
 
-**3. For the coordinator — the shared PostgreSQL proof database is down.**
-`factory-platform-proof-postgres` has been `Exited (0)` for seven days and
-publishes no port. Nothing in this worktree touched it. Every `tests/postgres/**`
-producer and `scripts/factory-pool-coverage.sh` fail at connect until it is
-repaired.
+**3. For the coordinator — every shared store is down, and `common.md`'s S3 path
+is stale.** The PostgreSQL proof database publishes no port, no SeaweedFS
+container exists at all, and the S3 secrets directory `common.md` names is gone.
+Nothing in this worktree touched any of them. The four pending producers and the
+single command that runs them are set out under "PENDING on the shared stores".
+When the stores return, `common.md` needs the new secrets directory written into
+it, or the next worker will follow the same dead path.

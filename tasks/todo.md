@@ -2939,10 +2939,15 @@ end-to-end proof that a submitted run reaches a real guest.
 - [x] The full sweep at the final head with a clean tree: typecheck, lint,
       boundaries, gate integrity, schema drift, the focused suites, the Podman
       suites, and both coverage gates.
-- [ ] The real-PostgreSQL producers could not run: the shared
-      `factory-platform-proof-postgres` container has been `Exited (0)` for
-      seven days and publishes no port. Not repaired here — a shared store is
-      the coordinator's. It did not block G14.
+- [ ] PENDING on the shared stores, all four of them, with one command to run
+      them: `tests/postgres/factory-*` producers, the `postgres` and `pool`
+      coverage legs, `rebuild-and-run-three.sh` (G10b, G11), and
+      `negative-control.sh` (G12). Every shared store is down — PostgreSQL
+      publishes no port, no SeaweedFS container exists, and the S3 secrets
+      directory `common.md` names is gone. Not repaired here; a shared store is
+      the coordinator's. It did not block G14. Command, refusal behaviour and
+      the kept red logs are under "PENDING on the shared stores" in the gate
+      file.
 
 ### W09b review
 
