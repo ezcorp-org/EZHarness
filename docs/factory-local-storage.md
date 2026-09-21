@@ -55,3 +55,14 @@ ordinary service (exit 137, `OOMKilled`) after 186 volumes were loaded and a
 256 MiB object arrived through the S3 gateway; the same service idles at about
 211 MiB with those volumes loaded. Raising the limit changes only the container
 configuration. A recreate keeps the named data volumes and the credential files.
+
+## Engine, and recovery after a reboot
+
+The script drives Compose through `scripts/lib/container-engine.sh`: Podman by
+default on a developer host (Compose is pointed at the rootless socket through
+`DOCKER_HOST`), Docker under CI, and `EZCORP_CONTAINER_ENGINE=podman|docker` to
+choose. A host reboot clears the credential directory, which lives on tmpfs
+below `XDG_RUNTIME_DIR`, while the containers and their data volumes survive.
+`scripts/setup-factory-storage.sh recover` removes only the containers, keeps
+the volumes, and starts again with a fresh credential set; `up` refuses to run
+while the old containers exist, and `down` needs the directory that is gone.
