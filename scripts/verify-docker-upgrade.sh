@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
 # End-to-end two-image upgrade verification.
 #
+# Engine: Podman on a developer machine, Docker under CI, or whichever
+# EZCORP_CONTAINER_ENGINE names — scripts/lib/container-engine.sh has the rule.
+# Its semantic-lifecycle phases start the ISOLATED extension runner, which
+# needs a Linux host (deploy/extension-runner/README.md); on macOS they stop
+# at the runner's readiness check regardless of engine.
+#
 # Simulates the real upgrade flow a self-hoster experiences when a new image
 # lands on GHCR (manual pull or Watchtower):
 #
@@ -20,6 +26,10 @@
 
 set -euo pipefail
 cd "$(dirname "$0")/.."
+# Podman on a developer machine, Docker under CI, EZCORP_CONTAINER_ENGINE to
+# choose — see the rule in the lib. Every engine call below is "$ENGINE".
+# shellcheck source=scripts/lib/container-engine.sh
+source scripts/lib/container-engine.sh
 # shellcheck source=scripts/lib/build-archived-image.sh
 source scripts/lib/build-archived-image.sh
 
@@ -60,13 +70,13 @@ die()  { echo "  ${RED}✗${RESET} $1" >&2; exit 1; }
 cleanup() {
   local status=$? cleanup_status=0
   set +e
-  docker info >/dev/null 2>&1 || cleanup_status=1
-  if docker container inspect "$CONTAINER" >/dev/null 2>&1; then
-    docker rm -f "$CONTAINER" >/dev/null 2>&1 || cleanup_status=1
+  "$ENGINE" info >/dev/null 2>&1 || cleanup_status=1
+  if "$ENGINE" container inspect "$CONTAINER" >/dev/null 2>&1; then
+    "$ENGINE" rm -f "$CONTAINER" >/dev/null 2>&1 || cleanup_status=1
   fi
   for owned_volume in "$VOLUME" "$RESTORE_VOLUME"; do
-    if docker volume inspect "$owned_volume" >/dev/null 2>&1; then
-      docker volume rm "$owned_volume" >/dev/null 2>&1 || cleanup_status=1
+    if "$ENGINE" volume inspect "$owned_volume" >/dev/null 2>&1; then
+      "$ENGINE" volume rm "$owned_volume" >/dev/null 2>&1 || cleanup_status=1
     fi
   done
   if [[ -n "$UPGRADE_RECEIPT_ROOT" && -f "$STATE_FILE" ]]; then cp "$STATE_FILE" "$UPGRADE_RECEIPT_ROOT/upgrade-state.json" || cleanup_status=1; fi
@@ -84,7 +94,7 @@ ENC_SALT="$(openssl rand -base64 32)"
 start_container() {
   local image="$1"
   local volume="${2:-$VOLUME}"
-  docker run -d \
+  "$ENGINE" run -d \
     --name "${CONTAINER}" \
     -p "127.0.0.1:${PORT}:3000" \
     -v "${volume}:/app/data" \
@@ -103,7 +113,7 @@ wait_ready() {
     if [[ "${code}" == "200" ]]; then return 0; fi
     if (( $(date +%s) > deadline )); then
       echo "--- last 30 lines of container logs:" >&2
-      docker logs --tail 30 "${CONTAINER}" >&2 || true
+      "$ENGINE" logs --tail 30 "${CONTAINER}" >&2 || true
       echo "readiness never reached 200 (last code=${code})" >&2
       return 1
     fi
@@ -112,19 +122,19 @@ wait_ready() {
 }
 
 volume_entries() {
-  docker run --rm --user 1000:1000 -v "${VOLUME}:/d" docker.io/library/alpine:latest ls /d/ezcorp 2>/dev/null | wc -l | tr -d '[:space:]'
+  "$ENGINE" run --rm --user 1000:1000 -v "${VOLUME}:/d" docker.io/library/alpine:latest ls /d/ezcorp 2>/dev/null | wc -l | tr -d '[:space:]'
 }
 
 snapshot_count() {
-  docker run --rm --user 1000:1000 -v "${VOLUME}:/d" docker.io/library/alpine:latest \
+  "$ENGINE" run --rm --user 1000:1000 -v "${VOLUME}:/d" docker.io/library/alpine:latest \
     sh -c 'ls -1 /d/backups 2>/dev/null | grep -c "^pre-boot-" || echo 0' | tr -d '[:space:]'
 }
 
 [[ "$PREVIOUS_SOURCE" =~ ^[0-9a-f]{40}$ ]] || die "Previous source must be a full immutable commit"
 ensure_archived_image "$PREVIOUS_SOURCE" "$IMAGE_A" "upgrade-${RUN_ID}-previous" || die "Historical build failed"
 [[ "$PREVIOUS_SOURCE" != "$SOURCE_B" ]] || die "Previous and candidate source are identical"
-IMAGE_A_SOURCE="$(docker image inspect "$IMAGE_A" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
-IMAGE_A_ID="$(docker image inspect "$IMAGE_A" --format '{{.Id}}' | sed 's/^sha256://')"
+IMAGE_A_SOURCE="$("$ENGINE" image inspect "$IMAGE_A" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+IMAGE_A_ID="$("$ENGINE" image inspect "$IMAGE_A" --format '{{.Id}}' | sed 's/^sha256://')"
 if [[ -n "$IMAGE_A_SOURCE" && "$IMAGE_A_SOURCE" != "<no value>" && "$IMAGE_A_SOURCE" != "unknown" ]]; then
   [[ "$IMAGE_A_SOURCE" == "$PREVIOUS_SOURCE" ]] || die "Previous image label provenance is $IMAGE_A_SOURCE, expected $PREVIOUS_SOURCE"
 else
@@ -134,11 +144,11 @@ else
 fi
 
 if [[ "${VERIFY_UPGRADE_SKIP_BUILD:-0}" == "1" ]]; then
-  docker image inspect "$IMAGE_B" >/dev/null 2>&1 || die "Supplied candidate image is absent: $IMAGE_B"
+  "$ENGINE" image inspect "$IMAGE_B" >/dev/null 2>&1 || die "Supplied candidate image is absent: $IMAGE_B"
   section "Use supplied candidate image for semantic retry"
 else
   section "Build candidate from committed source ${SOURCE_B:0:12}"
-  git archive "$SOURCE_B" | docker build --load \
+  git archive "$SOURCE_B" | "$ENGINE" build --load \
     --build-arg VERSION="${VERSION_B}" \
     --build-arg REVISION="${REVISION_B}" \
     --build-arg CREATED="${CREATED}" \
@@ -147,17 +157,17 @@ else
       die "candidate build failed (log: /tmp/ezcorp-upgrade-${RUN_ID}-candidate-build.log)"
     }
 fi
-IMAGE_B_SOURCE="$(docker image inspect "$IMAGE_B" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+IMAGE_B_SOURCE="$("$ENGINE" image inspect "$IMAGE_B" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
 [[ "$IMAGE_B_SOURCE" =~ ^[0-9a-f]{40}$ ]] || die "Candidate image needs an immutable source label"
 expected_source="${VERIFY_UPGRADE_CANDIDATE_SOURCE:-$IMAGE_B_SOURCE}"
 if [[ "${VERIFY_UPGRADE_SKIP_BUILD:-0}" != 1 ]]; then expected_source="$SOURCE_B"; fi
 [[ "$IMAGE_B_SOURCE" == "$expected_source" ]] || die "Candidate source $IMAGE_B_SOURCE differs from expected $expected_source"
 [[ "$IMAGE_B_SOURCE" != "$PREVIOUS_SOURCE" ]] || die "Previous and candidate image sources are identical"
-B_SHA=$(docker image inspect "$IMAGE_B" --format '{{json .Config.Env}}' \
+B_SHA=$("$ENGINE" image inspect "$IMAGE_B" --format '{{json .Config.Env}}' \
   | jq -r '.[] | select(startswith("EZCORP_IMAGE_SHA=")) | split("=")[1]')
 [[ "$B_SHA" == "$IMAGE_B_SOURCE" ]] || die "Candidate source label and runtime source differ"
 if [[ "${VERIFY_UPGRADE_SKIP_BUILD:-0}" == 1 ]]; then
-  VERSION_B="$(docker image inspect "$IMAGE_B" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')"
+  VERSION_B="$("$ENGINE" image inspect "$IMAGE_B" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')"
   [[ -n "$VERSION_B" && "$VERSION_B" != '<no value>' && "$VERSION_B" != unknown ]] || die "Candidate image needs a version label"
 fi
 pass "Previous image source=$PREVIOUS_SOURCE; candidate image source=$IMAGE_B_SOURCE; driver source=$SOURCE_B"
@@ -217,8 +227,8 @@ SNAPS_A="$(snapshot_count)"
 pass "A populated volume: ${ENTRIES_A} DB entries, ${SNAPS_A} pre-boot snapshot(s)"
 
 section "Phase 2: Stop the previous image"
-docker stop "${CONTAINER}" >/dev/null
-docker rm "${CONTAINER}" >/dev/null
+"$ENGINE" stop "${CONTAINER}" >/dev/null
+"$ENGINE" rm "${CONTAINER}" >/dev/null
 
 section "Phase 3: Upgrade — start B against A's volume"
 start_container "${IMAGE_B}"
@@ -247,18 +257,18 @@ SNAPS_B="$(snapshot_count)"
 pass "B boot took a fresh pre-boot snapshot (${SNAPS_A} → ${SNAPS_B})"
 
 # Confirm no migration-failed marker lingers from either A or B.
-MARKER_EXISTS=$(docker run --rm --user 1000:1000 -v "${VOLUME}:/d" docker.io/library/alpine:latest \
+MARKER_EXISTS=$("$ENGINE" run --rm --user 1000:1000 -v "${VOLUME}:/d" docker.io/library/alpine:latest \
   sh -c 'test -f /d/.migration-failed && echo yes || echo no')
 [[ "${MARKER_EXISTS}" == "no" ]] \
   || die "Stale .migration-failed marker present after clean upgrade"
 pass "No stale circuit-breaker marker after upgrade"
 
 section "Phase 4: Restore a stopped candidate backup into a separate owned volume"
-docker stop "$CONTAINER" >/dev/null
-docker volume create "$RESTORE_VOLUME" >/dev/null
-docker run --rm -v "$VOLUME:/from:ro" -v "$RESTORE_VOLUME:/to" docker.io/library/alpine:latest \
+"$ENGINE" stop "$CONTAINER" >/dev/null
+"$ENGINE" volume create "$RESTORE_VOLUME" >/dev/null
+"$ENGINE" run --rm -v "$VOLUME:/from:ro" -v "$RESTORE_VOLUME:/to" docker.io/library/alpine:latest \
   sh -c 'cd /from && tar cf - . | tar xf - -C /to'
-docker rm "$CONTAINER" >/dev/null
+"$ENGINE" rm "$CONTAINER" >/dev/null
 start_container "$IMAGE_B" "$RESTORE_VOLUME"
 wait_ready 60
 RESTORE_READY=$(curl -sS "http://localhost:${PORT}/api/ready")
@@ -267,8 +277,8 @@ RESTORE_READY=$(curl -sS "http://localhost:${PORT}/api/ready")
 pass "Backup restored into a separate owned candidate instance and reached ready"
 
 section "Phase 5: Downgrade B → A (documentation of behavior)"
-docker stop "${CONTAINER}" >/dev/null
-docker rm "${CONTAINER}" >/dev/null
+"$ENGINE" stop "${CONTAINER}" >/dev/null
+"$ENGINE" rm "${CONTAINER}" >/dev/null
 
 start_container "${IMAGE_A}"
 if wait_ready 60 2>/dev/null; then
