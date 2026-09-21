@@ -104,6 +104,7 @@ describe("sandbox provider wire contract", () => {
     expect(() => validate(output.group, output.operation, output.input, { ...output.result, identity: { ...identity, bootId: "boot-2" } })).toThrow("changed process identity");
     expect(() => validate(output.group, output.operation, { ...output.input, cursor: 3 }, { ...output.result, cursor: 2 })).toThrow("cursor or byte range");
     expect(() => validate(output.group, output.operation, { ...output.input, maxBytes: 1 }, output.result)).toThrow("cursor or byte range");
+    expect(() => validate(output.group, output.operation, output.input, { ...output.result, cursor: 1, chunks: [] })).toThrow("cursor or byte range");
 
     const stat = methods.find(method => method.operation === "stat")!;
     expect(() => validate(stat.group, stat.operation, stat.input, { ...stat.result, entry: { ...entry, path: "/other" } })).toThrow("changed file path");

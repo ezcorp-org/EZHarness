@@ -199,6 +199,17 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 
 ## PR #292 — full review and CI repair
 
+### Independent audit repair
+
+- [x] Reproduce lifecycle admission during active file/process methods and add one binding-level serialization invariant.
+- [x] Recover interrupted local file mutations by verifying their filesystem effect, terminalizing the journal, and releasing the controller lease.
+- [x] Treat a failed process start without an identity as terminal: do not persist a process row and release its writer lease.
+- [x] Require exact process-output cursor advancement when `gap` is false.
+- [x] Run focused contract, controller, journal, and driver tests; then lint, typecheck, and relevant build checks.
+- [x] Record verification and commit the repair without pushing.
+
+Repair review: binding-row admission now fences every start, stop, and destroy against active methods and retained process leases. Local file journals preserve the pre-effect revision, verify write/mkdir/remove/chmod postconditions after restart, terminalize absent effects, and are retried before later lifecycle/native work. Failed process starts release their lease without a process row; unknown starts retain only an unknown lease. Gap-free process output now advances by exactly the decoded byte count. Focused tests passed 68/68, including simulated filesystem effects before journal completion. Lint, typecheck, contract build/schema, sandbox supervisor build, and gate integrity passed.
+
 - [x] Confirm the PR head, base, worktree, review state, and failing checks.
 - [x] Reproduce and diagnose each failing CI check from its complete log.
 - [x] Review the full diff against repository standards and the infrastructure plan with separate Standards and Spec reviewers.

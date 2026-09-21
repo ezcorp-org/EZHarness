@@ -20,6 +20,19 @@ function receiptMatches(call: SandboxCreateInput["call"], receipt: ProviderRecei
 }
 function resourceState(receipt: ProviderReceipt): "failed" | "unknown" { return receipt.outcome === "failed" ? "failed" : "unknown"; }
 function isTerminalProcess(state: unknown): boolean { return state === "exited" || state === "cancelled" || state === "failed"; }
+function activeMethodError(operation: Row): SandboxControllerError {
+  return operation.writer_id
+    ? new SandboxControllerError("WRITER_LEASED", "A sandbox writer is already active or awaiting recovery")
+    : new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox method is already active or awaiting recovery");
+}
+async function requireNoActiveLifecycle(tx: DbTransaction, bindingId: string): Promise<void> {
+  const active = rows(await tx.execute(sql`SELECT id FROM sandbox_operations WHERE binding_id=${bindingId} AND action IN ('start','stop','destroy') AND state IN ('admitted','running','unknown') LIMIT 1`))[0];
+  if (active) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox lifecycle transition is already active or awaiting recovery");
+}
+async function requireNoActiveMethod(tx: DbTransaction, bindingId: string): Promise<void> {
+  const active = rows(await tx.execute(sql`SELECT operation.id,lease.operation_id AS writer_id FROM sandbox_method_operations operation LEFT JOIN sandbox_writer_leases lease ON lease.operation_id=operation.id WHERE operation.binding_id=${bindingId} AND (operation.state IN ('admitted','running','unknown') OR lease.operation_id IS NOT NULL) ORDER BY operation.created_at LIMIT 1`))[0];
+  if (active) throw activeMethodError(active);
+}
 
 export function createSandboxController(driver: LocalSandboxDriver, runtime: Pick<ReleaseRuntimeDependencies, "resolve"> = getReleaseRuntime(), invoke?: SandboxProviderInvocation, clock = { now: () => Date.now(), sleep: (ms: number) => new Promise<void>(resolve => setTimeout(resolve, ms)) }): SandboxController {
   const reviewedOperations = new Set<string>();
@@ -167,8 +180,11 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
           await tx.execute(sql`UPDATE sandbox_method_operations SET state=${result.receipt!.outcome},receipt=${JSON.stringify(result.receipt)},result=${JSON.stringify(result)},completed_at=NOW() WHERE id=${operationId}`);
           if (operation.method_group === "sandbox.process.v1" && operation.method === "start") {
             const process = result.process;
-            await tx.execute(sql`INSERT INTO sandbox_processes(id,binding_id,resource_id,operation_id,provider_process_id,state,result) VALUES(${crypto.randomUUID()},${operation.binding_id},${operation.resource_id},${operationId},${process?.identity.processId ?? null},${process?.state ?? 'unknown'},${JSON.stringify(result)}) ON CONFLICT (operation_id) DO UPDATE SET provider_process_id=EXCLUDED.provider_process_id,state=EXCLUDED.state,result=EXCLUDED.result,updated_at=NOW()`);
-            await tx.execute(sql`UPDATE sandbox_writer_leases SET state=${process?.state === "running" ? "running" : "unknown"},updated_at=NOW() WHERE operation_id=${operationId}`);
+            if (result.receipt!.outcome === "succeeded") {
+              await tx.execute(sql`INSERT INTO sandbox_processes(id,binding_id,resource_id,operation_id,provider_process_id,state,result) VALUES(${crypto.randomUUID()},${operation.binding_id},${operation.resource_id},${operationId},${process?.identity.processId ?? null},${process?.state ?? 'unknown'},${JSON.stringify(result)}) ON CONFLICT (operation_id) DO UPDATE SET provider_process_id=EXCLUDED.provider_process_id,state=EXCLUDED.state,result=EXCLUDED.result,updated_at=NOW()`);
+              await tx.execute(sql`UPDATE sandbox_writer_leases SET state=${process?.state === "running" ? "running" : "unknown"},updated_at=NOW() WHERE operation_id=${operationId}`);
+            } else if (result.receipt!.outcome === "failed") await tx.execute(sql`DELETE FROM sandbox_writer_leases WHERE operation_id=${operationId}`);
+            else await tx.execute(sql`UPDATE sandbox_writer_leases SET state='unknown',updated_at=NOW() WHERE operation_id=${operationId}`);
           }
           if (operation.method_group === "sandbox.process.v1" && (operation.method === "inspect" || operation.method === "cancel")) {
             const process = result.process;
@@ -188,6 +204,17 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         throw error;
       }
       return result!;
+  }
+  async function executeMethod(userId: string, operationId: string, signal?: AbortSignal): Promise<SandboxOperationResult> {
+    const current = await methodResult(userId, operationId);
+    if (["succeeded", "failed"].includes(current.state)) return current;
+    const operation = rows(await getDb().execute(sql`SELECT operation.*,binding.project_id,resource.provider_resource_id FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id JOIN sandbox_resources resource ON resource.id=operation.resource_id WHERE operation.id=${operationId}`))[0]!;
+    await reviewed(userId, String(operation.project_id), current.provider, current.group, current.operation, await wireMethodInput(operation, current.provider), "sandbox_method_operations", signal);
+    return methodResult(userId, operationId);
+  }
+  async function reconcileFileWriter(bindingId: string, signal?: AbortSignal): Promise<void> {
+    const pending = rows(await getDb().execute(sql`SELECT operation.id,operation.actor_id FROM sandbox_writer_leases lease JOIN sandbox_method_operations operation ON operation.id=lease.operation_id WHERE lease.binding_id=${bindingId} AND operation.method_group='sandbox.files.v1' AND operation.state IN ('admitted','running','unknown')`))[0];
+    if (pending) await executeMethod(String(pending.actor_id), String(pending.id), signal);
   }
   return {
     async listLocalSandboxProviders(_userId) {
@@ -247,8 +274,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         await tx.execute(sql`SELECT id FROM sandbox_provider_bindings WHERE id=${current.bindingId} FOR UPDATE`);
         const refreshedResource = rows(await tx.execute(sql`SELECT observed_state FROM sandbox_resources WHERE binding_id=${current.bindingId}`))[0];
         if (refreshedResource?.observed_state === "destroyed") throw new SandboxControllerError("RESOURCE_DESTROYED", "This sandbox has been disposed");
-        const pendingDestroy = rows(await tx.execute(sql`SELECT id FROM sandbox_operations WHERE binding_id=${current.bindingId} AND action='destroy' AND state IN ('admitted','running','unknown') LIMIT 1`))[0];
-        if (pendingDestroy) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Sandbox disposal is already admitted or awaiting recovery");
+        await requireNoActiveLifecycle(tx, current.bindingId);
       const inserted = rows(await tx.execute(sql`INSERT INTO sandbox_method_operations(id,binding_id,resource_id,actor_id,conversation_id,method_group,method,idempotency_key,input) VALUES(${id},${current.bindingId},${resource.id},${userId},${input.conversationId ?? null},${input.group},${input.operation},${input.idempotencyKey},${JSON.stringify(input.payload)}) ON CONFLICT DO NOTHING RETURNING id`))[0];
       if (!inserted) {
         const existing = rows(await tx.execute(sql`SELECT * FROM sandbox_method_operations WHERE binding_id=${current.bindingId} AND idempotency_key=${input.idempotencyKey}`))[0];
@@ -267,11 +293,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     },
     getSandboxOperationResult: methodResult,
     async executeAdmittedSandboxMethod(userId, operationId, signal) {
-      const current = await methodResult(userId, operationId);
-      if (["succeeded", "failed"].includes(current.state)) return current;
-      const operation = rows(await getDb().execute(sql`SELECT operation.*,binding.project_id,resource.provider_resource_id FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id JOIN sandbox_resources resource ON resource.id=operation.resource_id WHERE operation.id=${operationId}`))[0]!;
-      await reviewed(userId, String(operation.project_id), current.provider, current.group, current.operation, await wireMethodInput(operation, current.provider), "sandbox_method_operations", signal);
-      return methodResult(userId, operationId);
+      return executeMethod(userId, operationId, signal);
     },
     async executeAdmittedLocalSandboxOperationRaw(userId, operationId, signal) {
       requireReviewedWindow(operationId);
@@ -307,6 +329,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const workspace = rows(await getDb().execute(sql`SELECT binding_id,revision FROM project_workspace_bindings WHERE project_id=${target.projectId}`))[0];
       if (!workspace || workspace.binding_id !== target.bindingId || Number(workspace.revision) !== target.revision) throw new SandboxControllerError("STALE_WORKSPACE_BINDING", "Workspace binding changed");
       await this.reconcileSandboxProcess(principal.userId, target.projectId);
+      await reconcileFileWriter(target.bindingId, signal);
       const retained = rows(await getDb().execute(sql`SELECT operation_id FROM sandbox_writer_leases WHERE binding_id=${target.bindingId}`))[0];
       if (retained) throw new SandboxControllerError("WRITER_LEASED", "A sandbox writer is already active or awaiting recovery");
       const resource = await status(principal.userId, target.projectId);
@@ -365,6 +388,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const current = await status(userId, projectId); if (!current.resource) throw new SandboxControllerError("RESOURCE_MISSING", "Sandbox resource is not created");
       if (current.resource.observedState === "destroyed") throw new SandboxControllerError("RESOURCE_DESTROYED", "This sandbox has been disposed");
       if (!input.idempotencyKey) throw new SandboxControllerError("INVALID_INPUT", "An idempotency key is required");
+      await reconcileFileWriter(current.bindingId);
       const value = { resourceId: current.resource.resourceId }; const digest = await sha256(canonicalJson(value)); const id = crypto.randomUUID();
       const replay = (operation: Row) => {
         if (operation.actor_id !== userId || operation.action !== input.action || operation.input_digest !== digest) throw new SandboxControllerError("IDEMPOTENCY_CONFLICT", "Idempotency key is already bound to another request");
@@ -379,12 +403,12 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         if (input.action === "destroy") {
           const pendingDestroy = rows(await tx.execute(sql`SELECT * FROM sandbox_operations WHERE binding_id=${current.bindingId} AND resource_id=(SELECT id FROM sandbox_resources WHERE binding_id=${current.bindingId}) AND action='destroy' AND state IN ('admitted','running','unknown') ORDER BY created_at DESC LIMIT 1`))[0];
           if (pendingDestroy) {
-            if (pendingDestroy.actor_id !== userId) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox operation is already admitted or running");
-            return { id: String(pendingDestroy.id), action: "destroy" as const, state: pendingDestroy.state as AdmittedSandboxOperation["state"], input: value, provider: current.provider };
+            if (pendingDestroy.actor_id !== userId) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox operation is already admitted or awaiting recovery");
+            return replay(pendingDestroy);
           }
-          const activeMethod = rows(await tx.execute(sql`SELECT operation.id,lease.operation_id AS writer_id FROM sandbox_method_operations operation LEFT JOIN sandbox_writer_leases lease ON lease.operation_id=operation.id WHERE operation.binding_id=${current.bindingId} AND operation.state IN ('admitted','running','unknown') ORDER BY operation.created_at LIMIT 1`))[0];
-          if (activeMethod) throw new SandboxControllerError(activeMethod.writer_id ? "WRITER_LEASED" : "OPERATION_IN_PROGRESS", activeMethod.writer_id ? "A sandbox writer is already active or awaiting recovery" : "A sandbox method is already active or awaiting recovery");
         }
+        await requireNoActiveLifecycle(tx, current.bindingId);
+        await requireNoActiveMethod(tx, current.bindingId);
         const inserted = rows(await tx.execute(sql`INSERT INTO sandbox_operations (id,binding_id,resource_id,actor_id,action,idempotency_key,input_digest,request_key_digest,input) VALUES (${id},${current.bindingId},(SELECT id FROM sandbox_resources WHERE binding_id=${current.bindingId}),${userId},${input.action},${input.idempotencyKey},${digest},${digest},${JSON.stringify(value)}) ON CONFLICT DO NOTHING RETURNING id`))[0];
         if (!inserted) {
           const raced = rows(await tx.execute(sql`SELECT * FROM sandbox_operations WHERE binding_id=${current.bindingId} AND idempotency_key=${input.idempotencyKey}`))[0];

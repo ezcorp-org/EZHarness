@@ -40,6 +40,31 @@ export class LocalPodmanDriver {
     if (begun.kind === "unknown") return { receipt: begun.receipt } as T;
     const result = await effect(); await this.journal.complete(call, result); return result;
   }
+  private interruptedFileMutation<T>(call: ProviderCall): T {
+    return { receipt: receipt(call, "failed", { code: "interrupted_mutation", message: "The interrupted workspace mutation did not reach its requested state.", retryable: false }) } as T;
+  }
+  private async mutateFile<T extends { receipt: ProviderReceipt }, Recovery>(call: ProviderCall, prepare: () => Promise<Recovery>, effect: () => Promise<T>, recover: (recovery: Recovery) => Promise<T | undefined>): Promise<T> {
+    const begun = await this.journal.beginRecoverableMutation<T, Recovery>(call, prepare);
+    if (begun.kind === "replay") return begun.result;
+    let result: T;
+    if (begun.kind === "new") result = await effect();
+    else {
+      try { result = await recover(begun.recovery) ?? this.interruptedFileMutation<T>(call); }
+      catch { result = this.interruptedFileMutation<T>(call); }
+    }
+    await this.journal.complete(call, result);
+    return result;
+  }
+  private statInput(input: { call: ProviderCall; resourceId: string; path: string }): SandboxFileStatInput {
+    return { call: input.call, resourceId: input.resourceId, path: input.path };
+  }
+  private async prepareFileMutation(files: LocalWorkspaceFiles, input: { call: ProviderCall; resourceId: string; path: string }): Promise<{ priorRevision: string | null }> {
+    try { return { priorRevision: (await files.stat(this.statInput(input))).entry.revision }; }
+    catch { return { priorRevision: null }; }
+  }
+  private expectedRevisionMatches(input: { expectedRevision?: string }, recovery: { priorRevision: string | null }): boolean {
+    return input.expectedRevision === undefined || input.expectedRevision === recovery.priorRevision;
+  }
   async create(input: SandboxCreateInput): Promise<SandboxCreateResult> {
     validateProviderMethodValue("sandbox.lifecycle.v1", "create", "input", input);
     await this.roots.verifyPrivateRoot(); await this.verifyRuntime();
@@ -199,8 +224,45 @@ export class LocalPodmanDriver {
   async fileStat(input: SandboxFileStatInput): Promise<SandboxFileStatResult> { validateProviderMethodValue("sandbox.files.v1", "stat", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context; try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.stat(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }
   async fileList(input: SandboxFileListInput): Promise<SandboxFileListResult> { validateProviderMethodValue("sandbox.files.v1", "list", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context; try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.list(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }
   async fileRead(input: SandboxFileReadInput): Promise<SandboxFileReadResult> { validateProviderMethodValue("sandbox.files.v1", "read", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context; try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.read(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }
-  async fileWrite(input: SandboxFileWriteInput): Promise<SandboxFileWriteResult> { validateProviderMethodValue("sandbox.files.v1", "write", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context; return this.mutate(input.call, async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.write(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }); }
-  async fileMkdir(input: SandboxFileMkdirInput): Promise<SandboxFileMkdirResult> { validateProviderMethodValue("sandbox.files.v1", "mkdir", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context; return this.mutate(input.call, async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.mkdir(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }); }
-  async fileRemove(input: SandboxFileRemoveInput): Promise<SandboxFileRemoveResult> { validateProviderMethodValue("sandbox.files.v1", "remove", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context; return this.mutate(input.call, async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.remove(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }); }
-  async fileChmod(input: SandboxFileChmodInput): Promise<SandboxFileChmodResult> { validateProviderMethodValue("sandbox.files.v1", "chmod", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context; return this.mutate(input.call, async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.chmod(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }); }
+  async fileWrite(input: SandboxFileWriteInput): Promise<SandboxFileWriteResult> {
+    validateProviderMethodValue("sandbox.files.v1", "write", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context;
+    return this.mutateFile(input.call, () => this.prepareFileMutation(context.files, input), async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.write(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }, async (recovery) => {
+      if (!this.expectedRevisionMatches(input, recovery)) return undefined;
+      const expected = Buffer.from(input.data, input.encoding === "utf8" ? "utf8" : "base64");
+      const observed = await context.files.stat(this.statInput(input));
+      if (observed.entry.kind !== "file" || observed.entry.sizeBytes !== expected.byteLength) return undefined;
+      if (expected.byteLength > 0) {
+        const value = await context.files.read({ call: input.call, resourceId: input.resourceId, path: input.path, revision: observed.entry.revision, offsetBytes: 0, lengthBytes: expected.byteLength });
+        const bytes = Buffer.from(value.data, value.encoding === "utf8" ? "utf8" : "base64");
+        if (!bytes.equals(expected)) return undefined;
+      }
+      return { receipt: receipt(input.call, "succeeded"), entry: observed.entry };
+    });
+  }
+  async fileMkdir(input: SandboxFileMkdirInput): Promise<SandboxFileMkdirResult> {
+    validateProviderMethodValue("sandbox.files.v1", "mkdir", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context;
+    return this.mutateFile(input.call, async () => ({}), async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.mkdir(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }, async () => {
+      const observed = await context.files.stat(this.statInput(input));
+      return observed.entry.kind === "directory" ? { receipt: receipt(input.call, "succeeded"), entry: observed.entry } : undefined;
+    });
+  }
+  async fileRemove(input: SandboxFileRemoveInput): Promise<SandboxFileRemoveResult> {
+    validateProviderMethodValue("sandbox.files.v1", "remove", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context;
+    return this.mutateFile(input.call, () => this.prepareFileMutation(context.files, input), async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.remove(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }, async (recovery) => {
+      if (!this.expectedRevisionMatches(input, recovery)) return undefined;
+      try { await context.files.stat(this.statInput(input)); return undefined; }
+      catch (error) {
+        if (error instanceof LocalWorkspaceFileError && error.code === "invalid_path" && recovery.priorRevision !== null) return { receipt: receipt(input.call, "succeeded"), removedRevision: recovery.priorRevision };
+        return undefined;
+      }
+    });
+  }
+  async fileChmod(input: SandboxFileChmodInput): Promise<SandboxFileChmodResult> {
+    validateProviderMethodValue("sandbox.files.v1", "chmod", "input", input); const context = await this.fileContext(input); if (!("files" in context)) return context;
+    return this.mutateFile(input.call, () => this.prepareFileMutation(context.files, input), async () => { try { return { receipt: receipt(input.call, "succeeded"), ...(await context.files.chmod(input)) }; } catch (error) { return this.fileFailure(input.call, error); } }, async (recovery) => {
+      if (!this.expectedRevisionMatches(input, recovery)) return undefined;
+      const observed = await context.files.stat(this.statInput(input));
+      return observed.entry.mode === input.mode ? { receipt: receipt(input.call, "succeeded"), entry: observed.entry } : undefined;
+    });
+  }
 }

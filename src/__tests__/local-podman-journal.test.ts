@@ -15,4 +15,13 @@ describe("durable local operation journal", () => {
   test("allows exactly one concurrent publisher", async () => { root = await mkdtemp(`${tmpdir()}/ez-journal-`); const results = await Promise.all([new DurableOperationJournal(root).begin(call()), new DurableOperationJournal(root).begin(call())]); expect(results.filter((x) => x.kind === "new")).toHaveLength(1); expect(results.filter((x) => x.kind === "unknown")).toHaveLength(1); });
   test("completion requires the matching pending operation", async () => { root = await mkdtemp(`${tmpdir()}/ez-journal-`); const journal = new DurableOperationJournal(root); await expect(journal.complete(call(), { ok: true })).rejects.toThrow("not begun"); await journal.begin(call()); await expect(journal.complete(call("b".repeat(64)), { ok: true })).rejects.toThrow("conflicts"); await journal.complete(call(), { ok: true }); await expect(journal.complete(call(), { ok: false })).rejects.toThrow("different result"); });
   test("allows only create-specific recovery of a matching pending call", async () => { root = await mkdtemp(`${tmpdir()}/ez-journal-`); const journal = new DurableOperationJournal(root); expect(await journal.beginRecoverable(call())).toEqual({ kind: "new" }); expect(await journal.beginRecoverable(call())).toEqual({ kind: "recover" }); const result = { ok: true }; await journal.complete(call(), result); expect(await journal.beginRecoverable(call())).toEqual({ kind: "replay", result }); });
+  test("persists mutation recovery data and rejects a legacy pending record", async () => {
+    root = await mkdtemp(`${tmpdir()}/ez-journal-`);
+    const journal = new DurableOperationJournal(root);
+    expect(await journal.beginRecoverableMutation(call(), async () => ({ revision: "r1" }))).toEqual({ kind: "new", recovery: { revision: "r1" } });
+    expect(await journal.beginRecoverableMutation(call(), async () => ({ revision: "wrong" }))).toEqual({ kind: "recover", recovery: { revision: "r1" } });
+    const other = { ...call(), operationId: "legacy", idempotencyKey: "legacy" };
+    await journal.begin(other);
+    await expect(journal.beginRecoverableMutation(other, async () => ({}))).rejects.toThrow("no recovery record");
+  });
 });

@@ -386,7 +386,9 @@ function validateProcessOutputExchange(request: ProviderRecord, response: Provid
   if (canonicalJson(request.identity) !== canonicalJson(response.identity)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider output changed process identity");
   const chunks = response.chunks as ProviderRecord[];
   const bytes = chunks.reduce((total, chunk) => total + providerEncodedBytes(chunk.encoding, chunk.data), 0);
-  if ((response.cursor as number) < (request.cursor as number) || bytes > (request.maxBytes as number)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider output exceeded its requested cursor or byte range");
+  const requestCursor = request.cursor as number;
+  const responseCursor = response.cursor as number;
+  if (responseCursor < requestCursor || bytes > (request.maxBytes as number) || (response.gap === false && responseCursor !== requestCursor + bytes)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider output exceeded its requested cursor or byte range");
 }
 
 function validateFileReadIdentity(request: ProviderRecord, response: ProviderRecord): void {
