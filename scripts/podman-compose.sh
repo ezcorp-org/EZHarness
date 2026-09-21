@@ -130,9 +130,8 @@ flag_takes_value() {
   esac
 }
 
-# Whether a given GLOBAL flag (e.g. --env-file) appears before the subcommand.
-# Same walk as global_file_args: a flag AFTER the subcommand belongs to it.
-global_flag_present() {
+# Values of one kind of GLOBAL Compose flag in "$@", one per line.
+global_option_args() {
   local wanted="$1"
   shift
   local -a argv=("$@")
@@ -140,28 +139,16 @@ global_flag_present() {
   while [ "$i" -lt "${#argv[@]}" ]; do
     arg="${argv[$i]}"
     case "$arg" in
-      "$wanted") return 0 ;;
-      "$wanted"=*) return 0 ;;
-      -*) if flag_takes_value "$arg"; then i=$((i + 1)); fi ;;
-      *) break ;;
-    esac
-    i=$((i + 1))
-  done
-  return 1
-}
-
-# Values of the GLOBAL -f/--file flags in "$@", one per line.
-global_file_args() {
-  local -a argv=("$@")
-  local i=0 arg
-  while [ "$i" -lt "${#argv[@]}" ]; do
-    arg="${argv[$i]}"
-    case "$arg" in
       -f | --file)
         i=$((i + 1))
-        printf '%s\n' "${argv[$i]:-}"
+        if [ "$wanted" = "file" ]; then printf '%s\n' "${argv[$i]:-}"; fi
         ;;
-      -f=* | --file=*) printf '%s\n' "${arg#*=}" ;;
+      -f=* | --file=*) if [ "$wanted" = "file" ]; then printf '%s\n' "${arg#*=}"; fi ;;
+      --env-file)
+        i=$((i + 1))
+        if [ "$wanted" = "env-file" ]; then printf '%s\n' "${argv[$i]:-}"; fi
+        ;;
+      --env-file=*) if [ "$wanted" = "env-file" ]; then printf '%s\n' "${arg#*=}"; fi ;;
       # Any other global flag. Skipping its value matters: without that,
       # `-p myproject` would read as the subcommand and a later -f would be
       # missed.
@@ -177,7 +164,7 @@ global_file_args() {
 #    silently drops the override this wrapper exists to layer on. Measured
 #    against Compose 5.1.3: `COMPOSE_FILE=base.yml:extra.yml docker compose
 #    -f base.yml config --services` lists base.yml's services only.
-REQUESTED_FILES="$(global_file_args "$@")"
+REQUESTED_FILES="$(global_option_args file "$@")"
 if [ -n "$REQUESTED_FILES" ]; then
   OVERRIDE_REQUESTED=""
   while IFS= read -r requested; do
@@ -195,6 +182,11 @@ if [ -n "$REQUESTED_FILES" ]; then
     exit 1
   fi
 fi
+
+# Compose gives the shell environment priority over a global --env-file. When
+# one is present, Compose owns the runner-group value; the wrapper must not
+# derive and export a value that silently overrides it.
+REQUESTED_ENV_FILES="$(global_option_args env-file "$@")"
 
 # 2. An inherited COMPOSE_FILE is the mirror image: the export below WINS over
 #    it, so the caller's list is the thing that vanishes without a word. Honour
@@ -226,7 +218,7 @@ fi
 # branch testable, since .env.prod itself is gitignored and absent in CI.
 ENV_FILE="${EZ_COMPOSE_ENV_FILE:-.env.prod}"
 ENV_FILE_ARGS=()
-if [ "$STACK" = "prod" ] && ! global_flag_present --env-file "$@"; then
+if [ "$STACK" = "prod" ] && [ -z "$REQUESTED_ENV_FILES" ]; then
   if [ ! -f "$ENV_FILE" ]; then
     echo "error: $ENV_FILE is missing — the prod stack cannot interpolate" >&2
     echo "  its required secrets without it." >&2
@@ -234,9 +226,39 @@ if [ "$STACK" = "prod" ] && ! global_flag_present --env-file "$@"; then
     exit 1
   fi
   ENV_FILE_ARGS=(--env-file "$ENV_FILE")
+  REQUESTED_ENV_FILES="$ENV_FILE"
 fi
 
 export DOCKER_HOST="unix://$SOCKET"
 export COMPOSE_FILE="${COMPOSE_FILE:-$DEFAULT_COMPOSE_FILE}"
+
+dotenv_declares_runner_group() {
+  local env_file="$REPO_ROOT/.env"
+  [ -f "$env_file" ] || return 1
+  # Detect the declaration but never parse or source dotenv syntax. Compose
+  # owns quotes, comments, duplicates, and CRLF semantics.
+  grep -Eq -- '^[[:space:]]*(export[[:space:]]+)?EZ_RUNNER_GROUP[[:space:]]*=' "$env_file"
+}
+
+# A numeric override is an explicit, security-relevant choice. A fresh
+# `.env.example` leaves it unset, so derive the container-visible value from
+# the actual runner socket and this user's live rootless gid map instead.
+if [ "${EZ_RUNNER_GROUP+x}" = "x" ]; then
+  if [ -z "$EZ_RUNNER_GROUP" ]; then
+    echo "error: EZ_RUNNER_GROUP was explicitly set but is empty." >&2
+    echo "  Remove it to derive the rootless Podman mapping, or set its numeric" >&2
+    echo "  container-visible GID after following deploy/extension-runner/README.md." >&2
+    exit 1
+  fi
+  if [[ ! "$EZ_RUNNER_GROUP" =~ ^[0-9]+$ ]]; then
+    echo "error: EZ_RUNNER_GROUP must be a numeric container-visible GID." >&2
+    echo "  Remove it to derive the rootless Podman mapping, or correct the value." >&2
+    exit 1
+  fi
+  export EZ_RUNNER_GROUP
+elif [ -z "$REQUESTED_ENV_FILES" ] && ! dotenv_declares_runner_group; then
+  EZ_RUNNER_GROUP="$("$REPO_ROOT/scripts/resolve-runner-group.sh" --podman)"
+  export EZ_RUNNER_GROUP
+fi
 
 exec "${COMPOSE_CMD[@]}" "${ENV_FILE_ARGS[@]}" "$@"
