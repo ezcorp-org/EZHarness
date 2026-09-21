@@ -103,7 +103,7 @@ whether table ownership joins module ownership in the same executable inventory.
 - [x] G1: One claimable operation yields exactly the consent that exists, on PGlite.
       CHECK: `bun test --timeout 240000 ./src/factory/releases.integration.test.ts`, case "the
       consent reader returns exactly the one consent that already exists".
-      EXPECT: 24 pass, 0 fail, 237 assertions for the file. Within the case: nothing approved and
+      EXPECT: 24 pass, 0 fail, 246 assertions for the file. Within the case: nothing approved and
       nothing in scope gives `{ kind: "none", reason: "no_consent" }`; an approved approval comes
       back with its approval id, its approver, its expiry, and generation 1; a policy in scope comes
       back with its exact revision and remaining budget; a foreign account, provider, action,
@@ -113,13 +113,33 @@ whether table ownership joins module ownership in the same executable inventory.
       consent.
       CHECK: the G1 case.
       EXPECT: `approval_generation_stale` when the only approval binds another generation;
-      `approval_not_approved` for a `pending` status and for an `approved` row whose approver is no
-      longer recorded; `approval_expired` at the expiry boundary; `approval_foreign_decision` is
-      reachable through the decision check; `policy_exhausted` for both the operation count and the
-      spend bound; `policy_expired`; `policy_revoked`; `policy_ambiguous` for two matching policies.
-      Each is asserted by equality against the whole result, so a reason cannot be right while the
-      shape is wrong.
-      EVIDENCE: receipts `focused`, `coverage-backend`.
+      `approval_not_approved` for a `pending` status, for an `approved` row whose approver is no
+      longer recorded, AND for one that records its approver but not the grant revision it was
+      approved under; `approval_expired` at the expiry boundary; `approval_foreign_decision` when
+      the approval's decision is genuinely not the operation's; `policy_exhausted` for both the
+      operation count and the spend bound; `policy_expired`; `policy_revoked`; `policy_ambiguous`
+      for two matching policies. Each is asserted by equality against the whole result, so a reason
+      cannot be right while the shape is wrong.
+      EVIDENCE: receipts `fix-focused`, `fix-coverage-backend`.
+- [x] G2a: The two guards the first revision only claimed to test are now exercised, and each
+      assertion is proved to depend on its guard.
+      CHECK: the G1 case, plus one run per guard with the guard removed.
+      EXPECT, and MEASURED:
+      | Guard removed | Result |
+      | --- | --- |
+      | `releases.ts` `current.decision_id !== operation.decisionId` | 23 pass, **1 fail** — the case receives an approval consent where it asserted `approval_foreign_decision` (receipt `guard-removed-foreign-decision`) |
+      | `releases.ts` `current.approved_grant_revision === null` | 23 pass, **1 fail** — the case receives a consent where it asserted `approval_not_approved` (receipt `guard-removed-grant-revision`) |
+      With both guards present the file is 24 pass, 0 fail, 246 assertions.
+      WHY IT WAS NEEDED: the validator found that G2 claimed the `approval_foreign_decision` guard
+      as tested while no assertion depended on it. Every operation in this suite is accepted under
+      one shared `decisionId`, so the `UPDATE ... SET decision_id=${decisionId}` that "moved" a
+      decision wrote the value that was already there — a no-op against a guard that therefore never
+      fired. The fix builds a SECOND acceptance decision row, real enough for the approvals table's
+      foreign key and belonging to no operation in the suite, and moves the approval onto it. The
+      `approved_grant_revision` arm had the same shape of gap: the earlier case set `approved_by`
+      to NULL, which trips the preceding condition instead.
+      EVIDENCE: receipts `guard-removed-foreign-decision`, `guard-removed-grant-revision`,
+      `fix-focused`.
 - [x] G3: Concurrent readers agree, and the claim over what they returned succeeds exactly once.
       CHECK: the G1 case.
       EXPECT: two concurrent `readConsentInTransaction` calls return equal results; two concurrent
@@ -147,8 +167,8 @@ whether table ownership joins module ownership in the same executable inventory.
       EVIDENCE: receipts `focused`, `coverage-backend`.
 - [x] G7: Real PostgreSQL.
       CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 1800 scripts/run-factory-postgres-suite.sh ./tests/postgres/factory-releases.test.ts ./tests/postgres/factory-release-authority.test.ts ./tests/postgres/factory-schema.test.ts`
-      EXPECT: 39 pass, 0 fail, 3178 assertions.
-      EVIDENCE: receipt `postgres-releases`.
+      EXPECT: 39 pass, 0 fail, 3187 assertions after the guard cases were added (3178 before).
+      EVIDENCE: receipts `fix-postgres-releases` and, for the first revision, `postgres-releases`.
       NOTE ON THE RUNNER: `scripts/run-factory-postgres-suite.sh` assembles the database URL inside
       the script from `/tmp/factory-platform-evidence/postgres.env` and the container's published
       port. The URL carries the password, and building it in a caller's command line would put it
@@ -158,17 +178,17 @@ whether table ownership joins module ownership in the same executable inventory.
       CHECK: `bun run typecheck`, `bun run lint`, `bun scripts/check-factory-boundaries.ts`,
       `bun scripts/gate-integrity.ts`
       EXPECT: exit 0 each; lint reports the same pre-existing infos and no errors or warnings.
-      EVIDENCE: receipts `typecheck`, `lint`, `boundaries`, `gate-integrity`, and the same four
-      re-run at the commit as `final-typecheck`, `final-lint`, `final-boundaries`,
-      `final-gate-integrity`. The focused release suites at the commit are `final-focused`
-      (64 pass, 0 fail, 552 assertions).
+      EVIDENCE: receipts `fix-typecheck`, `fix-lint`, `fix-boundaries`, `fix-gate-integrity`. The
+      focused release suites are `fix-focused` (64 pass, 0 fail, 561 assertions); the same four
+      gates and suites at the first revision are `typecheck`, `lint`, `boundaries`,
+      `gate-integrity`, and `final-focused`.
 - [x] G9: Coverage of every changed executable line.
       CHECK: the backend coverage leg, then
       `bun scripts/merge-lcov.ts "/tmp/factory-platform-evidence/w07b/lcov/*/lcov.info" coverage/lcov.info && BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts && BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
-      EXPECT: 101 pass, 0 fail, 895 assertions in the backend leg; then "merged 569 source files",
+      EXPECT: 101 pass, 0 fail, 904 assertions in the backend leg; then "merged 569 source files",
       "New-file coverage gate PASSED: no new source files in this diff.", and "Patch coverage gate
       PASSED: all changed executable lines covered (1 file(s))."
-      EVIDENCE: receipts `coverage-backend`, `coverage-gate`.
+      EVIDENCE: receipts `fix-coverage-backend`, `fix-coverage-gate`.
       MEASURED: `src/factory/releases.ts` is 553 of 560 lines in this leg. The seven unmeasured
       lines are `dispatchNotification` and `enqueueCommandApprovalInTransaction`, which predate this
       leaf and are covered by the command-approval suites rather than by the release producers named
@@ -182,7 +202,7 @@ whether table ownership joins module ownership in the same executable inventory.
 2. **The `approval_foreign_decision` reason is reachable but narrow.** An approval whose
    `decision_id` disagrees with its operation's is a corrupt pairing rather than an ordinary state,
    and only a direct row edit produces it. It is kept as its own reason so that case never reads as
-   an ordinary "not approved".
+   an ordinary "not approved", and G2a proves the guard fires rather than assuming it.
 3. **A policy's grant is not re-checked here.** `consumePolicy` in `claim` is what authorizes the
    principal; the reader only matches the policy's recorded principal. A policy whose principal has
    since lost `factory.release` is still returned, and the claim then refuses it. That boundary is
@@ -223,9 +243,12 @@ nobody re-derives them.
 | --- | --- |
 | `fdf9ec914` | `feat(factory): read the one consent a claimable release already has` |
 | `6593bc1c1` | `docs(factory): stamp the W07b gate receipts` |
-| `c942a7dfb` | `docs(factory): record the W07b interface questions and open items` — the revision under validation |
-| *(this commit)* | `docs(factory): record the coordinator's answers to the W07b questions` — the branch head, docs only |
+| `c942a7dfb` | `docs(factory): record the W07b interface questions and open items` |
+| `dfbb0b546` | `docs(factory): record the coordinator's answers to the W07b questions` — the revision the second validation read |
+| `8ee4f9df5` | `test(factory): exercise the foreign-decision and grant-revision consent guards` — validation findings F1 and F2 |
+| *(this commit)* | `docs(factory): record the W07b guard receipts` — the branch head, docs only |
 
-This last commit changes no source, no test, and no gate script: `git diff --name-only c942a7dfb..HEAD`
-names `tasks/factory/w07b-GATES.md` alone. Every gate receipt therefore still describes the code the
-validator is reading at `c942a7dfb`.
+`8ee4f9df5` changes one file, `src/__tests__/helpers/factory-release-suite.ts`. No production line
+moved: `git diff --name-only dfbb0b546..8ee4f9df5` names that suite alone, and the two guards it now
+exercises are the ones that were already in `releases.ts` at `dfbb0b546`. The head after it is docs
+only.
