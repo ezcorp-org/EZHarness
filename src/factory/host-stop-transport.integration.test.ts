@@ -124,14 +124,19 @@ test("the host signs a real mutual-TLS stop, rotates its key without a restart, 
     const wrongVersion = await privateHttpsCall(`${service.url}/v1/host/stops`, certs, { method: "POST", body: Buffer.from("{}"), headers: { "content-type": "application/json" } });
     expect(wrongVersion.status).toBe(400);
 
-    // A supervisor that cannot confirm absence yields no receipt at all.
+    // A supervisor that cannot confirm absence yields no receipt at all. The two
+    // refusals below share a status and mean entirely different things, so the
+    // caller is told which one it got: one is a runtime that would not confirm,
+    // the other is a receipt that does not answer the command that asked.
     supervisorFault = new Error("Factory worker absence is not physically confirmed after stop.");
-    await expect(client.stop(request, AbortSignal.timeout(10_000))).rejects.toThrow("HTTP 409");
+    await expect(client.stop(request, AbortSignal.timeout(10_000)))
+      .rejects.toMatchObject({ code: "factory_host_stop_refused", status: 409, hostError: "stop_uncertain" });
     supervisorFault = undefined;
 
     // A host that answers about a different attempt is a conflict, not a proof.
     drift = true;
-    await expect(client.stop(request, AbortSignal.timeout(10_000))).rejects.toThrow("HTTP 409");
+    await expect(client.stop(request, AbortSignal.timeout(10_000)))
+      .rejects.toMatchObject({ code: "factory_host_stop_refused", status: 409, hostError: "conflict" });
     drift = false;
 
     // The client refuses to address a host this endpoint does not serve.
