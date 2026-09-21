@@ -832,6 +832,26 @@ proofs were still pending.
   baseline `main` failed 14 in 8 files the same evening, disjoint sets), one real: the
   evidence-covers manifest, fixed above.
 
+## PR #277 dependency validation
+
+- [x] Review every changed dependency manifest and both Bun lockfiles against current `main`.
+- [x] Keep `@types/bun` aligned with the repository's Bun 1.3.14 runtime pin.
+- [x] Hold AI-kit Zod at 4.5.4 so its manifest, override, isolated npm lock, and root Bun lock agree.
+- [x] Verify both frozen Bun locks and rerun the sole failed full-suite test.
+- [x] Record the final dependency review and validation results.
+
+### Review
+
+- The original full suite reported 25,827 passes and one failed file. The only failure was the
+  bundled-source lock mismatch caused by AI-kit declaring Zod 4.6.4 while its approved source lock
+  still represented 4.5.4.
+- Zod 4.6.4 resolved through the production extension-runner, but it produced MCP schema type errors
+  in AI-kit's production source. AI-kit remains on 4.5.4. The web app keeps its independent 4.6.4
+  upgrade.
+- Root and web frozen installs pass with Bun 1.3.14. The production extension resolver fetched the
+  AI-kit closure and confirmed Zod 4.5.4. The manifest freshness check passes, and the formerly
+  failing bundled-source test now passes 2/2.
+
 ## PR #279 — agent instructions and complete Podman runbook
 
 - [x] Confirm the PR branch, base, review state, existing instruction-file references, and current Podman docs.
