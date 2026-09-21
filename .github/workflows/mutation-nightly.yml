@@ -51,23 +51,42 @@ concurrency:
   group: mutation-nightly
   cancel-in-progress: false
 
-env:
-  # How many slices the scope is cut into. The `shard` matrix below MUST list
-  # exactly 0..MUTATION_SHARDS-1: the merge step refuses any other count of
-  # reports, so a mismatch fails the run instead of scoring a partial tree.
-  MUTATION_SHARDS: "6"
-
 jobs:
+  shard-plan:
+    name: Plan mutation shards
+    runs-on: ubuntu-latest
+    outputs:
+      count: ${{ steps.shards.outputs.count }}
+      matrix: ${{ steps.shards.outputs.matrix }}
+    env:
+      # The single source of truth for the number of scope slices. The step
+      # below derives both the matrix and the merge's expected report count.
+      MUTATION_SHARDS: "6"
+    steps:
+      - id: shards
+        shell: bash
+        run: |
+          count="$MUTATION_SHARDS"
+          if ! [[ "$count" =~ ^[1-9][0-9]*$ ]]; then
+            echo "MUTATION_SHARDS must be a positive integer, got: $count" >&2
+            exit 1
+          fi
+          matrix=$(jq -cn --argjson count "$count" '{shard: [range(0; $count)]}')
+          {
+            echo "count=$count"
+            echo "matrix=$matrix"
+          } >> "$GITHUB_OUTPUT"
+
   mutation-shard:
     name: Mutation shard ${{ matrix.shard }}
     runs-on: ubuntu-latest
-    # A slice is ~1/6 of the 6h38m whole; the cap stays generous so a shard
-    # that draws the static-mutant-heavy files is not killed mid-run.
+    needs: [shard-plan]
+    # The cap stays generous so a shard that draws the static-mutant-heavy
+    # files is not killed mid-run.
     timeout-minutes: 360
     strategy:
       fail-fast: false
-      matrix:
-        shard: [0, 1, 2, 3, 4, 5] # 0..MUTATION_SHARDS-1, see env above
+      matrix: ${{ fromJSON(needs.shard-plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -94,7 +113,8 @@ jobs:
       - name: Mutate shard
         env:
           SHARD: ${{ matrix.shard }}
-        run: bun scripts/mutation.ts --full --shard "$SHARD/$MUTATION_SHARDS" --report-only
+          SHARD_TOTAL: ${{ needs.shard-plan.outputs.count }}
+        run: bun scripts/mutation.ts --full --shard "$SHARD/$SHARD_TOTAL" --report-only
       - name: Upload shard report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -110,10 +130,12 @@ jobs:
     name: Merge shards + quality summary
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [mutation-shard]
+    needs: [shard-plan, mutation-shard]
     # Runs even when a shard failed — that is exactly when the merge must say
     # "N-1 reports, not N" and the summary must read FAIL.
     if: always()
+    env:
+      MUTATION_SHARDS: ${{ needs.shard-plan.outputs.count }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
