@@ -1,4 +1,4 @@
-import type { Handle, HandleServerError } from "@sveltejs/kit";
+import type { Handle, HandleServerError, RequestEvent } from "@sveltejs/kit";
 import { redirect } from "@sveltejs/kit";
 import { ensureInitialized } from "$lib/server/context";
 import { verifyJWT, getJwtSecret, signJWT } from "$server/auth/jwt";
@@ -415,6 +415,498 @@ function stampSessionPrincipal(locals: App.Locals, payload: SessionPayload): voi
   locals.authMethod = "session";
 }
 
+// ── Security headers on ALL responses ───────────────────────────
+// SSE replaces the old WebSocket transport — no ws: or wss: scheme needed
+// in connect-src anymore.
+// These are applied as DEFAULTS — a route that already set its own
+// value (e.g. /api/extensions/[name]/data/* serves sandboxed content
+// that needs same-origin iframing, so it sets a more permissive
+// Content-Security-Policy + omits X-Frame-Options) keeps that value.
+// The CSP itself is built from `CSP_HEADER_VALUE` above — see that
+// export for the rationale behind each directive (in particular,
+// the Hugging Face hosts in `connect-src` and `'wasm-unsafe-eval'`
+// in `script-src`, both required by the kokoro-tts extension's
+// in-browser TTS pipeline).
+const SECURITY_HEADERS: Record<string, string> = {
+  "X-Frame-Options": "DENY",
+  "X-Content-Type-Options": "nosniff",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+  "Content-Security-Policy": CSP_HEADER_VALUE,
+};
+
+/** Stamps the default security headers, HSTS, and the API CORS headers onto one response. */
+function applyResponseHeaders(response: Response, request: Request, url: URL): void {
+  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+    if (!response.headers.has(key)) {
+      response.headers.set(key, value);
+    }
+  }
+  if (url.protocol === "https:") {
+    response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+
+  // Add CORS headers to all API responses
+  if (url.pathname.startsWith("/api")) {
+    for (const [key, value] of Object.entries(getCorsHeaders(request))) {
+      response.headers.set(key, value);
+    }
+  }
+}
+
+/**
+ * The 413 a declared body over its route's ceiling earns, or undefined.
+ *
+ * Only the DECLARED length is judged here — the streamed body is bounded later
+ * by `admitRequestPayload`, and only the methods that carry one are checked.
+ */
+function declaredPayloadTooLarge(request: Request, url: URL): Response | undefined {
+  if (!["POST", "PUT", "PATCH"].includes(request.method)) return undefined;
+  const contentLength = request.headers.get("content-length");
+  if (!contentLength) return undefined;
+  const size = parseInt(contentLength, 10);
+  const max = getMaxPayload(url.pathname);
+  if (size > max) return payloadTooLarge(max);
+  return undefined;
+}
+
+/**
+ * The 429 an IP-keyed route earns, or undefined.
+ *
+ * IP-keyed rules run BEFORE auth — login is the case they exist for, and a
+ * caller who cannot authenticate is exactly the one who must still be bounded.
+ */
+async function ipRateLimited(request: Request, socketAddress: string | undefined, rateLimitRoute: RateLimitRoute | undefined): Promise<Response | undefined> {
+  if (rateLimitRoute?.keyType !== "ip") return undefined;
+  const ip = getClientIp(request, socketAddress);
+  const override = await getRateLimitOverride(rateLimitRoute.category);
+  const result = rateLimiter.check(`ip:${ip}:${rateLimitRoute.category}`, override ?? rateLimitRoute.limit);
+  if (!result.allowed) return rateLimitResponse(result.retryAfter!);
+  return undefined;
+}
+
+/** The 429 a user-keyed route earns, or undefined. Runs after auth, since it needs the principal. */
+async function userRateLimited(locals: App.Locals, rateLimitRoute: RateLimitRoute | undefined): Promise<Response | undefined> {
+  if (rateLimitRoute?.keyType !== "user" || !locals.user) return undefined;
+  const userId = locals.user.id;
+  const override = await getRateLimitOverride(rateLimitRoute.category);
+  const result = rateLimiter.check(`user:${userId}:${rateLimitRoute.category}`, override ?? rateLimitRoute.limit);
+  if (!result.allowed) return rateLimitResponse(result.retryAfter!);
+  return undefined;
+}
+
+/**
+ * Stashes `onboardedAt` and redirects a half-onboarded user to the wizard.
+ *
+ * Pages-only: API routes (cookie OR Bearer) and asset paths bypass entirely so
+ * programmatic clients aren't redirected. For real page nav (including
+ * /onboarding itself) the user is looked up and `onboardedAt` stashed on
+ * locals so the wizard's load doesn't re-fetch. The redirect itself is
+ * suppressed on /onboarding to avoid a loop.
+ */
+async function applyOnboardingGate(locals: App.Locals, url: URL): Promise<void> {
+  if (!locals.user || url.pathname.startsWith("/api/") || url.pathname.startsWith("/_app/")) return;
+  let userRow: Awaited<ReturnType<typeof getUserById>>;
+  try {
+    userRow = await getUserById(locals.user.id);
+  } catch {
+    userRow = undefined; // DB unavailable — fail open.
+  }
+  if (userRow) {
+    locals.onboardedAt = userRow.onboardedAt;
+  }
+  if (userRow && userRow.onboardedAt === null && url.pathname !== "/onboarding") {
+    throw redirect(302, "/onboarding");
+  }
+}
+
+/** How the hook resolves a request once the bounded-payload and scope checks have run. */
+type BoundedResolve = (event: RequestEvent) => Promise<Response> | Response;
+
+const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/reset-password", "/api/auth/login", "/api/auth/setup", "/api/health", "/api/ready", "/api/version"];
+// Public on SUB-PATHS ONLY — the bare path stays authenticated.
+//
+// F5: `/api/auth/invite` used to sit in PUBLIC_PATHS above, and the
+// prefix match made the BARE path public too. That matters because
+// `event.locals.user` is only ever assigned inside `enforceRequestAuth`
+// (cookie path at the end of it; `attachBearerAuth` near its top). A
+// public path skips the whole thing, so locals.user stayed
+// undefined and the ADMIN invite create/list handlers — which call
+// `requireRole(locals, "admin")` — always 401'd. The feature was
+// unreachable over real HTTP. It failed CLOSED, so this was a broken
+// feature, not a bypass.
+//
+// Only `/api/auth/invite/:token` is genuinely anonymous (GET validates a
+// token, POST redeems it into a new account). Keeping the bare entry was
+// not an option: the matcher above cannot express "sub-paths but not the
+// path itself", which is exactly what this second list is for.
+//
+// `/api/auth/reset-password` is the SECOND instance of the identical
+// defect, left behind by F5 and moved here for the identical reason.
+// `POST /api/auth/reset-password` is the ADMIN "generate a reset link"
+// API (the button in `UsersSection.svelte`); it calls
+// `requireRole(locals, "admin")`, so while the bare path was public the
+// handler never saw a principal and answered 401 to every caller,
+// ADMINS INCLUDED. The feature was unreachable over real HTTP. Like
+// invite, it failed CLOSED — a dead feature, not a bypass.
+//
+// Only `/api/auth/reset-password/:token` is genuinely anonymous: that is
+// the locked-out user redeeming an emailed token, the one flow that by
+// definition cannot authenticate first. NOTE the PAGE route
+// `/reset-password` stays in PUBLIC_PATHS above on its bare path — a user
+// who cannot log in still has to be able to open the form.
+const PUBLIC_SUBPATHS_ONLY = ["/api/auth/invite", "/api/auth/reset-password"];
+
+/**
+ * Whether the path may be served without a session.
+ *
+ * Public on the exact path AND on every sub-path (`p + "/"`).
+ *
+ * "Public" means the path does not REQUIRE a session — not that it cannot
+ * know who is calling. A public `/api/*` path still resolves a presented
+ * session cookie opportunistically; see `identifyPublicApiCaller` for why
+ * that distinction exists and what it must never cost.
+ */
+function isPublicRequestPath(pathname: string): boolean {
+  return PUBLIC_PATHS.some(p => pathname === p || pathname.startsWith(p + "/"))
+    || PUBLIC_SUBPATHS_ONLY.some(p => pathname.startsWith(p + "/"))
+    || pathname.startsWith("/_app/")
+    || pathname.startsWith("/favicon");
+}
+
+/**
+ * Build /login URL preserving the page the user was trying to reach so we
+ * can send them back after re-auth. GET only — POST/PUT/PATCH navigations
+ * don't represent a "page the user was on". URLSearchParams handles
+ * encoding; the consumer (login +page.server.ts) re-validates via
+ * safeReturnTo before trusting the value.
+ */
+function loginUrl(request: Request, url: URL, reason?: string): string {
+  const params = new URLSearchParams();
+  if (reason) params.set("reason", reason);
+  if (request.method === "GET" && url.pathname !== "/login") {
+    params.set("returnTo", url.pathname + url.search);
+  }
+  const qs = params.toString();
+  return qs ? `/login?${qs}` : "/login";
+}
+
+// ── Loopback test-surface bypass ───────────────────────────────────
+// The deterministic mock-LLM completions endpoint is called
+// server-internally by pi-ai's HTTP client over loopback with a dummy
+// bearer token, so it cannot satisfy session/key auth. Let ONLY that
+// path through, and ONLY when the test surface is enabled AND the peer
+// is genuine loopback with no proxy-forwarding headers. Everything else
+// (including the externally-reachable `/script` seed sub-path) still
+// goes through the normal auth flow below.
+function isLoopbackTestSurface(event: RequestEvent, url: URL): boolean {
+  let loopbackAddr: string | undefined;
+  try { loopbackAddr = event.getClientAddress(); } catch { loopbackAddr = undefined; }
+  const proxied =
+    event.request.headers.has("x-forwarded-for") ||
+    event.request.headers.has("x-real-ip") ||
+    event.request.headers.has("forwarded");
+  return isLoopbackTestBypass(url.pathname, loopbackAddr, proxied);
+}
+
+/**
+ * Migration bridge: accept old pi_session cookie and migrate.
+ *
+ * sec-M4: disabled after PI_SESSION_MIGRATION_EXPIRES_AT to prevent an
+ * unbounded window in which stolen legacy cookies can be auto-promoted.
+ */
+function migrateLegacySessionCookie(event: RequestEvent): string | undefined {
+  const legacyToken = event.cookies.get("pi_session");
+  if (!legacyToken) return undefined;
+  if (Date.now() > PI_SESSION_MIGRATION_EXPIRES_AT) {
+    if (!piSessionMigrationWarned) {
+      log.warn("pi_session migration window closed - ignoring legacy cookie; clients must re-authenticate");
+      piSessionMigrationWarned = true;
+    }
+    // Purge the stale cookie so the client stops presenting it.
+    event.cookies.set("pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
+    return undefined;
+  }
+  // Delete old cookie
+  event.cookies.set("pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
+  // Set new cookie
+  setSessionCookie(event.cookies, legacyToken);
+  return legacyToken;
+}
+
+/**
+ * What an unauthenticated request to a protected path is answered with.
+ *
+ * Three outcomes, in this order: an installation with no users at all is sent
+ * to setup, an API caller is refused with 401, and a page navigation is
+ * bounced to /login carrying where it was headed.
+ */
+async function rejectUnauthenticated(event: RequestEvent, url: URL, resolveBounded: BoundedResolve): Promise<Response> {
+  let count: number;
+  try { count = await getUserCount(); } catch {
+    // DB unreachable. Under PI_SKIP_INIT (E2E) the DB is intentionally
+    // absent, so skip auth and let the request through. In every other
+    // environment a transient DB failure must NOT fail open — doing so
+    // would serve every protected route unauthenticated for the
+    // duration of the outage. Fail closed with 503 instead.
+    if (process.env.PI_SKIP_INIT) {
+      return resolveBounded(event);
+    }
+    return new Response(JSON.stringify({ error: "Service unavailable" }), {
+      status: 503,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  if (count === 0) {
+    if (url.pathname.startsWith("/api/")) {
+      return new Response(JSON.stringify({ error: "Setup required" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    throw redirect(302, "/setup");
+  }
+  if (url.pathname.startsWith("/api/")) {
+    return new Response(JSON.stringify({ error: "Authentication required" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+  throw redirect(302, loginUrl(event.request, url));
+}
+
+/**
+ * Authenticates a request that presented no session cookie.
+ *
+ * Try API key auth before rejecting. attachBearerAuth handles the
+ * prefix-based routing between internal bundled-extension keys
+ * (ezkint_, loopback-only) and user-issued keys (ezk_). See
+ * lib/server/security/bearer-auth.ts for the full security contract.
+ */
+async function authenticateWithoutSession(event: RequestEvent, url: URL, socketAddress: string | undefined, resolveBounded: BoundedResolve): Promise<Response | undefined> {
+  const request = event.request;
+  const authHeader = request.headers.get("authorization");
+  // Whether THIS request presented a Bearer token at all. Only Bearer
+  // requests participate in the failed-auth budget below — a request
+  // with no Authorization header (or a non-Bearer scheme) can't trigger
+  // the verifyApiKey scan, so it must never be counted or throttled.
+  const presentedBearer = !!authHeader?.startsWith("Bearer ");
+
+  // DoS-amplification guard: short-circuit BEFORE attachBearerAuth (and
+  // its verifyApiKey table scan) for an IP that has already burned its
+  // failed-Bearer budget this window. peek() is read-only so a request
+  // that goes on to SUCCEED never consumes a token. See
+  // FAILED_BEARER_LIMIT for the full rationale.
+  if (presentedBearer) {
+    const ip = getClientIp(request, socketAddress);
+    const peeked = failedBearerLimiter.peek(`ip:${ip}:bearerFail`);
+    if (!peeked.allowed) {
+      return rateLimitResponse(peeked.retryAfter!);
+    }
+  }
+
+  let remoteAddress: string | undefined;
+  try {
+    remoteAddress = event.getClientAddress();
+  } catch {
+    // getClientAddress throws under Bun's prerender path; leaving
+    // remoteAddress undefined correctly fails loopback gating closed.
+    remoteAddress = undefined;
+  }
+  // Forwarding-header sniff: any of these means the request went
+  // through a proxy, so the socket peer reported by getClientAddress
+  // is NOT a trustworthy loopback signal for internal-auth.
+  const proxyForwardedHeadersPresent =
+    request.headers.has("x-forwarded-for") ||
+    request.headers.has("x-real-ip") ||
+    request.headers.has("forwarded");
+  await attachBearerAuth(
+    {
+      locals: event.locals,
+      remoteAddress,
+      proxyForwardedHeadersPresent,
+      onBehalfOfHeader: request.headers.get("x-ezcorp-on-behalf-of"),
+      method: request.method,
+      routeId: event.route.id,
+    },
+    authHeader,
+  );
+
+  // Record a failure ONLY when a Bearer token was presented but did NOT
+  // authenticate. A successful auth populates event.locals.user above and
+  // is skipped here, so a valid key can never be throttled. check()
+  // increments the per-IP counter; once it crosses FAILED_BEARER_LIMIT the
+  // peek() above starts returning 429 for subsequent sprays this window.
+  if (presentedBearer && !event.locals.user && !event.locals.factoryServicePrincipal) {
+    const ip = getClientIp(request, socketAddress);
+    failedBearerLimiter.check(`ip:${ip}:bearerFail`);
+  }
+
+  if (event.locals.user || event.locals.factoryServicePrincipal) return undefined;
+  return await rejectUnauthenticated(event, url, resolveBounded);
+}
+
+/**
+ * Clears a session cookie that no longer authenticates anybody, and answers.
+ *
+ * Missing session row = revoked; clear cookies and reject (do not
+ * auto-recreate). See sec-C2.
+ */
+function rejectSessionCookie(event: RequestEvent, url: URL, revoked: boolean): Response {
+  const response = url.pathname.startsWith("/api/")
+    ? new Response(JSON.stringify({ error: revoked ? "Session revoked" : "Session expired" }), {
+      status: 401,
+      headers: { "Content-Type": "application/json" },
+    })
+    : undefined;
+  clearSessionCookie(event.cookies, response);
+  if (revoked) {
+    const options = { path: "/", maxAge: 0 };
+    event.cookies.delete("pi_session", options);
+    if (response) response.headers.append("set-cookie", event.cookies.serialize("pi_session", "", options));
+  }
+  if (response) return response;
+  throw redirect(302, loginUrl(event.request, url, revoked ? "session_revoked" : "session_expired"));
+}
+
+/**
+ * Sliding refresh.
+ *
+ * Once the JWT crosses refreshAfterSeconds of age, re-issue it with
+ * another lifetimeSeconds and bump the DB row's expiresAt. CAS on
+ * (id, currentTokenHash) means concurrent requests can't double-rotate:
+ * the loser's CAS misses and it serves the request with its inbound
+ * cookie, which the row's `previous_token_hash` still matches for the
+ * grace window.
+ */
+async function refreshSessionToken(event: RequestEvent, payload: SessionPayload, secret: string, sessionId: string, inboundTokenHash: string): Promise<void> {
+  const cfg = __sessionRefreshConfig;
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  if (nowSeconds - payload.iat <= cfg.refreshAfterSeconds) return;
+  try {
+    const newToken = await signJWT(
+      { id: payload.id, email: payload.email, name: payload.name, role: payload.role },
+      secret,
+      cfg.lifetimeSeconds,
+    );
+    const newTokenHash = await hashToken(newToken);
+    const newExpiresAt = new Date((nowSeconds + cfg.lifetimeSeconds) * 1000);
+    const rotated = await rotateSessionToken({
+      id: sessionId,
+      oldTokenHash: inboundTokenHash,
+      newTokenHash,
+      newExpiresAt,
+      previousTokenGraceSeconds: cfg.previousTokenGraceSeconds,
+    });
+    if (rotated) {
+      setSessionCookie(event.cookies, newToken);
+    }
+  } catch (err) {
+    // Refresh is best-effort: if signing or the CAS update throws
+    // we keep serving the request with the old (still-valid) cookie.
+    log.warn("session refresh failed", { error: String(err) });
+  }
+}
+
+/** Verifies the presented session cookie, rotates it when due, and stamps the principal. */
+async function authenticateSessionCookie(event: RequestEvent, url: URL, sessionToken: string, resolveBounded: BoundedResolve): Promise<Response | undefined> {
+  const verdict = await verifySessionCookie(sessionToken);
+
+  // The JWT secret is unreachable (DB down before it was ever cached).
+  // We cannot judge the cookie either way, so serve the request rather
+  // than bounce a legitimate user on an infrastructure blip.
+  if (verdict.reason === "no-secret") {
+    return resolveBounded(event);
+  }
+
+  if (verdict.reason === "invalid-jwt" || verdict.reason === "revoked") {
+    return rejectSessionCookie(event, url, verdict.reason === "revoked");
+  }
+
+  const { payload, secret, sessionId, viaPrevious, inboundTokenHash, dbAvailable } = verdict;
+
+  // Skipped when the DB is unavailable (no row to rotate), the row was
+  // missing (cookies already cleared), or the inbound token already
+  // matched the previous-hash grace slot (peer just rotated).
+  if (sessionId && inboundTokenHash && dbAvailable && !viaPrevious) {
+    await refreshSessionToken(event, payload, secret, sessionId, inboundTokenHash);
+  }
+
+  stampSessionPrincipal(event.locals, payload);
+  return undefined;
+}
+
+/** Everything a non-public path must satisfy before any handler sees it. */
+async function enforceRequestAuth(event: RequestEvent, url: URL, socketAddress: string | undefined, resolveBounded: BoundedResolve): Promise<Response | undefined> {
+  if (isLoopbackTestSurface(event, url)) return resolveBounded(event);
+
+  let sessionToken = event.cookies.get(getSessionCookieName());
+  if (!sessionToken) sessionToken = migrateLegacySessionCookie(event);
+
+  if (!sessionToken) return await authenticateWithoutSession(event, url, socketAddress, resolveBounded);
+  return await authenticateSessionCookie(event, url, sessionToken, resolveBounded);
+}
+
+/**
+ * Opportunistically stamps a presented session on a PUBLIC `/api/*` path.
+ *
+ * The comment block below is the whole argument for why identification is
+ * separated from enforcement, and for the three properties this must keep.
+ */
+async function identifyPublicApiCaller(event: RequestEvent): Promise<void> {
+  // ── Opportunistic identification on a public API path ──────────────
+  //
+  // PUBLIC_PATHS decides whether a path REQUIRES authentication. It must not
+  // also decide whether the path may KNOW who is calling — but until this
+  // block existed it did, because `event.locals.user` was assigned ONLY
+  // inside the `if (!isPublic)` branch above. Any public route that then
+  // gated on a role answered 401 to everyone, admins included: a dead
+  // feature, failing closed.
+  //
+  // F5 fixed that for `/api/auth/invite`, and sec-F2 for
+  // `POST /api/auth/reset-password`, by moving the bare path into
+  // PUBLIC_SUBPATHS_ONLY. That remedy CANNOT apply to `/api/health`: it is a
+  // liveness probe, so its bare path has to answer an anonymous caller
+  // forever. `GET /api/health?detail=true` gates on `role === "admin"` and
+  // so was unreachable — the Settings → System Health card
+  // (`SystemHealth.svelte`, which polls exactly that URL) could only ever
+  // render "Unable to load health status."
+  //
+  // Identification is therefore separated from enforcement: when a session
+  // cookie is presented, verify it and stamp the principal; otherwise carry
+  // on anonymously. Three properties this MUST keep:
+  //
+  //  1. NO COST FOR THE PROBE. Orchestrators (the Docker HEALTHCHECK,
+  //     Watchtower, k8s) poll this constantly and never send cookies.
+  //     `cookies.get()` is a header parse, so a cookieless request still
+  //     does zero I/O — no `getJwtSecret()`, no session lookup, no DB round
+  //     trip. Pinned by a test asserting those are never called.
+  //  2. NEVER FAILS THE REQUEST. A liveness probe matters most when the DB
+  //     is down, which is exactly when session resolution cannot work.
+  //     `verifySessionCookie` swallows its own failures, and every bad
+  //     verdict lands in "stay anonymous" — no 401, no redirect, no cleared
+  //     cookie, nothing that can surface as a 500.
+  //  3. THE PRINCIPAL IS NOT WEAKER. Same signature check and same
+  //     revoked-row check as the enforcing branch, so a logged-out or
+  //     force-logged-out cookie identifies nobody.
+  //
+  // No sliding refresh here: a path that does not require a session has no
+  // business re-issuing one.
+  //
+  // Scoped to `/api/*` deliberately. The public PAGE routes (`/login`,
+  // `/setup`, `/signup`, `/reset-password`) are the pre-auth funnel; handing
+  // them a principal would pull them under the onboarding-redirect gate
+  // below and change navigation for a half-onboarded user. Nothing about
+  // this defect needs that.
+  const publicSessionToken = event.cookies.get(getSessionCookieName());
+  if (publicSessionToken) {
+    const verdict = await verifySessionCookie(publicSessionToken);
+    if (verdict.reason === null) {
+      stampSessionPrincipal(event.locals, verdict.payload);
+    }
+  }
+}
+
 const handleApp: Handle = async ({ event, resolve }) => {
   const { request } = event;
   const url = new URL(request.url);
@@ -447,17 +939,8 @@ const handleApp: Handle = async ({ event, resolve }) => {
     return new Response(null, { status: 204, headers: getCorsHeaders(request) });
   }
 
-  // ── Payload size check (POST/PUT/PATCH only) ───────────────────
-  if (["POST", "PUT", "PATCH"].includes(request.method)) {
-    const contentLength = request.headers.get("content-length");
-    if (contentLength) {
-      const size = parseInt(contentLength, 10);
-      const max = getMaxPayload(url.pathname);
-      if (size > max) {
-        return payloadTooLarge(max);
-      }
-    }
-  }
+  const oversized = declaredPayloadTooLarge(request, url);
+  if (oversized) return oversized;
 
   // Trustworthy socket peer, used to key IP-based rate limits when NO trusted
   // proxy is configured (so attacker-supplied x-real-ip / x-forwarded-for
@@ -471,62 +954,12 @@ const handleApp: Handle = async ({ event, resolve }) => {
     socketAddress = undefined;
   }
 
-  // ── Rate limiting (IP-based for login, before auth) ─────────────
   const rateLimitRoute = matchRateLimitRoute(url.pathname, request.method);
-  if (rateLimitRoute && rateLimitRoute.keyType === "ip") {
-    const ip = getClientIp(request, socketAddress);
-    const override = await getRateLimitOverride(rateLimitRoute.category);
-    const result = rateLimiter.check(`ip:${ip}:${rateLimitRoute.category}`, override ?? rateLimitRoute.limit);
-    if (!result.allowed) {
-      return rateLimitResponse(result.retryAfter!);
-    }
-  }
+  const ipLimited = await ipRateLimited(request, socketAddress, rateLimitRoute);
+  if (ipLimited) return ipLimited;
 
   // ── Auth enforcement ──────────────────────────────────────────────
-  // Public on the exact path AND on every sub-path (`p + "/"`).
-  //
-  // "Public" means the path does not REQUIRE a session — not that it cannot
-  // know who is calling. A public `/api/*` path still resolves a presented
-  // session cookie opportunistically; see the `else if` at the bottom of this
-  // block for why that distinction exists and what it must never cost.
-  const PUBLIC_PATHS = ["/login", "/setup", "/signup", "/reset-password", "/api/auth/login", "/api/auth/setup", "/api/health", "/api/ready", "/api/version"];
-  // Public on SUB-PATHS ONLY — the bare path stays authenticated.
-  //
-  // F5: `/api/auth/invite` used to sit in PUBLIC_PATHS above, and the
-  // prefix match made the BARE path public too. That matters because
-  // `event.locals.user` is only ever assigned inside the `if (!isPublic)`
-  // block below (cookie path at the end of it; `attachBearerAuth` near its
-  // top). A public path skips the whole block, so locals.user stayed
-  // undefined and the ADMIN invite create/list handlers — which call
-  // `requireRole(locals, "admin")` — always 401'd. The feature was
-  // unreachable over real HTTP. It failed CLOSED, so this was a broken
-  // feature, not a bypass.
-  //
-  // Only `/api/auth/invite/:token` is genuinely anonymous (GET validates a
-  // token, POST redeems it into a new account). Keeping the bare entry was
-  // not an option: the matcher above cannot express "sub-paths but not the
-  // path itself", which is exactly what this second list is for.
-  //
-  // `/api/auth/reset-password` is the SECOND instance of the identical
-  // defect, left behind by F5 and moved here for the identical reason.
-  // `POST /api/auth/reset-password` is the ADMIN "generate a reset link"
-  // API (the button in `UsersSection.svelte`); it calls
-  // `requireRole(locals, "admin")`, so while the bare path was public the
-  // handler never saw a principal and answered 401 to every caller,
-  // ADMINS INCLUDED. The feature was unreachable over real HTTP. Like
-  // invite, it failed CLOSED — a dead feature, not a bypass.
-  //
-  // Only `/api/auth/reset-password/:token` is genuinely anonymous: that is
-  // the locked-out user redeeming an emailed token, the one flow that by
-  // definition cannot authenticate first. NOTE the PAGE route
-  // `/reset-password` stays in PUBLIC_PATHS above on its bare path — a user
-  // who cannot log in still has to be able to open the form.
-  const PUBLIC_SUBPATHS_ONLY = ["/api/auth/invite", "/api/auth/reset-password"];
-  const isPublic = PUBLIC_PATHS.some(p => url.pathname === p || url.pathname.startsWith(p + "/"))
-    || PUBLIC_SUBPATHS_ONLY.some(p => url.pathname.startsWith(p + "/"))
-    || url.pathname.startsWith("/_app/")
-    || url.pathname.startsWith("/favicon")
-;
+  const isPublic = isPublicRequestPath(url.pathname);
 
   // Factory handlers own the disabled/unready response and must expose it
   // before any credential lookup. The registry match keeps this bypass exact.
@@ -536,288 +969,10 @@ const handleApp: Handle = async ({ event, resolve }) => {
   }
 
   if (!isPublic) {
-    // ── Loopback test-surface bypass ───────────────────────────────────
-    // The deterministic mock-LLM completions endpoint is called
-    // server-internally by pi-ai's HTTP client over loopback with a dummy
-    // bearer token, so it cannot satisfy session/key auth. Let ONLY that
-    // path through, and ONLY when the test surface is enabled AND the peer
-    // is genuine loopback with no proxy-forwarding headers. Everything else
-    // (including the externally-reachable `/script` seed sub-path) still
-    // goes through the normal auth flow below.
-    {
-      let loopbackAddr: string | undefined;
-      try { loopbackAddr = event.getClientAddress(); } catch { loopbackAddr = undefined; }
-      const proxied =
-        request.headers.has("x-forwarded-for") ||
-        request.headers.has("x-real-ip") ||
-        request.headers.has("forwarded");
-      if (isLoopbackTestBypass(url.pathname, loopbackAddr, proxied)) {
-        return resolveBounded(event);
-      }
-    }
-
-    // Build /login URL preserving the page the user was trying to reach so we
-    // can send them back after re-auth. GET only — POST/PUT/PATCH navigations
-    // don't represent a "page the user was on". URLSearchParams handles
-    // encoding; the consumer (login +page.server.ts) re-validates via
-    // safeReturnTo before trusting the value.
-    const buildLoginUrl = (reason?: string): string => {
-      const params = new URLSearchParams();
-      if (reason) params.set("reason", reason);
-      if (request.method === "GET" && url.pathname !== "/login") {
-        params.set("returnTo", url.pathname + url.search);
-      }
-      const qs = params.toString();
-      return qs ? `/login?${qs}` : "/login";
-    };
-
-    let sessionToken = event.cookies.get(getSessionCookieName());
-
-    // Migration bridge: accept old pi_session cookie and migrate.
-    // sec-M4: disabled after PI_SESSION_MIGRATION_EXPIRES_AT to prevent an
-    // unbounded window in which stolen legacy cookies can be auto-promoted.
-    if (!sessionToken) {
-      const legacyToken = event.cookies.get("pi_session");
-      if (legacyToken) {
-        if (Date.now() > PI_SESSION_MIGRATION_EXPIRES_AT) {
-          if (!piSessionMigrationWarned) {
-            log.warn("pi_session migration window closed - ignoring legacy cookie; clients must re-authenticate");
-            piSessionMigrationWarned = true;
-          }
-          // Purge the stale cookie so the client stops presenting it.
-          event.cookies.set("pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
-        } else {
-          sessionToken = legacyToken;
-          // Delete old cookie
-          event.cookies.set("pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
-          // Set new cookie
-          setSessionCookie(event.cookies, legacyToken);
-        }
-      }
-    }
-
-    if (!sessionToken) {
-      // Try API key auth before rejecting. attachBearerAuth handles the
-      // prefix-based routing between internal bundled-extension keys
-      // (ezkint_, loopback-only) and user-issued keys (ezk_). See
-      // lib/server/security/bearer-auth.ts for the full security contract.
-      const authHeader = request.headers.get("authorization");
-      // Whether THIS request presented a Bearer token at all. Only Bearer
-      // requests participate in the failed-auth budget below — a request
-      // with no Authorization header (or a non-Bearer scheme) can't trigger
-      // the verifyApiKey scan, so it must never be counted or throttled.
-      const presentedBearer = !!authHeader?.startsWith("Bearer ");
-
-      // DoS-amplification guard: short-circuit BEFORE attachBearerAuth (and
-      // its verifyApiKey table scan) for an IP that has already burned its
-      // failed-Bearer budget this window. peek() is read-only so a request
-      // that goes on to SUCCEED never consumes a token. See
-      // FAILED_BEARER_LIMIT for the full rationale.
-      if (presentedBearer) {
-        const ip = getClientIp(request, socketAddress);
-        const peeked = failedBearerLimiter.peek(`ip:${ip}:bearerFail`);
-        if (!peeked.allowed) {
-          return rateLimitResponse(peeked.retryAfter!);
-        }
-      }
-
-      let remoteAddress: string | undefined;
-      try {
-        remoteAddress = event.getClientAddress();
-      } catch {
-        // getClientAddress throws under Bun's prerender path; leaving
-        // remoteAddress undefined correctly fails loopback gating closed.
-        remoteAddress = undefined;
-      }
-      // Forwarding-header sniff: any of these means the request went
-      // through a proxy, so the socket peer reported by getClientAddress
-      // is NOT a trustworthy loopback signal for internal-auth.
-      const proxyForwardedHeadersPresent =
-        request.headers.has("x-forwarded-for") ||
-        request.headers.has("x-real-ip") ||
-        request.headers.has("forwarded");
-      await attachBearerAuth(
-        {
-          locals: event.locals,
-          remoteAddress,
-          proxyForwardedHeadersPresent,
-          onBehalfOfHeader: request.headers.get("x-ezcorp-on-behalf-of"),
-          method: request.method,
-          routeId: event.route.id,
-        },
-        authHeader,
-      );
-
-      // Record a failure ONLY when a Bearer token was presented but did NOT
-      // authenticate. A successful auth populates event.locals.user above and
-      // is skipped here, so a valid key can never be throttled. check()
-      // increments the per-IP counter; once it crosses FAILED_BEARER_LIMIT the
-      // peek() above starts returning 429 for subsequent sprays this window.
-      if (presentedBearer && !event.locals.user && !event.locals.factoryServicePrincipal) {
-        const ip = getClientIp(request, socketAddress);
-        failedBearerLimiter.check(`ip:${ip}:bearerFail`);
-      }
-
-      if (!event.locals.user && !event.locals.factoryServicePrincipal) {
-        let count: number;
-        try { count = await getUserCount(); } catch {
-          // DB unreachable. Under PI_SKIP_INIT (E2E) the DB is intentionally
-          // absent, so skip auth and let the request through. In every other
-          // environment a transient DB failure must NOT fail open — doing so
-          // would serve every protected route unauthenticated for the
-          // duration of the outage. Fail closed with 503 instead.
-          if (process.env.PI_SKIP_INIT) {
-            return resolveBounded(event);
-          }
-          return new Response(JSON.stringify({ error: "Service unavailable" }), {
-            status: 503,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        if (count === 0) {
-          if (url.pathname.startsWith("/api/")) {
-            return new Response(JSON.stringify({ error: "Setup required" }), {
-              status: 401,
-              headers: { "Content-Type": "application/json" },
-            });
-          }
-          throw redirect(302, "/setup");
-        }
-        if (url.pathname.startsWith("/api/")) {
-          return new Response(JSON.stringify({ error: "Authentication required" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-          });
-        }
-        throw redirect(302, buildLoginUrl());
-      }
-    } else {
-      const verdict = await verifySessionCookie(sessionToken);
-
-      // The JWT secret is unreachable (DB down before it was ever cached).
-      // We cannot judge the cookie either way, so serve the request rather
-      // than bounce a legitimate user on an infrastructure blip.
-      if (verdict.reason === "no-secret") {
-        return resolveBounded(event);
-      }
-
-      // Missing session row = revoked; clear cookies and reject (do not
-      // auto-recreate). See sec-C2.
-      if (verdict.reason === "invalid-jwt" || verdict.reason === "revoked") {
-        const revoked = verdict.reason === "revoked";
-        const response = url.pathname.startsWith("/api/")
-          ? new Response(JSON.stringify({ error: revoked ? "Session revoked" : "Session expired" }), {
-            status: 401,
-            headers: { "Content-Type": "application/json" },
-          })
-          : undefined;
-        clearSessionCookie(event.cookies, response);
-        if (revoked) {
-          const options = { path: "/", maxAge: 0 };
-          event.cookies.delete("pi_session", options);
-          if (response) response.headers.append("set-cookie", event.cookies.serialize("pi_session", "", options));
-        }
-        if (response) return response;
-        throw redirect(302, buildLoginUrl(revoked ? "session_revoked" : "session_expired"));
-      }
-
-      const { payload, secret, sessionId, viaPrevious, inboundTokenHash, dbAvailable } = verdict;
-
-      // ── Sliding refresh ────────────────────────────────────────────────
-      // Once the JWT crosses refreshAfterSeconds of age, re-issue it with
-      // another lifetimeSeconds and bump the DB row's expiresAt. CAS on
-      // (id, currentTokenHash) means concurrent requests can't double-rotate:
-      // the loser's CAS misses and it serves the request with its inbound
-      // cookie, which the row's `previous_token_hash` still matches for the
-      // grace window.
-      //
-      // Skipped when the DB is unavailable (no row to rotate), the row was
-      // missing (cookies already cleared), or the inbound token already
-      // matched the previous-hash grace slot (peer just rotated).
-      const cfg = __sessionRefreshConfig;
-      if (sessionId && inboundTokenHash && dbAvailable && !viaPrevious) {
-        const nowSeconds = Math.floor(Date.now() / 1000);
-        if (nowSeconds - payload.iat > cfg.refreshAfterSeconds) {
-          try {
-            const newToken = await signJWT(
-              { id: payload.id, email: payload.email, name: payload.name, role: payload.role },
-              secret,
-              cfg.lifetimeSeconds,
-            );
-            const newTokenHash = await hashToken(newToken);
-            const newExpiresAt = new Date((nowSeconds + cfg.lifetimeSeconds) * 1000);
-            const rotated = await rotateSessionToken({
-              id: sessionId,
-              oldTokenHash: inboundTokenHash,
-              newTokenHash,
-              newExpiresAt,
-              previousTokenGraceSeconds: cfg.previousTokenGraceSeconds,
-            });
-            if (rotated) {
-              setSessionCookie(event.cookies, newToken);
-            }
-          } catch (err) {
-            // Refresh is best-effort: if signing or the CAS update throws
-            // we keep serving the request with the old (still-valid) cookie.
-            log.warn("session refresh failed", { error: String(err) });
-          }
-        }
-      }
-
-      stampSessionPrincipal(event.locals, payload);
-    }
+    const denied = await enforceRequestAuth(event, url, socketAddress, resolveBounded);
+    if (denied) return denied;
   } else if (url.pathname.startsWith("/api/")) {
-    // ── Opportunistic identification on a public API path ──────────────
-    //
-    // PUBLIC_PATHS decides whether a path REQUIRES authentication. It must not
-    // also decide whether the path may KNOW who is calling — but until this
-    // block existed it did, because `event.locals.user` was assigned ONLY
-    // inside the `if (!isPublic)` branch above. Any public route that then
-    // gated on a role answered 401 to everyone, admins included: a dead
-    // feature, failing closed.
-    //
-    // F5 fixed that for `/api/auth/invite`, and sec-F2 for
-    // `POST /api/auth/reset-password`, by moving the bare path into
-    // PUBLIC_SUBPATHS_ONLY. That remedy CANNOT apply to `/api/health`: it is a
-    // liveness probe, so its bare path has to answer an anonymous caller
-    // forever. `GET /api/health?detail=true` gates on `role === "admin"` and
-    // so was unreachable — the Settings → System Health card
-    // (`SystemHealth.svelte`, which polls exactly that URL) could only ever
-    // render "Unable to load health status."
-    //
-    // Identification is therefore separated from enforcement: when a session
-    // cookie is presented, verify it and stamp the principal; otherwise carry
-    // on anonymously. Three properties this MUST keep:
-    //
-    //  1. NO COST FOR THE PROBE. Orchestrators (the Docker HEALTHCHECK,
-    //     Watchtower, k8s) poll this constantly and never send cookies.
-    //     `cookies.get()` is a header parse, so a cookieless request still
-    //     does zero I/O — no `getJwtSecret()`, no session lookup, no DB round
-    //     trip. Pinned by a test asserting those are never called.
-    //  2. NEVER FAILS THE REQUEST. A liveness probe matters most when the DB
-    //     is down, which is exactly when session resolution cannot work.
-    //     `verifySessionCookie` swallows its own failures, and every bad
-    //     verdict lands in "stay anonymous" — no 401, no redirect, no cleared
-    //     cookie, nothing that can surface as a 500.
-    //  3. THE PRINCIPAL IS NOT WEAKER. Same signature check and same
-    //     revoked-row check as the enforcing branch, so a logged-out or
-    //     force-logged-out cookie identifies nobody.
-    //
-    // No sliding refresh here: a path that does not require a session has no
-    // business re-issuing one.
-    //
-    // Scoped to `/api/*` deliberately. The public PAGE routes (`/login`,
-    // `/setup`, `/signup`, `/reset-password`) are the pre-auth funnel; handing
-    // them a principal would pull them under the onboarding-redirect gate
-    // below and change navigation for a half-onboarded user. Nothing about
-    // this defect needs that.
-    const publicSessionToken = event.cookies.get(getSessionCookieName());
-    if (publicSessionToken) {
-      const verdict = await verifySessionCookie(publicSessionToken);
-      if (verdict.reason === null) {
-        stampSessionPrincipal(event.locals, verdict.payload);
-      }
-    }
+    await identifyPublicApiCaller(event);
   }
 
   // ── Boundary 1: per-API-key route allowlist ──────────────────────
@@ -846,40 +1001,10 @@ const handleApp: Handle = async ({ event, resolve }) => {
   );
   if (policyDenial) return policyDenial;
 
-  // ── First-time onboarding gate ───────────────────────────────────
-  // Pages-only: API routes (cookie OR Bearer) and asset paths bypass
-  // entirely so programmatic clients aren't redirected. For real page
-  // nav (including /onboarding itself), look up the user and stash
-  // `onboardedAt` on locals so the wizard's load doesn't re-fetch.
-  // The redirect itself is suppressed on /onboarding to avoid a loop.
-  if (
-    event.locals.user
-    && !url.pathname.startsWith("/api/")
-    && !url.pathname.startsWith("/_app/")
-  ) {
-    let userRow: Awaited<ReturnType<typeof getUserById>>;
-    try {
-      userRow = await getUserById(event.locals.user.id);
-    } catch {
-      userRow = undefined; // DB unavailable — fail open.
-    }
-    if (userRow) {
-      event.locals.onboardedAt = userRow.onboardedAt;
-    }
-    if (userRow && userRow.onboardedAt === null && url.pathname !== "/onboarding") {
-      throw redirect(302, "/onboarding");
-    }
-  }
+  await applyOnboardingGate(event.locals, url);
 
-  // ── Rate limiting (user-based, after auth) ──────────────────────
-  if (rateLimitRoute && rateLimitRoute.keyType === "user" && event.locals.user) {
-    const userId = event.locals.user.id;
-    const override = await getRateLimitOverride(rateLimitRoute.category);
-    const result = rateLimiter.check(`user:${userId}:${rateLimitRoute.category}`, override ?? rateLimitRoute.limit);
-    if (!result.allowed) {
-      return rateLimitResponse(result.retryAfter!);
-    }
-  }
+  const userLimited = await userRateLimited(event.locals, rateLimitRoute);
+  if (userLimited) return userLimited;
 
   // The ONE writer of the ambient gate initiator. Every permission gate a
   // route raises — directly, or from a `streamChat` promise the route
@@ -905,40 +1030,7 @@ const handleApp: Handle = async ({ event, resolve }) => {
     }),
   );
 
-  // ── Security headers on ALL responses ───────────────────────────
-  // SSE replaces the old WebSocket transport — no ws: or wss: scheme needed
-  // in connect-src anymore.
-  // These are applied as DEFAULTS — a route that already set its own
-  // value (e.g. /api/extensions/[name]/data/* serves sandboxed content
-  // that needs same-origin iframing, so it sets a more permissive
-  // Content-Security-Policy + omits X-Frame-Options) keeps that value.
-  // The CSP itself is built from `CSP_HEADER_VALUE` above — see that
-  // export for the rationale behind each directive (in particular,
-  // the Hugging Face hosts in `connect-src` and `'wasm-unsafe-eval'`
-  // in `script-src`, both required by the kokoro-tts extension's
-  // in-browser TTS pipeline).
-  const SECURITY_HEADERS: Record<string, string> = {
-    "X-Frame-Options": "DENY",
-    "X-Content-Type-Options": "nosniff",
-    "Referrer-Policy": "strict-origin-when-cross-origin",
-    "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
-    "Content-Security-Policy": CSP_HEADER_VALUE,
-  };
-  for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
-    if (!response.headers.has(key)) {
-      response.headers.set(key, value);
-    }
-  }
-  if (url.protocol === "https:") {
-    response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  }
-
-  // Add CORS headers to all API responses
-  if (url.pathname.startsWith("/api")) {
-    for (const [key, value] of Object.entries(getCorsHeaders(request))) {
-      response.headers.set(key, value);
-    }
-  }
+  applyResponseHeaders(response, request, url);
 
   return response;
 };

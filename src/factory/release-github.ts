@@ -173,15 +173,11 @@ function rejectRepositoryControlledInstall(path: string, content: Uint8Array): v
   }
 }
 
-/**
- * Every rule the approved request must satisfy before one byte reaches GitHub.
- *
- * The two identity checks at the end are the ones that matter most: the tree SHA and the commit
- * SHA the request declares must be exactly what its own file list, base parent, identities, and
- * message produce. A request cannot name an accepted candidate it does not contain.
- */
-export function assertFactoryGitHubPublicationRequest(value: unknown): FactoryGitHubPublicationPlan {
-  const source = record(value);
+/** The blob one accepted file contributes, keyed by its publication path. */
+type PublicationBlob = { mode: "100644" | "100755"; content: Uint8Array; blobId: string };
+
+/** The request's own envelope: exactly these keys, each within its declared bound. */
+function assertPublicationEnvelope(source: Record<string, unknown>): void {
   const expectedKeys = ["schemaVersion", "repositoryId", "baseBranch", "baseSha", "treeSha", "commitSha", "commitMessage", "author", "committer", "title", "body", "titleBodyDigest", "dependencyLockPath", "dependencyLockDigest", "protectedPaths", "allowedPaths", "files"];
   if (Object.keys(source).length !== expectedKeys.length || !expectedKeys.every(key => Object.hasOwn(source, key))) invalid();
   if (source.schemaVersion !== FACTORY_GITHUB_PUBLICATION_SCHEMA_VERSION) invalid();
@@ -195,16 +191,21 @@ export function assertFactoryGitHubPublicationRequest(value: unknown): FactoryGi
   if (!Array.isArray(source.files) || source.files.length < 1 || source.files.length > FACTORY_GITHUB_LIMITS.maxFiles) invalid();
   if (!Array.isArray(source.protectedPaths) || source.protectedPaths.length > FACTORY_GITHUB_LIMITS.maxProtectedPaths) invalid();
   if (!Array.isArray(source.allowedPaths) || source.allowedPaths.length < 1 || source.allowedPaths.length > FACTORY_GITHUB_LIMITS.maxAllowedPaths) invalid();
+}
 
-  const request = source as unknown as FactoryGitHubPublicationRequest;
-  const blobs = new Map<string, { mode: "100644" | "100755"; content: Uint8Array; blobId: string }>();
+/**
+ * Decodes every declared file into the blob the tree will hold.
+ *
+ * A symlink or a gitlink entry is refused by name, so the reason is never "an odd mode".
+ */
+function collectPublicationFiles(request: FactoryGitHubPublicationRequest): { blobs: Map<string, PublicationBlob>; files: FactoryGitFile[] } {
+  const blobs = new Map<string, PublicationBlob>();
   const files: FactoryGitFile[] = [];
   let totalBytes = 0;
   for (const entry of request.files) {
     const file = record(entry);
     if (Object.keys(file).length !== 3) invalid();
     const path = publicationPath(file.path);
-    // A symlink or a gitlink entry is refused by name, so the reason is never "an odd mode".
     if (file.mode === "120000") throw new FactoryGitHubError("factory_github_link_rejected");
     if (file.mode === "160000") throw new FactoryGitHubError("factory_github_submodule_rejected");
     if (file.mode !== "100644" && file.mode !== "100755") invalid();
@@ -219,13 +220,24 @@ export function assertFactoryGitHubPublicationRequest(value: unknown): FactoryGi
     blobs.set(path, { mode: file.mode, content, blobId: factoryGitBlobId(content) });
     files.push({ path, mode: file.mode, content });
   }
+  return { blobs, files };
+}
 
+/** The paths the approval bound: every protected asset present, and the lock unchanged. */
+function assertPublicationPaths(request: FactoryGitHubPublicationRequest, blobs: ReadonlyMap<string, PublicationBlob>): void {
   for (const path of request.protectedPaths) { publicationPath(path); if (!blobs.has(path)) throw new FactoryGitHubError("factory_github_protected_asset_changed"); }
   for (const prefix of request.allowedPaths) { publicationPath(typeof prefix === "string" && prefix.endsWith("/") ? prefix.slice(0, -1) : prefix); }
   const lock = blobs.get(publicationPath(request.dependencyLockPath));
   if (!lock) throw new FactoryGitHubError("factory_github_dependency_lock_changed");
   if (typeof request.dependencyLockDigest !== "string" || request.dependencyLockDigest !== `sha256:${digestBytes(lock.content)}`) throw new FactoryGitHubError("factory_github_dependency_lock_changed");
+}
 
+/**
+ * The checks that matter most: the tree SHA and the commit SHA the request declares must be
+ * exactly what its own file list, base parent, identities, and message produce. A request cannot
+ * name an accepted candidate it does not contain.
+ */
+function assertPublicationIdentity(request: FactoryGitHubPublicationRequest, files: readonly FactoryGitFile[]): void {
   try {
     assertFactoryGitSha(request.baseSha); assertFactoryGitSha(request.treeSha); assertFactoryGitSha(request.commitSha);
     bounded(request.commitMessage, 8192);
@@ -238,6 +250,22 @@ export function assertFactoryGitHubPublicationRequest(value: unknown): FactoryGi
     if (error instanceof FactoryGitObjectError) invalid();
     throw error;
   }
+}
+
+/**
+ * Every rule the approved request must satisfy before one byte reaches GitHub.
+ *
+ * One rule group per step, run in the order they were written inline: the envelope, then the
+ * files it declares, then the paths the approval bound, then the two identity checks.
+ */
+export function assertFactoryGitHubPublicationRequest(value: unknown): FactoryGitHubPublicationPlan {
+  const source = record(value);
+  assertPublicationEnvelope(source);
+
+  const request = source as unknown as FactoryGitHubPublicationRequest;
+  const { blobs, files } = collectPublicationFiles(request);
+  assertPublicationPaths(request, blobs);
+  assertPublicationIdentity(request, files);
   return { request, blobs };
 }
 

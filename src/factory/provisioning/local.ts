@@ -74,44 +74,9 @@ export class LocalFactoryProvisioner {
       const stableInstallationId = stored(persisted, "installation_id"), stableInvitationId = stored(persisted, "invitation_id");
       const secrets = await privateDirectory(directory, { createLeaf: true, repairOwnedLeaf: true });
       try {
-        const files = { bundle: "installation.json", product: "product-database.json", ordinary: "ordinary-storage.json", archive: "archive-storage.json", jwt: "application-jwt-secret", encryption: "application-encryption-secret", temporal: "temporal.json" } as const;
-        await writePrivateJson(secrets, files.product, { role, password: secret() }); await writePrivateJson(secrets, files.ordinary, await identity(this.options.ordinaryConfigPath, request.tenantId)); await writePrivateJson(secrets, files.archive, await identity(this.options.archiveConfigPath, request.tenantId)); await writePrivateText(secrets, files.jwt); await writePrivateText(secrets, files.encryption);
-        await writePrivateJson(secrets, files.bundle, { installationId: stableInstallationId, tenantId: request.tenantId, product: { database, role, credentialsPath: join(directory, files.product) }, storage: { ordinaryCredentialsPath: join(directory, files.ordinary), archiveCredentialsPath: join(directory, files.archive) }, application: { jwtSecretPath: join(directory, files.jwt), encryptionSecretPath: join(directory, files.encryption) }, temporal: { namespace, credentialsPath: join(directory, files.temporal) }, invitationId: stableInvitationId } satisfies SecretBundle);
-        const credentials = JSON.parse(await readPrivate(secrets, files.product)) as { password: string }; if (!/^[A-Za-z0-9_-]{43}$/.test(credentials.password)) throw new Error("Product credential has an invalid format.");
-        const expectedRoleMarker = resourceMarker("role", persisted);
-        let roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean; marker: string | null } | undefined;
-        if (roleRecord && (!roleRecord.rolcanlogin || roleRecord.marker !== expectedRoleMarker || (persisted.role_oid && persisted.role_oid !== roleRecord.oid))) throw new Error("Product role exists without recorded provisioning provenance.");
-        if (!roleRecord) {
-          const statements = (await this.productAdmin`SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', ${role}::text, ${credentials.password}::text) AS create_statement, format('COMMENT ON ROLE %I IS %L', ${role}::text, ${expectedRoleMarker}::text) AS marker_statement`)[0] as { create_statement: string; marker_statement: string };
-          // Roles are transactional. A fault after CREATE but before COMMENT rolls both back.
-          await this.productAdmin.begin(async (product) => { await product.unsafe(statements.create_statement); await this.options.afterExternalResourceCreated?.("role"); await product.unsafe(statements.marker_statement); });
-          roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean; marker: string | null } | undefined;
-          if (!roleRecord?.rolcanlogin || roleRecord.marker !== expectedRoleMarker) throw new Error("Product role creation did not persist its trusted marker.");
-        }
-        if (!roleRecord) throw new Error("Product role creation did not persist.");
-        if (persisted.role_oid !== roleRecord.oid) { await this.control`UPDATE factory_installations SET current_step = 'role', role_oid = ${roleRecord.oid}::oid WHERE tenant_id = ${request.tenantId}`; persisted.role_oid = roleRecord.oid; persisted.current_step = "role"; }
-        const expectedDatabaseMarker = resourceMarker("database", persisted);
-        let databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
-        const mayReconcileUnmarkedDatabase = databaseRecord?.owner === role && databaseRecord.marker === null && !persisted.database_oid && persisted.current_step === "database-creating";
-        if (databaseRecord && !mayReconcileUnmarkedDatabase && (databaseRecord.owner !== role || databaseRecord.marker !== expectedDatabaseMarker || (persisted.database_oid && persisted.database_oid !== databaseRecord.oid))) throw new Error("Product database exists without recorded provisioning provenance.");
-        if (mayReconcileUnmarkedDatabase) {
-          // CREATE DATABASE cannot share the marker transaction. This phase, a marked role, and an actual credential login identify only its interrupted creation.
-          await this.verifyProductLogin(database, role, credentials.password);
-          const markerStatement = (await this.productAdmin`SELECT format('COMMENT ON DATABASE %I IS %L', ${database}::text, ${expectedDatabaseMarker}::text) AS statement`)[0] as { statement: string };
-          await this.productAdmin.unsafe(markerStatement.statement);
-          databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
-        }
-        if (!databaseRecord) {
-          // Commit the precise pre-DDL phase before CREATE DATABASE; unlike roles, databases cannot use a transaction for CREATE plus COMMENT.
-          await this.control`UPDATE factory_installations SET current_step = 'database-creating' WHERE tenant_id = ${request.tenantId} AND state = 'partial' AND database_oid IS NULL`;
-          persisted.current_step = "database-creating";
-          const statements = (await this.productAdmin`SELECT format('CREATE DATABASE %I OWNER %I', ${database}::text, ${role}::text) AS create_statement, format('COMMENT ON DATABASE %I IS %L', ${database}::text, ${expectedDatabaseMarker}::text) AS marker_statement`)[0] as { create_statement: string; marker_statement: string };
-          await this.productAdmin.unsafe(statements.create_statement); await this.options.afterExternalResourceCreated?.("database"); await this.productAdmin.unsafe(statements.marker_statement);
-          databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
-          if (!databaseRecord || databaseRecord.owner !== role || databaseRecord.marker !== expectedDatabaseMarker) throw new Error("Product database creation did not persist its trusted marker.");
-        }
-        if (!databaseRecord || databaseRecord.marker !== expectedDatabaseMarker) throw new Error("Product database creation did not persist its trusted marker.");
-        if (persisted.database_oid !== databaseRecord.oid) { await this.control`UPDATE factory_installations SET current_step = 'database', database_oid = ${databaseRecord.oid}::oid WHERE tenant_id = ${request.tenantId}`; persisted.database_oid = databaseRecord.oid; persisted.current_step = "database"; }
+        const credentials = await this.writeSecretBundle(secrets, request, { directory, database, role, namespace, installationId: stableInstallationId, invitationId: stableInvitationId });
+        await this.ensureProductRole(persisted, request.tenantId, role, credentials.password);
+        await this.ensureProductDatabase(persisted, request.tenantId, database, role, credentials.password);
         await this.productAdmin.unsafe(`REVOKE ALL ON DATABASE ${quote(database)} FROM PUBLIC`); await this.productAdmin.unsafe(`GRANT CONNECT, TEMPORARY ON DATABASE ${quote(database)} TO ${quote(role)}`);
         await this.verifyProductLogin(database, role, credentials.password);
       } finally { await secrets.close(); }
@@ -123,6 +88,75 @@ export class LocalFactoryProvisioner {
     if ("failure" in outcome) throw new Error(outcome.failure);
     return outcome.installation;
   }
+  /**
+   * Writes the tenant's secret bundle and hands back the product credential it generated.
+   *
+   * Every file is written before the bundle that names them, and the product credential is read
+   * BACK from disk rather than kept in memory: a bundle that cannot be re-read is not a bundle the
+   * installation can boot from.
+   */
+  private async writeSecretBundle(secrets: FileHandle, request: LocalInstallationRequest, names: { directory: string; database: string; role: string; namespace: string; installationId: string; invitationId: string }): Promise<{ password: string }> {
+    const { directory, database, role, namespace } = names;
+    const files = { bundle: "installation.json", product: "product-database.json", ordinary: "ordinary-storage.json", archive: "archive-storage.json", jwt: "application-jwt-secret", encryption: "application-encryption-secret", temporal: "temporal.json" } as const;
+    await writePrivateJson(secrets, files.product, { role, password: secret() }); await writePrivateJson(secrets, files.ordinary, await identity(this.options.ordinaryConfigPath, request.tenantId)); await writePrivateJson(secrets, files.archive, await identity(this.options.archiveConfigPath, request.tenantId)); await writePrivateText(secrets, files.jwt); await writePrivateText(secrets, files.encryption);
+    await writePrivateJson(secrets, files.bundle, { installationId: names.installationId, tenantId: request.tenantId, product: { database, role, credentialsPath: join(directory, files.product) }, storage: { ordinaryCredentialsPath: join(directory, files.ordinary), archiveCredentialsPath: join(directory, files.archive) }, application: { jwtSecretPath: join(directory, files.jwt), encryptionSecretPath: join(directory, files.encryption) }, temporal: { namespace, credentialsPath: join(directory, files.temporal) }, invitationId: names.invitationId } satisfies SecretBundle);
+    const credentials = JSON.parse(await readPrivate(secrets, files.product)) as { password: string }; if (!/^[A-Za-z0-9_-]{43}$/.test(credentials.password)) throw new Error("Product credential has an invalid format.");
+    return credentials;
+  }
+
+  /**
+   * Brings the product role into existence exactly once, and records its oid.
+   *
+   * The control updates here deliberately run on `this.control`, OUTSIDE the provisioning
+   * transaction: an oid recorded only on commit would be lost by a fault between the external DDL
+   * and the commit, and the next attempt would meet a role it could not prove it created.
+   */
+  private async ensureProductRole(persisted: InstallationRecord, tenantId: string, role: string, password: string): Promise<void> {
+    const expectedRoleMarker = resourceMarker("role", persisted);
+    let roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean; marker: string | null } | undefined;
+    if (roleRecord && (!roleRecord.rolcanlogin || roleRecord.marker !== expectedRoleMarker || (persisted.role_oid && persisted.role_oid !== roleRecord.oid))) throw new Error("Product role exists without recorded provisioning provenance.");
+    if (!roleRecord) {
+      const statements = (await this.productAdmin`SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', ${role}::text, ${password}::text) AS create_statement, format('COMMENT ON ROLE %I IS %L', ${role}::text, ${expectedRoleMarker}::text) AS marker_statement`)[0] as { create_statement: string; marker_statement: string };
+      // Roles are transactional. A fault after CREATE but before COMMENT rolls both back.
+      await this.productAdmin.begin(async (product) => { await product.unsafe(statements.create_statement); await this.options.afterExternalResourceCreated?.("role"); await product.unsafe(statements.marker_statement); });
+      roleRecord = (await this.productAdmin`SELECT oid::text, rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0] as { oid: string; rolcanlogin: boolean; marker: string | null } | undefined;
+      if (!roleRecord?.rolcanlogin || roleRecord.marker !== expectedRoleMarker) throw new Error("Product role creation did not persist its trusted marker.");
+    }
+    if (!roleRecord) throw new Error("Product role creation did not persist.");
+    if (persisted.role_oid !== roleRecord.oid) { await this.control`UPDATE factory_installations SET current_step = 'role', role_oid = ${roleRecord.oid}::oid WHERE tenant_id = ${tenantId}`; persisted.role_oid = roleRecord.oid; persisted.current_step = "role"; }
+  }
+
+  /**
+   * Brings the product database into existence exactly once, and records its oid.
+   *
+   * `CREATE DATABASE` cannot share a transaction with its `COMMENT`, so the interrupted case is
+   * recognised rather than guessed: the recorded phase, a marked role, and an actual credential
+   * login together identify a creation this provisioner started and nothing else.
+   */
+  private async ensureProductDatabase(persisted: InstallationRecord, tenantId: string, database: string, role: string, password: string): Promise<void> {
+    const expectedDatabaseMarker = resourceMarker("database", persisted);
+    let databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
+    const mayReconcileUnmarkedDatabase = databaseRecord?.owner === role && databaseRecord.marker === null && !persisted.database_oid && persisted.current_step === "database-creating";
+    if (databaseRecord && !mayReconcileUnmarkedDatabase && (databaseRecord.owner !== role || databaseRecord.marker !== expectedDatabaseMarker || (persisted.database_oid && persisted.database_oid !== databaseRecord.oid))) throw new Error("Product database exists without recorded provisioning provenance.");
+    if (mayReconcileUnmarkedDatabase) {
+      await this.verifyProductLogin(database, role, password);
+      const markerStatement = (await this.productAdmin`SELECT format('COMMENT ON DATABASE %I IS %L', ${database}::text, ${expectedDatabaseMarker}::text) AS statement`)[0] as { statement: string };
+      await this.productAdmin.unsafe(markerStatement.statement);
+      databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
+    }
+    if (!databaseRecord) {
+      // Commit the precise pre-DDL phase before CREATE DATABASE; unlike roles, databases cannot use a transaction for CREATE plus COMMENT.
+      await this.control`UPDATE factory_installations SET current_step = 'database-creating' WHERE tenant_id = ${tenantId} AND state = 'partial' AND database_oid IS NULL`;
+      persisted.current_step = "database-creating";
+      const statements = (await this.productAdmin`SELECT format('CREATE DATABASE %I OWNER %I', ${database}::text, ${role}::text) AS create_statement, format('COMMENT ON DATABASE %I IS %L', ${database}::text, ${expectedDatabaseMarker}::text) AS marker_statement`)[0] as { create_statement: string; marker_statement: string };
+      await this.productAdmin.unsafe(statements.create_statement); await this.options.afterExternalResourceCreated?.("database"); await this.productAdmin.unsafe(statements.marker_statement);
+      databaseRecord = (await this.productAdmin`SELECT oid::text, pg_get_userbyid(datdba) AS owner, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = ${database}`)[0] as { oid: string; owner: string; marker: string | null } | undefined;
+      if (!databaseRecord || databaseRecord.owner !== role || databaseRecord.marker !== expectedDatabaseMarker) throw new Error("Product database creation did not persist its trusted marker.");
+    }
+    if (!databaseRecord || databaseRecord.marker !== expectedDatabaseMarker) throw new Error("Product database creation did not persist its trusted marker.");
+    if (persisted.database_oid !== databaseRecord.oid) { await this.control`UPDATE factory_installations SET current_step = 'database', database_oid = ${databaseRecord.oid}::oid WHERE tenant_id = ${tenantId}`; persisted.database_oid = databaseRecord.oid; persisted.current_step = "database"; }
+  }
+
   private async verifyProductLogin(database: string, role: string, password: string): Promise<void> {
     const productUrl = new URL(this.options.productDatabaseAdminUrl); productUrl.pathname = `/${database}`; productUrl.username = role; productUrl.password = password;
     const product = new SQL(productUrl.toString(), { max: 1 }); try { const row = (await product`SELECT current_database() AS name`)[0] as { name: string } | undefined; if (row?.name !== database) throw new Error("Product credential connected to the wrong database."); } finally { await product.close(); }

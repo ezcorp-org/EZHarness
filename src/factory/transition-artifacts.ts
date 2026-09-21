@@ -75,9 +75,19 @@ export class FactoryTransitionArtifacts {
     return { ...reference, index: request.index };
   }
 
-  async finalizeTransitionArtifact(request: TransitionArtifactRequest): Promise<FinalizedTransitionArtifact> {
-    request = JSON.parse(encodeFactoryPayload(request)) as TransitionArtifactRequest;
+  /** The request envelope: a real sequence, a real byte count, an event, and a page list within bounds. */
+  private static assertFinalizeRequest(request: TransitionArtifactRequest): void {
     if (!Number.isSafeInteger(request.sourceSequence) || request.sourceSequence < 1 || !Number.isSafeInteger(request.encodedBytes) || request.encodedBytes < 1 || request.encodedBytes > MAX_TRANSITION_ARTIFACT_BYTES || !request.eventId || request.pages.length < 1 || request.pages.length > MAX_TRANSITION_PAGES) throw new FactoryArtifactError("factory_transition_invalid");
+  }
+
+  /**
+   * Reads every declared page back and concatenates it, in page order.
+   *
+   * Each page must be at the index it claims, of the size it claims, and staged under this
+   * request's own source sequence, so a page borrowed from another transition cannot be
+   * concatenated into this one.
+   */
+  private async readTransitionPages(request: TransitionArtifactRequest): Promise<string> {
     const pages: string[] = [];
     for (const [index, page] of request.pages.entries()) {
       if (page.index !== index || !Number.isSafeInteger(page.encodedBytes) || page.encodedBytes < 1 || page.encodedBytes > MAX_PAGE_BYTES) throw new FactoryArtifactError("factory_transition_invalid");
@@ -85,12 +95,29 @@ export class FactoryTransitionArtifacts {
       if (loaded.sourceSequence !== request.sourceSequence || loaded.pageIndex !== index || loaded.content.byteLength !== page.encodedBytes) throw new FactoryArtifactError("factory_transition_invalid");
       pages.push(artifactJson.text(loaded.content));
     }
-    const content = pages.join("");
-    const encoded = artifactJson.bytes(content);
-    if (encoded.byteLength !== request.encodedBytes || encoded.byteLength > MAX_TRANSITION_ARTIFACT_BYTES) throw new FactoryArtifactError("factory_transition_invalid");
+    return pages.join("");
+  }
+
+  /**
+   * Parses the reassembled bytes, and refuses a transition that is not this request's own.
+   *
+   * The canonical round trip is part of the identity: bytes that re-serialize differently are a
+   * different document from the one the manifest will pin.
+   */
+  private static parseTransition(content: string, request: TransitionArtifactRequest): TransitionArtifact {
     let transition: TransitionArtifact;
     try { transition = JSON.parse(content) as TransitionArtifact; } catch { throw new FactoryArtifactError("factory_transition_invalid"); }
     if (canonicalizeJson(transition as unknown as JsonValue) !== content || transition.schemaVersion !== "factory.transition.v1" || transition.tenantId !== request.tenantId || transition.projectId !== request.projectId || transition.logicalRunId !== request.logicalRunId || transition.interpreterId !== request.interpreterId || transition.sourceSequence !== request.sourceSequence || transition.event.id !== request.eventId) throw new FactoryArtifactError("factory_transition_invalid");
+    return transition;
+  }
+
+  async finalizeTransitionArtifact(request: TransitionArtifactRequest): Promise<FinalizedTransitionArtifact> {
+    request = JSON.parse(encodeFactoryPayload(request)) as TransitionArtifactRequest;
+    FactoryTransitionArtifacts.assertFinalizeRequest(request);
+    const content = await this.readTransitionPages(request);
+    const encoded = artifactJson.bytes(content);
+    if (encoded.byteLength !== request.encodedBytes || encoded.byteLength > MAX_TRANSITION_ARTIFACT_BYTES) throw new FactoryArtifactError("factory_transition_invalid");
+    const transition = FactoryTransitionArtifacts.parseTransition(content, request);
     const hash = eventDigest(transition.event);
     if (request.expectedEventHash !== undefined && request.expectedEventHash !== hash) throw new FactoryArtifactError("factory_transition_event_conflict");
     const manifestContent = artifactJson.canonical({ schemaVersion: "factory.transition-manifest.v1", tenantId: request.tenantId, projectId: request.projectId, logicalRunId: request.logicalRunId, interpreterId: request.interpreterId, sourceSequence: request.sourceSequence, eventId: request.eventId, eventHash: hash, encodedBytes: request.encodedBytes, pages: request.pages });
