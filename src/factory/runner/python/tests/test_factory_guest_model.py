@@ -138,13 +138,14 @@ class GuestModelResponseTests(unittest.TestCase):
     def test_a_completed_answer_is_bounded_and_carries_a_settleable_cost(self) -> None:
         over = "y" * (GUEST_MODEL_MAX_RESPONSE_BYTES + 1)
         self.assertEqual(response_code(at(guest_model_response(), ["text"], over)), "GUEST_MODEL_RESPONSE_BYTES")
-        for receipt in ("zz", f"sha256:{DIGEST}x", "sha256:" + "Z" * 64):
+        for receipt in ("zz", DIGEST + "x", "Z" * 64):
             answered = at(guest_model_response(), ["providerReceiptDigest"], receipt)
             self.assertEqual(response_code(answered), "GUEST_MODEL_RECEIPT")
-        # The bare form is what the reconciliation path refuses as tampering, so
-        # this contract refuses it here instead of letting it reach the journal.
+        # The PREFIXED form is refused. An operation's receipt is bare 64-hex in
+        # a runner result, and a terminal result must mirror the journal row, so
+        # a prefixed digest would make the attempt uncompletable.
         self.assertEqual(
-            response_code(at(guest_model_response(), ["providerReceiptDigest"], DIGEST)),
+            response_code(at(guest_model_response(), ["providerReceiptDigest"], f"sha256:{DIGEST}")),
             "GUEST_MODEL_RECEIPT",
         )
         self.assertEqual(response_code(at(guest_model_response(), ["usage", "costMicros"], "-1")), "RUNNER_USAGE")

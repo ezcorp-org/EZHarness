@@ -716,10 +716,10 @@ export function validateFactoryGuestModelResponse(value: unknown): ValidationRes
   if (encodedBytes(response.text as unknown as JsonValue) > FACTORY_GUEST_MODEL_LIMITS.maxResponseBytes) {
     return issue("GUEST_MODEL_RESPONSE_BYTES", `A guest model response exceeds ${FACTORY_GUEST_MODEL_LIMITS.maxResponseBytes} bytes.`, ["text"]);
   }
-  // Prefixed, because this digest is what settles the call. `FactoryUsageReconciliation`
-  // enforces `^sha256:[0-9a-f]{64}$` and refuses a bare digest through the same branch it uses
-  // for a tampered one, so the two shapes may not differ across this boundary.
-  if (!validDigest(response.providerReceiptDigest, true)) return issue("GUEST_MODEL_RECEIPT", "A completed model call carries its prefixed provider receipt digest.", ["providerReceiptDigest"]);
+  // BARE 64-hex, the same form `validateFactoryRunnerResult` requires of an operation's
+  // receipt. A terminal result must mirror the journal row exactly, so a prefixed digest here
+  // would make the row unsettleable or the attempt uncompletable. Coordinator ruling 2026-09-20.
+  if (!validDigest(response.providerReceiptDigest, false)) return issue("GUEST_MODEL_RECEIPT", "A completed model call carries its provider receipt digest as bare 64-character hex.", ["providerReceiptDigest"]);
   return validateUsage(response.usage, ["usage"]);
 }
 

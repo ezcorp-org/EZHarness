@@ -7,7 +7,8 @@ import { factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-la
 const digest = `sha256:${"a".repeat(64)}`;
 const pin: FactoryModelPin = { provider: "anthropic", model: "claude-opus-5", configurationDigest: digest, configuration: {}, policyDigest: digest, policy: {} };
 const usage: FactoryMeasuredUsage = { kind: "measured", inputTokens: 11, outputTokens: 7, computeMs: 21, costMicros: "1200" };
-const receipt = `sha256:${"b".repeat(64)}`;
+// Bare 64-hex, the C02 form. A terminal result must mirror the journal row.
+const receipt = "b".repeat(64);
 const completion: FactoryModelCompletion = { text: "the whole answer", providerReceiptDigest: receipt, usage };
 
 // `null` means an attempt with no pin at all. An optional parameter cannot say

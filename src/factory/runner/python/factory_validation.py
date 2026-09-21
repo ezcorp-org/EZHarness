@@ -648,13 +648,13 @@ def validate_factory_guest_model_response(value: Json, schema: Schema) -> Result
             f"A guest model response exceeds {GUEST_MODEL_MAX_RESPONSE_BYTES} bytes.",
             ("text",),
         )
-    # Prefixed, because this digest is what settles the call.  The reconciliation
-    # path enforces ``^sha256:[0-9a-f]{64}$`` and refuses a bare digest through the
-    # same branch it uses for a tampered one, so the two shapes may not differ.
-    if not valid_digest(value.get("providerReceiptDigest"), True):
+    # BARE 64-hex, the same form an operation's receipt takes in a runner result.
+    # A terminal result must mirror the journal row exactly, so a prefixed digest
+    # would make the row unsettleable or the attempt uncompletable.
+    if not valid_digest(value.get("providerReceiptDigest"), False):
         return reject(
             "GUEST_MODEL_RECEIPT",
-            "A completed model call carries its prefixed provider receipt digest.",
+            "A completed model call carries its provider receipt digest as bare 64-character hex.",
             ("providerReceiptDigest",),
         )
     return _validate_usage(value.get("usage"), ("usage",))

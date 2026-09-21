@@ -265,6 +265,43 @@ prefixed form for the same concept. Changing the C02 runner-result contract woul
 surface, the Python parity and the committed fixtures, so it is recorded in the freeze line and
 left for the coordinator to rule on.
 
+## Round 3: the receipt digest collision, resolved the other way
+
+`integ/w00` at `332bec1bc` is merged once; it carries W03d along with W13 and W07b. Three conflicts
+resolved by keeping both sides: the SDK barrel, `tasks/lessons.md`, and the section 16 bullet list.
+
+W03d makes the C02 bare 64-hex form canonical for an operation's `providerReceiptDigest`: the
+settlement store now accepts it, a migration converts stored rows, and a CHECK rejects the prefixed
+form. `isFactoryProviderReceiptDigest` in `src/factory/journal-validation.ts` is the ONE definition,
+and this leaf imports it rather than keeping a regex of its own.
+
+What changed here, per the ruling:
+
+| Surface | Now |
+| --- | --- |
+| `factoryProviderReceiptDigest` | emits bare 64-hex |
+| SDK `validateFactoryGuestModelResponse` | requires bare; the prefixed form is `GUEST_MODEL_RECEIPT` |
+| Python `validate_factory_guest_model_response` | identical rule, identical code |
+| `c02-conformance.json` | the completed response carries the bare form; `guest-model-response-receipt-prefixed` is a committed rejection in BOTH runtimes |
+| Assertions | the broker test, the one-hop test, the Podman end-to-end and the conformance suite all check the bare form, three of them through `isFactoryProviderReceiptDigest` rather than a second regex |
+| Freeze section 16 | states the collision, its terminal-result consequence, and the ruling; the `SUPERSEDED` marker is gone |
+
+- [x] G13: An attempt that called a model can BOTH settle and complete.
+  CHECK: `bun test --timeout 120000 ./src/factory/runner/guest-model-journal.integration.test.ts`
+  EXPECT: 4 pass / 0 fail
+  EVIDENCE: `unit-suites.log`, and the same suite on the real server in
+  `postgres-guest-model-journal.log`. This is the check that broke at round 2, and it broke in the
+  gap between two surfaces that no single-sided test could see:
+  `verifyRunnerResultInTransaction` runs `validateFactoryRunnerResult`, which requires an
+  operation's receipt to be bare, AND requires the terminal result's operations to MIRROR the
+  journal evidence exactly. A prefixed digest made the row unsettleable or the attempt
+  uncompletable.
+  The test admits an attempt, calls a model through the real broker and the real journal, reads
+  the evidence back, builds the terminal result from that evidence, and verifies it through
+  `journal.verifyRunnerResultInTransaction`. Controlled fault in the same test: the SAME result
+  with only the receipt prefixed — exactly what this leaf used to write — is refused by
+  `validateFactoryRunnerResult` and by the journal with `RUNNER_OPERATION`.
+
 ## Round 2 validation: ACCEPT-WITH-FIXES, and what is still open
 
 The validator verified all seven round-1 findings fixed and raised two more.
@@ -273,22 +310,11 @@ The validator verified all seven round-1 findings fixed and raised two more.
 it. It was up, under podman, and had been for seven days. Closed above in G5, withdrawn in the
 evidence index, lesson recorded.
 
-**R2-F1 HIGH, open by instruction — do not fix ahead of W03d.** Prefixing the receipt digest
-satisfies `FactoryUsageReconciliation` but breaks the C02 terminal path: `validateFactoryRunnerResult`
-requires the BARE 64-hex form and the journal mirror check requires the stored row to match it, so
-an attempt that calls a model can settle or complete but not both. This is the same cross-surface
-disagreement I disclosed in round 2 — I picked the wrong side of it.
-
-The coordinator's ruling: **the C02 bare form is canonical**, and W03 is changing
-`usage-settlement.ts` to accept it in leaf W03d. I am to hold the prefixed form until W03d lands
-on `integ/w00` and the coordinator signals, then in one pass: merge `integ/w00`, emit the bare
-form again, fix the three assertions and the conformance fixture while KEEPING a rejection case
-for the prefixed form, amend the section 16 freeze line to state the terminal-result consequence
-and the ruling, and rerun the journal suites on both stores, the resolver test, the guest Podman
-end-to-end, and the coverage gates.
-
-Section 16 of the freeze carries a `SUPERSEDED, pending W03d` marker on the prefixed-form sentence
-so no consumer implements it in the meantime. That marker is the only freeze change made now.
+**R2-F1 HIGH, closed in round 3.** Prefixing the receipt digest satisfied `FactoryUsageReconciliation`
+and broke the C02 terminal path. It is the same cross-surface disagreement I disclosed in round 2,
+and I picked the wrong side of it: I checked the surface that reads the journal row and never
+checked the one that must mirror it. The coordinator ruled the C02 bare form canonical, W03d landed
+the settlement change, and the section above records what this leaf now emits.
 
 ## Crossings disclosed
 

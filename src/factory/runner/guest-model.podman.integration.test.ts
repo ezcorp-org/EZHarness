@@ -16,6 +16,7 @@ import { migrate } from "../../db/migrate";
 import * as schema from "../../db/schema";
 import { releaseRows } from "../../db/queries/extension-releases";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../executions";
+import { isFactoryProviderReceiptDigest } from "../journal-validation";
 import type { FactoryPreparedPackageReceipt } from "../package-preparation";
 import type { PoolLease } from "../pool/ledger";
 import {
@@ -176,8 +177,10 @@ test("a real isolated guest calls its pinned model once, is refused twice, and l
 
     // One real call, answered from the recorded turn.
     expect(outcomes.get("answered")).toMatchObject({ status: "completed", text: "One export was renamed and one test was added." });
-    // Prefixed, because this is the shape `FactoryUsageReconciliation` accepts.
-    expect(outcomes.get("answered")!.receipt).toMatch(/^sha256:[a-f0-9]{64}$/);
+    // Bare 64-hex: the C02 form both the settlement store and
+    // `validateFactoryRunnerResult` require of an operation receipt.
+    expect(outcomes.get("answered")!.receipt).toMatch(/^[a-f0-9]{64}$/);
+    expect(isFactoryProviderReceiptDigest(outcomes.get("answered")!.receipt)).toBe(true);
     expect(provider.replayed).toEqual(["summarise-the-staged-diff"]);
 
     // The same operation cannot be called twice, and a model other than the pin

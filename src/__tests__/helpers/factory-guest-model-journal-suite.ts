@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import type { FactoryGuestModelRequest, FactoryModelPin, FactoryRunnerRequest, FactoryRunnerResult, JsonValue } from "@ezcorp/factory-sdk";
+import { validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
-import { validateFactoryTerminalUsage } from "../../factory/journal-validation";
+import { isFactoryProviderReceiptDigest, validateFactoryTerminalUsage } from "../../factory/journal-validation";
 import { FactoryInbox } from "../../factory/inbox";
 import { FactoryUsageReconciliation, FactoryUsageSettlements } from "../../factory/usage-settlement";
 import type { MigrateDb, TransactionalDb } from "../../db/migrations/types";
@@ -28,11 +29,12 @@ const RUN = "guest-model-run";
 const NODE = "guest-model-node";
 const RESERVATION = "guest-model-reservation";
 const ENVELOPE = "guest-model-envelope";
+const TERMINAL_NODE = "guest-model-node-terminal";
 
 const pin: FactoryModelPin = { provider: "anthropic", model: "claude-opus-5", configurationDigest: DIGEST, configuration: {}, policyDigest: DIGEST, policy: {} };
 
-function authority(): FactoryAttemptAuthority {
-  return { attemptId: "guest-model-attempt", tenantId: TENANT, projectId: PROJECT, runId: RUN, nodeInstanceId: NODE, candidateGeneration: 0, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(Date.now() + 600_000) };
+function authority(overrides: Partial<FactoryAttemptAuthority> = {}): FactoryAttemptAuthority {
+  return { attemptId: "guest-model-attempt", tenantId: TENANT, projectId: PROJECT, runId: RUN, nodeInstanceId: NODE, candidateGeneration: 0, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(Date.now() + 600_000), ...overrides };
 }
 
 function runnerRequest(attempt: FactoryAttemptAuthority): FactoryRunnerRequest {
@@ -59,9 +61,9 @@ function guestRequest(index: number, overrides: Partial<FactoryGuestModelRequest
 }
 
 function completionFor(index: number): FactoryModelCompletion {
-  // Prefixed, exactly as `factoryProviderReceiptDigest` emits it, because the
-  // reconciliation path refuses any other shape.
-  return { text: `answer ${index}`, providerReceiptDigest: `sha256:${`${index}`.padStart(64, "d")}`, usage: { kind: "measured", inputTokens: 3 + index, outputTokens: 5, computeMs: 7, costMicros: `${100 + index}` } };
+  // Bare 64-hex, exactly as `factoryProviderReceiptDigest` emits it and exactly
+  // what a terminal result must mirror.
+  return { text: `answer ${index}`, providerReceiptDigest: `${index}`.padStart(64, "d"), usage: { kind: "measured", inputTokens: 3 + index, outputTokens: 5, computeMs: 7, costMicros: `${100 + index}` } };
 }
 
 /** A promise plus the function that settles it, so a test awaits an OBSERVED event. */
@@ -223,9 +225,73 @@ export function factoryGuestModelJournalConformance(createFixture: () => Promise
     const facts = { reservationId: resolved.reservationId, attemptId: resolved.attemptId, operationId: resolved.operationId, providerReceiptDigest: resolved.providerReceiptDigest, usage: resolved.usage };
     const reconciled = await reconciler.reconcile(facts);
     expect(reconciled).toMatchObject({ source: "reconciliation", knownCostMicros: completionFor(3).usage.costMicros, providerReceiptDigest: completionFor(3).providerReceiptDigest });
-    expect(budgetSettlements).toEqual([{ costMicros: "103", tokens: 11, computeMs: 7, receipt: completionFor(3).providerReceiptDigest }]);
+    // W03d: the budget row records the SETTLEMENT digest, not the provider's.
+    // The provider's is the C02 bare form and is not a digest of anything this
+    // process computed, so it is carried inside the sealed settlement instead.
+    expect(budgetSettlements).toHaveLength(1);
+    expect(budgetSettlements[0]).toMatchObject({ costMicros: "103", tokens: 11, computeMs: 7 });
+    expect(budgetSettlements[0]!.receipt).toBe(reconciled.settlementDigest);
+    expect(reconciled.providerReceiptDigest).toBe(completionFor(3).providerReceiptDigest);
     // One receipt, one settlement: reconciling again returns the same row.
     expect(await reconciler.reconcile(facts)).toEqual(reconciled);
     expect(budgetSettlements).toHaveLength(1);
+  });
+
+  /**
+   * An attempt that called a model can BOTH settle and complete.
+   *
+   * This is the check that broke when the receipt digest was prefixed, and it
+   * broke silently in the two places that never meet in one test:
+   * `verifyRunnerResultInTransaction` runs `validateFactoryRunnerResult`, which
+   * requires an operation's receipt to be bare 64-hex, AND it requires the
+   * terminal result's operations to MIRROR the journal evidence exactly. A
+   * prefixed digest therefore made the row unsettleable or the attempt
+   * uncompletable, and no test that looked at only one side could see it.
+   */
+  test("a terminal result for an attempt that called a model verifies against the journal", async () => {
+    const db = fixture.db;
+    const journal = new FactoryExecutionJournal(db, async () => {});
+    const attempt = authority({ attemptId: "guest-model-attempt-terminal", nodeInstanceId: TERMINAL_NODE });
+    const request = { ...runnerRequest(attempt) };
+    const sealed: FactoryAttemptAuthority = { ...attempt, requestDigest: factoryRunnerRequestDigest(request) };
+    await journal.admit({ ...sealed, request });
+
+    const completion = completionFor(7);
+    const instance = createFactoryGuestModelBroker({
+      provider: { complete: async () => completion },
+      journal: createFactoryJournalGuestModelJournal({
+        journal,
+        workspace: { checkpoint: async (input) => ({ artifactId: `terminal-checkpoint-${input.operationIndex}`, digest: `sha256:${"c".repeat(64)}`, encodedBytes: 4, journalCursor: input.operationIndex }) },
+      }),
+    });
+    const answered = await instance.call(request, guestRequest(0, { operationId: `${RUN}:${TERMINAL_NODE}:0:0` }));
+    expect(answered).toMatchObject({ status: "completed", providerReceiptDigest: completion.providerReceiptDigest });
+    // The one definition of the form, not a regex written twice.
+    expect(isFactoryProviderReceiptDigest(completion.providerReceiptDigest)).toBe(true);
+
+    // The terminal result mirrors the journal evidence, which is the rule.
+    const { operations, journalCursor } = await journal.evidence(sealed);
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toMatchObject({ state: "completed", kind: "model", providerReceiptDigest: completion.providerReceiptDigest });
+    const output = { artifactId: "guest-model-terminal-output", digest: `sha256:${"e".repeat(64)}`, encodedBytes: 8 };
+    const terminal = {
+      schemaVersion: "factory.runner.result.v1", status: "completed", journalCursor,
+      operations, resultDigest: "e".repeat(64), output,
+      usage: completion.usage,
+      workspaceCheckpoint: { artifactId: "terminal-checkpoint-0", digest: `sha256:${"c".repeat(64)}`, encodedBytes: 4, journalCursor },
+    } as unknown as FactoryRunnerResult;
+
+    // The SDK contract admits it, and so does the journal. Both, or neither.
+    expect(validateFactoryRunnerResult(terminal)).toEqual({ ok: true });
+    const verified = await db.transaction(transaction => journal.verifyRunnerResultInTransaction(transaction, sealed, terminal));
+    expect(verified.journalCursor).toBe(journalCursor);
+    expect(verified.operations).toHaveLength(1);
+    expect(verified.terminalResultDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+
+    // The controlled fault: the SAME result with the receipt prefixed, which is
+    // what this leaf used to write, is refused. That is the round-2 break.
+    const prefixed = { ...terminal, operations: [{ ...operations[0], providerReceiptDigest: `sha256:${completion.providerReceiptDigest}` }] } as unknown as FactoryRunnerResult;
+    expect(validateFactoryRunnerResult(prefixed).ok).toBe(false);
+    await expect(db.transaction(transaction => journal.verifyRunnerResultInTransaction(transaction, sealed, prefixed))).rejects.toThrow("RUNNER_OPERATION");
   });
 }

@@ -58,11 +58,16 @@ function textOf(message: AssistantMessage): string {
  * produced it, how it stopped, and what it consumed. Two different answers can
  * never share one receipt.
  *
- * The `sha256:` prefix is not decoration. `FactoryUsageReconciliation` enforces
- * `^sha256:[0-9a-f]{64}$` in both `resolve` and `reconcile`, and refuses a bare
- * hex digest through the same branch it uses for a TAMPERED one, so a
- * legitimate receipt in the wrong shape would be indistinguishable from an
- * attack on the journal.
+ * The form is BARE 64-character lowercase hex, with no `sha256:` prefix, and
+ * that is not a free choice. An operation's `providerReceiptDigest` crosses two
+ * surfaces at once: the settlement store reads it off the journal row, and the
+ * terminal result must MIRROR that row exactly for
+ * `verifyRunnerResultInTransaction` to accept the attempt. The SDK's
+ * `validateFactoryRunnerResult`, the generated schema and the Python validator
+ * all require the bare form, so a prefixed digest made the row unsettleable or
+ * the attempt uncompletable. Coordinator ruling, 2026-09-20: the C02 bare form
+ * is canonical and the settlement store accepts it.
+ * `isFactoryProviderReceiptDigest` is the one definition.
  */
 export function factoryProviderReceiptDigest(message: AssistantMessage): string {
   const receipt = {
@@ -71,7 +76,7 @@ export function factoryProviderReceiptDigest(message: AssistantMessage): string 
     ...(message.responseId === undefined ? {} : { responseId: message.responseId }),
     content: message.content, stopReason: message.stopReason, usage: message.usage,
   };
-  return `sha256:${createHash("sha256").update(canonicalJson(JSON.parse(JSON.stringify(receipt)))).digest("hex")}`;
+  return createHash("sha256").update(canonicalJson(JSON.parse(JSON.stringify(receipt)))).digest("hex");
 }
 
 /** Provider usage as the journal records it. Cost is carried in micros, never as a float. */

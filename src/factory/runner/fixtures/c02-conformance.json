@@ -168,7 +168,7 @@
         "status": "completed",
         "operationId": "run-1:node-1:0:2",
         "text": "The staged diff renames one export and adds a test.",
-        "providerReceiptDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "providerReceiptDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         "usage": {
           "kind": "measured",
           "inputTokens": 11,
@@ -412,12 +412,12 @@
       "value": ""
     },
     {
-      "name": "guest-model-response-receipt-not-prefixed",
+      "name": "guest-model-response-receipt-prefixed",
       "kind": "guest-model-response",
       "path": [
         "providerReceiptDigest"
       ],
-      "value": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+      "value": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
     }
   ]
 }

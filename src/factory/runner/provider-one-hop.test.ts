@@ -4,6 +4,7 @@ import type { Api, AssistantMessage, Model, StopReason } from "@earendil-works/p
 import type { FactoryGuestModelRequest, FactoryModelPin, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryBrokerRequest } from "../../runtime/factory-execution";
 import { createFactoryOneHopProvider, factoryMeasuredUsageOf, factoryProviderReceiptDigest } from "./provider-one-hop";
+import { isFactoryProviderReceiptDigest } from "../journal-validation";
 import { factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 
 const digest = `sha256:${"a".repeat(64)}`;
@@ -93,10 +94,11 @@ test("a cost that cannot be settled is refused rather than rounded to zero", () 
 
 test("two different provider answers never share one receipt digest", () => {
   const base = factoryProviderReceiptDigest(message());
-  // `FactoryUsageReconciliation` enforces exactly this pattern in both `resolve`
-  // and `reconcile`, and refuses anything else through the same branch it uses
-  // for a tampered digest.
-  expect(base).toMatch(/^sha256:[a-f0-9]{64}$/);
+  // The C02 form. Checked against the one predicate rather than a local regex,
+  // so this test moves if the shared definition ever does.
+  expect(base).toMatch(/^[a-f0-9]{64}$/);
+  expect(isFactoryProviderReceiptDigest(base)).toBe(true);
+  expect(isFactoryProviderReceiptDigest(`sha256:${base}`)).toBe(false);
   expect(factoryProviderReceiptDigest(message())).toBe(base);
   for (const variant of [
     message({ content: [{ type: "text", text: "different" }] } as Partial<AssistantMessage>),
