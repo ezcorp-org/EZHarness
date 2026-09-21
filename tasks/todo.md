@@ -2940,3 +2940,80 @@ phase independently readable. `repair` and `replan` became one fall-through case
 already called the same reducer. Neither is a behavior change, and both are the kind of duplication
 the gate was pointing at.
 
+
+## W01f — the event-stream detach leak
+
+Branch `wp/w01f-detach`, cut from `wp/w18a-sdk` at `9e7866e2b`. One product defect in
+`packages/@ezcorp/extension-runner/src/service.ts`, reported by W18a-sdk as OPEN 2. Gate file:
+`tasks/factory/w01f-GATES.md`. Receipts: `/tmp/factory-platform-evidence/w01f/`.
+
+- [x] Reproduce end to end against the real service before touching any code, all four client
+      close forms, with the reproduction recorded.
+- [x] Measure which disconnect signal Bun 1.3.14 actually delivers, with a negative result for
+      every candidate that does not work, including a heartbeat write.
+- [x] Serve the private Unix socket with `Bun.serve` and release the attachment from
+      `Request.signal`.
+- [x] Bound the one disconnect the runtime reports nothing for with an attachment lease that every
+      request from the holding host renews, and that re-arms while the host still owes a reply;
+      declare the poll window and the lease as options with defaults and named refusals.
+- [x] Keep a released attachment's whole queue for the replacement host, reverse calls and
+      notifications alike.
+- [x] Move `maxHeaderSize` into the handler rather than dropping it; record where the other
+      `node:http` bounds already live.
+- [x] Tests: each of the four disconnect forms, reattach after release, another worker's
+      attachment untouched, many disconnects leaving none held, the queue surviving, both declared
+      refusals, and the header, absent-body and unknown-endpoint paths.
+- [x] `service.ts` at 183/183 lines, including the six lines that were unreachable before.
+- [x] Static gates: typecheck, lint, factory boundaries, gate integrity.
+- [x] Real-Podman producers under the shared heavy lock: the two the brief named plus the
+      production service end to end, all exit 0. A second batch of six suites that do not load the
+      changed file is still queued behind an orphaned lock holder, reported to the coordinator.
+- [x] `BASE_REF=wp/w18a-sdk` new-file and patch coverage over the merged LCOV.
+- [x] Diagnose and remove the one observed test failure's dependence on host timing, rather than
+      retrying it.
+
+### Review
+
+The six-line detach handler was not dead code written carelessly; it was correct Node code on a
+runtime that does not implement the events it waits for. So the first hour went entirely into
+measurement, and the measurement is the finding: on Bun 1.3.14 a `node:http` server raises no
+`close` on the response, no `aborted` or `close` on the request, and no event on the socket — not
+even the one `server.on("connection")` hands out — when a client drops a parked exchange. It goes
+further than silence: with the headers flushed and the body streaming, five writes totalling
+320 KiB into the dead connection all returned `true`. That last result is what closed off the
+cheap fix, because a heartbeat whose write can never fail is a heartbeat that can never detect
+anything. `request.socket` turns out to be Bun's synthesized `Symbol(fakeSocket)` with no handle
+behind it, which explains all of it at once.
+
+`Bun.serve` does deliver the disconnect, as `Request.signal`, within about ten milliseconds of a
+host process being SIGKILLed. That made the fix a transport change rather than a handler change,
+which is more than I wanted to touch in a defect package, so the test for it was whether every
+existing assertion survives untouched: all five `service.test.ts` cases and every runner suite do,
+because the wire protocol is byte-identical and only the plumbing under it moved. The repository
+already required this direction — `Bun.serve()` over `node:http` is a standing rule in
+`CLAUDE.md` — so the migration also removes a deviation rather than creating one.
+
+One disconnect form stays invisible to the runtime: a client that half-closes its socket and keeps
+reading. That is not really a disconnect — such a client can still receive its answer — but a host
+that stops collecting its stream for any reason is a real leak, so the attachment became a lease
+that every request from the holding host renews. It is not a timer guessing at a disconnect: the
+renewal is an observed protocol event, the signal still releases immediately where it is delivered,
+and the lease only bounds the case where nothing is delivered. Making the lease and the poll window
+declared options that are validated against each other also made the whole thing testable in under
+a second instead of in twenty-one.
+
+The first version of that lease was wrong and I caught it by reading the client rather than the
+service. `RunnerClient` collects an event, runs the host's reverse call, and only then polls again,
+so the legitimate gap between two host requests is as long as the reverse call takes — up to the
+sixty-second host timeout. A lease that counted that gap as silence would have evicted a host in
+the middle of its work. The lease now re-arms while the host still owes a reply, which costs one
+line and needs no second constant, because the outstanding call already carries its own timeout and
+removes itself when it expires. Removing that one line turns the new busy-host case red, which is
+how I know it is load-bearing.
+
+Two things fell out of making the detach path reachable for the first time. The old code fell
+through after detaching and spliced the queued notifications out to a client that had already
+gone, so those events were lost to the replacement host; a released attachment now answers nothing
+and keeps the whole queue. And `node:http`'s `maxHeaderSize` had no `Bun.serve` equivalent, so
+rather than let a declared control disappear in a refactor it became an explicit check in the
+handler with its own test.

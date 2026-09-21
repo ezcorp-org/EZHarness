@@ -966,3 +966,44 @@ Long final messages are cut at a few thousand characters and the tail is lost. E
 
 ## Main's pooled coverage command is CI-only (2026-09-21)
 `bun run test:coverage` aborts before writing `coverage/lcov.info` when the browser-route coverage receipt is absent, so the global floor and CRAP gates read "lcov not found" (or a stale file) on a developer host. Measure them over the combined runner's merged lcov, and never score a gate against a `coverage/lcov.info` older than the tree.
+
+## 2026-09-21 — W01f event-stream detach
+
+- Measure which events a runtime delivers before writing a handler that waits for one. Bun 1.3.14's
+  `node:http` server raises NOTHING when a client drops a parked exchange: no `close` on the
+  response, no `aborted` or `close` on the request, and no event on the socket, not even the one
+  `server.on("connection")` hands out. The code was correct Node, so it read as correct to three
+  reviewers and to its author, and the only thing that could have caught it is attaching every
+  candidate listener to one real exchange and printing which fired. Under Bun, `request.socket` is
+  a synthesized `Symbol(fakeSocket)` with no `_handle`, which is why the socket layer is silent too.
+- A heartbeat only detects a disconnect if its write can fail. With the headers flushed and the
+  body streaming, five `response.write()` calls totalling 320 KiB into a dropped `node:http`
+  connection all returned `true` and threw nothing. Prove the failing write before designing a
+  heartbeat around it; on this runtime that design is unavailable, not merely slower.
+- `Bun.serve`'s `Request.signal` does abort, in about ten milliseconds, for `request.abort()`,
+  `request.destroy()`, `socket.destroy()`, a SIGKILLed client process, and a half-close followed by
+  exit. It does NOT abort for a pure half-close where the client stays alive and keeps reading,
+  which is correct: that client can still receive its answer. Measure each close form separately;
+  "the client disconnected" is four different things at the socket layer.
+- Where a runtime reports nothing, bound the leak with a lease the protocol itself renews, not with
+  a timer that guesses. The renewal is an observed request; the signal still releases immediately
+  where it is delivered; the lease only covers what is never delivered. Declare the lease and the
+  window it must outlast as options validated against each other — that is also what makes the case
+  testable in under a second rather than in twenty-one.
+- Making an unreachable branch reachable can expose a second defect behind it. Once detach could
+  actually run, the old code fell through and spliced the queued notifications out to a client that
+  had already gone, losing them for the replacement host. Read what the code does AFTER the branch
+  you are about to enable.
+- When a transport migration drops a declared control, move it rather than let it vanish.
+  `Bun.serve` has no `maxHeaderSize`, so the 4096-byte policy became an explicit check in the
+  handler with its own test; `maxConnections` and the two node:http timeouts were already enforced
+  by the Python peer gateway on the only path an untrusted peer can reach, and the gate file says
+  so. A refactor that silently loses a bound is a security regression with a clean diff.
+- A lease on a long-poll attachment must be read against the CLIENT's loop, not the server's. This
+  repo's `RunnerClient` collects an event, runs the host's reverse call, and only then polls again,
+  so the legitimate gap between two host requests is as long as that call takes — up to the sixty
+  second host timeout. My first lease counted that gap as silence and would have evicted a host in
+  the middle of its work. Re-arming the lease while the host still owes a reply costs one line and
+  needs no second constant, because the outstanding call already carries its own timeout and
+  deletes itself when it expires. Read the consumer's loop before choosing any interval that
+  expires on its silence.
