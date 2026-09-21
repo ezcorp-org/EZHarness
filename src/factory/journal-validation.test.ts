@@ -6,6 +6,7 @@ import type { FactoryAttemptAuthority, FactoryJournalOperationEvidence } from ".
 import {
   factoryUnsignedStopReceipt,
   firstFactoryJournalIssue,
+  isFactoryProviderReceiptDigest,
   validateFactoryOperationSettlement,
   validateFactoryOperationUsage,
   validateFactoryStopReceipt,
@@ -129,9 +130,25 @@ test("holds each settlement state to the evidence C02 requires", () => {
   expect(codes(validateFactoryOperationSettlement("completed", { ...complete, resultDigest: undefined }))).toEqual(["factory_operation_result_digest_missing"]);
   expect(validateFactoryOperationSettlement("failed", { resultDigest: "a".repeat(64) })).toEqual({ ok: true });
   expect(codes(validateFactoryOperationSettlement("failed", {}))).toEqual(["factory_operation_result_digest_missing"]);
-  expect(validateFactoryOperationSettlement("uncertain", { providerReceiptDigest: `sha256:${"a".repeat(64)}`, usage: unknownUsage() as never })).toEqual({ ok: true });
+  expect(validateFactoryOperationSettlement("uncertain", { providerReceiptDigest: "a".repeat(64), usage: unknownUsage() as never })).toEqual({ ok: true });
   expect(codes(validateFactoryOperationSettlement("uncertain", {}))).toEqual(["factory_operation_provider_receipt_missing"]);
   expect(codes(validateFactoryOperationSettlement("failed", { resultDigest: "a".repeat(64), usage: { kind: "guessed" } as never }))).toEqual(["factory_usage_kind_unsupported"]);
+});
+
+// The prefixed form was the collision: the journal took it, the SDK result
+// validator and the generated schema never could, so the row was unsettleable
+// and the attempt uncompletable. Refusing it here keeps the surfaces together.
+test("takes an operation receipt only in the C02 bare form", () => {
+  const bare = "a".repeat(64);
+  expect(isFactoryProviderReceiptDigest(bare)).toBe(true);
+  for (const wrong of [`sha256:${bare}`, bare.toUpperCase(), "a".repeat(63), "a".repeat(65), "g".repeat(64), ` ${bare}`, "", 64, undefined, null]) {
+    expect(isFactoryProviderReceiptDigest(wrong)).toBe(false);
+  }
+  for (const state of ["completed", "failed", "uncertain"] as const) {
+    const settlement = { resultDigest: bare, result: { ok: true }, usage: measured() as never, workspaceCheckpoint: checkpoint(0) as never, providerReceiptDigest: `sha256:${bare}` };
+    expect(codes(validateFactoryOperationSettlement(state, settlement))).toEqual(["factory_operation_provider_receipt_invalid"]);
+    expect(validateFactoryOperationSettlement(state, { ...settlement, providerReceiptDigest: bare })).toEqual({ ok: true });
+  }
 });
 
 test("compares terminal usage with its operations as BigInt cost, not as a number", () => {

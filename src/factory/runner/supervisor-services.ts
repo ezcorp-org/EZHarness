@@ -15,20 +15,24 @@
  * two certificates, and two readiness facts for one process.
  *
  * **The guest's reverse capability refuses, and that is the correct answer.**
- * `createFactoryHostLaunchSupervisor` takes a `broker` so a guest can ask for a
- * model stream. The host holds no tenant credential, so the call must return to
- * the product process — and no contract defines what a guest sends or how a
- * stream comes back over one request/response hop. W01b's own end-to-end sends
- * an ad-hoc `{ kind: "model", operation: "e2e" }` and its double answers
- * `{ accepted: true }`. Writing an adapter over an undefined payload would be a
- * stub that answers, so this one refuses by name: a guest that calls the broker
- * gets `factory_host_broker_unavailable`, which a reader can act on, instead of
- * a plausible reply it cannot distinguish from a real one.
+ * `createFactoryHostLaunchSupervisor` takes a {@link FactoryGuestBroker} so a
+ * guest can ask for a model call. What a guest sends is now defined — a
+ * `FactoryGuestModelRequest`, served product-side by
+ * `createFactoryOneHopProvider` — but the transport back is not: this process
+ * holds the container runner and the host signing key and no tenant credential,
+ * the provider it would need lives in the product process, and nothing defines
+ * a route from a host back to it. Handing the supervisor a broker that answered
+ * from here would be answering a model call with no model, so this one refuses
+ * by name: a guest that calls the broker gets
+ * `factory_host_broker_unavailable`, which a reader can act on, instead of a
+ * plausible reply it cannot distinguish from a real one. A deployment that
+ * grows that route supplies its own broker through `FactoryHostServiceOptions`.
  */
 import type { Runner } from "@ezcorp/extension-contract";
 import { startFactoryPrivateHttps, type FactoryPrivateRequest, type FactoryPrivateResponse } from "../private-https";
 import { FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_RESULT_PATH, createFactoryHostLaunchRouteHandler } from "./host-launch-service";
 import { createFactoryHostLaunchSupervisor } from "./host-launch-supervisor";
+import type { FactoryGuestBroker } from "./guest-model-broker";
 import {
   FACTORY_HOST_STOP_PATH,
   createFactoryHostStopRouteHandler,
@@ -59,12 +63,14 @@ export class FactoryHostBrokerUnavailableError extends Error {
 /**
  * The guest's one reverse capability, refused by name.
  *
- * Exported so a deployment that has a broker contract supplies its own and the
- * refusal is visibly the default rather than a hidden fallback.
+ * Exported so a deployment that can reach a provider from its hosts supplies
+ * its own and the refusal is visibly the default rather than a hidden fallback.
  */
-export async function factoryHostBrokerUnavailable(): Promise<never> {
-  throw new FactoryHostBrokerUnavailableError();
-}
+export const factoryHostBrokerUnavailable: FactoryGuestBroker = Object.freeze({
+  async invoke(): Promise<never> {
+    throw new FactoryHostBrokerUnavailableError();
+  },
+});
 
 /**
  * The host's physical stop, backed by the real container runner.
@@ -134,7 +140,7 @@ export interface FactoryHostServiceOptions {
   readonly allowedPeers: readonly string[];
   readonly runner: Runner;
   readonly signingKey: FactoryHostSigningKeySource;
-  readonly broker?: (intent: unknown, input: unknown) => Promise<unknown>;
+  readonly broker?: FactoryGuestBroker;
   readonly now?: () => number;
 }
 

@@ -182,6 +182,7 @@ jobs:
           ./tests/postgres/factory-tenant-projects.test.ts
           ./tests/postgres/factory-host-launch.test.ts
           ./tests/postgres/factory-execution-gateway.test.ts
+          ./tests/postgres/factory-guest-model-journal.test.ts
           ./tests/postgres/factory-service-credentials.test.ts
           ./tests/postgres/factory-grants.test.ts
           ./tests/postgres/factory-task-stops.test.ts
@@ -261,6 +262,7 @@ jobs:
           ./tests/postgres/factory-validator-materials.test.ts
           ./tests/postgres/factory-validator-multiclaim.test.ts
           ./tests/postgres/factory-child-artifacts.test.ts
+          ./tests/postgres/factory-legacy-workflow.test.ts
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

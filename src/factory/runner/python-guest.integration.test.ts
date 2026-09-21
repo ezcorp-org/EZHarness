@@ -6,7 +6,8 @@ import { randomUUID } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { buildLimits, DEFAULT_PYTHON_IMAGE, executionLimits, filesDigest, PythonPodmanRunner, pythonClosureDigest, pythonGuestLauncher, RUNNER_GUEST_ENVIRONMENT, RUNNER_GUEST_ENVIRONMENT_RESIDUE, RunnerError } from "@ezcorp/extension-runner";
-import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
+import { validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
+import { loadFactoryConformanceFixtures, type FactoryConformanceKind } from "../../__tests__/helpers/factory-c02-conformance-fixtures";
 import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestDigest, factoryPythonGuestFiles, factoryPythonRunnerClosure } from "./python-guest";
 
 /**
@@ -18,12 +19,18 @@ import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestDigest, factoryPytho
  * committed repository bytes rather than a fixture written for this file.
  */
 
-type Fixture = { success: Array<{ name: string; kind: "request" | "result"; value: unknown }>; rejected: Array<{ name: string; kind: "request" | "result"; path: Array<string | number>; value: unknown }> };
 type Verdict = { ok: boolean; schemaId?: string; runtime?: string; code?: string; path?: Array<string | number> };
 type HostileReport = { refusals: Record<string, boolean>; allRefused: boolean; controlTmpWriteRefused: boolean; processesVisible: string[]; rootOwnedSecretPresent: boolean; spawnedChild: { spawned: boolean; capabilities: string; noNewPrivileges: string; seccomp: string; routes: string[] } };
 type GuestControls = { uid: number; gid: number; capabilities: string; noNewPrivileges: string; seccomp: string; memoryMax: string; swapMax: string; cpuMax: string; pidsMax: string; routes: string[]; ipv6Routes: string[]; environment: string[]; devices: string[]; gpuDevices: string[]; writableRoot: boolean; distributions: string[]; python: string; runtime: string };
 
-const fixture = JSON.parse(await readFile(join(import.meta.dir, "fixtures/c02-conformance.json"), "utf8")) as Fixture;
+const fixture = await loadFactoryConformanceFixtures(join(import.meta.dir, "fixtures"));
+
+function sdk(kind: FactoryConformanceKind, value: unknown) {
+  if (kind === "request") return validateFactoryRunnerRequest(value);
+  if (kind === "result") return validateFactoryRunnerResult(value);
+  if (kind === "guest-model-request") return validateFactoryGuestModelRequest(value);
+  return validateFactoryGuestModelResponse(value);
+}
 
 let root: string;
 let runner: PythonPodmanRunner;
@@ -90,19 +97,15 @@ test("a real framed invocation crosses the FIFO control channel and answers with
 
 test("the isolated Python guest and the Bun validator agree on every committed fixture", async () => {
   for (const item of fixture.success) {
-    expect(item.kind === "request" ? validateFactoryRunnerRequest(item.value) : validateFactoryRunnerResult(item.value)).toEqual({ ok: true });
-    expect(await guest<Verdict>("validate", { kind: item.kind, value: item.value })).toMatchObject({ ok: true });
+    expect(sdk(item.kind, item.value), item.name).toEqual({ ok: true });
+    expect(await guest<Verdict>("validate", { kind: item.kind, value: item.value }), item.name).toMatchObject({ ok: true });
   }
   for (const item of fixture.rejected) {
-    const base = JSON.parse(canonicalJson(fixture.success.find(success => success.kind === item.kind)!.value)) as Record<string, unknown>;
-    let target: Record<string, unknown> = base;
-    for (const key of item.path.slice(0, -1)) target = target[key as string] as Record<string, unknown>;
-    target[item.path.at(-1) as string] = item.value;
-    const bun = item.kind === "request" ? validateFactoryRunnerRequest(base) : validateFactoryRunnerResult(base);
-    expect(bun.ok).toBe(false);
-    const python = await guest<Verdict>("validate", { kind: item.kind, value: base });
-    expect(python.ok).toBe(false);
-    expect(python.code).toBe((bun as unknown as { issues: Array<{ code: string }> }).issues[0]!.code);
+    const bun = sdk(item.kind, item.value);
+    expect(bun.ok, `${item.name} was accepted by the Bun validator`).toBe(false);
+    const python = await guest<Verdict>("validate", { kind: item.kind, value: item.value });
+    expect(python.ok, `${item.name} was accepted by the isolated Python guest`).toBe(false);
+    expect(python.code, item.name).toBe((bun as unknown as { issues: Array<{ code: string }> }).issues[0]!.code);
   }
 }, 900_000);
 

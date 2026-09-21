@@ -1,0 +1,104 @@
+{
+  "package": "w03d",
+  "validator": "w03d-validator",
+  "verdict": "ACCEPT",
+  "head": "de9abfd07198a29692ca32092a0939c362971412",
+  "branch": "wp/w03d-receipt-digest",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w03-stop",
+  "cutPoint": "cfbc3c767846170a201727547ad9794b155b910a",
+  "treeStatus": "clean",
+  "commits": [
+    {
+      "sha": "de9abfd07198a29692ca32092a0939c362971412",
+      "subject": "feat(factory): take the operation receipt digest in the C02 bare form"
+    }
+  ],
+  "reruns": [
+    { "producer": "build-extension-contract", "command": "bun run --cwd packages/@ezcorp/extension-contract build", "exitCode": 0 },
+    { "producer": "build-factory-sdk", "command": "bun run --cwd packages/@ezcorp/factory-sdk build", "exitCode": 0 },
+    { "producer": "build-factory-transport", "command": "bun run --cwd packages/@ezcorp/factory-transport build", "exitCode": 0 },
+    { "producer": "typecheck", "command": "bun run typecheck", "exitCode": 0, "logPath": "/tmp/factory-platform-evidence/w03d-validation/typecheck.log" },
+    { "producer": "lint", "command": "bun run lint", "exitCode": 0, "infos": 8, "logPath": "/tmp/factory-platform-evidence/w03d-validation/lint.log" },
+    { "producer": "boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exitCode": 0, "logPath": "/tmp/factory-platform-evidence/w03d-validation/boundaries.log" },
+    { "producer": "gate-integrity", "command": "bun scripts/gate-integrity.ts", "exitCode": 0, "logPath": "/tmp/factory-platform-evidence/w03d-validation/gate-integrity.log" },
+    {
+      "producer": "focused-coverage",
+      "command": "bun test --timeout 120000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w03d-validation/coverage ./src/factory/usage-settlement.test.ts ./src/factory/journal-validation.test.ts ./src/db/migrations/add-factory-usage-receipt-c02-form.test.ts ./src/db/migrations/add-factory-usage-settlements.test.ts ./src/__tests__/factory-task-stops.test.ts ./src/__tests__/factory-budgets.test.ts ./src/__tests__/factory-migration-restart.test.ts ./src/__tests__/factory-executions.test.ts",
+      "exitCode": 0,
+      "tests": { "pass": 65, "fail": 0, "expectCalls": 569 },
+      "matchesWorkerClaim": true,
+      "logPath": "/tmp/factory-platform-evidence/w03d-validation/focused.log"
+    },
+    {
+      "producer": "pglite-sweep-135-factory-files",
+      "command": "HOST_FILES_OVERRIDE=/tmp/factory-platform-evidence/w03d-validation/host-files-override.txt bash scripts/test.sh (under flock /tmp/ezcorp-validation-heavy.lock)",
+      "exitCode": 0,
+      "tests": { "pass": 1240, "fail": 0, "files": 135 },
+      "matchesWorkerClaim": true,
+      "logPath": "/tmp/factory-platform-evidence/w03d-validation/pglite-sweep.log"
+    },
+    {
+      "producer": "real-postgres-shared-suites",
+      "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 1800 postgres.sh ./tests/postgres/factory-migration-restart.test.ts ./tests/postgres/factory-schema.test.ts ./tests/postgres/factory-task-stops.test.ts ./tests/postgres/factory-budgets.test.ts ./tests/postgres/factory-executions.test.ts",
+      "exitCode": 0,
+      "tests": { "pass": 52, "fail": 0, "expectCalls": 3301 },
+      "matchesWorkerClaim": true,
+      "credentialScanClean": true,
+      "logPath": "/tmp/factory-platform-evidence/w03d-validation/postgres.log"
+    },
+    {
+      "producer": "static-registration",
+      "command": "bun test --timeout 30000 ./scripts/factory-c13-inventory.test.ts ./scripts/factory-postgres-suite-registration.test.ts",
+      "exitCode": 0,
+      "tests": { "pass": 18, "fail": 0, "expectCalls": 211 },
+      "matchesWorkerClaim": true,
+      "logPath": "/tmp/factory-platform-evidence/w03d-validation/static-registration.log"
+    },
+    {
+      "producer": "new-file-coverage-gate",
+      "command": "BASE_REF=cfbc3c767 bun scripts/check-new-file-coverage.ts",
+      "exitCode": 0,
+      "result": "PASSED, 1 new source file gated",
+      "logPath": "/tmp/factory-platform-evidence/w03d-validation/new-file-coverage.log"
+    },
+    {
+      "producer": "patch-coverage-gate",
+      "command": "BASE_REF=cfbc3c767 bun scripts/check-patch-coverage.ts",
+      "exitCode": 0,
+      "result": "PASSED, 5 changed files covered",
+      "logPath": "/tmp/factory-platform-evidence/w03d-validation/patch-coverage.log"
+    }
+  ],
+  "interfaceConformance": {
+    "freezeSection16DatedRuling": true,
+    "freezeSection8OwnershipRespected": true,
+    "crossSurfaceGrammarConsistent": true,
+    "surfacesChecked": [
+      "packages/@ezcorp/factory-sdk/src/validation.ts:290-296 (validDigest)",
+      "src/factory/runner/python/factory_validation.py:329-341 (valid_digest)",
+      "src/factory/journal-validation.ts (PROVIDER_RECEIPT_PATTERN)"
+    ]
+  },
+  "findings": [
+    {
+      "severity": "LOW",
+      "category": "documentation-format",
+      "file": "tasks/factory/w03d-GATES.md",
+      "description": "Does not use the '- [ ] Gn: ... CHECK: <command> EXPECT: <result> EVIDENCE: <receipt>' checklist format that common.md prescribes and that sibling files tasks/factory/w03-GATES.md and tasks/factory/w03c-GATES.md both use. Content is complete, accurate, and independently verified; this is a format deviation only and does not change the verdict.",
+      "blocking": false
+    }
+  ],
+  "gateIntegrity": {
+    "skipOnlyTodo": false,
+    "assertionFreeTests": false,
+    "emptyCatchInTests": false,
+    "loweredThresholds": false,
+    "newExcludes": false,
+    "biomeOptOuts": false,
+    "wallClockAssertions": false,
+    "duplicateHelpers": false,
+    "credentialLeaks": false
+  },
+  "destructiveOrOutOfScopeCommandsRun": false,
+  "finalMessageVerdict": "ACCEPT"
+}

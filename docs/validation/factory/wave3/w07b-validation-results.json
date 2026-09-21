@@ -1,0 +1,169 @@
+{
+  "verdict": "ACCEPT-WITH-FIXES",
+  "package": "w07b",
+  "head": "dfbb0b546249dafdc3aa618908c9bda046de0f13",
+  "headNote": "Brief named head 6593bc1c1. Two further commits were found on the branch: c942a7dfb (docs, W07b's own open interface questions) and dfbb0b546 (docs, the coordinator's answers to those questions, landed at 2026-09-20T20:38:24-04:00 while this validation was in progress). Both are docs-only against tasks/factory/w07b-GATES.md; `git diff --name-only c942a7dfb..HEAD` names only that file. All reruns below were executed against the source tree at c942a7dfb / dfbb0b546, which are identical in every file except the gate doc.",
+  "mergeBase": "cfbc3c767846170a201727547ad9794b155b910a",
+  "branch": "wp/w07b-release-consent",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w07-github",
+  "treeState": "clean (git status --porcelain empty at validation time)",
+  "commitsInScope": [
+    { "sha": "fdf9ec914c5d128db44ce978bd98f83f14670b3c", "subject": "feat(factory): read the one consent a claimable release already has" },
+    { "sha": "6593bc1c1e7217546642e4c2bcbfeceb6efc2c07", "subject": "docs(factory): stamp the W07b gate receipts" },
+    { "sha": "c942a7dfb4b099e0dbce119e5303fecd25f1befd", "subject": "docs(factory): record the W07b interface questions and open items" },
+    { "sha": "dfbb0b546249dafdc3aa618908c9bda046de0f13", "subject": "docs(factory): record the coordinator's answers to the W07b questions" }
+  ],
+  "reruns": [
+    {
+      "name": "focused-coverage",
+      "command": "bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w07b-validation/coverage ./src/factory/releases.integration.test.ts ./src/factory/release-application.test.ts ./src/factory/release-authority.integration.test.ts ./src/factory/release-adapters.test.ts ./src/factory/release-profile.test.ts ./src/factory/release-s3-publication.test.ts ./src/factory/release-s3-publication.integration.test.ts ./src/factory/protected-command-effects.test.ts ./src/factory/release-github.test.ts",
+      "exitCode": 0,
+      "counts": { "pass": 101, "fail": 0, "assertions": 895 },
+      "matchesWorkerReceipt": "coverage-backend (101 pass, 0 fail, 895 assertions) — exact match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs/focused-coverage.log"
+    },
+    {
+      "name": "typecheck",
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "matchesWorkerReceipt": "final-typecheck exit 0 — match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs/typecheck.log"
+    },
+    {
+      "name": "lint",
+      "command": "bun run lint",
+      "exitCode": 0,
+      "note": "8 infos, identical set to worker's final-lint.log (byte-diff only in the 'Checked N files in Xms' timing line)",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs/lint.log"
+    },
+    {
+      "name": "boundaries",
+      "command": "bun scripts/check-factory-boundaries.ts",
+      "exitCode": 0,
+      "output": "Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse).",
+      "matchesWorkerReceipt": "final-boundaries exit 0 — match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs/boundaries.log"
+    },
+    {
+      "name": "gate-integrity",
+      "command": "bun scripts/gate-integrity.ts",
+      "exitCode": 0,
+      "output": "Gate integrity PASSED: no gate-weakening or test-cheating changes detected.",
+      "matchesWorkerReceipt": "final-gate-integrity exit 0 — match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs/gate-integrity.log"
+    },
+    {
+      "name": "postgres-releases",
+      "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 1800 ./scripts/run-factory-postgres-suite.sh ./tests/postgres/factory-releases.test.ts ./tests/postgres/factory-release-authority.test.ts ./tests/postgres/factory-schema.test.ts",
+      "queuedForLockSeconds": "~985 (started 20:35:37, lock acquired and finished 20:52:2x)",
+      "exitCode": 0,
+      "counts": { "pass": 39, "fail": 0, "assertions": 3178 },
+      "matchesWorkerReceipt": "postgres-releases (39 pass, 0 fail, 3178 assertions) — exact match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs/postgres-releases.log"
+    },
+    {
+      "name": "merge-lcov",
+      "command": "bun scripts/merge-lcov.ts \"/tmp/factory-platform-evidence/w07b-validation/coverage/*.lcov\" coverage/lcov.info",
+      "exitCode": 0,
+      "output": "merged 569 source files → coverage/lcov.info",
+      "matchesWorkerReceipt": "merged 569 source files — exact match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs/merge-lcov.log"
+    },
+    {
+      "name": "new-file-coverage-gate",
+      "command": "BASE_REF=cfbc3c767 bun scripts/check-new-file-coverage.ts",
+      "exitCode": 0,
+      "output": "New-file coverage gate PASSED: no new source files in this diff.",
+      "matchesWorkerReceipt": "exact match (worker used BASE_REF=integ/w00, which is the identical commit cfbc3c767)",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs/new-file-coverage.log"
+    },
+    {
+      "name": "patch-coverage-gate",
+      "command": "BASE_REF=cfbc3c767 bun scripts/check-patch-coverage.ts",
+      "exitCode": 0,
+      "output": "Patch coverage gate PASSED: all changed executable lines covered (1 file(s)).",
+      "matchesWorkerReceipt": "exact match",
+      "log": "/tmp/factory-platform-evidence/w07b-validation/logs/patch-coverage.log"
+    },
+    {
+      "name": "credential-leak-scan",
+      "command": "sourced /tmp/factory-platform-evidence/postgres.env inside a script, grep -RIl --fixed-strings for the password value against /tmp/factory-platform-evidence/w07b, scripts/run-factory-postgres-suite.sh, tasks/factory/w07b-GATES.md, and this validation's own logs directory",
+      "result": "no credential value found in any target",
+      "note": "run-factory-postgres-suite.sh assembles FACTORY_TEST_POSTGRES_URL/DATABASE_URL entirely inside the script from the env file and 'podman port', has no set -x, and only test paths are ever passed on argv"
+    },
+    {
+      "name": "releases.ts-select-only-check",
+      "method": "grep for INSERT INTO / UPDATE / DELETE FROM factory_release_approvals in src/factory/releases.ts",
+      "result": "zero matches; the only statement naming the table is the SELECT ... FOR SHARE in readApprovalConsentInTransaction",
+      "conclusion": "confirms G4's claim independently of the worker's own source-parsing test"
+    }
+  ],
+  "mutationTests": [
+    {
+      "name": "remove-approval_foreign_decision-guard",
+      "method": "In an isolated scratch copy of the worktree (/tmp/factory-platform-evidence/w07b-validation/scratch, deleted after use; the worker's actual worktree was never modified), deleted the line `if (current.decision_id !== operation.decisionId) return { kind: \"none\", reason: \"approval_foreign_decision\" };` from readApprovalConsentInTransaction (src/factory/releases.ts:1018), then reran src/factory/releases.integration.test.ts.",
+      "result": "24 pass, 0 fail, 237 assertions — IDENTICAL to the unmutated run. No test depends on this guard.",
+      "conclusion": "FINDING: the approval_foreign_decision reason code is dead from a testing standpoint. tasks/factory/w07b-GATES.md G2's EXPECT text states 'approval_foreign_decision is reachable through the decision check' alongside seven other reasons that ARE genuinely guard-dependent; this one is not. Not a security gap — operation_id already digests run/node/candidateGeneration/candidateDigest/action/destination (identityFor, releases.ts:380-382) and is the sole binding predicate in the approval SELECT's WHERE clause, independently confirmed by reading the code — but the gate file's claim of coverage for this specific reason is inaccurate."
+    },
+    {
+      "name": "flip-approval-over-policy-precedence",
+      "method": "In the same scratch copy, reordered readConsentInTransaction to check the policy result before the approval result (policy-wins instead of approval-wins), then reran the same test file.",
+      "result": "23 pass, 1 fail — the 'both present' assertion at factory-release-suite.ts:895 failed immediately, expecting kind:'approval' and receiving kind:'policy'.",
+      "conclusion": "The approval-wins-over-policy precedence (the decision the coordinator was asked to confirm, and has now confirmed in dfbb0b546) is genuinely, robustly tested."
+    },
+    {
+      "name": "SHARED_REUSE_MODULES-retroactivity-claim",
+      "method": "In the same scratch copy, added \"src/factory/assurance.ts\" to SHARED_REUSE_MODULES in scripts/check-factory-boundaries.ts, then reran bun scripts/check-factory-boundaries.ts.",
+      "result": "Reds with exactly the three findings GATES.md quotes: FactoryAssuranceError (assurance.ts:77), FactoryAssuranceClaimError (:90), FactoryAssurance (:122), each an f13-duplicate.",
+      "conclusion": "Independently confirms the worker's stated reason for enforcing the approvals-table read-only rule via a source-parsing test instead of a REQUIRED_SHARED_IMPORTS row."
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "medium",
+      "title": "approval_foreign_decision is claimed as tested but no assertion depends on it",
+      "location": "src/factory/releases.ts:1018 (guard); tasks/factory/w07b-GATES.md G2 EXPECT (claim); src/__tests__/helpers/factory-release-suite.ts:907-908 (the test sequence that gestures at it without asserting it)",
+      "evidence": "Mutation test 'remove-approval_foreign_decision-guard' above: 24 pass / 0 fail with the guard deleted.",
+      "detail": "factory-release-suite.ts:899-908 moves an approval's operation_id onto a foreign operation, asserts the operation_id-binding effect (kind becomes 'policy'), then sets decision_id back to the suite's single shared decisionId and asserts the approval now serves. Because every operation in this suite is built from the same shared decisionId (factory-release-suite.ts:26, :130), decision_id already matched before that UPDATE ran, so the UPDATE is a no-op and the preceding comment ('it still cannot serve, because its decision no longer matches') describes a state the test never actually produces or checks. No case in the suite ever sets decision_id to a value that genuinely differs from the operation's own decisionId while operation_id, expected_generation, and status are otherwise valid.",
+      "required_fix": "Either (a) add a genuine case: create a second accepted decision (a second assurance.accept()) or directly corrupt decision_id to an unrelated string on a row that is otherwise fully valid, and assert { kind: 'none', reason: 'approval_foreign_decision' }; or (b) if the team judges this guard truly unreachable through any application code path (assurance.ts only ever writes decision_id equal to the operation's own decisionId at creation), say so plainly in the gate file instead of claiming it is 'reachable through the decision check', matching the honesty already applied to 'approval_foreign_decision... only a direct row edit produces it' in the Open section.",
+      "security_impact": "None found. The primary binding claim in decision #1 ('never a consent from another run, candidate, or node') is independently satisfied by the operation_id predicate in the SELECT's WHERE clause, which digests projectId/runId/nodeInstanceId/candidateGeneration/candidateDigest/action/destination (releases.ts:380-382). decision_id is a second, narrower check on top of an already-matched row, not the thing that prevents cross-run/cross-node/cross-candidate reuse."
+    },
+    {
+      "id": "F2",
+      "severity": "low",
+      "title": "A structurally related, equally untested disjunct exists one line below F1",
+      "location": "src/factory/releases.ts:1019 — the `current.approved_grant_revision === null` arm of the approval_not_approved check",
+      "evidence": "src/factory/assurance.ts:239 always writes approved_by and approved_grant_revision in the same UPDATE statement, so the application never produces a row with one set and the other null; only a direct row edit could. This specific disjunct is not tested by any case that isolates it (the two approval_not_approved cases in the suite null out approved_by, not approved_grant_revision).",
+      "required_fix": "Optional. Same class of issue as F1 (defense against direct data corruption, not an application-reachable state). No action required unless F1 is fixed by adding corruption-style tests, in which case add the matching one for symmetry.",
+      "security_impact": "None."
+    }
+  ],
+  "planConformance": "No docs/plans/2026-09-13-composable-factory-platform-completion.md section-5 entry names W07b; grep for 'W07b' in that file returns nothing. This leaf was commissioned ad hoc after W09's composition work found the consent reader missing (per the leaf's own GATES.md narrative), so there is no pre-existing plan bullet list to check sentence-by-sentence. The leaf's own nine gates (G1-G9) in tasks/factory/w07b-GATES.md serve as its checklist and are addressed individually below.",
+  "gateProofMap": [
+    { "gate": "G1 (one consent, exactly)", "proof": "factory-release-suite.ts 'the consent reader returns exactly the one consent that already exists', bare/approval/policy sub-cases", "status": "proven" },
+    { "gate": "G2 (every failure has its own reason)", "proof": "same test; 8 of 9 reason codes have guard-dependent assertions (approval_generation_stale, approval_not_approved x2, approval_expired, policy_exhausted x2, policy_expired, policy_revoked, policy_ambiguous, plus the both-present approval-wins case); approval_foreign_decision does not (F1)", "status": "8/9 proven, 1/9 overstated" },
+    { "gate": "G3 (concurrent readers agree; claim-once)", "proof": "Promise.all equality + Promise.allSettled exactly-one-fulfilled, for both approval and policy paths", "status": "proven" },
+    { "gate": "G4 (approvals table read-only)", "proof": "source-parsing test in releases.integration.test.ts; independently confirmed by validator grep for INSERT/UPDATE/DELETE against factory_release_approvals in releases.ts (zero matches)", "status": "proven" },
+    { "gate": "G5 (approval follows its bound id, not the operation it used to serve)", "proof": "operation_id UPDATE case at factory-release-suite.ts:899-905", "status": "proven" },
+    { "gate": "G6 (validates input, confers nothing)", "proof": "foreign tenantId -> factory_release_scope; corrupted requestDigest -> factory_release_corrupt, both via assertOperation which runs before any SQL", "status": "proven, and structurally confirmed by reading assertOperation" },
+    { "gate": "G7 (real PostgreSQL)", "proof": "validator rerun: 39 pass, 0 fail, 3178 assertions, exact match to worker receipt", "status": "proven" },
+    { "gate": "G8 (static gates)", "proof": "validator rerun: typecheck/lint/boundaries/gate-integrity all exit 0, matching worker's final-* receipts", "status": "proven" },
+    { "gate": "G9 (patch coverage)", "proof": "validator rerun: 553/560 lines in releases.ts this leg (unmeasured 7 lines are pre-existing dispatchNotification/enqueueCommandApprovalInTransaction, confirmed by reading the lcov DA records and the source); new-file gate N/A (no new source file); patch gate PASSED for the 1 changed file", "status": "proven" }
+  ],
+  "interfaceConformance": {
+    "ownership": "releases.ts and src/__tests__/helpers/factory-release-suite.ts are both listed as W07-owned in docs/plans/2026-09-13-composable-factory-platform-interfaces.md section 12; no other file was touched. scripts/run-factory-postgres-suite.sh is new and unowned by the freeze (expected for a new file).",
+    "noParallelPath": "grep across src/ for factory_release_approvals and factory_release_policies shows only assurance.ts (writer, W05) and releases.ts (now also a reader, W07); no third implementation exists in this worktree.",
+    "consentTypeShape": "FactoryReleaseApprovalConsent/FactoryReleasePolicyConsent wrap the pre-existing FactoryReleaseConsent union (releases.ts:255-257, unchanged by this diff) via Extract<>, rather than redefining it — correct reuse.",
+    "claimConsistency": "readPolicyConsentInTransaction's filter (tenant/project/principal/action/destination provider+account/prefix-as-startsWith/contract digest/revoked/expiry/budget) is textually identical in substance to consumePolicy's filter (releases.ts:1091), so a returned policy consent is not a false positive claim() will reject on a criterion the reader didn't check."
+  },
+  "overstatements": [
+    "GATES.md G2's EXPECT line names approval_foreign_decision as one of the reasons this suite demonstrates, in the same sentence as seven reasons that genuinely are. It is not (F1)."
+  ],
+  "notWrong": [
+    "Interface questions raised in c942a7dfb are legitimate, correctly scoped coordinator-facing questions rather than a stall; they were answered in dfbb0b546 during this validation window and match the behavior already shipped in fdf9ec914 (approval wins; table-ownership rule stays a source-parsing case; W09b reads consent in the same transaction as listClaimableInTransaction).",
+    "The SHARED_REUSE_MODULES retroactivity claim (adding assurance.ts reds check-factory-boundaries.ts with 3 f13-duplicate findings) was independently reproduced exactly.",
+    "No wall-clock assertions, no .skip/.only/.todo, no empty catch{} introduced.",
+    "No credential value appears in any receipt, log, or script; the new script assembles the URL entirely inside itself with no set -x."
+  ]
+}

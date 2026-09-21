@@ -2,7 +2,8 @@ import { afterAll, expect, test } from "bun:test";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
+import { validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
+import { loadFactoryConformanceFixtures, type FactoryConformanceKind } from "../../__tests__/helpers/factory-c02-conformance-fixtures";
 
 /**
  * Host-Python C02 conformance: the narrow lane.
@@ -21,31 +22,33 @@ import { validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezco
  * checked for the same issue code, not merely for the same yes or no.
  */
 
-type Fixture = { success: Array<{ name: string; kind: "request" | "result"; value: unknown }>; rejected: Array<{ name: string; kind: "request" | "result"; path: Array<string | number>; value: unknown }> };
 type Verdict = { ok: boolean; schemaId?: string; runtime?: string; code?: string; path?: Array<string | number>; error?: string };
 
 const root = join(import.meta.dir, "../../..");
-const fixture = JSON.parse(await readFile(join(import.meta.dir, "fixtures/c02-conformance.json"), "utf8")) as Fixture;
+const fixture = await loadFactoryConformanceFixtures(join(import.meta.dir, "fixtures"));
+const SCHEMA_IDS: Record<FactoryConformanceKind, string> = {
+  request: "urn:ezcorp:factory:runner-request:v1",
+  result: "urn:ezcorp:factory:runner-result:v1",
+  "guest-model-request": "urn:ezcorp:factory:guest-model-request:v1",
+  "guest-model-response": "urn:ezcorp:factory:guest-model-response:v1",
+};
 const coverageDirectory = await mkdtemp(join(tmpdir(), "factory-python-coverage-"));
 const coverageData = process.env.EZ_FACTORY_PYTHON_COVERAGE_DATA ?? join(coverageDirectory, ".coverage");
 const coverageReport = process.env.EZ_FACTORY_PYTHON_COVERAGE_REPORT ?? join(coverageDirectory, "coverage.json");
 
 afterAll(async () => { await rm(coverageDirectory, { recursive: true, force: true }); });
 
-function copy(value: unknown): any { return JSON.parse(JSON.stringify(value)); }
-function set(value: any, path: Array<string | number>, replacement: unknown): void {
-  let target = value;
-  for (const key of path.slice(0, -1)) target = target[key];
-  target[path.at(-1)!] = replacement;
-}
-function sdk(kind: "request" | "result", value: unknown) {
-  return kind === "request" ? validateFactoryRunnerRequest(value) : validateFactoryRunnerResult(value);
+function sdk(kind: FactoryConformanceKind, value: unknown) {
+  if (kind === "request") return validateFactoryRunnerRequest(value);
+  if (kind === "result") return validateFactoryRunnerResult(value);
+  if (kind === "guest-model-request") return validateFactoryGuestModelRequest(value);
+  return validateFactoryGuestModelResponse(value);
 }
 function sdkCode(result: ReturnType<typeof sdk>): string | undefined {
   return (result as unknown as { issues?: Array<{ code: string }> }).issues?.[0]?.code;
 }
 
-async function python(kind: "request" | "result", value: unknown) {
+async function python(kind: FactoryConformanceKind, value: unknown) {
   const child = Bun.spawn({
     cmd: [
       "nix", "shell", "nixpkgs#uv", "-c",
@@ -54,6 +57,8 @@ async function python(kind: "request" | "result", value: unknown) {
       join(import.meta.dir, "python/c02_runner.py"),
       "--request-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-runner-request.schema.json"),
       "--result-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-runner-result.schema.json"),
+      "--guest-model-request-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-guest-model-request.schema.json"),
+      "--guest-model-response-schema", join(root, "packages/@ezcorp/factory-sdk/src/factory-guest-model-response.schema.json"),
     ],
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
@@ -71,17 +76,15 @@ test("C02 golden fixtures accept identically through the Bun SDK and a real host
     expect(result.exitCode).toBe(0);
     expect(result.output.ok).toBe(true);
     expect(result.output.runtime).toBe("factory.python-guest.v1");
-    expect(result.output.schemaId).toBe(item.kind === "request" ? "urn:ezcorp:factory:runner-request:v1" : "urn:ezcorp:factory:runner-result:v1");
+    expect(result.output.schemaId).toBe(SCHEMA_IDS[item.kind]);
   }
 });
 
 test("C02 golden rejections refuse forged pins, unsafe counters, money, schemas, usage, and checkpoints with the same issue code in both runtimes", async () => {
   for (const item of fixture.rejected) {
-    const base = copy(fixture.success.find(success => success.kind === item.kind)!.value);
-    set(base, item.path, item.value);
-    const bun = sdk(item.kind, base);
-    expect(bun.ok).toBe(false);
-    const result = await python(item.kind, base);
+    const bun = sdk(item.kind, item.value);
+    expect(bun.ok, `${item.name} was accepted by the Bun validator`).toBe(false);
+    const result = await python(item.kind, item.value);
     expect(result.exitCode).toBe(1);
     expect(result.output.ok).toBe(false);
     // The bridge is gone, so this is the whole point of the comparison: the two

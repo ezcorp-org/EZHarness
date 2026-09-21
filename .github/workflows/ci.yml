@@ -182,7 +182,8 @@ jobs:
           bun test --timeout 300000 \
             ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts \
             ./src/factory/runner/supervisor.podman.integration.test.ts \
-            ./src/factory/runner/validator-guest.podman.integration.test.ts
+            ./src/factory/runner/validator-guest.podman.integration.test.ts \
+            ./src/factory/runner/guest-model.podman.integration.test.ts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

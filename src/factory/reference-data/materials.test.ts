@@ -10,8 +10,7 @@ import {
   referenceDataDigest,
   ReferenceDataGuestDirectory,
   ReferenceDataMaterialError,
-  REFERENCE_DATA_GUEST_INPUT,
-  REFERENCE_DATA_GUEST_OUTPUT,
+  REFERENCE_DATA_GUEST_UID,
   sealReferenceDataMaterial,
   streamDigest,
 } from "./materials";
@@ -61,30 +60,44 @@ async function directory(): Promise<ReferenceDataGuestDirectory> {
   return created;
 }
 
-test("the per-attempt directory is laid out so a guest running as another user can read and write it", async () => {
+test("the per-attempt directory is one flat directory the runner hands over, and this host sets no mode on it", async () => {
   const created = await directory();
   try {
-    expect(ReferenceDataGuestDirectory.input("a.csv")).toBe(`${REFERENCE_DATA_GUEST_INPUT}/a.csv`);
-    expect(ReferenceDataGuestDirectory.output("a.parquet")).toBe(`${REFERENCE_DATA_GUEST_OUTPUT}/a.parquet`);
-    expect(ReferenceDataGuestDirectory.guestPath("in/a.csv")).toBe(`${GUEST_MATERIALS_PATH}/in/a.csv`);
-    const staged = await created.stage(ReferenceDataGuestDirectory.input("a.csv"), blocks(text("alpha"), text("beta")));
+    // Flat: the runner hands over exactly the directory it is given and does
+    // not recurse, so a nested output directory would stay this host's and the
+    // guest could not write a byte into it.
+    expect("a.csv").toBe("a.csv");
+    expect(ReferenceDataGuestDirectory.output("a.parquet")).toBe("a.parquet");
+    expect(ReferenceDataGuestDirectory.guestPath("a.csv")).toBe(`${GUEST_MATERIALS_PATH}/a.csv`);
+
+    const staged = await created.stage("a.csv", blocks(text("alpha"), text("beta")));
     expect(staged.totalBytes).toBe(9);
     expect(staged.digest).toBe(referenceDataDigest(text("alphabeta")));
-    // Under a 077 umask the file would be 0600 and unreadable by the guest's
-    // uid, which is a different user in a different namespace.
+
     const { stat } = await import("node:fs/promises");
-    expect((await stat(join(created.root, "in/a.csv"))).mode & 0o777).toBe(0o644);
-    // The output directory belongs to the GUEST, not to the world: the mapped
-    // uid owns it, this user is only its group, and "other" gets nothing.
-    const output = await stat(join(created.root, "out"));
-    expect(output.mode & 0o777).toBe(0o770);
-    // The shared mount sets no mode and no owner, so without this handover a
-    // guest running as another uid cannot write at all.
-    expect(output.mode & 0o007).toBe(0);
-    expect(output.uid).not.toBe(process.getuid?.());
-    expect(output.gid).toBe(process.getgid?.() as number);
-    // Inputs stay this user's, so a guest cannot replace what it was given.
-    expect((await stat(join(created.root, "in"))).uid).toBe(process.getuid?.() as number);
+    // A staged input's MODE is this host's business, because the runner moves
+    // the directory's ownership and leaves files exactly as they are. Under a
+    // 077 umask `open` would have left this 0600 and the guest could not read it.
+    expect((await stat(join(created.root, "a.csv"))).mode & 0o777).toBe(0o644);
+    // The DIRECTORY's mode and owner are not: this host sets neither, and the
+    // runner refuses a path that is not a real directory it owns.
+    expect((await stat(created.root)).uid).toBe(process.getuid?.() as number);
+    expect(REFERENCE_DATA_GUEST_UID).toBe(65534);
+  } finally {
+    await created.dispose();
+  }
+});
+
+test("only what the guest left is reported, never the inputs this host staged beside them", async () => {
+  const created = await directory();
+  try {
+    await created.stage("partition-00000.csv", blocks(text("record_id,category,amount_cents\n")));
+    await created.stage("part-00000.summary.json", blocks(text("{}")));
+    expect(await created.produced()).toEqual([]);
+    // Only a file this host did not place counts as output.
+    await writeFile(join(created.root, "part-00000.parquet"), text("PAR1"));
+    await chmod(join(created.root, "part-00000.parquet"), 0o644);
+    expect(await created.produced()).toEqual(["part-00000.parquet"]);
   } finally {
     await created.dispose();
   }
@@ -93,14 +106,15 @@ test("the per-attempt directory is laid out so a guest running as another user c
 test("only bounded entries of the attempt directory can be named", async () => {
   const created = await directory();
   try {
-    for (const name of ["", "a.csv", "../escape", "in/../../escape", "/etc/passwd", "in/sub/dir.csv", "out/.hidden", "other/a.csv"]) {
+    for (const name of ["", "../escape", "a/../../escape", "/etc/passwd", "sub/dir.csv", ".hidden", "other/a.csv"]) {
       await expect(created.stage(name, blocks(text("x")))).rejects.toMatchObject({ code: "reference_data_material_name_invalid" });
     }
-    // A symbolic link inside the directory cannot widen it either: the name
-    // grammar admits one segment under `in` or `out`, and nothing else.
-    await symlink("/etc", join(created.root, "out/escape"));
-    await expect(created.size("out/escape/passwd")).rejects.toMatchObject({ code: "reference_data_material_name_invalid" });
-    await expect(created.stage("out/escape/passwd", blocks(text("x")))).rejects.toMatchObject({ code: "reference_data_material_name_invalid" });
+    // A symbolic link inside the directory cannot widen it either: the grammar
+    // admits one flat entry and nothing with a separator in it, so a planted
+    // link is unreachable as a path even before the hardened open refuses it.
+    await symlink("/etc", join(created.root, "escape"));
+    await expect(created.size("escape/passwd")).rejects.toMatchObject({ code: "reference_data_material_name_invalid" });
+    await expect(created.stage("escape/passwd", blocks(text("x")))).rejects.toMatchObject({ code: "reference_data_material_name_invalid" });
   } finally {
     await created.dispose();
   }
@@ -110,13 +124,13 @@ test("collecting reports exactly what the guest left, in chunks a material write
   const created = await directory();
   try {
     const payload = new Uint8Array(20).map((_, index) => index);
-    await writeFile(join(created.root, "out/part.bin"), payload);
-    await chmod(join(created.root, "out/part.bin"), 0o644);
+    await writeFile(join(created.root, "part.bin"), payload);
+    await chmod(join(created.root, "part.bin"), 0o644);
     const collected: Uint8Array[] = [];
-    for await (const chunk of created.collect("out/part.bin", 8)) collected.push(Uint8Array.from(chunk));
+    for await (const chunk of created.collect("part.bin", 8)) collected.push(Uint8Array.from(chunk));
     expect(collected.map(chunk => chunk.byteLength)).toEqual([8, 8, 4]);
     expect(Buffer.concat(collected).equals(Buffer.from(payload))).toBe(true);
-    expect(await created.size("out/part.bin")).toBe(20);
+    expect(await created.size("part.bin")).toBe(20);
     expect(await created.produced()).toEqual(["part.bin"]);
   } finally {
     await created.dispose();
@@ -126,9 +140,9 @@ test("collecting reports exactly what the guest left, in chunks a material write
 test("a file the guest did not leave is an absence with a name, not an empty read", async () => {
   const created = await directory();
   try {
-    const iterator = created.collect("out/absent.bin");
+    const iterator = created.collect("absent.bin");
     await expect(iterator.next()).rejects.toMatchObject({ code: "reference_data_material_absent" });
-    await expect(created.size("out/absent.bin")).rejects.toMatchObject({ code: "reference_data_material_absent" });
+    await expect(created.size("absent.bin")).rejects.toMatchObject({ code: "reference_data_material_absent" });
   } finally {
     await created.dispose();
   }
@@ -226,40 +240,29 @@ test("a stream digest measures the whole stream without holding it", async () =>
 test("a staged name that already exists is refused rather than overwritten", async () => {
   const created = await directory();
   try {
-    await created.stage(ReferenceDataGuestDirectory.input("a.csv"), blocks(text("first")));
-    await expect(created.stage(ReferenceDataGuestDirectory.input("a.csv"), blocks(text("second")))).rejects.toThrow();
-    expect(await readFile(join(created.root, "in/a.csv"), "utf8")).toBe("first");
+    await created.stage("a.csv", blocks(text("first")));
+    await expect(created.stage("a.csv", blocks(text("second")))).rejects.toThrow();
+    expect(await readFile(join(created.root, "a.csv"), "utf8")).toBe("first");
   } finally {
     await created.dispose();
-  }
-});
-
-test("a host with no container runtime fails closed rather than falling back to a wider mode", async () => {
-  const parent = await mkdtemp(join(tmpdir(), "refdata-no-podman-"));
-  try {
-    await expect(ReferenceDataGuestDirectory.create(parent, "/nonexistent/podman")).rejects.toMatchObject({ code: "reference_data_material_unowned" });
-    const { readdir } = await import("node:fs/promises");
-    expect(await readdir(parent)).toEqual([]);
-  } finally {
-    await rm(parent, { recursive: true, force: true });
   }
 });
 
 test("anything the guest left that is not a regular file is a refusal, not an entry", async () => {
   const created = await directory();
   try {
-    await writeFile(join(created.root, "out/real.parquet"), text("PAR1"));
+    await writeFile(join(created.root, "real.parquet"), text("PAR1"));
     // A guest owns its output directory, so a planted link is reachable. The
     // shared read-back refuses it rather than resolving it, which is what stops
     // the host sealing another file's bytes under the guest's reported digest.
-    await symlink("/etc/hostname", join(created.root, "out/stolen.parquet"));
+    await symlink("/etc/hostname", join(created.root, "stolen.parquet"));
     await expect(created.produced()).rejects.toMatchObject({ code: "reference_data_material_untrusted" });
-    const iterator = created.collect("out/stolen.parquet");
+    const iterator = created.collect("stolen.parquet");
     await expect(iterator.next()).rejects.toMatchObject({ code: "reference_data_material_absent" });
-    await expect(created.size("out/stolen.parquet")).rejects.toMatchObject({ code: "reference_data_material_absent" });
+    await expect(created.size("stolen.parquet")).rejects.toMatchObject({ code: "reference_data_material_absent" });
     // The real file beside it still reads, so the refusal is about the link.
     const blocks: Uint8Array[] = [];
-    for await (const chunk of created.collect("out/real.parquet")) blocks.push(Uint8Array.from(chunk));
+    for await (const chunk of created.collect("real.parquet")) blocks.push(Uint8Array.from(chunk));
     expect(new TextDecoder().decode(Buffer.concat(blocks))).toBe("PAR1");
   } finally {
     await created.dispose();

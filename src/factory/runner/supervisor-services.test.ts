@@ -106,8 +106,9 @@ function body(response: { body: Uint8Array }): Record<string, unknown> {
 
 describe("factoryHostBrokerUnavailable", () => {
   test("refuses a guest broker call by name instead of answering plausibly", async () => {
-    await expect(factoryHostBrokerUnavailable()).rejects.toBeInstanceOf(FactoryHostBrokerUnavailableError);
-    await expect(factoryHostBrokerUnavailable()).rejects.toMatchObject({ code: "factory_host_broker_unavailable" });
+    const request = { schemaVersion: "factory.runner.request.v1" } as never;
+    await expect(factoryHostBrokerUnavailable.invoke(request, { kind: "model" })).rejects.toBeInstanceOf(FactoryHostBrokerUnavailableError);
+    await expect(factoryHostBrokerUnavailable.invoke(request, { kind: "model" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable" });
   });
 });
 
@@ -245,7 +246,7 @@ describe("createFactoryHostServiceRouter", () => {
       runner: fakeRunner(new Map()),
       signingKey: await keyMaterial(),
       now: () => 1_000,
-      broker: async () => ({ answered: true }),
+      broker: { async invoke() { return { answered: true }; } },
     });
     // The clock and the broker are only reachable through a live guest, so the
     // assertion here is that supplying them composes a router at all, and that

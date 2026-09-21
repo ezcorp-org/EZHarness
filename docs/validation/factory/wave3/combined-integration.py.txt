@@ -25,7 +25,7 @@ workflow = (repo / '.github/workflows/db-postgres.yml').read_text()
 ci_files = [l.strip() for l in workflow.splitlines() if l.strip().startswith('./tests/postgres/factory-')]
 assert len(ci_files) >= 20, ci_files
 focused = ['./src/__tests__/factory-run-lifecycle.test.ts','./src/factory/release-authority.integration.test.ts','./src/factory/executions.integration.test.ts','./src/factory/run-inputs.integration.test.ts','./src/db/migrations/add-factory-child-runs.test.ts','./src/db/migrations/bind-factory-child-definition-source.test.ts','./src/db/migrations/bind-factory-child-start-clock.test.ts','./scripts/factory-task-execution-admission-registration.test.ts','./src/db/migrations/add-factory-command-approvals.test.ts','./src/factory/release-application.test.ts','./src/factory/application.test.ts','./src/factory/private-commands.test.ts','./src/__tests__/factory-private-service.test.ts','./src/factory/validator-materials.test.ts','./src/factory/assurance.test.ts','./src/factory/releases.integration.test.ts','./src/factory/attempt-queue.integration.test.ts','./src/delivery-queue/durable-delivery-queue.test.ts','./scripts/factory-validator-materials-registration.test.ts','./src/factory/package-preparation.integration.test.ts','./src/db/migrations/add-factory-package-preparations.test.ts','./src/db/migrations/add-factory-task-outcomes.test.ts','./src/factory/artifacts.integration.test.ts','./src/factory/protected-command-provenance.test.ts','./scripts/factory-protected-command-effects-registration.test.ts','./src/db/factory-schema.test.ts','./src/__tests__/gate-scripts.test.ts']
-ALWAYS_EXTRA = ['./src/extensions/__tests__/project-pull-request-transport.test.ts','./src/extensions/__tests__/github-projects-handler.test.ts','./src/extensions/__tests__/github-projects-handler.integration.test.ts','./src/extensions/__tests__/github-projects-handler-default-db.test.ts','./src/extensions/__tests__/tool-executor.github-projects-rpc.test.ts','./src/factory/release-adapters.test.ts']
+ALWAYS_EXTRA = ['./src/extensions/__tests__/project-pull-request-transport.test.ts','./src/extensions/__tests__/github-projects-handler.test.ts','./src/extensions/__tests__/github-projects-handler.integration.test.ts','./src/extensions/__tests__/github-projects-handler-default-db.test.ts','./src/extensions/__tests__/tool-executor.github-projects-rpc.test.ts','./src/factory/release-adapters.test.ts','./src/__tests__/workflow-release-assets.test.ts','./src/__tests__/workflow-release-consent.test.ts','./src/__tests__/workflow-service-release-authority.test.ts','./src/__tests__/workflow-run-persistence.test.ts','./src/__tests__/workflow-nesting.test.ts']
 auto = []
 if a.auto_extra_base:
  changed = subprocess.check_output(['git','diff','--name-only','--diff-filter=AM',a.auto_extra_base,'HEAD'], cwd=repo, text=True).split()
@@ -56,9 +56,9 @@ if a.podman:
  for f in ['./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts','./src/factory/runner/attempt-runtime.integration.test.ts','./src/factory/runner/supervisor.podman.integration.test.ts','./src/factory/package-preparation.podman.integration.test.ts']:
   if (repo / f).exists(): checks.append(('podman-' + Path(f).stem.split('.')[0], ['bun','test','--timeout','300000',f]))
 with open('/tmp/ezcorp-validation-heavy.lock', 'w') as lock:
- fcntl.flock(lock, fcntl.LOCK_EX)
  dirty = subprocess.check_output(['git','status','--porcelain'], cwd=repo, text=True)
  if dirty and not a.allow_dirty: sys.exit(f'dirty tree:\n{dirty}')
+ fcntl.flock(lock, fcntl.LOCK_EX)
  sha = subprocess.check_output(['git','rev-parse','HEAD'], cwd=repo, text=True).strip()
  reuse = [r for r in a.reuse_from.split(',') if r]
  def reusable(label):
@@ -111,6 +111,7 @@ with open('/tmp/ezcorp-validation-heavy.lock', 'w') as lock:
   with (root / f'{P}-coverage-merge.log').open('w') as log:
    m = subprocess.run(['bun','scripts/merge-lcov.ts',str(inputs / '*.lcov'),str(out)], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT)
   covres['checks'].append({'name':'merge','exitCode':m.returncode})
+  if m.returncode: failed = True
   if m.returncode == 0:
    for base in filter(None, a.patch_bases.split(',')):
     for label, script in [('new-file','scripts/check-new-file-coverage.ts'),('patch','scripts/check-patch-coverage.ts')]:
@@ -118,6 +119,7 @@ with open('/tmp/ezcorp-validation-heavy.lock', 'w') as lock:
      with (root / f'{P}-coverage-{label}-{base[:9]}.log').open('w') as log:
       r = subprocess.run(['bun',script], cwd=repo, env=e, stdout=log, stderr=subprocess.STDOUT)
      covres['checks'].append({'name': label, 'base': base, 'exitCode': r.returncode}); print(json.dumps(covres['checks'][-1]), flush=True)
+     if r.returncode: failed = True
   shutil.copyfile(out, root / f'{P}-merged-lcov.info')
  (root / f'{P}-coverage-results.json').write_text(json.dumps(covres, indent=1) + '\n')
  print('DONE failed=%s' % failed, flush=True)

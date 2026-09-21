@@ -28,6 +28,8 @@ import { FactoryCommandAuthority } from "./command-authority";
 import { FactoryComputeAdmissions } from "./compute-admissions";
 import type { FactoryExecutionJournal } from "./executions";
 import { FactoryInbox } from "./inbox";
+import { FactoryLegacyWorkflows } from "./legacy-workflow/adapter";
+import { FactoryLegacyImports } from "./legacy-workflow/import";
 import type { PoolAdmissionClient } from "./pool/client";
 import { FactoryRunTransitionProjector } from "./run-transition-projector";
 import { FactoryTaskCompletions } from "./task-completions";
@@ -58,6 +60,18 @@ export interface FactoryInstallationStores {
   readonly settlements: FactoryUsageSettlements;
   readonly children: FactoryChildRuns;
   readonly projections: FactoryRunTransitionProjector;
+  /**
+   * The journal and the import copy for a wrapped legacy workflow run.
+   *
+   * Built here for the same reason as everything else in this set: both refuse
+   * construction unless their collaborators agree on tenant, and
+   * `FactoryLegacyImports` checks that its journal and its artifact store name
+   * the same one. The engine itself is not held — W13 passes it per call, so
+   * the process that has a `WorkflowExecutor` supplies it and this set stays
+   * buildable in one that does not.
+   */
+  readonly legacyWorkflows: FactoryLegacyWorkflows;
+  readonly legacyImports: FactoryLegacyImports;
   /** Present only when a pool admission client exists. */
   readonly compute?: FactoryComputeAdmissions;
   readonly completions?: FactoryTaskCompletions;
@@ -83,7 +97,10 @@ export function factoryInstallationStores(options: FactoryInstallationStoreOptio
   const children = new FactoryChildRuns(database, tenantId, authority, application.runs, options.transitions);
   const projections = new FactoryRunTransitionProjector(database, tenantId, options.transitions, application.runs);
 
-  const base = { authority, journal, queue, inbox, budgets, settlements, children, projections };
+  const legacyWorkflows = new FactoryLegacyWorkflows(database, tenantId);
+  const legacyImports = new FactoryLegacyImports(database, tenantId, legacyWorkflows, application.artifacts);
+
+  const base = { authority, journal, queue, inbox, budgets, settlements, children, projections, legacyWorkflows, legacyImports };
   if (options.pool === undefined) return Object.freeze(base);
 
   const compute = new FactoryComputeAdmissions(database, tenantId, authority, budgets, inbox, options.pool);

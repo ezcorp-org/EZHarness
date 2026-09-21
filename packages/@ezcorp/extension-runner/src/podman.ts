@@ -79,6 +79,11 @@ const CHANNEL_FIFO_MODE = 0o666;
  * the tree itself, and the caller that creates the directory must not make it
  * world-writable.
  */
+/** The uid a guest runs as, and therefore the uid that must own its material directory. */
+const GUEST_UID = 65534;
+/** Owner read, write, and traverse for the guest; the same for the runner's group; nothing for anyone else. */
+const MATERIAL_DIRECTORY_MODE = 0o770;
+
 export function runnerMaterialMount(directory: string): string[] {
   return ["--mount", `type=bind,src=${directory},dst=${GUEST_MATERIALS_PATH},rw=true,relabel=private,noexec,nosuid,nodev`];
 }
@@ -268,8 +273,39 @@ export class PodmanRunner implements Runner {
     // Recorded beside the channel, never inside it, so the guest cannot reach
     // the identities the host checks against.
     await writeFile(this.channelFactsPath(id), canonicalJson(facts), { mode: 0o600 });
+    if (materials) await this.handOverMaterials(materials);
     await command(this.podman, [...this.args(id, limits, staged, devices, directory, materials), "--detach", this.image, ...this.guestEntrypointArgs()]);
     return this.channelTransport(id);
+  }
+  /**
+   * Hands a material directory to the guest that will write into it.
+   *
+   * The runner creates nothing here: the directory is the caller's, and the
+   * caller placed any inputs in it. What the runner does is the one step no
+   * caller can get right on its own, because it depends on the guest uid and on
+   * the user-namespace mapping this runner launches into. Without it a guest
+   * cannot write at all, and every domain pack would repeat the same four lines.
+   *
+   * Mode first, ownership second. After ownership moves to the mapped guest uid
+   * the runner no longer owns the directory and can no longer chmod it, so the
+   * order is not cosmetic. The result is `0o770` owned by the guest with the
+   * runner's group: the guest writes, the runner reads the results back, and
+   * nobody else can read or write it. Never `0o777`.
+   *
+   * Files the caller already placed keep their own ownership and modes, so an
+   * input stays the runner's and a guest can read it exactly as far as its mode
+   * already allowed.
+   */
+  private async handOverMaterials(directory: string): Promise<void> {
+    let stats: Awaited<ReturnType<typeof lstat>>;
+    try { stats = await lstat(directory); }
+    catch { throw new RunnerError("material_directory_invalid", "Runner material directory does not exist"); }
+    if (!stats.isDirectory() || stats.isSymbolicLink()) throw new RunnerError("material_directory_invalid", "Runner material directory is not a directory");
+    if (stats.uid !== process.getuid?.()) throw new RunnerError("material_directory_invalid", "Runner material directory is not owned by the runner");
+    await chmod(directory, MATERIAL_DIRECTORY_MODE);
+    // Inside the user namespace the runner is root, so gid 0 is the runner's own
+    // group on the host and uid 65534 is the guest's mapped uid.
+    await command(this.podman, ["unshare", "chown", `${GUEST_UID}:0`, directory]);
   }
   private channelFactsPath(id: string): string { return `${this.channelDirectory(id)}.channel.json`; }
   /**

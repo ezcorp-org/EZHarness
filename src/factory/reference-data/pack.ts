@@ -358,7 +358,8 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
       attempt: await dispatchReferenceDataAttempt(options, "parseCsv", nodeInstance("parseCsv"), {
         kind: "parseCsv",
         input: ReferenceDataGuestDirectory.input(REFERENCE_DATA_INPUT_OBJECT),
-        outputPrefix: `${ReferenceDataGuestDirectory.output("")}`,
+        // The material directory is flat, so a partition's name IS its path.
+        outputPrefix: "",
         snapshotDigest: sealedInput.digest,
         report: ReferenceDataGuestDirectory.output(REFERENCE_DATA_PARTITIONS_OBJECT),
       }, directory),

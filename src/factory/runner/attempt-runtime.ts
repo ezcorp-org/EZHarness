@@ -21,6 +21,7 @@ import type { FactoryPreparedPackageReceipt, FactoryRunnerDispatchReadiness } fr
 import type { PoolAdmissionClient } from "../pool/client";
 import type { TrustedFactoryRunner } from "../trusted-command-gateway";
 import { FACTORY_GUEST_BROKER_METHOD, factoryGuestFrameInput } from "./guest-frames";
+import type { FactoryGuestBroker } from "./guest-model-broker";
 /**
  * The half of the attempt wire a host may hold, re-exported unchanged.
  *
@@ -195,8 +196,13 @@ export interface IsolatedFactoryAttemptRuntimeOptions {
   readonly launches: FactoryAttemptLaunchStore;
   readonly mintAttemptToken: (request: FactoryRunnerRequest) => Promise<string>;
   readonly pool: Pick<PoolAdmissionClient, "acknowledgeStart" | "renew">;
-  /** The gateway-owned provider broker is the only reverse capability exposed to a guest. */
-  readonly broker: { invoke(request: FactoryRunnerRequest, input: unknown): Promise<unknown> };
+  /**
+   * The gateway-owned provider broker is the only reverse capability exposed to
+   * a guest, and {@link FactoryGuestBroker} is the one shape it takes. The host
+   * launch supervisor takes the same interface, so a composition writes one
+   * broker rather than one per runtime.
+   */
+  readonly broker: FactoryGuestBroker;
   /** Host-certificate signer. Product code never receives the host private key. */
   readonly signStopReceipt: (receipt: FactoryUnsignedPhysicalStopReceipt) => Promise<{ readonly hostKeyId: string; readonly hostSignature: string }>;
   /** The host supervisor presents this signed fact to the pool's physical-stop endpoint. */

@@ -48,6 +48,7 @@ export interface FactoryStopClockBounds {
 }
 
 const RECEIPT_DIGEST_PATTERN = /^sha256:[0-9a-f]{64}$/;
+const PROVIDER_RECEIPT_PATTERN = /^[0-9a-f]{64}$/;
 const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 const USAGE_KINDS = new Set(["measured", "unknown"]);
 const RECEIPT_FIELDS = Object.freeze([
@@ -94,6 +95,25 @@ export function validateFactoryOperationUsage(usage: unknown, path: readonly (st
   return issues.verdict();
 }
 
+/**
+ * Whether a value is a provider receipt digest in the C02 form: bare
+ * 64-character lowercase hex, with no `sha256:` prefix.
+ *
+ * Coordinator ruling, 2026-09-20. The SDK's `validateFactoryRunnerResult`, the
+ * generated schema, and the Python validator all require an operation's
+ * `providerReceiptDigest` in this form, and a terminal result must mirror the
+ * journal row exactly. A prefixed digest anywhere therefore made the row
+ * unsettleable or the attempt uncompletable. This predicate is the one
+ * definition of the form; the settlement store imports it rather than keeping
+ * its own copy, so the two surfaces cannot drift apart again.
+ *
+ * It is deliberately NOT the rule for a physical stop receipt digest or a
+ * settlement digest, which the product seals itself and which stay prefixed.
+ */
+export function isFactoryProviderReceiptDigest(value: unknown): value is string {
+  return typeof value === "string" && PROVIDER_RECEIPT_PATTERN.test(value);
+}
+
 /** Every settlement precondition C02.9 states for one journal operation. */
 export function validateFactoryOperationSettlement(
   state: "completed" | "failed" | "uncertain",
@@ -108,6 +128,9 @@ export function validateFactoryOperationSettlement(
   }
   if (state === "failed") issues.when(!settlement.resultDigest, "factory_operation_result_digest_missing", ["resultDigest"]);
   if (state === "uncertain") issues.when(!settlement.providerReceiptDigest, "factory_operation_provider_receipt_missing", ["providerReceiptDigest"]);
+  // Shape, not just presence: a row the journal accepts must be one a runner
+  // result can mirror, and the C02 form is what the result carries.
+  issues.when(settlement.providerReceiptDigest !== undefined && !isFactoryProviderReceiptDigest(settlement.providerReceiptDigest), "factory_operation_provider_receipt_invalid", ["providerReceiptDigest"]);
   if (settlement.usage !== undefined) {
     const usage = validateFactoryOperationUsage(settlement.usage);
     if (!usage.ok) return usage;

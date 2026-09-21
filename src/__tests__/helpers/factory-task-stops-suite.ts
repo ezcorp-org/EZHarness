@@ -427,7 +427,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     const held = harness(attempt, stopper(async request => signed(request)), acknowledger());
     expect((await held.stops.stop(service, reference)).state).toBe("stopped");
     expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain" });
-    const providerReceiptDigest = `sha256:${"d".repeat(64)}`;
+    const providerReceiptDigest = "d".repeat(64);
     const usage = { kind: "measured" as const, inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "5" };
     const reconciler = new FactoryUsageReconciliation(fixture.db, tenantId, held.stops, attempt.journal, lifecycle.budgets, held.settlements);
     const settled = await reconciler.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest, usage });
@@ -440,6 +440,11 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     await expect(reconciler.reconcile({ reservationId: attempt.reservationId, attemptId: "another-attempt", operationId: operation.operationId, providerReceiptDigest, usage })).rejects.toMatchObject({ code: "factory_usage_settlement_conflict" });
     await expect(reconciler.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest, usage: { ...usage, costMicros: "1" } })).rejects.toMatchObject({ code: "factory_usage_settlement_conflict" });
     await expect(reconciler.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest: "unverified", usage })).rejects.toMatchObject({ code: "factory_usage_settlement_receipt_invalid" });
+    // The `sha256:`-prefixed form is the collision the C02 ruling removed: the
+    // SDK result validator and the generated schema can never carry it, so a
+    // settlement that accepted it could never be mirrored by a terminal
+    // result. Refused here, not normalized.
+    await expect(reconciler.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest: `sha256:${providerReceiptDigest}`, usage })).rejects.toMatchObject({ code: "factory_usage_settlement_receipt_invalid" });
     await expect(reconciler.reconcile({ reservationId: "missing-reservation", attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest, usage })).rejects.toMatchObject({ code: "factory_usage_settlement_not_found" });
   });
 
@@ -452,7 +457,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     const second = { operationId: `${attempt.run.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:1`, operationIndex: 1, kind: "model" as const, requestDigest: "a".repeat(64) };
     await attempt.journal.prepare(authority, second);
     await attempt.journal.dispatch(authority, second.operationId);
-    await attempt.journal.settle(authority, second.operationId, "failed", { resultDigest: "f".repeat(64), providerReceiptDigest: `sha256:${"9".repeat(64)}`, usage: { kind: "measured", inputTokens: 9, outputTokens: 9, computeMs: 9, costMicros: "99" } });
+    await attempt.journal.settle(authority, second.operationId, "failed", { resultDigest: "f".repeat(64), providerReceiptDigest: "9".repeat(64), usage: { kind: "measured", inputTokens: 9, outputTokens: 9, computeMs: 9, costMicros: "99" } });
 
     const { reference } = await cancelled(attempt);
     const held = harness(attempt, stopper(async request => signed(request)), acknowledger());
@@ -469,13 +474,16 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
 
     // The operation that caused the hold now carries a receipt but no measured
     // usage, which is still unknown, not zero.
-    const providerReceiptDigest = `sha256:${"7".repeat(64)}`;
+    const providerReceiptDigest = "7".repeat(64);
     await fixture.db.execute(sql`UPDATE factory_execution_operations SET state='uncertain', provider_receipt_digest=${providerReceiptDigest}, usage_json=${JSON.stringify({ kind: "unknown", reason: "provider receipt pending", heldCostMicros: "900" })}::jsonb WHERE attempt_id=${attempt.attemptId} AND operation_id=${operation.operationId}`);
     expect(await reconciler.resolve(hold)).toEqual({ kind: "unknown", reservationId: attempt.reservationId, reason: "usage-still-unknown" });
 
-    // A tampered digest is refused rather than handed on to the reconciler.
-    await fixture.db.execute(sql`UPDATE factory_execution_operations SET usage_json=${JSON.stringify({ kind: "measured", inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "5" })}::jsonb, provider_receipt_digest='not-a-digest' WHERE attempt_id=${attempt.attemptId} AND operation_id=${operation.operationId}`);
-    await expect(reconciler.resolve(hold)).rejects.toMatchObject({ code: "factory_usage_settlement_receipt_invalid" });
+    // A tampered digest is refused rather than handed on to the reconciler,
+    // and so is the retired `sha256:` form, which the C02 surfaces cannot read.
+    for (const tampered of ["not-a-digest", `sha256:${providerReceiptDigest}`, "A".repeat(64), providerReceiptDigest.slice(1)]) {
+      await fixture.db.execute(sql`UPDATE factory_execution_operations SET usage_json=${JSON.stringify({ kind: "measured", inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "5" })}::jsonb, provider_receipt_digest=${tampered} WHERE attempt_id=${attempt.attemptId} AND operation_id=${operation.operationId}`);
+      await expect(reconciler.resolve(hold)).rejects.toMatchObject({ code: "factory_usage_settlement_receipt_invalid" });
+    }
     // A tampered usage is corrupt, never rounded to something usable.
     await fixture.db.execute(sql`UPDATE factory_execution_operations SET usage_json=${JSON.stringify({ kind: "measured", inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "-5" })}::jsonb, provider_receipt_digest=${providerReceiptDigest} WHERE attempt_id=${attempt.attemptId} AND operation_id=${operation.operationId}`);
     await expect(reconciler.resolve(hold)).rejects.toMatchObject({ code: "factory_usage_settlement_corrupt" });

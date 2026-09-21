@@ -1,0 +1,151 @@
+{
+  "verdict": "REJECT",
+  "head": "1095a861390f18e039406c50dcecdea6d94f8c57",
+  "package": "w01e",
+  "branch": "wp/w01e-guest-broker",
+  "mergeBase": "8810d6eae0e8abe5b67b55e3664b3fe570d78b13",
+  "headInBrief": "f20d104cfedc2920b86e7943d0744b7d1214e943",
+  "headMovedDuringValidation": {
+    "from": "f20d104cfedc2920b86e7943d0744b7d1214e943",
+    "to": "1095a861390f18e039406c50dcecdea6d94f8c57",
+    "filesChanged": [
+      "docs/plans/2026-09-13-composable-factory-platform-interfaces.md",
+      "tasks/factory/w01e-GATES.md"
+    ],
+    "codeUnchanged": true,
+    "codeCommit": "75ae5582b"
+  },
+  "treeClean": true,
+  "evidenceChecksums": "sha256sum -c SHA256SUMS over /tmp/factory-platform-evidence/w01e/ : no mismatch",
+  "toolchain": { "bun": "1.3.14", "node": "v24.14.1", "python": "3.13.12" },
+  "reruns": [
+    { "name": "build-extension-contract", "command": "bun run --cwd packages/@ezcorp/extension-contract build", "exit": 0, "result": "clean" },
+    { "name": "build-factory-sdk", "command": "bun run --cwd packages/@ezcorp/factory-sdk build", "exit": 0, "result": "clean" },
+    { "name": "build-factory-transport", "command": "bun run --cwd packages/@ezcorp/factory-transport build", "exit": 0, "result": "clean" },
+    { "name": "schema-generate-drift", "command": "bun scripts/check-schema-generate-drift.ts", "exit": 0, "result": "13 generated schemas match byte for byte; tree clean after" },
+    { "name": "typecheck", "command": "bun run typecheck", "exit": 0, "result": "TS + backend tests + web/e2e + mypy --strict on 2 locked projects" },
+    { "name": "lint", "command": "bun run lint", "exit": 0, "result": "1 warning (new in this leaf, F6), 8 infos, 5221 files" },
+    { "name": "boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exit": 0, "result": "F07 and F13 passed" },
+    { "name": "gate-integrity", "command": "bun scripts/gate-integrity.ts", "exit": 0, "result": "no gate weakening or test cheating detected" },
+    { "name": "unit-suites", "command": "bun test ./src/factory/runner/guest-model-broker.test.ts ./src/factory/runner/provider-one-hop.test.ts ./src/factory/runner/guest-model-journal.integration.test.ts", "exit": 0, "pass": 15, "fail": 0 },
+    { "name": "sdk-suite", "command": "bun test ./packages/@ezcorp/factory-sdk/src", "exit": 0, "pass": 189, "fail": 0, "files": 27 },
+    { "name": "postgres-suite-registration", "command": "bun test ./scripts/factory-postgres-suite-registration.test.ts", "exit": 0, "pass": 5, "fail": 0 },
+    { "name": "postgres-guest-model-journal", "command": "bun test --timeout 300000 ./tests/postgres/factory-guest-model-journal.test.ts", "exit": 143, "result": "HANG: 7 minutes at 91% CPU, zero output, bun's own 5-minute per-test timeout never fired; killed with SIGTERM. Reproduced twice.", "finding": "F1" },
+    { "name": "postgres-factory-schema", "command": "bun test ./tests/postgres/factory-schema.test.ts", "exit": 0, "pass": 2, "fail": 0, "durationSeconds": 5.88 },
+    { "name": "shared-podman", "command": "bun test ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts", "exit": 0, "pass": 17, "fail": 0, "expects": 92 },
+    { "name": "guest-model-podman-e2e", "command": "bun test ./src/factory/runner/guest-model.podman.integration.test.ts", "exit": 0, "pass": 1, "fail": 0, "expects": 16 },
+    { "name": "attempt-runtime-integration", "command": "bun test ./src/factory/runner/attempt-runtime.integration.test.ts", "exit": 0, "pass": 7, "fail": 0, "expects": 31 },
+    { "name": "host-launch-transport", "command": "bun test ./src/factory/host-launch-transport.integration.test.ts", "exit": 0, "pass": 5, "fail": 0, "expects": 71 },
+    { "name": "host-launch-e2e-podman", "command": "bun test ./src/factory/host-launch-e2e.podman.integration.test.ts", "exit": 0, "pass": 1, "fail": 0, "expects": 13 },
+    { "name": "validator-guest-podman", "command": "bun test ./src/factory/runner/validator-guest.podman.integration.test.ts", "exit": 0, "pass": 1, "fail": 0, "expects": 15 },
+    { "name": "supervisor-podman", "command": "bun test ./src/factory/runner/supervisor.podman.integration.test.ts", "exit": 0, "pass": 2, "fail": 0, "expects": 6 },
+    { "name": "python-runner-integration", "command": "bun test ./src/factory/runner/python-runner.integration.test.ts", "exit": 0, "pass": 4, "fail": 0, "expects": 145 },
+    { "name": "python-guest-integration", "command": "bun test ./src/factory/runner/python-guest.integration.test.ts", "exit": 0, "pass": 12, "fail": 0, "expects": 148 },
+    { "name": "python-quality-all", "command": "nix-shell -p uv --run 'bash scripts/python-quality.sh all'", "exit": 0, "result": "ruff + mypy --strict + 223 and 176 tests + 100% coverage on both locked projects" },
+    { "name": "merge-lcov", "command": "bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w01e-validation/lcov-flat/*.info' coverage/lcov.info", "exit": 0, "result": "merged 601 source files from 6 validator lcovs" },
+    { "name": "new-file-coverage", "command": "BASE_REF=8810d6eae bun scripts/check-new-file-coverage.ts", "exit": 0, "result": "PASSED: 3 new source file(s) gated" },
+    { "name": "patch-coverage", "command": "BASE_REF=8810d6eae bun scripts/check-patch-coverage.ts", "exit": 0, "result": "PASSED: all changed executable lines covered (10 file(s))" }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "blocker",
+      "title": "The newly registered PostgreSQL suite spins on the microtask queue and never finishes",
+      "location": "src/__tests__/helpers/factory-guest-model-journal-suite.ts:120",
+      "detail": "`while (answers === 1) await Promise.resolve();` sits in front of a real database round trip. A loop that enqueues a fresh microtask every turn starves the event loop's I/O phase, so the claim query result never arrives. PGlite settles through microtasks so the PGlite leg passes; real PostgreSQL does not.",
+      "reproduction": "bun test --timeout 300000 ./tests/postgres/factory-guest-model-journal.test.ts  # 7 min at 91% CPU, no output, killed (143)",
+      "mechanismProof": "/tmp/w01e-starvation-probe.ts on Bun 1.3.14: 'STARVED: 44332769 microtask turns in 3s, timer never fired'",
+      "impact": "Registered at .github/workflows/db-postgres.yml:184 inside one bun test invocation over 25 suites in a job with timeout-minutes: 15. The job dies by timeout, the five suites listed after it never run, and the if-no-files-found:error coverage upload gets nothing. Breaks a shared CI lane for every package.",
+      "gateAffected": "G5 checked with no real-PostgreSQL receipt anywhere in /tmp/factory-platform-evidence/w01e/",
+      "fix": "Await the observed operation: resolve a promise inside the provider double and await it, instead of spinning."
+    },
+    {
+      "id": "F2",
+      "severity": "high",
+      "title": "The provider receipt digest is written in a shape FactoryUsageReconciliation refuses, and the promised reconcileLate path cannot execute",
+      "location": "src/factory/runner/provider-one-hop.ts:67 vs src/factory/usage-settlement.ts:118,410,424",
+      "detail": "factoryProviderReceiptDigest returns bare 64-hex. RECEIPT_DIGEST_PATTERN is /^sha256:[0-9a-f]{64}$/ and is enforced in both resolve and reconcile. The bare form is locked in at factory-guest-model-journal-suite.ts:57,108 and guest-model.podman.integration.test.ts:179. resolve also only selects operations in state 'uncertain'; this leaf settles 'completed' or 'failed'. Separately, guest-model-broker.ts:141-143 discards the completion when record throws, so nothing retains the digest and usage reconcile needs.",
+      "unprovenClaim": "Brief claim (c): no test in the leaf exercises FactoryUsageReconciliation at all.",
+      "notAffected": "The ordinary path is fine: a completed operation's measured usage is summed by validateFactoryTerminalUsage and settled at stop with source 'stop', which carries no receipt digest.",
+      "fix": "Emit sha256:${hex}, update the three assertions, and add a resolver test; or record in the freeze that W03c must normalise."
+    },
+    {
+      "id": "F3",
+      "severity": "medium",
+      "title": "FACTORY_GUEST_MODEL_LIMITS is not reachable from the SDK barrel",
+      "location": "packages/@ezcorp/factory-sdk/src/index.ts:1,3 and types.ts:523",
+      "detail": "index.ts re-exports types.js with `export type *` and its explicit value list names FACTORY_LIMITS but not FACTORY_GUEST_MODEL_LIMITS. Verified against the built package: FACTORY_GUEST_MODEL_LIMITS is undefined, FACTORY_LIMITS is defined. The gate file's migration note and the freeze line both tell W10 and W11 to respect these bounds.",
+      "fix": "Add FACTORY_GUEST_MODEL_LIMITS to the value-export list on index.ts:3."
+    },
+    {
+      "id": "F4",
+      "severity": "medium",
+      "title": "The decisive G6 end-to-end proof is not registered in CI",
+      "location": ".github/workflows/ci.yml:183-185",
+      "detail": "The Podman list names three suites and does not include src/factory/runner/guest-model.podman.integration.test.ts, the one proof that a guest reaches its pinned model and the file the freeze names as the guest program shape W10 and W11 must implement."
+    },
+    {
+      "id": "F5",
+      "severity": "low",
+      "title": "The operation request digest formula is duplicated",
+      "location": "src/factory/runner/guest-model-journal.ts:57 and src/factory/runner/provider-one-hop.ts:93",
+      "detail": "The same sha256 over {model, messages, maxOutputTokens} is written twice. If either drifts, the journal claim and the broker request describe different work under one operation id. provider-one-hop.ts can import factoryGuestModelOperation with no cycle."
+    },
+    {
+      "id": "F6",
+      "severity": "low",
+      "title": "The leaf introduces the repository's only lint warning",
+      "location": "src/__tests__/helpers/factory-guest-model-transcript.ts:54",
+      "detail": "biome noInstanceofArray on `instanceof Array`. `bun run lint` still exits 0, so G8's claim is literally true, but the gate file does not mention it and the repo reports exactly one warning."
+    },
+    {
+      "id": "F7",
+      "severity": "informational",
+      "title": "Six SDK files owned by Sol controls were landed by this leaf rather than filed with the owner",
+      "location": "packages/@ezcorp/factory-sdk/src/{types,validation,schema,index}.ts plus two generated *.schema.json; interface freeze section 12",
+      "detail": "Section 12's rule is that the owner lands the change. The crossing is disclosed in the gate file and the edits are strictly additive (verified by diff: only import lists, export lists, two validators, two guards, two appended schema:generate invocations). Whether the rule is waived is the coordinator's call."
+    }
+  ],
+  "coordinatorFinding": {
+    "status": "withdrawn by the worker at 1095a8613, and the withdrawal is correct",
+    "originalTextAtF20d104cf": "The interface freeze at /tmp/factory-platform-evidence/w00/shared-interfaces.md is dated 2026-09-13 and had no section 16 at all. The 2026-09-14 W01c line that tasks/factory/w01c-GATES.md records as landed is not present in it either. I created section 16 and wrote this leaf's line into it, and kept a copy at w01e/shared-interfaces-with-w01e-addendum.md in case the shared file is overwritten again. The W01c line needs restoring from /tmp/factory-platform-evidence/w01c/materials-mount-review.md.",
+    "validatorVerification": "The /tmp draft does contain a '## 16.' heading and a 2026-09-14 entry, so the original claim was wrong on both counts. The repository freeze docs/plans/2026-09-13-composable-factory-platform-interfaces.md contains both 2026-09-14 W01c lines in section 16, unaltered. Nothing was lost and no coordinator action is needed."
+  },
+  "claimMap": {
+    "a_wire_types_bounded_schemas_regenerated_python_parity": "PROVEN",
+    "b_refusals_real_no_provider_call_durable_one_winner_pin_enforced": "PROVEN; literal crash-restart case absent",
+    "c_journal_receipt_shape_usage_resolver_reads_with_test": "NOT PROVEN (F2)",
+    "d_fixture_labelled_no_production_substitution_no_credentials": "PROVEN",
+    "e_reruns": "DONE; one failure (F1)",
+    "f_crossings_additive_and_disclosed": "PROVEN; ownership question raised (F7)",
+    "g_no_gate_weakening_no_wall_clock_assertions": "PROVEN"
+  },
+  "perFileCoverage": {
+    "note": "measured from the validator's own merged LCOV; the two shortfalls are narrower suite selection, and both BASE_REF gates passed",
+    "src/factory/runner/guest-model-broker.ts": { "claimed": "56/56", "measured": "56/56" },
+    "src/factory/runner/guest-model-journal.ts": { "claimed": "72/72", "measured": "72/72" },
+    "src/factory/runner/provider-one-hop.ts": { "claimed": "55/55", "measured": "55/55" },
+    "src/factory/runner/host-launch-supervisor.ts": { "claimed": "62/62", "measured": "62/62" },
+    "src/factory/runner/python-guest.ts": { "claimed": "37/37", "measured": "37/37" },
+    "packages/@ezcorp/factory-sdk/src/schema.ts": { "claimed": "96/96", "measured": "96/96" },
+    "packages/@ezcorp/factory-sdk/src/types.ts": { "claimed": "42/42", "measured": "42/42" },
+    "packages/@ezcorp/factory-sdk/src/index.ts": { "claimed": "13/13", "measured": "13/13" },
+    "packages/@ezcorp/factory-sdk/src/validation.ts": { "claimed": "839/839", "measured": "838/839" },
+    "src/factory/runner/attempt-runtime.ts": { "claimed": "379/379", "measured": "360/377" }
+  },
+  "artifacts": {
+    "report": "/tmp/factory-platform-evidence/w01e-validation/report.md",
+    "buildLog": "/tmp/factory-platform-evidence/w01e-validation/build.log",
+    "staticGates": "/tmp/factory-platform-evidence/w01e-validation/static-gates.log",
+    "lintRerun": "/tmp/factory-platform-evidence/w01e-validation/lint-rerun.log",
+    "focusedSuites": "/tmp/factory-platform-evidence/w01e-validation/run1-focused.log",
+    "postgres": "/tmp/factory-platform-evidence/w01e-validation/run2-postgres.log",
+    "postgresHangReproduction": "/tmp/factory-platform-evidence/w01e-validation/postgres-hang-reproduction.log",
+    "podmanSuites": "/tmp/factory-platform-evidence/w01e-validation/run3-podman.log",
+    "pythonLane": "/tmp/factory-platform-evidence/w01e-validation/run4-python.log",
+    "coverageGates": "/tmp/factory-platform-evidence/w01e-validation/run5-coverage-gates.log",
+    "perFileCoverage": "/tmp/factory-platform-evidence/w01e-validation/per-file-coverage.txt",
+    "consumerChecks": "/tmp/factory-platform-evidence/w01e-validation/consumer-checks.txt",
+    "lcovs": "/tmp/factory-platform-evidence/w01e-validation/lcov-flat/"
+  }
+}

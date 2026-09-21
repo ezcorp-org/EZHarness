@@ -2929,3 +2929,76 @@ the failure path closed the listener the other side needed. And hosting the two
 host routes in the supervisor pulled the product database into a process C01
 says holds only host identity — caught by the boundary test, fixed by splitting
 the attempt wire out of the launch store.
+### Coordinator log — wave 3 progress (2026-09-20)
+
+- [x] Merged in order: WREG (e659795eb), W02b (a8eff0bfa), W01b (dfe3091f8), W11 (f45a94148), the release-authority manifestName fix (559db1d3e), W10 (b0a2ca872), W01c mount (f30da62fa), W12 (f1af41c16), W03c (8810d6eae), W01d (7d99dc75b). Combined run wave3c green at b0a2ca872; receipts in `docs/validation/factory/wave3/`; `feat/composable-factory-platform` fast-forwarded to 1784ab76c.
+- [ ] In flight: W09 composition round (preflight built over W03's retained admission; four roles to assemble; G14 real-guest proof), W11b (GPU journey rerun on the runner-owned handover), W12 follow-up (drop the caller-side handover), W01e (guest model-broker frame contract and adapter), W13 (composition and legacy adapter, started 2026-09-20 from f1af41c16).
+- [ ] Next: validate and merge W11b, W12 follow-up, W01e, W09; full combined run with `--podman`; receipts under `docs/validation/factory/wave3/`; fast-forward feat; then W14 (after W09 and W13), W15 and W16 (after W09), W17 (after W09, W15, W16), W18 final gate, W19 campaign, W20 audit.
+- Decisions this session: the dispatch preflight reads the held allocation from `FactoryComputeAdmissions.readRetainedAdmittedInTransaction` and never derives or assembles a lease; the release-outcome resolver selects among the three providers by destination kind with GitHub lifted through `factorySynchronousReleaseProfile`; the guest model-broker payload is undefined and is Terra runtime's to define (W01e) before any adapter is written; the model-backed legs stay explicit readiness rows on this host.
+## W13 — Composition and legacy adapter (Sol lifecycle)
+
+Branch `wp/w13-composition`, cut from `integ/w00` and fast-forwarded to `8810d6eae` before any
+work. Gate file: `tasks/factory/w13-GATES.md`. Receipts: `/tmp/factory-platform-evidence/w13/`.
+
+- [x] Run `reference.catalog.v1` with data and image children in typed acceptance-only mode, with
+      no child release operation created.
+- [x] Embed their actual accepted bytes in the code candidate and perform the parent's own
+      protected checks and acceptance.
+- [x] Preserve child budgets, exact aliases, pinned revisions, parent authority, cancellation, and
+      output schema boundaries. Child acceptance never grants parent acceptance. The alias is
+      proven directly: the acceptance-only receipt's decision binds through
+      `FactoryChildArtifacts.bind` to the exact parent attempt, and a decision the child never
+      took is refused. Only the PRODUCTION composition that calls it from the child-completion
+      path is outstanding, and that is W09b's wiring round.
+- [x] Complete the allowlisted and administrator-attested legacy adapters on the existing executor:
+      `factory:` start identity, journal-before-start, lookup after crash, unique-conflict
+      classification, and the periodic orphan sweep as a host-maintenance-daemon sub-tick.
+- [x] Exercise every C10 legacy status row, including terminal uncertainty for `awaiting_approval`,
+      authority loss, expired lease, resumable suspension, and nonresumable failure.
+- [x] Import legacy output only by a recorded digest-verified copy, and exclude the ownerless
+      ez-factory job store.
+- [x] Keep existing workflows, approvals, and ez-factory behavior outside factories working.
+- [ ] The real `reference.catalog.v1` pull request containing actual child bytes. Open: the image
+      child cannot reach acceptance without a model credential, and no Anthropic credential
+      resolves on this host. Named readiness failure, not a substitute response.
+
+### Review
+
+Two halves, and they failed in opposite directions before anything was written.
+
+The composition half looked finished and was inert. `SubfactoryNode.releaseMode` existed as a type,
+a wire schema, five generated JSON Schemas, and three literals, and no runtime code read any of
+them — so a child declared `none` would still have run its own release node and created a release
+operation, which is the one thing C10 says it must not do. The catalog could not have run at all:
+its three children declared output ports (`artifact`, `evidence`, `candidate`) that no child
+definition produces, because every child's graph output is its release receipt.
+
+Both are now one decision rather than two. The ancestry walk that already proves every parent
+attempt is still current reports the inherited release mode on its way back up, so the authority
+and the liveness answer come from one walk of one chain and cannot disagree. A `none` child's
+release node completes with a typed acceptance-only receipt naming the accepted bytes and the
+sealed decision that accepted them — no operation row, no profile call, no effect claim, no
+approval consumed. The catalog declares that receipt as each child's output port, which makes the
+boundary run in both directions: a publishing child's provider receipt cannot satisfy it, and a
+composed child cannot be quietly promoted to publishing.
+
+A cached copy of the mode beside the binding would have been cheaper and wrong. The freeze's own
+lesson from the assurance review is that a sealed historical revision does not prove current
+authority; re-deriving the node from the parent's compiled definition at its pinned digest is what
+survives a repair.
+
+The legacy half was the reverse: the contract described three stage-2b changes as outstanding and
+two of them had already landed. The third had not, quite. The unique-key discrimination was gated
+on the `factory:` prefix and could not see through `persistCritical`'s own envelope, so a `nested:`
+conflict still reported `run-persistence-failed` — a message that says the durable row was not
+confirmed when a row with that exact key demonstrably exists. Reverting the two-line fix turns two
+of the four new cases red, which is the only way to know the fix was load-bearing.
+
+What I would flag hardest is the detection bound. C10 says an orphaned legacy run reaches a
+terminal or resumable state within the C11 bound, and C11 sets that at thirty seconds. The sweep
+is a sub-tick of the host maintenance daemon, on every tick, which is correct; the daemon's default
+wake interval is one hour. The factory side does not wait for it — an expired lease maps to
+uncertain immediately, so a wrapped task never reads a lost run as alive — but the legacy row's own
+resolution is bounded by a deployment setting rather than by anything this package can assert. It
+is in the gate file as an interface question rather than as a second timer, because C10 says the
+sweep is a sub-tick and not new infrastructure.

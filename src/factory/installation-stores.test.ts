@@ -4,6 +4,8 @@ import type { BlobStore } from "../extensions/v4/types";
 import { createFactoryApplication } from "./application";
 import { FactoryArtifacts } from "./artifacts";
 import { FactoryAttemptQueue } from "./attempt-queue";
+import { FactoryLegacyWorkflows } from "./legacy-workflow/adapter";
+import { FactoryLegacyImports } from "./legacy-workflow/import";
 import { FactoryTaskCompletions } from "./task-completions";
 import { FactoryTaskOutcomes } from "./task-outcomes";
 import { FactoryTransitionArtifacts } from "./transition-artifacts";
@@ -114,6 +116,21 @@ describe("factoryInstallationStores", () => {
     const stores = factoryInstallationStores(inputs(database(), poolClient()));
     expect(Object.isFrozen(stores)).toBe(true);
     expect(() => { (stores as { compute?: unknown }).compute = undefined; }).toThrow();
+  });
+
+  test("the legacy workflow journal and its import copy are built, and agree on tenant", () => {
+    const db = database();
+    const options = inputs(db);
+    const stores = factoryInstallationStores(options);
+    expect(stores.legacyWorkflows).toBeInstanceOf(FactoryLegacyWorkflows);
+    expect(stores.legacyImports).toBeInstanceOf(FactoryLegacyImports);
+    // `FactoryLegacyImports` refuses construction unless its journal and its
+    // artifact store name this tenant, so it constructing at all is the guard.
+    expect(stores.legacyWorkflows.tenantId).toBe(tenantId);
+    expect(stores.legacyImports.tenantId).toBe(tenantId);
+    // Present without a pool, because a wrapped legacy run needs no compute
+    // lease: the legacy engine runs it in this process.
+    expect(stores.compute).toBeUndefined();
   });
 
   test("a mismatched service subject still scopes the command authority to this tenant", () => {
