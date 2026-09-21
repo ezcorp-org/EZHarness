@@ -492,11 +492,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
         await requireNoActiveLifecycle(tx, current.bindingId);
         await requireNoActiveMethod(tx, current.bindingId);
         const inserted = rows(await tx.execute(sql`INSERT INTO sandbox_operations (id,binding_id,resource_id,actor_id,action,idempotency_key,input_digest,request_key_digest,input) VALUES (${id},${current.bindingId},(SELECT id FROM sandbox_resources WHERE binding_id=${current.bindingId}),${userId},${input.action},${input.idempotencyKey},${digest},${digest},${JSON.stringify(value)}) ON CONFLICT DO NOTHING RETURNING id`))[0];
-        if (!inserted) {
-          const raced = rows(await tx.execute(sql`SELECT * FROM sandbox_operations WHERE binding_id=${current.bindingId} AND idempotency_key=${input.idempotencyKey}`))[0];
-          if (raced) return replay(raced);
-          throw new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox operation is already admitted or running");
-        }
+        if (!inserted) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "A sandbox operation is already admitted or running");
         return { id, action: input.action, state: "admitted", input: value, provider: current.provider };
       });
     },

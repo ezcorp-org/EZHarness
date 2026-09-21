@@ -168,6 +168,20 @@ test("replays a concurrent lifecycle admission after its insert conflicts", asyn
   expect(stored.rows).toEqual([{ id: first.id }]);
 });
 
+test("rejects a lifecycle idempotency key already used by the same actor on another binding", async () => {
+  const context = await fixture();
+  const first = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, first.operation!.id);
+  const firstStart = await context.controller.requestSandboxAction(context.owner.id, first.projectId, { action: "start", idempotencyKey: "actor-wide-lifecycle-key" });
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, firstStart.id);
+  const firstDestroy = await context.controller.requestSandboxAction(context.owner.id, first.projectId, { action: "destroy", idempotencyKey: "destroy-first-binding" });
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, firstDestroy.id);
+  const second = await context.controller.createSandboxProject(context.owner.id, { name: "Second sandbox project", idempotencyKey: "create-second-binding", providerInstallationId: context.installation.id, providerId: "local", config: {}, limits });
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, second.operation!.id);
+
+  await expect(context.controller.requestSandboxAction(context.owner.id, second.projectId, { action: "start", idempotencyKey: "actor-wide-lifecycle-key" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+});
+
 test("persists a process writer lease and denies an interleaved file writer", async () => {
   const context = await fixture();
   const create = await admitCreate(context);

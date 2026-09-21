@@ -40,6 +40,7 @@ describe("provider manifest contributions", () => {
   test("preserves legacy manifests and admits bounded sandbox and static-secret declarations", () => {
     const legacy = { schemaVersion: 4, name: "legacy", version: "1.0.0", description: "Legacy", author: { name: "Tests" }, permissions: {} };
     expect(validateManifest(legacy)).toEqual(legacy);
+    expect(validateManifest({ ...legacy, skills: [{ name: "summarize", description: "Summarize a document" }] }).skills?.[0]?.name).toBe("summarize");
     expect(validateManifest({ ...base, providers: [sandboxProvider] }).providers?.[0]).toEqual(sandboxProvider);
 
     const secret = {

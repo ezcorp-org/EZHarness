@@ -324,16 +324,19 @@ Plan review: use the existing clean PR worktree at the exact GitHub head. Treat 
 
 ### Publication-gate recovery repairs
 
-- [ ] Reproduce API/UI recovery of an unknown start or stop with a new idempotency key.
-- [ ] Reuse only the exact pending same-actor, same-action lifecycle operation and reject conflicts.
-- [ ] Reproduce reviewed-call abort while a raw observation still runs and preserve the lifecycle fence until authoritative completion.
-- [ ] Reproduce concurrent start/stop recovery through two driver instances sharing one state root.
-- [ ] Add a crash-recoverable cross-process transition lock without weakening identity or ambiguity checks.
-- [ ] Merge current `origin/main` and preserve the sandbox recovery and runner-image changes.
-- [ ] Run focused tests, patch coverage, CRAP, lint, typecheck, builds, gate integrity, and diff checks.
-- [ ] Commit locally without pushing and record the exact verification result.
+- [x] Reproduce API/UI recovery of an unknown start or stop with a new idempotency key.
+- [x] Reuse only the exact pending same-actor, same-action lifecycle operation and reject conflicts.
+- [x] Reproduce reviewed-call abort while a raw observation still runs and preserve the lifecycle fence until authoritative completion.
+- [x] Reproduce concurrent start/stop recovery through two driver instances sharing one state root.
+- [x] Add a crash-recoverable cross-process transition lock without weakening identity or ambiguity checks.
+- [x] Merge current `origin/main` and preserve the sandbox recovery and runner-image changes.
+- [x] Run focused tests, patch coverage, CRAP, lint, typecheck, builds, gate integrity, and diff checks.
+- [x] Commit locally without pushing and record the exact verification result.
 
 Plan review: test the public lifecycle controller and UI seams, the reviewed-to-raw provider invocation seam, and two real driver instances sharing one durable state root. Recovery may reuse only existing authority. A lifecycle transition must wait for authoritative raw completion, and transition serialization must survive process replacement.
+
+Repair review: normal API retries with a fresh key now recover only a pending same-actor, same-action start or stop and retain the original durable call; conflicting actions and actors remain blocked. A module-wide raw-operation fence survives controller replacement until provider completion is authoritative. Local transition recovery now combines the in-process queue with a binding-scoped durable `flock`, so separate driver instances and processes cannot duplicate a Podman effect; process death releases the lock for recovery. Merged `origin/main` at `d81f98387` and preserved the runner-profile repair. Pinned Bun 1.3.14 verification passed: focused integrated tests 131/131; controller coverage tests 77/77; extension-contract tests 26/26; the canonical coverage suite 26,869/26,869 across 1,627 shards; full lint and typecheck; contract, sandbox-tools, and sandbox-supervisor builds; gate integrity; patch coverage for all 53 changed source files; changed-function CRAP; and diff checks. The local coverage wrapper's tests were green but its aggregate required the CI-only browser-route receipt, so the final coverage gates used the green PR run's browser and shard artifacts plus the new local repair coverage.
+
 ## PR #290 CI failure diagnosis
 
 - [x] Capture the completed run and raw failed-job logs for run 35631461630.
