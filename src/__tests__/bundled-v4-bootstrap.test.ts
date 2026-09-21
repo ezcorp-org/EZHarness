@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import type { InstallationState, LifecycleActor, LifecycleOperation } from "../extensions/v4/types";
 import { digestObject } from "../extensions/v4/blobs";
 
@@ -38,7 +39,12 @@ mock.module("../extensions/extension-lifecycle-service", () => ({ getExtensionLi
 
 const { stageBundledExtensionSources, bundledInstallationId } = await import("../extensions/bundled-bootstrap");
 const entries = [{ name: "candidate", path: "extensions/candidate" }];
-afterAll(() => mock.restore());
+// `mock.restore()` undoes spies, NOT `mock.module()` — the module registry
+// keeps every stub above for the rest of the process. The stub
+// `DatabaseLifecycleRepository` in particular writes no row, so a later file
+// that persists an installation and then publishes it reads nothing back and
+// fails with `generation_superseded`. Re-register the real modules.
+afterAll(() => { mock.restore(); restoreModuleMocks(); });
 beforeEach(() => {
   states.clear(); legacy.clear();
   users = [{ id: "admin", role: "admin", status: "active" }];
