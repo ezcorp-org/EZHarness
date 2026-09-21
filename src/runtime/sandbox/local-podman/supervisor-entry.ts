@@ -51,18 +51,21 @@ export async function runSupervisorEntry(launchPath: string): Promise<void> {
 	const envArgs = Object.entries(launch.env).flatMap(([key, value]) => ["--env", `${key}=${value}`]);
 	const child = Bun.spawn([launch.podmanPath, "--remote=false", "exec", "--user", `${launch.workspaceUid}:${launch.workspaceGid}`, "--workdir", launch.cwd, ...envArgs, launch.containerId, ...launch.argv], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
 	let written = 0;
-	const capture = async (stream: "stdout" | "stderr", source: ReadableStream<Uint8Array>) => {
+	const capture = (stream: "stdout" | "stderr", source: ReadableStream<Uint8Array>) => {
 		const reader = source.getReader();
-		try {
-			while (true) {
-				const item = await reader.read(); if (item.done) break;
-				const allowed = Math.max(0, launch.maxOutputBytes - written); const bytes = item.value.subarray(0, allowed);
-				if (bytes.byteLength && status.chunks.length < 1024) { status.chunks.push({ cursor: status.outputCursor, stream, data: Buffer.from(bytes).toString("base64"), byteLength: bytes.byteLength }); status.outputCursor += bytes.byteLength; written += bytes.byteLength; await persist(); }
-				if (bytes.byteLength !== item.value.byteLength || status.chunks.length >= 1024) status.gap = true;
-			}
-		} finally { reader.releaseLock(); }
+		const done = (async () => {
+			try {
+				while (true) {
+					const item = await reader.read(); if (item.done) break;
+					const allowed = Math.max(0, launch.maxOutputBytes - written); const bytes = item.value.subarray(0, allowed);
+					if (bytes.byteLength && status.chunks.length < 1024) { status.chunks.push({ cursor: status.outputCursor, stream, data: Buffer.from(bytes).toString("base64"), byteLength: bytes.byteLength }); status.outputCursor += bytes.byteLength; written += bytes.byteLength; await persist(); }
+					if (bytes.byteLength !== item.value.byteLength || status.chunks.length >= 1024) status.gap = true;
+				}
+			} finally { reader.releaseLock(); }
+		})();
+		return { done, cancel: () => reader.cancel().catch(() => undefined) };
 	};
-	const output = Promise.all([capture("stdout", child.stdout), capture("stderr", child.stderr)]);
+	const output = [capture("stdout", child.stdout), capture("stderr", child.stderr)];
 	let cancelled = false; let timedOut = false;
 	let childDone = false;
 	const watcher = (async () => {
@@ -81,7 +84,9 @@ export async function runSupervisorEntry(launchPath: string): Promise<void> {
 	cancelled ||= await Bun.file(launch.cancelPath).exists();
 	timedOut ||= Date.now() >= status.deadlineAt;
 	const isStopped = await stopAndVerify(launch);
-	await output;
+	await Promise.race([Promise.all(output.map(item => item.done.catch(() => undefined))), Bun.sleep(100)]);
+	await Promise.all(output.map(item => item.cancel()));
+	await Promise.all(output.map(item => item.done.catch(() => undefined)));
 	status.state = isStopped ? (cancelled || timedOut ? "cancelled" : exitCode === 0 ? "exited" : "failed") : "unknown";
 	status.exitCode = exitCode; await persist();
 }
