@@ -51,10 +51,23 @@ Run `bun scripts/verify-factory-archive-writer.ts` with the same credential
 directory exported to test the archive-writer role itself: conditional create,
 checksum, version reads, the archive inventory, and a refusal for every product
 and restore attempt to read, overwrite, or delete an archive object, across all
-ten tenant identities. It stops the ordinary service for one step, so run it
-under `flock /tmp/ezcorp-validation-heavy.lock` on a shared host. Its receipt
-records `failureDomain: "same-host-not-independent"` and the unmet criterion
-`deployed-independent-failure-domain`, because that is what one host can show.
+ten tenant identities. This is the default behavior and does not touch any
+shared container's lifecycle; it exits 0 once every check passes and prints
+one line noting that the product-store-outage leg was skipped.
+
+Pass `--restart-stores` to also run the product-store-outage leg, which
+proves the archive keeps answering, and that a real release provider cannot
+verify a receipt, while the product store is down. That flag STOPS then
+RESTARTS the shared `factory-storage-ordinary` store, so run it only under
+the same rules as `verify-factory-storage.ts --restart-stores` above (a store
+this run owns exclusively, with the owner's confirmation on a shared host),
+and under `flock /tmp/ezcorp-validation-heavy.lock` on a shared host. Its
+receipt records `failureDomain: "same-host-not-independent"` and the unmet
+criterion `deployed-independent-failure-domain`, because that is what one
+host can show; without the flag, the receipt's `ordinaryStoreLoss` records
+`{ skipped: true }` instead of the outage proof.
+`bun scripts/verify-factory-archive-writer.ts --help` prints the exact
+wording.
 
 Each SeaweedFS server allows up to 400 volumes of 64 MiB (about 25 GiB). The
 first limit of 100 volumes was exhausted during the ten-tenant campaign because
@@ -75,10 +88,12 @@ configuration. A recreate keeps the named data volumes and the credential files.
 `scripts/lib/container-engine.sh`: Podman by default on a developer host
 (Compose is pointed at the rootless socket through `DOCKER_HOST`), Docker
 under CI, and `EZCORP_CONTAINER_ENGINE=podman|docker` to choose.
-`scripts/verify-factory-storage.ts`'s restart-persistence leg
-(`--restart-stores`) drives Compose the same way, through the TypeScript port
-of that same rule, `scripts/lib/container-engine.ts` — both files keep one
-rule text so they cannot drift apart. A host reboot clears the credential
+`scripts/verify-factory-storage.ts`'s restart-persistence leg and
+`scripts/verify-factory-archive-writer.ts`'s product-store-outage leg (both
+gated behind `--restart-stores`) drive Compose the same way, through the
+TypeScript port of that same rule, `scripts/lib/container-engine.ts` — all
+three files keep one rule text so they cannot drift apart. A host reboot
+clears the credential
 directory, which lives on tmpfs below `XDG_RUNTIME_DIR`, while the containers
 and their data volumes survive.
 `scripts/setup-factory-storage.sh recover` removes only the containers, keeps

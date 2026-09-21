@@ -35,6 +35,14 @@ import {
 } from "../src/factory/archive-writer";
 import { S3FactoryReleaseArchive, S3FactoryReleaseProvider } from "../src/factory/release-adapters";
 import type { FactoryReleaseClaim } from "../src/factory/releases";
+import { hasCommandOnPath, isUnixSocket, resolveComposeDockerHost, resolveEngine } from "./lib/container-engine.ts";
+import { HELP_TEXT, outageLegInvocations, parseArgs, RESTART_LEG_SKIPPED_MESSAGE } from "./lib/verify-factory-archive-writer-cli.ts";
+
+const args = parseArgs(Bun.argv.slice(2));
+if (args.help) {
+  console.log(HELP_TEXT);
+  process.exit(0);
+}
 
 interface CredentialEntry { readonly name: string; readonly credentials: readonly [{ readonly accessKey: string; readonly secretKey: string }] }
 interface CredentialConfig { readonly identities: readonly CredentialEntry[] }
@@ -72,13 +80,13 @@ async function denied(action: () => Promise<unknown>): Promise<number | "permitt
   return "permitted";
 }
 
-const compose = async (args: readonly string[]): Promise<void> => {
-  const child = Bun.spawn(["docker", "compose", "-f", "compose.factory-storage.local.yml", "--profile", "factory-storage", ...args], {
+const runCompose = async ({ cmd, env }: { cmd: readonly string[]; env: Readonly<Record<string, string>> }): Promise<void> => {
+  const child = Bun.spawn([...cmd], {
     cwd: resolve(import.meta.dir, ".."),
-    env: { ...process.env, COMPOSE_PROJECT_NAME: `ezcorp-factory-storage-${process.getuid?.() ?? "local"}` },
+    env: { ...process.env, ...env },
     stdout: "ignore", stderr: "ignore",
   });
-  if (await child.exited !== 0) throw new Error(`Local SeaweedFS command failed: ${args.join(" ")}`);
+  if (await child.exited !== 0) throw new Error(`Local SeaweedFS ${cmd.slice(1).join(" ")} failed.`);
 };
 
 const waitForRead = async (read: () => Promise<unknown>): Promise<void> => {
@@ -172,61 +180,76 @@ for (const [index, archiveIdentity] of sets.archive.identities.entries()) {
   tenantResults.push({ tenant, archivedObjects: 2, inventoryEntries: listed.length, readinessChecks: readiness.checks.length, ready: readiness.ready, publicationGrade: readiness.publicationGrade });
 }
 
-// The archive answers while the ordinary product service is stopped, and a real
-// release provider cannot verify its receipt until that service returns.
-const tenant = "tenant-01";
-const ordinaryIdentity = sets.ordinary.identities[0]!;
-const archiveIdentity = sets.archive.identities[0]!;
-const ordinaryClient = track(clientFor("ordinary", ordinaryIdentity));
-const ordinaryStore = new S3BlobStore({ endpoint: endpoints.ordinary, bucket: tenant, prefix: `ordinary/w04a-archive-writer/${stamp}`, credentials: credentialsOf(ordinaryIdentity), client: ordinaryClient });
-const productBytes = bytesOf({ purpose: "w04a-product-object", stamp });
-const productDigest = await ordinaryStore.put(productBytes);
-
-const lossRoot = `archive/w04a-archive-writer/${stamp}/loss`;
-const lossClient = track(clientFor("archive", archiveIdentity));
-const lossArchive = new S3FactoryReleaseArchive({ endpoint: endpoints.archive, bucket: tenant, prefix: lossRoot, credentials: credentialsOf(archiveIdentity), client: lossClient });
-const lossWriter = new FactoryArchiveWriter({
-  archive: lossArchive, failureDomain,
-  inventory: new S3FactoryArchiveInventory({ endpoint: endpoints.archive, bucket: tenant, root: lossRoot, credentials: credentialsOf(archiveIdentity), client: lossClient }),
-  reader: { async read() { throw new Error("unused"); }, async readChunk() { throw new Error("unused"); } },
-  publicationSet: { async plan() { return []; } },
-});
-const lossOperationId = `factory-release:${createHash("sha256").update(`${stamp}:loss`).digest("hex")}`;
-const beforeLoss = await lossArchive.writeImmutable(tenant, lossOperationId, "intent", productBytes);
-
-const publishedObject = `ordinary/w04a-archive-writer/${stamp}/published.json`;
-const provider = new S3FactoryReleaseProvider({ endpoint: endpoints.ordinary, bucket: tenant, account: tenant, credentials: credentialsOf(ordinaryIdentity) });
-const sha = (letter: string) => `sha256:${letter.repeat(64)}`;
-const claim = {
-  tenantId: tenant, projectId: "proof", operationId: lossOperationId, runId: "proof", nodeInstanceId: "release", candidateGeneration: 1,
-  candidateDigest: sha("a"), decisionId: "proof", contractDigest: sha("b"), executionEpoch: 1, cancellationEpoch: 0, releaseEnableEpoch: 1,
-  action: "publish", destination: { provider: "s3", account: tenant, object: publishedObject },
-  request: { bytesBase64: Buffer.from(productBytes).toString("base64") }, destinationDigest: sha("c"), requestDigest: sha("d"),
-  material: { decisionId: "proof", evidence: [{}], packageTrustDigest: sha("e"), validatorTrustDigest: sha("f") }, materialDigest: sha("a"),
-  estimatedSpendMicros: 0, deadlineMs: Date.now() + 600_000, state: "executing", dispatchGeneration: 1, dispatchStarted: true,
-  senderToken: "proof", archiveReady: true, authority: { kind: "approval", id: "proof" },
-} satisfies FactoryReleaseClaim;
-const receipt = await provider.publish(claim);
-if (!await provider.verifyReceipt(claim, receipt, { operationId: lossOperationId, reason: "before the outage" })) throw new Error("The provider did not verify its own receipt before the outage.");
-
-const reachable = async (): Promise<boolean> => { try { await ordinaryStore.get(productDigest); return true; } catch { return false; } };
+// The product-store-outage leg proves the archive answers while the ordinary
+// product service is stopped, and that a real release provider cannot verify
+// its receipt until that service returns. It STOPS then RESTARTS the shared
+// factory-storage-ordinary store, so — like verify-factory-storage.ts's
+// restart-persistence leg — it runs ONLY with an explicit --restart-stores
+// flag. Without the flag, every check above still runs and this leg is
+// skipped: one line explains why, and the written result records
+// ordinaryStoreLoss.skipped instead.
 let loss: Record<string, unknown>;
-await compose(["stop", "factory-storage-ordinary"]);
-try {
-  if (await reachable()) throw new Error("The ordinary store answered after it was stopped.");
-  const independence = await lossWriter.proveIndependentOfProductStore({ reachable }, tenant, lossOperationId);
-  if (!independence.passed) throw new Error(`The archive did not answer while the ordinary store was down: ${independence.detail}`);
-  if (!sameBytes(productBytes, await lossArchive.read(beforeLoss))) throw new Error("The archive returned different bytes while the ordinary store was down.");
-  const settlement = await provider.verifyReceipt(claim, receipt, { operationId: lossOperationId, reason: "during the outage" })
-    .then(() => "verified" as const, (error: Error) => `${error.name}: ${((error as { code?: string }).code ?? error.message).slice(0, 120)}`);
-  if (settlement === "verified") throw new Error("The provider verified a receipt while its object store was stopped.");
-  loss = { archiveReadableWhileProductStoreDown: true, productSettlementBlockedWith: settlement };
-} finally {
-  await compose(["up", "-d", "--wait", "factory-storage-ordinary"]);
-  await waitForRead(() => ordinaryStore.get(productDigest));
+if (args.restartStores) {
+  const tenant = "tenant-01";
+  const ordinaryIdentity = sets.ordinary.identities[0]!;
+  const archiveIdentity = sets.archive.identities[0]!;
+  const ordinaryClient = track(clientFor("ordinary", ordinaryIdentity));
+  const ordinaryStore = new S3BlobStore({ endpoint: endpoints.ordinary, bucket: tenant, prefix: `ordinary/w04a-archive-writer/${stamp}`, credentials: credentialsOf(ordinaryIdentity), client: ordinaryClient });
+  const productBytes = bytesOf({ purpose: "w04a-product-object", stamp });
+  const productDigest = await ordinaryStore.put(productBytes);
+
+  const lossRoot = `archive/w04a-archive-writer/${stamp}/loss`;
+  const lossClient = track(clientFor("archive", archiveIdentity));
+  const lossArchive = new S3FactoryReleaseArchive({ endpoint: endpoints.archive, bucket: tenant, prefix: lossRoot, credentials: credentialsOf(archiveIdentity), client: lossClient });
+  const lossWriter = new FactoryArchiveWriter({
+    archive: lossArchive, failureDomain,
+    inventory: new S3FactoryArchiveInventory({ endpoint: endpoints.archive, bucket: tenant, root: lossRoot, credentials: credentialsOf(archiveIdentity), client: lossClient }),
+    reader: { async read() { throw new Error("unused"); }, async readChunk() { throw new Error("unused"); } },
+    publicationSet: { async plan() { return []; } },
+  });
+  const lossOperationId = `factory-release:${createHash("sha256").update(`${stamp}:loss`).digest("hex")}`;
+  const beforeLoss = await lossArchive.writeImmutable(tenant, lossOperationId, "intent", productBytes);
+
+  const publishedObject = `ordinary/w04a-archive-writer/${stamp}/published.json`;
+  const provider = new S3FactoryReleaseProvider({ endpoint: endpoints.ordinary, bucket: tenant, account: tenant, credentials: credentialsOf(ordinaryIdentity) });
+  const sha = (letter: string) => `sha256:${letter.repeat(64)}`;
+  const claim = {
+    tenantId: tenant, projectId: "proof", operationId: lossOperationId, runId: "proof", nodeInstanceId: "release", candidateGeneration: 1,
+    candidateDigest: sha("a"), decisionId: "proof", contractDigest: sha("b"), executionEpoch: 1, cancellationEpoch: 0, releaseEnableEpoch: 1,
+    action: "publish", destination: { provider: "s3", account: tenant, object: publishedObject },
+    request: { bytesBase64: Buffer.from(productBytes).toString("base64") }, destinationDigest: sha("c"), requestDigest: sha("d"),
+    material: { decisionId: "proof", evidence: [{}], packageTrustDigest: sha("e"), validatorTrustDigest: sha("f") }, materialDigest: sha("a"),
+    estimatedSpendMicros: 0, deadlineMs: Date.now() + 600_000, state: "executing", dispatchGeneration: 1, dispatchStarted: true,
+    senderToken: "proof", archiveReady: true, authority: { kind: "approval", id: "proof" },
+  } satisfies FactoryReleaseClaim;
+  const receipt = await provider.publish(claim);
+  if (!await provider.verifyReceipt(claim, receipt, { operationId: lossOperationId, reason: "before the outage" })) throw new Error("The provider did not verify its own receipt before the outage.");
+
+  const reachable = async (): Promise<boolean> => { try { await ordinaryStore.get(productDigest); return true; } catch { return false; } };
+  const engine = resolveEngine({ EZCORP_CONTAINER_ENGINE: process.env.EZCORP_CONTAINER_ENGINE, CI: process.env.CI }, hasCommandOnPath);
+  const dockerHost = resolveComposeDockerHost(engine, { DOCKER_HOST: process.env.DOCKER_HOST }, process.getuid?.() ?? 0, isUnixSocket);
+  const projectName = `ezcorp-factory-storage-${process.getuid?.() ?? "local"}`;
+  const [stopInvocation, upInvocation] = outageLegInvocations({ dockerHost, projectName, baseEnv: process.env });
+  await runCompose(stopInvocation);
+  try {
+    if (await reachable()) throw new Error("The ordinary store answered after it was stopped.");
+    const independence = await lossWriter.proveIndependentOfProductStore({ reachable }, tenant, lossOperationId);
+    if (!independence.passed) throw new Error(`The archive did not answer while the ordinary store was down: ${independence.detail}`);
+    if (!sameBytes(productBytes, await lossArchive.read(beforeLoss))) throw new Error("The archive returned different bytes while the ordinary store was down.");
+    const settlement = await provider.verifyReceipt(claim, receipt, { operationId: lossOperationId, reason: "during the outage" })
+      .then(() => "verified" as const, (error: Error) => `${error.name}: ${((error as { code?: string }).code ?? error.message).slice(0, 120)}`);
+    if (settlement === "verified") throw new Error("The provider verified a receipt while its object store was stopped.");
+    loss = { archiveReadableWhileProductStoreDown: true, productSettlementBlockedWith: settlement };
+  } finally {
+    await runCompose(upInvocation);
+    await waitForRead(() => ordinaryStore.get(productDigest));
+  }
+  if (!await provider.verifyReceipt(claim, receipt, { operationId: lossOperationId, reason: "after the outage" })) throw new Error("The provider did not verify its receipt after the ordinary store returned.");
+  loss.productSettlementResumed = true;
+} else {
+  console.log(RESTART_LEG_SKIPPED_MESSAGE);
+  loss = { skipped: true, reason: "product-store-outage leg not run: pass --restart-stores to run it (it STOPS then RESTARTS the shared factory-storage-ordinary store)." };
 }
-if (!await provider.verifyReceipt(claim, receipt, { operationId: lossOperationId, reason: "after the outage" })) throw new Error("The provider did not verify its receipt after the ordinary store returned.");
-loss.productSettlementResumed = true;
 
 for (const client of clients) client.destroy();
 
