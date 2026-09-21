@@ -1,5 +1,7 @@
 # Pluggable infrastructure execution
 
+Resume guide: [current handoff](../docs/plans/pluggable-infrastructure-resume.md).
+
 Base: origin/main `550b7c67e1116f78f0448f2133f8ad18201fed1d`. Source checkout preserved.
 
 ## Plan

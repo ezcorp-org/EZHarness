@@ -1,5 +1,7 @@
 # Pluggable infrastructure execution contract
 
+Resume from [the handoff](pluggable-infrastructure-resume.md) for current PR blockers, retained evidence, and the next milestone.
+
 Source: docs/plans/2026-09-20-pluggable-infrastructure-tasks.md. The active scope is the bare minimum local EZHarness MVP. All R4 features, Claude/Codex guest workers, external networking, Infisical, second-provider qualification, and Compose services are deferred or removed as specified in the source plan.
 
 ## Shared rules
