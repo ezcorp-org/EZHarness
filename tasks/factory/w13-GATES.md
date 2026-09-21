@@ -22,9 +22,25 @@ UTC start and end, the pass/fail/assertion counts, and the log's own SHA-256; ea
 | `655616b0b` | `refactor(factory): let the SDK own the acceptance-only shape and its port` — interface answer 4 |
 | this commit | `docs(factory): close the W13 gates on the final head` — its own SHA is reported to the coordinator |
 
-**Every receipt named below was produced at `655616b0b`**, the final head, with a clean tree. The
-earlier `merge-*` and `merge2-*` records are retained for the two intermediate heads, and the very
-first `backend-pool` record is retained with its exit 1 because it caught a real defect.
+**Every receipt cited by a gate below carries the `head-` prefix and was produced at `91bb818bc`**,
+the final head, with an empty `git status --porcelain` before and after. That is the whole cited
+set: `head-classification`, `head-adapter`, `head-composition`, `head-sdk-references`,
+`head-lifecycle`, `head-nested-conflict-control`, `head-static-gates`, `head-backend-pool`,
+`head-postgres`, `head-coverage`.
+
+The earlier `focused-*`, `static-gates`, `merge-*`, `merge2-*` and `final-*` records are retained
+for the four intermediate heads they were produced at, and no gate cites them. An earlier revision
+of this file claimed all of them came from the final head, which was true of four only; the
+validator caught it, and `655616b0b` had in fact rewritten the code two of those gates cover, so
+`focused-composition`'s published counts (33 pass, 157 assertions) no longer reproduced.
+`head-composition` measures 32 pass and 149 assertions, which is the validator's own number: the
+difference is the one test and eight assertions the SDK move consolidated out of
+`child-release-mode.test.ts`.
+
+The very first `backend-pool` record is retained with its exit 1 because it caught a real defect.
+The four `*-static-gates-reparsed` records are the same logs re-read with the corrected
+multi-banner parser (see the bookkeeping note below); they are re-parses, not re-runs, and each
+names the record and the unchanged log SHA-256 it came from.
 
 ## What was inert before this package
 
@@ -53,7 +69,7 @@ implemented nowhere in the repository.
   made them so; a nested workflow inside the allowlist stays non-publishing and one outside it does
   not; an unresolved nested name, a cycle, and a graph below the depth cap are findings rather than
   passes; the classification digest moves when the graph does.
-  EVIDENCE: `receipts.jsonl` record `focused-classification` (29 pass, 0 fail, 87 assertions).
+  EVIDENCE: `receipts.jsonl` record `head-classification` (29 pass, 0 fail, 87 assertions).
 
 - [x] G2: Every C10 legacy status row maps, and an unknown status is uncertain rather than benign.
   CHECK: `bun test --timeout 60000 ./src/factory/legacy-workflow/status.test.ts`
@@ -63,7 +79,7 @@ implemented nowhere in the repository.
   with the recorded batch index and in-flight step names, a run that lost release authority
   mid-flight→`release-authority-lost` through all three shapes the engine writes, `cancelled`→
   cancelled, and any other status→uncertain.
-  EVIDENCE: `receipts.jsonl` record `focused-classification` (29 pass, 0 fail).
+  EVIDENCE: `receipts.jsonl` record `head-classification` (29 pass, 0 fail).
 
 - [x] G3: The adapter journals before it starts, looks the run up by its `factory:` key on every
   call, and a crash between journal and start creates no duplicate legacy run.
@@ -73,7 +89,7 @@ implemented nowhere in the repository.
   crash after the engine created the run leaves the journal `journaled`, and the next call adopts
   that same run with `startCalls` still 1 and one key in the engine; two concurrent starts agree on
   one run; replaying with different input is `factory_legacy_conflict`.
-  EVIDENCE: `receipts.jsonl` record `focused-adapter` (22 pass, 0 fail, 77 assertions).
+  EVIDENCE: `receipts.jsonl` record `head-adapter` (22 pass, 0 fail, 77 assertions).
 
 - [x] G4: A shell-bearing workflow is denied without an attestation, and any definition change
   invalidates the one it had.
@@ -83,7 +99,7 @@ implemented nowhere in the repository.
   classification; re-attesting is idempotent and a second administrator is a conflict; an edited
   definition and a widened classification under the same definition digest are both unattested
   again; revoking stops admission.
-  EVIDENCE: `receipts.jsonl` record `focused-adapter` (22 pass, 0 fail).
+  EVIDENCE: `receipts.jsonl` record `head-adapter` (22 pass, 0 fail).
 
 - [x] G5: A legacy output enters the factory store only as a recorded, digest-verified copy, and
   the ownerless ez-factory job store is never surfaced.
@@ -94,7 +110,7 @@ implemented nowhere in the repository.
   `run:…`, `run-index:…`) is refused; a second import under one name with different bytes is a
   conflict; the mirrored key layout still matches the extension's own `const` declarations, read as
   TEXT.
-  EVIDENCE: `receipts.jsonl` records `focused-adapter`, `focused-classification`.
+  EVIDENCE: `receipts.jsonl` records `head-adapter`, `head-classification`.
 
 - [x] G6: A unique-key conflict is a concurrent start in every namespace, and the fix is
   load-bearing.
@@ -103,8 +119,8 @@ implemented nowhere in the repository.
   byte for byte.
   EXPECT: exit 0 with 4 pass; under the old gate exactly 2 of the 4 fail, and the restored file's
   SHA-256 equals the committed blob's.
-  EVIDENCE: `receipts.jsonl` records `focused-composition` (33 pass, 0 fail, 157 assertions) and
-  `nested-conflict-control`, whose log records `oldGateFailures=2 newGateFailures=0` with the
+  EVIDENCE: `receipts.jsonl` records `head-composition` (32 pass, 0 fail, 149 assertions) and
+  `head-nested-conflict-control`, whose log records `oldGateFailures=2 newGateFailures=0` with the
   file's SHA-256 identical before and after.
 
 - [x] G7: The orphan sweep is a host-maintenance-daemon sub-tick on every tick, and resolves both
@@ -116,7 +132,7 @@ implemented nowhere in the repository.
   and one again for a run orphaned after the previous tick; a run inside its lease is never swept;
   and before the daemon notices anything the factory side already reads the expired lease as
   uncertain. No wall clock is asserted: the daemon's clock is injected.
-  EVIDENCE: `receipts.jsonl` record `focused-composition` (33 pass, 0 fail).
+  EVIDENCE: `receipts.jsonl` record `head-composition` (32 pass, 0 fail, 149 assertions).
 
 - [x] G8: A child composed in acceptance-only mode creates no release operation and returns the
   accepted artifact with its sealed decision.
@@ -131,9 +147,9 @@ implemented nowhere in the repository.
   bullet asks for, while a decision the child never took is refused by the sealed-decision read;
   and an `authorized` child still creates exactly one operation. Only the PRODUCTION call from the
   child-completion path is outstanding, and it is W09b's wiring round.
-  EVIDENCE: `receipts.jsonl` records `focused-lifecycle` (74 pass, 0 fail, 1126 assertions across
-  the lifecycle and migration-restart suites) and `final-postgres` (103 pass, 0 fail, 4226
-  assertions on real PostgreSQL and real S3; identical at all three heads).
+  EVIDENCE: `receipts.jsonl` records `head-lifecycle` (74 pass, 0 fail, 1129 assertions across
+  the lifecycle and migration-restart suites) and `head-postgres` (103 pass, 0 fail, 4229
+  assertions on real PostgreSQL and real S3).
 
 - [x] G9: The inherited release mode is read from the live ancestry, and cancelling the parent
   stops the child's release.
@@ -142,7 +158,7 @@ implemented nowhere in the repository.
   a child of a `none` node reports `none`, all through real published parents, committed
   `run-child` commands, and `FactoryChildRuns.resolve`; after the parent is cancelled the child's
   `requestRelease` throws and leaves no receipt and no operation.
-  EVIDENCE: `receipts.jsonl` records `focused-lifecycle`, `final-postgres`.
+  EVIDENCE: `receipts.jsonl` records `head-lifecycle`, `head-postgres`.
 
 - [x] G10: The output port is the boundary in both directions.
   CHECK: `bun test --timeout 60000 ./src/factory/child-release-mode.test.ts ./packages/@ezcorp/factory-sdk/src/child-acceptance.test.ts`
@@ -151,7 +167,7 @@ implemented nowhere in the repository.
   `authorized` variant, and a receipt naming no addressable artifact all FAIL that port; `none`
   narrows every combination of inherited modes; every required field is required and a malformed
   digest is refused; an extra field is dropped rather than carried into the seal.
-  EVIDENCE: `receipts.jsonl` record `focused-composition` (33 pass, 0 fail).
+  EVIDENCE: `receipts.jsonl` record `head-composition` (32 pass, 0 fail, 149 assertions).
 
 - [x] G11: `reference.catalog.v1` executes end to end with acceptance-only children.
   CHECK: `bun test --timeout 120000 ./packages/@ezcorp/factory-sdk/src/reference-execution.test.ts`
@@ -161,7 +177,7 @@ implemented nowhere in the repository.
   `request-acceptance:acceptance`, `request-approval:release-approval`,
   `request-release:github-pr-release`, `complete-run:run`, and every reference factory reaches
   `completed`.
-  EVIDENCE: `receipts.jsonl` record `sdk-references` (36 pass, 0 fail, 299 assertions).
+  EVIDENCE: `receipts.jsonl` record `head-sdk-references` (41 pass, 0 fail, 331 assertions).
 
 - [x] G12: The candidate carries the ACTUAL accepted bytes, and the parent's own claims say so.
   CHECK: `bun test --timeout 60000 ./src/factory/reference-catalog/catalog.test.ts ./src/factory/reference-catalog/pack.test.ts`
@@ -172,7 +188,7 @@ implemented nowhere in the repository.
   `catalog-render` fails for an altered and for an absent page; the page escapes child-supplied
   text; the registry dispatches to the same implementations a direct call reaches; every pinned
   runner reference declares a legal manifest name derived from its package.
-  EVIDENCE: `receipts.jsonl` record `focused-composition` (33 pass, 0 fail).
+  EVIDENCE: `receipts.jsonl` record `head-composition` (32 pass, 0 fail, 149 assertions).
 
 - [x] G13: The three new tables survive repeated migration, and real PostgreSQL agrees with the
   Drizzle model.
@@ -183,16 +199,16 @@ implemented nowhere in the repository.
   `(tenant_id, idempotency_key)` index survives; an orphan journal row and a bare-hex definition
   digest are both refused; every modeled column, type, nullability, default, and foreign key
   matches the engine's catalog.
-  EVIDENCE: `receipts.jsonl` records `focused-lifecycle` and `final-postgres`.
+  EVIDENCE: `receipts.jsonl` records `head-lifecycle` and `head-postgres`.
 
 - [x] G14: The whole legacy surface outside factories still works.
   CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 2400 bun run test`
   EXPECT: exit 0 across the whole backend pool, including every workflow executor, runner, resume,
   nesting, approval, delegation, consent, capability-hash, release-asset, host-maintenance-daemon,
   and `extensions/ez-factory` suite.
-  EVIDENCE: `receipts.jsonl` record `final-backend-pool`: **27,347 pass, 0 fail, 1,835 files**,
-  exit 0 at `655616b0b`. Re-run green at each of the three heads (`merge-backend-pool` 27,325 pass;
-  `merge2-backend-pool` 27,343 pass). The FIRST attempt (`backend-pool`, exit 1) is retained: it
+  EVIDENCE: `receipts.jsonl` record `head-backend-pool`: **27,347 pass, 0 fail, 1,835 files**,
+  exit 0 at `91bb818bc`. Re-run green at every head (`merge-backend-pool` 27,325 pass;
+  `merge2-backend-pool` 27,343 pass; `final-backend-pool` 27,347 pass). The FIRST attempt (`backend-pool`, exit 1) is retained: it
   caught one real defect of mine — `mock-cleanup-coverage.test.ts` refused the unsnapshotted
   `mock.module` target in the new conflict regression, which would have leaked a release-authority
   stub into every later file. Fixed at `185ff682a`, not exempted.
@@ -205,8 +221,8 @@ implemented nowhere in the repository.
   `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts` over the merged LCOV.
   EXPECT: exit 0 for each; every new source file at 100% lines and every changed executable line
   covered.
-  EVIDENCE: `receipts.jsonl` records `final-static-gates` (all eight checks exit 0) and
-  `final-coverage`, both at `655616b0b`. The merged report is retained at `lcov-merged.info` with
+  EVIDENCE: `receipts.jsonl` records `head-static-gates` (all eight checks exit 0, 32 pass
+  summed across its three test files) and `head-coverage`, both at `91bb818bc`. The merged report is retained at `lcov-merged.info` with
   the thirteen per-leg reports under `lcov/`. **New-file gate PASSED, 9 new source files gated;
   patch gate PASSED, all changed executable lines covered across 19 files.** Every new source at
   100% lines: `factory-sdk/src/child-acceptance.ts` 67/67,
@@ -335,6 +351,21 @@ port schema are in the SDK's `child-acceptance.ts`.
    closure must not acquire. The existing test is kept and STRENGTHENED: it now asserts the port
    each catalog child declares is that schema by IDENTITY, not merely by equality, because a second
    declaration that happens to match today is exactly the drift the move removes.
+
+## A receipt-tool bookkeeping correction
+
+`receipt.py` parsed the pass, fail and assertion counts with `re.search`, which returns the FIRST
+match. That is right for a producer that runs one `bun test` invocation and wrong for one that runs
+several: the static-gate script runs three test files in three separate processes and prints three
+banners, so the receipt published `pass: 13` where its own log showed 13 + 3 + 16 = 32. Nothing was
+hidden — the log is complete and every one of the eight checks is exit 0, which is what G15 claims —
+but the receipt's summary was not the producer's total.
+
+The parser now SUMS every banner, which is also correct for a single invocation. The pool's own
+aggregate banner still replaces the per-file sum rather than adding to it, because it already
+totals every file it ran. The four affected records are re-recorded as `*-static-gates-reparsed`,
+appended rather than edited, each naming the record it corrects and asserting the log's SHA-256 is
+unchanged; `head-static-gates` reports 32 natively.
 
 ## A credential exposure, disclosed
 
