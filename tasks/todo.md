@@ -296,7 +296,7 @@ shared engine verifier inspects the loaded image's OCI labels and runtime enviro
 
 Verification: merged current `origin/main` `bd6fd9714` (#277 dependency updates) without conflict,
 then refreshed both lockfile installs under pinned Bun 1.3.14. The real Podman dev build completed
-and inspected revision `d10a0f0e9c4ac52d470f58bc9128c27929db9cc6` plus source-state `dirty` in
-both OCI labels and runtime env. Eight focused files passed in isolated processes: 103 tests and
+and inspected the requested revision plus source-state `dirty` in both OCI labels and runtime env.
+Eight focused files passed in isolated processes: 103 tests and
 309 assertions. Full typecheck, lint over 4,610 files, Svelte check (0 errors, 0 warnings), gate
 integrity, `bash -n`, `sh -n`, and `git diff --check` passed.
