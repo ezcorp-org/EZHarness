@@ -305,3 +305,28 @@ values in both channels, with the heavy build layers cached.
 Eight focused files passed in isolated processes: 103 tests and
 309 assertions. Full typecheck, lint over 4,610 files, Svelte check (0 errors, 0 warnings), gate
 integrity, `bash -n`, `sh -n`, and `git diff --check` passed.
+
+## Repair PR #284 final provenance review — 2026-09-21
+
+- [x] Add a red wrapper regression for a Git-ignored file that Docker includes.
+- [x] Detect every untracked Docker-context input without treating Git ignore as Docker ignore.
+- [x] Add a red rendered-command regression for Docker rebuild source-state provenance.
+- [x] Print a truthful Docker rebuild command that records commit and source state.
+- [x] Preserve Compose precedence, no-Git recovery, and cached metadata refresh behavior.
+- [x] Run focused tests and the full static verification gates.
+- [x] Review and commit the repair without pushing.
+
+Plan review: test the public seams already confirmed by the final review: the real Podman wrapper's
+environment handed to Compose, and the recovery command rendered by the startup warning. Use
+Docker's ignore contract as the source of truth for build-context inputs; Git ignore must not erase
+files that Docker sends.
+
+Review: extracted one source-state resolver shared by the Podman wrapper and the direct-Docker
+recovery command. It enumerates all untracked worktree files, including Git-ignored files, then
+applies the active Docker exclusions with root-only, recursive, and negation behavior covered by
+the wrapper suite. The recovery command now supplies both the checkout revision and the resolver's
+truthful source state; a real Compose render proves that clean and dirty values reach build args.
+
+Verification: both regressions failed before the repair and passed after it. Six focused files pass
+89 tests under Bun 1.3.14. Full typecheck and lint over 4,610 files pass. Svelte check reports zero
+errors and warnings. Gate integrity, Bash/sh syntax, and `git diff --check` pass.

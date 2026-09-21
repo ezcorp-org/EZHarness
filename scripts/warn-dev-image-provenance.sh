@@ -13,7 +13,8 @@ checkout_dirty="$(git -C "$repo_dir" status --porcelain 2>/dev/null)" || checkou
 
 print_rebuild_commands() {
   revision="${checkout_commit:-\$(git rev-parse --verify HEAD)}"
-  printf '         Docker: EZCORP_BUILD_COMMIT=%s docker compose up -d --build\n' "$revision" >&2
+  source_state='$(bash scripts/resolve-dev-image-source-state.sh)'
+  printf '         Docker: EZCORP_BUILD_COMMIT=%s EZCORP_BUILD_SOURCE_STATE=%s docker compose up -d --build\n' "$revision" "$source_state" >&2
   echo "         Rootless Podman: bun run podman up -d --build" >&2
 }
 

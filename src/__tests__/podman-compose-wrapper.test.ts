@@ -34,6 +34,7 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+  appendFileSync,
   chmodSync,
   copyFileSync,
   mkdirSync,
@@ -49,6 +50,7 @@ import { join, resolve } from "node:path";
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const WRAPPER_SOURCE = join(REPO_ROOT, "scripts/podman-compose.sh");
 const RESOLVER = join(REPO_ROOT, "scripts/resolve-runner-group.sh");
+const SOURCE_STATE_RESOLVER = join(REPO_ROOT, "scripts/resolve-dev-image-source-state.sh");
 const BASH = Bun.which("bash") ?? "/usr/bin/env bash";
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "podman-wrapper-"));
@@ -75,9 +77,14 @@ mkdirSync(BIN_NO_DOCKER);
 mkdirSync(join(SANDBOX, "scripts"));
 symlinkSync(WRAPPER_SOURCE, WRAPPER);
 symlinkSync(RESOLVER, join(SANDBOX, "scripts/resolve-runner-group.sh"));
+symlinkSync(SOURCE_STATE_RESOLVER, join(SANDBOX, "scripts/resolve-dev-image-source-state.sh"));
 symlinkSync(Bun.which("dirname") ?? "/usr/bin/dirname", join(BIN_NO_DOCKER, "dirname"));
 writeFileSync(TRACKED_SOURCE, "clean source\n");
 copyFileSync(join(REPO_ROOT, ".dockerignore"), join(SANDBOX, ".dockerignore"));
+appendFileSync(
+  join(SANDBOX, ".dockerignore"),
+  "\n# Test-harness files, not fixture image inputs.\nbin*\n*.sock\nenv.prod\ncaller-*.env\nignored-generated/\n",
+);
 writeFileSync(
   join(SANDBOX, "docker-compose.yml"),
   `services:
@@ -147,7 +154,15 @@ function sandboxGit(...args: string[]): string {
 sandboxGit("init", "-q");
 writeFileSync(
   join(SANDBOX, ".git/info/exclude"),
-  ["bin*", "*.sock", "env.prod", "caller-*.env", "ignored-generated/", ""].join("\n"),
+  [
+    "bin*",
+    "*.sock",
+    "env.prod",
+    "caller-*.env",
+    "ignored-generated/",
+    "gitignored-build-input.conf",
+    "",
+  ].join("\n"),
 );
 sandboxGit("add", "image-backed-source.txt", ".dockerignore", "docker-compose.yml", "compose.podman.yml", "scripts");
 sandboxGit("-c", "user.name=Wrapper test", "-c", "user.email=wrapper@example.invalid", "commit", "-qm", "fixture");
@@ -265,6 +280,46 @@ function renderedBuildArgs(result: { exitCode: number; stderr: string; stdout: s
     services: { probe: { build: { args: Record<string, string> } } };
   };
   return config.services.probe.build.args;
+}
+
+function advertisedDockerBuildArgs(): Record<string, string> {
+  const warning = Bun.spawnSync({
+    cmd: ["sh", PROVENANCE_WARNING],
+    cwd: SANDBOX,
+    env: {
+      ...baseEnv,
+      EZCORP_IMAGE_BUILD_COMMIT: "unknown",
+      EZCORP_IMAGE_BUILD_SOURCE_STATE: "unknown",
+      EZCORP_REPO_DIR: SANDBOX,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  expect(warning.exitCode).toBe(0);
+  const dockerCommand = warning.stderr
+    .toString()
+    .match(/^\s*Docker: (.+)$/m)?.[1];
+  expect(dockerCommand).toBeDefined();
+
+  const rendered = Bun.spawnSync({
+    cmd: [
+      "bash",
+      "-c",
+      dockerCommand!.replace(
+        "docker compose up -d --build",
+        "docker compose -f docker-compose.yml config --format json",
+      ),
+    ],
+    cwd: SANDBOX,
+    env: baseEnv,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return renderedBuildArgs({
+    exitCode: rendered.exitCode,
+    stdout: rendered.stdout.toString(),
+    stderr: rendered.stderr.toString(),
+  });
 }
 
 function resolveRunnerGroup(mode: "--docker" | "--podman", env: Record<string, string> = {}): Run {
@@ -437,6 +492,12 @@ describe("podman wrapper — the invocation it guarantees", () => {
     expect(explicit?.buildSourceStateDefault).toBe("clean");
   });
 
+  test("the advertised Docker rebuild command renders complete clean provenance", () => {
+    const args = advertisedDockerBuildArgs();
+    expect(args.EZCORP_BUILD_COMMIT).toBe(DEFAULT_BUILD_COMMIT);
+    expect(args.EZCORP_BUILD_SOURCE_STATE).toBe("clean");
+  });
+
   test("records tracked source changes in the Docker-context default", () => {
     writeFileSync(TRACKED_SOURCE, "dirty source\n");
     try {
@@ -478,6 +539,20 @@ describe("podman wrapper — the invocation it guarantees", () => {
     );
   });
 
+  test("records a Git-ignored file when Docker includes it", () => {
+    const ignoredByGit = join(SANDBOX, "gitignored-build-input.conf");
+    writeFileSync(ignoredByGit, "Git ignores this, but Docker copies it\n");
+    try {
+      expect(sandboxGit("check-ignore", ignoredByGit)).toContain(
+        "gitignored-build-input.conf",
+      );
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+      expect(advertisedDockerBuildArgs().EZCORP_BUILD_SOURCE_STATE).toBe("dirty");
+    } finally {
+      rmSync(ignoredByGit, { force: true });
+    }
+  });
+
   test("ignores untracked generated and Docker-excluded files", () => {
     mkdirSync(join(SANDBOX, "ignored-generated"));
     writeFileSync(join(SANDBOX, "ignored-generated/cache.txt"), "generated\n");
@@ -498,6 +573,17 @@ describe("podman wrapper — the invocation it guarantees", () => {
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
     } finally {
       rmSync(join(SANDBOX, "nested"), { recursive: true, force: true });
+    }
+  });
+
+  test("honors Docker negation patterns that restore extension tests", () => {
+    const restoredTest = join(SANDBOX, "extensions/example/restored.test.ts");
+    mkdirSync(join(SANDBOX, "extensions/example"), { recursive: true });
+    writeFileSync(restoredTest, "Docker restores this test after the broad exclusion\n");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(join(SANDBOX, "extensions"), { recursive: true, force: true });
     }
   });
 

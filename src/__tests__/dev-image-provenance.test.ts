@@ -25,6 +25,9 @@ function run(imageCommit: string, checkoutCommit: string, dirty = false, readabl
   return { exitCode: child.exitCode, stderr: child.stderr.toString() };
 }
 
+const dockerRebuildCommand = (revision: string) =>
+  `Docker: EZCORP_BUILD_COMMIT=${revision} EZCORP_BUILD_SOURCE_STATE=$(bash scripts/resolve-dev-image-source-state.sh) docker compose up -d --build`;
+
 test("dev image provenance warns only when the image and bind-mounted checkout differ", async () => {
   expect(await Bun.file(script).exists()).toBe(true);
   const commit = "a".repeat(40);
@@ -33,19 +36,21 @@ test("dev image provenance warns only when the image and bind-mounted checkout d
   expect(result.exitCode).toBe(0);
   expect(result.stderr).toContain("Web source is bind-mounted");
   expect(result.stderr).toContain("image-backed dependencies and generated assets");
-  expect(result.stderr).toContain(`Docker: EZCORP_BUILD_COMMIT=${commit} docker compose up -d --build`);
+  expect(result.stderr).toContain(dockerRebuildCommand(commit));
   expect(result.stderr).toContain("Rootless Podman: bun run podman up -d --build");
   const unknown = run("unknown", commit);
   expect(unknown.stderr).toContain("provenance is unavailable");
   expect(unknown.stderr).not.toContain("differs from");
-  expect(unknown.stderr).toContain(`Docker: EZCORP_BUILD_COMMIT=${commit} docker compose up -d --build`);
+  expect(unknown.stderr).toContain(dockerRebuildCommand(commit));
   const dirty = run(commit, commit, true);
   expect(dirty.stderr).toContain("uncommitted changes");
   expect(dirty.stderr).toContain("Commit or stash");
   expect(run(commit, commit, false, true, true, "unknown").stderr).toContain("build source state is unavailable");
   const unreadable = run(commit, "", false, false);
   expect(unreadable.stderr).toContain("provenance was not compared");
-  expect(unreadable.stderr).toContain("Docker: EZCORP_BUILD_COMMIT=$(git rev-parse --verify HEAD) docker compose up -d --build");
+  expect(unreadable.stderr).toContain(
+    dockerRebuildCommand("$(git rev-parse --verify HEAD)"),
+  );
   expect(run(commit, commit, false, true, false).stderr).toContain("revision comparison is incomplete");
 });
 
