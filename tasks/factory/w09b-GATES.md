@@ -859,6 +859,68 @@ Not fixed here: this round was scoped to fixing breakage in W09b's files, and a
 wrong fix in another package's MCP surface is worse than a reported red.
 EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/inherited-typecheck-failure.json`.
 
+## Round 4 — what the completed-guest release proof needs, measured
+
+Round 4 asks for two things on the real started application: a guest that
+stages an output artifact and returns COMPLETED, and a definition whose release
+node publishes to the declared S3 destination through the running role. Both
+are blocked, and neither is blocked on effort. The blockers are named here with
+the reading that found them, because a round that reports "hard" teaches
+nothing.
+
+### (a) A COMPLETED guest has no production staging path
+
+`FactoryRunnerResult`'s `completed` member requires `output:
+FactoryArtifactReference` and `workspaceCheckpoint: FactoryCheckpointReference`
+(`packages/@ezcorp/factory-sdk/src/types.ts` ~627). The only code that produces
+either is `runNativeFactoryRunner` (`src/factory/runner/native.ts`), through
+`options.artifacts.output(...)` and `options.artifacts.checkpoint(...)` — the
+`NativeFactoryArtifacts` seam at line 15.
+
+Two greps decide it:
+
+```
+grep -rn "runNativeFactoryRunner" --include='*.ts' src/ packages/ extensions/
+grep -rn "NativeFactoryArtifacts" --include='*.ts' src/ packages/
+```
+
+Both find the seam, its integration test, and nothing else. **`NativeFactoryArtifacts`
+has no production implementation and `runNativeFactoryRunner` has no production
+caller.** Nor can a sandboxed guest reach the material service itself:
+`FactoryBrokerTransport` is `{ attemptToken, audience }` — a token and an
+audience, no base URL and no socket — and the only frame defined over that seam
+is `FactoryGuestModelRequest`. There is no staging frame.
+
+So a guest cannot stage an artifact today by any route, and the minimal guest
+returns `cancelled` because that is the one union member needing none. **This
+is W01/W04's to close**: either a production `NativeFactoryArtifacts`, or a
+staging frame over the guest broker.
+
+### (b) The release profile has no buildable collaborator
+
+Recorded above under the profile correction: `S3FactoryManifestReleaseProfile`
+needs `Pick<FactoryMaterialService, "list">`, and the only implementation,
+`FactoryAttemptMaterials`, is bound to ONE attempt's authority
+(`assertOwnScopeOnly` plus `authorizeMaterialReadInTransaction`). A release
+profile resolves for whichever attempt the decision names, so one instance
+cannot serve it. **W04 owns the material service; W08 owns the profile.**
+
+(b) is downstream of (a) in any case: with no staged materials there is nothing
+for the profile to list.
+
+### What Round 4 DID deliver
+
+The correction above, which is the part that was wrong rather than missing: the
+declaration no longer composes an invented profile. The provider half still
+composes, which is why `release-outcome` runs.
+
+## W08's second S3 destination kind — settled
+
+The declared `s3` destination kind maps to W08's manifest publisher
+(`S3FactoryManifestReleaseProvider`) only; `S3FactoryReleaseProvider` stays
+reachable only through tests until a later package names a second S3
+destination kind. Ruled by the coordinator; no discriminator was added.
+
 ## Interface questions
 
 **1. For W07 — `claim` cannot join a caller's transaction, so read-and-claim
