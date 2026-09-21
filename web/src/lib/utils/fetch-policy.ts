@@ -23,6 +23,8 @@
  * (flap + idle) scenario.
  */
 
+import { randomId } from "./random-id";
+
 interface BackgroundOpts {
   /** Minimum time between allowed calls for the same key. Default 5_000. */
   minIntervalMs?: number;
@@ -128,7 +130,7 @@ export async function userFetch(input: RequestInfo | URL, init?: RequestInit): P
   const url = new URL(request?.url ?? String(input), origin);
   if (url.origin === origin && /^\/api\/extensions\/[^/]+\/events\/[^/]+$/.test(url.pathname)) {
     const headers = new Headers(init?.headers ?? request?.headers);
-    if (!headers.has("Idempotency-Key")) headers.set("Idempotency-Key", crypto.randomUUID());
+    if (!headers.has("Idempotency-Key")) headers.set("Idempotency-Key", randomId());
     return fetch(input, { ...init, headers });
   }
   return fetch(input, init);
