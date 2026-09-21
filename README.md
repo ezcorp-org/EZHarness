@@ -32,12 +32,15 @@ git clone <repo-url> && cd ez-corp-ai
 bash scripts/setup-podman.sh
 ```
 
-It never rewrites an existing `.env.prod`, and `--check` reports what it
-would do without changing anything. One decision it will **not** make for
-you: on macOS the isolated extension runner cannot work, so it shows you what
-`trusted-local` mode costs and asks (`--accept-unsandboxed-extensions` for
-non-interactive use); on Linux it keeps the isolated runner and tells you how
-to provision it. See [docs/macos-local-dev.md](docs/macos-local-dev.md).
+It never replaces existing values or secrets in `.env.prod`. After explicit
+acceptance, it atomically adds the two trusted-local settings while preserving
+the existing file. It refuses an existing environment file that is readable
+by the group or other users. `--check` reports what it would do without
+changing anything. One decision it will **not** make for you: on macOS the
+isolated extension runner cannot work, so it shows you what `trusted-local`
+mode costs and asks (`--accept-unsandboxed-extensions` for non-interactive
+use); on Linux it keeps the isolated runner and tells you how to provision it.
+See [docs/macos-local-dev.md](docs/macos-local-dev.md).
 
 The manual steps it automates, for the record or for Docker:
 

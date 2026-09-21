@@ -16,10 +16,9 @@
 #                `podman machine` is created (sized for the ollama sidecar's
 #                4g cap) and started. Linux: the rootless socket is enabled.
 #   2. Env.      .env.prod is created from the example with real secrets and a
-#                localhost URL. An existing file is NEVER modified — rotating
-#                EZCORP_ENCRYPTION_SECRET makes every stored credential
-#                unreadable, so this is the one step that must not be "fixed"
-#                by re-running.
+#                localhost URL. Existing values and secrets are never replaced.
+#                The only later update this script can make is an atomic append
+#                of the trusted-local choice after explicit acceptance.
 #   3. Dirs.     The four ./.ezcorp bind sources are pre-created. Plain mkdir:
 #                under rootless Podman the README's `chown -R 1000:1000` is
 #                not merely unnecessary, it locks the operator out of their
@@ -84,6 +83,22 @@ TRUSTED_LOCAL_COMPOSE="deploy/extension-runner/compose.trusted-local.yml"
 ACK_VARIABLE="EZCORP_EXTENSIONS_UNSANDBOXED_ACK"
 ACK_SENTENCE="I-understand-extensions-run-with-the-apps-full-powers"
 
+# Every temporary artifact is a sibling of the destination, so the final
+# rename stays on one filesystem and is atomic on both BSD and GNU hosts.
+# The lock serializes concurrent setup processes. It is intentionally a plain
+# mkdir/rmdir lock: both operations and every utility below ship on macOS.
+env_tmp=""
+trusted_tmp=""
+env_lock=""
+# shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap below.
+cleanup_setup_artifacts() {
+  [ -z "$env_tmp" ] || rm -f "$env_tmp"
+  [ -z "$trusted_tmp" ] || rm -f "$trusted_tmp"
+  [ -z "$env_lock" ] || rmdir "$env_lock" 2>/dev/null || true
+}
+trap cleanup_setup_artifacts EXIT
+trap 'exit 1' HUP INT TERM
+
 # The prompt is only offered on a terminal: a pipe on stdin must not be read
 # as consent. EZ_SETUP_FORCE_TTY=1 lets the suite drive the prompt itself
 # through a pipe, so the y/N branch is exercised rather than trusted.
@@ -132,8 +147,12 @@ case "$OS" in
     ;;
   Linux)
     command -v podman >/dev/null 2>&1 || die "podman is required: install it from your distro, then re-run"
-    if command -v docker >/dev/null 2>&1 || command -v docker-compose >/dev/null 2>&1; then
-      ok "compose CLI installed"
+    # Match podman-compose.sh: a `docker` executable is not proof that its
+    # optional Compose plugin exists. Probe the subcommand before accepting it.
+    if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+      ok "docker compose installed"
+    elif command -v docker-compose >/dev/null 2>&1 && docker-compose version >/dev/null 2>&1; then
+      ok "docker-compose installed"
     else
       die "a Compose CLI is required (docker-compose-plugin or docker-compose); it is a client only, no Docker daemon is needed"
     fi
@@ -152,7 +171,16 @@ esac
 # ── 2. Env file ────────────────────────────────────────────────────────────
 say "environment file ($ENV_FILE)"
 if [ -f "$ENV_FILE" ]; then
-  ok "exists — left untouched (secrets must never be regenerated in place)"
+  # GNU and BSD spell stat differently. Try both, then accept only modes with
+  # no group/other bits. 0400 and 0600 are both private; the trusted-local
+  # atomic rewrite publishes mode 0600 so the operator can edit it afterward.
+  env_mode="$(stat -c %a "$ENV_FILE" 2>/dev/null || stat -f %Lp "$ENV_FILE" 2>/dev/null)" ||
+    die "could not inspect permissions for $ENV_FILE"
+  case "$env_mode" in
+    [0-7]00 | 0[0-7]00) ;;
+    *) die "$ENV_FILE has unsafe permissions ($env_mode); run: chmod 600 $ENV_FILE" ;;
+  esac
+  ok "exists with private permissions — existing values will be preserved"
 elif [ "$CHECK_ONLY" = 1 ]; then
   todo "would create from $ENV_EXAMPLE with generated secrets"
 else
@@ -166,9 +194,6 @@ else
   # then an atomic, no-clobber install: concurrent setup runs cannot replace
   # one another, and an interruption cannot leave a partial final file.
   env_tmp="$(umask 077 && mktemp "${ENV_FILE}.tmp.XXXXXX")" || die "could not create a private temporary environment file"
-  cleanup_env_tmp() { [ -n "${env_tmp:-}" ] && rm -f "$env_tmp"; }
-  trap cleanup_env_tmp EXIT
-  trap 'exit 1' HUP INT TERM
   # `|` as the sed delimiter: base64 contains `/` and `+`, never `|`.
   sed \
     -e "s|^EZCORP_ENCRYPTION_SECRET=replace-with-openssl-rand-base64-32|EZCORP_ENCRYPTION_SECRET=$secret32|" \
@@ -188,12 +213,10 @@ else
   if ln "$env_tmp" "$ENV_FILE" 2>/dev/null; then
     rm -f "$env_tmp"
     env_tmp=""
-    trap - EXIT HUP INT TERM
     ok "created with fresh secrets, mode 600, EZCORP_PUBLIC_URL=http://localhost:4000"
   elif [ -f "$ENV_FILE" ]; then
-    cleanup_env_tmp
+    rm -f "$env_tmp"
     env_tmp=""
-    trap - EXIT HUP INT TERM
     ok "another setup created $ENV_FILE — left untouched"
   else
     die "could not install $ENV_FILE without replacing an existing file"
@@ -221,7 +244,10 @@ say "extension runner"
 env_value() { sed -n "s|^$1=||p" "$ENV_FILE" | tail -1; }
 runner_configured() {
   [ -f "$ENV_FILE" ] || return 1
-  [ -n "$(env_value EZCORP_RUNNER_COMPOSE_FILE)" ] && return 0
+  if [ "$(env_value EZCORP_RUNNER_COMPOSE_FILE)" = "$TRUSTED_LOCAL_COMPOSE" ] &&
+    [ "$(env_value "$ACK_VARIABLE")" = "$ACK_SENTENCE" ]; then
+    return 0
+  fi
   # The isolated bind-mounted socket works only on Linux. Treating these
   # values as usable on macOS skips the required trusted-local decision and
   # produces a stack that cannot reach its runner.
@@ -248,12 +274,43 @@ print_consequence() {
 EOF
 }
 write_trusted_local() {
+  # Serialize setup processes before re-checking. A second process that was
+  # already on its way here must observe the first process's complete update,
+  # not append a duplicate block or replace it with an older snapshot.
+  lock_path="${ENV_FILE}.setup.lock"
+  lock_waited=0
+  while ! mkdir "$lock_path" 2>/dev/null; do
+    if runner_configured; then
+      ok "trusted-local was configured by another setup process"
+      return 0
+    fi
+    [ "$lock_waited" -lt 30 ] || die "timed out waiting for another setup process to update $ENV_FILE"
+    sleep 1
+    lock_waited=$((lock_waited + 1))
+  done
+  env_lock="$lock_path"
+
+  if runner_configured; then
+    rmdir "$env_lock"
+    env_lock=""
+    ok "trusted-local already configured in $ENV_FILE"
+    return 0
+  fi
+  [ ! -L "$ENV_FILE" ] || die "cannot atomically update symbolic-link environment file $ENV_FILE; update its target manually"
+  trusted_tmp="$(umask 077 && mktemp "${ENV_FILE}.trusted-local.XXXXXX")" ||
+    die "could not create a private temporary environment file"
   {
+    cat "$ENV_FILE"
     printf '\n# ─── Extension runner: trusted-local (written by scripts/setup-podman.sh) ──\n'
     printf '# No sandbox applies to extensions in this mode. See docs/macos-local-dev.md.\n'
     printf 'EZCORP_RUNNER_COMPOSE_FILE=%s\n' "$TRUSTED_LOCAL_COMPOSE"
     printf '%s=%s\n' "$ACK_VARIABLE" "$ACK_SENTENCE"
-  } >>"$ENV_FILE"
+  } >"$trusted_tmp"
+  chmod 600 "$trusted_tmp"
+  mv -f "$trusted_tmp" "$ENV_FILE"
+  trusted_tmp=""
+  rmdir "$env_lock"
+  env_lock=""
   ok "trusted-local selected in $ENV_FILE"
 }
 
@@ -274,7 +331,7 @@ elif [ "$OS" = "Darwin" ]; then
     read -r answer
     case "$answer" in
       y | Y | yes | YES) write_trusted_local ;;
-      *) die "stopped at your request; nothing else was changed" ;;
+      *) die "stopped at your request; trusted-local was not enabled" ;;
     esac
   else
     print_consequence
@@ -311,14 +368,27 @@ fi
 EZ_COMPOSE_ENV_FILE="$ENV_FILE" bash scripts/podman-compose.sh --prod up -d --build
 
 say "waiting for $READY_URL (up to ${READY_TIMEOUT}s)"
-waited=0
-while [ "$waited" -lt "$READY_TIMEOUT" ]; do
-  if body="$(curl -fsS --max-time 5 "$READY_URL" 2>/dev/null)" && [ -n "$body" ]; then
+case "$READY_TIMEOUT" in
+  '' | *[!0-9]*) die "EZ_SETUP_READY_TIMEOUT must be a positive whole number of seconds" ;;
+esac
+[ "$READY_TIMEOUT" -gt 0 ] || die "EZ_SETUP_READY_TIMEOUT must be greater than zero"
+now="$(date +%s)" || die "could not read the system clock"
+deadline=$((now + READY_TIMEOUT))
+while [ "$now" -lt "$deadline" ]; do
+  remaining=$((deadline - now))
+  curl_timeout=5
+  [ "$remaining" -ge "$curl_timeout" ] || curl_timeout="$remaining"
+  if body="$(curl -fsS --max-time "$curl_timeout" "$READY_URL" 2>/dev/null)" && [ -n "$body" ]; then
     ok "ready: $body"
     printf '\nOpen http://localhost:4000 and create the admin account.\n'
     exit 0
   fi
-  sleep 5
-  waited=$((waited + 5))
+  now="$(date +%s)" || die "could not read the system clock"
+  [ "$now" -lt "$deadline" ] || break
+  remaining=$((deadline - now))
+  sleep_for=5
+  [ "$remaining" -ge "$sleep_for" ] || sleep_for="$remaining"
+  sleep "$sleep_for"
+  now="$(date +%s)" || die "could not read the system clock"
 done
 die "the app did not report ready within ${READY_TIMEOUT}s — see: bash scripts/podman-compose.sh --prod logs app"

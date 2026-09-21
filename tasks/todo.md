@@ -196,3 +196,27 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 - Proved the uid/gid and bind-mount contract with executable tests, rendered Compose output, the production image user, and real rootless Podman write tests.
 - Merged the current `main` and the concurrent PR-head merge without conflicts. The merged source tree is identical to the fully validated tree.
 - Verification passed: lint, typecheck, production build, focused tests, 2,185 browser tests, 26,602 coverage tests, and all 1,631 enforced coverage files.
+
+## PR #288 repair — Podman setup safety and timeout accuracy
+
+- [x] Reproduce each audit finding with focused setup-script tests.
+- [x] Make trusted-local configuration an atomic, concurrency-safe rewrite that preserves every existing byte and secret.
+- [x] Require the exact trusted-local Compose path and acknowledgement when detecting configured state.
+- [x] Reject unsafe existing environment-file permissions without changing the file.
+- [x] Probe the Linux Compose command with the same semantics as the wrapper.
+- [x] Bound readiness work by an elapsed deadline, including curl and sleep time.
+- [x] Add the strongest available portability check without claiming unavailable Bash 3.2 runtime coverage.
+- [x] Run syntax, focused tests, lint/type checks as relevant, and inspect the final diff.
+- [x] Commit the repair without pushing.
+
+Plan review: keep the setup script dependency-free and Bash 3.2-compatible. Use private sibling files plus atomic rename for an accepted trusted-local update, while refusing concurrent drift. Preserve existing files byte-for-byte except for the approved runner block. Test observable subprocess behavior with stubs and controlled time sources; do not use real wall-clock thresholds.
+
+### Review
+
+- The accepted trusted-local choice now uses a private sibling file, a serialized re-check, and an atomic rename. Existing bytes and secrets remain intact; a failed rename and eight concurrent runs are covered.
+- Trusted-local is configured only when both the exact Compose path and exact acknowledgement are the effective values. Linux isolated-runner detection remains unchanged.
+- Existing environment files with any group/other permissions fail before file or data-directory changes. The operator gets the exact `chmod 600` repair.
+- Linux executes `docker compose version` and falls back only when `docker-compose version` succeeds, matching the production wrapper.
+- Readiness uses one epoch deadline. Curl and sleep each receive the remaining-time cap; deterministic clock stubs prove both bounds without wall-clock assertions.
+- CI now runs the full 30-test behavior suite on macOS with `/bin/bash` and first verifies that it is real Bash 3.2. The job feeds the existing required Backend tests aggregate.
+- Verification: focused suite 30/30; `bash -n`; ShellCheck 0.11.0; Biome full lint; full typecheck; workflow YAML parse; gate integrity; `git diff --check`.

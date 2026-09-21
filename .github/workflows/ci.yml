@@ -666,6 +666,25 @@ jobs:
             ghcr.io/gitleaks/gitleaks@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
             dir . --no-banner --config .gitleaks.toml --redact --exit-code 1
 
+  # This setup path promises compatibility with the Bash macOS ships. Linux
+  # syntax checks cannot establish that promise: Ubuntu currently supplies
+  # Bash 5. Run the complete behavior suite with Apple's real /bin/bash and
+  # fail if the runner image ever stops providing the expected 3.2 runtime.
+  setup-podman-bash32:
+    name: Podman setup (Apple Bash 3.2)
+    runs-on: macos-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Run setup behavior under Apple Bash 3.2
+        env:
+          EZ_SETUP_TEST_BASH: /bin/bash
+          EZ_SETUP_REQUIRE_BASH_32: "1"
+        run: bun test --timeout 30000 ./src/__tests__/setup-podman.test.ts
+
   manifest-lock:
     name: Manifest lockfile drift check
     runs-on: ubuntu-latest
@@ -863,7 +882,7 @@ jobs:
     name: Backend tests
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    needs: [cov-shard, residual-tests, external-postgres]
+    needs: [cov-shard, residual-tests, external-postgres, setup-podman-bash32]
     if: always()
     steps:
       - name: Aggregate shard results
@@ -871,9 +890,11 @@ jobs:
           echo "cov-shard:       ${{ needs.cov-shard.result }}"
           echo "residual-tests:  ${{ needs.residual-tests.result }}"
           echo "external-postgres: ${{ needs.external-postgres.result }}"
+          echo "setup-podman-bash32: ${{ needs.setup-podman-bash32.result }}"
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.residual-tests.result }}" != "success" ] || \
-             [ "${{ needs.external-postgres.result }}" != "success" ]; then
+             [ "${{ needs.external-postgres.result }}" != "success" ] || \
+             [ "${{ needs.setup-podman-bash32.result }}" != "success" ]; then
             echo "::error::A backend shard failed — a pass/fail-set (P) test failure that survived the isolated retry, or an infrastructure failure. See the failing shard's log."
             exit 1
           fi
