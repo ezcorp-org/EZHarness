@@ -20,6 +20,7 @@ test("release blob audit distinguishes empty, mostly missing, and isolated missi
   await expect(auditReleaseBlobPresence(blobs, [absent("a"), absent("b")])).resolves.toEqual({ expected: 2, present: 0, missing: 2, condition: "empty" });
   await expect(auditReleaseBlobPresence(blobs, [present, absent("c"), absent("d"), absent("e")])).resolves.toEqual({ expected: 4, present: 1, missing: 3, condition: "mostly_missing" });
   await expect(auditReleaseBlobPresence(blobs, [present, absent("f")])).resolves.toEqual({ expected: 2, present: 1, missing: 1, condition: "single_missing" });
+  await expect(auditReleaseBlobPresence(blobs, [present, secondPresent, absent("0"), absent("1")])).resolves.toEqual({ expected: 4, present: 2, missing: 2, condition: "partially_missing" });
   await expect(auditReleaseBlobPresence(blobs, [present, secondPresent, absent("0"), absent("1"), absent("2")])).resolves.toEqual({ expected: 5, present: 2, missing: 3, condition: "mostly_missing" });
 });
 

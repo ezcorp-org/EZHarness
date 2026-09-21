@@ -73,7 +73,7 @@ export async function auditReleaseBlobPresence(blobs: Pick<FileBlobStore, "has">
   const condition: ReleaseBlobAuditCondition = missing === 0 ? "healthy"
     : present === 0 ? "empty"
       : missing === 1 ? "single_missing"
-        : missing * 2 >= expected.length ? "mostly_missing"
+        : missing * 2 > expected.length ? "mostly_missing"
           : "partially_missing";
   return { expected: expected.length, present, missing, condition };
 }

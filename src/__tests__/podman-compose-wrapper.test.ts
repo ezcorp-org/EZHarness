@@ -519,6 +519,36 @@ describe("podman wrapper — the invocation it guarantees", () => {
     expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
   });
 
+  test("compares an assume-unchanged Docker input directly with HEAD", () => {
+    sandboxGit("update-index", "--assume-unchanged", "image-backed-source.txt");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+      writeFileSync(TRACKED_SOURCE, "changed behind the index hint\n");
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      chmodSync(TRACKED_SOURCE, 0o755);
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      chmodSync(TRACKED_SOURCE, 0o644);
+      sandboxGit("update-index", "--no-assume-unchanged", "image-backed-source.txt");
+    }
+  });
+
+  test("compares present and sparse-absent skip-worktree inputs directly with HEAD", () => {
+    sandboxGit("update-index", "--skip-worktree", "image-backed-source.txt");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+      rmSync(TRACKED_SOURCE);
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      sandboxGit("update-index", "--no-skip-worktree", "image-backed-source.txt");
+    }
+  });
+
   test("ignores tracked changes that Docker excludes from the build context", () => {
     writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "changed but still not an image input\n");
     try {
@@ -529,6 +559,26 @@ describe("podman wrapper — the invocation it guarantees", () => {
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
     } finally {
       writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+    }
+  });
+
+  test("ignores hidden-index changes and absence when Docker excludes the path", () => {
+    sandboxGit("update-index", "--assume-unchanged", "tasks/audit-note.md");
+    try {
+      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "hidden excluded change\n");
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+      sandboxGit("update-index", "--no-assume-unchanged", "tasks/audit-note.md");
+    }
+
+    sandboxGit("update-index", "--skip-worktree", "tasks/audit-note.md");
+    try {
+      rmSync(TRACKED_DOCKER_EXCLUDED_SOURCE);
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+      sandboxGit("update-index", "--no-skip-worktree", "tasks/audit-note.md");
     }
   });
 

@@ -360,3 +360,31 @@ wrapper, engine, and release-blob set passes 85 tests across five files. Full ty
 `git diff --check` pass. A focused regression also proves inherited Git overrides cannot change the
 checkout's `core.bare=false` setting. The production build needed the Nix store's `libstdc++.so.6` on
 `LD_LIBRARY_PATH`; after that environment correction it completed successfully.
+
+## Repair PR #284 publication-gate findings — 2026-09-21
+
+- [x] Reproduce hidden-index false-clean results for included Docker-context paths.
+- [x] Compare included assume-unchanged and skip-worktree paths with `HEAD` independently of index hints.
+- [x] Keep unchanged and Docker-excluded hidden-index paths clean.
+- [x] Classify exactly half missing release blobs as partially missing.
+- [x] Run focused tests and full static gates.
+- [x] Review and commit the repair locally without pushing.
+
+Plan review: keep the existing ordered Docker-ignore matcher as the single inclusion authority.
+Audit only tracked paths whose index flags can suppress the normal `git diff HEAD` result, and
+compare included regular-file bytes, presence, and executable mode directly with the `HEAD` tree.
+Treat unsupported hidden entry types conservatively as dirty. Keep release diagnostics precise by
+reserving `mostly_missing` for a strict majority.
+
+Review: the shared resolver now enumerates the index entries whose assume-unchanged or
+skip-worktree hints can suppress `git diff HEAD`. It applies the existing ordered Docker-context
+matcher first, then compares each included regular file's raw object hash, presence, and executable
+mode directly with the `HEAD` tree. Unchanged and Docker-excluded entries stay clean; unsupported
+hidden entry types fail safely as dirty. The blob audit now uses a strict majority for
+`mostly_missing`, so an exact half receives the partial-loss recovery guidance.
+
+Verification: all three new regressions failed before the repair and pass after it. Real sparse
+checkout and assume-unchanged fixtures now report `dirty`. Five focused files pass 90 tests and 254
+assertions. The complete backend pool passes 25,891 tests across 1,655 files with zero failures.
+Typecheck, lint over 4,610 files, Svelte check, production build, gate integrity, Bash/sh syntax,
+ShellCheck, and `git diff --check` pass.
