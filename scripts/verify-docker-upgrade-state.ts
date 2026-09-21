@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { productionLifecycleClient, required } from "./lib/production-lifecycle-client";
-import type { InstallationState, LifecycleApproval, LifecycleRelease, WorkspaceRecord } from "../src/extensions/v4/types";
+import { assertInstallationIdentityPreserved, assertOldProfileRefused, runnerProfileChanged, type ToolInvocationResult } from "./lib/runner-profile-transition";
+import type { InstallationState, LifecycleApproval, LifecycleOperation, LifecycleRelease, WorkspaceRecord } from "../src/extensions/v4/types";
 
 type UpgradeState = {
   owner: { id: string; email: string; name: string; role: string };
@@ -11,12 +12,14 @@ type UpgradeState = {
   conversationId: string;
   wired: { id: string; name: string }[];
   name: string;
+  runnerImage: string;
   storage: { key: string; value: string; output: unknown };
 };
 
 const mode = required("EZ_UPGRADE_MODE");
 const statePath = required("EZ_UPGRADE_STATE_FILE");
-const { client, sessionJson, createBuild, approveAndActivate } = await productionLifecycleClient();
+const currentRunnerImage = required("EZ_UPGRADE_RUNNER_IMAGE");
+const { client, sessionJson, createBuild, waitVerified, approveAndActivate } = await productionLifecycleClient();
 
 function ownerSnapshot(body: unknown): UpgradeState["owner"] {
   assert(body && typeof body === "object" && "user" in body, "Owner response has no user record");
@@ -54,6 +57,7 @@ if (mode === "seed") {
   const featureTest = `import { expect, test } from "bun:test";\nimport { createEcho } from "./extension";\ntest("writes and reads the sentinel through its storage boundary", async () => { const values = new Map<string, string>(); const echo = createEcho({ async get(key) { return { value: values.get(key) ?? null, exists: values.has(key) }; }, async set(key, value) { values.set(key, value); } }); expect(await echo({ text: "feature-sentinel" })).toEqual({ text: "feature-sentinel" }); expect(await echo({})).toEqual({ text: "feature-sentinel" }); });\n`;
   const created = await createBuild(name, { "extension.ts": source, "extension.test.ts": featureTest });
   const release = created.release;
+  assert.equal(release.imageDigest, currentRunnerImage, "Seed release did not use the archived runner profile");
   const active = await approveAndActivate(created.installation.id, release.id, null);
   const approval = Object.values(active.approvals).find(approval => approval.releaseId === release.id && approval.status === "consumed");
   assert(approval, "Activation must consume its human approval");
@@ -69,19 +73,53 @@ if (mode === "seed") {
   assert(finalRelease && finalApproval && finalWorkspace, "Seeded lifecycle records are incomplete");
   const owner = ownerSnapshot(await sessionJson("/api/auth/me"));
   assert.equal(owner.id, finalState.installation.ownerId, "Lifecycle installation owner is not the seeded human record");
-  const expected: UpgradeState = { owner, installation: installationSnapshot(finalState), workspace: finalWorkspace, release: finalRelease, approval: finalApproval, conversationId: conversation.id, wired: [{ id: created.installation.id, name }], name, storage: { key: storageKey, value: marker, output: result.output } };
+  const expected: UpgradeState = { owner, installation: installationSnapshot(finalState), workspace: finalWorkspace, release: finalRelease, approval: finalApproval, conversationId: conversation.id, wired: [{ id: created.installation.id, name }], name, runnerImage: currentRunnerImage, storage: { key: storageKey, value: marker, output: result.output } };
   await Bun.write(statePath, `${JSON.stringify(expected)}\n`);
   console.log("UPGRADE_STATE_SEEDED");
 } else if (mode === "assert") {
   const expected = await Bun.file(statePath).json() as UpgradeState;
+  assert.equal(expected.release.imageDigest, expected.runnerImage, "Seed receipt runner profile differs from its release evidence");
   assert.deepEqual(ownerSnapshot(await sessionJson("/api/auth/me")), expected.owner, "Exact owner record changed");
   const state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: expected.installation.id });
-  assert.deepEqual(installationSnapshot(state), expected.installation, "Installation owner, identity, generation, grants, or activation changed");
   assert.deepEqual(state.workspaces[expected.workspace.id], expected.workspace, "Exact workspace record changed");
   assert.deepEqual(state.releases[expected.release.id], expected.release, "Exact verified release record changed");
   assert.deepEqual(state.approvals[expected.approval.id], expected.approval, "Exact human approval record changed");
   const wired = await client.listWiredExtensions(expected.conversationId);
   assert.deepEqual(wired, expected.wired, "Existing conversation link changed");
+
+  if (runnerProfileChanged(expected.release, currentRunnerImage)) {
+    let oldProfileAttempt: ToolInvocationResult;
+    try {
+      oldProfileAttempt = await client.invokeExtensionTool(expected.conversationId, expected.name, "echo");
+    } catch (error) {
+      oldProfileAttempt = { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    assertOldProfileRefused(oldProfileAttempt);
+
+    const operation = await client.extensionControl<LifecycleOperation>("extensions_build", {
+      installationId: expected.installation.id,
+      workspaceId: expected.workspace.id,
+      expectedRevision: expected.workspace.revision,
+      idempotencyKey: crypto.randomUUID(),
+    });
+    const verified = await waitVerified(expected.installation.id, operation.id);
+    const rebuiltReleaseId = verified.operations[operation.id]?.releaseId;
+    assert(rebuiltReleaseId, "Runner-profile rebuild produced no release");
+    const rebuiltRelease = verified.releases[rebuiltReleaseId];
+    assert(rebuiltRelease, "Runner-profile rebuild release is absent");
+    assert.equal(rebuiltRelease.imageDigest, currentRunnerImage, "Rebuilt release did not use the current runner profile");
+    assert.notEqual(rebuiltRelease.id, expected.release.id, "Runner-profile rebuild reused the old release");
+    const active = await approveAndActivate(expected.installation.id, rebuiltRelease.id, expected.release.id);
+    assertInstallationIdentityPreserved(state.installation, active.installation);
+    assert.equal(active.installation.activeReleaseId, rebuiltRelease.id, "Rebuilt release is not active");
+    assert(Object.values(active.approvals).some(approval => approval.releaseId === rebuiltRelease.id && approval.status === "consumed"), "Rebuilt release lacks a consumed human approval");
+    assert.deepEqual(active.approvals[expected.approval.id], expected.approval, "Runner-profile rebuild changed the prior approval record");
+    console.log(`RUNNER_PROFILE_REBUILT ${expected.runnerImage} -> ${currentRunnerImage}`);
+  } else {
+    assert.equal(currentRunnerImage, expected.runnerImage, "Release profile matches but the recorded runner profile changed");
+    assert.deepEqual(installationSnapshot(state), expected.installation, "Installation owner, identity, generation, grants, or activation changed");
+  }
+
   const result = await client.invokeExtensionTool(expected.conversationId, expected.name, "echo");
   assert.equal(result.success, true);
   assert.deepEqual(result.output, expected.storage.output, "Stored value or known old-image output changed");

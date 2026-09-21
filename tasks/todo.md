@@ -235,3 +235,21 @@ Plan review: preserve the PR's multi-architecture runner-image change. Diagnose 
 - Both signatures were transient. PR #291 passed the same three web-search tests and used the same archived source successfully. Among the latest 30 CI runs, PR #290 was the only completed real-auth failure and the only recovery failure; recovery was 15 passes to one failure.
 - The exact real-auth web-search Playwright spec passed 3/3 on the original PR head and 3/3 after merging main. No source or test workaround was added.
 - Merged `origin/main` at `0f949c307`; focused checks passed: runner image pin 3/3, container engine 26/26, lifecycle launch 4/4, lint, and typecheck.
+
+## PR #290 runner-profile upgrade repair
+
+- [x] Reproduce and classify the repeated historical-upgrade failure from both CI attempts.
+- [x] Run the archived app with the archived runner image profile, then switch to the candidate profile.
+- [x] Prove that an old release is refused after the profile change and must be rebuilt and reapproved.
+- [x] Add focused regression tests for the profile transition without weakening strict digest checks.
+- [x] Run focused tests and the closest practical production-upgrade proof with Bun 1.3.14.
+- [x] Run relevant full gates, review the diff, and commit the repair without pushing.
+
+Plan review: keep exact runner-image equality. The proof must model the real service upgrade instead of making OCI index and child digests interchangeable. Preserve installation identity, conversation wiring, stored extension data, and human approval semantics through the required rebuild.
+
+### Review
+
+- Both attempts of CI run 35638868572 failed only after the archived app was paired with the candidate runner profile. PR #291 passed the same archived source with the old profile.
+- The proof now derives both runner images from their immutable source revisions. It seeds with the archived profile, restarts with the candidate profile, proves the old release cannot execute, then rebuilds and reapproves it under the new profile.
+- The production lifecycle's exact image comparison remains unchanged. Installation identity, owner, scope, grants, workspace, old release and approval records, conversation wiring, and extension storage are verified across both the live upgrade and backup restore.
+- Real rootless-Podman semantic upgrade passed end to end: archived seed, candidate rebuild, independent restore rebuild, and clean cleanup. Focused tests passed 44/44. Bun 1.3.14 lint and typecheck passed.
