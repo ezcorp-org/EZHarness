@@ -505,7 +505,7 @@ export async function snapshotModules() {
 // mock-cleanup coverage meta-test can recognise a `$server/*` path as
 // legitimate when scanning test files; the array is no longer consumed
 // by restoration.
-const SERVER_ALIAS_PREFIXES = [
+export const SERVER_ALIAS_PREFIXES = [
   "db/",
   "auth/",
   "extensions/",
@@ -528,7 +528,7 @@ const SERVER_ALIAS_PREFIXES = [
  *  that needs them registers them itself via its own mock.module call.
  *  (scratchpad-e2e.test.ts used to hit the same hang; it now uses a
  *  sync factory and documents the pitfall inline.) */
-const SKIP_SERVER_ALIAS_RESTORE = new Set<string>([
+export const SKIP_SERVER_ALIAS_RESTORE = new Set<string>([
   "db/connection",
 ]);
 
@@ -564,18 +564,20 @@ export function restoreModuleMocks() {
     // oauth-api.test.ts's `mock.module(alias, () => require("../../X"))`
     // pattern is handled by preload.ts's string-keyed fallback for the
     // specific broken specifiers it consumes.
-    if (path.startsWith("../../")) {
-      const rel = path.slice("../../".length);
-      if (
-        SERVER_ALIAS_PREFIXES.some((p) => rel.startsWith(p)) &&
-        !SKIP_SERVER_ALIAS_RESTORE.has(rel)
-      ) {
-        try {
-          mock.module(`$server/${rel}`, () => require(path));
-        } catch {
-          // Ignore errors
-        }
-      }
-    }
+    // No `$server/*` re-registration here — see SERVER_ALIAS_PREFIXES above
+    // for why the automatic block was retired, and this for why it must stay
+    // retired. A `mock.module("$server/X")` is PERMANENT: from that moment the
+    // specifier is served from the literal registration instead of resolving
+    // through the importer's own tsconfig, and the record freezes on whatever
+    // the factory returned. A `web/` module that resolves `$server/X` natively
+    // shares one record with `../../X`, so the suite's own
+    // `mock.module("../../X", …)` and `spyOn` reach it; once this function has
+    // registered the alias, they no longer do — the route reads a different
+    // instance of the module than the test is driving. Measured: a file whose
+    // only act is calling this function costs
+    // `installer-idempotent-local.test.ts` three tests, because its author-page
+    // loader then resolves the real lifecycle service rather than the one the
+    // suite stubbed. Restoring the relative path above is enough; native
+    // resolution carries it to every `$server/*` importer.
   }
 }

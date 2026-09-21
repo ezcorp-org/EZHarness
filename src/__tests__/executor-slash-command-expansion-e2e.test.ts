@@ -52,8 +52,20 @@ mock.module("$server/chat/attachments/content-builder", () => require("../chat/a
 
 // Auth middleware lives under web/ — stub it to a fixed admin user so
 // ownership check passes regardless of conv.userId.
+//
+// A `mock.module("$server/…")` is PERMANENT: bun has no unregister, and
+// nothing can restore an export the alias never carried, because no module
+// was ever loaded under that specifier for the snapshot to capture. So this
+// registration has to be safe for every later file in the process on its own
+// terms, in two ways. It spreads the real module, because a partial factory
+// DELETES the exports it omits — dropping `checkProjectRole` here stopped
+// `installer-idempotent-local.test.ts` from linking at all. And the one
+// override reverts with the suite, because a `requireAuth` frozen on this
+// fixture's admin answers for every later file's routes too.
+let stubRequireAuth = true;
 mock.module("$server/auth/middleware", () => ({
-  requireAuth: (_locals: any) => ADMIN_USER,
+  ...require("../auth/middleware"),
+  requireAuth: (locals: any) => (stubRequireAuth ? ADMIN_USER : require("../auth/middleware").requireAuth(locals)),
 }));
 
 // Security middleware — pass-through no-ops.
@@ -222,6 +234,10 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  // The `$server/auth/middleware` registration above cannot be withdrawn, so
+  // withdraw the behaviour instead: from here the alias answers as the real
+  // middleware does.
+  stubRequireAuth = false;
   restoreModuleMocks();
   await closeTestDb();
   await rm(projectRoot, { recursive: true, force: true }).catch(() => {});
