@@ -275,11 +275,38 @@ export EZCORP_BUILD_COMMIT_DEFAULT
 # The revision alone cannot say whether the files Docker could COPY differed
 # from HEAD. Check tracked bytes first, then untracked files through BOTH
 # ignore contracts: Git removes generated/local noise and .dockerignore removes
-# non-image inputs such as tests. `git ls-files --exclude-from` uses the same
-# ordered wildcard/negation form used by this repository's .dockerignore.
+# non-image inputs such as tests. Docker anchors a bare name at the context
+# root, while Git ignore syntax matches a bare name at every depth. Normalize
+# that one semantic difference before asking Git's ordered wildcard/negation
+# matcher to apply the active .dockerignore.
 # Any Git failure is recoverable `unknown`, including an archive without .git.
+dockerignore_as_git_excludes() {
+  awk '
+    /^[[:space:]]*#/ || /^[[:space:]]*$/ { next }
+    {
+      pattern = $0
+      sub(/^[[:space:]]+/, "", pattern)
+      sub(/[[:space:]]+$/, "", pattern)
+      negate = ""
+      if (substr(pattern, 1, 1) == "!") {
+        negate = "!"
+        pattern = substr(pattern, 2)
+      }
+      sub(/^\/+/, "", pattern)
+      sub(/\/+$/, "", pattern)
+      if (index(pattern, "/") == 0) pattern = "/" pattern
+      print negate pattern
+    }
+  ' "$REPO_ROOT/.dockerignore"
+}
+
+DOCKER_EXCLUDE_ARGS=()
+while IFS= read -r pattern; do
+  DOCKER_EXCLUDE_ARGS+=("--exclude=$pattern")
+done < <(dockerignore_as_git_excludes)
+
 if git diff --quiet --no-ext-diff HEAD -- 2>/dev/null; then
-  if ! UNTRACKED_BUILD_INPUTS="$(git ls-files --others --exclude-standard --exclude-from="$REPO_ROOT/.dockerignore" -- 2>/dev/null)"; then
+  if ! UNTRACKED_BUILD_INPUTS="$(git ls-files --others --exclude-standard "${DOCKER_EXCLUDE_ARGS[@]}" -- 2>/dev/null)"; then
     EZCORP_BUILD_SOURCE_STATE_DEFAULT=unknown
   elif [ -n "$UNTRACKED_BUILD_INPUTS" ]; then
     EZCORP_BUILD_SOURCE_STATE_DEFAULT=dirty

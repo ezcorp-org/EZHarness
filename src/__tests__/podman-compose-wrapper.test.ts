@@ -490,6 +490,17 @@ describe("podman wrapper — the invocation it guarantees", () => {
     }
   });
 
+  test("does not apply a root-only Docker exclusion to a nested build input", () => {
+    const nestedAgent = join(SANDBOX, "nested/agent/build-input.conf");
+    mkdirSync(join(SANDBOX, "nested/agent"), { recursive: true });
+    writeFileSync(nestedAgent, "Docker copies this nested file\n");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(join(SANDBOX, "nested"), { recursive: true, force: true });
+    }
+  });
+
   test("non-build commands reach Compose with recoverable provenance when Git metadata is unavailable", () => {
     const noGit = { PATH: `${BIN_GIT_UNAVAILABLE}:${BIN}:${baseEnv.PATH}` };
     for (const args of [["logs", "app"], ["down"], ["ps"], ["config"]]) {
