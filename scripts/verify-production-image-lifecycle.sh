@@ -39,6 +39,11 @@ container="${EZ_PRODUCTION_APP_CONTAINER:-${project}-app}"
 app_uid="${EZ_PRODUCTION_APP_UID:-0}"
 app_gid="${EZ_PRODUCTION_APP_GID:-0}"
 runner_uid="${EZ_PRODUCTION_RUNNER_APP_UID:-$(id -u)}"
+runner_image="${EZ_PRODUCTION_RUNNER_IMAGE:-$(bun -e 'import { DEFAULT_IMAGE } from "./packages/@ezcorp/extension-runner/src/index.ts"; console.log(DEFAULT_IMAGE)')}"
+if [[ ! "$runner_image" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
+  echo "EZ_PRODUCTION_RUNNER_IMAGE must be an immutable image digest" >&2
+  exit 2
+fi
 run_root="$(mktemp -d /tmp/ez-production-lifecycle-XXXXXXXX)"
 state_root="${EZ_PRODUCTION_STATE_DIR:-$run_root}"
 external_state=0
@@ -145,6 +150,8 @@ export EZ_EXTENSION_RUNNER_SOCKET="$runner_root/runner.sock"
 export EZ_EXTENSION_RUNNER_TOKEN_FILE="$runner_token"
 export EZ_EXTENSION_RUNNER_STORE="$state_root/store"
 export EZ_EXTENSION_APP_UID="$runner_uid"
+export EZ_EXTENSION_RUNNER_IMAGE="$runner_image"
+export EZ_PRODUCTION_RUNNER_IMAGE="$runner_image"
 
 if "$ENGINE" container inspect "$container" >/dev/null 2>&1 || "$ENGINE" network inspect "${project}_default" >/dev/null 2>&1; then
   echo "Refusing to reuse existing container or compose project: $container / $project" >&2
@@ -172,6 +179,7 @@ services:
       EZCORP_EXTENSION_INTERNAL_ORIGINS: "${EZCORP_EXTENSION_INTERNAL_ORIGINS:-[]}"
       EZCORP_EXTENSION_RUNNER_SOCKET: "/run/ez-extension-runner/runner.sock"
       EZCORP_EXTENSION_RUNNER_TOKEN_FILE: "/run/secrets/extension-runner-token"
+      EZCORP_EXTENSION_RUNNER_IMAGE: "${EZ_PRODUCTION_RUNNER_IMAGE}"
     volumes:
       - ${RUN_ROOT}/app-data:/app/data
       - ${RUN_ROOT}/extension-state:/app/.ezcorp
@@ -182,7 +190,7 @@ EOF
 export EZ_PRODUCTION_PORT="$port" EZ_PRODUCTION_APP_CONTAINER="$container"
 {
   printf 'launcher_source=%s\n' "$(git rev-parse HEAD)"
-  printf 'image=%s\nproject=%s\ncontainer=%s\nport=%s\n' "$EZ_PRODUCTION_IMAGE" "$project" "$container" "$port"
+  printf 'image=%s\nrunner_image=%s\nproject=%s\ncontainer=%s\nport=%s\n' "$EZ_PRODUCTION_IMAGE" "$runner_image" "$project" "$container" "$port"
   "$ENGINE" image inspect "$EZ_PRODUCTION_IMAGE" --format 'image_id={{.Id}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}'
 } > "$receipt_dir/provenance.txt"
 
