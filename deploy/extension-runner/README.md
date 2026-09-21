@@ -51,7 +51,7 @@ At each app start, a 15-second check calls the runner through the real app UID a
 
 ## No host runner: the trusted-local mode
 
-A host that cannot run the isolated runner — macOS or Windows, where the Linux VM is not the operator's to provision, or any host where the steps above are not worth it — can instead run extensions as plain processes inside the application container. This is the `trusted-local` adapter from [security.md](../../docs/extensions/security.md): none of the seven sandbox controls apply, the extension has the app's full reach, and every build and every release approval requires an explicit per-digest human acknowledgement. In the Compose env file, select the alternative connection and set the acknowledgement:
+A host that cannot run the isolated runner — macOS or Windows, where the Linux VM is not the operator's to provision (on macOS the runner provisions fine inside `podman machine`, but no container there can connect to a bind-mounted host unix socket, which is how the app reaches it — evidence and the ruled-out causes are in [macos-local-dev.md](../../docs/macos-local-dev.md#extensions-on-macos-the-isolated-runner-is-not-available)), or any host where the steps above are not worth it — can instead run extensions as plain processes inside the application container. This is the `trusted-local` adapter from [security.md](../../docs/extensions/security.md): none of the seven sandbox controls apply, the extension has the app's full reach, and every build and every release approval requires an explicit per-digest human acknowledgement. In the Compose env file, select the alternative connection and set the acknowledgement:
 
 ```
 EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml
