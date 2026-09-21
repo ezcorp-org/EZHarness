@@ -10,6 +10,34 @@ the two host services the supervisor had nowhere to live in, the private worker
 API the product had never bound, and the proof that a run submitted over public
 HTTP reaches a real container.
 
+## Round 2 — the consent reader, and the coverage legs that were never run
+
+Two things changed after the first round's gates were stamped.
+
+**`release-outcome` consumed W07b's consent reader.** The role's held reason was
+false the moment W07b landed, and it is rewritten. The driver now reads the
+consent itself and claims as the run's own live initiator. It still holds — on a
+collaborator further down the chain than anyone had checked — and the whole
+chain is set out under "release-outcome: the consent is delivered, the
+destination is not".
+
+**G14's red receipt was measuring five files nobody had run a leg for.** The
+runner that produced it ran the bun focused pool and nothing else. Five of the
+files it reported as "no lcov data" were fully tested; their producing leg was
+simply absent. `/tmp/factory-platform-evidence/w00/combined-integration.py`
+names nine producers, and this package's changed files need six of them. The
+leg set is now mirrored in `repro/coverage-legs.sh`, and the difference it makes
+is set out under G14.
+
+That audit also found a real regression the missing leg had hidden: this branch
+made an attempt dispatch result carry the `cause` of a refused commit, and
+`src/__tests__/helpers/factory-run-lifecycle-suite.ts` — the only suite that
+asserts that result — was never run on this branch. Four of its cases were red
+at `7495a7750`. Three were the unasserted `cause`; the fourth was a cascade,
+because each early failure skipped the projection the next case's ordering
+depends on. The assertions now name the cause, and name its absence on the two
+paths that carry none.
+
 ## What changed, and why each one is not wiring
 
 Three of the four roles now register and run. The fourth holds, for a reason
@@ -20,7 +48,7 @@ that moved again and is proved below rather than asserted.
 | `attempt-dispatch` | **running** | composed over W01b's driver, the W09 preflight, and `FactoryRemoteAttemptRuntime` through the host launch transport |
 | `stop-settlement` | **running** | `FactoryTaskStops` over the host stop transport, the configured host public keys, and `PoolAdmissionClient.confirmStopped` |
 | `usage-reconciliation` | **running** | the page driver over the uncertain-hold scan, settling only on `resolve` → `resolved` |
-| `release-outcome` | held | no production reader maps a claimable operation to the approved approval or the automatic policy that `FactoryReleases.claim` requires |
+| `release-outcome` | held | composed and tested end to end; it holds because no production code builds a `FactoryReleaseProvider` and the startup document names no release destination, so there is nowhere to publish |
 
 ### The store set, and why it is one construction
 
@@ -228,6 +256,15 @@ wrapper that catches adds context rather than removing it.
       the orchestrator publishes `ready`; the guest package builds and prepares
       for real.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/roles-running.json`
+      STILL THREE, AND WHY. Round 2 was asked to make this four. It is three,
+      and the fourth cannot honestly be running on this document: the composed
+      `release-outcome` role needs a `FactoryReleaseProvider`, the startup
+      document declares no release destination, and adding a field the
+      interface freeze does not name is forbidden. The composition is
+      delivered and proved — `installation-startup.test.ts` registers and runs
+      the role against the real startup path the moment a resolver is supplied,
+      and holds it by name when one is not. What is missing is a declaration,
+      not code.
 - [x] G11: A durable run submitted over public HTTP executes a real guest in the
       supervisor's container runner, reaches a terminal projected status,
       survives restart, and shuts down with no survivors — three consecutive
@@ -269,12 +306,56 @@ wrapper that catches adds context rather than removing it.
       EXPECT: 18 pass / 0 fail; two failing passes share one sealed event and
       carry two different causes.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src---tests--factory-task-stops.log`
-- [ ] G14: Every new source file at 100% line coverage with its own threshold
+- [x] G14: Every new source file at 100% line coverage with its own threshold
       key, and both `BASE_REF=integ/w00` gates green over this package's own
       merged LCOV.
-      CHECK: `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts && BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
+      CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 5400 bash
+      /tmp/factory-platform-evidence/w09b/repro/coverage-gates.sh`, which runs
+      every leg, merges with
+      `bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w09b/lcov-final/*.lcov' coverage/lcov.info`,
+      then `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` and
+      `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
       EXPECT: PASSED for both.
-      EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/coverage-gates.json`
+      MEASURED: "New-file coverage gate PASSED: 23 new source file(s) gated."
+      and "Patch coverage gate PASSED: all changed executable lines covered
+      (40 file(s))." No `EXCLUDES` entry was added, no threshold lowered, and
+      every new executable file carries its own key at 100 in
+      `scripts/coverage-thresholds.json`.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/coverage-gates.json`;
+      the red receipt it replaces is kept at
+      `/tmp/factory-platform-evidence/w09b/receipts/coverage-gates-red-83b3a98be.json`.
+
+### What the red G14 receipt was actually measuring
+
+Nine of its fourteen findings were not uncovered code. They were files whose
+producing leg the runner never ran. `combined-integration.py` names nine
+producers; the red receipt's runner ran one.
+
+| Reported as | Real cause | Leg that measures it |
+| --- | --- | --- |
+| `src/factory/legacy-engine.ts`, `src/factory/pool/process.ts` no data | their suites were added to the leg list after the receipt was stamped | bun focused pool |
+| `web/src/lib/server/factory-boot.ts`, `web/src/routes/api/factories/**` no data | the Vitest leg never ran; it is the ONLY producer that measures `web/**` | `scripts/web-vitest-coverage.sh` |
+| `src/factory/orchestration-process.ts` no data | the Node orchestrator leg never ran; it names this file in its own `--test-coverage-include` | `scripts/factory-orchestrator-coverage.sh` |
+| `src/factory/task-stops.ts`, `src/factory/runner/supervisor-pool-client.ts` uncovered lines | same as the first row | bun focused pool |
+| `web/src/lib/server/context.ts` uncovered lines | the Vitest leg never ran | `scripts/web-vitest-coverage.sh` |
+| `src/factory/attempt-dispatcher.ts` uncovered lines | `./src/__tests__/factory-run-lifecycle.test.ts` was not on the leg list, and it is the only suite that exercises the dispatcher's refused-commit path | bun focused pool |
+
+Five findings were real, and each is a default that only production uses:
+`productionMainDependencies.fail` on both process entries, the retry window's
+real timer, and the private service's per-request token reader. All four are now
+exported and proved directly; the reasons are in their own doc comments.
+
+**Two legs could not run: the shared PostgreSQL proof database is down.**
+`podman ps -a` reports `factory-platform-proof-postgres` as `Exited (0) 7 days
+ago` and `podman port factory-platform-proof-postgres 5432` returns nothing, so
+`tests/postgres/**` and `scripts/factory-pool-coverage.sh` fail at connect with
+`ERR_POSTGRES_CONNECTION_CLOSED`. Nothing in this worktree restarted it —
+repairing a shared store is the coordinator's. It did not block G14: both gates
+pass without those two legs, because every line they would have measured is
+also measured by a PGlite suite in the focused pool. It DOES block a fresh
+`postgres-producers` receipt, and the one at
+`/tmp/factory-platform-evidence/w09b/receipts/postgres-producers.json` now
+records that failure rather than the earlier round's pass.
 
 ## What the first full runs measured, including their faults
 
@@ -356,43 +437,99 @@ transport status.
 
 ## What this package did NOT deliver, and what each one needs
 
-### `release-outcome`, and the reader that does not exist
+### `release-outcome`: the consent is delivered, the destination is not
 
-The reason moved. `factoryReleaseProviderResolver` — the thing the old reason
-named — is built, covered, and exported; `FactoryReleases.listClaimableInTransaction`
-landed with W07; the project enumerator landed with W09. What no production code
-produces is the CONSENT `claim` requires: an approved `factory_release_approvals`
-row or an automatic `factory_release_policies` row, selected for one claimable
-operation.
+**The consent half is done.** W07b landed
+`FactoryReleases.readConsentInTransaction(transaction, requester, operation)`
+and it is on this branch. `factoryReleaseOutcomeDriver` no longer takes a
+consent from its caller: it reads the one consent the operation already has, or
+a typed reason there is none. The injected-consent parameter is gone, which
+closes the hole a caller could have filled with a release nobody approved.
 
-The grep, run in this worktree:
+Three decisions this round had to make, all recorded rather than assumed:
+
+**The requester is the run's own live initiator.** A background role holds no
+authority of its own, and no production `FactoryPrincipal` exists for one — the
+other background roles carry a `TrustedFactoryServiceIdentity`
+(`{ subject, tenantId }`), which is not a principal and confers no grant.
+Inventing `{ kind: "service", id: <certificate identity> }` would be an
+authority nobody granted. The platform already answers this question:
+`FactoryProtectedCommandEffects.requestRelease` prepares the operation under
+`context.initiator`, the run's own initiator re-derived from the durable run
+request. The driver claims as the same principal, read through
+`FactoryRunLifecycle.readExecutionPlanInTransaction` — whose own comment is
+"private command admission uses the exact published plan and the live
+initiator". It confers nothing: `claim` re-authorizes that principal for
+`factory.release` inside its own transaction, and a policy is keyed by the
+principal it was created for, so a policy created for someone else simply does
+not match.
+
+**What is in one transaction, and what the frozen surface cannot express.** The
+initiator and the consent are read in ONE transaction, which is W07b's recorded
+answer and what stops two workers reading different consents and then
+disagreeing about why a claim failed. `claim` opens its OWN transaction —
+`FactoryReleases.claim(requester, projectId, operationId, consent)` takes no
+transaction argument, and `readInTransaction` is private, so there is no public
+in-transaction read of an operation either. A literal single-transaction
+read-and-claim is therefore not expressible against W07's surface as frozen.
+Forking it was refused (freeze rule: consume a surface as written, report it if
+it is wrong). The property the rule protects still holds and is tested: the read
+half mutates nothing, so the only mutating step is `claim`'s own transaction and
+a failure between them leaves the operation untouched rather than half done.
+**Interface question for W07 and the coordinator** below.
+
+**The role still holds, on the last collaborator: there is nowhere to publish.**
+`factoryReleaseProviderResolver` needs at least one `FactoryReleaseProvider`,
+and no production code builds one. The grep, run in this worktree:
 
 ```
-grep -rn "factory_release_approvals\|factory_release_policies" --include='*.ts' src/ | grep -v '\.test\.ts'
+grep -rn "S3FactoryReleaseProvider\|FactoryGitHubReleaseProvider\|S3FactoryManifestReleaseProvider\|FactoryReleaseApplication" \
+  --include='*.ts' src/ web/src/ packages/ | grep -v '\.test\.ts'
 ```
 
-It finds writers and by-id consumers only: `assurance.ts` consumes an approval
-by id (`consumeApprovalInTransaction`), `releases.ts` consumes a policy by id
-(`consumePolicy`), and the one reader that returns an approval id is
-`listDeliveredNotifications`, an actor-scoped console read that needs grants a
-background role does not hold. `grep -rn "FactoryReleaseConsent"` finds the type,
-the `claim` parameter, and test call sites — no producer.
+Every hit is a declaration, a type import, or a test helper. `createFactoryApplication`'s
+`createReleaseOperations` hook — the one thing that would build a
+`FactoryReleaseApplication` with a resolver — has no production caller either.
+Each provider binds a destination: `S3FactoryReleaseProvider` and
+`S3FactoryManifestReleaseProvider` refuse any `destination.account` but their
+own configured one, and `FactoryGitHubReleaseProvider` takes a repository plus a
+token reader. The startup document (`FACTORY_STARTUP_FIELDS`) names no release
+destination at all, and adding a field the interface freeze does not name is
+forbidden. Choosing one would publish to a place nobody declared, which is the
+class of substitute this package has been corrected for twice.
 
-Owners: W05 owns `assurance.ts` and the approvals table; W07 owns `releases.ts`
-and the claimable scan. Supplying a consent this composition chose would
-authorize a release nobody approved, which is the one substitute that cannot be
-walked back. `factoryReleaseOutcomeDriver` already takes the consent as an
-injected function, so the role registers the moment a reader exists.
+So `FactoryInstallationStartOptions.releaseProviders` is the seam: supply a
+resolver and this process composes the role over the same stores, the same
+project enumerator and the same run lifecycle every other role uses. It is the
+collaborator, not the finished role — `seams.releaseProviders` remains the other
+half of the pair and REPLACES the composition for a host that drives the role
+itself. `installation-startup.test.ts` proves both sides: the role registers and
+runs with a resolver, and holds with the named reason without one.
 
-### The GitHub release profile
+The held reason also learned to tell its two cases apart. It used to read
+`factoryReleaseSeamsPresent(collaborators.seams)`, which is never true on the
+real startup path because the composition builds the release store directly
+rather than through those five seams — so the provider reason could never
+appear in a real run. It now reads the inbox driver, which is built from the
+same `FactoryReleases` and is therefore the honest witness that the store
+composed.
+
+### The GitHub release profile — still refused, and why
 
 `FactoryProtectedCommandEffects` takes a set of `FactoryReleaseCommandProfile`,
-and this composition passes an empty one, so `requestRelease` answers
-`factory_protected_effect_untrusted` — a refusal, not a false answer. A profile
-pairs a definition's release-node adapter reference with the destination it
-publishes to, so it is a per-installation declaration and the startup document
-has no field for one. W05 owns `factorySynchronousReleaseProfile`; W07 owns the
-GitHub adapter it would lift.
+and this composition still passes an empty one, so `requestRelease` answers
+`factory_protected_effect_untrusted` — a refusal, not a false answer.
+
+This round was asked to replace it if W07b's gate file records how profiles
+compose from pack registries. It does not: `tasks/factory/w07b-GATES.md` is
+about `readConsentInTransaction` and says nothing about profiles or pack
+registries. The measurement stands as W09b first recorded it. A profile pairs a
+definition's release-node adapter reference with the destination it publishes
+to, so it is a per-installation declaration and the startup document has no
+field for one. It is the same missing declaration the provider needs, seen from
+the other end: with no destination declared, there is nothing for a profile to
+name and nothing for a provider to publish to. W05 owns
+`factorySynchronousReleaseProfile`; W07 owns the GitHub adapter it would lift.
 
 ### W13's `FactoryLegacyEngine` adapter — delivered
 
@@ -449,7 +586,39 @@ serve it. A deployment that grows that route supplies its own broker through
 | `packages/@ezcorp/factory-orchestrator/src/process.ts` | the startup refusal carries its cause | Additive. The bare "factory orchestrator process failed" discarded the one line worth reading, and diagnosing a real failure without it cost a full round |
 | `src/factory/runner/attempt-runtime.ts` | its wire half moved to a new `attempt-wire.ts`, re-exported unchanged | **Required by the boundary gate, which caught it.** Hosting W01b's launch routes and W03's stop route in the supervisor made the supervisor's runtime closure reach `drizzle-orm`, `@electric-sql/pglite` and `@aws-sdk/client-s3`, because the three values those routes need live in the same module as the durable launch store. `factory-process-boundaries.test.ts` failed with that exact list. The split is a pure move: no behaviour changed, every symbol is re-exported, and no existing importer changed. Eleven helpers that were module-private became exported to the pair, which is the one surface widening and is stated in the new file's header. Owner to review: Terra runtime (W01) |
 | `scripts/coverage-thresholds.json` | four new keys at 100 | Required by the feature contract for every new source file |
+| `src/__tests__/helpers/factory-run-lifecycle-suite.ts` | three dispatch-result assertions name the `cause` this branch added, and its absence on the two paths that carry none | **Required.** This branch changed `attempt-dispatcher.ts` to carry the refused commit's cause, and this is the only suite that asserts that result. It was red at `7495a7750` and nobody had seen it, because the leg that runs it was missing from the coverage runner. No production line moved. Owner to review: Sol lifecycle (W02) |
+| `packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts` | one case for the process entry's own failure reporter | Additive, and the counterpart to the `process.ts` change already disclosed above: the entry prints the cause before it sets the exit code, and nothing proved it. Owner to review: Node orchestrator (W02b) |
 
 `src/extensions/host-maintenance-daemon.ts` is READ (its `getSweepIntervalMs`)
 and not changed: the C11 check compares the factory's declaration against the
 daemon's own reader rather than reading the environment variable a second way.
+
+## Interface questions
+
+**1. For W07 — `claim` cannot join a caller's transaction, so read-and-claim
+cannot be one transaction.** W07b's recorded answer says the consumer "reads
+consent inside the same transaction as `listClaimableInTransaction`, and claims
+in that transaction". The first half is delivered. The second is not
+expressible: `FactoryReleases.claim(requester, projectId, operationId, consent)`
+opens `this.database.transaction` itself and takes no transaction argument, and
+`readInTransaction` is private, so there is no public in-transaction read of an
+operation to pair with the consent read either. Forking the surface was refused.
+The property the rule protects holds and is tested — the read half mutates
+nothing, so `claim`'s own transaction is the only mutating step and a failure
+between them leaves the operation untouched. If the literal single transaction
+is wanted, W07 would publish `claimInTransaction(transaction, ...)` plus an
+in-transaction operation read, with `claim` delegating to it unchanged.
+
+**2. For the coordinator — the release destination is undeclared, and three
+things wait on it.** The provider resolver, the release command profile, and
+therefore the `release-outcome` role all need one per-installation declaration
+that the startup document does not have: where a release publishes, under which
+account, with which credentials. The freeze forbids adding the field here. This
+is the single remaining blocker for a fourth running role, and it is one
+decision rather than three.
+
+**3. For the coordinator — the shared PostgreSQL proof database is down.**
+`factory-platform-proof-postgres` has been `Exited (0)` for seven days and
+publishes no port. Nothing in this worktree touched it. Every `tests/postgres/**`
+producer and `scripts/factory-pool-coverage.sh` fail at connect until it is
+repaired.

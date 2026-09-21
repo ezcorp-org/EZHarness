@@ -2899,22 +2899,28 @@ end-to-end proof that a submitted run reaches a real guest.
       configured host public keys, and `PoolAdmissionClient.confirmStopped`.
 - [x] `usage-reconciliation`: the page driver over the uncertain-hold scan,
       settling only on `resolve` → `resolved`.
-- [ ] `release-outcome`: HELD. The claimable scan, the project enumerator and the
-      provider resolver are all built and covered. What no production code
-      produces is the CONSENT `FactoryReleases.claim` requires — an approved
-      `factory_release_approvals` row or an automatic `factory_release_policies`
-      row selected for one claimable operation. Grep in the gate file; W05 owns
-      the approvals table, W07 owns the claimable scan. The driver already takes
-      the consent as an injected function, so the role registers the moment a
-      reader exists.
+- [x] `release-outcome`: composed, tested, and wired to W07b's consent reader.
+      The driver reads the one consent the operation already has through
+      `FactoryReleases.readConsentInTransaction` and claims as the run's own
+      live initiator; the injected-consent parameter is gone. A typed absence
+      leaves the operation untouched and is named.
+- [ ] `release-outcome` REGISTERS, but still holds on the real startup path.
+      The reason moved forward to the last collaborator: no production code
+      builds a `FactoryReleaseProvider`, and the startup document names no
+      release destination, so `factoryReleaseProviderResolver` has nothing to
+      resolve. Supplying one through `FactoryInstallationStartOptions.releaseProviders`
+      registers and runs the role, which the startup suite proves. W07 owns the
+      adapters; the destination is a per-installation declaration the interface
+      freeze does not name. Grep and full reasoning in the gate file.
 - [x] The supervisor process hosts W01b's host launch service and W03's host
       stop service, owns the one `PodmanRunner`, and holds the host key. One
       listener, one runner, one key — no third process.
 - [x] The product process starts the private service the Node orchestrator calls.
       It had no production caller at all, which is why a submitted run had no
       path off `queued` however well the roles were composed.
-- [ ] G14: a run submitted over public HTTP executes a real guest, three
-      consecutive clean passes on fresh product databases.
+- [x] G11: a run submitted over public HTTP executes a real guest, three
+      consecutive clean passes on fresh product databases. Measured at
+      `ca101ff19`; receipts in the gate file.
 - [x] W13 follow-on: the `FactoryLegacyEngine` adapter, over `runWorkflow`,
       `findWorkflowRunByIdempotencyKey` and `getWorkflowRunRow`, with
       `FactoryLegacyWorkflows` and `FactoryLegacyImports` in the store set.
@@ -2924,18 +2930,48 @@ end-to-end proof that a submitted run reaches a real guest.
       daemon's own reader by `assertFactoryOrphanDetectionBound` on `boot.ts`'s
       readiness surface, next to the C09 required-service list. A longer
       interval is a named readiness failure, never a silent pass.
-- [ ] 100% line coverage on every new file, both `BASE_REF=integ/w00` gates, and
-      the full sweep at the final head with a clean tree.
+- [x] G14: 100% line coverage on every new file and both `BASE_REF=integ/w00`
+      gates. "New-file coverage gate PASSED: 23 new source file(s) gated." and
+      "Patch coverage gate PASSED: all changed executable lines covered
+      (40 file(s))." No `EXCLUDES`, no lowered threshold, no skip. Nine of the
+      red receipt's fourteen findings were missing coverage LEGS rather than
+      untested code; the leg set now mirrors `combined-integration.py`.
+- [x] The full sweep at the final head with a clean tree: typecheck, lint,
+      boundaries, gate integrity, schema drift, the focused suites, the Podman
+      suites, and both coverage gates.
+- [ ] The real-PostgreSQL producers could not run: the shared
+      `factory-platform-proof-postgres` container has been `Exited (0)` for
+      seven days and publishes no port. Not repaired here — a shared store is
+      the coordinator's. It did not block G14.
 
 ### W09b review
 
-The four roles: three run, one holds. `attempt-dispatch`, `stop-settlement` and
-`usage-reconciliation` register and run in the real started application, over
-the real pool, the real host transports, and one shared store set.
-`release-outcome` holds on a collaborator that does not exist on this branch —
-a reader that maps a claimable release operation to the approved approval or the
-automatic policy `FactoryReleases.claim` requires — proved by grep in the gate
-file and attributed to W05 and W07.
+The four roles: three run, one is composed and holds. `attempt-dispatch`,
+`stop-settlement` and `usage-reconciliation` register and run in the real
+started application, over the real pool, the real host transports, and one
+shared store set. `release-outcome` is now built end to end — it reads W07b's
+consent and claims as the run's own live initiator — and holds on a declaration
+rather than on code: no production code builds a `FactoryReleaseProvider`
+because the startup document names no release destination. The startup suite
+proves both halves, registering and running the role the moment a resolver is
+supplied.
+
+The real-guest run ends `failed`, and that is recorded as **notProven for the
+COMPLETED path**. The minimal guest returns the canonical `cancelled` runner
+result, which `FactoryTaskOutcomes` maps to `node-failed`, so the kernel stops
+the attempt and fails the run. Everything up to the verdict is real — admission
+against the live pool, dispatch through the preflight and the remote runtime, a
+real guest in a real container, a durable terminal result, a physically
+confirmed stop signed by the host, a settled budget hold, a projected terminal
+status — but a guest that reaches `succeeded` has not been run, and no gate here
+claims one has.
+
+Round 2's sharpest finding was not in the product. G14's red receipt was
+measuring nine files whose coverage LEG had never been run, and that gap was
+also hiding a live regression: this branch made a dispatch result carry the
+refused commit's cause, and the only suite asserting that result was off the leg
+list and red. Both gates now pass over a leg set that mirrors
+`combined-integration.py`.
 
 Three things were found by doing rather than by reading. The private worker API
 had no production caller at all, so a submitted run had no path off `queued`
