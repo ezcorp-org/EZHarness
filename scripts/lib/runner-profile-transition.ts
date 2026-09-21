@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import type { InstallationRecord, ReleaseRecord } from "@ezcorp/extension-contract";
+import type { InstallationRecord, ReleaseRecord, WorkspaceRecord } from "@ezcorp/extension-contract";
 
 export type ToolInvocationResult = { success: boolean; error?: string; output?: unknown };
 
@@ -12,6 +12,13 @@ export function runnerProfileChanged(previous: ReleaseRecord, currentRunnerImage
 export function assertOldProfileRefused(result: ToolInvocationResult): void {
   assert.equal(result.success, false, "An old-profile release executed under the new runner profile without a rebuild");
   assert.equal(result.error, "Runtime image or isolation policy differs from the built release", "Old-profile release failed without the expected runtime profile mismatch");
+}
+
+export function assertReleaseWorkspaceContract(release: ReleaseRecord, installationId: string, workspace: WorkspaceRecord): void {
+  assert.equal(release.installationId, installationId, "Runner-profile rebuild changed the release installation");
+  assert.equal(release.workspaceId, workspace.id, "Runner-profile rebuild changed the release workspace");
+  assert.equal(release.workspaceRevision, workspace.revision, "Runner-profile rebuild changed the workspace revision");
+  assert.equal(release.sourceDigest, workspace.sourceDigest, "Runner-profile rebuild changed the workspace source");
 }
 
 export function assertInstallationIdentityPreserved(previous: InstallationRecord, current: InstallationRecord): void {

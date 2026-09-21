@@ -1,6 +1,6 @@
 import { strict as assert } from "node:assert";
 import { productionLifecycleClient, required } from "./lib/production-lifecycle-client";
-import { assertInstallationIdentityPreserved, assertOldProfileRefused, runnerProfileChanged, type ToolInvocationResult } from "./lib/runner-profile-transition";
+import { assertInstallationIdentityPreserved, assertOldProfileRefused, assertReleaseWorkspaceContract, runnerProfileChanged, type ToolInvocationResult } from "./lib/runner-profile-transition";
 import type { InstallationState, LifecycleApproval, LifecycleOperation, LifecycleRelease, WorkspaceRecord } from "../src/extensions/v4/types";
 
 type UpgradeState = {
@@ -71,6 +71,7 @@ if (mode === "seed") {
   const finalApproval = finalState.approvals[approval.id];
   const finalWorkspace = finalState.workspaces[created.workspace.id];
   assert(finalRelease && finalApproval && finalWorkspace, "Seeded lifecycle records are incomplete");
+  assertReleaseWorkspaceContract(finalRelease, finalState.installation.id, finalWorkspace);
   const owner = ownerSnapshot(await sessionJson("/api/auth/me"));
   assert.equal(owner.id, finalState.installation.ownerId, "Lifecycle installation owner is not the seeded human record");
   const expected: UpgradeState = { owner, installation: installationSnapshot(finalState), workspace: finalWorkspace, release: finalRelease, approval: finalApproval, conversationId: conversation.id, wired: [{ id: created.installation.id, name }], name, runnerImage: currentRunnerImage, storage: { key: storageKey, value: marker, output: result.output } };
@@ -108,6 +109,7 @@ if (mode === "seed") {
     assert(rebuiltReleaseId, "Runner-profile rebuild produced no release");
     const rebuiltRelease = verified.releases[rebuiltReleaseId];
     assert(rebuiltRelease, "Runner-profile rebuild release is absent");
+    assertReleaseWorkspaceContract(rebuiltRelease, expected.installation.id, expected.workspace);
     assert.equal(rebuiltRelease.imageDigest, currentRunnerImage, "Rebuilt release did not use the current runner profile");
     assert.notEqual(rebuiltRelease.id, expected.release.id, "Runner-profile rebuild reused the old release");
     const active = await approveAndActivate(expected.installation.id, rebuiltRelease.id, expected.release.id);

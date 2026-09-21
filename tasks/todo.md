@@ -270,3 +270,20 @@ Plan review: change only the historical-upgrade proof. Keep the production runne
 - The candidate phase compares the complete installation record with the archived receipt before it attempts the old release or starts a rebuild. The existing post-rebuild identity, approval, wiring, and storage checks remain in place.
 - The exact current candidate passed the real rootless-Podman semantic upgrade and independent restore. Both phases rebuilt and reapproved the archived release under the multi-architecture index profile; cleanup passed.
 - Focused tests passed 10/10. Full Bun 1.3.14 lint checked 4,610 files, and full typecheck passed all backend, web, backend-test, and web-e2e surfaces.
+
+## PR #290 final audit repair
+
+- [x] Move the runner-profile transition regression suite into the default backend test gate.
+- [x] Assert the rebuilt release keeps the archived installation, workspace, revision, and source contract.
+- [x] Add negative regressions for each rebuilt-release provenance field.
+- [x] Run default discovery, focused tests, pinned lint, typecheck, and the real semantic upgrade when available.
+- [x] Review the exact diff and commit locally without pushing.
+
+Plan review: keep the runtime's exact image equality unchanged. Reuse one assertion helper so the unit proof and real historical-upgrade proof cannot drift.
+
+### Review
+
+- The transition suite now runs under the configured `src/__tests__` root. Default discovery passed 4 tests with 15 assertions; the combined focused set passed 11 tests with 59 assertions.
+- One shared assertion now binds rebuilt releases to the archived installation ID, workspace ID, workspace revision, and source digest. Negative cases reject drift in each field.
+- The real rootless-Podman proof passed the live candidate rebuild and the independent restore rebuild. Both retained the old stored value and produced clean command and cleanup exits.
+- Bun 1.3.14 full lint checked 4,610 files, full typecheck passed all surfaces, and the backend pool passed 25,866 tests across 1,654 files with no failures.
