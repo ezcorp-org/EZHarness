@@ -84,6 +84,11 @@ TRUSTED_LOCAL_COMPOSE="deploy/extension-runner/compose.trusted-local.yml"
 ACK_VARIABLE="EZCORP_EXTENSIONS_UNSANDBOXED_ACK"
 ACK_SENTENCE="I-understand-extensions-run-with-the-apps-full-powers"
 
+# The prompt is only offered on a terminal: a pipe on stdin must not be read
+# as consent. EZ_SETUP_FORCE_TTY=1 lets the suite drive the prompt itself
+# through a pipe, so the y/N branch is exercised rather than trusted.
+have_tty() { [ "${EZ_SETUP_FORCE_TTY:-0}" = 1 ] || [ -t 0 ]; }
+
 say()  { printf '→ %s\n' "$*"; }
 ok()   { printf '  ✓ %s\n' "$*"; }
 todo() { printf '  … %s\n' "$*"; }
@@ -232,7 +237,7 @@ elif [ "$CHECK_ONLY" = 1 ]; then
 elif [ "$OS" = "Darwin" ]; then
   if [ "$ACCEPT_UNSANDBOXED" = 1 ]; then
     write_trusted_local
-  elif [ -t 0 ]; then
+  elif have_tty; then
     print_consequence
     printf '  Continue with unsandboxed extensions? [y/N] '
     read -r answer

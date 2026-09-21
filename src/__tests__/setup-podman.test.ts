@@ -57,12 +57,17 @@ afterAll(() => rmSync(SANDBOX, { recursive: true, force: true }));
 
 interface Run { exitCode: number; stdout: string; stderr: string; calls: string[] }
 
-function run(args: string[], env: Record<string, string>, opts: { stdin?: string } = {}): Run {
+function run(
+  args: string[],
+  env: Record<string, string>,
+  opts: { stdin?: string } = {},
+  extraEnv: Record<string, string> = {},
+): Run {
   rmSync(CALLS, { force: true });
   const proc = Bun.spawnSync({
     cmd: ["/bin/bash", SCRIPT, ...args],
     cwd: REPO_ROOT,
-    env: { ...process.env, PATH: `${BIN}:/usr/bin:/bin`, ...env },
+    env: { ...process.env, PATH: `${BIN}:/usr/bin:/bin`, ...env, ...extraEnv },
     stdin: opts.stdin === undefined ? "ignore" : new TextEncoder().encode(opts.stdin),
     stdout: "pipe",
     stderr: "pipe",
@@ -146,13 +151,37 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     expect(text).toMatch(/^EZCORP_RUNNER_COMPOSE_FILE=deploy\/extension-runner\/compose\.trusted-local\.yml$/m);
   });
 
-  test("macOS interactive: shows the consequence and honours 'n'", () => {
+  test("macOS, a pipe on stdin carrying 'y': is NOT consent — fails closed", () => {
+    // A pipe is not a TTY. Without the test-only seam the script must not
+    // reach the prompt at all, even when the pipe says yes.
     const env = scratch("Darwin");
-    const r = run(["--no-start"], env, { stdin: "n\n" });
-    // A pipe is not a TTY, so the script cannot reach the prompt branch and
-    // must fail closed rather than read the pipe as consent.
+    const r = run(["--no-start"], env, { stdin: "y\n" });
     expect(r.exitCode).toBe(1);
-    expect(r.stdout + r.stderr).toContain("blast radius");
+    expect(r.stderr).toContain("not a terminal");
+    expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(false);
+  });
+
+  test("macOS prompt, answered 'n': shows the consequence, writes nothing, changes nothing else", () => {
+    const env = scratch("Darwin");
+    const r = run(["--no-start"], env, { stdin: "n\n" }, { EZ_SETUP_FORCE_TTY: "1" });
+    expect(r.exitCode).toBe(1);
+    expect(r.stdout).toContain("blast radius");
+    expect(r.stdout).toContain("[y/N]");
+    expect(r.stderr).toContain("stopped at your request");
+    expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(false);
+  });
+
+  test("macOS prompt, answered 'y': writes the acknowledgement", () => {
+    const env = scratch("Darwin");
+    const r = run(["--no-start"], env, { stdin: "y\n" }, { EZ_SETUP_FORCE_TTY: "1" });
+    expect(r.exitCode).toBe(0);
+    expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(true);
+  });
+
+  test("macOS prompt, empty answer (just Enter): the default is No", () => {
+    const env = scratch("Darwin");
+    const r = run(["--no-start"], env, { stdin: "\n" }, { EZ_SETUP_FORCE_TTY: "1" });
+    expect(r.exitCode).toBe(1);
     expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(false);
   });
 
