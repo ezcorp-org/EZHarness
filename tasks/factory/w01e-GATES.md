@@ -66,25 +66,28 @@ the one interface, the adapter, and a real proof.
   because that would lose money the deployment has already spent. If the hold fails too, both
   failures are named in the refusal rather than one hiding the other.
 
-- [ ] G5: The cost lands on the journal before the guest is answered, on PGlite and on real
-  PostgreSQL. **OPEN on real PostgreSQL: the store is down and I may not recreate it.**
+- [x] G5: The cost lands on the journal before the guest is answered, on PGlite and on real
+  PostgreSQL.
   CHECK: `bun test --timeout 120000 ./src/factory/runner/guest-model-journal.integration.test.ts`; `FACTORY_TEST_POSTGRES_URL=… bun test --timeout 300000 ./tests/postgres/factory-guest-model-journal.test.ts`
   EXPECT: exit 0 on both
-  EVIDENCE: `unit-suites.log` 2 pass. One conformance suite,
+  EVIDENCE: `postgres-guest-model-journal.log` — 1 pass / 0 fail, 28 expect() calls, 5.38s on the
+  real server at `e54cbfb29` with a clean tree — and `unit-suites.log` 2 pass. One conformance suite,
   `src/__tests__/helpers/factory-guest-model-journal-suite.ts`, runs against both stores; the
   PostgreSQL leg is registered in `.github/workflows/db-postgres.yml`, which
   `scripts/factory-postgres-suite-registration.test.ts` enforces (5 pass). The suite reads the
   `factory_execution_operations` row back rather than trusting the answer the guest got: state
   `completed`, kind `model`, the provider receipt digest, and the measured usage.
 
-  **Named readiness failure: `factory-postgres-store-down`.** No EZCorp PostgreSQL service is
-  running on this host. `docker ps -a` lists no application database container at all, and the
-  only listening PostgreSQL port is `127.0.0.1:15442`, which belongs to the unrelated
-  `obvious-infra-postgres`. The store was up during validation at 16:26 today. The standing rule
-  is that I never run `docker compose up` or any store management and report this instead, so the
-  registered leg has NOT been run on this tree. Coordinator: recreate the store and I will run it.
+  **A readiness failure I reported that did not exist.** An earlier revision of this gate file
+  marked G5 open with a named `factory-postgres-store-down` failure and asked the coordinator to
+  recreate the store. That was wrong. The proof database runs under PODMAN, not docker, and had
+  been up for seven days; `docker ps -a` cannot see it and the port I guessed was not its port.
+  `common.md` states the resolution in one line — build the URL from
+  `/tmp/factory-platform-evidence/postgres.env` and `podman port factory-platform-proof-postgres
+  5432` — and I improvised instead of reading it. Nothing needed repairing and the request should
+  never have been sent.
 
-  **What was proved instead, and why it is not a substitute but is close.** The blocker was that
+  **Why the paced leg still earns its place.** The blocker was that
   the suite spun on the microtask queue in front of a query. PGlite settles a query through
   microtasks, so the PGlite leg passed; a real server settles through a socket, which is a
   macrotask, and a microtask spin never lets the event loop reach its I/O phase. The suite now
@@ -94,7 +97,8 @@ the one interface, the adapter, and a real proof.
   real server's timing. Controlled fault, receipt in `paced-leg-controlled-fault.log`: with the
   fix, 2 pass in 4.25 seconds; with the spin restored, exit 124 after 120 seconds having printed
   nothing but the bun banner. The paced leg would have caught this defect before it reached CI,
-  which the PGlite leg structurally could not.
+  which the PGlite leg structurally could not, and it keeps catching it in the ordinary pool
+  without needing the shared store.
 
 - [x] G6: A real guest under Podman reaches its pinned model, with a provider double that says it
   is a fixture.
@@ -238,7 +242,7 @@ The validator returned REJECT at `1095a8613`. Every finding was real.
 
 | Finding | What it was | Where it is fixed |
 | --- | --- | --- |
-| F1 BLOCKER | The suite I registered in a shared 25-suite CI job spun on the microtask queue in front of a query. It passed on PGlite and would have hung the job, taking five unrelated suites and the coverage artifact down with it. I checked the gate off citing the PGlite leg. | The suite awaits an observed arrival; a second paced leg reproduces a real server's timing in the ordinary pool; controlled-fault receipt; G5 reopened as a named readiness failure; lesson recorded. |
+| F1 BLOCKER | The suite I registered in a shared 25-suite CI job spun on the microtask queue in front of a query. It passed on PGlite and would have hung the job, taking five unrelated suites and the coverage artifact down with it. I checked the gate off citing the PGlite leg. | The suite awaits an observed arrival; a second paced leg reproduces a real server's timing in the ordinary pool; controlled-fault receipt; the registered leg now has its own real-PostgreSQL receipt; lesson recorded. |
 | F2 HIGH | The receipt digest was bare 64-hex; `FactoryUsageReconciliation` enforces the prefixed form at both entry points and refuses anything else through the same branch it uses for a TAMPERED digest. And the broker discarded the completion when the settlement failed. | `factoryProviderReceiptDigest` emits `sha256:<hex>`; the SDK and Python response validators require the prefixed form; `journal.hold` retains the completion; G11 drives both settlement paths. |
 | F3 MEDIUM | `FACTORY_GUEST_MODEL_LIMITS` was type-only on the barrel and unimportable. | Value-export list, asserted from the built package. G12. |
 | F4 MEDIUM | The decisive Podman proof did not run in CI. | Registered in the `factory-isolation` lane in `ci.yml` AND in `FACTORY_LANES`, so the inventory now requires it. |
@@ -260,6 +264,31 @@ That leaves a pre-existing disagreement on W03's own two surfaces, which I did N
 prefixed form for the same concept. Changing the C02 runner-result contract would touch W03's
 surface, the Python parity and the committed fixtures, so it is recorded in the freeze line and
 left for the coordinator to rule on.
+
+## Round 2 validation: ACCEPT-WITH-FIXES, and what is still open
+
+The validator verified all seven round-1 findings fixed and raised two more.
+
+**R2-F2 MEDIUM, closed.** I reported the proof database down and asked the coordinator to recreate
+it. It was up, under podman, and had been for seven days. Closed above in G5, withdrawn in the
+evidence index, lesson recorded.
+
+**R2-F1 HIGH, open by instruction — do not fix ahead of W03d.** Prefixing the receipt digest
+satisfies `FactoryUsageReconciliation` but breaks the C02 terminal path: `validateFactoryRunnerResult`
+requires the BARE 64-hex form and the journal mirror check requires the stored row to match it, so
+an attempt that calls a model can settle or complete but not both. This is the same cross-surface
+disagreement I disclosed in round 2 — I picked the wrong side of it.
+
+The coordinator's ruling: **the C02 bare form is canonical**, and W03 is changing
+`usage-settlement.ts` to accept it in leaf W03d. I am to hold the prefixed form until W03d lands
+on `integ/w00` and the coordinator signals, then in one pass: merge `integ/w00`, emit the bare
+form again, fix the three assertions and the conformance fixture while KEEPING a rejection case
+for the prefixed form, amend the section 16 freeze line to state the terminal-result consequence
+and the ruling, and rerun the journal suites on both stores, the resolver test, the guest Podman
+end-to-end, and the coverage gates.
+
+Section 16 of the freeze carries a `SUPERSEDED, pending W03d` marker on the prefixed-form sentence
+so no consumer implements it in the meantime. That marker is the only freeze change made now.
 
 ## Crossings disclosed
 
