@@ -991,6 +991,7 @@
   "src/db/migrations/add-factory-artifact-materials.ts": 100,
   "src/db/migrations/add-factory-task-stops.ts": 100,
   "src/db/migrations/add-factory-usage-settlements.ts": 100,
+  "src/db/migrations/add-factory-usage-receipt-c02-form.ts": 100,
   "src/factory/lazy-input.ts": 100,
   "src/factory/input-artifacts.ts": 100,
   "src/factory/run-inputs.ts": 100,

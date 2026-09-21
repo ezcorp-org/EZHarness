@@ -125,13 +125,16 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     const db = fixture.db;
     const reservationId = "restart-usage-reservation";
     const digest = (fill: string) => `sha256:${fill.repeat(64)}`;
+    // A provider receipt digest is the C02 bare form; the digests this process
+    // seals itself stay prefixed. Coordinator ruling, 2026-09-20.
+    const receipt = (fill: string) => fill.repeat(64);
     // `factory_budget_root` allows one parentless envelope per run, and the
     // sibling cases share this fixture's run, so join the root rather than
     // minting a second one. Order between the cases then does not matter.
     await db.execute(sql`INSERT INTO factory_budget_envelopes(tenant_id,project_id,run_id,envelope_id,request_digest,limits,allocated,spent,deadline_ms,state) VALUES ('restart-tenant','restart-project','restart-run','root',${digest("9")},'{"costMicros":"10","tokens":"10","computeMs":"10"}','{"costMicros":"0","tokens":"0","computeMs":"0"}','{"costMicros":"0","tokens":"0","computeMs":"0"}',9999999999999,'open') ON CONFLICT DO NOTHING`);
     await db.execute(sql`INSERT INTO factory_budget_reservations(tenant_id,project_id,run_id,reservation_id,envelope_id,request_digest,amount,state) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},'root',${digest("a")},'{"costMicros":"5","tokens":"5","computeMs":"5"}','uncertain')`);
     await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},1,'restart-usage-attempt','stop','2','3',11,${digest("b")},'{}',${digest("c")})`);
-    await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},2,'restart-usage-attempt','reconciliation','5',${digest("d")},12,${digest("e")},'{}',${digest("f")})`);
+    await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},2,'restart-usage-attempt','reconciliation','5',${receipt("d")},12,${digest("e")},'{}',${digest("f")})`);
     for (let boot = 0; boot < 2; boot++) {
       await fixture.migrate();
       const stored = rows<{ revision: number | string; source: string; known_cost_micros: string; unknown_cost_micros: string | null }>(await db.execute(sql`SELECT revision,source,known_cost_micros,unknown_cost_micros FROM factory_usage_settlements WHERE reservation_id=${reservationId} ORDER BY revision`));
@@ -139,7 +142,7 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
         { revision: 1, source: "stop", known_cost_micros: "2", unknown_cost_micros: "3" },
         { revision: 2, source: "reconciliation", known_cost_micros: "5", unknown_cost_micros: null },
       ]);
-      const duplicateReceipt = await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},3,'restart-usage-attempt','reconciliation','6',${digest("d")},13,${digest("e")},'{}',${digest("f")})`).then(() => null, (error: unknown) => error);
+      const duplicateReceipt = await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},3,'restart-usage-attempt','reconciliation','6',${receipt("d")},13,${digest("e")},'{}',${digest("f")})`).then(() => null, (error: unknown) => error);
       expect(duplicateReceipt).toBeInstanceOf(Error);
       const reconciliationWithoutReceipt = await db.execute(sql`INSERT INTO factory_usage_settlements(tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('restart-tenant','restart-project','restart-run',${reservationId},4,'restart-usage-attempt','reconciliation','6',13,${digest("e")},'{}',${digest("f")})`).then(() => null, (error: unknown) => error);
       expect(reconciliationWithoutReceipt).toBeInstanceOf(Error);
@@ -370,6 +373,29 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
       expect(rows<{ indexdef: string }>(await db.execute(sql`SELECT indexdef FROM pg_indexes WHERE indexname='idx_factory_child_artifact_aliases_child'`))).toHaveLength(1);
       const orphan = await db.execute(sql`INSERT INTO factory_child_artifact_aliases(tenant_id,project_id,alias_id,parent_run_id,parent_interpreter_id,parent_command_id,parent_node_instance_id,parent_candidate_generation,parent_attempt_id,parent_execution_epoch,parent_cancellation_epoch,child_run_id,child_decision_id,child_node_instance_id,child_candidate_generation,child_candidate_digest,child_execution_epoch,artifact_id,artifact_digest,artifact_bytes,alias_digest) VALUES ('restart-tenant','restart-project','alias','restart-run','root','no-such-command','node',0,'restart-attempt',1,0,'restart-run','no-such-decision','child',0,${`sha256:${"a".repeat(64)}`},1,'restart-candidate-output',${`sha256:${"b".repeat(64)}`},1,${`sha256:${"c".repeat(64)}`})`).then(() => null, (error: unknown) => error);
       expect(orphan).toBeInstanceOf(Error);
+    }
+  });
+
+  test("repeated migration keeps the usage receipt CHECK on the C02 bare form", async () => {
+    const db = fixture.db;
+    const receiptCheck = async () => rows<{ conname: string; oid: number; definition: string }>(await db.execute(sql`SELECT conname,oid,pg_get_constraintdef(oid) AS definition FROM pg_constraint WHERE conrelid='factory_usage_settlements'::regclass AND contype='c' AND conname='factory_usage_settlements_receipt_check'`));
+    const before = await receiptCheck();
+    expect(before).toHaveLength(1);
+    expect(before[0]!.definition).toContain("[0-9a-f]{64}");
+    // The retired `sha256:` form is what the C02 surfaces could never read.
+    expect(before[0]!.definition).not.toContain("sha256:");
+    const insert = (digest: string) => db.transaction(async tx => {
+      await tx.execute(sql`CREATE TEMP TABLE receipt_probe (LIKE factory_usage_settlements INCLUDING CONSTRAINTS INCLUDING DEFAULTS) ON COMMIT DROP`);
+      await tx.execute(sql`INSERT INTO receipt_probe (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,provider_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES ('t','p','r','reservation-1',1,'attempt-1','reconciliation','5',${digest},1,${`sha256:${"1".repeat(64)}`},'{}',${`sha256:${"2".repeat(64)}`})`);
+    }).then(() => null, (error: unknown) => error);
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      // Re-adding a CHECK that is already right would churn its catalog entry,
+      // so the oid must survive a boot untouched.
+      expect(await receiptCheck()).toEqual(before);
+      expect(await insert("a".repeat(64))).toBeNull();
+      expect(await insert(`sha256:${"a".repeat(64)}`)).toBeInstanceOf(Error);
+      expect(await insert("A".repeat(64))).toBeInstanceOf(Error);
     }
   });
 

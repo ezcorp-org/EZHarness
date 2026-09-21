@@ -21,7 +21,7 @@ const authority: FactoryAttemptAuthority = {
   cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAt: new Date(1_000),
 };
 
-const receipt = `sha256:${"b".repeat(64)}`;
+const receipt = "b".repeat(64);
 
 function input(overrides: Partial<FactoryUsageSettlementInput> = {}): FactoryUsageSettlementInput {
   return { reservationId: "reservation-1", attemptId: "attempt-1", authority, revision: 1, source: "stop", knownCostMicros: "1200", settledAtMs: 1_700_000_000_000, ...overrides };
@@ -72,7 +72,12 @@ test("rejects every malformed amount, identity, clock, and receipt", () => {
   expect(rejection({ knownCostMicros: "1.2" })).toBe("factory_usage_settlement_invalid");
   expect(rejection({ unknownCostMicros: "-1" })).toBe("factory_usage_settlement_invalid");
   expect(rejection({ unknownCostMicros: 5 as never })).toBe("factory_usage_settlement_invalid");
-  expect(rejection({ providerReceiptDigest: "sha256:short" })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ providerReceiptDigest: "short" })).toBe("factory_usage_settlement_receipt_invalid");
+  // The prefixed form is the one the C02 surfaces cannot read. It is refused
+  // outright rather than stripped, so neither side can drift back to it.
+  expect(rejection({ providerReceiptDigest: `sha256:${receipt}` })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ providerReceiptDigest: receipt.toUpperCase() })).toBe("factory_usage_settlement_receipt_invalid");
+  expect(rejection({ providerReceiptDigest: `${receipt}0` })).toBe("factory_usage_settlement_receipt_invalid");
   expect(rejection({ source: "reconciliation" })).toBe("factory_usage_settlement_receipt_invalid");
   expect(() => factoryUsageSettlementEventId("", 1)).toThrow("factory_usage_settlement_invalid");
   expect(() => factoryUsageSettlementEventId("reservation-1", 0)).toThrow("factory_usage_settlement_invalid");

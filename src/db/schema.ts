@@ -3206,7 +3206,9 @@ export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
   check("factory_usage_settlements_source_check", sql`${table.source} IN ('stop','reconciliation')`),
   check("factory_usage_settlements_known_cost_check", sql`${table.knownCostMicros} ~ '^[0-9]+$'`),
   check("factory_usage_settlements_unknown_cost_check", sql`${table.unknownCostMicros} IS NULL OR ${table.unknownCostMicros} ~ '^[0-9]+$'`),
-  check("factory_usage_settlements_receipt_check", sql`${table.providerReceiptDigest} IS NULL OR ${table.providerReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  // C02 form: bare 64-character lowercase hex, matching the SDK result
+  // validator and the generated schema. Coordinator ruling, 2026-09-20.
+  check("factory_usage_settlements_receipt_check", sql`${table.providerReceiptDigest} IS NULL OR ${table.providerReceiptDigest} ~ '^[0-9a-f]{64}$'`),
   check("factory_usage_settlements_settled_at_ms_check", sql`${table.settledAtMs} >= 0`),
   check("factory_usage_settlements_settlement_digest_check", sql`${table.settlementDigest} ~ '^sha256:[0-9a-f]{64}$'`),
   check("factory_usage_settlements_event_digest_check", sql`${table.eventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
