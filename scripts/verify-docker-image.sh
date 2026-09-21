@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
-# Docker image smoke test for a production-shaped build.
+# Container image smoke test for a production-shaped build.
+#
+# Engine: Podman on a developer machine, Docker under CI, or whichever
+# EZCORP_CONTAINER_ENGINE names — scripts/lib/container-engine.sh has the rule
+# and why CI is the exception. The file keeps its historical name; every
+# engine call in it is "$ENGINE".
 #
 # Builds the image with VERSION/REVISION/CREATED build args, asserts OCI
 # labels + VOLUME declaration, starts a container, and exercises the health
@@ -12,6 +17,10 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# Podman on a developer machine, Docker under CI, EZCORP_CONTAINER_ENGINE to
+# choose — see the rule in the lib. Every engine call below is "$ENGINE".
+# shellcheck source=scripts/lib/container-engine.sh
+source scripts/lib/container-engine.sh
 
 IMAGE="ezcorp:verify"
 CONTAINER="ezcorp-verify"
@@ -37,8 +46,8 @@ die()  { echo "  ${RED}✗${RESET} $1" >&2; exit 1; }
 
 cleanup() {
   set +e
-  docker rm -f "$CONTAINER" >/dev/null 2>&1
-  docker volume rm "$VOLUME" >/dev/null 2>&1
+  "$ENGINE" rm -f "$CONTAINER" >/dev/null 2>&1
+  "$ENGINE" volume rm "$VOLUME" >/dev/null 2>&1
 }
 trap cleanup EXIT
 
@@ -46,7 +55,7 @@ cleanup # pre-existing state from a prior failed run
 
 if [[ "${1:-}" != "--no-build" ]]; then
   section "Build ${IMAGE} with VERSION=${VERSION} REVISION=${REVISION:0:12}"
-  docker build \
+  "$ENGINE" build \
     --build-arg VERSION="${VERSION}" \
     --build-arg REVISION="${REVISION}" \
     --build-arg CREATED="${CREATED}" \
@@ -54,7 +63,7 @@ if [[ "${1:-}" != "--no-build" ]]; then
     -f Dockerfile \
     . >/tmp/ezcorp-verify-build.log 2>&1 || {
       tail -40 /tmp/ezcorp-verify-build.log >&2
-      die "docker build failed (full log at /tmp/ezcorp-verify-build.log)"
+      die "$ENGINE build failed (full log at /tmp/ezcorp-verify-build.log)"
     }
   pass "Image built"
 else
@@ -62,7 +71,7 @@ else
   # VERIFY_CREATED, take it from the image label so we don't compare against
   # a freshly-stamped wall-clock value the image never saw.
   if [[ -z "${VERIFY_CREATED:-}" ]]; then
-    LABEL_CREATED=$(docker inspect "${IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.created"}}' 2>/dev/null || true)
+    LABEL_CREATED=$("$ENGINE" inspect "${IMAGE}" --format '{{index .Config.Labels "org.opencontainers.image.created"}}' 2>/dev/null || true)
     if [[ -n "${LABEL_CREATED}" && "${LABEL_CREATED}" != "<no value>" ]]; then
       CREATED="${LABEL_CREATED}"
     fi
@@ -70,7 +79,7 @@ else
 fi
 
 section "Inspect OCI labels"
-LABELS=$(docker inspect "${IMAGE}" --format '{{json .Config.Labels}}')
+LABELS=$("$ENGINE" inspect "${IMAGE}" --format '{{json .Config.Labels}}')
 jq_check() {
   local key="$1" expected="$2"
   local actual
@@ -87,13 +96,13 @@ jq_check "org.opencontainers.image.created" "${CREATED}"
 pass "org.opencontainers.image.source points at github.com"
 
 section "Inspect VOLUME declaration"
-VOLUMES=$(docker inspect "${IMAGE}" --format '{{json .Config.Volumes}}')
+VOLUMES=$("$ENGINE" inspect "${IMAGE}" --format '{{json .Config.Volumes}}')
 echo "${VOLUMES}" | jq -e 'has("/app/data")' >/dev/null \
   || die "Dockerfile must declare VOLUME /app/data (got: ${VOLUMES})"
 pass "/app/data declared as VOLUME"
 
 section "Inspect env vars baked into image"
-ENVS=$(docker inspect "${IMAGE}" --format '{{json .Config.Env}}')
+ENVS=$("$ENGINE" inspect "${IMAGE}" --format '{{json .Config.Env}}')
 for expected in "EZCORP_IMAGE_VERSION=${VERSION}" "EZCORP_IMAGE_SHA=${REVISION}" "EZCORP_DB_PATH=/app/data/ezcorp"; do
   echo "${ENVS}" | jq -e --arg e "$expected" 'index($e) != null' >/dev/null \
     || die "Env var missing: ${expected}"
@@ -102,7 +111,7 @@ done
 
 section "Start container on port ${PORT}"
 # Encryption secrets are required at boot for the bundled-creds bootstrap.
-docker run -d \
+"$ENGINE" run -d \
   --name "${CONTAINER}" \
   -p "${PORT}:3000" \
   -v "${VOLUME}:/app/data" \
@@ -122,7 +131,7 @@ while :; do
   fi
   if (( $(date +%s) > deadline )); then
     echo "--- last 30 lines of container logs:" >&2
-    docker logs --tail 30 "${CONTAINER}" >&2 || true
+    "$ENGINE" logs --tail 30 "${CONTAINER}" >&2 || true
     die "/api/ready never returned 200 (last code=${code})"
   fi
   sleep 1
@@ -180,7 +189,7 @@ for (const root of roots) {
 console.log("npm-deps: checked=" + checked + " failed=" + failed);
 process.exit(failed > 0 ? 1 : 0);
 '
-if NPMDEPS_OUT=$(docker exec "$CONTAINER" bun -e "${NPMDEPS_JS}" 2>&1); then
+if NPMDEPS_OUT=$("$ENGINE" exec "$CONTAINER" bun -e "${NPMDEPS_JS}" 2>&1); then
   echo "  ${NPMDEPS_OUT}"
   pass "all declared extension npmDependencies resolve inside the image"
 else
@@ -189,12 +198,12 @@ else
 fi
 
 section "Verify named volume is populated + persists across restart"
-docker volume inspect "${VOLUME}" >/dev/null || die "Named volume not created"
-CONTENTS=$(docker run --rm -v "${VOLUME}:/d" alpine ls -1 /d | sort)
+"$ENGINE" volume inspect "${VOLUME}" >/dev/null || die "Named volume not created"
+CONTENTS=$("$ENGINE" run --rm -v "${VOLUME}:/d" docker.io/library/alpine:latest ls -1 /d | sort)
 echo "${CONTENTS}" | grep -q '^ezcorp$' || die "Volume missing /app/data/ezcorp: ${CONTENTS}"
 pass "Volume contains /app/data/ezcorp"
 
-docker restart "${CONTAINER}" >/dev/null
+"$ENGINE" restart "${CONTAINER}" >/dev/null
 deadline=$(( $(date +%s) + 60 ))
 while :; do
   code=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/api/ready" || true)
@@ -205,7 +214,7 @@ done
 pass "Container restarted cleanly + readiness returns 200"
 
 # After a restart, a pre-boot snapshot should exist under /app/data/backups.
-SNAPS=$(docker run --rm -v "${VOLUME}:/d" alpine sh -c 'ls -1 /d/backups 2>/dev/null | grep -c "^pre-boot-" || echo 0')
+SNAPS=$("$ENGINE" run --rm -v "${VOLUME}:/d" docker.io/library/alpine:latest sh -c 'ls -1 /d/backups 2>/dev/null | grep -c "^pre-boot-" || echo 0')
 (( SNAPS >= 1 )) || die "Expected ≥1 pre-boot snapshot after restart, got ${SNAPS}"
 pass "Pre-boot snapshot created on restart (${SNAPS} snapshot(s))"
 
