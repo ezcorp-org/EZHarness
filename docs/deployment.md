@@ -272,27 +272,25 @@ podman machine start
 ```
 
 For an existing machine, skip `init` and inspect its allocation with
-`podman machine inspect`. Set the Docker-compatible socket for each shell,
-then start the stack:
+`podman machine inspect`. Then start the stack — the wrapper finds the
+machine's socket itself, layers the Podman override and passes `.env.prod`,
+so none of that has to be repeated per shell:
 
 ```sh
-export DOCKER_HOST="unix://$(podman machine inspect \
-  --format '{{.ConnectionInfo.PodmanSocket.Path}}')"
-docker-compose -f compose.prod.yml -f compose.podman-prod.yml \
-  --env-file .env.prod up -d --build
+bun run podman --prod up -d --build
 ```
 
 Open <http://localhost:4000>. Verify the Compose services and application
 readiness instead of treating a successful `up` as proof:
 
 ```sh
-docker-compose -f compose.prod.yml -f compose.podman-prod.yml \
-  --env-file .env.prod ps
+bun run podman --prod ps
 curl --fail --silent --show-error http://localhost:4000/api/ready
 ```
 
-Use `docker compose` instead of `docker-compose` in the verification command
-on Linux.
+The wrapper accepts either Compose spelling — the `docker compose` plugin or
+the standalone `docker-compose` binary — so a Mac with only
+`brew install docker-compose` and no `docker` executable works unchanged.
 
 ### Why the production override is required
 

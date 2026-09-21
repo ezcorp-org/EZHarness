@@ -313,6 +313,57 @@ describe("podman wrapper — the invocation it guarantees", () => {
   });
 });
 
+describe("podman wrapper — the prod stack (`--prod`)", () => {
+  // .env.prod is gitignored and absent in CI, so the wrapper's env-file
+  // branch is pointed at a temp file instead of the real one.
+  const ENV_FILE = join(SANDBOX, "env.prod");
+  writeFileSync(ENV_FILE, "EZCORP_PUBLIC_URL=http://localhost:4000\n");
+
+  test("swaps the file list for the prod stack and its override", () => {
+    const result = run(["--prod", "up", "-d"], { EZ_COMPOSE_ENV_FILE: ENV_FILE });
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.composeFile).toBe(
+      "compose.prod.yml:compose.podman-prod.yml",
+    );
+  });
+
+  test("injects --env-file, because Compose ignores COMPOSE_ENV_FILE", () => {
+    // Measured on Compose 5.5.1: with only COMPOSE_ENV_FILE set, every
+    // `${VAR:?}` in compose.prod.yml reads as unset and the deploy aborts.
+    // The flag has to be on the command line, ahead of the subcommand.
+    const result = run(["--prod", "up", "-d"], { EZ_COMPOSE_ENV_FILE: ENV_FILE });
+    expect(result.invocation?.argv).toBe(`compose --env-file ${ENV_FILE} up -d`);
+    expect(result.invocation?.runnerGroupSet).toBe("0");
+  });
+
+  test("does not add a second --env-file when the caller passed one", () => {
+    const argv = run(["--prod", "--env-file", "custom.env", "config"], {
+      EZ_COMPOSE_ENV_FILE: ENV_FILE,
+    }).invocation?.argv;
+    expect(argv).toBe("compose --env-file custom.env config");
+  });
+
+  test("refuses to run when the env file is missing, naming the fix", () => {
+    const result = run(["--prod", "up", "-d"], {
+      EZ_COMPOSE_ENV_FILE: join(SANDBOX, "does-not-exist.env"),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.invocation).toBeNull();
+    expect(result.stderr).toContain("cp .env.prod.example .env.prod");
+  });
+
+  test("every prod file it layers exists in the repo", async () => {
+    const layered =
+      run(["--prod", "up", "-d"], { EZ_COMPOSE_ENV_FILE: ENV_FILE }).invocation?.composeFile.split(
+        ":",
+      ) ?? [];
+    expect(layered.length).toBeGreaterThan(0);
+    for (const file of layered) {
+      expect(await Bun.file(join(REPO_ROOT, file)).exists(), `${file} is missing`).toBe(true);
+    }
+  });
+});
+
 describe("podman wrapper — a `-f` cannot silently drop the override", () => {
   // Compose's -f REPLACES COMPOSE_FILE rather than adding to it. Measured
   // against Compose 5.1.3: `COMPOSE_FILE=base.yml:extra.yml docker compose
@@ -397,9 +448,14 @@ describe("podman wrapper — host preconditions", () => {
     expect(result.invocation).toBeNull();
   });
 
-  test("says the docker CLI is required when it is not on PATH", () => {
+  test("names BOTH Compose spellings when neither is on PATH", () => {
+    // The wrapper accepts `docker compose` or the standalone `docker-compose`.
+    // A Podman-only Mac (`brew install docker-compose`) has no `docker`
+    // executable at all, so an error naming only that one is a dead end.
     const result = run(["up", "-d"], { PATH: BIN_NO_DOCKER });
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain("'docker' CLI");
+    expect(result.stderr).toContain("Docker Compose CLI");
+    expect(result.stderr).toContain("brew install docker-compose");
+    expect(result.invocation).toBeNull();
   });
 });
