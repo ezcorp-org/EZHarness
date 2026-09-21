@@ -422,7 +422,14 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     return this.database.transaction(async transaction => {
       const current = await this.readSealed(transaction, service, reference, true);
       if (!current) throw new FactoryTaskStopError("factory_task_stop_not_found");
-      if (current.receipt) return current.receipt;
+      // A row that is already uncertain keeps its first event: the identity of
+      // the uncertainty is durable and a retry must not mint a second one. The
+      // CAUSE is not durable and belongs to this pass, and the durable read has
+      // none — so returning the read unchanged is how every retry after the
+      // first loses the reason it just learned, and the operator's stream says
+      // only that the stop is still open. Measured on a real run, where thirty
+      // consecutive passes reported a causeless refusal.
+      if (current.receipt) return current.receipt.state === "stopped" || cause === undefined ? current.receipt : Object.freeze({ ...current.receipt, cause });
       const atMs = this.clock(current.acceptedAtMs);
       const event = stopEventFor(current.request, current.liveAuthority.authority, atMs, "stop-uncertain", true);
       await this.retainUncertainBudget(transaction, reference, current.request.reservationId);

@@ -348,6 +348,34 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await late.stops.confirm(service, reference, signed(request!))).toEqual(settled);
   });
 
+  test("a retried stop that fails again reports the reason this pass learned", async () => {
+    // The durable row already says `uncertain`, and a durable read carries no
+    // cause. Returning that read unchanged is how a retry loses the reason it
+    // just learned: the operator's stream then says only that the stop is
+    // still open, however many passes it takes and whatever they each found.
+    const attempt = await launchedAttempt();
+    const { reference } = await cancelled(attempt);
+    const unreachable = new Error("the host could not be reached");
+    const refused = new Error("the host declined to confirm");
+    let raise: Error = unreachable;
+    let request: FactoryTaskStopRequest | undefined;
+    const { stops } = harness(attempt, stopper(async value => { request = value; throw raise; }), acknowledger({}));
+    const once = await stops.stop(service, reference);
+    expect(once.state).toBe("uncertain");
+    expect(once.cause).toBe(unreachable);
+    raise = refused;
+    const twice = await stops.stop(service, reference);
+    expect(twice.state).toBe("uncertain");
+    // One uncertainty, not two: the sealed event is the same one.
+    expect(twice.event).toEqual(once.event);
+    expect(twice.cause).toBe(refused);
+    expect(await stopRow(attempt.run.runId)).toMatchObject({ state: "uncertain" });
+    // Settled before this test ends, so the uncertainty it created does not
+    // outlive it and become another test's unexplained backlog.
+    const late = harness(attempt, stopper(async value => signed(value)), acknowledger({}));
+    expect((await late.stops.confirm(service, reference, signed(request!))).state).toBe("stopped");
+  });
+
   test("only a configured supervisor key can assert a stop, and the pool must agree first", async () => {
     const attempt = await launchedAttempt();
     const { reference } = await cancelled(attempt);
