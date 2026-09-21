@@ -23,25 +23,30 @@ EZCorp is a self-hosted AI platform that brings together multi-model chat, long-
 
 ## Quick Start (self-hosted, builds from source)
 
-**One command, Podman, macOS or Linux** — installs the engine if missing on
-macOS, verifies the required engine on Linux, creates `.env.prod` with real
-secrets, pre-creates the bind mounts, brings the stack up and waits for it to
-report ready:
+**Guided Podman setup for macOS or Linux** — installs the engine if missing on
+macOS, verifies the required engine on Linux, prepares a complete `.env.prod`,
+pre-creates the bind mounts, brings the stack up and waits for it to report
+ready:
 
 ```bash
 git clone <repo-url> && cd ez-corp-ai
 bash scripts/setup-podman.sh
 ```
 
-It never replaces existing values or secrets in `.env.prod`. After explicit
-acceptance, it atomically adds the two trusted-local settings while preserving
-the existing file. It refuses an existing environment file that is readable
-by the group or other users. `--check` reports what it would do without
-changing anything. One decision it will **not** make for you: on macOS the
-isolated extension runner cannot work, so it shows you what `trusted-local`
-mode costs and asks (`--accept-unsandboxed-extensions` for non-interactive
-use); on Linux it keeps the isolated runner and tells you how to provision it.
-See [docs/macos-local-dev.md](docs/macos-local-dev.md).
+A fresh environment file stays private and unpublished until the runner choice
+is complete. The script then publishes that complete mode-600 file once; a
+concurrent file is never replaced. An existing `.env.prod` is never modified.
+If it is private and has the required settings for a supported runner mode,
+setup leaves every byte unchanged. Otherwise setup prints the exact manual
+settings and stops. It also refuses a file with group or other permission bits.
+
+On macOS the isolated extension runner cannot work, so fresh setup shows what
+`trusted-local` costs and asks before adding it to the private candidate
+(`--accept-unsandboxed-extensions` answers yes for non-interactive use). On
+Linux, provision the isolated runner in an existing `.env.prod`, or pass that
+flag to choose trusted-local for a fresh file; without either choice, nothing
+is published. `--check` reports without changing anything. See
+[docs/macos-local-dev.md](docs/macos-local-dev.md).
 
 The manual steps it automates, for the record or for Docker:
 

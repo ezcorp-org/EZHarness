@@ -15,15 +15,15 @@
 #   1. Engine.   macOS: brew installs podman + docker-compose if absent, then a
 #                `podman machine` is created (sized for the ollama sidecar's
 #                4g cap) and started. Linux: the rootless socket is enabled.
-#   2. Env.      .env.prod is created from the example with real secrets and a
-#                localhost URL. Existing values and secrets are never replaced.
-#                The only later update this script can make is an atomic append
-#                of the trusted-local choice after explicit acceptance.
-#   3. Dirs.     The four ./.ezcorp bind sources are pre-created. Plain mkdir:
+#   2. Env.      A complete .env.prod is built privately with real secrets, a
+#                localhost URL, and the accepted runner choice, then published
+#                once without replacement. Existing files are never modified.
+#   3. Runner.   The extension-runner mode is accepted before a fresh env file
+#                is published, or validated without changing an existing file.
+#   4. Dirs.     The four ./.ezcorp bind sources are pre-created. Plain mkdir:
 #                under rootless Podman the README's `chown -R 1000:1000` is
 #                not merely unnecessary, it locks the operator out of their
 #                own tree (compose.podman-prod.yml explains the mapping).
-#   4. Runner.   The extension-runner mode — see the long note below.
 #   5. Up.       `scripts/podman-compose.sh --prod up -d --build`, then waits
 #                for /api/ready rather than treating a green `up` as success.
 #
@@ -38,11 +38,11 @@
 # supply it on your behalf. On macOS it shows you the consequence and asks;
 # `--accept-unsandboxed-extensions` answers yes for non-interactive use.
 #
-# On Linux nothing is decided for you. If .env.prod already names a
-# provisioned runner (EZ_RUNNER_SOCKET_DIR) the isolated mode is kept. If it
-# names nothing, you are shown both paths and the script stops — silently
-# downgrading a Linux host to unsandboxed extensions would be exactly the
-# kind of "helpful" default the acknowledgement exists to prevent.
+# On Linux nothing is decided for you. If an existing .env.prod names a
+# provisioned runner, the isolated mode is kept. Otherwise both paths are
+# printed and setup stops without publishing or changing an environment file.
+# Silently downgrading a Linux host to unsandboxed extensions would be exactly
+# the kind of "helpful" default the acknowledgement exists to prevent.
 set -eu
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -83,25 +83,37 @@ TRUSTED_LOCAL_COMPOSE="deploy/extension-runner/compose.trusted-local.yml"
 ACK_VARIABLE="EZCORP_EXTENSIONS_UNSANDBOXED_ACK"
 ACK_SENTENCE="I-understand-extensions-run-with-the-apps-full-powers"
 
-# Every temporary artifact is a sibling of the destination, so the final
-# rename stays on one filesystem and is atomic on both BSD and GNU hosts.
-# The lock serializes concurrent setup processes. Its PID-named owner marker
-# makes an interrupted owner's directory recoverable using only utilities that
-# ship on macOS.
+# Every secret-bearing temporary artifact is a private sibling of the
+# destination. A fresh complete candidate is installed with one atomic hard
+# link that cannot replace an existing path on either BSD or GNU hosts.
 env_tmp=""
 secret_tmp=""
-trusted_tmp=""
-snapshot_tmp=""
-env_lock=""
-env_lock_owner=""
+watchdog_dir=""
+watchdog_fifo=""
+watchdog_pid=""
+watchdog_fd_open=0
+ready_probe_tmp=""
+readiness_active_pid=""
 # shellcheck disable=SC2329 # Invoked indirectly by the EXIT trap below.
 cleanup_setup_artifacts() {
+  if [ -n "$readiness_active_pid" ]; then
+    kill "$readiness_active_pid" 2>/dev/null || true
+    wait "$readiness_active_pid" 2>/dev/null || true
+    readiness_active_pid=""
+  fi
+  if [ "$watchdog_fd_open" = 1 ]; then
+    printf '\n' >&9 2>/dev/null || true
+  fi
+  [ -z "$watchdog_pid" ] || wait "$watchdog_pid" 2>/dev/null || true
+  if [ "$watchdog_fd_open" = 1 ]; then
+    exec 9>&-
+    watchdog_fd_open=0
+  fi
+  [ -z "$watchdog_fifo" ] || rm -f "$watchdog_fifo"
+  [ -z "$watchdog_dir" ] || rmdir "$watchdog_dir" 2>/dev/null || true
   [ -z "$env_tmp" ] || rm -f "$env_tmp"
   [ -z "$secret_tmp" ] || rm -f "$secret_tmp"
-  [ -z "$trusted_tmp" ] || rm -f "$trusted_tmp"
-  [ -z "$snapshot_tmp" ] || rm -f "$snapshot_tmp"
-  [ -z "$env_lock_owner" ] || rm -f "$env_lock_owner"
-  [ -z "$env_lock" ] || rmdir "$env_lock" 2>/dev/null || true
+  [ -z "$ready_probe_tmp" ] || rm -f "$ready_probe_tmp"
 }
 trap cleanup_setup_artifacts EXIT
 trap 'exit 1' HUP INT TERM
@@ -175,37 +187,145 @@ case "$OS" in
   *) die "unsupported OS: $OS" ;;
 esac
 
-# ── 2. Env file ────────────────────────────────────────────────────────────
-say "environment file ($ENV_FILE)"
-if [ -f "$ENV_FILE" ]; then
-  # GNU and BSD spell stat differently. Try both, then accept only modes with
-  # no group/other bits. 0400 and 0600 are both private; the trusted-local
-  # atomic rewrite publishes mode 0600 so the operator can edit it afterward.
+# ── 2. Environment and extension-runner decision ───────────────────────────
+# Existing environment files are immutable. A fresh setup makes the runner
+# decision against one private candidate, validates that complete candidate,
+# and then publishes it once without replacement. This removes both the
+# compare/rename race and the need for a setup lock.
+env_value_from() { sed -n "s|^$2=||p" "$1" | tail -1; }
+
+runner_configured_file() {
+  runner_file="$1"
+  runner_compose="$(env_value_from "$runner_file" EZCORP_RUNNER_COMPOSE_FILE)"
+  if [ "$runner_compose" = "$TRUSTED_LOCAL_COMPOSE" ] &&
+    [ "$(env_value_from "$runner_file" "$ACK_VARIABLE")" = "$ACK_SENTENCE" ]; then
+    return 0
+  fi
+  # A non-empty non-exact override is a topology this script cannot validate.
+  # Never borrow stale isolated values and call that custom topology usable.
+  [ -z "$runner_compose" ] || return 1
+  [ "$OS" = "Linux" ] || return 1
+  [ -n "$(env_value_from "$runner_file" EZ_RUNNER_SOCKET_DIR)" ] &&
+    [ -n "$(env_value_from "$runner_file" EZ_RUNNER_TOKEN_FILE)" ] &&
+    [ -n "$(env_value_from "$runner_file" EZ_RUNNER_GROUP)" ]
+}
+
+validate_existing_env() {
+  # GNU and BSD spell stat differently. Accept only modes with no group/other
+  # bits. 0400 and 0600 are both private.
   env_mode="$(stat -c %a "$ENV_FILE" 2>/dev/null || stat -f %Lp "$ENV_FILE" 2>/dev/null)" ||
     die "could not inspect permissions for $ENV_FILE"
   case "$env_mode" in
     [0-7]00 | 0[0-7]00) ;;
     *) die "$ENV_FILE has unsafe permissions ($env_mode); run: chmod 600 $ENV_FILE" ;;
   esac
-  ok "exists with private permissions — existing values will be preserved"
-elif [ "$CHECK_ONLY" = 1 ]; then
-  todo "would create from $ENV_EXAMPLE with generated secrets"
-else
+  ok "exists with private permissions — left byte-for-byte unchanged"
+}
+
+print_consequence() {
+  cat <<'EOF'
+
+  The isolated extension runner is not available on this host, so the only
+  working mode is trusted-local:
+
+    Extensions build and run INSIDE the app container with the app's full
+    reach. No filesystem, network, seccomp or cgroup limits apply. The app
+    itself is the blast radius. It will say so at error level on every boot,
+    show a standing banner on every page, and refuse to build any bundled
+    extension until you acknowledge that exact source digest in the UI.
+
+  If that trade is not acceptable, run the stack on a Linux host with the
+  isolated runner (deploy/extension-runner/README.md) and stop here.
+
+EOF
+}
+
+append_trusted_local() {
+  {
+    printf '\n# ─── Extension runner: trusted-local (written by scripts/setup-podman.sh) ──\n'
+    printf '# No sandbox applies to extensions in this mode. See docs/macos-local-dev.md.\n'
+    printf 'EZCORP_RUNNER_COMPOSE_FILE=%s\n' "$TRUSTED_LOCAL_COMPOSE"
+    printf '%s=%s\n' "$ACK_VARIABLE" "$ACK_SENTENCE"
+  } >>"$1"
+}
+
+print_manual_runner_action() {
+  manual_state="$1"
+  if [ "$manual_state" = existing ]; then
+    printf '\n  Existing environment files are never modified. Edit %s yourself.\n' "$ENV_FILE" >&2
+  else
+    printf '\n  No %s was published. Create it from %s, then configure a runner.\n' "$ENV_FILE" "$ENV_EXAMPLE" >&2
+  fi
+  if [ "$OS" = "Darwin" ]; then
+    cat >&2 <<EOF
+  Add these exact lines after accepting the trusted-local risk:
+    EZCORP_RUNNER_COMPOSE_FILE=$TRUSTED_LOCAL_COMPOSE
+    $ACK_VARIABLE=$ACK_SENTENCE
+EOF
+  else
+    cat >&2 <<EOF
+  Isolated runner (recommended): provision it first, then set all three lines:
+    EZ_RUNNER_SOCKET_DIR=/path/to/provisioned/runner-directory
+    EZ_RUNNER_TOKEN_FILE=/path/to/provisioned/runner-token
+    EZ_RUNNER_GROUP=<container-visible-numeric-gid>
+
+  Or, after accepting the unsandboxed risk, set these exact lines:
+    EZCORP_RUNNER_COMPOSE_FILE=$TRUSTED_LOCAL_COMPOSE
+    $ACK_VARIABLE=$ACK_SENTENCE
+EOF
+  fi
+}
+
+select_fresh_runner() {
+  candidate="$1"
+  if [ "$OS" = "Linux" ] && [ "$ACCEPT_UNSANDBOXED" != 1 ]; then
+    print_manual_runner_action fresh
+    exit 2
+  fi
+  if [ "$ACCEPT_UNSANDBOXED" = 1 ]; then
+    append_trusted_local "$candidate"
+  elif have_tty; then
+    print_consequence
+    printf '  Continue with unsandboxed extensions? [y/N] '
+    read -r answer
+    case "$answer" in
+      y | Y | yes | YES) append_trusted_local "$candidate" ;;
+      *) die "stopped at your request; trusted-local was not enabled" ;;
+    esac
+  else
+    print_consequence
+    die "not a terminal, so I cannot ask. Re-run with --accept-unsandboxed-extensions to answer yes."
+  fi
+}
+
+ensure_existing_runner() {
+  if runner_configured_file "$ENV_FILE"; then
+    ok "runner already configured — environment file left byte-for-byte unchanged"
+    return 0
+  fi
+  if [ "$CHECK_ONLY" = 1 ]; then
+    if [ "$OS" = "Darwin" ]; then
+      todo "not configured; on macOS add the exact trusted-local settings manually"
+    else
+      todo "not configured; on Linux select an isolated runner or explicitly accept trusted-local"
+    fi
+    return 0
+  fi
+  print_manual_runner_action existing
+  exit 2
+}
+
+generate_secret() {
+  printf '%s=' "$1"
+  openssl rand -base64 "$2"
+}
+
+build_fresh_candidate() {
   [ -f "$ENV_EXAMPLE" ] || die "$ENV_EXAMPLE is missing"
   command -v openssl >/dev/null 2>&1 || die "openssl is required to generate secrets"
   command -v mktemp >/dev/null 2>&1 || die "mktemp is required to create $ENV_FILE safely"
-  # Build the complete file privately beside its destination. A hard link is
-  # then an atomic, no-clobber install: concurrent setup runs cannot replace
-  # one another, and an interruption cannot leave a partial final file.
   env_tmp="$(umask 077 && mktemp "${ENV_FILE}.tmp.XXXXXX")" || die "could not create a private temporary environment file"
   secret_tmp="$(umask 077 && mktemp "${ENV_FILE}.secrets.XXXXXX")" || die "could not create a private secret file"
-  # Keep generated values out of argv, the environment, and shell tracing.
-  # openssl writes directly into a private data file; the fixed AWK program
-  # reads that file and never receives a secret as an argument.
-  generate_secret() {
-    printf '%s=' "$1"
-    openssl rand -base64 "$2"
-  }
   {
     generate_secret EZCORP_ENCRYPTION_SECRET 32
     generate_secret EZCORP_ENCRYPTION_SALT 16
@@ -259,14 +379,36 @@ else
   rm -f "$secret_tmp"
   secret_tmp=""
   chmod 600 "$env_tmp"
+}
+
+say "environment file ($ENV_FILE)"
+if [ -f "$ENV_FILE" ]; then
+  validate_existing_env
+  say "extension runner"
+  ensure_existing_runner
+elif [ "$CHECK_ONLY" = 1 ]; then
+  todo "would create one complete mode-600 file from $ENV_EXAMPLE with generated secrets"
+  say "extension runner"
+  if [ "$OS" = "Darwin" ]; then
+    todo "fresh setup would ask before adding trusted-local to the private candidate"
+  else
+    todo "not configured; on Linux select an isolated runner or explicitly accept trusted-local"
+  fi
+else
+  build_fresh_candidate
+  say "extension runner"
+  select_fresh_runner "$env_tmp"
+  runner_configured_file "$env_tmp" || die "the private environment candidate has no usable extension runner"
   if ln "$env_tmp" "$ENV_FILE" 2>/dev/null; then
     rm -f "$env_tmp"
     env_tmp=""
-    ok "created with fresh secrets, mode 600, EZCORP_PUBLIC_URL=http://localhost:4000"
+    ok "published one complete mode-600 environment file with fresh secrets and trusted-local"
   elif [ -f "$ENV_FILE" ]; then
     rm -f "$env_tmp"
     env_tmp=""
-    ok "another setup created $ENV_FILE — left untouched"
+    todo "another process created $ENV_FILE; validating that file from the beginning"
+    validate_existing_env
+    ensure_existing_runner
   else
     die "could not install $ENV_FILE without replacing an existing file"
   fi
@@ -282,198 +424,14 @@ for d in data extensions extension-data projects; do
   fi
 done
 
-# ── 4. Extension-runner mode ───────────────────────────────────────────────
-say "extension runner"
-# "Configured" means USABLE, not merely present. .env.prod.example ships the
-# isolated runner's two host paths pre-filled and EZ_RUNNER_GROUP empty, so a
-# fresh copy always contains EZ_RUNNER_SOCKET_DIR= — and compose.prod.yml's
-# `${EZ_RUNNER_GROUP:?}` then aborts the deploy. Testing for the variable's
-# presence skipped the decision on every fresh install; testing for all three
-# values, or for the trusted-local override, does not.
-env_value() { sed -n "s|^$1=||p" "$ENV_FILE" | tail -1; }
-runner_configured() {
-  [ -f "$ENV_FILE" ] || return 1
-  runner_compose="$(env_value EZCORP_RUNNER_COMPOSE_FILE)"
-  if [ "$runner_compose" = "$TRUSTED_LOCAL_COMPOSE" ] &&
-    [ "$(env_value "$ACK_VARIABLE")" = "$ACK_SENTENCE" ]; then
-    return 0
-  fi
-  # Any non-empty override selects a runner topology of its own. It must not
-  # fall through and borrow stale isolated-runner variables as proof that the
-  # selected Compose file is valid.
-  [ -z "$runner_compose" ] || return 1
-  # The isolated bind-mounted socket works only on Linux. Treating these
-  # values as usable on macOS skips the required trusted-local decision and
-  # produces a stack that cannot reach its runner.
-  [ "$OS" = "Linux" ] || return 1
-  [ -n "$(env_value EZ_RUNNER_SOCKET_DIR)" ] &&
-    [ -n "$(env_value EZ_RUNNER_TOKEN_FILE)" ] &&
-    [ -n "$(env_value EZ_RUNNER_GROUP)" ]
-}
-print_consequence() {
-  cat <<'EOF'
-
-  The isolated extension runner is not available on this host, so the only
-  working mode is trusted-local:
-
-    Extensions build and run INSIDE the app container with the app's full
-    reach. No filesystem, network, seccomp or cgroup limits apply. The app
-    itself is the blast radius. It will say so at error level on every boot,
-    show a standing banner on every page, and refuse to build any bundled
-    extension until you acknowledge that exact source digest in the UI.
-
-  If that trade is not acceptable, run the stack on a Linux host with the
-  isolated runner (deploy/extension-runner/README.md) and stop here.
-
-EOF
-}
-write_trusted_local() {
-  # Serialize setup processes before re-checking. A second process that was
-  # already on its way here must observe the first process's complete update,
-  # not append a duplicate block or replace it with an older snapshot.
-  lock_path="${ENV_FILE}.setup.lock"
-  lock_waited=0
-  while :; do
-    while ! mkdir "$lock_path" 2>/dev/null; do
-      if runner_configured; then
-        ok "trusted-local was configured by another setup process"
-        return 0
-      fi
-      lock_live=0
-      lock_known=0
-      for owner_file in "$lock_path"/owner.*; do
-        [ -e "$owner_file" ] || continue
-        lock_known=1
-        owner_pid="${owner_file##*.}"
-        case "$owner_pid" in
-          '' | *[!0-9]*) continue ;;
-        esac
-        if kill -0 "$owner_pid" 2>/dev/null; then
-          lock_live=1
-        else
-          # The marker name includes the dead PID. Removing that exact name can
-          # never remove a new owner's marker after another process recreates the
-          # directory, so concurrent stale-lock recovery remains safe.
-          rm -f "$owner_file"
-        fi
-      done
-      if [ "$lock_live" = 0 ] && rmdir "$lock_path" 2>/dev/null; then
-        if [ "$lock_known" = 1 ]; then
-          todo "recovered stale setup lock"
-        fi
-        continue
-      fi
-      [ "$lock_waited" -lt 30 ] || die "timed out waiting for another setup process to update $ENV_FILE"
-      sleep 1
-      lock_waited=$((lock_waited + 1))
-    done
-    candidate_owner="$lock_path/owner.$$"
-    # A concurrent stale reaper can remove the new empty directory before this
-    # marker is written. If so, retry instead of proceeding without ownership.
-    if (umask 077 && : >"$candidate_owner") 2>/dev/null; then
-      env_lock="$lock_path"
-      env_lock_owner="$candidate_owner"
-      break
-    fi
-    rmdir "$lock_path" 2>/dev/null || true
-  done
-
-  if runner_configured; then
-    rm -f "$env_lock_owner"
-    env_lock_owner=""
-    rmdir "$env_lock"
-    env_lock=""
-    ok "trusted-local already configured in $ENV_FILE"
-    return 0
-  fi
-  [ ! -L "$ENV_FILE" ] || die "cannot atomically update symbolic-link environment file $ENV_FILE; update its target manually"
-  snapshot_tmp="$(umask 077 && mktemp "${ENV_FILE}.snapshot.XXXXXX")" ||
-    die "could not snapshot $ENV_FILE before updating it"
-  cat "$ENV_FILE" >"$snapshot_tmp"
-  chmod 600 "$snapshot_tmp"
-  trusted_tmp="$(umask 077 && mktemp "${ENV_FILE}.trusted-local.XXXXXX")" ||
-    die "could not create a private temporary environment file"
-  {
-    cat "$snapshot_tmp"
-    printf '\n# ─── Extension runner: trusted-local (written by scripts/setup-podman.sh) ──\n'
-    printf '# No sandbox applies to extensions in this mode. See docs/macos-local-dev.md.\n'
-    printf 'EZCORP_RUNNER_COMPOSE_FILE=%s\n' "$TRUSTED_LOCAL_COMPOSE"
-    printf '%s=%s\n' "$ACK_VARIABLE" "$ACK_SENTENCE"
-  } >"$trusted_tmp"
-  chmod 600 "$trusted_tmp"
-  # Portable shell has no compare-and-swap rename. Comparing immediately
-  # before mv detects every completed external content edit; only the tiny
-  # instruction-level interval between this cmp and mv is fundamentally
-  # uncloseable without a platform-specific rename primitive.
-  if [ -L "$ENV_FILE" ] || [ ! -f "$ENV_FILE" ] || ! cmp -s "$snapshot_tmp" "$ENV_FILE"; then
-    die "$ENV_FILE changed while trusted-local was being prepared; left the external update untouched"
-  fi
-  mv -f "$trusted_tmp" "$ENV_FILE"
-  trusted_tmp=""
-  rm -f "$snapshot_tmp"
-  snapshot_tmp=""
-  rm -f "$env_lock_owner"
-  env_lock_owner=""
-  rmdir "$env_lock"
-  env_lock=""
-  ok "trusted-local selected in $ENV_FILE"
-}
-
-if runner_configured; then
-  ok "already configured in $ENV_FILE — left as is"
-elif [ "$CHECK_ONLY" = 1 ]; then
-  if [ "$OS" = "Darwin" ]; then
-    todo "not configured; on macOS this script would ask before selecting trusted-local"
-  else
-    todo "not configured; on Linux select an isolated runner or explicitly accept trusted-local"
-  fi
-elif [ "$OS" = "Darwin" ]; then
-  if [ "$ACCEPT_UNSANDBOXED" = 1 ]; then
-    write_trusted_local
-  elif have_tty; then
-    print_consequence
-    printf '  Continue with unsandboxed extensions? [y/N] '
-    read -r answer
-    case "$answer" in
-      y | Y | yes | YES) write_trusted_local ;;
-      *) die "stopped at your request; trusted-local was not enabled" ;;
-    esac
-  else
-    print_consequence
-    die "not a terminal, so I cannot ask. Re-run with --accept-unsandboxed-extensions to answer yes."
-  fi
-else
-  # Linux. Both paths work here; neither is chosen for you.
-  cat <<EOF >&2
-
-  $ENV_FILE names no extension runner, and compose.prod.yml requires one.
-  Two options — pick one and re-run:
-
-    A. Isolated runner (recommended on Linux). Provision it per
-       deploy/extension-runner/README.md, then set EZ_RUNNER_SOCKET_DIR,
-       EZ_RUNNER_TOKEN_FILE and EZ_RUNNER_GROUP in $ENV_FILE.
-
-    B. trusted-local — extensions unsandboxed, with the app's full powers:
-       bash scripts/setup-podman.sh --accept-unsandboxed-extensions
-
-EOF
-  if [ "$ACCEPT_UNSANDBOXED" = 1 ]; then
-    write_trusted_local
-  else
-    exit 2
-  fi
-fi
-
 # ── 5. Up ──────────────────────────────────────────────────────────────────
 say "stack"
 if [ "$CHECK_ONLY" = 1 ] || [ "$NO_START" = 1 ]; then
   todo "would run: bash scripts/podman-compose.sh --prod up -d --build"
   exit 0
 fi
-EZ_COMPOSE_ENV_FILE="$ENV_FILE" bash scripts/podman-compose.sh --prod up -d --build
-
 if [ -z "$READY_URL" ]; then
-  ready_port="$(env_value EZCORP_PORT_HOST)"
+  ready_port="$(env_value_from "$ENV_FILE" EZCORP_PORT_HOST)"
   [ -n "$ready_port" ] || ready_port=4000
   case "$ready_port" in
     *[!0-9]*) die "EZCORP_PORT_HOST must be a whole-number port so setup can check readiness" ;;
@@ -482,28 +440,87 @@ if [ -z "$READY_URL" ]; then
     die "EZCORP_PORT_HOST must be between 1 and 65535"
   READY_URL="http://localhost:${ready_port}/api/ready"
 fi
-say "waiting for $READY_URL (up to ${READY_TIMEOUT}s)"
 case "$READY_TIMEOUT" in
   '' | *[!0-9]*) die "EZ_SETUP_READY_TIMEOUT must be a positive whole number of seconds" ;;
 esac
 [ "$READY_TIMEOUT" -gt 0 ] || die "EZ_SETUP_READY_TIMEOUT must be greater than zero"
-remaining="$READY_TIMEOUT"
-while [ "$remaining" -gt 0 ]; do
-  curl_timeout=5
-  [ "$remaining" -ge "$curl_timeout" ] || curl_timeout="$remaining"
-  if body="$(curl -fsS --max-time "$curl_timeout" "$READY_URL" 2>/dev/null)" && [ -n "$body" ]; then
+
+admin_url="$(env_value_from "$ENV_FILE" EZCORP_PUBLIC_URL)"
+[ -n "$admin_url" ] || admin_url="${READY_URL%/api/ready}"
+
+EZ_COMPOSE_ENV_FILE="$ENV_FILE" bash scripts/podman-compose.sh --prod up -d --build
+say "waiting for $READY_URL (up to ${READY_TIMEOUT}s)"
+
+# Bash 3.2's `read -t` is a relative kernel timer: changing the wall clock
+# cannot extend it. A private FIFO keeps the read pending until either the
+# timeout expires or the parent writes one byte on success. Curl and poll
+# sleeps run as owned background children so the ALRM trap can stop the active
+# operation immediately instead of waiting for its individual timeout.
+command -v mkfifo >/dev/null 2>&1 || die "mkfifo is required to enforce the readiness timeout"
+watchdog_dir="$(umask 077 && mktemp -d "${ENV_FILE}.watchdog.XXXXXX")" ||
+  die "could not create a private readiness timer directory"
+watchdog_fifo="$watchdog_dir/timer"
+(umask 077 && mkfifo "$watchdog_fifo") || die "could not create the readiness timer"
+exec 9<>"$watchdog_fifo"
+watchdog_fd_open=1
+rm -f "$watchdog_fifo"
+watchdog_fifo=""
+rmdir "$watchdog_dir"
+watchdog_dir=""
+
+readiness_timed_out=0
+# shellcheck disable=SC2329 # Invoked indirectly by the ALRM trap below.
+readiness_timeout() {
+  readiness_timed_out=1
+  [ -z "$readiness_active_pid" ] || kill "$readiness_active_pid" 2>/dev/null || true
+}
+trap readiness_timeout ALRM
+readiness_parent_pid="$$"
+(
+  if ! IFS= read -r -t "$READY_TIMEOUT" _ <&9; then
+    kill -ALRM "$readiness_parent_pid"
+  fi
+) &
+watchdog_pid="$!"
+
+stop_readiness_watchdog() {
+  if [ "$watchdog_fd_open" = 1 ]; then
+    printf '\n' >&9
+    wait "$watchdog_pid" 2>/dev/null || true
+    watchdog_pid=""
+    exec 9>&-
+    watchdog_fd_open=0
+  fi
+  trap - ALRM
+}
+
+ready_probe_tmp="$(umask 077 && mktemp "${ENV_FILE}.ready.XXXXXX")" ||
+  die "could not create a private readiness response file"
+while [ "$readiness_timed_out" = 0 ]; do
+  : >"$ready_probe_tmp"
+  curl -fsS --max-time 5 "$READY_URL" >"$ready_probe_tmp" 2>/dev/null &
+  readiness_active_pid="$!"
+  probe_status=0
+  wait "$readiness_active_pid" || probe_status="$?"
+  readiness_active_pid=""
+  if [ "$readiness_timed_out" = 0 ] && [ "$probe_status" = 0 ]; then
+    body="$(cat "$ready_probe_tmp")"
+  else
+    body=""
+  fi
+  if [ "$readiness_timed_out" = 0 ] && [ -n "$body" ]; then
+    stop_readiness_watchdog
+    rm -f "$ready_probe_tmp"
+    ready_probe_tmp=""
     ok "ready: $body"
-    printf '\nOpen %s and create the admin account.\n' "${READY_URL%/api/ready}"
+    printf '\nOpen %s and create the admin account.\n' "$admin_url"
     exit 0
   fi
-  # Charge the full maximum curl allocation even when curl returns early. This
-  # conservative accounting gives the blocking operations a strict upper
-  # budget without trusting a wall clock that NTP or an operator can move.
-  remaining=$((remaining - curl_timeout))
-  [ "$remaining" -gt 0 ] || break
-  sleep_for=5
-  [ "$remaining" -ge "$sleep_for" ] || sleep_for="$remaining"
-  sleep "$sleep_for"
-  remaining=$((remaining - sleep_for))
+  [ "$readiness_timed_out" = 0 ] || break
+  sleep 5 &
+  readiness_active_pid="$!"
+  wait "$readiness_active_pid" 2>/dev/null || true
+  readiness_active_pid=""
 done
+stop_readiness_watchdog
 die "the app did not report ready within ${READY_TIMEOUT}s — see: bash scripts/podman-compose.sh --prod logs app"

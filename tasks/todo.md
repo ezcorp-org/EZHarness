@@ -262,3 +262,26 @@ Plan review: keep the implementation dependency-free and compatible with Apple B
 - Lock ownership is a PID-named marker. Dead owners are recovered without deleting a later owner's marker; both a single recovery and eight concurrent recoveries pass.
 - Readiness derives the documented host port, honors an explicit URL override, and charges maximum curl and sleep allocations to one clock-independent budget.
 - Verification passed: focused suite 37/37; Bash syntax; ShellCheck; full Biome lint; full backend, web, and backend-test typecheck; workflow YAML parse; gate integrity; and `git diff --check`. `origin/main` remained at `0f949c307` after a fresh fetch, so no merge was needed.
+
+## PR #288 final race-free repair
+
+- [x] Add failing tests for immutable existing env files, unsafe concurrent creation, full readiness duration, public admin URL, and fresh/stopped macOS engine paths.
+- [x] Refactor setup so a fresh private candidate receives the complete runner choice before one atomic no-clobber publication.
+- [x] Never rewrite an existing env file; print exact manual trusted-local settings and stop when its runner state is incomplete.
+- [x] Remove the runner-update lock and all stale/PID ownership machinery.
+- [x] Replace double-counted readiness accounting with a Bash 3.2/BSD-portable watchdog that enforces the complete timeout.
+- [x] Use `EZCORP_PUBLIC_URL` for the printed admin URL while keeping the readiness probe on the explicit URL or host port.
+- [x] Correct the README claims.
+- [x] Run focused tests, Bash syntax, ShellCheck, workflow syntax, lint, typecheck, gate integrity, and diff checks.
+- [x] Challenge the final state machine for unnecessary states or duplicated parsing, then commit without pushing.
+
+Plan review: existing operator files are immutable. Only a private fresh candidate can be changed, and it is published once with `ln` after all choices and validation. A losing concurrent creator must discard its candidate and restart the full existing-file validation path. Readiness uses one relative `read -t` watchdog rather than wall-clock arithmetic.
+
+### Review
+
+- Merged `bd6fd971` before implementation. The dependency-only change had no setup-code overlap.
+- Reduced environment handling to two states: validate an immutable existing file, or finish and validate one private fresh candidate before a single no-clobber hard-link publication. Concurrent losers restart existing-file permission and runner validation. No update lock or PID state remains.
+- Existing incomplete files now stop with exact manual runner settings and remain byte-for-byte unchanged. Fresh rejected choices publish nothing.
+- Readiness uses a private FIFO plus Bash 3.2 `read -t` as one relative watchdog. Fast failures no longer spend synthetic time, active curl/sleep children are stopped at timeout, the probe honors the explicit URL or host port, and the completion message uses `EZCORP_PUBLIC_URL`.
+- Added fresh macOS install, stopped-machine, new-machine, unsafe publication race, immutable file, full-duration retry, watchdog, and public-URL regressions.
+- Verification passed with Bun 1.3.14: focused suite 37/37 and 134 assertions; Bash syntax; ShellCheck; full lint; all backend, web, backend-test, and web-E2E typecheck legs; workflow YAML parse; gate integrity; and `git diff --check`.
