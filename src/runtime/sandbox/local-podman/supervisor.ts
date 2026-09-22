@@ -184,7 +184,8 @@ export class LocalProcessSupervisor {
 	}
 
 	private async releaseProcessLock(lock: FileHandle): Promise<void> {
-		try { this.lockFile(lock.fd, LOCK_RELEASE); } finally { await lock.close(); }
+		try { this.lockFile(lock.fd, LOCK_RELEASE); } catch { /* Closing the descriptor still releases the OS lock. */ }
+		await lock.close().catch(() => undefined);
 	}
 
 	private async stopAndVerify(resource: OwnedProcessResource): Promise<boolean> {

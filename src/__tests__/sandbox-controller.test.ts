@@ -850,6 +850,25 @@ test("rechecks the active acknowledged provider before execution after approval 
   expect(operation.rows[0]!.state).toBe("admitted");
 });
 
+test("rechecks binding activation before a reviewed raw callback", async () => {
+  let rawController!: ReturnType<typeof createSandboxController>;
+  let context!: Awaited<ReturnType<typeof fixture>>;
+  context = await fixture(async (userId, _projectId, provider, group, operation, input, signal) => {
+    const call = (input as { call: { operationId: string; scope: { bindingId: string } } }).call;
+    if (group === "sandbox.files.v1" && operation === "read") {
+      await context.database.execute(sql`UPDATE sandbox_provider_bindings SET state='disabled' WHERE id=${call.scope.bindingId}`);
+    }
+    return rawController.executeAdmittedLocalSandboxOperationRaw(userId, call.operationId, provider.installationId, signal);
+  });
+  rawController = context.controller;
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const read = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "read", idempotencyKey: "revoked-binding-read", payload: { path: "/a", offsetBytes: 0, lengthBytes: 1 } });
+
+  await expect(context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id)).rejects.toMatchObject({ code: "STALE_PROVIDER_BINDING" });
+  expect(context.local.fileRead).not.toHaveBeenCalled();
+});
+
 test("rejects a reviewed provider response that did not use the raw host callback", async () => {
   const context = await fixture(async (_userId, _projectId, _provider, _group, _operation, input) => {
     const call = (input as { call: { operationId: string; idempotencyKey: string; requestDigest: string } }).call;

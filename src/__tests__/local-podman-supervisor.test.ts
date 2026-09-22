@@ -4,7 +4,7 @@ import { dlopen, FFIType } from "bun:ffi";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { ProviderCall, SandboxProcessStartInput } from "@ezcorp/extension-contract";
-import { flock, launchDetachedSupervisor, LocalProcessSupervisor, type OwnedProcessResource } from "../runtime/sandbox/local-podman/supervisor";
+import { flock, launchDetachedSupervisor, LocalProcessSupervisor, LOCK_RELEASE, type OwnedProcessResource } from "../runtime/sandbox/local-podman/supervisor";
 import { runSupervisorEntry, supervisorEntryMain } from "../runtime/sandbox/local-podman/supervisor-entry";
 
 const roots: string[] = [];
@@ -206,6 +206,17 @@ describe("LocalProcessSupervisor", () => {
 		const terminal = await supervisor.start(f.input); expect(terminal.receipt).toMatchObject({ outcome: "failed", error: { code: "process_start_failed", retryable: false } });
 		expect(await supervisor.start(f.input)).toEqual(terminal);
 		expect(await readFile(f.runtimeState, "utf8")).toBe("stopped");
+		expect(launches).toBe(1);
+	});
+
+	test("does not turn an accepted process start into a clean failure when lock cleanup throws", async () => {
+		const f = await fixture(64); let launches = 0;
+		const supervisor = new LocalProcessSupervisor(f.config, async () => f.resource, () => { launches += 1; }, (_descriptor, operation) => {
+			if (operation === LOCK_RELEASE) throw new Error("lock cleanup failed");
+			return 0;
+		});
+
+		expect((await supervisor.start(f.input)).receipt.outcome).toBe("succeeded");
 		expect(launches).toBe(1);
 	});
 

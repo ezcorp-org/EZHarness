@@ -111,6 +111,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     return { installationId, providerId, releaseId: snapshot.release.id, releaseBinding: await sha256(releaseBinding(snapshot)), generation: snapshot.installation.generation };
   }
   async function boundProvider(binding: Row): Promise<LocalSandboxProvider> {
+    if (binding.state !== "active") throw new SandboxControllerError("STALE_PROVIDER_BINDING", "Sandbox provider binding is not active");
     const current = await provider(String(binding.installation_id), String(binding.provider_id));
     if (current.releaseId !== binding.release_id || current.generation !== Number(binding.generation) || current.releaseBinding !== binding.release_binding) throw new SandboxControllerError("STALE_PROVIDER_BINDING", "Provider release changed; review the binding again");
     return current;
@@ -118,8 +119,8 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
   async function reviewedInvocation(operationId: string, userId: string, providerInstallationId: string): Promise<ReviewedInvocation> {
     const grant = reviewedOperations.get(operationId);
     if (!grant || grant.userId !== userId || grant.provider.installationId !== providerInstallationId) throw new SandboxControllerError("RAW_DISPATCH_DENIED", "Raw sandbox dispatch requires the matching active reviewed invocation");
-    const lifecycle = rows(await getDb().execute(sql`SELECT operation.actor_id,operation.action AS method,binding.id AS binding_id,binding.project_id,binding.installation_id,binding.provider_id,binding.release_id,binding.release_binding,binding.generation FROM sandbox_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id WHERE operation.id=${operationId}`))[0];
-    const method = lifecycle ?? rows(await getDb().execute(sql`SELECT operation.actor_id,operation.method,operation.method_group,binding.id AS binding_id,binding.project_id,binding.installation_id,binding.provider_id,binding.release_id,binding.release_binding,binding.generation FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id WHERE operation.id=${operationId}`))[0];
+    const lifecycle = rows(await getDb().execute(sql`SELECT operation.actor_id,operation.action AS method,binding.id AS binding_id,binding.project_id,binding.installation_id,binding.provider_id,binding.release_id,binding.release_binding,binding.generation,binding.state FROM sandbox_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id WHERE operation.id=${operationId}`))[0];
+    const method = lifecycle ?? rows(await getDb().execute(sql`SELECT operation.actor_id,operation.method,operation.method_group,binding.id AS binding_id,binding.project_id,binding.installation_id,binding.provider_id,binding.release_id,binding.release_binding,binding.generation,binding.state FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id WHERE operation.id=${operationId}`))[0];
     const group = lifecycle ? "sandbox.lifecycle.v1" : method?.method_group;
     if (!method || method.actor_id !== userId || method.project_id !== grant.projectId || method.binding_id !== grant.bindingId || group !== grant.group || method.method !== grant.method) throw new SandboxControllerError("RAW_DISPATCH_DENIED", "Raw sandbox dispatch does not match the reviewed operation");
     await requireMember(userId, grant.projectId);
