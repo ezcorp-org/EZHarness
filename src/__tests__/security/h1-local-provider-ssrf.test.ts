@@ -140,6 +140,9 @@ import {
   isLoopbackLiteral,
   loopbackProvidersBlocked,
   BLOCK_LOOPBACK_ENV,
+  _setHostsFileReaderForTests,
+  hostsFileAddresses,
+  isEngineProvidedHostAlias,
 } from "../../../web/src/lib/server/security/url-validation";
 
 // SvelteKit handlers may throw a Response on auth failure; unwrap.
@@ -412,6 +415,85 @@ for (const probe of probes) {
         const data = await jsonFromResponse(res);
         expect(res.status).toBe(400);
         expect(String(data.error)).toContain("private or loopback");
+        expect(probe.getCalls().length).toBe(0);
+      } finally {
+        if (saved === undefined) delete process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS;
+        else process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS = saved;
+      }
+    });
+  });
+
+  // ── The container-host carve-out ────────────────────────────────────
+  //
+  // Paired like the loopback block: each "now succeeds" case has a sibling
+  // proving the SAME name is refused when only DNS vouches for it, when the
+  // engine mapped it to a metadata address, for a member, and under the
+  // kill-switch. The hosts file is injected, so nothing here depends on
+  // whether the suite itself happens to run inside a container.
+  describe(`container-host carve-out: ${probe.name}`, () => {
+    const GATEWAY_HOSTS = "127.0.0.1 localhost\n192.168.127.254 host.containers.internal host.docker.internal\n";
+    afterAll(() => _setHostsFileReaderForTests(null));
+
+    const postAs = async (baseUrl: string, user = ADMIN_USER) => {
+      const event = createMockEvent({ method: "POST", url: probe.url, body: probe.bodyFor(baseUrl), user });
+      const res = await call(probe.handler, event);
+      return { res, data: await jsonFromResponse(res) };
+    };
+
+    for (const alias of ["host.containers.internal", "host.docker.internal"]) {
+      test(`admin + engine-mapped ${alias} → 200, upstream IS reached`, async () => {
+        _setHostsFileReaderForTests(async () => GATEWAY_HOSTS);
+        const { res } = await postAs(`http://${alias}:11434`);
+        expect(res.status).toBe(200);
+        expect(probe.getCalls().length).toBe(1);
+        expect(probe.getCalls()[0]!.baseUrl).toBe(`http://${alias}:11434`);
+      });
+    }
+
+    test("the SAME alias vouched for only by DNS is still refused (rebinding defense intact)", async () => {
+      // No engine-written hosts entry; an attacker-controlled resolver answers
+      // host.docker.internal with a private address. The decision never
+      // consults DNS, so this must fall through to the DNS pin and fail.
+      _setHostsFileReaderForTests(async () => "127.0.0.1 localhost\n");
+      dnsTable.set("host.docker.internal", [{ address: "192.168.127.254", family: 4 }]);
+      try {
+        const { res, data } = await postAs("http://host.docker.internal:11434");
+        expect(res.status).toBe(400);
+        expect(String(data.error)).toContain("private/loopback");
+        expect(probe.getCalls().length).toBe(0);
+      } finally {
+        dnsTable.delete("host.docker.internal");
+      }
+    });
+
+    test("an alias the engine mapped to the cloud metadata address is refused", async () => {
+      _setHostsFileReaderForTests(async () => "169.254.169.254 host.docker.internal\n");
+      const { res } = await postAs("http://host.docker.internal:11434");
+      expect(res.status).toBe(400);
+      expect(probe.getCalls().length).toBe(0);
+    });
+
+    test("a compose service name in the hosts file is NOT an alias (exact names only)", async () => {
+      _setHostsFileReaderForTests(async () => "10.89.0.5 ollama\n");
+      const { res } = await postAs("http://ollama:11434");
+      expect(res.status).toBe(400);
+      expect(probe.getCalls().length).toBe(0);
+    });
+
+    test("member role is STILL refused (carve-out is not an auth bypass)", async () => {
+      _setHostsFileReaderForTests(async () => GATEWAY_HOSTS);
+      const { res } = await postAs("http://host.containers.internal:11434", MEMBER_USER);
+      expect(res.status).toBe(403);
+      expect(probe.getCalls().length).toBe(0);
+    });
+
+    test("EZCORP_BLOCK_LOOPBACK_PROVIDERS=1 turns this carve-out off too", async () => {
+      _setHostsFileReaderForTests(async () => GATEWAY_HOSTS);
+      const saved = process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS;
+      process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS = "1";
+      try {
+        const { res } = await postAs("http://host.containers.internal:11434");
+        expect(res.status).toBe(400);
         expect(probe.getCalls().length).toBe(0);
       } finally {
         if (saved === undefined) delete process.env.EZCORP_BLOCK_LOOPBACK_PROVIDERS;
@@ -723,3 +805,73 @@ describe("loopback carve-out: loopbackProvidersBlocked() unit tests", () => {
     expect(BLOCK_LOOPBACK_ENV).toBe("EZCORP_BLOCK_LOOPBACK_PROVIDERS");
   });
 });
+
+describe("hostsFileAddresses — /etc/hosts parsing", () => {
+  const HOSTS = [
+    "# comment host.docker.internal",
+    "127.0.0.1\tlocalhost",
+    "192.168.127.254 host.containers.internal HOST.DOCKER.INTERNAL # trailing comment",
+    "10.0.0.9 host.docker.internal.evil.test",
+    "",
+  ].join("\n");
+
+  test("matches an exact name, case-insensitively, with a trailing root dot", () => {
+    expect(hostsFileAddresses(HOSTS, "host.docker.internal")).toEqual(["192.168.127.254"]);
+    expect(hostsFileAddresses(HOSTS, "host.containers.internal.")).toEqual(["192.168.127.254"]);
+  });
+
+  test("ignores comments and never matches a suffix or a superstring", () => {
+    expect(hostsFileAddresses(HOSTS, "evil.test")).toEqual([]);
+    expect(hostsFileAddresses(HOSTS, "docker.internal")).toEqual([]);
+  });
+});
+
+describe("isEngineProvidedHostAlias", () => {
+  afterAll(() => _setHostsFileReaderForTests(null));
+  const withHosts = (text: string) => _setHostsFileReaderForTests(async () => text);
+
+  test("true for a mapped alias, including Podman's link-local pasta gateway", async () => {
+    withHosts("169.254.1.2 host.containers.internal\n");
+    expect(await isEngineProvidedHostAlias("host.containers.internal")).toBe(true);
+  });
+
+  test("false for a name that is not one of the two aliases, even if mapped", async () => {
+    withHosts("192.168.127.254 host.internal gateway\n");
+    expect(await isEngineProvidedHostAlias("host.internal")).toBe(false);
+    expect(await isEngineProvidedHostAlias("gateway")).toBe(false);
+  });
+
+  test("false when the alias is absent, or the hosts file cannot be read", async () => {
+    withHosts("127.0.0.1 localhost\n");
+    expect(await isEngineProvidedHostAlias("host.docker.internal")).toBe(false);
+    _setHostsFileReaderForTests(async () => {
+      throw new Error("EACCES");
+    });
+    expect(await isEngineProvidedHostAlias("host.docker.internal")).toBe(false);
+  });
+
+  test("false if ANY mapping is a metadata endpoint, in either IPv6 spelling", async () => {
+    withHosts("192.168.127.254 host.docker.internal\n169.254.169.254 host.docker.internal\n");
+    expect(await isEngineProvidedHostAlias("host.docker.internal")).toBe(false);
+    withHosts("fd00:ec2:0:0:0:0:0:254 host.docker.internal\n");
+    expect(await isEngineProvidedHostAlias("host.docker.internal")).toBe(false);
+  });
+
+  test("the real reader agrees with a direct parse of this machine's /etc/hosts", async () => {
+    // Every other case injects the hosts text; this one runs the production
+    // reader, and holds its verdict against the file read independently —
+    // true inside a container whose engine wrote the alias, false elsewhere.
+    _setHostsFileReaderForTests(null);
+    const { readFileSync, existsSync } = await import("node:fs");
+    const text = existsSync("/etc/hosts") ? readFileSync("/etc/hosts", "utf8") : "";
+    const mapped = hostsFileAddresses(text, "host.docker.internal");
+    const expected = mapped.length > 0 && mapped.every((a) => a !== "169.254.169.254" && /^[\d.:a-f]+$/i.test(a));
+    expect(await isEngineProvidedHostAlias("host.docker.internal")).toBe(expected);
+  });
+
+  test("false if a mapping is not an IP literal", async () => {
+    withHosts("not-an-ip host.docker.internal\n");
+    expect(await isEngineProvidedHostAlias("host.docker.internal")).toBe(false);
+  });
+});
+
