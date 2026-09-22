@@ -343,7 +343,7 @@ if (!ready) await fail(`the application never reported ready:\n${web.log.join(""
 
 // ── The administrator, two projects, and the guest's v4 installation ──
 const call = httpSession(baseURL);
-const adminCredentials = { name: "Factory Services Admin", email: "factory-services-admin@example.invalid", password: randomBytes(18).toString("base64url") };
+const adminCredentials = { name: "Factory Services Admin", email: "factory-services-admin@example.invalid", password: `Fs9-${randomBytes(18).toString("base64url")}` }; // upper, lower, and digit, as the setup policy requires
 const setup = await call("POST", "/api/auth/setup", adminCredentials);
 const owned = await call("POST", "/api/projects", { name: "Factory console journeys", path: join(root, "project") });
 const reader = await call("POST", "/api/projects", { name: "Shared artifact reader", path: join(root, "project", "reader") });
