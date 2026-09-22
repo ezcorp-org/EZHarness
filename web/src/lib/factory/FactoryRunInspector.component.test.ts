@@ -200,8 +200,25 @@ describe("FactoryRunInspector", () => {
 		expect(await screen.findByTestId("factory-run-controls")).toBeTruthy();
 		await fireEvent.click(screen.getByRole("button", { name: "Load more attempts" }));
 		expect(await screen.findByText("You no longer hold read access to this run.")).toBeVisible();
+		service.inspectRunSection = vi.fn(async () => { throw new FactoryApiClientError(500, "factory_storage", "Run storage is unavailable."); });
+		await fireEvent.click(screen.getByRole("button", { name: "Load more attempts" }));
+		expect(await screen.findByText("Run storage is unavailable.")).toBeVisible();
+		service.inspectRunSection = vi.fn(async () => { throw new FactoryApiClientError(403, "factory_forbidden", "no"); });
 		await fireEvent.submit(screen.getByRole("search"));
-		await waitFor(() => expect(service.inspectRunSection).toHaveBeenCalledTimes(2));
+		await waitFor(() => expect(service.inspectRunSection).toHaveBeenCalledTimes(1));
+	});
+
+	test("a run named by the URL opens once the list has loaded, and only once", async () => {
+		const service = api({ openRunEvents: vi.fn(async () => frames(drained(5))) });
+		render(FactoryRunInspector, { projectId: "project-1", onOpenInbox: vi.fn(), initialRunId: "run-from-url", api: service });
+		await waitFor(() => expect(service.inspectRun).toHaveBeenCalledWith("project-1", "run-from-url", undefined));
+		// The drained stream takes one closing snapshot; after that the open is settled.
+		await waitFor(() => expect(service.inspectRun).toHaveBeenCalledTimes(2));
+		expect(service.openRunEvents).toHaveBeenCalledTimes(1);
+		await fireEvent.change(await screen.findByLabelText("Filter runs by status"), { target: { value: "failed" } });
+		await waitFor(() => expect(service.listRuns).toHaveBeenCalledTimes(2));
+		expect(service.openRunEvents).toHaveBeenCalledTimes(1);
+		expect(service.inspectRun).toHaveBeenCalledTimes(2);
 	});
 
 	test("no project reads nothing", async () => {

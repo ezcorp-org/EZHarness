@@ -28,6 +28,9 @@
 		onViewChange,
 		tenantId,
 		administrator,
+		currentUserId = null,
+		runId = null,
+		onOpenRun,
 	}: {
 		projects: readonly FactoryWorkspaceProject[];
 		projectId: string;
@@ -36,6 +39,10 @@
 		onViewChange: (view: FactoryWorkspaceView) => void;
 		tenantId: string | null;
 		administrator: boolean;
+		currentUserId?: string | null;
+		/** A run the URL names; the Runs view opens it on arrival. */
+		runId?: string | null;
+		onOpenRun?: (runId: string) => void;
 	} = $props();
 
 	const TABS: readonly { readonly view: FactoryWorkspaceView; readonly label: string; readonly icon: typeof GitBranch }[] = [
@@ -101,9 +108,9 @@
 
 	<div class="tab-panel" role="tabpanel" id={`factory-panel-${view}`} aria-labelledby={`factory-tab-${view}`}>
 		{#if view === "authoring"}
-			<FactoryConsole {projectId} />
+			<FactoryConsole {projectId} {currentUserId} {onOpenRun} />
 		{:else if view === "runs"}
-			<FactoryRunInspector {projectId} onOpenInbox={() => onViewChange("inbox")} />
+			<FactoryRunInspector {projectId} initialRunId={runId} onOpenInbox={() => onViewChange("inbox")} />
 		{:else if view === "inbox"}
 			<FactoryReleaseInbox {projectId} />
 		{:else}

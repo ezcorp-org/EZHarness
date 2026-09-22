@@ -59,10 +59,13 @@
 	let {
 		projectId,
 		onOpenInbox,
+		initialRunId = null,
 		api = new FactoryApiClient(),
 	}: {
 		projectId: string;
 		onOpenInbox: () => void;
+		/** Opened once the run list for the project has loaded. */
+		initialRunId?: string | null;
 		api?: FactoryRunInspectorApi & FactoryRunControlApi;
 	} = $props();
 
@@ -91,6 +94,7 @@
 	let previewing = $state<FactoryArtifactResource | null>(null);
 	let active: FactoryRunStream | null = null;
 	let listVersion = 0;
+	let initialOpened = false;
 
 	$effect(() => {
 		const current = projectId;
@@ -121,6 +125,7 @@
 			if (version !== listVersion) return;
 			runs = reset ? page.items : appendUnique(runs, page.items, item => item.runId);
 			runsCursor = page.nextCursor;
+			if (initialRunId && !initialOpened) { initialOpened = true; open(initialRunId); }
 		} catch (error) {
 			if (version === listVersion) listError = describe(error);
 		} finally {

@@ -41,6 +41,7 @@ import type {
 	FactoryGrantListQuery,
 	FactoryAction,
 	FactoryPrincipalKind,
+	FactoryRunStartBody,
 } from "@ezcorp/factory-sdk/types";
 import { validateFactoryApiResponse } from "@ezcorp/factory-sdk/validation";
 
@@ -270,6 +271,12 @@ export class FactoryApiClient {
 		return expectKind(await this.read(path, this.mutationInit("decide-command-approval:" + approvalId, 0, { contextDigest, choice }, "PUT")), "approval.resource").resource;
 	}
 
+	/** Queues a run of an exact published version. The receipt means accepted, not started. */
+	async startRun(projectId: string, factoryId: string, body: FactoryRunStartBody): Promise<FactoryDurableReceipt> {
+		const path = this.definition(projectId, factoryId) + "/runs";
+		return expectKind(await this.read(path, this.mutationInit("start-run:" + factoryId + ":" + body.factoryVersion, 0, body)), "mutation.accepted").receipt;
+	}
+
 	private runs(projectId: string): string {
 		return "/api/factories/projects/" + encoded(projectId) + "/runs";
 	}
@@ -408,7 +415,7 @@ export class FactoryApiClient {
 
 export type FactoryAuthoringApi = Pick<FactoryApiClient,
 	"listDrafts" | "getDraft" | "createDraft" | "importDraft" | "saveDraft" | "archiveDraft" |
-	"exportDraft" | "validateDraft" | "listVersions" | "getVersion" | "publishVersion"
+	"exportDraft" | "validateDraft" | "listVersions" | "getVersion" | "publishVersion" | "startRun" | "listGrants"
 >;
 
 export type FactoryReleaseAuthorityApi = Pick<FactoryApiClient,

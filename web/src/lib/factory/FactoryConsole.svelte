@@ -9,6 +9,7 @@
 		FilePlus2,
 		GitBranch,
 		History,
+		Play,
 		Plus,
 		Save,
 		Upload,
@@ -21,6 +22,7 @@
 		type FactoryDraftSummary,
 		type FactoryVersionDetails,
 		type FactoryVersionSummary,
+		type FactoryRunStartBody,
 	} from "@ezcorp/factory-sdk/types";
 	import { isFactoryDefinition } from "@ezcorp/factory-sdk/schema";
 	import { FactoryApiClient, FactoryApiClientError, blankFactory, type FactoryAuthoringApi } from "./client";
@@ -48,9 +50,14 @@
 
 	let {
 		projectId,
+		currentUserId = null,
+		onOpenRun,
 		api = new FactoryApiClient(),
 	}: {
 		projectId: string;
+		/** The signed-in user, whose current `factory.run` grant revision a run pins. */
+		currentUserId?: string | null;
+		onOpenRun?: (runId: string) => void;
 		api?: FactoryAuthoringApi;
 	} = $props();
 
@@ -80,6 +87,11 @@
 	let definitionDiff = $state<DefinitionDiff | null>(null);
 	let publishing = $state(false);
 	let conflict = $state<{ mine: FactoryDefinition; server: FactoryDraftDetails } | null>(null);
+	let starting = $state<FactoryVersionSummary | null>(null);
+	let runParameters = $state("{}");
+	let startError = $state("");
+	let startedRunId = $state<string | null>(null);
+	let submittingRun = $state(false);
 	let loadedProject = "";
 	let importInput: HTMLInputElement;
 
@@ -388,6 +400,38 @@
 		message = "Local changes kept on revision " + selected?.revision + ". Save again to apply them.";
 	}
 
+	function openStart(version: FactoryVersionSummary): void {
+		starting = version;
+		runParameters = "{}";
+		startError = "";
+		startedRunId = null;
+	}
+
+	/** Queues a run of the exact published version, pinned to the caller's current run grant. */
+	async function startRun(): Promise<void> {
+		const version = starting;
+		if (!version || !selected) return;
+		let parameters: unknown;
+		try { parameters = JSON.parse(runParameters || "{}"); } catch { startError = "Run input is not valid JSON."; return; }
+		if (!parameters || typeof parameters !== "object" || Array.isArray(parameters)) { startError = "Run input must be a JSON object of port names."; return; }
+		submittingRun = true;
+		startError = "";
+		try {
+			const grants = await api.listGrants(projectId, { principalKind: "user", action: "factory.run", limit: 200 });
+			const grant = grants.items.find(item => item.principalId === currentUserId && !item.revoked);
+			if (!grant) { startError = "You hold no current factory.run grant in this project."; return; }
+			const receipt = await api.startRun(projectId, version.factoryId, {
+				factoryVersion: version.version, definitionDigest: version.definitionDigest, grantRevision: grant.revision,
+				parameters: parameters as FactoryRunStartBody["parameters"],
+			});
+			startedRunId = receipt.resourceId;
+		} catch (error) {
+			startError = describeError(error);
+		} finally {
+			submittingRun = false;
+		}
+	}
+
 	function describeError(error: unknown): string {
 		return error instanceof Error ? error.message : "Factory request failed.";
 	}
@@ -491,10 +535,13 @@
 							<p>No versions published yet.</p>
 						{/if}
 						{#each [...versions].sort((a, b) => b.publishedAtMs - a.publishedAtMs) as item}
-							<button onclick={async () => { baselineVersion = item.version; await loadBaseline(); publishOpen = true; }}>
-								<span><strong>{item.version}</strong><small>draft rev {item.draftRevision}</small></span>
-								<code>{item.definitionDigest.slice(0, 18)}…</code>
-							</button>
+							<div class="version-row">
+								<button class="version-compare" onclick={async () => { baselineVersion = item.version; await loadBaseline(); publishOpen = true; }}>
+									<span><strong>{item.version}</strong><small>draft rev {item.draftRevision}</small></span>
+									<code>{item.definitionDigest.slice(0, 18)}…</code>
+								</button>
+								<button class="button-secondary version-start" aria-label={`Start a run of ${item.version}`} onclick={() => openStart(item)}><Play size={14} /> Start run</button>
+							</div>
 						{/each}
 					</div>
 				{/if}
@@ -565,6 +612,34 @@
 		</aside>
 	</div>
 </section>
+
+{#if starting && selected}
+	<div class="modal-backdrop" role="presentation" onclick={event => event.target === event.currentTarget && (starting = null)}>
+		<div class="start-modal" role="dialog" aria-modal="true" aria-labelledby="start-title">
+			<header>
+				<div><p class="eyebrow">Queue a run</p><h2 id="start-title">Start {selected.factoryId} {starting.version}</h2></div>
+				<button class="icon-button" aria-label="Close start run" onclick={() => { starting = null; }}><X size={17} /></button>
+			</header>
+			<div class="start-body">
+				<p class="start-pin">The run pins version {starting.version}, digest <code>{starting.definitionDigest.slice(0, 19)}…</code>, and your current run grant.</p>
+				<label for="run-parameters">Run input (JSON, transport values by port)</label>
+				<textarea id="run-parameters" bind:value={runParameters} rows="6" spellcheck="false"></textarea>
+				{#if startError}<p class="start-error" role="alert">{startError}</p>{/if}
+				{#if startedRunId}
+					<p class="start-done" role="status">Run <code>{startedRunId}</code> is queued. Acceptance is not the same as a started run.</p>
+				{/if}
+			</div>
+			<footer>
+				{#if startedRunId && onOpenRun}
+					<button class="button-primary" onclick={() => { const id = startedRunId!; starting = null; onOpenRun(id); }}>Watch in Runs</button>
+				{:else}
+					<button class="button-secondary" onclick={() => { starting = null; }}>Cancel</button>
+					<button class="button-publish" disabled={submittingRun || startedRunId !== null} onclick={startRun}>{submittingRun ? "Queuing…" : "Start run"}</button>
+				{/if}
+			</footer>
+		</div>
+	</div>
+{/if}
 
 {#if publishOpen && source && selected}
 	<div class="modal-backdrop" role="presentation" onclick={event => event.target === event.currentTarget && (publishOpen = false)}>
@@ -700,8 +775,21 @@
 	.inspector-empty { padding-top: 24px; }
 	.version-ledger { display: grid; gap: 8px; padding: 18px; }
 	.ledger-header { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
-	.version-ledger > button { display: flex; align-items: center; justify-content: space-between; border: 1px solid var(--color-border); border-left: 3px solid var(--color-brand); border-radius: 3px; background: var(--color-surface-secondary); padding: 12px; text-align: left; color: var(--color-text-primary); }
-	.version-ledger > button span { display: grid; }
+	.version-row { display: flex; align-items: stretch; gap: 8px; }
+	.version-compare { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: space-between; gap: 10px; border: 1px solid var(--color-border); border-left: 3px solid var(--color-brand); border-radius: 3px; background: var(--color-surface-secondary); padding: 12px; text-align: left; color: var(--color-text-primary); }
+	.version-compare span { display: grid; }
+	.version-start { flex: 0 0 auto; }
+	.start-modal { width: min(620px, 100%); border: 1px solid var(--color-border-strong); border-top: 4px solid var(--color-accent); border-radius: 4px; background: var(--color-surface); box-shadow: var(--shadow-2xl); }
+	.start-modal > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; border-bottom: 1px solid var(--color-border); padding: 14px 18px; }
+	.start-modal h2 { margin: 3px 0 0; font-size: 18px; overflow-wrap: anywhere; }
+	.start-body { display: grid; gap: 8px; padding: 14px 18px; }
+	.start-body label { font-size: 12px; font-weight: 700; }
+	.start-body textarea { min-height: 120px; resize: vertical; padding: 10px; font-family: var(--font-mono); font-size: 11px; }
+	.start-pin { margin: 0; color: var(--color-text-secondary); font-size: 12px; }
+	.start-pin code, .start-done code { font-family: var(--font-mono); font-size: 10px; }
+	.start-error { margin: 0; color: var(--color-red-600); font-size: 12px; }
+	.start-done { margin: 0; color: var(--color-green-700); font-size: 12px; }
+	.start-modal footer { display: flex; justify-content: flex-end; gap: 8px; border-top: 1px solid var(--color-border); padding: 12px 18px; }
 	.version-ledger small, .version-ledger code { color: var(--color-text-muted); font-size: 10px; }
 	.modal-backdrop { position: fixed; inset: 0; z-index: 70; display: grid; overflow: auto; place-items: start center; background: rgb(4 8 18 / .72); padding: 4vh 18px; }
 	.publish-modal { width: min(980px, 100%); border: 1px solid var(--color-border-strong); border-top: 4px solid var(--color-brand); border-radius: 4px; background: var(--color-surface); box-shadow: var(--shadow-2xl); }
@@ -743,6 +831,7 @@
 		.canvas-frame { height: 430px; min-height: 430px; }
 		.inspector-panel { display: block; }
 		.publish-facts, .exact-sources { grid-template-columns: 1fr; }
+		.version-row { flex-direction: column; }
 		.publish-facts > div { border-right: 0; border-bottom: 1px solid var(--color-border); }
 		.publish-modal footer, .diff-summary { align-items: stretch; flex-direction: column; }
 		.publish-modal footer div { display: grid; grid-template-columns: 1fr 1fr; }

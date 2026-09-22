@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type {
 	FactoryDefinition,
@@ -74,6 +74,11 @@ function api(overrides: Partial<FactoryAuthoringApi> = {}): FactoryAuthoringApi 
 			version: releaseVersion,
 			draftRevision: revision,
 		})),
+		listGrants: vi.fn(async () => ({ items: [
+			{ principalKind: "user" as const, principalId: "someone-else", action: "factory.run" as const, revision: 9, expiresAtMs: null, revoked: false },
+			{ principalKind: "user" as const, principalId: "member-1", action: "factory.run" as const, revision: 4, expiresAtMs: null, revoked: false },
+		], nextCursor: null })),
+		startRun: vi.fn(async () => ({ resourceId: "run-new", commandId: "start-1", statusUrl: "/api/factories/projects/project-a/runs/run-new/commands/start-1" })),
 		...overrides,
 	};
 }
@@ -92,6 +97,58 @@ async function makeDirty(): Promise<void> {
 	await fireEvent.input(screen.getByLabelText("Factory definition JSON"), { target: { value: JSON.stringify({ ...source(), version: "0.2.0" }) } });
 	await fireEvent.click(screen.getByRole("button", { name: "Apply source" }));
 }
+
+describe("FactoryConsole start run", () => {
+	beforeEach(() => {
+		vi.stubGlobal("ResizeObserver", class { observe(): void {} unobserve(): void {} disconnect(): void {} });
+	});
+
+	async function openStart(authoring: FactoryAuthoringApi, onOpenRun = vi.fn(), currentUserId: string | null = "member-1") {
+		render(FactoryConsole, { projectId: "project-a", currentUserId, onOpenRun, api: authoring });
+		await openDraft();
+		await fireEvent.click(screen.getByRole("button", { name: /^Versions/ }));
+		await fireEvent.click(await screen.findByRole("button", { name: "Start a run of 0.0.9" }));
+		return { dialog: await screen.findByRole("dialog", { name: /Start .* 0\.0\.9/ }), onOpenRun };
+	}
+
+	test("queues the exact version with the caller's current run grant, then opens it in Runs", async () => {
+		const authoring = api();
+		const { dialog, onOpenRun } = await openStart(authoring);
+		expect(dialog).toHaveTextContent("The run pins version 0.0.9");
+		await fireEvent.input(within(dialog).getByLabelText(/Run input/), { target: { value: '{"message":{"kind":"inline","value":"hi"}}' } });
+		await fireEvent.click(within(dialog).getByRole("button", { name: "Start run" }));
+		expect(await within(dialog).findByRole("status")).toHaveTextContent("Run run-new is queued. Acceptance is not the same as a started run.");
+		expect(authoring.listGrants).toHaveBeenCalledWith("project-a", { principalKind: "user", action: "factory.run", limit: 200 });
+		expect(authoring.startRun).toHaveBeenCalledWith("project-a", version().factoryId, { factoryVersion: "0.0.9", definitionDigest: version().definitionDigest, grantRevision: 4, parameters: { message: { kind: "inline", value: "hi" } } });
+		await fireEvent.click(within(dialog).getByRole("button", { name: "Watch in Runs" }));
+		expect(onOpenRun).toHaveBeenCalledWith("run-new");
+		expect(screen.queryByRole("dialog", { name: /Start / })).toBeNull();
+	});
+
+	test("refuses bad input, a missing grant, and a failed request, and closes without starting", async () => {
+		const authoring = api({ startRun: vi.fn(async () => { throw new FactoryApiClientError(409, "factory_definition_conflict", "The definition moved."); }) });
+		const { dialog } = await openStart(authoring, vi.fn(), "nobody");
+		const input = within(dialog).getByLabelText(/Run input/);
+		const start = within(dialog).getByRole("button", { name: "Start run" });
+		for (const [text, error] of [["{", "Run input is not valid JSON."], ["[]", "Run input must be a JSON object of port names."], ["null", "Run input must be a JSON object of port names."], ["", "You hold no current factory.run grant in this project."]] as const) {
+			await fireEvent.input(input, { target: { value: text } });
+			await fireEvent.click(start);
+			expect(await within(dialog).findByRole("alert")).toHaveTextContent(error);
+		}
+		expect(authoring.startRun).not.toHaveBeenCalled();
+		cleanup();
+		const failing = await openStart(authoring);
+		await fireEvent.click(within(failing.dialog).getByRole("button", { name: "Start run" }));
+		expect(await within(failing.dialog).findByRole("alert")).toHaveTextContent("The definition moved.");
+		await fireEvent.click(within(failing.dialog).getByRole("button", { name: "Cancel" }));
+		expect(screen.queryByRole("dialog", { name: /Start / })).toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: "Start a run of 0.0.9" }));
+		await fireEvent.click(await screen.findByRole("button", { name: "Close start run" }));
+		await fireEvent.click(screen.getByRole("button", { name: "Start a run of 0.0.9" }));
+		await fireEvent.click(await screen.findByRole("presentation"));
+		expect(screen.queryByRole("dialog", { name: /Start / })).toBeNull();
+	});
+});
 
 describe("FactoryConsole", () => {
 	beforeEach(() => {
