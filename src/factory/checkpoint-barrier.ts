@@ -104,7 +104,8 @@ export interface FactoryTemporalWorkflowPosition {
   readonly workflowId: string;
   readonly runId: string | null;
   readonly status: string;
-  readonly historyLength: number;
+  /** Known once the run has closed; Temporal's visibility store does not report it for a running one. */
+  readonly historyLength: number | null;
 }
 
 /** Temporal's position for each live workflow. Used only for a cluster-wide disaster restore. */

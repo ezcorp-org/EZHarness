@@ -9,8 +9,8 @@ import type { FactoryCheckpointTemporalSource, FactoryTemporalWorkflowPosition }
  * Both reads use Temporal's HTTP API (the gRPC gateway every Temporal server
  * serves), so the product process needs no Temporal SDK: `GET
  * /api/v1/namespaces/{namespace}` for the retention and archival settings, and
- * `GET /api/v1/namespaces/{namespace}/workflows/{workflowId}` for a workflow's
- * position. The provisioner applies the settings; this module verifies them
+ * `GET /api/v1/namespaces/{namespace}/workflows?query=WorkflowId="..."` for a
+ * workflow's position. The provisioner applies the settings; this module verifies them
  * and records positions for a cluster-wide disaster restore.
  */
 
@@ -96,7 +96,17 @@ export async function verifyFactoryTemporalRetention(options: FactoryTemporalHtt
   return Object.freeze({ namespace: options.namespace, retentionSeconds, historyArchival, historyArchiveUri, visibilityArchival, ready: unmet.length === 0, unmet: Object.freeze(unmet) });
 }
 
-/** Records each live workflow's Temporal position. A workflow Temporal no longer has is `not_found` at length zero. */
+/**
+ * Records each live workflow's Temporal position through the visibility list.
+ *
+ * A factory workflow id always contains `/` (`tenant/run`), and the HTTP API's
+ * DescribeWorkflowExecution route cannot address such an id: an encoded slash
+ * does not match the route and a doubly encoded one reaches the handler still
+ * encoded (measured against the pinned dev server). The list endpoint takes the
+ * id inside a query, so it can. It answers the run id and status of every run
+ * of the workflow id, newest first by start time, and the history length once a
+ * run has closed.
+ */
 export class FactoryTemporalHttpPositions implements FactoryCheckpointTemporalSource {
   readonly namespace: string;
   constructor(private readonly options: FactoryTemporalHttpOptions) {
@@ -107,13 +117,33 @@ export class FactoryTemporalHttpPositions implements FactoryCheckpointTemporalSo
   async positions(workflowIds: readonly string[], signal?: AbortSignal): Promise<readonly FactoryTemporalWorkflowPosition[]> {
     const positions: FactoryTemporalWorkflowPosition[] = [];
     for (const workflowId of workflowIds) {
-      const { status, body } = await getJson(this.options, `/api/v1/namespaces/${encodeURIComponent(this.namespace)}/workflows/${encodeURIComponent(workflowId)}`, signal);
-      if (status === 404) { positions.push({ workflowId, runId: null, status: "not_found", historyLength: 0 }); continue; }
-      const info = (body as { workflowExecutionInfo?: { execution?: { runId?: unknown }; status?: unknown; historyLength?: unknown } } | null)?.workflowExecutionInfo;
-      const historyLength = Number(info?.historyLength);
-      if (status !== 200 || !info || typeof info.status !== "string" || !Number.isSafeInteger(historyLength) || historyLength < 0) throw new FactoryTemporalRetentionError("factory_temporal_response_invalid");
-      positions.push({ workflowId, runId: typeof info.execution?.runId === "string" ? info.execution.runId : null, status: info.status, historyLength });
+      const query = `WorkflowId="${workflowId.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"`;
+      const { status, body } = await getJson(this.options, `/api/v1/namespaces/${encodeURIComponent(this.namespace)}/workflows?query=${encodeURIComponent(query)}`, signal);
+      const executions = (body as { executions?: unknown } | null)?.executions ?? [];
+      if (status !== 200 || !Array.isArray(executions)) throw new FactoryTemporalRetentionError("factory_temporal_response_invalid");
+      const newest = [...executions as { execution?: { runId?: unknown }; status?: unknown; historyLength?: unknown; startTime?: unknown }[]]
+        .sort((left, right) => String(right.startTime ?? "").localeCompare(String(left.startTime ?? "")))[0];
+      if (!newest) { positions.push({ workflowId, runId: null, status: "not_found", historyLength: null }); continue; }
+      const historyLength = newest.historyLength === undefined ? null : Number(newest.historyLength);
+      if (typeof newest.status !== "string" || (historyLength !== null && (!Number.isSafeInteger(historyLength) || historyLength < 0))) throw new FactoryTemporalRetentionError("factory_temporal_response_invalid");
+      positions.push({ workflowId, runId: typeof newest.execution?.runId === "string" ? newest.execution.runId : null, status: newest.status, historyLength });
     }
     return positions;
   }
+}
+
+/**
+ * Whether a workflow's live Temporal position differs from the one a checkpoint
+ * recorded. A cluster restore restored Temporal itself, so any difference in
+ * run, status, or history length counts. A tenant restore keeps the live
+ * namespace, so only forward movement counts: a new run, a close since the
+ * checkpoint, or a longer history. A position the checkpoint did not record
+ * cannot be compared, so it never counts.
+ */
+export function factoryTemporalPositionMoved(mode: "tenant" | "cluster", recorded: FactoryTemporalWorkflowPosition | undefined, live: FactoryTemporalWorkflowPosition | undefined): boolean {
+  if (mode === "cluster") return !recorded || !live || recorded.runId !== live.runId || recorded.status !== live.status || recorded.historyLength !== live.historyLength;
+  if (!recorded || !live || live.runId === null) return false;
+  if (live.runId !== recorded.runId) return true;
+  if (recorded.status === "WORKFLOW_EXECUTION_STATUS_RUNNING" && live.status !== recorded.status) return true;
+  return recorded.historyLength !== null && live.historyLength !== null && live.historyLength > recorded.historyLength;
 }

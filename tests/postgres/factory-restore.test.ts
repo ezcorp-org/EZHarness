@@ -359,7 +359,7 @@ describe("restore into a new execution epoch", () => {
         namespace: "restore",
         positions: async ids => {
           opened.push(...rows<{ restore_id: string }>(await secondCopy.db.execute(sql`SELECT restore_id FROM factory_restore_epochs`)).map(row => row.restore_id));
-          return ids.map(workflowId => ({ workflowId, runId: null, status: "not_found", historyLength: workflowId.endsWith("/run-audit") ? 0 : 5 }));
+          return ids.map(workflowId => workflowId.endsWith("/run-audit") ? { workflowId, runId: null, status: "not_found", historyLength: null } : { workflowId, runId: "t", status: "WORKFLOW_EXECUTION_STATUS_RUNNING", historyLength: 5 });
         },
       };
       const checkpoint = { seal: (await latestFactoryCheckpoint(storage.archive, tenantId))!.seal, manifest: captured };

@@ -16,6 +16,7 @@ import type { FactoryArchiveObject, FactoryProviderReceipt, FactoryReleaseArchiv
 import type { FactoryPhysicalStopReceipt } from "./runner/attempt-wire";
 import type { FactoryHostStopCommand } from "./runner/host-stop-service";
 import type { FactoryPoolStopAcknowledger } from "./task-stops";
+import { factoryTemporalPositionMoved } from "./temporal-retention";
 
 /**
  * C06 restore into a new execution epoch (W15).
@@ -395,7 +396,7 @@ export class FactoryRestore {
     for (const run of manifest.product.liveRuns) {
       const subject = canonicalJson([run.projectId, run.runId]);
       const workflows = run.interpreters.map(interpreter => factoryInterpreterWorkflowId(this.tenantId, run.runId, interpreter.interpreterId));
-      const differs = workflows.filter(id => mode === "cluster" ? live.get(id)?.historyLength !== recorded.get(id)?.historyLength : (live.get(id)?.historyLength ?? 0) > (recorded.get(id)?.historyLength ?? Number.POSITIVE_INFINITY));
+      const differs = workflows.filter(id => factoryTemporalPositionMoved(mode, recorded.get(id), live.get(id)));
       if (differs.length === 0) await record({ subjectKind: "run", subjectId: subject, disposition: "verified", reason: "temporal_position_consistent", detail: { workflows } });
       else await record({ subjectKind: "run", subjectId: subject, disposition: "blocked", reason: mode === "cluster" ? "temporal_position_mismatch" : "temporal_ahead_of_product", detail: { workflows: differs } });
     }
