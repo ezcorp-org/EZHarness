@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdtemp, writeFile, chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import {
+  FACTORY_RELEASE_ENTITLED_S3_ROOT,
   FACTORY_STARTUP_CONFIG_SCHEMA,
   FACTORY_STARTUP_FIELDS,
   FactoryStartupConfigError,
@@ -322,7 +323,7 @@ describe("the runner profiles this installation dispatches to", () => {
 });
 
 describe("where a release may publish", () => {
-  const s3 = { name: "ordinary", kind: "s3", endpoint: "https://127.0.0.1:8443/ordinary", bucket: "tenant-01-published", account: "tenant-01", prefix: "releases", credentialsPath: "/run/secrets/publish.json" };
+  const s3 = { name: "ordinary", kind: "s3", endpoint: "https://127.0.0.1:8443/ordinary", bucket: "tenant-01-published", account: "tenant-01", prefix: "ordinary/releases", credentialsPath: "/run/secrets/publish.json" };
   const github = { name: "upstream", kind: "github", repository: "ezcorp-org/factory-platform-publication-tests", tokenPath: "/run/secrets/github.token" };
   const profile = {
     adapter: { package: "@ezcorp/release", manifestName: "release", version: "1.0.0", digest: `sha256:${"b".repeat(64)}`, export: "publish" },
@@ -370,14 +371,28 @@ describe("where a release may publish", () => {
   test("an S3 prefix is a key path, not an identity", () => {
     // Found by a real startup: validating the prefix as an identity refused
     // every realistic one, because an identity has no `/`.
-    for (const prefix of ["ordinary", "ordinary/w09b-release", "a/b/c", "releases.v2/2026"]) {
+    for (const prefix of ["ordinary", "ordinary/w09b-release", "ordinary/a/b/c", "ordinary/releases.v2/2026"]) {
       expect(parseFactoryStartupConfig(valid({ release: { ...release, destinations: [{ ...s3, prefix }, github] } })).release?.destinations[0])
         .toMatchObject({ prefix });
     }
     // And it refuses exactly what `factoryS3PublicationDirectory` would refuse,
     // so a prefix this document accepts is one the provider also accepts.
-    for (const prefix of ["", "/leading", "trailing/", "double//slash", "a/./b", "a/../b", "-starts-with-dash".replace("-", "/"), 7]) {
+    for (const prefix of ["", "/leading", "ordinary/trailing/", "ordinary//double", "ordinary/./b", "ordinary/../b", 7]) {
       expect(reject(valid({ release: { ...release, destinations: [{ ...s3, prefix }, github] } })).invalid).toContain("release.destinations[0]");
+    }
+  });
+
+  test("a prefix outside the tenant's entitled root is refused, because 403 is not 404", () => {
+    // Measured against the live store: inside `ordinary/` an absent object
+    // answers 404, outside it the same HEAD answers 403. A declaration that
+    // leaves the root cannot tell absent from denied, so it is refused here
+    // rather than at the first release.
+    for (const prefix of ["archive", "releases", "a/b/c", "ordinary-two", "ordinaryish/x"]) {
+      expect(reject(valid({ release: { ...release, destinations: [{ ...s3, prefix }, github] } })).invalid).toContain("release.destinations[0]");
+    }
+    // The root itself and anything under it are accepted.
+    for (const prefix of [FACTORY_RELEASE_ENTITLED_S3_ROOT, `${FACTORY_RELEASE_ENTITLED_S3_ROOT}/nested/deep`]) {
+      expect(parseFactoryStartupConfig(valid({ release: { ...release, destinations: [{ ...s3, prefix }, github] } })).release?.destinations[0]).toMatchObject({ prefix });
     }
   });
 

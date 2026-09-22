@@ -390,6 +390,23 @@ function wellFormedRunnerProfile(value: unknown): boolean {
 }
 
 /**
+ * The root a tenant identity is entitled to in the ordinary store.
+ *
+ * Measured against the live store with the tenant's own credentials: a HEAD
+ * under `ordinary/` answers 404, and the same HEAD under a sibling root answers
+ * 403. So a declaration whose prefix leaves this root cannot tell an absent
+ * object from a denied one, and the provider's `proveNoEffect` raises instead
+ * of answering.
+ *
+ * It is a deployment entitlement written into the document's rule rather than
+ * discovered at composition, because discovering it means a round trip to the
+ * store before the document can be called valid — and a document that is only
+ * valid when a service answers is not a document. One constant, so a
+ * deployment that widens the entitlement changes one line.
+ */
+export const FACTORY_RELEASE_ENTITLED_S3_ROOT = "ordinary";
+
+/**
  * An S3 prefix, which is a key path and not an identity.
  *
  * The same rules `factoryS3PublicationDirectory` enforces when it builds the
@@ -399,7 +416,11 @@ function wellFormedRunnerProfile(value: unknown): boolean {
  */
 function wellFormedS3Prefix(value: unknown): boolean {
   if (typeof value !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._/-]{0,900}$/.test(value)) return false;
-  return !value.includes("//") && !value.endsWith("/") && !value.split("/").some((part) => part === "." || part === "..");
+  if (value.includes("//") || value.endsWith("/") || value.split("/").some((part) => part === "." || part === "..")) return false;
+  // Inside the entitled root, or the store answers 403 where the provider
+  // expects 404. A sibling root that merely STARTS with the same letters —
+  // `ordinary-two` — is outside it, so the test is on the whole first segment.
+  return value === FACTORY_RELEASE_ENTITLED_S3_ROOT || value.startsWith(`${FACTORY_RELEASE_ENTITLED_S3_ROOT}/`);
 }
 
 /** A repository this installation may publish to, as `owner/name`. */

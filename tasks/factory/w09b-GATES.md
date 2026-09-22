@@ -139,15 +139,25 @@ one pending item that is not blocked purely on a store.
 
 ### Two operational findings this proof measured
 
-**The provisioned credential sets are world-readable.** Both
-`ordinary.json` and `archive.json` in
-`/run/user/1001/ezcorp-factory-storage.0yXaRPtQ` are mode `0644`. The factory's
-own `readPrivateBounded` refuses any file with group or other bits, so a real
-installation pointed straight at them cannot compose its release store OR its
-archive writer — `loadFactoryStorageCredentials` is the same reader on both
-paths. The proof used a private `0600` copy under a directory with no
-world-writable ancestor and deleted it; **the shared files were not changed,
-because repairing a shared store is the coordinator's.**
+**The 0644 credential set is not the one an installation reads — settled.**
+`ordinary.json` and `archive.json` in the shared directory are mode `0644`, and
+the factory's own `readPrivateBounded` refuses any file with group or other
+bits. That is not a defect: those files are **SeaweedFS's server identity
+config**, mounted into the container that runs as uid 1000, and they stay
+`0644`. A factory installation reads its OWN per-installation credential file
+at `0600`, which W16's provisioner writes (C12 step two). The proof's private
+`0600` copy is therefore the right shape, and the full-stack harness already
+does the same thing for the archive writer. Ruled by the coordinator; the setup
+script was not changed and neither were the shared files.
+
+**A declared prefix must lie inside the tenant's entitled root**, and that is
+now enforced at parse rather than discovered at the first release.
+`FACTORY_RELEASE_ENTITLED_S3_ROOT` is `ordinary`, and a prefix outside it is
+refused by name. Measured against the live store: inside the root an absent
+object answers `404`, outside it the same HEAD answers `403`, so a declaration
+that leaves the root cannot tell absent from denied and `proveNoEffect` raises
+instead of answering. A sibling root that merely starts with the same letters —
+`ordinary-two` — is outside it, so the test is on the whole first segment.
 
 **A declared prefix must stay inside the tenant's entitled root.** Measured
 against the live store with the tenant's own credentials: a HEAD under
@@ -841,85 +851,26 @@ script passes `bash -n`. `common.md` itself still names the dead path and needs
 the new one written into it. G10b's "three running roles" answer is expected to be unchanged: the fourth
 role waits on a declaration, not on a store.
 
-## One red that is not W09b's, proved rather than asserted
+## A red I attributed wrongly, and what it actually was
 
-`bun run typecheck` exits 1 at the final head. Every one of its 25 errors is in
-`packages/@ezcorp/ai-kit/src/mcp/tools/` — `server.tool()` overload mismatches
-against the bumped Model Context Protocol SDK and zod. The web, backend-tests,
-e2e and Python legs all pass; only the backend leg fails, and only there.
+For one round this file said `bun run typecheck` exited 1 on 25 errors in
+`packages/@ezcorp/ai-kit`, inherited from `integ/w00` and not this package's to
+fix. **That was wrong.** Typecheck is green here, at 0 errors.
 
-**It arrived with the merge, not with this package.**
+The evidence I offered was real and insufficient:
 `git diff integ/w00 HEAD --stat -- packages/@ezcorp/ai-kit bun.lock package.json`
-is EMPTY, so those trees are byte-identical between this branch and
-`integ/w00`. The bump reached the branch through `f50b041c3`
-(`bd6fd9714`, bun-minor-and-patch group, ten updates). W09b has never touched
-`ai-kit`.
+was empty, so the SOURCE trees were byte-identical. What differed was not in
+git. This worktree's `node_modules/.bun` still held `zod@4.5.2` from before
+main's dependency bump, alongside `zod@4.5.4`: Bun's isolated store keeps a
+stale version after a lockfile change, and an incremental
+`bun install --frozen-lockfile` does not remove it. The coordinator typechecked
+staging at the same merge base with the same `@modelcontextprotocol/sdk 1.30.0`
+and got 0 errors, which is the check I should have made before naming anyone.
 
-Not fixed here: this round was scoped to fixing breakage in W09b's files, and a
-wrong fix in another package's MCP surface is worse than a reported red.
-EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/inherited-typecheck-failure.json`.
-
-## Round 4 — what the completed-guest release proof needs, measured
-
-Round 4 asks for two things on the real started application: a guest that
-stages an output artifact and returns COMPLETED, and a definition whose release
-node publishes to the declared S3 destination through the running role. Both
-are blocked, and neither is blocked on effort. The blockers are named here with
-the reading that found them, because a round that reports "hard" teaches
-nothing.
-
-### (a) A COMPLETED guest has no production staging path
-
-`FactoryRunnerResult`'s `completed` member requires `output:
-FactoryArtifactReference` and `workspaceCheckpoint: FactoryCheckpointReference`
-(`packages/@ezcorp/factory-sdk/src/types.ts` ~627). The only code that produces
-either is `runNativeFactoryRunner` (`src/factory/runner/native.ts`), through
-`options.artifacts.output(...)` and `options.artifacts.checkpoint(...)` — the
-`NativeFactoryArtifacts` seam at line 15.
-
-Two greps decide it:
-
-```
-grep -rn "runNativeFactoryRunner" --include='*.ts' src/ packages/ extensions/
-grep -rn "NativeFactoryArtifacts" --include='*.ts' src/ packages/
-```
-
-Both find the seam, its integration test, and nothing else. **`NativeFactoryArtifacts`
-has no production implementation and `runNativeFactoryRunner` has no production
-caller.** Nor can a sandboxed guest reach the material service itself:
-`FactoryBrokerTransport` is `{ attemptToken, audience }` — a token and an
-audience, no base URL and no socket — and the only frame defined over that seam
-is `FactoryGuestModelRequest`. There is no staging frame.
-
-So a guest cannot stage an artifact today by any route, and the minimal guest
-returns `cancelled` because that is the one union member needing none. **This
-is W01/W04's to close**: either a production `NativeFactoryArtifacts`, or a
-staging frame over the guest broker.
-
-### (b) The release profile has no buildable collaborator
-
-Recorded above under the profile correction: `S3FactoryManifestReleaseProfile`
-needs `Pick<FactoryMaterialService, "list">`, and the only implementation,
-`FactoryAttemptMaterials`, is bound to ONE attempt's authority
-(`assertOwnScopeOnly` plus `authorizeMaterialReadInTransaction`). A release
-profile resolves for whichever attempt the decision names, so one instance
-cannot serve it. **W04 owns the material service; W08 owns the profile.**
-
-(b) is downstream of (a) in any case: with no staged materials there is nothing
-for the profile to list.
-
-### What Round 4 DID deliver
-
-The correction above, which is the part that was wrong rather than missing: the
-declaration no longer composes an invented profile. The provider half still
-composes, which is why `release-outcome` runs.
-
-## W08's second S3 destination kind — settled
-
-The declared `s3` destination kind maps to W08's manifest publisher
-(`S3FactoryManifestReleaseProvider`) only; `S3FactoryReleaseProvider` stays
-reachable only through tests until a later package names a second S3
-destination kind. Ruled by the coordinator; no discriminator was added.
+The fix is a clean reinstall: remove `node_modules` at the root and in `web/`,
+install both, rebuild the workspace packages, then typecheck. Measured here:
+two zod versions before, one after; 25 errors before, 0 after.
+EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/typecheck-red-was-a-stale-store.json`.
 
 ## Interface questions
 

@@ -844,7 +844,7 @@ describe("the roles this installation assembles", () => {
       release: {
         destinations: [{
           name: "ordinary", kind: "s3",
-          endpoint: "https://127.0.0.1:8443/ordinary", bucket: "tenant-01-published", account: "tenant-01", prefix: "releases",
+          endpoint: "https://127.0.0.1:8443/ordinary", bucket: "tenant-01-published", account: "tenant-01", prefix: "ordinary/releases",
           credentialsPath: publish,
         }],
         profiles: [{

@@ -61,7 +61,7 @@ const ADAPTER = { package: "@ezcorp/release", manifestName: "release", version: 
 async function s3Declaration(root: string, over: Record<string, unknown> = {}) {
   return {
     name: "ordinary", kind: "s3" as const,
-    endpoint: "https://127.0.0.1:8443/ordinary", bucket: "tenant-01-published", account: "tenant-01", prefix: "releases",
+    endpoint: "https://127.0.0.1:8443/ordinary", bucket: "tenant-01-published", account: "tenant-01", prefix: "ordinary/releases",
     credentialsPath: await secret(root, "publish.json", CREDENTIAL_SET),
     ...over,
   };
