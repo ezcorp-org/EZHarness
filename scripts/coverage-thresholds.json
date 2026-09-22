@@ -1145,5 +1145,8 @@
   "src/db/migrations/add-factory-installation-bootstrap.ts": 100,
   "scripts/factory-fleet.ts": 100,
   "scripts/factory-fleet-init-local.ts": 100,
-  "src/factory/pool/gpu-host-profiles.ts": 100
+  "src/factory/pool/gpu-host-profiles.ts": 100,
+  "web/src/routes/api/installation/bootstrap/+server.ts": 100,
+  "web/src/routes/api/installation/bootstrap/status/+server.ts": 100,
+  "src/factory/provisioning/fleet-cli.ts": 100
 }

@@ -10,7 +10,7 @@ import { factoryBootstrapHost } from "$server/factory/provisioning/bootstrap";
  * grant. An installation that was not provisioned answers 404.
  */
 export const GET: RequestHandler = async () => {
-  const host = await factoryBootstrapHost(process.env, getDb()).catch(() => null);
+  const host = await factoryBootstrapHost(process.env, getDb).catch(() => null);
   if (!host) return json({ error: "not_a_provisioned_installation" }, { status: 404 });
   return json(await host.bootstrap.status());
 };

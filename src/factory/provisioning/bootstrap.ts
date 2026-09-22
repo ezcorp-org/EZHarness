@@ -117,13 +117,13 @@ export interface FactoryBootstrapHost {
 /**
  * The bootstrap a provisioned installation runs, or `null` for one that was
  * not provisioned (no invitation declared), which keeps today's first-run
- * setup unchanged. A DECLARED invitation that cannot be read fails closed:
+ * setup unchanged, and never touches the database. A DECLARED invitation that cannot be read fails closed:
  * setup must not fall back to "first caller wins" because a file is missing.
  */
-export async function factoryBootstrapHost(env: Readonly<Record<string, string | undefined>>, database: TransactionalDb): Promise<FactoryBootstrapHost | null> {
+export async function factoryBootstrapHost(env: Readonly<Record<string, string | undefined>>, database: () => TransactionalDb): Promise<FactoryBootstrapHost | null> {
   const path = env.EZCORP_FACTORY_BOOTSTRAP_INVITATION?.trim();
   if (!path) return null;
   const installationId = env.EZCORP_INSTALLATION_ID?.trim() ?? "";
   const invitation = await loadFactoryBootstrapInvitation(path, installationId);
-  return Object.freeze({ invitation, bootstrap: new FactoryInstallationBootstrap(database, installationId, invitation.tenantId) });
+  return Object.freeze({ invitation, bootstrap: new FactoryInstallationBootstrap(database(), installationId, invitation.tenantId) });
 }

@@ -22,7 +22,7 @@ const STATUS: Readonly<Record<string, number>> = {
 export const POST: RequestHandler = async ({ request, locals }) => {
   const user = requireSessionAuth(locals);
   if (user instanceof Response) return user;
-  const host = await factoryBootstrapHost(process.env, getDb()).catch(() => null);
+  const host = await factoryBootstrapHost(process.env, getDb).catch(() => null);
   if (!host) return json({ error: "not_a_provisioned_installation" }, { status: 404 });
   const body = await readBoundedJson(request, 16 * 1024).catch(() => undefined) as { projectId?: unknown; acknowledgement?: unknown } | undefined;
   if (!body || typeof body.projectId !== "string" || typeof body.acknowledgement !== "string") return json({ error: "bootstrap_request_invalid" }, { status: 400 });

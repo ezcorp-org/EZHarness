@@ -106,12 +106,12 @@ export function factoryInstallationBootstrapConformance(create: () => Promise<{ 
   });
 
   test("the host reads a declared invitation privately, fails closed when it is unreadable, and is absent when none is declared", async () => {
-    expect(await factoryBootstrapHost({}, fixture.db)).toBeNull();
+    expect(await factoryBootstrapHost({}, () => { throw new Error("not a provisioned installation: the database is never touched"); })).toBeNull();
     const path = await writeModeFile(join(root, "bootstrap-invitation.json"), JSON.stringify(invitation));
-    const host = await factoryBootstrapHost({ EZCORP_FACTORY_BOOTSTRAP_INVITATION: path, EZCORP_INSTALLATION_ID: installationId }, fixture.db);
+    const host = await factoryBootstrapHost({ EZCORP_FACTORY_BOOTSTRAP_INVITATION: path, EZCORP_INSTALLATION_ID: installationId }, () => fixture.db);
     expect(host?.invitation).toEqual(invitation);
     expect(host?.bootstrap.tenantId).toBe(tenantId);
-    expect((await factoryRejection(factoryBootstrapHost({ EZCORP_FACTORY_BOOTSTRAP_INVITATION: path, EZCORP_INSTALLATION_ID: "another-installation" }, fixture.db))).message).toBe("bootstrap_invitation_unavailable");
-    expect((await factoryRejection(factoryBootstrapHost({ EZCORP_FACTORY_BOOTSTRAP_INVITATION: join(root, "missing.json") }, fixture.db))).message).toBe("bootstrap_invitation_unavailable");
+    expect((await factoryRejection(factoryBootstrapHost({ EZCORP_FACTORY_BOOTSTRAP_INVITATION: path, EZCORP_INSTALLATION_ID: "another-installation" }, () => fixture.db))).message).toBe("bootstrap_invitation_unavailable");
+    expect((await factoryRejection(factoryBootstrapHost({ EZCORP_FACTORY_BOOTSTRAP_INVITATION: join(root, "missing.json") }, () => fixture.db))).message).toBe("bootstrap_invitation_unavailable");
   });
 }

@@ -49,7 +49,7 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
   // same 403, so the response does not say which part was wrong.
   let bootstrap: Awaited<ReturnType<typeof factoryBootstrapHost>>;
   try {
-    bootstrap = await factoryBootstrapHost(process.env, getDb());
+    bootstrap = await factoryBootstrapHost(process.env, getDb);
     if (bootstrap) verifyFactoryBootstrapInvitation(bootstrap.invitation, { token: result.data.invitationToken, email }, Date.now());
   } catch {
     return errorJson(403, "A valid first-administrator invitation is required");
