@@ -591,3 +591,13 @@ Plan review: keep the runtime's exact image equality unchanged. Reuse one assert
 - One shared assertion now binds rebuilt releases to the archived installation ID, workspace ID, workspace revision, and source digest. Negative cases reject drift in each field.
 - The real rootless-Podman proof passed the live candidate rebuild and the independent restore rebuild. Both retained the old stored value and produced clean command and cleanup exits.
 - Bun 1.3.14 full lint checked 4,610 files, full typecheck passed all surfaces, and the backend pool passed 25,866 tests across 1,654 files with no failures.
+
+## PR #292 current-main conflict resolution
+
+- [ ] Reproduce the GitHub conflict locally against the current `origin/main`.
+- [ ] Trace every conflict to both parent commits and preserve both intended behaviors.
+- [ ] Review the merged architecture for ownership, dependency direction, security, and DRY reuse.
+- [ ] Run focused regressions for the resolved files, then lint, typecheck, build, and required gates.
+- [ ] Inspect the full merge diff, record exact results here, commit, push the PR branch, and verify hosted CI.
+
+Plan review: work in the clean dedicated PR #292 worktree so unrelated local changes remain untouched. Merge the current base into the PR branch, keep the established pluggable-provider boundaries, and add no new behavior unless a conflict exposes a verified integration defect.
