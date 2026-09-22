@@ -46,6 +46,33 @@ describe("factory C06 encryption", () => {
     await expect(InstallationDataKey.loadOrCreate("install", wraps, new StaticMasterKeyProvider(master("z")))).rejects.toMatchObject({ code: "factory_key_missing" });
   });
 
+  test("a worker recovers an existing key read-only: newest usable wrap, never a new one", async () => {
+    const wraps = new Wraps();
+    await expect(InstallationDataKey.loadExisting("install", wraps, new StaticMasterKeyProvider(master("a")))).rejects.toMatchObject({ code: "factory_key_missing" });
+    expect(wraps.values).toHaveLength(0);
+
+    const first = await InstallationDataKey.loadOrCreate("install", wraps, new StaticMasterKeyProvider(master("a")));
+    const encrypted = new EncryptedRecordCodec(first, "archive").encode({ tenantId: "tenant", objectId: "object" }, Buffer.from("archive"));
+    await first.rotate(wraps, new StaticMasterKeyProvider(master("b"), [master("a"), master("b")]));
+    const decodes = (key: InstallationDataKey) => new EncryptedRecordCodec(key, "archive").decode({ tenantId: "tenant", objectId: "object" }, encrypted);
+
+    const newest = await InstallationDataKey.loadExisting("install", wraps, new StaticMasterKeyProvider(master("b"), [master("a"), master("b")]));
+    expect(newest.wrapVersion).toBe(2);
+    expect(decodes(newest)).toEqual(Buffer.from("archive"));
+    // The newest wrap names a master this worker lacks, so the retained one answers.
+    const retained = await InstallationDataKey.loadExisting("install", wraps, new StaticMasterKeyProvider(master("a")));
+    expect(retained.wrapVersion).toBe(1);
+    expect(decodes(retained)).toEqual(Buffer.from("archive"));
+    expect(wraps.values).toHaveLength(2);
+
+    // A master with the right id but other bytes cannot open a wrap, and a wrap
+    // for another installation is never a candidate.
+    const impostor = { id: "a", bytes: new Uint8Array(32).fill(0x7a) };
+    await expect(InstallationDataKey.loadExisting("install", wraps, new StaticMasterKeyProvider(impostor))).rejects.toMatchObject({ code: "factory_key_missing" });
+    const foreign = new Wraps(); foreign.values = wraps.values.map(wrap => ({ ...wrap, installationId: "other-install" }));
+    await expect(InstallationDataKey.loadExisting("install", foreign, new StaticMasterKeyProvider(master("a"), [master("a"), master("b")]))).rejects.toMatchObject({ code: "factory_key_missing" });
+  });
+
   test("uses one encrypted BlobStore and rejects tamper, tenant, and object substitution", async () => {
     const wraps = new Wraps(); const key = await InstallationDataKey.loadOrCreate("install", wraps, new StaticMasterKeyProvider(master("a")));
     const inner = new Blobs(); const blobs = new EncryptedBlobStore(inner, key, "tenant");
