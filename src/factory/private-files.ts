@@ -76,13 +76,8 @@ export async function readPrivateBounded(directory: FileHandle, name: string, ma
   }
 }
 
-/**
- * Reads one owned private regular file by path, through a private directory.
- *
- * The composition of `privateDirectory` and `readPrivateBounded` that most
- * callers write by hand: the directory is proved private first, then the leaf.
- */
-export async function readPrivateFileBounded(path: string, maximumLength: number): Promise<Uint8Array> {
+/** Reads one owned private file by path, opening its directory first. */
+export async function readPrivatePath(path: string, maximumLength: number): Promise<Uint8Array> {
   const absolute = resolve(path);
   const directory = await privateDirectory(dirname(absolute));
   try {

@@ -16,7 +16,7 @@
  * credential value, matching `parseFactoryOrchestratorProcessConfig`.
  */
 import { resolve } from "node:path";
-import { readPrivateFileBounded } from "./private-files";
+import { readPrivatePath } from "./private-files";
 
 export const FACTORY_STARTUP_CONFIG_SCHEMA = "factory.startup.v1";
 const MAX_CONFIG_BYTES = 64 * 1024;
@@ -758,7 +758,7 @@ function invalidValidatorRuntimes(value: Record<string, unknown>): string[] {
 
 /** Read the document through the private bounded reader, as the process entries do. */
 export async function loadFactoryStartupConfig(path: string): Promise<FactoryStartupConfig> {
-  const bytes = await readPrivateFileBounded(path, MAX_CONFIG_BYTES);
+  const bytes = await readPrivatePath(path, MAX_CONFIG_BYTES);
   let parsed: unknown;
   try {
     parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));

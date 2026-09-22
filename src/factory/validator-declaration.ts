@@ -27,7 +27,7 @@
 import type { FactoryModelPin, ResourceBounds, RunnerReference } from "@ezcorp/factory-sdk";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { digestBytes } from "../extensions/v4/blobs";
-import { readPrivateFileBounded } from "./private-files";
+import { readPrivatePath } from "./private-files";
 import type { FactoryStartupConfig, FactoryStartupValidatorRuntime } from "./startup-config";
 import type { FactoryTrustedValidatorRuntime } from "./validator-materials";
 
@@ -85,7 +85,7 @@ function materialShape(value: unknown): value is ValidatorMaterialFile {
 async function loadRuntime(declared: FactoryStartupValidatorRuntime): Promise<FactoryDeclaredValidatorRuntime> {
   let bytes: Uint8Array;
   try {
-    bytes = await readPrivateFileBounded(declared.materialPath, MAX_VALIDATOR_MATERIAL_BYTES);
+    bytes = await readPrivatePath(declared.materialPath, MAX_VALIDATOR_MATERIAL_BYTES);
   } catch (error) {
     throw new FactoryValidatorDeclarationError("factory_validator_declaration_unreadable", declared.name,
       `its material file is not readable and private (${(error as Error).message})`);
