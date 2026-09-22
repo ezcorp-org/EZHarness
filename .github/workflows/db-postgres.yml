@@ -256,6 +256,7 @@ jobs:
           --coverage --coverage-reporter=lcov --coverage-dir=coverage-factory-assurance-release
           ./tests/postgres/factory-releases.test.ts
           ./tests/postgres/factory-release-authority.test.ts
+          ./tests/postgres/factory-release-declare-race.test.ts
           ./tests/postgres/factory-archive-writer.test.ts
           ./tests/postgres/factory-s3-publication.test.ts
           ./tests/postgres/factory-validator-materials.test.ts

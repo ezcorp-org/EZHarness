@@ -1,0 +1,79 @@
+{
+ "head": "52fe9fc2389a19bb1eb2455245e20e0653df3678",
+ "producers": [
+  {
+   "producer": "sdk",
+   "input": "/tmp/factory-platform-evidence/wave4b-sdk-coverage/lcov.info",
+   "head": "52fe9fc2389a19bb1eb2455245e20e0653df3678"
+  },
+  {
+   "producer": "product",
+   "input": "/tmp/factory-platform-evidence/wave4b-product-coverage/lcov.info",
+   "head": "52fe9fc2389a19bb1eb2455245e20e0653df3678"
+  },
+  {
+   "producer": "postgres",
+   "input": "/tmp/factory-platform-evidence/wave4b-postgres-coverage/lcov.info",
+   "head": "52fe9fc2389a19bb1eb2455245e20e0653df3678"
+  },
+  {
+   "producer": "node",
+   "input": "/tmp/factory-platform-evidence/wave4b-node-coverage/lcov.info",
+   "head": "52fe9fc2389a19bb1eb2455245e20e0653df3678"
+  },
+  {
+   "producer": "pool",
+   "input": "/tmp/factory-platform-evidence/wave4b-pool-coverage/lcov.info",
+   "head": "52fe9fc2389a19bb1eb2455245e20e0653df3678"
+  },
+  {
+   "producer": "compute",
+   "input": "/tmp/factory-platform-evidence/wave4b-compute-coverage/lcov.info",
+   "head": "52fe9fc2389a19bb1eb2455245e20e0653df3678"
+  },
+  {
+   "producer": "provisioning",
+   "input": "/tmp/factory-platform-evidence/wave4b-provisioning-coverage/lcov.info",
+   "head": "52fe9fc2389a19bb1eb2455245e20e0653df3678"
+  },
+  {
+   "producer": "python",
+   "input": "/tmp/factory-platform-evidence/wave4b-python-coverage/lcov.info",
+   "head": "52fe9fc2389a19bb1eb2455245e20e0653df3678"
+  },
+  {
+   "producer": "web-vitest",
+   "input": "/tmp/factory-platform-evidence/wave4b-web-coverage/lcov.info",
+   "head": "52fe9fc2389a19bb1eb2455245e20e0653df3678",
+   "rerooted": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "merge",
+   "exitCode": 0
+  },
+  {
+   "name": "new-file",
+   "base": "bd6fd9714",
+   "exitCode": 1
+  },
+  {
+   "name": "patch",
+   "base": "bd6fd9714",
+   "exitCode": 1
+  },
+  {
+   "name": "global-floor",
+   "base": null,
+   "exitCode": 1,
+   "blocking": false
+  },
+  {
+   "name": "crap-changed",
+   "base": "origin/main",
+   "exitCode": 1,
+   "blocking": false
+  }
+ ]
+}

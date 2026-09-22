@@ -66,19 +66,12 @@ class RecordingProvider implements FactoryReleaseProvider {
   async proveNoEffect(): Promise<boolean> { return false; }
 }
 
-export function factoryArchiveWriterConformance(create: () => Promise<FactoryArchiveWriterFixture>): void {
-describe("C04 archive before claim and receipt before settlement", () => {
-const fixtures: FactoryArchiveWriterFixture[] = [];
-const directories: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(fixtures.splice(0).map(fixture => fixture.close()));
-  await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })));
-});
-
-async function setup() {
-  const fixture = await create();
-  fixtures.push(fixture);
+/**
+ * One release world on a caller-owned fixture: the C04 conformance builds one per test, and the
+ * real-PostgreSQL declare-race producer builds one it can drive from two connections at once.
+ * The caller closes the fixture and removes `root`.
+ */
+export async function factoryArchiveWriterWorld(fixture: FactoryArchiveWriterFixture) {
   const db = fixture.db;
   const suffix = randomUUID();
   const projectId = `archive-project-${suffix}`;
@@ -108,7 +101,6 @@ async function setup() {
     VALUES (${attempt.attemptId},${TENANT},${projectId},${runId},${nodeInstanceId},0,1,1,1,${installationEpoch},0,${attempt.deadlineAt},${attempt.requestDigest},'{}'::jsonb,'admitted')`);
 
   const root = await mkdtemp(join(tmpdir(), "factory-archive-"));
-  directories.push(root);
   const wraps: InstallationKeyWrap[] = [];
   const wrapStore: InstallationKeyWrapStore = { async load() { return wraps; }, async save(value) { wraps.push(value); } };
   const key = await InstallationDataKey.loadOrCreate("archive-installation", wrapStore, new StaticMasterKeyProvider({ id: "operator", bytes: new Uint8Array(32).fill(5) }));
@@ -186,8 +178,12 @@ async function setup() {
   let sequence = 0;
   const mutationKey = (kind: string) => `${kind}-${suffix}-${++sequence}`;
   const request = (label: string) => ({ ...candidate, decisionId, candidateDigest: trusted.candidateDigest, action: "publish", destination: { provider: "fixture", account: "account-a", object: `releases/${label}` }, request: { body: label }, estimatedSpendMicros: 5, deadlineMs: now + 300_000 });
-  const prepare = async (label: string, idempotencyKey = mutationKey("prepare")) => {
-    const body = request(label);
+  // `destination` overrides a field the operation id digests but the nine-column identity index does
+  // not, so a caller can declare a genuinely different operation at the same run/node/candidate/
+  // action/destination triple and prove it is refused by name rather than merged into the first.
+  const prepare = async (label: string, idempotencyKey = mutationKey("prepare"), destination: { expectedVersion?: string } = {}) => {
+    const base = request(label);
+    const body = { ...base, destination: { ...base.destination, ...destination } };
     // W07's release store seals a resolved profile into every preparation. This suite supplies its
     // own exact request, so the identity profile is the right one: the seal still binds the bytes
     // to the acceptance decision and the pinned material read outside the transaction.
@@ -215,7 +211,25 @@ async function setup() {
     };
   };
 
-  return { db, admin, projectId, scope, members, reader, archive, store, writer, releases, provider, recovery, prepare, claim, stateOf, notificationKinds, rejectAudit, mutationKey, attemptMaterials, blobs };
+  return { root, db, admin, projectId, scope, members, reader, archive, store, writer, releases, provider, recovery, prepare, claim, stateOf, notificationKinds, rejectAudit, mutationKey, attemptMaterials, blobs };
+}
+
+export function factoryArchiveWriterConformance(create: () => Promise<FactoryArchiveWriterFixture>): void {
+describe("C04 archive before claim and receipt before settlement", () => {
+const fixtures: FactoryArchiveWriterFixture[] = [];
+const directories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(fixtures.splice(0).map(fixture => fixture.close()));
+  await Promise.all(directories.splice(0).map(directory => rm(directory, { recursive: true, force: true })));
+});
+
+async function setup() {
+  const fixture = await create();
+  fixtures.push(fixture);
+  const world = await factoryArchiveWriterWorld(fixture);
+  directories.push(world.root);
+  return world;
 }
 
 async function manifestFor(world: Awaited<ReturnType<typeof setup>>, operation: FactoryReleaseOperation) {
