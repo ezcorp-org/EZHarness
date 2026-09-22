@@ -355,13 +355,13 @@ wrapper that catches adds context rather than removing it.
 - [x] G3: Both settlement roles compose over one `FactoryTaskStops`, and neither
       composes without the pool, the endpoint, and a configured host key.
       CHECK: `bun test --timeout 60000 ./src/factory/dispatch-composition.test.ts`
-      EXPECT: 23 pass / 0 fail; `factory_stop_transport_missing` and
+      EXPECT: 32 pass / 0 fail; `factory_stop_transport_missing` and
       `factory_stop_host_keys_missing` are named refusals.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-dispatch-composition.log`
 - [x] G4: The supervisor hosts both host routes over one runner and one key, and
       the guest broker refuses by name.
       CHECK: `bun test --timeout 60000 ./src/factory/runner/supervisor-services.test.ts`
-      EXPECT: 17 pass / 0 fail; a real stop crosses the router and comes back
+      EXPECT: 21 pass / 0 fail; a real stop crosses the router and comes back
       signed; an unconfirmed stop raises instead of being signed; a guest this
       host ran to a result is confirmed stopped without the runner being asked
       to prove an absence it can no longer speak to.
@@ -370,24 +370,24 @@ wrapper that catches adds context rather than removing it.
       publishes `hostServicesReady`, and releases the listener before it says
       `stopped`.
       CHECK: `bun test --timeout 60000 ./src/factory/runner/supervisor-process.test.ts`
-      EXPECT: 33 pass / 0 fail; a configured host whose listener never bound
+      EXPECT: 37 pass / 0 fail; a configured host whose listener never bound
       reads `degraded / host_services_unavailable`, not `ready`.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-runner-supervisor-process.log`
 - [x] G6: The private service composes, and every refusal is named.
       CHECK: `bun test --timeout 60000 ./src/factory/private-service-composition.test.ts`
-      EXPECT: 14 pass / 0 fail; `cancel-node` answers `null` for an uncertain
+      EXPECT: 15 pass / 0 fail; `cancel-node` answers `null` for an uncertain
       stop and the event only for a confirmed one.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-private-service-composition.log`
 - [x] G7: The readiness retry converges a distributed bring-up without opening
       admission one moment earlier.
       CHECK: `bun test --timeout 60000 ./src/factory/runtime-composition.test.ts`
-      EXPECT: 28 pass / 0 fail; admission is closed and the listener bound while
+      EXPECT: 31 pass / 0 fail; admission is closed and the listener bound while
       the window runs; a configuration fault is never retried.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-runtime-composition.log`
 - [x] G8: The three assembled roles register through the real installation path,
       and each absence holds its role by name.
       CHECK: `bun test --timeout 60000 ./src/factory/installation-startup.test.ts`
-      EXPECT: 39 pass / 0 fail; registered plus held equals the role set;
+      EXPECT: 44 pass / 0 fail; registered plus held equals the role set;
       removing `hostLaunch`, `hostStopKeys`, the attempt token secret, or the
       pool client each holds exactly the roles that need it.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/logs/unit-src-factory-installation-startup.log`
@@ -414,7 +414,7 @@ wrapper that catches adds context rather than removing it.
       the orchestrator publishes `ready`; the guest package builds and prepares
       for real.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/roles-running.json`
-      **NOW FOUR, measured at `45183071f`.** The coordinator ruled the startup
+      **NOW FOUR, measured at `000e71b96`.** The coordinator ruled the startup
       document is W09's own surface, the `release` section landed, and the
       harness's document declares one S3 destination. `/api/ready` on the real
       started application reports nine roles running including
@@ -433,27 +433,26 @@ wrapper that catches adds context rather than removing it.
       CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 5400 bash
       /tmp/factory-platform-evidence/w09b/repro/rebuild-and-run-three.sh`
       EXPECT: three runs, each `outcome: "passed"`, `recordFresh: true`, exit 0.
-      MEASURED at `ca101ff19`: three passes, `recordFresh: true` and exit 0 on
-      each, `["queued","running","failed"]` reaching terminal at poll 6, the
-      restarted server reading the same run back as `failed`, shutdown exit 0
-      with zero survivors and the port refused. Eight roles running and two held
-      on every pass. Record digests
-      `601ea1a1…`, `c4577e7f…`, `f0b6da69…`, each verified against its receipt.
+      MEASURED at the final head `000e71b96`, 2026-09-22T02:41:31Z to
+      02:43:32Z: three passes, each `outcome: "passed"` and `recordFresh: true`,
+      exit 0 on each, the restarted server reading the same run back, shutdown
+      exit 0 with zero survivors and the port refused. NINE roles running and
+      one held on every pass — the four W09 held all run, and the one held is
+      `notification-send` (W17). First measured at `ca101ff19`, when the
+      document declared no release destination and the count was eight running
+      and two held.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/full-stack-run-{1,2,3}.json`
-      NOT REFRESHED at the final head: every shared store is down, so this
-      run cannot be repeated. The measurement above stands at `ca101ff19`;
-      nothing since then touched the run path. Pending command under "PENDING
-      on the shared stores".
+      and `/tmp/factory-platform-evidence/w09b/receipts/roles-running.json`.
 - [x] G12: The harness records its own failures rather than crashing on them.
       CHECK: `flock /tmp/ezcorp-validation-heavy.lock timeout 1200 bash
       /tmp/factory-platform-evidence/w09b/repro/negative-control.sh`
       EXPECT: exit 1, `outcome: "failed"` with the cause named, every child's log
       kept, no supervisor left behind.
-      MEASURED at `ca101ff19`: exit 1, `failure: "the server never reported
-      ready"`, seven child logs kept, supervisor processes before 0 and after 0,
-      record digest `34afc222…`.
+      MEASURED at the final head `000e71b96`: exit 1, `outcome: "failed"` with
+      `failure: "the server never reported ready"`, every child log kept, and no
+      supervisor left behind. First measured at `ca101ff19` with the same
+      outcome and the same named cause.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/negative-control.json`
-      NOT REFRESHED at the final head, for the same reason as G11.
 - [x] G13: The static gates, each with its own exit code.
       CHECK: `bash /tmp/factory-platform-evidence/w09b/repro/static-gates.sh`
       EXPECT: typecheck, lint, boundaries, gate-integrity and the PostgreSQL
@@ -482,9 +481,9 @@ wrapper that catches adds context rather than removing it.
       then `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts` and
       `BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`.
       EXPECT: PASSED for both.
-      MEASURED: "New-file coverage gate PASSED: 23 new source file(s) gated."
+      MEASURED: "New-file coverage gate PASSED: 24 new source file(s) gated."
       and "Patch coverage gate PASSED: all changed executable lines covered
-      (40 file(s))." No `EXCLUDES` entry was added, no threshold lowered, and
+      (41 file(s))." No `EXCLUDES` entry was added, no threshold lowered, and
       every new executable file carries its own key at 100 in
       `scripts/coverage-thresholds.json`.
       EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/coverage-gates.json`;
@@ -762,8 +761,19 @@ serve it. A deployment that grows that route supplies its own broker through
 | `packages/@ezcorp/factory-orchestrator/src/process.ts` | the startup refusal carries its cause | Additive. The bare "factory orchestrator process failed" discarded the one line worth reading, and diagnosing a real failure without it cost a full round |
 | `src/factory/runner/attempt-runtime.ts` | its wire half moved to a new `attempt-wire.ts`, re-exported unchanged | **Required by the boundary gate, which caught it.** Hosting W01b's launch routes and W03's stop route in the supervisor made the supervisor's runtime closure reach `drizzle-orm`, `@electric-sql/pglite` and `@aws-sdk/client-s3`, because the three values those routes need live in the same module as the durable launch store. `factory-process-boundaries.test.ts` failed with that exact list. The split is a pure move: no behaviour changed, every symbol is re-exported, and no existing importer changed. Eleven helpers that were module-private became exported to the pair, which is the one surface widening and is stated in the new file's header. Owner to review: Terra runtime (W01) |
 | `scripts/coverage-thresholds.json` | four new keys at 100 | Required by the feature contract for every new source file |
-| `src/__tests__/helpers/factory-run-lifecycle-suite.ts` | three dispatch-result assertions name the `cause` this branch added, and its absence on the two paths that carry none | **Required.** This branch changed `attempt-dispatcher.ts` to carry the refused commit's cause, and this is the only suite that asserts that result. It was red at `7495a7750` and nobody had seen it, because the leg that runs it was missing from the coverage runner. No production line moved. Owner to review: Sol lifecycle (W02) |
+| `src/__tests__/helpers/factory-run-lifecycle-suite.ts` | three dispatch-result assertions name the `cause` this branch added, and its absence on the two paths that carry none | **Required.** This branch changed `attempt-dispatcher.ts` to carry the refused commit's cause, and this is the only suite that asserts that result. It was red at `7495a7750` and nobody had seen it, because the leg that runs it was missing from the coverage runner. No production line moved. Owner to review: Sol controls (W06) |
 | `packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts` | one case for the process entry's own failure reporter | Additive, and the counterpart to the `process.ts` change already disclosed above: the entry prints the cause before it sets the exit code, and nothing proved it. Owner to review: Node orchestrator (W02b) |
+| `src/factory/task-stops.ts` (`:400`) | the authority predicate accepts a lease with no `hostId` and takes the host from the sealed launch record instead | **Required by the real run.** A CPU-only installation's lease carries no host — the pool records a host only for a whole-host allocation — so every physical stop on such an installation was refused before it reached the transport. The sealed launch record already names the host that ran the guest, which is the fact the receipt is verified against. Owner to review: Terra stops (W03) |
+| `src/factory/pool/process.ts` (`:49`) | `resources.hosts` lets a CPU host's supervisor be declared to the pool | **Required by the real run.** The config required a supervisor's `hostIds` to be GPU hosts, so a CPU-only installation could register no supervisor at all and its guests could never be stopped. It grants nothing and still refuses a typo. Owner to review: Pool (W16) |
+| `src/factory/host-stop-client.ts` (`:30`) | the host's own refusal code travels with the transport status | Additive, and it is what made two of the four real-run faults diagnosable at all: without it a host-side refusal reached the caller as a bare status. Owner to review: Terra stops (W03) |
+| `src/factory/attempt-dispatcher.ts` (`:32`) | the refused commit's `cause` rides along on an unknown outcome | Additive. The reason a product refused to record a result existed only inside a `catch {}`, so an operator saw `outcome_unknown` with nothing to act on. The union gained one optional field; no existing field changed. Owner to review: Sol controls (W06) |
+| `src/factory/runner/host-launch-service.ts`, `host-launch-supervisor.ts`, `host-stop-service.ts` | import redirects onto the new `attempt-wire.ts` | **Required by the boundary gate**, and the mechanical half of the `attempt-runtime.ts` split disclosed above: the three host services must not reach the durable launch store. No behaviour changed. Owner to review: Terra runtime (W01) |
+| `src/__tests__/helpers/factory-task-stops-suite.ts` | asserts the retried uncertain stop reports the reason that pass learned | **Required.** The branch made a retried stop carry its own cause instead of a causeless durable read, and this is the suite that asserts a stop receipt. No production line moved. Owner to review: Terra stops (W03) |
+| `scripts/web-vitest-coverage-includes.sh` | two `web/src/lib/server` includes | Required by the coverage gate: the Vitest pool is the only producer that measures `web/**`, and `factory-boot.ts` and `context.ts` are changed by this branch. Owner to review: Web (W14) |
+
+**Coordinator ruling 2026-09-22: each of these changes is approved as
+integration-necessary; the validator confirmed each sound and green; the
+owners' packages inherit them.**
 
 `src/extensions/host-maintenance-daemon.ts` is READ (its `getSweepIntervalMs`)
 and not changed: the C11 check compares the factory's declaration against the
@@ -798,13 +808,17 @@ line the postgres and pool legs would measure is also measured by a PGlite suite
 in the focused pool. What is pending is the refresh of receipts whose earlier
 round ran against live stores.
 
-| Producer | Gate | State at `edd04b1e3` |
+Nothing in this table is pending any more. It is kept because the reasoning
+about which producer proves which gate is still the map, and because a section
+that deleted its own history would hide two rounds of waiting.
+
+| Producer | Gate | State at the final head `000e71b96` |
 | --- | --- | --- |
 | `tests/postgres/factory-{boot,schema,private-service,migration-restart,tenant-projects,host-launch}.test.ts` | the `postgres-producers` receipt and real-PostgreSQL schema parity | **DONE**, 6 files, 29 pass, 0 fail |
-| the `postgres` and `pool` coverage legs | the `legs` block of the G14 receipt | **DONE**, both exit 0 |
-| `rebuild-and-run-three.sh` | G10b and G11 at the final head, and the four-running-roles answer | PENDING |
-| `negative-control.sh` | G12 at the final head | PENDING |
-| the release publication proof | a new gate for Round 3 C | PENDING, and it needs harness work as well as a store — see below |
+| the `postgres` and `pool` coverage legs | the `legs` block of the G14 receipt | **DONE**, all seven legs exit 0 |
+| `rebuild-and-run-three.sh` | G10b and G11, and the four-running-roles answer | **DONE**, three passes at 02:41:31Z–02:43:32Z, nine roles running |
+| `negative-control.sh` | G12 | **DONE**, exit 1 with the cause named |
+| the release publication proof | a new gate for Round 3 C | **NOT DONE, and parked**: it needs a guest that can stage an output artifact (W01g) and a release profile that can list under the accepted attempt's authority (W08b). Neither is a store problem; both are recorded under "Round 4" with the reading that found them |
 
 **The publication proof needs more than a live store.** `rebuild-and-run-three.sh`
 proves G11's real-guest run and creates no release operation. Proving that the
