@@ -3008,11 +3008,15 @@ end-to-end proof that a submitted run reaches a real guest.
 - [x] G17: the declared destination reaches the real S3 store with the
       credentials it points at, a wrong secret is refused by the store, and an
       undeclared account is refused by name. Nothing written to the store.
-- [ ] PENDING: a PUBLISHED release end to end. `release-outcome` runs and its
-      scan finds nothing, because the proof guest's definition carries no
-      release node and no approval or policy was written. Closing it needs a
-      release node in the definition plus an approval or policy through W05's
-      production writers — harness work, not a store.
+- [x] The blockers for a PUBLISHED release are measured, verified and owned. A
+      guest cannot stage an output artifact by any route — `NativeFactoryArtifacts`
+      has no production implementation, the broker frame set has no staging
+      frame, and a fabricated reference fails because
+      `FactoryTaskCompletions` loads the artifact back. The release profile's
+      `materials` collaborator is attempt-bound. Parked by the coordinator into
+      **W01g** (staging frames) and **W08b** (profile lists under the accepted
+      attempt's authority); W09b does not reattempt it. The empty profile set
+      with a prepare-time refusal is the right state until W08b lands.
 
 ### W09b review
 
@@ -3035,6 +3039,27 @@ real guest in a real container, a durable terminal result, a physically
 confirmed stop signed by the host, a settled budget hold, a projected terminal
 status — but a guest that reaches `succeeded` has not been run, and no gate here
 claims one has.
+
+Rounds 3 and 4 finished the role. The startup document gained a `release`
+section — named destinations with credentials by reference, and the profiles
+that point at them — and `release-outcome` composes from it and RUNS: nine
+roles running on the real started application, one held, and the one held is
+W17's as planned. The declared destination is proved to reach the live S3 store
+with the credentials it names, a wrong secret refused by the store, and nothing
+written to it.
+
+Round 4 found two blockers rather than shipping a proof, and both are now
+owned. A guest cannot stage an output artifact by any route, and a fabricated
+reference fails because the platform loads the artifact back; that is W01g's.
+The release profile's material lister is attempt-bound; that is W08b's. The
+declaration therefore composes providers and no profile, so `requestRelease`
+refuses at prepare time instead of leaving a claimed operation that can never
+publish.
+
+One correction belongs in this review rather than only in the gate file. I
+reported a typecheck red as inherited from staging on the strength of an empty
+tree diff. It was a stale `zod@4.5.2` in this worktree's Bun store. A tree diff
+proves the source is identical and says nothing about the installed graph.
 
 Round 2's sharpest finding was not in the product. G14's red receipt was
 measuring nine files whose coverage LEG had never been run, and that gap was

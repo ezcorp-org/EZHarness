@@ -872,6 +872,24 @@ install both, rebuild the workspace packages, then typecheck. Measured here:
 two zod versions before, one after; 25 errors before, 0 after.
 EVIDENCE: `/tmp/factory-platform-evidence/w09b/receipts/typecheck-red-was-a-stale-store.json`.
 
+## Round 4 is parked into W01g and W08b — settled
+
+Both blockers below were accepted and given owners; W09b does not reattempt the
+proof.
+
+- **W01g (Terra runtime)** adds a material-staging frame set over W01e's guest
+  broker: typed frames in the SDK with Bun and Python parity, a host adapter
+  onto W04's `FactoryAttemptMaterials` under the attempt's OWN authority, and a
+  guest SDK `begin`/`chunk`/`seal`. A sandboxed guest can then return COMPLETED
+  with staged references. It reuses this package's repro harness and owns the
+  three-pass COMPLETED proof. **G11 stays recorded as notProven for the
+  COMPLETED path, pointing at W01g.**
+- **W08b** changes `S3FactoryManifestReleaseProfile` to list through the
+  accepted attempt's own authority via W04's scoped reader — no tenant-wide
+  lister. After it lands, a short composition round wires the profile set from
+  this package's declaration. **The empty profile set with the prepare-time
+  refusal is the right state until then**, and is what this branch ships.
+
 ## Round 4 — what the completed-guest release proof needs, measured
 
 Round 4 asks for two things on the real started application: a guest that
