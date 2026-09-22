@@ -14,7 +14,9 @@
  */
 import { resolve } from "node:path";
 import { parseFactoryStartupConfig, type FactoryStartupRunnerProfile } from "../startup-config";
-import { FactoryComposeTarget, factorySpawnExecutor, type FactoryCommandExecutor, type FactoryComposeCommand } from "./compose-profile";
+import { SQL } from "bun";
+import { FactoryComposeTarget, FactoryComposeUpgradeTarget, factorySpawnExecutor, type FactoryCommandExecutor, type FactoryComposeCommand } from "./compose-profile";
+import { FactoryFleetUpgrades, type FactoryBuild } from "./fleet-upgrade";
 import { FactoryDatabaseStep } from "./database";
 import { FactoryDeploymentStep, factoryInstallationPorts, type FactoryDeploymentSettings, type FactoryDeploymentTarget } from "./deployment";
 import { FactoryIngressStep, factoryHttpsIngressProbe } from "./ingress";
@@ -132,8 +134,14 @@ export interface FactoryFleetRuntime {
   readonly target?: FactoryDeploymentTarget;
 }
 
+/** The build every installation is first deployed with: the fleet's pinned image at its revision. */
+export function factoryFleetDefaultBuild(settings: FactoryFleetSettings): FactoryBuild {
+  return Object.freeze({ buildId: `rev-${settings.image.revision.slice(0, 12)}`, image: settings.image.reference, revision: settings.image.revision, releaseDirectory: settings.release.directory });
+}
+
 export interface FactoryComposedFleet {
   readonly provisioner: LocalFactoryProvisioner;
+  readonly upgrades: FactoryFleetUpgrades;
   readonly platform: FactoryPlatformPaths;
   readonly settings: FactoryFleetSettings;
   readonly database: FactoryDatabaseStep;
@@ -169,6 +177,8 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   });
   await temporal.load();
   const secrets = new FactorySecretsStep({ registry: { conflicts: (tenantId, digests) => provisioner!.ledger.digestConflicts(tenantId, digests) }, grantableRoots: () => ["/var/lib/ezcorp/projects"] });
+  const upgradeSql = new SQL(controlUrl, { max: 2 });
+  let upgrades: FactoryFleetUpgrades | undefined;
   const deploymentSettings: FactoryDeploymentSettings = {
     network: {
       databaseHost: settings.database.serviceHost, databasePort: settings.database.servicePort,
@@ -182,13 +192,15 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
     runnerProfiles: settings.installations.runnerProfiles,
     cpuCapacity: settings.installations.cpuCapacity,
     interpreterCompatibility: settings.installations.interpreterCompatibility,
+    builds: (installation) => upgrades!.builds(installation.tenantId),
   };
   const storagePorts = [settings.storage.ordinary.endpoint, settings.storage.archive.endpoint].map((endpointUrl) => Number(new URL(endpointUrl).port));
-  const target = runtime.target ?? new FactoryComposeTarget({
+  const composeTarget = new FactoryComposeTarget({
     compose: runtime.compose, templatePath: resolve(settings.release.directory, "deploy/factory/compose/installation.yml"), execute,
     supervisor: { bun: settings.release.bun, releaseDirectory: settings.release.directory, path: settings.release.path },
     databasePort: settings.database.servicePort, storagePorts, temporalPort: settings.temporal.port, uid: runtime.uid, gid: runtime.gid,
   });
+  const target = runtime.target ?? composeTarget;
   const deployment = new FactoryDeploymentStep({ settings: deploymentSettings, target });
   const ingress = new FactoryIngressStep({
     paths: { root: platform.ingress.root, mountedRoot: "/etc/ezcorp-ingress", listenAddress: settings.ingress.address, listenPort: settings.ingress.port },
@@ -202,7 +214,17 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
     drivers: { database, storage, temporal, secrets, deployment, ingress, invitation },
   });
   const composed = provisioner;
-  return Object.freeze({ provisioner: composed, platform, settings, database, deployment, ingress, deploymentSettings, close: async () => { await composed.close(); await database.close(); } });
+  await composed.setup();
+  upgrades = new FactoryFleetUpgrades(upgradeSql, new FactoryComposeUpgradeTarget((installation) => deployment.bundle(installation), composeTarget), async (tenantId) => {
+    const record = await composed.ledger.installation(tenantId);
+    if (!record) throw new FactoryProvisioningError("provisioning_unknown_tenant", `No installation is recorded for ${tenantId}.`);
+    const { raw: _raw, phase: _phase, planLimits: _limits, membershipRefs: _refs, ...context } = record;
+    return context;
+  });
+  await upgrades.setup();
+  await upgrades.register(factoryFleetDefaultBuild(settings));
+  const fleetUpgrades = upgrades;
+  return Object.freeze({ provisioner: composed, upgrades: fleetUpgrades, platform, settings, database, deployment, ingress, deploymentSettings, close: async () => { await composed.close(); await database.close(); await upgradeSql.close(); } });
 }
 
 export { factoryPlatformPaths };

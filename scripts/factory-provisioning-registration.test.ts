@@ -11,7 +11,11 @@ function registrationIssues(workflow: string, producer: string): string[] {
   ] as const;
   const producerRequired = [
     ["real provisioning test", "./tests/postgres/factory-provisioning.test.ts"],
-    ["single owned source", "src/factory/provisioning/local.ts"],
+    ["real gateway process test", "./tests/postgres/factory-gateway-process.test.ts"],
+    ["provisioner source", "src/factory/provisioning/local.ts"],
+    ["ledger source", "src/factory/provisioning/ledger.ts"],
+    ["database step source", "src/factory/provisioning/database.ts"],
+    ["upgrade ledger source", "src/factory/provisioning/fleet-upgrade.ts"],
     ["caller-selected output", "COV_OUT:?COV_OUT is required"],
   ] as const;
   return [
@@ -32,6 +36,7 @@ describe("factory provisioning coverage registration", () => {
     const producer = await readFile("scripts/factory-provisioning-coverage.sh", "utf8");
     expect(registrationIssues(workflow.replace("bash scripts/factory-provisioning-coverage.sh", "true"), producer)).toContain("real PostgreSQL producer invocation");
     expect(registrationIssues(workflow.replace("./tests/postgres/factory-assurance.test.ts", "./tests/postgres/missing-assurance.test.ts"), producer)).toContain("real factory assurance test");
-    expect(registrationIssues(workflow, producer.replace("src/factory/provisioning/local.ts", "src/factory/provisioning/other.ts"))).toContain("single owned source");
+    expect(registrationIssues(workflow, producer.replace("src/factory/provisioning/local.ts", "src/factory/provisioning/other.ts"))).toContain("provisioner source");
+    expect(registrationIssues(workflow, producer.replace("./tests/postgres/factory-gateway-process.test.ts", ""))).toContain("real gateway process test");
   });
 });

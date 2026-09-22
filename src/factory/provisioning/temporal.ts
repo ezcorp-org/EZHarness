@@ -100,7 +100,7 @@ export function factoryTemporalJwks(keyPem: string, keyId: string): { readonly k
 
 export function parseFactoryTemporalRevocations(value: unknown): FactoryTemporalRevocations {
   const record = value as Partial<FactoryTemporalRevocations> | null;
-  if (!record || record.schemaVersion !== "factory.temporal-revocations.v1" || !Array.isArray(record.subjects) || !Array.isArray(record.certificateHashes)
+  if (record?.schemaVersion !== "factory.temporal-revocations.v1" || !Array.isArray(record.subjects) || !Array.isArray(record.certificateHashes)
     || record.subjects.some((subject) => typeof subject !== "string") || record.certificateHashes.some((hash) => typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash))) {
     throw new FactoryProvisioningError("temporal_revocations_corrupt", "The Temporal revocation list is corrupt.");
   }

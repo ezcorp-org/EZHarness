@@ -297,7 +297,7 @@ export class LocalFactoryProvisioner {
   async purge(tenantId: string, approval: FactoryPurgeApproval, census: FactoryWorkCensus): Promise<LocalInstallation> {
     return this.ledger.locked(tenantId, async () => {
       const record = await this.ledger.installation(tenantId);
-      if (!record || record.phase !== "torn_down") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Only a torn-down installation can be purged; ${tenantId} is ${record?.phase ?? "unknown"}.`);
+      if (record?.phase !== "torn_down") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Only a torn-down installation can be purged; ${tenantId} is ${record?.phase ?? "unknown"}.`);
       if (!record.membershipRefs.includes(approval.approvedBy)) throw new FactoryProvisioningError("purge_approver_unknown", "Purge must be approved by one of the installation's recorded administrators.");
       const installation = this.context(record);
       const open = await census.count(installation);

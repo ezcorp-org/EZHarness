@@ -13,7 +13,7 @@
  * own connection, so a failure record survives the fault that caused it. The
  * provisioning transaction exists only to hold the per-tenant advisory lock.
  */
-import { SQL } from "bun";
+import type { SQL } from "bun";
 import { FACTORY_INSTALLATION_PHASES, FACTORY_PROVISIONING_STEPS, FACTORY_STEP_STATES, FactoryProvisioningError, factoryPhaseTransitionAllowed, isFactoryInstallationPhase, isFactoryStepState, type FactoryInstallationPhase, type FactoryProvisioningStepName, type FactoryStepFailure, type FactoryStepState } from "./steps";
 import type { FactoryStepResources } from "./installation";
 

@@ -178,6 +178,7 @@ jobs:
           ./tests/postgres/factory-encryption-s3.test.ts
           ./tests/postgres/factory-inbox.test.ts
           ./tests/postgres/factory-project-creation.test.ts
+          ./tests/postgres/factory-installation-bootstrap.test.ts
           ./tests/postgres/factory-records.test.ts
           ./tests/postgres/factory-tenant-projects.test.ts
           ./tests/postgres/factory-host-launch.test.ts
