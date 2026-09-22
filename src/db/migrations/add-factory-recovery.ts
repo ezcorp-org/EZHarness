@@ -102,7 +102,7 @@ export async function up(database: MigrationDb): Promise<void> {
     CONSTRAINT factory_checkpoints_state_check CHECK (state IN ('sealed','aborted')),
     CONSTRAINT factory_checkpoints_epoch_check CHECK (execution_epoch > 0),
     CONSTRAINT factory_checkpoints_duration_check CHECK (duration_ms >= 0 AND started_at_ms >= 0),
-    CONSTRAINT factory_checkpoints_sealed_check CHECK ((state = 'sealed') = (manifest_digest IS NOT NULL AND manifest_archive_json IS NOT NULL AND product_lsn IS NOT NULL AND sealed_at IS NOT NULL AND key_wrap_version IS NOT NULL)),
+    CONSTRAINT factory_checkpoints_sealed_check CHECK ((state = 'sealed') = (manifest_digest IS NOT NULL AND manifest_archive_json IS NOT NULL AND product_lsn IS NOT NULL AND sealed_at IS NOT NULL)),
     CONSTRAINT factory_checkpoints_key_wrap_check CHECK (key_wrap_version IS NULL OR key_wrap_version > 0),
     CONSTRAINT factory_checkpoints_aborted_check CHECK ((state = 'aborted') = (abort_code IS NOT NULL)),
     CONSTRAINT factory_checkpoints_manifest_digest_check CHECK (manifest_digest IS NULL OR manifest_digest ~ '^sha256:[0-9a-f]{64}$')

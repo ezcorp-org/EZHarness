@@ -88,7 +88,7 @@ test("rotation rewraps the data key, keeps every wrap, and leaves archived and c
   for (let index = 0; index < 3; index += 1) expect(new TextDecoder().decode(await readBack.getBound({ tenantId, objectId: `object-${index}` }, objectDigests[index]!))).toBe(`product object ${index}`);
   expect(new TextDecoder().decode(new EncryptedRecordCodec(reopened, "archive").decode({ tenantId, objectId: "rotation-run" }, await storage.archive.read(archived)))).toBe("archived audit page");
   // The checkpoint's recorded wrap is still in the ledger byte for byte, so a restore to it passes its key check.
-  expect((await factoryKeyWrapDigest(fixture.db, installationId, 1))!.wrappedDigest).toBe(manifest.keys.wrappedDigest);
+  expect((await factoryKeyWrapDigest(fixture.db, installationId, 1))!.wrappedDigest).toBe(manifest.keys.wrappedDigest!);
 
   // Nothing was rewritten: every object still has exactly its one original version.
   expect(await versionsUnder(storage.ordinaryClient, storage.ordinaryPrefix)).toEqual(ordinaryBefore);

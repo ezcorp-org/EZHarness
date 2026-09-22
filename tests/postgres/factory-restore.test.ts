@@ -253,6 +253,16 @@ describe("restore into a new execution epoch", () => {
     } finally { await stripped.close(); }
   }, 120_000);
 
+  test("a manifest without a database wrap checks only that the operator's keys open the data key", async () => {
+    const restored = await restoredCopy("file-wrap");
+    try {
+      const seal = (await latestFactoryCheckpoint(storage.archive, tenantId))!.seal;
+      const fileWrapped = { seal, manifest: { ...manifest, keys: { installationId, wrapVersion: null, masterKeyId: null, wrappedDigest: null } } };
+      const opens = await restoreFor(restored.db).begin({ restoreId: "restore-file-wrap", mode: "tenant", checkpoint: fileWrapped });
+      expect(finding(opens, "check", "keys")).toMatchObject({ disposition: "verified", reason: "key_version_opens" });
+    } finally { await restored.close(); }
+  }, 120_000);
+
   test("a gapped or conflicting audit stream blocks only its run, and a blocked run stays at the old epoch", async () => {
     const restored = await restoredCopy("audit");
     try {

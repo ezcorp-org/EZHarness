@@ -353,11 +353,12 @@ export class FactoryRestore {
       : { subjectKind: "check", subjectId: "database-position", disposition: "blocked", reason: "database_position_mismatch", detail: { mismatched, lsn: manifest.product.lsn } });
     // The recorded wrap must be in the restored ledger byte for byte, and the
     // operator's master keys must open the installation's data key.
-    const wrap = await factoryKeyWrapDigest(this.database, manifest.keys.installationId, manifest.keys.wrapVersion);
+    const recorded = manifest.keys.wrapVersion;
+    const wrap = recorded === null ? null : await factoryKeyWrapDigest(this.database, manifest.keys.installationId, recorded);
     let keyError: string | null = null;
     try { if ((await this.options.loadDataKey()).installationId !== manifest.keys.installationId) keyError = "installation_mismatch"; }
     catch (error) { keyError = error instanceof Error ? error.message : String(error); }
-    const keyReason = wrap?.wrappedDigest !== manifest.keys.wrappedDigest ? "key_version_missing" : keyError !== null ? "key_missing" : null;
+    const keyReason = recorded !== null && wrap?.wrappedDigest !== manifest.keys.wrappedDigest ? "key_version_missing" : keyError !== null ? "key_missing" : null;
     await record(keyReason === null
       ? { subjectKind: "check", subjectId: "keys", disposition: "verified", reason: "key_version_opens", detail: { wrapVersion: manifest.keys.wrapVersion, masterKeyId: manifest.keys.masterKeyId } }
       : { subjectKind: "check", subjectId: "keys", disposition: "blocked", reason: keyReason, detail: { wrapVersion: manifest.keys.wrapVersion, masterKeyId: manifest.keys.masterKeyId, error: keyError } });

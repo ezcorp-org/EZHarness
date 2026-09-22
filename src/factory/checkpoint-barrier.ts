@@ -76,7 +76,6 @@ export type FactoryCheckpointAbortCode =
   | "pool_unavailable"
   | "temporal_unavailable"
   | "archive_failed"
-  | "key_unavailable"
   | "cancelled";
 
 export class FactoryCheckpointError extends Error {
@@ -159,11 +158,13 @@ export interface FactoryCheckpointManifest {
   readonly temporal: { readonly captured: true; readonly namespace: string; readonly workflows: readonly FactoryTemporalWorkflowPosition[] } | { readonly captured: false; readonly reason: string };
   /**
    * The key version a restore needs. The product process never holds the data
-   * key (C06 gives it only to the orchestration process), so the manifest names
-   * the wrap and pins its bytes by digest; the restore, which holds the
-   * operator's master keys, proves the wrap is present and opens.
+   * key (C06 gives it only to the orchestration process). When the product
+   * database keeps the wrap ledger, the manifest names the newest wrap and pins
+   * its bytes by digest; when the wrap lives only in the orchestration
+   * process's private file, the three wrap fields are null and the restore,
+   * which holds the operator's keys, proves the data key opens from there.
    */
-  readonly keys: { readonly installationId: string; readonly wrapVersion: number; readonly masterKeyId: string; readonly wrappedDigest: string };
+  readonly keys: { readonly installationId: string; readonly wrapVersion: number | null; readonly masterKeyId: string | null; readonly wrappedDigest: string | null };
 }
 
 export interface FactoryCheckpointSeal {
@@ -408,8 +409,7 @@ export class FactoryCheckpointCoordinator {
       const fenced = await fencedSenders(transaction, this.tenantId, this.now());
       const schemaDigest = await factorySchemaDigest(transaction);
       const previous = rows<{ checkpoint_id: string }>(await transaction.execute(sql`SELECT checkpoint_id FROM factory_checkpoints WHERE tenant_id = ${this.tenantId} AND state = 'sealed' ORDER BY sealed_at DESC LIMIT 1`))[0]?.checkpoint_id ?? null;
-      const wrap = await factoryKeyWrapDigest(transaction, this.options.installationId);
-      if (!wrap) throw new BarrierAbort("key_unavailable");
+      const wrap = await factoryKeyWrapDigest(transaction, this.options.installationId) ?? { installationId: this.options.installationId, wrapVersion: null, masterKeyId: null, wrappedDigest: null };
       const pool = await this.poolPosition(deadline, signal);
       const temporal = await this.temporalPositions(live, deadline, signal);
       const archive = this.options.archive;

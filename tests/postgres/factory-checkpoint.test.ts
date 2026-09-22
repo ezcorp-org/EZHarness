@@ -270,6 +270,17 @@ describe("the compatible checkpoint barrier", () => {
     if (manifest.temporal.captured) expect(manifest.temporal.workflows.map(workflow => workflow.workflowId)).toContain(`${tenantId}/run-blocked`);
   });
 
+  test("where the wrap lives only in the orchestration process's file, the manifest says so instead of aborting", async () => {
+    const wraps = rows<{ installation_id: string; wrap_version: number; master_key_id: string; wrapped_data_key: Uint8Array }>(await fixture.db.execute(sql`SELECT installation_id, wrap_version, master_key_id, wrapped_data_key FROM factory_installation_key_wraps`));
+    await fixture.db.execute(sql`DELETE FROM factory_installation_key_wraps`);
+    try {
+      expect((await coordinator(storage.archive).run()).kind).toBe("sealed");
+      expect((await latestFactoryCheckpoint(storage.archive, tenantId))!.manifest.keys).toEqual({ installationId, wrapVersion: null, masterKeyId: null, wrappedDigest: null });
+    } finally {
+      for (const wrap of wraps) await fixture.db.execute(sql`INSERT INTO factory_installation_key_wraps (installation_id, wrap_version, master_key_id, wrapped_data_key) VALUES (${wrap.installation_id}, ${wrap.wrap_version}, ${wrap.master_key_id}, ${Buffer.from(wrap.wrapped_data_key)})`);
+    }
+  });
+
   test("an open restore epoch skips the barrier; the barrier counts its windows", async () => {
     await fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms, opened_state_json) VALUES (${tenantId}, 'skip-probe', 'tenant', 'x', ${digest("a")}, 1, 2, 'fenced', 0, '{}')`);
     try { expect(await coordinator(storage.archive).run()).toEqual({ kind: "skipped", reason: "restore_epoch_open" }); }
