@@ -200,7 +200,20 @@ function refused(identity: FactoryGuestMaterialFrameIdentity, code: FactoryGuest
   return respond(identity, { status: "refused", refusal: Object.freeze({ code, message }) });
 }
 
-export function createFactoryGuestMaterialBroker(options: FactoryGuestMaterialBrokerOptions): FactoryGuestBroker {
+/**
+ * The staging broker in the shape the wire needs: one verified attempt
+ * authority and one frame.
+ *
+ * The in-process runtime holds the whole runner request and the remote host
+ * route holds only what the attempt token proved, and the token proves the
+ * authority. Deriving the authority once, at each edge, is what lets both
+ * deployments share this one implementation instead of two.
+ */
+export interface FactoryGuestMaterialFrameBroker {
+  frame(authority: FactoryAttemptAuthority, payload: unknown): Promise<FactoryGuestMaterialResponse>;
+}
+
+export function createFactoryGuestMaterialFrameBroker(options: Omit<FactoryGuestMaterialBrokerOptions, "delegate">): FactoryGuestMaterialFrameBroker {
   const now = options.now ?? Date.now;
 
   /** The one sealed record a promotion may name, proved against the frame's own digest. */
@@ -243,32 +256,40 @@ export function createFactoryGuestMaterialBroker(options: FactoryGuestMaterialBr
     return respond(frame, { status: "output", output, resultDigest: output.digest.slice("sha256:".length) });
   };
 
-  const call = async (request: FactoryRunnerRequest, payload: unknown): Promise<FactoryGuestMaterialResponse> => {
-    const validation = validateFactoryGuestMaterialRequest(payload);
-    if (!validation.ok) {
-      const code: FactoryGuestMaterialRefusal = OVERSIZE_ISSUES.has(validation.issues[0]?.code ?? "") ? "oversize" : "invalid_request";
-      return refused(frameIdentity(payload), code, validation.issues[0]?.message ?? "A guest staging frame is invalid.");
-    }
-    const frame = payload as FactoryGuestMaterialRequest;
+  return Object.freeze({
+    async frame(authority: FactoryAttemptAuthority, payload: unknown): Promise<FactoryGuestMaterialResponse> {
+      const validation = validateFactoryGuestMaterialRequest(payload);
+      if (!validation.ok) {
+        const code: FactoryGuestMaterialRefusal = OVERSIZE_ISSUES.has(validation.issues[0]?.code ?? "") ? "oversize" : "invalid_request";
+        return refused(frameIdentity(payload), code, validation.issues[0]?.message ?? "A guest staging frame is invalid.");
+      }
+      const request = payload as FactoryGuestMaterialRequest;
 
-    const authority = factoryRunnerRequestAuthority(request);
-    // Checked here rather than left to the journal, because the attempt's own
-    // signed deadline is a fact this adapter already holds and the journal
-    // refuses an expired attempt together with five other reasons.
-    if (authority.deadlineAt.getTime() <= now()) return refused(frame, "deadline_expired", "This attempt's effect deadline has passed; no further material may be staged.");
+      // Checked here rather than left to the journal, because the attempt's own
+      // signed deadline is a fact this adapter already holds and the journal
+      // refuses an expired attempt together with five other reasons.
+      if (authority.deadlineAt.getTime() <= now()) return refused(request, "deadline_expired", "This attempt's effect deadline has passed; no further material may be staged.");
 
-    let materials: FactoryAttemptMaterials;
-    try { materials = options.services.materials(authority); }
-    catch (error) { return refused(frame, "unknown_attempt", detail(error, "This host serves no material service for that attempt.")); }
+      let materials: FactoryAttemptMaterials;
+      try { materials = options.services.materials(authority); }
+      catch (error) { return refused(request, "unknown_attempt", detail(error, "This host serves no material service for that attempt.")); }
 
-    const identity: FactoryMaterialIdentity = { ...materials.scope(frame.operationId), objectName: frame.objectName, version: frame.version };
-    try { return await staged(frame, materials, identity, authority); }
-    catch (error) { return refused(frame, factoryGuestMaterialRefusal(error), detail(error, "The material service refused this frame.")); }
-  };
+      const identity: FactoryMaterialIdentity = { ...materials.scope(request.operationId), objectName: request.objectName, version: request.version };
+      try { return await staged(request, materials, identity, authority); }
+      catch (error) { return refused(request, factoryGuestMaterialRefusal(error), detail(error, "The material service refused this frame.")); }
+    },
+  });
+}
 
+/**
+ * The same broker behind the reverse-capability seam the in-process runtime
+ * drives, which hands over the whole runner request.
+ */
+export function createFactoryGuestMaterialBroker(options: FactoryGuestMaterialBrokerOptions): FactoryGuestBroker {
+  const frames = createFactoryGuestMaterialFrameBroker(options);
   return Object.freeze({
     async invoke(request: FactoryRunnerRequest, payload: unknown): Promise<unknown> {
-      if (isFactoryGuestMaterialPayload(payload)) return call(request, payload);
+      if (isFactoryGuestMaterialPayload(payload)) return frames.frame(factoryRunnerRequestAuthority(request), payload);
       if (options.delegate) return options.delegate.invoke(request, payload);
       throw new FactoryGuestFrameError("frame_invalid", "Factory guest reverse payload is not a staging frame and this broker has no other route.");
     },
