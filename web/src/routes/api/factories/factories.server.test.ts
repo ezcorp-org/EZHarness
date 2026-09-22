@@ -1,3 +1,4 @@
+import { FACTORY_DISABLED_REASON } from "$server/factory/boot";
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { canonicalizeJson, compileFactory, referenceCodeV1, type FactoryApiResponse } from "@ezcorp/factory-sdk";
@@ -15,7 +16,7 @@ import { FactoryRunControlError } from "$server/factory/run-controls";
 
 const state = vi.hoisted(() => ({ enabled: true, application: null as unknown }));
 
-vi.mock("$server/factory/boot", () => ({ factoryBootConfig: { get enabled() { return state.enabled; }, installationId: "test-installation" } }));
+vi.mock("$server/factory/boot", async importOriginal => ({ ...(await importOriginal<typeof import("$server/factory/boot")>()), factoryBootConfig: { get enabled() { return state.enabled; }, installationId: "test-installation" } }));
 vi.mock("$server/auth/jwt", async importOriginal => ({ ...(await importOriginal<typeof import("$server/auth/jwt")>()), getJwtSecret: async () => "test-factory-service-secret" }));
 vi.mock("$server/factory/application", async importOriginal => {
   const actual = await importOriginal<typeof import("$server/factory/application")>();
@@ -138,7 +139,7 @@ beforeEach(() => {
   runControls.request.mockResolvedValue({ run: { ...run, revision: 2, parameters: {} }, receipt });
 });
 
-function event(method: string, pathname: string, options: { body?: unknown; revision?: number; key?: string; auth?: "session" | "api-key" | "internal"; anonymous?: boolean; scopes?: string[]; params?: Record<string, string> } = {}) {
+function event(method: string, pathname: string, options: { body?: unknown; revision?: number; key?: string; auth?: "session" | "api-key" | "internal"; anonymous?: boolean; scopes?: string[]; role?: "admin" | "member"; params?: Record<string, string> } = {}) {
   const headers: Record<string, string> = {};
   if (options.body !== undefined) headers["content-type"] = "application/json";
   if (options.revision !== undefined) headers["If-Match"] = String(options.revision);
@@ -149,7 +150,7 @@ function event(method: string, pathname: string, options: { body?: unknown; revi
     request,
     url: new URL(request.url),
     params: options.params ?? {},
-    locals: options.anonymous ? {} : { user: { id: authMethod === "session" ? "member-1" : "key-owner", email: "member@example.test", name: "Member", role: "member", status: "active" }, authMethod, ...(authMethod === "api-key" ? { apiKeyScopes: options.scopes ?? ["read", "write"] } : {}), ...(authMethod === "internal" ? { apiKeyId: "internal-1" } : {}) },
+    locals: options.anonymous ? {} : { user: { id: authMethod === "session" ? "member-1" : "key-owner", email: "member@example.test", name: "Member", role: options.role ?? "member", status: "active" }, authMethod, ...(authMethod === "api-key" ? { apiKeyScopes: options.scopes ?? ["read", "write"] } : {}), ...(authMethod === "internal" ? { apiKeyId: "internal-1" } : {}) },
   } as never;
 }
 
@@ -235,6 +236,14 @@ describe("factory definition and grant routes", () => {
     const narrow = event("POST", "/api/factories/projects/project-1/definitions", { params: { projectId: "project-1" }, body: { source: referenceCodeV1 }, revision: 0, key: "service-write", anonymous: true }) as { locals: App.Locals };
     narrow.locals.factoryServicePrincipal = service;
     expect((await collection.POST(narrow as never)).status).toBe(403);
+    // C01 keeps the tenant-administrator rows away from service principals, so
+    // an admin-scoped verb is refused before any scope lookup.
+    const grantPath = { projectId: "project-1", principalKind: "user", principalId: "member-1", action: "factory.author" };
+    const administrative = event("PUT", "/api/factories/projects/project-1/grants/user/member-1/factory.author", { params: grantPath, body: { expiresAtMs: null }, revision: 0, key: "service-grant", anonymous: true }) as { locals: App.Locals };
+    administrative.locals.factoryServicePrincipal = service;
+    const refusal = await grantItem.PUT(administrative as never);
+    expect(refusal.status).toBe(403);
+    expect(await json(refusal)).toMatchObject({ error: { code: "factory_service_scope_required" } });
   });
 
   test("maps credential conflicts, absence, authority, input and storage errors", async () => {
@@ -263,8 +272,8 @@ describe("factory definition and grant routes", () => {
       versions.POST(event("POST", "/api/factories/projects/project-1/definitions/reference.code.v1/versions", { params: resource, body: { version: "1.0.0" }, revision: 1, key: "publish" })),
       versionRoute.GET(event("GET", "/api/factories/projects/project-1/definitions/reference.code.v1/versions/1.0.0", { params: { ...resource, version: "1.0.0" } })),
       grantList.GET(event("GET", "/api/factories/projects/project-1/grants?principalKind=user&action=factory.author", { params: project })),
-      grantItem.PUT(event("PUT", "/api/factories/projects/project-1/grants/user/member-1/factory.author", { params: grantPath, body: { expiresAtMs: null }, revision: 0, key: "grant" })),
-      grantItem.DELETE(event("DELETE", "/api/factories/projects/project-1/grants/user/member-1/factory.author", { params: grantPath, revision: 1, key: "revoke" })),
+      grantItem.PUT(event("PUT", "/api/factories/projects/project-1/grants/user/member-1/factory.author", { params: grantPath, body: { expiresAtMs: null }, revision: 0, key: "grant", role: "admin" })),
+      grantItem.DELETE(event("DELETE", "/api/factories/projects/project-1/grants/user/member-1/factory.author", { params: grantPath, revision: 1, key: "revoke", role: "admin" })),
     ];
     const responses = await Promise.all(calls);
     expect(responses.every(response => response.status === 200)).toBe(true);
@@ -285,7 +294,7 @@ describe("factory definition and grant routes", () => {
     state.enabled = false;
     const disabled = await collection.POST(event("POST", "/api/factories/projects/project-1/definitions", { params: { projectId: "project-1" }, body: "not json" }));
     expect(disabled.status).toBe(404);
-    expect((await json(disabled))).toMatchObject({ kind: "error", error: { code: "factory_disabled" } });
+    expect((await json(disabled))).toMatchObject({ kind: "error", error: { code: FACTORY_DISABLED_REASON } });
     state.enabled = true;
     state.application = null;
     const unavailable = await collection.GET(event("GET", "/api/factories/projects/project-1/definitions", { params: { projectId: "project-1" }, anonymous: true }));
@@ -293,19 +302,46 @@ describe("factory definition and grant routes", () => {
     expect((await json(unavailable))).toMatchObject({ error: { code: "factory_application_unavailable", retryable: true } });
   });
 
-  test("enforces authentication, exact key scopes, and human-only publication", async () => {
+  test("enforces authentication and the exact key scope C01 assigns each action", async () => {
     const params = { projectId: "project-1", factoryId: referenceCodeV1.id };
     const anonymous = await collection.GET(event("GET", "/api/factories/projects/project-1/definitions", { params, anonymous: true }));
     expect(anonymous.status).toBe(401);
     const narrow = await collection.POST(event("POST", "/api/factories/projects/project-1/definitions", { params, body: { source: referenceCodeV1 }, revision: 0, key: "key", auth: "api-key", scopes: ["read"] }));
     expect(narrow.status).toBe(403);
-    const keyPublish = await versions.POST(event("POST", "/api/factories/projects/project-1/definitions/reference.code.v1/versions", { params, body: { version: "1.0.0" }, revision: 1, key: "publish", auth: "api-key" }));
-    expect(keyPublish.status).toBe(403);
     const internal = await collection.GET(event("GET", "/api/factories/projects/project-1/definitions", { params, auth: "internal" }));
     expect(internal.status).toBe(403);
     const keyAuthor = await collection.POST(event("POST", "/api/factories/projects/project-1/definitions", { params, body: { source: referenceCodeV1 }, revision: 0, key: "key", auth: "api-key", scopes: ["write"] }));
     expect(keyAuthor.status).toBe(200);
     expect(definitions.save).toHaveBeenLastCalledWith(expect.objectContaining({ authentication: "api-key" }), expect.anything(), 0, "key", referenceCodeV1);
+  });
+
+  // C01: "Publish a definition version | Project member plus `factory.publish` |
+  // `write`". The route used to be session-only, so a `write` key holding the
+  // grant could not perform the one action the contract assigns it.
+  test("publishes a version under the write scope and refuses a read-only key", async () => {
+    const params = { projectId: "project-1", factoryId: referenceCodeV1.id };
+    const readOnly = await versions.POST(event("POST", "/api/factories/projects/project-1/definitions/reference.code.v1/versions", { params, body: { version: "1.0.0" }, revision: 1, key: "publish-read", auth: "api-key", scopes: ["read"] }));
+    expect(readOnly.status).toBe(403);
+    const writeKey = await versions.POST(event("POST", "/api/factories/projects/project-1/definitions/reference.code.v1/versions", { params, body: { version: "1.0.0" }, revision: 1, key: "publish-write", auth: "api-key", scopes: ["write"] }));
+    expect(writeKey.status).toBe(200);
+    expect(definitions.publish).toHaveBeenLastCalledWith(expect.objectContaining({ authentication: "api-key" }), params, 1, "publish-write", "1.0.0");
+  });
+
+  // C01: "Install/quarantine packages or manage tenant grants | Tenant
+  // administrator | `admin`". The admin scope alone is allow-all for a cookie
+  // session, so the role is gated too — a member with a browser session is
+  // refused where the old session-only gate admitted them.
+  test("manages grants only for a tenant administrator on both authority axes", async () => {
+    const grantPath = { projectId: "project-1", principalKind: "user", principalId: "member-1", action: "factory.author" };
+    const member = await grantItem.PUT(event("PUT", "/api/factories/projects/project-1/grants/user/member-1/factory.author", { params: grantPath, body: { expiresAtMs: null }, revision: 0, key: "grant-member" }));
+    expect(member.status).toBe(403);
+    const narrowKey = await grantItem.PUT(event("PUT", "/api/factories/projects/project-1/grants/user/member-1/factory.author", { params: grantPath, body: { expiresAtMs: null }, revision: 0, key: "grant-key", auth: "api-key", scopes: ["write"], role: "admin" }));
+    expect(narrowKey.status).toBe(403);
+    const administrator = await grantItem.PUT(event("PUT", "/api/factories/projects/project-1/grants/user/member-1/factory.author", { params: grantPath, body: { expiresAtMs: null }, revision: 0, key: "grant-admin", role: "admin" }));
+    expect(administrator.status).toBe(200);
+    const revoked = await grantItem.DELETE(event("DELETE", "/api/factories/projects/project-1/grants/user/member-1/factory.author", { params: grantPath, revision: 1, key: "revoke-admin", role: "admin" }));
+    expect(revoked.status).toBe(200);
+    expect(grants.revoke).toHaveBeenLastCalledWith(expect.objectContaining({ authentication: "session" }), expect.objectContaining({ expectedRevision: 1 }), "revoke-admin");
   });
 
   test("answers a run-scoped generic approval only through a human session", async () => {
@@ -392,7 +428,7 @@ describe("factory release authority routes", () => {
     state.enabled = false;
     const disabled = await releaseTrust.PUT(event("PUT", "/api/factories/projects/project-1/release/trust", { params: path, body: "{" }));
     expect(disabled.status).toBe(404);
-    expect(await json(disabled)).toMatchObject({ kind: "error", error: { code: "factory_disabled" } });
+    expect(await json(disabled)).toMatchObject({ kind: "error", error: { code: FACTORY_DISABLED_REASON } });
     state.enabled = true;
     state.application = null;
     const unavailable = await releaseControl.PUT(event("PUT", "/api/factories/projects/project-1/release/control", { params: path, body: "{", anonymous: true }));

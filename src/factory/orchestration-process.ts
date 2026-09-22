@@ -38,7 +38,7 @@ export interface FactoryOrchestratorMainDependencies {
   readonly runConfigured: (configPath: string, signal: AbortSignal) => Promise<void>;
   readonly once: (event: "SIGINT" | "SIGTERM", listener: () => void) => void;
   readonly removeListener: (event: "SIGINT" | "SIGTERM", listener: () => void) => void;
-  readonly fail: () => void;
+  readonly fail: (error: unknown) => void;
 }
 
 function exact(value: object, keys: readonly string[]): boolean {
@@ -136,11 +136,26 @@ export async function runConfiguredFactoryOrchestrator(
   });
 }
 
-const productionMainDependencies: FactoryOrchestratorMainDependencies = {
+/**
+ * The wiring the real process entry uses, exported so its one behaviour can be
+ * proved: it PRINTS before it sets the exit code. A default that is only ever
+ * replaced in tests is a default nothing measures, and this one is the reason a
+ * silent exit 1 cost a full debugging round.
+ */
+export const productionMainDependencies: FactoryOrchestratorMainDependencies = {
   runConfigured: runConfiguredFactoryOrchestrator,
   once: (event, listener) => process.once(event, listener),
   removeListener: (event, listener) => process.removeListener(event, listener),
-  fail: () => { process.exitCode = 1; },
+  // Printed BEFORE the exit code is set, because an empty log is the one
+  // symptom a reader cannot act on. A silent exit 1 here cost a full
+  // debugging round: the process refused its own configuration and said
+  // nothing at all.
+  fail: (error: unknown) => {
+    console.error("[factory-orchestrator] failed to start:", error instanceof Error ? (error.stack ?? error.message) : String(error));
+    const cause = (error as { cause?: unknown } | undefined)?.cause;
+    if (cause !== undefined) console.error("[factory-orchestrator] caused by:", cause instanceof Error ? (cause.stack ?? cause.message) : String(cause));
+    process.exitCode = 1;
+  },
 };
 
 export async function runFactoryOrchestratorMain(

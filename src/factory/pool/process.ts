@@ -27,7 +27,27 @@ export interface FactoryPoolProcessConfig {
   readonly tls: { readonly privateKeyPath: string; readonly certificatePath: string; readonly caPath: string };
   readonly tokens: { readonly issuer: string; readonly audience: string; readonly publicKeyPaths: Readonly<Record<string, string>> };
   readonly identities: PoolAdmissionIdentityConfig;
-  readonly resources: { readonly capacities: Readonly<Partial<Record<Exclude<PoolResourceClass, "gpu-host">, number>>>; readonly gpuHosts: readonly string[] };
+  readonly resources: {
+    readonly capacities: Readonly<Partial<Record<Exclude<PoolResourceClass, "gpu-host">, number>>>;
+    readonly gpuHosts: readonly string[];
+    /**
+     * Hosts this pool's supervisors manage that are not whole-host allocations.
+     *
+     * The ledger records a host only for an allocation that binds a whole one,
+     * so a CPU reservation has none and the pool tracks no such host. But C03
+     * still settles a CPU stop only on a trusted supervisor's word, and that
+     * supervisor must be authorized for the host it names — so without a place
+     * to declare an ordinary host, a CPU-only installation could register no
+     * supervisor at all and no CPU stop could ever settle. Measured end to end,
+     * where every signed stop was refused with "cannot be acknowledged before a
+     * supervisor confirms it".
+     *
+     * Declaring a host here grants nothing and allocates nothing. It only says
+     * this host exists, so a supervisor may be authorized for it and a typo
+     * still cannot be.
+     */
+    readonly hosts?: readonly string[];
+  };
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
 }
@@ -57,13 +77,13 @@ function textRecord(value: unknown): value is Record<string, string> {
   return record(value) && Object.keys(value).length > 0 && Object.keys(value).length <= 256 && Object.entries(value).every(([key, item]) => text(key, 256) && text(item, 4_096));
 }
 function absolutePath(value: unknown): value is string { return text(value, 4_096) && resolve(value) === value; }
-function identityConfig(value: unknown, gpuHosts: ReadonlySet<string>): value is PoolAdmissionIdentityConfig {
+function identityConfig(value: unknown, knownHosts: ReadonlySet<string>): value is PoolAdmissionIdentityConfig {
   if (!record(value) || !exact(value, ["tenants", "supervisors"]) || !record(value.tenants) || !record(value.supervisors) || Object.keys(value.tenants).length < 1 || Object.keys(value.tenants).length > 10_000 || Object.keys(value.supervisors).length > 10_000) return false;
   const certificateNames = [...Object.keys(value.tenants), ...Object.keys(value.supervisors)];
   if (new Set(certificateNames).size !== certificateNames.length || certificateNames.some(name => !text(name, 256))) return false;
   const tenants = Object.values(value.tenants);
   if (tenants.some(item => !record(item) || !exact(item, ["tenantId", "tokenSubject"]) || !text(item.tenantId, 256) || !text(item.tokenSubject, 256))) return false;
-  return Object.values(value.supervisors).every(item => record(item) && exact(item, ["supervisorId", "tokenSubject", "hostIds"]) && text(item.supervisorId, 256) && text(item.tokenSubject, 256) && Array.isArray(item.hostIds) && item.hostIds.length <= 10_000 && new Set(item.hostIds).size === item.hostIds.length && item.hostIds.every(host => typeof host === "string" && gpuHosts.has(host)));
+  return Object.values(value.supervisors).every(item => record(item) && exact(item, ["supervisorId", "tokenSubject", "hostIds"]) && text(item.supervisorId, 256) && text(item.tokenSubject, 256) && Array.isArray(item.hostIds) && item.hostIds.length <= 10_000 && new Set(item.hostIds).size === item.hostIds.length && item.hostIds.every(host => typeof host === "string" && knownHosts.has(host)));
 }
 
 /** Strict reference-only configuration parser. */
@@ -77,9 +97,16 @@ export function parseFactoryPoolProcessConfig(value: unknown): FactoryPoolProces
   const tokens = value.tokens;
   if (!record(tokens) || !exact(tokens, ["issuer", "audience", "publicKeyPaths"]) || !text(tokens.issuer, 512) || !text(tokens.audience, 512) || !textRecord(tokens.publicKeyPaths) || Object.values(tokens.publicKeyPaths).some(path => !absolutePath(path))) throw new Error("factory pool config is invalid");
   const resources = value.resources;
-  if (!record(resources) || !exact(resources, ["capacities", "gpuHosts"]) || !record(resources.capacities) || Object.keys(resources.capacities).some(key => !(CAPACITY_CLASSES as readonly string[]).includes(key)) || Object.values(resources.capacities).some(capacity => !integer(capacity, 0, 1_000_000)) || !Array.isArray(resources.gpuHosts) || resources.gpuHosts.length > 10_000 || resources.gpuHosts.some(host => !text(host, 256)) || new Set(resources.gpuHosts).size !== resources.gpuHosts.length || Object.values(resources.capacities).every(value => value === 0) && resources.gpuHosts.length === 0) throw new Error("factory pool config is invalid");
+  if (!record(resources) || !exact(resources, ["capacities", "gpuHosts"], ["hosts"]) || !record(resources.capacities) || Object.keys(resources.capacities).some(key => !(CAPACITY_CLASSES as readonly string[]).includes(key)) || Object.values(resources.capacities).some(capacity => !integer(capacity, 0, 1_000_000)) || !Array.isArray(resources.gpuHosts) || resources.gpuHosts.length > 10_000 || resources.gpuHosts.some(host => !text(host, 256)) || new Set(resources.gpuHosts).size !== resources.gpuHosts.length || Object.values(resources.capacities).every(value => value === 0) && resources.gpuHosts.length === 0) throw new Error("factory pool config is invalid");
+  const ordinaryHosts = resources.hosts;
+  if (ordinaryHosts !== undefined && (!Array.isArray(ordinaryHosts) || ordinaryHosts.length > 10_000 || ordinaryHosts.some(host => !text(host, 256)) || new Set(ordinaryHosts).size !== ordinaryHosts.length)) throw new Error("factory pool config is invalid");
   const gpuHosts = new Set(resources.gpuHosts as string[]);
-  if (!identityConfig(value.identities, gpuHosts)) throw new Error("factory pool config is invalid");
+  // One host is either a whole-host allocation or an ordinary one, never both:
+  // the first binds capacity and the second binds none, and a host declared as
+  // each would be two different things under one name.
+  if ((ordinaryHosts as string[] | undefined)?.some(host => gpuHosts.has(host))) throw new Error("factory pool config is invalid");
+  const knownHosts = new Set([...gpuHosts, ...(ordinaryHosts as string[] | undefined ?? [])]);
+  if (!identityConfig(value.identities, knownHosts)) throw new Error("factory pool config is invalid");
   return JSON.parse(JSON.stringify(value)) as FactoryPoolProcessConfig;
 }
 

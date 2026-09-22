@@ -55,8 +55,13 @@ export interface ApiRouteEntry {
 }
 
 export const apiRegistry: ApiRouteEntry[] = [
-  // Factory authoring. Read/write routes admit exact-scoped API keys; publish
-  // and grant mutations are human decisions and therefore session-only.
+  // Factory authoring, scoped to C01's authority table. Version publish is a
+  // `write` row gated by the project `factory.publish` grant, grant management
+  // is an `admin` row gated by the tenant-administrator role, and the trust,
+  // consent, and approval rows stay session-only because C01 requires an actual
+  // human session for each of them. Package install and quarantine is the one
+  // C01 row with no route: it needs W02's package lifecycle before it can be
+  // registered against a handler that enforces anything.
   { method: "GET", path: "/api/factories/projects/:projectId/definitions", description: "List current project factory drafts with trusted resource availability", category: "factories", scope: "read", harness: { controllable: true } },
   { method: "POST", path: "/api/factories/projects/:projectId/definitions", description: "Create revision 1 of a factory draft", category: "factories", scope: "write", harness: { controllable: true } },
   { method: "POST", path: "/api/factories/projects/:projectId/definitions/import", description: "Import canonical JSON or supported YAML as revision 1", category: "factories", scope: "write", harness: { controllable: true } },
@@ -66,7 +71,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId/export", description: "Export a factory draft as canonical JSON or JSON-subset YAML", category: "factories", scope: "read", harness: { controllable: true } },
   { method: "POST", path: "/api/factories/projects/:projectId/definitions/:factoryId/validate", description: "Validate unsaved factory source with author authority", category: "factories", scope: "write", harness: { controllable: true } },
   { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId/versions", description: "List immutable published factory versions", category: "factories", scope: "read", harness: { controllable: true } },
-  { method: "POST", path: "/api/factories/projects/:projectId/definitions/:factoryId/versions", description: "Publish an exact draft revision from an interactive human session", category: "factories", scope: "session" },
+  { method: "POST", path: "/api/factories/projects/:projectId/definitions/:factoryId/versions", description: "Publish an exact pinned draft revision under the project factory.publish grant", category: "factories", scope: "write" },
   { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId/versions/:version", description: "Read and verify one immutable factory version", category: "factories", scope: "read", harness: { controllable: true } },
   { method: "POST", path: "/api/factories/projects/:projectId/definitions/:factoryId/runs", description: "Queue a run from a pinned factory version and input", category: "factories", scope: "chat", harness: { controllable: true } },
   { method: "GET", path: "/api/factories/projects/:projectId/runs", description: "List bounded current project run summaries", category: "factories", scope: "read", harness: { controllable: true } },
@@ -74,8 +79,8 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/factories/projects/:projectId/runs/:runId/control", description: "Queue an authorized factory run control request", category: "factories", scope: "chat", harness: { controllable: true } },
   { method: "GET", path: "/api/factories/projects/:projectId/runs/:runId/commands/:commandId", description: "Read the durable dispatch state of a scoped run command", category: "factories", scope: "read", harness: { controllable: true } },
   { method: "GET", path: "/api/factories/projects/:projectId/grants", description: "List current project factory grants and revocations", category: "factories", scope: "read", harness: { controllable: true } },
-  { method: "PUT", path: "/api/factories/projects/:projectId/grants/:principalKind/:principalId/:action", description: "Issue or replace an exact project factory grant from an interactive human session", category: "factories", scope: "session" },
-  { method: "DELETE", path: "/api/factories/projects/:projectId/grants/:principalKind/:principalId/:action", description: "Revoke an exact project factory grant from an interactive human session", category: "factories", scope: "session" },
+  { method: "PUT", path: "/api/factories/projects/:projectId/grants/:principalKind/:principalId/:action", description: "Issue or replace an exact project factory grant as a tenant administrator", category: "factories", scope: "admin" },
+  { method: "DELETE", path: "/api/factories/projects/:projectId/grants/:principalKind/:principalId/:action", description: "Revoke an exact project factory grant as a tenant administrator", category: "factories", scope: "admin" },
   { method: "POST", path: "/api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials", description: "Issue one short-lived project factory service credential from an interactive tenant-admin session", category: "factories", scope: "session" },
   { method: "DELETE", path: "/api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials/:credentialId", description: "Revoke one project factory service credential from an interactive tenant-admin session", category: "factories", scope: "session" },
   { method: "PUT", path: "/api/factories/projects/:projectId/release/trust", description: "Publish an exact trusted release package and validator lock from an interactive human session", category: "factories", scope: "session" },

@@ -1,5 +1,5 @@
-import { checkAuth, requireSessionAuth } from "$server/auth/middleware";
-import { factoryBootConfig } from "$server/factory/boot";
+import { checkAuth, checkRole, requireSessionAuth } from "$server/auth/middleware";
+import { FACTORY_DISABLED_REASON, factoryBootConfig } from "$server/factory/boot";
 import { draftAvailability, getFactoryApplication, type FactoryApplication } from "$server/factory/application";
 import { FactoryDefinitionError, type FactoryDraft, type FactoryDraftMetadata, type FactoryVersion } from "$server/factory/definitions";
 import { FactoryGrantError, type FactoryGrantRecord, type FactoryPrincipal } from "$server/factory/grants";
@@ -35,7 +35,10 @@ import {
   type ValidationIssue,
 } from "@ezcorp/factory-sdk";
 
-type FactoryRouteScope = "read" | "write" | "chat" | "session";
+// C01's authority table names five API-key columns for factory actions.
+// `admin` covers tenant-administrator rows; `session` still means no key of any
+// scope can call the verb.
+type FactoryRouteScope = "read" | "write" | "chat" | "admin" | "session";
 type FactoryMutationRequest = Extract<FactoryApiRequest, { preconditions: unknown }>;
 type FactoryEvent = { readonly request: Request; readonly url: URL; readonly locals: App.Locals };
 type FactoryRouteFields = Readonly<Record<string, unknown>>;
@@ -107,13 +110,21 @@ function compactQuery(url: URL, keys: readonly string[]): Record<string, unknown
 }
 
 export async function handleFactoryApi(event: FactoryEvent, options: FactoryRouteOptions): Promise<Response> {
-  if (!factoryBootConfig.enabled) return errorResponse(404, "factory_disabled", "Factories are disabled.");
+  // C09 names this reason exactly: a 404 with a `factory-disabled` reason. The
+  // emitted string was `factory_disabled`, so a client matching the contract
+  // never recognised the one answer the contract promises when the flag is off.
+  if (!factoryBootConfig.enabled) return errorResponse(404, FACTORY_DISABLED_REASON, "Factories are disabled.");
   const application = getFactoryApplication();
   if (!application) return errorResponse(503, "factory_application_unavailable", "Factory services are not ready.", true);
 
   let principal: FactoryPrincipal;
   const service = event.locals.factoryServicePrincipal;
   if (options.scope !== "session" && service) {
+    // A service credential carries only C01's delegable scopes. The admin rows
+    // belong to a tenant administrator, and C01 is explicit that a service
+    // principal cannot create consent or trust, so an admin row is refused here
+    // rather than looked up in a vocabulary that cannot express it.
+    if (options.scope === "admin") return errorResponse(403, "factory_service_scope_required", "A service credential cannot perform a tenant administrator action.");
     if (!service.scopes.includes(options.scope)) return errorResponse(403, "factory_service_scope_required", "The service credential does not permit this factory operation.");
     principal = { kind: "service", id: service.serviceAccountId, authentication: "service", credential: service };
   } else {
@@ -122,6 +133,14 @@ export async function handleFactoryApi(event: FactoryEvent, options: FactoryRout
     if (options.scope !== "session") {
       const scope = requireScope(event.locals, options.scope);
       if (scope) return scope;
+    }
+    // `requireScope(locals, "admin")` is allow-all for a cookie session, because
+    // a cookie carries no `apiKeyScopes`. C01 gives the admin rows to a tenant
+    // administrator, so the admin scope is gated on both axes here — the role as
+    // well as the key scope — rather than on the key alone.
+    if (options.scope === "admin") {
+      const role = checkRole(event.locals, "admin");
+      if (role instanceof Response) return role;
     }
     const userPrincipal = requestPrincipal(event.locals, user.id);
     if (!userPrincipal) return errorResponse(403, "factory_principal_unsupported", "This authentication method cannot use factories.");
