@@ -441,3 +441,43 @@ describe("where a release may publish", () => {
     expect(reject(valid({ release: { ...release, extra: 1 } })).invalid).toContain("release.extra");
   });
 });
+
+describe("the guest-broker route", () => {
+  const hostLaunch = {
+    baseUrl: "https://127.0.0.1:9443",
+    serverName: "localhost",
+    attemptTokenSecretPath: "/run/secrets/attempt-token",
+    tls: { caPath: "/run/secrets/ca.pem", certificatePath: "/run/secrets/client.pem", privateKeyPath: "/run/secrets/client.key", serviceTokenPath: "/run/secrets/service.token" },
+  };
+  const guestBroker = {
+    hostname: "127.0.0.1",
+    port: 9446,
+    allowedPeers: ["supervisor-01"],
+    tls: { caPath: "/run/tls/ca.pem", certificatePath: "/run/tls/cert.pem", privateKeyPath: "/run/tls/key.pem" },
+  };
+
+  test("is optional, and a complete section is kept exactly", () => {
+    expect(parseFactoryStartupConfig(valid()).guestBroker).toBeUndefined();
+    expect(parseFactoryStartupConfig(valid({ hostLaunch, guestBroker })).guestBroker).toEqual(guestBroker);
+  });
+
+  test("is every part or none, and names each missing part", () => {
+    const { missing } = reject(valid({ hostLaunch, guestBroker: { port: 9446 } }));
+    for (const field of ["guestBroker.hostname", "guestBroker.allowedPeers", "guestBroker.tls.caPath", "guestBroker.tls.certificatePath", "guestBroker.tls.privateKeyPath"]) {
+      expect(missing).toContain(field);
+    }
+    expect(missing).not.toContain("guestBroker.port");
+  });
+
+  test("cannot verify an attempt token without the host launch secret", () => {
+    expect(reject(valid({ guestBroker })).missing).toContain("hostLaunch.attemptTokenSecretPath");
+  });
+
+  test("names host identities: a non-empty, bounded list of unique identities", () => {
+    for (const allowedPeers of [[], "supervisor-01", ["ok", ""], ["same", "same"], Array.from({ length: 65 }, (_, index) => `host-${index}`), [{ peer: "x" }]]) {
+      expect(reject(valid({ hostLaunch, guestBroker: { ...guestBroker, allowedPeers } })).invalid).toContain("guestBroker.allowedPeers");
+    }
+    // A field the section does not define is refused rather than ignored.
+    expect(reject(valid({ hostLaunch, guestBroker: { ...guestBroker, audience: "x" } })).invalid).toContain("guestBroker.audience");
+  });
+});

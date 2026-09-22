@@ -46,13 +46,14 @@
  * record degrades.
  */
 import { createPrivateKey } from "node:crypto";
-import { basename, dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Runner } from "@ezcorp/extension-contract";
-import { privateDirectory, readPrivateBounded } from "../private-files";
+import { isFactoryGuestMaterialFrame, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
+import { readPrivatePath } from "../private-files";
 import { createFactoryGuestBrokerClient } from "./guest-broker-client";
 import type { FactoryGuestBroker } from "./guest-model-broker";
-import { factoryHostBrokerUnavailable, startFactoryHostServices } from "./supervisor-services";
+import { FactoryHostBrokerUnavailableError, factoryHostBrokerUnavailable, startFactoryHostServices } from "./supervisor-services";
 import { createFactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
   createFactoryServiceReadinessWriter,
@@ -226,16 +227,6 @@ export function parseFactorySupervisorProcessConfig(value: unknown): FactorySupe
   return value as unknown as FactorySupervisorProcessConfig;
 }
 
-async function readPrivatePath(path: string, maximum: number): Promise<Uint8Array> {
-  const absolute = resolve(path);
-  const directory = await privateDirectory(dirname(absolute));
-  try {
-    return await readPrivateBounded(directory, basename(absolute), maximum);
-  } finally {
-    await directory.close();
-  }
-}
-
 /** Loads and discards the host key: the fact published is that it loads. */
 export async function loadFactoryHostKey(path: string): Promise<void> {
   const bytes = await readPrivatePath(path, MAX_KEY_BYTES);
@@ -347,7 +338,7 @@ export async function startFactoryConfiguredHostServices(
   const pool = services.pool === undefined ? undefined
     : await createFactorySupervisorPoolClient({ hostId: config.hostId, ...endpointTransport(services.pool) });
   // Built before the listener binds for the same reason.
-  const broker = services.guestBroker === undefined ? undefined : await createFactoryConfiguredGuestBroker(services.guestBroker);
+  const broker = await createFactoryConfiguredGuestBroker(services.guestBroker);
   return startFactoryHostServices({
     hostId: config.hostId,
     allowedPeers: services.allowedPeers,
@@ -357,17 +348,28 @@ export async function startFactoryConfiguredHostServices(
     hostname: services.hostname,
     port: services.port,
     ...(pool === undefined ? {} : { pool }),
-    ...(broker === undefined ? {} : { broker }),
+    broker,
   });
 }
 
+/** What a host with no `services.guestBroker` answers a guest's staging frame. */
+const factoryHostGuestBrokerUnconfigured: FactoryGuestBroker = Object.freeze({
+  async invoke(request: FactoryRunnerRequest, payload: unknown): Promise<unknown> {
+    if (!isFactoryGuestMaterialFrame(payload)) return factoryHostBrokerUnavailable.invoke(request, payload);
+    throw new FactoryHostBrokerUnavailableError("This host's supervisor document names no services.guestBroker, so it cannot carry a staging frame.");
+  },
+});
+
 /**
- * The broker a configured host hands its guests.
+ * The broker a host hands its guests.
  *
- * Staging frames go to the declared product route. A model request is not a
- * staging frame and no route serves it yet, so it keeps the default refusal.
+ * Staging frames go to the declared product route. With no route declared they
+ * are refused by name, and the message names the missing section. A model
+ * request is not a staging frame and no route serves it yet, so it keeps the
+ * default refusal either way.
  */
-export function createFactoryConfiguredGuestBroker(endpoint: FactorySupervisorEndpoint): Promise<FactoryGuestBroker> {
+export async function createFactoryConfiguredGuestBroker(endpoint: FactorySupervisorEndpoint | undefined): Promise<FactoryGuestBroker> {
+  if (endpoint === undefined) return factoryHostGuestBrokerUnconfigured;
   return createFactoryGuestBrokerClient({ ...endpointTransport(endpoint), delegate: factoryHostBrokerUnavailable });
 }
 

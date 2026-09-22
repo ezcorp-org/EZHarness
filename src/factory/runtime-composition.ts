@@ -29,6 +29,7 @@ import { setReadiness } from "../readiness";
 import type { TransactionalDb } from "../db/migrations/types";
 import { assertFactoryBootConfiguration, assertFactoryBootReadiness, assertFactoryOrphanDetectionBound, factoryBootConfig, FactoryBootError, type FactoryBootConfig, type FactoryService } from "./boot";
 import { configureFactoryApplication, createFactoryApplication, type FactoryApplication, type FactoryApplicationOptions } from "./application";
+import type { FactoryGuestBrokerReadiness } from "./guest-broker-composition";
 import { parseFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
 import {
   availableFactoryServices,
@@ -109,6 +110,12 @@ export interface FactoryRuntimeDependencies {
    * required would fail a correct deployment.
    */
   readonly providerReadiness?: Record<string, unknown>;
+  /**
+   * Whether this process bound the guest-broker route, or the named reason it
+   * did not. Optional and off the required list for the same reason as the
+   * model pin: an installation whose guests stage nothing needs no route.
+   */
+  readonly guestBrokerReadiness?: FactoryGuestBrokerReadiness;
   /**
    * How long to keep probing before giving up on an unavailable service.
    *
@@ -347,6 +354,7 @@ export async function startFactoryRuntime(
           running: workerSet.workers.names(),
           held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage })),
           ...(dependencies.providerReadiness === undefined ? {} : { providerReadiness: dependencies.providerReadiness }),
+          ...(dependencies.guestBrokerReadiness === undefined ? {} : { guestBroker: dependencies.guestBrokerReadiness }),
         },
       },
     });

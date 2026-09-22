@@ -1,6 +1,6 @@
 import { afterAll, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
@@ -10,15 +10,16 @@ import { closeTestDb, setupTestDb } from "../../__tests__/helpers/test-pglite";
 import { certificates, nodeHttpsRequest, type Certificates } from "../../__tests__/helpers/factory-certificates";
 import { FileBlobStore } from "../../extensions/v4/blobs";
 import { FactoryArtifacts } from "../artifacts";
-import { FactoryAttemptMaterials, FactoryScopedMaterials } from "../artifact-materials";
 import { signFactoryAttemptToken } from "../attempt-token";
-import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../executions";
+import { FactoryExecutionJournal } from "../executions";
 import { startFactoryPrivateHttps } from "../private-https";
 import { factoryRunnerRequestAuthority } from "./attempt-authority";
 import { createFactoryGuestBrokerClient } from "./guest-broker-client";
 import { FACTORY_GUEST_BROKER_PATH, createFactoryGuestBrokerRouteHandler } from "./guest-broker-service";
-import { createFactoryCandidateOutputWriter, createFactoryGuestMaterialFrameBroker } from "./guest-material-broker";
+import { createFactoryGuestMaterialFrameBroker, createFactoryGuestMaterialServices } from "./guest-material-broker";
 import { createFactoryConfiguredGuestBroker } from "./supervisor-process";
+import { FACTORY_GUEST_BROKER_UNCONFIGURED, composeFactoryGuestBroker } from "../guest-broker-composition";
+import type { FactoryStartupConfig } from "../startup-config";
 
 /**
  * The byte path a sandboxed guest actually has, end to end over mutual TLS.
@@ -92,13 +93,7 @@ async function setup() {
   const blobs = new FileBlobStore(join(root, "blobs"));
   const artifacts = new FactoryArtifacts(db, blobs, TENANT);
   const journal = new FactoryExecutionJournal(db, async () => {});
-  const broker = createFactoryGuestMaterialFrameBroker({
-    services: {
-      materials: (verified: FactoryAttemptAuthority) => new FactoryAttemptMaterials({ database: db, artifacts, blobs, journal, authority: verified }),
-      reader: () => new FactoryScopedMaterials({ database: db, artifacts, blobs }),
-      output: createFactoryCandidateOutputWriter({ database: db, artifacts, journal }),
-    },
-  });
+  const broker = createFactoryGuestMaterialFrameBroker({ services: createFactoryGuestMaterialServices({ database: db, artifacts, blobs, journal }) });
 
   const certs = await certificates(directories, TENANT);
   const service = startFactoryPrivateHttps({
@@ -112,7 +107,7 @@ async function setup() {
   const token = await signFactoryAttemptToken(authority, SECRET, INSTALLATION, 600);
   const tokened = { ...request, broker: { ...request.broker, attemptToken: token } } as FactoryRunnerRequest;
   const paths = await clientSecrets(root, certs);
-  return { db, artifacts, service, certs, paths, request: tokened, authority, projectId, runId, operationId: `${runId}:node-a:0:0` };
+  return { db, artifacts, blobs, journal, service, certs, paths, request: tokened, authority, projectId, runId, operationId: `${runId}:node-a:0:0` };
 }
 
 test("a guest stages and promotes an output across a real host boundary", async () => {
@@ -236,4 +231,84 @@ test("a supervisor configured with a guest broker forwards staging frames and st
   // before its listener binds, not on a guest's first frame.
   await expect(createFactoryConfiguredGuestBroker({ baseUrl: fixture.service.url, serviceTokenPath: `${serviceTokenPath}.missing`, tls: { caPath, certificatePath, privateKeyPath } }))
     .rejects.toThrow();
+}, 120_000);
+
+/**
+ * The product process binds the route itself, from its startup document.
+ *
+ * The files sit in a private directory under HOME because the private reader
+ * refuses a world-writable ancestor such as /tmp.
+ */
+async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrides: { readonly secret?: string; readonly missingKey?: boolean } = {}) {
+  const root = await mkdtemp(join(process.env.HOME!, ".w01g-guest-broker-"));
+  directories.push(root);
+  await chmod(root, 0o700);
+  const files = { secret: join(root, "attempt.secret"), ca: join(root, "ca.pem"), cert: join(root, "server.pem"), key: join(root, "server.key") };
+  const secret = overrides.secret ?? "composition-attempt-token-secret-0123456789";
+  for (const [path, value] of [[files.secret, secret], [files.ca, fixture.certs.ca], [files.cert, fixture.certs.serverCert], [files.key, fixture.certs.serverKey]] as const) {
+    if (overrides.missingKey && path === files.key) continue;
+    await writeFile(path, value, { mode: 0o600 });
+    await chmod(path, 0o600);
+  }
+  const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+  const port = probe.port;
+  probe.stop(true);
+  const config = {
+    installationId: INSTALLATION,
+    hostLaunch: { attemptTokenSecretPath: files.secret },
+    guestBroker: { hostname: "127.0.0.1", port, allowedPeers: [TENANT], tls: { caPath: files.ca, certificatePath: files.cert, privateKeyPath: files.key } },
+  } as unknown as FactoryStartupConfig;
+  const reported: Array<{ role: string; error: unknown }> = [];
+  const composed = await composeFactoryGuestBroker({
+    database: fixture.db, config, blobs: fixture.blobs,
+    application: { artifacts: fixture.artifacts, journal: fixture.journal },
+    report: (role, error) => { reported.push({ role, error }); },
+  });
+  if (composed.listener) closing.push(async () => { composed.listener!.stop(); });
+  return { composed, reported, secret, port };
+}
+
+test("the product binds the guest-broker route from its startup document, and a host's frame reaches it", async () => {
+  const fixture = await setup();
+  const { composed, reported, secret } = await composedRoute(fixture);
+  expect(composed.readiness).toEqual({ state: "bound" });
+  expect(reported).toEqual([]);
+
+  // The token verifies with the dispatcher's own secret file, not a copy.
+  const token = await signFactoryAttemptToken(fixture.authority, secret, INSTALLATION, 600);
+  const request = { ...fixture.request, broker: { ...fixture.request.broker, attemptToken: token } } as FactoryRunnerRequest;
+  const { caPath, certificatePath, privateKeyPath, serviceTokenPath } = fixture.paths;
+  const host = await createFactoryConfiguredGuestBroker({ baseUrl: composed.listener!.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } });
+  const client = createFactoryGuestStaging({ call: async payload => host.invoke(request, payload), operationId: fixture.operationId, operationIndex: 0 });
+  // Two chunks, so more than one frame crosses the listener the product bound.
+  const bytes = new Uint8Array(40_000).map((_, index) => index % 251);
+  const staged = await client.stageOutput("composed.bin", bytes);
+  expect(staged.digest).toBe(`sha256:${sha256Hex(bytes)}`);
+
+  // A token signed with any other secret is refused before the broker.
+  const forged = { ...request, broker: { ...request.broker, attemptToken: await signFactoryAttemptToken(fixture.authority, `${secret}-other`, INSTALLATION, 600) } } as FactoryRunnerRequest;
+  await expect(host.invoke(forged, { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "forged.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 1, chunkCount: 1 }))
+    .rejects.toThrow();
+}, 120_000);
+
+test("an undeclared route is named in readiness, and a declared one that cannot bind is reported and named", async () => {
+  const fixture = await setup();
+  const unconfigured = await composeFactoryGuestBroker({
+    database: fixture.db, config: { installationId: INSTALLATION } as unknown as FactoryStartupConfig, blobs: fixture.blobs,
+    application: { artifacts: fixture.artifacts, journal: fixture.journal },
+    report: () => { throw new Error("an undeclared route is not a failure to report"); },
+  });
+  expect(unconfigured).toEqual({ readiness: { state: "unconfigured", code: FACTORY_GUEST_BROKER_UNCONFIGURED } });
+
+  // A key file that is not there: nothing binds, the role is reported, and
+  // readiness carries a code rather than a path or a stack.
+  const missingKey = await composedRoute(fixture, { missingKey: true });
+  expect(missingKey.composed.listener).toBeUndefined();
+  expect(missingKey.composed.readiness.state).toBe("unavailable");
+  expect(JSON.stringify(missingKey.composed.readiness)).not.toContain(process.env.HOME!);
+  expect(missingKey.reported.map(entry => entry.role)).toEqual(["guest-broker"]);
+
+  // A secret too short to sign with is the dispatcher's own refusal, by name.
+  const weak = await composedRoute(fixture, { secret: "short" });
+  expect(weak.composed.readiness).toEqual({ state: "unavailable", code: "factory_attempt_token_secret_invalid" });
 }, 120_000);

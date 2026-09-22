@@ -12,9 +12,11 @@ import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { artifactJson, type FactoryArtifacts } from "../artifacts";
 import {
   FactoryArtifactAccessError,
+  FactoryAttemptMaterials,
   FactoryMaterialError,
-  type FactoryAttemptMaterials,
+  FactoryScopedMaterials,
   type FactoryMaterialIdentity,
+  type FactoryMaterialStoreOptions,
   type FactoryMaterialRecord,
   type FactoryScopedArtifactReader,
 } from "../artifact-materials";
@@ -324,4 +326,20 @@ export function createFactoryCandidateOutputWriter(options: FactoryCandidateOutp
       );
     });
   };
+}
+
+/**
+ * The broker's services over one database, one artifact store, and one journal.
+ *
+ * Each attempt gets its own material service bound to its verified authority.
+ * The reader and the candidate writer hold no authority of their own, so one
+ * of each serves every attempt.
+ */
+export function createFactoryGuestMaterialServices(options: FactoryMaterialStoreOptions & { readonly journal: FactoryExecutionJournal }): FactoryGuestMaterialServices {
+  const reader = new FactoryScopedMaterials(options);
+  return Object.freeze({
+    materials: (authority: FactoryAttemptAuthority) => new FactoryAttemptMaterials({ ...options, authority }),
+    reader: () => reader,
+    output: createFactoryCandidateOutputWriter(options),
+  });
 }

@@ -6,6 +6,7 @@ import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { readFactoryServiceReadiness, factorySupervisorReadinessOptions } from "../service-readiness";
 import {
+  createFactoryConfiguredGuestBroker,
   loadFactoryHostKey,
   factorySupervisorRecord,
   FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS,
@@ -672,6 +673,15 @@ describe("the host services this supervisor publishes", () => {
     // The same observation on a host that publishes none is simply ready.
     expect(factorySupervisorRecord({ attempted: true, ...facts, servicesConfigured: false, observedAtMs: 900 }, 1_000, 500))
       .toEqual({ lifecycle: "ready", facts });
+  });
+
+  test("a host whose document names no services.guestBroker refuses a staging frame by name", async () => {
+    const broker = await createFactoryConfiguredGuestBroker(undefined);
+    const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: "run:node:0:0", operationIndex: 0, objectName: "result.json", version: 1, mediaType: "application/json", totalBytes: 2, chunkCount: 1 };
+    // The guest can tell "this host carries no staging" from "the broker said no".
+    await expect(broker.invoke({} as never, frame)).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("services.guestBroker") });
+    // A model request keeps the host's general refusal, with its own message.
+    await expect(broker.invoke({} as never, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("no contract defines") });
   });
 
   test("startFactoryConfiguredHostServices refuses when the section is absent", async () => {

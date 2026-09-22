@@ -117,6 +117,23 @@ export interface FactoryStartupConfig {
    * and `loadFactoryHostSigningKey` on the host is the only thing that reads it.
    */
   readonly hostStopKeys?: readonly { readonly hostId: string; readonly hostKeyId: string; readonly publicKeyPath: string }[];
+  /**
+   * The route a runner host forwards a guest's staging frames to.
+   *
+   * A sandboxed guest has no network, so its reverse frame is its only byte
+   * path, and the host that carries it holds no database. This process binds
+   * the route and answers each frame under the attempt token the frame carries,
+   * verified with `hostLaunch.attemptTokenSecretPath`, so a declared route
+   * needs `hostLaunch`. `allowedPeers` names HOST certificate identities, never
+   * a tenant. Optional: without it no route is bound, readiness says so by
+   * name, and a guest that stages nothing is unaffected. All parts or none.
+   */
+  readonly guestBroker?: {
+    readonly hostname: string;
+    readonly port: number;
+    readonly allowedPeers: readonly string[];
+    readonly tls: FactoryStartupTlsMaterial;
+  };
   /** An operator's verified replication statement. Absent on a development host. */
   readonly archiveReplicationEvidence?: string;
   /**
@@ -259,8 +276,8 @@ interface FieldSpec {
 
 const TLS_FIELDS = ["caPath", "certificatePath", "privateKeyPath"] as const;
 
-function tls(prefix: string): FieldSpec[] {
-  return TLS_FIELDS.map((name) => ({ field: `${prefix}.tls.${name}`, kind: "path" as const }));
+function tls(prefix: string, optional = false): FieldSpec[] {
+  return TLS_FIELDS.map((name) => ({ field: `${prefix}.tls.${name}`, kind: "path" as const, ...(optional ? { optional } : {}) }));
 }
 
 function storage(prefix: string): FieldSpec[] {
@@ -314,6 +331,9 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "hostLaunch.tls.certificatePath", kind: "path", optional: true },
   { field: "hostLaunch.tls.privateKeyPath", kind: "path", optional: true },
   { field: "hostLaunch.tls.serviceTokenPath", kind: "path", optional: true },
+  { field: "guestBroker.hostname", kind: "identity", optional: true },
+  { field: "guestBroker.port", kind: "port", optional: true },
+  ...tls("guestBroker", true),
   { field: "archiveReplicationEvidence", kind: "statement", optional: true },
   { field: "workers.batch", kind: "count", optional: true },
   { field: "workers.idleDelayMs", kind: "interval", optional: true },
@@ -485,7 +505,7 @@ function wellFormedResourceProfile(value: unknown): boolean {
 
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
-  "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles",
+  "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles", "guestBroker.allowedPeers",
   "release.destinations", "release.profiles",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
@@ -513,7 +533,7 @@ function leaves(value: unknown, prefix = ""): string[] {
     // Three branches are maps whose KEYS are data — a key id, a resource class
     // — so recursing into them would name a value as a field. Each is checked
     // by shape below instead.
-    if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths"
+    if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths" || field === "guestBroker.allowedPeers"
       || field === "release.destinations" || field === "release.profiles") { found.push(field); continue; }
     found.push(...(record(nested) ? leaves(nested, field) : [field]));
   }
@@ -557,6 +577,18 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
   const supplied = transport.filter((spec) => read(value, spec.field).present);
   if (supplied.length > 0 && supplied.length < transport.length) {
     for (const spec of transport) if (!supplied.includes(spec)) missing.push(spec.field);
+  }
+
+  // The guest-broker route is every part or none, and it verifies attempt
+  // tokens with the host launch secret, so it cannot stand without one.
+  const brokerFields = [...FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("guestBroker.")).map((spec) => spec.field), "guestBroker.allowedPeers"];
+  const brokerSupplied = brokerFields.filter((field) => read(value, field).present);
+  if (brokerSupplied.length > 0) {
+    for (const field of brokerFields) if (!brokerSupplied.includes(field)) missing.push(field);
+    if (!read(value, "hostLaunch.attemptTokenSecretPath").present) missing.push("hostLaunch.attemptTokenSecretPath");
+    const peers = read(value, "guestBroker.allowedPeers");
+    if (peers.present && (!Array.isArray(peers.value) || peers.value.length === 0 || peers.value.length > 64
+      || peers.value.some((peer) => !wellFormed("identity", peer)) || new Set(peers.value).size !== peers.value.length)) invalid.push("guestBroker.allowedPeers");
   }
 
   // Host PUBLIC keys, by reference. Each entry names a host, a key id, and a
