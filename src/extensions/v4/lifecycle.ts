@@ -25,7 +25,14 @@ export class ExtensionLifecycle {
 
   private timestamp(): string { return new Date(this.now()).toISOString(); }
 
-  private policyDigest(): string { return digestObject({ profile: this.dependencies.runnerProfile, image: this.dependencies.runnerImageDigest, validator: this.dependencies.validatorVersion, limits: this.dependencies.buildLimits }); }
+  /**
+   * Digest of every build input that is not the source: runner profile,
+   * runner image, validator and limits. A build's idempotency input carries
+   * it, so a caller that derives build keys must fold it into the key —
+   * otherwise a policy change reuses a key for a different input and hits
+   * `idempotency_conflict`.
+   */
+  policyDigest(): string { return digestObject({ profile: this.dependencies.runnerProfile, image: this.dependencies.runnerImageDigest, validator: this.dependencies.validatorVersion, limits: this.dependencies.buildLimits }); }
 
   private buildInput(workspaceId: string, revision: number, entrypoint: string) { return { workspaceId, revision, entrypoint, policyDigest: this.policyDigest() }; }
 

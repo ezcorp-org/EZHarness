@@ -84,7 +84,11 @@ export async function stageBundledExtensionSources(entries: readonly { name: str
       const sourceDigest = digestObject(snapshot.files);
       const workspace = Object.values(state.workspaces).find((candidate) => candidate.sourceDigest === sourceDigest)
         ?? (await lifecycle.createWorkspace(actor, { installationId, files: snapshot.files })).workspace;
-      const baseKey = `bundled-bootstrap:${sourceDigest}`;
+      // One key per (source, build policy). The lifecycle compares a reused key
+      // against the full build input, which carries the policy digest, so a
+      // source-only key collides the moment the runner image, profile,
+      // validator or limits move — every bundled extension, every boot.
+      const baseKey = `bundled-bootstrap:${sourceDigest}:${lifecycle.policyDigest()}`;
       const planned = runnerConfigured ? plannedBuild(state, baseKey) : { key: baseKey, previous: undefined };
       if (planned.previous) log.info("Retrying a bundled build that failed before the extension runner was configured", { name: entry.name, installationId, previousOperationId: planned.previous.id });
       const operation = await lifecycle.build(actor, { installationId, workspaceId: workspace.id, expectedRevision: workspace.revision, entrypoint: snapshot.source.entrypoint, idempotencyKey: planned.key });
