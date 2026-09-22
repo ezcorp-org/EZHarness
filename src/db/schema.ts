@@ -3230,6 +3230,83 @@ export const factoryInstallationKeyWraps = pgTable("factory_installation_key_wra
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.installationId, table.wrapVersion] })]);
 
+/** C06 retention ledger (W15). Tombstone and collection facts outlive the rows they describe. */
+export const factoryRetentionRecords = pgTable("factory_retention_records", {
+  tenantId: text("tenant_id").notNull(), subjectKind: text("subject_kind").notNull(), subjectId: text("subject_id").notNull(),
+  projectId: text("project_id"), runId: text("run_id"), retentionClass: text("retention_class").notNull(),
+  anchoredAtMs: bigint("anchored_at_ms", { mode: "number" }).notNull(), retainUntilMs: bigint("retain_until_ms", { mode: "number" }).notNull(), extensionReason: text("extension_reason"),
+  state: text("state").notNull().default("retained"),
+  archiveJson: text("archive_json"), archiveDigest: text("archive_digest"), archivedAtMs: bigint("archived_at_ms", { mode: "number" }),
+  tombstonedAtMs: bigint("tombstoned_at_ms", { mode: "number" }), collectedAtMs: bigint("collected_at_ms", { mode: "number" }), lastRefusal: text("last_refusal"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.subjectKind, table.subjectId] }),
+  index("idx_factory_retention_due").on(table.tenantId, table.state, table.retainUntilMs),
+]);
+
+/** The barrier's pause flag. Never guarded by the barrier gate it controls. */
+export const factoryCheckpointGate = pgTable("factory_checkpoint_gate", {
+  tenantId: text("tenant_id").notNull(), paused: boolean("paused").notNull().default(false), checkpointId: text("checkpoint_id"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId] })]);
+
+/** Every barrier attempt. Only a sealed row is a compatible checkpoint. */
+export const factoryCheckpoints = pgTable("factory_checkpoints", {
+  tenantId: text("tenant_id").notNull(), checkpointId: text("checkpoint_id").notNull(), state: text("state").notNull(),
+  executionEpoch: integer("execution_epoch").notNull(), startedAtMs: bigint("started_at_ms", { mode: "number" }).notNull(), durationMs: integer("duration_ms").notNull(),
+  abortCode: text("abort_code"), productLsn: text("product_lsn"), manifestDigest: text("manifest_digest"), manifestArchiveJson: text("manifest_archive_json"),
+  previousCheckpointId: text("previous_checkpoint_id"), sealedAt: timestamp("sealed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.checkpointId] }),
+  index("idx_factory_checkpoints_sealed").on(table.tenantId, table.state, table.sealedAt),
+]);
+
+export const factoryCheckpointPolicy = pgTable("factory_checkpoint_policy", {
+  tenantId: text("tenant_id").notNull(), enforceFreshness: boolean("enforce_freshness").notNull().default(true),
+  maxAgeSeconds: integer("max_age_seconds").notNull().default(900),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId] }),
+  foreignKey({ columns: [table.tenantId], foreignColumns: [factoryInstallation.tenantId] }).onDelete("restrict"),
+]);
+
+/** One restore into a new execution epoch. Service stays closed until a human signs its report. */
+export const factoryRestoreEpochs = pgTable("factory_restore_epochs", {
+  tenantId: text("tenant_id").notNull(), restoreId: text("restore_id").notNull(), mode: text("mode").notNull(),
+  checkpointId: text("checkpoint_id").notNull(), manifestDigest: text("manifest_digest").notNull(),
+  previousEpoch: integer("previous_epoch").notNull(), executionEpoch: integer("execution_epoch").notNull(), state: text("state").notNull(),
+  reportJson: text("report_json"), reportDigest: text("report_digest"), signedBy: text("signed_by"),
+  signedAtMs: bigint("signed_at_ms", { mode: "number" }), enabledAtMs: bigint("enabled_at_ms", { mode: "number" }),
+  startedAtMs: bigint("started_at_ms", { mode: "number" }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.restoreId] }),
+  uniqueIndex("factory_restore_epochs_epoch_key").on(table.tenantId, table.executionEpoch),
+]);
+
+export const factoryRestoreFindings = pgTable("factory_restore_findings", {
+  tenantId: text("tenant_id").notNull(), restoreId: text("restore_id").notNull(), findingId: text("finding_id").notNull(),
+  subjectKind: text("subject_kind").notNull(), subjectId: text("subject_id").notNull(), disposition: text("disposition").notNull(),
+  reason: text("reason").notNull(), detailJson: text("detail_json").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.restoreId, table.findingId] }),
+  foreignKey({ columns: [table.tenantId, table.restoreId], foreignColumns: [factoryRestoreEpochs.tenantId, factoryRestoreEpochs.restoreId] }).onDelete("restrict"),
+]);
+
+/** Release identities a restore imported from the independent archive because the restored database lacked them. */
+export const factoryRecoveredReleases = pgTable("factory_recovered_releases", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), operationId: text("operation_id").notNull(), restoreId: text("restore_id").notNull(),
+  runId: text("run_id").notNull(), dispatchGeneration: bigint("dispatch_generation", { mode: "number" }).notNull(),
+  intentJson: text("intent_json").notNull(), intentDigest: text("intent_digest").notNull(),
+  receiptJson: text("receipt_json"), receiptDigest: text("receipt_digest"), providerVerified: boolean("provider_verified").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.operationId] }),
+  foreignKey({ columns: [table.tenantId, table.restoreId], foreignColumns: [factoryRestoreEpochs.tenantId, factoryRestoreEpochs.restoreId] }).onDelete("restrict"),
+]);
+
 export const factoryReleasePolicies = pgTable("factory_release_policies", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), policyId: text("policy_id").notNull(), principalKind: text("principal_kind").notNull().$type<"user" | "service">(), principalId: text("principal_id").notNull(),
   action: text("action").notNull(), destinationProvider: text("destination_provider").notNull(), destinationAccount: text("destination_account").notNull(), destinationPrefix: text("destination_prefix").notNull(), contractDigest: text("contract_digest").notNull(), revision: bigint("revision", { mode: "number" }).notNull(),
