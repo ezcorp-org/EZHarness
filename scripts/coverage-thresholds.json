@@ -330,6 +330,8 @@
   "src/factory/runner/guest-frames.ts": 100,
   "src/factory/runner/guest-model-broker.ts": 100,
   "src/factory/runner/guest-model-journal.ts": 100,
+  "src/factory/runner/attempt-authority.ts": 100,
+  "src/factory/runner/guest-material-broker.ts": 100,
   "src/factory/runner/provider-one-hop.ts": 100,
   "src/db/migrations/add-factory-attempt-launches.ts": 100,
   "src/db/migrations/add-factory-grants.ts": 100,

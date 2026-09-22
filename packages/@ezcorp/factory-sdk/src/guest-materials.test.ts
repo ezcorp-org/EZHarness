@@ -66,8 +66,12 @@ async function* blocks(...values: Uint8Array[]): AsyncIterable<Uint8Array> {
 test("one small material is planned, chunked, sealed, and returned by reference", async () => {
   const log: HostLog = { frames: [] };
   const bytes = new TextEncoder().encode("a staged report");
-  const material = await staging(host(log)).stageOutput("report.bin", bytes);
-  expect(material).toEqual({ artifactId: "material-object", digest: `sha256:${sha256Hex(bytes)}`, encodedBytes: bytes.byteLength });
+  const staged = await staging(host(log)).stageOutput("report.bin", bytes);
+  // Two identities, deliberately separate: the handle's digest covers the
+  // manifest the scoped reader resolves, and `digest` covers the bytes.
+  expect(staged.material).toEqual({ artifactId: "material-object", digest: `sha256:${sha256Hex(bytes)}`, encodedBytes: bytes.byteLength });
+  expect(staged.digest).toBe(`sha256:${sha256Hex(bytes)}`);
+  expect(staged).toMatchObject({ totalBytes: bytes.byteLength, version: 1 });
   expect(log.frames.map(frame => frame.schemaVersion)).toEqual([
     "factory.guest-material-begin.v1", "factory.guest-material-chunk.v1", "factory.guest-material-seal.v1",
   ]);
@@ -79,11 +83,11 @@ test("a material larger than one page is split across contiguous chunks that rea
   const log: HostLog = { frames: [] };
   const bytes = new Uint8Array(FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes * 2 + 17);
   for (let index = 0; index < bytes.byteLength; index += 1) bytes[index] = index % 251;
-  const material = await staging(host(log)).stageOutput("big.bin", bytes);
+  const staged = await staging(host(log)).stageOutput("big.bin", bytes);
   // The host double refuses a seal it cannot reassemble, so a correct digest
   // here is evidence the chunk boundaries were right, not just that three
   // frames were sent.
-  expect(material.digest).toBe(`sha256:${sha256Hex(bytes)}`);
+  expect(staged.digest).toBe(`sha256:${sha256Hex(bytes)}`);
   const chunks = log.frames.filter(frame => frame.schemaVersion === "factory.guest-material-chunk.v1");
   expect(chunks.map(frame => (frame as { index: number }).index)).toEqual([0, 1, 2]);
   expect(chunks.map(frame => (frame as { encodedBytes: number }).encodedBytes)).toEqual([FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes, FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes, 17]);
@@ -93,9 +97,9 @@ test("an async sequence is drained before the plan is committed", async () => {
   const log: HostLog = { frames: [] };
   const first = new TextEncoder().encode("first ");
   const second = new TextEncoder().encode("second");
-  const material = await staging(host(log)).stageOutput("stream.bin", blocks(first, second));
-  expect(material.encodedBytes).toBe(12);
-  expect(material.digest).toBe(`sha256:${sha256Hex(new TextEncoder().encode("first second"))}`);
+  const staged = await staging(host(log)).stageOutput("stream.bin", blocks(first, second));
+  expect(staged.totalBytes).toBe(12);
+  expect(staged.digest).toBe(`sha256:${sha256Hex(new TextEncoder().encode("first second"))}`);
   // One chunk, because the plan is made from the assembled length, not from
   // the caller's block sizes. A chunk per incoming block would run past the
   // declared plan the moment a producer chose a different block size.
@@ -181,8 +185,9 @@ test("staging the same name twice advances its version, and a promotion may name
   await client.stageOutput("report.bin", first);
   await client.stageOutput("report.bin", second);
   expect(log.frames.filter(frame => frame.schemaVersion === "factory.guest-material-begin.v1").map(frame => frame.version)).toEqual([1, 2]);
-  // Default: the latest version this guest staged.
-  const latest = await client.promoteOutput("report.bin", `sha256:${sha256Hex(second)}`);
+  // Default: the latest version this guest staged, and the digest it computed
+  // for it. A caller that passes neither cannot pass the wrong one.
+  const latest = await client.promoteOutput("report.bin");
   expect(latest.resultDigest).toBe(sha256Hex(second));
   expect(log.frames.at(-1)?.version).toBe(2);
   // Explicit: an earlier version, named by the caller.
@@ -191,7 +196,7 @@ test("staging the same name twice advances its version, and a promotion may name
   expect(log.frames.at(-1)?.version).toBe(1);
 });
 
-test("a promotion for a name this guest never staged defaults to version one", async () => {
+test("a recovered guest promotes by naming the digest itself, and one that names nothing is refused", async () => {
   const log: HostLog = { frames: [] };
   const bytes = new Uint8Array([9]);
   const client = staging(async (payload) => {
@@ -201,4 +206,10 @@ test("a promotion for a name this guest never staged defaults to version one", a
   });
   await client.promoteOutput("recovered.json", `sha256:${sha256Hex(bytes)}`);
   expect(log.frames[0]?.version).toBe(1);
+
+  // Nothing staged and no digest given: there is no value to guess, so this is
+  // refused here rather than sent as a frame the host cannot answer.
+  const failure = await client.promoteOutput("never-staged.json").catch((error: unknown) => error);
+  expect((failure as FactoryGuestMaterialError).code).toBe("guest_frame_invalid");
+  expect(log.frames).toHaveLength(1);
 });

@@ -65,9 +65,27 @@ export interface FactoryGuestStagedOutput {
   readonly resultDigest: string;
 }
 
+/**
+ * What one sealed material is, in the two identities it actually has.
+ *
+ * `material` is the sealed handle — an artifact of kind `material` holding the
+ * chunk manifest, which is what the scoped reader resolves and what a
+ * validator or a release profile is given. Its digest covers the MANIFEST.
+ * `digest` covers the assembled CONTENT, and that is the one a promotion
+ * names. They are different values over different bytes, and returning only
+ * the handle is how a caller ends up promoting with the wrong one.
+ */
+export interface FactoryGuestStagedMaterial {
+  readonly material: FactoryArtifactReference;
+  /** `sha256:` + 64 hex over the assembled bytes. */
+  readonly digest: string;
+  readonly totalBytes: number;
+  readonly version: number;
+}
+
 export interface FactoryGuestStaging {
   /**
-   * Chunks, seals, and returns the sealed material's reference.
+   * Chunks, seals, and returns the sealed material.
    *
    * `bytes` may be one buffer or an async sequence of them; the sequence is
    * drained into memory before the first frame, because the plan a `begin`
@@ -75,9 +93,16 @@ export interface FactoryGuestStaging {
    * ends early would leave a half-written material no later call can finish.
    * The bound that makes this safe is the same one the channel imposes.
    */
-  stageOutput(objectName: string, bytes: Uint8Array | AsyncIterable<Uint8Array>, mediaType?: string): Promise<FactoryArtifactReference>;
-  /** Promotes one sealed material to this attempt's candidate output. */
-  promoteOutput(objectName: string, digest: string, version?: number): Promise<FactoryGuestStagedOutput>;
+  stageOutput(objectName: string, bytes: Uint8Array | AsyncIterable<Uint8Array>, mediaType?: string): Promise<FactoryGuestStagedMaterial>;
+  /**
+   * Promotes one sealed material to this attempt's candidate output.
+   *
+   * `contentDigest` covers the assembled bytes, not the material handle. It
+   * defaults to the digest this client computed when it staged that name, so
+   * the ordinary path cannot pass the wrong one; a guest that recovered and has
+   * no memory of the upload passes it explicitly.
+   */
+   promoteOutput(objectName: string, contentDigest?: string, version?: number): Promise<FactoryGuestStagedOutput>;
   /** Stages a JSON value as canonical bytes and promotes it in one step. */
   stageResult(objectName: string, value: JsonValue): Promise<FactoryGuestStagedOutput>;
 }
@@ -115,7 +140,7 @@ async function collect(bytes: Uint8Array | AsyncIterable<Uint8Array>): Promise<U
  * refused by name instead of silently overwriting.
  */
 export function createFactoryGuestStaging(options: FactoryGuestStagingOptions): FactoryGuestStaging {
-  const versions = new Map<string, number>();
+  const staged = new Map<string, { readonly version: number; readonly digest: string }>();
 
   const send = async (frame: FactoryGuestMaterialRequest): Promise<FactoryGuestMaterialResponse> => {
     const outgoing = validateFactoryGuestMaterialRequest(frame);
@@ -135,9 +160,9 @@ export function createFactoryGuestStaging(options: FactoryGuestStagingOptions): 
     version,
   });
 
-  const stageOutput = async (objectName: string, source: Uint8Array | AsyncIterable<Uint8Array>, mediaType = FACTORY_GUEST_MATERIAL_DEFAULT_MEDIA_TYPE): Promise<FactoryArtifactReference> => {
+  const stageOutput = async (objectName: string, source: Uint8Array | AsyncIterable<Uint8Array>, mediaType = FACTORY_GUEST_MATERIAL_DEFAULT_MEDIA_TYPE): Promise<FactoryGuestStagedMaterial> => {
     const content = await collect(source);
-    const version = (versions.get(objectName) ?? 0) + 1;
+    const version = (staged.get(objectName)?.version ?? 0) + 1;
     const chunkCount = chunkPlan(content.byteLength);
     await send({ schemaVersion: "factory.guest-material-begin.v1", ...identity(objectName, version), mediaType, totalBytes: content.byteLength, chunkCount });
     for (let index = 0; index < chunkCount; index += 1) {
@@ -152,14 +177,18 @@ export function createFactoryGuestStaging(options: FactoryGuestStagingOptions): 
         contentBase64: encodeFactoryPageBase64(slice),
       });
     }
-    const sealed = await send({ schemaVersion: "factory.guest-material-seal.v1", ...identity(objectName, version), digest: `sha256:${sha256Hex(content)}` });
+    const digest = `sha256:${sha256Hex(content)}`;
+    const sealed = await send({ schemaVersion: "factory.guest-material-seal.v1", ...identity(objectName, version), digest });
     if (sealed.status !== "sealed") throw new FactoryGuestMaterialError("guest_response_invalid", `A seal was answered with '${sealed.status}'.`);
-    versions.set(objectName, version);
-    return sealed.material;
+    staged.set(objectName, { version, digest });
+    return Object.freeze({ material: sealed.material, digest, totalBytes: content.byteLength, version });
   };
 
-  const promoteOutput = async (objectName: string, digest: string, version = versions.get(objectName) ?? 1): Promise<FactoryGuestStagedOutput> => {
-    const promoted = await send({ schemaVersion: "factory.guest-material-output.v1", ...identity(objectName, version), digest });
+  const promoteOutput = async (objectName: string, contentDigest?: string, version?: number): Promise<FactoryGuestStagedOutput> => {
+    const held = staged.get(objectName);
+    const digest = contentDigest ?? held?.digest;
+    if (digest === undefined) throw new FactoryGuestMaterialError("guest_frame_invalid", `This guest did not stage '${objectName}', so it cannot name the bytes to promote.`);
+    const promoted = await send({ schemaVersion: "factory.guest-material-output.v1", ...identity(objectName, version ?? held?.version ?? 1), digest });
     if (promoted.status !== "output") throw new FactoryGuestMaterialError("guest_response_invalid", `A promotion was answered with '${promoted.status}'.`);
     return Object.freeze({ output: promoted.output, resultDigest: promoted.resultDigest });
   };
@@ -173,7 +202,7 @@ export function createFactoryGuestStaging(options: FactoryGuestStagingOptions): 
       // `JSON.stringify` output would be refused for key order alone.
       const content = new TextEncoder().encode(canonicalizeJson(value));
       const material = await stageOutput(objectName, content, FACTORY_GUEST_MATERIAL_JSON_MEDIA_TYPE);
-      return promoteOutput(objectName, material.digest);
+      return promoteOutput(objectName, material.digest, material.version);
     },
   });
 }

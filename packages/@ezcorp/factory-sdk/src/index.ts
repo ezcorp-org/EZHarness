@@ -7,7 +7,7 @@ export { canonicalizeJson, isUnsignedDecimal, jsonEqual, sha256Hex, unicodeLengt
 export { factoryApiMutationPayload, factoryApiPayloadDigest, validateFactoryApiPayloadDigest } from "./api.js";
 export { decodeFactoryPageBase64, encodeFactoryPageBase64, FACTORY_PAGE_BYTES_LIMIT } from "./page-bytes.js";
 export { createFactoryGuestStaging, FactoryGuestMaterialError, FACTORY_GUEST_MATERIAL_DEFAULT_MEDIA_TYPE, FACTORY_GUEST_MATERIAL_JSON_MEDIA_TYPE } from "./guest-materials.js";
-export type { FactoryGuestBrokerCall, FactoryGuestStagedOutput, FactoryGuestStaging, FactoryGuestStagingOptions } from "./guest-materials.js";
+export type { FactoryGuestBrokerCall, FactoryGuestStagedMaterial, FactoryGuestStagedOutput, FactoryGuestStaging, FactoryGuestStagingOptions } from "./guest-materials.js";
 export { FactoryParseError, parseFactoryJson, parseFactoryYaml, parseIJson, parseIYaml } from "./parse.js";
 export { compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, factoryRunnerRequestDigest, factoryRunnerRequestIdentity, verifyCompiledFactoryArtifact } from "./compiler.js";
 export type { CompiledFactoryPageBytes } from "./compiler.js";

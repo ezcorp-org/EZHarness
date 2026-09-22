@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
-import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import type { FactoryGuestModelRequest, FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import type { FactoryAttemptAuthority, FactoryExecutionJournal, FactoryJournalOperation } from "../executions";
+import { factoryRunnerRequestAuthority } from "./attempt-authority";
 import type { FactoryGuestModelClaim, FactoryGuestModelJournal, FactoryModelCompletion } from "./guest-model-broker";
 import type { FactoryWorkspaceCheckpoint } from "./supervisor";
 
@@ -18,28 +18,6 @@ import type { FactoryWorkspaceCheckpoint } from "./supervisor";
 
 function digest(value: unknown): string {
   return createHash("sha256").update(canonicalJson(value)).digest("hex");
-}
-
-/** The authority a journal write needs, derived from the request it belongs to. */
-export function factoryGuestModelAuthority(attempt: FactoryRunnerRequest): FactoryAttemptAuthority {
-  const authority = attempt.authority;
-  return {
-    attemptId: authority.attemptId,
-    tenantId: authority.tenantId,
-    projectId: authority.projectId,
-    runId: authority.runId,
-    nodeInstanceId: authority.nodeInstanceId,
-    candidateGeneration: authority.candidateGeneration,
-    attemptNumber: authority.attemptNumber,
-    grantRevision: authority.grantRevision,
-    reservationGeneration: authority.reservationGeneration,
-    executionEpoch: authority.executionEpoch,
-    cancellationEpoch: authority.cancellationEpoch,
-    // The canonical C02 identity excludes the ephemeral broker token, so a
-    // reissued token on recovery still names the same durable attempt.
-    requestDigest: factoryRunnerRequestDigest(attempt),
-    deadlineAt: new Date(authority.deadlineAtMs),
-  };
 }
 
 /**
@@ -74,7 +52,7 @@ export interface FactoryJournalGuestModelOptions {
 export function createFactoryJournalGuestModelJournal(options: FactoryJournalGuestModelOptions): FactoryGuestModelJournal {
   return Object.freeze({
     async claim(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest): Promise<FactoryGuestModelClaim> {
-      const authority = factoryGuestModelAuthority(attempt);
+      const authority = factoryRunnerRequestAuthority(attempt);
       await options.authorizeAttempt?.(authority);
       const operation = factoryGuestModelOperation(request);
       await options.journal.prepare(authority, operation);
@@ -86,14 +64,14 @@ export function createFactoryJournalGuestModelJournal(options: FactoryJournalGue
       return { claimed: false, reason: previous.state === "dispatched" ? "busy" : "settled" };
     },
     async record(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void> {
-      const authority = factoryGuestModelAuthority(attempt);
+      const authority = factoryRunnerRequestAuthority(attempt);
       const operation = factoryGuestModelOperation(request);
       const result = factoryGuestModelResult(completion);
       const workspaceCheckpoint = await options.workspace.checkpoint({ operationId: operation.operationId, operationIndex: operation.operationIndex, attempt: authority, result });
       await options.journal.settle(authority, operation.operationId, "completed", { providerReceiptDigest: completion.providerReceiptDigest, resultDigest: digest(result), result, usage: completion.usage, workspaceCheckpoint });
     },
     async hold(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void> {
-      const authority = factoryGuestModelAuthority(attempt);
+      const authority = factoryRunnerRequestAuthority(attempt);
       const operation = factoryGuestModelOperation(request);
       // Exactly the receipt and the usage, and nothing else. `reconcileLate`
       // compares the stored row field for field against what a later caller
@@ -102,7 +80,7 @@ export function createFactoryJournalGuestModelJournal(options: FactoryJournalGue
       await options.journal.settle(authority, operation.operationId, "uncertain", { providerReceiptDigest: completion.providerReceiptDigest, usage: completion.usage });
     },
     async fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, reason: string): Promise<void> {
-      const authority = factoryGuestModelAuthority(attempt);
+      const authority = factoryRunnerRequestAuthority(attempt);
       const operation = factoryGuestModelOperation(request);
       const result = { code: "factory_guest_model_failed", message: reason.slice(0, 4_096) } as unknown as JsonValue;
       await options.journal.settle(authority, operation.operationId, "failed", { resultDigest: digest(result), result });
