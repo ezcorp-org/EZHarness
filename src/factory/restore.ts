@@ -240,8 +240,9 @@ export class FactoryRestore {
   /** Every check and reconciliation for an opened epoch, recorded as findings, then the sealed report. */
   async verify(session: FactoryRestoreSession, signal?: AbortSignal): Promise<FactoryRestoreReport> {
     const { manifest, seal, restoreId } = session;
-    const current = rows<{ state: string }>(await this.database.execute(sql`SELECT state FROM factory_restore_epochs WHERE tenant_id = ${this.tenantId} AND restore_id = ${restoreId}`))[0];
+    const current = rows<{ state: string; opened_state_json: string }>(await this.database.execute(sql`SELECT state, opened_state_json FROM factory_restore_epochs WHERE tenant_id = ${this.tenantId} AND restore_id = ${restoreId}`))[0];
     if (current?.state !== "fenced" && current?.state !== "awaiting_signature") throw new FactoryRestoreError("factory_restore_state");
+    const openedState = JSON.parse(current.opened_state_json) as FactoryCheckpointManifest["product"]["state"];
     // A re-verification replaces the previous pass's findings; a stale block must not outlive the fact it named.
     await this.database.execute(sql`DELETE FROM factory_restore_findings WHERE tenant_id = ${this.tenantId} AND restore_id = ${restoreId}`);
     const findings = new Map<string, FactoryRestoreFinding>();
@@ -253,7 +254,7 @@ export class FactoryRestore {
         VALUES (${this.tenantId}, ${restoreId}, ${complete.findingId}, ${complete.subjectKind}, ${complete.subjectId}, ${complete.disposition}, ${complete.reason}, ${canonicalJson(complete.detail)}) ON CONFLICT (tenant_id, restore_id, finding_id) DO NOTHING`);
     };
     await this.fenceOldDeployment(restoreId, record, signal);
-    await this.checkCompatibility(manifest, record, signal);
+    await this.checkCompatibility(manifest, openedState, record, signal);
     await this.reconcilePool(manifest, record);
     await this.compareTemporal(session.mode, manifest, record, signal);
     await this.rebuildRuns(record, signal);
@@ -322,8 +323,12 @@ export class FactoryRestore {
       if (!current) throw new FactoryRestoreError("factory_restore_invalid");
       if (rows(await transaction.execute(sql`SELECT 1 FROM factory_restore_epochs WHERE tenant_id = ${this.tenantId} AND state <> 'enabled' LIMIT 1`)).length) throw new FactoryRestoreError("factory_restore_state");
       const previousEpoch = Number(current.execution_epoch), executionEpoch = previousEpoch + 1;
-      await transaction.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms)
-        VALUES (${this.tenantId}, ${restoreId}, ${mode}, ${manifest.checkpointId}, ${seal.manifestDigest}, ${previousEpoch}, ${executionEpoch}, 'fenced', ${this.now()})`);
+      // The database position is judged on the state as restored, before this
+      // restore imports or rebinds anything, so a re-verification cannot
+      // mistake the restore's own writes for a mismatched backup.
+      const { state } = await captureFactoryProductState(transaction, this.tenantId);
+      await transaction.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms, opened_state_json)
+        VALUES (${this.tenantId}, ${restoreId}, ${mode}, ${manifest.checkpointId}, ${seal.manifestDigest}, ${previousEpoch}, ${executionEpoch}, 'fenced', ${this.now()}, ${canonicalJson(state)})`);
       await transaction.execute(sql`UPDATE factory_installation SET execution_epoch = ${executionEpoch} WHERE tenant_id = ${this.tenantId}`);
       await insertTransactionalAuditEntry(transaction, `factory-restore-opened:${this.tenantId}:${restoreId}`, null, "factory.restore.opened", restoreId, { tenantId: this.tenantId, checkpointId: manifest.checkpointId, previousEpoch, executionEpoch, mode });
       return { previousEpoch, executionEpoch };
@@ -337,12 +342,11 @@ export class FactoryRestore {
     }
   }
 
-  private async checkCompatibility(manifest: FactoryCheckpointManifest, record: (finding: Omit<FactoryRestoreFinding, "findingId">) => Promise<void>, signal?: AbortSignal): Promise<void> {
+  private async checkCompatibility(manifest: FactoryCheckpointManifest, state: FactoryCheckpointManifest["product"]["state"], record: (finding: Omit<FactoryRestoreFinding, "findingId">) => Promise<void>, signal?: AbortSignal): Promise<void> {
     const schemaDigest = await factorySchemaDigest(this.database);
     await record(schemaDigest === manifest.product.schemaDigest
       ? { subjectKind: "check", subjectId: "schema", disposition: "verified", reason: "schema_matches", detail: { schemaDigest } }
       : { subjectKind: "check", subjectId: "schema", disposition: "blocked", reason: "incompatible_schema", detail: { expected: manifest.product.schemaDigest, restored: schemaDigest } });
-    const { state } = await captureFactoryProductState(this.database, this.tenantId);
     const mismatched = (Object.keys(manifest.product.state) as (keyof typeof state)[]).filter(key => state[key] !== manifest.product.state[key]);
     await record(mismatched.length === 0
       ? { subjectKind: "check", subjectId: "database-position", disposition: "verified", reason: "state_matches_checkpoint", detail: { stateDigest: state.stateDigest, lsn: manifest.product.lsn } }
@@ -543,9 +547,9 @@ export class FactoryRestore {
  * restore epoch before any tenant is verified, so no tenant can dispatch
  * against restored Temporal persistence while another is still being checked.
  */
-export async function runFactoryClusterRestore(restores: readonly { readonly restore: FactoryRestore; readonly restoreId: string; readonly failureAtMs?: number }[], signal?: AbortSignal): Promise<readonly FactoryRestoreReport[]> {
+export async function runFactoryClusterRestore(restores: readonly ({ readonly restore: FactoryRestore } & Omit<FactoryRestoreInput, "mode">)[], signal?: AbortSignal): Promise<readonly FactoryRestoreReport[]> {
   const sessions: { readonly restore: FactoryRestore; readonly session: FactoryRestoreSession }[] = [];
-  for (const entry of restores) sessions.push({ restore: entry.restore, session: await entry.restore.open({ restoreId: entry.restoreId, mode: "cluster", ...(entry.failureAtMs === undefined ? {} : { failureAtMs: entry.failureAtMs }) }, signal) });
+  for (const { restore, ...input } of restores) sessions.push({ restore, session: await restore.open({ ...input, mode: "cluster" }, signal) });
   const reports: FactoryRestoreReport[] = [];
   for (const { restore, session } of sessions) reports.push(await restore.verify(session, signal));
   return reports;

@@ -74,7 +74,7 @@ export async function createFactoryReleaseWorld(options: FactoryReleaseWorldOpti
   await database.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Release',${`/tmp/${projectId}`}) ON CONFLICT (id) DO NOTHING`);
   await records.bindProject(projectId);
   await database.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${admin.id},${`${admin.id}@example.test`},'x','Recovery admin','admin') ON CONFLICT (id) DO NOTHING`);
-  await database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES (${`${tenantId}-member`},${projectId},${admin.id},'owner') ON CONFLICT (id) DO NOTHING`);
+  await database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES (${`${tenantId}-${admin.id}-member`},${projectId},${admin.id},'owner') ON CONFLICT (id) DO NOTHING`);
   const grants = new FactoryGrants(database, tenantId, now);
   for (const action of ["factory.trust", "factory.approve", "factory.release", "factory.operate"] as const) await grants.set(admin, { projectId, principal: admin, action, expectedRevision: 0, expiresAtMs: null });
 

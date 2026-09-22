@@ -3280,6 +3280,8 @@ export const factoryRestoreEpochs = pgTable("factory_restore_epochs", {
   reportJson: text("report_json"), reportDigest: text("report_digest"), signedBy: text("signed_by"),
   signedAtMs: bigint("signed_at_ms", { mode: "number" }), enabledAtMs: bigint("enabled_at_ms", { mode: "number" }),
   startedAtMs: bigint("started_at_ms", { mode: "number" }).notNull(),
+  /** The restored database's product state the moment the epoch opened, before restore wrote anything. */
+  openedStateJson: text("opened_state_json").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
   primaryKey({ columns: [table.tenantId, table.restoreId] }),

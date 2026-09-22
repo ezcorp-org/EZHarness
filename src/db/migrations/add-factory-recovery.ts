@@ -123,7 +123,7 @@ export async function up(database: MigrationDb): Promise<void> {
     checkpoint_id TEXT NOT NULL, manifest_digest TEXT NOT NULL,
     previous_epoch INTEGER NOT NULL, execution_epoch INTEGER NOT NULL, state TEXT NOT NULL,
     report_json TEXT, report_digest TEXT, signed_by TEXT, signed_at_ms BIGINT, enabled_at_ms BIGINT,
-    started_at_ms BIGINT NOT NULL,
+    started_at_ms BIGINT NOT NULL, opened_state_json TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT factory_restore_epochs_pkey PRIMARY KEY (tenant_id, restore_id),
     CONSTRAINT factory_restore_epochs_epoch_key UNIQUE (tenant_id, execution_epoch),

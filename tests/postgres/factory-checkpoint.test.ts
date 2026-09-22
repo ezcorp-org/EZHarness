@@ -271,7 +271,7 @@ describe("the compatible checkpoint barrier", () => {
   });
 
   test("an open restore epoch skips the barrier; the barrier counts its windows", async () => {
-    await fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms) VALUES (${tenantId}, 'skip-probe', 'tenant', 'x', ${digest("a")}, 1, 2, 'fenced', 0)`);
+    await fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms, opened_state_json) VALUES (${tenantId}, 'skip-probe', 'tenant', 'x', ${digest("a")}, 1, 2, 'fenced', 0, '{}')`);
     try { expect(await coordinator(storage.archive).run()).toEqual({ kind: "skipped", reason: "restore_epoch_open" }); }
     finally { await fixture.db.execute(sql`DELETE FROM factory_restore_epochs WHERE restore_id = 'skip-probe'`); }
     const windows = await coordinator(storage.archive).windows(0);

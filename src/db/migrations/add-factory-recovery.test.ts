@@ -57,8 +57,8 @@ test("an open restore epoch closes run admission and a stale checkpoint closes e
   await fixture.db.execute(sql`INSERT INTO factory_checkpoints (tenant_id, checkpoint_id, state, execution_epoch, key_wrap_version, started_at_ms, duration_ms, product_lsn, manifest_digest, manifest_archive_json, sealed_at)
     VALUES ('tenant-migration','fresh','sealed',1,1,0,5,'0/2',${`sha256:${"b".repeat(64)}`},'{}', clock_timestamp())`);
   expect(await reason()).toBeNull();
-  await fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms)
-    VALUES ('tenant-migration','restore-1','tenant','fresh',${`sha256:${"b".repeat(64)}`},1,2,'fenced',0)`);
+  await fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms, opened_state_json)
+    VALUES ('tenant-migration','restore-1','tenant','fresh',${`sha256:${"b".repeat(64)}`},1,2,'fenced',0,'{}')`);
   expect(await reason()).toBe("restore_epoch_open");
   await fixture.db.execute(sql`INSERT INTO projects (id, name, path) VALUES ('recovery-project','Recovery','/tmp/recovery-project')`);
   await fixture.db.execute(sql`INSERT INTO factory_projects (tenant_id, project_id) VALUES ('tenant-migration','recovery-project')`);
