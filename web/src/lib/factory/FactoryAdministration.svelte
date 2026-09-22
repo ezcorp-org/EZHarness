@@ -257,7 +257,7 @@
 						{/each}
 					</tbody>
 				</table>
-				<p class="audit-loss"><Trash2 size={14} /> A purge would remove <strong>{preview.auditRowsLost}</strong> audit record{preview.auditRowsLost === 1 ? "" : "s"}. The request itself is kept.</p>
+				<p class="audit-loss"><Trash2 size={14} /><span>A purge would remove <strong>{preview.auditRowsLost}</strong> audit record{preview.auditRowsLost === 1 ? "" : "s"}. The request itself is kept.</span></p>
 			{/if}
 			<form class="form-grid" aria-label="Request tenant purge" onsubmit={event => { event.preventDefault(); void submitPurge(); }}>
 				<label class="span">Reason<textarea bind:value={purgeReason} rows="2" required></textarea></label>
