@@ -68,6 +68,10 @@ WORKDIR /app
 # with `--cap-add=NET_ADMIN`. Phase 58 also requires `--cap-add=NET_ADMIN`
 # for `ip link add type veth` + `ip link set master <bridge>` — without
 # it Stage 2 degrades to Stage 1 (see `docs/deployment.md`).
+#
+# `git`, `curl` and `ca-certificates` are not part of that launcher set.
+# `git` and `gh` back the host-side GitHub paths (see the `gh` layer below);
+# `curl` + `ca-certificates` exist to fetch `gh` and to give it a trust store.
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
        util-linux \
@@ -77,7 +81,39 @@ RUN apt-get update \
        libcap2-bin \
        bubblewrap \
        libseccomp2 \
+       git \
+       curl \
+       ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+
+# `gh` is required at runtime by the host-side GitHub paths. They SHELL OUT,
+# so a missing binary is not a build-time link error but an ENOENT at the
+# call site:
+#   - src/extensions/project-open-pr.ts  →  `gh pr create`
+#   - src/extensions/github-projects-handler.ts  →  `gh auth token`
+# Both surface as "could not open the pull request" / an auth failure, which
+# reads as a GitHub permission problem rather than an image that never
+# carried the CLI.
+#
+# Installed BEFORE `USER bun` so the binary is root-owned and mode 0755 —
+# readable and executable by `bun`, writable by nobody at runtime.
+#
+# Pinned rather than taken from the `cli.github.com` apt repo: a floating
+# version would invalidate this layer on every upstream release, the same
+# drift the pinned `oven/bun:1.3.14` base exists to avoid.
+ARG GH_VERSION=2.63.2
+ARG TARGETARCH
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64|arm64) gharch="${TARGETARCH:-amd64}" ;; \
+      *) echo "unsupported TARGETARCH for gh: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/gh.tar.gz \
+      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${gharch}.tar.gz"; \
+    tar -xzf /tmp/gh.tar.gz -C /tmp; \
+    install -o root -g root -m 0755 "/tmp/gh_${GH_VERSION}_linux_${gharch}/bin/gh" /usr/local/bin/gh; \
+    rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_${gharch}"; \
+    gh --version
 
 # Phase 55 / MCP-03 — Compile the seccomp BPF blob from the committed JSON
 # profile. Build deps (gcc + libseccomp-dev) are apt-installed for the
