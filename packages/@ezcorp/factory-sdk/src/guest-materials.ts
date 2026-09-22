@@ -4,6 +4,7 @@ import { validateFactoryGuestMaterialRequest, validateFactoryGuestMaterialRespon
 import {
   FACTORY_GUEST_MATERIAL_LIMITS,
   type FactoryArtifactReference,
+  type FactoryCheckpointReference,
   type FactoryGuestMaterialRefusal,
   type FactoryGuestMaterialRequest,
   type FactoryGuestMaterialResponse,
@@ -105,6 +106,29 @@ export interface FactoryGuestStaging {
    promoteOutput(objectName: string, contentDigest?: string, version?: number): Promise<FactoryGuestStagedOutput>;
   /** Stages a JSON value as canonical bytes and promotes it in one step. */
   stageResult(objectName: string, value: JsonValue): Promise<FactoryGuestStagedOutput>;
+  /**
+   * Stages one workspace checkpoint and returns the reference a result carries.
+   *
+   * A COMPLETED result must carry a checkpoint whose `journalCursor` equals the
+   * result's own, and `validateFactoryRunnerResult` refuses any other pairing.
+   * The reference points at a real sealed material under the reserved
+   * `workspace/` prefix, so recovery reads the same verified bytes through the
+   * same scoped reader rather than following a handle to nothing.
+   */
+  stageCheckpoint(value: JsonValue, journalCursor: number): Promise<FactoryCheckpointReference>;
+}
+
+/**
+ * The object name one checkpoint occupies, under W04's reserved prefix.
+ *
+ * An attempt that settled no operation has cursor -1, which the host-side
+ * `FactoryWorkspaceCheckpoints.objectName` refuses because it names an
+ * operation index. A guest checkpoint is named by its cursor instead, and the
+ * two never collide: `attempt` is not an operation number.
+ */
+export function factoryGuestCheckpointName(journalCursor: number): string {
+  if (!Number.isSafeInteger(journalCursor) || journalCursor < -1) throw new FactoryGuestMaterialError("guest_frame_invalid", "A journal cursor is -1 or a nonnegative safe integer.");
+  return journalCursor < 0 ? "workspace/attempt.json" : `workspace/operation-${journalCursor}.json`;
 }
 
 function chunkPlan(totalBytes: number): number {
@@ -203,6 +227,11 @@ export function createFactoryGuestStaging(options: FactoryGuestStagingOptions): 
       const content = new TextEncoder().encode(canonicalizeJson(value));
       const material = await stageOutput(objectName, content, FACTORY_GUEST_MATERIAL_JSON_MEDIA_TYPE);
       return promoteOutput(objectName, material.digest, material.version);
+    },
+    async stageCheckpoint(value: JsonValue, journalCursor: number): Promise<FactoryCheckpointReference> {
+      const content = new TextEncoder().encode(canonicalizeJson(value));
+      const material = await stageOutput(factoryGuestCheckpointName(journalCursor), content, FACTORY_GUEST_MATERIAL_JSON_MEDIA_TYPE);
+      return Object.freeze({ ...material.material, journalCursor });
     },
   });
 }

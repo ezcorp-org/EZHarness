@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { canonicalizeJson, sha256Hex } from "./canonical";
-import { createFactoryGuestStaging, FactoryGuestMaterialError } from "./guest-materials";
+import { createFactoryGuestStaging, factoryGuestCheckpointName, FactoryGuestMaterialError } from "./guest-materials";
 import { decodeFactoryPageBase64 } from "./page-bytes";
 import { FACTORY_GUEST_MATERIAL_LIMITS, type FactoryGuestMaterialRequest, type FactoryGuestMaterialResponse, type JsonValue } from "./types";
 
@@ -212,4 +212,32 @@ test("a recovered guest promotes by naming the digest itself, and one that names
   const failure = await client.promoteOutput("never-staged.json").catch((error: unknown) => error);
   expect((failure as FactoryGuestMaterialError).code).toBe("guest_frame_invalid");
   expect(log.frames).toHaveLength(1);
+});
+
+test("a checkpoint is a real sealed material whose cursor the result must match", async () => {
+  const log: HostLog = { frames: [] };
+  const client = staging(host(log));
+  // Cursor -1 is the attempt that settled no operation, which the host-side
+  // checkpoint writer cannot name because its own names are operation indexes.
+  const attempt = await client.stageCheckpoint({ transcript: [] } as unknown as JsonValue, -1);
+  expect(attempt.journalCursor).toBe(-1);
+  expect(log.frames[0]?.objectName).toBe("workspace/attempt.json");
+  const operation = await client.stageCheckpoint({ transcript: ["one"] } as unknown as JsonValue, 4);
+  expect(operation.journalCursor).toBe(4);
+  expect(log.frames.filter(frame => frame.schemaVersion === "factory.guest-material-begin.v1").at(-1)?.objectName).toBe("workspace/operation-4.json");
+  // The handle is the sealed material the scoped reader resolves, so the
+  // reference a result carries points at bytes that exist.
+  const canonical = new TextEncoder().encode(canonicalizeJson({ transcript: ["one"] } as unknown as JsonValue));
+  expect(operation.digest).toBe(`sha256:${sha256Hex(canonical)}`);
+  expect(operation.encodedBytes).toBe(canonical.byteLength);
+});
+
+test("a cursor that is not a journal cursor is refused before a frame is built", () => {
+  expect(factoryGuestCheckpointName(-1)).toBe("workspace/attempt.json");
+  expect(factoryGuestCheckpointName(0)).toBe("workspace/operation-0.json");
+  for (const cursor of [-2, 1.5, Number.NaN, Number.MAX_SAFE_INTEGER + 2]) {
+    const failure = (() => { try { factoryGuestCheckpointName(cursor); return undefined; } catch (error) { return error; } })();
+    expect(failure, String(cursor)).toBeInstanceOf(FactoryGuestMaterialError);
+    expect((failure as FactoryGuestMaterialError).code).toBe("guest_frame_invalid");
+  }
 });

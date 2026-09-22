@@ -12,9 +12,12 @@ import type { TransactionalDb } from "../../db/migrations/types";
 import { FileBlobStore } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryArtifacts } from "../../factory/artifacts";
-import { FactoryAttemptMaterials, FactoryScopedMaterials } from "../../factory/artifact-materials";
+import { FactoryAttemptMaterials, FactoryScopedMaterials, FactoryWorkspaceCheckpoints } from "../../factory/artifact-materials";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
+import { digestObject } from "../../extensions/v4/blobs";
+import type { AgentRun } from "../../types";
 import { factoryRunnerRequestAuthority } from "../../factory/runner/attempt-authority";
+import { createNativeFactoryArtifacts, nativeFactoryOutputValue } from "../../factory/runner/native";
 import {
   FACTORY_GUEST_MATERIAL_REFUSALS,
   createFactoryCandidateOutputWriter,
@@ -117,7 +120,8 @@ async function setup(options: { deadlineMs?: number } = {}) {
   });
 
   const materials = (authority: FactoryAttemptAuthority) => new FactoryAttemptMaterials({ database: db, artifacts, blobs, journal, authority });
-  return { db, artifacts, journal, reader, projectId, runId, admit, broker, guest, output, materials };
+  const checkpoints = new FactoryWorkspaceCheckpoints({ database: db, artifacts, blobs, journal });
+  return { db, artifacts, journal, reader, projectId, runId, admit, broker, guest, output, materials, checkpoints };
 }
 
 async function refusalOf(action: Promise<unknown>): Promise<string> {
@@ -449,6 +453,31 @@ test("the refusal table names every code the material service can raise", async 
   expect(declared.size).toBeGreaterThan(20);
   const unmapped = [...declared].filter(code => !(code in FACTORY_GUEST_MATERIAL_REFUSALS)).sort();
   expect(unmapped).toEqual([]);
+});
+
+test("the native entrypoint's artifacts are the same two writers the guest path uses", async () => {
+  const fixture = await setup();
+  const { request, operationId } = await fixture.admit();
+  void operationId;
+  const native = createNativeFactoryArtifacts({ output: fixture.output, checkpoints: fixture.checkpoints });
+  const run = { id: "native-run", agentName: "chat", status: "success", startedAt: 1, logs: [], result: { success: true, output: { answer: 42, dropped: undefined } } } as unknown as AgentRun;
+
+  const output = await native.output(request, run);
+  // The exact equality `verifyCompletedEvidence` performs. Deriving both sides
+  // from `nativeFactoryOutputValue` is what makes it hold.
+  expect(output.digest).toBe(`sha256:${digestObject(nativeFactoryOutputValue(run))}`);
+  const loaded = await fixture.db.transaction(transaction => fixture.artifacts.loadInTransaction(
+    transaction, { tenantId: TENANT, projectId: fixture.projectId, logicalRunId: fixture.runId },
+    { objectId: output.artifactId, digest: output.digest, encodedBytes: output.encodedBytes }, ["candidate_output"]));
+  // The undefined member is dropped on the way to the wire, and the stored
+  // bytes are its canonical form.
+  expect(new TextDecoder().decode(loaded.content)).toBe('{"answer":42}');
+
+  const checkpoint = await native.checkpoint(request, run);
+  expect(checkpoint.journalCursor).toBe(request.authority.nextOperationIndex);
+  // A repeat is the same handle rather than a second material version.
+  expect(await native.checkpoint(request, run)).toEqual(checkpoint);
+  expect(await native.output(request, run)).toEqual(output);
 });
 
 test("the request digest the journal matches on is the token-free identity", async () => {
