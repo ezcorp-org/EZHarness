@@ -112,6 +112,17 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 			runRevision += 1;
 			return respond(envelope({ kind: "mutation.accepted", receipt: { resourceId: "run-remediation", commandId: "factory-control:repair", statusUrl: "/api/factories/projects/" + projectId + "/runs/run-remediation/commands/factory-control:repair" } }), 202);
 		}
+		if (url.pathname.endsWith("/runs/run-remediation/inspection") && method === "GET") {
+			const run = { ...runSummary(), parameters: {}, error: { code: "factory_assurance_claim_failed", message: "A required protected claim failed." } };
+			return respond(envelope({ kind: "run.inspection", resource: {
+				run, cursor: { token: "cursor-remediation", sequence: 3, expiresAtMs: 1_900_000_000_000 }, projectionLag: 0,
+				children: { items: [] }, attempts: { items: [] }, artifacts: { items: [] }, blockers: [], acceptance: [], releases: [],
+				costs: { limitMicros: "0", allocatedMicros: "0", spentMicros: "0", knownCostMicros: "0", unknownCostMicros: "0", admissionBlocked: false, uncertain: false },
+			} }));
+		}
+		if (url.pathname.endsWith("/runs/run-remediation/events") && method === "GET") {
+			return route.fulfill({ status: 200, contentType: "text/event-stream", body: 'event: factory:stream-closed\ndata: {"reason":"drained"}\n\n' });
+		}
 		if (url.pathname.endsWith("/runs/run-remediation") && method === "GET") {
 			return respond(envelope({ kind: "run.details", resource: { ...runSummary(), parameters: {}, error: { code: "factory_assurance_claim_failed", message: "A required protected claim failed." } } }));
 		}
@@ -205,7 +216,7 @@ test.describe("factory authoring console", () => {
 		await page.setViewportSize({ width: 1440, height: 980 });
 		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
 		const mocked = await routeFactoryApi(page, { releaseInbox: true });
-		await page.goto("/factories");
+		await page.goto("/factories?view=inbox");
 		await expect(page.getByRole("heading", { name: "Factory inbox" })).toBeVisible();
 		await expect(page.getByText("Factory approval requested")).toBeVisible();
 		await expect(page.getByText("Release approval requested")).toBeVisible();
@@ -233,10 +244,10 @@ test.describe("factory authoring console", () => {
 		await page.setViewportSize({ width: 1440, height: 1100 });
 		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
 		const mocked = await routeFactoryApi(page);
-		await page.goto("/factories");
+		await page.goto("/factories?view=runs");
+		await page.getByTestId("factory-run-inspector").getByRole("button", { name: /run-remediation/ }).click();
 		const controls = page.getByTestId("factory-run-controls");
 		await expect(controls.getByRole("heading", { name: "Run controls" })).toBeVisible();
-		await controls.getByRole("button", { name: /run-remediation/ }).click();
 		await expect(controls.getByText("factory_assurance_claim_failed")).toBeVisible();
 
 		await controls.getByLabel("Node").fill("generate-private-candidate");

@@ -84,7 +84,7 @@ async function openDraft(): Promise<void> {
 }
 
 function renderConsole(authoring: FactoryAuthoringApi): ReturnType<typeof render> {
-	return render(FactoryConsole, { projects: [{ id: "project-a", name: "Research" }], projectId: "project-a", onProjectChange: vi.fn(), api: authoring });
+	return render(FactoryConsole, { projectId: "project-a", api: authoring });
 }
 
 async function makeDirty(): Promise<void> {
@@ -104,18 +104,10 @@ describe("FactoryConsole", () => {
 
 	test("loads the selected membership project and creates a blank SDK draft", async () => {
 		const authoring = api();
-		const onProjectChange = vi.fn();
-		render(FactoryConsole, {
-			projects: [{ id: "project-a", name: "Research" }, { id: "project-b", name: "Release" }],
-			projectId: "project-a",
-			onProjectChange,
-			api: authoring,
-		});
+		render(FactoryConsole, { projectId: "project-a", api: authoring });
 
 		await screen.findByText(source().id);
 		expect(authoring.listDrafts).toHaveBeenCalledWith("project-a", { archived: false, limit: 200 });
-		await fireEvent.change(screen.getByLabelText("Factory project"), { target: { value: "project-b" } });
-		expect(onProjectChange).toHaveBeenCalledWith("project-b");
 
 		await fireEvent.input(screen.getByLabelText("New factory ID"), { target: { value: "new-pipeline" } });
 		await fireEvent.click(screen.getByRole("button", { name: "Create factory" }));
@@ -128,7 +120,7 @@ describe("FactoryConsole", () => {
 			.mockRejectedValueOnce(new FactoryApiClientError(412, "factory_precondition_failed", "revision changed", 4))
 			.mockResolvedValueOnce(summary(5));
 		const authoring = api({ saveDraft, getDraft: vi.fn(async () => server) });
-		render(FactoryConsole, { projects: [{ id: "project-a", name: "Research" }], projectId: "project-a", onProjectChange: vi.fn(), api: authoring });
+		render(FactoryConsole, { projectId: "project-a", api: authoring });
 		await openDraft();
 
 		await fireEvent.input(screen.getByLabelText("New node ID"), { target: { value: "collect" } });
@@ -153,7 +145,7 @@ describe("FactoryConsole", () => {
 
 	test("shows failed requests and supports source editing without losing the draft", async () => {
 		const authoring = api({ validateDraft: vi.fn(async () => { throw new Error("validation service unavailable"); }) });
-		render(FactoryConsole, { projects: [{ id: "project-a", name: "Research" }], projectId: "project-a", onProjectChange: vi.fn(), api: authoring });
+		render(FactoryConsole, { projectId: "project-a", api: authoring });
 		await openDraft();
 		await fireEvent.click(screen.getByRole("button", { name: "Definition" }));
 		const editor = screen.getByLabelText("Factory definition JSON");

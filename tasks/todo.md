@@ -3544,3 +3544,25 @@ it is declared in `schema.ts` as `idx_factory_release_operations_identity` but t
 it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
+
+## W14 — Live console, scoped API, and browser journeys (Sol product, branch `wp/w14-console`)
+
+Base `260855e57` (W09b and W13 merged). Evidence: `/tmp/factory-platform-evidence/w14/`. Gate file:
+`tasks/factory/w14-GATES.md`. Files in flight elsewhere are consumed, not edited: `_shared.ts`,
+`private-service.ts`, `task-stops.ts`, `orchestration-process.ts`, `pool/process.ts` (W18a-2);
+`release-declaration.ts` and the profile composition in `installation-startup.ts` (W09c); the guest
+broker, guest SDK, and runner result path (W01g).
+
+- [ ] Mutation baseline for `web/src/lib/factory/*` and `web/src/lib/graph/layout.ts`; kill survivors with assertions; record before/after.
+- [ ] Run inspection read model: nested runs, attempts, blockers, costs, artifacts, acceptance reasons, releases (new `src/factory/run-inspection.ts`, one scoped read, bounded pages).
+- [ ] Snapshot plus contiguous SSE cursor: signed cursor, duplicate/gap handling, 410 on expiry, authority recheck per batch, revocation closes the stream, bounded pages; client state machine with visible lag/disconnect.
+- [ ] Package admin routes over W02's `FactoryPackageTrusts`: list, install (bind + publish), quarantine, revoke, affected-run preview; human session plus tenant administrator; audited queued result.
+- [ ] Grant administration panel over the existing grant routes (admin scope plus administrator role).
+- [ ] Administrator purge request: human administrator session, preconditions evaluated, audit that will be lost recorded; no destructive action (W19).
+- [ ] Artifact downloads and previews: scoped short-lived ticket, `nosniff` plus attachment, escaped text, no executable SVG/HTML at the origin.
+- [ ] Console UI: run inspector, live stream states, repair/replan, approvals and uncertain release (existing components), packages, grants, purge.
+- [ ] JSON/YAML/SDK/editor digest parity for every construct; unknown versions read-only and exportable; save/publish race; repeated idempotency keys.
+- [ ] Two provisioned installations with overlapping IDs: users, restricted API keys, service principals over every list/search/read/download/event/mutation path; expiry, revocation, transactional audit failure; read-sharing grants expose only named bytes.
+- [ ] `factory-services` lane: Playwright config, real-stack boot, specs through the real authenticated application; register lanes, route manifest, evidence surfaces.
+- [ ] Inspect real captures at 1440 and 390 pixels, long labels, large maps, light/dark, keyboard-only, reduced motion; fix defects and console errors.
+- [ ] Final sweep per common.md plus web check, web Vitest pool, factory Playwright lanes, mutation after; report.

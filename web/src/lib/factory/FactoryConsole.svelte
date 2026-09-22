@@ -46,20 +46,11 @@
 		type GraphScope,
 	} from "./model";
 
-	export interface FactoryConsoleProject {
-		readonly id: string;
-		readonly name: string;
-	}
-
 	let {
-		projects,
 		projectId,
-		onProjectChange,
 		api = new FactoryApiClient(),
 	}: {
-		projects: readonly FactoryConsoleProject[];
 		projectId: string;
-		onProjectChange: (projectId: string) => void;
 		api?: FactoryAuthoringApi;
 	} = $props();
 
@@ -403,21 +394,6 @@
 </script>
 
 <section class="factory-console" data-testid="factory-console">
-	<header class="factory-masthead">
-		<div>
-			<p class="eyebrow">Factory control plane</p>
-			<h1>Factories</h1>
-			<p>Compose work, prove it, then publish an immutable definition.</p>
-		</div>
-		<label class="project-control">
-			<span>Project</span>
-			<select value={projectId} onchange={event => onProjectChange(event.currentTarget.value)} aria-label="Factory project">
-				{#each projects as project}
-					<option value={project.id}>{project.name}</option>
-				{/each}
-			</select>
-		</label>
-	</header>
 
 	{#if errorMessage}
 		<div class="notice notice-error" role="alert"><AlertTriangle size={16} /> <span>{errorMessage}</span><button aria-label="Dismiss error" onclick={() => errorMessage = ""}><X size={15} /></button></div>
@@ -637,11 +613,7 @@
 
 <style>
 	.factory-console { min-height: 100%; background: var(--color-surface); color: var(--color-text-primary); }
-	.factory-masthead { display: flex; align-items: end; justify-content: space-between; gap: 24px; border-bottom: 1px solid var(--color-border); padding: 26px 30px 22px; background: linear-gradient(120deg, color-mix(in srgb, var(--color-accent) 9%, var(--color-surface)) 0%, var(--color-surface) 46%, color-mix(in srgb, var(--color-brand) 7%, var(--color-surface)) 100%); }
-	.factory-masthead h1 { margin: 2px 0; font-size: clamp(28px, 4vw, 44px); font-weight: 780; letter-spacing: -.04em; line-height: 1; }
-	.factory-masthead p:last-child { margin: 8px 0 0; color: var(--color-text-secondary); }
 	.eyebrow { margin: 0; font-family: var(--font-mono); font-size: 10px; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; color: var(--color-accent); }
-	.project-control { display: grid; min-width: 210px; gap: 5px; font-size: 11px; font-weight: 700; color: var(--color-text-muted); text-transform: uppercase; letter-spacing: .09em; }
 	select, input, textarea { box-sizing: border-box; border: 1px solid var(--color-border-strong); border-radius: 3px; background: var(--color-surface-elevated); color: var(--color-text-primary); font: inherit; outline: none; }
 	select:focus, input:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 	select, input { min-height: 36px; padding: 7px 9px; }
@@ -653,7 +625,7 @@
 	.conflict { display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--color-amber-500); background: color-mix(in srgb, var(--color-amber-400) 13%, var(--color-surface)); padding: 11px 28px; }
 	.conflict div { display: grid; margin-right: auto; }
 	.conflict span { color: var(--color-text-secondary); font-size: 12px; }
-	.factory-workspace { display: grid; min-height: calc(100vh - 143px); grid-template-columns: 252px minmax(0, 1fr) 310px; }
+	.factory-workspace { display: grid; min-height: calc(100vh - 188px); grid-template-columns: 252px minmax(0, 1fr) 310px; }
 	.draft-panel, .inspector-panel { min-width: 0; background: var(--color-surface-secondary); }
 	.draft-panel { border-right: 1px solid var(--color-border); }
 	.inspector-panel { border-left: 1px solid var(--color-border); }
@@ -761,8 +733,6 @@
 		.canvas-frame { height: 520px; }
 	}
 	@media (max-width: 700px) {
-		.factory-masthead { align-items: stretch; flex-direction: column; padding: 20px 16px; }
-		.project-control { min-width: 0; }
 		.factory-workspace { display: block; }
 		.draft-panel { border-right: 0; }
 		.draft-list { display: flex; max-height: none; overflow-x: auto; }
