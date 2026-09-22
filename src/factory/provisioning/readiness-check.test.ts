@@ -6,16 +6,22 @@ import { makeFactoryPrivateRoot, removeFactoryPrivateRoot, writeModeFile } from 
 import {
   factoryReadinessCheck,
   factoryReadinessCheckDependencies,
+  factoryReadinessFresh,
   startFactoryReadinessCheck,
   type FactoryReadinessCheckDependencies,
 } from "./readiness-check";
+
+const NOW = 1_800_000_000_000;
+const record = (fields: Record<string, unknown>): string => JSON.stringify(fields);
+const fresh = (observedAtMs = Date.now()): string => record({ lifecycle: "ready", observedAtMs });
 
 interface Calls { readFile: string[]; connect: [string, number, number][]; fetchStatus: [string, number][] }
 
 function fakes(overrides: Partial<FactoryReadinessCheckDependencies> = {}): { dependencies: FactoryReadinessCheckDependencies; calls: Calls } {
   const calls: Calls = { readFile: [], connect: [], fetchStatus: [] };
   const dependencies: FactoryReadinessCheckDependencies = {
-    readFile: async (path) => { calls.readFile.push(path); return overrides.readFile ? overrides.readFile(path) : '{"lifecycle":"ready"}'; },
+    readFile: async (path) => { calls.readFile.push(path); return overrides.readFile ? overrides.readFile(path) : fresh(NOW); },
+    now: overrides.now ?? (() => NOW),
     connect: async (host, port, timeoutMs) => { calls.connect.push([host, port, timeoutMs]); return overrides.connect ? overrides.connect(host, port, timeoutMs) : true; },
     fetchStatus: async (url, timeoutMs) => { calls.fetchStatus.push([url, timeoutMs]); return overrides.fetchStatus ? overrides.fetchStatus(url, timeoutMs) : 200; },
   };
@@ -72,12 +78,18 @@ describe("factoryReadinessCheck --http", () => {
 });
 
 describe("factoryReadinessCheck readiness record", () => {
-  test("healthy only when the lifecycle field is exactly ready", async () => {
+  test("healthy only when the lifecycle field is exactly ready and the record is fresh", async () => {
     const cases: [string, boolean][] = [
-      ['{"lifecycle":"ready"}', true],
-      ['{"lifecycle":"starting"}', false],
-      ['{"lifecycle":"READY"}', false],
-      ['{"lifecycle":true}', false],
+      [fresh(NOW), true],
+      [fresh(NOW - 60_000), true],
+      [fresh(NOW - 60_001), false],
+      [fresh(NOW + 5_000), true],
+      [fresh(NOW + 5_001), false],
+      [record({ lifecycle: "ready" }), false],
+      [record({ lifecycle: "ready", observedAtMs: String(NOW) }), false],
+      [record({ lifecycle: "starting", observedAtMs: NOW }), false],
+      [record({ lifecycle: "READY", observedAtMs: NOW }), false],
+      [record({ lifecycle: true, observedAtMs: NOW }), false],
       ["{}", false],
       ["null", false],
       ["not json", false],
@@ -87,6 +99,11 @@ describe("factoryReadinessCheck readiness record", () => {
       expect(await factoryReadinessCheck(["/run/ready.json"], dependencies)).toBe(healthy);
       expect(calls.readFile).toEqual(["/run/ready.json"]);
     }
+  });
+
+  test("factoryReadinessFresh takes an explicit maximum age", () => {
+    expect(factoryReadinessFresh(fresh(NOW - 10_000), NOW, 5_000)).toBe(false);
+    expect(factoryReadinessFresh(fresh(NOW - 5_000), NOW, 5_000)).toBe(true);
   });
 
   test("an unreadable record is not healthy", async () => {
@@ -132,8 +149,10 @@ describe("factoryReadinessCheckDependencies against real local services", () => 
   });
 
   test("readFile reads a real readiness record", async () => {
-    const path = await writeModeFile(join(root, "ready.json"), JSON.stringify({ lifecycle: "ready", pid: 1 }));
-    expect(await factoryReadinessCheckDependencies.readFile(path)).toBe('{"lifecycle":"ready","pid":1}');
+    const text = fresh();
+    const path = await writeModeFile(join(root, "ready.json"), text);
+    expect(await factoryReadinessCheckDependencies.readFile(path)).toBe(text);
+    expect(Math.abs(factoryReadinessCheckDependencies.now() - Date.now())).toBeLessThan(1_000);
     expect(await factoryReadinessCheck([path], factoryReadinessCheckDependencies)).toBe(true);
     const stopping = await writeModeFile(join(root, "stopping.json"), JSON.stringify({ lifecycle: "stopping" }));
     expect(await factoryReadinessCheck([stopping], factoryReadinessCheckDependencies)).toBe(false);
@@ -232,7 +251,7 @@ describe("startFactoryReadinessCheck", () => {
   test("running the file as the process entry exits 0 for ready and 1 otherwise", async () => {
     const root = await makeFactoryPrivateRoot();
     try {
-      const ready = await writeModeFile(join(root, "ready.json"), '{"lifecycle":"ready"}');
+      const ready = await writeModeFile(join(root, "ready.json"), fresh());
       const starting = await writeModeFile(join(root, "starting.json"), '{"lifecycle":"starting"}');
       const run = async (...args: string[]) => Bun.spawn([process.execPath, join(import.meta.dir, "readiness-check.ts"), ...args], { stdio: ["ignore", "ignore", "ignore"] }).exited;
       expect(await run(ready)).toBe(0);
@@ -246,9 +265,9 @@ describe("startFactoryReadinessCheck", () => {
   test("uses the real dependencies by default", async () => {
     const root = await makeFactoryPrivateRoot();
     try {
-      const record = await writeModeFile(join(root, "ready.json"), '{"lifecycle":"ready"}');
+      const path = await writeModeFile(join(root, "ready.json"), fresh());
       const exits: number[] = [];
-      await startFactoryReadinessCheck(["bun", script, record], moduleUrl, (code) => exits.push(code));
+      await startFactoryReadinessCheck(["bun", script, path], moduleUrl, (code) => exits.push(code));
       expect(exits).toEqual([0]);
     } finally {
       await removeFactoryPrivateRoot(root);

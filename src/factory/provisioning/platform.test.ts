@@ -57,7 +57,7 @@ describe("factoryPlatformPaths and naming", () => {
         certificatePath: "/srv/op/platform/temporal/control.crt", privateKeyPath: "/srv/op/platform/temporal/control.key",
         serverDirectory: "/srv/op/platform/temporal/server", databaseEnvPath: "/srv/op/platform/temporal/database.env",
       },
-      ingress: { root: "/srv/op/platform/ingress", caCertificatePath: "/srv/op/platform/ingress/ca.crt", caKeyPath: "/srv/op/platform/ingress/ca.key" },
+      ingress: { root: "/srv/op/platform/ingress", caCertificatePath: "/srv/op/platform/ingress-ca/ca.crt", caKeyPath: "/srv/op/platform/ingress-ca/ca.key" },
     });
     expect(Object.isFrozen(paths) && Object.isFrozen(paths.temporal) && Object.isFrozen(paths.ingress)).toBe(true);
     expect(factoryPlatformPaths("relative/op").root).toBe(join(process.cwd(), "relative/op/platform"));
@@ -96,6 +96,9 @@ describe("ensureFactoryPlatformMaterial", () => {
     expect(JSON.parse(await text(paths.temporal.revocationsPath))).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [] });
     expect(new X509Certificate(await text(paths.ingress.caCertificatePath)).subject).toBe("CN=factory-ingress-ca");
     for (const name of ["routes", "certs", "conf"]) expect(await mode(join(paths.ingress.root, name))).toBe(0o700);
+    // The ingress process mounts only its own root; the authority that signs every hostname stays outside it.
+    expect(paths.ingress.caKeyPath.startsWith(`${paths.ingress.root}/`)).toBe(false);
+    expect((await readdir(paths.ingress.root)).sort()).toEqual(["certs", "conf", "routes"]);
     expect(await mode(join(root, "operator"))).toBe(0o700);
   });
 

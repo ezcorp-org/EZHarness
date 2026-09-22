@@ -131,10 +131,19 @@ export class FactoryProvisioningLedger {
   }
 
   /** Hold the per-tenant lock for the duration of `work`. */
-  async locked<Result>(tenantId: string, work: () => Promise<Result>): Promise<Result> {
+  locked<Result>(tenantId: string, work: () => Promise<Result>): Promise<Result> {
+    return this.lockedOn(`factory-provisioner-v1:${tenantId}`, work);
+  }
+
+  /**
+   * Hold a named advisory lock for the duration of `work`, on its own
+   * connection. `work` runs its queries on the pool, so the pool must be larger
+   * than the number of locks held at once; the control plane caps concurrency.
+   */
+  async lockedOn<Result>(name: string, work: () => Promise<Result>): Promise<Result> {
     type Outcome = { value: Result } | { error: unknown };
     const outcome = await this.sql.begin<Outcome>(async (control) => {
-      await control`SELECT pg_advisory_xact_lock(hashtextextended(${`factory-provisioner-v1:${tenantId}`}::text, 0))`;
+      await control`SELECT pg_advisory_xact_lock(hashtextextended(${name}::text, 0))`;
       try { return { value: await work() }; } catch (error) { return { error }; }
     });
     if ("error" in outcome) throw outcome.error;
@@ -200,7 +209,9 @@ export class FactoryProvisioningLedger {
     // The v1 `state` column keeps its documented meaning: `ready` means the
     // installation's resources exist and are live, nothing more.
     const legacy = ["resources_prepared", "deployment_ready", "invitation_issued", "bootstrap_complete"].includes(to) ? "ready" : "partial";
-    await this.sql`UPDATE factory_installations SET phase = ${to}, state = ${legacy}, current_step = ${to}, phase_changed_at = now() WHERE tenant_id = ${tenantId} AND phase = ${current.phase}`;
+    const moved = await this.sql`UPDATE factory_installations SET phase = ${to}, state = ${legacy}, current_step = ${to}, phase_changed_at = now() WHERE tenant_id = ${tenantId} AND phase = ${current.phase} RETURNING tenant_id`;
+    // The phase is re-read without a row lock, so a concurrent writer can move it first; that is refused, not recorded.
+    if (moved.length !== 1) throw new FactoryProvisioningError("provisioning_phase_conflict", `The phase of ${tenantId} changed from ${current.phase} while moving it to ${to}.`);
     await this.event({ tenantId, step: null, event: `phase.${to}`, detail });
   }
 

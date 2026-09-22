@@ -16,6 +16,7 @@ import {
   ensureFactoryMesh,
   factoryMeshIdentities,
   factoryMeshToken,
+  rotateFactoryMesh,
 } from "./mesh";
 
 const NOW_MS = 1_800_000_000_000;
@@ -182,7 +183,37 @@ describe("ensureFactoryMesh", () => {
     const error = await factoryRejection(ensureFactoryMesh(installation));
     expect(error).toBeInstanceOf(FactoryProvisioningError);
     expect(error.code).toBe("mesh_certificate_invalid");
-    expect(error.message).toBe("Mesh certificate mesh-harness.crt is not CN=harness.tenant-01 under this installation's authority.");
+    expect(error.message).toBe("Mesh certificate mesh-harness.crt is not CN=harness.tenant-01 under this installation's authority with its own key.");
+  });
+
+  test("a certificate paired with another leaf's key is refused", async () => {
+    await ensureFactoryMesh(installation);
+    await writeModeFile(secret(FACTORY_MESH_FILES.harnessKey), await text(secret(FACTORY_MESH_FILES.supervisorKey)));
+    expect((await factoryRejection(ensureFactoryMesh(installation))).code).toBe("mesh_certificate_invalid");
+  });
+
+  test("an expired service token is refused as mesh_token_expired and names the remedy", async () => {
+    await ensureFactoryMesh(installation, { now: () => NOW_MS });
+    const error = await factoryRejection(ensureFactoryMesh(installation, { now: () => NOW_MS + 31 * 24 * 60 * 60 * 1_000 }));
+    expect(error.code).toBe("mesh_token_expired");
+    expect(error.message).toBe("Mesh token mesh-harness-pool.token has expired; rotate the installation's deployment step.");
+  });
+
+  test("a token that is not a JWT, or has no expiry, is refused as mesh_token_invalid", async () => {
+    await ensureFactoryMesh(installation, { now: () => NOW_MS });
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    for (const token of ["not-a-token", `${encode({})}.${Buffer.from("{broken").toString("base64url")}.x`, `${encode({})}.${encode(null)}.x`, `${encode({})}.${encode({ exp: "soon" })}.x`]) {
+      await writeModeFile(secret(FACTORY_MESH_FILES.orchestratorToken), `${token}\n`);
+      const error = await factoryRejection(ensureFactoryMesh(installation, { now: () => NOW_MS }));
+      expect(error.code).toBe("mesh_token_invalid");
+      expect(error.message).toBe("Mesh token mesh-orchestrator.token has no expiry.");
+    }
+  });
+
+  test("an unsafe token file is refused as unsafe, not reported as a malformed token", async () => {
+    await ensureFactoryMesh(installation, { now: () => NOW_MS });
+    await chmod(secret(FACTORY_MESH_FILES.supervisorPoolToken), 0o644);
+    expect((await factoryRejection(ensureFactoryMesh(installation, { now: () => NOW_MS }))).message).toBe("Provisioner secret file mesh-supervisor-pool.token must be private and owned by this user.");
   });
 
   test("a certificate for another identity under the right authority is refused", async () => {
@@ -242,4 +273,54 @@ describe("ensureFactoryMesh", () => {
       expect(await text(secret(file))).toBe(before);
     });
   }
+});
+
+describe("rotateFactoryMesh", () => {
+  test("re-mints every token and leaf under the same authority; the certificates match their new keys", async () => {
+    const created = await ensureFactoryMesh(installation, { now: () => NOW_MS });
+    const before = await snapshot(installation.secretDirectory);
+    const operatorBefore = await snapshot(installation.operatorDirectory);
+    const later = NOW_MS + 20 * 24 * 60 * 60 * 1_000;
+    const rotated = await rotateFactoryMesh(installation, { now: () => later });
+    const after = await snapshot(installation.secretDirectory);
+    expect(created.tokensExpireAtMs).toBe(NOW_MS + 30 * 24 * 60 * 60 * 1_000);
+    expect(rotated.tokensExpireAtMs).toBe(later + 30 * 24 * 60 * 60 * 1_000);
+    expect(Object.isFrozen(rotated)).toBe(true);
+    for (const file of [FACTORY_MESH_FILES.harnessPoolToken, FACTORY_MESH_FILES.supervisorPoolToken, FACTORY_MESH_FILES.orchestratorToken, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey, FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey, FACTORY_MESH_FILES.supervisorCertificate, FACTORY_MESH_FILES.supervisorKey]) {
+      expect(after[file]).not.toBe(before[file]);
+      expect((await stat(secret(file))).mode & 0o777).toBe(0o600);
+    }
+    for (const file of [FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.tokenPublicKey, FACTORY_MESH_FILES.attemptTokenSecret, FACTORY_MESH_FILES.hostKey, FACTORY_MESH_FILES.hostPublicKey, FACTORY_MESH_FILES.hostKeyId]) expect(after[file]).toBe(before[file]);
+    expect(await snapshot(installation.operatorDirectory)).toEqual(operatorBefore);
+    const ca = certificate(await text(operator(FACTORY_MESH_OPERATOR_FILES.caCertificate)));
+    for (const [cert, key] of [[FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey], [FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey], [FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey], [FACTORY_MESH_FILES.supervisorCertificate, FACTORY_MESH_FILES.supervisorKey]] as const) {
+      const leaf = certificate(after[cert]!);
+      expect(leaf.verify(ca.publicKey)).toBe(true);
+      expect(leaf.checkPrivateKey(createPrivateKey(after[key]!))).toBe(true);
+    }
+    const claims = claimsUnder(after[FACTORY_MESH_FILES.tokenPublicKey]!, after[FACTORY_MESH_FILES.harnessPoolToken]!);
+    expect(claims?.claims.exp).toBe(Math.floor(later / 1_000) + 30 * 24 * 60 * 60);
+    // The rotated mesh is what a rerun now proves, byte for byte.
+    await ensureFactoryMesh(installation, { now: () => later });
+    expect(await snapshot(installation.secretDirectory)).toEqual(after);
+  });
+
+  test("rotation repairs an expired mesh", async () => {
+    await ensureFactoryMesh(installation, { now: () => NOW_MS });
+    const expired = NOW_MS + 40 * 24 * 60 * 60 * 1_000;
+    expect((await factoryRejection(ensureFactoryMesh(installation, { now: () => expired }))).code).toBe("mesh_token_expired");
+    await rotateFactoryMesh(installation, { now: () => expired });
+    expect((await ensureFactoryMesh(installation, { now: () => expired })).tokensExpireAtMs).toBe(expired + 30 * 24 * 60 * 60 * 1_000);
+  });
+
+  test("uses the real clock by default", async () => {
+    await ensureFactoryMesh(installation);
+    const before = Date.now();
+    const rotated = await rotateFactoryMesh(installation);
+    expect(rotated.tokensExpireAtMs).toBeGreaterThanOrEqual(Math.floor(before / 1_000) * 1_000 + 30 * 24 * 60 * 60 * 1_000);
+  });
+
+  test("a mesh that was never created cannot be rotated", async () => {
+    expect((await factoryRejection(rotateFactoryMesh(installation))).code).toBe("ENOENT");
+  });
 });

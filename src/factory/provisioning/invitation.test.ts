@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { readFile, readdir, stat } from "node:fs/promises";
+import { readFile, readdir, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { makeFactoryPrivateRoot, removeFactoryPrivateRoot, writeModeFile } from "../../__tests__/helpers/factory-private-root";
 import type { FactoryInstallationContext } from "./installation";
@@ -164,6 +164,7 @@ describe("with private directories", () => {
 
   const invitationPath = () => join(installation.secretDirectory, FACTORY_BOOTSTRAP_INVITATION_FILE);
   const outboxPath = () => join(installation.operatorDirectory, FACTORY_INVITATION_OUTBOX_FILE);
+  const deliveredPath = () => join(installation.secretDirectory, "deliver", "harness", FACTORY_BOOTSTRAP_INVITATION_FILE);
   const outbox = async () => JSON.parse(await readFile(outboxPath(), "utf8")) as FactoryInvitationOutbox;
 
   describe("loadFactoryBootstrapInvitation", () => {
@@ -196,7 +197,37 @@ describe("with private directories", () => {
     test("is the invitation step and derives its paths from the installation", () => {
       const driver = step();
       expect(driver.step).toBe("invitation");
-      expect(driver.paths(installation)).toEqual({ invitation: invitationPath(), outbox: outboxPath() });
+      expect(driver.paths(installation)).toEqual({ invitation: invitationPath(), delivered: deliveredPath(), outbox: outboxPath() });
+    });
+
+    test("issue and rotate hand the harness an identical, private copy of the invitation", async () => {
+      const driver = step();
+      await driver.ensure(installation, undefined);
+      expect(await readFile(deliveredPath(), "utf8")).toBe(await readFile(invitationPath(), "utf8"));
+      expect((await stat(deliveredPath())).mode & 0o777).toBe(0o600);
+      const before = await readFile(deliveredPath(), "utf8");
+      const rotated = await step(NOW + 1_000).rotate(installation);
+      const after = await loadFactoryBootstrapInvitation(deliveredPath(), "inst-1");
+      expect(await readFile(deliveredPath(), "utf8")).not.toBe(before);
+      expect(after.tokenDigest).toBe(rotated.tokenDigest!);
+      await driver.verify(installation, rotated);
+    });
+
+    test("a rerun re-delivers a missing harness copy without re-issuing", async () => {
+      const driver = step();
+      const first = await driver.ensure(installation, undefined);
+      await rm(deliveredPath());
+      expect(await driver.ensure(installation, first)).toEqual(first);
+      expect(await readFile(deliveredPath(), "utf8")).toBe(await readFile(invitationPath(), "utf8"));
+    });
+
+    test("verify refuses a harness copy that is missing or holds another invitation", async () => {
+      const driver = step();
+      const resources = await driver.ensure(installation, undefined);
+      await replaceFactoryPrivateFile(deliveredPath(), JSON.stringify({ ...(await invitationForResources(resources)), tokenDigest: factoryInvitationTokenDigest(TOKEN) }));
+      expect(((await rejection(driver.verify(installation, resources))) as FactoryProvisioningError).code).toBe("invitation_undelivered");
+      await rm(deliveredPath());
+      expect(((await rejection(driver.verify(installation, resources))) as FactoryProvisioningError).message).toBe("The harness does not hold the installation's current invitation.");
     });
 
     test("issue writes a digest-only invitation and a token outbox, both private", async () => {
@@ -308,6 +339,7 @@ describe("with private directories", () => {
       expect(((await rejection(step().verify(installation, resources))) as FactoryProvisioningError).code).toBe("provisioning_secret_corrupt");
       await step().teardown(installation);
       await replaceFactoryPrivateFile(invitationPath(), JSON.stringify(await invitationForResources(resources)));
+      await replaceFactoryPrivateFile(deliveredPath(), JSON.stringify(await invitationForResources(resources)));
       expect((await rejection(step().verify(installation, resources))).code).toBe("ENOENT");
     });
 
@@ -320,14 +352,15 @@ describe("with private directories", () => {
       expect(((await rejection(driver.verify({ ...installation, installationId: "inst-2" }, resources))) as FactoryProvisioningError).message).toBe("The installation's invitation is missing or was replaced.");
     });
 
-    test("teardown removes both files and is idempotent", async () => {
+    test("teardown removes all three copies and is idempotent", async () => {
       const driver = step();
       const resources = await driver.ensure(installation, undefined);
       await driver.teardown(installation);
-      expect(await readdir(installation.secretDirectory)).toEqual([]);
+      expect(await readdir(installation.secretDirectory)).toEqual(["deliver"]);
+      expect(await readdir(join(installation.secretDirectory, "deliver", "harness"))).toEqual([]);
       expect(await readdir(installation.operatorDirectory)).toEqual([]);
       await driver.teardown(installation);
-      expect(await readdir(installation.secretDirectory)).toEqual([]);
+      expect(await readdir(installation.secretDirectory)).toEqual(["deliver"]);
       expect(((await rejection(driver.verify(installation, resources))) as FactoryProvisioningError).code).toBe("invitation_missing");
       const reissued = await driver.ensure(installation, resources);
       expect(reissued.tokenDigest).not.toBe(resources.tokenDigest);

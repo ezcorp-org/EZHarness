@@ -31,6 +31,9 @@ export interface FactoryPlatformPaths {
 export function factoryPlatformPaths(operatorRoot: string): FactoryPlatformPaths {
   const temporal = resolve(operatorRoot, "platform", "temporal");
   const ingress = resolve(operatorRoot, "platform", "ingress");
+  // The ingress CA signs every installation's hostname certificate. It lives
+  // beside, never inside, the directory the ingress process mounts.
+  const ingressAuthority = resolve(operatorRoot, "platform", "ingress-ca");
   return Object.freeze({
     root: resolve(operatorRoot, "platform"),
     temporal: Object.freeze({
@@ -41,7 +44,7 @@ export function factoryPlatformPaths(operatorRoot: string): FactoryPlatformPaths
       serverDirectory: resolve(temporal, "server"),
       databaseEnvPath: resolve(temporal, "database.env"),
     }),
-    ingress: Object.freeze({ root: ingress, caCertificatePath: resolve(ingress, "ca.crt"), caKeyPath: resolve(ingress, "ca.key") }),
+    ingress: Object.freeze({ root: ingress, caCertificatePath: resolve(ingressAuthority, "ca.crt"), caKeyPath: resolve(ingressAuthority, "ca.key") }),
   });
 }
 
@@ -78,7 +81,7 @@ export async function ensureFactoryPlatformMaterial(operatorRoot: string, option
   const revocations = await openFactoryPrivateDirectory(paths.temporal.revocationsDirectory);
   try { await ensureFactoryPrivateFile(revocations, "revocations.json", () => `${JSON.stringify({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [] })}\n`); }
   finally { await revocations.close(); }
-  await ensureAuthority(paths.ingress.root, "factory-ingress-ca", options.run);
+  await ensureAuthority(resolve(paths.ingress.caCertificatePath, ".."), "factory-ingress-ca", options.run);
   for (const name of ["routes", "certs", "conf"]) await (await openFactoryPrivateDirectory(resolve(paths.ingress.root, name))).close();
   return paths;
 }

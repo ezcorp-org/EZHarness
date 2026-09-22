@@ -14,6 +14,19 @@
  * untouched, and the wave is recorded `stopped` with the failure. Nothing
  * retries on its own.
  *
+ * Only an installation that serves traffic is upgraded: one in
+ * `invitation_issued` or `bootstrap_complete`. Any other installation is
+ * skipped and named in the result. A canary that is not eligible stops the
+ * wave before anything moves, because the canary is what proves the build. Each
+ * installation is upgraded under the provisioner's per-tenant lock, so a wave
+ * never races a rotation or a teardown of the same installation.
+ *
+ * At most one wave runs at a time: a partial unique index admits one `running`
+ * row. A wave that throws is recorded `stopped` with the failure before the
+ * error leaves this module, so no wave stays `running` after its caller
+ * returns. Only a crashed process can leave a `running` row; `abandon` clears
+ * it once the operator knows that process is gone.
+ *
  * Builds are retained, never dropped, while anything could need them: a build
  * is retired only when no installation runs it or holds it as its rollback
  * target AND the work census of every installation that ran it reports no
@@ -24,8 +37,9 @@
 import { randomUUID } from "node:crypto";
 import type { SQL } from "bun";
 import type { FactoryInstallationContext } from "./installation";
+import { FactoryProvisioningLedger } from "./ledger";
 import type { FactoryWorkCensus } from "./local";
-import { FactoryProvisioningError, factoryStepFailure, type FactoryStepFailure } from "./steps";
+import { FactoryProvisioningError, factoryStepFailure, type FactoryInstallationPhase, type FactoryStepFailure } from "./steps";
 
 export const FACTORY_UPGRADE_COMPONENTS = ["host", "orchestrator", "harness"] as const;
 export type FactoryUpgradeComponent = typeof FACTORY_UPGRADE_COMPONENTS[number];
@@ -53,6 +67,8 @@ export interface FactoryUpgradeWaveResult {
   readonly upgraded: readonly string[];
   readonly rolledBack: readonly string[];
   readonly untouched: readonly string[];
+  /** Installations not upgraded because their phase serves no traffic. */
+  readonly skipped: readonly { readonly tenantId: string; readonly phase: FactoryInstallationPhase | "unknown" }[];
   readonly failure: (FactoryStepFailure & { readonly tenantId: string; readonly component: FactoryUpgradeComponent }) | null;
 }
 
@@ -62,10 +78,21 @@ export function planFactoryUpgradeWave(tenants: readonly string[], canary: strin
   return Object.freeze([canary, ...tenants.filter((tenant) => tenant !== canary).sort()]);
 }
 
+type FactoryComponentFailure = { readonly component: FactoryUpgradeComponent; readonly failure: FactoryStepFailure };
+
 const BUILD_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+const UPGRADABLE: ReadonlySet<FactoryInstallationPhase> = new Set(["invitation_issued", "bootstrap_complete"]);
 
 export class FactoryFleetUpgrades {
-  constructor(private readonly sql: SQL, private readonly target: FactoryUpgradeTarget, private readonly installations: (tenantId: string) => Promise<FactoryInstallationContext>) {}
+  /**
+   * The provisioner's ledger over this module's own pool: its per-tenant lock
+   * holds one connection while the upgrade's queries use another, so the pool
+   * needs two connections.
+   */
+  private readonly ledger: FactoryProvisioningLedger;
+  constructor(private readonly sql: SQL, private readonly target: FactoryUpgradeTarget, private readonly installations: (tenantId: string) => Promise<FactoryInstallationContext>) {
+    this.ledger = new FactoryProvisioningLedger(sql);
+  }
 
   async setup(): Promise<void> {
     await this.sql.begin(async (control) => {
@@ -84,6 +111,8 @@ export class FactoryFleetUpgrades {
         wave_id text PRIMARY KEY, target_build_id text NOT NULL REFERENCES factory_fleet_builds(build_id), canary_tenant_id text NOT NULL,
         state text NOT NULL CHECK (state IN ('running', 'completed', 'stopped')), failure_tenant_id text, failure_component text, failure_code text, failure_message text,
         started_at timestamptz NOT NULL DEFAULT now(), finished_at timestamptz)`);
+      await control.unsafe("ALTER TABLE factory_upgrade_waves ADD COLUMN IF NOT EXISTS skipped jsonb NOT NULL DEFAULT '[]'::jsonb");
+      await control.unsafe("CREATE UNIQUE INDEX IF NOT EXISTS factory_upgrade_waves_one_running ON factory_upgrade_waves ((true)) WHERE state = 'running'");
       await control.unsafe(`CREATE TABLE IF NOT EXISTS factory_upgrade_wave_steps (
         wave_id text NOT NULL REFERENCES factory_upgrade_waves(wave_id), tenant_id text NOT NULL, component text NOT NULL,
         action text NOT NULL CHECK (action IN ('upgrade', 'rollback')), state text NOT NULL CHECK (state IN ('complete', 'failed')),
@@ -146,38 +175,84 @@ export class FactoryFleetUpgrades {
   async wave(input: { readonly buildId: string; readonly canary: string; readonly tenants: readonly string[] }): Promise<FactoryUpgradeWaveResult> {
     const target = await this.build(input.buildId);
     const plan = planFactoryUpgradeWave(input.tenants, input.canary);
-    const running = (await this.sql`SELECT wave_id FROM factory_upgrade_waves WHERE state = 'running'`)[0] as { wave_id: string } | undefined;
-    if (running) throw new FactoryProvisioningError("upgrade_wave_running", `Wave ${running.wave_id} is still running.`);
     const waveId = randomUUID();
-    await this.sql`INSERT INTO factory_upgrade_waves(wave_id, target_build_id, canary_tenant_id, state) VALUES (${waveId}, ${target.buildId}, ${input.canary}, 'running')`;
-    const upgraded: string[] = [];
-    for (const [index, tenantId] of plan.entries()) {
-      const current = await this.builds(tenantId);
-      if (!current) throw new FactoryProvisioningError("upgrade_installation_unknown", `Installation ${tenantId} has no recorded build.`);
-      const installation = await this.installations(tenantId);
-      const moved: { component: FactoryUpgradeComponent; previous: string }[] = [];
-      let failed: { component: FactoryUpgradeComponent; failure: FactoryStepFailure } | undefined;
-      for (const component of FACTORY_UPGRADE_COMPONENTS) {
-        if (current[component].buildId === target.buildId) continue;
-        moved.push({ component, previous: current[component].buildId });
-        await this.setComponent(tenantId, component, target.buildId, current[component].buildId);
-        try { await this.target.apply(installation, component, (await this.builds(tenantId))!); await this.step(waveId, tenantId, component, "upgrade"); }
-        catch (error) { failed = { component, failure: factoryStepFailure(error) }; break; }
-      }
-      if (!failed) {
-        try { await this.target.ready(installation); }
-        catch (error) { failed = { component: "harness", failure: factoryStepFailure(error) }; }
-      }
-      if (failed) {
-        await this.step(waveId, tenantId, failed.component, "upgrade", failed.failure);
-        await this.rollback(waveId, tenantId, moved);
-        await this.sql`UPDATE factory_upgrade_waves SET state = 'stopped', failure_tenant_id = ${tenantId}, failure_component = ${failed.component}, failure_code = ${failed.failure.code}, failure_message = ${failed.failure.message}, finished_at = now() WHERE wave_id = ${waveId}`;
-        return Object.freeze({ waveId, state: "stopped", upgraded, rolledBack: [tenantId], untouched: plan.slice(index + 1), failure: { ...failed.failure, tenantId, component: failed.component } });
-      }
-      upgraded.push(tenantId);
+    // ON CONFLICT covers the partial unique index, so two waves cannot both start.
+    const started = await this.sql`INSERT INTO factory_upgrade_waves(wave_id, target_build_id, canary_tenant_id, state) VALUES (${waveId}, ${target.buildId}, ${input.canary}, 'running') ON CONFLICT DO NOTHING RETURNING wave_id`;
+    if (started.length === 0) {
+      const running = (await this.sql`SELECT wave_id FROM factory_upgrade_waves WHERE state = 'running'`)[0] as { wave_id: string } | undefined;
+      throw new FactoryProvisioningError("upgrade_wave_running", `Wave ${running?.wave_id ?? "unknown"} is still running.`);
     }
-    await this.sql`UPDATE factory_upgrade_waves SET state = 'completed', finished_at = now() WHERE wave_id = ${waveId}`;
-    return Object.freeze({ waveId, state: "completed", upgraded, rolledBack: [], untouched: [], failure: null });
+    let at: string | null = null;
+    try {
+      const upgraded: string[] = [];
+      const skipped: { tenantId: string; phase: FactoryInstallationPhase | "unknown" }[] = [];
+      for (const [index, tenantId] of plan.entries()) {
+        at = tenantId;
+        const outcome = await this.ledger.locked(tenantId, async (): Promise<{ readonly skipped: FactoryInstallationPhase | "unknown" } | { readonly failed: FactoryComponentFailure | undefined }> => {
+          const phase: FactoryInstallationPhase | "unknown" = (await this.ledger.installation(tenantId))?.phase ?? "unknown";
+          if (phase === "unknown" || !UPGRADABLE.has(phase)) {
+            if (index === 0) throw new FactoryProvisioningError("upgrade_canary_ineligible", `Canary ${tenantId} is ${phase} and cannot prove the build.`);
+            return { skipped: phase };
+          }
+          return { failed: await this.upgradeOne(waveId, tenantId, target.buildId) };
+        });
+        if ("skipped" in outcome) { skipped.push({ tenantId, phase: outcome.skipped }); continue; }
+        if (outcome.failed) {
+          const { component, failure } = outcome.failed;
+          await this.finish(waveId, "stopped", skipped, { tenantId, component, failure });
+          return Object.freeze({ waveId, state: "stopped", upgraded, rolledBack: [tenantId], untouched: plan.slice(index + 1), skipped, failure: { ...failure, tenantId, component } });
+        }
+        upgraded.push(tenantId);
+      }
+      await this.finish(waveId, "completed", skipped);
+      return Object.freeze({ waveId, state: "completed", upgraded, rolledBack: [], untouched: [], skipped, failure: null });
+    } catch (error) {
+      const failure = factoryStepFailure(error);
+      await this.sql`UPDATE factory_upgrade_waves SET state = 'stopped', failure_tenant_id = ${at}, failure_code = ${failure.code}, failure_message = ${failure.message}, finished_at = now() WHERE wave_id = ${waveId} AND state = 'running'`;
+      throw error;
+    }
+  }
+
+  /**
+   * Move one installation to the target build, host first, and prove it
+   * ready. On failure, walk it back and return what failed; a failure of the
+   * walk-back itself throws.
+   */
+  private async upgradeOne(waveId: string, tenantId: string, buildId: string): Promise<FactoryComponentFailure | undefined> {
+    const current = await this.builds(tenantId);
+    if (!current) throw new FactoryProvisioningError("upgrade_installation_unknown", `Installation ${tenantId} has no recorded build.`);
+    const installation = await this.installations(tenantId);
+    const moved: { component: FactoryUpgradeComponent; previous: string }[] = [];
+    let failed: { component: FactoryUpgradeComponent; failure: FactoryStepFailure } | undefined;
+    for (const component of FACTORY_UPGRADE_COMPONENTS) {
+      if (current[component].buildId === buildId) continue;
+      moved.push({ component, previous: current[component].buildId });
+      await this.setComponent(tenantId, component, buildId, current[component].buildId);
+      try { await this.target.apply(installation, component, (await this.builds(tenantId))!); await this.step(waveId, tenantId, component, "upgrade"); }
+      catch (error) { failed = { component, failure: factoryStepFailure(error) }; break; }
+    }
+    if (!failed) {
+      try { await this.target.ready(installation); }
+      catch (error) { failed = { component: "harness", failure: factoryStepFailure(error) }; }
+    }
+    if (!failed) return undefined;
+    await this.step(waveId, tenantId, failed.component, "upgrade", failed.failure);
+    await this.rollback(waveId, tenantId, moved);
+    return failed;
+  }
+
+  private async finish(waveId: string, state: "completed" | "stopped", skipped: readonly unknown[], failed?: { readonly tenantId: string; readonly component: FactoryUpgradeComponent; readonly failure: FactoryStepFailure }): Promise<void> {
+    await this.sql`UPDATE factory_upgrade_waves SET state = ${state}, skipped = ${JSON.stringify(skipped)}::jsonb, failure_tenant_id = ${failed?.tenantId ?? null}, failure_component = ${failed?.component ?? null}, failure_code = ${failed?.failure.code ?? null}, failure_message = ${failed?.failure.message ?? null}, finished_at = now() WHERE wave_id = ${waveId}`;
+  }
+
+  /**
+   * Clear a wave a crashed process left `running`. The operator asserts that
+   * the process is gone; the installations it touched keep whatever builds the
+   * ledger records, and the next wave starts from those.
+   */
+  async abandon(waveId: string): Promise<void> {
+    const rows = await this.sql`UPDATE factory_upgrade_waves SET state = 'stopped', failure_code = 'upgrade_wave_abandoned', failure_message = 'The operator abandoned a wave its process did not finish.', finished_at = now() WHERE wave_id = ${waveId} AND state = 'running' RETURNING wave_id`;
+    if (rows.length === 0) throw new FactoryProvisioningError("upgrade_wave_not_running", `Wave ${waveId} is not running.`);
   }
 
   /**

@@ -18,8 +18,15 @@
  * foreign tenant's bucket 403, and the same key with a wrong secret 403. The
  * wrong-secret control is what makes the 404 evidence: without it, "absent"
  * is indistinguishable from "never reached the store". Nothing is written.
+ *
+ * A seeded store names its buckets and identities for the tenant alone, so two
+ * fleets on one store would share `tenant-01`'s objects. Before it takes a
+ * credential, the step therefore CLAIMS each (store, bucket) for its fleet in
+ * a registry every fleet on the database cluster shares, and refuses a bucket
+ * another fleet holds (`FactoryStorageClaims`).
  */
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import { SQL } from "bun";
 import { readFile } from "node:fs/promises";
 import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
@@ -58,7 +65,13 @@ export interface FactoryStorageDomainConfig {
   readonly failureDomain: string;
 }
 
+/** Claims a (store, bucket) for one fleet, or refuses because another fleet holds it. Idempotent for the holder. */
+export interface FactoryStorageClaims {
+  claim(installation: FactoryInstallationContext, scope: FactoryStorageScope): Promise<void>;
+}
+
 export interface FactoryStorageStepOptions {
+  readonly claims: FactoryStorageClaims;
   readonly ordinary: FactoryStorageDomainConfig;
   readonly archive: FactoryStorageDomainConfig;
   readonly probe: FactoryStorageScopeProbe;
@@ -126,6 +139,7 @@ export class FactoryStorageStep implements FactoryProvisioningDriver {
       for (const domain of FACTORY_STORAGE_DOMAINS) {
         const config = this.config(domain);
         const scope = factoryStorageScope(installation, domain, config);
+        await this.options.claims.claim(installation, scope);
         // Issue only when no private copy exists yet: a rerun keeps the credential it already holds.
         let issued: FactoryStorageCredential | undefined;
         try { await readFactoryPrivateJson(directory, FILES[domain]); }
@@ -153,6 +167,7 @@ export class FactoryStorageStep implements FactoryProvisioningDriver {
       for (const domain of FACTORY_STORAGE_DOMAINS) {
         const scope = factoryStorageScope(installation, domain, this.config(domain));
         if (resources[`${domain}CredentialsPath`] !== factoryPrivatePath(installation.secretDirectory, FILES[domain])) throw new FactoryProvisioningError("storage_resource_mismatch", `The recorded ${domain} credential path does not match this installation.`);
+        await this.options.claims.claim(installation, scope);
         await verifyFactoryStorageScope(this.options.probe, scope, credentials.get(domain)!, this.options.foreignBucket(installation), nonce);
       }
     } finally { await directory.close(); }
@@ -251,3 +266,53 @@ export const factoryS3ScopeProbe: FactoryStorageScopeProbe = {
     } finally { client.destroy(); }
   },
 };
+
+/** The cluster-wide role that records which fleet holds one (store, bucket). */
+export function factoryStorageClaimRole(scope: Pick<FactoryStorageScope, "endpoint" | "bucket">): string {
+  return `factory_store_claim_${createHash("sha256").update(`${scope.endpoint}\u0000${scope.bucket}`).digest("hex").slice(0, 20)}`;
+}
+
+/** The narrow client the claim registry needs; `bun`'s SQL satisfies it. */
+export interface FactoryStorageClaimClient {
+  begin<Result>(work: (transaction: FactoryStorageClaimTransaction) => Promise<Result>): Promise<Result>;
+  close(): Promise<void>;
+}
+export interface FactoryStorageClaimTransaction {
+  (strings: TemplateStringsArray, ...values: unknown[]): Promise<unknown[]>;
+  unsafe(query: string): Promise<unknown>;
+}
+
+const CLAIM_MARKER = /^factory-store-claim:[a-z][a-z0-9-]{0,30}[a-z0-9]:tenant-\d{2}$/;
+const connectClaims = (url: string): FactoryStorageClaimClient => new SQL(url, { max: 1 }) as unknown as FactoryStorageClaimClient;
+
+/**
+ * The claim registry on the database cluster: one NOLOGIN role per
+ * (store, bucket), whose comment names the holding fleet and tenant. Roles are
+ * cluster-wide, so every fleet whose databases share the cluster sees every
+ * claim. A claim outlives teardown and purge on purpose: purge keeps the
+ * store's objects, so the bucket still holds this fleet's data. The operator
+ * releases it by dropping the role once the store's own operator has emptied
+ * the bucket.
+ */
+export function factoryDatabaseStorageClaims(adminUrl: string, connect: (url: string) => FactoryStorageClaimClient = connectClaims): FactoryStorageClaims {
+  return {
+    async claim(installation, scope) {
+      const role = factoryStorageClaimRole(scope);
+      const marker = `factory-store-claim:${installation.fleetId}:${installation.tenantId}`;
+      if (!CLAIM_MARKER.test(marker)) throw new FactoryProvisioningError("storage_claim_invalid", "The store claim names a malformed fleet or tenant.");
+      const client = connect(adminUrl);
+      try {
+        await client.begin(async (transaction) => {
+          await transaction`SELECT pg_advisory_xact_lock(hashtextextended(${role}::text, 0))`;
+          const [held] = await transaction`SELECT shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}` as { marker: string | null }[];
+          if (held === undefined) {
+            await transaction.unsafe(`CREATE ROLE ${role} NOLOGIN`);
+            await transaction.unsafe(`COMMENT ON ROLE ${role} IS '${marker}'`);
+          } else if (held.marker !== marker) {
+            throw new FactoryProvisioningError("storage_claimed_by_other_fleet", `The ${scope.domain} store's bucket ${scope.bucket} is held by another fleet or tenant; a seeded store serves one fleet.`);
+          }
+        });
+      } finally { await client.close(); }
+    },
+  };
+}

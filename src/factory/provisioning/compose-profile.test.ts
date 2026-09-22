@@ -25,7 +25,7 @@ import {
   type FactoryCommandResult,
   type FactoryComposeTargetOptions,
 } from "./compose-profile";
-import { renderFactoryInstallationBundle, type FactoryInstallationBundle } from "./deployment";
+import { factoryDeploymentHandle, renderFactoryInstallationBundle, type FactoryInstallationBundle } from "./deployment";
 import type { FactoryInstallationContext } from "./installation";
 import { openFactoryPrivateDirectory } from "./secret-files";
 
@@ -36,7 +36,8 @@ const SETTINGS = { bun: "/opt/bun/bin/bun", releaseDirectory: "/srv/release/curr
 const PORTS = { databasePort: 55432, storagePorts: [59001, 59000, 59000], temporalPort: 57233, uid: 1001, gid: 1001 };
 const OK: FactoryCommandResult = { code: 0, stdout: "", stderr: "" };
 const HEALTHY = ["pool", "gateway", "harness", "orchestrator"].map((service) => JSON.stringify({ Service: service, State: "running", Health: "healthy", ExitCode: 0 })).join("\n");
-const SUPERVISOR_READY = '{"lifecycle": "ready"}';
+/** Written at virtual time 0, so it is fresh for every virtual clock below. */
+const SUPERVISOR_READY = JSON.stringify({ lifecycle: "ready", observedAtMs: 0 });
 
 type Responder = (command: readonly string[]) => FactoryCommandResult | undefined;
 
@@ -63,8 +64,8 @@ function target(execute: FactoryCommandExecutor, overrides: Partial<FactoryCompo
 }
 
 /** A virtual clock: `sleep` advances it, so a deadline is reached without waiting. */
-function virtualClock(): { now: () => number; sleep: (milliseconds: number) => Promise<void>; readonly slept: number[] } {
-  let time = 0;
+function virtualClock(start = 0): { now: () => number; sleep: (milliseconds: number) => Promise<void>; readonly slept: number[] } {
+  let time = start;
   const slept: number[] = [];
   return { now: () => time, sleep: async (milliseconds) => { slept.push(milliseconds); time += milliseconds; }, slept };
 }
@@ -257,7 +258,7 @@ describe("FactoryComposeTarget.apply and startSupervisor", () => {
 });
 
 describe("FactoryComposeTarget.ready", () => {
-  const probes = (supervisor: string | undefined, harness: number) => ({ readReadiness: async (path: string) => { expect(path).toBe(join(bundle.readinessDirectory, "supervisor.json")); return supervisor; }, fetchStatus: async (url: string) => { expect(url).toBe("http://127.0.0.1:40010/api/ready"); return harness; } });
+  const probes = (supervisor: string | undefined, harness: number) => ({ readReadiness: async (path: string) => { expect(path).toBe(join(bundle.readinessDirectory, "supervisor", "supervisor.json")); return supervisor; }, fetchStatus: async (url: string) => { expect(url).toBe("http://127.0.0.1:40010/api/ready"); return harness; } });
 
   test("resolves once every container is healthy, the supervisor says ready, and the harness answers 200", async () => {
     const clock = virtualClock();
@@ -291,6 +292,8 @@ describe("FactoryComposeTarget.ready", () => {
     expect(supervisor.message).toContain("still waiting on supervisor.");
     const missing = await factoryRejection(target(execute, { ...virtualClock(), readyTimeoutMs: 1, ...probes(undefined, 200) }).ready(bundle));
     expect(missing.message).toContain("still waiting on supervisor.");
+    const stale = await factoryRejection(target(execute, { ...virtualClock(60_001), readyTimeoutMs: 1, ...probes(SUPERVISOR_READY, 200) }).ready(bundle));
+    expect(stale.message).toContain("still waiting on supervisor.");
     const harness = await factoryRejection(target(execute, { ...virtualClock(), readyTimeoutMs: 1, ...probes(SUPERVISOR_READY, 503) }).ready(bundle));
     expect(harness.message).toContain("still waiting on harness.");
   });
@@ -322,9 +325,9 @@ describe("FactoryComposeTarget.ready", () => {
   });
 
   test("the default probes read the real readiness file and fetch the real harness", async () => {
-    const readiness = await openFactoryPrivateDirectory(bundle.readinessDirectory);
+    const readiness = await openFactoryPrivateDirectory(join(bundle.readinessDirectory, "supervisor"));
     await readiness.close();
-    await writeModeFile(join(bundle.readinessDirectory, "supervisor.json"), SUPERVISOR_READY);
+    await writeModeFile(join(bundle.readinessDirectory, "supervisor", "supervisor.json"), JSON.stringify({ lifecycle: "ready", observedAtMs: Date.now() }));
     const seen: string[] = [];
     const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => { seen.push(new URL(request.url).pathname); return new Response("ok"); } });
     try {
@@ -351,47 +354,89 @@ describe("FactoryComposeTarget.ready", () => {
 });
 
 describe("FactoryComposeTarget.remove and purge", () => {
-  test("remove stops the supervisor unit and brings the project down, keeping volumes", async () => {
+  const line = (call: { command: readonly string[] }) => call.command[0] === "docker" ? composeArgs(call.command).join(" ") : call.command.join(" ");
+  const unit = "ezcorp-factory-supervisor-fleet-a-tenant-01.service";
+  const applied = async () => { await target(fakeExecutor()).writeEnvironment(bundle); return factoryDeploymentHandle(installation, join(root, "runtime")); };
+
+  test("remove stops the supervisor unit and brings the project down, keeping data", async () => {
+    const handle = await applied();
     const execute = fakeExecutor();
-    await target(execute).remove(bundle);
-    expect(execute.calls.map((call) => call.command[0] === "docker" ? composeArgs(call.command).join(" ") : call.command.slice(2).join(" "))).toEqual([
-      "stop ezcorp-factory-supervisor-fleet-a-tenant-01.service",
-      "reset-failed ezcorp-factory-supervisor-fleet-a-tenant-01.service",
+    await target(execute).remove(handle);
+    expect(execute.calls.map(line)).toEqual([
+      `systemctl --user stop ${unit}`,
+      `systemctl --user reset-failed ${unit}`,
       "down --remove-orphans --timeout 20",
     ]);
+    expect(execute.calls[2]!.command).toContain(join(handle.runtimeDirectory, "compose.env"));
+  });
+
+  test("a unit that is not loaded or has nothing failed counts as stopped", async () => {
+    const handle = await applied();
+    for (const [stop, reset] of [[5, 5], [0, 1], [5, 1]] as const) {
+      const execute = fakeExecutor((command) => command[2] === "stop" ? { code: stop, stdout: "", stderr: "" } : command[2] === "reset-failed" ? { code: reset, stdout: "", stderr: "" } : undefined);
+      await target(execute).remove(handle);
+      expect(execute.calls.map(line).at(-1)).toBe("down --remove-orphans --timeout 20");
+    }
+  });
+
+  test("a failed unit stop or reset is reported before Compose runs", async () => {
+    const handle = await applied();
+    const stop = fakeExecutor((command) => command[2] === "stop" ? { code: 1, stdout: "", stderr: "line1\nAccess denied" } : undefined);
+    const stopped = await factoryRejection(target(stop).remove(handle));
+    expect(stopped.code).toBe("deployment_supervisor_failed");
+    expect(stopped.message).toBe(`stop ${unit} failed (1): line1 | Access denied`);
+    expect(stop.calls).toHaveLength(1);
+    const reset = fakeExecutor((command) => command[2] === "reset-failed" ? { code: 4, stdout: "", stderr: "denied" } : undefined);
+    expect((await factoryRejection(target(reset).remove(handle))).message).toBe(`reset-failed ${unit} failed (4): denied`);
+    expect(reset.calls.some((call) => call.command[0] === "docker")).toBe(false);
+  });
+
+  test("an installation never applied has no env file, so only its unit is checked", async () => {
+    const empty = await makeFactoryPrivateRoot();
+    try {
+      const execute = fakeExecutor();
+      await target(execute).remove(factoryDeploymentHandle(installation, join(empty, "runtime")));
+      expect(execute.calls.map(line)).toEqual([`systemctl --user stop ${unit}`, `systemctl --user reset-failed ${unit}`]);
+    } finally { await removeFactoryPrivateRoot(empty); }
   });
 
   test("a failed compose down is reported", async () => {
+    const handle = await applied();
     const execute = fakeExecutor((command) => isCompose(command, "down") ? { code: 1, stdout: "", stderr: "cannot connect" } : undefined);
-    const error = await factoryRejection(target(execute).remove(bundle));
+    const error = await factoryRejection(target(execute).remove(handle));
     expect(error.code).toBe("deployment_compose_failed");
     expect(error.message).toContain("compose down failed (1): cannot connect");
   });
 
-  test("purge removes volumes, the runner root inside the user namespace, and the runtime directory", async () => {
+  test("purge needs no rendered bundle: it stops everything, removes the runner root inside the user namespace, and the runtime directory", async () => {
     const purgeRoot = await makeFactoryPrivateRoot();
     try {
+      // No database credential exists for this installation, so no bundle can render.
       const other = makeFactoryTestInstallation(purgeRoot, { tenantId: "tenant-05" });
-      await writeFactoryTestDatabaseCredentials(other);
-      const doomed = await renderFactoryInstallationBundle(other, makeFactoryTestDeploymentSettings(join(purgeRoot, "runtime")));
-      const directory = await openFactoryPrivateDirectory(doomed.runtimeDirectory);
+      const handle = factoryDeploymentHandle(other, join(purgeRoot, "runtime"));
+      const directory = await openFactoryPrivateDirectory(handle.runtimeDirectory);
       await directory.close();
+      await writeModeFile(join(handle.runtimeDirectory, "compose.env"), "EZCORP_FACTORY_PROJECT=x\n");
       const execute = fakeExecutor();
-      await target(execute).purge(doomed);
+      await target(execute).purge(handle);
       const commands = execute.calls.map((call) => call.command);
-      expect(commands.filter((command) => command[0] === "docker").map((command) => composeArgs(command).join(" "))).toEqual(["down --remove-orphans --timeout 20", "down --volumes --remove-orphans --timeout 20"]);
-      expect(commands.at(-1)).toEqual(["podman", "unshare", "rm", "-rf", "--", doomed.runnerRoot]);
-      expect(await access(doomed.runtimeDirectory).then(() => true, () => false)).toBe(false);
-      // Idempotent: a purge of an already purged installation still succeeds.
-      await target(fakeExecutor()).purge(doomed);
+      expect(commands.filter((command) => command[0] === "docker").map((command) => composeArgs(command).join(" "))).toEqual(["down --remove-orphans --timeout 20"]);
+      expect(commands.at(-1)).toEqual(["podman", "unshare", "rm", "-rf", "--", handle.runnerRoot]);
+      expect(await access(handle.runtimeDirectory).then(() => true, () => false)).toBe(false);
+      // Idempotent: a purge of an already purged installation still succeeds, and skips Compose.
+      const again = fakeExecutor();
+      await target(again).purge(handle);
+      expect(again.calls.some((call) => call.command[0] === "docker")).toBe(false);
     } finally { await removeFactoryPrivateRoot(purgeRoot); }
   });
 
-  test("a failed volume removal stops the purge before the runner root", async () => {
-    const execute = fakeExecutor((command) => isCompose(command, "down") && command.includes("--volumes") ? { code: 2, stdout: "", stderr: "volume in use" } : undefined);
-    const error = await factoryRejection(target(execute).purge(bundle));
-    expect(error.code).toBe("deployment_compose_failed");
-    expect(execute.calls.some((call) => call.command[0] === "podman")).toBe(false);
+  test("a failed runner-root removal stops the purge and keeps the runtime directory", async () => {
+    const handle = await applied();
+    const execute = fakeExecutor((command) => command[0] === "podman" ? { code: 1, stdout: "", stderr: "rm: cannot remove" } : undefined);
+    const error = await factoryRejection(target(execute).purge(handle));
+    expect(error.code).toBe("deployment_purge_failed");
+    expect(error.message).toBe("remove the runner root failed (1): rm: cannot remove");
+    expect(await access(handle.runtimeDirectory).then(() => true, () => false)).toBe(true);
   });
 });
 

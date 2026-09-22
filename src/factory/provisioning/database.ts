@@ -21,7 +21,8 @@
 import { SQL } from "bun";
 import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
 import { factoryFleetResourceName } from "./installation";
-import { ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateJson, replaceFactoryPrivateFile } from "./secret-files";
+import { factoryScramVerifier } from "./scram";
+import { ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateJson, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 import { randomBytes } from "node:crypto";
 
@@ -44,10 +45,22 @@ export interface FactoryDatabaseStepOptions {
   readonly progress: (installation: FactoryInstallationContext, resources: FactoryStepResources) => Promise<void>;
   /** Fault injection for the crash-recovery tests; never set in production. */
   readonly afterExternalResourceCreated?: (resource: "role" | "database", kind: FactoryDatabaseKind) => Promise<void>;
+  /** Fault injection: runs after a rotation's ALTER ROLE and before its credential swap. Tests only. */
+  readonly afterRotationAltered?: (kind: FactoryDatabaseKind) => Promise<void>;
 }
+
+/**
+ * SQLSTATEs that mean "this credential may not log in here": a wrong password
+ * (28P01), a role without LOGIN (28000), and a database without CONNECT for
+ * the role (42501). Anything else, such as a timeout or a refused socket, is
+ * not an answer about the credential and is rethrown.
+ */
+const LOGIN_REFUSED = new Set(["28P01", "28000", "42501"]);
 
 const PASSWORD = /^[A-Za-z0-9_-]{43}$/;
 const quote = (identifier: string) => `"${identifier.replaceAll('"', '""')}"`;
+/** The rotation's next credential, written before the role changes so a crash can finish the swap. */
+const pending = (pair: FactoryDatabasePair) => `${pair.credentialFile}.pending`;
 
 export function factoryDatabasePairs(installation: FactoryInstallationContext): readonly FactoryDatabasePair[] {
   return Object.freeze([
@@ -144,14 +157,20 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
     }
   }
 
-  /** A new password for both roles; the old one stops working before this returns. */
+  /**
+   * A new password for both roles; the old one stops working before this returns.
+   *
+   * The new credential is written to a pending file FIRST, then the role is
+   * altered, then the pending file replaces the live one. A crash at any point
+   * leaves the pending file behind, and the next read of the credential
+   * finishes the swap (`credential`), so the installation is never locked out
+   * of its own role.
+   */
   async rotate(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<FactoryStepResources> {
     for (const pair of factoryDatabasePairs(installation)) {
       const previous = (await this.credential(installation, pair)).password;
-      const password = randomBytes(32).toString("base64url");
-      const statement = (await this.admin`SELECT format('ALTER ROLE %I PASSWORD %L', ${pair.role}::text, ${password}::text) AS statement`)[0] as { statement: string };
-      await this.admin.unsafe(statement.statement);
-      await replaceFactoryPrivateFile(factoryPrivatePath(installation.secretDirectory, pair.credentialFile), `${JSON.stringify({ role: pair.role, password })}\n`);
+      await replaceFactoryPrivateFile(factoryPrivatePath(installation.secretDirectory, pending(pair)), `${JSON.stringify({ role: pair.role, password: randomBytes(32).toString("base64url") })}\n`);
+      await this.credential(installation, pair);
       if (await this.canLogin(pair.role, previous, pair.database)) throw new FactoryProvisioningError("database_rotation_incomplete", `The superseded ${pair.kind} password still logs in.`);
     }
     await this.verify(installation, resources);
@@ -163,18 +182,40 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
     const url = new URL(this.options.adminUrl); url.pathname = `/${database}`; url.username = role; url.password = password;
     const client = new SQL(url.toString(), { max: 1, connectionTimeout: 5 });
     try { await client`SELECT 1`; return true; }
-    catch { return false; }
+    catch (error) {
+      if (LOGIN_REFUSED.has(String((error as { errno?: unknown }).errno))) return false;
+      throw error;
+    }
     finally { await client.close(); }
   }
 
+  /** The live credential, after finishing any rotation a crash interrupted. */
   private async credential(installation: FactoryInstallationContext, pair: FactoryDatabasePair): Promise<FactoryDatabaseCredential> {
     const directory = await openFactoryPrivateDirectory(installation.secretDirectory);
     try {
       await ensureFactoryPrivateFile(directory, pair.credentialFile, () => `${JSON.stringify({ role: pair.role, password: randomBytes(32).toString("base64url") })}\n`);
-      const credential = await readFactoryPrivateJson<FactoryDatabaseCredential>(directory, pair.credentialFile);
-      if (credential.role !== pair.role || !PASSWORD.test(credential.password)) throw new FactoryProvisioningError("database_credential_invalid", `The ${pair.kind} credential has an invalid format.`);
-      return credential;
+      const next = await readFactoryPrivateJson<FactoryDatabaseCredential>(directory, pending(pair)).catch((error: unknown) => {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+      });
+      if (next) {
+        const valid = this.valid(pair, next);
+        // The role is altered only when the pending password does not already log in: the crash may have come after ALTER.
+        if (!await this.canLogin(pair.role, valid.password, pair.database)) {
+          const statement = (await this.admin`SELECT format('ALTER ROLE %I PASSWORD %L', ${pair.role}::text, ${factoryScramVerifier(valid.password)}::text) AS statement`)[0] as { statement: string };
+          await this.admin.unsafe(statement.statement);
+          await this.options.afterRotationAltered?.(pair.kind);
+        }
+        await replaceFactoryPrivateFile(factoryPrivatePath(installation.secretDirectory, pair.credentialFile), `${JSON.stringify(valid)}\n`);
+        await removeFactoryPrivateFile(directory, pending(pair));
+      }
+      return this.valid(pair, await readFactoryPrivateJson<FactoryDatabaseCredential>(directory, pair.credentialFile));
     } finally { await directory.close(); }
+  }
+
+  private valid(pair: FactoryDatabasePair, credential: FactoryDatabaseCredential): FactoryDatabaseCredential {
+    if (credential.role !== pair.role || !PASSWORD.test(credential.password)) throw new FactoryProvisioningError("database_credential_invalid", `The ${pair.kind} credential has an invalid format.`);
+    return { role: credential.role, password: credential.password };
   }
 
   private async ensureRole(installation: FactoryInstallationContext, pair: FactoryDatabasePair, plan: string, password: string, progress: Record<string, string>, record: (update: Record<string, string>) => Promise<void>): Promise<void> {
@@ -182,7 +223,8 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
     let role = await this.roleRow(pair.role);
     if (role && (!role.rolcanlogin || role.marker !== marker || (progress[`${pair.kind}RoleOid`] && progress[`${pair.kind}RoleOid`] !== role.oid))) throw new FactoryProvisioningError("database_foreign", `The ${pair.kind} role exists without recorded provisioning provenance.`);
     if (!role) {
-      const statements = (await this.admin`SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', ${pair.role}::text, ${password}::text) AS create_statement, format('COMMENT ON ROLE %I IS %L', ${pair.role}::text, ${marker}::text) AS marker_statement`)[0] as { create_statement: string; marker_statement: string };
+      // The server receives a SCRAM verifier, never the password: statement text reaches its logs.
+      const statements = (await this.admin`SELECT format('CREATE ROLE %I LOGIN PASSWORD %L', ${pair.role}::text, ${factoryScramVerifier(password)}::text) AS create_statement, format('COMMENT ON ROLE %I IS %L', ${pair.role}::text, ${marker}::text) AS marker_statement`)[0] as { create_statement: string; marker_statement: string };
       // Roles are transactional: a fault after CREATE but before COMMENT rolls both back.
       await this.admin.begin(async (admin) => { await admin.unsafe(statements.create_statement); await this.options.afterExternalResourceCreated?.("role", pair.kind); await admin.unsafe(statements.marker_statement); });
       role = await this.roleRow(pair.role);

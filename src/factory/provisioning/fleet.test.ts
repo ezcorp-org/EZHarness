@@ -164,7 +164,9 @@ describe("installation addresses", () => {
     expect(factoryInstallationPublicOrigin({ ...VALID, ingress: { ...VALID.ingress, port: 443 } }, { hostname: "tenant-01.factory.example" })).toBe("https://tenant-01.factory.example");
   });
 
-  test("the re-exported platform paths place the ingress authority under the operator root", () => {
-    expect(factoryPlatformPaths(VALID.roots.operator).ingress).toEqual({ root: "/srv/operator/platform/ingress", caCertificatePath: "/srv/operator/platform/ingress/ca.crt", caKeyPath: "/srv/operator/platform/ingress/ca.key" });
+  test("the re-exported platform paths place the ingress authority under the operator root, outside the mounted ingress root", () => {
+    const { ingress } = factoryPlatformPaths(VALID.roots.operator);
+    expect(ingress).toEqual({ root: "/srv/operator/platform/ingress", caCertificatePath: "/srv/operator/platform/ingress-ca/ca.crt", caKeyPath: "/srv/operator/platform/ingress-ca/ca.key" });
+    expect(ingress.caKeyPath.startsWith(`${ingress.root}/`)).toBe(false);
   });
 });

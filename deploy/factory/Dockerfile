@@ -6,7 +6,7 @@
 #   harness       bun web/build/index.js            (the product process)
 #   orchestrator  node src/factory/orchestration-process.ts
 #   pool          bun src/factory/pool/process.ts
-#   gateway       bun src/factory/provisioning/gateway-process.ts
+#   gateway       bun src/factory/gateway-process.ts
 #
 # The host supervisor is NOT run from this image in the Compose profile. C05
 # places it outside every container as a host systemd unit, and it runs from the

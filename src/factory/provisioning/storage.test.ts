@@ -11,9 +11,13 @@ import {
   FactorySeededStorageIssuer,
   FactoryStorageRevocationUnsupported,
   FactoryStorageStep,
+  factoryDatabaseStorageClaims,
   factoryS3ScopeProbe,
+  factoryStorageClaimRole,
   factoryStorageScope,
   verifyFactoryStorageScope,
+  type FactoryStorageClaimClient,
+  type FactoryStorageClaims,
   type FactoryStorageCredential,
   type FactoryStorageCredentialIssuer,
   type FactoryStorageDomainConfig,
@@ -22,6 +26,11 @@ import {
 } from "./storage";
 
 const FILES = { ordinary: "ordinary-storage.json", archive: "archive-storage.json" } as const;
+
+/** Records every claim; the step must claim each (store, bucket) before it takes a credential and again on verify. */
+const claimed: string[] = [];
+const claims: FactoryStorageClaims = { async claim(target, scope) { claimed.push(`${target.fleetId}:${scope.domain}:${scope.bucket}`); } };
+beforeEach(() => { claimed.length = 0; });
 
 let root: string;
 let installation: FactoryInstallationContext;
@@ -77,7 +86,7 @@ function domainConfig(issuer: FactoryStorageCredentialIssuer, domain: "ordinary"
 function mintedStep(store = new ScopedStore()) {
   const ordinary = new MintedIssuer(store, "ordinary");
   const archive = new MintedIssuer(store, "archive");
-  const step = new FactoryStorageStep({ ordinary: domainConfig(ordinary, "ordinary"), archive: domainConfig(archive, "archive"), probe: store, foreignBucket: () => "tenant-99" });
+  const step = new FactoryStorageStep({ claims, ordinary: domainConfig(ordinary, "ordinary"), archive: domainConfig(archive, "archive"), probe: store, foreignBucket: () => "tenant-99" });
   return { step, store, ordinary, archive };
 }
 
@@ -217,14 +226,14 @@ describe("FactoryStorageStep.ensure", () => {
   test("a failing issuer fails ensure and leaves no private copy", async () => {
     const store = new ScopedStore();
     const broken: FactoryStorageCredentialIssuer = { kind: "minted", issue: async () => { throw new FactoryProvisioningError("storage_issue_failed", "no"); }, revoke: async () => "revoked" };
-    const step = new FactoryStorageStep({ ordinary: domainConfig(broken, "ordinary"), archive: domainConfig(new MintedIssuer(store, "archive"), "archive"), probe: store, foreignBucket: () => "tenant-99" });
+    const step = new FactoryStorageStep({ claims, ordinary: domainConfig(broken, "ordinary"), archive: domainConfig(new MintedIssuer(store, "archive"), "archive"), probe: store, foreignBucket: () => "tenant-99" });
     expect((await factoryRejection(step.ensure(installation))).code).toBe("storage_issue_failed");
     expect(await Bun.file(join(installation.secretDirectory, FILES.ordinary)).exists()).toBe(false);
   });
 
   test("one key serving both domains is refused as not separate", async () => {
     const store = new ScopedStore();
-    const step = new FactoryStorageStep({
+    const step = new FactoryStorageStep({ claims,
       ordinary: domainConfig(new MintedIssuer(store, "ordinary", "SHARED"), "ordinary"),
       archive: domainConfig(new MintedIssuer(store, "archive", "SHARED"), "archive"),
       probe: store, foreignBucket: () => "tenant-99",
@@ -295,7 +304,7 @@ describe("FactoryStorageStep.teardown", () => {
   test("a seeded issuer raises FactoryStorageRevocationUnsupported AFTER the private copies are destroyed", async () => {
     const store = new ScopedStore();
     const seeded = new FactorySeededStorageIssuer(join(root, "unused.json"));
-    const step = new FactoryStorageStep({ ordinary: domainConfig(new MintedIssuer(store, "ordinary"), "ordinary"), archive: domainConfig(seeded, "archive"), probe: store, foreignBucket: () => "tenant-99" });
+    const step = new FactoryStorageStep({ claims, ordinary: domainConfig(new MintedIssuer(store, "ordinary"), "ordinary"), archive: domainConfig(seeded, "archive"), probe: store, foreignBucket: () => "tenant-99" });
     await writeCredentialFile("ordinary", { identities: [] });
     await writeCredentialFile("archive", { identities: [] });
     const error = await factoryRejection(step.teardown(installation));
@@ -309,7 +318,7 @@ describe("FactoryStorageStep.teardown", () => {
 
   test("two seeded domains name both, and a rerun says the same", async () => {
     const seeded = new FactorySeededStorageIssuer(join(root, "unused.json"));
-    const step = new FactoryStorageStep({ ordinary: domainConfig(seeded, "ordinary"), archive: domainConfig(seeded, "archive"), probe: new ScopedStore(), foreignBucket: () => "tenant-99" });
+    const step = new FactoryStorageStep({ claims, ordinary: domainConfig(seeded, "ordinary"), archive: domainConfig(seeded, "archive"), probe: new ScopedStore(), foreignBucket: () => "tenant-99" });
     for (let run = 0; run < 2; run += 1) {
       const error = await factoryRejection(step.teardown(installation));
       expect((error as FactoryStorageRevocationUnsupported).domains).toEqual(["ordinary", "archive"]);
@@ -336,7 +345,7 @@ describe("FactoryStorageStep.rotate", () => {
     const seededPath = join(root, "identities.json");
     await writeFile(seededPath, JSON.stringify({ identities: [{ name: "tenant-01", credentials: [{ accessKey: "seed-a", secretKey: "seed-s" }] }] }));
     store.identities.set("seed-a", { secretKey: "seed-s", bucket: "tenant-01", prefix: "ordinary-prefix" });
-    const step = new FactoryStorageStep({ ordinary: domainConfig(new FactorySeededStorageIssuer(seededPath), "ordinary"), archive: domainConfig(new MintedIssuer(store, "archive"), "archive"), probe: store, foreignBucket: () => "tenant-99" });
+    const step = new FactoryStorageStep({ claims, ordinary: domainConfig(new FactorySeededStorageIssuer(seededPath), "ordinary"), archive: domainConfig(new MintedIssuer(store, "archive"), "archive"), probe: store, foreignBucket: () => "tenant-99" });
     const resources = await step.ensure(installation);
     expect(resources.ordinaryIssuer).toBe("seeded");
     const before = await readFile(join(installation.secretDirectory, FILES.ordinary));
@@ -447,5 +456,112 @@ describe("factoryS3ScopeProbe", () => {
     const error = await factoryRejection(factoryS3ScopeProbe.status(endpoint, credential, "tenant-01", "p/absent"));
     expect(error.code).toBe("storage_unreachable");
     expect(error.message).toBe(`The object store at ${endpoint} did not answer.`);
+  });
+});
+
+describe("store claims", () => {
+  test("ensure claims both buckets for the fleet before issuing, and verify re-claims them", async () => {
+    const { step, ordinary } = mintedStep();
+    const resources = await step.ensure(installation);
+    expect(ordinary.log.length).toBeGreaterThan(0);
+    expect(claimed.slice(0, 2)).toEqual([`${installation.fleetId}:ordinary:tenant-01`, `${installation.fleetId}:archive:tenant-01`]);
+    claimed.length = 0;
+    await step.verify(installation, resources);
+    expect(claimed).toEqual([`${installation.fleetId}:ordinary:tenant-01`, `${installation.fleetId}:archive:tenant-01`]);
+  });
+
+  test("a bucket another fleet holds is refused before any credential is taken", async () => {
+    const store = new ScopedStore();
+    const ordinary = new MintedIssuer(store, "ordinary");
+    const refusing: FactoryStorageClaims = { async claim() { throw new FactoryProvisioningError("storage_claimed_by_other_fleet", "held"); } };
+    const step = new FactoryStorageStep({ claims: refusing, ordinary: domainConfig(ordinary, "ordinary"), archive: domainConfig(new MintedIssuer(store, "archive"), "archive"), probe: store, foreignBucket: () => "tenant-99" });
+    expect((await factoryRejection(step.ensure(installation))).code).toBe("storage_claimed_by_other_fleet");
+    expect(ordinary.log).toEqual([]);
+    expect(await Bun.file(join(installation.secretDirectory, FILES.ordinary)).exists()).toBe(false);
+  });
+
+  test("the claim role is derived from the store and bucket, never the fleet", () => {
+    const a = factoryStorageClaimRole({ endpoint: "http://127.0.0.1:18333", bucket: "tenant-01" });
+    expect(a).toMatch(/^factory_store_claim_[0-9a-f]{20}$/);
+    expect(factoryStorageClaimRole({ endpoint: "http://127.0.0.1:18333", bucket: "tenant-01" })).toBe(a);
+    expect(factoryStorageClaimRole({ endpoint: "http://127.0.0.1:18334", bucket: "tenant-01" })).not.toBe(a);
+    expect(factoryStorageClaimRole({ endpoint: "http://127.0.0.1:18333", bucket: "tenant-02" })).not.toBe(a);
+  });
+
+  /** A fake cluster: roles and their comments, with the statements each transaction ran. */
+  function cluster(roles = new Map<string, string | null>()) {
+    const statements: string[] = [];
+    let closed = 0;
+    const connect = (url: string): FactoryStorageClaimClient => {
+      expect(url).toBe("postgres://admin@127.0.0.1:1/postgres");
+      return {
+        async begin(work) {
+          const staged = new Map(roles);
+          const transaction = Object.assign(async (strings: TemplateStringsArray, ...values: unknown[]) => {
+            const text = strings.join("?");
+            statements.push(text);
+            if (text.includes("FROM pg_roles")) return staged.has(values[0] as string) ? [{ marker: staged.get(values[0] as string) }] : [];
+            return [];
+          }, {
+            async unsafe(query: string) {
+              statements.push(query);
+              const create = /^CREATE ROLE (\w+) NOLOGIN$/.exec(query);
+              if (create) staged.set(create[1]!, null);
+              const comment = /^COMMENT ON ROLE (\w+) IS '(.*)'$/.exec(query);
+              if (comment) staged.set(comment[1]!, comment[2]!);
+            },
+          });
+          const result = await work(transaction);
+          for (const [name, marker] of staged) roles.set(name, marker);
+          return result;
+        },
+        async close() { closed += 1; },
+      };
+    };
+    return { roles, statements, connect, closed: () => closed };
+  }
+
+  const scope: FactoryStorageScope = { domain: "ordinary", endpoint: "http://127.0.0.1:18333", bucket: "tenant-01", prefix: "ordinary" };
+
+  test("the first claim creates the NOLOGIN role under a lock, and the holder's rerun changes nothing", async () => {
+    const fake = cluster();
+    const registry = factoryDatabaseStorageClaims("postgres://admin@127.0.0.1:1/postgres", fake.connect);
+    await registry.claim(installation, scope);
+    const role = factoryStorageClaimRole(scope);
+    expect(fake.roles.get(role)).toBe(`factory-store-claim:${installation.fleetId}:tenant-01`);
+    expect(fake.statements[0]).toContain("pg_advisory_xact_lock");
+    const before = fake.statements.length;
+    await registry.claim(installation, scope);
+    expect(fake.statements.slice(before).some((statement) => statement.startsWith("CREATE ROLE"))).toBe(false);
+    expect(fake.closed()).toBe(2);
+  });
+
+  test("a claim another fleet holds is refused and left as it was", async () => {
+    const role = factoryStorageClaimRole(scope);
+    const fake = cluster(new Map([[role, "factory-store-claim:other-fleet:tenant-01"]]));
+    const registry = factoryDatabaseStorageClaims("postgres://admin@127.0.0.1:1/postgres", fake.connect);
+    const error = await factoryRejection(registry.claim(installation, scope));
+    expect(error.code).toBe("storage_claimed_by_other_fleet");
+    expect(fake.roles.get(role)).toBe("factory-store-claim:other-fleet:tenant-01");
+    expect(fake.closed()).toBe(1);
+  });
+
+  test("a role of the claim's name with no comment is not adopted", async () => {
+    const role = factoryStorageClaimRole(scope);
+    const fake = cluster(new Map([[role, null]]));
+    expect((await factoryRejection(factoryDatabaseStorageClaims("postgres://admin@127.0.0.1:1/postgres", fake.connect).claim(installation, scope))).code).toBe("storage_claimed_by_other_fleet");
+  });
+
+  test("the default connector reaches the real cluster, and an unreachable one is an error, never a claim", async () => {
+    const error = await factoryRejection(factoryDatabaseStorageClaims("postgres://nobody@127.0.0.1:1/postgres").claim(installation, scope));
+    expect(error).toBeInstanceOf(Error);
+    expect((error as { code?: string }).code).not.toBe("storage_claimed_by_other_fleet");
+  });
+
+  test("a malformed fleet or tenant never reaches the cluster", async () => {
+    const fake = cluster();
+    const registry = factoryDatabaseStorageClaims("postgres://admin@127.0.0.1:1/postgres", fake.connect);
+    expect((await factoryRejection(registry.claim({ ...installation, fleetId: "Bad'Fleet" }, scope))).code).toBe("storage_claim_invalid");
+    expect(fake.statements).toEqual([]);
   });
 });

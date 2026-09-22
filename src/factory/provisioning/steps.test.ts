@@ -174,6 +174,12 @@ describe("factoryStepFailure", () => {
     expect(factoryStepFailure(42)).toEqual({ code: "provisioning_step_failed", message: "42" });
   });
 
+  test("scrubs URLs, JWTs, bearer values, and named secret values a third-party message echoes", () => {
+    const failure = factoryStepFailure(new Error("connect postgres://factory:hunter2@127.0.0.1:5432/db failed; Authorization: Bearer abc.def; jwt eyJhbGciOi.eyJzdWIi.c2ln; password=hunter2 secret: 'x y' token=\"q r\" KEY=k1"));
+    expect(failure.message).toBe("connect <url> failed; Authorization: Bearer <redacted> jwt <token>; password=<redacted> secret: <redacted> token=<redacted> KEY=<redacted>");
+    expect(failure.message).not.toContain("hunter2");
+  });
+
   test("replaces control characters with spaces", () => {
     expect(factoryStepFailure(new Error("line1\nline2\t\u0000end")).message).toBe("line1 line2  end");
   });

@@ -21,7 +21,7 @@ import { SQL } from "bun";
 import { FactoryProvisioningLedger, type FactoryInstallationRecord, type FactoryStepRecord } from "./ledger";
 import { assertFactoryInstallationRequest, factoryInstallationNames, type FactoryInstallationContext, type FactoryInstallationRequest, type FactoryProvisioningDriver, type FactoryStepResources } from "./installation";
 import { escrowFactoryArchiveKey } from "./secrets";
-import { FACTORY_PROVISIONING_STEPS, FactoryProvisioningError, factoryPhaseServesTraffic, factoryStepFailure, type FactoryInstallationPhase, type FactoryProvisioningStepName, type FactoryStepFailure } from "./steps";
+import { FACTORY_PROVISIONING_STEPS, FactoryProvisioningError, factoryPhaseServesTraffic, factoryStepFailure, nextFactoryProvisioningStep, type FactoryInstallationPhase, type FactoryProvisioningStepName, type FactoryStepFailure } from "./steps";
 
 /** v1 names, kept so existing callers still compile against the extended provisioner. */
 export type LocalInstallationRequest = FactoryInstallationRequest;
@@ -36,12 +36,19 @@ export interface FactoryPurgeableDriver extends FactoryProvisioningDriver {
   purge(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void>;
 }
 
+/** Step 5 also re-delivers every file the other steps hand to a running service, and rotates the mesh. */
+export interface FactoryDeploymentDriver extends FactoryPurgeableDriver {
+  readonly step: "deployment";
+  redeliver(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void>;
+  rotate(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<FactoryStepResources>;
+}
+
 export interface FactoryProvisioningDrivers {
   readonly database: FactoryPurgeableDriver & { readonly step: "database" };
   readonly storage: FactoryProvisioningDriver & { readonly step: "storage" };
   readonly temporal: FactoryProvisioningDriver & { readonly step: "temporal" };
   readonly secrets: FactoryProvisioningDriver & { readonly step: "secrets" };
-  readonly deployment: FactoryPurgeableDriver & { readonly step: "deployment" };
+  readonly deployment: FactoryDeploymentDriver;
   readonly ingress: FactoryIngressDriver;
   readonly invitation: FactoryProvisioningDriver & { readonly step: "invitation" };
 }
@@ -83,11 +90,39 @@ export interface FactoryTeardownOutcome {
   readonly residues: readonly { readonly step: FactoryProvisioningStepName; readonly failure: FactoryStepFailure }[];
 }
 
-export interface FactoryPurgeApproval {
-  /** The human who approved the purge: a tenant administrator's membership reference. */
-  readonly approvedBy: string;
+/**
+ * A purge approval the installation itself issued to an administrator's
+ * session (`purge-approval.ts`). The operator names it; the provisioner reads
+ * it from the retained product database. The operator cannot mint one.
+ */
+export interface FactoryPurgeRequest {
+  readonly approvalId: string;
   readonly reason: string;
 }
+
+export interface FactoryVerifiedPurgeApproval {
+  /** The approving administrator's membership reference, `admin:<email>`. */
+  readonly approvedBy: string;
+}
+
+export interface FactoryPurgeApprovals { verify(installation: FactoryInstallationContext, approvalId: string): Promise<FactoryVerifiedPurgeApproval> }
+
+/** What must hold before a purge: closed work and an installation-issued approval. */
+export interface FactoryPurgeChecks {
+  readonly census: FactoryWorkCensus;
+  readonly approvals: FactoryPurgeApprovals;
+}
+
+/** Who asked for an operation: a named operator certificate, or the local operator account. Recorded on the ledger. */
+export interface FactoryOperationActor { readonly actor?: string }
+
+/** What purge cannot remove on this host, stated in the audit-loss record rather than implied. */
+export const FACTORY_PURGE_RETAINED = Object.freeze({
+  releaseArchive: "retained",
+  archiveKeyEscrow: "retained",
+  temporalNamespaceHistory: "retained_until_namespace_retention",
+  ordinaryObjects: "retained_storage_revocation_unsupported",
+});
 
 const PHASE_RANK: Readonly<Record<FactoryInstallationPhase, number>> = { recorded: 0, resources_prepared: 1, deployment_ready: 2, invitation_issued: 3, bootstrap_complete: 4, tearing_down: 5, torn_down: 6, purged: 7 };
 
@@ -95,7 +130,7 @@ export class LocalFactoryProvisioner {
   readonly ledger: FactoryProvisioningLedger;
   private readonly control: SQL;
   constructor(private readonly options: LocalProvisionerOptions) {
-    this.control = new SQL(options.controlDatabaseUrl, { max: 4 });
+    this.control = new SQL(options.controlDatabaseUrl, { max: 8 });
     this.ledger = new FactoryProvisioningLedger(this.control);
   }
 
@@ -136,7 +171,7 @@ export class LocalFactoryProvisioner {
    * phase the completed steps establish, which is how a partial tenant is
    * produced on purpose and proven to serve nothing.
    */
-  async provision(request: FactoryInstallationRequest, options: { readonly through?: FactoryProvisioningStepName; readonly planLimits?: Readonly<Record<string, number>> } = {}): Promise<LocalInstallation> {
+  async provision(request: FactoryInstallationRequest, options: { readonly through?: FactoryProvisioningStepName; readonly planLimits?: Readonly<Record<string, number>> } & FactoryOperationActor = {}): Promise<LocalInstallation> {
     assertFactoryInstallationRequest(request);
     await this.setup();
     const names = factoryInstallationNames(this.options.fleetId, request.tenantId, { secretsRoot: this.options.secretsRoot, operatorRoot: this.options.operatorRoot });
@@ -154,13 +189,20 @@ export class LocalFactoryProvisioner {
       }
       if (PHASE_RANK[record.phase] >= PHASE_RANK.tearing_down) throw new FactoryProvisioningError("provisioning_torn_down", `Installation ${request.tenantId} is ${record.phase} and cannot be provisioned.`);
       const installation = this.context(record);
+      await this.attribute(request.tenantId, "provision", options, options.through ? { through: options.through } : {});
       const through = options.through === undefined ? undefined : FACTORY_PROVISIONING_STEPS.find((spec) => spec.step === options.through)!.ordinal;
       const steps = new Map((await this.ledger.steps(request.tenantId)).map((step) => [step.step, step]));
       for (const spec of FACTORY_PROVISIONING_STEPS) {
         if (through !== undefined && spec.ordinal > through) break;
         const recorded = steps.get(spec.step)!;
         if (recorded.state === "complete") await this.verifyStep(installation, spec.step, recorded.resources);
-        else await this.runStep(installation, spec.step, recorded.resources);
+        else {
+          // The ledger's own order guard: a later step complete while this one is not is refused, never skipped past.
+          const next = nextFactoryProvisioningStep(Object.fromEntries([...steps.values()].map((entry) => [entry.step, entry.state])));
+          if (next?.step !== spec.step) throw new FactoryProvisioningError("provisioning_ledger_out_of_order", `Step ${spec.step} is not the next step of ${installation.tenantId}.`, spec.step);
+          await this.runStep(installation, spec.step, recorded.resources);
+          steps.set(spec.step, { ...recorded, state: "complete" });
+        }
         if (spec.completes) await this.advance(installation.tenantId, spec.completes);
       }
       if ((through === undefined || through === FACTORY_PROVISIONING_STEPS.length)) {
@@ -170,6 +212,11 @@ export class LocalFactoryProvisioner {
       }
       return this.summary(request.tenantId);
     });
+  }
+
+  /** Attribute an operation to whoever asked for it. */
+  private async attribute(tenantId: string, operation: string, who: FactoryOperationActor | undefined, detail: Readonly<Record<string, string>> = {}): Promise<void> {
+    await this.ledger.event({ tenantId, step: null, event: `operation.${operation}`, detail: { actor: (who?.actor ?? "unattributed").slice(0, 128), ...detail } });
   }
 
   private async advance(tenantId: string, phase: FactoryInstallationPhase): Promise<void> {
@@ -206,12 +253,13 @@ export class LocalFactoryProvisioner {
    * invitation. The invited email becomes a membership REFERENCE in the
    * directory.
    */
-  async observeBootstrap(tenantId: string, observer: FactoryBootstrapObserver): Promise<LocalInstallation> {
+  async observeBootstrap(tenantId: string, observer: FactoryBootstrapObserver, who?: FactoryOperationActor): Promise<LocalInstallation> {
     return this.ledger.locked(tenantId, async () => {
       const record = await this.ledger.installation(tenantId);
       if (!record) throw new FactoryProvisioningError("provisioning_unknown_tenant", `No installation is recorded for ${tenantId}.`);
       if (record.phase === "bootstrap_complete") return this.summary(tenantId);
       if (record.phase !== "invitation_issued") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Bootstrap cannot be observed while ${tenantId} is ${record.phase}.`);
+      await this.attribute(tenantId, "observe", who);
       const observation = await observer.observe(this.context(record));
       if (!observation.complete) return this.summary(tenantId);
       // Setup admits only the invited email with this invitation's token, so
@@ -227,9 +275,16 @@ export class LocalFactoryProvisioner {
    * Replace one step's credential, re-deliver it, and restart onto it.
    *
    * The superseded credential must stop working before this returns; each
-   * driver's `rotate` proves that for its own credential.
+   * driver's `rotate` proves that for its own credential. Only a COMPLETE step
+   * rotates, so an invitation is never issued ahead of its deployment and
+   * route. `deployment` rotates the mesh certificates and service tokens and
+   * re-delivers everything; any other step's new credential is re-delivered
+   * through step 5 once step 5 exists. The invitation delivers its own file.
+   * A failure is recorded on the ledger and leaves the step `complete` with
+   * its previous resources: every driver's rotation either finishes or leaves
+   * the old credential in force.
    */
-  async rotate(tenantId: string, step: Exclude<FactoryProvisioningStepName, "deployment" | "ingress">): Promise<LocalInstallation> {
+  async rotate(tenantId: string, step: Exclude<FactoryProvisioningStepName, "ingress">, who?: FactoryOperationActor): Promise<LocalInstallation> {
     return this.ledger.locked(tenantId, async () => {
       const record = await this.ledger.installation(tenantId);
       if (!record || PHASE_RANK[record.phase] < PHASE_RANK.resources_prepared || PHASE_RANK[record.phase] >= PHASE_RANK.tearing_down) throw new FactoryProvisioningError("provisioning_phase_forbidden", `Credentials of ${tenantId} cannot be rotated in its current phase.`);
@@ -237,11 +292,18 @@ export class LocalFactoryProvisioner {
       const steps = new Map((await this.ledger.steps(tenantId)).map((entry) => [entry.step, entry]));
       const driver = this.driver(step);
       if (!driver.rotate) throw new FactoryProvisioningError("provisioning_rotation_unsupported", `Step ${step} has no credential to rotate.`);
-      const rotated = await driver.rotate(installation, steps.get(step)!.resources);
-      await this.ledger.stepCompleted(tenantId, step, rotated);
-      await this.ledger.event({ tenantId, step, event: "step.rotated", detail: {} });
+      if (steps.get(step)!.state !== "complete") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Step ${step} of ${tenantId} is not complete and cannot be rotated.`);
+      await this.attribute(tenantId, "rotate", who, { step });
       const deployment = steps.get("deployment")!;
-      if (deployment.state === "complete" && step !== "invitation") await this.options.drivers.deployment.rotate!(installation, deployment.resources);
+      try {
+        const rotated = await driver.rotate(installation, steps.get(step)!.resources);
+        await this.ledger.stepCompleted(tenantId, step, rotated);
+        if (step !== "deployment" && step !== "invitation" && deployment.state === "complete") await this.options.drivers.deployment.redeliver(installation, deployment.resources);
+      } catch (error) {
+        await this.ledger.event({ tenantId, step, event: "step.rotation_failed", detail: { code: factoryStepFailure(error).code } });
+        throw error;
+      }
+      await this.ledger.event({ tenantId, step, event: "step.rotated", detail: {} });
       return this.summary(tenantId);
     });
   }
@@ -257,11 +319,12 @@ export class LocalFactoryProvisioner {
    * teardown continues; any other failure stops the teardown with the tenant
    * still `tearing_down`, and a rerun resumes it.
    */
-  async teardown(tenantId: string, input: { readonly reason: string }): Promise<FactoryTeardownOutcome> {
+  async teardown(tenantId: string, input: { readonly reason: string } & FactoryOperationActor): Promise<FactoryTeardownOutcome> {
     return this.ledger.locked(tenantId, async () => {
       const record = await this.ledger.installation(tenantId);
       if (!record) throw new FactoryProvisioningError("provisioning_unknown_tenant", `No installation is recorded for ${tenantId}.`);
       if (record.phase === "torn_down" || record.phase === "purged") return { installation: await this.summary(tenantId), residues: [] };
+      await this.attribute(tenantId, "teardown", input);
       await this.ledger.setPhase(tenantId, "tearing_down", { reason: input.reason.slice(0, 256) });
       const installation = this.context(record);
       const steps = new Map((await this.ledger.steps(tenantId)).map((entry) => [entry.step, entry]));
@@ -283,30 +346,33 @@ export class LocalFactoryProvisioner {
   }
 
   /**
-   * Delete what teardown kept, once a human approves and no work is open.
+   * Delete what teardown kept, once an administrator approved it and no work
+   * is open.
    *
-   * Purge drops the databases, the runtime volumes, and the installation's
-   * delivered secrets. It NEVER touches the release archive, and because an
-   * archived record may be encrypted under the installation's data key, the
-   * master key and its wrap are kept in the operator's escrow rather than
-   * destroyed: destroying them would make the retained archive unreadable. It refuses while any work is active or uncertain,
-   * because deleting the only record of an uncertain effect would turn "we do
-   * not know" into "it never happened". The census counts are recorded as the
-   * C06 audit-loss statement.
+   * The approval is one the installation issued to an administrator's session
+   * before teardown; the operator only names it. Purge drops the databases,
+   * the runtime volumes, and the installation's delivered secrets. It NEVER
+   * touches the release archive, and because an archived record may be
+   * encrypted under the installation's data key, the master key and the
+   * escrowed wrap stay in the operator's directory. It refuses while any work
+   * is active or uncertain, because deleting the only record of an uncertain
+   * effect would turn "we do not know" into "it never happened". The census
+   * counts and everything purge cannot remove are the C06 audit-loss record.
    */
-  async purge(tenantId: string, approval: FactoryPurgeApproval, census: FactoryWorkCensus): Promise<LocalInstallation> {
+  async purge(tenantId: string, request: FactoryPurgeRequest & FactoryOperationActor, checks: FactoryPurgeChecks): Promise<LocalInstallation> {
     return this.ledger.locked(tenantId, async () => {
       const record = await this.ledger.installation(tenantId);
       if (record?.phase !== "torn_down") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Only a torn-down installation can be purged; ${tenantId} is ${record?.phase ?? "unknown"}.`);
-      if (!record.membershipRefs.includes(approval.approvedBy)) throw new FactoryProvisioningError("purge_approver_unknown", "Purge must be approved by one of the installation's recorded administrators.");
       const installation = this.context(record);
-      const open = await census.count(installation);
+      await this.attribute(tenantId, "purge", request, { approvalId: request.approvalId.slice(0, 64) });
+      const approval = await checks.approvals.verify(installation, request.approvalId);
+      const open = await checks.census.count(installation);
       if (open.active > 0 || open.uncertain > 0) throw new FactoryProvisioningError("purge_work_open", `Purge refused: ${open.active} active and ${open.uncertain} uncertain records are still open.`);
       const steps = new Map((await this.ledger.steps(tenantId)).map((entry) => [entry.step, entry]));
       await this.options.drivers.deployment.purge(installation, steps.get("deployment")!.resources);
       await this.options.drivers.database.purge(installation, steps.get("database")!.resources);
       await escrowFactoryArchiveKey(installation);
-      await this.ledger.event({ tenantId, step: null, event: "purge.audit_loss", detail: { approvedBy: approval.approvedBy, reason: approval.reason.slice(0, 256), activeAtPurge: String(open.active), uncertainAtPurge: String(open.uncertain), releaseArchive: "retained" } });
+      await this.ledger.event({ tenantId, step: null, event: "purge.audit_loss", detail: { approvedBy: approval.approvedBy, approvalId: request.approvalId, reason: request.reason.slice(0, 256), activeAtPurge: String(open.active), uncertainAtPurge: String(open.uncertain), ...FACTORY_PURGE_RETAINED } });
       await this.ledger.setPhase(tenantId, "purged", { approvedBy: approval.approvedBy });
       return this.summary(tenantId);
     });

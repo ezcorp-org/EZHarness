@@ -47,9 +47,10 @@ services:
     env_file: [${EZCORP_FACTORY_POOL_ENV:?}]
     volumes:
       - { type: bind, source: "${EZCORP_FACTORY_DELIVER_POOL:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
-      - { type: bind, source: "${EZCORP_FACTORY_READINESS:?}", target: /run/ezcorp/readiness, bind: { create_host_path: false } }
+      # Each readiness writer mounts only its own directory, so it cannot forge another's record.
+      - { type: bind, source: "${EZCORP_FACTORY_READINESS_POOL:?}", target: /run/ezcorp/readiness/pool, bind: { create_host_path: false } }
     healthcheck:
-      test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "/run/ezcorp/readiness/pool.json"]
+      test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "/run/ezcorp/readiness/pool/pool.json"]
       interval: 3s
       timeout: 5s
       retries: 40
@@ -116,9 +117,9 @@ services:
     env_file: [${EZCORP_FACTORY_ORCHESTRATOR_ENV:?}]
     volumes:
       - { type: bind, source: "${EZCORP_FACTORY_DELIVER_ORCHESTRATOR:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
-      - { type: bind, source: "${EZCORP_FACTORY_READINESS:?}", target: /run/ezcorp/readiness, bind: { create_host_path: false } }
+      - { type: bind, source: "${EZCORP_FACTORY_READINESS_ORCHESTRATION:?}", target: /run/ezcorp/readiness/orchestration, bind: { create_host_path: false } }
     healthcheck:
-      test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "/run/ezcorp/readiness/orchestration.json"]
+      test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "/run/ezcorp/readiness/orchestration/orchestration.json"]
       interval: 5s
       timeout: 5s
       retries: 120

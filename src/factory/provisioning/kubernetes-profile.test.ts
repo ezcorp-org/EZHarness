@@ -124,22 +124,28 @@ describe("renderFactoryKubernetesInstallation", () => {
     expect(byName.harness!.volumeMounts).toContainEqual({ name: "harness-data", mountPath: FACTORY_CONTAINER_PATHS.data });
     for (const service of ["pool", "gateway", "orchestrator"]) expect(byName[service]!.volumeMounts.map((mount) => mount.name)).not.toContain("harness-data");
     const readiness = (service: string) => byName[service]!.volumeMounts.find((mount) => mount.name === "readiness")!.readOnly;
-    expect([readiness("harness"), readiness("gateway"), readiness("pool"), readiness("orchestrator")]).toEqual([true, true, false, false]);
+    expect([readiness("harness"), readiness("gateway"), readiness("pool"), readiness("orchestrator")]).toEqual([true, true, undefined, undefined]);
   });
 
   test("each container gets only its own non-secret environment and runs its own process", () => {
     const [deployment] = kind(objects, "Deployment");
     const byName = Object.fromEntries(podSpec(deployment!).containers.map((container) => [container.name, container]));
     for (const service of FACTORY_CONTAINER_SERVICES) {
-      expect(Object.fromEntries(byName[service]!.env.map((entry) => [entry.name, entry.value]))).toEqual(bundle.environment[service]);
+      const { EZCORP_INGRESS_PROOF_FILE: _proof, ...expected } = bundle.environment[service] as Record<string, string>;
+      expect(Object.fromEntries(byName[service]!.env.map((entry) => [entry.name, entry.value]))).toEqual(expected);
     }
     expect(byName.pool!.command).toEqual(["bun", "src/factory/pool/process.ts", "/run/ezcorp/secrets/pool.json"]);
     expect(byName.orchestrator!.command[0]).toBe("node");
     const probe = (service: string) => JSON.stringify((byName[service] as unknown as { readinessProbe: unknown }).readinessProbe);
     expect(probe("gateway")).toContain(`--tcp","127.0.0.1:${bundle.ports.gateway}`);
-    expect(probe("pool")).toContain("/run/ezcorp/readiness/pool.json");
-    expect(probe("orchestrator")).toContain("/run/ezcorp/readiness/orchestration.json");
+    expect(probe("pool")).toContain("/run/ezcorp/readiness/pool/pool.json");
+    expect(probe("orchestrator")).toContain("/run/ezcorp/readiness/orchestration/orchestration.json");
+    const readiness = (name: string): unknown => (byName[name]!.volumeMounts as { name: string }[]).find((mount) => mount.name === "readiness");
+    expect(readiness("pool")).toEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/pool", subPath: "pool" });
+    expect(readiness("orchestrator")).toEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/orchestration", subPath: "orchestration" });
+    expect(readiness("harness")).toEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness", readOnly: true });
     expect(probe("harness")).toContain("/api/ready");
+    expect(byName.harness!.env.map((entry: { name: string }) => entry.name)).not.toContain("EZCORP_INGRESS_PROOF_FILE");
   });
 
   test("the ingress overwrites the installation header, and network policy admits only the ingress controller", () => {
@@ -175,9 +181,9 @@ describe("renderFactoryKubernetesSystem", () => {
 
     const everything = [...objects, ...system];
     const privileged = everything.filter((object) => JSON.stringify(object).includes('"privileged":true'));
-    expect(privileged).toEqual([daemonSet]);
+    expect(privileged as unknown[]).toEqual([daemonSet]);
     const socketHolders = everything.filter((object) => JSON.stringify(object).includes(SETTINGS.runtimeSocketPath));
-    expect(socketHolders).toEqual([daemonSet]);
+    expect(socketHolders as unknown[]).toEqual([daemonSet]);
   });
 
   test("nothing tenant-scoped is rendered into the system namespace", () => {

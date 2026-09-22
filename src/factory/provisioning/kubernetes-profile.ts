@@ -79,6 +79,9 @@ function labels(bundle: FactoryInstallationBundle): Readonly<Record<string, stri
   return { "app.kubernetes.io/part-of": "ezcorp-factory", "ezcorp.io/fleet": bundle.installation.fleetId, "ezcorp.io/tenant": bundle.installation.tenantId, "ezcorp.io/installation": bundle.installation.installationId };
 }
 
+/** The readiness directory a writing service owns, matching the Compose profile's per-writer mounts. */
+const readinessWriter = (service: "pool" | "orchestrator" | "gateway"): "pool" | "orchestration" => (service === "pool" ? "pool" : "orchestration");
+
 const restrictedContainer = (runAsUser: number) => ({
   runAsNonRoot: true, runAsUser, runAsGroup: runAsUser, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true,
   capabilities: { drop: ["ALL"] }, seccompProfile: { type: "RuntimeDefault" },
@@ -96,12 +99,19 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
     image,
     imagePullPolicy: "IfNotPresent",
     command: [...COMMANDS[service]],
-    env: Object.entries(bundle.environment[service]).map(([name, value]) => ({ name, value })),
+    // The ingress proof is a Compose-profile control: on a shared host it stops a
+    // local process that reaches the harness port from posing as the ingress.
+    // Here the NetworkPolicy admits only the ingress controller, and an
+    // annotation would publish the proof to anyone who can read the Ingress.
+    env: Object.entries(bundle.environment[service]).filter(([name]) => name !== "EZCORP_INGRESS_PROOF_FILE").map(([name, value]) => ({ name, value })),
     securityContext: restrictedContainer(settings.runAsUser),
     resources: { requests: { memory: LIMITS[service].memory, cpu: LIMITS[service].cpu }, limits: { memory: LIMITS[service].memory, cpu: LIMITS[service].cpu } },
     volumeMounts: [
       { name: deliveredVolume(service), mountPath: FACTORY_CONTAINER_PATHS.secrets, readOnly: true },
-      { name: "readiness", mountPath: FACTORY_CONTAINER_PATHS.readiness, readOnly: service === "harness" || service === "gateway" },
+      // Each readiness writer mounts only its own subdirectory, so it cannot forge another's record; readers see all of it read-only.
+      service === "pool" || service === "orchestrator"
+        ? { name: "readiness", mountPath: `${FACTORY_CONTAINER_PATHS.readiness}/${readinessWriter(service)}`, subPath: readinessWriter(service) }
+        : { name: "readiness", mountPath: FACTORY_CONTAINER_PATHS.readiness, readOnly: true },
       { name: "tmp", mountPath: "/tmp" },
       ...(service === "harness" ? [{ name: "harness-data", mountPath: FACTORY_CONTAINER_PATHS.data }] : []),
     ],
@@ -110,7 +120,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
       readinessProbe: { httpGet: { path: "/api/ready", port: bundle.ports.harness }, periodSeconds: 5, failureThreshold: 3 },
       livenessProbe: { httpGet: { path: "/api/health", port: bundle.ports.harness }, periodSeconds: 10, failureThreshold: 6, initialDelaySeconds: 30 },
     } : {
-      readinessProbe: { exec: { command: service === "gateway" ? ["bun", "src/factory/provisioning/readiness-check.ts", "--tcp", `127.0.0.1:${bundle.ports.gateway}`] : ["bun", "src/factory/provisioning/readiness-check.ts", `${FACTORY_CONTAINER_PATHS.readiness}/${service === "pool" ? "pool" : "orchestration"}.json`] }, periodSeconds: 5 },
+      readinessProbe: { exec: { command: service === "gateway" ? ["bun", "src/factory/provisioning/readiness-check.ts", "--tcp", `127.0.0.1:${bundle.ports.gateway}`] : ["bun", "src/factory/provisioning/readiness-check.ts", `${FACTORY_CONTAINER_PATHS.readiness}/${readinessWriter(service)}/${readinessWriter(service)}.json`] }, periodSeconds: 5 },
     }),
   }));
   const copy = FACTORY_CONTAINER_SERVICES.map((service) => `cp -L /source/${service}/* /delivered/${service}/ && chmod 0600 /delivered/${service}/*`).join(" && ");

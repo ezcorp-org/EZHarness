@@ -26,7 +26,7 @@ import { LocalFactoryProvisioner } from "./local";
 import { ensureFactoryPlatformMaterial, factoryPlatformPaths, factoryPodmanIngressReloader, type FactoryPlatformPaths } from "./platform";
 import { readFactoryPrivatePath } from "./secret-files";
 import { FactorySecretsStep } from "./secrets";
-import { FactorySeededStorageIssuer, FactoryStorageStep, factoryS3ScopeProbe, type FactoryStorageCredentialIssuer } from "./storage";
+import { FactorySeededStorageIssuer, FactoryStorageStep, factoryDatabaseStorageClaims, factoryS3ScopeProbe, type FactoryStorageCredentialIssuer } from "./storage";
 import { FactoryProvisioningError } from "./steps";
 import { FactoryTemporalStep, factoryTemporalCertificateIssuer } from "./temporal";
 import { factoryTemporalAccessProbe, factoryTemporalNamespaceAdmin } from "./temporal-client";
@@ -163,6 +163,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   const database = new FactoryDatabaseStep({ adminUrl, progress: (installation, resources) => provisioner!.ledger.stepProgress(installation.tenantId, "database", resources) });
   const issuer = (domain: "ordinary" | "archive"): FactoryStorageCredentialIssuer => new FactorySeededStorageIssuer(settings.storage[domain].issuer.serverIdentityPath);
   const storage = new FactoryStorageStep({
+    claims: factoryDatabaseStorageClaims(adminUrl),
     ordinary: { endpoint: settings.storage.ordinary.endpoint, prefix: settings.storage.ordinary.prefix, issuer: issuer("ordinary"), failureDomain: settings.storage.failureDomain },
     archive: { endpoint: settings.storage.archive.endpoint, prefix: settings.storage.archive.prefix, issuer: issuer("archive"), failureDomain: settings.storage.failureDomain },
     probe: factoryS3ScopeProbe,
@@ -204,6 +205,8 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   const deployment = new FactoryDeploymentStep({ settings: deploymentSettings, target });
   const ingress = new FactoryIngressStep({
     paths: { root: platform.ingress.root, mountedRoot: "/etc/ezcorp-ingress", listenAddress: settings.ingress.address, listenPort: settings.ingress.port },
+    authority: { certificatePath: platform.ingress.caCertificatePath, keyPath: platform.ingress.caKeyPath },
+    exclusive: (work) => provisioner!.ledger.lockedOn(`factory-ingress:${settings.fleetId}`, work),
     reloader: factoryPodmanIngressReloader(settings.fleetId, execute),
     probe: factoryHttpsIngressProbe(settings.ingress.address, settings.ingress.port, await secretText(platform.ingress.caCertificatePath) + "\n"),
     upstreamPort: (installation) => factoryInstallationPorts(installation.tenantId, settings.installations.portBase).harness,

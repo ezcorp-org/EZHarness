@@ -160,11 +160,12 @@ export class FactorySecretsStep implements FactoryProvisioningDriver {
   }
 
   /**
-   * Destroy the application secrets and the wrap. The MASTER KEY is kept until
-   * purge: an archive written under this installation's data key stays
-   * decryptable by the operator until a human purges it.
+   * Destroy the application secrets. The wrap moves into the operator's escrow
+   * FIRST, beside the master key, so an archive written under this
+   * installation's data key stays decryptable until a human purges it.
    */
   async teardown(installation: FactoryInstallationContext): Promise<void> {
+    await escrowFactoryWraps(installation);
     const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
     try {
       for (const name of [...Object.values(FACTORY_APPLICATION_SECRET_FILES), FACTORY_KEY_FILES.wraps]) await removeFactoryPrivateFile(secrets, name);
@@ -204,21 +205,41 @@ export class FactorySecretsStep implements FactoryProvisioningDriver {
   }
 }
 
+export const FACTORY_ESCROW_WRAPS = `escrow-${FACTORY_KEY_FILES.wraps}`;
+
 /**
- * Keep the archive readable after purge: the wrap moves beside the master key
- * in the operator's own directory, and every other delivered secret goes.
+ * Copy the installation's wrap into the operator's escrow. The live wrap wins
+ * when it exists; once teardown has removed it, the escrow copy must already be
+ * there. Neither existing means the archive key is lost, and that is refused
+ * loudly rather than recorded as a successful escrow.
  */
-export async function escrowFactoryArchiveKey(installation: FactoryInstallationContext): Promise<void> {
-  const escrow = factoryPrivatePath(installation.operatorDirectory, `escrow-${FACTORY_KEY_FILES.wraps}`);
+export async function escrowFactoryWraps(installation: FactoryInstallationContext): Promise<void> {
   const operator = await openFactoryPrivateDirectory(installation.operatorDirectory);
   try {
-    const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
+    let live: Uint8Array | undefined;
     try {
-      let bytes: Uint8Array | undefined;
-      try { bytes = await readFactoryPrivateBytes(secrets, FACTORY_KEY_FILES.wraps); }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-      if (bytes) await replaceFactoryPrivateFile(escrow, bytes);
-    } finally { await secrets.close(); }
+      const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
+      try { live = await readFactoryPrivateBytes(secrets, FACTORY_KEY_FILES.wraps); }
+      finally { await secrets.close(); }
+    } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+    if (live) { await replaceFactoryPrivateFile(factoryPrivatePath(installation.operatorDirectory, FACTORY_ESCROW_WRAPS), live); return; }
+    try { await readFactoryPrivateBytes(operator, FACTORY_ESCROW_WRAPS); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      throw new FactoryProvisioningError("secrets_escrow_missing", "Neither the installation's key wrap nor its escrow copy exists; the archive key cannot be kept.");
+    }
+  } finally { await operator.close(); }
+}
+
+/**
+ * Keep the archive readable after purge: the wrap is in escrow beside the
+ * master key in the operator's own directory, and every other delivered
+ * secret goes.
+ */
+export async function escrowFactoryArchiveKey(installation: FactoryInstallationContext): Promise<void> {
+  await escrowFactoryWraps(installation);
+  const operator = await openFactoryPrivateDirectory(installation.operatorDirectory);
+  try {
     await readFactoryPrivateBytes(operator, FACTORY_KEY_FILES.master, 4 * 1024);
     await removeFactoryPrivateFile(operator, "first-admin-invitation.json");
   } finally { await operator.close(); }

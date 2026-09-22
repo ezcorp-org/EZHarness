@@ -144,10 +144,24 @@ export function factoryPhaseTransitionAllowed(from: FactoryInstallationPhase, to
  * credential into an error, and this is the last place that could stop one
  * reaching a durable row if it did.
  */
+/**
+ * Remove what a third-party message may echo: a URL (a connection string can
+ * carry a password), a bearer or JWT, and any `password=`, `secret=`, or
+ * `token=` value. The provisioner's own messages never hold one; a driver,
+ * SDK, or command's stderr might.
+ */
+export function scrubFactoryFailureMessage(message: string): string {
+  return message
+    .replace(/\b[a-z][a-z0-9+.-]*:\/\/\S+/gi, "<url>")
+    .replace(/\beyJ[\w-]+\.[\w-]+\.[\w-]*/g, "<token>")
+    .replace(/\b(bearer)\s+\S+/gi, "$1 <redacted>")
+    .replace(/\b(password|passwd|secret|token|key)(\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)/gi, "$1$2<redacted>");
+}
+
 export function factoryStepFailure(error: unknown): FactoryStepFailure {
   const code = error instanceof FactoryProvisioningError && FAILURE_CODE.test(error.code) ? error.code : "provisioning_step_failed";
   const raw = error instanceof Error ? error.message : String(error);
-  const message = [...raw].map((character) => (character.codePointAt(0)! < 32 ? " " : character)).join("").slice(0, FAILURE_MESSAGE_LIMIT);
+  const message = [...scrubFactoryFailureMessage(raw)].map((character) => (character.codePointAt(0)! < 32 ? " " : character)).join("").slice(0, FAILURE_MESSAGE_LIMIT);
   return Object.freeze({ code, message: message || code });
 }
 

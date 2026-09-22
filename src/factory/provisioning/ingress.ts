@@ -3,9 +3,10 @@
  *
  * The ingress is the one component that maps a hostname to an installation,
  * and the installation checks the mapping rather than trusting it (C01): the
- * ingress sets `X-EZCorp-Installation` on every request it forwards,
- * overwriting anything a client sent, and the harness refuses a request whose
- * host or installation header is not its own (`ingress-identity.ts`).
+ * ingress sets `X-EZCorp-Installation` and the per-installation
+ * `X-EZCorp-Ingress-Proof` on every request it forwards, overwriting anything
+ * a client sent, and the harness refuses a request whose host, installation
+ * header, or proof is not its own (`ingress-identity.ts`).
  *
  * A route has two states, and only the provisioner moves it between them:
  *
@@ -18,16 +19,25 @@
  * A request whose TLS server name differs from its Host header is refused with
  * 421, so one hostname's certificate cannot front another installation.
  */
-import { X509Certificate } from "node:crypto";
+import { randomBytes, X509Certificate } from "node:crypto";
 import { request as httpsRequest } from "node:https";
 import { readdir } from "node:fs/promises";
 import { issueFactoryCertificate, type FactoryCommandRunner } from "./certificates";
-import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
-import { ensureFactoryPrivateCertificatePair, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateJson, readFactoryPrivatePath, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
+import { factoryDeliveryDirectory, type FactoryInstallationContext, type FactoryProvisioningDriver, type FactoryStepResources } from "./installation";
+import { ensureFactoryPrivateCertificatePair, ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateJson, readFactoryPrivatePath, readFactoryPrivateText, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 import { factoryCertificateHash } from "./temporal";
 
 export type FactoryIngressRouteState = "held" | "serving";
+
+/**
+ * The per-installation secret the ingress adds to every forwarded request and
+ * the harness requires. The installation ID alone is not secret, so without
+ * this a local process that reached a harness's loopback port could forge the
+ * ingress's headers; with it, only the ingress can.
+ */
+export const FACTORY_INGRESS_PROOF_FILE = "ingress-proof";
+const PROOF = /^[a-f0-9]{64}$/;
 
 export interface FactoryIngressRoute {
   readonly schemaVersion: "factory.ingress-route.v1";
@@ -36,6 +46,8 @@ export interface FactoryIngressRoute {
   readonly installationId: string;
   readonly upstreamPort: number;
   readonly state: FactoryIngressRouteState;
+  /** The installation's ingress proof. Kept in the operator's private route file, never in the ledger. */
+  readonly proof: string;
 }
 
 export interface FactoryIngressPaths {
@@ -55,6 +67,15 @@ export interface FactoryIngressProbe { request(hostname: string, path: string, o
 
 export interface FactoryIngressStepOptions {
   readonly paths: FactoryIngressPaths;
+  /** The ingress CA, kept OUTSIDE the directory the ingress process mounts. */
+  readonly authority: { readonly certificatePath: string; readonly keyPath: string };
+  /**
+   * Serialises route writes, rendering, and reloads across the fleet. The
+   * rendered configuration is one file for every installation, so two
+   * concurrent publishes would otherwise let the later render drop the earlier
+   * route. The fleet composition supplies a database advisory lock.
+   */
+  readonly exclusive?: <Result>(work: () => Promise<Result>) => Promise<Result>;
   readonly reloader: FactoryIngressReloader;
   readonly probe: FactoryIngressProbe;
   readonly upstreamPort: (installation: FactoryInstallationContext) => number;
@@ -76,6 +97,7 @@ function renderRoute(paths: FactoryIngressPaths, route: FactoryIngressRoute): st
       "    proxy_set_header X-Forwarded-Proto https;",
       "    proxy_set_header X-Forwarded-For $remote_addr;",
       `    proxy_set_header X-EZCorp-Installation "${route.installationId}";`,
+      `    proxy_set_header X-EZCorp-Ingress-Proof "${route.proof}";`,
       "    proxy_http_version 1.1;",
       "    proxy_set_header Upgrade $http_upgrade;",
       "    proxy_set_header Connection $connection_upgrade;",
@@ -106,7 +128,7 @@ export function renderFactoryIngressConfig(paths: FactoryIngressPaths, routes: r
   for (const route of routes) {
     if (hostnames.has(route.hostname)) throw new FactoryProvisioningError("ingress_hostname_conflict", `Hostname ${route.hostname} is bound twice.`);
     hostnames.add(route.hostname);
-    if (!/^[a-z0-9.-]{1,253}$/.test(route.hostname) || !/^[A-Za-z0-9-]{1,64}$/.test(route.installationId) || !Number.isSafeInteger(route.upstreamPort)) throw new FactoryProvisioningError("ingress_route_invalid", `Route for ${route.tenantId} is invalid.`);
+    if (!/^[a-z0-9.-]{1,253}$/.test(route.hostname) || !/^[A-Za-z0-9-]{1,64}$/.test(route.installationId) || !Number.isSafeInteger(route.upstreamPort) || !PROOF.test(route.proof)) throw new FactoryProvisioningError("ingress_route_invalid", `Route for ${route.tenantId} is invalid.`);
   }
   return [
     "# Rendered by the factory provisioner (C12 step 6). Do not edit: the next render replaces it.",
@@ -133,7 +155,11 @@ export async function readFactoryIngressRoutes(paths: FactoryIngressPaths): Prom
 export class FactoryIngressStep implements FactoryProvisioningDriver {
   readonly step = "ingress" as const;
   private readonly sleep: (milliseconds: number) => Promise<void>;
-  constructor(private readonly options: FactoryIngressStepOptions) { this.sleep = options.sleep ?? ((milliseconds) => new Promise((settle) => setTimeout(settle, milliseconds))); }
+  private readonly exclusive: <Result>(work: () => Promise<Result>) => Promise<Result>;
+  constructor(private readonly options: FactoryIngressStepOptions) {
+    this.sleep = options.sleep ?? ((milliseconds) => new Promise((settle) => setTimeout(settle, milliseconds)));
+    this.exclusive = options.exclusive ?? ((work) => work());
+  }
 
   private async publish(): Promise<void> {
     const routes = await readFactoryIngressRoutes(this.options.paths);
@@ -153,8 +179,27 @@ export class FactoryIngressStep implements FactoryProvisioningDriver {
     throw new FactoryProvisioningError("ingress_route_unobserved", `Ingress did not answer ${installation.hostname} as ${state} (last status ${last?.status}).`);
   }
 
+  private async proof(installation: FactoryInstallationContext): Promise<string> {
+    const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
+    try {
+      await ensureFactoryPrivateFile(secrets, FACTORY_INGRESS_PROOF_FILE, () => `${randomBytes(32).toString("hex")}\n`);
+      const proof = (await readFactoryPrivateText(secrets, FACTORY_INGRESS_PROOF_FILE)).trim();
+      if (!PROOF.test(proof)) throw new FactoryProvisioningError("ingress_proof_invalid", "The installation's ingress proof is malformed.");
+      return proof;
+    } finally { await secrets.close(); }
+  }
+
+  /**
+   * Hand the proof to the running harness through its own delivery. The
+   * harness refuses every routed request until the file exists, then keeps
+   * the value it read; the proof is issued once and never rotated.
+   */
+  private async deliverProof(installation: FactoryInstallationContext, proof: string): Promise<void> {
+    await replaceFactoryPrivateFile(factoryPrivatePath(factoryDeliveryDirectory(installation, "harness"), FACTORY_INGRESS_PROOF_FILE), `${proof}\n`);
+  }
+
   private async writeRoute(installation: FactoryInstallationContext, state: FactoryIngressRouteState): Promise<void> {
-    const route: FactoryIngressRoute = { schemaVersion: "factory.ingress-route.v1", tenantId: installation.tenantId, hostname: installation.hostname, installationId: installation.installationId, upstreamPort: this.options.upstreamPort(installation), state };
+    const route: FactoryIngressRoute = { schemaVersion: "factory.ingress-route.v1", tenantId: installation.tenantId, hostname: installation.hostname, installationId: installation.installationId, upstreamPort: this.options.upstreamPort(installation), state, proof: await this.proof(installation) };
     await replaceFactoryPrivateFile(factoryPrivatePath(dir(this.options.paths, "routes"), `${installation.tenantId}.json`), `${JSON.stringify(route)}\n`);
   }
 
@@ -165,49 +210,56 @@ export class FactoryIngressStep implements FactoryProvisioningDriver {
     finally { await directory.close(); }
   }
 
+  /** Write the route in `state`, publish, and wait for the running ingress to answer so, as one fleet-exclusive act. */
+  private async route(installation: FactoryInstallationContext, state: FactoryIngressRouteState): Promise<void> {
+    await this.exclusive(async () => {
+      // A hostname another installation already holds is refused BEFORE anything
+      // is written: a route file left behind would fail every later publish.
+      const claimed = (await readFactoryIngressRoutes(this.options.paths)).find((existing) => existing.hostname === installation.hostname && existing.tenantId !== installation.tenantId);
+      if (claimed) throw new FactoryProvisioningError("ingress_hostname_conflict", `Hostname ${installation.hostname} is bound to ${claimed.tenantId}.`);
+      await this.writeRoute(installation, state);
+      await this.publish();
+    });
+    await this.expect(installation, state);
+  }
+
   async ensure(installation: FactoryInstallationContext): Promise<FactoryStepResources> {
-    // A hostname another installation already holds is refused BEFORE anything
-    // is written: a route file left behind would fail every later publish.
-    const claimed = (await readFactoryIngressRoutes(this.options.paths)).find((route) => route.hostname === installation.hostname && route.tenantId !== installation.tenantId);
-    if (claimed) throw new FactoryProvisioningError("ingress_hostname_conflict", `Hostname ${installation.hostname} is bound to ${claimed.tenantId}.`);
     const certs = await openFactoryPrivateDirectory(dir(this.options.paths, "certs"));
     try {
-      await ensureFactoryPrivateCertificatePair(certs, { key: `${installation.tenantId}.key`, certificate: `${installation.tenantId}.crt` }, () => issueFactoryCertificate({ certificatePath: `${this.options.paths.root}/ca.crt`, keyPath: `${this.options.paths.root}/ca.key` }, { subject: installation.tenantId, usage: "server", dnsNames: [installation.hostname] }, this.options.run));
+      await ensureFactoryPrivateCertificatePair(certs, { key: `${installation.tenantId}.key`, certificate: `${installation.tenantId}.crt` }, () => issueFactoryCertificate(this.options.authority, { subject: installation.tenantId, usage: "server", dnsNames: [installation.hostname] }, this.options.run));
     } finally { await certs.close(); }
-    const state = await this.currentState(installation) ?? "held";
-    await this.writeRoute(installation, state);
-    await this.publish();
-    await this.expect(installation, state);
+    await this.deliverProof(installation, await this.proof(installation));
+    await this.route(installation, await this.currentState(installation) ?? "held");
     return this.resources(installation);
   }
 
   async verify(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void> {
     const current = await this.resources(installation);
     if (current.certificateHash !== resources.certificateHash || resources.installationId !== installation.installationId) throw new FactoryProvisioningError("ingress_resource_mismatch", "The ingress binding changed since it was recorded.");
+    const delivered = new TextDecoder().decode(await readFactoryPrivatePath(factoryPrivatePath(factoryDeliveryDirectory(installation, "harness"), FACTORY_INGRESS_PROOF_FILE))).trim();
+    if (delivered !== await this.proof(installation)) throw new FactoryProvisioningError("ingress_proof_undelivered", "The harness does not hold the installation's current ingress proof.");
     await this.expect(installation, await this.currentState(installation) ?? "held");
   }
 
   /** Open the route. Only the provisioner calls this, and only after the invitation step. */
   async serve(installation: FactoryInstallationContext): Promise<void> {
-    await this.writeRoute(installation, "serving");
-    await this.publish();
-    await this.expect(installation, "serving");
+    await this.route(installation, "serving");
   }
 
   /** Close the route to traffic without unbinding the hostname. The first act of teardown. */
   async hold(installation: FactoryInstallationContext): Promise<void> {
     if (await this.currentState(installation) === undefined) return;
-    await this.writeRoute(installation, "held");
-    await this.publish();
-    await this.expect(installation, "held");
+    await this.route(installation, "held");
   }
 
   async teardown(installation: FactoryInstallationContext): Promise<void> {
-    for (const [root, name] of [[dir(this.options.paths, "routes"), `${installation.tenantId}.json`], [dir(this.options.paths, "certs"), `${installation.tenantId}.crt`], [dir(this.options.paths, "certs"), `${installation.tenantId}.key`]] as const) {
-      const directory = await openFactoryPrivateDirectory(root);
-      try { await removeFactoryPrivateFile(directory, name); } finally { await directory.close(); }
-    }
-    await this.publish();
+    await this.exclusive(async () => {
+      for (const [root, name] of [[dir(this.options.paths, "routes"), `${installation.tenantId}.json`], [dir(this.options.paths, "certs"), `${installation.tenantId}.crt`], [dir(this.options.paths, "certs"), `${installation.tenantId}.key`], [installation.secretDirectory, FACTORY_INGRESS_PROOF_FILE]] as const) {
+        const directory = await openFactoryPrivateDirectory(root);
+        try { await removeFactoryPrivateFile(directory, name); } finally { await directory.close(); }
+      }
+      await this.publish();
+    });
     await this.expect(installation, "absent");
   }
 

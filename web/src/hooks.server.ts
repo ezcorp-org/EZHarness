@@ -1044,7 +1044,7 @@ const handleApp: Handle = async ({ event, resolve }) => {
 export const handle: Handle = async (input) => {
   // C01 trusted ingress: a provisioned installation answers only requests its
   // own ingress route forwarded. Before request accounting and before auth.
-  const misdirected = factoryIngressResponse(input.event.request);
+  const misdirected = await factoryIngressResponse(input.event.request);
   if (misdirected) return misdirected;
   const done = beginRequest();
   try {

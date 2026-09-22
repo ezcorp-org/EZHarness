@@ -406,6 +406,59 @@ describe("FactoryTemporalStep", () => {
       expect(await Bun.file(authority.revocationsPath).exists()).toBe(false);
     });
 
+    for (const point of ["staged", "swapped"] as const) {
+      test(`a crash once the rotation is ${point} is finished by the next verify, which asks for the rotation to be rerun`, async () => {
+        let armed = false;
+        const { step, access } = await loadedStep({ rotationFault: async (at) => { if (armed && at === point) { armed = false; throw new Error(`injected ${at} crash`); } } });
+        const before = await step.ensure(installation);
+        armed = true;
+        await expect(step.rotate(installation, before)).rejects.toThrow(`injected ${point} crash`);
+        const pending = join(installation.secretDirectory, "temporal-rotation.pending");
+        expect((await stat(pending)).mode & 0o777).toBe(0o600);
+        expect((await factoryRejection(step.verify(installation, before))).code).toBe("temporal_rotation_interrupted");
+        expect(await Bun.file(pending).exists()).toBe(false);
+        // The swap is whole: the key matches the certificate, and the superseded certificate is revoked.
+        const credential = step.credential(installation);
+        const certificate = new X509Certificate(await readFile(credential.certificatePath, "utf8"));
+        expect(certificate.checkPrivateKey(createPrivateKey(await readFile(credential.privateKeyPath, "utf8")))).toBe(true);
+        expect(factoryCertificateHash(certificate.toString())).not.toBe(before.certificateHash);
+        expect((await revocations()).certificateHashes).toEqual([before.certificateHash!]);
+        expect(await access.describe(installation.temporalNamespace, credential)).toBe(true);
+        // Rerunning the rotation records a certificate the ledger can verify.
+        const after = await step.rotate(installation, { ...before, certificateHash: factoryCertificateHash(certificate.toString()) });
+        await step.verify(installation, after);
+      });
+    }
+
+    test("ensure finishes a staged rotation before it looks at the key pair", async () => {
+      let armed = false;
+      const { step } = await loadedStep({ rotationFault: async (at) => { if (armed && at === "staged") { armed = false; throw new Error("injected staged crash"); } } });
+      const before = await step.ensure(installation);
+      armed = true;
+      await expect(step.rotate(installation, before)).rejects.toThrow("injected staged crash");
+      const after = await step.ensure(installation);
+      expect(after.certificateHash).not.toBe(before.certificateHash);
+      expect(await Bun.file(join(installation.secretDirectory, "temporal-rotation.pending")).exists()).toBe(false);
+    });
+
+    test("a corrupt staged rotation is refused by name and left for the operator", async () => {
+      const { step } = await loadedStep();
+      const before = await step.ensure(installation);
+      await writeModeFile(join(installation.secretDirectory, "temporal-rotation.pending"), "{not json");
+      expect((await factoryRejection(step.verify(installation, before))).code).toBe("provisioning_secret_corrupt");
+      expect(await Bun.file(join(installation.secretDirectory, "temporal-rotation.pending")).exists()).toBe(true);
+    });
+
+    test("teardown removes a staged rotation with the rest of the private copies", async () => {
+      let armed = false;
+      const { step } = await loadedStep({ rotationFault: async (at) => { if (armed && at === "staged") { armed = false; throw new Error("injected staged crash"); } } });
+      const before = await step.ensure(installation);
+      armed = true;
+      await expect(step.rotate(installation, before)).rejects.toThrow("injected staged crash");
+      await step.teardown(installation, before);
+      expect(await Bun.file(join(installation.secretDirectory, "temporal-rotation.pending")).exists()).toBe(false);
+    });
+
     test("rotate before load fails by name", async () => {
       const { step } = makeStep();
       expect((await factoryRejection(step.rotate(installation, {}))).code).toBe("temporal_authority_unloaded");

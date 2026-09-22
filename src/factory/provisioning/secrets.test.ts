@@ -6,7 +6,7 @@ import { factoryRejection, makeFactoryPrivateRoot, makeFactoryTestInstallation, 
 import { loadFactoryTemporalPayloadCodec } from "../file-key-wraps";
 import type { FactoryInstallationContext, FactoryStepResources } from "./installation";
 import { FactoryProvisioningError } from "./steps";
-import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES, FactorySecretsStep, assertFactoryMasterKeyIsRaw, escrowFactoryArchiveKey, factoryMasterKeyId, type FactorySecretDigestRegistry } from "./secrets";
+import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_ESCROW_WRAPS, FACTORY_KEY_FILES, FactorySecretsStep, assertFactoryMasterKeyIsRaw, escrowFactoryArchiveKey, factoryMasterKeyId, type FactorySecretDigestRegistry } from "./secrets";
 
 let root: string;
 let installation: FactoryInstallationContext;
@@ -275,14 +275,36 @@ describe("FactorySecretsStep.verify", () => {
 });
 
 describe("FactorySecretsStep.teardown and rotate", () => {
-  test("teardown destroys the application secrets and the wrap but keeps the master key, and succeeds twice", async () => {
+  test("teardown escrows the wrap, destroys the application secrets and the wrap, keeps the master key, and succeeds twice", async () => {
     const { step } = makeStep();
     const resources = await step.ensure(installation);
+    const wraps = await readFile(secretPath(FACTORY_KEY_FILES.wraps));
     await step.teardown(installation);
     for (const name of [...Object.values(FACTORY_APPLICATION_SECRET_FILES), FACTORY_KEY_FILES.wraps]) expect(await Bun.file(secretPath(name)).exists()).toBe(false);
+    expect(await readFile(join(installation.operatorDirectory, FACTORY_ESCROW_WRAPS))).toEqual(wraps);
     expect(sha(await readFile(masterPath()))).toBe(resources.masterKeyDigest!);
     await step.teardown(installation);
     expect(await Bun.file(masterPath()).exists()).toBe(true);
+    expect(await readFile(join(installation.operatorDirectory, FACTORY_ESCROW_WRAPS))).toEqual(wraps);
+  });
+
+  test("teardown then purge keeps an archive written before teardown decryptable", async () => {
+    const { step } = makeStep();
+    await step.ensure(installation);
+    const [encoded] = await (await codecFor(installation)).encode([{ metadata: {}, data: Buffer.from("archived") }], WORKFLOW);
+    await step.teardown(installation);
+    await escrowFactoryArchiveKey(installation);
+    const escrowed = await codecFor(installation, join(installation.operatorDirectory, FACTORY_ESCROW_WRAPS));
+    expect(Buffer.from((await escrowed.decode([encoded!], WORKFLOW))[0]!.data!).toString()).toBe("archived");
+    expect((await factoryRejection(stat(installation.secretDirectory))).code).toBe("ENOENT");
+  });
+
+  test("teardown refuses and deletes nothing when neither the wrap nor its escrow exists", async () => {
+    const { step } = makeStep();
+    await step.ensure(installation);
+    await rm(secretPath(FACTORY_KEY_FILES.wraps));
+    expect((await factoryRejection(step.teardown(installation))).code).toBe("secrets_escrow_missing");
+    expect(await Bun.file(secretPath(FACTORY_APPLICATION_SECRET_FILES.jwt)).exists()).toBe(true);
   });
 
   test("rotate replaces only the JWT secret and returns digests that verify", async () => {
@@ -325,6 +347,22 @@ describe("escrowFactoryArchiveKey", () => {
     await escrowFactoryArchiveKey(installation);
     expect(await readFile(join(installation.operatorDirectory, "escrow-wraps.json"))).toEqual(escrow);
     expect((await factoryRejection(stat(installation.secretDirectory))).code).toBe("ENOENT");
+  });
+
+  test("purge refuses and keeps the secret directory when the wrap and its escrow are both gone", async () => {
+    const { step } = makeStep();
+    await step.ensure(installation);
+    await rm(secretPath(FACTORY_KEY_FILES.wraps));
+    expect((await factoryRejection(escrowFactoryArchiveKey(installation))).code).toBe("secrets_escrow_missing");
+    expect(await Bun.file(secretPath(FACTORY_APPLICATION_SECRET_FILES.jwt)).exists()).toBe(true);
+  });
+
+  test("an unreadable escrow copy is refused, not taken as missing", async () => {
+    const { step } = makeStep();
+    await step.ensure(installation);
+    await step.teardown(installation);
+    await chmod(join(installation.operatorDirectory, FACTORY_ESCROW_WRAPS), 0o644);
+    expect((await factoryRejection(escrowFactoryArchiveKey(installation))).message).toBe("Private file must be owned, private, regular, and bounded.");
   });
 
   test("without a master key it refuses and deletes nothing", async () => {

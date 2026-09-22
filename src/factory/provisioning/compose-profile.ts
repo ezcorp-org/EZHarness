@@ -12,9 +12,10 @@
  * the repository's one engine rule, so this module never guesses an engine.
  */
 import { resolve } from "node:path";
-import type { FactoryDeploymentTarget, FactoryInstallationBundle } from "./deployment";
+import type { FactoryDeploymentHandle, FactoryDeploymentTarget, FactoryInstallationBundle } from "./deployment";
 import type { FactoryInstallationContext, FactoryStepResources } from "./installation";
 import { factoryPrivatePath, removeFactoryPrivateDirectory, replaceFactoryPrivateFile } from "./secret-files";
+import { factoryReadinessFresh } from "./readiness-check";
 import { FactoryProvisioningError } from "./steps";
 import type { FactoryUpgradeComponent, FactoryUpgradeTarget } from "./fleet-upgrade";
 
@@ -94,6 +95,8 @@ export function factoryComposeEnvironment(bundle: FactoryInstallationBundle, opt
     EZCORP_FACTORY_TENANT: installation.tenantId,
     EZCORP_FACTORY_INSTALLATION: installation.installationId,
     EZCORP_FACTORY_READINESS: bundle.readinessDirectory,
+    EZCORP_FACTORY_READINESS_POOL: resolve(bundle.readinessDirectory, "pool"),
+    EZCORP_FACTORY_READINESS_ORCHESTRATION: resolve(bundle.readinessDirectory, "orchestration"),
     EZCORP_FACTORY_HARNESS_DATA: bundle.dataDirectory,
     EZCORP_FACTORY_POOL_PORT: String(ports.pool),
     EZCORP_FACTORY_GATEWAY_PORT: String(ports.gateway),
@@ -205,8 +208,8 @@ export class FactoryComposeTarget implements FactoryDeploymentTarget {
       const unhealthy = ["pool", "gateway", "harness", "orchestrator"].find((service) => services.find((entry) => entry.service === service)?.health !== "healthy");
       const exited = services.find((entry) => entry.state === "exited" && entry.exitCode !== 0 && entry.service !== "orchestrator");
       if (exited) throw new FactoryProvisioningError("deployment_service_exited", `Service ${exited.service} exited with ${exited.exitCode}.`);
-      const supervisor = await readReadiness(resolve(bundle.readinessDirectory, "supervisor.json"));
-      const supervisorReady = supervisor !== undefined && /"lifecycle"\s*:\s*"ready"/.test(supervisor);
+      const supervisor = await readReadiness(resolve(bundle.readinessDirectory, "supervisor", "supervisor.json"));
+      const supervisorReady = supervisor !== undefined && factoryReadinessFresh(supervisor, this.now());
       const harness = await fetchStatus(`http://127.0.0.1:${bundle.ports.harness}/api/ready`);
       if (!unhealthy && supervisorReady && harness === 200) return;
       waiting = unhealthy ?? (supervisorReady ? "harness" : "supervisor");
@@ -215,22 +218,36 @@ export class FactoryComposeTarget implements FactoryDeploymentTarget {
     throw new FactoryProvisioningError("deployment_not_ready", `Installation ${bundle.installation.tenantId} did not become ready; still waiting on ${waiting}.`);
   }
 
-  async remove(bundle: FactoryInstallationBundle): Promise<void> {
-    await this.options.execute(["systemctl", "--user", "stop", factorySupervisorUnit(bundle.installation)]);
-    await this.options.execute(["systemctl", "--user", "reset-failed", factorySupervisorUnit(bundle.installation)]);
-    await this.must(this.compose(bundle, ["down", "--remove-orphans", "--timeout", "20"]), "deployment_compose_failed", "compose down");
+  /** Accept only the exit codes named; anything else is a failure with its stderr tail. */
+  private async allow(result: Promise<FactoryCommandResult>, codes: readonly number[], code: string, what: string): Promise<void> {
+    const settled = await result;
+    if (!codes.includes(settled.code)) throw new FactoryProvisioningError(code, `${what} failed (${settled.code}): ${settled.stderr.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`);
   }
 
   /**
-   * Remove the installation's volumes and runner root. A runner root holds
-   * guest-owned files under a mapped subuid, so it is removed inside the
-   * rootless user namespace; an ordinary recursive remove fails with EACCES.
+   * Stop the supervisor unit and every container. Needs no credential: the
+   * project and unit names derive from the installation, and the env file the
+   * last apply wrote is enough for Compose. An installation that was never
+   * applied has no env file and no containers, and only its unit is checked.
    */
-  async purge(bundle: FactoryInstallationBundle): Promise<void> {
-    await this.remove(bundle);
-    await this.must(this.compose(bundle, ["down", "--volumes", "--remove-orphans", "--timeout", "20"]), "deployment_compose_failed", "compose down --volumes");
-    await this.options.execute(["podman", "unshare", "rm", "-rf", "--", bundle.runnerRoot]);
-    await removeFactoryPrivateDirectory(bundle.runtimeDirectory);
+  async remove(handle: FactoryDeploymentHandle): Promise<void> {
+    const unit = factorySupervisorUnit(handle.installation);
+    // 0 stopped, 5 not loaded: both mean nothing of this unit is running.
+    await this.allow(this.options.execute(["systemctl", "--user", "stop", unit]), [0, 5], "deployment_supervisor_failed", `stop ${unit}`);
+    // 0 cleared, 1 nothing failed, 5 not loaded.
+    await this.allow(this.options.execute(["systemctl", "--user", "reset-failed", unit]), [0, 1, 5], "deployment_supervisor_failed", `reset-failed ${unit}`);
+    if (await Bun.file(resolve(handle.runtimeDirectory, "compose.env")).exists()) await this.must(this.compose(handle, ["down", "--remove-orphans", "--timeout", "20"]), "deployment_compose_failed", "compose down");
+  }
+
+  /**
+   * Remove the installation's containers, runner root, and runtime data. A
+   * runner root holds guest-owned files under a mapped subuid, so it is removed
+   * inside the rootless user namespace; an ordinary recursive remove fails.
+   */
+  async purge(handle: FactoryDeploymentHandle): Promise<void> {
+    await this.remove(handle);
+    await this.must(this.options.execute(["podman", "unshare", "rm", "-rf", "--", handle.runnerRoot]), "deployment_purge_failed", "remove the runner root");
+    await removeFactoryPrivateDirectory(handle.runtimeDirectory);
   }
 }
 

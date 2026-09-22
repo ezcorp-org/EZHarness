@@ -6,10 +6,12 @@
 # Compose profile therefore runs it here, beside the containers, never among
 # them. The instance name is `<fleet>-<tenant>`.
 #
-# The provisioner starts the equivalent transient unit with `systemd-run --user`
+# The provisioner starts the equivalent TRANSIENT unit with `systemd-run --user`
 # (src/factory/provisioning/compose-profile.ts, `factorySupervisorUnitArguments`);
-# the properties below are the same list, so an operator who prefers an
-# installed unit gets the same process. Install:
+# the properties below are the same list. A transient unit does not survive a
+# reboot or a user-manager restart; for a host that must come back on its own,
+# install this unit instead, enable lingering (`loginctl enable-linger`), and
+# enable `podman-restart.service` for the containers. Install:
 #
 #   install -m 0644 ezcorp-factory-supervisor@.service ~/.config/systemd/user/
 #   systemctl --user daemon-reload
@@ -21,8 +23,8 @@
 
 [Unit]
 Description=EZCorp factory host supervisor (%i)
-After=network-online.target
-Wants=network-online.target
+# A user manager cannot order against the system's network-online.target, so
+# no network ordering is declared: the supervisor retries its pool connection.
 
 [Service]
 Type=simple

@@ -15,7 +15,7 @@
  * transaction.
  */
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
+import { factoryDeliveryDirectory, type FactoryInstallationContext, type FactoryProvisioningDriver, type FactoryStepResources } from "./installation";
 import { factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateJson, readFactoryPrivatePath, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 
@@ -114,20 +114,41 @@ export class FactoryInvitationStep implements FactoryProvisioningDriver {
     this.lifetimeMs = options.lifetimeMs ?? FACTORY_INVITATION_LIFETIME_MS;
   }
 
-  paths(installation: FactoryInstallationContext): { readonly invitation: string; readonly outbox: string } {
-    return { invitation: factoryPrivatePath(installation.secretDirectory, FACTORY_BOOTSTRAP_INVITATION_FILE), outbox: factoryPrivatePath(installation.operatorDirectory, FACTORY_INVITATION_OUTBOX_FILE) };
+  /**
+   * Three copies, each with one reader: the installation's source, the copy in
+   * the harness's own delivery (read per request, so a re-issued invitation
+   * takes effect without a restart), and the operator outbox holding the token.
+   */
+  paths(installation: FactoryInstallationContext): { readonly invitation: string; readonly delivered: string; readonly outbox: string } {
+    return {
+      invitation: factoryPrivatePath(installation.secretDirectory, FACTORY_BOOTSTRAP_INVITATION_FILE),
+      delivered: factoryPrivatePath(factoryDeliveryDirectory(installation, "harness"), FACTORY_BOOTSTRAP_INVITATION_FILE),
+      outbox: factoryPrivatePath(installation.operatorDirectory, FACTORY_INVITATION_OUTBOX_FILE),
+    };
   }
 
   /** Issue once. A rerun keeps a live invitation; an expired one is replaced by `rotate`. */
   async ensure(installation: FactoryInstallationContext, recorded: FactoryStepResources | undefined): Promise<FactoryStepResources> {
     const existing = await this.current(installation);
-    if (existing && recorded?.tokenDigest === existing.tokenDigest) return this.resources(installation, existing);
+    if (existing && recorded?.tokenDigest === existing.tokenDigest) {
+      await this.deliver(installation);
+      return this.resources(installation, existing);
+    }
     return this.issue(installation);
+  }
+
+  /** Copy the installation's invitation into the harness's delivery, atomically. */
+  private async deliver(installation: FactoryInstallationContext): Promise<void> {
+    const paths = this.paths(installation);
+    await replaceFactoryPrivateFile(paths.delivered, await readFactoryPrivatePath(paths.invitation, 16 * 1024));
   }
 
   async verify(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void> {
     const current = await this.current(installation);
     if (!current || current.tokenDigest !== resources.tokenDigest || current.invitationId !== installation.invitationId) throw new FactoryProvisioningError("invitation_missing", "The installation's invitation is missing or was replaced.");
+    let delivered: FactoryBootstrapInvitation | undefined;
+    try { delivered = await loadFactoryBootstrapInvitation(this.paths(installation).delivered, installation.installationId); } catch { delivered = undefined; }
+    if (delivered?.tokenDigest !== current.tokenDigest) throw new FactoryProvisioningError("invitation_undelivered", "The harness does not hold the installation's current invitation.");
     const directory = await openFactoryPrivateDirectory(installation.operatorDirectory);
     try {
       const outbox = await readFactoryPrivateJson<FactoryInvitationOutbox>(directory, FACTORY_INVITATION_OUTBOX_FILE);
@@ -136,7 +157,7 @@ export class FactoryInvitationStep implements FactoryProvisioningDriver {
   }
 
   async teardown(installation: FactoryInstallationContext): Promise<void> {
-    for (const [root, name] of [[installation.secretDirectory, FACTORY_BOOTSTRAP_INVITATION_FILE], [installation.operatorDirectory, FACTORY_INVITATION_OUTBOX_FILE]] as const) {
+    for (const [root, name] of [[installation.secretDirectory, FACTORY_BOOTSTRAP_INVITATION_FILE], [factoryDeliveryDirectory(installation, "harness"), FACTORY_BOOTSTRAP_INVITATION_FILE], [installation.operatorDirectory, FACTORY_INVITATION_OUTBOX_FILE]] as const) {
       const directory = await openFactoryPrivateDirectory(root);
       try { await removeFactoryPrivateFile(directory, name); } finally { await directory.close(); }
     }
@@ -156,6 +177,7 @@ export class FactoryInvitationStep implements FactoryProvisioningDriver {
     // Outbox first: an installation never holds a digest whose token nobody can deliver.
     await replaceFactoryPrivateFile(paths.outbox, `${JSON.stringify(outbox)}\n`);
     await replaceFactoryPrivateFile(paths.invitation, `${JSON.stringify(invitation)}\n`);
+    await this.deliver(installation);
     return this.resources(installation, invitation);
   }
 

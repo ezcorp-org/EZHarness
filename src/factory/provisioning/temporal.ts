@@ -18,12 +18,18 @@
 import { createHash, createPrivateKey, createPublicKey, createSign, randomBytes, X509Certificate } from "node:crypto";
 import { issueFactoryCertificate, type FactoryCommandRunner, type FactoryIssuedCertificate } from "./certificates";
 import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
-import { ensureFactoryPrivateCertificatePair, ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivatePath, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
+import { ensureFactoryPrivateCertificatePair, ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateJson, readFactoryPrivatePath, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 
 export const FACTORY_TEMPORAL_ISSUER = "ezcorp-factory-local";
 export const FACTORY_TEMPORAL_AUDIENCE = "ezcorp-temporal";
 export const FACTORY_TEMPORAL_CONTROL_SUBJECT = "factory-control";
+/**
+ * A namespace token expires 30 days after it is minted. Nothing refreshes it
+ * on a timer: the operator must run `rotate <tenant> temporal` inside that
+ * window, or the installation's orchestrator and gateway lose Temporal at the
+ * deadline. `docs/factory-deployment.md` states the same deadline.
+ */
 const TOKEN_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
 
 /** Operator-held Temporal authority files. None of these is ever delivered to an installation. */
@@ -71,9 +77,18 @@ export interface FactoryTemporalStepOptions {
   readonly access: FactoryTemporalAccessProbe;
   readonly certificates: FactoryCertificateIssuer;
   readonly now?: () => number;
+  /** Fault injection: throw after the rotation is staged, or after its files are swapped. Tests only. */
+  readonly rotationFault?: (point: "staged" | "swapped") => Promise<void>;
 }
 
 const FILES = Object.freeze({ key: "temporal-client.key", certificate: "temporal-client.crt", ca: "temporal-ca.crt", token: "temporal-token" });
+/**
+ * A rotation in progress: the new key, certificate, and token, and the hash to
+ * revoke, written as ONE file before any live file changes. Its presence means
+ * the swap may be incomplete; `finishRotation` completes it idempotently.
+ */
+const PENDING = "temporal-rotation.pending";
+interface FactoryTemporalPendingRotation { readonly privateKeyPem: string; readonly certificatePem: string; readonly token: string; readonly supersededHash?: string }
 
 export function factoryTemporalOwnerMarker(installation: FactoryInstallationContext): string {
   return `factory-provisioner:${installation.fleetId}:${installation.installationId}`;
@@ -155,6 +170,7 @@ export class FactoryTemporalStep implements FactoryProvisioningDriver {
     const existing = await this.options.admin.owner(installation.temporalNamespace);
     // A namespace someone else registered under this name is never adopted.
     if (existing !== undefined && existing !== marker) throw new FactoryProvisioningError("temporal_namespace_foreign", `Temporal namespace ${installation.temporalNamespace} exists without this installation's provenance.`);
+    await this.finishRotation(installation);
     const directory = await openFactoryPrivateDirectory(installation.secretDirectory);
     try {
       const caPem = new TextDecoder().decode(await readFactoryPrivatePath(this.options.authority.caCertificatePath));
@@ -169,6 +185,8 @@ export class FactoryTemporalStep implements FactoryProvisioningDriver {
   }
 
   async verify(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void> {
+    // The ledger still names the superseded certificate, so the operator must rerun the rotation to record the new one.
+    if (await this.finishRotation(installation)) throw new FactoryProvisioningError("temporal_rotation_interrupted", "An interrupted Temporal rotation was completed; rerun `rotate temporal` to record its certificate.");
     if (await this.options.admin.owner(installation.temporalNamespace) !== factoryTemporalOwnerMarker(installation)) throw new FactoryProvisioningError("temporal_namespace_missing", `Temporal namespace ${installation.temporalNamespace} is missing or foreign.`);
     const certificatePem = new TextDecoder().decode(await readFactoryPrivatePath(this.credential(installation).certificatePath));
     const certificate = new X509Certificate(certificatePem);
@@ -181,21 +199,48 @@ export class FactoryTemporalStep implements FactoryProvisioningDriver {
   async teardown(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void> {
     await revokeFactoryTemporalIdentity(this.options.authority.revocationsPath, { subject: installation.temporalNamespace, ...(resources.certificateHash ? { certificateHash: resources.certificateHash } : {}) });
     const directory = await openFactoryPrivateDirectory(installation.secretDirectory);
-    try { for (const name of Object.values(FILES)) await removeFactoryPrivateFile(directory, name); }
+    try { for (const name of [...Object.values(FILES), PENDING]) await removeFactoryPrivateFile(directory, name); }
     finally { await directory.close(); }
   }
 
-  /** A fresh key, certificate, and token; the superseded certificate is revoked by hash. */
+  /**
+   * A fresh key, certificate, and token; the superseded certificate is revoked by hash.
+   *
+   * The three new files are staged together in one pending file first, so a
+   * crash can never leave a key beside a certificate it does not match: the
+   * next ensure, verify, or rotate finishes the swap and the revocation.
+   */
   async rotate(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<FactoryStepResources> {
+    await this.finishRotation(installation);
     const issued = await this.options.certificates.issue(installation.temporalNamespace, this.options.authority);
-    const credential = this.credential(installation);
-    await replaceFactoryPrivateFile(credential.privateKeyPath, issued.privateKeyPem);
-    await replaceFactoryPrivateFile(credential.certificatePath, issued.certificatePem);
-    await replaceFactoryPrivateFile(credential.tokenPath, this.token(installation));
-    if (resources.certificateHash) await revokeFactoryTemporalIdentity(this.options.authority.revocationsPath, { certificateHash: resources.certificateHash });
+    const staged: FactoryTemporalPendingRotation = { privateKeyPem: issued.privateKeyPem, certificatePem: issued.certificatePem, token: this.token(installation), ...(resources.certificateHash ? { supersededHash: resources.certificateHash } : {}) };
+    await replaceFactoryPrivateFile(factoryPrivatePath(installation.secretDirectory, PENDING), `${JSON.stringify(staged)}\n`);
+    await this.options.rotationFault?.("staged");
+    await this.finishRotation(installation);
     const next = await this.resources(installation);
     await this.verify(installation, next);
     return next;
+  }
+
+  /** Complete a staged rotation, if one is on disk. Every action is idempotent. Returns whether one was found. */
+  private async finishRotation(installation: FactoryInstallationContext): Promise<boolean> {
+    const directory = await openFactoryPrivateDirectory(installation.secretDirectory);
+    try {
+      let staged: FactoryTemporalPendingRotation;
+      try { staged = await readFactoryPrivateJson<FactoryTemporalPendingRotation>(directory, PENDING); }
+      catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+        throw error;
+      }
+      const credential = this.credential(installation);
+      await replaceFactoryPrivateFile(credential.privateKeyPath, staged.privateKeyPem);
+      await replaceFactoryPrivateFile(credential.certificatePath, staged.certificatePem);
+      await replaceFactoryPrivateFile(credential.tokenPath, staged.token);
+      await this.options.rotationFault?.("swapped");
+      if (staged.supersededHash) await revokeFactoryTemporalIdentity(this.options.authority.revocationsPath, { certificateHash: staged.supersededHash });
+      await removeFactoryPrivateFile(directory, PENDING);
+      return true;
+    } finally { await directory.close(); }
   }
 
   private token(installation: FactoryInstallationContext): string {

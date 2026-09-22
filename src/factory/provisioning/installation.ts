@@ -96,3 +96,12 @@ export function factoryInstallationNames(fleetId: string, tenantId: string, root
     operatorDirectory: resolve(roots.operatorRoot, tenantId),
   });
 }
+
+/**
+ * One service's private delivery directory. Every step that hands a file to a
+ * running service writes it here, atomically, so the service's bind mount
+ * (which pins the directory, not the file) sees the new file at once.
+ */
+export function factoryDeliveryDirectory(installation: Pick<FactoryInstallationContext, "secretDirectory">, service: "pool" | "gateway" | "harness" | "orchestrator" | "supervisor"): string {
+  return resolve(installation.secretDirectory, "deliver", service);
+}

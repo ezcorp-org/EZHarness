@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { X509Certificate } from "node:crypto";
-import { readdir, readFile, stat } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { createServer, type Server } from "node:https";
 import type { AddressInfo } from "node:net";
 import { join } from "node:path";
@@ -14,6 +14,7 @@ import {
 } from "../../__tests__/helpers/factory-private-root";
 import { issueFactoryCertificate } from "./certificates";
 import {
+  FACTORY_INGRESS_PROOF_FILE,
   FactoryIngressStep,
   factoryHttpsIngressProbe,
   factoryIngressBootstrapObserver,
@@ -32,7 +33,7 @@ import { factoryCertificateHash } from "./temporal";
 const PATHS = { root: "/srv/ingress", mountedRoot: "/etc/ezcorp-ingress", listenAddress: "127.0.0.1", listenPort: 30443 };
 
 function route(overrides: Partial<FactoryIngressRoute> = {}): FactoryIngressRoute {
-  return { schemaVersion: "factory.ingress-route.v1", tenantId: "tenant-01", hostname: "tenant-01.factory.example", installationId: "inst-tenant-01", upstreamPort: 40_010, state: "held", ...overrides };
+  return { schemaVersion: "factory.ingress-route.v1", tenantId: "tenant-01", hostname: "tenant-01.factory.example", installationId: "inst-tenant-01", upstreamPort: 40_010, state: "held", proof: "a".repeat(64), ...overrides };
 }
 
 function refusalCode(work: () => unknown): string | undefined {
@@ -57,12 +58,19 @@ describe("renderFactoryIngressConfig", () => {
     expect(config).toContain(`    return 503 '{"error":"installation_not_serving"}';`);
     expect(config).not.toContain("proxy_pass");
     expect(config).not.toContain("X-EZCorp-Installation");
+    expect(config).not.toContain("X-EZCorp-Ingress-Proof");
+    expect(config).not.toContain("a".repeat(64));
   });
 
   test("a serving route forwards to its harness and overwrites the installation header", () => {
     const config = renderFactoryIngressConfig(PATHS, [route({ state: "serving" })]);
     expect(config).toContain("    proxy_pass http://127.0.0.1:40010;");
     expect(config).toContain('    proxy_set_header X-EZCorp-Installation "inst-tenant-01";');
+    // proxy_set_header REPLACES a header of the same name the client sent, so a
+    // client-supplied proof never reaches the harness; only the route's does.
+    expect(config).toContain(`    proxy_set_header X-EZCorp-Ingress-Proof "${"a".repeat(64)}";`);
+    expect(config.match(/X-EZCorp-Ingress-Proof/g)?.length).toBe(1);
+    expect(config).not.toMatch(/\$http_x_ezcorp_ingress_proof|proxy_pass_request_headers|underscores_in_headers/);
     expect(config).toContain("  add_header X-EZCorp-Route serving always;");
     expect(config).not.toContain("return 503");
   });
@@ -89,6 +97,7 @@ describe("renderFactoryIngressConfig", () => {
       { hostname: "Tenant.example" }, { hostname: "a b.example" }, { hostname: "" }, { hostname: `${"a".repeat(254)}` }, { hostname: "evil.example;\n  return 200" },
       { installationId: "inst tenant" }, { installationId: 'inst"; more' }, { installationId: "a".repeat(65) }, { installationId: "" },
       { upstreamPort: 40_010.5 }, { upstreamPort: Number.NaN },
+      { proof: "" }, { proof: "A".repeat(64) }, { proof: "a".repeat(63) }, { proof: `${"a".repeat(62)}";` },
     ]) {
       expect(refusalCode(() => renderFactoryIngressConfig(PATHS, [route(bad)]))).toBe("ingress_route_invalid");
     }
@@ -130,22 +139,27 @@ describe("FactoryIngressStep", () => {
   let root: string;
   let paths: FactoryIngressPaths;
   let caPem: string;
+  let authority: FactoryIngressStepOptions["authority"];
   let installation: FactoryInstallationContext;
   let ingress: ReturnType<typeof fakeIngress>;
   let slept: number[];
 
   const step = (overrides: Partial<FactoryIngressStepOptions> = {}) => new FactoryIngressStep({
-    paths, reloader: ingress.reloader, probe: ingress.probe, upstreamPort: () => 40_010, sleep: async (milliseconds) => { slept.push(milliseconds); }, ...overrides,
+    paths, authority, reloader: ingress.reloader, probe: ingress.probe, upstreamPort: () => 40_010, sleep: async (milliseconds) => { slept.push(milliseconds); }, ...overrides,
   });
+  const proofFile = (target = installation) => join(target.secretDirectory, FACTORY_INGRESS_PROOF_FILE);
+  const deliveredProofFile = (target = installation) => join(target.secretDirectory, "deliver", "harness", FACTORY_INGRESS_PROOF_FILE);
   const routeFile = (tenantId = "tenant-01") => join(paths.root, "routes", `${tenantId}.json`);
   const config = () => readFile(join(paths.root, "conf", "ezcorp-factory.conf"), "utf8");
 
   beforeAll(async () => {
     root = await makeFactoryPrivateRoot();
     const ingressRoot = join(root, "ingress");
-    const directory = await openFactoryPrivateDirectory(ingressRoot);
-    await directory.close();
-    caPem = (await makeFactoryTestAuthority(ingressRoot, "ingress-ca")).certificatePem;
+    const authorityRoot = join(root, "ingress-ca");
+    for (const directory of [ingressRoot, authorityRoot]) await (await openFactoryPrivateDirectory(directory)).close();
+    const made = await makeFactoryTestAuthority(authorityRoot, "ingress-ca");
+    caPem = made.certificatePem;
+    authority = { certificatePath: made.certificatePath, keyPath: made.keyPath };
     paths = { ...PATHS, root: ingressRoot };
     installation = makeFactoryTestInstallation(root);
   });
@@ -159,7 +173,14 @@ describe("FactoryIngressStep", () => {
     expect(certificate.subjectAltName).toBe("DNS:tenant-01.factory.example");
     expect(certificate.verify(new X509Certificate(caPem).publicKey)).toBe(true);
     expect(resources).toEqual({ hostname: "tenant-01.factory.example", installationId: "inst-tenant-01", routePath: routeFile(), certificateHash: factoryCertificateHash(certificatePem), upstreamPort: "40010" });
-    expect(JSON.parse(await readFile(routeFile(), "utf8"))).toEqual(route());
+    const proof = (await readFile(proofFile(), "utf8")).trim();
+    expect(proof).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.parse(await readFile(routeFile(), "utf8"))).toEqual(route({ proof }));
+    expect(await readFile(deliveredProofFile(), "utf8")).toBe(`${proof}\n`);
+    for (const path of [proofFile(), deliveredProofFile()]) expect((await stat(path)).mode & 0o777).toBe(0o600);
+    // The ingress process mounts only its root; the authority that signs every hostname is not in it.
+    expect((await readdir(paths.root)).sort()).toEqual(["certs", "conf", "routes"]);
+    expect(authority.keyPath.startsWith(`${paths.root}/`)).toBe(false);
     expect((await stat(join(paths.root, "certs", "tenant-01.key"))).mode & 0o777).toBe(0o600);
     expect((await stat(join(paths.root, "conf", "ezcorp-factory.conf"))).mode & 0o777).toBe(0o600);
     expect(await config()).toContain("X-EZCorp-Route held");
@@ -192,8 +213,11 @@ describe("FactoryIngressStep", () => {
     await step().serve(installation);
     expect(JSON.parse(await readFile(routeFile(), "utf8")).state).toBe("serving");
     expect(await config()).toContain("proxy_pass http://127.0.0.1:40010;");
+    const proof = await readFile(proofFile(), "utf8");
+    expect(await config()).toContain(`proxy_set_header X-EZCorp-Ingress-Proof "${proof.trim()}";`);
     const again = await step().ensure(installation);
     expect(again.certificateHash).toBe(first.certificateHash);
+    expect(await readFile(proofFile(), "utf8")).toBe(proof);
     expect(JSON.parse(await readFile(routeFile(), "utf8")).state).toBe("serving");
   });
 
@@ -242,6 +266,7 @@ describe("FactoryIngressStep", () => {
     const certs = await readdir(join(paths.root, "certs"));
     expect(certs).not.toContain("tenant-01.crt");
     expect(certs).not.toContain("tenant-01.key");
+    expect(await Bun.file(proofFile()).exists()).toBe(false);
     expect(await config()).not.toContain("tenant-01.factory.example");
     await step().teardown(installation);
     expect(ingress.requests.at(-1)).toBe("tenant-01.factory.example/api/ready");
@@ -277,7 +302,7 @@ describe("FactoryIngressStep", () => {
 
   test("without an injected sleep the step still waits between attempts and then fails", async () => {
     const probe: FactoryIngressProbe = { request: async () => ({ status: 502 }) };
-    const error = await factoryRejection(new FactoryIngressStep({ paths, reloader: ingress.reloader, probe, upstreamPort: () => 40_010, attempts: 1 }).ensure(installation));
+    const error = await factoryRejection(new FactoryIngressStep({ paths, authority, reloader: ingress.reloader, probe, upstreamPort: () => 40_010, attempts: 1 }).ensure(installation));
     expect(error.code).toBe("ingress_route_unobserved");
     await step().teardown(installation);
   });
@@ -294,6 +319,57 @@ describe("FactoryIngressStep", () => {
     const error = await factoryRejection(step().ensure(makeFactoryTestInstallation(root, { tenantId: "tenant-07" })));
     expect(error.message).toContain("private");
     expect(await readFile(join(paths.root, "certs", "tenant-07.crt"), "utf8")).toBe("not a certificate");
+  });
+
+  test("verify refuses a harness that does not hold the current ingress proof", async () => {
+    const resources = await step().ensure(installation);
+    await writeModeFile(deliveredProofFile(), `${"b".repeat(64)}\n`);
+    const error = await factoryRejection(step().verify(installation, resources));
+    expect(error.code).toBe("ingress_proof_undelivered");
+    expect(error.message).toBe("The harness does not hold the installation's current ingress proof.");
+    await rm(deliveredProofFile());
+    expect((await factoryRejection(step().verify(installation, resources))).code).toBe("ENOENT");
+    // A rerun of ensure re-delivers it.
+    await step().ensure(installation);
+    await step().verify(installation, resources);
+    await step().teardown(installation);
+  });
+
+  test("a malformed ingress proof is refused rather than rendered", async () => {
+    await mkdir(installation.secretDirectory, { recursive: true, mode: 0o700 });
+    await writeModeFile(proofFile(), "not-a-proof\n");
+    const error = await factoryRejection(step().ensure(installation));
+    expect(error.code).toBe("ingress_proof_invalid");
+    expect(await readdir(join(paths.root, "routes"))).not.toContain("tenant-01.json");
+    await rm(proofFile());
+    await step().teardown(installation);
+  });
+
+  test("route, render, and reload run inside the fleet-exclusive section, so two concurrent publishes both reach the config", async () => {
+    let tail: Promise<unknown> = Promise.resolve();
+    let inside = 0, overlapped = false, sections = 0;
+    const reloadsInside: boolean[] = [];
+    const exclusive: FactoryIngressStepOptions["exclusive"] = (work) => {
+      const run = tail.then(async () => {
+        sections++; inside++;
+        if (inside > 1) overlapped = true;
+        try { return await work(); } finally { inside--; }
+      });
+      tail = run.catch(() => undefined);
+      return run;
+    };
+    // A reload that yields lets an unserialised publish interleave: its render would drop the other's route.
+    const reloader = { reload: async () => { reloadsInside.push(inside === 1); await new Promise((settle) => setTimeout(settle, 5)); await ingress.reloader.reload(); } };
+    const second = makeFactoryTestInstallation(root, { tenantId: "tenant-02" });
+    await Promise.all([step({ exclusive, reloader }).ensure(installation), step({ exclusive, reloader, upstreamPort: () => 40_020 }).ensure(second)]);
+    expect(overlapped).toBe(false);
+    expect(sections).toBe(2);
+    expect(reloadsInside).toEqual([true, true]);
+    expect(await config()).toContain("server_name tenant-01.factory.example;");
+    expect(await config()).toContain("server_name tenant-02.factory.example;");
+    await step({ exclusive }).teardown(second);
+    await step({ exclusive }).teardown(installation);
+    expect(sections).toBe(4);
   });
 
   test("readFactoryIngressRoutes reads only route documents", async () => {
