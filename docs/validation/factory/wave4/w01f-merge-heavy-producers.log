@@ -1,0 +1,14 @@
+=== W01f merge heavy producers (G11 core four) ===
+lock acquired: 2026-09-22T16:34:13Z
+tree: d466c16d675d761f5bb1041dc38eae3c1be81efa + staged merge of 35d009a2f2061e5af918da7ddea4a749efcedcfa
+dirty: 7 path(s) (the staged merge)
+podman: podman version 5.8.2
+--- START podman-integration 2026-09-22T16:34:13Z
+--- END   podman-integration 2026-09-22T16:35:59Z exit=0 19pass 0fail
+--- START main-integration 2026-09-22T16:35:59Z
+--- END   main-integration 2026-09-22T16:36:06Z exit=0 1pass 0fail
+--- START supervisor-podman 2026-09-22T16:36:06Z
+--- END   supervisor-podman 2026-09-22T16:36:23Z exit=0 2pass 0fail
+--- START package-preparation-podman 2026-09-22T16:36:23Z
+--- END   package-preparation-podman 2026-09-22T16:36:34Z exit=0 1pass 0fail
+ALL DONE heavy_fail_status=0 2026-09-22T16:36:34Z
