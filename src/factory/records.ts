@@ -235,16 +235,10 @@ export class FactoryRecords {
       return { imported: false };
     }
     // The next contiguous sequence is one past the highest row still held. It is
-    // not `next_sequence`: collection removes rows and keeps the counter.
+    // not the run's next_sequence counter: collection removes rows and keeps the counter.
     const held = Number(rows<{ sequence: string | number }>(await transaction.execute(sql`SELECT COALESCE(MAX(sequence), 0) AS sequence FROM factory_audit_batches WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId}`))[0]!.sequence);
     if (batch.sequence !== held + 1) throw new FactoryRecordError(batch.sequence <= held ? "factory_audit_conflict" : "factory_audit_gap");
-    const predecessor = rows<{ source_sequence: string | number; digest: string }>(await transaction.execute(sql`SELECT source_sequence, digest FROM factory_audit_batches
-      WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId} AND interpreter_id = ${batch.interpreterId} ORDER BY source_sequence DESC LIMIT 1`))[0];
-    if (batch.sourceSequence !== Number(predecessor?.source_sequence ?? 0) + 1 || batch.predecessorDigest !== (predecessor?.digest ?? null)) throw new FactoryRecordError("factory_audit_gap");
-    await transaction.execute(sql`INSERT INTO factory_audit_batches (tenant_id, project_id, run_id, interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload)
-      VALUES (${this.tenantId}, ${batch.projectId}, ${batch.runId}, ${batch.interpreterId}, ${batch.sourceSequence}, ${batch.sequence}, ${batch.predecessorDigest}, ${batch.digest}, ${boundedPayload(batch.payload)})`);
-    await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, batch.projectId, batch.runId, "transition", { interpreterId: batch.interpreterId, sourceSequence: batch.sourceSequence }), null, "factory.run.transition", batch.runId, { tenantId: this.tenantId, projectId: batch.projectId, digest: batch.digest, sequence: batch.sequence, source: "archive" });
-    await transaction.execute(sql`UPDATE factory_runs SET next_sequence = GREATEST(next_sequence, ${batch.sequence + 1}) WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId}`);
+    await this.insertImportedBatch(transaction, batch);
     return { imported: true };
   }
 
@@ -348,5 +342,17 @@ export class FactoryRecords {
     const run = rows<{ next_sequence: string | number }>(await transaction.execute(sql`SELECT next_sequence FROM factory_runs WHERE tenant_id = ${this.tenantId} AND project_id = ${key.projectId} AND run_id = ${key.runId} FOR UPDATE`))[0];
     if (!run) throw new FactoryRecordError("factory_run_not_found");
     return run;
+  }
+
+  /** The chained insert half of an archive import: the interpreter link, the row, its audit entry, and the counter. */
+  private async insertImportedBatch(transaction: MigrationDb, batch: FactoryAuditBatch): Promise<void> {
+    const predecessor = rows<{ source_sequence: string | number; digest: string }>(await transaction.execute(sql`SELECT source_sequence, digest FROM factory_audit_batches
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId} AND interpreter_id = ${batch.interpreterId} ORDER BY source_sequence DESC LIMIT 1`))[0];
+    if (batch.sourceSequence !== Number(predecessor?.source_sequence ?? 0) + 1 || batch.predecessorDigest !== (predecessor?.digest ?? null)) throw new FactoryRecordError("factory_audit_gap");
+    const payload = boundedPayload(batch.payload);
+    await transaction.execute(sql`INSERT INTO factory_audit_batches (tenant_id, project_id, run_id, interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload)
+      VALUES (${this.tenantId}, ${batch.projectId}, ${batch.runId}, ${batch.interpreterId}, ${batch.sourceSequence}, ${batch.sequence}, ${batch.predecessorDigest}, ${batch.digest}, ${payload})`);
+    await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, batch.projectId, batch.runId, "transition", { interpreterId: batch.interpreterId, sourceSequence: batch.sourceSequence }), null, "factory.run.transition", batch.runId, { tenantId: this.tenantId, projectId: batch.projectId, digest: batch.digest, sequence: batch.sequence, source: "archive" });
+    await transaction.execute(sql`UPDATE factory_runs SET next_sequence = GREATEST(next_sequence, ${batch.sequence + 1}) WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId}`);
   }
 }

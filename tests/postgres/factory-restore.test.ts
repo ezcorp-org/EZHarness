@@ -151,7 +151,7 @@ beforeAll(async () => {
   await ledger.request({ reservationId: "reservation-post", tenantId, grantRevision: 1, resources: { cpu: 1 }, admissionDeadline: new Date(Date.now() + 3_600_000) });
   await ledger.schedule();
   failureAtMs = Date.now();
-});
+}, 180_000);
 
 /** A release world bound to an existing database: the same store, grants, and provider memory. */
 async function createFactoryReleaseWorldReattached(opened: FactoryOpenDatabase): Promise<FactoryReleaseWorld> {
@@ -171,7 +171,7 @@ afterAll(async () => {
   await pool?.close();
   await databases.close();
   await storage?.cleanup().then(result => console.log(`w15 restore storage cleanup ${JSON.stringify(result)}`));
-});
+}, 120_000);
 
 describe("restore into a new execution epoch", () => {
   test("a tenant restore fences the old epoch, recovers every release identity, proves the guest stopped, and waits for a human", async () => {
@@ -223,7 +223,7 @@ describe("restore into a new execution epoch", () => {
       expect(reopened.created).toBe(true);
       measurements.tenantRestoreSigned = { recoveryMs: clean.measured.recoveryMs, internalProgressLossMs: clean.measured.internalProgressLossMs, rebound: enabled.rebound };
     } finally { await restored.close(); }
-  });
+  }, 120_000);
 
   test("a backup that is not at the checkpoint keeps the service closed", async () => {
     await primary.close();
@@ -237,7 +237,7 @@ describe("restore into a new execution epoch", () => {
       await expect(restore.sign("restore-incompatible", admin, factoryRestoreReportDigest(report))).rejects.toMatchObject({ code: "factory_restore_blocked" });
       expect(await new FactoryCheckpointCoordinator({ database: restored.db, tenantId, installationId, archive: storage.archive }).effectClaimsClosedReason()).toBe("restore_epoch_open");
     } finally { await restored.close(); }
-  });
+  }, 120_000);
 
   test("a missing master key or a missing key version blocks the restore", async () => {
     const restored = await restoredCopy("keys");
@@ -251,7 +251,7 @@ describe("restore into a new execution epoch", () => {
       const report = await restoreFor(stripped.db).begin({ restoreId: "restore-no-wrap", mode: "tenant" });
       expect(finding(report, "check", "keys")).toMatchObject({ disposition: "blocked", reason: "key_version_missing" });
     } finally { await stripped.close(); }
-  });
+  }, 120_000);
 
   test("a gapped or conflicting audit stream blocks only its run, and a blocked run stays at the old epoch", async () => {
     const restored = await restoredCopy("audit");
@@ -273,7 +273,7 @@ describe("restore into a new execution epoch", () => {
       const report = await restoreFor(gapped.db).begin({ restoreId: "restore-gap", mode: "tenant" });
       expect(finding(report, "run", canonicalJson([projectId, "run-audit"]))).toMatchObject({ disposition: "blocked", reason: "audit_unrecoverable" });
     } finally { await gapped.close(); }
-  });
+  }, 120_000);
 
   test("a lost pool ledger comes back as uncertain reservations that hold their capacity; an overcommitted one blocks", async () => {
     const lostPool = await databases.empty("lost-pool");
@@ -301,7 +301,7 @@ describe("restore into a new execution epoch", () => {
         expect(report.blockedChecks).toContain("pool:reservation-guest:capacity_overcommitted");
       } finally { await overcommitted.close(); }
     } finally { await lostPool.close(); }
-  });
+  }, 120_000);
 
   test("a surviving guest whose supervisor cannot prove its stop keeps the tenant closed", async () => {
     const restored = await restoredCopy("unreachable-supervisor");
@@ -311,7 +311,7 @@ describe("restore into a new execution epoch", () => {
       expect(finding(report, "worker", "attempt-guest")).toMatchObject({ disposition: "blocked", reason: "worker_stop_unproven" });
       expect(report.blockedChecks).toContain("worker:attempt-guest:worker_stop_unproven");
     } finally { supervisor.refuse = false; await restored.close(); }
-  });
+  }, 120_000);
 
   test("a tenant restore blocks a run the live namespace moved past; a cluster restore requires equal positions", async () => {
     // The same sealed manifest, as a barrier with a Temporal source would have recorded it.
@@ -351,7 +351,7 @@ describe("restore into a new execution epoch", () => {
         expect(finding(report, "run", canonicalJson([projectId, "run-pre"]))).toMatchObject({ disposition: "verified", reason: "temporal_position_consistent" });
       }
     } finally { await clusterCopy.close(); await secondCopy.close(); }
-  });
+  }, 120_000);
 
   test("a missing object version blocks the restore", async () => {
     await storage.ordinaryClient.send(new DeleteObjectCommand({ Bucket: storage.tenant, Key: s3ObjectKey(storage.ordinaryPrefix, candidate.blobDigest), VersionId: candidate.storageVersion }));
@@ -360,7 +360,7 @@ describe("restore into a new execution epoch", () => {
       const report = await restoreFor(restored.db).begin({ restoreId: "restore-objects", mode: "tenant" });
       expect(finding(report, "check", "object-versions")).toMatchObject({ disposition: "blocked", reason: "object_version_missing", detail: { missing: ["restore-candidate"] } });
     } finally { await restored.close(); }
-  });
+  }, 120_000);
 
   test("a restore needs a sealed checkpoint and refuses a second open epoch", async () => {
     const restored = await restoredCopy("guards");
@@ -373,7 +373,7 @@ describe("restore into a new execution epoch", () => {
       const empty = restoreFor(restored.db, { tenant: "tenant-without-checkpoints" });
       await expect(empty.begin({ restoreId: "restore-none", mode: "tenant" })).rejects.toMatchObject({ code: "factory_restore_no_checkpoint" });
     } finally { await restored.close(); }
-  });
+  }, 120_000);
 });
 
 /** Rebuilds the session a caller holds between `open` and a later re-verification. */

@@ -164,6 +164,9 @@ export function factoryRetentionConformance(label: string, createFixture: () => 
       expect(await importFactoryArchivedRunAudit(fixture.db, records, archived)).toBe(0);
       const restored = await readFactoryRunAudit(records, key);
       expect(restored.map(batch => batch.digest)).toEqual(archived.map(batch => batch.digest));
+      // The imported rows read back through the verifying point reader exactly as archived.
+      expect(await fixture.db.transaction(transaction => records.readAuditBatchInTransaction(transaction, { ...key, interpreterId: "root" }, 2))).toEqual(archived[1]!);
+      expect(await fixture.db.transaction(transaction => records.readAuditBatchInTransaction(transaction, { ...key, interpreterId: "root" }, 9))).toBeNull();
       let view: unknown = null;
       for (const batch of restored) view = (await records.project(batch, "retention-view", (current, next) => ({ steps: [...((current as { steps?: unknown[] } | null)?.steps ?? []), next.payload] }))).payload;
       expect(view).toEqual({ steps: [{ step: 1 }, { step: 2 }, { step: 3 }] });

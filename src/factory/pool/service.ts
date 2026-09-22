@@ -89,6 +89,10 @@ export class PoolAdmissionService {
     if (current.state !== "settled") throw new Error("Pool stop cannot be acknowledged before a supervisor confirms it.");
     return current;
   }
+  async confirmReimage(principal: PoolPrincipal, input: PoolReimageInput): Promise<PoolLeaseStatus> { const identity = supervisor(principal); this.host(identity, input.hostId); const result = await this.ledger.confirmGpuReimage(input); await this.ledger.schedule(); return result; }
+  private fence(identity: Extract<PoolPrincipal, { kind: "tenant" }>, input: PoolLeaseFenceInput) { opaque(input.reservationId, "reservation id"); opaque(input.allocationToken, "allocation token"); counter(input.grantRevision, "grant revision", 1); counter(input.allocationGeneration, "allocation generation", 1); return { ...input, tenantId: identity.tenantId }; }
+  private host(identity: Extract<PoolPrincipal, { kind: "supervisor" }>, hostId: string): void { opaque(hostId, "host id"); if (!identity.hostIds.includes(hostId)) throw new Error("Pool supervisor is not authorized for this host."); }
+
   /**
    * C06: one page of this tenant's live reservations for a checkpoint barrier.
    * The tenant comes from the certificate, so a tenant reads only its own rows.
@@ -109,7 +113,4 @@ export class PoolAdmissionService {
     scope(identity, `pool:restore:${identity.tenantId}`);
     return new FactoryPoolCheckpointSource(this.database).importLost(identity.tenantId, rows);
   }
-  async confirmReimage(principal: PoolPrincipal, input: PoolReimageInput): Promise<PoolLeaseStatus> { const identity = supervisor(principal); this.host(identity, input.hostId); const result = await this.ledger.confirmGpuReimage(input); await this.ledger.schedule(); return result; }
-  private fence(identity: Extract<PoolPrincipal, { kind: "tenant" }>, input: PoolLeaseFenceInput) { opaque(input.reservationId, "reservation id"); opaque(input.allocationToken, "allocation token"); counter(input.grantRevision, "grant revision", 1); counter(input.allocationGeneration, "allocation generation", 1); return { ...input, tenantId: identity.tenantId }; }
-  private host(identity: Extract<PoolPrincipal, { kind: "supervisor" }>, hostId: string): void { opaque(hostId, "host id"); if (!identity.hostIds.includes(hostId)) throw new Error("Pool supervisor is not authorized for this host."); }
 }

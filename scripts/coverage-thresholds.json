@@ -1115,5 +1115,15 @@
   "src/factory/runner/supervisor-services.ts": 100,
   "src/factory/runner/supervisor-pool-client.ts": 100,
   "src/factory/private-service-composition.ts": 100,
-  "src/factory/runner/attempt-wire.ts": 100
+  "src/factory/runner/attempt-wire.ts": 100,
+  "src/db/migrations/add-factory-recovery.ts": 100,
+  "src/factory/audit-archive.ts": 100,
+  "src/factory/checkpoint-barrier.ts": 100,
+  "src/factory/key-management.ts": 100,
+  "src/factory/pool/checkpoint.ts": 100,
+  "src/factory/recovery-archive.ts": 100,
+  "src/factory/recovery-composition.ts": 100,
+  "src/factory/restore.ts": 100,
+  "src/factory/retention.ts": 100,
+  "src/factory/temporal-retention.ts": 100
 }

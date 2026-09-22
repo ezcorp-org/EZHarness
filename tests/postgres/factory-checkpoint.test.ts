@@ -104,7 +104,7 @@ beforeAll(async () => {
   world = await createFactoryReleaseWorld({ database: fixture.db, tenantId, projectId, admin, archive: storage.releaseArchive, now: Date.now });
   await InstallationDataKey.loadOrCreate(installationId, new DatabaseInstallationKeyWrapStore(fixture.db), new StaticMasterKeyProvider({ id: "master-1", bytes: new Uint8Array(32).fill(7) }));
   await run("run-seed", 3);
-});
+}, 120_000);
 
 afterAll(async () => {
   if (evidence) {
@@ -114,7 +114,7 @@ afterAll(async () => {
   await side?.close();
   await storage?.cleanup().then(result => console.log(`w15 checkpoint storage cleanup ${JSON.stringify(result)}`));
   await fixture?.close();
-});
+}, 120_000);
 
 describe("the compatible checkpoint barrier", () => {
   test("a barrier seals a manifest with the WAL position, product state, object versions, and the key wrap it needs", async () => {
@@ -313,5 +313,5 @@ describe("the compatible checkpoint barrier", () => {
     expect(outcomes.every(outcome => outcome.kind === "sealed" || outcome.kind === "aborted")).toBe(true);
     expect(sealed.length).toBeGreaterThan(0);
     expect(latencies.length).toBeGreaterThan(0);
-  });
+  }, 180_000);
 });

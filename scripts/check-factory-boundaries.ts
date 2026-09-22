@@ -128,6 +128,13 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/reference-data/pack.ts", sharedModule: "packages/@ezcorp/extension-runner/src/index.ts" },
   { factoryPath: "src/factory/reference-data/reconcile.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-adapters.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  // W15: the recovery archive, retention, the checkpoint barrier, and restore reuse the v4 blob
+  // store's digest and key layout, and restore records its epoch through the one audit path.
+  { factoryPath: "src/factory/checkpoint-barrier.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/recovery-archive.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/restore.ts", sharedModule: "src/db/queries/audit-log.ts" },
+  { factoryPath: "src/factory/restore.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/retention.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-s3-publication.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/release-authority.ts", sharedModule: "src/db/queries/audit-log.ts" },
   { factoryPath: "src/factory/release-authority.ts", sharedModule: "src/extensions/v4/blobs.ts" },
