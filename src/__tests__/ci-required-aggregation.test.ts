@@ -4,6 +4,7 @@ interface Job {
   uses?: string;
   if?: string;
   needs?: string[];
+  "timeout-minutes"?: number;
   steps?: Array<{ name?: string; run?: string; uses?: string; with?: Record<string, string> }>;
 }
 
@@ -34,6 +35,24 @@ test("dev image provenance installs pinned Bun and frozen dependencies before it
   const installIndex = setup.runs.steps.findIndex((step) => step.run?.includes("bun install --frozen-lockfile"));
   expect(setup.runs.steps[bunIndex]?.with?.["bun-version-file"]).toBe(".bun-version");
   expect(installIndex).toBeGreaterThan(bunIndex);
+});
+
+test("Apple Bash setup installs the root workspace before running the behavior suite", async () => {
+  const job = workflow.jobs["setup-podman-bash32"];
+  expect(job?.["timeout-minutes"]).toBe(5);
+  expect(job?.steps).toHaveLength(3);
+  expect(job?.steps?.[0]?.uses).toMatch(/^actions\/checkout@/);
+  expect(job?.steps?.[1]?.uses).toBe("./.github/actions/setup");
+  expect(job?.steps?.[2]).toMatchObject({
+    name: "Run setup behavior under Apple Bash 3.2",
+    run: "bun test --timeout 30000 ./src/__tests__/setup-podman.test.ts",
+  });
+  expect(job?.steps?.some((step) => step.uses?.startsWith("oven-sh/setup-bun@"))).toBe(false);
+
+  const setup = Bun.YAML.parse(
+    await Bun.file(new URL("../../.github/actions/setup/action.yml", import.meta.url)).text(),
+  ) as { runs?: { steps?: Array<{ run?: string }> } };
+  expect(setup.runs?.steps?.some((step) => step.run === "bun install --frozen-lockfile")).toBe(true);
 });
 
 for (const name of ["backend-tests", "e2e-mock"]) {

@@ -61,6 +61,7 @@ const BIN = join(SANDBOX, "bin");
 const BIN_STANDALONE = join(SANDBOX, "bin-standalone");
 const BIN_GIT_UNAVAILABLE = join(SANDBOX, "bin-git-unavailable");
 const BIN_REAL_COMPOSE = join(SANDBOX, "bin-real-compose");
+const BIN_BSD_STAT = join(SANDBOX, "bin-bsd-stat");
 // PATH for the "docker CLI is missing" case. `dirname` is the one external
 // the script runs BEFORE the docker check, so it has to stay reachable —
 // otherwise that test would pass for the wrong reason.
@@ -78,6 +79,7 @@ mkdirSync(BIN);
 mkdirSync(BIN_STANDALONE);
 mkdirSync(BIN_GIT_UNAVAILABLE);
 mkdirSync(BIN_REAL_COMPOSE);
+mkdirSync(BIN_BSD_STAT);
 mkdirSync(BIN_NO_DOCKER);
 mkdirSync(join(SANDBOX, "scripts"));
 symlinkSync(WRAPPER_SOURCE, WRAPPER);
@@ -185,6 +187,21 @@ const foreignGitDir = Bun.spawnSync({
   env: sandboxGitEnv,
   stdout: "pipe",
 }).stdout.toString().trim();
+
+// macOS stat rejects GNU's `-c`. Keep this stand-in narrow: it proves the
+// resolver retries the BSD spelling while every other command still comes
+// from the normal deterministic test PATH.
+writeFileSync(
+  join(BIN_BSD_STAT, "stat"),
+  [
+    "#!/bin/sh",
+    'if [ "$1" = "-c" ]; then exit 1; fi',
+    `if [ "$1:$2" = "-f:%g" ]; then printf '%s\\n' '${RUNNER_HOST_GID}'; exit 0; fi`,
+    "exit 2",
+    "",
+  ].join("\n"),
+);
+chmodSync(join(BIN_BSD_STAT, "stat"), 0o755);
 
 afterAll(() => {
   socketServer.stop(true);
@@ -392,6 +409,14 @@ describe("podman wrapper — the invocation it guarantees", () => {
     });
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe(String(containerStart + RUNNER_HOST_GID));
+  });
+
+  test("maps the socket GID when only BSD stat syntax is available", () => {
+    const result = resolveRunnerGroup("--podman", {
+      PATH: `${BIN_BSD_STAT}:${BIN}:${baseEnv.PATH}`,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout.trim()).toBe("0");
   });
 
   test("rejects a socket GID outside the rootless Podman map", () => {
