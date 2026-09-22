@@ -12,9 +12,39 @@ WORKDIR /app
 # extension installer shells out to `git clone` / `git ls-remote` for the
 # source:"git" install path, and the web-server process is the one that
 # spawns those commands, so the binary has to be on $PATH in this image.
+#
+# `curl` and `ca-certificates` exist only to fetch `gh` in the next layer.
 RUN apt-get update \
- && apt-get install -y --no-install-recommends git \
+ && apt-get install -y --no-install-recommends git curl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
+
+# `gh` is required at runtime by the host-side GitHub paths, for the same
+# reason as `git` above: they SHELL OUT, so a missing binary is not a link
+# error at build time but an ENOENT at the call site.
+#   - src/extensions/project-open-pr.ts  →  `gh pr create`
+#   - src/extensions/github-projects-handler.ts  →  `gh auth token`
+# Both surface as "could not open the pull request" / an auth failure, which
+# reads as a GitHub permission problem rather than an image that never
+# carried the CLI. Until this layer existed, every in-app PR attempt failed
+# that way.
+#
+# Pinned rather than taken from the `cli.github.com` apt repo, for the reason
+# the header gives for `.bun-version`: a floating version invalidates this
+# layer — and every layer below it, including both installs — on each
+# upstream release.
+ARG GH_VERSION=2.63.2
+ARG TARGETARCH
+RUN set -eux; \
+    case "${TARGETARCH:-amd64}" in \
+      amd64|arm64) gharch="${TARGETARCH:-amd64}" ;; \
+      *) echo "unsupported TARGETARCH for gh: ${TARGETARCH}" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/gh.tar.gz \
+      "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${gharch}.tar.gz"; \
+    tar -xzf /tmp/gh.tar.gz -C /tmp; \
+    install -m 0755 "/tmp/gh_${GH_VERSION}_linux_${gharch}/bin/gh" /usr/local/bin/gh; \
+    rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_${gharch}"; \
+    gh --version
 
 # The default isolated-runner stack runs as root to read its runner socket, but
 # all image-backed app files must belong to UID:GID 1000. Set ownership while each
