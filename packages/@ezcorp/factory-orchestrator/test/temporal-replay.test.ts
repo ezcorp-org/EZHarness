@@ -443,6 +443,98 @@ describe("factory Temporal workflow", () => {
     });
   });
 
+  // W09d: the protected acceptance effect answers null while its validator runs, and the decision
+  // arrives later through the durable inbox, exactly as a task result does.
+  function acceptanceFactory(name: string, maxRepairs: number) {
+    return compiled([
+      { ...node, id: "candidate", outputPorts: { candidate: { type: "string" } } },
+      { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: "test-acceptance", candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, maxRepairs, outputPorts: { acceptedCandidate: { type: "string" } } },
+    ], name);
+  }
+
+  function inboxAcceptanceActivities(factory, seen: { acceptance: unknown[]; stops: string[] }, observed: () => void) {
+    return {
+      ...definitionActivities(factory),
+      recordTransition: async () => undefined,
+      executeCommand: async ({ command }) => {
+        if (command.kind === "request-admission") return { kind: "admission-result", id: `${command.id}:admitted`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, granted: true };
+        if (command.kind === "dispatch-node") return { kind: "node-result", id: `${command.id}:result`, atMs: Date.now(), nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: command.attempt, output: { candidate: "tree-0" } };
+        if (command.kind === "request-acceptance") { seen.acceptance.push(command); setTimeout(observed, 0); return null; }
+        if (command.kind === "cancel-node") { seen.stops.push(command.nodeId); throw new Error("an acceptance node has no attempt to stop"); }
+        throw new Error(`unexpected ${command.kind}`);
+      },
+    };
+  }
+
+  async function waitForAcceptanceWaiting(handle): Promise<KernelState> {
+    for (let attempt = 0; attempt < 500; attempt += 1) {
+      const state: KernelState = await handle.query("factoryState");
+      if (state.nodes.accept?.waitingReason === "external_reconciliation") return state;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    throw new Error("the acceptance node never waited");
+  }
+
+  it("keeps an acceptance node waiting on a null effect and completes it once from its inbox event", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const factory = acceptanceFactory("acceptance-by-inbox", 0);
+    let observed = () => undefined;
+    const requested = new Promise<void>(resolve => { observed = resolve; });
+    const seen = { acceptance: [], stops: [] };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities: inboxAcceptanceActivities(factory, seen, () => observed()) });
+    const workflowId = `tenant/acceptance-by-inbox-${process.pid}`;
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: "acceptance-by-inbox", startedAtMs })] });
+      await requested;
+      // The null answer is not a result: the node waits under its own deadline, and the run is open.
+      const waiting = await waitForAcceptanceWaiting(handle);
+      assert.equal(waiting.nodes.accept?.status, "waiting");
+      assert.notEqual((await handle.describe()).status.name, "COMPLETED");
+      const command = seen.acceptance[0] as { id: string; nodeId: string; candidateGeneration: number; candidate: string };
+      const decision = { kind: "node-result", id: `protected-acceptance:${command.id}`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, output: { acceptedCandidate: command.candidate } };
+      const envelope = { sequence: 1, eventId: decision.id, eventHash: eventHash(decision), event: decision };
+      await handle.signal("factoryInbox", envelope);
+      // A redelivery of the same event is the same event: it applies once.
+      await handle.signal("factoryInbox", envelope);
+      const result = await handle.result();
+      assert.equal(result.status, "completed");
+      assert.equal(seen.acceptance.length, 1);
+      assert.deepEqual(seen.stops, []);
+      const state: KernelState = await handle.query("factoryState");
+      assert.equal(state.nodes.accept?.status, "succeeded");
+      assert.deepEqual(state.nodes.accept?.output, { acceptedCandidate: "tree-0" });
+      assert.equal(state.appliedEventIds.filter((id) => id === decision.id).length, 1);
+      const history = await handle.fetchHistory();
+      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+    });
+  });
+
+  it("fails an acceptance node on a typed rejection from its inbox without stopping an attempt it never had", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const factory = acceptanceFactory("acceptance-unsettled", 0);
+    let observed = () => undefined;
+    const requested = new Promise<void>(resolve => { observed = resolve; });
+    const seen = { acceptance: [], stops: [] };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities: inboxAcceptanceActivities(factory, seen, () => observed()) });
+    const workflowId = `tenant/acceptance-unsettled-${process.pid}`;
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: "acceptance-unsettled", startedAtMs })] });
+      await requested;
+      await waitForAcceptanceWaiting(handle);
+      const command = seen.acceptance[0] as { id: string; nodeId: string; candidateGeneration: number };
+      const rejection = { kind: "node-failed", id: `protected-acceptance-unsettled:${command.id}`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, error: "factory_validator_attempt_failed", failureKind: "acceptance_rejected" };
+      await handle.signal("factoryInbox", { sequence: 1, eventId: rejection.id, eventHash: eventHash(rejection), event: rejection });
+      const result = await handle.result();
+      assert.equal(result.status, "failed");
+      assert.deepEqual(seen.stops, []);
+      const state: KernelState = await handle.query("factoryState");
+      assert.equal(state.nodes.accept?.status, "failed");
+      assert.equal(state.nodes.accept?.error, "ACCEPTANCE_BOUND_EXHAUSTED");
+      const history = await handle.fetchHistory();
+      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+    });
+  });
+
   it("advances independent successors while another branch is blocked", async () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
     const parallelFactory = compiled([

@@ -291,11 +291,11 @@ export function composeFactoryValidators(options: FactoryValidatorCompositionOpt
     factoryValidatorResourcePolicy({ lifecycle: application.runs, grants: application.grants, allocations: options.allocations }),
   );
   const dispatch = new FactoryValidatorAttemptDispatch(database, config.tenantId, stores.authority, validators, stores.journal, stores.queue, application.artifacts);
-  // Only `requestAcceptance` and `recordCurrentCandidate` are called on this
+  // Only `decideAcceptance` and `recordCurrentCandidate` are called on this
   // instance, and neither reads the release profile set, so it holds none.
   const effects = new FactoryProtectedCommandEffects(database, config.tenantId, stores.authority, completions, application.releaseAuthority, options.assurance, options.releases, []);
   const acceptance = new FactoryValidatorAcceptance({
-    database, tenantId: config.tenantId, service: options.service,
+    database, tenantId: config.tenantId, service: options.service, authority: stores.authority,
     scheduler, dispatch, queue: stores.queue, effects, inbox: stores.inbox, report: options.report,
   });
   const registration = new FactoryValidatorMaterialRegistration(database, config.tenantId, application.definitions, validators, options.report);

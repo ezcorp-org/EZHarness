@@ -19,10 +19,13 @@
  *    deadline, which is the bound.
  * 2. The `validator-scheduling` role re-drives every acceptance command that
  *    has no delivered decision: it reserves, admits once the pool admits, and
- *    when every claim's attempt has a completed terminal it calls the UNCHANGED
- *    `requestAcceptance`. That writes the durable accepted or rejected receipt,
- *    and the role delivers its event through `FactoryInbox`, exactly as
- *    `FactoryTaskCompletions` delivers a task result.
+ *    when every claim's attempt has a completed terminal it calls W05's
+ *    decision (`decideAcceptance`, which is `requestAcceptance` with a hook),
+ *    writing the durable receipt and its inbox event in one transaction, the
+ *    way `FactoryTaskCompletions` delivers a task result. A validator attempt
+ *    that fails or ends uncertain is answered with the typed rejection.
+ * 3. An installation with no validator composed refuses the command by name at
+ *    once (`factoryValidatorAcceptanceRefusal`); it never waits.
  *
  * Nothing here decides a verdict, reads a report, or writes a receipt. Those
  * stay W05's. What this file adds is the waiting.
@@ -32,6 +35,7 @@ import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import type { TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import type { FactoryAttemptQueue } from "./attempt-queue";
+import type { FactoryCommandAuthority } from "./command-authority";
 import type { FactoryInbox } from "./inbox";
 import { classifyFactoryAcceptanceFailure, type FactoryProtectedCommandEffects } from "./protected-command-effects";
 import { assertFactoryIdentity } from "./records";
@@ -43,8 +47,18 @@ import type { FactoryProtectedValidatorSchedule, FactoryProtectedValidatorSchedu
 /** Acceptance commands visited per pass. Bounded so one pass cannot hold the pool. */
 export const FACTORY_VALIDATOR_ACCEPTANCE_SCAN_LIMIT = 16;
 
-/** Delivery states in which a validator attempt will never produce a terminal fact. */
-const UNSETTLED_STATES: ReadonlySet<string> = new Set(["cancelled", "dead_letter", "outcome_unknown"]);
+/**
+ * Delivery states in which a validator attempt with no completed terminal will never produce one.
+ *
+ * `delivered` belongs here: a validator that ran and did not complete settles through
+ * `FactoryValidatorAttemptDispatch.recordInTransaction`, which records no terminal fact, so its
+ * delivery ends `delivered` with nothing to read. `outcome_unknown` is the uncertain one.
+ */
+const FAILED_STATES: ReadonlySet<string> = new Set(["delivered", "cancelled", "dead_letter"]);
+const UNCERTAIN_STATES: ReadonlySet<string> = new Set(["outcome_unknown"]);
+
+/** The event-id prefixes a delivered acceptance decision can carry. */
+export const FACTORY_ACCEPTANCE_EVENT_PREFIXES = Object.freeze(["protected-acceptance:", "protected-rejection:", "protected-acceptance-unsettled:"] as const);
 
 /** The codes that mean "not yet" for this driver; everything else is reported. */
 const NOT_YET_CODES: ReadonlySet<string> = new Set(["factory_compute_admission_not_admitted"]);
@@ -53,10 +67,20 @@ const NOT_YET_CODES: ReadonlySet<string> = new Set(["factory_compute_admission_n
 const SUPERSEDED_CODES: ReadonlySet<string> = new Set(["factory_command_stale"]);
 
 export class FactoryValidatorAcceptanceError extends Error {
-  constructor(readonly code: "factory_validator_attempt_unsettled", readonly attemptId: string) {
-    super(`${code}: ${attemptId}`);
+  constructor(readonly code: "factory_validator_none_declared" | "factory_validator_unavailable", readonly detail: string) {
+    super(`${code}: ${detail}`);
     this.name = "FactoryValidatorAcceptanceError";
   }
+}
+
+/**
+ * The `request-acceptance` effect of an installation that can judge no protected claim.
+ *
+ * It refuses by name at once rather than letting the kernel wait: with no validator runtime composed
+ * nothing will ever produce the evidence, so a wait could only end at the deadline.
+ */
+export function factoryValidatorAcceptanceRefusal(code: FactoryValidatorAcceptanceError["code"], detail: string): (service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference) => Promise<never> {
+  return async () => { throw new FactoryValidatorAcceptanceError(code, detail); };
 }
 
 export interface FactoryValidatorAcceptanceOptions {
@@ -64,11 +88,12 @@ export interface FactoryValidatorAcceptanceOptions {
   readonly tenantId: string;
   /** The private-service identity the role acts as, the same one the orchestrator authenticates as. */
   readonly service: TrustedFactoryServiceIdentity;
+  readonly authority: Pick<FactoryCommandAuthority, "withCurrentAcceptanceInTransaction">;
   readonly scheduler: Pick<FactoryProtectedValidatorScheduler, "planInTransaction" | "reserveInTransaction" | "admitInTransaction">;
   readonly dispatch: Pick<FactoryValidatorAttemptDispatch, "readInTransaction">;
   readonly queue: Pick<FactoryAttemptQueue, "readInTransaction">;
-  readonly effects: Pick<FactoryProtectedCommandEffects, "recordCurrentCandidate" | "requestAcceptance">;
-  readonly inbox: Pick<FactoryInbox, "enqueue">;
+  readonly effects: Pick<FactoryProtectedCommandEffects, "recordCurrentCandidate" | "decideAcceptance">;
+  readonly inbox: Pick<FactoryInbox, "enqueueInTransaction">;
   readonly report: (role: string, error: unknown) => void;
   readonly limit?: number;
 }
@@ -79,6 +104,8 @@ export interface FactoryValidatorAcceptanceState {
   readonly ready: boolean;
   /** This pass reserved or admitted something new. */
   readonly progressed: boolean;
+  /** A validator attempt that will never produce a terminal fact, and whether its outcome is unknown. */
+  readonly unsettled?: { readonly attemptId: string; readonly uncertain: boolean };
 }
 
 function code(error: unknown): string | undefined {
@@ -117,6 +144,7 @@ export class FactoryValidatorAcceptance {
     let progressed = false;
     for (const schedule of schedules) {
       const state = await this.settle(service, reference, schedule);
+      if (state.unsettled) return state;
       ready = ready && state.ready;
       progressed = progressed || state.progressed;
     }
@@ -126,16 +154,44 @@ export class FactoryValidatorAcceptance {
   /**
    * Deliver one command's decision once its validators have run.
    *
-   * `requestAcceptance` is idempotent by its receipt, and the inbox by the
-   * event id, so a crash between the two is repaired by the next pass: the
-   * scan still sees a receipt with no delivered event and delivers it.
+   * The decision and its inbox event commit in ONE transaction
+   * (`decideAcceptance`), so neither can exist without the other. Both are
+   * idempotent — the receipt by command, the event by its id — so a restarted
+   * role that re-drives a delivered command writes nothing new, and the scan
+   * stops seeing it once its event exists.
+   *
+   * A validator attempt that will never produce a terminal fact is answered
+   * with the typed rejection, named for what happened, rather than a wait that
+   * could only end at the deadline. An acceptance node is virtual, so the
+   * rejection is the one failure the kernel can apply to it without trying to
+   * stop an attempt that never existed.
    */
   async deliver(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<boolean> {
     const state = await this.advance(service, reference);
+    if (state.unsettled) {
+      await this.rejectUnsettled(service, reference, state.unsettled);
+      return true;
+    }
     if (!state.ready) return state.progressed;
-    const event = await this.options.effects.requestAcceptance(service, reference);
-    await this.options.inbox.enqueue({ projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, event);
+    await this.options.effects.decideAcceptance(service, reference, (transaction, event) => this.options.inbox.enqueueInTransaction(transaction, this.inboxKey(reference), event));
     return true;
+  }
+
+  private inboxKey(reference: TrustedFactoryCommandReference) {
+    return { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId };
+  }
+
+  /** The typed rejection for a validator that failed or ended uncertain, bound to the current command. */
+  private async rejectUnsettled(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, unsettled: NonNullable<FactoryValidatorAcceptanceState["unsettled"]>): Promise<void> {
+    await this.options.database.transaction(transaction => this.options.authority.withCurrentAcceptanceInTransaction(transaction, service, reference, async (tx, context) => {
+      const event: KernelEvent = {
+        kind: "node-failed", id: `protected-acceptance-unsettled:${context.command.id}`, atMs: context.commandState.nowMs,
+        nodeId: context.command.nodeId, commandId: context.command.id, candidateGeneration: context.command.candidateGeneration, attempt: context.attempt.attempt,
+        error: unsettled.uncertain ? "factory_validator_attempt_uncertain" : "factory_validator_attempt_failed",
+        failureKind: "acceptance_rejected",
+      };
+      await this.options.inbox.enqueueInTransaction(tx, this.inboxKey(reference), event);
+    }));
   }
 
   /** The `validator-scheduling` role: one bounded pass over the undelivered acceptance commands. */
@@ -179,7 +235,7 @@ export class FactoryValidatorAcceptance {
         AND NOT EXISTS (
           SELECT 1 FROM factory_inbox_events i
           WHERE i.tenant_id=c.tenant_id AND i.project_id=c.project_id AND i.run_id=c.run_id AND i.interpreter_id=c.interpreter_id
-            AND i.event_id IN (${"protected-acceptance:"} || c.command_id, ${"protected-rejection:"} || c.command_id))
+            AND i.event_id IN (${FACTORY_ACCEPTANCE_EVENT_PREFIXES[0]} || c.command_id, ${FACTORY_ACCEPTANCE_EVENT_PREFIXES[1]} || c.command_id, ${FACTORY_ACCEPTANCE_EVENT_PREFIXES[2]} || c.command_id))
       ORDER BY c.source_sequence DESC, c.command_id
       LIMIT ${this.limit}`));
     return found.map(row => Object.freeze({ tenantId: this.options.tenantId, projectId: row.project_id, logicalRunId: row.run_id, interpreterId: row.interpreter_id, commandId: row.command_id }));
@@ -195,7 +251,9 @@ export class FactoryValidatorAcceptance {
     if (delivery !== null) {
       const terminal = await database.transaction(transaction => dispatch.readInTransaction(transaction, service, { ...reference, commandId: schedule.attemptId }));
       if (terminal !== undefined) return { ready: true, progressed: false };
-      if (UNSETTLED_STATES.has(delivery.state)) throw new FactoryValidatorAcceptanceError("factory_validator_attempt_unsettled", schedule.attemptId);
+      if (FAILED_STATES.has(delivery.state) || UNCERTAIN_STATES.has(delivery.state)) {
+        return { ready: false, progressed: false, unsettled: { attemptId: schedule.attemptId, uncertain: UNCERTAIN_STATES.has(delivery.state) } };
+      }
       return { ready: false, progressed: false };
     }
     const reserved = await database.transaction(transaction => scheduler.reserveInTransaction(transaction, service, reference, schedule));

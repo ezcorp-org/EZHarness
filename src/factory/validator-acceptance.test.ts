@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { TransactionalDb } from "../db/migrations/types";
-import { FACTORY_VALIDATOR_ACCEPTANCE_SCAN_LIMIT, FactoryValidatorAcceptance, FactoryValidatorAcceptanceError, type FactoryValidatorAcceptanceOptions } from "./validator-acceptance";
+import { FACTORY_VALIDATOR_ACCEPTANCE_SCAN_LIMIT, FactoryValidatorAcceptance, FactoryValidatorAcceptanceError, factoryValidatorAcceptanceRefusal, type FactoryValidatorAcceptanceOptions } from "./validator-acceptance";
 import type { TrustedFactoryCommandReference } from "./trusted-command-gateway";
 import type { FactoryProtectedValidatorSchedule } from "./validator-scheduler";
 
@@ -43,8 +43,10 @@ function harness(overrides: {
     transaction: async (work: (transaction: unknown) => Promise<unknown>) => work("tx"),
     execute: async () => { calls.push("scan"); return { rows: overrides.pending ?? [] }; },
   } as unknown as TransactionalDb;
+  const context = { command: { id: reference.commandId, nodeId: "accept", candidateGeneration: 0 }, commandState: { nowMs: 7 }, attempt: { attempt: 1 } };
   const options: FactoryValidatorAcceptanceOptions = {
     database, tenantId, service,
+    authority: { withCurrentAcceptanceInTransaction: async (_tx, _service, _reference, work) => { calls.push("authority"); return work("tx" as never, context as never); } },
     scheduler: {
       planInTransaction: async () => { calls.push("plan"); return overrides.schedules ?? []; },
       reserveInTransaction: async (_tx, _service, _reference, value) => { calls.push(`reserve:${value.attemptId}`); return { created: overrides.reserveCreated ?? true }; },
@@ -59,9 +61,14 @@ function harness(overrides: {
     },
     effects: {
       recordCurrentCandidate: async () => { calls.push("candidate"); return (overrides.record ?? (async () => ({})))() as never; },
-      requestAcceptance: async () => { calls.push("decide"); return (overrides.request ?? (async () => acceptanceEvent))() as never; },
+      decideAcceptance: async (_service, _reference, deliver) => {
+        calls.push("decide");
+        const event = await (overrides.request ?? (async () => acceptanceEvent))();
+        await deliver?.("tx" as never, event as never);
+        return event as never;
+      },
     },
-    inbox: { enqueue: async (key, event) => { enqueued.push({ key, event }); return {} as never; } },
+    inbox: { enqueueInTransaction: async (transaction, key, event) => { enqueued.push({ transaction, key, event }); return {} as never; } },
     report: (role, error) => { reported.push({ role, error }); },
     ...(overrides.limit === undefined ? {} : { limit: overrides.limit }),
   };
@@ -108,22 +115,34 @@ describe("advance", () => {
     expect(await all.acceptance.advance(service, reference)).toEqual({ ready: true, progressed: false });
   });
 
-  test("an attempt that will never produce a terminal fact is named", async () => {
-    for (const state of ["cancelled", "dead_letter", "outcome_unknown"]) {
-      const { acceptance } = harness({ schedules: [schedule("gone")], stored: { gone: state } });
-      const failure = await acceptance.advance(service, reference).catch((error: unknown) => error);
-      expect(failure).toBeInstanceOf(FactoryValidatorAcceptanceError);
-      expect(failure).toMatchObject({ code: "factory_validator_attempt_unsettled", attemptId: "gone" });
+  test("an attempt that will never produce a terminal fact is unsettled, and uncertain only when its outcome is unknown", async () => {
+    for (const [state, uncertain] of [["delivered", false], ["cancelled", false], ["dead_letter", false], ["outcome_unknown", true]] as const) {
+      const { acceptance } = harness({ schedules: [schedule("gone"), schedule("later")], stored: { gone: state } });
+      // The first unsettled schedule answers for the command; later schedules are not touched.
+      expect(await acceptance.advance(service, reference)).toEqual({ ready: false, progressed: false, unsettled: { attemptId: "gone", uncertain } });
     }
   });
 });
 
 describe("deliver", () => {
-  test("a ready command is decided through requestAcceptance and delivered through the inbox", async () => {
+  test("a ready command is decided and its event delivered in the decision's own transaction", async () => {
     const { acceptance, calls, enqueued } = harness();
     expect(await acceptance.deliver(service, reference)).toBe(true);
     expect(calls).toEqual(["candidate", "plan", "decide"]);
-    expect(enqueued).toEqual([{ key: { projectId: "project-1", runId: "run-1", interpreterId: "interpreter-1" }, event: acceptanceEvent }]);
+    expect(enqueued).toEqual([{ transaction: "tx", key: { projectId: "project-1", runId: "run-1", interpreterId: "interpreter-1" }, event: acceptanceEvent }]);
+  });
+
+  test("a failed or uncertain validator is answered with the typed rejection, never a wait", async () => {
+    for (const [state, error] of [["dead_letter", "factory_validator_attempt_failed"], ["outcome_unknown", "factory_validator_attempt_uncertain"]] as const) {
+      const { acceptance, calls, enqueued } = harness({ schedules: [schedule("gone")], stored: { gone: state } });
+      expect(await acceptance.deliver(service, reference)).toBe(true);
+      expect(calls).not.toContain("decide");
+      expect(calls).toContain("authority");
+      expect(enqueued).toEqual([{ transaction: "tx", key: { projectId: "project-1", runId: "run-1", interpreterId: "interpreter-1" }, event: {
+        kind: "node-failed", id: `protected-acceptance-unsettled:${reference.commandId}`, atMs: 7, nodeId: "accept", commandId: reference.commandId,
+        candidateGeneration: 0, attempt: 1, error, failureKind: "acceptance_rejected",
+      } }]);
+    }
   });
 
   test("a command that is not ready is never decided", async () => {
@@ -174,5 +193,14 @@ describe("the validator-scheduling role", () => {
     expect(() => harness({ limit: 0 })).toThrow("factory_validator_acceptance_invalid");
     const database = { transaction: async () => undefined, execute: async () => ({ rows: [] }) } as unknown as TransactionalDb;
     expect(() => new FactoryValidatorAcceptance({ ...({} as FactoryValidatorAcceptanceOptions), database, tenantId, service: { subject: "orchestration", tenantId: "other" } })).toThrow("factory_validator_acceptance_scope");
+  });
+});
+
+describe("an installation with no validator composed", () => {
+  test("refuses the acceptance command by name at once", async () => {
+    const refuse = factoryValidatorAcceptanceRefusal("factory_validator_none_declared", "nothing declared");
+    const failure = await refuse(service, reference).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(FactoryValidatorAcceptanceError);
+    expect(failure).toMatchObject({ code: "factory_validator_none_declared", detail: "nothing declared", message: "factory_validator_none_declared: nothing declared" });
   });
 });

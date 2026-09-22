@@ -865,13 +865,15 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const reported: { role: string; error: unknown }[] = [];
     const { composeFactoryValidators } = await import("../../factory/validator-composition");
     const stores = { authority: completed.task.authority, budgets: lifecycle.budgets, compute: completed.task.admissions, journal: completed.task.journal, queue: completed.task.queue, inbox, completions: completed.completions, outcomes: completed.outcomes } as unknown as import("../../factory/installation-stores").FactoryInstallationStores;
-    const composed = composeFactoryValidators({
+    // A fresh composition over the same stores is exactly what a restarted process builds.
+    const compose = () => composeFactoryValidators({
       database: fixture.db, config: { tenantId } as import("../../factory/startup-config").FactoryStartupConfig,
       application: { definitions, runs: lifecycle, journal: completed.task.journal, artifacts: completed.artifacts, releaseAuthority, grants },
       stores, service, validators,
       allocations: { cpu: { resources: { cpu: 1 }, memoryBytes: 64, budget: { costMicros: "3", tokens: 2, computeMs: 4 } } },
       assurance, releases, report: (role, error) => { reported.push({ role, error }); },
     });
+    const composed = compose();
     // The compute role's pool: it admits exactly the validator identity it is asked about.
     const pool = {
       async request(input: { reservationId: string; resources: Record<string, number> }) {
@@ -893,11 +895,14 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     }, composed.settlement.completions, composed.settlement.outcomes, dispatchReady, dispatchReadinessDisposition, { service, installationId: "composed-validator-installation", attemptTokenSecret: "composed-validator-secret", leaseMs: 5_000 });
     const decisionEvents = async () => rows<{ event_id: string }>(await fixture.db.execute(sql`SELECT event_id FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId} AND event_id LIKE ${"protected-%"} ORDER BY event_id`)).map(row => row.event_id);
     const signal = new AbortController().signal;
-    return { ...base, composed, computeRole, validatorReservation, dispatcher, decisionEvents, reported, service, signal, guestRuns: () => guestRuns };
+    return { ...base, compose, composed, computeRole, validatorReservation, dispatcher, decisionEvents, reported, service, signal, guestRuns: () => guestRuns };
   }
 
   test("the validator-scheduling role waits for, admits, runs, and delivers a protected acceptance exactly once", async () => {
-    const { composed, computeRole, validatorReservation, dispatcher, decisionEvents, reported, acceptanceReference, acceptanceCommand, completed, material, service, signal, guestRuns } = await composedValidatorAcceptance(true);
+    const { compose, composed, computeRole, validatorReservation, dispatcher, decisionEvents, reported, acceptanceReference, acceptanceCommand, completed, material, service, signal, guestRuns } = await composedValidatorAcceptance(true);
+    // A foreign tenant or another run can never be targeted through the command.
+    await expect(composed.acceptance.command(service, { ...acceptanceReference, tenantId: "foreign-tenant" })).rejects.toThrow();
+    await expect(composed.acceptance.command(service, { ...acceptanceReference, logicalRunId: "another-run" })).rejects.toThrow();
     // The command answers null instead of throwing for evidence that cannot exist yet, and has already
     // reserved the missing validator: the kernel keeps waiting under its own deadline.
     expect(await composed.acceptance.command(service, acceptanceReference)).toBeNull();
@@ -914,8 +919,11 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(passes).toContain(true);
     const attempts = rows<{ attempt_id: string }>(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_queue WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId} AND attempt_id LIKE ${"factory-validator-attempt:%"}`));
     expect(attempts).toHaveLength(1);
-    // Admitted and in flight, the role waits.
+    // Admitted and in flight, the role waits — and a restarted role plans nothing new.
     expect(await composed.roles.scheduling.step(signal)).toBe(false);
+    expect(await compose().roles.scheduling.step(signal)).toBe(false);
+    expect(await validatorReservation()).toHaveLength(1);
+    expect(rows(await fixture.db.execute(sql`SELECT attempt_id FROM factory_attempt_queue WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId} AND attempt_id LIKE ${"factory-validator-attempt:%"}`))).toHaveLength(1);
     expect(await decisionEvents()).toEqual([]);
 
     // The ONE attempt dispatcher runs it and the settlement router records it as a validator terminal.
@@ -928,22 +936,23 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await decisionEvents()).toEqual([`protected-acceptance:${acceptanceCommand.id}`]);
     expect(rows(await fixture.db.execute(sql`SELECT decision FROM factory_protected_command_effects WHERE tenant_id=${tenantId} AND command_id=${acceptanceCommand.id}`))).toEqual([{ decision: "accepted" }]);
     expect(rows(await fixture.db.execute(sql`SELECT validator_id,verdict FROM factory_validator_results WHERE tenant_id=${tenantId} AND validator_attempt_id=${attempts[0]!.attempt_id}`))).toEqual([{ validator_id: material.mandatoryClaims[0]!.validatorId, verdict: "PASS" }]);
-    // Delivered once: the scan no longer sees it, and the dispatcher has nothing left.
+    // Delivered once: the scan no longer sees it, a restarted role writes no second event, and the dispatcher has nothing left.
     expect(await composed.roles.scheduling.step(signal)).toBe(false);
+    expect(await compose().roles.scheduling.step(signal)).toBe(false);
     expect(await decisionEvents()).toEqual([`protected-acceptance:${acceptanceCommand.id}`]);
     expect(await dispatcher.dispatchOne()).toMatchObject({ kind: "idle" });
     // The scan is tenant-wide, so other runs in this suite are visited too; none of this run's passes failed.
     expect(reported.filter(entry => entry.role.includes(completed.task.run.runId))).toEqual([]);
   });
 
-  test("a failing claim is delivered as a rejection, and a decision whose inbox write was lost is delivered on the next pass", async () => {
+  test("a failing claim is delivered as a rejection, and a receipt written without its event is delivered on the next pass", async () => {
     const { composed, computeRole, validatorReservation, dispatcher, decisionEvents, reported, acceptanceReference, acceptanceCommand, completed, releaseAuthority, assurance, releases, service, signal } = await composedValidatorAcceptance(false);
     expect(await composed.acceptance.command(service, acceptanceReference)).toBeNull();
     const [held] = await validatorReservation();
     await computeRole.recover(service, { projectId, runId: completed.task.run.runId, reservationId: held!.reservation_id });
     expect(await composed.roles.scheduling.step(signal)).toBe(true);
     expect(await dispatcher.dispatchOne()).toMatchObject({ kind: "completed" });
-    // The decision is written, then the process dies before its inbox write: W05's effect alone.
+    // A receipt written without its event — W05's plain effect, outside the role — is delivered on the next pass.
     const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, []);
     expect(await effects.requestAcceptance(service, acceptanceReference)).toMatchObject({ kind: "node-failed", failureKind: "acceptance_rejected" });
     expect(await decisionEvents()).toEqual([]);
@@ -1025,6 +1034,41 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await registration(gateway(rest)).registerAll(signal);
     expect(mine()).toEqual([`validator-materials:factory_validator_material_conflict:${key}`, `validator-materials:factory_validator_runtime_untrusted:${key}`]);
     expect(await materialRows()).toEqual([registered!]);
+  });
+
+  test("a validator attempt that will never complete is answered with the typed rejection, once", async () => {
+    const { compose, composed, computeRole, validatorReservation, decisionEvents, reported, acceptanceReference, acceptanceCommand, completed, service, signal } = await composedValidatorAcceptance(true);
+    expect(await composed.acceptance.command(service, acceptanceReference)).toBeNull();
+    const [held] = await validatorReservation();
+    await computeRole.recover(service, { projectId, runId: completed.task.run.runId, reservationId: held!.reservation_id });
+    expect(await composed.roles.scheduling.step(signal)).toBe(true);
+    // The queue's own dead-letter policy gives up on the attempt; no terminal fact will ever exist.
+    await fixture.db.execute(sql`UPDATE factory_attempt_queue SET state='dead_letter', failure_code='runner_failed' WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId} AND attempt_id LIKE ${"factory-validator-attempt:%"}`);
+    expect(await composed.roles.scheduling.step(signal)).toBe(true);
+    expect(await decisionEvents()).toEqual([`protected-acceptance-unsettled:${acceptanceCommand.id}`]);
+    const [event] = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND event_id=${`protected-acceptance-unsettled:${acceptanceCommand.id}`}`));
+    expect(JSON.parse(event!.payload)).toMatchObject({ kind: "node-failed", nodeId: acceptanceCommand.nodeId, commandId: acceptanceCommand.id, error: "factory_validator_attempt_failed", failureKind: "acceptance_rejected" });
+    // No decision receipt is invented for a verdict nobody issued, and a restarted role adds nothing.
+    expect(rows(await fixture.db.execute(sql`SELECT command_id FROM factory_protected_command_effects WHERE tenant_id=${tenantId} AND command_id=${acceptanceCommand.id}`))).toEqual([]);
+    expect(await compose().roles.scheduling.step(signal)).toBe(false);
+    expect(await decisionEvents()).toEqual([`protected-acceptance-unsettled:${acceptanceCommand.id}`]);
+    expect(reported.filter(entry => entry.role.includes(completed.task.run.runId))).toEqual([]);
+  });
+
+  test("recordCurrentCandidate binds the exact candidate, is idempotent, and refuses a foreign or stale reference by name", async () => {
+    const { completed, acceptanceReference, releaseAuthority, assurance, releases } = await protectedAcceptance(true, false);
+    const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, completed.task.authority, completed.completions, releaseAuthority, assurance, releases, []);
+    const service = completed.task.service;
+    const first = await effects.recordCurrentCandidate(service, acceptanceReference);
+    expect(await effects.recordCurrentCandidate(service, acceptanceReference)).toEqual(first);
+    expect(rows(await fixture.db.execute(sql`SELECT tenant_id,project_id,run_id,node_instance_id,candidate_digest,attempt_id FROM factory_release_candidate_history WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId}`))).toEqual([{
+      tenant_id: tenantId, project_id: projectId, run_id: completed.task.run.runId, node_instance_id: completed.task.dispatch.nodeId,
+      candidate_digest: completed.result.output.digest, attempt_id: completed.authority.attemptId,
+    }]);
+    await expect(effects.recordCurrentCandidate(service, { ...acceptanceReference, tenantId: "foreign-tenant" })).rejects.toMatchObject({ code: expect.stringMatching(/^factory_/) });
+    await expect(effects.recordCurrentCandidate({ ...service, tenantId: "foreign-tenant" }, acceptanceReference)).rejects.toMatchObject({ code: expect.stringMatching(/^factory_/) });
+    // The candidate's own dispatch command is not an acceptance command, so it is stale for this purpose.
+    await expect(effects.recordCurrentCandidate(service, completed.task.dispatchReference)).rejects.toMatchObject({ code: expect.stringMatching(/^factory_command_/) });
   });
 
   test("a protected validator settles through the shared attempt dispatcher, never through the kernel task path", async () => {

@@ -44,8 +44,7 @@ import { FactoryNotificationDelivery } from "./notification-delivery";
 import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime } from "./validator-materials";
 import { loadFactoryValidatorRuntimes } from "./validator-declaration";
 import { composeFactoryValidators, factoryTrustedValidatorsFromDeclaration, type FactoryComposedValidators } from "./validator-composition";
-import { FactoryReleaseApplication } from "./release-application";
-import { FactoryReleaseDestinationError } from "./release-declaration";
+import { factoryValidatorAcceptanceRefusal } from "./validator-acceptance";
 import type { FactoryPrivateCommandHandler } from "./private-commands";
 import { factoryTenantProjectIds, factoryTenantProjects } from "./tenant-projects";
 import { FactoryRecords } from "./records";
@@ -313,7 +312,7 @@ export function factoryChildSettlementDriver(
  * hold by name, which is visible in the readiness report, instead of taking the
  * whole installation down with them.
  */
-export interface FactoryInstallationRelease {
+interface FactoryInstallationRelease {
   readonly releases: FactoryReleases;
   readonly assurance: FactoryAssurance;
   readonly destinations?: FactoryComposedReleaseDestinations;
@@ -578,7 +577,6 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
       blobs,
       runOptions: host.runOptions,
       availableResourceClasses: host.availableResourceClasses,
-      ...composed?.application,
     },
     // The private worker API, and only that. The pool, the supervisor, and the
     // Node orchestrator each bind their own in their own process; this one binds
@@ -630,7 +628,6 @@ async function installationCollaborators(
   readonly workers: FactoryRuntimeDependencies["workers"];
   readonly seams: FactoryRuntimeDependencies["seams"];
   readonly listeners: readonly FactoryStartedListener[];
-  readonly application: Pick<FactoryApplicationOptions, "createReleaseOperations">;
 }> {
   const { createFactoryApplication } = await import("./application");
   // A throwaway application only to reach the lifecycle the roles read. The
@@ -714,7 +711,12 @@ async function installationCollaborators(
       host.report,
     );
 
-  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, validation.composed?.acceptance.command);
+  // With no validator composed, acceptance refuses by name at once: nothing
+  // would ever produce its evidence, so a wait could only end at the deadline.
+  const acceptance = validation.composed?.acceptance.command ?? factoryValidatorAcceptanceRefusal(
+    validation.held === undefined ? "factory_validator_none_declared" : "factory_validator_unavailable",
+    validation.held ?? "the startup document declares no validator runtime under validators.runtimes");
+  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance);
 
   return {
     workers: {
@@ -734,33 +736,7 @@ async function installationCollaborators(
       }),
     },
     listeners: privateService === undefined ? [] : [privateService],
-    application: release === undefined ? {} : { createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver) },
   };
-}
-
-/**
- * The public release surface, over the one assurance the effects judge through.
- *
- * `PUT .../release/contracts/{id}` is where a human approves a contract naming
- * a registered validator lock, and it answered `factory_release_application_
- * unavailable` because nothing supplied this. The assurance and the release
- * store are the instances the protected effects use, so an approval written
- * here is the approval acceptance reads. A deployment that declares no
- * destination still gets the contract, approval, and inspection routes; a
- * publish through it refuses by name at the provider, the one step that needs
- * a destination.
- */
-export function factoryReleaseOperations(
-  tenantId: string,
-  release: FactoryInstallationRelease,
-  resolver: FactoryReleaseProviderResolver | undefined,
-): NonNullable<FactoryApplicationOptions["createReleaseOperations"]> {
-  const providers: FactoryReleaseProviderResolver = resolver ?? {
-    resolve(operation) {
-      throw new FactoryReleaseDestinationError("factory_release_destination_unknown", operation.destination.account, "this installation declares no release destination");
-    },
-  };
-  return (context) => new FactoryReleaseApplication(tenantId, context.grants, release.assurance, release.releases, providers);
 }
 
 /**
