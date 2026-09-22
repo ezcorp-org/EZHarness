@@ -283,6 +283,18 @@ function scratch(os: "Darwin" | "Linux"): Record<string, string> {
   };
 }
 
+// Darwin's sockaddr_un.sun_path holds 104 bytes including the trailing NUL.
+// Keep real socket fixtures under the short shared sandbox root so macOS curl
+// reaches the test server instead of rejecting an overlong path first.
+function shortRunnerSocketDir(): string {
+  const runnerDir = mkdtempSync(join(SANDBOX, "r-"));
+  const socketPath = join(runnerDir, "runner.sock");
+  if (Buffer.byteLength(socketPath) > 103) {
+    throw new Error(`runner socket fixture exceeds Darwin's path limit: ${socketPath}`);
+  }
+  return runnerDir;
+}
+
 function isolatedPathWithout(...excluded: string[]): string {
   const dir = mkdtempSync(join(SANDBOX, "path-"));
   const commands = [
@@ -365,41 +377,44 @@ async function withRunnerSocket<T>(
   runnerDir: string,
   responsive: boolean,
   runTest: () => T | Promise<T>,
-  options: { token?: string; unrelated?: boolean } = {},
+  options: { token?: string; unrelated?: boolean; expectConnection?: boolean; expectProbe?: boolean } = {},
 ): Promise<T> {
   mkdirSync(runnerDir, { recursive: true });
-  const server = createServer(responsive
-    ? (connection) => {
-      let request = "";
-      let responded = false;
-      connection.on("data", (chunk) => {
-        if (responded) return;
-        request += chunk.toString();
-        const headerEnd = request.indexOf("\r\n\r\n");
-        if (headerEnd < 0) return;
-        const headers = request.slice(0, headerEnd);
-        const contentLength = Number(headers.match(/\r\ncontent-length: (\d+)/i)?.[1] ?? 0);
-        const bodyText = request.slice(headerEnd + 4);
-        if (Buffer.byteLength(bodyText) < contentLength) return;
-        responded = true;
-        if (options.unrelated) {
-          const body = '{"service":"not-the-extension-runner"}';
-          connection.end(`HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
-          return;
-        }
-        const expectedToken = options.token ?? RUNNER_TOKEN;
-        const authorization = headers.match(/\r\nauthorization: ([^\r\n]+)/i)?.[1];
-        const authenticated = authorization === `Bearer ${expectedToken}`;
-        const canonical = request.startsWith("POST /v4/inspect HTTP/1.1") &&
-          /\r\ncontent-type: application\/json(?:\r\n|$)/i.test(headers) &&
-          bodyText === '{"id":"setup-podman-probe"}';
-        const body = authenticated && canonical
-          ? '{"id":"setup-podman-probe","state":"unknown","diagnostics":[]}'
-          : '{"error":{"code":"unauthorized","message":"Runner authentication failed"}}';
-        connection.end(`HTTP/1.1 ${authenticated && canonical ? "200 OK" : "401 Unauthorized"}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
-      });
-    }
-    : undefined);
+  let connectionObserved = false;
+  let probeObserved = false;
+  const server = createServer((connection) => {
+    connectionObserved = true;
+    if (!responsive) return;
+    let request = "";
+    let responded = false;
+    connection.on("data", (chunk) => {
+      if (responded) return;
+      request += chunk.toString();
+      const headerEnd = request.indexOf("\r\n\r\n");
+      if (headerEnd < 0) return;
+      const headers = request.slice(0, headerEnd);
+      const contentLength = Number(headers.match(/\r\ncontent-length: (\d+)/i)?.[1] ?? 0);
+      const bodyText = request.slice(headerEnd + 4);
+      if (Buffer.byteLength(bodyText) < contentLength) return;
+      responded = true;
+      probeObserved = true;
+      if (options.unrelated) {
+        const body = '{"service":"not-the-extension-runner"}';
+        connection.end(`HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+        return;
+      }
+      const expectedToken = options.token ?? RUNNER_TOKEN;
+      const authorization = headers.match(/\r\nauthorization: ([^\r\n]+)/i)?.[1];
+      const authenticated = authorization === `Bearer ${expectedToken}`;
+      const canonical = request.startsWith("POST /v4/inspect HTTP/1.1") &&
+        /\r\ncontent-type: application\/json(?:\r\n|$)/i.test(headers) &&
+        bodyText === '{"id":"setup-podman-probe"}';
+      const body = authenticated && canonical
+        ? '{"id":"setup-podman-probe","state":"unknown","diagnostics":[]}'
+        : '{"error":{"code":"unauthorized","message":"Runner authentication failed"}}';
+      connection.end(`HTTP/1.1 ${authenticated && canonical ? "200 OK" : "401 Unauthorized"}\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
+    });
+  });
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
     server.listen(join(runnerDir, "runner.sock"), () => {
@@ -408,7 +423,14 @@ async function withRunnerSocket<T>(
     });
   });
   try {
-    return await runTest();
+    const result = await runTest();
+    if (options.expectConnection && !connectionObserved) {
+      throw new Error("setup did not connect to the runner socket fixture");
+    }
+    if (options.expectProbe && !probeObserved) {
+      throw new Error("setup did not reach the runner socket fixture");
+    }
+    return result;
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
@@ -968,7 +990,7 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
 
   test("Linux with a provisioned runner already in the env file: leaves it alone", async () => {
     const env = scratch("Linux");
-    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "runner");
+    const runnerDir = shortRunnerSocketDir();
     const runnerToken = join(runnerDir, "runner-token");
     mkdirSync(runnerDir, { recursive: true });
     writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
@@ -983,13 +1005,13 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
       expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(false);
       expect(`${r.stdout}${r.stderr}${readFileSync(CALLS, "utf8")}`).not.toContain(RUNNER_TOKEN);
       expect(setupArtifacts(join(env.EZ_SETUP_ENV_FILE, ".."))).toEqual([]);
-    });
+    }, { expectProbe: true });
   });
 
   test("curl defaults cannot alter validation, readiness, or persist the runner credential", async () => {
     const env = scratch("Linux");
     const testRoot = join(env.EZ_SETUP_ENV_FILE, "..");
-    const runnerDir = join(testRoot, "runner-with-hostile-curlrc");
+    const runnerDir = shortRunnerSocketDir();
     const runnerToken = join(runnerDir, "runner-token");
     const curlHome = join(testRoot, "curl-home");
     const curlTrace = join(testRoot, "curl-trace.log");
@@ -1024,17 +1046,13 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
           EZ_TEST_CURL_REAL_ALL: "1",
         });
 
-        if (r.exitCode !== 0) {
-          const diagnostic = `${r.stdout}\n${r.stderr}`.replaceAll(RUNNER_TOKEN, "[runner token redacted]");
-          throw new Error(`setup exited ${r.exitCode}\n${diagnostic}`);
-        }
         expect(r.exitCode).toBe(0);
         expect(r.stdout).toContain('ready: {"ready":true}');
         expect(`${r.stdout}${r.stderr}`).not.toContain(RUNNER_TOKEN);
         expect(existsSync(curlTrace)).toBe(false);
         expect(existsSync(curlOutput)).toBe(false);
         expect(setupArtifacts(testRoot)).toEqual([]);
-      });
+      }, { expectProbe: true });
     } finally {
       readiness.stop(true);
     }
@@ -1042,7 +1060,7 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
 
   test("Linux rejects a Unix socket inode that does not answer as a runner", async () => {
     const env = scratch("Linux");
-    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "unresponsive-runner");
+    const runnerDir = shortRunnerSocketDir();
     const runnerToken = join(runnerDir, "runner-token");
     mkdirSync(runnerDir, { recursive: true });
     writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
@@ -1055,12 +1073,12 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
       expect(r.stdout).not.toContain("already configured");
       expect(r.stderr).toContain("provision it first");
       expect(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8")).toBe(original);
-    });
+    }, { expectConnection: true });
   });
 
   test("Linux rejects an unrelated HTTP service on the configured Unix socket", async () => {
     const env = scratch("Linux");
-    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "unrelated-service");
+    const runnerDir = shortRunnerSocketDir();
     const runnerToken = join(runnerDir, "runner-token");
     mkdirSync(runnerDir, { recursive: true });
     writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
@@ -1071,12 +1089,12 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
       expect(r.exitCode).toBe(2);
       expect(r.stderr).toContain("canonical authenticated endpoint");
       expect(`${r.stdout}${r.stderr}`).not.toContain(RUNNER_TOKEN);
-    }, { unrelated: true });
+    }, { unrelated: true, expectProbe: true });
   });
 
   test("Linux rejects a runner when the configured credential does not authenticate", async () => {
     const env = scratch("Linux");
-    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "wrong-runner-token");
+    const runnerDir = shortRunnerSocketDir();
     const runnerToken = join(runnerDir, "runner-token");
     mkdirSync(runnerDir, { recursive: true });
     writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
@@ -1087,12 +1105,12 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
       expect(r.exitCode).toBe(2);
       expect(r.stderr).toContain("canonical authenticated endpoint");
       expect(`${r.stdout}${r.stderr}`).not.toContain(RUNNER_TOKEN);
-    }, { token: "different-runner-token-0123456789abcdef" });
+    }, { token: "different-runner-token-0123456789abcdef", expectProbe: true });
   });
 
   test("Linux rejects a numeric runner group that does not map from the socket group", async () => {
     const env = scratch("Linux");
-    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "wrong-runner-group");
+    const runnerDir = shortRunnerSocketDir();
     const runnerToken = join(runnerDir, "runner-token");
     mkdirSync(runnerDir, { recursive: true });
     writeFileSync(runnerToken, `${RUNNER_TOKEN}\n`, { mode: 0o600 });
@@ -1112,7 +1130,7 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
 
   test("Linux rejects runner credential sources that production cannot read", async () => {
     const env = scratch("Linux");
-    const runnerDir = join(env.EZ_SETUP_ENV_FILE, "..", "runner");
+    const runnerDir = shortRunnerSocketDir();
     const tokenDir = join(runnerDir, "token-directory");
     const shortToken = join(runnerDir, "short-token");
     const unsafeToken = join(runnerDir, "unsafe-token");
@@ -1316,7 +1334,7 @@ describe("setup-podman.sh — the engine and the check mode", () => {
 
   test("Linux honors a live PODMAN_SOCKET and does not enable another socket", async () => {
     const env = scratch("Linux");
-    const socketDir = join(env.EZ_SETUP_ENV_FILE, "..", "podman");
+    const socketDir = shortRunnerSocketDir();
     await withRunnerSocket(socketDir, true, () => {
       const podmanSocket = join(socketDir, "runner.sock");
       const r = run(["--no-start", "--accept-unsandboxed-extensions"], {
