@@ -38,7 +38,7 @@ import { FactoryScopedMaterials } from "./artifact-materials";
 import { composeFactoryArchiveWriter, loadFactoryStorageCredentials } from "./release-composition";
 import { FactoryDestinationReservations, FactoryStoreSenderFence } from "./release-destinations";
 import { factoryReleaseFenceReader } from "./release-fence";
-import { FactoryS3PublicationProvenance } from "./release-s3-scope";
+import { FactoryS3PublicationProvenance, FactoryVerifiedAttemptMaterials } from "./release-s3-scope";
 import { FactoryReleases } from "./releases";
 import { FactoryNotificationDelivery } from "./notification-delivery";
 import { FactoryTrustedValidators } from "./validator-materials";
@@ -338,9 +338,12 @@ async function installationReleases(
     // Where this installation may publish, from its own document. It is built
     // here rather than beside the roles because it needs the same scoped reader
     // and the same publication provenance the archive already holds: a second
-    // reader would read members under another scope.
+    // reader would read members under another scope. The S3 profile lists the
+    // accepted attempt's sealed materials through the one attempt-agnostic
+    // reader, over the same blob store and journal every attempt writes through.
     const destinations = await composeFactoryReleaseDestinations(config, {
       database, tenantId: config.tenantId, reader, attempts: provenance, releases,
+      materials: new FactoryVerifiedAttemptMaterials({ database, blobs, journal: stores.journal }),
     });
     // The assurance travels with the store: `FactoryProtectedCommandEffects`
     // takes both, and a second assurance built over the same tables would
@@ -591,8 +594,8 @@ async function installationCollaborators(
 
   // The release store, and the two roles it feeds. `notification-inbox-delivery`
   // composes from the store alone. `release-outcome` composes from the store,
-  // this tenant's projects and the run lifecycle — and from a destination this
-  // process cannot name, so it holds unless the deployment supplies one.
+  // this tenant's projects and the run lifecycle — and from a destination the
+  // startup document declares, so it holds when none is declared.
   const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);

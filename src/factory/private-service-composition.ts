@@ -170,13 +170,11 @@ export interface FactoryPrivateServiceCompositionOptions {
   /**
    * The release adapters this installation trusts.
    *
-   * Empty by default, and that is a refusal rather than a gap being papered
-   * over: `requestRelease` answers `factory_protected_effect_untrusted` for an
-   * adapter no profile names. A profile pairs a definition's release-node
-   * adapter reference with the destination it publishes to, so it is a
-   * per-installation declaration and the startup document has no field for one
-   * yet. W05 owns `factorySynchronousReleaseProfile`; W07 owns the GitHub
-   * adapter it would lift.
+   * Composed from the startup document's `release.profiles` by
+   * `composeFactoryReleaseDestinations`, one per declared adapter. Absent when
+   * nothing is declared, and that is a refusal rather than a gap:
+   * `requestRelease` answers `factory_protected_effect_untrusted` for an
+   * adapter no profile names.
    */
   readonly releaseProfiles?: Iterable<FactoryReleaseCommandProfile>;
   /** The host's reporter, so a refusal this service could not classify is readable. */
