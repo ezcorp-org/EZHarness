@@ -22,7 +22,7 @@ if [ ! -S "$socket" ]; then
   exit 1
 fi
 
-host_gid="$(stat -c '%g' "$socket")"
+host_gid="$(stat -c '%g' "$socket" 2>/dev/null || stat -f '%g' "$socket" 2>/dev/null)" || host_gid=""
 if [[ ! "$host_gid" =~ ^[0-9]+$ ]]; then
   echo "error: could not read a numeric group from $socket" >&2
   exit 1
