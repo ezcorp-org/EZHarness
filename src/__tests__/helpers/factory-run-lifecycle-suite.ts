@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, spyOn, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { GetObjectCommand } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { sql } from "drizzle-orm";
 import { referenceCodeV1, validateFactoryApiResponse, createKernelState, createPartitionKernelState, advanceKernel, factoryRunnerRequestDigest, FACTORY_LAZY_INPUT_SCHEMA_VERSION, type FactoryDefinition, type FactoryRunnerRequest, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
@@ -92,6 +92,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   let sequence = 0;
   let stages = 0;
   const publicationRoots: string[] = [];
+  /** Every object a publishing case wrote to a lent real store, removed by exact version afterwards. */
+  const publishedObjects: Array<{ readonly key: string; readonly versionId: string }> = [];
   const duration = 7 * 24 * 60 * 60 * 1000;
   const tenantId = "lifecycle-tenant";
   const projectId = "lifecycle-project";
@@ -264,6 +266,10 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   });
   afterAll(async () => {
     await Promise.all(publicationRoots.splice(0).map(root => rm(root, { recursive: true, force: true })));
+    const lent = fixture?.publication;
+    if (lent !== undefined) {
+      for (const object of publishedObjects.splice(0)) await lent.client.send(new DeleteObjectCommand({ Bucket: lent.bucket, Key: object.key, VersionId: object.versionId }));
+    }
     await fixture?.close();
   });
 
@@ -854,6 +860,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
     // The exact sealed bytes, under the declared prefix, and a manifest that names them.
     const receipt = settled.receipt as FactoryS3ManifestReceipt;
+    publishedObjects.push(...receipt.files.map(file => ({ key: file.key, versionId: file.versionId })), { key: receipt.manifestKey, versionId: receipt.version });
     expect(receipt.manifestKey).toBe(`${world.store.prefix}/${world.object}/${FACTORY_S3_MANIFEST_NAME}`);
     expect(receipt.files.map(file => file.key)).toEqual(world.published.map(file => `${world.store.prefix}/${world.object}/${file.name}`));
     for (const [index, file] of world.published.entries()) {
