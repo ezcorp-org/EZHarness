@@ -400,6 +400,19 @@ test.describe("factory authoring console", () => {
 		await expect(page.getByTestId("factory-run-inspector").getByRole("heading", { level: 2, name: "reference.code.v1" })).toBeVisible();
 	});
 
+	test("keeps the server's answer when the session record cannot be read", async ({ page, mockApi }) => {
+		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
+		await routeFactoryApi(page);
+		const errors: string[] = [];
+		page.on("pageerror", error => errors.push(error.message));
+		// A malformed reply: the page keeps the server-rendered answer and raises nothing.
+		await page.route("**/api/auth/me", route => route.fulfill({ status: 200, contentType: "application/json", body: "{" }));
+		await page.goto("/factories");
+		await expect(page.getByTestId("factory-console")).toBeVisible();
+		await expect(page.getByRole("tab", { name: "Authoring" })).toHaveAttribute("aria-selected", "true");
+		expect(errors).toEqual([]);
+	});
+
 	test("creates and imports through the current membership project", async ({ page, mockApi }) => {
 		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
 		const mocked = await routeFactoryApi(page);

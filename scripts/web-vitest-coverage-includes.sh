@@ -3,7 +3,7 @@
 web_vitest_coverage_args() {
   WEB_VITEST_COVERAGE_ARGS=(
     "--coverage.include=src/lib/**"
-    "--coverage.include=src/routes/(app)/factories/+page.server.ts"
+    "--coverage.include=src/routes/**/factories/+page.server.ts"
     "--coverage.include=src/routes/(app)/factories/+page.svelte"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/trust/+server.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/release/control/+server.ts"
