@@ -47,7 +47,12 @@ must check that existing credentials still decrypt before accepting traffic.
    finish before opening its chat.
 4. Make changes in that sandbox. One private sandbox has one owner conversation;
    later runs in that conversation build on its earlier changes.
-5. Review the saved changes and confirm creation of a draft pull request.
+5. Select **Prepare PR review**, review the saved changes, and confirm creation
+   of a draft pull request. The UI states when no verified checks are recorded.
+
+V1 accepts up to 2,000 regular files, 256 KiB per file, and 32 MiB of file content.
+It rejects links, submodules, special files, and changes to GitHub workflow files.
+An unsupported repository fails before its sandbox becomes usable.
 
 The repository is imported at a fixed commit. PR review uses an immutable export,
 bound to the owner, sandbox, conversation, and latest completed run. A different

@@ -93,7 +93,7 @@
 		</div>
 		{#if view.state === "ready" || view.state === "reviewing"}<p class="mt-2 text-xs text-[var(--color-text-muted)]">Nothing pushed yet.</p>{/if}
 		{#if reason}<p class="mt-2 text-sm text-[var(--color-text-secondary)]" role="status">{reason}</p>{/if}
-		{#if view.state === "stale" || view.state === "failed"}<p class="mt-2 text-sm text-red-700 dark:text-red-300" role="status">This draft needs a new review before GitHub can be updated.</p>{/if}
+		{#if view.state === "stale"}<p class="mt-2 text-sm text-red-700 dark:text-red-300" role="status">This draft needs a new review before GitHub can be updated.</p>{/if}
 		{#if error}<p class="mt-2 text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>{/if}
 	</section>
 {:else if error}
