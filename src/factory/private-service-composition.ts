@@ -30,7 +30,6 @@
  * accepted set without restarting the product, the same property the host stop
  * route gets from reloading its signing pair per signature.
  */
-import { basename, dirname, resolve as resolvePath } from "node:path";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryApplication } from "./application";
@@ -44,7 +43,7 @@ import { FactoryLazyCommands } from "./lazy-commands";
 import { FactoryLazyInputReader } from "./lazy-input";
 import { FactoryPartitionCommands } from "./partition-commands";
 import { FactoryPrivateCommands, type FactoryPrivateCommandHandler } from "./private-commands";
-import { privateDirectory, readPrivateBounded } from "./private-files";
+import { readPrivateText as readPrivateFileText } from "./private-files";
 import { startFactoryPrivateService } from "./private-service";
 import { FactoryProtectedCommandEffects, type FactoryReleaseCommandProfile } from "./protected-command-effects";
 import type { FactoryReleases } from "./releases";
@@ -59,6 +58,8 @@ import type { FactoryTransitionArtifacts } from "./transition-artifacts";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 const MAX_PRIVATE_MATERIAL_BYTES = 64 * 1024;
+
+const readPrivateText = (path: string) => readPrivateFileText(path, MAX_PRIVATE_MATERIAL_BYTES);
 
 /**
  * Longer than the longest effect this service serves, and measured rather than
@@ -84,16 +85,6 @@ export class FactoryPrivateServiceCompositionError extends Error {
   constructor(readonly code: FactoryPrivateServiceCompositionCode, message: string) {
     super(message);
     this.name = "FactoryPrivateServiceCompositionError";
-  }
-}
-
-async function readPrivateText(path: string): Promise<string> {
-  const absolute = resolvePath(path);
-  const directory = await privateDirectory(dirname(absolute));
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateBounded(directory, basename(absolute), MAX_PRIVATE_MATERIAL_BYTES));
-  } finally {
-    await directory.close();
   }
 }
 
