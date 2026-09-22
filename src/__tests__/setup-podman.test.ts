@@ -381,7 +381,7 @@ async function withRunnerSocket<T>(
 ): Promise<T> {
   mkdirSync(runnerDir, { recursive: true });
   let connectionObserved = false;
-  let probeObserved = false;
+  let authenticatedCanonicalProbeObserved = false;
   const server = createServer((connection) => {
     connectionObserved = true;
     if (!responsive) return;
@@ -397,18 +397,18 @@ async function withRunnerSocket<T>(
       const bodyText = request.slice(headerEnd + 4);
       if (Buffer.byteLength(bodyText) < contentLength) return;
       responded = true;
-      probeObserved = true;
+      const authorization = headers.match(/\r\nauthorization: ([^\r\n]+)/i)?.[1];
+      const canonical = request.startsWith("POST /v4/inspect HTTP/1.1") &&
+        /\r\ncontent-type: application\/json(?:\r\n|$)/i.test(headers) &&
+        bodyText === '{"id":"setup-podman-probe"}';
+      authenticatedCanonicalProbeObserved ||= canonical && authorization === `Bearer ${RUNNER_TOKEN}`;
       if (options.unrelated) {
         const body = '{"service":"not-the-extension-runner"}';
         connection.end(`HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\nConnection: close\r\n\r\n${body}`);
         return;
       }
       const expectedToken = options.token ?? RUNNER_TOKEN;
-      const authorization = headers.match(/\r\nauthorization: ([^\r\n]+)/i)?.[1];
       const authenticated = authorization === `Bearer ${expectedToken}`;
-      const canonical = request.startsWith("POST /v4/inspect HTTP/1.1") &&
-        /\r\ncontent-type: application\/json(?:\r\n|$)/i.test(headers) &&
-        bodyText === '{"id":"setup-podman-probe"}';
       const body = authenticated && canonical
         ? '{"id":"setup-podman-probe","state":"unknown","diagnostics":[]}'
         : '{"error":{"code":"unauthorized","message":"Runner authentication failed"}}';
@@ -427,8 +427,8 @@ async function withRunnerSocket<T>(
     if (options.expectConnection && !connectionObserved) {
       throw new Error("setup did not connect to the runner socket fixture");
     }
-    if (options.expectProbe && !probeObserved) {
-      throw new Error("setup did not reach the runner socket fixture");
+    if (options.expectProbe && !authenticatedCanonicalProbeObserved) {
+      throw new Error("setup did not send the canonical authenticated runner probe");
     }
     return result;
   } finally {
