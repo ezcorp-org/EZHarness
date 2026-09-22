@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { FactoryPoolCheckpointSource, factoryDirectRestorePoolLedger, factoryPoolSnapshotFromPages, POOL_CHECKPOINT_PAGE_ROWS } from "../../src/factory/pool/checkpoint";
-import { FactoryPoolLedger, poolRows, type PoolSql } from "../../src/factory/pool/ledger";
+import { type FactoryPoolLedger, poolRows, type PoolSql } from "../../src/factory/pool/ledger";
 import { PoolAdmissionService, type PoolPrincipal } from "../../src/factory/pool/service";
 import { setupFactoryPoolPostgres } from "./helpers/factory-pool-database";
 
