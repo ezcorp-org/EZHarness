@@ -3083,3 +3083,50 @@ the repair protects the combined runner now and CI against any future grouping.
 
 ### Coordinator handoff (2026-09-22 01:10 UTC)
 See `docs/validation/factory/wave4/HANDOFF-2026-09-22.md` for branch heads, in-flight packages (W09b ready for validation; W07c and W01f awaiting verdicts; W01g and W08b in progress; wave4b combined run in progress), rulings, the ordered remaining work (W09b, W01g, W08b, W09c, second W18a pass, W14–W17, W18, W19, W20), and the environment facts.
+### W07c — the release declare race (2026-09-21)
+
+Branch `wp/w07c-declare-race`, cut from `integ/w00` at `bbcb2e34f`. Gates:
+`tasks/factory/w07c-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w07c/`.
+
+- [x] Reproduce the C04 archive-writer concurrency case against the real proof PostgreSQL, before
+      any code change, and capture the failing statement verbatim.
+- [x] Find the cause in the declare path and write it in the gate file.
+- [x] Fix at the root, with no new identity and no widened acceptance.
+- [x] Drive the race instead of waiting for it, and prove the producer red before the fix.
+- [x] Keep the refusal-by-name behaviour for a declaration that is genuinely different.
+- [x] Pin the primary-key collision with a case that has no timing dependence.
+- [x] Sweep: typecheck, lint, factory boundaries, gate integrity, schema drift, the release
+      suites, the real-PostgreSQL producers, and both coverage gates.
+
+**Review.** The C04 archive-writer concurrency case failed with 23505 on
+`factory_release_operations_pkey` since 2026-09-14 in the w07, w08, w10 and wave4a runs. The declare
+statement listed the nine-column identity index as its only `ON CONFLICT` target. PostgreSQL
+arbitrates only the index a conflict target names, and the operation id is a digest of a strict
+superset of those nine columns, so two identical declarations always collide on the primary key as
+well; whichever declaration lost the microsecond race between the arbiter pre-check and the index
+write hit the primary key first and raised. The fix removes the conflict target, which makes every
+unique index arbitrate. That widens what converges, not what is accepted: the exact durable reread
+after the insert already decided identity and still does, so a declaration that shares the nine
+identity columns under a different id is refused as `factory_release_conflict` and a primary key
+that collides without a matching identity is refused as `factory_release_corrupt`. Both of those
+cases pass against the unfixed code as well, which is the evidence that the arbiter widened and the
+contract did not. Reproduction went from 1 failure in 20 ambient runs to 17 in 20 once a
+`BEFORE INSERT` trigger parked both declarations ahead of the arbiter pre-check; after the fix the
+driven producer is green and the original case runs fifty times clean. The one structural change is
+that the C04 world moved out of the conformance closure so the new producer reuses it rather than
+building a second one; the conformance's own behaviour is unchanged.
+
+**W07c validation round (2026-09-21).** ACCEPT-WITH-FIXES on `acb49f2b6`; the production fix needed
+nothing. Three fixes applied on `f2ed5c118` and this commit. F1, the only blocking one, was a defect
+in my own producer rather than in the fix: `parked()` counted `pg_locks` without filtering by
+database, and since `pg_locks` is cluster-wide while an advisory locktag is per-database, two
+parallel copies of the file counted each other's waiters and the readiness check failed its exact
+match about fifteen percent of the time at width 3. It was a false red and could never have hidden a
+regression, but it would have made CI flaky. Filtering by database makes the blocking set and the
+counted set agree; twenty runs at width 3 and twenty at width 2 are now clean, with the barrier
+message in none of the forty logs. F2 reran every producer at the final source head, because two
+receipts named a commit that an amend had removed. F3 corrected the name of the nine-column arbiter:
+it is declared in `schema.ts` as `idx_factory_release_operations_identity` but the migration creates
+it as an inline UNIQUE, so the database calls it
+`factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
+arbiters and only two.

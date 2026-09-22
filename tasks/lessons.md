@@ -979,3 +979,39 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Re-registering an alias updates its values but cannot rebind an import that is already resolved. A route module is linked once per process, so the suite that loads it first decides what every later suite sees. A stub that must not outlive its file has to be absent, not reverted.
 - Proving each changed file against one named victim cannot see a regression. Run every ORDERED pair among the files you touched and compare each pair against the sum of its two files run alone; then rebuild the real batch at your final head, because a changed test file adds itself to a `--diff-filter` auto list and the batch you were given is no longer the batch you must make green.
 - Before calling a cross-file failure yours, measure the same pair at the merge base in a separate worktree. Report the pre-existing ones with both numbers rather than fixing or hiding them.
+## 2026-09-21 — A conflict target is an arbiter list, not a uniqueness statement
+
+- Name every unique index that a row can collide on in `ON CONFLICT`, or name none. PostgreSQL
+  resolves a conflict only on the index the target names; a collision on any other unique index is
+  a plain 23505. A derived primary key whose input is a superset of a unique index means both
+  always collide together, so targeting one of them alone converges some interleavings and raises
+  on the rest.
+- Read a conflict target against the table's whole index set, not against the concept it was
+  written for. The nine-column identity index expressed the C04 rule exactly and was still the
+  wrong arbiter list.
+- `ON CONFLICT DO NOTHING` with no target is not a widening of what is accepted when the durable
+  reread that follows decides identity. Prove that by keeping the refusal cases and showing they
+  pass before and after the change.
+- A race that fails one run in twenty is evidence of a window, not of its cause. A `BEFORE INSERT`
+  row trigger runs before the arbiter pre-check, so it parks concurrent writers at the exact point
+  the window opens; release them together and assert on `pg_locks` that both are parked, so the
+  test drives the interleaving instead of waiting for the host to produce it.
+- Pair a driven race with one timing-free case that pins the same property. Wake order belongs to
+  the host, so a forced race is strong evidence and a poor gate on its own.
+
+## 2026-09-21 — A cluster-wide view is not a per-database fact
+
+- `pg_locks` spans every database in the cluster, but an advisory locktag carries `MyDatabaseId`.
+  A readiness counter built on `pg_locks` must filter on `database` or it counts a parallel run's
+  waiters; the set that blocks and the set that is counted have to be the same set.
+- Run a new concurrency producer at more than one parallel width before calling it stable. A test
+  whose own coordination is measured at width 1 only has not been measured. Width 1 hid this;
+  width 3 showed it at fifteen percent.
+- When a race producer fails, separate the failure signatures before attributing a rate. The
+  pre-fix evidence here survived only because every failing log was checked for the 23505
+  signature, which distinguished the real defect from the producer's own flake.
+- Name a constraint as the database names it, not as the ORM declares it. An inline `UNIQUE` in a
+  migration is auto-named by PostgreSQL, so a drizzle `uniqueIndex(...)` label can name an index
+  that does not exist. Probe a live migrated database before writing the name into a comment.
+- Amending a commit after a producer has run against it strands the receipt. Run producers at the
+  last commit that touches source, and keep later commits documentation-only.
