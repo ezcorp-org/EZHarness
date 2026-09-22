@@ -1,6 +1,7 @@
 import type { Page, Route } from "@playwright/test";
 import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
+import { dismissPickerSheet, openFilePickerInput } from "./fixtures/picker-helpers.js";
 
 const provider = {
 	installationId: "11111111-1111-4111-8111-111111111111",
@@ -88,7 +89,8 @@ test.describe("project sandbox panel", () => {
 		await mockApi({ projects: [project] });
 		await mockSandboxApi(page);
 		await page.goto(`/project/${project.id}/settings`);
-		await expect(page.getByPlaceholder("/app/web/.ezcorp/projects/my-project")).toBeVisible();
+		await expect(await openFilePickerInput(page, "/app/web/.ezcorp/projects/my-project")).toBeVisible();
+		await dismissPickerSheet(page);
 		await expect(page.getByText("Feature Index", { exact: true })).toBeVisible();
 		await expect(page.getByTestId("project-settings-integrations")).toBeVisible();
 		await expect(page.getByTestId("project-sandbox-panel").getByRole("button", { name: /Local Podman/i })).toBeVisible();
