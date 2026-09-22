@@ -2,7 +2,9 @@ import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryArtifactReference, JsonValue, RunnerReference } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryArchiveMemberSources, FactoryArchivePublicationSet } from "./archive-writer";
-import { FACTORY_MATERIAL_LIMITS, type FactoryMaterialRecord, type FactoryMaterialScope, type FactoryMaterialService } from "./artifact-materials";
+import { FACTORY_MATERIAL_LIMITS, FactoryAttemptMaterials, FactoryMaterialError, snapshotFactoryMaterialScope, type FactoryArtifactBlobStore, type FactoryMaterialRecord, type FactoryMaterialScope, type FactoryMaterialService } from "./artifact-materials";
+import { FactoryArtifacts } from "./artifacts";
+import type { FactoryExecutionJournal } from "./executions";
 import { assertFactoryIdentity } from "./records";
 import { FACTORY_PUBLICATION_PROVENANCE_SCAN_LIMIT, FactoryPublicationProvenance, factoryPublicationProvenanceUntrusted, type FactoryPublicationMembers, type FactoryPublicationOperationFacts, type FactoryVerifiedPublicationAttempt } from "./release-publication-set";
 import { sealFactoryReleaseProfileResult, type FactoryAsyncReleaseProfile, type FactoryReleaseProfileInput, type FactoryReleaseProfileResult } from "./release-profile";
@@ -176,6 +178,58 @@ export function assertFactoryS3RequestedDirectory(value: unknown, account: strin
   try { factoryS3PublicationDirectory({ provider: "s3", account, object: record.object }, account); }
   catch { invalidProfile(); }
   return record.object;
+}
+
+export interface FactoryVerifiedAttemptMaterialsOptions {
+  readonly database: TransactionalDb;
+  readonly blobs: FactoryArtifactBlobStore;
+  readonly journal: FactoryExecutionJournal;
+}
+
+/**
+ * Lists one already-named attempt's own sealed materials, buildable once in a production
+ * composition with no authority beyond that one call.
+ *
+ * `S3FactoryManifestReleaseProfile` is composed once and later resolves for whichever attempt an
+ * acceptance decision names; the attempt is not known until `resolve` runs. `FactoryAttemptMaterials`
+ * cannot serve that composition directly because it is bound to one attempt's authority at
+ * construction, so a single instance could only ever answer for the one attempt it was built with —
+ * exactly the gap that left `release.profiles` unbuildable. This reader stays attempt-agnostic at
+ * construction. On every call it re-derives the NAMED attempt's own current authority, fresh, from
+ * `FactoryExecutionJournal.readAuthorityInTransaction` — the same durable row every attempt-scoped
+ * write and read already trusts — and then delegates the actual listing to `FactoryAttemptMaterials`
+ * under that freshly read authority. The query, the scope check, and the liveness rule stay the one
+ * implementation W04 wrote; nothing here repeats them, widens them, or holds a grant past the call
+ * in flight.
+ *
+ * An attempt id the journal does not currently recognize under the caller's own tenant/project/run
+ * is refused by name, before any material row is read. There is no listing by tenant alone: every
+ * call is bound to the exact attempt its scope names, so this is not a tenant-wide lister and never
+ * answers for an attempt other than the one requested.
+ */
+export class FactoryVerifiedAttemptMaterials implements Pick<FactoryMaterialService, "list"> {
+  private readonly database: TransactionalDb;
+  private readonly blobs: FactoryArtifactBlobStore;
+  private readonly journal: FactoryExecutionJournal;
+
+  constructor(options: FactoryVerifiedAttemptMaterialsOptions) {
+    this.database = options.database;
+    this.blobs = options.blobs;
+    this.journal = options.journal;
+  }
+
+  async list(scopeValue: FactoryMaterialScope, signal?: AbortSignal): Promise<readonly FactoryMaterialRecord[]> {
+    const scope = snapshotFactoryMaterialScope(scopeValue);
+    signal?.throwIfAborted();
+    const authority = await this.journal.readAuthorityInTransaction(this.database, {
+      tenantId: scope.tenantId, projectId: scope.projectId, runId: scope.runId, attemptId: scope.attemptId,
+    });
+    if (!authority) throw new FactoryMaterialError("factory_material_scope_denied");
+    signal?.throwIfAborted();
+    const artifacts = new FactoryArtifacts(this.database, this.blobs, scope.tenantId);
+    const materials = new FactoryAttemptMaterials({ database: this.database, artifacts, blobs: this.blobs, journal: this.journal, authority });
+    return materials.list(scope, signal);
+  }
 }
 
 export interface FactoryS3ManifestReleaseProfileOptions {
