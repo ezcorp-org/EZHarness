@@ -17,13 +17,15 @@ export interface FactoryPackagePreparationFixture { readonly db: TransactionalDb
 const tenantId = "package-tenant";
 const projectId = "package-project";
 const admin: FactoryPrincipal = { kind: "user", id: "package-admin", authentication: "session" };
-const reference: RunnerReference = { package: "@ezcorp/package-runner", manifestName: "package-runner", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "echo" };
+/** Shared with suites that bind a real installed release (the console package journey). */
+export const factoryPackageTestReference: RunnerReference = { package: "@ezcorp/package-runner", manifestName: "package-runner", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "echo" };
+const reference = factoryPackageTestReference;
 const secondReference: RunnerReference = { ...reference, model: "model-b", configurationDigest: `sha256:${"c".repeat(64)}` };
 const limits: ResourceLimits = { memoryBytes: 64 * 1024 * 1024, cpuMillis: 1000, pids: 16, tmpBytes: 1024 * 1024, outputBytes: 1024 * 1024, timeoutMs: 10_000 };
 
 function digestReference(value: RunnerReference): string { return `sha256:${digestObject(value)}`; }
 
-function release(sourceDigest: string, artifactDigest: string): ReleaseRecord {
+export function factoryPackageTestRelease(sourceDigest: string, artifactDigest: string): ReleaseRecord {
   const manifest = { schemaVersion: 4 as const, name: reference.manifestName, version: reference.version, author: { name: "Package test" }, description: "Factory package", permissions: {}, tools: [{ name: reference.export, description: "Echo", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
   const input = { installationId: "package-installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest, artifactDigest, imageDigest: "podman-image@sha256:test", manifest, evidence: { protocolVersion: 4 as const, validatorVersion: "runner-v4", discoveryDigest: digestObject(manifest), tests: [{ name: "unit", passed: true }] }, runnerProfile: "podman-v4", policyDigest: digestObject({ policy: "v4" }) };
   return { ...input, id: "package-release", releaseDigest: digestObject(input), createdAt: "2030-01-01T00:00:00.000Z" };
@@ -49,7 +51,7 @@ async function packageContext(installationProject = projectId) {
   const sourceDigest = await blobs.put(new TextEncoder().encode(canonicalJson(source)));
   const artifactDigest = digestObject(artifacts);
   const repo = new DatabaseLifecycleRepository(database);
-  const current = release(sourceDigest, artifactDigest);
+  const current = factoryPackageTestRelease(sourceDigest, artifactDigest);
   await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope: `project:${installationProject}`, generation: 1, activeReleaseId: current.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
   const fenced: Array<{ state: string; trustRevision: number; reference: RunnerReference }> = [];
   // A case can make the stop path fail to prove the state change is atomic with it.
