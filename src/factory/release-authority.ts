@@ -205,7 +205,7 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
     if (snapshot.expectedCurrentGeneration !== null) counter(snapshot.expectedCurrentGeneration, 0);
     const fence = await this.lifecycle.authorizeRunInTransaction(transaction, { projectId: authority.projectId, runId: authority.runId });
     this.assertFence(authority, fence);
-    const terminal = await this.journal.recordCompletedTerminalInTransaction(transaction, authority, snapshot.result, this.artifacts);
+    const terminal = await this.completedTerminal(transaction, authority, snapshot.result);
     const trust = await this.requireTrust(transaction, authority.projectId, "update", true);
     const requestRow = rows<{ request_json: unknown }>(await transaction.execute(sql`SELECT request_json FROM factory_executions WHERE attempt_id=${authority.attemptId} FOR SHARE`))[0];
     const request = this.parseStored(requestRow?.request_json) as Pick<FactoryRunnerRequest, "runner">;
@@ -310,6 +310,24 @@ export class FactoryReleaseAuthorityStore implements FactoryReleaseAuthorityRead
       attemptId: candidate.attempt_id,
       artifact: Object.freeze({ artifactId: candidate.output_artifact_id, digest: candidate.candidate_digest, encodedBytes: Number(candidate.output_bytes) }),
     });
+  }
+
+  /**
+   * The candidate attempt's terminal fact: recorded the first time, READ every time after.
+   *
+   * Recording authorizes a LIVE attempt (its lease deadline still ahead), which is right the one
+   * time the runner's result becomes durable. Acceptance re-derives the candidate later — after a
+   * protected validator has been admitted and run, which always outlasts the candidate's lease — so
+   * re-recording there refused `factory_run_fence_changed` and no acceptance could ever pass in a
+   * real deployment. A recorded terminal is read through the journal's historical reader, which
+   * re-verifies the stored evidence, and must be the very result the caller holds.
+   */
+  private async completedTerminal(transaction: MigrationDb, authority: FactoryAttemptAuthority, result: FactoryRunnerResult): Promise<FactoryExecutionTerminalFact> {
+    const recorded = rows<{ attempt_id: string }>(await transaction.execute(sql`SELECT attempt_id FROM factory_execution_terminals WHERE attempt_id=${authority.attemptId} FOR SHARE`))[0];
+    if (!recorded) return this.journal.recordCompletedTerminalInTransaction(transaction, authority, result, this.artifacts);
+    const read = await this.journal.readCompletedTerminalInTransaction(transaction, authority, this.artifacts);
+    if (canonicalJson(read.result) !== canonicalJson(result)) throw new FactoryReleaseAuthorityError("factory_release_candidate_conflict");
+    return read.terminal;
   }
 
   private assertFence(authority: FactoryAttemptAuthority, fence: FactoryRunFence): void {
