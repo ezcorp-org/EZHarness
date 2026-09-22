@@ -35,7 +35,16 @@ function text(bytes: Uint8Array): string | null {
   catch { return null; }
 }
 
-function lineCount(value: string): number { return value ? value.split("\n").length - (value.endsWith("\n") ? 1 : 0) : 0; }
+function changedLineCounts(patch: string): { additions: number; deletions: number } {
+  let additions = 0;
+  let deletions = 0;
+  // The first two lines are diff's file labels. Later +/- lines are changed content.
+  for (const line of patch.split("\n").slice(2)) {
+    if (line.startsWith("+")) additions++;
+    else if (line.startsWith("-")) deletions++;
+  }
+  return { additions, deletions };
+}
 
 async function patch(before: Uint8Array, after: Uint8Array, path: string, root: string): Promise<string> {
   const oldPath = join(root, "before"); const newPath = join(root, "after");
@@ -75,12 +84,13 @@ export async function buildReviewDiff(base: ValidatedSnapshot, current: Validate
       const binary = beforeText === null || afterText === null;
       if (binary && beforeBytes.length + afterBytes.length > MAX_BINARY) throw new ReviewDiffError("unsupported_changes", "Binary file exceeds the review limit");
       const rendered = binary ? "" : await patch(beforeBytes, afterBytes, path, root);
+      const counts = changedLineCounts(rendered);
       totalPatch += Buffer.byteLength(rendered);
       if (totalPatch > MAX_PATCH_TOTAL) throw new ReviewDiffError("unsupported_changes", "Review diff exceeds the total limit");
       const modeNote = before?.mode !== after?.mode ? `Mode: ${before?.mode ?? "none"} → ${after?.mode ?? "none"}\n` : "";
       result.push({
         path, status: !before ? "added" : !after ? "deleted" : "modified",
-        additions: afterText === null ? 0 : lineCount(afterText), deletions: beforeText === null ? 0 : lineCount(beforeText),
+        ...counts,
         patch: modeNote + rendered, binary, beforeBytes: beforeBytes.length, afterBytes: afterBytes.length,
         ...(before ? { beforeSha256: before.sha256 } : {}), ...(after ? { afterSha256: after.sha256 } : {}),
         ...(binary && before ? { beforeBase64: Buffer.from(beforeBytes).toString("base64") } : {}),

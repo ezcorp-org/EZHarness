@@ -5,7 +5,7 @@ import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 import { createUser } from "../../../db/queries/users";
 import { githubUserAuthorities, githubUserConnections, githubUserEffectClaims, sessions } from "../../../db/schema";
 import { decryptWithAad } from "../../../providers/encryption";
-import { checkRepository, completeAuthorization, disconnect, getConnectionBinding, getConnectionStatus, listAccessibleRepositories, startAuthorization, withUserToken, withUserTokenReadOnly } from "../broker";
+import { assertUserEffectCurrent, checkRepository, completeAuthorization, disconnect, getConnectionBinding, getConnectionStatus, listAccessibleRepositories, startAuthorization, withUserToken, withUserTokenReadOnly } from "../broker";
 
 mockDbConnection();
 const oldFetch = globalThis.fetch;
@@ -225,6 +225,26 @@ describe("personal GitHub credential broker", () => {
     expect(repeated).toBe(false);
     await disconnect({ userId: a });
     await expect(withUserTokenReadOnly({ userId: a, repositoryId: 42, expectedGeneration: binding.generation }, async () => "bad")).rejects.toThrow();
+  });
+
+  test("disconnect and reconnect fence later requests of a claimed publication", async () => {
+    const a = await userId("multi-effect@github-user.test");
+    const b = await userId("other-effect@github-user.test");
+    await connect(a);
+    const binding = await getConnectionBinding({ userId: a });
+    const operation = { userId: a, repositoryId: 42, operationId: "several-requests", expectedGeneration: binding.generation };
+    await expect(assertUserEffectCurrent(operation)).rejects.toThrow("changed");
+    await withUserToken({ ...operation, kind: "publish", authorizeDispatch: async () => {} }, async () => {
+      await assertUserEffectCurrent(operation);
+      await expect(assertUserEffectCurrent({ ...operation, userId: b })).rejects.toThrow("changed");
+      await expect(assertUserEffectCurrent({ ...operation, repositoryId: 99 })).rejects.toThrow("changed");
+      await disconnect({ userId: a });
+      await expect(assertUserEffectCurrent(operation)).rejects.toThrow("changed");
+      await connect(a, "reconnected-effect", "two");
+      await expect(assertUserEffectCurrent(operation)).rejects.toThrow("changed");
+    });
+    await expect(assertUserEffectCurrent(operation)).rejects.toThrow("changed");
+    expect((await getTestDb().select().from(githubUserEffectClaims)).length).toBe(1);
   });
 
   test("repository enumeration reads later pages and refuses an incomplete scan", async () => {

@@ -20,6 +20,16 @@ vi.mock("$server/integrations/github-personal-prs/service", () => ({
 	getPersonalPrForReviewId: mocks.getReview, confirmPersonalPr: mocks.confirm,
 	importApprovedRepository: mocks.importRepo,
 }));
+vi.mock("$server/integrations/github-personal-prs/publisher", () => ({
+	PrPublisherError: class PrPublisherError extends Error {
+		constructor(public code: string, message: string) { super(message); }
+	},
+}));
+vi.mock("$server/integrations/github-user/transport", () => ({
+	GithubUserError: class GithubUserError extends Error {
+		constructor(public code: string, message: string) { super(message); }
+	},
+}));
 vi.mock("$server/runtime/sandbox/controller", () => ({ getSandboxController: () => ({ createSandboxProject: mocks.create }) }));
 vi.mock("$lib/server/sandbox-route", () => ({
 	LOCAL_MVP_LIMITS: { memoryBytes: 1 }, statusDto: (value: unknown) => value,
@@ -39,6 +49,8 @@ const confirm = await import("../routes/api/github/personal-prs/proposals/[id]/c
 const importRepo = await import("../routes/api/github/personal-prs/sandboxes/[projectId]/import/+server");
 const { personalPrRouteError } = await import("../routes/api/github/personal-prs/_route");
 const { PersonalPrError } = await import("$server/integrations/github-personal-prs/service");
+const { PrPublisherError } = await import("$server/integrations/github-personal-prs/publisher");
+const { GithubUserError } = await import("$server/integrations/github-user/transport");
 
 const user = { id: "owner-1", email: "owner@example.test", name: "Owner", role: "user" };
 const uuid = "00000000-0000-4000-8000-000000000001";
@@ -261,6 +273,15 @@ describe("personal pull request routes", () => {
 			expect(res.status).toBe(400);
 			expect(JSON.stringify(await res.json())).not.toContain("secret");
 		}
+		for (const [code, status] of [["invalid_input", 400], ["base_changed", 409], ["remote_conflict", 409], ["provider_mismatch", 502], ["outcome_unknown", 502]] as const) {
+			const res = personalPrRouteError(new PrPublisherError(code, "sensitive provider detail"));
+			expect(res.status).toBe(status);
+			expect(res.headers.get("cache-control")).toBe("no-store");
+			expect(JSON.stringify(await res.json())).not.toContain("sensitive provider detail");
+		}
+		const github = personalPrRouteError(new GithubUserError("PROVIDER_NETWORK", "secret token"));
+		expect(github.status).toBe(502);
+		expect(JSON.stringify(await github.json())).not.toContain("secret token");
 		const unknown = personalPrRouteError(new Error("secret"));
 		expect(unknown.status).toBe(503);
 		expect(JSON.stringify(await unknown.json())).not.toContain("secret");

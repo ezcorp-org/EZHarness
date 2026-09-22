@@ -11,14 +11,16 @@ const messages = [
 ];
 
 async function exerciseDraftPr(page: Page, mockApi: (overrides?: MockOverrides) => Promise<void>, testInfo: TestInfo) {
-	let state: "ready" | "reviewing" | "created" = "ready";
-	const view = () => ({
+	let state: "working" | "ready" | "created" = "working";
+	let prepareCalls = 0;
+	const view = () => state === "working" ? { state, blockReason: "review_not_prepared", projectId: project.id } : ({
 		state,
 		proposalId: "proposal-1",
 		digest: "a".repeat(64),
+		reviewPath: `/project/${project.id}/chat/${conversation.id}?review=proposal-1`,
 		repository: { id: 42, fullName: "owner/private", baseRef: "main", baseSha: "b".repeat(40) },
 		files: [{ path: "src/exact-file.ts", status: "modified", additions: 2, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
-		checks: [{ name: "tests", result: "passed" }],
+		checks: [],
 		title: "Fix a file",
 		body: "Verified in sandbox",
 		prUrl: state === "created" ? "https://github.com/owner/private/pull/7" : undefined,
@@ -26,21 +28,25 @@ async function exerciseDraftPr(page: Page, mockApi: (overrides?: MockOverrides) 
 	await mockApi({
 		projects: [project], conversations: [conversation], messages,
 		routes: {
-			"/api/github/personal-prs/runs/run-1/prepare": () => { state = "reviewing"; return view(); },
+			"/api/github/personal-prs/runs/run-1/prepare": () => { prepareCalls += 1; state = "ready"; return view(); },
 			"/api/github/personal-prs/runs/run-1": () => view(),
 			"/api/github/personal-prs/proposals/proposal-1/confirm": () => { state = "created"; return view(); },
+			"/api/github/personal-prs/proposals/proposal-1": () => view(),
 		},
 	});
 	await page.goto(`/project/${project.id}/chat/${conversation.id}`);
 	const card = page.getByTestId("personal-pr-card");
-	await expect(card.getByText("PR ready")).toBeVisible();
-	await expect(card).toContainText("checks passed");
+	await expect(card.getByText("Changes ready for review")).toBeVisible();
+	await expect(card).not.toContainText("review_not_prepared");
 	await captureEvidence(page, testInfo, `personal-pr-card-${testInfo.project.name}`);
-	await card.getByRole("button", { name: "Review & create draft PR" }).click();
+	await card.getByRole("button", { name: "Prepare PR review" }).click();
+	await expect(page).toHaveURL(/review=proposal-1$/);
+	expect(prepareCalls).toBe(1);
 	const review = page.getByTestId("personal-pr-review");
 	await expect(review).toContainText("src/exact-file.ts");
 	await expect(review.getByTestId("personal-pr-exact-diff")).toContainText("+after");
 	await expect(review).toContainText("The file list below is the saved run snapshot");
+	await expect(review).toContainText("No verified checks recorded");
 	await expect(page.getByText("No file changes in this conversation")).toHaveCount(0);
 	await captureEvidence(page, testInfo, `personal-pr-review-${testInfo.project.name}`);
 	await review.getByLabel("PR title").fill("Reviewed fix");
@@ -53,6 +59,35 @@ async function exerciseDraftPr(page: Page, mockApi: (overrides?: MockOverrides) 
 
 test("owner reviews an exact sandbox snapshot and creates one draft PR @evidence", async ({ page, mockApi }, testInfo) => {
 	await exerciseDraftPr(page, mockApi, testInfo);
+});
+
+test("owner checks an uncertain GitHub result after reload @evidence", async ({ page, mockApi }, testInfo) => {
+	let state: "failed" | "created" = "failed";
+	let checks = 0;
+	const view = () => ({
+		state, recoveryAction: state === "failed" ? "check_github" : undefined, proposalId: "proposal-1", digest: "a".repeat(64),
+		repository: { id: 42, fullName: "owner/private", baseRef: "main", baseSha: "b".repeat(40) },
+		files: [{ path: "src/exact-file.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		checks: [], title: "Fix a file", body: "Verified in sandbox",
+		reviewPath: `/project/${project.id}/chat/${conversation.id}?review=proposal-1`,
+		prUrl: state === "created" ? "https://github.com/owner/private/pull/7" : undefined,
+	});
+	await mockApi({ projects: [project], conversations: [conversation], messages, routes: {
+		"/api/github/personal-prs/proposals/proposal-1/confirm": () => { checks += 1; state = "created"; return view(); },
+		"/api/github/personal-prs/proposals/proposal-1": () => view(),
+		"/api/github/personal-prs/runs/run-1": () => view(),
+	} });
+	await page.goto(`/project/${project.id}/chat/${conversation.id}`);
+	await expect(page.getByTestId("personal-pr-card")).toContainText("Draft PR creation failed");
+	await page.reload();
+	await page.getByRole("button", { name: "Open PR review" }).click();
+	const review = page.getByTestId("personal-pr-review");
+	await expect(review.getByRole("button", { name: "Create draft PR" })).toHaveCount(0);
+	await expect(review.getByRole("button", { name: "Check GitHub result" })).toBeVisible();
+	await captureEvidence(page, testInfo, "personal-pr-uncertain-result");
+	await review.getByRole("button", { name: "Check GitHub result" }).click();
+	await expect(review.getByRole("link", { name: "Open draft PR on GitHub" })).toHaveAttribute("href", "https://github.com/owner/private/pull/7");
+	expect(checks).toBe(1);
 });
 
 test.describe("mobile draft PR", () => {

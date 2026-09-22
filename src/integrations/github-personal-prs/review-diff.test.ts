@@ -20,6 +20,14 @@ describe("frozen PR review diff", () => {
     expect(review[2]!.patch).toContain("-gone");
     expect(review[3]!.patch).toContain("100644 → 100755");
     expect(review[3]!.beforeSha256).toBe(review[3]!.afterSha256);
+    expect(review.map(item => [item.additions, item.deletions])).toEqual([[1, 0], [1, 1], [0, 1], [0, 0]]);
+  });
+
+  test("counts changed lines rather than unchanged context", async () => {
+    const base = validateSnapshot([file("readme.txt", "one\ntwo\nthree\nfour\nfive\n")]);
+    const next = validateSnapshot([file("readme.txt", "one\ntwo\nchanged\nfour\nfive\n")]);
+    const [review] = await buildReviewDiff(base, next);
+    expect(review).toMatchObject({ additions: 1, deletions: 1 });
   });
 
   test("includes exact bounded binary bytes and hashes", async () => {

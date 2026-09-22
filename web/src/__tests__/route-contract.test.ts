@@ -755,9 +755,16 @@ describe("registry ⇄ filesystem parity", () => {
     // commit, the truest value the type could then express) and is re-declared
     // here, so the whole session-only surface reads one way.
     const SESSION_ONLY = [
+      "DELETE /api/github/connection",
       "DELETE /api/service-accounts/:id",
       "DELETE /api/workflows/delegations/:id",
       "GET /api/extensions/:name/preview",
+      "GET /api/github/callback",
+      "GET /api/github/connection",
+      "GET /api/github/personal-prs/proposals/:id",
+      "GET /api/github/personal-prs/runs/:runId",
+      "GET /api/github/repositories",
+      "GET /api/github/repositories/check",
       "GET /api/service-accounts",
       "GET /api/workflows/delegated-runs",
       "GET /api/workflows/delegations",
@@ -770,6 +777,11 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/extensions/import-source",
       "POST /api/extensions/releases/:installationId/approve",
       "POST /api/extensions/releases/:installationId/project",
+      "POST /api/github/authorize",
+      "POST /api/github/personal-prs/proposals/:id/confirm",
+      "POST /api/github/personal-prs/runs/:runId/prepare",
+      "POST /api/github/personal-prs/sandboxes/:projectId/import",
+      "POST /api/github/sandboxes",
       "POST /api/import/commit",
       "POST /api/marketplace/:id/install",
       "POST /api/mcp-servers",

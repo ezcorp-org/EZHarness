@@ -30,7 +30,11 @@ function driver() {
   const process = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity ?? { bootId: "boot-1", processId: "process-1" }, state: "exited" as const, exitCode: 0, outputCursor: 2 } }));
   const output = mock(async (input: any) => ({ receipt: receipt(input.call), identity: input.identity, cursor: 2, chunks: input.cursor === 0 ? [{ stream: "stdout" as const, encoding: "utf8" as const, data: "ok" }] : [], eof: true, gap: false }));
   const file = mock(async (input: any) => ({ receipt: receipt(input.call) }));
-  return { create, inspect: lifecycle("stopped", "stopped"), start: lifecycle("running", "running"), stop: lifecycle("stopped", "stopped"), destroy: lifecycle("destroyed", "destroyed"), processStart: process, processInspect: process, processReadOutput: output, processCancel: process, fileStat: file, fileList: file, fileRead: file, fileWrite: file, fileMkdir: file, fileRemove: file, fileChmod: file } as unknown as LocalSandboxDriver;
+  return { create, inspect: lifecycle("stopped", "stopped"), start: lifecycle("running", "running"), stop: lifecycle("stopped", "stopped"), destroy: lifecycle("destroyed", "destroyed"), processStart: process, processInspect: process, processReadOutput: output, processCancel: process, fileStat: file, fileList: file, fileRead: file, fileWrite: file, fileMkdir: file, fileRemove: file, fileChmod: file,
+    beginExport: mock(async (input: any) => ({ receipt: receipt(input.call), snapshotId: "frozen-1", byteLength: 2, sha256: "a".repeat(64) })),
+    readExport: mock(async (input: any) => ({ receipt: receipt(input.call), snapshotId: input.snapshotId, offsetBytes: input.offsetBytes, nextOffsetBytes: input.offsetBytes + 2, eof: true, data: "W10=" })),
+    endExport: mock(async (input: any) => ({ receipt: receipt(input.call) })),
+  } as unknown as LocalSandboxDriver;
 }
 
 async function fixture(invoke?: SandboxProviderInvocation, clock?: { now(): number; sleep(ms: number): Promise<void> }) {
@@ -42,10 +46,11 @@ async function fixture(invoke?: SandboxProviderInvocation, clock?: { now(): numb
     ["sandbox.lifecycle.v1", ["create", "inspect", "start", "stop", "destroy"]],
     ["sandbox.process.v1", ["start", "inspect", "readOutput", "cancel"]],
     ["sandbox.files.v1", ["stat", "list", "read", "write", "mkdir", "remove", "chmod"]],
+    ["sandbox.transfer.v1", ["beginExport", "readExport", "endExport"]],
   ] as const;
   const schemas = providerMethodSchemas as unknown as (group: string, operation: string) => { inputSchema: Record<string, unknown>; outputSchema: Record<string, unknown> };
   const methods = groups.flatMap(([group, operations]) => operations.map(operation => ({ name: `${group}:${operation}`, ...schemas(group, operation), sensitivity: "ordinary" as const })));
-  const manifest = validateManifest({ schemaVersion: 4, name: "local-sandbox", version: "1.0.0", author: { name: "Test" }, description: "Sandbox fixture", permissions: { hostApi: { routes: [{ method: "POST", path: "/api/local-sandbox/operations/:id/execute" }], events: false } }, methods, providers: [{ id: "local", kind: "sandbox", protocolMajor: 1, minimumHostContract: { major: 4, minor: 0 }, profiles: ["linux-exec.v1"], capabilities: [], configSchema: {}, requiredPermissions: ["hostApi"], methodGroups: [{ name: "sandbox.lifecycle.v1", methods: { create: "sandbox.lifecycle.v1:create", inspect: "sandbox.lifecycle.v1:inspect", start: "sandbox.lifecycle.v1:start", stop: "sandbox.lifecycle.v1:stop", destroy: "sandbox.lifecycle.v1:destroy" } }, { name: "sandbox.process.v1", methods: { start: "sandbox.process.v1:start", inspect: "sandbox.process.v1:inspect", readOutput: "sandbox.process.v1:readOutput", cancel: "sandbox.process.v1:cancel" } }, { name: "sandbox.files.v1", methods: { stat: "sandbox.files.v1:stat", list: "sandbox.files.v1:list", read: "sandbox.files.v1:read", write: "sandbox.files.v1:write", mkdir: "sandbox.files.v1:mkdir", remove: "sandbox.files.v1:remove", chmod: "sandbox.files.v1:chmod" } }] }] });
+  const manifest = validateManifest({ schemaVersion: 4, name: "local-sandbox", version: "1.0.0", author: { name: "Test" }, description: "Sandbox fixture", permissions: { hostApi: { routes: [{ method: "POST", path: "/api/local-sandbox/operations/:id/execute" }], events: false } }, methods, providers: [{ id: "local", kind: "sandbox", protocolMajor: 1, minimumHostContract: { major: 4, minor: 0 }, profiles: ["linux-exec.v1"], capabilities: [], configSchema: {}, requiredPermissions: ["hostApi"], methodGroups: [{ name: "sandbox.lifecycle.v1", methods: { create: "sandbox.lifecycle.v1:create", inspect: "sandbox.lifecycle.v1:inspect", start: "sandbox.lifecycle.v1:start", stop: "sandbox.lifecycle.v1:stop", destroy: "sandbox.lifecycle.v1:destroy" } }, { name: "sandbox.process.v1", methods: { start: "sandbox.process.v1:start", inspect: "sandbox.process.v1:inspect", readOutput: "sandbox.process.v1:readOutput", cancel: "sandbox.process.v1:cancel" } }, { name: "sandbox.files.v1", methods: { stat: "sandbox.files.v1:stat", list: "sandbox.files.v1:list", read: "sandbox.files.v1:read", write: "sandbox.files.v1:write", mkdir: "sandbox.files.v1:mkdir", remove: "sandbox.files.v1:remove", chmod: "sandbox.files.v1:chmod" } }, { name: "sandbox.transfer.v1", methods: { beginExport: "sandbox.transfer.v1:beginExport", readExport: "sandbox.transfer.v1:readExport", endExport: "sandbox.transfer.v1:endExport" } }] }] });
   const release = { id: "sandbox-release", installationId: installation.id, releaseDigest: "release-digest", policyDigest: "policy-digest", manifest };
   await database.execute(sql`INSERT INTO extension_release_installations(id,owner_id,scope,payload) VALUES(${installation.id},${owner!.id},'global',${JSON.stringify(installation)})`);
   await database.execute(sql`INSERT INTO extension_release_records(installation_id,kind,id,payload) VALUES(${installation.id},'releases',${release.id},${JSON.stringify(release)})`);
@@ -266,6 +271,24 @@ test("a private workspace binds one conversation and refuses another conversatio
 async function expireMethodClaim(database: ReturnType<typeof getTestDb>, operationId: string): Promise<void> {
   await database.execute(sql`UPDATE sandbox_method_operations SET claim_expires_at=NOW() - INTERVAL '1 second' WHERE id=${operationId}`);
 }
+
+test("routes all frozen transfer methods and releases the export writer lease", async () => {
+  const context = await fixture();
+  const created = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, created.operation!.id);
+  const begin = await context.controller.admitSandboxMethod(context.owner.id, created.projectId, { group: "sandbox.transfer.v1", operation: "beginExport", idempotencyKey: "begin-frozen", payload: {} });
+  const begun = await context.controller.executeAdmittedSandboxMethod(context.owner.id, begin.id);
+  expect(begun.result).toMatchObject({ receipt: { outcome: "succeeded" }, snapshotId: "frozen-1" });
+  expect(context.local.beginExport).toHaveBeenCalledTimes(1);
+  const leases = await context.database.execute(sql`SELECT binding_id FROM sandbox_writer_leases WHERE operation_id=${begin.id}`);
+  expect(leases.rows).toHaveLength(0);
+  const read = await context.controller.admitSandboxMethod(context.owner.id, created.projectId, { group: "sandbox.transfer.v1", operation: "readExport", idempotencyKey: "read-frozen", payload: { snapshotId: "frozen-1", offsetBytes: 0, lengthBytes: 2 } });
+  expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id)).result).toMatchObject({ receipt: { outcome: "succeeded" }, data: "W10=" });
+  expect(context.local.readExport).toHaveBeenCalledTimes(1);
+  const end = await context.controller.admitSandboxMethod(context.owner.id, created.projectId, { group: "sandbox.transfer.v1", operation: "endExport", idempotencyKey: "end-frozen", payload: { snapshotId: "frozen-1" } });
+  expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, end.id)).result).toMatchObject({ receipt: { outcome: "succeeded" } });
+  expect(context.local.endExport).toHaveBeenCalledTimes(1);
+});
 
 test("startup accessor fails closed until a host driver configures it", () => {
   expect(() => getSandboxController()).toThrow("Local sandbox controller is not configured");

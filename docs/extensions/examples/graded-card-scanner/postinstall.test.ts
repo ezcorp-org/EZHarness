@@ -1,6 +1,7 @@
-// Tests for the postinstall deploy helper — real temp dirs, no mocks.
+// Tests for the postinstall deploy helper with real temp dirs.
 
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
+import * as fs from "node:fs";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -25,10 +26,15 @@ describe("findProjectRoot", () => {
 
   test("falls back to the starting dir when no .git exists above", () => {
     const dir = makeTmp();
+    const exists = fs.existsSync;
+    const stub = spyOn(fs, "existsSync").mockImplementation(path =>
+      String(path).endsWith("/.git") ? false : exists(path),
+    );
     try {
-      // tmpdir ancestry has no .git — the walk exhausts and returns `from`.
+      // The host may have /tmp/.git; simulate a tree with no Git ancestor.
       expect(findProjectRoot(dir)).toBe(dir);
     } finally {
+      stub.mockRestore();
       rmSync(dir, { recursive: true, force: true });
     }
   });

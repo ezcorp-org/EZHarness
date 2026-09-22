@@ -23,12 +23,12 @@ test("shows repository approval for connected owner and disconnects locally", as
 	const fetch = vi.fn((url: string, init?: RequestInit) => {
 		if (url === "/api/github/connection" && init?.method === "DELETE") return Promise.resolve(response({ status: "disconnected", configured: true }));
 		if (url === "/api/github/connection") return Promise.resolve(response({ status: "connected", configured: true, account: { id: 123, login: "owner-a" } }));
-		if (url === "/api/github/repositories/check?repositoryId=42") return Promise.resolve(response({ status: "organization_approval_pending", repository: { id: 42, fullName: "org/private" } }));
+		if (url === "/api/github/repositories/check?repositoryId=42") return Promise.resolve(response({ status: "repository_not_enabled", repository: { id: 42, fullName: "org/private" } }));
 		throw new Error(`Unexpected URL ${url}`);
 	});
 	vi.stubGlobal("fetch", fetch);
 	const view = render(GithubSettingsPage);
-	await waitFor(() => expect(view.getByText("Your organization must approve the GitHub App.")).toBeVisible());
+	await waitFor(() => expect(view.getByText("Enable this repository for the GitHub App.")).toBeVisible());
 	await fireEvent.click(view.getByRole("button", { name: /^Disconnect$/ }));
 	expect(view.getByText(/Pending draft pull requests will stop/)).toBeVisible();
 	await fireEvent.click(view.getByRole("button", { name: "Disconnect GitHub" }));

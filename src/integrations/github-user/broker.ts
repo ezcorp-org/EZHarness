@@ -173,7 +173,7 @@ async function currentToken(userId: string): Promise<{ token: string; connection
 }
 
 export type RepositoryCheck = {
-  status: "ready" | "repository_not_enabled" | "organization_approval_pending" | "insufficient_user_permission" | "reconnect_required";
+  status: "ready" | "repository_not_enabled" | "insufficient_user_permission" | "reconnect_required";
   repository?: { id: number; fullName: string };
   installUrl?: string;
   manageUrl?: string;
@@ -264,6 +264,20 @@ export async function withUserTokenReadOnly<T>(
     if (authority.generation !== input.expectedGeneration || current.generation !== authority.generation || connection?.connectionId !== current.connectionId || connection.state !== "connected") throw new GithubUserError("STALE_CONNECTION", "GitHub connection changed");
   });
   return effect(current.token);
+}
+
+/** Each request in a multi-request publication needs a new dispatch decision. */
+export async function assertUserEffectCurrent(input: { userId: string; operationId: string; repositoryId: number; expectedGeneration: number }): Promise<void> {
+  await getDb().transaction(async (tx: DbTransaction) => {
+    const authority = await lockAuthority(tx, input.userId);
+    const [connection] = await tx.select().from(githubUserConnections).where(eq(githubUserConnections.userId, input.userId));
+    const [claim] = await tx.select().from(githubUserEffectClaims).where(eq(githubUserEffectClaims.operationId, input.operationId));
+    if (connection?.state !== "connected" || authority.generation !== input.expectedGeneration ||
+      !claim || claim.userId !== input.userId || claim.repositoryId !== input.repositoryId || claim.kind !== "publish" ||
+      claim.state !== "dispatched" || claim.generation !== authority.generation || claim.connectionId !== connection.connectionId) {
+      throw new GithubUserError("STALE_CONNECTION", "GitHub connection or publication changed");
+    }
+  });
 }
 
 /** Claims an exact operation under the same durable row lock as disconnect. */

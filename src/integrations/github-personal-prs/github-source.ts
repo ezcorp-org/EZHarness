@@ -15,42 +15,13 @@ const SHA = /^[a-f0-9]{40}$/;
 const REF = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
 const NAME = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/;
 
-async function responseBytes(response: Response): Promise<Uint8Array> {
-  if (!response.ok) throw new GithubSourceError("provider_unavailable", "GitHub could not provide the selected repository");
-  const reader = response.body?.getReader();
-  if (!reader) throw new GithubSourceError("provider_unavailable", "GitHub returned an empty response");
-  const chunks: Uint8Array[] = [];
-  let bytes = 0;
-  try {
-    for (;;) {
-      const chunk = await reader.read();
-      if (chunk.done) break;
-      bytes += chunk.value.length;
-      if (bytes > 512 * 1024) throw new GithubSourceError("unsupported_repository", "GitHub response exceeds the import limit");
-      chunks.push(chunk.value);
-    }
-  } finally { reader.releaseLock(); }
-  return Buffer.concat(chunks);
-}
-
-export const githubJsonTransport: GithubJsonTransport = async (path, token) => {
-  if (!path.startsWith("/repos/") || path.includes("//") || path.includes("..")) throw new GithubSourceError("invalid_repository", "Invalid repository API path");
-  const response = await fetch(`https://api.github.com${path}`, {
-    headers: { Accept: "application/vnd.github+json", Authorization: `Bearer ${token}`, "X-GitHub-Api-Version": "2022-11-28" },
-    redirect: "error",
-    signal: AbortSignal.timeout(15_000),
-  });
-  try { return JSON.parse(new TextDecoder().decode(await responseBytes(response))) as unknown; }
-  catch (error) { if (error instanceof GithubSourceError) throw error; throw new GithubSourceError("provider_unavailable", "GitHub returned an invalid response"); }
-};
-
 function record(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new GithubSourceError("provider_unavailable", "GitHub returned an invalid repository object");
   return value as Record<string, unknown>;
 }
 
 /** Fetch a pinned Git tree on the host. The returned bytes have no Git credential or remote. */
-export async function fetchApprovedBase(input: { repositoryId: number; fullName: string; baseRef: string; token: string }, transport: GithubJsonTransport = githubJsonTransport): Promise<ApprovedBase> {
+export async function fetchApprovedBase(input: { repositoryId: number; fullName: string; baseRef: string; token: string }, transport: GithubJsonTransport): Promise<ApprovedBase> {
   if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0 || !NAME.test(input.fullName)) throw new GithubSourceError("invalid_repository", "Invalid repository selection");
   if (!REF.test(input.baseRef) || input.baseRef.includes("..") || input.baseRef.includes("//") || input.baseRef.endsWith("/") || input.baseRef.endsWith(".lock")) throw new GithubSourceError("invalid_base", "Invalid base branch");
   const repo = input.fullName.split("/").map(encodeURIComponent).join("/");

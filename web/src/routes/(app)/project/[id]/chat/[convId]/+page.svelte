@@ -65,6 +65,14 @@
 	let diffPanelOpen = $state(false);
 	let personalPrReview = $state<PersonalPrView | null>(null);
 	let personalPrRefreshKey = $state(0);
+	function openPersonalPrReview(review: PersonalPrView) {
+		personalPrReview = review;
+		diffPanelOpen = true;
+		const expectedPath = `/project/${projectId}/chat/${convId}?review=${review.proposalId}`;
+		if (review.proposalId && review.reviewPath === expectedPath && `${page.url.pathname}${page.url.search}` !== expectedPath) {
+			void goto(expectedPath, { noScroll: true });
+		}
+	}
 	$effect(() => {
 		const reviewId = page.url.searchParams.get("review");
 		if (!reviewId) return;
@@ -309,7 +317,7 @@
 			<PersonalPrCard
 				runId={chrome.messages.filter((message) => message.role === "assistant" && message.runId).at(-1)?.runId ?? null}
 				refreshKey={personalPrRefreshKey}
-				onreview={(review) => { personalPrReview = review; diffPanelOpen = true; }}
+				onreview={openPersonalPrReview}
 			/>
 		{/snippet}
 		{#snippet header(chrome: ChatThreadChrome)}

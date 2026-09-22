@@ -17,15 +17,17 @@ test("personal GitHub connection is available to a member @evidence", async ({ p
 test.describe("mobile GitHub settings", () => {
 	test.use({ viewport: { width: 390, height: 844 } });
 
-	test("connected account shows organization approval and disconnect confirmation @evidence", async ({ page, mockApi }, testInfo) => {
+	test("connected account shows user-reported approval and disconnect confirmation @evidence", async ({ page, mockApi }, testInfo) => {
 		await mockApi({ routes: {
 			"/api/auth/me": () => member,
 			"/api/github/connection": () => ({ status: "connected", configured: true, account: { id: 123, login: "owner-a" } }),
-			"/api/github/repositories/check": () => ({ status: "organization_approval_pending", repository: { id: 42, fullName: "org/private-repo" }, manageUrl: "https://github.com/organizations/org/settings/installations" }),
+			"/api/github/repositories/check": () => ({ status: "repository_not_enabled", repository: { id: 42, fullName: "org/private-repo" }, manageUrl: "https://github.com/organizations/org/settings/installations" }),
 		} });
 		await page.goto("/settings/github?repositoryId=42");
 		await expect(page.getByText("owner-a", { exact: true })).toBeVisible();
-		await expect(page.getByText("Your organization must approve the GitHub App.")).toBeVisible();
+		await expect(page.getByText("Enable this repository for the GitHub App.")).toBeVisible();
+		await page.getByRole("button", { name: "I requested approval" }).click();
+		await expect(page.getByText("Approval may be pending. GitHub has not enabled this repository yet.")).toBeVisible();
 		await expect(page.getByRole("link", { name: "Manage organization approval" })).toHaveAttribute("href", "https://github.com/organizations/org/settings/installations");
 		await captureEvidence(page, testInfo, "personal-github-org-approval-mobile");
 		await page.getByRole("button", { name: "Disconnect", exact: true }).click();

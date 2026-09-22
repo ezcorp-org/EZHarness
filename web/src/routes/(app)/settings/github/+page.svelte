@@ -2,6 +2,7 @@
 	import { onMount } from "svelte";
 	import { page } from "$app/state";
 	import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
+	import { trustedGithubUrl } from "$lib/personal-pr.js";
 
 	type Connection = {
 		status: "disconnected" | "connected" | "reconnect_required";
@@ -9,7 +10,7 @@
 		account?: { id: number; login: string };
 	};
 	type RepositoryCheck = {
-		status: "ready" | "repository_not_enabled" | "organization_approval_pending" | "insufficient_user_permission" | "reconnect_required";
+		status: "ready" | "repository_not_enabled" | "insufficient_user_permission" | "reconnect_required";
 		repository?: { id: number; fullName: string };
 		installUrl?: string;
 		manageUrl?: string;
@@ -147,12 +148,11 @@
 			<p class="mt-1 text-sm text-[var(--color-text-secondary)]" role="status">
 				{#if repository.status === "ready"}Ready for private sandbox import and draft pull requests.
 				{:else if repository.status === "repository_not_enabled"}{approvalRequested ? "Approval may be pending. GitHub has not enabled this repository yet." : "Enable this repository for the GitHub App."}
-				{:else if repository.status === "organization_approval_pending"}Your organization must approve the GitHub App.
 				{:else if repository.status === "insufficient_user_permission"}Your account needs repository write access.
 				{:else}Reconnect your GitHub account to check this repository.{/if}
 			</p>
-			{#if repository.installUrl}<a class="mt-3 inline-block text-sm text-[var(--color-accent)] underline" href={repository.installUrl} rel="noopener noreferrer">Enable repository on GitHub</a>{/if}
-			{#if repository.manageUrl}<a class="mt-3 inline-block text-sm text-[var(--color-accent)] underline" href={repository.manageUrl} rel="noopener noreferrer">Manage organization approval</a>{/if}
+			{#if trustedGithubUrl(repository.installUrl)}<a class="mt-3 inline-block text-sm text-[var(--color-accent)] underline" href={trustedGithubUrl(repository.installUrl) ?? undefined} rel="noopener noreferrer">Enable repository on GitHub</a>{/if}
+			{#if trustedGithubUrl(repository.manageUrl)}<a class="mt-3 inline-block text-sm text-[var(--color-accent)] underline" href={trustedGithubUrl(repository.manageUrl) ?? undefined} rel="noopener noreferrer">Manage organization approval</a>{/if}
 			{#if repository.status === "repository_not_enabled"}<div class="mt-3 flex flex-wrap gap-3"><button class="text-sm text-[var(--color-accent)] underline" onclick={() => approvalRequested = true}>I requested approval</button><button class="text-sm text-[var(--color-accent)] underline disabled:opacity-50" disabled={checkingRepository} onclick={recheckRepository}>{checkingRepository ? "Checking…" : "Recheck access"}</button></div>{/if}
 		</SettingsSection>
 	{/if}

@@ -46,7 +46,7 @@
 	import ReviewFileCard from "./review/ReviewFileCard.svelte";
 	import ReviewFileTree from "./review/ReviewFileTree.svelte";
 	import type { PersonalPrView } from "$lib/personal-pr.js";
-	import { trustedGithubPrUrl } from "$lib/personal-pr.js";
+	import { personalPrReason, trustedGithubPrUrl } from "$lib/personal-pr.js";
 
 	let {
 		messages = [],
@@ -82,10 +82,12 @@
 		confirmationKey = null;
 	});
 
-	async function confirmPersonalPr() {
+	async function confirmPersonalPr(recoveryAction?: "retry_pre_ref" | "check_github") {
 		if (!personalPr?.proposalId || !personalPr.digest || prBusy) return;
+		if (recoveryAction && personalPr.recoveryAction !== recoveryAction) return;
 		prBusy = true;
 		prError = "";
+		if (recoveryAction === "retry_pre_ref") confirmationKey = crypto.randomUUID();
 		confirmationKey ??= crypto.randomUUID();
 		try {
 			const response = await fetch(`/api/github/personal-prs/proposals/${encodeURIComponent(personalPr.proposalId)}/confirm`, {
@@ -94,10 +96,10 @@
 				body: JSON.stringify({ expectedDigest: personalPr.digest, title: prTitle, body: prBody, idempotencyKey: confirmationKey }),
 			});
 			const updated = await response.json();
-			if (!response.ok) throw new Error(updated.error ?? "Could not create draft PR");
+			if (!response.ok) throw new Error(updated.error ?? (recoveryAction === "check_github" ? "Could not check GitHub result" : "Could not create draft PR"));
 			onpersonalprupdate?.(updated as PersonalPrView);
 		} catch (cause) {
-			prError = cause instanceof Error ? cause.message : "Could not create draft PR";
+			prError = cause instanceof Error ? cause.message : recoveryAction === "check_github" ? "Could not check GitHub result" : "Could not create draft PR";
 		} finally { prBusy = false; }
 	}
 
@@ -263,7 +265,7 @@
 							{/each}
 						</div>
 					{/if}
-				{#if personalPr.checks?.length}<p class="mt-2 text-xs text-[var(--color-text-secondary)]">Checks: {personalPr.checks.map((check) => `${check.name}: ${check.result}`).join(" · ")}</p>{/if}
+				<p class="mt-2 text-xs text-[var(--color-text-secondary)]">{personalPr.checks?.length ? `Checks: ${personalPr.checks.map((check) => `${check.name}: ${check.result}`).join(" · ")}` : "No verified checks recorded"}</p>
 				{#if personalPr.state === "ready" || personalPr.state === "reviewing"}
 					<div class="mt-3 grid gap-2">
 						<label class="text-xs font-medium text-[var(--color-text-secondary)]" for="personal-pr-title">PR title</label>
@@ -271,10 +273,16 @@
 						<label class="text-xs font-medium text-[var(--color-text-secondary)]" for="personal-pr-body">PR description</label>
 						<textarea id="personal-pr-body" bind:value={prBody} maxlength="16384" rows="3" class="w-full resize-y rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"></textarea>
 					</div>
-						<div class="mt-3 flex flex-wrap items-center gap-3"><button class="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={prBusy || !!prError || !prTitle.trim() || !personalPr.digest || !exactFilesAvailable} onclick={confirmPersonalPr}>Create draft PR</button><span class="text-xs text-[var(--color-text-muted)]">Nothing pushed until you confirm.</span></div>
+						<div class="mt-3 flex flex-wrap items-center gap-3"><button class="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={prBusy || !!prError || !prTitle.trim() || !personalPr.digest || !exactFilesAvailable} onclick={() => confirmPersonalPr()}>Create draft PR</button><span class="text-xs text-[var(--color-text-muted)]">Nothing pushed until you confirm.</span></div>
+				{:else if personalPr.recoveryAction === "check_github"}
+					<div class="mt-3 space-y-2"><p class="text-sm text-[var(--color-text-secondary)]" role="status">The GitHub result is uncertain. Check the result before taking another action.</p><button class="rounded-md border border-[var(--color-border)] px-3 py-2 text-sm font-medium text-[var(--color-accent)] disabled:opacity-50" disabled={prBusy || !personalPr.digest || !personalPr.proposalId} onclick={() => confirmPersonalPr("check_github")}>Check GitHub result</button></div>
+				{:else if personalPr.state === "failed" && personalPr.recoveryAction === "retry_pre_ref"}
+					<div class="mt-3 space-y-2"><p class="text-sm text-[var(--color-text-secondary)]" role="status">No GitHub commit was sent. You can start a new attempt from this saved review.</p><button class="rounded-md border border-[var(--color-border)] px-3 py-2 text-sm font-medium text-[var(--color-accent)] disabled:opacity-50" disabled={prBusy || !personalPr.digest || !personalPr.proposalId} onclick={() => confirmPersonalPr("retry_pre_ref")}>Retry draft PR publication</button></div>
+				{:else if personalPr.recoveryAction === "reimport"}
+					<p class="mt-3 text-sm text-[var(--color-text-secondary)]" role="status">The repository base changed. Start a new private sandbox import before preparing another PR.</p>
 				{:else if personalPr.state === "created" && trustedGithubPrUrl(personalPr.prUrl)}
 					<a class="mt-3 inline-block text-sm text-[var(--color-accent)] underline" href={trustedGithubPrUrl(personalPr.prUrl) ?? undefined} target="_blank" rel="noopener noreferrer">Open draft PR on GitHub</a>
-				{:else}<p class="mt-3 text-sm text-[var(--color-text-secondary)]" role="status">{personalPr.blockReason ?? `PR status: ${personalPr.state}`}</p>{/if}
+				{:else}<p class="mt-3 text-sm text-[var(--color-text-secondary)]" role="status">{personalPrReason(personalPr.blockReason) || `PR status: ${personalPr.state}`}</p>{/if}
 				{#if prError}<div class="mt-2 flex items-center gap-3"><p class="text-sm text-red-700 dark:text-red-300" role="alert">{prError}</p><button class="text-sm text-[var(--color-accent)] underline" disabled={prBusy} onclick={refreshPersonalPr}>Check status</button></div>{/if}
 			</section>
 		{/if}
