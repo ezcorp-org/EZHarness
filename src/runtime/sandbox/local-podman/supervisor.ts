@@ -219,7 +219,7 @@ export class LocalProcessSupervisor {
 			await mkdir(resource.processRoot, { recursive: true, mode: 0o700 });
 			await chmod(resource.processRoot, 0o700);
 			const lock = await this.acquireProcessLock(resource, false);
-			if (!lock) return failure(input.call, "process_busy", "Another process operation is already in progress");
+			if (!lock) return failure(input.call, "process_busy", "Another process operation is already in progress", "unknown");
 				try {
 					try {
 						const stored = await readStatus(paths.status);

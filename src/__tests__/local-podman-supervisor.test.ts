@@ -113,7 +113,7 @@ describe("LocalProcessSupervisor", () => {
 			for (let attempt = 0; attempt < 200 && !(await Bun.file(join(f.processRoot, "cancel")).exists()); attempt += 1) await Bun.sleep(5);
 			expect(await Bun.file(join(f.processRoot, "cancel")).exists()).toBe(true);
 			const nextCall = { ...call, operationId: "next", idempotencyKey: "next" };
-			expect((await supervisor.start({ ...f.input, call: nextCall })).receipt).toMatchObject({ outcome: "failed", error: { code: "process_busy" } });
+			expect((await supervisor.start({ ...f.input, call: nextCall })).receipt).toMatchObject({ outcome: "unknown", error: { code: "process_busy", retryable: true } });
 			await rm(f.stopGate);
 			expect((await cancellation).receipt.outcome).toBe("succeeded");
 			expect(await Bun.file(join(f.processRoot, "cancel")).exists()).toBe(false);
@@ -134,7 +134,7 @@ describe("LocalProcessSupervisor", () => {
 		const f = await fixture();
 		expect(() => new LocalProcessSupervisor({ stateRoot: "relative", podmanPath: f.input.argv[0]!, supervisorPath: "relative", maxOutputBytes: 0, workspaceUid: -1, workspaceGid: -1 }, async () => f.resource)).toThrow();
 		const lockPath = join(f.processRoot, "start.lock"); const held = await open(lockPath, "a+", 0o600); const libc = dlopen("libc.so.6", { flock: { args: [FFIType.i32, FFIType.i32], returns: FFIType.i32 } }); expect(libc.symbols.flock(held.fd, 2 | 4)).toBe(0);
-		expect((await f.supervisor.start(f.input)).receipt).toMatchObject({ outcome: "failed", error: { code: "process_busy" } }); libc.symbols.flock(held.fd, 8); await held.close(); libc.close();
+		expect((await f.supervisor.start(f.input)).receipt).toMatchObject({ outcome: "unknown", error: { code: "process_busy", retryable: true } }); libc.symbols.flock(held.fd, 8); await held.close(); libc.close();
 		await writeFile(lockPath, "orphaned host crash artifact", { mode: 0o600 });
 		const started = await f.supervisor.start(f.input); if (!("process" in started)) throw new Error("missing process");
 		await writeCancellation(f.processRoot, started.process.identity); await terminal(f, started.process.identity);

@@ -30,11 +30,11 @@ const provider = { installationId: "11111111-1111-4111-8111-111111111111", provi
 const sandboxStatus = { projectId: "sandbox", bindingId: "binding", provider, resource: { resourceId: "resource", observedState: "stopped", desiredState: "stopped", limits: {} }, operation: null };
 
 const idempotencyKey = "22222222-2222-4222-8222-222222222222";
-function event(path: string, options: { body?: unknown; locals?: Record<string, unknown>; params?: Record<string, string>; idempotent?: boolean; platform?: { server: { timeout: ReturnType<typeof vi.fn> }; request: Request } } = {}) {
+function event(path: string, options: { body?: unknown; locals?: Record<string, unknown>; params?: Record<string, string>; idempotent?: boolean; platform?: { server: { timeout: ReturnType<typeof vi.fn> }; request: Request }; extensionId?: string } = {}) {
 	const requestEvent = makeRequestEvent(`http://localhost${path}`, {
 		locals: options.locals ?? local,
 		params: options.params ?? {},
-		request: { method: "POST", headers: { "content-type": "application/json", ...(options.idempotent === false ? {} : { "Idempotency-Key": idempotencyKey }) }, body: options.body === undefined ? undefined : JSON.stringify(options.body) },
+		request: { method: "POST", headers: { "content-type": "application/json", ...(options.idempotent === false ? {} : { "Idempotency-Key": idempotencyKey }), ...(options.extensionId ? { "X-EZHarness-Extension-Id": options.extensionId } : {}) }, body: options.body === undefined ? undefined : JSON.stringify(options.body) },
 	});
 	requestEvent.platform = options.platform;
 	return requestEvent;
@@ -106,7 +106,7 @@ describe("local sandbox API", () => {
 
 		const rawPlatform = bunPlatform("/api/local-sandbox/operations/operation/execute");
 		const rawResponse = await execute(event("/api/local-sandbox/operations/operation/execute", {
-			params: { id: "operation" }, locals: { ...local, authMethod: "internal" }, platform: rawPlatform.platform,
+			params: { id: "operation" }, locals: { ...local, authMethod: "internal" }, platform: rawPlatform.platform, extensionId: provider.installationId,
 		}) as never);
 		expect(rawResponse.status).toBe(200);
 		expect(rawPlatform.timeout).toHaveBeenCalledWith(rawPlatform.request, 0);
@@ -153,10 +153,19 @@ describe("local sandbox API", () => {
 		const response = await execute(event("/api/local-sandbox/operations/operation/execute", {
 			params: { id: "operation" },
 			locals: { ...local, authMethod: "internal" },
+			extensionId: provider.installationId,
 		}) as never);
 		expect(response.status).toBe(200);
 		expect(await response.json()).toMatchObject({ id: "operation", state: "succeeded" });
-		expect(controller.executeAdmittedLocalSandboxOperationRaw).toHaveBeenCalledWith("user-1", "operation", expect.any(AbortSignal));
+		expect(controller.executeAdmittedLocalSandboxOperationRaw).toHaveBeenCalledWith("user-1", "operation", provider.installationId, expect.any(AbortSignal));
+	});
+
+	test("denies an internal raw dispatch without its broker-bound provider identity", async () => {
+		const response = await execute(event("/api/local-sandbox/operations/operation/execute", {
+			params: { id: "operation" }, locals: { ...local, authMethod: "internal" },
+		}) as never);
+		expect(response.status).toBe(403);
+		expect(controller.executeAdmittedLocalSandboxOperationRaw).not.toHaveBeenCalled();
 	});
 
 	test("maps controller failures from each sandbox operation route", async () => {
@@ -172,6 +181,7 @@ describe("local sandbox API", () => {
 		const rawResponse = await execute(event("/api/local-sandbox/operations/operation/execute", {
 			params: { id: "operation" },
 			locals: { ...local, authMethod: "internal" },
+			extensionId: provider.installationId,
 		}) as never);
 		expect(rawResponse.status).toBe(503);
 	});

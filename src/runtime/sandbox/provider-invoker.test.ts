@@ -101,8 +101,9 @@ describe("invokeSandboxProvider", () => {
     await db.execute(sql`CREATE TABLE IF NOT EXISTS sandbox_provider_bindings (id TEXT PRIMARY KEY, project_id TEXT UNIQUE NOT NULL, owner_id TEXT NOT NULL, installation_id TEXT NOT NULL, provider_id TEXT NOT NULL, release_id TEXT NOT NULL, release_binding TEXT NOT NULL, generation INTEGER NOT NULL, config_revision INTEGER NOT NULL, config_digest TEXT NOT NULL, state TEXT NOT NULL)`);
     await db.execute(sql`INSERT INTO extension_project_bindings (installation_id, payload) VALUES (${installationId}, ${JSON.stringify({ id: crypto.randomUUID(), projectId: authorProjectId, ownerId: userId, releaseId, generation: 1, approvedAt: new Date().toISOString(), writePaths: [] })})`);
     await db.execute(sql`INSERT INTO sandbox_provider_bindings (id, project_id, owner_id, installation_id, provider_id, release_id, release_binding, generation, config_revision, config_digest, state) VALUES (${bindingId}, ${projectId}, ${userId}, ${installationId}, 'local', ${releaseId}, ${reference.releaseBinding}, 1, 1, ${"c".repeat(64)}, 'active')`);
-    configureHostApiTransport({ request: async (actingUserId, request) => {
+    configureHostApiTransport({ request: async (actingUserId, request, actingExtensionId) => {
       expect(actingUserId).toBe(userId);
+      expect(actingExtensionId).toBe(installationId);
       expect(request).toEqual({ method: "POST", path: expect.stringMatching(/^\/api\/local-sandbox\/operations\/[a-zA-Z0-9_-]+\/execute$/) });
       const operationId = request.path.split("/")[4]!;
       hostResults.set(operationId, response);

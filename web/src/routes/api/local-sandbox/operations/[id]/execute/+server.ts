@@ -13,9 +13,11 @@ export const POST: RequestHandler = async ({ params, locals, request, platform }
 	if (scopeErr) return scopeErr;
 	const user = requireAuth(locals);
 	if (locals.authMethod !== "internal") return errorJson(403, "Sandbox host dispatch requires the reviewed extension broker");
+	const extensionId = request.headers.get("X-EZHarness-Extension-Id");
+	if (!extensionId) return errorJson(403, "Sandbox host dispatch requires the reviewed provider identity");
 	disableBunRequestIdleTimeout(platform);
 	try {
-		return json(await getSandboxController().executeAdmittedLocalSandboxOperationRaw(user.id, params.id, request.signal));
+		return json(await getSandboxController().executeAdmittedLocalSandboxOperationRaw(user.id, params.id, extensionId, request.signal));
 	} catch (error) {
 		return sandboxError(error);
 	}

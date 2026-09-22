@@ -337,6 +337,19 @@ Plan review: test the public lifecycle controller and UI seams, the reviewed-to-
 
 Repair review: normal API retries with a fresh key now recover only a pending same-actor, same-action start or stop and retain the original durable call; conflicting actions and actors remain blocked. A module-wide raw-operation fence survives controller replacement until provider completion is authoritative. Local transition recovery now combines the in-process queue with a binding-scoped durable `flock`, so separate driver instances and processes cannot duplicate a Podman effect; process death releases the lock for recovery. Merged `origin/main` at `d81f98387` and preserved the runner-profile repair. Pinned Bun 1.3.14 verification passed: focused integrated tests 131/131; controller coverage tests 77/77; extension-contract tests 26/26; the canonical coverage suite 26,869/26,869 across 1,627 shards; full lint and typecheck; contract, sandbox-tools, and sandbox-supervisor builds; gate integrity; patch coverage for all 53 changed source files; changed-function CRAP; and diff checks. The local coverage wrapper's tests were green but its aggregate required the CI-only browser-route receipt, so the final coverage gates used the green PR run's browser and shard artifacts plus the new local repair coverage.
 
+### Final claim-takeover audit repair
+
+- [x] Use PostgreSQL time for every claim lease and heartbeat.
+- [x] Bind terminalization to one exact execution attempt.
+- [x] Keep an expired process-start takeover ambiguous while its durable start lock is held.
+- [x] Bind shared raw execution promises to the admitted actor and reviewed call.
+- [x] Add clock-skew, stale-executor, lock-contention, authorization, and recovery regressions.
+- [x] Run focused tests and static checks, record evidence, and commit locally without pushing.
+
+Plan review: database time is the sole claim clock. A reclaimed execution receives a fresh attempt token, and an older executor cannot terminalize it. Durable provider lock contention is an unknown outcome, not proof that no process effect occurred. Shared in-memory execution may be joined only by the same reviewed principal.
+
+Repair review: claim acquisition and heartbeat expiry now use PostgreSQL time, and every execution attempt has an exact terminalization token. A competing process start reports an unknown retryable outcome and retains its writer lease until the durable supervisor state gives an authoritative result. Raw host callbacks now revalidate the actor, project membership, binding, release, and provider installation before joining one retained provider promise, so an unauthorized request cannot join, poison, or redispatch the effect. The broker test now restores its module mock, which also removes its cross-file test pollution. Verification passed: the combined focused backend gate 168/168, web route/transport 24/24, full typecheck, lint across 4,671 files, both sandbox builds, and diff checks.
+
 ## PR #290 CI failure diagnosis
 
 - [x] Capture the completed run and raw failed-job logs for run 35631461630.

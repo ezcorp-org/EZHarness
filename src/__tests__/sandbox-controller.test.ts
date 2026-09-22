@@ -56,7 +56,7 @@ async function fixture(invoke?: SandboxProviderInvocation, clock?: { now(): numb
   } };
   const restartController = () => {
     let controller: ReturnType<typeof createSandboxController>;
-    const reviewed: SandboxProviderInvocation = invoke ?? (async (userId, _projectId, _provider, _group, _operation, input, signal) => controller.executeAdmittedLocalSandboxOperationRaw(userId, (input as { call: { operationId: string } }).call.operationId, signal));
+    const reviewed: SandboxProviderInvocation = invoke ?? (async (userId, _projectId, provider, _group, _operation, input, signal) => controller.executeAdmittedLocalSandboxOperationRaw(userId, (input as { call: { operationId: string } }).call.operationId, provider.installationId, signal));
     controller = createSandboxController(local, runtime, reviewed, clock);
     return controller;
   };
@@ -93,6 +93,42 @@ test("lists only active acknowledged sandbox providers and journals create befor
   expect(executed.operation).toMatchObject({ state: "succeeded" });
   const workspace = await context.database.execute(sql`SELECT state FROM project_workspace_bindings WHERE project_id=${admitted.projectId}`) as { rows: Array<{ state: string }> };
   expect(workspace.rows[0]!.state).toBe("active");
+});
+
+test("uses the database clock for admitted claim leases despite application clock skew", async () => {
+  const originalNow = Date.now;
+  Date.now = () => 0;
+  try {
+    const entered = Promise.withResolvers<void>();
+    const release = Promise.withResolvers<void>();
+    const context = await fixture();
+    const admitted = await admitCreate(context);
+    const admittedLease = await context.database.execute(sql`
+      SELECT claim_expires_at BETWEEN NOW() + INTERVAL '4 minutes' AND NOW() + INTERVAL '6 minutes' AS valid
+      FROM sandbox_operations
+      WHERE id=${admitted.operation!.id}
+    `) as { rows: Array<{ valid: boolean }> };
+    expect(admittedLease.rows[0]?.valid).toBe(true);
+    await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, admitted.operation!.id);
+    context.local.fileRead = mock(async (input: any) => {
+      entered.resolve();
+      await release.promise;
+      return { receipt: receipt(input.call), path: input.path, revision: "r1", offsetBytes: 0, nextOffsetBytes: 0, eof: true, encoding: "utf8" as const, data: "" };
+    });
+    const read = await context.controller.admitSandboxMethod(context.owner.id, admitted.projectId, { group: "sandbox.files.v1", operation: "read", idempotencyKey: "skewed-claim", payload: { path: "/a", offsetBytes: 0, lengthBytes: 1 } });
+    const executing = context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id);
+    await entered.promise;
+    const runningLease = await context.database.execute(sql`
+      SELECT claim_expires_at BETWEEN NOW() + INTERVAL '4 minutes' AND NOW() + INTERVAL '6 minutes' AS valid
+      FROM sandbox_method_operations
+      WHERE id=${read.id}
+    `) as { rows: Array<{ valid: boolean }> };
+    expect(runningLease.rows[0]?.valid).toBe(true);
+    release.resolve();
+    await executing;
+  } finally {
+    Date.now = originalNow;
+  }
 });
 
 test("replays a settled operation without a second provider effect and admits idempotent lifecycle actions", async () => {
@@ -296,7 +332,7 @@ test("a reviewed abort keeps an active raw observation fenced across controller 
   let rawController!: ReturnType<typeof createSandboxController>;
   let rawCompletion: Promise<unknown> | undefined;
   const context = await fixture(async (userId, _projectId, _provider, _group, _operation, input, signal) => {
-    rawCompletion = rawController.executeAdmittedLocalSandboxOperationRaw(userId, (input as { call: { operationId: string } }).call.operationId, signal);
+    rawCompletion = rawController.executeAdmittedLocalSandboxOperationRaw(userId, (input as { call: { operationId: string } }).call.operationId, context.installation.id, signal);
     return Promise.race([
       rawCompletion,
       new Promise<never>((_resolve, reject) => signal?.addEventListener("abort", () => reject(signal.reason), { once: true })),
@@ -314,6 +350,11 @@ test("a reviewed abort keeps an active raw observation fenced across controller 
   const abort = new AbortController();
   const executing = context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id, abort.signal);
   await entered.promise;
+  const unauthorized = rawController.executeAdmittedLocalSandboxOperationRaw(context.other.id, read.id, context.installation.id).catch(error => error);
+  await context.database.execute(sql`DELETE FROM project_members WHERE project_id=${create.projectId} AND user_id=${context.owner.id}`);
+  const revoked = await rawController.executeAdmittedLocalSandboxOperationRaw(context.owner.id, read.id, context.installation.id).catch(error => error);
+  expect(revoked).toMatchObject({ code: "PROJECT_ACCESS_DENIED" });
+  await context.database.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES(${crypto.randomUUID()},${create.projectId},${context.owner.id},'owner')`);
   abort.abort(new Error("Reviewed invocation aborted."));
   await expect(executing).rejects.toThrow("Reviewed invocation aborted.");
 
@@ -321,8 +362,34 @@ test("a reviewed abort keeps an active raw observation fenced across controller 
   await expect(restarted.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "start-during-orphaned-raw-read" })).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
 
   release.resolve();
+  await expect(unauthorized).resolves.toMatchObject({ code: "RAW_DISPATCH_DENIED" });
   await rawCompletion;
   await expect(restarted.requestSandboxAction(context.owner.id, create.projectId, { action: "start", idempotencyKey: "start-after-raw-read" })).resolves.toMatchObject({ state: "admitted" });
+});
+
+test("one reviewed invocation cannot redispatch an unknown raw effect", async () => {
+  let rawController!: ReturnType<typeof createSandboxController>;
+  let wrongUserId = "";
+  const context = await fixture(async (userId, _projectId, _provider, _group, _operation, input, signal) => {
+    const id = (input as { call: { operationId: string } }).call.operationId;
+    const denied = await rawController.executeAdmittedLocalSandboxOperationRaw(wrongUserId, id, "foreign-provider", signal).catch(error => error);
+    expect(denied).toMatchObject({ code: "RAW_DISPATCH_DENIED" });
+    const wrongProvider = await rawController.executeAdmittedLocalSandboxOperationRaw(userId, id, "foreign-provider", signal).catch(error => error);
+    expect(wrongProvider).toMatchObject({ code: "RAW_DISPATCH_DENIED" });
+    const first = await rawController.executeAdmittedLocalSandboxOperationRaw(userId, id, "sandbox-installation", signal);
+    const second = await rawController.executeAdmittedLocalSandboxOperationRaw(userId, id, "sandbox-installation", signal);
+    expect(second).toEqual(first);
+    return second;
+  });
+  rawController = context.controller;
+  wrongUserId = context.other.id;
+  context.local.fileRead = mock(async (input: any) => ({ receipt: { ...receipt(input.call), outcome: "unknown" as const, error: { code: "read_unknown", message: "Read outcome is unknown", retryable: true } } }));
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const read = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "read", idempotencyKey: "one-shot-unknown-read", payload: { path: "/a", offsetBytes: 0, lengthBytes: 1 } });
+
+  expect((await context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id)).state).toBe("unknown");
+  expect(context.local.fileRead).toHaveBeenCalledTimes(1);
 });
 
 test("a second controller cannot redispatch or clear a live writer claim", async () => {
@@ -348,6 +415,45 @@ test("a second controller cannot redispatch or clear a live writer claim", async
   release.resolve();
   await expect(executing).resolves.toMatchObject({ state: "succeeded" });
   expect(context.local.fileWrite).toHaveBeenCalledTimes(1);
+});
+
+test("an expired process-start takeover keeps the writer lease until authoritative recovery", async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  let attempts = 0;
+  const identity = { bootId: "boot", processId: "takeover-process" };
+  const context = await fixture();
+  context.local.processStart = mock(async (input: any) => {
+    attempts += 1;
+    if (attempts === 1) {
+      entered.resolve();
+      await release.promise;
+      return { receipt: receipt(input.call), process: { identity, state: "running" as const, outputCursor: 0 } };
+    }
+    if (attempts === 2) return { receipt: { ...receipt(input.call), outcome: "unknown" as const, error: { code: "process_busy", message: "Another process operation is already in progress", retryable: true } } };
+    return { receipt: receipt(input.call), process: { identity, state: "exited" as const, exitCode: 0, outputCursor: 0 } };
+  });
+  context.local.processInspect = mock(async (input: any) => ({ receipt: receipt(input.call), process: { identity: input.identity, state: "exited" as const, exitCode: 0, outputCursor: 0 } }));
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "expired-process-start", payload: { argv: ["sleep"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1_000 } });
+  const stale = context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id);
+  await entered.promise;
+  await expireMethodClaim(context.database, start.id);
+
+  const takeover = context.restartController();
+  expect((await takeover.executeAdmittedSandboxMethod(context.owner.id, start.id)).state).toBe("unknown");
+  const retained = await context.database.execute(sql`SELECT operation_id FROM sandbox_writer_leases WHERE operation_id=${start.id}`) as { rows: unknown[] };
+  expect(retained.rows).toHaveLength(1);
+
+  release.resolve();
+  await expect(stale).rejects.toMatchObject({ code: "OPERATION_IN_PROGRESS" });
+  expect((await context.controller.getSandboxOperationResult(context.owner.id, start.id)).state).toBe("unknown");
+  expect((await takeover.executeAdmittedSandboxMethod(context.owner.id, start.id)).state).toBe("succeeded");
+  const lifecycle = await takeover.requestSandboxAction(context.owner.id, create.projectId, { action: "destroy", idempotencyKey: "destroy-after-takeover" });
+  expect(lifecycle.state).toBe("admitted");
+  const leases = await context.database.execute(sql`SELECT operation_id FROM sandbox_writer_leases WHERE operation_id=${start.id}`) as { rows: unknown[] };
+  expect(leases.rows).toEqual([]);
 });
 
 test("keeps the writer lease through a running process and releases it after terminal process inspection", async () => {
@@ -751,7 +857,7 @@ test("rejects a reviewed provider response that did not use the raw host callbac
   });
   const create = await admitCreate(context);
   await expect(context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id)).rejects.toMatchObject({ code: "PROVIDER_RESULT_UNVERIFIED" });
-  await expect(context.controller.executeAdmittedLocalSandboxOperationRaw(context.owner.id, create.operation!.id)).rejects.toMatchObject({ code: "RAW_DISPATCH_DENIED" });
+  await expect(context.controller.executeAdmittedLocalSandboxOperationRaw(context.owner.id, create.operation!.id, context.installation.id)).rejects.toMatchObject({ code: "RAW_DISPATCH_DENIED" });
   const operation = await context.database.execute(sql`SELECT state FROM sandbox_operations WHERE id=${create.operation!.id}`) as { rows: Array<{ state: string }> };
   expect(operation.rows[0]!.state).toBe("admitted");
   expect(context.local.create).not.toHaveBeenCalled();

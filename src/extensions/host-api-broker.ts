@@ -6,7 +6,7 @@ import { LifecycleError } from "./v4/types";
 import { hostApiRouteCapability, type Capability } from "./capability-types";
 
 export interface HostApiTransport {
-  request(userId: string, request: { path: string; method: string; body?: unknown }): Promise<{ status: number; body: string; headers?: Record<string, string> }>;
+  request(userId: string, request: { path: string; method: string; body?: unknown }, extensionId: string): Promise<{ status: number; body: string; headers?: Record<string, string> }>;
   events(userId: string, request: { cursor?: string; waitMs: number; conversationId: string | null }): Promise<{ cursor: string; events: unknown[]; done?: boolean }>;
 }
 
@@ -65,7 +65,7 @@ export async function handleHostApi(deps: RpcHandlerDeps, extensionId: string, r
       validateHostApiRequest(input, approved);
       const grantedRoute = approved.routes.find((route) => route.method === input.method && routeMatches(route.path, input.path.split("?")[0]!))!;
       await authorize(hostApiRouteCapability(grantedRoute));
-      result = await transport.request(user.id, input);
+      result = await transport.request(user.id, input, extensionId);
     }
     return { jsonrpc: "2.0", id: request.id, result };
   } catch (cause) {
