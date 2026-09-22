@@ -82,6 +82,21 @@ printed.
   EVIDENCE: `/tmp/factory-platform-evidence/w00-focused-triage/sweep-before.txt`,
   `sweep-after-pairs.txt`
 
+- [ ] G13: Every ORDERED pair among the twelve files this triage touched composes: a pair passes
+  exactly the sum of its two files run alone. This replaces round 2's one-victim-each check, which
+  structurally could not see the regression the validator caught.
+  CHECK: `bash tools/pair-matrix.sh pair-matrix-2`
+  EXPECT: 132 pairs, 129 green, and the 3 red ones identical at the merge base — they are
+  link-order conflicts between suites that share one route module or one package mock, not alias
+  hygiene, and the runner's order never takes those directions
+  EVIDENCE: `/tmp/factory-platform-evidence/w00-focused-triage/pair-matrix-2.txt`,
+  `badpairs-at-base.txt`
+
+- [ ] G14: The batch the runner actually builds at this head is green in one process.
+  CHECK: `bash tools/run-batch.sh batch226-final`
+  EXPECT: 226 files, 2791 pass, 0 fail (2787 pass / 4 fail before this round)
+  EVIDENCE: `/tmp/factory-platform-evidence/w00-focused-triage/batch226-final.receipt.txt`
+
 - [ ] G10: Static gates stay green.
   CHECK: `bun run typecheck && bun run lint && bun scripts/gate-integrity.ts`
   EXPECT: all three pass

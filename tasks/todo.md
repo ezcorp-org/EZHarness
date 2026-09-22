@@ -2945,6 +2945,23 @@ process. All nine pass alone. Gates: `tasks/factory/focused-batch-isolation-GATE
       deleted outright; the two genuine stubs moved onto relative paths that `restoreModuleMocks()`
       can restore, and the middleware stub takes the spread-and-revert pattern. No assertion
       changed. Pairs now 24 / 34 / 29 / 21 pass, 0 fail.
+- [x] Round 3, after the validator rejected the sweep and was right. The sweep moved three stubs
+      off `$server/*` aliases onto relative paths; that only works while NOTHING claims the alias,
+      and a dozen suites claim `$server/db/queries/projects`, `mockServerAlias()` included. The two
+      mentions suites now claim it again, spread and reverted, and DROP their `$server/db/schema`
+      stub outright — a route module is linked once per process, so re-registering an alias cannot
+      rebind an import already resolved, and an empty table reached a later suite's real drizzle
+      query as `Object.entries(undefined)`. Added `serverContextStub()` so a partial
+      `$lib/server/context` factory can no longer delete `getGoalHost` for whoever follows.
+      Verification replaced: every ORDERED pair among the twelve touched files, 129 of 132 green,
+      and the three red ones measured identical at the merge base c1377122b. Batch 226 files,
+      2791 pass, 0 fail.
+- [ ] Three ordered pairs stay red and are not this branch's: `scratchpad-e2e` before either
+      mentions suite, and `trusted-local-runner-wiring` before the in-process integration. They are
+      link-order conflicts between suites that share one route module or one package mock, they
+      fail identically at the merge base, and the runner's order never takes those directions.
+      Fixing them means redesigning a suite; the obvious shortcut, a private module copy, is the
+      coverage trap that the workflow-branch suite exists to avoid.
 - [ ] The per-file pool is NOT green on this host, and not because of this branch. Two runs, two
       different untouched real-subprocess suites: `sample-loop/index.integration.test.ts` (1 test)
       then `production-image-lifecycle-launch.integration.test.ts` (3 tests), each passing alone at
