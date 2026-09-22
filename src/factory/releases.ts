@@ -672,14 +672,19 @@ export class FactoryReleases {
       const destinationHash = destinationDigest(destination);
       const requestHash = hash({ destination, request: input.request });
       const materialHash = hash(material);
-      // The conflict target is deliberately omitted so that EVERY unique index arbitrates. The id
-      // digests `identityFor`, a strict superset of the nine columns
-      // `idx_factory_release_operations_identity` covers, so two identical declarations always
-      // collide on that index AND on the primary key; naming only one of them made the other raise
-      // 23505 whenever two declarations probed before either wrote its index tuple. Converging is
-      // not the same as accepting: the exact durable reread below still decides identity, so a
-      // declaration that shares the identity index under a different id is refused by name, and a
-      // primary key that collides without a matching identity is refused as corrupt.
+      // The conflict target is deliberately omitted so that EVERY unique index arbitrates. This
+      // table has exactly two: `factory_release_operations_pkey` on
+      // (tenant_id, project_id, operation_id), and the nine-column identity constraint — declared
+      // in `src/db/schema.ts` as `idx_factory_release_operations_identity` but created by the
+      // migration as an inline UNIQUE, so PostgreSQL names it
+      // `factory_release_operations_tenant_id_project_id_run_id_node_key`. The id digests
+      // `identityFor`, a strict superset of those nine columns, so two identical declarations
+      // always collide on BOTH; naming only one of them made the other raise 23505 whenever two
+      // declarations probed before either wrote its index tuple. Converging is not the same as
+      // accepting: the exact durable reread below still decides identity, so a declaration that
+      // shares the identity constraint under a different id is refused by name, and a primary key
+      // that collides without a matching identity is refused as corrupt. Only unique and exclusion
+      // violations are suppressed, so the table's CHECK constraints and foreign keys still raise.
       await transaction.execute(sql`INSERT INTO factory_release_operations (tenant_id,project_id,operation_id,run_id,node_instance_id,candidate_generation,candidate_digest,decision_id,contract_digest,execution_epoch,cancellation_epoch,release_enable_epoch,action,destination_provider,destination_account,destination_object,expected_destination_version,destination_digest,canonical_request,request_digest,material_json,material_digest,estimated_spend_micros,deadline_ms,state,destination_ref,destination_branch,profile_input_digest,profile_result_digest,profile_resolved_at_ms) VALUES (${this.tenantId},${input.projectId},${operationId},${input.runId},${input.nodeInstanceId},${input.candidateGeneration},${input.candidateDigest},${input.decisionId},${accepted.contractDigest},${accepted.executionEpoch},${accepted.cancellationEpoch},${current.releaseEnableEpoch},${input.action},${destination.provider},${destination.account},${destination.object},${destination.expectedVersion ?? null},${destinationHash},${canonicalRequest},${requestHash},${canonicalJson(material)},${materialHash},${input.estimatedSpendMicros},${input.deadlineMs},'pending',${binding?.ref ?? null},${binding?.branch ?? null},${sealed.inputDigest},${sealed.resultDigest},${sealed.resolvedAtMs}) ON CONFLICT DO NOTHING`);
       const saved = await this.readInTransaction(transaction, input.projectId, operationId, "share");
       if (!saved || saved.requestDigest !== requestHash || saved.materialDigest !== materialHash || saved.destinationDigest !== destinationHash || saved.deadlineMs !== input.deadlineMs) throw new FactoryReleaseError("factory_release_conflict");
