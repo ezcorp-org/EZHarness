@@ -62,6 +62,7 @@ const BIN_STANDALONE = join(SANDBOX, "bin-standalone");
 const BIN_GIT_UNAVAILABLE = join(SANDBOX, "bin-git-unavailable");
 const BIN_REAL_COMPOSE = join(SANDBOX, "bin-real-compose");
 const BIN_BSD_STAT = join(SANDBOX, "bin-bsd-stat");
+const BIN_PODMAN_FAILURE = join(SANDBOX, "bin-podman-failure");
 // PATH for the "docker CLI is missing" case. `dirname` is the one external
 // the script runs BEFORE the docker check, so it has to stay reachable —
 // otherwise that test would pass for the wrong reason.
@@ -80,6 +81,7 @@ mkdirSync(BIN_STANDALONE);
 mkdirSync(BIN_GIT_UNAVAILABLE);
 mkdirSync(BIN_REAL_COMPOSE);
 mkdirSync(BIN_BSD_STAT);
+mkdirSync(BIN_PODMAN_FAILURE);
 mkdirSync(BIN_NO_DOCKER);
 mkdirSync(join(SANDBOX, "scripts"));
 symlinkSync(WRAPPER_SOURCE, WRAPPER);
@@ -138,10 +140,10 @@ chmodSync(join(BIN_STANDALONE, "docker"), 0o755);
 chmodSync(join(BIN_STANDALONE, "docker-compose"), 0o755);
 await Bun.write(join(BIN_GIT_UNAVAILABLE, "git"), "#!/usr/bin/env bash\nexit 127\n");
 chmodSync(join(BIN_GIT_UNAVAILABLE, "git"), 0o755);
-// Two cases EXECUTE the printed direct-Docker rebuild command, so they need the
-// real Docker CLI and daemon — not Compose, and not Podman, which resolves
-// build-context ignore files differently (see Dockerfile.test's guard). On a
-// Podman-only host they are skipped, not faked; CI has Docker and runs them.
+// Two cases execute the printed direct-Docker rebuild command through
+// `docker compose config`. They need the Docker CLI, not a daemon. Podman
+// resolves build-context ignore files differently (see Dockerfile.test's
+// guard), so a Podman-only host skips these cases; CI has Docker and runs them.
 const HAS_DOCKER_CLI = Bun.which("docker") !== null;
 const realCompose = Bun.which("docker") ?? Bun.which("docker-compose");
 if (!realCompose) throw new Error("Docker Compose is required for wrapper interpolation tests");
@@ -157,6 +159,11 @@ await Bun.write(
   ["#!/usr/bin/env bash", 'printf "%s\\n" "$PODMAN_GID_MAP"', ""].join("\n"),
 );
 chmodSync(join(BIN, "podman"), 0o755);
+writeFileSync(
+  join(BIN_PODMAN_FAILURE, "podman"),
+  '#!/usr/bin/env bash\nprintf "%s\\n" "$PODMAN_ERROR" >&2\nexit 125\n',
+);
+chmodSync(join(BIN_PODMAN_FAILURE, "podman"), 0o755);
 
 const sandboxGitEnv: Record<string, string> = {};
 for (const [key, value] of Object.entries(process.env)) {
@@ -444,13 +451,10 @@ describe("podman wrapper — the invocation it guarantees", () => {
     // `podman machine` gives you. The old message told the operator to switch
     // users, which cannot help; this one says the dev stack needs Linux and
     // points at the prod stack.
-    const bin = mkdtempSync(join(SANDBOX, "bin-remote-"));
-    writeFileSync(
-      join(bin, "podman"),
-      '#!/usr/bin/env bash\necho \'Error: cannot use command "podman unshare" with the remote podman client\' >&2\nexit 125\n',
-    );
-    chmodSync(join(bin, "podman"), 0o755);
-    const result = resolveRunnerGroup("--podman", { PATH: `${bin}:${baseEnv.PATH}` });
+    const result = resolveRunnerGroup("--podman", {
+      PATH: `${BIN_PODMAN_FAILURE}:${baseEnv.PATH}`,
+      PODMAN_ERROR: 'Error: cannot use command "podman unshare" with the remote podman client',
+    });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain("remote client");
     expect(result.stderr).toContain("bun run podman --prod");
@@ -458,11 +462,12 @@ describe("podman wrapper — the invocation it guarantees", () => {
   });
 
   test("any other gid-map failure keeps the wrong-user hint", () => {
-    const bin = mkdtempSync(join(SANDBOX, "bin-unshare-fail-"));
-    writeFileSync(join(bin, "podman"), "#!/usr/bin/env bash\necho 'some other failure' >&2\nexit 1\n");
-    chmodSync(join(bin, "podman"), 0o755);
-    const result = resolveRunnerGroup("--podman", { PATH: `${bin}:${baseEnv.PATH}` });
+    const result = resolveRunnerGroup("--podman", {
+      PATH: `${BIN_PODMAN_FAILURE}:${baseEnv.PATH}`,
+      PODMAN_ERROR: "some other failure",
+    });
     expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("some other failure");
     expect(result.stderr).toContain("Run this as the user");
     expect(result.stderr).not.toContain("remote client");
   });

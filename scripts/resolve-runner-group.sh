@@ -39,6 +39,8 @@ if ! command -v podman >/dev/null 2>&1; then
 fi
 
 if ! gid_map="$(podman unshare cat /proc/self/gid_map 2>&1)"; then
+  # Keep Podman's own diagnostic visible while using it to identify remote clients.
+  if [ -n "$gid_map" ]; then printf '%s\n' "$gid_map" >&2; fi
   echo "error: could not read the rootless Podman gid map." >&2
   # macOS (and any `podman --remote` setup) talks to Podman through a VM or
   # socket; `podman unshare` needs a LOCAL rootless Podman and refuses with
