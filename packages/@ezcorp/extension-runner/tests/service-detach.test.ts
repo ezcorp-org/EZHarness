@@ -29,6 +29,8 @@ interface Harness {
   notify(workerId: string, method: string, params: unknown): void;
   /** Raise one reverse call from the worker to its host. */
   reverse(workerId: string, method: string, params: unknown): Promise<unknown>;
+  /** Make every later forward /v4/request block; the returned function releases them. */
+  holdForwardRequests(): () => void;
   close(): Promise<void>;
 }
 
@@ -37,12 +39,13 @@ async function startHarness(overrides: Partial<RunnerServiceOptions> = {}): Prom
   const socketPath = join(root, "runner.sock");
   const notifiers = new Map<string, Set<(method: string, params: unknown) => void>>();
   const reversers = new Map<string, (method: string, params: unknown) => Promise<unknown>>();
+  let forwardGate: Promise<void> | undefined;
   const runner = {
     start: async (input: StartRequest, reverseRpc: (method: string, params: unknown) => Promise<unknown>) => {
       const listeners = new Set<(method: string, params: unknown) => void>();
       notifiers.set(input.workerId, listeners);
       reversers.set(input.workerId, reverseRpc);
-      const execution: RunnerExecution = { workerId: input.workerId, request: async () => null, close: async () => {}, onNotification: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
+      const execution: RunnerExecution = { workerId: input.workerId, request: async () => { await forwardGate; return "done"; }, close: async () => {}, onNotification: listener => { listeners.add(listener); return () => listeners.delete(listener); } };
       return execution;
     },
     cancel: async () => {},
@@ -54,6 +57,7 @@ async function startHarness(overrides: Partial<RunnerServiceOptions> = {}): Prom
     socketPath,
     notify: (workerId, method, params) => { for (const listener of notifiers.get(workerId) ?? []) listener(method, params); },
     reverse: (workerId, method, params) => reversers.get(workerId)!(method, params),
+    holdForwardRequests: () => { let release = () => {}; forwardGate = new Promise<void>(resolve => { release = resolve; }); return () => { forwardGate = undefined; release(); }; },
     close: async () => { await service.close(); await rm(root, { recursive: true, force: true }); },
   };
 }
@@ -260,6 +264,49 @@ test("a host busy with a reverse call is never evicted while it still owes a rep
     // the host's own next poll is served.
     expect((await call(harness.socketPath, "/v4/attach", { workerId: "worker" })).status).toBe(400);
     expect((await call(harness.socketPath, "/v4/events", { workerId: "worker" })).body).toEqual({ events: [] });
+  } finally { await harness.close(); }
+}, 30_000);
+
+test("a host waiting inside a long forward request is never evicted while that call runs", async () => {
+  const harness = await startHarness({ attachmentLeaseMs: LEASE_MS });
+  try {
+    await startAndAttach(harness, "worker");
+    const release = harness.holdForwardRequests();
+    // No poll is parked and no reverse call is owed, so before this fix the
+    // lease had nothing to defer to and evicted the host mid-call.
+    const forward = call(harness.socketPath, "/v4/request", { workerId: "worker", method: "slow", params: {} });
+    await Bun.sleep(LEASE_MS * 2);
+    expect(harness.service.attachments()).toEqual(["worker"]);
+
+    release();
+    const answer = await forward;
+    expect(answer.status).toBe(200);
+    expect(answer.body).toEqual({ result: "done" });
+    // The call bought no extra silence: the deadline was never pushed, so the
+    // attachment is released as soon as the call stops deferring it, and the
+    // worker itself is untouched and re-attachable.
+    await until(() => harness.service.attachments().length === 0);
+    expect((await call(harness.socketPath, "/v4/attach", { workerId: "worker" })).status).toBe(200);
+  } finally { await harness.close(); }
+}, 30_000);
+
+test("a caller that does not hold the stream cannot renew the attachment lease", async () => {
+  const harness = await startHarness({ attachmentLeaseMs: LEASE_MS });
+  try {
+    await startAndAttach(harness, "worker");
+    // A second caller inside the same trust boundary hammers the worker with
+    // forward calls. Each one defers the lease while it runs, but none of them
+    // may push the deadline, so the silent holder is still released.
+    let stop = false;
+    const traffic = (async () => {
+      let calls = 0;
+      while (!stop) { expect((await call(harness.socketPath, "/v4/request", { workerId: "worker", method: "poke", params: {} })).status).toBe(200); calls += 1; await Bun.sleep(25); }
+      return calls;
+    })();
+    await until(() => harness.service.attachments().length === 0);
+    stop = true;
+    expect(await traffic).toBeGreaterThan(1);
+    expect(harness.service.attachments()).toEqual([]);
   } finally { await harness.close(); }
 }, 30_000);
 

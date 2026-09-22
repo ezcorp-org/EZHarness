@@ -11,7 +11,7 @@ type Event = { id?: string; method: string; params: unknown };
  * static shape: every endpoint validates the exact fields it reads.
  */
 type RunnerRequestBody = ReturnType<typeof JSON.parse>;
-interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean; lease?: ReturnType<typeof setTimeout> }
+interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean; lease?: ReturnType<typeof setTimeout>; leaseDeadline: number; inFlight: number }
 export interface RunnerServiceOptions { socketPath: string; token: string; runner: Runner; allowedUid: number; python?: string; eventPollTimeoutMs?: number; attachmentLeaseMs?: number }
 export interface RunnerService {
   close(): Promise<void>;
@@ -76,16 +76,36 @@ function releaseAttachment(session: Session): void {
 }
 
 /**
+ * Arm the attachment lease for this session's current deadline.
+ *
+ * The lease exists for one case only: a host that has stopped collecting its
+ * stream without the runtime reporting a disconnect. So it does not run while
+ * something else already proves the host is there or legitimately busy:
+ *   - its poll is parked, which is the case `Request.signal` covers directly;
+ *   - it owes a reply to a queued reverse call, which carries its own timeout;
+ *   - a forward call it is waiting on is still executing.
+ * Each of those re-arms the lease when it drains, against the SAME deadline, so
+ * waiting out one of them never buys the host extra silence.
+ */
+function armAttachmentLease(session: Session): void {
+  clearTimeout(session.lease);
+  session.lease = undefined;
+  if (!session.attached || session.wake !== undefined || session.pending.size > 0 || session.inFlight > 0) return;
+  session.lease = setTimeout(() => releaseAttachment(session), Math.max(1, session.leaseDeadline - Date.now()));
+}
+
+/**
  * Park one event-stream poll until an event arrives, the long poll expires, or
  * the runtime reports that the host dropped the stream. The abort listener is
  * the signal Bun actually delivers; nothing here polls for a disconnect.
  */
 function parkEventStream(session: Session, signal: AbortSignal, pollTimeoutMs: number): Promise<void> {
   return new Promise<void>(resolve => {
-    const settle = (released: boolean) => { clearTimeout(timer); signal.removeEventListener("abort", dropped); session.wake = undefined; if (released) releaseAttachment(session); resolve(); };
+    const settle = (released: boolean) => { clearTimeout(timer); signal.removeEventListener("abort", dropped); session.wake = undefined; if (released) releaseAttachment(session); else armAttachmentLease(session); resolve(); };
     const dropped = () => settle(true);
     const timer = setTimeout(() => settle(false), pollTimeoutMs);
     session.wake = () => settle(false);
+    armAttachmentLease(session);
     if (signal.aborted) dropped(); else signal.addEventListener("abort", dropped);
   });
 }
@@ -108,20 +128,23 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
   const privatePath = join(privateDirectory, "runner.sock");
   const sessions = new Map<string, Session>();
   let starting = 0;
-  /** Take the one host attachment for this worker and arm its lease. */
+  /** Take the one host attachment for this worker and start its lease. */
   function attachHost(session: Session): void { session.attached = true; renewAttachment(session); }
   /**
-   * Renew the attachment lease. Every request from the holder renews it, so a
-   * host that stops talking is released within one lease. While the host still
-   * owes a reply to a queued reverse call the lease re-arms instead of
-   * releasing: that call carries its own timeout and deletes itself when it
-   * expires, so a host that has truly gone is released one lease after its last
-   * outstanding call, and a host that is merely busy is never evicted.
+   * Push the attachment deadline one lease into the future.
+   *
+   * Only a request that PROVES the caller still owns the stream may do this,
+   * because the protocol carries no host identity and the service cannot
+   * otherwise tell one authenticated caller from another. Two do:
+   * `/v4/events`, which is refused unless this session is attached and no poll
+   * is already parked, and `/v4/reply`, which needs a pending identifier that
+   * was only ever handed to the holder through that stream. `/v4/request`
+   * proves nothing about who is calling and therefore does not renew.
    */
   function renewAttachment(session: Session): void {
     if (!session.attached) return;
-    clearTimeout(session.lease);
-    session.lease = setTimeout(() => { if (session.pending.size === 0) releaseAttachment(session); else renewAttachment(session); }, attachmentLeaseMs);
+    session.leaseDeadline = Date.now() + attachmentLeaseMs;
+    armAttachmentLease(session);
   }
   /** Open one worker session and wire its reverse-RPC and notification queues. */
   async function startSession(data: RunnerRequestBody): Promise<Response> {
@@ -136,13 +159,13 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       const session = sessions.get(data.workerId);
       if (!session || pending.size >= 32 || events.length >= 32) { reject(new RunnerError("host_unavailable", "Host reverse RPC unavailable")); return; }
       const id = randomUUID();
-      const timer = setTimeout(() => { pending.delete(id); reject(new RunnerError("host_timeout", "Host reverse RPC timed out")); }, Math.max(1, Math.min(60_000, data.context.deadline - Date.now())));
+      const timer = setTimeout(() => { pending.delete(id); armAttachmentLease(session); reject(new RunnerError("host_timeout", "Host reverse RPC timed out")); }, Math.max(1, Math.min(60_000, data.context.deadline - Date.now())));
       pending.set(id, { resolve, reject, timer });
       events.push({ id, method, params });
       session.wake?.();
     })).finally(() => { starting--; });
     const timer = setTimeout(() => { void closeSession(data.workerId); }, Math.max(1, Math.min(data.limits.timeoutMs, data.context.deadline - Date.now())));
-    const session: Session = { execution, pending, events, timer, attached: false };
+    const session: Session = { execution, pending, events, timer, attached: false, leaseDeadline: 0, inFlight: 0 };
     sessions.set(data.workerId, session);
     execution.onNotification((method, params) => {
       if (events.length >= 32) { void closeSession(data.workerId); return; }
@@ -157,11 +180,13 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     const session = sessions.get(identifier(data.workerId));
     const pending = session?.pending.get(data.id);
     if (!pending) throw new RunnerError("unknown_request", "Host reply ID is stale or invalid");
-    renewAttachment(session!);
     clearTimeout(pending.timer);
     session?.pending.delete(data.id);
     const eventIndex = session?.events.findIndex(event => event.id === data.id) ?? -1;
     if (eventIndex >= 0) session!.events.splice(eventIndex, 1);
+    // A valid reply identifier reaches a caller only through the stream, so
+    // this proves the holder is still there. Renew after the drain above.
+    renewAttachment(session!);
     if (data.error) { const safe = safeHostError({ code: data.error }); pending.reject(new RunnerError(safe.code, safe.message)); } else pending.resolve(data.result);
     return respond(200, {});
   }
@@ -195,8 +220,15 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       case "/v4/request": {
         const session = sessions.get(identifier(data.workerId));
         if (!session || typeof data.method !== "string" || data.method.length > 128) throw new RunnerError("unknown_worker", "Worker is unavailable");
-        renewAttachment(session);
-        return respond(200, { result: await session.execution.request(data.method, data.params) });
+        // A forward call does not renew: any authenticated caller can make one,
+        // so it proves nothing about who holds the stream. It does hold the
+        // lease off for exactly as long as it runs, so a holder waiting inside
+        // one is never evicted mid-call, and it cannot buy any silence beyond
+        // that because the deadline is untouched.
+        session.inFlight += 1;
+        armAttachmentLease(session);
+        try { return respond(200, { result: await session.execution.request(data.method, data.params) }); }
+        finally { session.inFlight -= 1; armAttachmentLease(session); }
       }
       case "/v4/events": return collectEvents(request, data);
       case "/v4/attach": {
