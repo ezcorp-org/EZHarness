@@ -138,6 +138,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
     const res = (await handle({ event, resolve } as any)) as Response;
 
     expect(res.status).toBe(200);
+    expect(event.locals.sessionId).toBe("sess-1");
     expect(vi.mocked(signJWT)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(rotateSessionToken)).toHaveBeenCalledTimes(1);
 
@@ -202,6 +203,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
 
     expect(event.locals.user).toMatchObject({ id: "u-1", role: "member" });
     expect(event.locals.authMethod).toBe("session");
+    expect(event.locals.sessionId).toBe("sess-1");
     // And NOT the key-principal field: a cookie session is authorized by
     // role alone, which is what makes `requireScope` a no-op for it.
     expect(event.locals.apiKeyScopes).toBeUndefined();
@@ -222,6 +224,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
 
     expect(event.locals.user).toBeUndefined();
     expect(event.locals.authMethod).toBeUndefined();
+    expect(event.locals.sessionId).toBeUndefined();
   });
 
   test("non-data route keeps the global Permissions-Policy camera deny", async () => {

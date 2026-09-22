@@ -55,6 +55,18 @@ export interface ApiRouteEntry {
 }
 
 export const apiRegistry: ApiRouteEntry[] = [
+  { method: "GET", path: "/api/github/connection", description: "Read the current user's personal GitHub connection status", category: "github", scope: "session" },
+  { method: "DELETE", path: "/api/github/connection", description: "Disconnect the current user's GitHub account and invalidate pending authority", category: "github", scope: "session" },
+  { method: "POST", path: "/api/github/authorize", description: "Start GitHub authorization bound to the current browser session", category: "github", scope: "session" },
+  { method: "GET", path: "/api/github/callback", description: "Complete one GitHub authorization attempt for the same browser session", category: "github", scope: "session" },
+  { method: "GET", path: "/api/github/repositories", description: "List repositories available to the current user's GitHub App connection", category: "github", scope: "session" },
+  { method: "GET", path: "/api/github/repositories/check", description: "Check personal GitHub repository access and installation readiness", category: "github", scope: "session" },
+  { method: "POST", path: "/api/github/sandboxes", description: "Admit a private personal repository sandbox awaiting import", category: "github", scope: "session" },
+  { method: "GET", path: "/api/github/personal-prs/runs/:runId", description: "Read the owner's sandbox run publication state", category: "github", scope: "session" },
+  { method: "POST", path: "/api/github/personal-prs/runs/:runId/prepare", description: "Freeze the owner's completed sandbox run for pull request review", category: "github", scope: "session" },
+  { method: "GET", path: "/api/github/personal-prs/proposals/:id", description: "Read the owner's exact personal pull request proposal", category: "github", scope: "session" },
+  { method: "POST", path: "/api/github/personal-prs/proposals/:id/confirm", description: "Confirm the owner's unchanged personal draft pull request proposal", category: "github", scope: "session" },
+  { method: "POST", path: "/api/github/personal-prs/sandboxes/:projectId/import", description: "Import an approved GitHub repository into the owner's new private sandbox", category: "github", scope: "session" },
   { method: "POST", path: "/api/__test/project-proposal", description: "Seed a controlled project review fixture only when the test surface is enabled", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/__test/marketplace-release", description: "Seed marketplace source from an existing owned verified release only when the test surface is enabled", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/extensions/import-source", description: "Import bounded extension source into an isolated lifecycle build", category: "extensions", scope: "session" },

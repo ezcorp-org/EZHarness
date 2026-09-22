@@ -4,6 +4,7 @@ const groups: SandboxProviderMethodGroup[] = [
   { name: "sandbox.lifecycle.v1", methods: { create: "sandbox/create", inspect: "sandbox/inspect", start: "sandbox/start", stop: "sandbox/stop", destroy: "sandbox/destroy" } },
   { name: "sandbox.process.v1", methods: { start: "process/start", inspect: "process/inspect", readOutput: "process/output", cancel: "process/cancel" } },
   { name: "sandbox.files.v1", methods: { stat: "files/stat", list: "files/list", read: "files/read", write: "files/write", mkdir: "files/mkdir", remove: "files/remove", chmod: "files/chmod" } },
+  { name: "sandbox.transfer.v1", methods: { beginExport: "transfer/beginExport", readExport: "transfer/readExport", endExport: "transfer/endExport" } },
 ];
 
 /** No backend connection or paths are accepted here. The host executes only

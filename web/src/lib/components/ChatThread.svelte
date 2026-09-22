@@ -236,6 +236,8 @@
 		 *  so the page's <ChatHeader> can read isStreaming / activeLeafId
 		 *  / context-usage without re-deriving them. */
 		header?: import("svelte").Snippet<[ChatThreadChrome]>;
+		/** Durable run actions rendered after the visible conversation. */
+		message_footer?: import("svelte").Snippet<[ChatThreadChrome]>;
 		/** Footer/side-panel slot — receives the same chrome state so the
 		 *  page can render DiffSummaryPanel / ObservabilityPanel /
 		 *  AgentDetailPanel against the thread's live derived values. */
@@ -338,6 +340,7 @@
 		onopenobservability,
 		convListRefresh,
 		header,
+		message_footer,
 		chrome_panels,
 		seedMessages,
 		seedLeafId,
@@ -2847,6 +2850,9 @@
 				</div>
 			{/if}
 
+			{#if message_footer}
+				{@render message_footer(chromeState)}
+			{/if}
 			<div bind:this={sentinel} class="h-1"></div>
 		</div>
 

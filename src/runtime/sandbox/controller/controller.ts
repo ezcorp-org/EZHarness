@@ -1,4 +1,5 @@
 import { canonicalJson, sha256, validateProviderMethodValue, validateProviderMethodExchange, type ProviderReceipt, type SandboxCreateInput, type SandboxResource } from "@ezcorp/extension-contract";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { NATIVE_TOOL_ARTIFACT, NATIVE_TOOL_OUTPUT_BYTES } from "../native-tool-protocol";
 import { sql } from "drizzle-orm";
 import { getDb, type DbTransaction } from "../../../db/connection";
@@ -11,13 +12,31 @@ type ProviderResult = { receipt: ProviderReceipt; resource?: SandboxResource };
 type ProcessResult = { receipt: ProviderReceipt; process?: { identity: { bootId: string; processId: string }; state: string; exitCode?: number; outputCursor: number } };
 type MethodKind = "writer" | "observation" | "cancel" | "invalid";
 type OperationTable = "sandbox_operations" | "sandbox_method_operations";
-type ReviewedInvocation = { userId: string; projectId: string; bindingId: string; provider: LocalSandboxProvider; group: SandboxMethodInput["group"]; method: string; pending?: Promise<unknown> };
+type ReviewedInvocation = { userId: string; projectId: string; bindingId: string; provider: LocalSandboxProvider; group: SandboxMethodInput["group"]; method: string; importOperationId?: string; pending?: Promise<unknown> };
 const RAW_CLAIM_HEARTBEAT_MS = 15_000;
+const privateImport = new AsyncLocalStorage<{ userId: string; projectId: string; operationId: string }>();
+function withReviewedImport<T>(grant: ReviewedInvocation, work: () => T): T {
+  return grant.importOperationId ? privateImport.run({ userId: grant.userId, projectId: grant.projectId, operationId: grant.importOperationId }, work) : work();
+}
 
 function rows(value: unknown): Row[] { return (value as { rows?: Row[] }).rows ?? []; }
 function parse<T>(value: unknown): T { return typeof value === "string" ? JSON.parse(value) as T : value as T; }
-async function requireMember(userId: string, projectId: string): Promise<void> {
+function inPrivateImport(binding: Row): boolean {
+  const importing = privateImport.getStore();
+  return binding.private_initialization_state === "importing" && importing?.userId === binding.private_owner_id && importing?.projectId === binding.project_id && importing?.operationId === binding.private_initialization_operation_id;
+}
+function requirePrivateConversation(binding: Row, conversationId: unknown, allowUnbound = false): void {
+  if (binding.private_owner_id == null || inPrivateImport(binding)) return;
+  if (!conversationId || (binding.private_conversation_id == null ? !allowUnbound : binding.private_conversation_id !== conversationId)) throw new SandboxControllerError("CONVERSATION_ACCESS_DENIED", "A private sandbox belongs to one conversation");
+}
+async function requireMember(userId: string, projectId: string, allowIncomplete = false): Promise<void> {
   if (!await getProjectMembership(userId, projectId)) throw new SandboxControllerError("PROJECT_ACCESS_DENIED", "Project membership is required");
+  const binding = rows(await getDb().execute(sql`SELECT owner_id,private_owner_id,private_initialization_state,private_initialization_operation_id FROM sandbox_provider_bindings WHERE project_id=${projectId}`))[0];
+  if (binding?.private_owner_id != null && (binding.private_owner_id !== userId || binding.owner_id !== userId)) throw new SandboxControllerError("PROJECT_ACCESS_DENIED", "This sandbox is private to its owner");
+  if (!allowIncomplete && binding?.private_owner_id != null && binding.private_initialization_state !== "ready") {
+    const importing = privateImport.getStore();
+    if (binding.private_initialization_state !== "importing" || importing?.userId !== userId || importing.projectId !== projectId || importing.operationId !== binding.private_initialization_operation_id) throw new SandboxControllerError("WORKSPACE_IMPORT_INCOMPLETE", "Repository import must finish before using this sandbox");
+  }
 }
 function receiptMatches(call: SandboxCreateInput["call"], receipt: ProviderReceipt): void {
   if (receipt.operationId !== call.operationId || receipt.idempotencyKey !== call.idempotencyKey || receipt.requestDigest !== call.requestDigest) throw new SandboxControllerError("PROVIDER_RECEIPT_MISMATCH", "Provider receipt does not match the admitted operation");
@@ -34,6 +53,10 @@ function methodKind(group: unknown, method: unknown): MethodKind {
   if (group === "sandbox.files.v1") {
     if (["write", "mkdir", "remove", "chmod"].includes(String(method))) return "writer";
     return ["stat", "list", "read"].includes(String(method)) ? "observation" : "invalid";
+  }
+  if (group === "sandbox.transfer.v1") {
+    if (method === "beginExport") return "writer";
+    return method === "readExport" || method === "endExport" ? "observation" : "invalid";
   }
   return "invalid";
 }
@@ -116,6 +139,9 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     if (current.releaseId !== binding.release_id || current.generation !== Number(binding.generation) || current.releaseBinding !== binding.release_binding) throw new SandboxControllerError("STALE_PROVIDER_BINDING", "Provider release changed; review the binding again");
     return current;
   }
+  function storedProvider(binding: Row): LocalSandboxProvider {
+    return { installationId: String(binding.installation_id), providerId: String(binding.provider_id), releaseId: String(binding.release_id), releaseBinding: String(binding.release_binding), generation: Number(binding.generation) };
+  }
   async function reviewedInvocation(operationId: string, userId: string, providerInstallationId: string): Promise<ReviewedInvocation> {
     const grant = reviewedOperations.get(operationId);
     if (!grant || grant.userId !== userId || grant.provider.installationId !== providerInstallationId) throw new SandboxControllerError("RAW_DISPATCH_DENIED", "Raw sandbox dispatch requires the matching active reviewed invocation");
@@ -123,20 +149,23 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     const method = lifecycle ?? rows(await getDb().execute(sql`SELECT operation.actor_id,operation.method,operation.method_group,binding.id AS binding_id,binding.project_id,binding.installation_id,binding.provider_id,binding.release_id,binding.release_binding,binding.generation,binding.state FROM sandbox_method_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id WHERE operation.id=${operationId}`))[0];
     const group = lifecycle ? "sandbox.lifecycle.v1" : method?.method_group;
     if (!method || method.actor_id !== userId || method.project_id !== grant.projectId || method.binding_id !== grant.bindingId || group !== grant.group || method.method !== grant.method) throw new SandboxControllerError("RAW_DISPATCH_DENIED", "Raw sandbox dispatch does not match the reviewed operation");
-    await requireMember(userId, grant.projectId);
+    await withReviewedImport(grant, () => requireMember(userId, grant.projectId, grant.group === "sandbox.lifecycle.v1" && grant.method === "destroy"));
     const current = await boundProvider(method);
     if (current.installationId !== grant.provider.installationId || current.providerId !== grant.provider.providerId || current.releaseId !== grant.provider.releaseId || current.releaseBinding !== grant.provider.releaseBinding || current.generation !== grant.provider.generation) throw new SandboxControllerError("STALE_PROVIDER_BINDING", "Provider release changed; review the binding again");
     if (reviewedOperations.get(operationId) !== grant) throw new SandboxControllerError("RAW_DISPATCH_DENIED", "Reviewed sandbox invocation has ended");
     return grant;
   }
   async function status(userId: string, projectId: string): Promise<SandboxProjectStatus> {
-    await requireMember(userId, projectId);
+    await requireMember(userId, projectId, true);
     const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE project_id = ${projectId}`))[0];
     if (!binding) throw new SandboxControllerError("SANDBOX_NOT_CONFIGURED", "Project has no sandbox binding");
-    const current = await boundProvider(binding);
     const resource = rows(await getDb().execute(sql`SELECT * FROM sandbox_resources WHERE binding_id = ${binding.id}`))[0];
+    // A never-created private workspace can be cancelled even after its
+    // provider is disabled; no provider method is involved in that disposal.
+    const pendingPrivate = binding.private_owner_id != null && !resource?.provider_resource_id && ["pending", "failed"].includes(String(binding.private_initialization_state));
+    const current = pendingPrivate ? storedProvider(binding) : await boundProvider(binding);
     const operation = rows(await getDb().execute(sql`SELECT * FROM sandbox_operations WHERE binding_id = ${binding.id} ORDER BY created_at DESC LIMIT 1`))[0];
-    return { projectId, bindingId: String(binding.id), provider: current, resource: resource?.provider_resource_id ? { resourceId: String(resource.provider_resource_id), desiredState: resource.desired_state as SandboxResource["desiredState"], observedState: resource.observed_state as SandboxResource["observedState"], limits: parse<SandboxResource["limits"]>(resource.limits) } : null, operation: operation ? { id: String(operation.id), action: operation.action as AdmittedSandboxOperation["action"], state: operation.state as AdmittedSandboxOperation["state"], ...(operation.receipt ? { receipt: parse<ProviderReceipt>(operation.receipt) } : {}) } : null };
+    return { projectId, bindingId: String(binding.id), privateOwnerOnly: binding.private_owner_id != null, initializationState: binding.private_initialization_state as SandboxProjectStatus["initializationState"], privateConversationId: binding.private_conversation_id as string | null, provider: current, resource: resource?.provider_resource_id ? { resourceId: String(resource.provider_resource_id), desiredState: resource.desired_state as SandboxResource["desiredState"], observedState: resource.observed_state as SandboxResource["observedState"], limits: parse<SandboxResource["limits"]>(resource.limits) } : null, operation: operation ? { id: String(operation.id), action: operation.action as AdmittedSandboxOperation["action"], state: operation.state as AdmittedSandboxOperation["state"], ...(operation.receipt ? { receipt: parse<ProviderReceipt>(operation.receipt) } : {}) } : null };
   }
   async function settle(operationId: string, bindingId: string, token: string, result: ProviderResult): Promise<void> {
     await getDb().transaction(async (tx: DbTransaction) => {
@@ -164,6 +193,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     if (!operation || operation.actor_id !== userId) throw new SandboxControllerError("OPERATION_NOT_ADMITTED", "Operation is not available");
     await requireMember(userId, String(operation.project_id));
     const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${operation.binding_id}`))[0]!;
+    requirePrivateConversation(binding, operation.conversation_id);
     const current = await boundProvider(binding);
     return { id: String(operation.id), group: operation.method_group as SandboxMethodInput["group"], operation: String(operation.method), state: operation.state as SandboxOperationResult["state"], provider: current, ...(operation.receipt ? { receipt: parse<ProviderReceipt>(operation.receipt) } : {}), ...(operation.result ? { result: parse<unknown>(operation.result) } : {}) };
   }
@@ -188,7 +218,8 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     const call = input.call as SandboxCreateInput["call"];
     const id = call.operationId;
     if (reviewedOperations.has(id)) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Sandbox operation is already under reviewed execution");
-    const grant: ReviewedInvocation = { userId, projectId, bindingId: call.scope.bindingId, provider: current, group, method };
+    const importScope = privateImport.getStore();
+    const grant: ReviewedInvocation = { userId, projectId, bindingId: call.scope.bindingId, provider: current, group, method, ...(importScope?.userId === userId && importScope?.projectId === projectId ? { importOperationId: importScope.operationId } : {}) };
     reviewedOperations.set(id, grant);
     try {
       const response = await invoke(userId, projectId, current, group, method, input, signal);
@@ -216,13 +247,18 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       if (method === "remove") return driver.fileRemove(input as never);
       if (method === "chmod") return driver.fileChmod(input as never);
     }
+    if (group === "sandbox.transfer.v1") {
+      if (method === "beginExport") return driver.beginExport(input as never);
+      if (method === "readExport") return driver.readExport(input as never);
+      if (method === "endExport") return driver.endExport(input as never);
+    }
     throw new SandboxControllerError("INVALID_OPERATION", "Unsupported sandbox provider method");
   }
   async function executeRaw(userId: string, operationId: string, signal?: AbortSignal): Promise<unknown> {
       const lifecycle = rows(await getDb().execute(sql`SELECT operation.*, binding.project_id FROM sandbox_operations operation JOIN sandbox_provider_bindings binding ON binding.id = operation.binding_id WHERE operation.id=${operationId}`))[0];
       if (lifecycle) {
         if (lifecycle.actor_id !== userId) throw new SandboxControllerError("OPERATION_NOT_ADMITTED", "Operation is not available for execution");
-        await requireMember(userId, String(lifecycle.project_id));
+        await requireMember(userId, String(lifecycle.project_id), lifecycle.action === "destroy");
         if (["succeeded", "failed"].includes(String(lifecycle.state)) && lifecycle.result) return parse(lifecycle.result);
         const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${lifecycle.binding_id}`))[0]!;
         await boundProvider(binding);
@@ -244,6 +280,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       await requireMember(userId, String(operation.project_id));
       if (["succeeded", "failed"].includes(String(operation.state)) && operation.result) return parse(operation.result);
       const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${operation.binding_id}`))[0]!;
+      requirePrivateConversation(binding, operation.conversation_id);
       const current = await boundProvider(binding);
       const claim = await claimOperation("sandbox_method_operations", operationId, userId);
       const stopHeartbeat = heartbeatClaim("sandbox_method_operations", operationId, claim.token);
@@ -274,7 +311,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
               if (isTerminalProcess(process.state)) await tx.execute(sql`DELETE FROM sandbox_writer_leases WHERE binding_id=${operation.binding_id} AND EXISTS (SELECT 1 FROM sandbox_processes p WHERE p.operation_id=sandbox_writer_leases.operation_id AND p.binding_id=${operation.binding_id} AND p.provider_process_id=${process.identity.processId} AND p.state IN ('exited','cancelled','failed'))`);
             }
           }
-          if (operation.method_group === "sandbox.files.v1" && result.receipt!.outcome !== "unknown") await tx.execute(sql`DELETE FROM sandbox_writer_leases WHERE operation_id=${operationId}`);
+          if (["sandbox.files.v1", "sandbox.transfer.v1"].includes(String(operation.method_group)) && result.receipt!.outcome !== "unknown") await tx.execute(sql`DELETE FROM sandbox_writer_leases WHERE operation_id=${operationId}`);
           if (operation.method_group === "sandbox.lifecycle.v1" && operation.method === "inspect") {
             const resource = (result as ProviderResult).resource;
             if (!resource) throw new SandboxControllerError("PROVIDER_RECEIPT_MISMATCH", "Lifecycle inspection must return a resource");
@@ -304,7 +341,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     } finally { executingMethods.delete(operationId); }
   }
   async function reconcileFileWriter(bindingId: string, signal?: AbortSignal): Promise<void> {
-    const pending = rows(await getDb().execute(sql`SELECT operation.id,operation.actor_id FROM sandbox_writer_leases lease JOIN sandbox_method_operations operation ON operation.id=lease.operation_id WHERE lease.binding_id=${bindingId} AND operation.method_group='sandbox.files.v1' AND operation.state IN ('admitted','running','unknown') AND (operation.claim_owner IS NULL OR operation.claim_expires_at <= NOW())`))[0];
+    const pending = rows(await getDb().execute(sql`SELECT operation.id,operation.actor_id FROM sandbox_writer_leases lease JOIN sandbox_method_operations operation ON operation.id=lease.operation_id WHERE lease.binding_id=${bindingId} AND operation.method_group IN ('sandbox.files.v1','sandbox.transfer.v1') AND operation.state IN ('admitted','running','unknown') AND (operation.claim_owner IS NULL OR operation.claim_expires_at <= NOW())`))[0];
     if (pending) await executeMethod(String(pending.actor_id), String(pending.id), signal);
   }
   async function reconcileProcessStart(bindingId: string, signal?: AbortSignal): Promise<Row | undefined> {
@@ -339,7 +376,46 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       if (kind !== "writer") await getDb().execute(sql`UPDATE sandbox_method_operations SET state='failed',completed_at=NOW(),claim_owner=NULL,claim_expires_at=NULL WHERE id=${id} AND state IN ('admitted','running') AND (claim_owner IS NULL OR claim_expires_at <= NOW())`);
     }
   }
+  async function cancelUndispatchedPrivateCreate(userId: string, current: SandboxProjectStatus, idempotencyKey: string): Promise<AdmittedSandboxOperation> {
+    const value = { cancelledBeforeCreate: true as const };
+    const digest = await sha256(canonicalJson(value));
+    return getDb().transaction(async (tx: DbTransaction) => {
+      const binding = rows(await tx.execute(sql`SELECT id,owner_id,private_owner_id,private_initialization_state FROM sandbox_provider_bindings WHERE id=${current.bindingId} FOR UPDATE`))[0];
+      if (!binding || binding.owner_id !== userId || binding.private_owner_id !== userId) throw new SandboxControllerError("PROJECT_ACCESS_DENIED", "This sandbox is private to its owner");
+      const previous = rows(await tx.execute(sql`SELECT id,action,actor_id,input_digest,state FROM sandbox_operations WHERE binding_id=${current.bindingId} AND idempotency_key=${idempotencyKey}`))[0];
+      if (previous) {
+        if (previous.actor_id !== userId || previous.action !== "destroy" || previous.input_digest !== digest) throw new SandboxControllerError("IDEMPOTENCY_CONFLICT", "Idempotency key is already bound to another request");
+        return { id: String(previous.id), action: "destroy", state: previous.state as AdmittedSandboxOperation["state"], input: value, provider: current.provider };
+      }
+      if (!["pending", "failed"].includes(String(binding.private_initialization_state))) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Repository import is still active or complete");
+      const resource = rows(await tx.execute(sql`SELECT id,provider_resource_id,observed_state FROM sandbox_resources WHERE binding_id=${current.bindingId}`))[0];
+      if (!resource || resource.provider_resource_id != null || resource.observed_state === "destroyed") throw new SandboxControllerError("RESOURCE_MISSING", "A provider resource may exist; inspect it before disposal");
+      const create = rows(await tx.execute(sql`UPDATE sandbox_operations SET state='failed',completed_at=NOW(),claim_owner=NULL,claim_expires_at=NULL WHERE binding_id=${current.bindingId} AND action='create' AND actor_id=${userId} AND state='admitted' AND claimed_at IS NULL RETURNING id`))[0];
+      if (!create) throw new SandboxControllerError("OPERATION_IN_PROGRESS", "Sandbox creation may already have reached the provider");
+      const id = crypto.randomUUID();
+      await tx.execute(sql`UPDATE sandbox_provider_bindings SET private_initialization_state='failed',private_initialization_operation_id=NULL,updated_at=NOW() WHERE id=${current.bindingId}`);
+      await tx.execute(sql`UPDATE sandbox_resources SET desired_state='destroyed',observed_state='destroyed',revision=revision+1,updated_at=NOW() WHERE id=${resource.id}`);
+      await tx.execute(sql`UPDATE project_workspace_bindings SET state='unknown',revision=revision+1,updated_at=NOW() WHERE binding_id=${current.bindingId}`);
+      await tx.execute(sql`INSERT INTO sandbox_operations (id,binding_id,resource_id,actor_id,action,idempotency_key,input_digest,request_key_digest,input,state,result,completed_at) VALUES (${id},${current.bindingId},${resource.id},${userId},'destroy',${idempotencyKey},${digest},${digest},${JSON.stringify(value)},'succeeded',${JSON.stringify(value)},NOW())`);
+      return { id, action: "destroy", state: "succeeded", input: value, provider: current.provider };
+    });
+  }
   return {
+    async runPrivateWorkspaceImport(userId, projectId, operationId, work) {
+      await requireMember(userId, projectId, true);
+      if (!operationId) throw new SandboxControllerError("INVALID_INPUT", "An import operation ID is required");
+      const claimed = rows(await getDb().execute(sql`UPDATE sandbox_provider_bindings SET private_initialization_state='importing',private_initialization_operation_id=${operationId} WHERE project_id=${projectId} AND owner_id=${userId} AND private_owner_id=${userId} AND private_initialization_state='pending' RETURNING id`))[0];
+      if (!claimed) throw new SandboxControllerError("WORKSPACE_IMPORT_UNAVAILABLE", "This sandbox cannot start another repository import");
+      try {
+        const result = await privateImport.run({ userId, projectId, operationId }, work);
+        const ready = rows(await getDb().execute(sql`UPDATE sandbox_provider_bindings SET private_initialization_state='ready' WHERE id=${claimed.id} AND private_initialization_state='importing' AND private_initialization_operation_id=${operationId} AND EXISTS (SELECT 1 FROM sandbox_resources resource JOIN sandbox_operations operation ON operation.binding_id=resource.binding_id AND operation.action='create' AND operation.state='succeeded' WHERE resource.binding_id=${claimed.id} AND resource.provider_resource_id IS NOT NULL AND resource.observed_state IN ('running','stopped') AND NOT EXISTS (SELECT 1 FROM sandbox_writer_leases lease WHERE lease.binding_id=resource.binding_id)) RETURNING id`))[0];
+        if (!ready) throw new SandboxControllerError("WORKSPACE_IMPORT_INCOMPLETE", "Sandbox changed during repository import");
+        return result;
+      } catch (error) {
+        await getDb().execute(sql`UPDATE sandbox_provider_bindings SET private_initialization_state='failed' WHERE id=${claimed.id} AND private_initialization_state='importing' AND private_initialization_operation_id=${operationId}`);
+        throw error;
+      }
+    },
     async listLocalSandboxProviders(_userId) {
       const installations = rows(await getDb().execute(sql`SELECT id, payload FROM extension_release_installations`));
       const found: LocalSandboxProvider[] = [];
@@ -356,7 +432,9 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     },
     async createSandboxProject(userId, input) {
       if (!input.name.trim() || !input.idempotencyKey || input.sourceProjectId) throw new SandboxControllerError("INVALID_INPUT", "Use a non-empty name, idempotency key, and empty workspace for the local MVP");
-      const admissionDigest = await sha256(canonicalJson({ name: input.name.trim(), providerInstallationId: input.providerInstallationId, providerId: input.providerId, config: input.config, limits: input.limits }));
+      if (input.privateOwnerOnly !== undefined && typeof input.privateOwnerOnly !== "boolean") throw new SandboxControllerError("INVALID_INPUT", "Private workspace admission must be a boolean");
+      if (input.privateInitializing !== undefined && (typeof input.privateInitializing !== "boolean" || input.privateInitializing && !input.privateOwnerOnly)) throw new SandboxControllerError("INVALID_INPUT", "Repository initialization requires a private sandbox");
+      const admissionDigest = await sha256(canonicalJson({ name: input.name.trim(), providerInstallationId: input.providerInstallationId, providerId: input.providerId, config: input.config, limits: input.limits, ...(input.privateOwnerOnly ? { privateOwnerOnly: true } : {}), ...(input.privateInitializing ? { privateInitializing: true } : {}) }));
       const replay = rows(await getDb().execute(sql`SELECT operation.*, binding.project_id FROM sandbox_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id WHERE operation.actor_id=${userId} AND operation.idempotency_key=${input.idempotencyKey}`))[0];
       if (replay) {
         if (replay.action !== "create" || replay.request_key_digest !== admissionDigest) throw new SandboxControllerError("IDEMPOTENCY_CONFLICT", "Idempotency key is already bound to another request");
@@ -373,7 +451,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       await getDb().transaction(async (tx: DbTransaction) => {
         await tx.execute(sql`INSERT INTO projects (id,name,path,variables) VALUES (${projectId},${input.name.trim()},'',${{}})`);
         await tx.execute(sql`INSERT INTO project_members (id,project_id,user_id,role) VALUES (${crypto.randomUUID()},${projectId},${userId},'owner')`);
-        await tx.execute(sql`INSERT INTO sandbox_provider_bindings (id,project_id,owner_id,installation_id,provider_id,release_id,release_binding,generation,config_revision,config_digest) VALUES (${bindingId},${projectId},${userId},${active.installationId},${active.providerId},${active.releaseId},${active.releaseBinding},${active.generation},1,${configDigest})`);
+        await tx.execute(sql`INSERT INTO sandbox_provider_bindings (id,project_id,owner_id,private_owner_id,private_initialization_state,installation_id,provider_id,release_id,release_binding,generation,config_revision,config_digest) VALUES (${bindingId},${projectId},${userId},${input.privateOwnerOnly ? userId : null},${input.privateInitializing ? "pending" : "ready"},${active.installationId},${active.providerId},${active.releaseId},${active.releaseBinding},${active.generation},1,${configDigest})`);
         await tx.execute(sql`INSERT INTO project_workspace_bindings (project_id,kind,binding_id,state) VALUES (${projectId},'sandbox',${bindingId},'unknown')`);
         await tx.execute(sql`INSERT INTO sandbox_resources (id,binding_id,desired_state,observed_state,limits) VALUES (${crypto.randomUUID()},${bindingId},'stopped','creating',${JSON.stringify(input.limits)})`);
         await tx.execute(sql`INSERT INTO sandbox_operations (id,binding_id,resource_id,actor_id,action,idempotency_key,input_digest,request_key_digest,input,claim_owner,claim_expires_at) VALUES (${operationId},${bindingId},(SELECT id FROM sandbox_resources WHERE binding_id=${bindingId}),${userId},'create',${idempotencyKey},${call.requestDigest},${admissionDigest},${JSON.stringify(createInput)},${executorId},NOW() + INTERVAL '5 minutes')`);
@@ -383,6 +461,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     getProjectSandboxStatus: status,
     async admitSandboxMethod(userId, projectId, input) {
       const current = await status(userId, projectId);
+      await requireMember(userId, projectId);
       if (!current.resource || !input.idempotencyKey || !input.operation) throw new SandboxControllerError("INVALID_INPUT", "A resource, method, and idempotency key are required");
       if (input.conversationId) {
         const conversation = rows(await getDb().execute(sql`SELECT project_id,user_id FROM conversations WHERE id=${input.conversationId}`))[0];
@@ -396,7 +475,9 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       const wire = await wireMethodInput({ input: input.payload, provider_resource_id: current.resource.resourceId, method_group: input.group, method: input.operation, project_id: projectId, binding_id: current.bindingId, id, idempotency_key: input.idempotencyKey }, current.provider);
       validateProviderMethodValue(input.group, input.operation as never, "input", wire);
       const admitted = await getDb().transaction(async (tx: DbTransaction) => {
-        await tx.execute(sql`SELECT id FROM sandbox_provider_bindings WHERE id=${current.bindingId} FOR UPDATE`);
+        const binding = rows(await tx.execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${current.bindingId} FOR UPDATE`))[0]!;
+        requirePrivateConversation(binding, input.conversationId, true);
+        if (binding.private_owner_id != null && !inPrivateImport(binding) && binding.private_conversation_id == null) await tx.execute(sql`UPDATE sandbox_provider_bindings SET private_conversation_id=${input.conversationId!} WHERE id=${current.bindingId}`);
         const refreshedResource = rows(await tx.execute(sql`SELECT observed_state FROM sandbox_resources WHERE binding_id=${current.bindingId}`))[0];
         if (refreshedResource?.observed_state === "destroyed") throw new SandboxControllerError("RESOURCE_DESTROYED", "This sandbox has been disposed");
         await requireNoActiveLifecycle(tx, current.bindingId);
@@ -424,7 +505,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     async executeAdmittedLocalSandboxOperationRaw(userId, operationId, providerInstallationId, signal) {
       const grant = await reviewedInvocation(operationId, userId, providerInstallationId);
       if (grant.pending) return grant.pending;
-      const pending = executeRaw(userId, operationId, signal);
+      const pending = withReviewedImport(grant, () => executeRaw(userId, operationId, signal));
       grant.pending = pending;
       return pending;
     },
@@ -436,7 +517,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       if (!process) return null;
       const result = parse<ProcessResult>(process.result);
       if (!result.process?.identity) throw new SandboxControllerError("PROCESS_IDENTITY_UNAVAILABLE", "A process identity is required for reconciliation");
-      const admitted = await this.admitSandboxMethod(userId, projectId, { group: "sandbox.process.v1", operation: "inspect", idempotencyKey: crypto.randomUUID(), payload: { identity: result.process.identity } });
+      const admitted = await this.admitSandboxMethod(userId, projectId, { group: "sandbox.process.v1", operation: "inspect", idempotencyKey: crypto.randomUUID(), conversationId: current.privateConversationId ?? undefined, payload: { identity: result.process.identity } });
       const inspected = await this.executeAdmittedSandboxMethod(userId, admitted.id, signal);
       return inspected;
     },
@@ -446,6 +527,9 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       if (!principal.userId || !principal.conversationId) throw new SandboxControllerError("PROJECT_ACCESS_DENIED", "An authenticated workspace principal is required");
       const conversation = rows(await getDb().execute(sql`SELECT project_id,user_id FROM conversations WHERE id=${principal.conversationId}`))[0];
       if (!conversation || conversation.project_id !== target.projectId || conversation.user_id !== principal.userId) throw new SandboxControllerError("CONVERSATION_ACCESS_DENIED", "Conversation does not belong to the authenticated project member");
+      await requireMember(principal.userId, target.projectId);
+      const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${target.bindingId} AND project_id=${target.projectId}`))[0];
+      if (binding) requirePrivateConversation(binding, principal.conversationId, true);
       const workspace = rows(await getDb().execute(sql`SELECT binding_id,revision FROM project_workspace_bindings WHERE project_id=${target.projectId}`))[0];
       if (!workspace || workspace.binding_id !== target.bindingId || Number(workspace.revision) !== target.revision) throw new SandboxControllerError("STALE_WORKSPACE_BINDING", "Workspace binding changed");
       await this.reconcileSandboxProcess(principal.userId, target.projectId);
@@ -505,9 +589,12 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
       }
     },
     async requestSandboxAction(userId, projectId, input) {
-      const current = await status(userId, projectId); if (!current.resource) throw new SandboxControllerError("RESOURCE_MISSING", "Sandbox resource is not created");
-      if (current.resource.observedState === "destroyed") throw new SandboxControllerError("RESOURCE_DESTROYED", "This sandbox has been disposed");
+      const current = await status(userId, projectId);
+      await requireMember(userId, projectId, input.action === "destroy");
       if (!input.idempotencyKey) throw new SandboxControllerError("INVALID_INPUT", "An idempotency key is required");
+      if (!current.resource && input.action === "destroy" && current.privateOwnerOnly) return cancelUndispatchedPrivateCreate(userId, current, input.idempotencyKey);
+      if (!current.resource) throw new SandboxControllerError("RESOURCE_MISSING", "Sandbox resource is not created");
+      if (current.resource.observedState === "destroyed") throw new SandboxControllerError("RESOURCE_DESTROYED", "This sandbox has been disposed");
       await this.reconcileSandboxProcess(userId, projectId);
       await reconcileFileWriter(current.bindingId);
       await reconcileInterruptedMethods(current.bindingId);
@@ -537,8 +624,9 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     async executeAdmittedLocalSandboxOperation(userId, operationId) {
       const operation = rows(await getDb().execute(sql`SELECT operation.*, binding.project_id FROM sandbox_operations operation JOIN sandbox_provider_bindings binding ON binding.id=operation.binding_id WHERE operation.id=${operationId}`))[0];
       if (!operation || operation.actor_id !== userId) throw new SandboxControllerError("OPERATION_NOT_ADMITTED", "Operation is not available for execution");
-      await requireMember(userId, String(operation.project_id));
+      await requireMember(userId, String(operation.project_id), operation.action === "destroy");
       const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${operation.binding_id}`))[0]!;
+      if (operation.action === "destroy" && operation.state === "succeeded" && parse<Record<string, unknown>>(operation.input).cancelledBeforeCreate === true) return status(userId, String(binding.project_id));
       const current = await boundProvider(binding);
       if (!["succeeded", "failed"].includes(String(operation.state))) {
         const input = operation.action === "create" ? parse<Record<string, unknown>>(operation.input) : { ...parse<Record<string, unknown>>(operation.input), call: { scope: { projectId: String(binding.project_id), bindingId: String(binding.id), generation: Number(binding.generation) }, operationId, idempotencyKey: String(operation.idempotency_key), requestDigest: String(operation.input_digest) } };

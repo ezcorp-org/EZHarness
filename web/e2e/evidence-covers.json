@@ -1,4 +1,17 @@
 {
+  "web/e2e/personal-github-import.spec.ts": [
+    "web/src/lib/components/GithubSandboxImport.svelte",
+    "web/src/lib/components/ProjectSandboxPanel.svelte"
+  ],
+  "web/e2e/personal-github-settings.spec.ts": [
+    "web/src/routes/(app)/settings/github/+page.svelte"
+  ],
+  "web/e2e/personal-github-pr.spec.ts": [
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/lib/components/DiffSummaryPanel.svelte",
+    "web/src/lib/components/PersonalPrCard.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+  ],
   "web/e2e/extension-author-trusted-local.spec.ts": [
     "web/src/routes/(app)/extensions/author/+page.svelte",
     "web/src/lib/components/UnsandboxedExtensionsBanner.svelte",

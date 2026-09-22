@@ -45,6 +45,8 @@
 	import DiffStatBar from "./review/DiffStatBar.svelte";
 	import ReviewFileCard from "./review/ReviewFileCard.svelte";
 	import ReviewFileTree from "./review/ReviewFileTree.svelte";
+	import type { PersonalPrView } from "$lib/personal-pr.js";
+	import { trustedGithubPrUrl } from "$lib/personal-pr.js";
 
 	let {
 		messages = [],
@@ -53,6 +55,8 @@
 		onclose,
 		streaming = false,
 		conversationId = "",
+		personalPr = null,
+		onpersonalprupdate,
 	}: {
 		messages: Message[];
 		toolCalls: InlineToolCall[];
@@ -60,7 +64,56 @@
 		onclose: () => void;
 		streaming: boolean;
 		conversationId?: string;
+		personalPr?: PersonalPrView | null;
+		onpersonalprupdate?: (view: PersonalPrView) => void;
 	} = $props();
+
+	let prTitle = $state("");
+	let prBody = $state("");
+	let prBusy = $state(false);
+	let prError = $state("");
+	let confirmationKey = $state<string | null>(null);
+	let exactFilesAvailable = $derived(!!personalPr?.files?.length && personalPr.files.every((file) => file.binary ? !!(file.beforeBase64 || file.afterBase64) : typeof file.patch === "string"));
+	$effect(() => {
+		void personalPr?.proposalId;
+		prTitle = personalPr?.title ?? "";
+		prBody = personalPr?.body ?? "";
+		prError = "";
+		confirmationKey = null;
+	});
+
+	async function confirmPersonalPr() {
+		if (!personalPr?.proposalId || !personalPr.digest || prBusy) return;
+		prBusy = true;
+		prError = "";
+		confirmationKey ??= crypto.randomUUID();
+		try {
+			const response = await fetch(`/api/github/personal-prs/proposals/${encodeURIComponent(personalPr.proposalId)}/confirm`, {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: JSON.stringify({ expectedDigest: personalPr.digest, title: prTitle, body: prBody, idempotencyKey: confirmationKey }),
+			});
+			const updated = await response.json();
+			if (!response.ok) throw new Error(updated.error ?? "Could not create draft PR");
+			onpersonalprupdate?.(updated as PersonalPrView);
+		} catch (cause) {
+			prError = cause instanceof Error ? cause.message : "Could not create draft PR";
+		} finally { prBusy = false; }
+	}
+
+	async function refreshPersonalPr() {
+		if (!personalPr?.proposalId) return;
+		prBusy = true;
+		try {
+			const response = await fetch(`/api/github/personal-prs/proposals/${encodeURIComponent(personalPr.proposalId)}`);
+			const updated = await response.json();
+			if (!response.ok) throw new Error(updated.error ?? "Could not check draft PR status");
+			prError = "";
+			onpersonalprupdate?.(updated as PersonalPrView);
+		} catch (cause) {
+			prError = cause instanceof Error ? cause.message : "Could not check draft PR status";
+		} finally { prBusy = false; }
+	}
 
 	// Fenced ```diff blocks from settled assistant messages (skip the last one
 	// mid-stream — a half-written hunk renders as garbage).
@@ -185,6 +238,47 @@
 		class="gh-review flex h-full flex-col border-l border-[var(--gh-border)]"
 		data-testid="diff-summary-panel"
 	>
+		{#if personalPr}
+			<section class="min-h-0 flex-1 overflow-y-auto bg-[var(--color-surface-secondary)] p-4" data-testid="personal-pr-review">
+				<div class="flex items-start justify-between gap-4"><h3 class="text-base font-semibold text-[var(--color-text-primary)]">This run’s draft PR</h3><button class="text-sm text-[var(--color-text-secondary)]" aria-label="Close PR review" onclick={onclose}>Close</button></div>
+				<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{personalPr.repository?.fullName ?? "Repository"} · base {personalPr.repository?.baseRef ?? "unknown"} · {personalPr.files?.length ?? 0} files</p>
+				<p class="mt-2 text-xs text-[var(--color-text-muted)]">The file list below is the saved run snapshot used for the PR.</p>
+					{#if personalPr.files?.length}
+						<ul class="mt-3 max-h-32 overflow-y-auto rounded-md border border-[var(--color-border)] p-2 text-xs text-[var(--color-text-secondary)]">
+							{#each personalPr.files as file}<li class="flex justify-between gap-3 py-0.5"><span class="min-w-0 truncate" title={file.path}>{file.status} · {file.path}</span><span class="shrink-0">{file.binary ? "binary" : `+${file.additions} −${file.deletions}`}</span></li>{/each}
+						</ul>
+						<div class="mt-3 max-h-[45vh] space-y-3 overflow-y-auto" data-testid="personal-pr-exact-diff">
+							{#each personalPr.files as file}
+								<article class="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]">
+									<h4 class="border-b border-[var(--color-border)] px-3 py-2 text-xs font-semibold text-[var(--color-text-primary)] break-all">{file.path}</h4>
+									{#if file.binary}
+										<div class="space-y-1 px-3 py-2 text-xs text-[var(--color-text-secondary)]"><p>Binary change. Review the exact bytes before confirming.</p>
+											{#if file.beforeBase64}<p>Before: {file.beforeBytes ?? 0} bytes · SHA-256 {file.beforeSha256}</p><a class="text-[var(--color-accent)] underline" href={`data:application/octet-stream;base64,${file.beforeBase64}`} download={`${file.path.split("/").at(-1) ?? "file"}.before`}>Download before</a>{/if}
+											{#if file.afterBase64}<p>After: {file.afterBytes ?? 0} bytes · SHA-256 {file.afterSha256}</p><a class="text-[var(--color-accent)] underline" href={`data:application/octet-stream;base64,${file.afterBase64}`} download={`${file.path.split("/").at(-1) ?? "file"}.after`}>Download after</a>{/if}
+										</div>
+									{:else if typeof file.patch === "string"}
+										<pre class="max-h-72 overflow-auto px-3 py-2 text-xs leading-5 text-[var(--color-text-primary)]">{file.patch}</pre>
+									{:else}<p class="px-3 py-2 text-xs text-red-700 dark:text-red-300">Exact diff unavailable.</p>{/if}
+								</article>
+							{/each}
+						</div>
+					{/if}
+				{#if personalPr.checks?.length}<p class="mt-2 text-xs text-[var(--color-text-secondary)]">Checks: {personalPr.checks.map((check) => `${check.name}: ${check.result}`).join(" · ")}</p>{/if}
+				{#if personalPr.state === "ready" || personalPr.state === "reviewing"}
+					<div class="mt-3 grid gap-2">
+						<label class="text-xs font-medium text-[var(--color-text-secondary)]" for="personal-pr-title">PR title</label>
+						<input id="personal-pr-title" bind:value={prTitle} maxlength="256" class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]" />
+						<label class="text-xs font-medium text-[var(--color-text-secondary)]" for="personal-pr-body">PR description</label>
+						<textarea id="personal-pr-body" bind:value={prBody} maxlength="16384" rows="3" class="w-full resize-y rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"></textarea>
+					</div>
+						<div class="mt-3 flex flex-wrap items-center gap-3"><button class="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={prBusy || !!prError || !prTitle.trim() || !personalPr.digest || !exactFilesAvailable} onclick={confirmPersonalPr}>Create draft PR</button><span class="text-xs text-[var(--color-text-muted)]">Nothing pushed until you confirm.</span></div>
+				{:else if personalPr.state === "created" && trustedGithubPrUrl(personalPr.prUrl)}
+					<a class="mt-3 inline-block text-sm text-[var(--color-accent)] underline" href={trustedGithubPrUrl(personalPr.prUrl) ?? undefined} target="_blank" rel="noopener noreferrer">Open draft PR on GitHub</a>
+				{:else}<p class="mt-3 text-sm text-[var(--color-text-secondary)]" role="status">{personalPr.blockReason ?? `PR status: ${personalPr.state}`}</p>{/if}
+				{#if prError}<div class="mt-2 flex items-center gap-3"><p class="text-sm text-red-700 dark:text-red-300" role="alert">{prError}</p><button class="text-sm text-[var(--color-accent)] underline" disabled={prBusy} onclick={refreshPersonalPr}>Check status</button></div>{/if}
+			</section>
+		{/if}
+		{#if !personalPr}
 		<!-- ── Toolbar ─────────────────────────────────────────────────── -->
 		<header class="gh-review__toolbar" data-testid="diff-review-toolbar">
 			<div class="gh-review__title-row">
@@ -345,7 +439,8 @@
 					{/each}
 				{/if}
 			</main>
-		</div>
+			</div>
+		{/if}
 	</div>
 </SwipeDrawer>
 

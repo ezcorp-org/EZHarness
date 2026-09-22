@@ -13,7 +13,7 @@
  */
 
 import { render, cleanup, fireEvent, waitFor } from "@testing-library/svelte";
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import DiffSummaryPanel from "./DiffSummaryPanel.svelte";
 import type { Message } from "$lib/api";
@@ -88,6 +88,40 @@ function renderPanel(overrides: Record<string, unknown> = {}) {
 afterEach(() => cleanup());
 beforeEach(() => localStorage.clear());
 afterEach(() => localStorage.clear());
+afterEach(() => vi.unstubAllGlobals());
+
+test("confirms only the saved personal PR snapshot after a human reviews its files", async () => {
+	const review = {
+		state: "reviewing", proposalId: "proposal-1", digest: "a".repeat(64),
+		repository: { id: 42, fullName: "owner/repo", baseRef: "main", baseSha: "b".repeat(40) },
+		files: [{ path: "src/exact-file.ts", status: "modified", additions: 2, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		checks: [{ name: "tests", result: "passed" }], title: "Original title", body: "Original body",
+	} as const;
+	const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...review, state: "created", prUrl: "https://github.com/owner/repo/pull/7" }), { headers: { "content-type": "application/json" } }));
+	vi.stubGlobal("fetch", fetch);
+	const onpersonalprupdate = vi.fn();
+	const view = renderPanel({ personalPr: review, onpersonalprupdate });
+	expect(view.getAllByText(/src\/exact-file\.ts/)).toHaveLength(2);
+	expect(view.getByTestId("personal-pr-exact-diff")).toHaveTextContent("+after");
+	expect(view.getByText(/The file list below is the saved run snapshot/)).toBeVisible();
+	expect(view.queryByText("No file changes in this conversation")).not.toBeInTheDocument();
+	await fireEvent.input(view.getByLabelText("PR title"), { target: { value: "Reviewed title" } });
+	await fireEvent.click(view.getByRole("button", { name: "Create draft PR" }));
+	await waitFor(() => expect(onpersonalprupdate).toHaveBeenCalledWith(expect.objectContaining({ state: "created", prUrl: "https://github.com/owner/repo/pull/7" })));
+	const [url, init] = fetch.mock.calls[0]!;
+	expect(url).toBe("/api/github/personal-prs/proposals/proposal-1/confirm");
+	expect(JSON.parse(init.body)).toMatchObject({ expectedDigest: review.digest, title: "Reviewed title", body: "Original body", idempotencyKey: expect.any(String) });
+});
+
+test("refuses PR confirmation when the exact server diff is absent", () => {
+	const view = renderPanel({ personalPr: {
+		state: "reviewing", proposalId: "proposal-1", digest: "a".repeat(64),
+		files: [{ path: "src/file.ts", status: "modified", additions: 1, deletions: 1 }],
+		title: "Fix file", body: "Tested",
+	} });
+	expect(view.getByText("Exact diff unavailable.")).toBeVisible();
+	expect(view.getByRole("button", { name: "Create draft PR" })).toBeDisabled();
+});
 
 describe("code review panel — header", () => {
 	test("titles the panel 'Files changed' like GitHub's review tab", () => {

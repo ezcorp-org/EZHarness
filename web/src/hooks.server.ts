@@ -710,6 +710,7 @@ const handleApp: Handle = async ({ event, resolve }) => {
       }
 
       const { payload, secret, sessionId, viaPrevious, inboundTokenHash, dbAvailable } = verdict;
+      if (sessionId) event.locals.sessionId = sessionId;
 
       // ── Sliding refresh ────────────────────────────────────────────────
       // Once the JWT crosses refreshAfterSeconds of age, re-issue it with

@@ -1012,6 +1012,9 @@ same RUN so they don't bloat the runtime layer.
 
 ## Default extension runner
 
+For personal GitHub connection configuration, see
+[Personal GitHub](features/platform/personal-github.md#operator-setup).
+
 Dev and production Compose now connect to the isolated host runner by default.
 Follow [runner setup](../deploy/extension-runner/README.md) before the first app
 start. Existing installations must rebuild the app image, set the runner host
