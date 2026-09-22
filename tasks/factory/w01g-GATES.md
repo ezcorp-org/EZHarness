@@ -11,6 +11,8 @@ Evidence: `/tmp/factory-platform-evidence/w01g/`.
 | `cc5bb961f` | the guest-broker route a runner host forwards to, and its client |
 | `bc834e9f1` | the staging contract in the Python runtime, with fixture parity |
 | `e0f57b446` | a host composes its guest broker from a declaration, resolved on first use |
+| `c3dc11cde` | the SDK routes a staging frame by name, so a runner host loads no product module to route one |
+| `994deebe8` | the supervisor forwards staging frames from `services.guestBroker`; the declared client from `e0f57b446` is removed |
 
 ## What this leaf is
 
@@ -121,13 +123,23 @@ real proof.
   EXPECT: exit 0
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
+### The host mount (round 2)
+
+- [ ] G13: A supervisor whose configuration names `services.guestBroker` forwards a guest's
+  staging frames to the product route, and a model request keeps its named refusal.
+  CHECK: `bun test --timeout 60000 ./src/factory/runner/supervisor-process.test.ts ./src/factory/runner/guest-broker-transport.integration.test.ts`
+  EXPECT: exit 0; the section has the pool section's exact shape and is optional, complete or
+  refused; a configured broker answers a begin frame `begun` over a real mutual-TLS route and a
+  model request `factory_host_broker_unavailable`; a missing credential fails before the listener
+  binds; the three G7 receipts show `guestBrokerHost.configuredIn = services.guestBroker`
+  EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/coverage-runner.json`, `proof-1.json`
+
 ## Open, and why
 
-- [ ] G13: The composition that mounts this route in a deployment.
-  The product-side guest-broker route and the host's forwarding client are product code under
-  proof, but the two lines that MOUNT them belong to W09's composition surfaces
-  (`supervisor-process.ts` for the host, the product runtime's listener set for the tenant side).
-  This branch does not touch either. The proof worktree `.worktrees/w01g-proof` carries the host
-  half as two lines in `supervisor-process.ts` and starts the product half from the harness
-  process against the real product database; both are named in every receipt. The production
-  shape to land in W09c is stated in the report.
+- [ ] G14: The product runtime mounts the guest-broker route itself.
+  The route handler, the material adapter and the candidate-output writer are product code under
+  proof. The listener that binds them belongs to the product composition root
+  (`src/factory/application.ts`, `src/factory/boot.ts`), which the interface freeze gives to the
+  coordinator (W09). This branch does not touch it. The proof binds the same handler from the
+  harness process against the real product database, and every receipt says so in
+  `guestBrokerListener.composedBy`. The recommended shape is in the report.
