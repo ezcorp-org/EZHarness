@@ -22,6 +22,7 @@
     "serve": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun run index.ts serve",
     "preview": "cd web && bun run preview",
     "podman": "bash scripts/podman-compose.sh",
+    "podman:prune": "bash scripts/prune-images.sh",
     "test": "bash scripts/test.sh",
     "test:file": "bun test",
     "test:e2e": "bash scripts/test-e2e.sh",

@@ -168,6 +168,23 @@ That per-digest acknowledgement is the only control left, so read what you are
 approving. If that trade is not acceptable, run the stack on a Linux host,
 where the isolated runner works as designed.
 
+## Rebuilds fill the machine disk
+
+Every `bun run podman --prod up -d --build` tags the new image `ezcorp:local`
+and leaves the previous one — about 4.5 GB — untagged. Nothing removes it, so
+a 60 GB `podman machine` fills after a handful of rebuilds. The symptom names
+neither cause nor fix: the build dies committing the Dockerfile's
+`chown -R /app` layer with `no space left on device`.
+
+```sh
+bun run podman:prune            # remove superseded EZCorp images
+bash scripts/prune-images.sh --check   # list them first
+```
+
+It removes only **untagged** images carrying this project's OCI title label,
+and never one a container still uses. `scripts/setup-podman.sh` runs it
+automatically once a rebuilt app reports ready.
+
 ## Two warts worth knowing
 
 - **The container writes into your tree.** It runs with `EZCORP_DB_PATH=:memory:`
