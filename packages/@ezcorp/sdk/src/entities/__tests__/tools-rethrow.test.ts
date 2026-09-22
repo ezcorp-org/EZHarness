@@ -55,9 +55,14 @@ function makeStore(seed: Record<string, unknown> = {}): EntityStoreLike {
 // Build handlers AFTER the validate module is mocked so the diverted
 // `assertRecord` is captured by tools.ts's import binding.
 let buildEntityToolHandlers: typeof import("../tools").buildEntityToolHandlers;
+// A plain-object copy of the genuine exports, taken BEFORE the mock. The
+// module namespace itself is patched in place by `mock.module`, so holding
+// the namespace would hand the mocked `assertRecord` back on restore.
+let genuineValidate: typeof import("../validate");
 
 beforeAll(async () => {
   const realValidate = await import("../validate");
+  genuineValidate = { ...realValidate };
   mock.module("../validate", () => ({
     ...realValidate,
     assertRecord: () => {
@@ -69,8 +74,13 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  // Restore the genuine module so later files in the shard see real
-  // validation. mock.restore() clears module mocks registered here.
+  // Put the genuine module back so later files in the same process see real
+  // validation. `mock.restore()` alone does NOT undo `mock.module` in bun:
+  // `tools.ts` is already loaded with the diverted `assertRecord`, and every
+  // later `import("../tools")` gets that cached copy. That made
+  // `tools.test.ts` fail 7 tests whenever it ran after this file — which is
+  // the order CI's filesystem produced for the sdk coverage leg.
+  mock.module("../validate", () => genuineValidate);
   mock.restore();
 });
 
