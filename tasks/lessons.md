@@ -1445,3 +1445,15 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   good one.
 - Bun's isolated store keeps a STALE version after a lockfile change, and an incremental `bun install --frozen-lockfile` does not remove it. After merging main's dependency bump my worktree held `zod@4.5.2` next to `zod@4.5.4`, and 25 typecheck errors appeared in a package I had never touched. I proved the SOURCE trees were byte-identical against staging and reported the red as inherited — which was wrong, because a tree diff says nothing about the installed graph. Staging, reinstalled clean, was green at the same merge base with the same SDK. After merging a dependency bump: `rm -rf node_modules web/node_modules`, reinstall both, rebuild the workspace packages, THEN judge a red.
 - Attributing a failure away from yourself needs a stronger proof than attributing one to yourself. "The files are identical" is evidence about one input; a build has several. Before telling someone a red is theirs, reproduce it somewhere they control, or rule out every input you own.
+
+## 2026-09-22 — A measured list is stale after a merge (W18a-2)
+
+- Recompute a complexity or CRAP list on the tree you will hand over. Do not trust the list in the brief. The brief
+  named six functions from wave4c. After the W09b merge, `parseFactoryStartupConfig` was at 65 and
+  `parseFactoryPoolProcessConfig` was at 44 instead of 37. Only a fresh run of the gate showed this.
+- A bun coverage run from `web/` writes root files as `SF:../src/...` and web files as `SF:src/...`. Rewrite both
+  prefixes before merging. Otherwise the root coverage of that leg lands under a path no gate reads. The global floor
+  showed this, as a `../../../src/db/migrate.ts` entry.
+- A behaviour-free split can still be proved by more than the existing tests. Run the old function and the new one
+  side by side on generated inputs, and compare exact outputs, including error lists. That is cheap, and it found
+  nothing to fix here, which is the point.
