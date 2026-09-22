@@ -953,6 +953,19 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(reported.filter(entry => entry.role.includes(completed.task.run.runId))).toEqual([]);
   });
 
+  test("a recorded candidate is re-derived after its attempt's lease ended, and a different result for it conflicts", async () => {
+    const { completed } = await protectedAcceptance(true, false);
+    // The fixture committed the candidate through its live attempt. From here the attempt is expired:
+    // the journal's authorizer refuses exactly as the run lifecycle does once the lease deadline passed.
+    const expiredJournal = new FactoryExecutionJournal(fixture.db, async () => { throw Object.assign(new Error("factory_run_fence_changed"), { code: "factory_run_fence_changed" }); });
+    const expired = new FactoryReleaseAuthorityStore(fixture.db, tenantId, grants, lifecycle, expiredJournal, completed.artifacts);
+    const commit = { authority: completed.authority, result: completed.result, expectedCurrentGeneration: null };
+    expect(await fixture.db.transaction(transaction => expired.completeCurrentCandidateInTransaction(transaction, commit))).toMatchObject({ candidateGeneration: 0, candidateDigest: completed.result.output.digest });
+    // The durable result is the one the caller must hold; another is a conflict, not a second truth.
+    await expect(fixture.db.transaction(transaction => expired.completeCurrentCandidateInTransaction(transaction, { ...commit, result: { ...completed.result, resultDigest: "f".repeat(64) } })))
+      .rejects.toMatchObject({ code: "factory_release_candidate_conflict" });
+  });
+
   test("validator material registers once per published version, survives a restart, and names an undeclared or changed runtime", async () => {
     const { FactoryValidatorMaterialRegistration } = await import("../../factory/validator-composition");
     const definitionKey = { projectId, factoryId: `registered-material-${++sequence}` };
