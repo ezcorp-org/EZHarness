@@ -47,6 +47,8 @@ describe("registerFactoryRuntimeWorkers", () => {
       "usage-reconciliation:W03",
       "notification-send:W17",
       "stop-settlement:W03",
+      "retention-gc:W15",
+      "checkpoint-barrier:W15",
     ]);
     for (const held of set.held) {
       expect(held.reason.length).toBeGreaterThan(20);
@@ -220,6 +222,24 @@ describe("registerFactoryRuntimeWorkers", () => {
     });
   });
 
+  test("W15's two recovery roles register when their steps compose and hold by name when they do not", async () => {
+    const calls: string[] = [];
+    const set = registerFactoryRuntimeWorkers(collaborators({
+      recovery: {
+        retention: async () => { calls.push("retention"); return "idle"; },
+        checkpoint: async () => { calls.push("checkpoint"); return calls.filter((call) => call === "checkpoint").length === 1 ? "worked" : "idle"; },
+      },
+    }));
+    expect(set.workers.names()).toContain("retention-gc");
+    expect(set.workers.names()).toContain("checkpoint-barrier");
+    expect(set.held.map((held) => held.role)).not.toContain("retention-gc");
+    expect(await set.workers.get("retention-gc").runBatch(new AbortController().signal)).toBe("idle");
+    expect(await set.workers.get("checkpoint-barrier").runBatch(new AbortController().signal)).toBe("idle");
+    expect(calls).toEqual(["retention", "checkpoint", "checkpoint"]);
+    const partial = registerFactoryRuntimeWorkers(collaborators({ recovery: { retention: async () => "idle" } }));
+    expect(partial.held.find((held) => held.role === "checkpoint-barrier")).toMatchObject({ seam: "recovery-composition", workPackage: "W15" });
+  });
+
   test("the role list covers every role the plan names", () => {
     expect([...FACTORY_WORKER_ROLES]).toEqual([
       "compute-admission-dispatch",
@@ -232,6 +252,8 @@ describe("registerFactoryRuntimeWorkers", () => {
       "usage-reconciliation",
       "notification-send",
       "stop-settlement",
+      "retention-gc",
+      "checkpoint-barrier",
     ]);
     const set = registerFactoryRuntimeWorkers(collaborators());
     const accounted = new Set([...set.workers.names(), ...set.held.map((held) => held.role)]);

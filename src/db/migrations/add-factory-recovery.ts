@@ -52,7 +52,8 @@ export const FACTORY_RETENTION_PERIOD_MS = Object.freeze({
 
 export type FactoryRetentionClass = keyof typeof FACTORY_RETENTION_PERIOD_MS;
 export const FACTORY_RETENTION_CLASSES = Object.freeze(Object.keys(FACTORY_RETENTION_PERIOD_MS) as FactoryRetentionClass[]);
-export const FACTORY_RETENTION_SUBJECT_KINDS = Object.freeze(["run_projection", "run_audit", "candidate_artifact", "key_wrap", "release"] as const);
+export const FACTORY_RETENTION_SUBJECT_KINDS = Object.freeze(["run_audit", "candidate_artifact", "key_wrap", "release"] as const);
+export type FactoryRetentionSubjectKind = (typeof FACTORY_RETENTION_SUBJECT_KINDS)[number];
 
 function quoted(values: readonly string[]): string {
   return values.map(value => `'${value}'`).join(",");
@@ -90,7 +91,7 @@ export async function up(database: MigrationDb): Promise<void> {
 
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_checkpoints (
     tenant_id TEXT NOT NULL, checkpoint_id TEXT NOT NULL, state TEXT NOT NULL,
-    execution_epoch INTEGER NOT NULL, started_at_ms BIGINT NOT NULL, duration_ms INTEGER NOT NULL,
+    execution_epoch INTEGER NOT NULL, key_wrap_version INTEGER, started_at_ms BIGINT NOT NULL, duration_ms INTEGER NOT NULL,
     abort_code TEXT, product_lsn TEXT, manifest_digest TEXT, manifest_archive_json TEXT,
     previous_checkpoint_id TEXT, sealed_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -98,7 +99,8 @@ export async function up(database: MigrationDb): Promise<void> {
     CONSTRAINT factory_checkpoints_state_check CHECK (state IN ('sealed','aborted')),
     CONSTRAINT factory_checkpoints_epoch_check CHECK (execution_epoch > 0),
     CONSTRAINT factory_checkpoints_duration_check CHECK (duration_ms >= 0 AND started_at_ms >= 0),
-    CONSTRAINT factory_checkpoints_sealed_check CHECK ((state = 'sealed') = (manifest_digest IS NOT NULL AND manifest_archive_json IS NOT NULL AND product_lsn IS NOT NULL AND sealed_at IS NOT NULL)),
+    CONSTRAINT factory_checkpoints_sealed_check CHECK ((state = 'sealed') = (manifest_digest IS NOT NULL AND manifest_archive_json IS NOT NULL AND product_lsn IS NOT NULL AND sealed_at IS NOT NULL AND key_wrap_version IS NOT NULL)),
+    CONSTRAINT factory_checkpoints_key_wrap_check CHECK (key_wrap_version IS NULL OR key_wrap_version > 0),
     CONSTRAINT factory_checkpoints_aborted_check CHECK ((state = 'aborted') = (abort_code IS NOT NULL)),
     CONSTRAINT factory_checkpoints_manifest_digest_check CHECK (manifest_digest IS NULL OR manifest_digest ~ '^sha256:[0-9a-f]{64}$')
   )`);

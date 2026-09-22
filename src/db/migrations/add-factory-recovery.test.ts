@@ -41,7 +41,7 @@ test("a retention deadline can extend its class period and can never shorten it"
   await fixture.db.execute(sql`INSERT INTO factory_retention_records (tenant_id, subject_kind, subject_id, retention_class, anchored_at_ms, retain_until_ms) VALUES ('tenant-migration','release','op-1','release',1000,${1000 + period})`);
   await fixture.db.execute(sql`UPDATE factory_retention_records SET retain_until_ms = ${1000 + period * 2} WHERE subject_id = 'op-1'`);
   expect(await failure(sql`UPDATE factory_retention_records SET retain_until_ms = ${1000 + period - 1} WHERE subject_id = 'op-1'`)).toContain("factory_retention_records_period_check");
-  expect(await failure(sql`INSERT INTO factory_retention_records (tenant_id, subject_kind, subject_id, retention_class, anchored_at_ms, retain_until_ms) VALUES ('tenant-migration','run_projection','r','ordinary_history',0,${FACTORY_RETENTION_PERIOD_MS.ordinary_history - 1})`)).toContain("factory_retention_records_period_check");
+  expect(await failure(sql`INSERT INTO factory_retention_records (tenant_id, subject_kind, subject_id, retention_class, anchored_at_ms, retain_until_ms) VALUES ('tenant-migration','run_audit','r','ordinary_history',0,${FACTORY_RETENTION_PERIOD_MS.ordinary_history - 1})`)).toContain("factory_retention_records_period_check");
   expect(await failure(sql`UPDATE factory_retention_records SET state = 'tombstoned' WHERE subject_id = 'op-1'`)).toContain("factory_retention_records_tombstone_check");
   expect(await failure(sql`UPDATE factory_retention_records SET state = 'collected', tombstoned_at_ms = 5 WHERE subject_id = 'op-1'`)).toContain("factory_retention_records_collected_check");
 });
@@ -51,11 +51,11 @@ test("an open restore epoch closes run admission and a stale checkpoint closes e
   expect(await reason()).toBeNull();
   await fixture.db.execute(sql`INSERT INTO factory_checkpoint_policy (tenant_id, max_age_seconds) VALUES ('tenant-migration', 900)`);
   expect(await reason()).toBe("checkpoint_stale");
-  await fixture.db.execute(sql`INSERT INTO factory_checkpoints (tenant_id, checkpoint_id, state, execution_epoch, started_at_ms, duration_ms, product_lsn, manifest_digest, manifest_archive_json, sealed_at)
-    VALUES ('tenant-migration','old','sealed',1,0,5,'0/1',${`sha256:${"a".repeat(64)}`},'{}', clock_timestamp() - interval '16 minutes')`);
+  await fixture.db.execute(sql`INSERT INTO factory_checkpoints (tenant_id, checkpoint_id, state, execution_epoch, key_wrap_version, started_at_ms, duration_ms, product_lsn, manifest_digest, manifest_archive_json, sealed_at)
+    VALUES ('tenant-migration','old','sealed',1,1,0,5,'0/1',${`sha256:${"a".repeat(64)}`},'{}', clock_timestamp() - interval '16 minutes')`);
   expect(await reason()).toBe("checkpoint_stale");
-  await fixture.db.execute(sql`INSERT INTO factory_checkpoints (tenant_id, checkpoint_id, state, execution_epoch, started_at_ms, duration_ms, product_lsn, manifest_digest, manifest_archive_json, sealed_at)
-    VALUES ('tenant-migration','fresh','sealed',1,0,5,'0/2',${`sha256:${"b".repeat(64)}`},'{}', clock_timestamp())`);
+  await fixture.db.execute(sql`INSERT INTO factory_checkpoints (tenant_id, checkpoint_id, state, execution_epoch, key_wrap_version, started_at_ms, duration_ms, product_lsn, manifest_digest, manifest_archive_json, sealed_at)
+    VALUES ('tenant-migration','fresh','sealed',1,1,0,5,'0/2',${`sha256:${"b".repeat(64)}`},'{}', clock_timestamp())`);
   expect(await reason()).toBeNull();
   await fixture.db.execute(sql`INSERT INTO factory_restore_epochs (tenant_id, restore_id, mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch, state, started_at_ms)
     VALUES ('tenant-migration','restore-1','tenant','fresh',${`sha256:${"b".repeat(64)}`},1,2,'fenced',0)`);

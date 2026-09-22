@@ -3253,7 +3253,7 @@ export const factoryCheckpointGate = pgTable("factory_checkpoint_gate", {
 /** Every barrier attempt. Only a sealed row is a compatible checkpoint. */
 export const factoryCheckpoints = pgTable("factory_checkpoints", {
   tenantId: text("tenant_id").notNull(), checkpointId: text("checkpoint_id").notNull(), state: text("state").notNull(),
-  executionEpoch: integer("execution_epoch").notNull(), startedAtMs: bigint("started_at_ms", { mode: "number" }).notNull(), durationMs: integer("duration_ms").notNull(),
+  executionEpoch: integer("execution_epoch").notNull(), keyWrapVersion: integer("key_wrap_version"), startedAtMs: bigint("started_at_ms", { mode: "number" }).notNull(), durationMs: integer("duration_ms").notNull(),
   abortCode: text("abort_code"), productLsn: text("product_lsn"), manifestDigest: text("manifest_digest"), manifestArchiveJson: text("manifest_archive_json"),
   previousCheckpointId: text("previous_checkpoint_id"), sealedAt: timestamp("sealed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

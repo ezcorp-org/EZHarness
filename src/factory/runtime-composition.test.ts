@@ -241,6 +241,8 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
           { role: "usage-reconciliation", workPackage: "W03" },
           { role: "notification-send", workPackage: "W17" },
           { role: "stop-settlement", workPackage: "W03" },
+          { role: "retention-gc", workPackage: "W15" },
+          { role: "checkpoint-barrier", workPackage: "W15" },
         ],
       },
     });

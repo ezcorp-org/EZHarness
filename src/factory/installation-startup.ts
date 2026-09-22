@@ -62,6 +62,7 @@ import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { FactoryStartedListener } from "./runtime-composition";
 import type { FactoryPhysicalStopper, FactoryTaskStops } from "./task-stops";
+import { composeFactoryRecoveryRoles } from "./recovery-composition";
 
 export class FactoryInstallationStartupError extends Error {
   constructor(readonly code: "factory-startup-config-missing" | "factory-startup-blobs-missing" | "factory-startup-unreachable", message: string) {
@@ -610,6 +611,7 @@ async function installationCollaborators(
     );
 
   const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops);
+  const recovery = await composeFactoryRecoveryRoles({ config, database: host.database, report: host.report });
 
   return {
     workers: {
@@ -617,6 +619,7 @@ async function installationCollaborators(
       ...(stores.compute === undefined ? {} : { compute: stores.compute }),
       ...(attempts === undefined ? {} : { attempts }),
       ...(notificationInbox === undefined ? {} : { notificationInbox }),
+      recovery,
     },
     seams: {
       childSettlement: factoryChildSettlementDriver(host.database, stores.children, service, host.report),

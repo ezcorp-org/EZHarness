@@ -1,5 +1,6 @@
 import { createGatewayTransport, GatewayStatusError, type GatewayResponse, type GatewayTransport, type GatewayTransportOptions } from "@ezcorp/factory-transport";
 import { POOL_LEASE_STATES, POOL_QUEUE_FULL_HTTP_STATUS, POOL_QUEUE_FULL_REASON, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseState, type PoolLeaseStatus, type PoolResourceClass, type PoolResourceVector } from "./ledger";
+import type { PoolCheckpointPage } from "./checkpoint";
 import type { PoolAdmissionRequest, PoolLeaseFenceInput, PoolStopInput } from "./service";
 import { parseWireJson, POOL_HTTP_BYTES_LIMIT, wireCounter, wireExact, wireIsoDate, wireRecord, wireResources, wireText } from "./wire";
 
@@ -22,6 +23,22 @@ export interface PoolAdmissionClient {
    * holder's capacity.
    */
   confirmStopped(input: PoolStopInput, signal?: AbortSignal): Promise<PoolLeaseStatus>;
+}
+
+/**
+ * C06's two pool calls, kept off `PoolAdmissionClient` so admission's callers
+ * and fakes are untouched. Same tenant-scoped transport and wire rules.
+ */
+export interface PoolCheckpointClient {
+  /** One page of this tenant's live reservations, for a checkpoint barrier. */
+  checkpoint(after: string | null, signal?: AbortSignal): Promise<PoolCheckpointPage>;
+  /** Re-create lost live reservations as `uncertain`. Needs the tenant's restore scope. */
+  restoreImport(rows: readonly Record<string, unknown>[], signal?: AbortSignal): Promise<{ readonly present: readonly string[]; readonly imported: readonly string[]; readonly overcommitted: readonly string[] }>;
+}
+
+function textList(value: unknown, label: string): readonly string[] {
+  if (!Array.isArray(value)) throw new Error(`Pool admission returned invalid ${label}.`);
+  return value.map(item => wireText(item, label));
 }
 
 export interface PoolAdmissionClientOptions extends GatewayTransportOptions { readonly tenantId: string }
@@ -207,6 +224,28 @@ export async function createPoolAdmissionClient(options: PoolAdmissionClientOpti
       assertStatusBinding(result, tenantId, reservationId);
       if (result.allocationGeneration < allocationGeneration) throw new Error("Pool admission returned a stale cancellation status.");
       return result;
+    },
+  };
+  return Object.freeze(client);
+}
+
+/** The tenant-scoped C06 checkpoint client, over its own mutual-TLS transport. */
+export async function createPoolCheckpointClient(options: PoolAdmissionClientOptions): Promise<PoolCheckpointClient> {
+  const tenantId = wireText(options.tenantId, "client tenant id");
+  const transport = await createGatewayTransport(options);
+  const client: PoolCheckpointClient = {
+    async checkpoint(after: string | null, signal?: AbortSignal) {
+      const input = wireRecord(json(await requestJson(transport, "POST", "/v1/pool/checkpoint", { after: after === null ? null : wireText(after, "checkpoint cursor") }, signal), "checkpoint page"), "checkpoint page");
+      wireExact(input, ["position", "rows", "next"], "checkpoint page");
+      if (!Array.isArray(input.rows)) throw new Error("Pool admission returned invalid checkpoint rows.");
+      const rows = input.rows.map(row => wireRecord(row, "checkpoint row"));
+      if (rows.some(row => row.tenant_id !== tenantId)) throw new Error("Pool admission returned another tenant's checkpoint row.");
+      return { position: wireText(input.position, "checkpoint position"), rows, next: input.next === null ? null : wireText(input.next, "checkpoint cursor") };
+    },
+    async restoreImport(rows: readonly Record<string, unknown>[], signal?: AbortSignal) {
+      const input = wireRecord(json(await requestJson(transport, "POST", "/v1/pool/restore-import", { rows }, signal), "restore import"), "restore import");
+      wireExact(input, ["present", "imported", "overcommitted"], "restore import");
+      return { present: textList(input.present, "present reservations"), imported: textList(input.imported, "imported reservations"), overcommitted: textList(input.overcommitted, "overcommitted reservations") };
     },
   };
   return Object.freeze(client);

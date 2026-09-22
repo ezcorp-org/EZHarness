@@ -129,6 +129,15 @@ async function poolRoute(service: PoolAdmissionService, request: FactoryPrivateR
     const handled = await reservationAction(service, request, principal, parts);
     if (handled) return handled;
   }
+  if (request.method === "POST" && url.pathname === "/v1/pool/checkpoint") {
+    const body = payload(request, ["after"]);
+    return json(200, await service.checkpoint(principal, body.after === undefined || body.after === null ? null : wireText(body.after, "checkpoint cursor")));
+  }
+  if (request.method === "POST" && url.pathname === "/v1/pool/restore-import") {
+    const body = payload(request, ["rows"]);
+    if (!Array.isArray(body.rows) || body.rows.length > 64) fail(400, "invalid_request");
+    return json(200, await service.restoreImport(principal, (body.rows as unknown[]).map(row => wireRecord(row, "checkpoint row"))));
+  }
   if (request.method === "POST" && (url.pathname === "/v1/pool/supervisor/stop" || url.pathname === "/v1/pool/supervisor/reimage")) {
     return supervisorConfirmation(service, request, principal, url);
   }
