@@ -10,7 +10,7 @@ import { join } from "node:path";
  * those two lanes from drifting into different inputs and still both passing.
  */
 
-export type FactoryConformanceKind = "request" | "result" | "guest-model-request" | "guest-model-response";
+export type FactoryConformanceKind = "request" | "result" | "guest-model-request" | "guest-model-response" | "guest-material-request" | "guest-material-response";
 
 export interface FactoryConformanceSuccess {
   readonly name: string;

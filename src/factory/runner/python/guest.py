@@ -15,7 +15,9 @@ invalid request never becomes a result and an invalid result never leaves the
 guest.
 
 The guest reaches nothing but its own stdio.  It has no network, no credential,
-and no host capability, and it never emits a reverse request.
+and no host capability.  The one reverse request it may emit is a staging frame
+on ``factory.broker``: a sandboxed guest's control channel is its only byte
+path out, and ``HostChannel`` is what carries one and waits for its answer.
 """
 
 from __future__ import annotations
@@ -34,7 +36,10 @@ from pathlib import Path
 from typing import Any, Final, TextIO
 
 from factory_ijson import canonicalize_json
+from factory_materials import FactoryGuestMaterialError, FactoryGuestStaging
 from factory_validation import (
+    validate_factory_guest_material_request,
+    validate_factory_guest_material_response,
     validate_factory_guest_model_request,
     validate_factory_guest_model_response,
     validate_factory_runner_request,
@@ -45,6 +50,8 @@ Json = Any
 
 GUEST_VERSION: Final = "factory.python-guest.v1"
 MAX_FRAME_BYTES: Final = 1024 * 1024
+# The one reverse capability an isolated factory guest may name.
+BROKER_METHOD: Final = "factory.broker"
 # The generated schemas are staged beside this module, so the guest reads the
 # same committed bytes the Bun runtime imports and resolves them without an
 # environment variable the C05 profile does not permit.
@@ -67,6 +74,12 @@ MANIFEST: Final[dict[str, Json]] = {
         {
             "name": "run",
             "description": "Answer one FactoryRunnerRequest with a FactoryRunnerResult",
+            "inputSchema": {"type": "object"},
+            "outputSchema": {"type": "object"},
+        },
+        {
+            "name": "stage",
+            "description": "Stage one output over the broker and answer with a COMPLETED runner result",
             "inputSchema": {"type": "object"},
             "outputSchema": {"type": "object"},
         },
@@ -170,6 +183,8 @@ class Guest:
         result_schema: dict[str, Json],
         guest_model_request_schema: dict[str, Json] | None = None,
         guest_model_response_schema: dict[str, Json] | None = None,
+        guest_material_request_schema: dict[str, Json] | None = None,
+        guest_material_response_schema: dict[str, Json] | None = None,
     ) -> None:
         self.request_schema = request_schema
         self.result_schema = result_schema
@@ -178,6 +193,79 @@ class Guest:
         # without them is refused rather than answered from a default.
         self.guest_model_request_schema = guest_model_request_schema
         self.guest_model_response_schema = guest_model_response_schema
+        # The staging pair is optional on the same terms.
+        self.guest_material_request_schema = guest_material_request_schema
+        self.guest_material_response_schema = guest_material_response_schema
+        # Set once the framed channel exists. A guest constructed for a unit
+        # test has none, and asking it to stage is an error rather than a
+        # silent no-op.
+        self._channel: HostChannel | None = None
+
+    def attach(self, channel: HostChannel) -> None:
+        """Binds the one control channel this guest may call back on."""
+        self._channel = channel
+
+    def staging(self, context: Json, operation_id: str, operation_index: int) -> FactoryGuestStaging:
+        """The staging client, bound to this invocation's own context.
+
+        The host compares the context byte for byte against the one it started,
+        so a frame from another attempt, another invocation of the same
+        attempt, or a replayed older generation is denied rather than answered.
+        """
+        if self._channel is None:
+            raise GuestError("this guest has no control channel, so it cannot stage a material")
+        if self.guest_material_request_schema is None or self.guest_material_response_schema is None:
+            raise GuestError("this guest was not given the guest material schemas")
+        channel = self._channel
+        return FactoryGuestStaging(
+            lambda payload: channel.call(BROKER_METHOD, {"context": context, "input": payload}),
+            operation_id,
+            operation_index,
+            self.guest_material_request_schema,
+            self.guest_material_response_schema,
+        )
+
+    def stage(self, params: Json) -> dict[str, Json]:
+        """Stages one output and answers with a COMPLETED runner result.
+
+        This is the Python runtime's half of the completed path: the bytes
+        leave over the one reverse capability, the host promotes the sealed
+        material to the attempt's candidate output, and the result names that
+        candidate. The result is checked against the shared contract before it
+        leaves, so an invalid one never reaches the host.
+        """
+        payload = params.get("input") if isinstance(params, dict) else None
+        if not isinstance(payload, dict):
+            raise GuestError("stage needs an object naming its operation and its output")
+        operation_id = str(payload.get("operationId"))
+        operation_index = payload.get("operationIndex")
+        if not isinstance(operation_index, int) or isinstance(operation_index, bool):
+            raise GuestError("stage needs its own journalled operation index")
+        cursor = payload.get("journalCursor", -1)
+        if not isinstance(cursor, int) or isinstance(cursor, bool):
+            raise GuestError("stage needs a journal cursor")
+        staging = self.staging(params.get("context"), operation_id, operation_index)
+        try:
+            promoted = staging.stage_result(str(payload.get("objectName", "result.json")), payload.get("value", {}))
+            checkpoint = staging.stage_checkpoint({"cursor": cursor}, cursor)
+        except FactoryGuestMaterialError as error:
+            # Named rather than swallowed: a guest that could not stage must say
+            # which refusal stopped it, or the run reports only that it failed.
+            raise GuestError(f"staging refused: {error.code}: {error}") from error
+        result: dict[str, Json] = {
+            "schemaVersion": "factory.runner.result.v1",
+            "status": "completed",
+            "journalCursor": cursor,
+            "operations": [],
+            "resultDigest": promoted["resultDigest"],
+            "output": promoted["output"],
+            "usage": {"kind": "measured", "inputTokens": 0, "outputTokens": 0, "computeMs": 0, "costMicros": "0"},
+            "workspaceCheckpoint": checkpoint,
+        }
+        outgoing = validate_factory_runner_result(result, self.result_schema)
+        if outgoing.issue is not None:
+            raise GuestError(f"Python guest built an invalid completed result: {outgoing.issue.code}")
+        return result
 
     def verdict(self, kind: str, value: Json) -> dict[str, Json]:
         """One envelope's verdict, in the shape the equivalence suite compares."""
@@ -195,8 +283,19 @@ class Guest:
             schema = self._guest_model_schema(self.guest_model_response_schema, kind)
             result = validate_factory_guest_model_response(value, schema)
             schema_id = schema.get("$id")
+        elif kind == "guest-material-request":
+            schema = self._guest_model_schema(self.guest_material_request_schema, kind)
+            result = validate_factory_guest_material_request(value, schema)
+            schema_id = schema.get("$id")
+        elif kind == "guest-material-response":
+            schema = self._guest_model_schema(self.guest_material_response_schema, kind)
+            result = validate_factory_guest_material_response(value, schema)
+            schema_id = schema.get("$id")
         else:
-            raise GuestError("envelope kind must be request, result, guest-model-request, or guest-model-response")
+            raise GuestError(
+                "envelope kind must be request, result, guest-model-request, guest-model-response, "
+                "guest-material-request, or guest-material-response"
+            )
         answer: dict[str, Json] = {"ok": result.ok, "schemaId": schema_id, "runtime": GUEST_VERSION}
         if result.issue is not None:
             answer["code"] = result.issue.code
@@ -365,6 +464,8 @@ class Guest:
             return self.controls()
         if name == "hostile":
             return self.hostile()
+        if name == "stage":
+            return self.stage(params)
         raise GuestError(f"unknown export {name}")
 
     def dispatch(self, method: str, params: Json) -> Json:
@@ -377,45 +478,133 @@ class Guest:
         raise GuestError(f"unknown method {method}")
 
 
+class HostChannel:
+    """The guest's half of the framed control channel, in both directions.
+
+    ``FramedExecution`` on the host side already answers a guest's reverse
+    request on the same descriptors it sends its own requests on.  This is the
+    other end of that: one reader, so a reverse call and the host's own
+    requests cannot race for the stream, and one writer.
+
+    A reverse call writes its request and then keeps reading, answering any
+    host request that arrives in the meantime, until the response carrying its
+    own identifier appears.  Nesting is safe because there is exactly one
+    reader and it is re-entered rather than duplicated.
+    """
+
+    def __init__(self, source: TextIO, sink: TextIO) -> None:
+        self._source = source
+        self._sink = sink
+        self._sequence = 0
+
+    def call(self, method: str, params: Json) -> Json:
+        """Sends one reverse request and returns the host's result.
+
+        A host error is raised rather than returned, because a caller that
+        cannot tell an error from a result would treat a refusal as an answer.
+        """
+        self._sequence += 1
+        identifier = f"guest-{self._sequence}"
+        _write(self._sink, {"jsonrpc": "2.0", "id": identifier, "method": method, "params": params})
+        answer = self._pump(None, identifier)
+        if answer is None:
+            raise GuestError(f"the host closed the control channel before answering {method}")
+        if "error" in answer:
+            raise GuestError(str(answer["error"].get("message", "the host refused a reverse request")))
+        return answer.get("result")
+
+    def serve(self, guest: Guest) -> int:
+        """Reads frames until end-of-input, answering each one."""
+        self._pump(guest, None)
+        return 0
+
+    def _pump(self, guest: Guest | None, awaiting: str | None) -> dict[str, Json] | None:
+        """The one reader.
+
+        With ``awaiting`` set it returns as soon as that response arrives; with
+        it unset it reads to end-of-input.  Either way a host REQUEST that
+        arrives is answered, so a reverse call in flight never stalls the host.
+        """
+        for line in self._source:
+            text = line.strip()
+            if not text:
+                continue
+            if len(text.encode("utf-8")) > MAX_FRAME_BYTES:
+                _write(
+                    self._sink,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {"code": -32600, "message": "Control frame exceeds policy"},
+                    },
+                )
+                continue
+            try:
+                frame: Json = json.loads(text)
+            except ValueError:
+                _write(
+                    self._sink,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {"code": -32700, "message": "Guest received invalid protocol data"},
+                    },
+                )
+                continue
+            if not isinstance(frame, dict) or frame.get("jsonrpc") != "2.0":
+                _write(
+                    self._sink,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {"code": -32600, "message": "Expected a JSON-RPC 2.0 request"},
+                    },
+                )
+                continue
+            if awaiting is not None and frame.get("method") is None and frame.get("id") == awaiting:
+                return frame
+            if not isinstance(frame.get("method"), str):
+                _write(
+                    self._sink,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": None,
+                        "error": {"code": -32600, "message": "Expected a JSON-RPC 2.0 request"},
+                    },
+                )
+                continue
+            identifier = frame.get("id")
+            if guest is None:
+                _write(
+                    self._sink,
+                    {
+                        "jsonrpc": "2.0",
+                        "id": identifier,
+                        "error": {
+                            "code": -32000,
+                            "message": "This guest is awaiting a host answer and cannot take another request.",
+                        },
+                    },
+                )
+                continue
+            try:
+                result = guest.dispatch(frame["method"], frame.get("params"))
+            except GuestError as error:
+                _write(
+                    self._sink,
+                    {"jsonrpc": "2.0", "id": identifier, "error": {"code": -32000, "message": str(error)}},
+                )
+                continue
+            _write(self._sink, {"jsonrpc": "2.0", "id": identifier, "result": result})
+        return None
+
+
 def serve(guest: Guest, source: TextIO, sink: TextIO) -> int:
     """Read frames until end-of-input. Every failure answers the frame that
     caused it; only an unreadable stream ends the loop."""
-    for line in source:
-        text = line.strip()
-        if not text:
-            continue
-        if len(text.encode("utf-8")) > MAX_FRAME_BYTES:
-            _write(
-                sink,
-                {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Control frame exceeds policy"}},
-            )
-            continue
-        try:
-            frame: Json = json.loads(text)
-        except ValueError:
-            _write(
-                sink,
-                {
-                    "jsonrpc": "2.0",
-                    "id": None,
-                    "error": {"code": -32700, "message": "Guest received invalid protocol data"},
-                },
-            )
-            continue
-        if not isinstance(frame, dict) or frame.get("jsonrpc") != "2.0" or not isinstance(frame.get("method"), str):
-            _write(
-                sink,
-                {"jsonrpc": "2.0", "id": None, "error": {"code": -32600, "message": "Expected a JSON-RPC 2.0 request"}},
-            )
-            continue
-        identifier = frame.get("id")
-        try:
-            result = guest.dispatch(frame["method"], frame.get("params"))
-        except GuestError as error:
-            _write(sink, {"jsonrpc": "2.0", "id": identifier, "error": {"code": -32000, "message": str(error)}})
-            continue
-        _write(sink, {"jsonrpc": "2.0", "id": identifier, "result": result})
-    return 0
+    channel = HostChannel(source, sink)
+    guest.attach(channel)
+    return channel.serve(guest)
 
 
 def _write(sink: TextIO, frame: dict[str, Json]) -> None:
@@ -427,18 +616,26 @@ def main(directory: Path = SCHEMA_DIRECTORY) -> int:
     """The launcher the in-guest shim starts calls exactly this."""
     request_schema = load_schema(directory / "factory-runner-request.schema.json")
     result_schema = load_schema(directory / "factory-runner-result.schema.json")
-    return serve(Guest(request_schema, result_schema, *_optional_guest_model_schemas(directory)), sys.stdin, sys.stdout)
+    model = _optional_schema_pair(
+        directory, ("factory-guest-model-request.schema.json", "factory-guest-model-response.schema.json")
+    )
+    material = _optional_schema_pair(
+        directory, ("factory-guest-material-request.schema.json", "factory-guest-material-response.schema.json")
+    )
+    return serve(Guest(request_schema, result_schema, *model, *material), sys.stdin, sys.stdout)
 
 
-def _optional_guest_model_schemas(directory: Path) -> tuple[dict[str, Json] | None, dict[str, Json] | None]:
-    """The guest model pair when this distribution staged it.
+def _optional_schema_pair(
+    directory: Path, names: tuple[str, str]
+) -> tuple[dict[str, Json] | None, dict[str, Json] | None]:
+    """One optional generated schema pair, when this distribution staged it.
 
     A pack that stages only the runner schemas keeps working, and one that
-    stages a corrupt guest model schema still fails closed through
-    ``load_schema`` rather than silently running without it.
+    stages a corrupt schema still fails closed through ``load_schema`` rather
+    than silently running without it.
     """
     pair: list[dict[str, Json] | None] = []
-    for name in ("factory-guest-model-request.schema.json", "factory-guest-model-response.schema.json"):
+    for name in names:
         path = directory / name
         pair.append(load_schema(path) if path.exists() else None)
     return pair[0], pair[1]

@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { buildLimits, DEFAULT_PYTHON_IMAGE, executionLimits, filesDigest, PythonPodmanRunner, pythonClosureDigest, pythonGuestLauncher, RUNNER_GUEST_ENVIRONMENT, RUNNER_GUEST_ENVIRONMENT_RESIDUE, RunnerError } from "@ezcorp/extension-runner";
-import { validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
+import { validateFactoryGuestMaterialRequest, validateFactoryGuestMaterialResponse, validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { loadFactoryConformanceFixtures, type FactoryConformanceKind } from "../../__tests__/helpers/factory-c02-conformance-fixtures";
 import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestDigest, factoryPythonGuestFiles, factoryPythonRunnerClosure } from "./python-guest";
 
@@ -29,7 +29,9 @@ function sdk(kind: FactoryConformanceKind, value: unknown) {
   if (kind === "request") return validateFactoryRunnerRequest(value);
   if (kind === "result") return validateFactoryRunnerResult(value);
   if (kind === "guest-model-request") return validateFactoryGuestModelRequest(value);
-  return validateFactoryGuestModelResponse(value);
+  if (kind === "guest-model-response") return validateFactoryGuestModelResponse(value);
+  if (kind === "guest-material-request") return validateFactoryGuestMaterialRequest(value);
+  return validateFactoryGuestMaterialResponse(value);
 }
 
 let root: string;
@@ -86,7 +88,7 @@ test("every build lane ran inside the isolated guest, including the committed Py
   expect(names).toContain("feature:tests/test_guest.py");
   expect(names.at(-1)).toBe("metadata-discovery");
   expect(build().manifest?.name).toBe("factory-python-runner");
-  expect(build().manifest?.tools?.map(tool => tool.name)).toEqual(["validate", "run", "controls", "hostile"]);
+  expect(build().manifest?.tools?.map(tool => tool.name)).toEqual(["validate", "run", "stage", "controls", "hostile"]);
   expect(build().evidence.discoveryDigest).toMatch(/^[a-f0-9]{64}$/);
 });
 
