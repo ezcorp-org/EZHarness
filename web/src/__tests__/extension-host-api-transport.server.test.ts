@@ -22,11 +22,13 @@ test.each(["application/json", "application/json;charset=utf-8"])("mints a calle
   const fetcher = vi.fn(async (url: URL | RequestInfo, init?: RequestInit) => {
     expect(String(url)).toBe("http://127.0.0.1:3000/api/conversations");
     expect(init?.redirect).toBe("error");
-    raw = new Headers(init?.headers).get("authorization")!.slice(7);
+    const headers = new Headers(init?.headers);
+    raw = headers.get("authorization")!.slice(7);
+    expect(headers.get("x-ezharness-extension-id")).toBe("extension-id");
     expect(verifyInternalKey(raw, "127.0.0.1")).toMatchObject({ userId: "owner" });
     return Response.json({ id: "conversation" }, { headers: { "content-type": contentType, "set-cookie": "secret", "x-secret": "secret" } });
   });
-  const result = await createHostApiTransport("http://127.0.0.1:3000", fetcher).request("owner", { path: "/api/conversations", method: "POST", body: { title: "test" } });
+  const result = await createHostApiTransport("http://127.0.0.1:3000", fetcher).request("owner", { path: "/api/conversations", method: "POST", body: { title: "test" } }, "extension-id");
   expect(JSON.parse(result.body)).toEqual({ id: "conversation" });
   expect(result.headers).toEqual({ "content-type": contentType });
   expect(verifyInternalKey(raw, "127.0.0.1")).toBeNull();
@@ -35,15 +37,15 @@ test.each(["application/json", "application/json;charset=utf-8"])("mints a calle
 test("transport failure still revokes its key", async () => {
   let raw = "";
   const fetcher = vi.fn(async (_url: URL | RequestInfo, init?: RequestInit) => { raw = new Headers(init?.headers).get("authorization")!.slice(7); throw new Error("offline"); });
-  await expect(createHostApiTransport("http://127.0.0.1", fetcher).request("owner", { path: "/api/health", method: "GET" })).rejects.toThrow("offline");
+  await expect(createHostApiTransport("http://127.0.0.1", fetcher).request("owner", { path: "/api/health", method: "GET" }, "extension-id")).rejects.toThrow("offline");
   expect(verifyInternalKey(raw, "127.0.0.1")).toBeNull();
 });
 
 test("response and request sizes are bounded", async () => {
   const fetcher = vi.fn(async () => new Response("x".repeat(512 * 1024 + 1)));
   const transport = createHostApiTransport("http://127.0.0.1", fetcher);
-  await expect(transport.request("owner", { path: "/api/health", method: "GET" })).rejects.toThrow("response exceeds");
-  await expect(transport.request("owner", { path: "/api/conversations", method: "POST", body: "x".repeat(512 * 1024) })).rejects.toThrow("request exceeds");
+  await expect(transport.request("owner", { path: "/api/health", method: "GET" }, "extension-id")).rejects.toThrow("response exceeds");
+  await expect(transport.request("owner", { path: "/api/conversations", method: "POST", body: "x".repeat(512 * 1024) }, "extension-id")).rejects.toThrow("request exceeds");
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
 

@@ -27,6 +27,7 @@
  *     ending with `;` or `,` and containing no `=` outside `=>`.
  *   - Return-type continuation:  `): Promise<{`, and the anonymous forms
  *     `): (` (function type) / `): {` (object type)
+ *   - Simple destructured function-parameter signatures split across lines
  *   - Standalone generic types:  `Array<{ id: string }>`, `Promise<X>`, …
  *   - String literals as standalone expression elements:  `"…",` or `"…"`
  *   - Backtick template literals on their own line, optionally trailed
@@ -93,6 +94,43 @@ const TS_MEMBER_DECL =
 // tuple. `(` and `{` are attested in-tree; `[` is included so the rule covers
 // the class instead of the instances and this tax stops recurring.
 const RETURN_TYPE_OPEN = /^\s*\)\s*:\s*(?:[A-Z]\w*<?)?[{<\x5b(]?\s*$/;
+
+const DESTRUCTURED_FUNCTION_START =
+  /^\s*(?:export\s+)?(?:default\s+)?(?:async\s+)?function\s+\w+\s*\(\s*\{\s*$/;
+const SIMPLE_DESTRUCTURED_PARAMETER = /^\s*[A-Za-z_$][\w$]*\s*,?\s*$/;
+const DESTRUCTURED_FUNCTION_CLOSE =
+  /^\s*}\s*(?::\s*[^)]*)?\)\s*(?::\s*[^={]+)?\s*\{\s*$/;
+
+/**
+ * Find source-only lines in a simple multi-line destructured function
+ * signature. V8 credits the executable body but can leave zero-hit records
+ * on the declaration and binding-name lines. Context is required here:
+ * `url,` is noise inside this signature, but it can be executable inside an
+ * object literal. Defaults, aliases, and rest bindings are not classified.
+ */
+export function destructuredParameterSignatureLines(lines: string[]): Set<number> {
+  const out = new Set<number>();
+  for (let start = 0; start < lines.length; start++) {
+    if (!DESTRUCTURED_FUNCTION_START.test(lines[start] ?? "")) continue;
+    const candidate = [start];
+    let complete = false;
+    for (let cursor = start + 1; cursor < lines.length; cursor++) {
+      const line = lines[cursor] ?? "";
+      if (DESTRUCTURED_FUNCTION_CLOSE.test(line)) {
+        candidate.push(cursor);
+        complete = true;
+        break;
+      }
+      if (BLANK.test(line) || COMMENT_LINE.test(line) || SIMPLE_DESTRUCTURED_PARAMETER.test(line)) {
+        candidate.push(cursor);
+        continue;
+      }
+      break;
+    }
+    if (complete) for (const index of candidate) out.add(index + 1);
+  }
+  return out;
+}
 
 // Standalone generic type continuation.
 const TYPE_GENERIC_LINE =
@@ -370,6 +408,7 @@ const srcCache = new Map<string, string[] | null>();
 /** Per-file cache of the template-interior prose line numbers (computed once
  *  from the source, reused across every DA record in a multi-pass merge). */
 const proseCache = new Map<string, Set<number>>();
+const destructuredSignatureCache = new Map<string, Set<number>>();
 
 /**
  * Read a source file's lines through the shared cache. Exported so
@@ -407,13 +446,18 @@ export async function filterNoiseDA(
     prose = templateInteriorProseLines(src);
     proseCache.set(absSrcPath, prose);
   }
+  let destructuredSignature = destructuredSignatureCache.get(absSrcPath);
+  if (destructuredSignature === undefined) {
+    destructuredSignature = destructuredParameterSignatureLines(src);
+    destructuredSignatureCache.set(absSrcPath, destructuredSignature);
+  }
   const kept: Array<[number, number]> = [];
   for (const [lineNo, hits] of entries) {
     if (hits === 0) {
       const text = src[lineNo - 1] ?? "";
       // Strip a zero-hit line that is either single-line noise OR pure prose
       // inside a multi-line template literal (both compile to no JS).
-      if (isNoiseLine(text) || prose.has(lineNo)) continue;
+      if (isNoiseLine(text) || prose.has(lineNo) || destructuredSignature.has(lineNo)) continue;
     }
     kept.push([lineNo, hits]);
   }

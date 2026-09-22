@@ -141,6 +141,34 @@ describe("subscribeBridge — run:turn_saved {thinkingContent, final}", () => {
 		expect(emits.some((e) => e.name === "run:turn_text_reset")).toBe(true);
 	});
 
+	test("uses streamed text when the terminal message has no text block", async () => {
+		const emits: EmittedEvent[] = [];
+		const bus = makeBus(emits);
+		const piAgent = makePiAgent();
+		const ctx = makeCtx();
+		subscribeBridge(ctx, makeHost(bus), piAgent as any, "conv-1", {}, null);
+
+		piAgent.fire({ type: "turn_start" });
+		piAgent.fire({
+			type: "message_update",
+			assistantMessageEvent: { type: "text_delta", delta: "streamed answer" },
+		});
+		piAgent.fire({
+			type: "turn_end",
+			message: {
+				role: "assistant",
+				content: [{ type: "thinking", thinking: "thinking only" }],
+				usage: { input: 5, output: 7 },
+			},
+		});
+
+		await ctx.dbQueue;
+
+		const saved = emits.find((e) => e.name === "run:turn_saved");
+		expect(saved, "run:turn_saved emitted").toBeDefined();
+		expect(saved!.data.content).toBe("streamed answer");
+	});
+
 	test("turn with tool calls → final:false (a follow-up turn will stream)", async () => {
 		const emits: EmittedEvent[] = [];
 		const bus = makeBus(emits);

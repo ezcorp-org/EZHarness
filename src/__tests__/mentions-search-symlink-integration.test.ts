@@ -64,6 +64,13 @@ mock.module("$server/db/connection", () => ({
   }),
 }));
 
+// Path mentions exercise the direct local-workspace branch. The persisted
+// sandbox policy is covered by its own runtime tests; keep this filesystem
+// boundary fixture independent from database startup.
+mock.module("$server/runtime/workspace/target", () => ({
+  projectRequiresSandbox: async () => false,
+}));
+
 mock.module("$server/db/schema", () => ({
   extensions: {},
   agentConfigs: {},

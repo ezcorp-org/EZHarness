@@ -1,13 +1,18 @@
-import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
+import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // Per-test project resolution — tests mutate this to control what getProject returns.
 let nextProject: { id: string; path: string } | null = null;
+let sandboxed = false;
 
 mock.module("$server/db/queries/projects", () => ({
 	getProject: async (_id: string) => nextProject,
+}));
+
+mock.module("$server/runtime/workspace/target", () => ({
+	projectRequiresSandbox: async () => sandboxed,
 }));
 
 mock.module("$server/auth/middleware", () => ({
@@ -140,6 +145,10 @@ afterAll(async () => {
 	await rm(outsideDir, { recursive: true, force: true });
 });
 
+beforeEach(() => {
+	sandboxed = false;
+});
+
 /** Build a Request object pointing at the mentions/search endpoint. */
 function buildRequest(params: Record<string, string>): Request {
 	const search = new URLSearchParams(params).toString();
@@ -177,6 +186,13 @@ describe("GET /api/mentions/search?type=file", () => {
 	test("returns empty when project has no path", async () => {
 		nextProject = { id: "p", path: "" };
 		const body = await callGet({ type: "path", q: "", projectId: "p" });
+		expect(body).toEqual([]);
+	});
+
+	test("denies path discovery for a persisted sandbox binding before host filesystem access", async () => {
+		sandboxed = true;
+		nextProject = { id: "sandbox", path: projectRoot };
+		const body = await callGet({ type: "path", q: "", projectId: "sandbox" });
 		expect(body).toEqual([]);
 	});
 
