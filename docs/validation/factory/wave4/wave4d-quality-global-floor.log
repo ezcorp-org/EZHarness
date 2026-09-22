@@ -1,0 +1,23 @@
+
+Global line coverage: 72.98% (89020/121978 lines across 1424 files), floor 90%
+
+✗ below the 90% floor — 20761 more covered line(s) needed.
+
+  Files owing the most lines:
+      860 missing    6.8%  src/extensions/manifest.ts
+      502 missing   15.6%  src/runtime/goal-host.ts
+      414 missing   12.3%  src/extensions/workflows-handler.ts
+      384 missing   12.7%  packages/@ezcorp/sdk/src/runtime/loop.ts
+      365 missing    8.5%  src/extensions/schedule-daemon.ts
+      355 missing    4.8%  src/extensions/fs-handler.ts
+      343 missing    9.0%  src/extensions/mcp-sandbox.ts
+      336 missing   59.0%  src/runtime/stream-chat/setup-tools.ts
+      323 missing   41.5%  src/db/queries/conversations.ts
+      318 missing   12.6%  packages/@ezcorp/sdk/src/runtime/channel.ts
+      318 missing   13.4%  src/extensions/file-organizer-daemon.ts
+      293 missing    7.6%  src/extensions/file-organizer-applier.ts
+      291 missing   10.5%  src/db/queries/analytics.ts
+      283 missing    6.0%  src/runtime/start-assignment.ts
+      277 missing    7.7%  src/extensions/spawn-assignment-handler.ts
+
+  Report: coverage/quality/global-coverage.json
