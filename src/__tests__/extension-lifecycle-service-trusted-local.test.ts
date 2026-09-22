@@ -49,7 +49,7 @@ import { users } from "../db/schema";
 import { listAuditLog } from "../db/queries/audit-log";
 import { findTrustedLocalApproval } from "../db/queries/extension-trusted-local-approvals";
 import { ExtensionRegistry } from "../extensions/registry";
-import { getExtensionLifecycle } from "../extensions/extension-lifecycle-service";
+import { getExtensionLifecycle, resetExtensionServices } from "../extensions/extension-lifecycle-service";
 import { trustedLocalBunDigest, UNSANDBOXED_ACK_SENTENCE } from "../extensions/runner-mode";
 import { digestObject } from "../extensions/v4/blobs";
 
@@ -65,11 +65,19 @@ beforeAll(async () => {
   blobRoot = await mkdtemp(join(tmpdir(), "ez-trusted-service-blobs-"));
   process.env.EZCORP_EXTENSION_BLOB_ROOT = blobRoot;
   await setupTestDb();
+  // The services below are module state. Every assertion here is about what
+  // INITIALISING them does — the hooks installed, the mode read from the
+  // environment set just above — so this file has to own that initialisation,
+  // whatever a pooled process already built against another database.
+  resetExtensionServices();
   await getTestDb().insert(users).values({ id: ADMIN_USER.id, email: ADMIN_USER.email, passwordHash: "h", name: ADMIN_USER.name, role: "admin" });
 });
 
 afterAll(async () => {
   ExtensionRegistry.resetInstance();
+  // Built against the database closed below, and against this file's
+  // trusted-local environment. Neither survives it.
+  resetExtensionServices();
   restoreModuleMocks();
   await closeTestDb();
   await rm(blobRoot, { recursive: true, force: true });
