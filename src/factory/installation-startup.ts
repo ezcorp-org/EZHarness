@@ -313,7 +313,7 @@ export function factoryChildSettlementDriver(
  * hold by name, which is visible in the readiness report, instead of taking the
  * whole installation down with them.
  */
-interface FactoryInstallationRelease {
+export interface FactoryInstallationRelease {
   readonly releases: FactoryReleases;
   readonly assurance: FactoryAssurance;
   readonly destinations?: FactoryComposedReleaseDestinations;
@@ -750,7 +750,7 @@ async function installationCollaborators(
  * publish through it refuses by name at the provider, the one step that needs
  * a destination.
  */
-function factoryReleaseOperations(
+export function factoryReleaseOperations(
   tenantId: string,
   release: FactoryInstallationRelease,
   resolver: FactoryReleaseProviderResolver | undefined,

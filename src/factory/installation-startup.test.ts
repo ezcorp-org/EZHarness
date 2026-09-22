@@ -1060,3 +1060,24 @@ describe("the roles this installation assembles", () => {
     });
   });
 });
+
+describe("the public release operations", () => {
+  const tenantId = "tenant-01";
+  const release = { assurance: { tenantId }, releases: { tenantId, async inspect() { return { destination: { provider: "s3", account: "tenant-01", object: "x" } }; } } } as never;
+  const human = { kind: "user", id: "owner", authentication: "session" } as const;
+  const grants = { tenantId, async authorize() { return {}; } } as never;
+
+  test("a deployment with no declared destination still composes the contract route, and a publish refuses at the provider by name", async () => {
+    const { factoryReleaseOperations } = await import("./installation-startup");
+    const operations = factoryReleaseOperations(tenantId, release, undefined)({ grants } as never);
+    await expect(operations.reconcile(human, "project-1", "operation-1", { outcome: "succeeded" } as never, 1, "key")).rejects.toMatchObject({ code: "factory_release_destination_unknown" });
+  });
+
+  test("a declared resolver is the one a publish goes through", async () => {
+    const { factoryReleaseOperations } = await import("./installation-startup");
+    const resolved: unknown[] = [];
+    const operations = factoryReleaseOperations(tenantId, release, { resolve(operation) { resolved.push(operation); throw new Error("declared provider"); } })({ grants } as never);
+    await expect(operations.reconcile(human, "project-1", "operation-1", { outcome: "succeeded" } as never, 1, "key")).rejects.toThrow("declared provider");
+    expect(resolved).toHaveLength(1);
+  });
+});

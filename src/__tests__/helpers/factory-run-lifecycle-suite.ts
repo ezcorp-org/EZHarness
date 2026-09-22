@@ -932,7 +932,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await composed.roles.scheduling.step(signal)).toBe(false);
     expect(await decisionEvents()).toEqual([`protected-acceptance:${acceptanceCommand.id}`]);
     expect(await dispatcher.dispatchOne()).toMatchObject({ kind: "idle" });
-    expect(reported).toEqual([]);
+    // The scan is tenant-wide, so other runs in this suite are visited too; none of this run's passes failed.
+    expect(reported.filter(entry => entry.role.includes(completed.task.run.runId))).toEqual([]);
   });
 
   test("a failing claim is delivered as a rejection, and a decision whose inbox write was lost is delivered on the next pass", async () => {
@@ -949,7 +950,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await composed.roles.scheduling.step(signal)).toBe(true);
     expect(await decisionEvents()).toEqual([`protected-rejection:${acceptanceCommand.id}`]);
     expect(rows(await fixture.db.execute(sql`SELECT decision FROM factory_protected_command_effects WHERE tenant_id=${tenantId} AND command_id=${acceptanceCommand.id}`))).toEqual([{ decision: "rejected" }]);
-    expect(reported).toEqual([]);
+    expect(reported.filter(entry => entry.role.includes(completed.task.run.runId))).toEqual([]);
   });
 
   test("validator material registers once per published version, survives a restart, and names an undeclared or changed runtime", async () => {
