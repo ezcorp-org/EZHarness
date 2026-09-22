@@ -299,6 +299,42 @@ released cleanly, every exit 0. Receipts: `logs/head-sweep.log`, `logs/head-heav
 `head-sweep.sh.txt`. `integ/w00` had not advanced past `850ffaa54`, so the merge was already
 current. Any later commit touches `tasks/` only, which no suite loads.
 
+## Validator round: ACCEPT-WITH-FIXES, and the three fixes
+
+Verdict ACCEPT-WITH-FIXES at `86dccfdaf`
+(`/tmp/factory-platform-evidence/w01f-validation/report.txt`). All three required changes are made,
+and each is pinned by a controlled revert that turns its own new case red
+(`logs/controlled-revert-round2.log`, with before and after hashes; both files restore
+byte-identical).
+
+- **F1 — a live host inside one long forward `/v4/request` was evicted mid-work, and the shipped
+  client could not recover.** `session.pending` holds only the reverse calls the HOST owes, so a
+  forward call the host was waiting on renewed the lease once and then nothing held it off; the
+  validator measured a 750 ms lease and a 2 500 ms worker method releasing the attachment
+  mid-call. Fixed in two places, because either alone leaves a hole: the service now DEFERS the
+  lease for exactly as long as a forward call runs, against an unchanged deadline
+  (`session.inFlight`, `armAttachmentLease`); and `RunnerClient` now takes its stream back after a
+  refusal it did not cause, bounded at three consecutive recoveries so a worker that is really gone
+  still ends the loop. Controls: removing the deferral fails its case at 6 106 ms; removing the
+  client recovery times out both client cases at 30 s.
+- **F2 — the lease was renewed by any authenticated caller naming the worker.** A non-holder kept a
+  silent host attached for four lease periods. Renewal now requires proof of ownership, which only
+  `/v4/events` and `/v4/reply` carry, plus `/v4/attach` which starts the lease; `/v4/request` no
+  longer renews. Control: restoring renewal on `/v4/request` hangs its case to the 30 s budget.
+- **F3, F4, F6 — record corrections**, all applied above: the wire behaviour is no longer claimed
+  byte-identical and the five differences are tabulated with their causes; renewing and deferring
+  are described separately; the `headersTimeout` reason is corrected to the measured one; and the
+  `CLAUDE.md` claim is cut back to what the text says.
+- **F5 (process)** needed no code change and the validator is right: I was asked to hold the branch
+  and the request arrived after I had already committed the change in question. I have not
+  committed inside a validation window since.
+- **F7** was the arrival race I had already found and fixed at `86dccfdaf`.
+
+Three new cases cover the fixes: "a host waiting inside a long forward request is never evicted
+while that call runs", "a caller that does not hold the stream cannot renew the attachment lease",
+and, in `tests/client-reattach.test.ts`, "a host takes its event stream back after a refusal it did
+not cause" and "a host stops polling when the worker itself is gone rather than retrying forever".
+
 ## What this does not change
 
 - No `/api/*` route, no migration, no schema, no shared store.

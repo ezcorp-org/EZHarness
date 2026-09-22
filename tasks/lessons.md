@@ -1060,3 +1060,21 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   that does not exist. Probe a live migrated database before writing the name into a comment.
 - Amending a commit after a producer has run against it strands the receipt. Run producers at the
   last commit that touches source, and keep later commits documentation-only.
+- A lease on a long-poll attachment has two behaviours and they must be kept apart: RENEWING pushes
+  the deadline, DEFERRING only stops the clock against an unchanged one. Conflating them cost two
+  findings in one review. Only a request that proves the caller owns the stream may renew, because
+  this protocol carries no host identity and `workerId` is not identity: any authenticated caller
+  naming the worker was able to keep a silent host attached indefinitely. Deferring is safe for any
+  caller, because it cannot buy silence past the deadline the holder last set.
+- Make the client survive an eviction the server may get wrong. My service fix removed the eviction
+  I knew about, but `RunnerClient` answered ANY failed poll with `closed = true` and no re-attach,
+  so one spurious refusal permanently ended a host session whose worker was still running. When a
+  resource can be lost without being destroyed, the consumer needs a bounded way to take it back;
+  three consecutive recoveries with a reset on success is enough, and the bound is what stops a
+  genuinely dead worker from spinning.
+- Do not commit on a branch while a validator is measuring it, and say so the moment you realise
+  you have. My validator was handed one head, asked me in writing to hold, and the branch moved
+  three times, the last move changing product source while their heavy batch was queued on the
+  shared lock. Their mixed-head merge then failed a coverage gate for a reason that had nothing to
+  do with the code. Treat a validation window as a freeze even when the change you are making is a
+  good one.

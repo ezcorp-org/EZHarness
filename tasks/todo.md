@@ -2972,6 +2972,10 @@ Branch `wp/w01f-detach`, cut from `wp/w18a-sdk` at `9e7866e2b`. One product defe
 - [x] After `wp/w18a-sdk` merged, take `integ/w00` at `850ffaa54`, rebuild the workspace packages,
       and re-run every gate on the merge, with both coverage gates at `BASE_REF=integ/w00` and all
       ten heavy producers in one lock acquisition under `flock --close`.
+- [x] Validator round, ACCEPT-WITH-FIXES: hold the lease off for a host busy inside a forward call
+      and let the shipped client take its stream back (F1); restrict renewal to the two requests
+      that prove ownership (F2); correct the wire-behaviour, lease, `headersTimeout` and
+      `CLAUDE.md` claims in the record (F3, F4, F6). Each fix pinned by a controlled revert.
 - [x] Diagnose and remove the one observed test failure's dependence on host timing, rather than
       retrying it.
 
