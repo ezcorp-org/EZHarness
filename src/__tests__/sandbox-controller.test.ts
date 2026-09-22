@@ -131,6 +131,61 @@ test("uses the database clock for admitted claim leases despite application cloc
   }
 });
 
+test("renews an active method claim through its database heartbeat", async () => {
+  const entered = Promise.withResolvers<void>();
+  const release = Promise.withResolvers<void>();
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  context.local.fileRead = mock(async (input: any) => {
+    entered.resolve();
+    await release.promise;
+    return { receipt: receipt(input.call), path: input.path, revision: "r1", offsetBytes: 0, nextOffsetBytes: 0, eof: true, encoding: "utf8" as const, data: "" };
+  });
+  const read = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "read", idempotencyKey: "heartbeat-claim", payload: { path: "/a", offsetBytes: 0, lengthBytes: 1 } });
+  const originalSetInterval = globalThis.setInterval;
+  let heartbeat: (() => void) | undefined;
+  globalThis.setInterval = ((callback: (...args: unknown[]) => void, _delay?: number, ...args: unknown[]) => {
+    heartbeat = () => callback(...args);
+    return originalSetInterval(() => undefined, 60_000);
+  }) as typeof setInterval;
+  const executing = context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id);
+  try {
+    await entered.promise;
+    await expireMethodClaim(context.database, read.id);
+    expect(heartbeat).toBeDefined();
+    heartbeat!();
+    const renewed = await context.database.execute(sql`
+      SELECT claim_expires_at BETWEEN NOW() + INTERVAL '4 minutes' AND NOW() + INTERVAL '6 minutes' AS valid
+      FROM sandbox_method_operations
+      WHERE id=${read.id}
+    `) as { rows: Array<{ valid: boolean }> };
+    expect(renewed.rows[0]?.valid).toBe(true);
+  } finally {
+    release.resolve();
+    await executing.catch(() => undefined);
+    globalThis.setInterval = originalSetInterval;
+  }
+});
+
+test("a lifecycle inspection persists stopped state and clears a terminal process lease", async () => {
+  const context = await fixture();
+  const create = await admitCreate(context);
+  await context.controller.executeAdmittedLocalSandboxOperation(context.owner.id, create.operation!.id);
+  const conversationId = crypto.randomUUID();
+  await context.database.execute(sql`INSERT INTO conversations(id,project_id,user_id,title) VALUES(${conversationId},${create.projectId},${context.owner.id},'Terminal process')`);
+  const start = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.process.v1", operation: "start", idempotencyKey: "terminal-before-inspect", conversationId, payload: { argv: ["true"], env: {}, cwd: "/workspace", user: "workspace", timeoutMs: 1000 } });
+  await context.controller.executeAdmittedSandboxMethod(context.owner.id, start.id);
+  const inspect = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.lifecycle.v1", operation: "inspect", idempotencyKey: "inspect-terminal-process", payload: {} });
+
+  await expect(context.controller.executeAdmittedSandboxMethod(context.owner.id, inspect.id)).resolves.toMatchObject({ state: "succeeded" });
+
+  expect(context.local.inspect).toHaveBeenCalledTimes(1);
+  expect((await context.controller.getProjectSandboxStatus(context.owner.id, create.projectId)).resource?.observedState).toBe("stopped");
+  const leases = await context.database.execute(sql`SELECT operation_id FROM sandbox_writer_leases WHERE binding_id=${create.bindingId}`) as { rows: unknown[] };
+  expect(leases.rows).toEqual([]);
+});
+
 test("replays a settled operation without a second provider effect and admits idempotent lifecycle actions", async () => {
   const context = await fixture();
   const create = await admitCreate(context);
