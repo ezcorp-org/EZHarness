@@ -3547,15 +3547,20 @@ arbiters and only two.
 
 ## W09d — compose validators into the installation (branch `wp/w09d-validators`)
 
-Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/factory-platform-evidence/w09d/`.
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/factory-platform-evidence/w09d/`. Gates: `tasks/factory/w09d-GATES.md`.
 
-- [ ] Reproduce at the base: a run whose graph carries an acceptance node cannot reach a validator attempt in the real application (record what refuses and where).
-- [ ] Startup document `validators.runtimes[]`: name, kind, runner lock, material path, material digest; refused by name when missing, unreadable, shared, or the digest does not match; nothing declared holds acceptance with a named reason.
-- [ ] `FactoryTrustedValidators` built from the declaration and shared by assurance, the scheduler, and the dispatch settlement.
-- [ ] Material registration through `registerMaterialInTransaction`: one pass at startup and a bounded role for later publications; idempotent across restarts; a changed runtime refuses by name.
-- [ ] `FactoryProtectedValidatorScheduler` composed as the `validator-scheduling` role over the same runner path, stores, and worker shape; readiness names it running or held.
-- [ ] Validator attempts settle through `FactoryValidatorAttemptDispatch` on the shared attempt dispatcher (routed by the durable assignment, not by a string).
-- [ ] Acceptance waits for its validators instead of failing the run: the command answers null, the role delivers the acceptance or rejection event through the inbox.
-- [ ] Public contract route composed (`createReleaseOperations`), so a contract approval can name the registered lock.
-- [ ] Proof on the real started application, three passes on fresh product databases; negative controls: undeclared validator, tampered material.
-- [ ] Tests per common.md; 100 percent coverage of new files and changed lines; PostgreSQL suites registered; gate file `tasks/factory/w09d-GATES.md`.
+- [x] Reproduce at the base: a run whose graph carries an acceptance node cannot reach a validator attempt in the real application (record what refuses and where). `reproduction.json`.
+- [x] Startup document `validators.runtimes[]`: name, kind, runner lock, material path, material digest; refused by name when missing, unreadable, shared, or the digest does not match; nothing declared holds acceptance with a named reason in readiness.
+- [x] `FactoryTrustedValidators` built from the declaration and shared by assurance, the scheduler, and the dispatch settlement.
+- [x] Material registration through `registerMaterialInTransaction`: one pass at startup and a bounded role for later publications; idempotent across restarts; a changed runtime refuses by name.
+- [x] `FactoryProtectedValidatorScheduler` composed as the `validator-scheduling` role over the same runner path, stores, and worker shape; readiness names it running or held, with the reason.
+- [x] Validator attempts settle through `FactoryValidatorAttemptDispatch` on the shared attempt dispatcher (routed by the durable assignment, not by a string).
+- [x] Acceptance waits for its validators instead of failing the run: the command answers null, the role delivers the acceptance or rejection event through the inbox.
+- [x] Public contract route composed (`createReleaseOperations`), so a contract approval can name the registered lock.
+- [ ] Proof on the real started application, three passes on fresh product databases: PASSES on a proof worktree that includes the proposed W05 fix `wp/w09d-w05fix` `d12d1f572`; not on this branch alone. Awaiting the coordinator's ruling.
+- [x] Negative controls: undeclared validator (`factory_validator_runtime_untrusted`), tampered material (`factory_validator_declaration_digest_mismatch` at startup).
+- [x] Tests per common.md; 100 percent coverage of new files and changed lines; PostgreSQL suites green; gate file `tasks/factory/w09d-GATES.md`.
+
+### Review
+
+The package composes W05's validator pieces from a startup declaration and adds no rule of its own. The base reproduction showed why nothing reached a validator: no material was ever registered, the contract route was not composed, and the acceptance command refused `factory_assurance_not_found`. With the composition, the real application registers the material, accepts trust and a contract over public HTTP, admits the validator through the pool, runs it in Podman through the one attempt dispatcher, records a strict PASS, decides `accepted`, and delivers the event through the inbox so the release node's `request-release` issues. Three passes did that on fresh product databases, and both controls refused by name. The proof depended on one W05 defect fix, kept on its own branch and raised as an interface conflict: `completeCurrentCandidateInTransaction` re-records the candidate terminal through a live-attempt check, so acceptance cannot pass once the candidate's lease ends, and pinned-clock tests could not see it. Open items, each with an owner: the validator reservation is never settled (W05); no public read of the registered lock (W14); release profiles (W09c); the contract route's opaque 500 for a missing material (W18a-2); a failed workflow is never projected, so the run stays `running`.

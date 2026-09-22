@@ -49,48 +49,51 @@ own; admission, binding, evidence, and the verdict stay W05's.
 
 ## Gates
 
-- [ ] G0: The reproduction at the base: a run whose graph carries an acceptance node reaches no validator attempt in the real application.
-  CHECK: `W09D_REPO=.worktrees/w09d-proof W09D_MODE=reproduction W09D_LABEL=reproduction flock --close /tmp/ezcorp-validation-heavy.lock timeout 1800 bash /tmp/factory-platform-evidence/w09d/repro/one-run.sh`
-  EXPECT: no row in `factory_validator_materials`, no protected-validator admission or attempt, the contract route refuses `factory_release_application_unavailable`, and the run ends failed on the acceptance command
-  EVIDENCE: `/tmp/factory-platform-evidence/w09d/reproduction.json`
+- [x] G0: The reproduction at the base: a run whose graph carries an acceptance node reaches no validator attempt in the real application.
+  CHECK: `W09D_REPO=.worktrees/w09d-proof-base W09D_MODE=reproduction W09D_LABEL=reproduction bash /tmp/factory-platform-evidence/w09d/repro/one-run.sh` (inside `all-proofs.sh`, under the heavy lock)
+  EXPECT: no row in `factory_validator_materials`, no protected-validator admission or attempt, the contract route refuses `factory_release_application_unavailable`, and the acceptance command refuses
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/reproduction.json` (base `2ddd5fd16` = integ/w00 `94fb95b6a` + wp/w01g-staging `179674cbf`): contract 503 `factory_release_application_unavailable`; the candidate COMPLETED; `request-acceptance` refused `factory_assurance_not_found` (private service 500, workflow failed); zero materials, admissions, assignments, validator attempts; the run stayed `running` (a failed workflow is never projected — recorded, not W09d's). Judged by `/tmp/factory-platform-evidence/w09d/judged.json`.
 
-- [ ] G1: The declaration is validated, and every refusal is named.
+- [x] G1: The declaration is validated, and every refusal is named.
   CHECK: `bun test --timeout 30000 ./src/factory/startup-config.test.ts ./src/factory/validator-declaration.test.ts`
   EXPECT: exit 0; missing, shared, oversized, tampered, malformed, other-runner and other-kind materials each refuse by their code and name the runtime, never the bytes
   EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/focused-suites.json`
 
-- [ ] G2: The composition: nothing declared holds both roles with a reason readiness shows; a declaration composes both roles over the shared stores; each missing collaborator holds them by name.
+- [x] G2: The composition: nothing declared holds both roles with a reason readiness shows; a declaration composes both roles over the shared stores; each missing collaborator holds them by name.
   CHECK: `bun test --timeout 30000 ./src/factory/installation-startup.test.ts ./src/factory/runtime-workers.test.ts ./src/factory/runtime-composition.test.ts ./src/factory/private-service-composition.test.ts ./src/factory/validator-composition.test.ts ./src/factory/validator-acceptance.test.ts`
   EXPECT: exit 0
   EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/focused-suites.json`
 
-- [ ] G3: Against real stores (PGlite and real PostgreSQL): registration is idempotent across two concurrent processes and a restart, and refuses a changed or undeclared runtime by name; the role schedules, admits, runs through the shared dispatcher, and delivers an acceptance exactly once; a failing claim is delivered as a rejection; a decision whose inbox write was lost is delivered on the next pass.
+- [x] G3: Against real stores (PGlite and real PostgreSQL): registration is idempotent across two concurrent processes and a restart, and refuses a changed or undeclared runtime by name; the role schedules, admits, runs through the shared dispatcher, and delivers an acceptance exactly once; a failing claim is delivered as a rejection; a decision whose inbox write was lost is delivered on the next pass.
   CHECK: `bun test --timeout 120000 ./src/__tests__/factory-run-lifecycle.test.ts`; `flock --close /tmp/ezcorp-validation-heavy.lock timeout 2400 bash /tmp/factory-platform-evidence/w09d/repro/postgres-producers.sh`
   EXPECT: both exit 0
-  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/focused-suites.json`, `/tmp/factory-platform-evidence/w09d/receipts/postgres-producers.json`
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/focused-suites.json` (18 files, all pass, lifecycle 63/63), `/tmp/factory-platform-evidence/w09d/receipts/postgres-producers.json` (7 files, all pass: lifecycle 63, lifecycle-s3 63, validator-materials 9, multiclaim 3, boot 1, schema 2, private-service 5)
 
-- [ ] G4: The real started application, three passes on fresh product databases: a validator attempt runs in Podman, the strict report is recorded, the acceptance is journaled and projected, and the release node reaches requestRelease.
+- [ ] G4 (passes WITH the proposed W05 fix; blocked on the coordinator's ruling): The real started application, three passes on fresh product databases: a validator attempt runs in Podman, the strict report is recorded, the acceptance is journaled and projected, and the release node reaches requestRelease.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 7200 bash /tmp/factory-platform-evidence/w09d/repro/run-three.sh`
   EXPECT: `proof-1..3` each `outcome: passed` with `w09d.validatorRan: true`, `w09d.acceptance: "accepted"`, a `factory_validator_results` row, an applied `protected-acceptance:` inbox event, and `w09d.reachedRequestRelease: true`
-  EVIDENCE: `/tmp/factory-platform-evidence/w09d/proof-1.json`, `proof-2.json`, `proof-3.json`, `three-passes.json`
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/proof-1.json`, `proof-2.json`, `proof-3.json`, `three-passes.json`, `judged.json`. Producing commit `651907759` = merge(wp/w09d-proof-final `17e7be558` [this branch + wp/w01g-staging], wp/w09d-w05fix `d12d1f572`). Each pass: validator attempt launched in Podman and COMPLETED, a strict PASS result, one acceptance decision, receipt `accepted`, `protected-acceptance:` applied by the kernel, `request-release` issued. Without `d12d1f572` acceptance refuses `factory_run_fence_changed` once the candidate's lease ends (attempts/package-denied-and-candidate-lease/).
 
-- [ ] G5: Negative controls on the real application.
+- [x] G5: Negative controls on the real application.
   CHECK: the same `run-three.sh` (modes `undeclared` and `tampered`)
   EXPECT: undeclared: no validator runs and `factory_validator_runtime_untrusted` is named; tampered: no validator runs and `factory_validator_declaration_digest_mismatch` is named at startup, with both roles held
-  EVIDENCE: `/tmp/factory-platform-evidence/w09d/negative-undeclared.json`, `negative-tampered.json`
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/negative-undeclared.json` (`factory_validator_runtime_untrusted` at registration, then `factory_validator_material_missing` at the acceptance command; no admission, no attempt), `negative-tampered.json` (`factory_validator_declaration_digest_mismatch: w09d-claim` reported at startup; both roles held with that reason in `/api/ready`; no attempt)
 
-- [ ] G6: 100 percent coverage of every new file and every changed line.
+- [x] G6: 100 percent coverage of every new file and every changed line.
   CHECK: merge the focused LCOVs into `coverage/lcov.info`, then `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts && BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
   EXPECT: both exit 0
-  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/coverage-gates.json`
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/coverage-gates.json` (3 new files gated; 11 changed files, all changed lines covered)
 
-- [ ] G7: No gate weakened, and the static gates are green at the final head.
+- [x] G7: No gate weakened, and the static gates are green at the final head.
   CHECK: `bun run typecheck && bun run lint && bun scripts/check-factory-boundaries.ts && bun scripts/gate-integrity.ts`
   EXPECT: all exit 0
-  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/static-gates.json`
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/typecheck.json`, `lint.json`, `boundaries.json`, `gate-integrity.json`, `postgres-suite-registration.json`
 
 ## Open, and why
 
 - [ ] O1: The validator reservation is never settled. `FactoryValidatorAttemptDispatch` records the terminal fact and nothing settles the protected-validator budget reservation or releases its pool lease, so the reservation stays `running` and the root envelope cannot close while it does. W05's settlement; raised as a question, not changed.
 - [ ] O2: No public read of a version's registered validator lock. The operator needs the lock digest to publish trust and approve the contract; the proof reads `factory_validator_materials`. The console (W14) owns the read.
 - [ ] O3: A published release. The release node's `request-release` reaches `requestRelease`, which refuses `factory_protected_effect_untrusted` because no release profile is composed for its adapter. W09c owns release profiles.
+- [ ] O4: The public contract route answers an opaque 500 when the named lock has no registered material. `FactoryTrustedValidatorError` (`factory_validator_material_missing`) is not mapped in `web/src/routes/api/factories/_shared.ts`, which W18a-2 owns; a named 4xx belongs there.
+- [ ] O5: A failed workflow leaves the product run `running`. At the base, and in the proof on the release node's refusal, the Temporal workflow fails on a refused effect and nothing projects it. Not W09d's; measured in every receipt's `statusTimeline`.
+- [ ] O6: The W05 defect and its fix. `completeCurrentCandidateInTransaction` re-records the candidate terminal through a live-attempt authorization, so acceptance refuses `factory_run_fence_changed` once the candidate's lease ends. Fix and regression test on `wp/w09d-w05fix` `d12d1f572`, not merged here, awaiting the coordinator's ruling.
