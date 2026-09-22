@@ -254,3 +254,29 @@ export function installFsChannelStub(fsRoot: string): void {
     }
   }) as ReturnType<typeof getChannel>["request"]);
 }
+
+/**
+ * Make `dir` a git repository root as `findProjectRoot` reads it: a `.git`
+ * directory holding `HEAD`. A bare empty `.git` directory is not a
+ * repository and no longer anchors a project root.
+ */
+export function markGitRepository(dir: string): void {
+  mkdirSync(`${dir}/.git`, { recursive: true });
+  writeFileSync(`${dir}/.git/HEAD`, "ref: refs/heads/main\n");
+}
+
+/**
+ * Run git in `cwd` without the caller's `GIT_*` variables. A git hook
+ * exports `GIT_DIR` and friends, which would make every git command below
+ * act on the hook's repository instead of discovering one from `cwd`.
+ */
+export function gitInDirectory(cwd: string, args: string[]): { exitCode: number; stdout: string } {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
+  const git = Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "ignore" });
+  return { exitCode: git.exitCode, stdout: git.stdout.toString().trim() };
+}
+
+/** True when git itself finds no repository enclosing `dir`. */
+export function outsideAnyGitRepository(dir: string): boolean {
+  return gitInDirectory(dir, ["rev-parse", "--git-dir"]).exitCode !== 0;
+}

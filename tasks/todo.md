@@ -3544,3 +3544,14 @@ it is declared in `schema.ts` as `idx_factory_release_operations_identity` but t
 it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
+
+## W18b — six pre-existing backend pool failures (branch `wp/w18b-pool-fixes`)
+
+Base `integ/w00` `94fb95b6a`. Receipts: `/tmp/factory-platform-evidence/w18b/`.
+
+- [x] Reproduce each failure alone at base and record the assertion and the cause.
+- [ ] Project root: the SDK walk accepts only a real git marker (a `.git` directory with `HEAD`, or a `.git` file naming `gitdir:`); every example copy routes through the SDK; tests pin a stray empty `.git` above the start.
+- [ ] pi_session: remove the expired migration bridge and its calendar literal; the legacy cookie is always purged, never promoted; tests and docs follow.
+- [ ] Launcher readiness: the runner probe reuses `inspectProductionRunner` and waits inside the launcher's one readiness budget, not a separate one-second deadline; a test pins a slow runner inspect.
+- [ ] The five files alone, the full backend pool, typecheck, lint, both boundary checks, gate-integrity, both coverage gates.
+- [ ] Gate file `tasks/factory/w18b-GATES.md`, report, review paragraph.
