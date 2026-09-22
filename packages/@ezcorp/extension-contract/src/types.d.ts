@@ -9,6 +9,105 @@ export interface HostApiPermission {
   routes: { method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE"; path: string }[];
   events: boolean;
 }
+export type ProviderRequiredPermission = "hostApi" | "network" | "networkTcp" | "storage";
+export interface ProviderHostContract { major: 4; minor: number }
+export interface SandboxLifecycleMethodGroup { name: "sandbox.lifecycle.v1"; methods: { create: string; inspect: string; start: string; stop: string; destroy: string } }
+export interface SandboxProcessMethodGroup { name: "sandbox.process.v1"; methods: { start: string; inspect: string; readOutput: string; cancel: string } }
+export interface SandboxFilesMethodGroup { name: "sandbox.files.v1"; methods: { stat: string; list: string; read: string; write: string; mkdir: string; remove: string; chmod: string } }
+export type SandboxProviderMethodGroup =
+  | SandboxLifecycleMethodGroup
+  | SandboxProcessMethodGroup
+  | SandboxFilesMethodGroup;
+export interface StaticSecretMethodGroup { name: "secret.static.v1"; methods: { resolve: string } }
+export type SecretProviderMethodGroup = StaticSecretMethodGroup;
+export interface SandboxProviderContribution {
+  id: string;
+  kind: "sandbox";
+  protocolMajor: 1;
+  minimumHostContract: ProviderHostContract;
+  profiles: ("linux-exec.v1")[];
+  capabilities: [];
+  configSchema: ValueSchema;
+  requiredPermissions: ProviderRequiredPermission[];
+  methodGroups: SandboxProviderMethodGroup[];
+}
+export interface StaticSecretProviderContribution {
+  id: string;
+  kind: "static-secret";
+  protocolMajor: 1;
+  minimumHostContract: ProviderHostContract;
+  profiles: ["static-secret.v1"];
+  capabilities: [];
+  configSchema: ValueSchema;
+  requiredPermissions: ProviderRequiredPermission[];
+  methodGroups: SecretProviderMethodGroup[];
+}
+export type ProviderContribution = SandboxProviderContribution | StaticSecretProviderContribution;
+export interface ProviderScope { projectId: string; bindingId: string; generation: number }
+export interface ProviderCall { scope: ProviderScope; operationId: string; idempotencyKey: string; requestDigest: string }
+export interface ProviderError { code: string; message: string; retryable: boolean }
+export interface ProviderSucceededReceipt { operationId: string; idempotencyKey: string; requestDigest: string; outcome: "succeeded"; providerOperationId?: string }
+export interface ProviderFailedReceipt { operationId: string; idempotencyKey: string; requestDigest: string; outcome: "failed"; providerOperationId?: string; error: ProviderError }
+export interface ProviderUnknownReceipt { operationId: string; idempotencyKey: string; requestDigest: string; outcome: "unknown"; providerOperationId?: string; error?: ProviderError }
+export type ProviderReceipt = ProviderSucceededReceipt | ProviderFailedReceipt | ProviderUnknownReceipt;
+export interface ProviderUnsuccessfulResult { receipt: ProviderFailedReceipt | ProviderUnknownReceipt }
+export interface SandboxResourceLimits { memoryBytes: number; milliCpu: number; pids: number; diskBytes: number }
+export type SandboxResourceState = "creating" | "stopped" | "running" | "destroying" | "destroyed" | "failed" | "unknown";
+export interface SandboxResource { resourceId: string; desiredState: "stopped" | "running" | "destroyed"; observedState: SandboxResourceState; limits: SandboxResourceLimits }
+export interface SandboxCreateInput { call: ProviderCall; profile: "linux-exec.v1"; limits: SandboxResourceLimits }
+export type SandboxCreateResult = { receipt: ProviderSucceededReceipt; resource: SandboxResource } | ProviderUnsuccessfulResult;
+export interface SandboxInspectInput { call: ProviderCall; resourceId: string }
+export type SandboxInspectResult = { receipt: ProviderSucceededReceipt; resource: SandboxResource } | ProviderUnsuccessfulResult;
+export interface SandboxStartInput { call: ProviderCall; resourceId: string }
+export type SandboxStartResult = { receipt: ProviderSucceededReceipt; resource: SandboxResource } | ProviderUnsuccessfulResult;
+export interface SandboxStopInput { call: ProviderCall; resourceId: string }
+export type SandboxStopResult = { receipt: ProviderSucceededReceipt; resource: SandboxResource } | ProviderUnsuccessfulResult;
+export interface SandboxDestroyInput { call: ProviderCall; resourceId: string }
+export type SandboxDestroyResult = { receipt: ProviderSucceededReceipt; resource: SandboxResource } | ProviderUnsuccessfulResult;
+export interface SandboxProcessIdentity { bootId: string; processId: string }
+export type SandboxProcessState = "starting" | "running" | "exited" | "cancelled" | "failed" | "unknown";
+export interface SandboxProcess { identity: SandboxProcessIdentity; state: SandboxProcessState; exitCode?: number; outputCursor: number }
+export interface SandboxProcessStartInput { call: ProviderCall; resourceId: string; argv: string[]; env: Record<string, string>; cwd: string; user: "workspace"; timeoutMs: number }
+export type SandboxProcessStartResult = { receipt: ProviderSucceededReceipt; process: SandboxProcess } | ProviderUnsuccessfulResult;
+export interface SandboxProcessInspectInput { call: ProviderCall; resourceId: string; identity: SandboxProcessIdentity }
+export type SandboxProcessInspectResult = { receipt: ProviderSucceededReceipt; process: SandboxProcess } | ProviderUnsuccessfulResult;
+export interface SandboxProcessReadOutputInput { call: ProviderCall; resourceId: string; identity: SandboxProcessIdentity; cursor: number; maxBytes: number }
+export interface SandboxProcessOutputChunk { stream: "stdout" | "stderr"; encoding: "utf8" | "base64"; data: string }
+export type SandboxProcessReadOutputResult = { receipt: ProviderSucceededReceipt; identity: SandboxProcessIdentity; cursor: number; chunks: SandboxProcessOutputChunk[]; eof: boolean; gap: boolean } | ProviderUnsuccessfulResult;
+export interface SandboxProcessCancelInput { call: ProviderCall; resourceId: string; identity: SandboxProcessIdentity }
+export type SandboxProcessCancelResult = { receipt: ProviderSucceededReceipt; process: SandboxProcess } | ProviderUnsuccessfulResult;
+export interface SandboxFileStat { path: string; kind: "file" | "directory"; revision: string; sizeBytes: number; mode: number }
+export interface SandboxFileStatInput { call: ProviderCall; resourceId: string; path: string }
+export type SandboxFileStatResult = { receipt: ProviderSucceededReceipt; entry: SandboxFileStat } | ProviderUnsuccessfulResult;
+export interface SandboxFileListInput { call: ProviderCall; resourceId: string; path: string; cursor?: string; limit: number }
+export type SandboxFileListResult = { receipt: ProviderSucceededReceipt; entries: SandboxFileStat[]; nextCursor?: string } | ProviderUnsuccessfulResult;
+export interface SandboxFileReadInput { call: ProviderCall; resourceId: string; path: string; revision?: string; offsetBytes: number; lengthBytes: number }
+export type SandboxFileReadResult = { receipt: ProviderSucceededReceipt; path: string; revision: string; offsetBytes: number; nextOffsetBytes: number; eof: boolean; encoding: "utf8" | "base64"; data: string } | ProviderUnsuccessfulResult;
+export interface SandboxFileWriteInput { call: ProviderCall; resourceId: string; path: string; expectedRevision?: string; encoding: "utf8" | "base64"; data: string }
+export type SandboxFileWriteResult = { receipt: ProviderSucceededReceipt; entry: SandboxFileStat } | ProviderUnsuccessfulResult;
+export interface SandboxFileMkdirInput { call: ProviderCall; resourceId: string; path: string; recursive: boolean }
+export type SandboxFileMkdirResult = { receipt: ProviderSucceededReceipt; entry: SandboxFileStat } | ProviderUnsuccessfulResult;
+export interface SandboxFileRemoveInput { call: ProviderCall; resourceId: string; path: string; expectedRevision?: string; recursive: boolean }
+export type SandboxFileRemoveResult = { receipt: ProviderSucceededReceipt; removedRevision: string } | ProviderUnsuccessfulResult;
+export interface SandboxFileChmodInput { call: ProviderCall; resourceId: string; path: string; expectedRevision?: string; mode: number }
+export type SandboxFileChmodResult = { receipt: ProviderSucceededReceipt; entry: SandboxFileStat } | ProviderUnsuccessfulResult;
+export type ProviderMethodWire =
+  | { group: "sandbox.lifecycle.v1"; operation: "create"; input: SandboxCreateInput; result: SandboxCreateResult }
+  | { group: "sandbox.lifecycle.v1"; operation: "inspect"; input: SandboxInspectInput; result: SandboxInspectResult }
+  | { group: "sandbox.lifecycle.v1"; operation: "start"; input: SandboxStartInput; result: SandboxStartResult }
+  | { group: "sandbox.lifecycle.v1"; operation: "stop"; input: SandboxStopInput; result: SandboxStopResult }
+  | { group: "sandbox.lifecycle.v1"; operation: "destroy"; input: SandboxDestroyInput; result: SandboxDestroyResult }
+  | { group: "sandbox.process.v1"; operation: "start"; input: SandboxProcessStartInput; result: SandboxProcessStartResult }
+  | { group: "sandbox.process.v1"; operation: "inspect"; input: SandboxProcessInspectInput; result: SandboxProcessInspectResult }
+  | { group: "sandbox.process.v1"; operation: "readOutput"; input: SandboxProcessReadOutputInput; result: SandboxProcessReadOutputResult }
+  | { group: "sandbox.process.v1"; operation: "cancel"; input: SandboxProcessCancelInput; result: SandboxProcessCancelResult }
+  | { group: "sandbox.files.v1"; operation: "stat"; input: SandboxFileStatInput; result: SandboxFileStatResult }
+  | { group: "sandbox.files.v1"; operation: "list"; input: SandboxFileListInput; result: SandboxFileListResult }
+  | { group: "sandbox.files.v1"; operation: "read"; input: SandboxFileReadInput; result: SandboxFileReadResult }
+  | { group: "sandbox.files.v1"; operation: "write"; input: SandboxFileWriteInput; result: SandboxFileWriteResult }
+  | { group: "sandbox.files.v1"; operation: "mkdir"; input: SandboxFileMkdirInput; result: SandboxFileMkdirResult }
+  | { group: "sandbox.files.v1"; operation: "remove"; input: SandboxFileRemoveInput; result: SandboxFileRemoveResult }
+  | { group: "sandbox.files.v1"; operation: "chmod"; input: SandboxFileChmodInput; result: SandboxFileChmodResult };
 export interface ToolDefinitionV4 extends ToolDefinition {
   outputSchema: ValueSchema;
   mcpOutputSchema?: ValueSchema;
@@ -16,7 +115,8 @@ export interface ToolDefinitionV4 extends ToolDefinition {
 export interface ExtensionManifestV4 extends Omit<ExtensionManifestV2, "schemaVersion" | "tools" | "permissions"> {
   schemaVersion: 4;
   tools?: ToolDefinitionV4[];
-  methods?: { name: string; inputSchema: ValueSchema; outputSchema: ValueSchema }[];
+  methods?: { name: string; inputSchema: ValueSchema; outputSchema: ValueSchema; sensitivity?: "ordinary" | "sensitive" }[];
+  providers?: ProviderContribution[];
   bootSpawn?: boolean;
   dataSchema?: { version: string; readableVersions: string[]; migrateMethod?: string };
   permissions: ExtensionManifestV2["permissions"] & {
@@ -196,4 +296,5 @@ export interface WireData {
   inspection: RunnerInspection;
   workspace: WorkspaceRecord;
   installation: InstallationRecord;
+  providerMethod: ProviderMethodWire;
 }

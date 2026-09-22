@@ -31,6 +31,19 @@ export const LCOV_PATH = resolve(REPO_ROOT, "coverage/lcov.info");
 /** Where every gate writes its machine-readable report. */
 export const REPORT_DIR = resolve(REPO_ROOT, "coverage/quality");
 
+/** Every quality gate name. Derive the type so the runtime list cannot drift. */
+export const GATE_NAMES = ["coverage", "crap", "mutation"] as const;
+export type GateName = (typeof GATE_NAMES)[number];
+
+/** The report file each gate is responsible for writing. */
+export const MUTATION_REPORT_FILE = "mutation.json";
+export const MUTATION_SKIPPED_FILE = "mutation-summary.json";
+export const GATE_REPORT_FILE: Readonly<Record<GateName, string>> = {
+  coverage: "global-coverage.json",
+  crap: "crap.json",
+  mutation: MUTATION_REPORT_FILE,
+};
+
 export type QualityGates = {
   coverage: { globalLineThreshold: number };
   crap: {

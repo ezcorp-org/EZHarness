@@ -67,6 +67,12 @@ web_vitest_coverage_args() {
     "--coverage.include=src/routes/api/extensions/[id]/reapprove/+server.ts"
     "--coverage.include=src/routes/api/settings/+server.ts"
     "--coverage.include=src/routes/api/projects/[id]/features/scan/+server.ts"
+    "--coverage.include=src/routes/api/projects/[id]/sandbox/+server.ts"
+    "--coverage.include=src/routes/api/sandboxes/+server.ts"
+    "--coverage.include=src/routes/api/sandboxes/providers/+server.ts"
+    "--coverage.include=src/routes/api/local-sandbox/operations/[id]/execute/+server.ts"
+    "--coverage.include=src/lib/components/ProjectSandboxPanel.svelte"
+    "--coverage.include=src/lib/workspace-binding.ts"
     "--coverage.include=src/routes/api/conversations/[id]/tree/+server.ts"
     "--coverage.include=src/routes/api/workflows/runs/+server.ts"
     "--coverage.include=src/routes/api/workflows/runs/[id]/+server.ts"
@@ -277,5 +283,6 @@ web_vitest_coverage_args() {
     "--coverage.include=src/routes/api/agent-configs/[id]/+server.ts"
     "--coverage.include=src/routes/api/agent-configs/generate/+server.ts"
     "--coverage.include=src/routes/api/projects/[id]/tool-permission-mode/+server.ts"
+    "--coverage.include=src/routes/api/mentions/search/+server.ts"
   )
 }

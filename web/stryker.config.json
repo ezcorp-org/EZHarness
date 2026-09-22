@@ -46,7 +46,18 @@
     "warning is the same signal; never treat it as noise.",
     "",
     "vitest.stryker.config.ts (not vitest.config.ts) drops *.server.test.ts,",
-    "which cannot resolve $server inside the sandbox. See that file's header."
+    "which cannot resolve $server inside the sandbox. See that file's header.",
+    "",
+    "dryRunTimeoutMinutes: the INITIAL test run (instrument, then run every",
+    "test related to the mutated files once, to build the per-test coverage",
+    "map) has its own absolute timeout, separate from timeoutMS/timeoutFactor,",
+    "which govern PER-MUTANT runs only. Stryker's default is 5 minutes. The",
+    "nightly's 186-file scope blew that on a 2-core runner every night from",
+    "2026-09-16 (`DryRunExecutor Initial test run timed out!` at 5m21s), and",
+    "--report-only then hid the exit. The whole vitest suite takes ~12 min in",
+    "one process on that runner (3 CI shards x ~4 min), so 30 minutes is 2.5x",
+    "that with instrumentation overhead — generous, and still a small slice of",
+    "the nightly's 360-minute budget."
   ],
 
   "packageManager": "npm",
@@ -66,13 +77,13 @@
   ],
 
   "reporters": ["json", "clear-text", "progress"],
-  "jsonReporter": { "fileName": "../coverage/quality/mutation.json" },
   "clearTextReporter": { "maxTestsToLog": 2 },
 
   "incrementalFile": "../.cache/stryker-incremental.json",
 
   "timeoutMS": 15000,
   "timeoutFactor": 2,
+  "dryRunTimeoutMinutes": 30,
   "disableTypeChecks": true,
   "tempDirName": ".stryker-tmp"
 }

@@ -28,6 +28,7 @@ test("new-project form defaults the working directory to the persisted bind @evi
 	mockApi,
 }, testInfo) => {
 	await mockApi();
+	await page.setViewportSize({ width: 390, height: 844 });
 	await page.goto("/new-project");
 
 	await expect(page.getByRole("heading", { name: "Create Project" })).toBeVisible();
@@ -36,6 +37,15 @@ test("new-project form defaults the working directory to the persisted bind @evi
 	// The regression guard: the pre-fix default sat outside the sandbox root,
 	// so "Create Folder" 403'd on the form's own suggestion.
 	expect(await filePickerValue(page)).toBe(`${PROJECTS_BIND}/`);
+	for (const control of [
+		page.getByPlaceholder("https://example.com"),
+		page.getByRole("button", { name: "Fetch" }),
+	]) {
+		const bounds = await control.boundingBox();
+		expect(bounds).not.toBeNull();
+		expect(bounds!.x).toBeGreaterThanOrEqual(0);
+		expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+	}
 
 	await captureEvidence(page, testInfo, "project-form-default-path");
 });

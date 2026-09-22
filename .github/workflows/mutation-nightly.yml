@@ -3,8 +3,31 @@ name: Mutation (nightly, full suite)
 # The full-suite counterpart to ci.yml's diff-scoped `Mutation (changed files)`
 # job. A PR only ever mutates the files it touched, so nothing would otherwise
 # re-check a module whose tests rotted under an unrelated change. This runs the
-# whole mutation.mutateGlobs set, plus the FULL-REPO CRAP ratchet (the PR gate
-# only scores touched functions).
+# whole mutation.mutateGlobs set.
+#
+# SHARDED, because the whole set does not fit one hosted runner. Measured
+# 2026-09-20 (run 35523464554): 186 files instrumented to 18797 mutants, the
+# initial test run took 6m38s, and mutation testing reached 99.4% at 5h52m —
+# then the 6-hour job cap killed it, ~38 minutes short. Stryker also warned
+# that 1028 static mutants (5% of the total) take ~93% of the time; enabling
+# `ignoreStatic` would make one job fit, but it changes what the score
+# measures, so that is a maintainer decision, not a workflow fix. Each matrix
+# job mutates one deterministic slice (`mutation.ts --full --shard I/N`,
+# round-robin over the sorted scope), uploads its report, and the `summary`
+# job merges exactly N reports and decides the threshold verdict ONCE on the
+# merged score (scripts/merge-mutation-reports.ts). A per-shard score is a
+# slice of the tree and means nothing, so shards always run --report-only;
+# an infrastructure failure inside a shard still fails that shard.
+#
+# MUTATION ONLY. This workflow used to also run the full-repo CRAP ratchet and
+# the global coverage floor, rebuilding coverage/lcov.info first with a
+# standalone `bun run test:coverage`. That rebuild can never succeed here: the
+# browser-route coverage receipt it requires (BROWSER_COVERAGE_RAW/LCOV) is
+# produced by ci.yml's e2e jobs, so the merge never ran and both gates died on
+# a missing lcov — five nights out of five. Those gates now run where the
+# merged lcov actually exists: the full-repo CRAP ratchet is a main-push-only
+# step in ci.yml's `Per-file coverage gate` job, and the coverage floor already
+# ran there on every PR and push. Do not re-add a coverage rebuild here.
 #
 # Thresholds come from scripts/quality-gates.json — never hardcode one here.
 
@@ -16,7 +39,7 @@ on:
   workflow_dispatch:
     inputs:
       enforce:
-        description: "Fail the workflow on a below-threshold score (default: report only)"
+        description: "Fail the workflow on a below-threshold merged score (default: report only)"
         type: boolean
         default: false
 
@@ -29,13 +52,41 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  mutation-full:
-    name: Full mutation suite
+  shard-plan:
+    name: Plan mutation shards
     runs-on: ubuntu-latest
-    # Generous: the whole web/src/lib/** set is far larger than a PR diff.
-    # Measured ~6 min for 6 files on a loaded 32-core box; a 2-core runner is
-    # slower, and this must not be killed mid-run by a tight cap.
+    outputs:
+      count: ${{ steps.shards.outputs.count }}
+      matrix: ${{ steps.shards.outputs.matrix }}
+    env:
+      # The single source of truth for the number of scope slices. The step
+      # below derives both the matrix and the merge's expected report count.
+      MUTATION_SHARDS: "6"
+    steps:
+      - id: shards
+        shell: bash
+        run: |
+          count="$MUTATION_SHARDS"
+          if ! [[ "$count" =~ ^[1-9][0-9]*$ ]]; then
+            echo "MUTATION_SHARDS must be a positive integer, got: $count" >&2
+            exit 1
+          fi
+          matrix=$(jq -cn --argjson count "$count" '{shard: [range(0; $count)]}')
+          {
+            echo "count=$count"
+            echo "matrix=$matrix"
+          } >> "$GITHUB_OUTPUT"
+
+  mutation-shard:
+    name: Mutation shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    needs: [shard-plan]
+    # The cap stays generous so a shard that draws the static-mutant-heavy
+    # files is not killed mid-run.
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.shard-plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -51,71 +102,87 @@ jobs:
       - run: bunx --bun svelte-kit sync
         working-directory: web
 
+      # --report-only here suppresses ONLY Stryker's per-shard threshold exit,
+      # which is meaningless for a slice; the merged verdict is decided in
+      # `summary`. A run that produces no report at all — the initial test run
+      # timing out, a crashed worker — still fails this step
+      # (scripts/mutation.ts, mutationExitCode). It did not always: for five
+      # nights Stryker's 5-minute default dry-run timeout killed the run and
+      # this step went green over nothing measured. web/stryker.config.json
+      # now sets dryRunTimeoutMinutes.
+      - name: Mutate shard
+        env:
+          SHARD: ${{ matrix.shard }}
+          SHARD_TOTAL: ${{ needs.shard-plan.outputs.count }}
+        run: bun scripts/mutation.ts --full --shard "$SHARD/$SHARD_TOTAL" --report-only
+      - name: Upload shard report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: mutation-nightly-shard-${{ matrix.shard }}
+          path: coverage/quality
+          # A shard that died has no quality report. The merge below counts reports
+          # and fails on a shortfall, so this must not add a second red here.
+          if-no-files-found: warn
+          retention-days: 3
+
+  summary:
+    name: Merge shards + quality summary
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [shard-plan, mutation-shard]
+    # Runs even when a shard failed — that is exactly when the merge must say
+    # "N-1 reports, not N" and the summary must read FAIL.
+    if: always()
+    env:
+      MUTATION_SHARDS: ${{ needs.shard-plan.outputs.count }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - run: bun install --frozen-lockfile
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: mutation-nightly-shard-*
+          path: mutation-shards
       # REPORT-ONLY UNTIL CALIBRATED — deliberate, and the PR gate is unaffected.
-      # The full scope is the intersection of mutation.mutateGlobs with the
+      # The scope is the intersection of mutation.mutateGlobs with the
       # --coverage.include manifest, and that manifest carries a broad
-      # `src/lib/**`, so 185 files qualify. "V8 is asked to report on it" is not
+      # `src/lib/**`, so 186 files qualify. "V8 is asked to report on it" is not
       # "a vitest test executes it", and every file in the gap comes back 100%
-      # NoCoverage — which mutation.ts correctly refuses to score. The first runs
+      # NoCoverage — which the merge lists as a scope error. The first runs
       # exist to name those files so they can be excluded or their tests fixed.
       # A nightly that is red on day one gets muted, and a muted gate gates
-      # nothing. Promote to enforcing by flipping the default below once a run
+      # nothing. Promote to enforcing by flipping the input default once a run
       # is clean; the diff-scoped PR gate blocks for real in the meantime.
-      # `${{ inputs.enforce && '' || '--report-only' }}` was DEAD CODE and always
-      # yielded --report-only: GitHub's `&&`/`||` return VALUES, so a truthy
-      # `enforce` produced `''`, which is itself falsy, so `||` then handed back
-      # the right operand every time. enforce=true, enforce=false and the
-      # scheduled (null inputs) case were indistinguishable — the documented
-      # promotion switch could never enforce, and would have failed silently.
-      # Compare against the string instead of relying on truthiness.
-      - name: Full mutation run
+      #
+      # Decide in the shell, not in a GitHub expression: `inputs.enforce && ''
+      # || '--x'` returns the RIGHT operand for every value (GitHub's `&&`/`||`
+      # return values, and '' is falsy), which is how the old switch could
+      # never enforce. Scheduled runs have no `inputs`, so ENFORCE is empty
+      # then — the report-only path.
+      - name: Merge shard reports
         env:
-          # Decide in the shell, not in a GitHub expression. Scheduled runs have
-          # no `inputs`, so this is empty then — which is the report-only path.
           ENFORCE: ${{ inputs.enforce }}
         run: |
           if [ "$ENFORCE" = "true" ]; then
-            echo "enforce=true — a below-threshold score will FAIL this run"
-            bun scripts/mutation.ts --full
+            echo "enforce=true — a below-threshold merged score will FAIL this run"
+            bun scripts/merge-mutation-reports.ts --shards "$MUTATION_SHARDS" --enforce "mutation-shards/*/*.json"
           else
-            bun scripts/mutation.ts --full --report-only
+            bun scripts/merge-mutation-reports.ts --shards "$MUTATION_SHARDS" "mutation-shards/*/*.json"
           fi
-
-      # ── Full-repo CRAP ratchet ────────────────────────────────────────────
-      # Needs the merged lcov, which only the coverage pipeline produces, so the
-      # nightly regenerates it rather than reading a PR artifact it cannot see.
-      # continue-on-error: a coverage-pipeline problem must not be reported as a
-      # mutation failure — the step below decides the CRAP verdict on its own.
-      - name: Rebuild coverage for the CRAP ratchet
-        id: cov
-        continue-on-error: true
-        run: bun run test:coverage
-      # continue-on-error above keeps a coverage-pipeline problem from being
-      # reported as a mutation failure — but it must not be SILENT. A dead
-      # producer shrinks the denominator the two steps below measure, and
-      # without this the run would look clean while gating on partial data.
-      # (crap-score.ts and check-global-coverage.ts both now hard-fail on an
-      # empty lcov; this surfaces the degraded-but-non-empty case.)
-      - name: Flag degraded coverage data
-        if: steps.cov.outcome != 'success'
-        run: |
-          echo "::warning::coverage rebuild exited ${{ steps.cov.outcome }} — the CRAP ratchet and coverage floor below are measured on POSSIBLY INCOMPLETE data. Treat their verdicts as advisory for this run."
-      - name: CRAP ratchet (full repo)
-        if: always()
-        run: bun scripts/crap-score.ts
-      - name: Global coverage floor
-        if: always()
-        run: bun scripts/check-global-coverage.ts
-
+      # --expect names the gate this workflow ran. If the merge above wrote no
+      # report the summary is FAIL with a finding that says so — it must
+      # never report PASS over a run that measured nothing. (It did: the
+      # summary read "PASS / No failures" on a night when every step had died.)
       - name: Quality summary
         if: always()
-        run: bun scripts/quality-report.ts --text --limit 40
+        run: bun scripts/quality-report.ts --text --limit 40 --expect mutation
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: mutation-nightly-reports
-          path: |
-            coverage/quality
-            coverage/lcov.info
+          path: coverage/quality
           retention-days: 14

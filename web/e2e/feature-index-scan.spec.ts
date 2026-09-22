@@ -25,6 +25,38 @@ const PROJECT_ID = "proj-feat";
 const project = makeProject({ id: PROJECT_ID, name: "Feature Test Project" });
 
 test.describe("Feature Index — settings UI scan flow", () => {
+  test("feature actions stay inside the mobile viewport @evidence", async ({
+    page,
+    mockApi,
+  }, testInfo) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await mockApi({
+      projects: [project],
+      features: [],
+      featureFiles: {},
+    });
+
+    await page.goto(`/project/${PROJECT_ID}/settings`);
+
+    const search = page.getByPlaceholder("Search features...");
+    const actions = [
+      search,
+      page.getByRole("button", { name: "+ New feature" }),
+      page.getByRole("button", { name: "Scan features" }),
+    ];
+    for (const action of actions) {
+      await expect(action).toBeVisible({ timeout: 5000 });
+      const bounds = await action.boundingBox();
+      expect(bounds).not.toBeNull();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(390);
+    }
+    expect((await search.boundingBox())!.width).toBeGreaterThanOrEqual(250);
+
+    await page.getByRole("heading", { name: "Feature Index" }).scrollIntoViewIfNeeded();
+    await captureEvidence(page, testInfo, "feature-index-mobile-actions");
+  });
+
   test("empty state → scan → expand → rename → rescan: rename survives", async ({
     page,
     mockApi,

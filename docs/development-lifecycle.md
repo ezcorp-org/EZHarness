@@ -414,7 +414,7 @@ ratchet predates this one and owns ~500 keys.)
 |---|---|---|---|
 | Global line coverage | 90% aggregate (at 96.55%) | `coverage` job | `bun run gate:coverage` |
 | CRAP (touched functions) | ≤ 30 per function | `coverage` job, PRs | `bun run gate:crap:changed` |
-| CRAP (full-repo ratchet) | ≤ 83 violations | nightly | `bun run gate:crap` |
+| CRAP (full-repo ratchet) | ≤ 83 violations | `coverage` job, pushes to `main` | `bun run gate:crap` |
 | Mutation score | 80% — **report-only pilot, not blocking** | `mutation` job, PRs | `bun run gate:mutation` |
 | Mutation (full suite) | 80% — **report-only pilot** | nightly | `bun run gate:mutation:full` |
 
@@ -422,13 +422,20 @@ ratchet predates this one and owns ~500 keys.)
 runner and the backend pool's per-file `mock.module` isolation fights perTest
 coverage, so it drives the Node/Vitest leg the coverage job already provisions.
 PRs mutate **only the changed files** (a full run is far too slow for a PR —
-measured 2m02s for 2 files); `mutation-nightly.yml` runs the whole set.
+measured 2m02s for 2 files); `mutation-nightly.yml` runs the whole set as a
+**matrix of shards**. A single hosted runner reached 99.4% at 5h52m before the
+6-hour job cap killed it. Each shard runs `mutation.ts --full --shard I/N` (a deterministic
+round-robin slice of the sorted scope) with `--report-only`, uploads its
+report, and `scripts/merge-mutation-reports.ts` merges exactly N of them and
+decides the threshold verdict once, on the merged score. Fewer than N reports
+is a failure, never a score over a partial tree.
 
 Scope is the **intersection** of `mutation.mutateGlobs` and the
-`--coverage.include` allowlist in `test-coverage.sh`, minus `src/lib/server/**`:
-469 files match the globs, **68** survive the intersection. Three measured traps
-produced that number, and each one silently returned a WRONG score rather than
-an error:
+`--coverage.include` allowlist in `test-coverage.sh`, minus `src/lib/server/**`.
+`scripts/mutation.ts` derives that list for every run; do not copy its counts
+into documentation. Stryker omits selected files that produce no mutants from
+its report, so report entries can be fewer than selected files. Three measured
+traps silently returned a WRONG score rather than an error:
 
 1. **Files the vitest leg does not measure.** `workflow-yaml.ts` is covered to
    100% — by the *bun* leg. Mutating it under vitest gave 62 NoCoverage mutants
@@ -471,7 +478,11 @@ are complexity-only, already at 100% coverage).
 **Failures are machine-readable.** Every gate writes JSON to `coverage/quality/`
 and `scripts/quality-report.ts` folds them into `summary.json` — a flat
 `findings[]` array of *file, line, what failed, what to fix*, built for an AI
-agent to act on. For a surviving mutant the finding carries the original source
+agent to act on. The reporter takes a mandatory `--expect <gates>` naming the
+gates that ran; an expected gate that wrote no report makes the summary `fail`
+with a finding naming it, so a crashed pipeline can never read as green (the
+nightly once reported `PASS / No failures` on a run in which every gate had
+died). For a surviving mutant the finding carries the original source
 and the replacement that survived, which is the missing assertion stated
 directly: "the suite still passes when `case 'web-search': return
 'WebContextCard';` becomes `case 'web-search':`". Only a gate that actually

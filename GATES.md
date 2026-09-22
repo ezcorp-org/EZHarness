@@ -1,3 +1,5 @@
+Current pluggable infrastructure work: [gates/pluggable-root.md](gates/pluggable-root.md). Prior project records follow unchanged.
+
 # Gates: Extension v4 implementation and PR
 
 - [x] G1: The production rewrite and current `origin/main` are integrated at `181b7512` (tree `faa5d8ac42d605ccdbd9e079942c80269278e01d`).

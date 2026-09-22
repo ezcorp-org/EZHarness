@@ -251,8 +251,13 @@ const WRITE_SCOPED_ADDED_SINCE: readonly string[] = [
   // round-4 entries rather than an append.)
   "DELETE /api/knowledge-base/:id/share",
   "DELETE /api/projects/:id/members/:userId",
-  "POST /api/knowledge-base/:id/share",
-  "POST /api/projects/:id/members",
+	"POST /api/knowledge-base/:id/share",
+	// Local sandbox writes create a dedicated project, request lifecycle work,
+	// and expose the broker-only admitted-operation callback.
+	"POST /api/local-sandbox/operations/:id/execute",
+	"POST /api/projects/:id/members",
+	"POST /api/projects/:id/sandbox",
+	"POST /api/sandboxes",
 ];
 
 /** Every handler expected to hold `write` today, sorted. */

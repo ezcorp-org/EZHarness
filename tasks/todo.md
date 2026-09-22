@@ -425,6 +425,163 @@ release-blob diagnostics pass 6 tests and 29 assertions. Full typecheck, lint ov
 Svelte check, production build, gate integrity, shell syntax, and `git diff --check` pass. A cold
 real Docker build installed the new dependency and verified the requested revision and `dirty`
 state in both OCI labels and runtime environment.
+
+## PR #292 — full review and CI repair
+
+### Final lifecycle journal recovery repair
+
+- [x] Add restart regressions for interrupted and durable-unknown start and stop operations.
+- [x] Reconcile start and stop from authoritative container identity and state without blind duplicate effects.
+- [x] Keep ambiguous state fenced and reject wrong identity without effects while allowing verified completion to terminalize the original operation.
+- [x] Run focused lifecycle, journal, controller, type, lint, build, gate, and diff checks.
+- [x] Record exact verification and commit locally without pushing.
+
+Plan review: reuse the original durable call and exact owned-container identity. Recovery may complete only after authoritative inspection proves the requested state. A still-ambiguous result remains unknown and blocks later lifecycle work. The same idempotency key must never create a second effect.
+
+Repair review: start and stop now retain unknown journal entries for authoritative retry, inspect the exact owned container before another idempotent state command, and terminalize only the matching durable unknown receipt. Recovery preserves a committed boot generation and creates one when Podman started before metadata commit. Ambiguous confinement remains unknown without a second start; wrong container identity remains a terminal no-effect failure. Same-binding transition retries share one in-process queue, so concurrent calls cannot pass authoritative inspection together or duplicate the Podman command. The controller can retry the same durable operation after restart and then admit later lifecycle work. Verification passed on pinned Bun 1.3.14: 124 focused lifecycle/controller/journal/supervisor tests, contract build and schema parity, sandbox tool and supervisor builds, full typecheck, lint over 4,668 files, gate integrity against `bd6fd97143b66c524e28b7896309fe6fd24d4261`, focused Biome, and diff checks. Post-commit patch coverage reports 100% on both changed source files, and all touched functions pass the CRAP 30 gate. The real lifecycle test received a 15-second per-test budget after its prior 5-second default reproduced a load-sensitive timeout; its assertions are unchanged.
+
+### Final process-start recovery repair
+
+- [x] Reproduce retained `running` and `succeeded` process-start lifecycle wedges with controller regressions.
+- [x] Reconcile every retained process-start writer before lifecycle admission without duplicating a live process.
+- [x] Release failed and terminal-process leases while keeping a verified live process fenced.
+- [x] Run focused tests, lint, typecheck, sandbox builds, gate integrity, and diff checks.
+- [x] Record exact verification and commit without pushing.
+
+Plan review: recover unsettled starts through their durable provider call, inspect persisted successful processes through their exact identity, and preserve the binding-row admission fence. A verified live helper must continue to block lifecycle changes; only failed or terminal work may release its writer lease.
+
+Repair review: lifecycle admission now resumes retained admitted, running, and unknown process starts through their original durable call. It removes stale failed leases, inspects the exact process created by a succeeded start, and releases that exact lease on a verified terminal process even while the sandbox resource remains running. Fresh in-process admissions remain fenced until their authorized caller starts execution, and verified live or ambiguous processes keep the lifecycle blocked. Pinned Bun 1.3.14 verification passed: 81 focused tests, contract build and schema parity, sandbox supervisor and native-tools builds, lint over 4,668 files, full typecheck, gate integrity against `bd6fd97143b66c524e28b7896309fe6fd24d4261`, and diff checks.
+
+### Post-audit transient process-inspection recovery
+
+- [x] Add a public-controller regression for an unknown process inspection followed by a terminal authoritative inspection.
+- [x] Prove repeated ambiguous and live inspections keep lifecycle changes fenced.
+- [x] Reconcile historical unknown process-inspect operations after later terminal proof without weakening other active-method fences.
+- [x] Run focused controller tests, lint, typecheck, and diff checks.
+- [x] Record verification and commit locally without pushing.
+
+Plan review: exercise recovery through `requestSandboxAction`, the public lifecycle-admission seam. A later terminal inspection may clear only historical unknown inspections for the exact retained process; ambiguous and live results must keep both the writer lease and lifecycle fence.
+
+Repair review: lifecycle admission now keeps historical unknown inspection receipts for audit but stops treating them as active after a later successful inspection proves the same process identity terminal. Provider exceptions and unknown receipts recover on the next terminal proof. Repeated ambiguous and live inspections remain fenced. Pinned Bun 1.3.14 verification passed: controller tests 42/42, lint over 4,668 files, full typecheck, gate integrity against `bd6fd97143b66c524e28b7896309fe6fd24d4261`, focused Biome, and diff checks.
+
+### Final non-writer recovery repair
+
+- [x] Add restart regressions for every non-writer provider method and each retained operation state.
+- [x] Close abandoned read-only admissions without replaying their provider calls.
+- [x] Reconcile interrupted cancel operations only through exact process identity and terminal evidence.
+- [x] Preserve current-call, live-process, ambiguous-process, authorization, and lifecycle serialization fences.
+- [x] Run focused controller tests, lint, typecheck, gate integrity, and diff checks.
+- [x] Record exact verification and commit locally without pushing.
+
+Plan review: classify provider methods once. A restarted controller may fail an observation that never completed, but it must not replay it. A completed unknown observation remains an audit record and no longer acts like live work. Cancel is different: an admitted cancel is known not to have run, while a claimed cancel stays ambiguous until an exact-identity inspection proves the process terminal. Fresh and currently executing calls remain fenced.
+
+Repair review: the controller now classifies every supported provider method once. Fresh, reclaimed, and executing methods have explicit in-memory fences. After restart, orphaned admitted/running observations become failed without provider replay, while completed unknown observations remain durable audit records but no longer impersonate live work. An admitted cancel is safely failed before dispatch; a claimed cancel becomes unknown and stays fenced until the exact process identity is terminal. Live, ambiguous, and wrong-identity evidence remains blocked. Generic method admission now rejects lifecycle effects. Pinned Bun 1.3.14 verification passed: 71 controller tests with 230 assertions; 44 driver/journal/supervisor tests; 5 provider-invoker tests; focused controller coverage reported 96.30% functions and 98.24% lines; lint checked 4,668 files; full typecheck, gate integrity against `bd6fd97143b66c524e28b7896309fe6fd24d4261`, focused Biome, and diff checks passed. The changed-function CRAP command could not run without the repository's full `coverage/lcov.info`; no gate was weakened.
+
+### Final audit repairs
+
+- [x] Add red restart tests for ambiguous and failed file-mutation recovery.
+- [x] Make mutation recovery prove a recorded filesystem state transition and terminalize verified aborts.
+- [x] Add red supervisor/controller tests for an unlaunched persisted process start and disposal recovery.
+- [x] Reconcile unverified starts to a terminal state without blind success replay.
+- [x] Add red UTF-8/base64 gap cursor tests and enforce the decoded-byte lower bound.
+- [x] Run focused tests, contract/schema/build, lint, typecheck, gate integrity, and diff checks.
+- [x] Recheck `origin/main`, merge it if needed, commit without pushing, and record the exact verification result.
+
+Plan review: use the provider validator, real journal restart, supervisor status artifact, and public controller lifecycle as the test seams. Preserve the shared binding-row serialization invariant. Keep unknown outcomes conservative, but provide a verified terminal path that releases the writer lease and allows explicit disposal.
+
+Repair review: file mutation journals now record the full prior stat and recover only after a proved revision transition or removal. Missing paths are distinct from other stat errors. Ambiguous write, mkdir, chmod, and remove outcomes become durable `interrupted_mutation_aborted` failures, and controller reconciliation releases their leases. Persisted process starts return success only for an accepted in-memory launch or a live helper; restart recovery verifies stop, persists failure, releases the lease, and admits disposal. Process-output validation uses decoded bytes: gap-free responses advance exactly, while gap responses advance by at least the returned byte count. After merging `origin/main` at `bd6fd9714`, pinned Bun 1.3.14 verification passed: 88 focused tests, contract build, schema test, compiled supervisor build, dependency audit for both lockfiles, lint over 4,668 files, full typecheck, gate integrity, and diff checks.
+
+### Independent audit repair
+
+- [x] Reproduce lifecycle admission during active file/process methods and add one binding-level serialization invariant.
+- [x] Recover interrupted local file mutations by verifying their filesystem effect, terminalizing the journal, and releasing the controller lease.
+- [x] Treat a failed process start without an identity as terminal: do not persist a process row and release its writer lease.
+- [x] Require exact process-output cursor advancement when `gap` is false.
+- [x] Run focused contract, controller, journal, and driver tests; then lint, typecheck, and relevant build checks.
+- [x] Record verification and commit the repair without pushing.
+
+Repair review: binding-row admission now fences every start, stop, and destroy against active methods and retained process leases. Local file journals preserve the pre-effect revision, verify write/mkdir/remove/chmod postconditions after restart, terminalize absent effects, and are retried before later lifecycle/native work. Failed process starts release their lease without a process row; unknown starts retain only an unknown lease. Gap-free process output now advances by exactly the decoded byte count. Focused tests passed 68/68, including simulated filesystem effects before journal completion. Lint, typecheck, contract build/schema, sandbox supervisor build, and gate integrity passed.
+
+- [x] Confirm the PR head, base, worktree, review state, and failing checks.
+- [x] Reproduce and diagnose each failing CI check from its complete log.
+- [x] Review the full diff against repository standards and the infrastructure plan with separate Standards and Spec reviewers.
+- [x] Fix every confirmed defect with focused regression coverage and no gate weakening.
+- [x] Run focused checks, then repository-level lint, type checks, tests, build, coverage, and visual verification as applicable.
+- [x] Commit and push the repair, watch every PR check to completion, and resolve only review threads addressed by the repair.
+- [x] Record the final review findings, exact verification evidence, and remaining human decisions.
+- [x] Reduce every remaining touched-function CRAP violation reported by the hosted aggregate without changing behavior.
+- [ ] Re-run focused tests, lint, type checks, the changed-function CRAP gate, then push and watch all checks green.
+- [x] Cover every newly extracted executable branch reported by the hosted patch-coverage gate.
+
+Plan review: use the existing clean PR worktree at the exact GitHub head. Treat the four red jobs as independent signals until their logs prove a shared cause. Preserve the sandbox security model and keep all repairs on the PR branch. Do not weaken coverage, visual-evidence, or test gates.
+
+### Review
+
+- Reproduced the red coverage shard on Bun 1.3.14. Test helpers used a machine-local Bun path. They now use the active runtime executable. The exact failed supervisor file passes 9/9 on the pinned runtime.
+- Added transactional disposal fencing. A destroy request and new sandbox access cannot both be admitted. Active writers and methods block disposal. Pending disposal blocks new access.
+- Added effective container confinement checks. Running containers must report seccomp filter mode and no-new-privileges through `/proc/<pid>/status`. Unverified containers are stopped, or return an unknown outcome if stop cannot be proved.
+- Closed two standards-review gaps: bounded Podman output drains queued chunks before reader cancellation, and failed process stops escalate, persist `unknown`, and terminate the local helper.
+- The first hosted rerun exposed one more inherited-pipe hang under coverage. The supervisor now bounds its own final output drain and cancels readers after container stop; the exact isolated coverage reproduction passes 10/10 tests.
+- The next hosted aggregate passed every coverage gate but caught a CRAP regression in `LocalPodmanDriver.verify`. Split identity, host-profile, and process-confinement checks remove that new complexity regression while preserving 100% coverage.
+- The following aggregate confirmed all coverage thresholds, then reported nine older high-complexity functions elsewhere in this PR's diff. These are now a required part of the repair; the gate remains unchanged.
+- Split the nine reported functions into focused, reusable helpers. The highest resulting complexity in the seven affected files is 24, below the gate limit of 30; every originally reported function is now below the limit.
+- Post-refactor verification: typecheck, lint, and diff checks pass. Focused contract tests pass 12/12; delegated focused suites pass 198 tests. A monolithic local Bun pool showed 10 cross-file mock-pollution failures and then stalled, but all affected files pass in isolated pinned-runtime processes: tokenizer 6/6, hub render 27/27, and phase 2b 8/8.
+- Hosted CI then passed all 47 producer and quality checks, including the CRAP gate, but the final patch-coverage aggregate found 24 newly extracted branch lines without direct execution. Focused branch tests are required before the final rerun.
+- Added focused tests for all 24 lines. Pinned Bun coverage records setup-tools line 1701 and subscribe-bridge line 442; V8 coverage records every route body branch, including the feature sort comparator. The new suites pass 9/9 backend and 8/8 web tests; final typecheck, lint, and diff checks pass.
+- Expanded real qualification coverage for dispose-while-running and browser reconnect cancellation. Added mapped mobile visual evidence and fixed the Feature Index search row and project favicon controls at 390 px.
+- Verification: pinned focused tests 64/64; pinned full suite 25,950/25,950 across 1,665 files; coverage producers 26,756/26,756 across 1,623 shards; typecheck and lint clean; production build passes; mobile/desktop evidence 4/4. The local coverage aggregate correctly refused to run without CI's separate browser-coverage receipt. The hosted per-file gate supplies that artifact and is the final aggregate proof.
+
+### Publication-gate recovery repairs
+
+- [x] Reproduce API/UI recovery of an unknown start or stop with a new idempotency key.
+- [x] Reuse only the exact pending same-actor, same-action lifecycle operation and reject conflicts.
+- [x] Reproduce reviewed-call abort while a raw observation still runs and preserve the lifecycle fence until authoritative completion.
+- [x] Reproduce concurrent start/stop recovery through two driver instances sharing one state root.
+- [x] Add a crash-recoverable cross-process transition lock without weakening identity or ambiguity checks.
+- [x] Merge current `origin/main` and preserve the sandbox recovery and runner-image changes.
+- [x] Run focused tests, patch coverage, CRAP, lint, typecheck, builds, gate integrity, and diff checks.
+- [x] Commit locally without pushing and record the exact verification result.
+
+Plan review: test the public lifecycle controller and UI seams, the reviewed-to-raw provider invocation seam, and two real driver instances sharing one durable state root. Recovery may reuse only existing authority. A lifecycle transition must wait for authoritative raw completion, and transition serialization must survive process replacement.
+
+Repair review: normal API retries with a fresh key now recover only a pending same-actor, same-action start or stop and retain the original durable call; conflicting actions and actors remain blocked. A module-wide raw-operation fence survives controller replacement until provider completion is authoritative. Local transition recovery now combines the in-process queue with a binding-scoped durable `flock`, so separate driver instances and processes cannot duplicate a Podman effect; process death releases the lock for recovery. Merged `origin/main` at `d81f98387` and preserved the runner-profile repair. Pinned Bun 1.3.14 verification passed: focused integrated tests 131/131; controller coverage tests 77/77; extension-contract tests 26/26; the canonical coverage suite 26,869/26,869 across 1,627 shards; full lint and typecheck; contract, sandbox-tools, and sandbox-supervisor builds; gate integrity; patch coverage for all 53 changed source files; changed-function CRAP; and diff checks. The local coverage wrapper's tests were green but its aggregate required the CI-only browser-route receipt, so the final coverage gates used the green PR run's browser and shard artifacts plus the new local repair coverage.
+
+### Final claim-takeover audit repair
+
+- [x] Use PostgreSQL time for every claim lease and heartbeat.
+- [x] Bind terminalization to one exact execution attempt.
+- [x] Keep an expired process-start takeover ambiguous while its durable start lock is held.
+- [x] Bind shared raw execution promises to the admitted actor and reviewed call.
+- [x] Add clock-skew, stale-executor, lock-contention, authorization, and recovery regressions.
+- [x] Run focused tests and static checks, record evidence, and commit locally without pushing.
+
+Plan review: database time is the sole claim clock. A reclaimed execution receives a fresh attempt token, and an older executor cannot terminalize it. Durable provider lock contention is an unknown outcome, not proof that no process effect occurred. Shared in-memory execution may be joined only by the same reviewed principal.
+
+Repair review: claim acquisition and heartbeat expiry now use PostgreSQL time, and every execution attempt has an exact terminalization token. A competing process start reports an unknown retryable outcome and retains its writer lease until the durable supervisor state gives an authoritative result. Raw host callbacks now revalidate the actor, project membership, binding, release, and provider installation before joining one retained provider promise, so an unauthorized request cannot join, poison, or redispatch the effect. The broker test now restores its module mock, which also removes its cross-file test pollution. Verification passed: the combined focused backend gate 168/168, web route/transport 24/24, full typecheck, lint across 4,671 files, both sandbox builds, and diff checks.
+## Nightly mutation workflow — three faults (handoff 2026-09-20)
+
+Branch `ci/nightly-mutation-fixes`, worktree `.worktrees/nightly-mutation`, base origin/main 550b7c67e.
+
+- [x] Fault 3 first: `scripts/quality-report.ts` — mandatory `--expect <gate,...>`; an expected gate with no report is `status: "fail"` with a finding naming the gate; summary records `expected` + `missing`; mutation gate satisfied by `mutation.json` or a skipped `mutation-summary.json`; pure `buildSummary()` exported + unit tests; ci.yml callers pass `--expect`.
+- [x] Fault 1a: `web/stryker.config.json` `dryRunTimeoutMinutes: 30` (Stryker default 5; measured 5m21s kill on the runner).
+- [x] Fault 1b: `scripts/mutation.ts` — delete a stale `mutation.json` before the run; no report after the run is an infrastructure failure and fails regardless of `--report-only`; pure `mutationExitCode()` exported + unit tests.
+- [x] Fault 2: nightly drops the coverage rebuild + CRAP + floor steps; full-repo CRAP ratchet moves to ci.yml's coverage job on `main` pushes (the one place a merged lcov exists).
+- [x] Fix the stale `vitest.related: false` claim in `web/vitest.stryker.config.ts`.
+- [x] Docs: `docs/development-lifecycle.md` gate table; `docs/features/platform/dev-lifecycle-and-gates.md` runbook + files list.
+- [x] `actionlint` both workflows; lint; typecheck.
+- [x] Verify locally: 23 unit tests green; fault-3 acceptance (report present → PASS, deleted → FAIL); fault-1b via a fake `npx` (infra exit + report-only → 1 and stale report cleared; low score + report-only → 0; low score → 1; clean → 0); `--full --dry-run-only` green in 3m42s / 3560 tests on 32 cores (182s of it Stryker overhead); full-repo ratchet on a live CI lcov (SF re-rooted, 3 /tmp fixtures left absolute): 82 ≤ 83; floor 96.32%; lint, typecheck, actionlint all 0.
+- [x] Pushed; PR #275 (draft); dispatched run 35523464554: initial test run succeeded in 6m38s on the runner (5-minute default could never fit); summary read FAIL / MISSING REPORT: mutation when the job hit the 6h cap — fail-closed proven in CI. PR CI green (48 checks): coverage job summary expected coverage+crap and found both; full-repo ratchet step skipped on the PR as designed; mutation job summary accepted the skipped-diff receipt.
+- [x] Finding: one job cannot finish — 18797 mutants reached 99.4% at 5h52m, cap is 360 min. Stryker: 1028 static mutants (5%) take ~93% of the time (`ignoreStatic` is a maintainer decision, left out).
+- [x] Shard the nightly: `mutation.ts --full --shard I/N` (round-robin over the sorted scope, exact partition), 6-job matrix always `--report-only`, new `scripts/merge-mutation-reports.ts` requires exactly N reports and applies the threshold once on the merged score (`--enforce`); `mutationTotals` shared with the reporter; 32 unit tests; lint/typecheck/actionlint 0.
+- [x] Sharded nightly run 35542869144: green end to end in 1h16m (shards 25/46/51/59/63/76 min); merge found 6/6 reports, 182 files, `Final mutation score 52.10%` (9737 killed, 49 timed out, 3597 survived, 5401 no coverage), 34 files 100% NoCoverage listed; summary.json status fail, expected [mutation], missing [], 8998 findings quoting code. Report-only, so the run is green; `--enforce` would fail it.
+- [x] Merged origin/main into the branch (5 PRs landed; `tasks/todo.md` conflicted — both sections kept; reinstalled deps for the pi 0.85.1 bump). PR CI green on the merged head (48 checks).
+
+### Review
+- Fault 3 (fail-open summary): fixed and proven in CI — the cancelled single-job run reported FAIL / MISSING REPORT: mutation; the PR runs show `expected: coverage, crap` and `expected: mutation` with the skipped-diff receipt.
+- Fault 1 (dry-run timeout + report-only over-suppression): fixed — 30-minute dry-run budget (initial run took 6m38s unsharded, 2m13s in a shard); a report-less Stryker exit fails regardless of --report-only (unit + fake-npx tests).
+- Fault 2 (coverage rebuild): the nightly is mutation-only; the full-repo CRAP ratchet is a main-push-only step in the coverage job (82 ≤ 83 on a live lcov). First real verdict on main comes after merge.
+- New: sharded nightly (6-way matrix + fail-closed merge with the threshold applied once). Follow-ups for maintainers: calibrate the 34 NoCoverage files; decide on Stryker `ignoreStatic` (1028 static mutants ≈ 93% of run time); ratchet `crap.maxFullRepoViolations` to the first main-push count.
+
 ## PR #288 repair — Podman setup safety and timeout accuracy
 
 - [x] Reproduce each audit finding with focused setup-script tests.
@@ -595,7 +752,6 @@ Keep every new validation read-only in `--check` and compatible with Apple Bash
   4,611 files; full typecheck; Bash syntax; ShellCheck; official Bash 3.2
   syntax/indirect-control/`-ef`/`link` behavior; workflow YAML parsing; gate
   integrity; real Compose adversarial probes; and `git diff --check`.
-
 ## PR #290 CI failure diagnosis
 
 - [x] Capture the completed run and raw failed-job logs for run 35631461630.
@@ -707,3 +863,38 @@ PR #288's setup script, portable runner-group resolution, Apple Bash job, and re
 aggregation. The two test conflicts retain both contracts and their fixtures; both task histories
 remain intact. The combined focused set passed 230 tests with 0 failures. Bash syntax, ShellCheck,
 workflow parsing, lint over 4,615 files, full typecheck, and `git diff --check` passed.
+
+## PR #292 current-main conflict resolution
+
+- [x] Reproduce the GitHub conflict locally against the current `origin/main`.
+- [x] Trace every conflict to both parent commits and preserve both intended behaviors.
+- [x] Review the merged architecture for ownership, dependency direction, security, and DRY reuse.
+- [x] Run focused regressions for the resolved files, then lint, typecheck, build, and required gates.
+- [x] Inspect the full merge diff, record exact results here, commit, push the PR branch, and verify hosted CI.
+
+Plan review: work in the clean dedicated PR #292 worktree so unrelated local changes remain untouched. Merge the current base into the PR branch, keep the established pluggable-provider boundaries, and add no new behavior unless a conflict exposes a verified integration defect.
+
+Review: merged `origin/main` at `906a1eb82`. The only conflicts were append-only task journals; the resolution contains every nonempty line from both parents and no conflict markers. Product files merged without intervention. The architecture remains layered: the extension contract owns canonical schemas and receipt validation, the reviewed extension owns provider declaration and forwarding, the host invoker rechecks membership/release/grants and receipt identity, the controller owns authorization and durable lifecycle serialization, and workspace routing has no host-path fallback. Focused contract/provider/controller/journal/workspace suites passed 225 tests in their required process isolation. Full typecheck, lint over 4,676 files, production build, and the backend pool (26,236 tests across 1,673 files) passed on Bun 1.3.14. The Playwright sandbox-panel journey first exposed a mobile-only assertion that bypassed the existing responsive picker helper; the test now reuses that helper. All 6 Chromium and Pixel 5 journeys pass, the 4 evidence journeys pass, and the inspected desktop/mobile captures show no clipping or horizontal overflow. The tested head `2f09d4432` was mergeable and all 49 hosted checks passed, including coverage, mutation, real-auth/mock E2E, visual evidence, both browser engines, external PostgreSQL, the production candidate image, and all production proofs.
+
+## Refresh PR #284 against current main — 2026-09-22
+
+- [x] Reproduce the hosted merge conflict against the current `origin/main`.
+- [x] Trace every conflict to both parent changes and preserve both intended contracts.
+- [x] Run focused conflict tests and the repository's required checks.
+- [x] Review the exact merge against both parents and prepare the merge commit.
+- [ ] Commit and push the exact merge to the PR branch.
+- [ ] Watch hosted CI and verify mergeability, review state, and open review threads.
+
+Plan review: use a normal merge commit because the PR is already under review. Keep the user's
+dirty primary worktree untouched. Resolve each conflict as a semantic union and do not add new
+product behavior.
+
+Local review: merged `origin/main` at `d37fdac07`. The only merge conflicts were append-only task
+journals; the resolution retains every nonempty line from both parents. The full backend pool first
+found a current-main bug that normalized a relative local-sandbox state root into the checkout's
+absolute `/tmp` path. The production configuration-loader regression failed before the repair and
+passes after validation checks the original path before normalization. The PR warning script also
+uses explicit portable empty-variable syntax and preserves its literal rebuild command. Focused PR
+tests pass 132 tests and 315 assertions. The repaired full backend pool passes 26,273 tests across
+1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
+integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.

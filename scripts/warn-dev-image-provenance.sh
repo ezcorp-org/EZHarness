@@ -7,13 +7,13 @@ set -eu
 repo_dir="${EZCORP_REPO_DIR:-/repo}"
 image_commit="${EZCORP_IMAGE_BUILD_COMMIT:-unknown}"
 image_source_state="${EZCORP_IMAGE_BUILD_SOURCE_STATE:-unknown}"
-script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+script_dir="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
 checkout_commit="$(bash "$script_dir/resolve-dev-image-source-state.sh" --revision "$repo_dir" 2>/dev/null || echo unknown)"
 checkout_source_state="$(bash "$script_dir/resolve-dev-image-source-state.sh" "$repo_dir" 2>/dev/null || echo unknown)"
 
 print_rebuild_commands() {
   revision="${checkout_commit:-unknown}"
-  source_state='$(bash scripts/resolve-dev-image-source-state.sh)'
+  source_state="\$(bash scripts/resolve-dev-image-source-state.sh)"
   printf '         Docker: EZCORP_BUILD_COMMIT=%s EZCORP_BUILD_SOURCE_STATE=%s docker compose up -d --build\n' "$revision" "$source_state" >&2
   echo "         Rootless Podman: bun run podman up -d --build" >&2
 }

@@ -1,0 +1,198 @@
+/** Hardware qualification. Requires the real rootless runtime and private host
+ * config. The model response alone is scripted; application, approval, provider
+ * worker, database, native tools, container and filesystem remain real. */
+import { readFile, rm, writeFile } from "node:fs/promises";
+import { resourcePaths } from "../../../src/runtime/sandbox/local-podman/commands";
+import { test, expect } from "../../e2e/fixtures/hydration.js";
+import { captureEvidence } from "../../e2e/fixtures/evidence";
+import { importAndActivateBundledExtension } from "../../e2e/fixtures/extension-v4";
+
+let ownedProjectId: string | undefined;
+test.afterEach(async ({ request }) => {
+  if (!ownedProjectId) return;
+  // Do not race disposal against an action whose UI assertion failed while
+  // its bounded runtime request is still completing.
+  await expect.poll(async () => {
+    const response = await request.get(`/api/projects/${ownedProjectId}/sandbox`);
+    expect(response.status(), await response.text()).toBe(200);
+    const { operation } = await response.json();
+    return operation?.state === "admitted" || operation?.state === "running";
+  }, { timeout: 60000 }).toBe(false);
+  const status = await request.get(`/api/projects/${ownedProjectId}/sandbox`);
+  expect(status.status(), await status.text()).toBe(200);
+  if ((await status.json()).state !== "destroyed") {
+    const disposed = await request.post(`/api/projects/${ownedProjectId}/sandbox`, { headers: { "Idempotency-Key": crypto.randomUUID() }, data: { action: "destroy" } });
+    expect(disposed.status(), await disposed.text()).toBe(200);
+    expect((await disposed.json()).state).toBe("destroyed");
+  }
+  ownedProjectId = undefined;
+});
+
+test("local native workspace survives browser and app restart then disposes cleanly @evidence", async ({ page: initialPage, request, baseURL, context }, testInfo) => {
+  let page = initialPage;
+  const seedScript = async (scriptKey: string, turns: unknown[]) => {
+    const response = await request.post("/api/__test/mock-llm/script", { data: { scriptKey, turns } });
+    expect(response.status(), await response.text()).toBe(201);
+  };
+  const restartFile = process.env.EZCORP_TEST_PREVIEW_RESTART_FILE;
+  expect(restartFile, "qualification preview restart control").toBeTruthy();
+  const restartPreview = async () => {
+    const pidFile = `${restartFile}.pid`;
+    const ackFile = `${restartFile}.ack`;
+    const before = (await readFile(pidFile, "utf8")).trim();
+    expect(before).toMatch(/^[1-9]\d*$/);
+    const token = crypto.randomUUID();
+    await rm(ackFile, { force: true });
+    await writeFile(restartFile!, `${token}\n`, { mode: 0o600 });
+    await expect.poll(async () => (await readFile(ackFile, "utf8").catch(() => "")).trim(), { timeout: 150000 }).toBe(token);
+    const after = (await readFile(pidFile, "utf8")).trim();
+    expect(after).toMatch(/^[1-9]\d*$/);
+    expect(after).not.toBe(before);
+    return { before, after };
+  };
+  const { client, state } = await importAndActivateBundledExtension({ page, request, baseURL: baseURL!, name: "local-sandbox" });
+  const providers = await request.get("/api/sandboxes/providers");
+  expect(providers.status(), await providers.text()).toBe(200);
+  expect((await providers.json()).providers).toContainEqual(expect.objectContaining({ installationId: state.installation.id, providerId: "local", ready: true }));
+  await page.goto("/project/global/settings");
+  let panel = page.getByTestId("project-sandbox-panel");
+  await expect(panel.getByRole("button", { name: /Create a dedicated sandbox/ })).toBeVisible();
+  const createdResponse = page.waitForResponse(response => new URL(response.url()).pathname === "/api/sandboxes" && response.request().method() === "POST");
+  await panel.getByRole("button", { name: /Create a dedicated sandbox/ }).click();
+  const created = await createdResponse;
+  expect(created.status(), await created.text()).toBe(201);
+  const { project } = await created.json();
+  ownedProjectId = project.id;
+  const clickAction = async (action: "start" | "stop" | "destroy", label: string) => {
+    const [response] = await Promise.all([
+      page.waitForResponse(response => new URL(response.url()).pathname === `/api/projects/${project.id}/sandbox`
+        && response.request().method() === "POST" && response.request().postDataJSON()?.action === action, { timeout: 60000 }),
+      panel.getByRole("button", { name: label, exact: true }).click(),
+    ]);
+    expect(response.status(), await response.text()).toBe(200);
+    expect((await response.json()).state).toBe({ start: "running", stop: "stopped", destroy: "destroyed" }[action]);
+  };
+  await expect(page).toHaveURL(new RegExp(`/project/${project.id}/settings$`));
+  await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
+  await clickAction("start", "Start");
+  await expect(panel.getByText("running", { exact: true })).toBeVisible();
+  await clickAction("stop", "Stop");
+  await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
+  await panel.getByRole("link", { name: "Open chat" }).click();
+  await expect(page).toHaveURL(new RegExp(`/project/${project.id}/chat$`));
+  await page.goto(`/project/${project.id}/settings`);
+  panel = page.getByTestId("project-sandbox-panel");
+  await expect(panel.getByText("stopped", { exact: true })).toBeVisible();
+  const key = `sandbox-${crypto.randomUUID()}`;
+  const marker = `NATIVE_${crypto.randomUUID().replaceAll("-", "")}`;
+  const calls = [
+    { name: "shell", arguments: { command: `printf '%s\\n' '${marker}' > marker.txt; printf '%s\\n' 'import {test,expect} from "bun:test"; test("sandbox",()=>expect(2+2).toBe(4));' > local.test.ts; bun test`, timeout: 30000 } },
+    { name: "readFile", arguments: { path: "marker.txt" } },
+    { name: "listFiles", arguments: { path: ".", pattern: "*.txt" } },
+    { name: "readDirectory", arguments: { path: "." } },
+    { name: "glob", arguments: { pattern: "*.txt" } },
+    { name: "grep", arguments: { pattern: marker } },
+    { name: "editFile", arguments: { path: "marker.txt", old_string: marker, new_string: `${marker}_EDITED` } },
+    { name: "shell", arguments: { command: "cat marker.txt", timeout: 30000 } },
+  ];
+  await seedScript(key, [...calls.map((call, index) => ({ toolCalls: [{ ...call, id: `${key}-${index}` }] })), { text: "Native checks complete" }]);
+  const conversation = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${key}`, title: "Local sandbox qualification" });
+  const result = await client.runToCompletion(conversation.id, "Run the local native checks", { permissionMode: "yolo", timeoutMs: 240000 });
+  expect(result.outcome, JSON.stringify(result)).toBe("complete");
+  const messages = await request.get(`/api/conversations/${conversation.id}/messages?withToolCalls=true`);
+  expect(messages.status(), await messages.text()).toBe(200);
+  const history = await messages.json();
+  const actualCalls = [...history.messages.flatMap((message: { toolCalls?: unknown[] }) => message.toolCalls ?? []), ...history.orphanedToolCalls];
+  expect(actualCalls).toHaveLength(calls.length);
+  expect(actualCalls.every(call => call.status === "success"), JSON.stringify(actualCalls)).toBe(true);
+  const saved = actualCalls.map(call => call.fullOutput ?? call.outputSummary).join("\n");
+  expect(saved).toContain(`${marker}_EDITED`);
+  expect(saved).toContain("1 pass");
+  expect(saved).not.toContain("Sandbox workspace is unavailable");
+  const beforeRestart = await (await request.get(`/api/projects/${project.id}/sandbox`)).json();
+  const restartReadKey = `${key}-engine-restart`;
+  expect(beforeRestart.bindingId).toBeTruthy();
+  expect(beforeRestart.resource.resourceId).toBeTruthy();
+  const pids = await restartPreview();
+  expect(pids.before).not.toBe(pids.after);
+  await expect.poll(async () => (await request.get(`/api/projects/${project.id}/sandbox`)).status(), { timeout: 150000 }).toBe(200);
+  const afterRestart = await (await request.get(`/api/projects/${project.id}/sandbox`)).json();
+  expect(afterRestart.bindingId).toBe(beforeRestart.bindingId);
+  expect(afterRestart.resource.resourceId).toBe(beforeRestart.resource.resourceId);
+  // The model fixture is in memory; seed the new application process. The
+  // workspace and its binding must survive without reseeding either one.
+  await seedScript(restartReadKey, [{ toolCalls: [{ name: "readFile", arguments: { path: "marker.txt" } }] }, { text: "Restart persistence checked" }]);
+  const afterEngineRestart = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${restartReadKey}` });
+  expect((await client.runToCompletion(afterEngineRestart.id, "Read the retained marker after app restart", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
+  expect(JSON.stringify(await (await request.get(`/api/conversations/${afterEngineRestart.id}/messages?withToolCalls=true`)).json())).toContain(`${marker}_EDITED`);
+  await page.goto(`/project/${project.id}/chat/${conversation.id}`);
+  await page.reload();
+  const readKey = `${key}-read`;
+  await seedScript(readKey, [{ toolCalls: [{ name: "readFile", arguments: { path: "marker.txt" } }] }, { text: "Persistence checked" }]);
+  const resumed = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${readKey}` });
+  expect((await client.runToCompletion(resumed.id, "Read the persisted marker", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
+  const persisted = await request.get(`/api/conversations/${resumed.id}/messages?withToolCalls=true`);
+  expect(JSON.stringify(await persisted.json())).toContain(`${marker}_EDITED`);
+  const missingKey = `${key}-missing`;
+  await seedScript(missingKey, [{ toolCalls: [{ name: "readFile", arguments: { path: "missing-file.txt" } }] }, { text: "Missing file handled" }]);
+  const missing = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${missingKey}` });
+  expect((await client.runToCompletion(missing.id, "Read a file that does not exist", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
+  const missingHistory = await (await request.get(`/api/conversations/${missing.id}/messages?withToolCalls=true`)).json();
+  const missingCalls = [...missingHistory.messages.flatMap((message: { toolCalls?: unknown[] }) => message.toolCalls ?? []), ...missingHistory.orphanedToolCalls];
+  expect(missingCalls).toHaveLength(1);
+  expect(missingCalls[0].status).toBe("error");
+  expect(missingCalls[0].fullOutput ?? missingCalls[0].outputSummary).toContain("Error:");
+  // Observe the real supervisor before disconnecting and cancelling. This
+  // reads only the qualification host's owned metadata, never changes it.
+  const host = JSON.parse(await readFile(process.env.EZHARNESS_LOCAL_SANDBOX_CONFIG!, "utf8"));
+  const status = await (await request.get(`/api/projects/${project.id}/sandbox`)).json();
+  const paths = resourcePaths(host.stateRoot, status.resource.resourceId);
+  const processStatus = async () => JSON.parse(await readFile(`${paths.output}/process/status.json`, "utf8"));
+  const cancelKey = `${key}-cancel`;
+  await seedScript(cancelKey, [{ toolCalls: [{ name: "shell", arguments: { command: "printf waiting > cancel-started.txt; sleep 120; printf should-not-exist > cancel-failed.txt", timeout: 180000 } }] }, { text: "Cancelled command settled" }]);
+  const cancellable = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${cancelKey}` });
+  const active = await client.sendMessage(cancellable.id, "Run until cancelled", { permissionMode: "yolo" });
+  expect(active.runId).toBeTruthy();
+  await expect.poll(async () => (await processStatus()).state, { timeout: 60000 }).toBe("running");
+  await page.close();
+  expect((await processStatus()).state).toBe("running");
+  const busyDispose = await request.post(`/api/projects/${project.id}/sandbox`, { headers: { "Idempotency-Key": crypto.randomUUID() }, data: { action: "destroy" } });
+  const busyDisposeBody = await busyDispose.json();
+  expect(busyDispose.status(), JSON.stringify(busyDisposeBody)).toBe(409);
+  expect(busyDisposeBody).toMatchObject({ code: "WRITER_LEASED" });
+  expect((await processStatus()).state).toBe("running");
+  page = await context.newPage();
+  const restoredActiveRun = page.waitForResponse(response => response.request().method() === "GET" && new URL(response.url()).pathname === `/api/conversations/${cancellable.id}/active-run`);
+  await page.goto(`/project/${project.id}/chat/${cancellable.id}`);
+  expect((await restoredActiveRun).status()).toBe(200);
+  await expect(page.getByText("Run until cancelled", { exact: true })).toBeVisible();
+  await expect(page.locator('[id^="tool-call-"]')).toHaveCount(1);
+  const stop = page.waitForResponse(response => response.request().method() === "POST" && new URL(response.url()).pathname === `/api/conversations/${cancellable.id}/active-run`);
+  await page.getByRole("button", { name: "Stop generating", exact: true }).click();
+  expect((await stop).status()).toBe(200);
+  expect((await client.awaitRun(active.runId!, 60000)).outcome).toBe("cancel");
+  await expect.poll(async () => (await processStatus()).state, { timeout: 30000 }).toBe("cancelled");
+  const recoveryKey = `${key}-recovery`;
+  await seedScript(recoveryKey, [{ toolCalls: [{ name: "shell", arguments: { command: "test ! -e cancel-failed.txt && cat marker.txt", timeout: 30000 } }] }, { text: "Cancellation recovery checked" }]);
+  const recovered = await client.createConversation({ projectId: project.id, provider: "ezcorp-mock", model: `mock:${recoveryKey}` });
+  expect((await client.runToCompletion(recovered.id, "Check the retained workspace", { permissionMode: "yolo", timeoutMs: 120000 })).outcome).toBe("complete");
+  expect(JSON.stringify(await (await request.get(`/api/conversations/${recovered.id}/messages?withToolCalls=true`)).json())).toContain(`${marker}_EDITED`);
+  panel = page.getByTestId("project-sandbox-panel");
+  await page.goto(`/project/${project.id}/settings`);
+  await captureEvidence(page, testInfo, "local-sandbox-real-desktop", { fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await captureEvidence(page, testInfo, "local-sandbox-real-mobile", { fullPage: true });
+  await panel.getByRole("button", { name: "Dispose…" }).click();
+  await clickAction("destroy", "Dispose sandbox");
+  await expect(panel.getByText("destroyed", { exact: true })).toBeVisible();
+  for (const name of ["Start", "Stop", "Dispose…"]) await expect(panel.getByRole("button", { name, exact: true })).toBeDisabled();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await captureEvidence(page, testInfo, "local-sandbox-destroyed-desktop", { fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await captureEvidence(page, testInfo, "local-sandbox-destroyed-mobile", { fullPage: true });
+  const forbiddenRestart = await request.post(`/api/projects/${project.id}/sandbox`, { headers: { "Idempotency-Key": crypto.randomUUID() }, data: { action: "start" } });
+  expect(forbiddenRestart.status()).toBe(409);
+  expect((await forbiddenRestart.json()).code).toBe("RESOURCE_DESTROYED");
+});

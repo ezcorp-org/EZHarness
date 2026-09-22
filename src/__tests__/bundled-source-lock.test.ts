@@ -3,10 +3,11 @@ import { join } from "node:path";
 import { generateSourceLock } from "../../scripts/regenerate-manifest-lock";
 import { getProjectRoot } from "../extensions/project-root";
 
-test("first-party source inventory is deterministic and covers all 50 candidates without config execution", async () => {
+test("first-party source inventory is deterministic and covers all 51 candidates without config execution", async () => {
   const first = await generateSourceLock(getProjectRoot());
   const second = await generateSourceLock(getProjectRoot());
-  expect(Object.keys(first.sources)).toHaveLength(50);
+  expect(Object.keys(first.sources)).toHaveLength(51);
+  expect(first.sources["local-sandbox"]).toMatchObject({ directory: "extensions/local-sandbox" });
   expect(second).toEqual(first);
   expect(first.schemaVersion).toBe(4);
 });
