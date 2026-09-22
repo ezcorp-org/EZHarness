@@ -444,7 +444,7 @@ describe("where a release may publish", () => {
 
 describe("the trusted validator runtimes this installation judges claims on", () => {
   const runner = { package: "@ezcorp/validator", manifestName: "validator", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run", configurationDigest: `sha256:${"c".repeat(64)}` };
-  const runtime = { name: "claim-runtime", kind: "podman-guest", runner, materialPath: "/secrets/validator.json", materialDigest: `sha256:${"d".repeat(64)}` };
+  const runtime = { name: "claim-runtime", kind: "podman-guest" as const, runner, materialPath: "/secrets/validator.json", materialDigest: `sha256:${"d".repeat(64)}` };
 
   test("accepts a declared runtime, one pinning a model, and an absent section", () => {
     expect(parseFactoryStartupConfig(valid({ validators: { runtimes: [runtime] } })).validators?.runtimes).toEqual([runtime]);
