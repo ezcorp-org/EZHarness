@@ -21,6 +21,7 @@ async function save(name: string, value: unknown = config, mode = 0o600) { const
 test("loads only private operator configuration and available immutable artifacts", async () => {
   expect(await loadLocalSandboxConfig(await save("valid"))).toEqual(config);
   await expect(loadLocalSandboxConfig("relative")).rejects.toThrow("absolute");
+  await expect(loadLocalSandboxConfig(await save("relative-state-root", { ...config, stateRoot: "relative" }))).rejects.toThrow("stateRoot must be absolute");
   await expect(loadLocalSandboxConfig(await save("public", config, 0o644))).rejects.toThrow("private");
   await expect(loadLocalSandboxConfig(await save("huge", " ".repeat(16385)))).rejects.toThrow("bounded");
   await expect(loadLocalSandboxConfig(await save("malformed", "{"))).rejects.toThrow();

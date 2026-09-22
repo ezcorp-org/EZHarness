@@ -34,12 +34,16 @@
  */
 import { afterAll, describe, expect, test } from "bun:test";
 import {
+  appendFileSync,
   chmodSync,
+  copyFileSync,
   mkdirSync,
   mkdtempSync,
+  renameSync,
   rmSync,
   statSync,
   symlinkSync,
+  utimesSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -48,10 +52,15 @@ import { join, resolve } from "node:path";
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const WRAPPER_SOURCE = join(REPO_ROOT, "scripts/podman-compose.sh");
 const RESOLVER = join(REPO_ROOT, "scripts/resolve-runner-group.sh");
+const SOURCE_STATE_RESOLVER = join(REPO_ROOT, "scripts/resolve-dev-image-source-state.sh");
+const SOURCE_STATE_IMPLEMENTATION = join(REPO_ROOT, "scripts/resolve-dev-image-source-state.ts");
 const BASH = Bun.which("bash") ?? "/usr/bin/env bash";
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "podman-wrapper-"));
 const BIN = join(SANDBOX, "bin");
+const BIN_STANDALONE = join(SANDBOX, "bin-standalone");
+const BIN_GIT_UNAVAILABLE = join(SANDBOX, "bin-git-unavailable");
+const BIN_REAL_COMPOSE = join(SANDBOX, "bin-real-compose");
 const BIN_BSD_STAT = join(SANDBOX, "bin-bsd-stat");
 // PATH for the "docker CLI is missing" case. `dirname` is the one external
 // the script runs BEFORE the docker check, so it has to stay reachable —
@@ -60,33 +69,78 @@ const BIN_NO_DOCKER = join(SANDBOX, "bin-no-docker");
 const SOCKET = join(SANDBOX, "podman.sock");
 const RUNNER_SOCKET = join(SANDBOX, "runner.sock");
 const WRAPPER = join(SANDBOX, "scripts/podman-compose.sh");
+const TRACKED_SOURCE = join(SANDBOX, "image-backed-source.txt");
+const TRACKED_LINK = join(SANDBOX, "image-backed-link.txt");
+const TRACKED_DOCKER_EXCLUDED_SOURCE = join(SANDBOX, "tasks/audit-note.md");
+const UNTRACKED_BUILD_SOURCE = join(SANDBOX, "build-relevant-untracked.conf");
+const PROVENANCE_WARNING = join(REPO_ROOT, "scripts/warn-dev-image-provenance.sh");
 
 mkdirSync(BIN);
+mkdirSync(BIN_STANDALONE);
+mkdirSync(BIN_GIT_UNAVAILABLE);
+mkdirSync(BIN_REAL_COMPOSE);
 mkdirSync(BIN_BSD_STAT);
 mkdirSync(BIN_NO_DOCKER);
 mkdirSync(join(SANDBOX, "scripts"));
 symlinkSync(WRAPPER_SOURCE, WRAPPER);
 symlinkSync(RESOLVER, join(SANDBOX, "scripts/resolve-runner-group.sh"));
+symlinkSync(SOURCE_STATE_RESOLVER, join(SANDBOX, "scripts/resolve-dev-image-source-state.sh"));
+symlinkSync(SOURCE_STATE_IMPLEMENTATION, join(SANDBOX, "scripts/resolve-dev-image-source-state.ts"));
 symlinkSync(Bun.which("dirname") ?? "/usr/bin/dirname", join(BIN_NO_DOCKER, "dirname"));
+writeFileSync(TRACKED_SOURCE, "clean source\n");
+symlinkSync("image-backed-source.txt", TRACKED_LINK);
+mkdirSync(join(SANDBOX, "tasks"));
+writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+mkdirSync(join(SANDBOX, "extensions/example/__tests__"), { recursive: true });
+writeFileSync(join(SANDBOX, "extensions/example/__tests__/baseline.ts"), "tracked extension fixture\n");
+copyFileSync(join(REPO_ROOT, ".dockerignore"), join(SANDBOX, ".dockerignore"));
+appendFileSync(
+  join(SANDBOX, ".dockerignore"),
+  "\n# Test-harness files, not fixture image inputs.\nbin*\n*.sock\nenv.prod\ncaller-*.env\nignored-generated/\ncase-excluded.conf\nweb/playwright-report\nweb/test-results\nparent-excluded\n!parent-excluded/reincluded.txt\n",
+);
+writeFileSync(
+  join(SANDBOX, "docker-compose.yml"),
+  `services:
+  probe:
+    image: docker.io/library/alpine:latest
+    build:
+      context: .
+      args:
+        EZCORP_BUILD_COMMIT: \${EZCORP_BUILD_COMMIT:-\${EZCORP_BUILD_COMMIT_DEFAULT:-unknown}}
+        EZCORP_BUILD_SOURCE_STATE: \${EZCORP_BUILD_SOURCE_STATE:-\${EZCORP_BUILD_SOURCE_STATE_DEFAULT:-unknown}}
+`,
+);
+writeFileSync(join(SANDBOX, "compose.podman.yml"), "services: {}\n");
 
 // Records what the wrapper handed to Compose, then exits 0 — the wrapper
 // `exec`s it, so this is the last word on what the invocation actually was.
-await Bun.write(
-  join(BIN, "docker"),
-  [
-    "#!/usr/bin/env bash",
-    // Braceless shell expansions on purpose: biome reads a `${...}` inside a
-    // JS string as a mistyped template literal. The wrapper exports both
-    // variables before it execs, so there is no default to fall back to.
-    'printf "COMPOSE_FILE=%s\\n" "$COMPOSE_FILE"',
-    'printf "DOCKER_HOST=%s\\n" "$DOCKER_HOST"',
-    'printf "EZ_RUNNER_GROUP=%s\\n" "$EZ_RUNNER_GROUP"',
-    'if test -v EZ_RUNNER_GROUP; then printf "EZ_RUNNER_GROUP_SET=1\\n"; else printf "EZ_RUNNER_GROUP_SET=0\\n"; fi',
-    'printf "ARGV=%s\\n" "$*"',
-    "",
-  ].join("\n"),
-);
+const composeRecorder = [
+  "#!/usr/bin/env bash",
+  // Braceless shell expansions on purpose: biome reads a `${...}` inside a
+  // JS string as a mistyped template literal. The wrapper exports both
+  // variables before it execs, so there is no default to fall back to.
+  'printf "COMPOSE_FILE=%s\\n" "$COMPOSE_FILE"',
+  'printf "DOCKER_HOST=%s\\n" "$DOCKER_HOST"',
+  'printf "EZCORP_BUILD_COMMIT=%s\\n" "$EZCORP_BUILD_COMMIT"',
+  'printf "EZCORP_BUILD_SOURCE_STATE=%s\\n" "$EZCORP_BUILD_SOURCE_STATE"',
+  'printf "EZCORP_BUILD_COMMIT_DEFAULT=%s\\n" "$EZCORP_BUILD_COMMIT_DEFAULT"',
+  'printf "EZCORP_BUILD_SOURCE_STATE_DEFAULT=%s\\n" "$EZCORP_BUILD_SOURCE_STATE_DEFAULT"',
+  'printf "EZ_RUNNER_GROUP=%s\\n" "$EZ_RUNNER_GROUP"',
+  'if test -v EZ_RUNNER_GROUP; then printf "EZ_RUNNER_GROUP_SET=1\\n"; else printf "EZ_RUNNER_GROUP_SET=0\\n"; fi',
+  'printf "ARGV=%s\\n" "$*"',
+  "",
+].join("\n");
+await Bun.write(join(BIN, "docker"), composeRecorder);
 chmodSync(join(BIN, "docker"), 0o755);
+await Bun.write(join(BIN_STANDALONE, "docker"), "#!/usr/bin/env bash\nexit 1\n");
+await Bun.write(join(BIN_STANDALONE, "docker-compose"), composeRecorder);
+chmodSync(join(BIN_STANDALONE, "docker"), 0o755);
+chmodSync(join(BIN_STANDALONE, "docker-compose"), 0o755);
+await Bun.write(join(BIN_GIT_UNAVAILABLE, "git"), "#!/usr/bin/env bash\nexit 127\n");
+chmodSync(join(BIN_GIT_UNAVAILABLE, "git"), 0o755);
+const realCompose = Bun.which("docker") ?? Bun.which("docker-compose");
+if (!realCompose) throw new Error("Docker Compose is required for wrapper interpolation tests");
+symlinkSync(realCompose, join(BIN_REAL_COMPOSE, realCompose.endsWith("docker-compose") ? "docker-compose" : "docker"));
 
 const socketServer = Bun.listen({ unix: SOCKET, socket: { data() {} } });
 const runnerSocketServer = Bun.listen({ unix: RUNNER_SOCKET, socket: { data() {} } });
@@ -98,6 +152,41 @@ await Bun.write(
   ["#!/usr/bin/env bash", 'printf "%s\\n" "$PODMAN_GID_MAP"', ""].join("\n"),
 );
 chmodSync(join(BIN, "podman"), 0o755);
+
+const sandboxGitEnv: Record<string, string> = {};
+for (const [key, value] of Object.entries(process.env)) {
+  if (value !== undefined && !key.startsWith("GIT_")) sandboxGitEnv[key] = value;
+}
+
+function sandboxGit(...args: string[]): string {
+  const result = Bun.spawnSync({ cmd: ["git", "-C", SANDBOX, ...args], env: sandboxGitEnv, stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) throw new Error(`git ${args.join(" ")} failed: ${result.stderr.toString()}`);
+  return result.stdout.toString().trim();
+}
+
+sandboxGit("init", "-q");
+writeFileSync(
+  join(SANDBOX, ".git/info/exclude"),
+  [
+    "bin*",
+    "*.sock",
+    "env.prod",
+    "caller-*.env",
+    "ignored-generated/",
+    "gitignored-build-input.conf",
+    "web/playwright-report/",
+    "web/test-results/",
+    "",
+  ].join("\n"),
+);
+sandboxGit("add", "image-backed-source.txt", "image-backed-link.txt", "tasks/audit-note.md", "extensions", ".dockerignore", "docker-compose.yml", "compose.podman.yml", "scripts");
+sandboxGit("-c", "user.name=Wrapper test", "-c", "user.email=wrapper@example.invalid", "commit", "-qm", "fixture");
+const DEFAULT_BUILD_COMMIT = sandboxGit("rev-parse", "--verify", "HEAD");
+const foreignGitDir = Bun.spawnSync({
+  cmd: ["git", "-C", REPO_ROOT, "rev-parse", "--absolute-git-dir"],
+  env: sandboxGitEnv,
+  stdout: "pipe",
+}).stdout.toString().trim();
 
 // macOS stat rejects GNU's `-c`. Keep this stand-in narrow: it proves the
 // resolver retries the BSD spelling while every other command still comes
@@ -123,12 +212,13 @@ afterAll(() => {
 // COMPOSE_FILE and DOCKER_HOST are stripped from the inherited environment:
 // a developer who exports either one would otherwise silently change what
 // these tests measure.
-const baseEnv: Record<string, string> = {};
-for (const [key, value] of Object.entries(process.env)) {
-  if (value !== undefined) baseEnv[key] = value;
-}
+const baseEnv: Record<string, string> = { ...sandboxGitEnv };
 delete baseEnv.COMPOSE_FILE;
 delete baseEnv.DOCKER_HOST;
+delete baseEnv.EZCORP_BUILD_COMMIT;
+delete baseEnv.EZCORP_BUILD_COMMIT_DEFAULT;
+delete baseEnv.EZCORP_BUILD_SOURCE_STATE;
+delete baseEnv.EZCORP_BUILD_SOURCE_STATE_DEFAULT;
 delete baseEnv.EZ_RUNNER_GROUP;
 
 interface Run {
@@ -136,7 +226,17 @@ interface Run {
   stdout: string;
   stderr: string;
   /** What the stub Compose CLI was exec'd with, or null when it never ran. */
-  invocation: { composeFile: string; dockerHost: string; runnerGroup: string; runnerGroupSet: string; argv: string } | null;
+  invocation: {
+    composeFile: string;
+    dockerHost: string;
+    buildCommit: string;
+    buildCommitDefault: string;
+    buildSourceState: string;
+    buildSourceStateDefault: string;
+    runnerGroup: string;
+    runnerGroupSet: string;
+    argv: string;
+  } | null;
 }
 
 function run(args: string[], env: Record<string, string> = {}, dotenv?: string): Run {
@@ -168,12 +268,93 @@ function run(args: string[], env: Record<string, string> = {}, dotenv?: string):
       ? {
           composeFile: read("COMPOSE_FILE"),
           dockerHost: read("DOCKER_HOST"),
+          buildCommit: read("EZCORP_BUILD_COMMIT"),
+          buildCommitDefault: read("EZCORP_BUILD_COMMIT_DEFAULT"),
+          buildSourceState: read("EZCORP_BUILD_SOURCE_STATE"),
+          buildSourceStateDefault: read("EZCORP_BUILD_SOURCE_STATE_DEFAULT"),
           runnerGroup: read("EZ_RUNNER_GROUP"),
           runnerGroupSet: read("EZ_RUNNER_GROUP_SET"),
           argv: read("ARGV"),
         }
       : null,
   };
+}
+
+function runWithRealCompose(
+  args: string[],
+  env: Record<string, string> = {},
+  dotenv?: string,
+): { exitCode: number; stderr: string; stdout: string } {
+  const envFile = join(SANDBOX, ".env");
+  rmSync(envFile, { force: true });
+  if (dotenv !== undefined) writeFileSync(envFile, dotenv);
+  const proc = Bun.spawnSync({
+    cmd: [BASH, WRAPPER, ...args],
+    cwd: SANDBOX,
+    env: {
+      ...baseEnv,
+      PATH: `${BIN_REAL_COMPOSE}:${baseEnv.PATH}`,
+      PODMAN_SOCKET: SOCKET,
+      EZ_RUNNER_GROUP: "0",
+      ...env,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  rmSync(envFile, { force: true });
+  return {
+    exitCode: proc.exitCode,
+    stderr: proc.stderr.toString(),
+    stdout: proc.stdout.toString(),
+  };
+}
+
+function renderedBuildArgs(result: { exitCode: number; stderr: string; stdout: string }): Record<string, string> {
+  expect(result.exitCode, result.stderr).toBe(0);
+  const config = JSON.parse(result.stdout) as {
+    services: { probe: { build: { args: Record<string, string> } } };
+  };
+  return config.services.probe.build.args;
+}
+
+function advertisedDockerBuildArgs(): Record<string, string> {
+  const warning = Bun.spawnSync({
+    cmd: ["sh", PROVENANCE_WARNING],
+    cwd: SANDBOX,
+    env: {
+      ...baseEnv,
+      EZCORP_IMAGE_BUILD_COMMIT: "unknown",
+      EZCORP_IMAGE_BUILD_SOURCE_STATE: "unknown",
+      EZCORP_REPO_DIR: SANDBOX,
+    },
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  expect(warning.exitCode).toBe(0);
+  const dockerCommand = warning.stderr
+    .toString()
+    .match(/^\s*Docker: (.+)$/m)?.[1];
+  expect(dockerCommand).toBeDefined();
+
+  const rendered = Bun.spawnSync({
+    cmd: [
+      "bash",
+      "-c",
+      dockerCommand!.replace(
+        "docker compose up -d --build",
+        "docker compose -f docker-compose.yml config --format json",
+      ),
+    ],
+    cwd: SANDBOX,
+    env: baseEnv,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return renderedBuildArgs({
+    exitCode: rendered.exitCode,
+    stdout: rendered.stdout.toString(),
+    stderr: rendered.stderr.toString(),
+  });
 }
 
 function resolveRunnerGroup(mode: "--docker" | "--podman", env: Record<string, string> = {}): Run {
@@ -336,6 +517,379 @@ describe("podman wrapper — the invocation it guarantees", () => {
       "compose --profile ollama up -d",
     );
   });
+
+  test("provides checkout defaults without replacing explicit shell provenance", () => {
+    const defaultResult = run(["up", "-d"]);
+    const defaultBuild = defaultResult.invocation;
+    expect(defaultBuild?.buildCommit).toBe("");
+    expect(defaultBuild?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
+    expect(defaultBuild?.buildSourceState).toBe("");
+    expect(defaultBuild?.buildSourceStateDefault, defaultResult.stderr).toBe("clean");
+
+    const explicit = run(["up", "-d"], {
+      EZCORP_BUILD_COMMIT: "f".repeat(40),
+      EZCORP_BUILD_SOURCE_STATE: "dirty",
+    }).invocation;
+    expect(explicit?.buildCommit).toBe("f".repeat(40));
+    expect(explicit?.buildSourceState).toBe("dirty");
+    expect(explicit?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
+    expect(explicit?.buildSourceStateDefault).toBe("clean");
+  });
+
+  test("the advertised Docker rebuild command renders complete clean provenance", () => {
+    const args = advertisedDockerBuildArgs();
+    expect(args.EZCORP_BUILD_COMMIT).toBe(DEFAULT_BUILD_COMMIT);
+    expect(args.EZCORP_BUILD_SOURCE_STATE).toBe("clean");
+  });
+
+  test("records tracked source changes in the Docker-context default", () => {
+    writeFileSync(TRACKED_SOURCE, "dirty source\n");
+    try {
+      expect(run(["up", "-d", "--build"]).invocation?.buildSourceStateDefault).toBe(
+        "dirty",
+      );
+    } finally {
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+    }
+    expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+  });
+
+  test("compares an assume-unchanged Docker input directly with HEAD", () => {
+    sandboxGit("update-index", "--assume-unchanged", "image-backed-source.txt");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+      writeFileSync(TRACKED_SOURCE, "changed behind the index hint\n");
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      chmodSync(TRACKED_SOURCE, 0o755);
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+      chmodSync(TRACKED_SOURCE, 0o600);
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      chmodSync(TRACKED_SOURCE, 0o644);
+      sandboxGit("update-index", "--no-assume-unchanged", "image-backed-source.txt");
+    }
+  });
+
+  test("compares present and sparse-absent skip-worktree inputs directly with HEAD", () => {
+    sandboxGit("update-index", "--skip-worktree", "image-backed-source.txt");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+      rmSync(TRACKED_SOURCE);
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      sandboxGit("update-index", "--no-skip-worktree", "image-backed-source.txt");
+    }
+  });
+
+  test("compares bytes directly when local Git stat shortcuts hide a change", () => {
+    const cachedTime = new Date(Date.now() - 60_000);
+    utimesSync(TRACKED_SOURCE, cachedTime, cachedTime);
+    sandboxGit("update-index", "--really-refresh", "image-backed-source.txt");
+    sandboxGit("config", "core.trustctime", "false");
+    sandboxGit("config", "core.checkStat", "minimal");
+    try {
+      // Same length and restored mtime: Git's configured stat shortcut reports
+      // this path clean, but Docker sends the changed bytes.
+      writeFileSync(TRACKED_SOURCE, "dirty source\n");
+      utimesSync(TRACKED_SOURCE, cachedTime, cachedTime);
+      expect(sandboxGit("diff", "--name-only", "HEAD", "--", "image-backed-source.txt")).toBe("");
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      sandboxGit("config", "--unset-all", "core.trustctime");
+      sandboxGit("config", "--unset-all", "core.checkStat");
+      sandboxGit("update-index", "--really-refresh", "image-backed-source.txt");
+    }
+  });
+
+  test("compares tracked symlink type independently of core.symlinks", () => {
+    sandboxGit("config", "core.symlinks", "false");
+    rmSync(TRACKED_LINK);
+    writeFileSync(TRACKED_LINK, "image-backed-source.txt");
+    try {
+      expect(sandboxGit("diff", "--name-only", "HEAD", "--", "image-backed-link.txt")).toBe("");
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(TRACKED_LINK, { force: true });
+      symlinkSync("image-backed-source.txt", TRACKED_LINK);
+      sandboxGit("config", "--unset-all", "core.symlinks");
+    }
+  });
+
+  test("ignores tracked changes that Docker excludes from the build context", () => {
+    writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "changed but still not an image input\n");
+    try {
+      expect(run(["up", "-d", "--build"]).invocation?.buildSourceStateDefault).toBe(
+        "clean",
+      );
+      rmSync(TRACKED_DOCKER_EXCLUDED_SOURCE);
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+    }
+  });
+
+  test("ignores hidden-index changes and absence when Docker excludes the path", () => {
+    sandboxGit("update-index", "--assume-unchanged", "tasks/audit-note.md");
+    try {
+      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "hidden excluded change\n");
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+      sandboxGit("update-index", "--no-assume-unchanged", "tasks/audit-note.md");
+    }
+
+    sandboxGit("update-index", "--skip-worktree", "tasks/audit-note.md");
+    try {
+      rmSync(TRACKED_DOCKER_EXCLUDED_SOURCE);
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+      sandboxGit("update-index", "--no-skip-worktree", "tasks/audit-note.md");
+    }
+  });
+
+  test("records an included tracked file moved under a Docker exclusion", () => {
+    const excludedDestination = join(SANDBOX, "tasks/moved-image-source.txt");
+    renameSync(TRACKED_SOURCE, excludedDestination);
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      renameSync(excludedDestination, TRACKED_SOURCE);
+    }
+  });
+
+  test("records an untracked Docker input and retains its warning after cleanup", () => {
+    writeFileSync(UNTRACKED_BUILD_SOURCE, "affects the image\n");
+    let imageSourceState = "";
+    try {
+      imageSourceState =
+        run(["up", "-d", "--build"]).invocation?.buildSourceStateDefault ?? "";
+      expect(imageSourceState).toBe("dirty");
+    } finally {
+      rmSync(UNTRACKED_BUILD_SOURCE, { force: true });
+    }
+
+    expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    const warning = Bun.spawnSync({
+      cmd: ["sh", PROVENANCE_WARNING],
+      env: {
+        ...baseEnv,
+        EZCORP_IMAGE_BUILD_COMMIT: DEFAULT_BUILD_COMMIT,
+        EZCORP_IMAGE_BUILD_SOURCE_STATE: imageSourceState,
+        EZCORP_REPO_DIR: SANDBOX,
+      },
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    expect(warning.exitCode).toBe(0);
+    expect(warning.stderr.toString()).toContain(
+      "image was built from uncommitted source changes",
+    );
+  });
+
+  test("records an included empty directory and ignores a Docker-excluded one", () => {
+    const included = join(SANDBOX, "empty-image-input");
+    mkdirSync(included);
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(included, { recursive: true, force: true });
+    }
+
+    const excluded = join(SANDBOX, "ignored-generated");
+    mkdirSync(excluded);
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      rmSync(excluded, { recursive: true, force: true });
+    }
+  });
+
+  test("honors a negated child beneath a Docker-excluded parent", () => {
+    const restored = join(SANDBOX, "parent-excluded/reincluded.txt");
+    mkdirSync(join(SANDBOX, "parent-excluded"));
+    writeFileSync(restored, "Docker restores this child\n");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(join(SANDBOX, "parent-excluded"), { recursive: true, force: true });
+    }
+  });
+
+  test("ignores inherited Git repository and config overrides", () => {
+    const caseDifferentInput = join(SANDBOX, "Case-Excluded.conf");
+    writeFileSync(caseDifferentInput, "Docker includes this case-different input\n");
+    try {
+      const result = run(["config"], {
+        GIT_DIR: foreignGitDir,
+        GIT_WORK_TREE: REPO_ROOT,
+        GIT_CONFIG_COUNT: "1",
+        GIT_CONFIG_KEY_0: "core.ignoreCase",
+        GIT_CONFIG_VALUE_0: "true",
+      });
+      expect(result.invocation?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
+      expect(result.invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(caseDifferentInput, { force: true });
+    }
+  });
+
+  test("records a Git-ignored file when Docker includes it", () => {
+    const ignoredByGit = join(SANDBOX, "gitignored-build-input.conf");
+    writeFileSync(ignoredByGit, "Git ignores this, but Docker copies it\n");
+    try {
+      expect(sandboxGit("check-ignore", ignoredByGit)).toContain(
+        "gitignored-build-input.conf",
+      );
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+      expect(advertisedDockerBuildArgs().EZCORP_BUILD_SOURCE_STATE).toBe("dirty");
+      const warning = Bun.spawnSync({
+        cmd: ["sh", PROVENANCE_WARNING],
+        env: {
+          ...baseEnv,
+          EZCORP_IMAGE_BUILD_COMMIT: DEFAULT_BUILD_COMMIT,
+          EZCORP_IMAGE_BUILD_SOURCE_STATE: "clean",
+          EZCORP_REPO_DIR: SANDBOX,
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      expect(warning.exitCode).toBe(0);
+      expect(warning.stderr.toString()).toContain(
+        "/repo has uncommitted Docker build-context changes",
+      );
+    } finally {
+      rmSync(ignoredByGit, { force: true });
+    }
+  });
+
+  test("ignores untracked generated and Docker-excluded files", () => {
+    mkdirSync(join(SANDBOX, "ignored-generated"));
+    writeFileSync(join(SANDBOX, "ignored-generated/cache.txt"), "generated\n");
+    writeFileSync(join(SANDBOX, "excluded.test.ts"), "not copied by Docker\n");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+    } finally {
+      rmSync(join(SANDBOX, "ignored-generated"), { recursive: true, force: true });
+      rmSync(join(SANDBOX, "excluded.test.ts"), { force: true });
+    }
+  });
+
+  test("does not apply a root-only Docker exclusion to a nested build input", () => {
+    const nestedAgent = join(SANDBOX, "nested/agent/build-input.conf");
+    mkdirSync(join(SANDBOX, "nested/agent"), { recursive: true });
+    writeFileSync(nestedAgent, "Docker copies this nested file\n");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(join(SANDBOX, "nested"), { recursive: true, force: true });
+    }
+  });
+
+  test("honors Docker negation patterns that restore extension tests", () => {
+    const restoredTest = join(SANDBOX, "extensions/restored-example/restored.test.ts");
+    mkdirSync(join(SANDBOX, "extensions/restored-example"), { recursive: true });
+    writeFileSync(restoredTest, "Docker restores this test after the broad exclusion\n");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(join(SANDBOX, "extensions/restored-example"), { recursive: true, force: true });
+    }
+  });
+
+  test("honors a restored file inside an existing **/__tests__ directory", () => {
+    const restored = join(SANDBOX, "extensions/example/__tests__/restored.ts");
+    writeFileSync(restored, "Docker restores this nested test fixture\n");
+    try {
+      expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
+    } finally {
+      rmSync(restored, { force: true });
+    }
+  });
+
+  test("non-build commands reach Compose with recoverable provenance when Git metadata is unavailable", () => {
+    const noGit = { PATH: `${BIN_GIT_UNAVAILABLE}:${BIN}:${baseEnv.PATH}` };
+    for (const args of [["logs", "app"], ["down"], ["ps"], ["config"]]) {
+      const result = run(args, noGit);
+      expect(result.exitCode, args.join(" ")).toBe(0);
+      expect(result.invocation?.buildCommitDefault).toBe("unknown");
+      expect(result.invocation?.buildSourceStateDefault).toBe("unknown");
+    }
+  });
+
+  test("an explicit revision survives when Git metadata is unavailable", () => {
+    const revision = "f".repeat(40);
+    const result = run(["config"], {
+      PATH: `${BIN_GIT_UNAVAILABLE}:${BIN}:${baseEnv.PATH}`,
+      EZCORP_BUILD_COMMIT: revision,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.buildCommit).toBe(revision);
+    expect(result.invocation?.buildCommitDefault).toBe("unknown");
+    expect(result.invocation?.buildSourceStateDefault).toBe("unknown");
+  });
+
+  test("Compose preserves quoted duplicate values from .env above derived defaults", () => {
+    const args = renderedBuildArgs(
+      runWithRealCompose(
+        ["config", "--format", "json"],
+        {},
+        [
+          "EZCORP_BUILD_COMMIT='first value'",
+          'EZCORP_BUILD_COMMIT="second # value"',
+          "EZCORP_BUILD_SOURCE_STATE=dirty",
+          "",
+        ].join("\n"),
+      ),
+    );
+    expect(args.EZCORP_BUILD_COMMIT).toBe("second # value");
+    expect(args.EZCORP_BUILD_SOURCE_STATE).toBe("dirty");
+  });
+
+  test("caller env-file spellings preserve explicit no-Git provenance", () => {
+    const callerEnv = join(SANDBOX, "caller-provenance.env");
+    writeFileSync(
+      callerEnv,
+      [
+        "EZCORP_BUILD_COMMIT='first archive value'",
+        'EZCORP_BUILD_COMMIT="archive # final"',
+        "EZCORP_BUILD_SOURCE_STATE=dirty",
+        "",
+      ].join("\n"),
+    );
+    try {
+      for (const spelling of [
+        ["--env-file", callerEnv],
+        [`--env-file=${callerEnv}`],
+      ]) {
+        const args = renderedBuildArgs(
+          runWithRealCompose(
+            [...spelling, "config", "--format", "json"],
+            { PATH: `${BIN_GIT_UNAVAILABLE}:${BIN_REAL_COMPOSE}:${baseEnv.PATH}` },
+          ),
+        );
+        expect(args.EZCORP_BUILD_COMMIT).toBe("archive # final");
+        expect(args.EZCORP_BUILD_SOURCE_STATE).toBe("dirty");
+      }
+    } finally {
+      rmSync(callerEnv, { force: true });
+    }
+  });
+
+  test("preserves the revision stamp with the standalone Compose client", () => {
+    const result = run(["up", "-d"], {
+      PATH: `${BIN_STANDALONE}:${baseEnv.PATH}`,
+    });
+    expect(result.exitCode).toBe(0);
+    expect(result.invocation?.argv).toBe("up -d");
+    expect(result.invocation?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
+  });
 });
 
 describe("podman wrapper — the prod stack (`--prod`)", () => {
@@ -350,6 +904,20 @@ describe("podman wrapper — the prod stack (`--prod`)", () => {
     expect(result.invocation?.composeFile).toBe(
       "compose.prod.yml:compose.podman-prod.yml",
     );
+    expect(result.invocation?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
+  });
+
+  test("prod non-build commands reach Compose without Git metadata", () => {
+    const noGit = {
+      PATH: `${BIN_GIT_UNAVAILABLE}:${BIN}:${baseEnv.PATH}`,
+      EZ_COMPOSE_ENV_FILE: ENV_FILE,
+    };
+    for (const command of ["logs", "down", "ps", "config"]) {
+      const result = run(["--prod", command], noGit);
+      expect(result.exitCode, command).toBe(0);
+      expect(result.invocation?.buildCommitDefault).toBe("unknown");
+      expect(result.invocation?.buildSourceStateDefault).toBe("unknown");
+    }
   });
 
   test("injects --env-file, because Compose ignores COMPOSE_ENV_FILE", () => {

@@ -217,6 +217,215 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 - Merged the current `main` and the concurrent PR-head merge without conflicts. The merged source tree is identical to the fully validated tree.
 - Verification passed: lint, typecheck, production build, focused tests, 2,185 browser tests, 26,602 coverage tests, and all 1,631 enforced coverage files.
 
+## Repair PR #284 against current main — 2026-09-21
+
+- [x] Confirm the exact PR head and current `origin/main` in an isolated worktree.
+- [x] Run the focused wrapper test on the PR head as a baseline.
+- [x] Merge `origin/main` and resolve the wrapper and test conflicts as a semantic union.
+- [x] Add or adjust regression coverage for the combined behavior.
+- [x] Run focused tests, shell syntax, typecheck, lint, and Svelte checks.
+- [x] Review and commit the repair without pushing.
+
+Plan review: preserve PR #284 release diagnostics, provenance reporting, and cache reuse while
+retaining `main`/#286's default wrapper behavior. Compare the base and both parents for each
+conflict, and do not change behavior outside the conflict repair unless a regression test exposes a
+required correction.
+
+Review: merged PR head `47aa41a25` with `origin/main` `b43558b34`. The wrapper now exports PR
+#284's checkout revision before it executes #286's selected Compose client with the selected stack's
+environment-file arguments. The merged test keeps the PR's isolated Git fixture and adds positive
+proof that the revision reaches both the standalone Compose client and the production stack.
+
+Verification: under pinned Bun 1.3.14, the PR-head baseline passed 28 tests and 64 assertions. The
+merged focused set passed 45 tests and 135 assertions, including image provenance, bounded
+release-blob diagnostics, both wrapper stacks, and the macOS trusted-local documentation contract.
+A real Podman-socket-backed Compose render listed all development and production services after
+explicit test-only runner inputs; missing inputs failed at the intended preflight guards. `bash -n`,
+full typecheck, lint over
+4,609 files, and Svelte check passed with zero errors. No blocker remains.
+
+## Repair PR #284 provenance audit findings — 2026-09-21
+
+- [x] Merge `origin/main` at `0f949c307` and preserve the semantic union.
+- [x] Add red regression coverage for non-build wrapper commands outside a Git checkout.
+- [x] Add red regression coverage for a dirty image build followed by a clean checkout.
+- [x] Make Git-derived build identity optional while preserving explicit `EZCORP_BUILD_COMMIT`.
+- [x] Record and diagnose a reproducible build-time dirty/content marker.
+- [x] Run focused tests, Compose renders, shell syntax, lint, type checks, and Svelte checks.
+- [x] Review and commit the repair without pushing.
+
+Plan review: keep provenance useful but recoverable. Commands that do not build must work without
+Git metadata. Image provenance must retain whether image-backed tracked files were dirty at build
+time, even if the working tree is clean when diagnostics later run.
+
+Review: merged `origin/main` `0f949c307` without conflicts. Git lookup failures now produce the
+recoverable `unknown` revision and source state, so development and production `logs`, `down`,
+`ps`, and `config` still reach Compose. The wrapper records tracked build input state as the
+bounded `clean`/`dirty`/`unknown` enum; Dockerfile.dev stores it in an OCI label and runtime env,
+and the startup diagnostic warns when a dirty image meets a later-clean checkout.
+
+Verification: the new tests failed before the implementation and now pass. Focused provenance
+tests passed 41/41; the wider static Compose set passed 107/107. Real Podman-backed Compose
+renders passed for both stacks, and the rendered dev build carried the explicit revision and
+`dirty` marker. `bash -n`, `sh -n`, `git diff --check`, lint over 4,610 files, full typecheck, and
+Svelte check all passed with zero errors.
+
+## Repair PR #284 final provenance audit findings — 2026-09-21
+
+- [x] Detect every untracked, non-gitignored Docker build-context input without generated noise.
+- [x] Preserve explicit provenance from shell, `.env`, `--env-file`, and `--env-file=value`.
+- [x] Preserve recoverable `unknown` provenance outside Git without overriding explicit dotenv values.
+- [x] Inspect the actual built dev image OCI labels and runtime environment.
+- [x] Keep #286 wrapper and #291 container-engine behavior intact.
+- [x] Run pinned focused tests, real Compose/image checks, lint, typecheck, Svelte check, shell syntax, and diff checks.
+- [x] Review and commit the repair without pushing.
+
+Plan review: keep Compose as the only dotenv parser. Derive provenance into separate fallback
+variables consumed by nested Compose defaults, so shell, the repository `.env`, and caller env files
+keep their native Compose semantics. Source-state detection must compare tracked content and
+enumerate only untracked files that Git does not ignore and Docker can send. The final test must
+inspect container-engine image metadata, not source strings.
+
+Review: Git-derived provenance now lives in separate fallback variables, so Compose remains the
+only parser for explicit shell, `.env`, and caller env-file values. Dirty detection combines the
+tracked diff with untracked files filtered by Git's standard ignores and the active dev
+`.dockerignore`. The regression covers a build-relevant untracked file, ignored/generated noise,
+root-only Docker ignore semantics, cleanup back to a clean checkout, quoted duplicate dotenv
+values, both env-file spellings, and a no-Git archive. A new CI job builds `Dockerfile.dev` through the existing Buildx GHA cache and the
+shared engine verifier inspects the loaded image's OCI labels and runtime environment. A real
+two-build Podman check exposed stale label and environment metadata when only late build arguments
+changed. The Dockerfile now materializes those arguments in a small layer before metadata is set,
+so provenance refreshes while the dependency and workspace layers remain cached.
+
+Verification: merged current `origin/main` `bd6fd9714` (#277 dependency updates) without conflict,
+then refreshed both lockfile installs under pinned Bun 1.3.14. The real Podman dev build completed
+and inspected the requested revision plus source-state `dirty` in both OCI labels and runtime env.
+An immediate cached rebuild with a different revision and `clean` state also inspected the new
+values in both channels, with the heavy build layers cached.
+Eight focused files passed in isolated processes: 103 tests and
+309 assertions. Full typecheck, lint over 4,610 files, Svelte check (0 errors, 0 warnings), gate
+integrity, `bash -n`, `sh -n`, and `git diff --check` passed.
+
+## Repair PR #284 final provenance review — 2026-09-21
+
+- [x] Add a red wrapper regression for a Git-ignored file that Docker includes.
+- [x] Detect every untracked Docker-context input without treating Git ignore as Docker ignore.
+- [x] Add a red rendered-command regression for Docker rebuild source-state provenance.
+- [x] Print a truthful Docker rebuild command that records commit and source state.
+- [x] Preserve Compose precedence, no-Git recovery, and cached metadata refresh behavior.
+- [x] Run focused tests and the full static verification gates.
+- [x] Review and commit the repair without pushing.
+
+Plan review: test the public seams already confirmed by the final review: the real Podman wrapper's
+environment handed to Compose, and the recovery command rendered by the startup warning. Use
+Docker's ignore contract as the source of truth for build-context inputs; Git ignore must not erase
+files that Docker sends.
+
+Review: extracted one source-state resolver shared by the Podman wrapper and the direct-Docker
+recovery command. It enumerates all untracked worktree files, including Git-ignored files, then
+applies the active Docker exclusions with root-only, recursive, and negation behavior covered by
+the wrapper suite. The recovery command now supplies both the checkout revision and the resolver's
+truthful source state; a real Compose render proves that clean and dirty values reach build args.
+
+Verification: both regressions failed before the repair and passed after it. Six focused files pass
+89 tests under Bun 1.3.14. Full typecheck and lint over 4,610 files pass. Svelte check reports zero
+errors and warnings. Gate integrity, Bash/sh syntax, and `git diff --check` pass.
+
+## Repair PR #284 final independent audit — 2026-09-21
+
+- [x] Reproduce the runtime false negative for a Git-ignored Docker input.
+- [x] Reproduce the false dirty stamp for a tracked Docker-excluded file.
+- [x] Apply one Docker-context resolver to tracked and untracked changes.
+- [x] Make the startup warning use that shared resolver.
+- [x] Add regressions for both reproduced failures.
+- [x] Run focused tests and the full relevant static gates.
+- [x] Review and commit the repair locally without pushing.
+
+Plan review: keep one source of truth for Docker build-context state. Filter tracked and untracked
+changes through the same ordered `.dockerignore` matcher, then use the resolver for both image
+build stamps and startup comparison. Preserve Compose precedence, safe recovery commands, and the
+recoverable `unknown` result when Git metadata cannot be read.
+
+Review: the resolver now enumerates tracked changes, deletions, both sides of renames, and every
+untracked Docker input, including files hidden by Git ignore rules. It filters all candidates with
+one ordered matcher derived from the active Dockerfile-specific or root ignore file. The startup
+warning calls that resolver instead of `git status`, prints one rebuild command for current context
+drift, and stamps a truthful `unknown` revision when Git metadata is unavailable. The resolver also
+removes inherited repository/index overrides before it reads the checkout or creates its private
+matcher.
+
+Verification: both new regressions failed before the repair and now pass. The focused provenance,
+wrapper, engine, and release-blob set passes 85 tests across five files. Full typecheck, lint over
+4,610 files, Svelte check, the production build, gate integrity, Bash/sh syntax, and
+`git diff --check` pass. A focused regression also proves inherited Git overrides cannot change the
+checkout's `core.bare=false` setting. The production build needed the Nix store's `libstdc++.so.6` on
+`LD_LIBRARY_PATH`; after that environment correction it completed successfully.
+
+## Repair PR #284 publication-gate findings — 2026-09-21
+
+- [x] Reproduce hidden-index false-clean results for included Docker-context paths.
+- [x] Compare included assume-unchanged and skip-worktree paths with `HEAD` independently of index hints.
+- [x] Keep unchanged and Docker-excluded hidden-index paths clean.
+- [x] Classify exactly half missing release blobs as partially missing.
+- [x] Run focused tests and full static gates.
+- [x] Review and commit the repair locally without pushing.
+
+Plan review: keep the existing ordered Docker-ignore matcher as the single inclusion authority.
+Audit only tracked paths whose index flags can suppress the normal `git diff HEAD` result, and
+compare included regular-file bytes, presence, and executable mode directly with the `HEAD` tree.
+Treat unsupported hidden entry types conservatively as dirty. Keep release diagnostics precise by
+reserving `mostly_missing` for a strict majority.
+
+Review: the shared resolver now enumerates the index entries whose assume-unchanged or
+skip-worktree hints can suppress `git diff HEAD`. It applies the existing ordered Docker-context
+matcher first, then compares each included regular file's raw object hash, presence, and executable
+mode directly with the `HEAD` tree. Unchanged and Docker-excluded entries stay clean; unsupported
+hidden entry types fail safely as dirty. The blob audit now uses a strict majority for
+`mostly_missing`, so an exact half receives the partial-loss recovery guidance.
+
+Verification: all three new regressions failed before the repair and pass after it. Real sparse
+checkout and assume-unchanged fixtures now report `dirty`. Five focused files pass 90 tests and 254
+assertions. The complete backend pool passes 25,891 tests across 1,655 files with zero failures.
+Typecheck, lint over 4,610 files, Svelte check, production build, gate integrity, Bash/sh syntax,
+ShellCheck, and `git diff --check` pass.
+
+Post-merge verification: merged `origin/main` `d81f98387` (#290) and preserved both task histories;
+there were no product-code conflicts. The combined #284/#290 focused set passes 107 tests with one
+intentional container-only skip and 338 assertions. Typecheck, lint over 4,613 files, Svelte check,
+production build, gate integrity, shell syntax, and the staged diff check pass.
+
+## Repair PR #284 publication-gate context truth — 2026-09-21
+
+- [x] Reproduce Docker's parent-exclusion and negated-child behavior against a real image build.
+- [x] Replace Git-ignore translation with a pinned Docker-compatible matcher.
+- [x] Compare every included tracked path directly with the `HEAD` blob, type, and executable mode.
+- [x] Detect context changes hidden by Git stat shortcuts, `core.symlinks`, index hints, and Git ignores.
+- [x] Preserve excluded tracked, untracked, empty-directory, and nested-test controls.
+- [x] Run focused tests, full static gates, the production build, and a real dev-image metadata proof.
+- [x] Review and commit the repair locally without pushing.
+
+Plan review: use Docker's matcher for Docker rules and the `HEAD` tree for committed truth. Do not
+infer build inputs from Git ignore or index state. Walk excluded directories only when a scoped
+negation can restore a descendant; return `unknown` when safe pruning cannot be proved.
+
+Review: the resolver now delegates ordered ignore and negation semantics to
+`@balena/dockerignore`. It walks the real context for untracked files and empty directories, then
+hashes included regular files and symlink targets directly against `HEAD` with executable-mode
+checks. Sanitized Git is used only to identify the repository, revision, object format, and tree;
+index flags, stat caches, replacement objects, inherited Git variables, and host configuration
+cannot produce a false `clean`. The shell entry point still degrades to `unknown` without Bun or
+Git. The image-provenance CI timeout is 40 minutes because a lockfile change invalidates both
+frozen installs and the existing image-wide ownership layer; cached runs remain fast.
+
+Verification: adversarial fixtures reproduced both publication-gate failures before the repair.
+The parent-excluded negated child was present in an actual Docker image while the old resolver said
+`clean`; same-size content with a restored mtime and a symlink replaced under `core.symlinks=false`
+also returned false `clean`. The focused provenance suite now passes 60 tests and 192 assertions;
+release-blob diagnostics pass 6 tests and 29 assertions. Full typecheck, lint over 4,614 files,
+Svelte check, production build, gate integrity, shell syntax, and `git diff --check` pass. A cold
+real Docker build installed the new dependency and verified the requested revision and `dirty`
+state in both OCI labels and runtime environment.
+
 ## PR #292 — full review and CI repair
 
 ### Final lifecycle journal recovery repair
@@ -614,6 +823,47 @@ Plan review: keep the runtime's exact image equality unchanged. Reuse one assert
 - The real rootless-Podman proof passed the live candidate rebuild and the independent restore rebuild. Both retained the old stored value and produced clean command and cleanup exits.
 - Bun 1.3.14 full lint checked 4,610 files, full typecheck passed all surfaces, and the backend pool passed 25,866 tests across 1,654 files with no failures.
 
+## Repair PR #284 CI bootstrap and file-mode provenance — 2026-09-21
+
+- [x] Reproduce the fresh-runner bootstrap failure and local file-mode false-clean result.
+- [x] Install pinned Bun and frozen root dependencies before the CI source-state probe.
+- [x] Compare complete regular-file permission bits with the canonical `HEAD` tree mode.
+- [x] Add workflow-order and non-executable mode regressions.
+- [x] Run focused tests, workflow validation, static gates, and review the exact diff.
+- [x] Commit the publication-gate repair locally without pushing.
+
+Plan review: reuse the repository's composite setup action so Bun pinning, dependency caching, and
+the frozen root install keep one source of truth. Keep the source-state comparison direct: Git tree
+mode `100644` maps to local `0644`, and `100755` maps to local `0755`; any other permission bits
+change the local Docker context because Docker preserves local `COPY` permissions.
+
+Review: the dev-image job now completes the shared setup action before it invokes the source-state
+resolver. That action installs the exact `.bun-version`, restores the shared package cache, and runs
+the frozen root install that supplies `@balena/dockerignore`. A workflow regression pins both the job
+ordering and the composite action's pinned-runtime/frozen-install contract. The resolver now compares
+all regular-file permission bits with Git's canonical `0644` or `0755` mode, so local modes such as
+`0600`, `0700`, or `0775` cannot be mislabeled clean.
+
+Verification: the focused CI/provenance set passes 93 tests and 235 assertions. Actionlint, Bash/sh
+syntax, `git diff --check`, gate integrity, full lint over 4,614 files, full typecheck, Svelte check
+(0 errors and 0 warnings), and the production build pass. The canonical backend pool passes 25,903
+tests across 1,657 files with zero failures. The production build required the known Nix host
+`libstdc++.so.6` library-path correction and then completed successfully.
+
+## Refresh PR #284 after PR #288 — 2026-09-21
+
+- [x] Verify the exact clean PR head and exact incoming `origin/main` revision.
+- [x] Merge `origin/main` with a normal merge commit and preserve both feature sets.
+- [x] Resolve the CI aggregation, wrapper-test, and task-history conflicts as a semantic union.
+- [x] Run the combined focused tests, shell checks, lint, typecheck, and diff checks.
+- [x] Review the integration against both parents and push the exact merge commit.
+
+Review: the merge keeps PR #284's complete Docker-context provenance behavior unchanged and adds
+PR #288's setup script, portable runner-group resolution, Apple Bash job, and required-check
+aggregation. The two test conflicts retain both contracts and their fixtures; both task histories
+remain intact. The combined focused set passed 230 tests with 0 failures. Bash syntax, ShellCheck,
+workflow parsing, lint over 4,615 files, full typecheck, and `git diff --check` passed.
+
 ## PR #292 current-main conflict resolution
 
 - [x] Reproduce the GitHub conflict locally against the current `origin/main`.
@@ -625,3 +875,26 @@ Plan review: keep the runtime's exact image equality unchanged. Reuse one assert
 Plan review: work in the clean dedicated PR #292 worktree so unrelated local changes remain untouched. Merge the current base into the PR branch, keep the established pluggable-provider boundaries, and add no new behavior unless a conflict exposes a verified integration defect.
 
 Review: merged `origin/main` at `906a1eb82`. The only conflicts were append-only task journals; the resolution contains every nonempty line from both parents and no conflict markers. Product files merged without intervention. The architecture remains layered: the extension contract owns canonical schemas and receipt validation, the reviewed extension owns provider declaration and forwarding, the host invoker rechecks membership/release/grants and receipt identity, the controller owns authorization and durable lifecycle serialization, and workspace routing has no host-path fallback. Focused contract/provider/controller/journal/workspace suites passed 225 tests in their required process isolation. Full typecheck, lint over 4,676 files, production build, and the backend pool (26,236 tests across 1,673 files) passed on Bun 1.3.14. The Playwright sandbox-panel journey first exposed a mobile-only assertion that bypassed the existing responsive picker helper; the test now reuses that helper. All 6 Chromium and Pixel 5 journeys pass, the 4 evidence journeys pass, and the inspected desktop/mobile captures show no clipping or horizontal overflow. The tested head `2f09d4432` was mergeable and all 49 hosted checks passed, including coverage, mutation, real-auth/mock E2E, visual evidence, both browser engines, external PostgreSQL, the production candidate image, and all production proofs.
+
+## Refresh PR #284 against current main — 2026-09-22
+
+- [x] Reproduce the hosted merge conflict against the current `origin/main`.
+- [x] Trace every conflict to both parent changes and preserve both intended contracts.
+- [x] Run focused conflict tests and the repository's required checks.
+- [x] Review the exact merge against both parents and prepare the merge commit.
+- [ ] Commit and push the exact merge to the PR branch.
+- [ ] Watch hosted CI and verify mergeability, review state, and open review threads.
+
+Plan review: use a normal merge commit because the PR is already under review. Keep the user's
+dirty primary worktree untouched. Resolve each conflict as a semantic union and do not add new
+product behavior.
+
+Local review: merged `origin/main` at `d37fdac07`. The only merge conflicts were append-only task
+journals; the resolution retains every nonempty line from both parents. The full backend pool first
+found a current-main bug that normalized a relative local-sandbox state root into the checkout's
+absolute `/tmp` path. The production configuration-loader regression failed before the repair and
+passes after validation checks the original path before normalization. The PR warning script also
+uses explicit portable empty-variable syntax and preserves its literal rebuild command. Focused PR
+tests pass 132 tests and 315 assertions. The repaired full backend pool passes 26,273 tests across
+1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
+integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.

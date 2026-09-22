@@ -67,6 +67,25 @@ RUN bun run --cwd packages/@ezcorp/sdk build --force \
 # override runs the app as UID:GID 1000 and does not mount a runner socket.
 USER root
 
+# Keep commit-specific metadata after every filesystem layer. Putting it near
+# FROM would invalidate the dependency and workspace-build cache on each commit.
+ARG EZCORP_BUILD_COMMIT=unknown
+ARG EZCORP_BUILD_SOURCE_STATE=unknown
+# Podman can reuse LABEL/ENV cache entries when only a late build-arg value
+# changes. Materialize both values in one tiny layer so its content changes the
+# parent identity before the metadata instructions. Heavy filesystem layers
+# above remain cached, while a metadata-only rebuild cannot retain stale
+# provenance.
+RUN printf 'revision=%s\nsource-state=%s\n' \
+      "$EZCORP_BUILD_COMMIT" "$EZCORP_BUILD_SOURCE_STATE" \
+      > /app/.ezcorp-image-provenance
+# The Bun base image carries its own OCI revision. Override it so the dev
+# image identifies the EZHarness checkout that supplied its image-backed files.
+LABEL org.opencontainers.image.revision=$EZCORP_BUILD_COMMIT
+LABEL org.ezcorp.image.source-state=$EZCORP_BUILD_SOURCE_STATE
+ENV EZCORP_IMAGE_BUILD_COMMIT=$EZCORP_BUILD_COMMIT
+ENV EZCORP_IMAGE_BUILD_SOURCE_STATE=$EZCORP_BUILD_SOURCE_STATE
+
 EXPOSE 3000
 
 ENV EZCORP_PORT=3000

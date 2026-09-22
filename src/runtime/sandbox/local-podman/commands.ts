@@ -45,7 +45,8 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const IMAGE_REFERENCE = /^[A-Za-z0-9][A-Za-z0-9._:/-]*@sha256:[a-f0-9]{64}$/;
 
 export function validateHostConfig(config: LocalPodmanHostConfig): LocalPodmanHostConfig {
-  if (!resolve(config.stateRoot).startsWith(`${sep}var${sep}`) && !resolve(config.stateRoot).startsWith(`${sep}tmp${sep}`)) throw new Error("stateRoot must be absolute and private");
+  const stateRoot = resolve(config.stateRoot);
+  if (!isAbsolute(config.stateRoot) || (!stateRoot.startsWith(`${sep}var${sep}`) && !stateRoot.startsWith(`${sep}tmp${sep}`))) throw new Error("stateRoot must be absolute and private");
   if (!IMAGE_REFERENCE.test(config.imageReference)) throw new Error("imageReference must be qualified and digest-pinned");
   if (!/^[a-f0-9]{64}$/.test(config.imageId)) throw new Error("imageId must be an exact full image ID");
   for (const key of ["podmanPath", "fuse2fsPath", "supervisorPath"] as const) if (!isAbsolute(config[key])) throw new Error(`${key} must be absolute`);
@@ -53,7 +54,7 @@ export function validateHostConfig(config: LocalPodmanHostConfig): LocalPodmanHo
   if (config.nativeToolsArtifact !== undefined && !isAbsolute(config.nativeToolsArtifact)) throw new Error("nativeToolsArtifact must be absolute");
   return Object.freeze({
     ...config,
-    stateRoot: resolve(config.stateRoot),
+    stateRoot,
     nativeToolsArtifact: config.nativeToolsArtifact === undefined ? undefined : resolve(config.nativeToolsArtifact),
   });
 }

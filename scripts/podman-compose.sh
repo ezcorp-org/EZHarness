@@ -261,4 +261,19 @@ elif [ -z "$REQUESTED_ENV_FILES" ] && ! dotenv_declares_runner_group; then
   export EZ_RUNNER_GROUP
 fi
 
+# Dockerfile.dev stores these values in OCI labels and runtime env. Export
+# derived DEFAULTS, never the operator-facing variables themselves. Compose's
+# nested defaults in docker-compose.yml then retain its native precedence and
+# parsing for explicit shell, .env, --env-file, and --env-file=value values.
+# Git metadata is diagnostic only: every command must still work from a source
+# archive or any other checkout where Git cannot answer.
+EZCORP_BUILD_COMMIT_DEFAULT="$(bash "$REPO_ROOT/scripts/resolve-dev-image-source-state.sh" --revision "$REPO_ROOT")"
+export EZCORP_BUILD_COMMIT_DEFAULT
+
+# The revision alone cannot say whether Docker's build-context inputs differed
+# from HEAD. Keep this detector shared with the printed direct-Docker rebuild
+# command so both entry points stamp the same clean/dirty/unknown contract.
+EZCORP_BUILD_SOURCE_STATE_DEFAULT="$(bash "$REPO_ROOT/scripts/resolve-dev-image-source-state.sh")"
+export EZCORP_BUILD_SOURCE_STATE_DEFAULT
+
 exec "${COMPOSE_CMD[@]}" "${ENV_FILE_ARGS[@]}" "$@"
