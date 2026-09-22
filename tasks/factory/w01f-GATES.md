@@ -248,6 +248,16 @@ weakened, removed, retried or given a longer timeout. Ten concurrent copies of t
 (`logs/concurrent-stability.log`). The original failure is retained at
 `logs/observed-flake-light-suites.log` with this diagnosis.
 
+## Re-run at the head being validated
+
+Every gate re-run at `13cef16f2`, clean tree, zero commits behind `integ/w00` at `850ffaa54`:
+typecheck, lint, boundaries and gate integrity all exit 0; the service suites 14 pass / 0 fail;
+both coverage gates at `BASE_REF=integ/w00` exit 0; `service.ts` 188/188 lines. The four runner
+producers the coordinator named ran under `flock --close`, lock held 00:24:04Z to 00:26:05Z and
+released cleanly, every exit 0. Receipts: `logs/head-sweep.log`, `logs/head-heavy.log`, script
+`head-sweep.sh.txt`. `integ/w00` had not advanced past `850ffaa54`, so the merge was already
+current. Any later commit touches `tasks/` only, which no suite loads.
+
 ## What this does not change
 
 - No `/api/*` route, no migration, no schema, no shared store.
