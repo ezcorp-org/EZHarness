@@ -2927,3 +2927,18 @@ contract did not. Reproduction went from 1 failure in 20 ambient runs to 17 in 2
 driven producer is green and the original case runs fifty times clean. The one structural change is
 that the C04 world moved out of the conformance closure so the new producer reuses it rather than
 building a second one; the conformance's own behaviour is unchanged.
+
+**W07c validation round (2026-09-21).** ACCEPT-WITH-FIXES on `acb49f2b6`; the production fix needed
+nothing. Three fixes applied on `f2ed5c118` and this commit. F1, the only blocking one, was a defect
+in my own producer rather than in the fix: `parked()` counted `pg_locks` without filtering by
+database, and since `pg_locks` is cluster-wide while an advisory locktag is per-database, two
+parallel copies of the file counted each other's waiters and the readiness check failed its exact
+match about fifteen percent of the time at width 3. It was a false red and could never have hidden a
+regression, but it would have made CI flaky. Filtering by database makes the blocking set and the
+counted set agree; twenty runs at width 3 and twenty at width 2 are now clean, with the barrier
+message in none of the forty logs. F2 reran every producer at the final source head, because two
+receipts named a commit that an amend had removed. F3 corrected the name of the nine-column arbiter:
+it is declared in `schema.ts` as `idx_factory_release_operations_identity` but the migration creates
+it as an inline UNIQUE, so the database calls it
+`factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
+arbiters and only two.

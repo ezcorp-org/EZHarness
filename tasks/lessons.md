@@ -986,3 +986,20 @@ Long final messages are cut at a few thousand characters and the tail is lost. E
   test drives the interleaving instead of waiting for the host to produce it.
 - Pair a driven race with one timing-free case that pins the same property. Wake order belongs to
   the host, so a forced race is strong evidence and a poor gate on its own.
+
+## 2026-09-21 — A cluster-wide view is not a per-database fact
+
+- `pg_locks` spans every database in the cluster, but an advisory locktag carries `MyDatabaseId`.
+  A readiness counter built on `pg_locks` must filter on `database` or it counts a parallel run's
+  waiters; the set that blocks and the set that is counted have to be the same set.
+- Run a new concurrency producer at more than one parallel width before calling it stable. A test
+  whose own coordination is measured at width 1 only has not been measured. Width 1 hid this;
+  width 3 showed it at fifteen percent.
+- When a race producer fails, separate the failure signatures before attributing a rate. The
+  pre-fix evidence here survived only because every failing log was checked for the 23505
+  signature, which distinguished the real defect from the producer's own flake.
+- Name a constraint as the database names it, not as the ORM declares it. An inline `UNIQUE` in a
+  migration is auto-named by PostgreSQL, so a drizzle `uniqueIndex(...)` label can name an index
+  that does not exist. Probe a live migrated database before writing the name into a comment.
+- Amending a commit after a producer has run against it strands the receipt. Run producers at the
+  last commit that touches source, and keep later commits documentation-only.
