@@ -423,6 +423,51 @@ test("the verified-attempt materials reader lists exactly one attempt's own seal
   await expect(guarded.list(world.scope, cancelled.signal)).rejects.toThrow();
 });
 
+test("a grant re-admission between the reader's two transactions is refused, not silently honored", async () => {
+  const world = await setup();
+  const expected = (await world.verifiedAttemptMaterials.list(world.scope)).map(record => record.objectName);
+
+  // A journal that behaves exactly like the real one for readAuthorityInTransaction,
+  // except that immediately after it reads -- and before FactoryVerifiedAttemptMaterials.list()
+  // can use that snapshot to construct the delegate reader and its OWN second transaction -- it
+  // bumps grant_revision on the underlying row. This simulates a concurrent re-admission landing
+  // in the exact window the reader's two-transaction design leaves open.
+  let armed = false;
+  const racyJournal = Object.create(world.journal) as typeof world.journal;
+  racyJournal.readAuthorityInTransaction = async (...args: Parameters<typeof world.journal.readAuthorityInTransaction>) => {
+    const result = await world.journal.readAuthorityInTransaction(...args);
+    if (armed) await world.db.execute(sql`UPDATE factory_executions SET grant_revision = grant_revision + 1 WHERE attempt_id = ${world.attemptId}`);
+    return result;
+  };
+  const reader = new FactoryVerifiedAttemptMaterials({ database: world.db, blobs: world.blobs, journal: racyJournal });
+
+  // Baseline: with no race armed, the reader answers normally.
+  await expect(reader.list(world.scope).then(records => records.map(record => record.objectName))).resolves.toEqual(expected);
+
+  // Arm the race and prove the reader's SECOND transaction (W04's own lockScopedRead, re-checking
+  // the FULL authority tuple including grant_revision) refuses rather than serving a read taken
+  // under authority that was already stale by the time it ran.
+  armed = true;
+  await expect(reader.list(world.scope)).rejects.toThrow();
+  armed = false;
+
+  // The attempt is not "burned": once the world is quiescent again, the reader answers normally
+  // against the new, current authority -- the refusal was about staleness in flight, not a
+  // corrupted or wedged attempt.
+  await expect(reader.list(world.scope).then(records => records.map(record => record.objectName))).resolves.toEqual(expected);
+});
+
+test("cross-check: the same stale authority fed straight to FactoryAttemptMaterials.list() is refused for the same reason", async () => {
+  const world = await setup();
+  const authority = await world.journal.readAuthorityInTransaction(world.db, world.scope);
+  expect(authority).toBeDefined();
+  // Simulate the race directly: the row is superseded after the authority snapshot was taken.
+  await world.db.execute(sql`UPDATE factory_executions SET grant_revision = grant_revision + 1 WHERE attempt_id = ${world.attemptId}`);
+  const artifacts = new FactoryArtifacts(world.db, world.blobs, world.scope.tenantId);
+  const stale = new FactoryAttemptMaterials({ database: world.db, artifacts, blobs: world.blobs, journal: world.journal, authority: authority! });
+  await expect(stale.list(world.scope)).rejects.toThrow(/unavailable/i);
+});
+
 test("an unsealed material is listed but never accepted by the S3 profile", async () => {
   const world = await setup();
   const identity = { ...world.scope, objectName: "unsealed.csv", version: 1 };
