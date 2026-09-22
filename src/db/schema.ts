@@ -3247,6 +3247,7 @@ export const factoryRetentionRecords = pgTable("factory_retention_records", {
 /** The barrier's pause flag. Never guarded by the barrier gate it controls. */
 export const factoryCheckpointGate = pgTable("factory_checkpoint_gate", {
   tenantId: text("tenant_id").notNull(), paused: boolean("paused").notNull().default(false), checkpointId: text("checkpoint_id"),
+  claimsPausedUntil: timestamp("claims_paused_until", { withTimezone: true }),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId] })]);
 

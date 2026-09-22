@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { FactoryCheckpointPoolSnapshot, FactoryCheckpointPoolSource } from "../checkpoint-barrier";
+import type { FactoryRestorePoolLedger } from "../restore";
+import type { FactoryPoolLedger } from "./ledger";
 import { normalizePoolResourceVector, POOL_RESOURCE_CLASSES, POOL_SCHEDULER_LOCK_SQL, poolRows as rows, type PoolResourceVector, type PoolSql } from "./ledger";
 
 /**
@@ -126,4 +128,14 @@ export async function factoryPoolSnapshotFromPages(read: (after: string | null) 
     next = page.next;
   }
   return { position: first.position, rows: all };
+}
+
+/** The restore's pool half over the pool database itself, for a coordinator that holds it. */
+export function factoryDirectRestorePoolLedger(database: PoolSql, ledger: Pick<FactoryPoolLedger, "cancel">): FactoryRestorePoolLedger {
+  const source = new FactoryPoolCheckpointSource(database);
+  return {
+    importLost: (tenantId, snapshot) => source.importLost(tenantId, snapshot),
+    liveRows: async tenantId => (await source.snapshotTenant(tenantId)).rows,
+    revoke: async (reservationId, allocationGeneration) => ({ state: (await ledger.cancel(reservationId, allocationGeneration)).state }),
+  };
 }

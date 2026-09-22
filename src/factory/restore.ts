@@ -82,9 +82,17 @@ export interface FactoryRestoreFence {
   revokeCredentials(restoreId: string, signal?: AbortSignal): Promise<string>;
 }
 
-/** The shared pool ledger's restore half: re-create reservations it lost as `uncertain`. */
+/**
+ * The shared pool ledger's restore half. It re-creates reservations the ledger
+ * lost as `uncertain`, lists the tenant's live reservations, and revokes one:
+ * a live reservation the restored database never heard of belongs to a guest
+ * started after the checkpoint, and only the supervisor's confirmed stop
+ * (which settles it) proves that guest is gone.
+ */
 export interface FactoryRestorePoolLedger {
   importLost(tenantId: string, snapshot: readonly Record<string, unknown>[]): Promise<{ readonly present: readonly string[]; readonly imported: readonly string[]; readonly overcommitted: readonly string[] }>;
+  liveRows(tenantId: string, signal?: AbortSignal): Promise<readonly Record<string, unknown>[]>;
+  revoke(reservationId: string, allocationGeneration: number, signal?: AbortSignal): Promise<{ readonly state: string }>;
 }
 
 export interface FactoryRestoreOptions {
@@ -162,6 +170,13 @@ export interface FactoryRestoreReport {
   readonly reportedAtMs: number;
 }
 
+/**
+ * Findings that keep the whole tenant closed. A worker whose stop is unproven
+ * could still act, and an overcommitted pool reservation means two holders may
+ * share one allocation; neither is contained by blocking one run.
+ */
+const TENANT_BLOCKING: ReadonlySet<FactoryRestoreSubject> = new Set(["check", "worker", "pool"]);
+
 function findingId(kind: FactoryRestoreSubject, subject: string, reason: string): string {
   return digestObject({ kind, subject, reason }).slice(0, 32);
 }
@@ -225,6 +240,10 @@ export class FactoryRestore {
   /** Every check and reconciliation for an opened epoch, recorded as findings, then the sealed report. */
   async verify(session: FactoryRestoreSession, signal?: AbortSignal): Promise<FactoryRestoreReport> {
     const { manifest, seal, restoreId } = session;
+    const current = rows<{ state: string }>(await this.database.execute(sql`SELECT state FROM factory_restore_epochs WHERE tenant_id = ${this.tenantId} AND restore_id = ${restoreId}`))[0];
+    if (current?.state !== "fenced" && current?.state !== "awaiting_signature") throw new FactoryRestoreError("factory_restore_state");
+    // A re-verification replaces the previous pass's findings; a stale block must not outlive the fact it named.
+    await this.database.execute(sql`DELETE FROM factory_restore_findings WHERE tenant_id = ${this.tenantId} AND restore_id = ${restoreId}`);
     const findings = new Map<string, FactoryRestoreFinding>();
     const record = async (finding: Omit<FactoryRestoreFinding, "findingId">) => {
       const complete = { ...finding, findingId: findingId(finding.subjectKind, finding.subjectId, finding.reason) };
@@ -240,6 +259,7 @@ export class FactoryRestore {
     await this.rebuildRuns(record, signal);
     const releases = await this.recoverReleases(restoreId, record, signal);
     await this.stopPreEpochWorkers(manifest, session.previousEpoch, record, signal);
+    await this.revokePostCheckpointWorkers(record, signal);
     const all = [...findings.values()];
     const blocked = all.filter(finding => finding.disposition === "blocked");
     const report: FactoryRestoreReport = {
@@ -247,9 +267,9 @@ export class FactoryRestore {
       restoreId, mode: session.mode, checkpointId: manifest.checkpointId, manifestDigest: seal.manifestDigest,
       previousEpoch: session.previousEpoch, executionEpoch: session.executionEpoch,
       findings: all,
-      blockedChecks: blocked.filter(finding => finding.subjectKind === "check").map(finding => `${finding.subjectId}:${finding.reason}`),
+      blockedChecks: blocked.filter(finding => TENANT_BLOCKING.has(finding.subjectKind)).map(finding => `${finding.subjectKind}:${finding.subjectId}:${finding.reason}`),
       blockedRuns: [...new Set(blocked.filter(finding => finding.subjectKind === "run").map(finding => finding.subjectId))].sort(),
-      blockedSubjects: blocked.filter(finding => finding.subjectKind !== "check").map(finding => ({ subjectKind: finding.subjectKind, subjectId: finding.subjectId, reason: finding.reason })),
+      blockedSubjects: blocked.filter(finding => !TENANT_BLOCKING.has(finding.subjectKind)).map(finding => ({ subjectKind: finding.subjectKind, subjectId: finding.subjectId, reason: finding.reason })),
       releaseIdentities: releases,
       measured: {
         checkpointStartedAtMs: manifest.startedAtMs, failureAtMs: session.failureAtMs ?? null,
@@ -259,7 +279,7 @@ export class FactoryRestore {
       reportedAtMs: this.now(),
     };
     await writeFactoryRecoveryJson(this.options.archive, this.tenantId, "report", restoreId, report, signal);
-    await this.database.execute(sql`UPDATE factory_restore_epochs SET state = 'awaiting_signature', report_json = ${canonicalJson(report)}, report_digest = ${factoryRestoreReportDigest(report)}, updated_at = NOW() WHERE tenant_id = ${this.tenantId} AND restore_id = ${restoreId} AND state = 'fenced'`);
+    await this.database.execute(sql`UPDATE factory_restore_epochs SET state = 'awaiting_signature', report_json = ${canonicalJson(report)}, report_digest = ${factoryRestoreReportDigest(report)}, updated_at = NOW() WHERE tenant_id = ${this.tenantId} AND restore_id = ${restoreId} AND state IN ('fenced','awaiting_signature')`);
     return report;
   }
 
@@ -488,6 +508,31 @@ export class FactoryRestore {
       } catch (error) {
         await record({ subjectKind: "worker", subjectId: row.attempt_id, disposition: "blocked", reason: "worker_stop_unproven", detail: { error: error instanceof Error ? error.message : String(error) } });
         await record({ subjectKind: "run", subjectId: subject, disposition: "blocked", reason: "worker_unreconciled", detail: { attemptId: row.attempt_id } });
+      }
+    }
+  }
+  /**
+   * A live pool reservation that neither the restored launch rows nor the
+   * restored compute admissions name was made after the checkpoint. Its guest
+   * may still be running under an old-epoch token, which the gateway already
+   * refuses; the restore revokes the reservation, and only the supervisor's
+   * confirmed stop, which settles it, lets the worker count as reconciled.
+   */
+  private async revokePostCheckpointWorkers(record: (finding: Omit<FactoryRestoreFinding, "findingId">) => Promise<void>, signal?: AbortSignal): Promise<void> {
+    const pool = this.options.pool;
+    if (!pool) return;
+    const known = new Set(rows<{ reservation_id: string }>(await this.database.execute(sql`SELECT reservation_id FROM factory_attempt_launches WHERE tenant_id = ${this.tenantId}
+      UNION SELECT reservation_id FROM factory_compute_admissions WHERE tenant_id = ${this.tenantId}`)).map(row => row.reservation_id));
+    for (const row of await pool.liveRows(this.tenantId, signal)) {
+      const reservationId = String(row.reservation_id);
+      if (known.has(reservationId) || row.reason === "restore-import") continue;
+      try {
+        const revoked = await pool.revoke(reservationId, Number(row.allocation_generation), signal);
+        await record(revoked.state === "settled"
+          ? { subjectKind: "worker", subjectId: reservationId, disposition: "reconciled", reason: "post_checkpoint_worker_stopped", detail: { hostId: row.host_id ?? null } }
+          : { subjectKind: "worker", subjectId: reservationId, disposition: "blocked", reason: "post_checkpoint_worker_revoking", detail: { state: revoked.state, hostId: row.host_id ?? null } });
+      } catch (error) {
+        await record({ subjectKind: "worker", subjectId: reservationId, disposition: "blocked", reason: "post_checkpoint_worker_unrevoked", detail: { error: error instanceof Error ? error.message : String(error) } });
       }
     }
   }

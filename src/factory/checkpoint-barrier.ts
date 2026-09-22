@@ -14,26 +14,31 @@ import type { FactoryArchiveObject } from "./releases";
  *
  * One barrier, in the contract's order:
  *
- *   1. pause — a session takes the pause lock, then the pause flag commits,
- *      so every transaction that has not written yet waits at its first
- *      factory write (the migration's statement gate), and no mutation or
- *      effect claim can start;
- *   2. drain — in-flight effect senders (leased outbox rows, executing
- *      releases, launching attempts) get a bounded window to settle; the rest
- *      are fenced by name in the manifest, so restore reconciles each one;
- *   3. reconcile — every transaction already writing finishes, which is the
+ *   1. pause claims — a self-expiring flag closes new release claims and
+ *      attempt launches (the migration's effect-claim gate);
+ *   2. drain — while ordinary writes still flow, in-flight effect senders
+ *      (leased outbox rows, executing releases, launching attempts) get a
+ *      bounded window to settle; the rest are fenced by name in the manifest,
+ *      so restore reconciles each one;
+ *   3. pause mutations — a session takes the pause lock, then the pause flag
+ *      commits, so every transaction that has not written yet waits at its
+ *      first factory write (the migration's statement gate);
+ *   4. reconcile — every transaction already writing finishes, which is the
  *      moment the barrier's exclusive lock is granted; the audit streams are
  *      checked for gaps before anything is recorded;
- *   4. quiesce — while the exclusive lock is held no factory write commits,
+ *   5. quiesce — while the exclusive lock is held no factory write commits,
  *      so the Temporal namespace can deliver timers but cannot move a product
  *      fact across the barrier;
- *   5. record — the WAL position, the product-state digests, every object
+ *   6. record — the WAL position, the product-state digests, every object
  *      version, the fenced senders, the pool ledger rows, and the Temporal
  *      positions;
- *   6. seal — the object inventory, the manifest, and a seal record are
+ *   7. seal — the object inventory, the manifest, and a seal record are
  *      written to the independent archive, each read back byte for byte;
- *   7. resume — the sealed row commits with the lock's release, then the
- *      pause flag clears and the pause lock is released.
+ *   8. resume — the sealed row commits with the lock's release, then the
+ *      pause flag and the claim pause clear and the pause lock is released.
+ *
+ * Writes are paused only for steps 3 through 8. The outcome reports that
+ * window (`writePauseMs`) beside the whole barrier (`durationMs`).
  *
  * The barrier never waits in the lock manager: it polls for its exclusive
  * lock, and a writer that already holds the shared lock never waits on the
@@ -172,7 +177,7 @@ export interface FactoryCheckpointSeal {
 }
 
 export type FactoryCheckpointOutcome =
-  | { readonly kind: "sealed"; readonly checkpointId: string; readonly durationMs: number; readonly lsn: string; readonly manifest: FactoryArchiveObject; readonly seal: FactoryArchiveObject; readonly fenced: number; readonly withinTarget: boolean }
+  | { readonly kind: "sealed"; readonly checkpointId: string; readonly durationMs: number; readonly writePauseMs: number; readonly lsn: string; readonly manifest: FactoryArchiveObject; readonly seal: FactoryArchiveObject; readonly fenced: number; readonly withinTarget: boolean }
   | { readonly kind: "aborted"; readonly checkpointId: string; readonly durationMs: number; readonly code: FactoryCheckpointAbortCode }
   | { readonly kind: "skipped"; readonly reason: "restore_epoch_open" };
 
@@ -212,7 +217,7 @@ export async function factorySchemaDigest(database: MigrationDb): Promise<string
  * The product-state digests a barrier records and a restore recomputes. Each
  * is one ordered aggregate, so the comparison needs no row-by-row walk.
  */
-export async function captureFactoryProductState(database: MigrationDb, tenantId: string): Promise<{ readonly state: FactoryProductState; readonly objects: readonly Record<string, unknown>[] }> {
+export async function captureFactoryProductState(database: MigrationDb, tenantId: string): Promise<{ readonly state: FactoryProductState; readonly objects: readonly { readonly projectId: string; readonly objectId: string; readonly blobDigest: string; readonly storageVersion: string; readonly digest: string }[] }> {
   const aggregate = async (query: ReturnType<typeof sql>) => rows<{ body: string | null; count: string | number }>(await database.execute(query))[0]!;
   const runs = await aggregate(sql`SELECT string_agg(concat_ws('|', r.project_id, r.run_id, r.execution_epoch, r.next_sequence, COALESCE(h.sequence, 0), COALESCE(h.digest, ''), COALESCE(l.status, ''), COALESCE(l.revision, 0)), E'\\n' ORDER BY r.project_id, r.run_id) AS body, count(*) AS count
     FROM factory_runs r
@@ -221,9 +226,10 @@ export async function captureFactoryProductState(database: MigrationDb, tenantId
     WHERE r.tenant_id = ${tenantId}`);
   const releases = await aggregate(sql`SELECT string_agg(concat_ws('|', project_id, operation_id, state, dispatch_generation, COALESCE(receipt_archive_json, '')), E'\\n' ORDER BY project_id, operation_id) AS body, count(*) AS count FROM factory_release_operations WHERE tenant_id = ${tenantId}`);
   const attempts = await aggregate(sql`SELECT string_agg(concat_ws('|', attempt_id, state, COALESCE(terminal_result_digest, '')), E'\\n' ORDER BY attempt_id) AS body, count(*) AS count FROM factory_attempt_launches WHERE tenant_id = ${tenantId}`);
-  const objects = rows<Record<string, unknown>>(await database.execute(sql`SELECT project_id AS "projectId", object_id AS "objectId", blob_digest AS "blobDigest", storage_version AS "storageVersion", digest FROM factory_artifacts WHERE tenant_id = ${tenantId}
+  // Rebuilt as plain objects: a driver's result array carries extra properties canonical JSON refuses.
+  const objects = rows<{ projectId: string; objectId: string; blobDigest: string; storageVersion: string; digest: string }>(await database.execute(sql`SELECT project_id AS "projectId", object_id AS "objectId", blob_digest AS "blobDigest", storage_version AS "storageVersion", digest FROM factory_artifacts WHERE tenant_id = ${tenantId}
     UNION ALL SELECT project_id, concat_ws('/', run_id, attempt_id, operation_id, object_name, version, chunk_index), blob_digest, storage_version, chunk_digest FROM factory_artifact_material_chunks WHERE tenant_id = ${tenantId}
-    ORDER BY 1, 2`));
+    ORDER BY 1, 2`)).map(row => ({ projectId: row.projectId, objectId: row.objectId, blobDigest: row.blobDigest, storageVersion: row.storageVersion, digest: row.digest }));
   const partial = {
     runsDigest: sha256Hex(runs.body ?? ""), runCount: Number(runs.count),
     releasesDigest: sha256Hex(releases.body ?? ""), attemptsDigest: sha256Hex(attempts.body ?? ""),
@@ -331,22 +337,45 @@ export class FactoryCheckpointCoordinator {
       if ((await factoryBarrierGateCoverage(this.database)).length > 0) throw new BarrierAbort("barrier_gate_incomplete");
       const epoch = Number(rows<{ execution_epoch: number | string }>(await this.database.execute(sql`SELECT execution_epoch FROM factory_installation WHERE tenant_id = ${this.tenantId}`))[0]?.execution_epoch ?? 0);
       if (epoch < 1) throw new FactoryCheckpointError("factory_checkpoint_invalid");
-      const sealed = await this.database.transaction(async hold => {
-        while (!rows<{ locked: boolean }>(await hold.execute(sql`SELECT pg_try_advisory_xact_lock(${PAUSE_LOCK}) AS locked`))[0]!.locked) {
-          this.remaining(deadline, signal);
-          await this.wait(FACTORY_CHECKPOINT_LIMITS.pollMs);
-        }
-        await this.setPaused(true, checkpointId);
-        try { return await this.barrier(checkpointId, epoch, startedAtMs, started, deadline, signal); }
-        finally { await this.setPaused(false, checkpointId); }
+      let pausedAt = 0;
+      const sealed = await this.pauseClaims(checkpointId, async () => {
+        await this.drain(started, deadline, signal);
+        return this.database.transaction(async hold => {
+          while (!rows<{ locked: boolean }>(await hold.execute(sql`SELECT pg_try_advisory_xact_lock(${PAUSE_LOCK}) AS locked`))[0]!.locked) {
+            this.remaining(deadline, signal);
+            await this.wait(FACTORY_CHECKPOINT_LIMITS.pollMs);
+          }
+          await this.setPaused(true, checkpointId);
+          pausedAt = this.monotonic();
+          try { return await this.barrier(checkpointId, epoch, startedAtMs, started, deadline, signal); }
+          finally { await this.setPaused(false, checkpointId); }
+        });
       });
-      return { kind: "sealed", checkpointId, ...sealed, durationMs: elapsed(), withinTarget: elapsed() <= FACTORY_CHECKPOINT_LIMITS.targetMs };
+      const durationMs = elapsed();
+      return { kind: "sealed", checkpointId, ...sealed, durationMs, writePauseMs: Math.round(this.monotonic() - pausedAt), withinTarget: durationMs <= FACTORY_CHECKPOINT_LIMITS.targetMs };
     } catch (error) {
       if (!(error instanceof BarrierAbort)) throw error;
       const durationMs = elapsed();
       await this.database.execute(sql`INSERT INTO factory_checkpoints (tenant_id, checkpoint_id, state, execution_epoch, started_at_ms, duration_ms, abort_code)
         SELECT ${this.tenantId}, ${checkpointId}, 'aborted', execution_epoch, ${startedAtMs}, ${durationMs}, ${error.code} FROM factory_installation WHERE tenant_id = ${this.tenantId}`);
       return { kind: "aborted", checkpointId, durationMs, code: error.code };
+    }
+  }
+
+  /** Closes effect claims for at most the barrier's maximum, then reopens them whatever happened. */
+  private async pauseClaims<Value>(checkpointId: string, work: () => Promise<Value>): Promise<Value> {
+    await this.database.execute(sql`INSERT INTO factory_checkpoint_gate (tenant_id, paused, checkpoint_id, claims_paused_until) VALUES (${this.tenantId}, FALSE, ${checkpointId}, clock_timestamp() + make_interval(secs => ${this.maximumMs / 1_000}))
+      ON CONFLICT (tenant_id) DO UPDATE SET checkpoint_id = EXCLUDED.checkpoint_id, claims_paused_until = EXCLUDED.claims_paused_until, updated_at = NOW()`);
+    try { return await work(); }
+    finally { await this.database.execute(sql`UPDATE factory_checkpoint_gate SET claims_paused_until = NULL, updated_at = NOW() WHERE tenant_id = ${this.tenantId} AND checkpoint_id = ${checkpointId}`); }
+  }
+
+  /** Waits, within the drain budget, for in-flight senders to settle while ordinary writes still flow. */
+  private async drain(started: number, deadline: number, signal?: AbortSignal): Promise<void> {
+    const drainUntil = Math.min(deadline, started + FACTORY_CHECKPOINT_LIMITS.drainMs);
+    while (this.monotonic() < drainUntil && fencedCount(await fencedSenders(this.database, this.tenantId, this.now())) > 0) {
+      this.remaining(deadline, signal);
+      await this.wait(FACTORY_CHECKPOINT_LIMITS.pollMs);
     }
   }
 
@@ -362,13 +391,8 @@ export class FactoryCheckpointCoordinator {
     return left;
   }
 
-  /** Drain, then take the exclusive lock, record, seal, and commit in one transaction. */
+  /** Take the exclusive lock, record, seal, and commit in one transaction. */
   private async barrier(checkpointId: string, epoch: number, startedAtMs: number, started: number, deadline: number, signal?: AbortSignal) {
-    const drainUntil = Math.min(deadline, started + FACTORY_CHECKPOINT_LIMITS.drainMs);
-    while (this.monotonic() < drainUntil && fencedCount(await fencedSenders(this.database, this.tenantId, this.now())) > 0) {
-      this.remaining(deadline, signal);
-      await this.wait(FACTORY_CHECKPOINT_LIMITS.pollMs);
-    }
     return this.database.transaction(async transaction => {
       while (!rows<{ locked: boolean }>(await transaction.execute(sql`SELECT pg_try_advisory_xact_lock(${BARRIER_LOCK}) AS locked`))[0]!.locked) {
         this.remaining(deadline, signal);

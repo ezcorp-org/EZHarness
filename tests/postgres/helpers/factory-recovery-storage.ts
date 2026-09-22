@@ -15,16 +15,16 @@ import { factoryStorageCredentials, factoryStorageEndpoint } from "./factory-sto
  * design and the archive credential cannot delete them; they stay under the
  * process's own `w15/<uuid>` prefix and the cleanup reports how many it left.
  */
-export async function factoryRecoveryStorage(tenant = "tenant-01") {
-  const run = `w15/${randomUUID()}`;
+export async function factoryRecoveryStorage(tenant = "tenant-09") {
+  const run = `w15-${randomUUID()}`;
   const ordinaryCredentials = await factoryStorageCredentials("ordinary", tenant);
   const archiveCredentials = await factoryStorageCredentials("archive", tenant);
   const ordinaryEndpoint = factoryStorageEndpoint("ordinary");
   const archiveEndpoint = factoryStorageEndpoint("archive");
   const ordinaryClient = new S3Client({ endpoint: ordinaryEndpoint, region: "us-east-1", forcePathStyle: true, credentials: ordinaryCredentials, maxAttempts: 1 });
   const archiveClient = new S3Client({ endpoint: archiveEndpoint, region: "us-east-1", forcePathStyle: true, credentials: archiveCredentials, maxAttempts: 1 });
-  const ordinaryPrefix = `${run}/ordinary`;
-  const archiveOptions = { endpoint: archiveEndpoint, bucket: tenant, prefix: `${run}/archive`, credentials: archiveCredentials, client: archiveClient };
+  const ordinaryPrefix = `ordinary/${run}`;
+  const archiveOptions = { endpoint: archiveEndpoint, bucket: tenant, prefix: `archive/${run}`, credentials: archiveCredentials, client: archiveClient };
   const blobs = new S3BlobStore({ endpoint: ordinaryEndpoint, bucket: tenant, prefix: ordinaryPrefix, credentials: ordinaryCredentials, client: ordinaryClient });
 
   async function versions(client: S3Client, prefix: string) {

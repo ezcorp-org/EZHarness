@@ -1,7 +1,8 @@
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryWorkerProgress } from "./background-workers";
 import { FactoryCheckpointCoordinator, type FactoryCheckpointPoolSource } from "./checkpoint-barrier";
-import { createPoolCheckpointClient, type PoolCheckpointClient } from "./pool/client";
+import { createPoolCheckpointClient, type PoolAdmissionClient, type PoolCheckpointClient } from "./pool/client";
+import type { FactoryRestorePoolLedger } from "./restore";
 import { factoryPoolSnapshotFromPages } from "./pool/checkpoint";
 import { S3FactoryRecoveryArchive } from "./recovery-archive";
 import { S3FactoryReleaseArchive } from "./release-adapters";
@@ -67,6 +68,30 @@ export function factoryCheckpointStep(coordinator: Pick<FactoryCheckpointCoordin
 /** The pool checkpoint source over the tenant's mutual-TLS client. */
 export function factoryPoolCheckpointClientSource(client: Pick<PoolCheckpointClient, "checkpoint">): FactoryCheckpointPoolSource {
   return { snapshotTenant: (_tenantId, signal) => factoryPoolSnapshotFromPages(after => client.checkpoint(after, signal)) };
+}
+
+/** Rows per restore-import request, inside the pool wire's 16 KiB body bound. */
+export const FACTORY_RESTORE_IMPORT_CHUNK = 16;
+
+/**
+ * The restore's pool half over the tenant's two mutual-TLS clients: the
+ * checkpoint client lists and re-imports, and admission's own `cancel` revokes.
+ * The restore credential must carry `pool:restore:<tenant>`.
+ */
+export function factoryClientRestorePoolLedger(checkpoints: PoolCheckpointClient, admission: Pick<PoolAdmissionClient, "cancel">): FactoryRestorePoolLedger {
+  return {
+    async importLost(_tenantId, snapshot) {
+      const present = new Set<string>(), imported: string[] = [], overcommitted: string[] = [];
+      for (let offset = 0; offset === 0 || offset < snapshot.length; offset += FACTORY_RESTORE_IMPORT_CHUNK) {
+        const result = await checkpoints.restoreImport(snapshot.slice(offset, offset + FACTORY_RESTORE_IMPORT_CHUNK));
+        for (const id of result.present) present.add(id);
+        imported.push(...result.imported); overcommitted.push(...result.overcommitted);
+      }
+      return { present: [...present].sort(), imported, overcommitted };
+    },
+    liveRows: async (_tenantId, signal) => (await factoryPoolSnapshotFromPages(after => checkpoints.checkpoint(after, signal))).rows,
+    revoke: async (reservationId, allocationGeneration, signal) => ({ state: (await admission.cancel(reservationId, allocationGeneration, signal)).state }),
+  };
 }
 
 export interface FactoryRecoveryCompositionInput {

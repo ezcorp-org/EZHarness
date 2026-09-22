@@ -16,8 +16,9 @@ import type { MigrationDb } from "./types";
  *   second lock the barrier holds, and a member never waits, so the barrier
  *   never enters a lock cycle with a product transaction.
  * - `factory_effect_claim_gate` closes a release claim and an attempt launch
- *   claim while a restore epoch is open, and while the newest sealed
- *   checkpoint is older than the tenant's bound when the bound is enforced.
+ *   claim while a restore epoch is open, while a barrier is draining senders,
+ *   and while the newest sealed checkpoint is older than the tenant's bound
+ *   when the bound is enforced.
  * - `factory_restore_admission_gate` closes run admission while a restore
  *   epoch is open.
  *
@@ -85,9 +86,11 @@ export async function up(database: MigrationDb): Promise<void> {
 
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_checkpoint_gate (
     tenant_id TEXT NOT NULL, paused BOOLEAN NOT NULL DEFAULT FALSE, checkpoint_id TEXT,
+    claims_paused_until TIMESTAMPTZ,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT factory_checkpoint_gate_pkey PRIMARY KEY (tenant_id)
   )`);
+  await database.execute(sql`ALTER TABLE factory_checkpoint_gate ADD COLUMN IF NOT EXISTS claims_paused_until TIMESTAMPTZ`);
 
   await database.execute(sql`CREATE TABLE IF NOT EXISTS factory_checkpoints (
     tenant_id TEXT NOT NULL, checkpoint_id TEXT NOT NULL, state TEXT NOT NULL,
@@ -188,6 +191,9 @@ async function installGates(database: MigrationDb): Promise<void> {
     v_newest TIMESTAMPTZ;
   BEGIN
     IF EXISTS (SELECT 1 FROM factory_restore_epochs WHERE tenant_id = p_tenant AND state <> 'enabled') THEN RETURN 'restore_epoch_open'; END IF;
+    -- A barrier closes claims before it drains senders. The flag expires on its
+    -- own, so a coordinator that dies mid-barrier cannot close claims for good.
+    IF EXISTS (SELECT 1 FROM factory_checkpoint_gate WHERE tenant_id = p_tenant AND claims_paused_until > clock_timestamp()) THEN RETURN 'checkpoint_barrier'; END IF;
     SELECT enforce_freshness, max_age_seconds INTO v_enforce, v_max_age FROM factory_checkpoint_policy WHERE tenant_id = p_tenant;
     IF v_enforce IS TRUE THEN
       SELECT max(sealed_at) INTO v_newest FROM factory_checkpoints WHERE tenant_id = p_tenant AND state = 'sealed';
