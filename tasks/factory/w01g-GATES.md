@@ -22,6 +22,10 @@ own record named the gap in `notProven[0]`. Every real run ended `failed` becaus
 guest returned `cancelled`. This is the byte path, the host adapter, the completed result, and a
 real proof.
 
+Round 2 receipts (2026-09-22): every coverage, PostgreSQL, Podman and real-server receipt under
+`/tmp/factory-platform-evidence/w01g/` was produced at `179674cbf` on a clean tree; the static
+sweep receipts are from the final head. `report.txt` names each one.
+
 ### The reproduction, first
 
 - [x] G0: At the base, a real run ends `failed` because the guest returns `cancelled` and has no
@@ -35,13 +39,13 @@ real proof.
 
 ### The contract
 
-- [ ] G1: The staging frames exist as SDK types with generated schemas, and both runtimes enforce
+- [x] G1: The staging frames exist as SDK types with generated schemas, and both runtimes enforce
   them identically (C07).
   CHECK: `bun run --cwd packages/@ezcorp/factory-sdk build`; `bun test --timeout 30000 ./packages/@ezcorp/factory-sdk/src/guest-material-frames.test.ts ./packages/@ezcorp/factory-sdk/src/guest-materials.test.ts`; `bash scripts/python-quality.sh lint typecheck test`; `bun test --timeout 600000 ./src/factory/runner/python-runner.integration.test.ts`
   EXPECT: all exit 0; the two runtimes agree on 14 accepted and 46 rejected fixtures, code for code
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [ ] G2: One broker and one channel. A staging frame carries no authority the attempt token does
+- [x] G2: One broker and one channel. A staging frame carries no authority the attempt token does
   not already carry.
   CHECK: read `src/factory/runner/guest-material-broker.ts`; `bun test --timeout 60000 ./src/factory/runner/guest-material-broker.integration.test.ts`
   EXPECT: every scope field (tenant, project, run, attempt, node instance, candidate generation)
@@ -50,7 +54,7 @@ real proof.
   `unknown_material` without disclosing existence
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [ ] G3: Every refusal is named, and the mapping is exhaustive over the material service's own
+- [x] G3: Every refusal is named, and the mapping is exhaustive over the material service's own
   codes.
   CHECK: `bun test --timeout 60000 ./src/factory/runner/guest-material-broker.integration.test.ts`
   EXPECT: the suite's table test derives the code list from `artifact-materials.ts` source and
@@ -61,21 +65,21 @@ real proof.
 
 ### The host adapter
 
-- [ ] G4: Repeated frames after a lost response are durably idempotent, and a restarted host
+- [x] G4: Repeated frames after a lost response are durably idempotent, and a restarted host
   finishes the same material.
   CHECK: `bun test --timeout 60000 ./src/factory/runner/guest-material-broker.integration.test.ts`
   EXPECT: a repeated begin, chunk, seal and promotion each answer identically and write one chunk
   row; a seal issued by a broker built after the chunks still returns the same bytes
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [ ] G5: Cancellation and the deadline are honoured mid-upload.
+- [x] G5: Cancellation and the deadline are honoured mid-upload.
   CHECK: `bun test --timeout 60000 ./src/factory/runner/guest-material-broker.integration.test.ts`
   EXPECT: a cancellation landing between two chunks refuses the next chunk and the seal as
   `stale_epoch`; an attempt past its own signed deadline is refused `deadline_expired` before the
   database is touched
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [ ] G6: The completed result is validated, recorded and projected, and `NativeFactoryArtifacts`
+- [x] G6: The completed result is validated, recorded and projected, and `NativeFactoryArtifacts`
   has a production implementation over the same two writers.
   CHECK: `grep -rn "runNativeFactoryRunner\|NativeFactoryArtifacts" --include='*.ts' src/ | grep -v test`; `bun test --timeout 60000 ./src/factory/runner/guest-material-broker.integration.test.ts ./src/factory/runner/native.integration.test.ts`
   EXPECT: `createNativeFactoryArtifacts` is the production implementation (the seam is implemented,
@@ -85,7 +89,7 @@ real proof.
 
 ### The real-server proof
 
-- [ ] G7: A real sandboxed guest stages one output and the run reaches terminal COMPLETED, three
+- [x] G7: A real sandboxed guest stages one output and the run reaches terminal COMPLETED, three
   consecutive passes on fresh product databases.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bash /tmp/factory-platform-evidence/w01g/repro/run-three.sh`
   EXPECT: each pass ends `statusTimeline` … `succeeded`; the durable terminal result is
@@ -93,7 +97,7 @@ real proof.
   the guest staged
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/proof-1.json`, `proof-2.json`, `proof-3.json`
 
-- [ ] G8: The harness records its own failures rather than crashing, and a guest that stages
+- [x] G8: The harness records its own failures rather than crashing, and a guest that stages
   nothing still ends `failed`.
   CHECK: `W01G_GUEST=cancelled … bash /tmp/factory-platform-evidence/w01g/repro/one-run.sh`
   EXPECT: the negative control writes a record whose run ends `failed` with a `cancelled` terminal
@@ -102,30 +106,30 @@ real proof.
 
 ### The gates every package owes
 
-- [ ] G9: 100 percent coverage of every new file and every changed line.
+- [x] G9: 100 percent coverage of every new file and every changed line.
   CHECK: `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts && BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts` over the merged lcov
   EXPECT: both exit 0
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [ ] G10: No gate weakened; boundaries, schema drift, typecheck and lint green at the final head
+- [x] G10: No gate weakened; boundaries, schema drift, typecheck and lint green at the final head
   on a clean tree.
   CHECK: `bun run typecheck && bun run lint && bun scripts/check-factory-boundaries.ts && bun scripts/gate-integrity.ts`; `bun run --cwd packages/@ezcorp/factory-sdk schema:generate && git diff --exit-code packages/@ezcorp/factory-sdk/src`
   EXPECT: all exit 0, and schema regeneration produces no drift
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [ ] G11: The PostgreSQL producers this package touches are green against the real engine.
+- [x] G11: The PostgreSQL producers this package touches are green against the real engine.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 2400 …` over `tests/postgres/factory-guest-material-broker.test.ts` and `tests/postgres/factory-artifact-materials.test.ts`
   EXPECT: exit 0
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [ ] G12: The Podman suites are green under `flock --close`.
+- [x] G12: The Podman suites are green under `flock --close`.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 3600 bun test --timeout 900000 ./src/factory/runner/python-guest.integration.test.ts …`
   EXPECT: exit 0
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
 ### The host mount (round 2)
 
-- [ ] G13: A supervisor whose configuration names `services.guestBroker` forwards a guest's
+- [x] G13: A supervisor whose configuration names `services.guestBroker` forwards a guest's
   staging frames to the product route, and a model request keeps its named refusal.
   CHECK: `bun test --timeout 60000 ./src/factory/runner/supervisor-process.test.ts ./src/factory/runner/guest-broker-transport.integration.test.ts`
   EXPECT: exit 0; the section has the pool section's exact shape and is optional, complete or

@@ -3566,8 +3566,12 @@ Branch `wp/w01g-staging` from `integ/w00` at `850ffaa54`. Gate file:
       `NativeFactoryArtifacts` gets its production implementation over the same two writers.
 - [x] Proof on the real started application: a real sandboxed guest stages one output and the run
       reaches terminal `succeeded` through the completed path.
-- [ ] Three consecutive clean passes and the negative control.
-- [ ] Final sweep on a clean tree after `git merge integ/w00`.
+- [x] Three consecutive clean passes and the negative control, from this branch at `179674cbf`
+      on a clean tree (`proof-1.json` to `proof-3.json`, `negative-control.json`).
+- [x] The host mounts the route from `services.guestBroker` in its own configuration document
+      (`994deebe8`); the proof-only commit and the file-beside-the-key client are gone.
+- [ ] The product runtime mounts the route itself (G14, the coordinator's composition root).
+- [x] Final sweep on a clean tree after `git merge integ/w00`.
 
 ### Review
 
@@ -3598,8 +3602,13 @@ that settled no operation has cursor -1 — which W04's checkpoint writer refuse
 are operation indexes. The guest names that one `workspace/attempt.json` and stages a real sealed
 material, so the reference points at bytes rather than at nothing.
 
-What this branch does not carry is the composition that mounts the route in a deployment. The
-route handler and the host's forwarding client are product code with tests; the two lines that
-mount them belong to W09's surfaces. The proof worktree carries the host half as two lines in
-`supervisor-process.ts` and starts the product half from the harness process against the real
-product database, and every receipt says which of the two ran.
+Round 2 (2026-09-22). The branch had merged `integ/w00` at `bcd97df48`, not at the W09b merge,
+so W09b's supervisor was not yet on it; the merge at `5c9729734` brought it. The host half of the
+mount is now product code: an optional `services.guestBroker` section in the supervisor document,
+in the pool section's exact shape and validated by the same function. The host builds the client
+before its listener binds, and a model request keeps `factory_host_broker_unavailable`. The
+declared client that read a file beside the host key is removed, and the SDK now owns the
+"is this a staging frame" predicate, so a runner host routes a frame without loading product
+modules. The three passes ran from this worktree, with the section written into W09b's unedited
+harness document by a pass-through bun wrapper. The product half, the listener in the product
+runtime, is still bound by the harness process and stays open as G14 for the coordinator.
