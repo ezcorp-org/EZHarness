@@ -1,0 +1,5 @@
+Patch coverage gate FAILED (2 file(s) with uncovered changes):
+  src/runtime/workflow-capability-hash.ts: 1 changed line(s) uncovered: 567
+  src/runtime/workflow-executor.ts: 3 changed line(s) uncovered: 1296,1322,1404
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.
