@@ -3544,3 +3544,45 @@ it is declared in `schema.ts` as `idx_factory_release_operations_identity` but t
 it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
+
+## W15 — Retention, compatible backups, and restore (branch `wp/w15-retention`)
+
+Evidence: `/tmp/factory-platform-evidence/w15/`. Gate file: `tasks/factory/w15-GATES.md`.
+Base: `260855e57` (W09b merged). Consumed, not edited: the W18a-2 files, W09c release
+declaration and profile composition, W01g guest broker/SDK, W14 console, W16 provisioning.
+
+Plan (plan section 5 W15, C06, C12):
+
+- [ ] One additive migration `add-factory-recovery.ts`: retention ledger, checkpoint barriers
+  and policy, restore epochs and recovery reports; a statement-level barrier gate on every
+  `factory_*` product table; an effect-claim gate (release claim, attempt launch claim) that
+  closes on a stale checkpoint or an open restore epoch; a restore gate on run admission.
+  Mirror in `schema.ts`, PGlite test, PostgreSQL parity.
+- [ ] `retention.ts`: the C06 classes (30/90/365 days), release extension that cannot shorten,
+  tombstone before collect, reference-aware GC, archive-before-expiry that stops cleanup on
+  failure, prior key-wrap retention.
+- [ ] `recovery-archive.ts`: immutable recovery objects (audit streams, checkpoint manifests,
+  recovery reports) in the independent archive, sharing the release archive's S3 write path.
+- [ ] Projection rebuild by replay from the database or from the archive; stop on gaps and
+  conflicting digests.
+- [ ] Key wrapping: a KMS wrap port for hosted cloud KMS and the self-hosted external KMS,
+  beside the operator master key; rotation rewraps, keeps old wraps, never rewrites objects.
+- [ ] `checkpoint-barrier.ts`: per-tenant coordinator (pause, drain/fence, reconcile, quiesce,
+  record product/pool/Temporal positions and object versions, seal in the archive, resume);
+  2 s target, 10 s maximum, abort claims nothing; scheduler with at most 16 in flight;
+  15-minute freshness gate. Bounds measured on real PostgreSQL.
+- [ ] Pool checkpoint source: tenant ledger snapshot and restore import as `uncertain`.
+- [ ] Temporal: namespace retention and history archival configuration, HTTP position reader,
+  proof against the pinned Temporal CLI dev server.
+- [ ] WAL: readiness over `archive_mode`/`pg_stat_archiver`, and a PITR proof to a barrier LSN
+  on a private PostgreSQL instance.
+- [ ] `restore.ts`: restore epoch, fencing, key/version/object checks, compatibility,
+  projection rebuild, archive import of release facts, provider reconciliation, pre-epoch
+  worker reconciliation with the original supervisor, tenant versus cluster mode, human
+  signature before enable.
+- [ ] Worker roles `retention-gc` and `checkpoint-barrier` through W09b's worker shape.
+- [ ] Tests: expired history, deleted projections, conflicting/gapped audit, missing
+  keys/versions, incompatible backups, lost pool ledger, releases after the checkpoint,
+  restored gateway DB with a surviving guest, old-epoch broker token, post-checkpoint
+  guest/release. PostgreSQL suites registered in `db-postgres.yml`.
+- [ ] Gate file, evidence receipts, sweep, report.
