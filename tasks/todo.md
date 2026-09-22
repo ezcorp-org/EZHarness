@@ -2993,3 +2993,62 @@ why `check-coverage.ts` reports 932 files under threshold locally while the
 diff-scoped gates both pass: the local merge is a factory-surface merge, not a
 product merge. The floor is therefore reported, not fixed, and the twelve
 functions' own contribution to it is the ten files now at exactly 100%.
+
+## W01g — guest material staging over the broker (Terra runtime)
+
+Branch `wp/w01g-staging` from `integ/w00` at `850ffaa54`. Gate file:
+`tasks/factory/w01g-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w01g/`.
+
+- [x] Reproduce the failure first: a real run at the base ends `failed` because the guest returns
+      `cancelled` and has no staging path.
+- [x] Frame contract: `FactoryGuestMaterialBegin/Chunk/Seal` plus an `Output` promotion frame and
+      one typed response union, in the SDK beside the model frames, with generated JSON schemas
+      and Bun/Python parity over the shared conformance fixtures.
+- [x] Host adapter: every frame forwarded to `FactoryAttemptMaterials` under the attempt's
+      verified authority; durable idempotency for a repeated frame; cancellation and the deadline
+      honoured mid-upload; every refusal named.
+- [x] Guest SDK, Bun and Python: `stageOutput(name, bytes | stream)` chunks, seals, and returns
+      the sealed material; `stageResult` and `stageCheckpoint` build what a COMPLETED result
+      carries.
+- [x] Runner result path: the promotion stages the attempt's candidate output through W04's own
+      writer, so the completed result is validated, recorded and projected by the existing path;
+      `NativeFactoryArtifacts` gets its production implementation over the same two writers.
+- [x] Proof on the real started application: a real sandboxed guest stages one output and the run
+      reaches terminal `succeeded` through the completed path.
+- [ ] Three consecutive clean passes and the negative control.
+- [ ] Final sweep on a clean tree after `git merge integ/w00`.
+
+### Review
+
+The gap W09b recorded was not one missing function but a missing route. A guest runs on
+`--network=none`, so W04's material service — which is HTTPS — is unreachable from inside it, and
+the reverse control frame is the only byte path it has. That frame carried exactly one payload,
+the model request. So the work was: define the staging frames, answer them on the host under the
+attempt's own authority, and carry them from the host process that runs the container to the
+product process that holds the tenant database, because W09b's own comment recorded that no route
+between those two existed and that a guest's broker call therefore refused by name.
+
+Three things the first end-to-end run taught, each of which had passed a unit test:
+
+A sealed material has TWO digests. The handle covers the chunk manifest the scoped reader
+resolves; the content digest covers the bytes. Confusing them is silent — both are `sha256:` and
+64 hex — so `stageOutput` now returns both rather than the handle alone, and a promotion names the
+content.
+
+A COMPLETED result cannot name a material. `verifyCompletedEvidence` loads the output as kind
+`candidate_output`, bound to the attempt's own node instance and generation, and re-parses it as
+canonical I-JSON. So the promotion reads the sealed bytes back through the scoped reader and
+stages them through W04's `stageCandidateOutputInTransaction`, whose coordinate makes a repeat
+after a lost response return the same reference and different bytes conflict. Nothing in W03's
+verifier changed.
+
+A completed result also needs a workspace checkpoint whose cursor equals its own, and an attempt
+that settled no operation has cursor -1 — which W04's checkpoint writer refuses, because its names
+are operation indexes. The guest names that one `workspace/attempt.json` and stages a real sealed
+material, so the reference points at bytes rather than at nothing.
+
+What this branch does not carry is the composition that mounts the route in a deployment. The
+route handler and the host's forwarding client are product code with tests; the two lines that
+mount them belong to W09's surfaces. The proof worktree carries the host half as two lines in
+`supervisor-process.ts` and starts the product half from the harness process against the real
+product database, and every receipt says which of the two ran.
