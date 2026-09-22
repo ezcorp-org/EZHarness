@@ -29,7 +29,7 @@
  */
 import { createPublicKey, createSign, generateKeyPairSync, randomBytes } from "node:crypto";
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -68,7 +68,9 @@ const NAMESPACE = `${TENANT}.factory`;
 const processes = new StackProcesses();
 const logs = process.env.FACTORY_SERVICES_LOGS ?? await mkdtemp(join(tmpdir(), "factory-services-logs-"));
 await mkdir(logs, { recursive: true });
-const root = await mkdtemp(join(tmpdir(), "factory-services-"));
+// Under the home directory, not the shared temporary directory: the product
+// refuses a private file with a writable foreign ancestor, and /tmp is one.
+const root = await mkdtemp(join(homedir(), ".factory-services-"));
 await chmod(root, 0o700);
 const secrets = join(root, "secrets");
 const readiness = join(root, "readiness");
