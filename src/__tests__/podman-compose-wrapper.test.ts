@@ -138,6 +138,11 @@ chmodSync(join(BIN_STANDALONE, "docker"), 0o755);
 chmodSync(join(BIN_STANDALONE, "docker-compose"), 0o755);
 await Bun.write(join(BIN_GIT_UNAVAILABLE, "git"), "#!/usr/bin/env bash\nexit 127\n");
 chmodSync(join(BIN_GIT_UNAVAILABLE, "git"), 0o755);
+// Two cases EXECUTE the printed direct-Docker rebuild command, so they need the
+// real Docker CLI and daemon — not Compose, and not Podman, which resolves
+// build-context ignore files differently (see Dockerfile.test's guard). On a
+// Podman-only host they are skipped, not faked; CI has Docker and runs them.
+const HAS_DOCKER_CLI = Bun.which("docker") !== null;
 const realCompose = Bun.which("docker") ?? Bun.which("docker-compose");
 if (!realCompose) throw new Error("Docker Compose is required for wrapper interpolation tests");
 symlinkSync(realCompose, join(BIN_REAL_COMPOSE, realCompose.endsWith("docker-compose") ? "docker-compose" : "docker"));
@@ -434,6 +439,34 @@ describe("podman wrapper — the invocation it guarantees", () => {
     expect(result.stderr).toContain(`no extension-runner socket at ${missingDirectory}/runner.sock`);
   });
 
+  test("a remote Podman client (macOS) is named as such, not as a wrong-user problem", () => {
+    // `podman unshare` refuses on a remote client — which is what macOS's
+    // `podman machine` gives you. The old message told the operator to switch
+    // users, which cannot help; this one says the dev stack needs Linux and
+    // points at the prod stack.
+    const bin = mkdtempSync(join(SANDBOX, "bin-remote-"));
+    writeFileSync(
+      join(bin, "podman"),
+      '#!/usr/bin/env bash\necho \'Error: cannot use command "podman unshare" with the remote podman client\' >&2\nexit 125\n',
+    );
+    chmodSync(join(bin, "podman"), 0o755);
+    const result = resolveRunnerGroup("--podman", { PATH: `${bin}:${baseEnv.PATH}` });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("remote client");
+    expect(result.stderr).toContain("bun run podman --prod");
+    expect(result.stderr).not.toContain("Run this as the user");
+  });
+
+  test("any other gid-map failure keeps the wrong-user hint", () => {
+    const bin = mkdtempSync(join(SANDBOX, "bin-unshare-fail-"));
+    writeFileSync(join(bin, "podman"), "#!/usr/bin/env bash\necho 'some other failure' >&2\nexit 1\n");
+    chmodSync(join(bin, "podman"), 0o755);
+    const result = resolveRunnerGroup("--podman", { PATH: `${bin}:${baseEnv.PATH}` });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Run this as the user");
+    expect(result.stderr).not.toContain("remote client");
+  });
+
   test("the fresh environment example leaves the group unset for the wrapper", async () => {
     const example = await Bun.file(join(REPO_ROOT, ".env.example")).text();
     expect(example).not.toContain("\nEZ_RUNNER_GROUP=");
@@ -536,7 +569,7 @@ describe("podman wrapper — the invocation it guarantees", () => {
     expect(explicit?.buildSourceStateDefault).toBe("clean");
   });
 
-  test("the advertised Docker rebuild command renders complete clean provenance", () => {
+  test.skipIf(!HAS_DOCKER_CLI)("the advertised Docker rebuild command renders complete clean provenance", () => {
     const args = advertisedDockerBuildArgs();
     expect(args.EZCORP_BUILD_COMMIT).toBe(DEFAULT_BUILD_COMMIT);
     expect(args.EZCORP_BUILD_SOURCE_STATE).toBe("clean");
@@ -740,7 +773,7 @@ describe("podman wrapper — the invocation it guarantees", () => {
     }
   });
 
-  test("records a Git-ignored file when Docker includes it", () => {
+  test.skipIf(!HAS_DOCKER_CLI)("records a Git-ignored file when Docker includes it", () => {
     const ignoredByGit = join(SANDBOX, "gitignored-build-input.conf");
     writeFileSync(ignoredByGit, "Git ignores this, but Docker copies it\n");
     try {
@@ -883,8 +916,13 @@ describe("podman wrapper — the invocation it guarantees", () => {
   });
 
   test("preserves the revision stamp with the standalone Compose client", () => {
+    // BIN stays on PATH, AFTER BIN_STANDALONE: this case varies only the
+    // Compose client. Dropping BIN also dropped its podman stub, so the
+    // wrapper's runner-group step reached the host's real podman — on macOS
+    // a remote client that refuses `podman unshare`, failing the test for a
+    // reason unrelated to what it measures.
     const result = run(["up", "-d"], {
-      PATH: `${BIN_STANDALONE}:${baseEnv.PATH}`,
+      PATH: `${BIN_STANDALONE}:${BIN}:${baseEnv.PATH}`,
     });
     expect(result.exitCode).toBe(0);
     expect(result.invocation?.argv).toBe("up -d");
