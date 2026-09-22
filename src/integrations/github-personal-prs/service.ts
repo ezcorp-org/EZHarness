@@ -114,7 +114,7 @@ export async function preparePersonalPr(userId: string, input: { runId: string; 
   if (existing) return getPersonalPrForReviewId(userId, String(existing.id));
   const controller = getSandboxController();
   let status = initial;
-  if (status.resource.observedState === "running") {
+  if (status.resource?.observedState === "running") {
     const stop = await controller.requestSandboxAction(userId, projectId, { action: "stop", idempotencyKey: randomUUID() });
     status = await controller.executeAdmittedLocalSandboxOperation(userId, stop.id);
   }
