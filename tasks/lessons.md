@@ -1475,3 +1475,9 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   focused PostgreSQL and S3 suites on a private container outside the shared lock to avoid a
   multi-hour queue. The final evidence runs under the lock; the development runs are disclosed as
   such rather than presented as the receipts.
+
+- W15: Temporal's HTTP describe route cannot address a workflow id that contains `/`, encoded once
+  or twice. Read positions through the visibility list (`?query=WorkflowId="..."`) and wait for it,
+  because visibility is eventually consistent. A running execution has no history length there.
+- W15: A PostgreSQL point-in-time replica refuses to start when its `max_connections` is below the
+  primary's. Pass the primary's value to the replica.
