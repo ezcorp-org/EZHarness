@@ -25,6 +25,7 @@ import { readFileSync } from "node:fs";
 import type { Page } from "@playwright/test";
 import { expect, test } from "./fixtures/hydration.js";
 import { captureEvidence } from "./fixtures/evidence.js";
+import { factoryLayoutOverflow } from "./fixtures/factory-layout.js";
 import { FACTORY_SERVICES_STATE_PATH, readFactoryServicesState, type FactoryServicesState } from "./factory-services/state.js";
 
 test.describe.configure({ mode: "serial" });
@@ -161,7 +162,15 @@ test("a run started from the version list is watched live to a terminal status w
 	await expect(inspector.getByRole("heading", { name: /Attempts/ })).not.toContainText(/^Attempts 0$/);
 	await expect(inspector.locator("table.attempts tbody tr").first()).toBeVisible();
 	await expect(inspector.getByRole("heading", { name: "Cost" })).toBeVisible();
+	// The list row follows the finished snapshot; it never keeps an older status.
+	const finalStatus = ((await inspector.getByText(/^Run · /).textContent()) ?? "").replace("Run · ", "").trim();
+	await expect(inspector.getByRole("button", { name: new RegExp(runId) })).toContainText(finalStatus);
+	expect(await factoryLayoutOverflow(page)).toEqual([]);
 	await captureEvidence(page, testInfo, "factory-services-run-finished");
+	await page.setViewportSize({ width: 390, height: 844 });
+	expect(await factoryLayoutOverflow(page)).toEqual([]);
+	await captureEvidence(page, testInfo, "factory-services-run-finished-narrow");
+	await page.setViewportSize({ width: 1440, height: 900 });
 	const artifacts = inspector.getByRole("heading", { name: /Artifacts and evidence/ });
 	await artifacts.scrollIntoViewIfNeeded();
 	const preview = inspector.getByRole("button", { name: /^Preview / }).first();

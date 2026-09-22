@@ -43,6 +43,7 @@ export default defineConfig({
 	use: {
 		baseURL,
 		storageState: "./e2e/.factory-services-auth.json",
+		viewport: { width: 1440, height: 900 },
 		trace: "retain-on-failure",
 		screenshot: evidence ? "off" : "only-on-failure",
 	},

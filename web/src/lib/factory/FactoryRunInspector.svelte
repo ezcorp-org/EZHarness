@@ -92,6 +92,9 @@
 
 	function adopt(next: FactoryRunInspection): void {
 		inspection = next;
+		// The list row follows the newest snapshot, so it never shows a status the detail has moved past.
+		const { runId, status, revision, updatedAtMs } = next.run;
+		runs = runs.map(item => item.runId === runId && item.revision <= revision ? { ...item, status, revision, updatedAtMs } : item);
 		attempts = next.attempts.items;
 		attemptsCursor = next.attempts.nextCursor;
 		children = next.children.items;
@@ -297,7 +300,7 @@
 
 					<section class="card" aria-labelledby="acceptance-title">
 						<h3 id="acceptance-title"><FileCheck2 size={15} /> Acceptance</h3>
-						{#if inspection.acceptance.length === 0}<p class="empty-copy">No acceptance decision yet.</p>{/if}
+						{#if inspection.acceptance.length === 0}<p class="empty-copy">{run && TERMINAL.has(run.status) ? "The run finished with no acceptance decision." : "No acceptance decision yet."}</p>{/if}
 						{#each inspection.acceptance as decision (decision.commandId)}
 							<div class="decision" data-decision={decision.decision}>
 								<span class="chip" data-status={decision.decision === "accepted" ? "succeeded" : "failed"}>{decision.decision}</span>

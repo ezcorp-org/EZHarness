@@ -174,7 +174,9 @@ describe("FactoryRunInspector", () => {
 		await fireEvent.click(screen.getByRole("button", { name: "Refresh factory runs" }));
 		await fireEvent.click(await screen.findByRole("button", { name: /run-1/ }));
 		expect(await screen.findByText("It failed.")).toBeVisible();
-		expect(screen.getByText("No acceptance decision yet.")).toBeVisible();
+		// The list said running; the snapshot says failed, and the row follows it.
+		expect(within(screen.getByRole("button", { name: /run-1/ })).getByText("failed")).toBeVisible();
+		expect(screen.getByText("The run finished with no acceptance decision.")).toBeVisible();
 		expect(screen.getByText("No release requested.")).toBeVisible();
 		expect(screen.getByText("All reported usage is settled.")).toBeVisible();
 		expect(screen.getByText("No new event since the snapshot at sequence 5.")).toBeVisible();
@@ -220,6 +222,18 @@ describe("FactoryRunInspector", () => {
 		await waitFor(() => expect(service.listRuns).toHaveBeenCalledTimes(2));
 		expect(service.openRunEvents).toHaveBeenCalledTimes(1);
 		expect(service.inspectRun).toHaveBeenCalledTimes(2);
+	});
+
+	test("an older snapshot never rolls a newer list row back, and a live run with no decision says so", async () => {
+		const service = api({
+			listRuns: vi.fn(async () => ({ items: [{ ...summary("run-1", "succeeded"), revision: 9 }], nextCursor: null })),
+			inspectRun: vi.fn(async (_project: string, runId: string) => inspection(runId, { acceptance: [] })),
+			openRunEvents: vi.fn(async () => frames()),
+		});
+		render(FactoryRunInspector, { projectId: "project-1", onOpenInbox: vi.fn(), api: service });
+		await fireEvent.click(await screen.findByRole("button", { name: /run-1/ }));
+		expect(await screen.findByText("No acceptance decision yet.")).toBeVisible();
+		expect(within(screen.getByRole("button", { name: /run-1/ })).getByText("succeeded")).toBeVisible();
 	});
 
 	test("no project reads nothing", async () => {

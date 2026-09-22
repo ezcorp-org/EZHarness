@@ -20,6 +20,7 @@ import type {
 } from "@ezcorp/factory-sdk/types";
 import { expect, test, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
+import { factoryLayoutOverflow } from "./fixtures/factory-layout.js";
 
 const projectId = "factory-live-project";
 const digest = (fill: string) => `sha256:${fill.repeat(64)}`;
@@ -190,32 +191,6 @@ async function scrollToTop(page: Page): Promise<void> {
  * check, so each visible element is measured; content inside a deliberate
  * horizontal scroller (the tab rail, the run strip, a wide table) is exempt.
  */
-async function noHorizontalOverflow(page: Page): Promise<void> {
-	const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
-	expect(overflow).toBeLessThanOrEqual(0);
-	const clipped = await page.evaluate(() => {
-		const root = document.querySelector('[data-testid="factory-workspace"]');
-		if (!root) return ["factory workspace missing"];
-		const limit = document.documentElement.clientWidth;
-		const inScroller = (element: Element) => {
-			// Deliberate truncation: the direct parent clips with an ellipsis.
-			const direct = element.parentElement ? getComputedStyle(element.parentElement) : null;
-			if (direct && direct.overflowX === "hidden" && direct.textOverflow === "ellipsis") return true;
-			for (let parent = element.parentElement; parent && parent !== root; parent = parent.parentElement) {
-				if (/(auto|scroll)/.test(getComputedStyle(parent).overflowX)) return true;
-			}
-			return false;
-		};
-		const out: string[] = [];
-		for (const element of root.querySelectorAll("h1, h2, h3, p, button, strong, small, code, td, th, label, a, select, input")) {
-			const box = element.getBoundingClientRect();
-			if (box.width === 0 || box.height === 0 || box.right <= limit + 1 || inScroller(element)) continue;
-			out.push(`${element.tagName.toLowerCase()} "${(element.textContent ?? "").trim().slice(0, 40)}" ends at ${Math.round(box.right)}px`);
-		}
-		return out;
-	});
-	expect(clipped).toEqual([]);
-}
 
 test.describe("factory live console", () => {
 	for (const [theme, width] of [["light", 1440], ["dark", 1440], ["light", 390], ["dark", 390]] as const) {
@@ -236,7 +211,7 @@ test.describe("factory live console", () => {
 			await expect(inspector.getByText("Some provider usage is not settled yet.")).toBeVisible();
 			await inspector.getByRole("button", { name: "Load more attempts" }).click();
 			await expect(inspector.getByRole("heading", { name: /Attempts/ })).toContainText("100+");
-			await noHorizontalOverflow(page);
+			expect(await factoryLayoutOverflow(page)).toEqual([]);
 			await scrollToTop(page);
 			await captureEvidence(page, testInfo, `factory-run-inspector-${width}-${theme}`);
 			await inspector.getByRole("heading", { name: /Artifacts and evidence/ }).evaluate(element => element.scrollIntoView({ block: "center" }));
@@ -338,7 +313,7 @@ test.describe("factory live console", () => {
 		await routeConsole(page);
 		await page.goto("/factories?view=admin");
 		await expect(page.getByTestId("factory-administration").getByRole("heading", { name: "Project grants" })).toBeVisible();
-		await noHorizontalOverflow(page);
+		expect(await factoryLayoutOverflow(page)).toEqual([]);
 		await captureEvidence(page, testInfo, "factory-administration-390-dark");
 		await page.getByRole("heading", { name: "Project grants" }).evaluate(element => element.scrollIntoView({ block: "start" }));
 		await captureEvidence(page, testInfo, "factory-administration-grants-390-dark");
