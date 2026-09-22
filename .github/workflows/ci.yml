@@ -973,19 +973,32 @@ jobs:
       - name: Global coverage floor
         run: bun scripts/check-global-coverage.ts
       # Scored against the functions this PR TOUCHED, not the whole tree — the
-      # full-repo CRAP ratchet runs nightly (mutation-nightly.yml).
+      # full-repo CRAP ratchet is the main-push-only step right below.
       - name: CRAP gate (touched functions)
         env:
           BASE_REF: origin/main
         run: bun scripts/crap-score.ts --changed
+      # Full-repo CRAP RATCHET — pushes to main only, so it never gates a PR.
+      # It needs the merged coverage/lcov.info, and this job is the one place
+      # that file exists: mutation-nightly.yml used to rebuild it standalone
+      # and never could, because the browser-route coverage receipt comes from
+      # this pipeline's e2e jobs. Runs after the touched-functions gate so that
+      # on main, crap.json (and the summary below) carry the full-repo verdict.
+      # The violation count may fall, never rise — crap.maxFullRepoViolations
+      # in scripts/quality-gates.json.
+      - name: CRAP ratchet (full repo, main only)
+        if: github.event_name == 'push'
+        run: bun scripts/crap-score.ts
       # Runs even when a gate above FAILED — that is when the summary is most
       # useful. But it must not run when the job never got a bun: the
       # producers-check step above sits BEFORE setup-bun, so on a producer
       # cascade a bare always() fired with no interpreter and added a bogus
       # `bun: command not found` (exit 127) on top of the real failure.
+      # --expect names the gates this job ran; one that wrote no report makes
+      # the summary FAIL with a finding, never a silent PASS.
       - name: Quality summary
         if: always() && steps.bun.outcome == 'success'
-        run: bun scripts/quality-report.ts --text
+        run: bun scripts/quality-report.ts --text --expect coverage,crap
       - name: Upload quality reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -1049,9 +1062,11 @@ jobs:
         env:
           BASE_REF: origin/main
         run: bun scripts/mutation.ts --changed --report-only
+      # --expect mutation: the summary must FAIL, not pass, if the step above
+      # left no mutation.json (or no skipped-diff receipt) behind.
       - name: Quality summary
         if: always() && steps.bun.outcome == 'success'
-        run: bun scripts/quality-report.ts --text
+        run: bun scripts/quality-report.ts --text --expect mutation
       - name: Upload mutation report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

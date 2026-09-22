@@ -217,6 +217,30 @@ Plan review: preserve the original Podman fix, use `AGENTS.md` because that is t
 - Merged the current `main` and the concurrent PR-head merge without conflicts. The merged source tree is identical to the fully validated tree.
 - Verification passed: lint, typecheck, production build, focused tests, 2,185 browser tests, 26,602 coverage tests, and all 1,631 enforced coverage files.
 
+## Nightly mutation workflow — three faults (handoff 2026-09-20)
+
+Branch `ci/nightly-mutation-fixes`, worktree `.worktrees/nightly-mutation`, base origin/main 550b7c67e.
+
+- [x] Fault 3 first: `scripts/quality-report.ts` — mandatory `--expect <gate,...>`; an expected gate with no report is `status: "fail"` with a finding naming the gate; summary records `expected` + `missing`; mutation gate satisfied by `mutation.json` or a skipped `mutation-summary.json`; pure `buildSummary()` exported + unit tests; ci.yml callers pass `--expect`.
+- [x] Fault 1a: `web/stryker.config.json` `dryRunTimeoutMinutes: 30` (Stryker default 5; measured 5m21s kill on the runner).
+- [x] Fault 1b: `scripts/mutation.ts` — delete a stale `mutation.json` before the run; no report after the run is an infrastructure failure and fails regardless of `--report-only`; pure `mutationExitCode()` exported + unit tests.
+- [x] Fault 2: nightly drops the coverage rebuild + CRAP + floor steps; full-repo CRAP ratchet moves to ci.yml's coverage job on `main` pushes (the one place a merged lcov exists).
+- [x] Fix the stale `vitest.related: false` claim in `web/vitest.stryker.config.ts`.
+- [x] Docs: `docs/development-lifecycle.md` gate table; `docs/features/platform/dev-lifecycle-and-gates.md` runbook + files list.
+- [x] `actionlint` both workflows; lint; typecheck.
+- [x] Verify locally: 23 unit tests green; fault-3 acceptance (report present → PASS, deleted → FAIL); fault-1b via a fake `npx` (infra exit + report-only → 1 and stale report cleared; low score + report-only → 0; low score → 1; clean → 0); `--full --dry-run-only` green in 3m42s / 3560 tests on 32 cores (182s of it Stryker overhead); full-repo ratchet on a live CI lcov (SF re-rooted, 3 /tmp fixtures left absolute): 82 ≤ 83; floor 96.32%; lint, typecheck, actionlint all 0.
+- [x] Pushed; PR #275 (draft); dispatched run 35523464554: initial test run succeeded in 6m38s on the runner (5-minute default could never fit); summary read FAIL / MISSING REPORT: mutation when the job hit the 6h cap — fail-closed proven in CI. PR CI green (48 checks): coverage job summary expected coverage+crap and found both; full-repo ratchet step skipped on the PR as designed; mutation job summary accepted the skipped-diff receipt.
+- [x] Finding: one job cannot finish — 18797 mutants reached 99.4% at 5h52m, cap is 360 min. Stryker: 1028 static mutants (5%) take ~93% of the time (`ignoreStatic` is a maintainer decision, left out).
+- [x] Shard the nightly: `mutation.ts --full --shard I/N` (round-robin over the sorted scope, exact partition), 6-job matrix always `--report-only`, new `scripts/merge-mutation-reports.ts` requires exactly N reports and applies the threshold once on the merged score (`--enforce`); `mutationTotals` shared with the reporter; 32 unit tests; lint/typecheck/actionlint 0.
+- [x] Sharded nightly run 35542869144: green end to end in 1h16m (shards 25/46/51/59/63/76 min); merge found 6/6 reports, 182 files, `Final mutation score 52.10%` (9737 killed, 49 timed out, 3597 survived, 5401 no coverage), 34 files 100% NoCoverage listed; summary.json status fail, expected [mutation], missing [], 8998 findings quoting code. Report-only, so the run is green; `--enforce` would fail it.
+- [x] Merged origin/main into the branch (5 PRs landed; `tasks/todo.md` conflicted — both sections kept; reinstalled deps for the pi 0.85.1 bump). PR CI green on the merged head (48 checks).
+
+### Review
+- Fault 3 (fail-open summary): fixed and proven in CI — the cancelled single-job run reported FAIL / MISSING REPORT: mutation; the PR runs show `expected: coverage, crap` and `expected: mutation` with the skipped-diff receipt.
+- Fault 1 (dry-run timeout + report-only over-suppression): fixed — 30-minute dry-run budget (initial run took 6m38s unsharded, 2m13s in a shard); a report-less Stryker exit fails regardless of --report-only (unit + fake-npx tests).
+- Fault 2 (coverage rebuild): the nightly is mutation-only; the full-repo CRAP ratchet is a main-push-only step in the coverage job (82 ≤ 83 on a live lcov). First real verdict on main comes after merge.
+- New: sharded nightly (6-way matrix + fail-closed merge with the threshold applied once). Follow-ups for maintainers: calibrate the 34 NoCoverage files; decide on Stryker `ignoreStatic` (1028 static mutants ≈ 93% of run time); ratchet `crap.maxFullRepoViolations` to the first main-push count.
+
 ## PR #288 repair — Podman setup safety and timeout accuracy
 
 - [x] Reproduce each audit finding with focused setup-script tests.
@@ -387,7 +411,6 @@ Keep every new validation read-only in `--check` and compatible with Apple Bash
   4,611 files; full typecheck; Bash syntax; ShellCheck; official Bash 3.2
   syntax/indirect-control/`-ef`/`link` behavior; workflow YAML parsing; gate
   integrity; real Compose adversarial probes; and `git diff --check`.
-
 ## PR #290 CI failure diagnosis
 
 - [x] Capture the completed run and raw failed-job logs for run 35631461630.
