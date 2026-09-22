@@ -16,6 +16,7 @@ function registrationIssues(workflow: string, producer: string): string[] {
     ["ledger source", "src/factory/provisioning/ledger.ts"],
     ["database step source", "src/factory/provisioning/database.ts"],
     ["upgrade ledger source", "src/factory/provisioning/fleet-upgrade.ts"],
+    ["operator entry source", "src/factory/provisioning/fleet-cli.ts"],
     ["caller-selected output", "COV_OUT:?COV_OUT is required"],
   ] as const;
   return [

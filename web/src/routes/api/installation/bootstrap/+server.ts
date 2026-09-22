@@ -27,7 +27,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
   const body = await readBoundedJson(request, 16 * 1024).catch(() => undefined) as { projectId?: unknown; acknowledgement?: unknown } | undefined;
   if (!body || typeof body.projectId !== "string" || typeof body.acknowledgement !== "string") return json({ error: "bootstrap_request_invalid" }, { status: 400 });
   try {
-    const consent = await host.bootstrap.consent({ kind: "user", id: user.id, authentication: "session" }, { projectId: body.projectId, acknowledgement: body.acknowledgement });
+    const consent = await host.bootstrap.consent({ kind: "user", id: user.id, authentication: "session" }, { projectId: body.projectId, acknowledgement: body.acknowledgement }, { invitation: host.invitation, nowMs: Date.now() });
     return json({ state: "consented", ...consent }, { status: 201 });
   } catch (error) {
     if (error instanceof FactoryBootstrapError) return json({ error: error.code }, { status: STATUS[error.code] ?? 400 });

@@ -36,13 +36,19 @@ describe("GET /api/installation/bootstrap/status", () => {
 describe("POST /api/installation/bootstrap", () => {
   const acknowledgement = "I am the first administrator of this installation and I consent to act as its consent authority.";
   const consented = vi.fn();
-  beforeEach(() => { host.mockReset().mockResolvedValue({ bootstrap: { consent: consented } }); consented.mockReset().mockResolvedValue({ consentDigest: `sha256:${"a".repeat(64)}`, grants: { "factory.approve": 1 } }); });
+  const invitation = { invitationId: "invite-1", installationId: "inst-1", administratorEmail: "first@example.test", expiresAtMs: Number.MAX_SAFE_INTEGER };
+  beforeEach(() => { host.mockReset().mockResolvedValue({ invitation, bootstrap: { consent: consented } }); consented.mockReset().mockResolvedValue({ consentDigest: `sha256:${"a".repeat(64)}`, grants: { "factory.approve": 1 } }); });
 
   test("the administrator's session consent commits and answers 201 with the digest and grants", async () => {
+    const before = Date.now();
     const res = await consent.POST(post(session, { projectId: "p1", acknowledgement }));
     expect(res.status).toBe(201);
     expect(await res.json()).toEqual({ state: "consented", consentDigest: `sha256:${"a".repeat(64)}`, grants: { "factory.approve": 1 } });
-    expect(consented).toHaveBeenCalledWith({ kind: "user", id: "u1", authentication: "session" }, { projectId: "p1", acknowledgement });
+    // The invitation rides along so a setup whose redemption row never committed can be adopted under the same proof.
+    expect(consented).toHaveBeenCalledWith({ kind: "user", id: "u1", authentication: "session" }, { projectId: "p1", acknowledgement }, { invitation, nowMs: expect.any(Number) });
+    const [, , orphan] = consented.mock.calls[0]!;
+    expect(orphan.nowMs).toBeGreaterThanOrEqual(before);
+    expect(orphan.nowMs).toBeLessThanOrEqual(Date.now());
   });
 
   test("no principal, an API key, a malformed body, and an unprovisioned installation are refused before any consent", async () => {
@@ -51,6 +57,8 @@ describe("POST /api/installation/bootstrap", () => {
     expect((await consent.POST(post(session, "{not json"))).status).toBe(400);
     expect((await consent.POST(post(session, { projectId: 7, acknowledgement }))).status).toBe(400);
     host.mockResolvedValue(null);
+    expect((await consent.POST(post(session, { projectId: "p1", acknowledgement }))).status).toBe(404);
+    host.mockRejectedValue(new Error("bootstrap_invitation_unavailable"));
     expect((await consent.POST(post(session, { projectId: "p1", acknowledgement }))).status).toBe(404);
     expect(consented).not.toHaveBeenCalled();
   });

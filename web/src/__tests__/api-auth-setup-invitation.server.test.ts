@@ -20,6 +20,7 @@ const host = vi.fn();
 vi.mock("$server/factory/provisioning/bootstrap", () => ({ factoryBootstrapHost: (...args: unknown[]) => host(...args) }));
 
 const { getUserCount, createUser } = await import("$server/db/queries/users");
+const { upsertSetting } = await import("$server/db/queries/settings");
 const { POST, __rateLimiter } = await import("../routes/api/auth/setup/+server");
 
 const token = "A".repeat(43);
@@ -46,6 +47,20 @@ describe("POST /api/auth/setup on a provisioned installation", () => {
     const res = await POST(event({ ...base, invitationToken: token }));
     expect(res.status).toBe(201);
     expect(recordRedeemed).toHaveBeenCalledWith(invitation, "u1");
+  });
+
+  test("the redemption is recorded right after the administrator exists, before the installation is marked initialized", async () => {
+    vi.mocked(upsertSetting).mockClear();
+    await POST(event({ ...base, invitationToken: token }));
+    expect(recordRedeemed.mock.invocationCallOrder[0]!).toBeGreaterThan(vi.mocked(createUser).mock.invocationCallOrder[0]!);
+    expect(recordRedeemed.mock.invocationCallOrder[0]!).toBeLessThan(vi.mocked(upsertSetting).mock.invocationCallOrder[0]!);
+  });
+
+  test("a failed redemption write fails the request before the installation is marked initialized", async () => {
+    vi.mocked(upsertSetting).mockClear();
+    recordRedeemed.mockRejectedValueOnce(new Error("database down"));
+    await expect(POST(event({ ...base, invitationToken: token }))).rejects.toThrow("database down");
+    expect(upsertSetting).not.toHaveBeenCalled();
   });
 
   test("no token, a wrong token, another email, or an expired invitation is one 403, and nothing is created", async () => {

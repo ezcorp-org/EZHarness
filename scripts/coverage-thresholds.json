@@ -1133,7 +1133,9 @@
   "src/factory/provisioning/ledger.ts": 100,
   "src/factory/provisioning/mesh.ts": 100,
   "src/factory/provisioning/platform.ts": 100,
+  "src/factory/provisioning/purge-approval.ts": 100,
   "src/factory/provisioning/readiness-check.ts": 100,
+  "src/factory/provisioning/scram.ts": 100,
   "src/factory/provisioning/secret-env.ts": 100,
   "src/factory/provisioning/secret-files.ts": 100,
   "src/factory/provisioning/secrets.ts": 100,
@@ -1148,5 +1150,6 @@
   "src/factory/pool/gpu-host-profiles.ts": 100,
   "web/src/routes/api/installation/bootstrap/+server.ts": 100,
   "web/src/routes/api/installation/bootstrap/status/+server.ts": 100,
+  "web/src/routes/api/installation/purge-approval/+server.ts": 100,
   "src/factory/provisioning/fleet-cli.ts": 100
 }

@@ -3239,6 +3239,19 @@ export const factoryInstallationBootstrap = pgTable("factory_installation_bootst
   check("factory_installation_bootstrap_consent_check", sql`(${table.state} = 'consented') = (${table.projectId} IS NOT NULL AND ${table.consentDigest} IS NOT NULL AND ${table.consentedAt} IS NOT NULL)`),
 ]);
 
+/** An administrator's session-issued approval to purge this installation; read by the operator's provisioner at purge. */
+export const factoryInstallationPurgeApprovals = pgTable("factory_installation_purge_approvals", {
+  approvalId: text("approval_id").primaryKey(),
+  installationId: text("installation_id").notNull(),
+  approvedByUserId: text("approved_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  reason: text("reason").notNull(),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (table) => [
+  check("factory_installation_purge_approvals_reason_check", sql`char_length(${table.reason}) BETWEEN 1 AND 256`),
+  check("factory_installation_purge_approvals_expiry_check", sql`${table.expiresAt} > ${table.approvedAt}`),
+]);
+
 /** Retained encrypted wraps for one installation data key; plaintext master keys never enter this schema. */
 export const factoryInstallationKeyWraps = pgTable("factory_installation_key_wraps", {
   installationId: text("installation_id").notNull(),

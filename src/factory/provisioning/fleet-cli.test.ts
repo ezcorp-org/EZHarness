@@ -5,6 +5,10 @@ import { FactoryProvisioningError } from "./steps";
 
 const settings = { fleetId: "w16", ingress: { domain: "w16.factory.test", port: 32005, address: "127.0.0.1" }, image: { reference: `localhost/f@sha256:${"a".repeat(64)}`, revision: "b".repeat(40) }, release: { directory: "/release" } } as unknown as FactoryFleetSettings;
 
+const checks = { census: { count: async () => ({ active: 0, uncertain: 0 }) }, approvals: { verify: async () => ({ approvedBy: "admin:a@b.co" }) } };
+const WHO = { actor: "cli:operator" };
+const APPROVAL = "0f8b2f7a-1c1d-4a4e-9a0b-6d1f2e3c4b5a";
+
 function context(overrides: Partial<Record<string, unknown>> = {}) {
   const calls: unknown[][] = [];
   const record = (name: string) => async (...args: unknown[]) => { calls.push([name, ...args]); if (overrides[name] instanceof Error) throw overrides[name]; return overrides[name] ?? { phase: "invitation_issued", installationId: "i-1", steps: [{ step: "database", state: "complete", attempts: 1 }] }; };
@@ -14,11 +18,12 @@ function context(overrides: Partial<Record<string, unknown>> = {}) {
       teardown: async (...args: unknown[]) => { calls.push(["teardown", ...args]); return { installation: { phase: "torn_down" }, residues: [] }; },
       ledger: { events: record("events"), directory: record("directory") },
     },
-    upgrades: { adopt: record("adopt"), register: record("register"), wave: record("wave"), retire: record("retire"), builds: async () => undefined },
+    upgrades: { adopt: record("adopt"), register: record("register"), wave: record("wave"), abandon: record("abandon"), retire: record("retire"), builds: async () => undefined },
   } as unknown as FactoryComposedFleet;
   const value: FactoryFleetCommandContext = {
     settings, fleet,
-    census: async () => ({ count: async () => ({ active: 0, uncertain: 0 }) }),
+    purgeChecks: async () => checks,
+    actor: "cli:operator",
     observer: async () => ({ observe: async () => ({ complete: true }) }),
     startPlatform: async () => { calls.push(["platform"]); },
   };
@@ -33,11 +38,20 @@ describe("fleet commands", () => {
     const result = await runFactoryFleetCommand("provision", ["tenant-01", "tenant-02", "--through", "secrets"], value) as { provision: { tenantId: string; phase: string }[] };
     expect(result.provision.map((entry) => [entry.tenantId, entry.phase])).toEqual([["tenant-01", "invitation_issued"], ["tenant-02", "invitation_issued"]]);
     expect(calls.filter((call) => call[0] === "provision")).toEqual([
-      ["provision", { tenantId: "tenant-01", hostname: "tenant-01.w16.factory.test", administratorEmail: "admin@tenant-01.w16.factory.test" }, { through: "secrets" }],
-      ["provision", { tenantId: "tenant-02", hostname: "tenant-02.w16.factory.test", administratorEmail: "admin@tenant-02.w16.factory.test" }, { through: "secrets" }],
+      ["provision", { tenantId: "tenant-01", hostname: "tenant-01.w16.factory.test", administratorEmail: "admin@tenant-01.w16.factory.test" }, { ...WHO, through: "secrets" }],
+      ["provision", { tenantId: "tenant-02", hostname: "tenant-02.w16.factory.test", administratorEmail: "admin@tenant-02.w16.factory.test" }, { ...WHO, through: "secrets" }],
     ]);
     expect(calls.filter((call) => call[0] === "adopt")).toEqual([["adopt", "tenant-01", "rev-bbbbbbbbbbbb"], ["adopt", "tenant-02", "rev-bbbbbbbbbbbb"]]);
     expect(await usage(runFactoryFleetCommand("provision", ["tenant-01", "--through", "nonsense"], value))).toBe("cli_usage");
+  });
+
+  test("--admin-email names the invited administrator of exactly one tenant", async () => {
+    const { value, calls } = context();
+    await runFactoryFleetCommand("provision", ["tenant-03", "--admin-email", "ada@example.com"], value);
+    expect(calls.filter((call) => call[0] === "provision")).toEqual([["provision", { tenantId: "tenant-03", hostname: "tenant-03.w16.factory.test", administratorEmail: "ada@example.com" }, WHO]]);
+    const refused = context();
+    expect(await usage(runFactoryFleetCommand("provision", ["tenant-03", "tenant-04", "--admin-email", "ada@example.com"], refused.value))).toBe("cli_usage");
+    expect(refused.calls).toEqual([]);
   });
 
   test("a per-tenant failure is reported in the result and the others still run", async () => {
@@ -53,23 +67,29 @@ describe("fleet commands", () => {
     expect(await runFactoryFleetCommand("platform", [], value)).toEqual({ platform: "started", project: "ezcorp-factory-w16-platform" });
     expect(await runFactoryFleetCommand("observe", ["tenant-01"], value)).toEqual({ observe: [{ tenantId: "tenant-01", phase: "invitation_issued" }] });
     expect(await runFactoryFleetCommand("rotate", ["tenant-01", "database"], value)).toEqual({ rotate: { tenantId: "tenant-01", step: "database", phase: "invitation_issued" } });
+    expect(await runFactoryFleetCommand("rotate", ["tenant-01", "deployment"], value)).toEqual({ rotate: { tenantId: "tenant-01", step: "deployment", phase: "invitation_issued" } });
     expect(await runFactoryFleetCommand("teardown", ["tenant-01", "--reason", "left"], value)).toEqual({ teardown: { tenantId: "tenant-01", phase: "torn_down", residues: [] } });
     expect(await runFactoryFleetCommand("teardown", ["tenant-01"], value)).toMatchObject({ teardown: { phase: "torn_down" } });
-    expect(await runFactoryFleetCommand("purge", ["tenant-01", "--approved-by", "admin:a@b.c", "--reason", "done"], value)).toEqual({ purge: { tenantId: "tenant-01", phase: "invitation_issued" } });
-    expect(await runFactoryFleetCommand("purge", ["tenant-01", "--approved-by", "admin:a@b.c"], value)).toMatchObject({ purge: { tenantId: "tenant-01" } });
+    expect(await runFactoryFleetCommand("purge", ["tenant-01", "--approval", APPROVAL, "--reason", "done"], value)).toEqual({ purge: { tenantId: "tenant-01", phase: "invitation_issued" } });
+    expect(await runFactoryFleetCommand("purge", ["tenant-01", "--approval", APPROVAL], value)).toMatchObject({ purge: { tenantId: "tenant-01" } });
     expect(await runFactoryFleetCommand("status", ["tenant-01"], value)).toMatchObject({ builds: null });
     expect(await runFactoryFleetCommand("status", [], value)).toHaveProperty("directory");
     expect(await runFactoryFleetCommand("upgrade", ["register", "b2", `localhost/f@sha256:${"c".repeat(64)}`, "d".repeat(40), "/release/b2"], value)).toEqual({ registered: { buildId: "b2", image: `localhost/f@sha256:${"c".repeat(64)}`, revision: "d".repeat(40), releaseDirectory: "/release/b2" } });
     expect(await runFactoryFleetCommand("upgrade", ["wave", "b2", "--canary", "tenant-01", "tenant-01", "tenant-02"], value)).toHaveProperty("wave");
+    expect(await runFactoryFleetCommand("upgrade", ["abandon", "wave-1"], value)).toEqual({ abandoned: "wave-1" });
     expect(await runFactoryFleetCommand("upgrade", ["retire"], value)).toHaveProperty("retired");
-    expect(calls.find((call) => call[0] === "teardown")).toEqual(["teardown", "tenant-01", { reason: "left" }]);
+    expect(calls.find((call) => call[0] === "teardown")).toEqual(["teardown", "tenant-01", { reason: "left", ...WHO }]);
+    expect(calls.find((call) => call[0] === "observe")).toEqual(["observe", "tenant-01", expect.anything(), WHO]);
+    expect(calls.filter((call) => call[0] === "rotate")).toEqual([["rotate", "tenant-01", "database", WHO], ["rotate", "tenant-01", "deployment", WHO]]);
+    expect(calls.find((call) => call[0] === "abandon")).toEqual(["abandon", "wave-1"]);
+    expect(calls.find((call) => call[0] === "retire")).toEqual(["retire", checks.census]);
     expect(calls.find((call) => call[0] === "wave")).toEqual(["wave", { buildId: "b2", canary: "tenant-01", tenants: ["tenant-01", "tenant-02"] }]);
-    expect(calls.find((call) => call[0] === "purge")![2]).toEqual({ approvedBy: "admin:a@b.c", reason: "done" });
+    expect(calls.find((call) => call[0] === "purge")!.slice(2)).toEqual([{ approvalId: APPROVAL, reason: "done", ...WHO }, checks]);
   });
 
   test("every malformed command is a usage error, never a partial action", async () => {
     const { value, calls } = context();
-    for (const [command, args] of [["rotate", ["tenant-01"]], ["rotate", ["tenant-01", "ingress"]], ["rotate", []], ["teardown", []], ["purge", ["tenant-01"]], ["purge", []], ["upgrade", ["register", "b2"]], ["upgrade", ["wave", "b2", "tenant-01"]], ["upgrade", ["wave", "b2", "--canary", "tenant-01"]], ["upgrade", ["nonsense"]], ["upgrade", []], ["nonsense", []]] as const) {
+    for (const [command, args] of [["rotate", ["tenant-01"]], ["rotate", ["tenant-01", "ingress"]], ["rotate", []], ["teardown", []], ["purge", ["tenant-01"]], ["purge", ["tenant-01", "--approved-by", "admin:a@b.c"]], ["purge", []], ["upgrade", ["abandon"]], ["upgrade", ["register", "b2"]], ["upgrade", ["wave", "b2", "tenant-01"]], ["upgrade", ["wave", "b2", "--canary", "tenant-01"]], ["upgrade", ["nonsense"]], ["upgrade", []], ["nonsense", []]] as const) {
       expect(await usage(runFactoryFleetCommand(command, args, value))).toBe("cli_usage");
     }
     expect(calls).toEqual([]);

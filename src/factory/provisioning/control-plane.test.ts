@@ -8,6 +8,7 @@ import {
 import type { FactoryPrivateRequest } from "../private-https";
 import { issueFactoryCertificate, type FactoryIssuedCertificate } from "./certificates";
 import {
+  FACTORY_CONTROL_PLANE_CONCURRENCY,
   FACTORY_CONTROL_PLANE_ROUTES,
   FACTORY_DIRECTORY_FIELDS,
   factoryControlPlaneHandler,
@@ -17,10 +18,11 @@ import {
   type FactoryControlPlaneProvisioner,
 } from "./control-plane";
 import type { FactoryInstallationRecord } from "./ledger";
-import type { FactoryBootstrapObserver, FactoryWorkCensus, LocalInstallation } from "./local";
+import type { FactoryBootstrapObserver, FactoryPurgeChecks, LocalInstallation } from "./local";
 import { FactoryProvisioningError } from "./steps";
 
 const OPERATOR = "operator-alice";
+const WHO = { actor: `operator:${OPERATOR}` };
 
 function installation(tenantId: string, phase: LocalInstallation["phase"] = "deployment_ready"): LocalInstallation {
   return {
@@ -58,10 +60,10 @@ function fakeProvisioner() {
   };
   const provisioner: FactoryControlPlaneProvisioner = {
     provision: (request, options) => operate("provision", [request, options], request.tenantId),
-    observeBootstrap: (tenantId, observer) => operate("observeBootstrap", [tenantId, observer], tenantId),
-    rotate: (tenantId, step) => operate("rotate", [tenantId, step], tenantId),
+    observeBootstrap: (tenantId, observer, who) => operate("observeBootstrap", [tenantId, observer, who], tenantId),
+    rotate: (tenantId, step, who) => operate("rotate", [tenantId, step, who], tenantId),
     teardown: async (tenantId, input) => ({ installation: await operate("teardown", [tenantId, input], tenantId), residues: [{ step: "storage", failure: { code: "storage_identity_residue", message: "seeded" } }] }),
-    purge: (tenantId, approval, census) => operate("purge", [tenantId, approval, census], tenantId),
+    purge: (tenantId, request, checks) => operate("purge", [tenantId, request, checks], tenantId),
     status: async (tenantId) => { if (state.statusFailure !== undefined) throw state.statusFailure; return installation(tenantId); },
     ledger: {
       directory: async () => { if (state.directoryFailure !== undefined) throw state.directoryFailure; return [record("tenant-01"), record("tenant-02")]; },
@@ -72,11 +74,12 @@ function fakeProvisioner() {
 }
 
 const observer: FactoryBootstrapObserver = { observe: async () => ({ complete: true }) as never };
-const census: FactoryWorkCensus = { count: async () => ({ active: 0, uncertain: 0 }) };
+const purgeChecks: FactoryPurgeChecks = { census: { count: async () => ({ active: 0, uncertain: 0 }) }, approvals: { verify: async () => ({ approvedBy: "admin:admin@example.com" }) } };
+const APPROVAL = "0f8b2f7a-1c1d-4a4e-9a0b-6d1f2e3c4b5a";
 
 function setup(overrides: Partial<FactoryControlPlaneOptions> = {}) {
   const fake = fakeProvisioner();
-  const handle = factoryControlPlaneHandler({ provisioner: fake.provisioner, operators: [OPERATOR], observer, census, hostnameFor: (tenantId) => `${tenantId}.factory.example`, ...overrides });
+  const handle = factoryControlPlaneHandler({ provisioner: fake.provisioner, operators: [OPERATOR], observer, purgeChecks, hostnameFor: (tenantId) => `${tenantId}.factory.example`, ...overrides });
   const call = async (method: string, path: string, body?: unknown, options: { peer?: string; contentType?: string; raw?: Buffer } = {}) => {
     const bytes = options.raw ?? (body === undefined ? Buffer.alloc(0) : Buffer.from(JSON.stringify(body)));
     const request: FactoryPrivateRequest = { peerIdentity: options.peer ?? OPERATOR, method, path, headers: bytes.byteLength > 0 ? { "content-type": options.contentType ?? "application/json" } : {}, body: bytes };
@@ -107,7 +110,7 @@ describe("route table", () => {
 
   test("every listed route is served", async () => {
     const { call, settled } = setup();
-    const bodies: Record<string, unknown> = { provision: { administratorEmail: "admin@example.com" }, teardown: { reason: "customer left" }, purge: { approvedBy: "member-1", reason: "approved" } };
+    const bodies: Record<string, unknown> = { provision: { administratorEmail: "admin@example.com" }, teardown: { reason: "customer left" }, purge: { approvalId: APPROVAL, reason: "approved" } };
     for (const route of FACTORY_CONTROL_PLANE_ROUTES) {
       const path = route.path.replace(":tenant", "tenant-01").replace(":step", "storage");
       const action = path.split("/")[4] ?? "";
@@ -162,7 +165,7 @@ describe("factoryControlPlaneHandler: operations", () => {
     expect(await call("POST", "/v1/installations/tenant-01/provision", { administratorEmail: "admin@example.com", through: "storage", planLimits: { runs: 3 } })).toEqual({ status: 202, body: { accepted: "provision", tenantId: "tenant-01" } });
     const during = await call("GET", "/v1/installations/tenant-01");
     expect(during.body).toMatchObject({ running: "provision", last: null, events: [{ tenantId: "tenant-01", event: "step_completed" }] });
-    expect(calls[0]).toEqual({ method: "provision", args: [{ tenantId: "tenant-01", hostname: "tenant-01.factory.example", administratorEmail: "admin@example.com" }, { through: "storage", planLimits: { runs: 3 } }] });
+    expect(calls[0]).toEqual({ method: "provision", args: [{ tenantId: "tenant-01", hostname: "tenant-01.factory.example", administratorEmail: "admin@example.com" }, { ...WHO, through: "storage", planLimits: { runs: 3 } }] });
     state.gate.resolve();
     const after = await settled("tenant-01");
     expect(after.last).toMatchObject({ action: "provision", outcome: { tenantId: "tenant-01", phase: "deployment_ready" } });
@@ -171,11 +174,23 @@ describe("factoryControlPlaneHandler: operations", () => {
     expect((after.installation as { steps: unknown[] }).steps).toEqual([{ step: "database", ordinal: 1, owner: "provisioner", state: "complete", attempts: 1, failure: null }]);
   });
 
-  test("provision without through or plan limits passes no options", async () => {
+  test("provision without through or plan limits passes only the operator", async () => {
     const { call, calls, settled } = setup();
     await call("POST", "/v1/installations/tenant-02/provision", { administratorEmail: "admin@example.com" });
     await settled("tenant-02");
-    expect(calls[0]!.args[1]).toEqual({});
+    expect(calls[0]!.args[1]).toEqual(WHO);
+  });
+
+  test("operations beyond the concurrency cap are refused 429 until one finishes", async () => {
+    const { call, state, settled } = setup();
+    state.gate = deferred();
+    const tenants = Array.from({ length: FACTORY_CONTROL_PLANE_CONCURRENCY }, (_, index) => `tenant-${String(index + 10)}`);
+    for (const tenantId of tenants) expect((await call("POST", `/v1/installations/${tenantId}/observe`)).status).toBe(202);
+    expect(await call("POST", "/v1/installations/tenant-20/observe")).toEqual({ status: 429, body: { error: "control_plane_busy", running: FACTORY_CONTROL_PLANE_CONCURRENCY } });
+    state.gate.resolve();
+    for (const tenantId of tenants) await settled(tenantId);
+    expect((await call("POST", "/v1/installations/tenant-20/observe")).status).toBe(202);
+    await settled("tenant-20");
   });
 
   test("a second mutation on the same tenant is refused while one runs; another tenant is not blocked", async () => {
@@ -193,15 +208,16 @@ describe("factoryControlPlaneHandler: operations", () => {
 
   test("observe, rotate, teardown and purge reach the provisioner with their inputs", async () => {
     const { call, calls, settled } = setup();
-    for (const [path, body] of [["observe", undefined], ["rotate/database", undefined], ["teardown", { reason: "customer left" }], ["purge", { approvedBy: "member-1", reason: "approved" }]] as const) {
+    for (const [path, body] of [["observe", undefined], ["rotate/database", undefined], ["rotate/deployment", undefined], ["teardown", { reason: "customer left" }], ["purge", { approvalId: APPROVAL, reason: "approved" }]] as const) {
       expect((await call("POST", `/v1/installations/tenant-01/${path}`, body)).status).toBe(202);
       await settled("tenant-01");
     }
     expect(calls).toEqual([
-      { method: "observeBootstrap", args: ["tenant-01", observer] },
-      { method: "rotate", args: ["tenant-01", "database"] },
-      { method: "teardown", args: ["tenant-01", { reason: "customer left" }] },
-      { method: "purge", args: ["tenant-01", { approvedBy: "member-1", reason: "approved" }, census] },
+      { method: "observeBootstrap", args: ["tenant-01", observer, WHO] },
+      { method: "rotate", args: ["tenant-01", "database", WHO] },
+      { method: "rotate", args: ["tenant-01", "deployment", WHO] },
+      { method: "teardown", args: ["tenant-01", { reason: "customer left", ...WHO }] },
+      { method: "purge", args: ["tenant-01", { approvalId: APPROVAL, reason: "approved", ...WHO }, purgeChecks] },
     ]);
   });
 
@@ -216,6 +232,11 @@ describe("factoryControlPlaneHandler: operations", () => {
     state.failWith = "a bare string";
     await call("POST", "/v1/installations/tenant-01/observe");
     expect((await settled("tenant-01")).last).toEqual({ action: "observe", outcome: { error: "control_plane_failed", message: "a bare string" } });
+    state.failWith = new Error("connect postgres://factory:hunter2@127.0.0.1/db refused; password=hunter2");
+    await call("POST", "/v1/installations/tenant-01/observe");
+    const scrubbed = (await settled("tenant-01")).last;
+    expect(scrubbed).toEqual({ action: "observe", outcome: { error: "control_plane_failed", message: "connect <url> refused; password=<redacted>" } });
+    expect(JSON.stringify(scrubbed)).not.toContain("hunter2");
   });
 });
 
@@ -238,7 +259,7 @@ describe("factoryControlPlaneHandler: refusals", () => {
   test("bad step names are refused", async () => {
     const { call, calls } = setup();
     expect(await call("POST", "/v1/installations/tenant-01/provision", { administratorEmail: "a@b.co", through: "deploy" })).toEqual({ status: 400, body: { error: "step_unknown" } });
-    for (const step of ["deployment", "ingress", "nope", "consent"]) {
+    for (const step of ["ingress", "nope", "consent"]) {
       expect(await call("POST", `/v1/installations/tenant-01/rotate/${step}`)).toEqual({ status: 400, body: { error: "step_not_rotatable" } });
     }
     expect(calls).toEqual([]);
@@ -251,7 +272,7 @@ describe("factoryControlPlaneHandler: refusals", () => {
     for (const body of [undefined, {}, { reason: "" }, { reason: 1 }]) {
       expect(await call("POST", "/v1/installations/tenant-01/teardown", body)).toEqual({ status: 400, body: { error: "reason_required" } });
     }
-    for (const body of [undefined, { approvedBy: "member-1" }, { reason: "approved" }, { approvedBy: 1, reason: "approved" }]) {
+    for (const body of [undefined, { approvalId: APPROVAL }, { reason: "approved" }, { approvalId: 1, reason: "approved" }, { approvedBy: "admin:a@b.co", reason: "approved" }]) {
       expect(await call("POST", "/v1/installations/tenant-01/purge", body)).toEqual({ status: 400, body: { error: "approval_required" } });
     }
     expect(calls).toEqual([]);
@@ -303,7 +324,7 @@ describe("startFactoryControlPlane over mutual TLS", () => {
     };
     const fake = fakeProvisioner();
     server = startFactoryControlPlane({
-      provisioner: fake.provisioner, operators: [OPERATOR], observer, census, hostnameFor: (tenantId) => `${tenantId}.factory.example`,
+      provisioner: fake.provisioner, operators: [OPERATOR], observer, purgeChecks, hostnameFor: (tenantId) => `${tenantId}.factory.example`,
       tls: { key: serverCertificate.privateKeyPem, cert: serverCertificate.certificatePem, ca: authority.certificatePem }, hostname: "127.0.0.1", port: 0,
     });
   });

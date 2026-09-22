@@ -62,6 +62,10 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
     name: name.trim(),
     role: "admin",
   });
+  // Identity only: consent is the administrator's separate, explicit act. If
+  // this write fails after the user exists, the consent act adopts the setup
+  // under the same invitation proof (FactoryInstallationBootstrap.consent).
+  if (bootstrap) await bootstrap.bootstrap.recordRedeemed(bootstrap.invitation, user.id);
 
   const cfg = getSessionConfig();
   const secret = await getJwtSecret();
@@ -73,8 +77,6 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
   await upsertSetting("instance:initialized", true);
   await insertAuditEntry(user.id, "user:registered");
-  // Identity only: consent is the administrator's separate, explicit act.
-  if (bootstrap) await bootstrap.bootstrap.recordRedeemed(bootstrap.invitation, user.id);
 
   // Mirror the login handler: create a session row so hooks.server.ts's
   // sec-C2 revocation check (missing row = revoked) accepts the cookie on

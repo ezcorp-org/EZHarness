@@ -16,8 +16,9 @@ import { factoryRejection, makeFactoryPrivateRoot, removeFactoryPrivateRoot, wri
 import { FactoryDatabaseStep, factoryDatabaseMarker, factoryDatabasePairs, type FactoryDatabaseKind } from "../../src/factory/provisioning/database";
 import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "../../src/factory/provisioning/installation";
 import { factoryFleetResourceName, factoryInstallationNames } from "../../src/factory/provisioning/installation";
-import { assertFactoryStepResources } from "../../src/factory/provisioning/ledger";
-import { LocalFactoryProvisioner, type FactoryProvisioningDrivers, type FactoryWorkCensus } from "../../src/factory/provisioning/local";
+import { assertFactoryStepResources, FactoryProvisioningLedger } from "../../src/factory/provisioning/ledger";
+import { FACTORY_PURGE_RETAINED, LocalFactoryProvisioner, type FactoryPurgeChecks, type FactoryProvisioningDrivers } from "../../src/factory/provisioning/local";
+import { replaceFactoryPrivateFile } from "../../src/factory/provisioning/secret-files";
 import { FactorySecretsStep } from "../../src/factory/provisioning/secrets";
 import { FactoryProvisioningError, FACTORY_PROVISIONING_STEPS, type FactoryProvisioningStepName } from "../../src/factory/provisioning/steps";
 import { FactoryStorageRevocationUnsupported } from "../../src/factory/provisioning/storage";
@@ -54,7 +55,8 @@ class RecordingDriver implements FactoryProvisioningDriver {
   }
   async verify(installation: FactoryInstallationContext): Promise<void> { calls.push({ step: this.step, action: "verify", tenantId: installation.tenantId }); this.fail("verify", installation.tenantId); }
   async teardown(installation: FactoryInstallationContext): Promise<void> { calls.push({ step: this.step, action: "teardown", tenantId: installation.tenantId }); this.fail("teardown", installation.tenantId); }
-  async rotate(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<FactoryStepResources> { calls.push({ step: this.step, action: "rotate", tenantId: installation.tenantId }); return { ...resources, rotated: "yes" }; }
+  async rotate(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<FactoryStepResources> { calls.push({ step: this.step, action: "rotate", tenantId: installation.tenantId }); this.fail("rotate", installation.tenantId); return { ...resources, rotated: "yes" }; }
+  async redeliver(installation: FactoryInstallationContext): Promise<void> { calls.push({ step: this.step, action: "redeliver", tenantId: installation.tenantId }); this.fail("redeliver", installation.tenantId); }
   async purge(installation: FactoryInstallationContext): Promise<void> { calls.push({ step: this.step, action: "purge", tenantId: installation.tenantId }); }
   async serve(installation: FactoryInstallationContext): Promise<void> { calls.push({ step: this.step, action: "serve", tenantId: installation.tenantId }); }
   async hold(installation: FactoryInstallationContext): Promise<void> { calls.push({ step: this.step, action: "hold", tenantId: installation.tenantId }); }
@@ -78,9 +80,9 @@ function drivers(database: FactoryDatabaseStep, secrets: FactoryProvisioningDriv
   };
 }
 
-function provisioner(options: { readonly fault?: (step: FactoryProvisioningStepName, point: "before" | "after") => Promise<void>; readonly afterExternalResourceCreated?: (resource: "role" | "database", kind: FactoryDatabaseKind) => Promise<void> } = {}): LocalFactoryProvisioner {
+function provisioner(options: { readonly fault?: (step: FactoryProvisioningStepName, point: "before" | "after") => Promise<void>; readonly afterExternalResourceCreated?: (resource: "role" | "database", kind: FactoryDatabaseKind) => Promise<void>; readonly afterRotationAltered?: (kind: FactoryDatabaseKind) => Promise<void> } = {}): LocalFactoryProvisioner {
   let created: LocalFactoryProvisioner | undefined;
-  const database = new FactoryDatabaseStep({ adminUrl: url!, progress: (installation, resources) => created!.ledger.stepProgress(installation.tenantId, "database", resources), ...(options.afterExternalResourceCreated ? { afterExternalResourceCreated: options.afterExternalResourceCreated } : {}) });
+  const database = new FactoryDatabaseStep({ adminUrl: url!, progress: (installation, resources) => created!.ledger.stepProgress(installation.tenantId, "database", resources), ...(options.afterExternalResourceCreated ? { afterExternalResourceCreated: options.afterExternalResourceCreated } : {}), ...(options.afterRotationAltered ? { afterRotationAltered: options.afterRotationAltered } : {}) });
   databaseSteps.push(database);
   const secrets = new FactorySecretsStep({ registry: { conflicts: (tenantId, digests) => created!.ledger.digestConflicts(tenantId, digests) }, grantableRoots: () => [join(root, "projects")] });
   created = new LocalFactoryProvisioner({ fleetId, controlDatabaseUrl: controlUrl, secretsRoot: join(root, "installations"), operatorRoot: join(root, "operator"), drivers: drivers(database, secrets), ...(options.fault ? { fault: options.fault } : {}) });
@@ -284,8 +286,50 @@ describe("credentials: uniqueness, rotation, and revocation", () => {
     expect(next.password).not.toBe(old.password);
     expect(await canLogin(old.role, old.password, database)).toBe(false);
     expect(await canLogin(next.role, next.password, database)).toBe(true);
-    expect(stepsOf("tenant-52").some((call) => call.step === "deployment" && call.action === "rotate")).toBe(true);
+    // The new credential reaches the running services through step 5, which does not rotate its own mesh for it.
+    expect(stepsOf("tenant-52").filter((call) => call.step === "deployment" && ["rotate", "redeliver"].includes(call.action)).map((call) => call.action)).toEqual(["redeliver"]);
     expect((await run.ledger.events("tenant-52")).some((event) => event.event === "step.rotated" && event.step === "database")).toBe(true);
+  });
+
+  test("a crash between ALTER ROLE and the credential swap is finished by the next read, never a lockout", async () => {
+    let armed = true;
+    const run = provisioner({ afterRotationAltered: async (kind) => { if (armed && kind === "product") { armed = false; throw new Error("injected rotation crash"); } } });
+    await run.provision(request("tenant-54"));
+    const old = await credential("tenant-54", "product");
+    const database = factoryFleetResourceName("factory_product", fleetId, "tenant-54");
+    await expect(run.rotate("tenant-54", "database")).rejects.toThrow("injected rotation crash");
+    const pendingPath = join(names("tenant-54").secretDirectory, "product-database.json.pending");
+    const next = JSON.parse(await Bun.file(pendingPath).text()) as { role: string; password: string };
+    // The role already has the pending password, and the live file still names the old one.
+    expect((await credential("tenant-54", "product")).password).toBe(old.password);
+    expect(await canLogin(old.role, old.password, database)).toBe(false);
+    expect(await canLogin(next.role, next.password, database)).toBe(true);
+    await run.provision(request("tenant-54"));
+    expect((await credential("tenant-54", "product")).password).toBe(next.password);
+    expect(await Bun.file(pendingPath).exists()).toBe(false);
+  });
+
+  test("a pending credential whose ALTER never ran is applied on the next read", async () => {
+    const run = provisioner();
+    await run.provision(request("tenant-55"));
+    const old = await credential("tenant-55", "pool");
+    const next = { role: old.role, password: randomBytes(32).toString("base64url") };
+    await replaceFactoryPrivateFile(join(names("tenant-55").secretDirectory, "pool-database-credential.json.pending"), `${JSON.stringify(next)}\n`);
+    await run.provision(request("tenant-55"));
+    const database = factoryFleetResourceName("factory_pool", fleetId, "tenant-55");
+    expect((await credential("tenant-55", "pool")).password).toBe(next.password);
+    expect(await canLogin(old.role, old.password, database)).toBe(false);
+    expect(await canLogin(next.role, next.password, database)).toBe(true);
+  });
+
+  test("canLogin answers false only for a refused credential and rethrows any other failure", async () => {
+    const step = new FactoryDatabaseStep({ adminUrl: url!, progress: async () => undefined });
+    databaseSteps.push(step);
+    expect(await step.canLogin(`factory_absent_${randomBytes(4).toString("hex")}`, "not-a-password", "postgres")).toBe(false);
+    const unreachable = new URL(url!); unreachable.hostname = "127.0.0.1"; unreachable.port = "1";
+    const offline = new FactoryDatabaseStep({ adminUrl: unreachable.toString(), progress: async () => undefined });
+    databaseSteps.push(offline);
+    await expect(offline.canLogin("any_role", "not-a-password", "postgres")).rejects.toBeDefined();
   });
 
   test("rotation is refused before resources exist and for a step with no credential", async () => {
@@ -299,8 +343,106 @@ describe("credentials: uniqueness, rotation, and revocation", () => {
   });
 });
 
+describe("rotation through the provisioner", () => {
+  const rotations = (tenantId: string, from: number) => stepsOf(tenantId).slice(from).filter((call) => ["rotate", "redeliver"].includes(call.action)).map((call) => `${call.step}:${call.action}`);
+
+  test("the deployment rotates its own mesh and re-delivers nothing else; the invitation delivers itself", async () => {
+    const run = provisioner();
+    await run.provision(request("tenant-56"));
+    let from = stepsOf("tenant-56").length;
+    const rotated = await run.rotate("tenant-56", "deployment", { actor: "cli:operator" });
+    expect(rotations("tenant-56", from)).toEqual(["deployment:rotate"]);
+    expect(rotated.steps.find((entry) => entry.step === "deployment")!.resources.rotated).toBe("yes");
+    from = stepsOf("tenant-56").length;
+    await run.rotate("tenant-56", "invitation");
+    expect(rotations("tenant-56", from)).toEqual(["invitation:rotate"]);
+    from = stepsOf("tenant-56").length;
+    await run.rotate("tenant-56", "temporal");
+    expect(rotations("tenant-56", from)).toEqual(["temporal:rotate", "deployment:redeliver"]);
+    const events = await run.ledger.events("tenant-56");
+    expect(events.filter((event) => event.event === "operation.rotate").map((event) => [event.detail.step, event.detail.actor])).toEqual([["deployment", "cli:operator"], ["invitation", "unattributed"], ["temporal", "unattributed"]]);
+    expect(events.filter((event) => event.event === "step.rotated").map((event) => event.step)).toEqual(["deployment", "invitation", "temporal"]);
+  });
+
+  test("before step 5 exists, a rotated credential is not re-delivered", async () => {
+    const run = provisioner();
+    await run.provision(request("tenant-57"), { through: "secrets" });
+    const from = stepsOf("tenant-57").length;
+    await run.rotate("tenant-57", "temporal");
+    expect(rotations("tenant-57", from)).toEqual(["temporal:rotate"]);
+  });
+
+  test("a step that is not complete cannot rotate, so no invitation is issued ahead of its route", async () => {
+    const run = provisioner();
+    await run.provision(request("tenant-58"), { through: "secrets" });
+    for (const step of ["deployment", "invitation"] as const) expect((await factoryRejection(run.rotate("tenant-58", step))).code).toBe("provisioning_phase_forbidden");
+    expect(stepsOf("tenant-58").some((call) => call.action === "rotate")).toBe(false);
+    expect((await run.status("tenant-58")).steps.find((entry) => entry.step === "invitation")!.state).toBe("pending");
+  });
+
+  test("a failed rotation or re-delivery is recorded on the ledger and leaves the step complete", async () => {
+    const run = provisioner();
+    await run.provision(request("tenant-59"));
+    failures.set("temporal:rotate:tenant-59", 1);
+    expect((await factoryRejection(run.rotate("tenant-59", "temporal"))).code).toBe("temporal_injected");
+    failures.set("deployment:redeliver:tenant-59", 1);
+    expect((await factoryRejection(run.rotate("tenant-59", "temporal"))).code).toBe("deployment_injected");
+    const status = await run.status("tenant-59");
+    expect(status.steps.find((entry) => entry.step === "temporal")!.state).toBe("complete");
+    const events = await run.ledger.events("tenant-59");
+    expect(events.filter((event) => event.event === "step.rotation_failed").map((event) => [event.step, event.detail.code])).toEqual([["temporal", "temporal_injected"], ["temporal", "deployment_injected"]]);
+    expect(events.some((event) => event.event === "step.rotated")).toBe(false);
+  });
+});
+
+describe("the provisioner's own guards", () => {
+  test("every mutation is attributed on the ledger to whoever asked for it", async () => {
+    const run = provisioner();
+    await run.provision(request("tenant-66"), { actor: "operator:operator-alice", through: "secrets" });
+    await run.provision(request("tenant-66"));
+    await run.teardown("tenant-66", { reason: "x", actor: "cli:ops" });
+    const attributed = (await run.ledger.events("tenant-66")).filter((event) => event.event.startsWith("operation."));
+    expect(attributed.map((event) => [event.event, event.detail])).toEqual([
+      ["operation.provision", { actor: "operator:operator-alice", through: "secrets" }],
+      ["operation.provision", { actor: "unattributed" }],
+      ["operation.teardown", { actor: "cli:ops" }],
+    ]);
+  });
+
+  test("a ledger with a later step complete while an earlier one is not is refused, never skipped past", async () => {
+    const run = provisioner();
+    await run.provision(request("tenant-67"), { through: "storage" });
+    await run.ledger.stepCompleted("tenant-67", "secrets", { owner: "forged" });
+    const from = stepsOf("tenant-67").length;
+    const refused = await factoryRejection(run.provision(request("tenant-67")));
+    expect(refused.code).toBe("provisioning_ledger_out_of_order");
+    expect(stepsOf("tenant-67").slice(from).map((call) => `${call.step}:${call.action}`)).toEqual(["storage:verify"]);
+    expect((await run.status("tenant-67")).steps.find((entry) => entry.step === "temporal")!.state).toBe("pending");
+  });
+
+  test("a phase another writer moved first is refused, not silently recorded", async () => {
+    const run = provisioner();
+    await run.provision(request("tenant-68"), { through: "secrets" });
+    const control = new SQL(controlUrl, { max: 1 });
+    try {
+      const ledger = new FactoryProvisioningLedger(control);
+      const real = ledger.installation.bind(ledger);
+      // A reader that saw the phase before another writer moved it on.
+      ledger.installation = async (tenantId) => { const record = await real(tenantId); return record && { ...record, phase: "recorded" }; };
+      expect((await factoryRejection(ledger.setPhase("tenant-68", "deployment_ready"))).code).toBe("provisioning_phase_conflict");
+      expect((await run.status("tenant-68")).phase).toBe("resources_prepared");
+      expect((await run.ledger.events("tenant-68")).some((event) => event.event === "phase.deployment_ready")).toBe(false);
+    } finally { await control.close(); }
+  });
+});
+
 describe("teardown and purge", () => {
-  const census = (open: { active: number; uncertain: number }): FactoryWorkCensus => ({ count: async () => open });
+  const APPROVAL_63 = "7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f";
+  /** Closed or open work, and an approvals store that knows one approval, issued by tenant-63's administrator. */
+  const census = (open: { active: number; uncertain: number }): FactoryPurgeChecks => ({
+    census: { count: async () => open },
+    approvals: { verify: async (_installation, approvalId) => { if (approvalId !== APPROVAL_63) throw new FactoryProvisioningError("purge_approval_invalid", "unknown approval"); return { approvedBy: "admin:admin@tenant-63.example.test" }; } },
+  });
 
   test("teardown holds the route first, walks steps backwards, withdraws logins, keeps data, and names its residue", async () => {
     const run = provisioner();
@@ -337,7 +479,7 @@ describe("teardown and purge", () => {
     expect((await run.teardown("tenant-62", { reason: "x" })).installation.phase).toBe("torn_down");
   });
 
-  test("purge needs a recorded administrator and closed work, drops the databases, and keeps the archive key", async () => {
+  test("purge needs an installation-issued approval and closed work, drops the databases, and keeps the archive key", async () => {
     const run = provisioner();
     const installation = await run.provision(request("tenant-63"));
     expect((await factoryRejection(run.observeBootstrap("tenant-63", { observe: async () => ({ complete: true, invitationId: "someone-else" }) }))).code).toBe("bootstrap_admin_mismatch");
@@ -347,20 +489,27 @@ describe("teardown and purge", () => {
     expect((await run.observeBootstrap("tenant-63", { observe: async () => { throw new Error("not called"); } })).phase).toBe("bootstrap_complete");
     const admin63 = "admin:admin@tenant-63.example.test";
     expect((await run.ledger.installation("tenant-63"))!.membershipRefs).toEqual([admin63]);
-    expect((await factoryRejection(run.purge("tenant-63", { approvedBy: admin63, reason: "early" }, census({ active: 0, uncertain: 0 })))).code).toBe("provisioning_phase_forbidden");
+    expect((await factoryRejection(run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "early" }, census({ active: 0, uncertain: 0 })))).code).toBe("provisioning_phase_forbidden");
+    const wraps = await Bun.file(join(names("tenant-63").secretDirectory, "wraps.json")).bytes();
     await run.teardown("tenant-63", { reason: "done" });
-    expect((await factoryRejection(run.purge("tenant-63", { approvedBy: "admin:intruder@example.test", reason: "x" }, census({ active: 0, uncertain: 0 })))).code).toBe("purge_approver_unknown");
-    expect((await factoryRejection(run.purge("tenant-63", { approvedBy: admin63, reason: "x" }, census({ active: 1, uncertain: 0 })))).code).toBe("purge_work_open");
-    expect((await factoryRejection(run.purge("tenant-63", { approvedBy: admin63, reason: "x" }, census({ active: 0, uncertain: 2 })))).code).toBe("purge_work_open");
-    const purged = await run.purge("tenant-63", { approvedBy: admin63, reason: "retention elapsed" }, census({ active: 0, uncertain: 0 }));
+    // Secrets teardown moved the wrap into the operator's escrow before deleting it.
+    expect(await Bun.file(join(names("tenant-63").secretDirectory, "wraps.json")).exists()).toBe(false);
+    expect(await Bun.file(join(names("tenant-63").operatorDirectory, "escrow-wraps.json")).bytes()).toEqual(wraps);
+    expect((await factoryRejection(run.purge("tenant-63", { approvalId: "7c1e2d3f-0000-4c6d-8e7f-9a0b1c2d3e4f", reason: "x" }, census({ active: 0, uncertain: 0 })))).code).toBe("purge_approval_invalid");
+    expect((await factoryRejection(run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "x" }, census({ active: 1, uncertain: 0 })))).code).toBe("purge_work_open");
+    expect((await factoryRejection(run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "x" }, census({ active: 0, uncertain: 2 })))).code).toBe("purge_work_open");
+    const purged = await run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "retention elapsed", actor: "operator:operator-alice" }, census({ active: 0, uncertain: 0 }));
     expect(purged.phase).toBe("purged");
     for (const database of [installation.productDatabase, factoryFleetResourceName("factory_pool", fleetId, "tenant-63")]) expect((await admin`SELECT 1 FROM pg_database WHERE datname = ${database}`).length).toBe(0);
     expect(await Bun.file(join(names("tenant-63").operatorDirectory, "master.key")).exists()).toBe(true);
-    expect(await Bun.file(join(names("tenant-63").operatorDirectory, "escrow-wraps.json")).exists()).toBe(true);
+    expect(await Bun.file(join(names("tenant-63").operatorDirectory, "escrow-wraps.json")).bytes()).toEqual(wraps);
     expect(await Bun.file(join(names("tenant-63").secretDirectory, "application-jwt-secret")).exists()).toBe(false);
     const loss = (await run.ledger.events("tenant-63")).find((event) => event.event === "purge.audit_loss")!;
-    expect(loss.detail).toMatchObject({ approvedBy: admin63, releaseArchive: "retained", activeAtPurge: "0", uncertainAtPurge: "0" });
-    expect((await factoryRejection(run.purge("tenant-63", { approvedBy: admin63, reason: "x" }, census({ active: 0, uncertain: 0 })))).code).toBe("provisioning_phase_forbidden");
+    expect(loss.detail).toEqual({ approvedBy: admin63, approvalId: APPROVAL_63, reason: "retention elapsed", activeAtPurge: "0", uncertainAtPurge: "0", ...FACTORY_PURGE_RETAINED });
+    expect((await run.ledger.events("tenant-63")).filter((event) => event.event === "operation.purge").map((event) => event.detail)).toEqual([
+      { actor: "unattributed", approvalId: "7c1e2d3f-0000-4c6d-8e7f-9a0b1c2d3e4f" }, { actor: "unattributed", approvalId: APPROVAL_63 }, { actor: "unattributed", approvalId: APPROVAL_63 }, { actor: "operator:operator-alice", approvalId: APPROVAL_63 },
+    ]);
+    expect((await factoryRejection(run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "x" }, census({ active: 0, uncertain: 0 })))).code).toBe("provisioning_phase_forbidden");
   });
 
   test("bootstrap cannot be observed before the invitation is issued, nor for an unknown tenant", async () => {
@@ -376,7 +525,7 @@ describe("teardown and purge", () => {
 describe("the control ledger holds references only", () => {
   test("a credential-shaped value is refused before it can reach a row", () => {
     expect(assertFactoryStepResources({ path: "/a/b", oid: "123" })).toEqual({ path: "/a/b", oid: "123" });
-    for (const bad of [{ key: "-----BEGIN PRIVATE KEY-----" }, { key: "line\nbreak" }, { key: "x".repeat(4_097) }, { "bad-key": "x" }]) {
+    for (const bad of [{ key: "-----BEGIN PRIVATE KEY-----" }, { key: "line\nbreak" }, { key: "x".repeat(4_097) }, { "bad-key": "x" }] as Readonly<Record<string, string>>[]) {
       expect(() => assertFactoryStepResources(bad)).toThrow(FactoryProvisioningError);
     }
   });
@@ -408,6 +557,9 @@ describe("fleet upgrade waves", () => {
   beforeAll(async () => {
     const run = provisioner();
     for (const tenantId of tenants) await run.provision(request(tenantId));
+    // tenant-73 serves traffic but has no recorded build; tenant-74 stops at resources_prepared.
+    await run.provision(request("tenant-73"));
+    await run.provision(request("tenant-74"), { through: "database" });
     upgradeSql = new SQL(controlUrl, { max: 2 });
     upgrades = new FactoryFleetUpgrades(upgradeSql, {
       apply: async (installation, component, builds) => {
@@ -479,6 +631,61 @@ describe("fleet upgrade waves", () => {
     const busy = await upgrades.retire({ count: async (installation) => ({ active: installation.tenantId === "tenant-70" ? 1 : 0, uncertain: 0 }) });
     expect(busy).toEqual(["b5"]);
   });
+
+  const waveRow = async (code: string) => (await upgradeSql`SELECT state, failure_tenant_id, failure_code, skipped FROM factory_upgrade_waves WHERE failure_code = ${code}`)[0] as { state: string; failure_tenant_id: string | null; failure_code: string; skipped: unknown };
+  const runningWaves = async () => Number((await upgradeSql`SELECT count(*)::int AS n FROM factory_upgrade_waves WHERE state = 'running'`)[0].n);
+
+  test("an installation that serves no traffic is skipped and named; an ineligible canary stops the wave before anything moves", async () => {
+    applied.length = 0;
+    expect((await factoryRejection(upgrades.wave({ buildId: "b3", canary: "tenant-74", tenants: ["tenant-70", "tenant-74"] }))).code).toBe("upgrade_canary_ineligible");
+    expect(await waveRow("upgrade_canary_ineligible")).toMatchObject({ state: "stopped", failure_tenant_id: "tenant-74" });
+    expect(applied).toEqual([]);
+    // tenant-70 already runs b3 on every component, so it moves nothing and is proven ready.
+    const result = await upgrades.wave({ buildId: "b3", canary: "tenant-70", tenants: ["tenant-70", "tenant-74"] });
+    expect(result).toMatchObject({ state: "completed", upgraded: ["tenant-70"], skipped: [{ tenantId: "tenant-74", phase: "resources_prepared" }] });
+    const row = (await upgradeSql`SELECT skipped FROM factory_upgrade_waves WHERE wave_id = ${result.waveId}`)[0] as { skipped: unknown };
+    expect(typeof row.skipped === "string" ? JSON.parse(row.skipped) : row.skipped).toEqual([{ tenantId: "tenant-74", phase: "resources_prepared" }]);
+    expect(await runningWaves()).toBe(0);
+  });
+
+  test("a wave that throws is recorded stopped with the failure, never left running", async () => {
+    expect((await factoryRejection(upgrades.wave({ buildId: "b3", canary: "tenant-73", tenants: ["tenant-73"] }))).code).toBe("upgrade_installation_unknown");
+    expect(await waveRow("upgrade_installation_unknown")).toMatchObject({ state: "stopped", failure_tenant_id: "tenant-73" });
+    expect(await runningWaves()).toBe(0);
+  });
+
+  test("one wave runs at a time; a wave a crashed process left running is refused until the operator abandons it", async () => {
+    const crashed = randomUUID();
+    await upgradeSql`INSERT INTO factory_upgrade_waves(wave_id, target_build_id, canary_tenant_id, state) VALUES (${crashed}, 'b3', 'tenant-70', 'running')`;
+    const second = randomUUID();
+    expect((await factoryRejection(upgradeSql`INSERT INTO factory_upgrade_waves(wave_id, target_build_id, canary_tenant_id, state) VALUES (${second}, 'b3', 'tenant-70', 'running')`)).message).toContain("factory_upgrade_waves_one_running");
+    const refused = await factoryRejection(upgrades.wave({ buildId: "b3", canary: "tenant-70", tenants }));
+    expect(refused.code).toBe("upgrade_wave_running");
+    expect(refused.message).toContain(crashed);
+    await upgrades.abandon(crashed);
+    expect(await waveRow("upgrade_wave_abandoned")).toMatchObject({ state: "stopped" });
+    expect((await factoryRejection(upgrades.abandon(crashed))).code).toBe("upgrade_wave_not_running");
+    expect((await upgrades.wave({ buildId: "b3", canary: "tenant-70", tenants: ["tenant-70"] })).state).toBe("completed");
+  });
+
+  test("a wave waits for the installation's provisioner lock", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let entered!: () => void;
+    const inside = new Promise<void>((resolve) => { entered = resolve; });
+    const lockSql = new SQL(controlUrl, { max: 1 });
+    try {
+      const locked = new FactoryProvisioningLedger(lockSql).locked("tenant-70", async () => { entered(); await held; });
+      await inside;
+      let finished = false;
+      const wave = upgrades.wave({ buildId: "b3", canary: "tenant-70", tenants: ["tenant-70"] }).then((result) => { finished = true; return result; });
+      await Bun.sleep(300);
+      expect(finished).toBe(false);
+      release();
+      await locked;
+      expect((await wave).state).toBe("completed");
+    } finally { await lockSql.close(); }
+  });
 });
 
 describe("the purge work census", () => {
@@ -542,6 +749,24 @@ describe("fleet composition", () => {
   });
 });
 
+describe("store claims on the real cluster", () => {
+  test("a (store, bucket) claimed by one fleet is refused to another, and the holder's rerun passes", async () => {
+    const { factoryDatabaseStorageClaims, factoryStorageClaimRole } = await import("../../src/factory/provisioning/storage");
+    // A unique endpoint gives a claim role no other run can hold; only that role is removed afterwards.
+    const scope = { domain: "ordinary" as const, endpoint: `http://claim-test-${randomBytes(6).toString("hex")}.invalid:1`, bucket: "tenant-01", prefix: "ordinary" };
+    const role = factoryStorageClaimRole(scope);
+    const claims = factoryDatabaseStorageClaims(url!);
+    const holder = { ...names("tenant-01"), ...request("tenant-01"), fleetId: "claim-fleet-a", installationId: "claim-installation", invitationId: "x" };
+    try {
+      await claims.claim(holder, scope);
+      await claims.claim(holder, scope);
+      expect((await admin`SELECT rolcanlogin, shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}`)[0]).toEqual({ rolcanlogin: false, marker: "factory-store-claim:claim-fleet-a:tenant-01" });
+      expect((await factoryRejection(claims.claim({ ...holder, fleetId: "claim-fleet-b" }, scope)) as FactoryProvisioningError).code).toBe("storage_claimed_by_other_fleet");
+      expect((await factoryRejection(claims.claim({ ...holder, tenantId: "tenant-02" }, scope)) as FactoryProvisioningError).code).toBe("storage_claimed_by_other_fleet");
+    } finally { await admin.unsafe(`DROP ROLE IF EXISTS "${role}"`); }
+  });
+});
+
 describe("the operator entry", () => {
   test("init writes a local fleet with its own control role, and the main entry answers a status over it", async () => {
     const { writeFactoryLocalFleet, runFactoryFleetMain } = await import("../../src/factory/provisioning/fleet-cli");
@@ -566,6 +791,9 @@ describe("the operator entry", () => {
       const printed: unknown[] = [];
       await runFactoryFleetMain([first.settingsPath, "status"], { argv: ["true"], env: {} }, { print: (value) => printed.push(value), fail: (value) => printed.push({ failed: value }) });
       expect(printed).toEqual([{ directory: [] }]);
+      // A purge reads the admin URL for its census and approvals, then refuses an installation that is not torn down.
+      await runFactoryFleetMain([first.settingsPath, "purge", "tenant-01", "--approval", "7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"], { argv: ["true"], env: {} }, { print: (value) => printed.push(value), fail: (value) => printed.push({ failed: value }) });
+      expect(printed[1]).toMatchObject({ failed: { error: { code: "provisioning_phase_forbidden" } } });
     } finally {
       await admin.unsafe(`DROP DATABASE IF EXISTS "${controlDatabase}" WITH (FORCE)`);
       await admin.unsafe(`DROP ROLE IF EXISTS "${controlDatabase}_role"`);

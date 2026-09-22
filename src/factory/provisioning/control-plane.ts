@@ -15,8 +15,8 @@
  */
 import { startFactoryPrivateHttps, type FactoryPrivateRequest, type FactoryPrivateResponse } from "../private-https";
 import type { FactoryInstallationRecord } from "./ledger";
-import type { FactoryBootstrapObserver, FactoryPurgeApproval, FactoryTeardownOutcome, FactoryWorkCensus, LocalInstallation } from "./local";
-import { FactoryProvisioningError, FACTORY_PROVISIONING_STEP_NAMES, type FactoryProvisioningStepName } from "./steps";
+import type { FactoryBootstrapObserver, FactoryOperationActor, FactoryPurgeChecks, FactoryPurgeRequest, FactoryTeardownOutcome, LocalInstallation } from "./local";
+import { FactoryProvisioningError, FACTORY_PROVISIONING_STEP_NAMES, factoryStepFailure, type FactoryProvisioningStepName } from "./steps";
 
 /** What the control plane may do. Every route is an operator action on infrastructure. */
 export const FACTORY_CONTROL_PLANE_ROUTES = Object.freeze([
@@ -26,7 +26,7 @@ export const FACTORY_CONTROL_PLANE_ROUTES = Object.freeze([
   { method: "POST", path: "/v1/installations/:tenant/observe", action: "record an observed human bootstrap" },
   { method: "POST", path: "/v1/installations/:tenant/rotate/:step", action: "rotate one step's credential" },
   { method: "POST", path: "/v1/installations/:tenant/teardown", action: "tear one installation down" },
-  { method: "POST", path: "/v1/installations/:tenant/purge", action: "purge a torn-down installation after human approval" },
+  { method: "POST", path: "/v1/installations/:tenant/purge", action: "purge a torn-down installation under an administrator's installation-issued approval" },
 ] as const);
 
 /** The directory fields the control plane may publish. Anything else is refused at the boundary. */
@@ -34,11 +34,11 @@ export const FACTORY_DIRECTORY_FIELDS = Object.freeze(["tenantId", "fleetId", "i
 
 /** The provisioner surface the control plane drives. `LocalFactoryProvisioner` satisfies it. */
 export interface FactoryControlPlaneProvisioner {
-  provision(request: { readonly tenantId: string; readonly hostname: string; readonly administratorEmail: string }, options?: { readonly through?: FactoryProvisioningStepName; readonly planLimits?: Readonly<Record<string, number>> }): Promise<LocalInstallation>;
-  observeBootstrap(tenantId: string, observer: FactoryBootstrapObserver): Promise<LocalInstallation>;
-  rotate(tenantId: string, step: Exclude<FactoryProvisioningStepName, "deployment" | "ingress">): Promise<LocalInstallation>;
-  teardown(tenantId: string, input: { readonly reason: string }): Promise<FactoryTeardownOutcome>;
-  purge(tenantId: string, approval: FactoryPurgeApproval, census: FactoryWorkCensus): Promise<LocalInstallation>;
+  provision(request: { readonly tenantId: string; readonly hostname: string; readonly administratorEmail: string }, options?: { readonly through?: FactoryProvisioningStepName; readonly planLimits?: Readonly<Record<string, number>> } & FactoryOperationActor): Promise<LocalInstallation>;
+  observeBootstrap(tenantId: string, observer: FactoryBootstrapObserver, who?: FactoryOperationActor): Promise<LocalInstallation>;
+  rotate(tenantId: string, step: Exclude<FactoryProvisioningStepName, "ingress">, who?: FactoryOperationActor): Promise<LocalInstallation>;
+  teardown(tenantId: string, input: { readonly reason: string } & FactoryOperationActor): Promise<FactoryTeardownOutcome>;
+  purge(tenantId: string, request: FactoryPurgeRequest & FactoryOperationActor, checks: FactoryPurgeChecks): Promise<LocalInstallation>;
   status(tenantId: string): Promise<LocalInstallation>;
   readonly ledger: { directory(): Promise<readonly FactoryInstallationRecord[]>; events(tenantId: string): Promise<readonly unknown[]> };
 }
@@ -48,12 +48,19 @@ export interface FactoryControlPlaneOptions {
   /** Client-certificate common names of the operators allowed to call. */
   readonly operators: readonly string[];
   readonly observer: FactoryBootstrapObserver;
-  readonly census: FactoryWorkCensus;
+  readonly purgeChecks: FactoryPurgeChecks;
   readonly hostnameFor: (tenantId: string) => string;
 }
 
 const TENANT = /^tenant-\d{2}$/;
 const MAX_BODY_BYTES = 16 * 1024;
+/**
+ * At most this many tenant operations run at once. Each holds one pooled
+ * connection for its tenant lock and uses others for its work, so the cap
+ * stays well under the provisioner's pool (8): four at once could hold every
+ * connection and wait on each other.
+ */
+export const FACTORY_CONTROL_PLANE_CONCURRENCY = 3;
 
 function respond(status: number, value: unknown): FactoryPrivateResponse {
   return { status, body: Buffer.from(JSON.stringify(value)), contentType: "application/json" };
@@ -94,9 +101,10 @@ export function factoryControlPlaneHandler(options: FactoryControlPlaneOptions):
   const last = new Map<string, { readonly action: string; readonly outcome: unknown }>();
   const accept = (tenantId: string, action: string, work: () => Promise<unknown>): FactoryPrivateResponse => {
     if (running.has(tenantId)) return respond(409, { error: "operation_in_progress", action: running.get(tenantId)!.action });
+    if (running.size >= FACTORY_CONTROL_PLANE_CONCURRENCY) return respond(429, { error: "control_plane_busy", running: running.size });
     const done = work().then(
       (outcome) => { last.set(tenantId, { action, outcome }); },
-      (error: unknown) => { last.set(tenantId, { action, outcome: { error: error instanceof FactoryProvisioningError ? error.code : "control_plane_failed", message: error instanceof Error ? error.message : String(error) } }); },
+      (error: unknown) => { const failure = factoryStepFailure(error); last.set(tenantId, { action, outcome: { error: error instanceof FactoryProvisioningError ? failure.code : "control_plane_failed", message: failure.message } }); },
     ).finally(() => { running.delete(tenantId); });
     running.set(tenantId, { action, done });
     return respond(202, { accepted: action, tenantId });
@@ -113,29 +121,31 @@ export function factoryControlPlaneHandler(options: FactoryControlPlaneOptions):
       if (request.method === "GET" && action === "") return respond(200, { installation: statusView(await options.provisioner.status(tenantId)), events: await options.provisioner.ledger.events(tenantId), running: running.get(tenantId)?.action ?? null, last: last.get(tenantId) ?? null });
       if (request.method !== "POST") return respond(405, { error: "method_not_allowed" });
       const input = body(request);
+      // Every mutation is attributed on the ledger to the operator certificate that asked for it.
+      const who: FactoryOperationActor = { actor: `operator:${request.peerIdentity}` };
       if (action === "provision") {
         const through = input.through;
         if (through !== undefined && !FACTORY_PROVISIONING_STEP_NAMES.includes(through as FactoryProvisioningStepName)) return respond(400, { error: "step_unknown" });
         if (typeof input.administratorEmail !== "string") return respond(400, { error: "administrator_email_required" });
         const planLimits = input.planLimits as Record<string, number> | undefined;
         const administratorEmail = input.administratorEmail;
-        return accept(tenantId, "provision", async () => statusView(await options.provisioner.provision({ tenantId, hostname: options.hostnameFor(tenantId), administratorEmail }, { ...(through ? { through: through as FactoryProvisioningStepName } : {}), ...(planLimits ? { planLimits } : {}) })));
+        return accept(tenantId, "provision", async () => statusView(await options.provisioner.provision({ tenantId, hostname: options.hostnameFor(tenantId), administratorEmail }, { ...who, ...(through ? { through: through as FactoryProvisioningStepName } : {}), ...(planLimits ? { planLimits } : {}) })));
       }
-      if (action === "observe") return accept(tenantId, "observe", async () => statusView(await options.provisioner.observeBootstrap(tenantId, options.observer)));
+      if (action === "observe") return accept(tenantId, "observe", async () => statusView(await options.provisioner.observeBootstrap(tenantId, options.observer, who)));
       if (segments[3] === "rotate" && segments.length === 5) {
         const step = segments[4] as FactoryProvisioningStepName;
-        if (!FACTORY_PROVISIONING_STEP_NAMES.includes(step) || step === "deployment" || step === "ingress") return respond(400, { error: "step_not_rotatable" });
-        return accept(tenantId, `rotate/${step}`, async () => statusView(await options.provisioner.rotate(tenantId, step)));
+        if (!FACTORY_PROVISIONING_STEP_NAMES.includes(step) || step === "ingress") return respond(400, { error: "step_not_rotatable" });
+        return accept(tenantId, `rotate/${step}`, async () => statusView(await options.provisioner.rotate(tenantId, step, who)));
       }
       if (action === "teardown") {
         if (typeof input.reason !== "string" || input.reason.length === 0) return respond(400, { error: "reason_required" });
         const reason = input.reason;
-        return accept(tenantId, "teardown", async () => { const outcome = await options.provisioner.teardown(tenantId, { reason }); return { installation: statusView(outcome.installation), residues: outcome.residues }; });
+        return accept(tenantId, "teardown", async () => { const outcome = await options.provisioner.teardown(tenantId, { reason, ...who }); return { installation: statusView(outcome.installation), residues: outcome.residues }; });
       }
       if (action === "purge") {
-        if (typeof input.approvedBy !== "string" || typeof input.reason !== "string") return respond(400, { error: "approval_required" });
-        const approval = { approvedBy: input.approvedBy, reason: input.reason };
-        return accept(tenantId, "purge", async () => statusView(await options.provisioner.purge(tenantId, approval, options.census)));
+        if (typeof input.approvalId !== "string" || typeof input.reason !== "string") return respond(400, { error: "approval_required" });
+        const purge = { approvalId: input.approvalId, reason: input.reason, ...who };
+        return accept(tenantId, "purge", async () => statusView(await options.provisioner.purge(tenantId, purge, options.purgeChecks)));
       }
       return respond(404, { error: "not_found" });
     } catch (error) {

@@ -42,6 +42,12 @@ export interface FactoryBootstrapStatus {
   readonly invitationId: string | null;
 }
 
+/** The invitation setup verified, for adopting a setup whose redemption row never committed. */
+export interface FactoryBootstrapOrphan {
+  readonly invitation: FactoryBootstrapInvitation;
+  readonly nowMs: number;
+}
+
 export interface FactoryBootstrapConsent {
   readonly projectId: string;
   readonly acknowledgement: string;
@@ -84,12 +90,33 @@ export class FactoryInstallationBootstrap {
    * The acknowledgement must be the exact sentence, so consent is something a
    * human reads and sends rather than a flag a client defaults to true.
    */
-  async consent(actor: FactoryPrincipal, input: FactoryBootstrapConsent): Promise<{ readonly consentDigest: string; readonly grants: Readonly<Record<string, number>> }> {
+  /**
+   * Adopt a setup whose redemption row never committed.
+   *
+   * First-run setup creates the administrator before it records the
+   * redemption, so a failure between the two leaves an administrator and no
+   * row, and setup refuses a second run. The consent act closes that gap, in
+   * its own transaction and under the same proof setup demanded: the
+   * invitation has not expired, and the caller is the installation's only
+   * user, an administrator, with the invited email.
+   */
+  private async adoptOrphan(transaction: MigrationDb, actor: FactoryPrincipal, orphan: FactoryBootstrapOrphan): Promise<BootstrapRow | undefined> {
+    const { invitation } = orphan;
+    if (invitation.installationId !== this.installationId || orphan.nowMs >= invitation.expiresAtMs) return undefined;
+    const users = rows<{ id: string; email: string; role: string }>(await transaction.execute(sql`SELECT id, email, role FROM users ORDER BY created_at LIMIT 2 FOR SHARE`));
+    const [only] = users;
+    if (users.length !== 1 || only!.id !== actor.id || only!.role !== "admin" || only!.email.toLowerCase() !== invitation.administratorEmail.toLowerCase()) return undefined;
+    await transaction.execute(sql`INSERT INTO factory_installation_bootstrap (installation_id, tenant_id, invitation_id, admin_user_id, state) VALUES (${this.installationId}, ${this.tenantId}, ${invitation.invitationId}, ${actor.id}, 'redeemed')`);
+    await insertTransactionalAuditEntry(transaction, `factory-bootstrap-redeemed:${this.installationId}`, actor.id, "factory.bootstrap.redeemed", this.installationId, { tenantId: this.tenantId, invitationId: invitation.invitationId, adopted: true });
+    return this.row(transaction, true);
+  }
+
+  async consent(actor: FactoryPrincipal, input: FactoryBootstrapConsent, orphan?: FactoryBootstrapOrphan): Promise<{ readonly consentDigest: string; readonly grants: Readonly<Record<string, number>> }> {
     if (actor.kind !== "user" || actor.authentication !== "session") throw new FactoryBootstrapError("bootstrap_human_required");
     if (input.acknowledgement !== FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT) throw new FactoryBootstrapError("bootstrap_acknowledgement_required");
     if (typeof input.projectId !== "string" || input.projectId.length === 0 || input.projectId.length > 256) throw new FactoryBootstrapError("bootstrap_project_invalid");
     return this.database.transaction(async (transaction) => {
-      const row = await this.row(transaction, true);
+      const row = await this.row(transaction, true) ?? (orphan ? await this.adoptOrphan(transaction, actor, orphan) : undefined);
       if (!row) throw new FactoryBootstrapError("bootstrap_not_redeemed");
       if (row.state === "consented") throw new FactoryBootstrapError("bootstrap_already_consented");
       if (row.admin_user_id !== actor.id) throw new FactoryBootstrapError("bootstrap_not_administrator");

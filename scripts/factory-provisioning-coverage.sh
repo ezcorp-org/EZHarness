@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # The C12 provisioner against real PostgreSQL: the ledger, the database step,
-# the upgrade ledger, the purge census, fleet composition, and the gateway
-# process's production composition. Every other provisioning module is
+# the upgrade ledger, the purge census, fleet composition, the operator
+# entry's init and main paths, and the gateway process's production
+# composition. Every other provisioning module is
 # measured by its own unit suite in the default pool.
 set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
@@ -20,4 +21,5 @@ bun scripts/filter-lcov-sources.ts "$tmp/bun/lcov.info" --output "$out/lcov.info
   src/factory/provisioning/census.ts \
   src/factory/provisioning/fleet-upgrade.ts \
   src/factory/provisioning/fleet.ts \
+  src/factory/provisioning/fleet-cli.ts \
   src/factory/gateway-process.ts
