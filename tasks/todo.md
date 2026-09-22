@@ -3136,3 +3136,6 @@ toolchain roots built none", with a new assertion that the bundle really was bun
 forcing the build it assumed is a measured crash. Main's `bun run test` and `test-coverage.sh` host
 pool both run one file per process, so none of these four pairs can share a process in CI today;
 the repair protects the combined runner now and CI against any future grouping.
+
+### Coordinator handoff (2026-09-22 01:10 UTC)
+See `docs/validation/factory/wave4/HANDOFF-2026-09-22.md` for branch heads, in-flight packages (W09b ready for validation; W07c and W01f awaiting verdicts; W01g and W08b in progress; wave4b combined run in progress), rulings, the ordered remaining work (W09b, W01g, W08b, W09c, second W18a pass, W14–W17, W18, W19, W20), and the environment facts.
