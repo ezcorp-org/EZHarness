@@ -217,6 +217,16 @@ no `idleTimeout`; its type rejects the option.
 
 ## One failure observed, and what was done about it
 
+**No test was removed.** No case and no assertion was deleted in this package. One assertion moved
+between two cases, and the three checks below settle it in ten seconds:
+`git show 1fff3badf:<test file> | grep -oE '^test\("[^"]+'` lists eight case names and the same
+grep at HEAD lists nine — all eight originals verbatim, plus the busy-host case that `57a43bd54`
+added with the product correction it guards; `grep -c 'expect(' <test file>` returns 43 at
+`57a43bd54`, 43 at `869ab1542` and 43 at HEAD; and the runtime banner's drop from 95 to 92 is
+fully explained by the move, because the assertion used to run once per drop form inside a
+four-iteration loop and now runs once (4 − 1 = 3, 95 − 3 = 92). Report section 8 has the one-line
+diff and the full account.
+
 The light sweep at `57a43bd54` recorded `8 pass / 1 fail` in `service-detach.test.ts` while the
 same file passed seconds earlier and in twelve re-runs afterwards, six of them concurrent. The
 sweep script did not retain the failing file's output; that is a defect in my harness and it is
