@@ -542,5 +542,15 @@
     "web/src/lib/factory/**",
     "web/src/routes/(app)/factories/**",
     "web/src/routes/(app)/+layout.svelte"
+  ],
+  "web/e2e/factory-live-console.spec.ts": [
+    "web/src/lib/factory/Factory*.svelte",
+    "web/src/lib/factory/run-stream.ts",
+    "web/src/lib/factory/preview.ts",
+    "web/src/routes/(app)/factories/**"
+  ],
+  "web/e2e/factory-services-console.spec.ts": [
+    "web/src/lib/factory/Factory*.svelte",
+    "web/src/routes/(app)/factories/**"
   ]
 }
