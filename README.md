@@ -23,6 +23,39 @@ EZCorp is a self-hosted AI platform that brings together multi-model chat, long-
 
 ## Quick Start (self-hosted, builds from source)
 
+**Guided Podman setup for macOS or Linux** — installs the engine if missing on
+macOS, verifies the required engine on Linux, prepares a complete `.env.prod`,
+pre-creates the bind mounts, brings the stack up and waits for it to report
+ready:
+
+```bash
+git clone <repo-url> && cd ez-corp-ai
+bash scripts/setup-podman.sh
+```
+
+A fresh environment file stays private and unpublished until the runner choice
+is complete. The script then publishes that complete mode-600 file once; a
+concurrent file is never replaced. An existing `.env.prod` is never modified.
+If it is private, has non-placeholder production secrets and URL, and has a
+supported runner mode, setup leaves every byte unchanged. Otherwise setup
+prints the exact manual settings and stops. It also refuses a file with group
+or other permission bits. On Linux, an isolated runner counts as provisioned
+only when its numeric group matches the socket's rootless Podman mapping and
+its production-valid credential authenticates the canonical runner endpoint.
+The installer accepts only portable printable-ASCII runner tokens (at least 32
+bytes, with no whitespace); the runtime contract is wider, but this stricter
+subset behaves identically across Linux and macOS locales.
+
+On macOS the isolated extension runner cannot work, so fresh setup shows what
+`trusted-local` costs and asks before adding it to the private candidate
+(`--accept-unsandboxed-extensions` answers yes for non-interactive use). On
+Linux, provision the isolated runner in an existing `.env.prod`, or pass that
+flag to choose trusted-local for a fresh file; without either choice, nothing
+is published. `--check` reports without changing anything. See
+[docs/macos-local-dev.md](docs/macos-local-dev.md).
+
+The manual steps it automates, for the record or for Docker:
+
 ```bash
 git clone <repo-url> && cd ez-corp-ai
 cp .env.prod.example .env.prod && chmod 600 .env.prod
