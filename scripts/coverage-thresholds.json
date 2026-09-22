@@ -169,6 +169,7 @@
   "packages/@ezcorp/factory-sdk/src/child-acceptance.ts": 100,
   "packages/@ezcorp/factory-sdk/src/compiler.ts": 100,
   "packages/@ezcorp/factory-sdk/src/expressions.ts": 100,
+  "packages/@ezcorp/factory-sdk/src/guest-materials.ts": 100,
   "packages/@ezcorp/factory-sdk/src/index.ts": 100,
   "packages/@ezcorp/factory-sdk/src/kernel-types.ts": 100,
   "packages/@ezcorp/factory-sdk/src/kernel.ts": 100,

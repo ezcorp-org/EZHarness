@@ -1,0 +1,195 @@
+{
+  "$id": "urn:ezcorp:factory:guest-material-request:v1",
+  "$ref": "#/definitions/FactoryGuestMaterialRequest",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryGuestMaterialBegin": {
+      "additionalProperties": false,
+      "description": "Declares a material before any byte of it is sent.",
+      "properties": {
+        "chunkCount": {
+          "type": "number"
+        },
+        "mediaType": {
+          "type": "string"
+        },
+        "objectName": {
+          "description": "Author-chosen, stable within the operation.",
+          "type": "string"
+        },
+        "operationId": {
+          "description": "The journalled operation this material belongs to.",
+          "type": "string"
+        },
+        "operationIndex": {
+          "type": "number"
+        },
+        "schemaVersion": {
+          "const": "factory.guest-material-begin.v1",
+          "type": "string"
+        },
+        "totalBytes": {
+          "type": "number"
+        },
+        "version": {
+          "description": "Monotonic per (operation, objectName). Starts at 1.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "chunkCount",
+        "mediaType",
+        "objectName",
+        "operationId",
+        "operationIndex",
+        "schemaVersion",
+        "totalBytes",
+        "version"
+      ],
+      "type": "object"
+    },
+    "FactoryGuestMaterialChunk": {
+      "additionalProperties": false,
+      "description": "One chunk of a declared material, carried as base64 inside the frame.",
+      "properties": {
+        "contentBase64": {
+          "type": "string"
+        },
+        "digest": {
+          "description": "`sha256:` + 64 hex over this chunk's raw bytes.",
+          "type": "string"
+        },
+        "encodedBytes": {
+          "type": "number"
+        },
+        "index": {
+          "description": "0-based and contiguous.",
+          "type": "number"
+        },
+        "objectName": {
+          "description": "Author-chosen, stable within the operation.",
+          "type": "string"
+        },
+        "operationId": {
+          "description": "The journalled operation this material belongs to.",
+          "type": "string"
+        },
+        "operationIndex": {
+          "type": "number"
+        },
+        "schemaVersion": {
+          "const": "factory.guest-material-chunk.v1",
+          "type": "string"
+        },
+        "version": {
+          "description": "Monotonic per (operation, objectName). Starts at 1.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "contentBase64",
+        "digest",
+        "encodedBytes",
+        "index",
+        "objectName",
+        "operationId",
+        "operationIndex",
+        "schemaVersion",
+        "version"
+      ],
+      "type": "object"
+    },
+    "FactoryGuestMaterialOutput": {
+      "additionalProperties": false,
+      "description": "Promotes one sealed material to this attempt's candidate output.\n\nThe bytes are not resent. The host reads the sealed material back through the scoped reader, re-verifies its digest, requires canonical I-JSON, and stages it as a `candidate_output` artifact bound to the attempt's own node instance and candidate generation — both taken from the verified attempt, never from this frame. That artifact is what a COMPLETED runner result must carry, and what the validators and the release path read.",
+      "properties": {
+        "digest": {
+          "description": "The sealed material's digest, repeated so a promotion cannot name another version's bytes.",
+          "type": "string"
+        },
+        "objectName": {
+          "description": "Author-chosen, stable within the operation.",
+          "type": "string"
+        },
+        "operationId": {
+          "description": "The journalled operation this material belongs to.",
+          "type": "string"
+        },
+        "operationIndex": {
+          "type": "number"
+        },
+        "schemaVersion": {
+          "const": "factory.guest-material-output.v1",
+          "type": "string"
+        },
+        "version": {
+          "description": "Monotonic per (operation, objectName). Starts at 1.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "digest",
+        "objectName",
+        "operationId",
+        "operationIndex",
+        "schemaVersion",
+        "version"
+      ],
+      "type": "object"
+    },
+    "FactoryGuestMaterialRequest": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/FactoryGuestMaterialBegin"
+        },
+        {
+          "$ref": "#/definitions/FactoryGuestMaterialChunk"
+        },
+        {
+          "$ref": "#/definitions/FactoryGuestMaterialSeal"
+        },
+        {
+          "$ref": "#/definitions/FactoryGuestMaterialOutput"
+        }
+      ]
+    },
+    "FactoryGuestMaterialSeal": {
+      "additionalProperties": false,
+      "description": "Closes a material. The host verifies the assembled digest before it answers.",
+      "properties": {
+        "digest": {
+          "description": "`sha256:` + 64 hex over the assembled bytes.",
+          "type": "string"
+        },
+        "objectName": {
+          "description": "Author-chosen, stable within the operation.",
+          "type": "string"
+        },
+        "operationId": {
+          "description": "The journalled operation this material belongs to.",
+          "type": "string"
+        },
+        "operationIndex": {
+          "type": "number"
+        },
+        "schemaVersion": {
+          "const": "factory.guest-material-seal.v1",
+          "type": "string"
+        },
+        "version": {
+          "description": "Monotonic per (operation, objectName). Starts at 1.",
+          "type": "number"
+        }
+      },
+      "required": [
+        "digest",
+        "objectName",
+        "operationId",
+        "operationIndex",
+        "schemaVersion",
+        "version"
+      ],
+      "type": "object"
+    }
+  }
+}
