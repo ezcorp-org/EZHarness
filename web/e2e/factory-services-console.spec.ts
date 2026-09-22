@@ -212,15 +212,27 @@ test("the scoped API: tickets, download headers, a read-only key, a service cred
 	}
 
 	// A service credential is confined to its project and its delegated scope.
-	const issued = await page.request.post(`${base}/service-accounts/w14-reader/credentials`, { headers: { "If-Match": "0", "Idempotency-Key": `w14-credential-${Date.now()}` }, data: { scopes: ["read"], expiresAtMs: Date.now() + 5 * 60_000 } });
-	expect(issued.ok()).toBe(true);
-	const serviceToken = ((await issued.json()) as { token: string }).token;
+	const account = await page.request.post("/api/service-accounts", { data: { name: "w14-reader", projectId: state.projectId, scopes: ["read"], maxTokensPerDay: 1_000 } });
+	expect(account.status()).toBe(201);
+	const accountId = ((await account.json()) as { account: { id: string } }).account.id;
+	// A credential expires on a whole second, and within the service credential bound.
+	const expiresAtMs = Math.floor((Date.now() + 5 * 60_000) / 1_000) * 1_000;
+	const issued = await page.request.post(`${base}/service-accounts/${encodeURIComponent(accountId)}/credentials`, { headers: { "If-Match": "0", "Idempotency-Key": `w14-credential-${Date.now()}` }, data: { scopes: ["read"], expiresAtMs } });
+	expect(issued.status(), await issued.text()).toBe(200);
+	const credential = (await issued.json()) as { token: string; resource: { credentialId: string; revision: number } };
+	const serviceToken = credential.token;
 	const service = await playwright.request.newContext({ baseURL: state.baseURL, extraHTTPHeaders: { Authorization: `Bearer ${serviceToken}` }, storageState: { cookies: [], origins: [] } });
 	try {
-		expect([200, 403]).toContain((await service.get(`${base}/runs/${runId}/inspection`)).status());
+		// Its own project reads exactly; a run that does not exist is a plain 404.
+		expect((await service.get(`${base}/runs/${runId}/inspection`)).status()).toBe(200);
+		expect((await service.get(`${base}/runs/run-that-does-not-exist/inspection`)).status()).toBe(404);
 		const foreign = await service.get(`/api/factories/projects/${encodeURIComponent(state.readerProjectId)}/packages`);
 		expect(foreign.status()).toBe(403);
 		expect([401, 403]).toContain((await service.post(`${base}/runs/${runId}/artifacts/${encodeURIComponent(artifact.artifactId)}/shares`, { headers: { "If-Match": "0", "Idempotency-Key": "w14-service-share" }, data: { targetProjectId: state.readerProjectId, mediaType: "application/json" } })).status());
+		// Revocation takes effect on the next request.
+		const revoked = await page.request.delete(`${base}/service-accounts/${encodeURIComponent(accountId)}/credentials/${encodeURIComponent(credential.resource.credentialId)}`, { headers: { "If-Match": String(credential.resource.revision), "Idempotency-Key": `w14-revoke-${Date.now()}` } });
+		expect(revoked.status(), await revoked.text()).toBe(200);
+		expect([401, 403]).toContain((await service.get(`${base}/runs/${runId}/inspection`)).status());
 	} finally {
 		await service.dispose();
 	}
