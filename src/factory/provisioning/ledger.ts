@@ -123,10 +123,10 @@ export class FactoryProvisioningLedger {
   /** Record the durable intent. The first caller's identities win; a rerun keeps them. */
   async record(input: Omit<FactoryInstallationRecord, "phase" | "planLimits" | "membershipRefs"> & { readonly planLimits?: Readonly<Record<string, number>>; readonly rolePlan: string; readonly databasePlan: string }): Promise<void> {
     await this.sql`INSERT INTO factory_installations(tenant_id, installation_id, hostname, administrator_email, product_database, product_role, temporal_namespace, secret_bundle_path, state, current_step, invitation_id, role_plan, database_plan, fleet_id, operator_directory, phase, plan_limits)
-      VALUES (${input.tenantId}, ${input.installationId}, ${input.hostname}, ${input.administratorEmail}, ${input.productDatabase}, ${input.productRole}, ${input.temporalNamespace}, ${input.secretDirectory}, 'partial', 'recorded', ${input.invitationId}, ${input.rolePlan}, ${input.databasePlan}, ${input.fleetId}, ${input.operatorDirectory}, 'recorded', ${JSON.stringify(input.planLimits ?? {})}::jsonb)
+      VALUES (${input.tenantId}, ${input.installationId}, ${input.hostname}, ${input.administratorEmail}, ${input.productDatabase}, ${input.productRole}, ${input.temporalNamespace}, ${input.secretDirectory}, 'partial', 'recorded', ${input.invitationId}, ${input.rolePlan}, ${input.databasePlan}, ${input.fleetId}, ${input.operatorDirectory}, 'recorded', ${JSON.stringify(input.planLimits ?? {})}::text::jsonb)
       ON CONFLICT (tenant_id) DO NOTHING`;
     for (const spec of FACTORY_PROVISIONING_STEPS) {
-      await this.sql`INSERT INTO factory_provisioning_steps(tenant_id, step, ordinal, owner, state) VALUES (${input.tenantId}, ${spec.step}, ${spec.ordinal}, ${spec.owner}, 'pending') ON CONFLICT (tenant_id, step) DO NOTHING`;
+      await this.sql`INSERT INTO factory_provisioning_steps(tenant_id, step, ordinal, owner, state) VALUES (${input.tenantId}, ${spec.step}, ${spec.ordinal}, ${spec.owner}, 'pending') ON CONFLICT DO NOTHING`;
     }
   }
 
@@ -182,11 +182,11 @@ export class FactoryProvisioningLedger {
 
   /** Progress inside a step: resources recorded before the step completes, so a crash keeps what was created. */
   async stepProgress(tenantId: string, step: FactoryProvisioningStepName, resources: FactoryStepResources): Promise<void> {
-    await this.sql`UPDATE factory_provisioning_steps SET resources = resources || ${JSON.stringify(assertFactoryStepResources(resources))}::jsonb, updated_at = now() WHERE tenant_id = ${tenantId} AND step = ${step}`;
+    await this.sql`UPDATE factory_provisioning_steps SET resources = resources || ${JSON.stringify(assertFactoryStepResources(resources))}::text::jsonb, updated_at = now() WHERE tenant_id = ${tenantId} AND step = ${step}`;
   }
 
   async stepCompleted(tenantId: string, step: FactoryProvisioningStepName, resources: FactoryStepResources): Promise<void> {
-    await this.sql`UPDATE factory_provisioning_steps SET state = 'complete', resources = resources || ${JSON.stringify(assertFactoryStepResources(resources))}::jsonb, failure_code = NULL, failure_message = NULL, updated_at = now(), completed_at = now() WHERE tenant_id = ${tenantId} AND step = ${step}`;
+    await this.sql`UPDATE factory_provisioning_steps SET state = 'complete', resources = resources || ${JSON.stringify(assertFactoryStepResources(resources))}::text::jsonb, failure_code = NULL, failure_message = NULL, updated_at = now(), completed_at = now() WHERE tenant_id = ${tenantId} AND step = ${step}`;
     await this.event({ tenantId, step, event: "step.completed", detail: {} });
   }
 
@@ -216,11 +216,11 @@ export class FactoryProvisioningLedger {
   }
 
   async addMembershipReference(tenantId: string, reference: string): Promise<void> {
-    await this.sql`UPDATE factory_installations SET membership_refs = (SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements_text(membership_refs || ${JSON.stringify([reference])}::jsonb) AS value) WHERE tenant_id = ${tenantId}`;
+    await this.sql`UPDATE factory_installations SET membership_refs = (SELECT jsonb_agg(DISTINCT value) FROM jsonb_array_elements_text(membership_refs || ${JSON.stringify([reference])}::text::jsonb) AS value) WHERE tenant_id = ${tenantId}`;
   }
 
   async event(input: FactoryProvisioningEvent): Promise<void> {
-    await this.sql`INSERT INTO factory_provisioning_events(tenant_id, step, event, detail) VALUES (${input.tenantId}, ${input.step}, ${input.event}, ${JSON.stringify(input.detail)}::jsonb)`;
+    await this.sql`INSERT INTO factory_provisioning_events(tenant_id, step, event, detail) VALUES (${input.tenantId}, ${input.step}, ${input.event}, ${JSON.stringify(input.detail)}::text::jsonb)`;
   }
 
   async events(tenantId: string): Promise<readonly FactoryProvisioningEvent[]> {
@@ -242,7 +242,7 @@ export class FactoryProvisioningLedger {
   async digestConflicts(tenantId: string, digests: readonly string[]): Promise<readonly string[]> {
     if (digests.length === 0) return [];
     const rows = await this.sql`SELECT DISTINCT tenant_id FROM factory_provisioning_steps, jsonb_each_text(resources) AS entry(key, value)
-      WHERE step = 'secrets' AND tenant_id <> ${tenantId} AND entry.key LIKE '%Digest' AND entry.value = ANY(${digests}::text[]) ORDER BY tenant_id` as Row[];
+      WHERE step = 'secrets' AND tenant_id <> ${tenantId} AND entry.key LIKE '%Digest' AND entry.value IN (SELECT jsonb_array_elements_text(${JSON.stringify(digests)}::text::jsonb)) ORDER BY tenant_id` as Row[];
     return rows.map((row) => String(row.tenant_id));
   }
 }

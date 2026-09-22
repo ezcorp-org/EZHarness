@@ -10,7 +10,7 @@
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { SQL } from "bun";
 import { factoryRejection, makeFactoryPrivateRoot, removeFactoryPrivateRoot, writeModeFile } from "../../src/__tests__/helpers/factory-private-root";
 import { FactoryDatabaseStep, factoryDatabaseMarker, factoryDatabasePairs, type FactoryDatabaseKind } from "../../src/factory/provisioning/database";
@@ -35,6 +35,18 @@ let controlUrl: string;
 let root: string;
 const provisioners: LocalFactoryProvisioner[] = [];
 const databaseSteps: FactoryDatabaseStep[] = [];
+/**
+ * Pools a test creates are closed when that test ends: each provisioner holds
+ * up to ten connections, and the shared server's limit is reached long before
+ * the file ends. Pools created at describe level live until afterAll.
+ */
+let testPools: { close(): Promise<void> }[] | undefined;
+beforeEach(() => { testPools = []; });
+afterEach(async () => {
+  const pools = testPools ?? [];
+  testPools = undefined;
+  for (const pool of pools) await pool.close();
+});
 
 type Call = { readonly step: string; readonly action: string; readonly tenantId: string };
 const calls: Call[] = [];
@@ -84,9 +96,11 @@ function provisioner(options: { readonly fault?: (step: FactoryProvisioningStepN
   let created: LocalFactoryProvisioner | undefined;
   const database = new FactoryDatabaseStep({ adminUrl: url!, progress: (installation, resources) => created!.ledger.stepProgress(installation.tenantId, "database", resources), ...(options.afterExternalResourceCreated ? { afterExternalResourceCreated: options.afterExternalResourceCreated } : {}), ...(options.afterRotationAltered ? { afterRotationAltered: options.afterRotationAltered } : {}) });
   databaseSteps.push(database);
+  testPools?.push(database);
   const secrets = new FactorySecretsStep({ registry: { conflicts: (tenantId, digests) => created!.ledger.digestConflicts(tenantId, digests) }, grantableRoots: () => [join(root, "projects")] });
   created = new LocalFactoryProvisioner({ fleetId, controlDatabaseUrl: controlUrl, secretsRoot: join(root, "installations"), operatorRoot: join(root, "operator"), drivers: drivers(database, secrets), ...(options.fault ? { fault: options.fault } : {}) });
   provisioners.push(created);
+  testPools?.push(created);
   return created;
 }
 
@@ -559,7 +573,7 @@ describe("fleet upgrade waves", () => {
     for (const tenantId of tenants) await run.provision(request(tenantId));
     // tenant-73 serves traffic but has no recorded build; tenant-74 stops at resources_prepared.
     await run.provision(request("tenant-73"));
-    await run.provision(request("tenant-74"), { through: "database" });
+    await run.provision(request("tenant-74"), { through: "secrets" });
     upgradeSql = new SQL(controlUrl, { max: 2 });
     upgrades = new FactoryFleetUpgrades(upgradeSql, {
       apply: async (installation, component, builds) => {

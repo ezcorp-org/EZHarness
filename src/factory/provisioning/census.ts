@@ -45,7 +45,7 @@ export function factoryDatabaseCensus(adminUrl: string, tables: readonly Factory
           if (!IDENTIFIER.test(entry.table) || !IDENTIFIER.test(entry.column)) throw new Error("census table name is invalid");
           const exists = (await client`SELECT to_regclass(${`public.${entry.table}`}) IS NOT NULL AS present`)[0] as { present: boolean };
           if (!exists.present) continue;
-          const row = (await client.unsafe(`SELECT count(*) FILTER (WHERE ${entry.column} = ANY($1::text[]))::int AS active, count(*) FILTER (WHERE ${entry.column} = ANY($2::text[]))::int AS uncertain FROM ${entry.table}`, [entry.active, entry.uncertain]))[0] as { active: number; uncertain: number };
+          const row = (await client.unsafe(`SELECT count(*) FILTER (WHERE ${entry.column} IN (SELECT jsonb_array_elements_text($1::text::jsonb)))::int AS active, count(*) FILTER (WHERE ${entry.column} IN (SELECT jsonb_array_elements_text($2::text::jsonb)))::int AS uncertain FROM ${entry.table}`, [JSON.stringify(entry.active), JSON.stringify(entry.uncertain)]))[0] as { active: number; uncertain: number };
           active += Number(row.active); uncertain += Number(row.uncertain);
         }
       } finally { await client.close(); }

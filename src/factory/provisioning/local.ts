@@ -21,7 +21,7 @@ import { SQL } from "bun";
 import { FactoryProvisioningLedger, type FactoryInstallationRecord, type FactoryStepRecord } from "./ledger";
 import { assertFactoryInstallationRequest, factoryInstallationNames, type FactoryInstallationContext, type FactoryInstallationRequest, type FactoryProvisioningDriver, type FactoryStepResources } from "./installation";
 import { escrowFactoryArchiveKey } from "./secrets";
-import { FACTORY_PROVISIONING_STEPS, FactoryProvisioningError, factoryPhaseServesTraffic, factoryStepFailure, nextFactoryProvisioningStep, type FactoryInstallationPhase, type FactoryProvisioningStepName, type FactoryStepFailure } from "./steps";
+import { FACTORY_PROVISIONING_STEPS, FactoryProvisioningError, factoryPhaseServesTraffic, factoryStepFailure, type FactoryInstallationPhase, type FactoryProvisioningStepName, type FactoryStepFailure } from "./steps";
 
 /** v1 names, kept so existing callers still compile against the extended provisioner. */
 export type LocalInstallationRequest = FactoryInstallationRequest;
@@ -197,9 +197,11 @@ export class LocalFactoryProvisioner {
         const recorded = steps.get(spec.step)!;
         if (recorded.state === "complete") await this.verifyStep(installation, spec.step, recorded.resources);
         else {
-          // The ledger's own order guard: a later step complete while this one is not is refused, never skipped past.
-          const next = nextFactoryProvisioningStep(Object.fromEntries([...steps.values()].map((entry) => [entry.step, entry.state])));
-          if (next?.step !== spec.step) throw new FactoryProvisioningError("provisioning_ledger_out_of_order", `Step ${spec.step} is not the next step of ${installation.tenantId}.`, spec.step);
+          // The ledger's own order guard: a step that never ran while a later one is complete is refused, never
+          // skipped past. A step that failed its re-verification resumes here; the later steps re-verify after it.
+          if (recorded.state === "pending" && FACTORY_PROVISIONING_STEPS.some((later) => later.ordinal > spec.ordinal && steps.get(later.step)!.state === "complete")) {
+            throw new FactoryProvisioningError("provisioning_ledger_out_of_order", `Step ${spec.step} of ${installation.tenantId} never ran, but a later step is complete.`, spec.step);
+          }
           await this.runStep(installation, spec.step, recorded.resources);
           steps.set(spec.step, { ...recorded, state: "complete" });
         }

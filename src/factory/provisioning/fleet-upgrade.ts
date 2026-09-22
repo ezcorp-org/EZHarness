@@ -242,7 +242,7 @@ export class FactoryFleetUpgrades {
   }
 
   private async finish(waveId: string, state: "completed" | "stopped", skipped: readonly unknown[], failed?: { readonly tenantId: string; readonly component: FactoryUpgradeComponent; readonly failure: FactoryStepFailure }): Promise<void> {
-    await this.sql`UPDATE factory_upgrade_waves SET state = ${state}, skipped = ${JSON.stringify(skipped)}::jsonb, failure_tenant_id = ${failed?.tenantId ?? null}, failure_component = ${failed?.component ?? null}, failure_code = ${failed?.failure.code ?? null}, failure_message = ${failed?.failure.message ?? null}, finished_at = now() WHERE wave_id = ${waveId}`;
+    await this.sql`UPDATE factory_upgrade_waves SET state = ${state}, skipped = ${JSON.stringify(skipped)}::text::jsonb, failure_tenant_id = ${failed?.tenantId ?? null}, failure_component = ${failed?.component ?? null}, failure_code = ${failed?.failure.code ?? null}, failure_message = ${failed?.failure.message ?? null}, finished_at = now() WHERE wave_id = ${waveId}`;
   }
 
   /**
@@ -268,7 +268,7 @@ export class FactoryFleetUpgrades {
       if (open.active > 0 || open.uncertain > 0) busyTenants.push(row.tenant_id);
     }
     if (busyTenants.length > 0) {
-      for (const row of await this.sql`SELECT DISTINCT w.target_build_id AS build_id FROM factory_upgrade_wave_steps s JOIN factory_upgrade_waves w USING (wave_id) WHERE s.tenant_id = ANY(${busyTenants}::text[])` as { build_id: string }[]) referenced.add(row.build_id);
+      for (const row of await this.sql`SELECT DISTINCT w.target_build_id AS build_id FROM factory_upgrade_wave_steps s JOIN factory_upgrade_waves w USING (wave_id) WHERE s.tenant_id IN (SELECT jsonb_array_elements_text(${JSON.stringify(busyTenants)}::text::jsonb))` as { build_id: string }[]) referenced.add(row.build_id);
     }
     const candidates = await this.sql`SELECT build_id FROM factory_fleet_builds WHERE state = 'retained'` as { build_id: string }[];
     const retired: string[] = [];
