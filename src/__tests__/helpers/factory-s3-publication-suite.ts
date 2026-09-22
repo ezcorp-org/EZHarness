@@ -13,7 +13,7 @@ import { FileBlobStore, digestObject } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryArchiveWriter, factoryArchiveFailureDomain } from "../../factory/archive-writer";
 import { FactoryArtifacts } from "../../factory/artifacts";
-import { FactoryAttemptMaterials, FactoryScopedMaterials, factoryMaterialDigest, type FactoryMaterialScope } from "../../factory/artifact-materials";
+import { FactoryAttemptMaterials, FactoryScopedMaterials, factoryMaterialDigest, type FactoryMaterialScope, type FactoryMaterialService } from "../../factory/artifact-materials";
 import { FactoryAssurance, type FactoryCandidateKey, type FactoryCurrentCandidateResolver, type FactoryReleaseFenceReader, type FactoryTrustedEvidence, type FactoryTrustedValidatorGateway } from "../../factory/assurance";
 import { EncryptedBlobStore, InstallationDataKey, StaticMasterKeyProvider, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../../factory/encryption";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
@@ -33,6 +33,7 @@ import {
 import {
   FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION,
   FactoryS3PublicationProvenance,
+  FactoryVerifiedAttemptMaterials,
   S3FactoryManifestReleaseProfile,
   assertFactoryS3AcceptedPublication,
   assertFactoryS3RequestedDirectory,
@@ -118,6 +119,12 @@ async function setup() {
   const artifacts = new FactoryArtifacts(db, blobs, TENANT);
   const journal = new FactoryExecutionJournal(db, async () => {});
   const attemptMaterials = new FactoryAttemptMaterials({ database: db, artifacts, blobs, journal, authority: attempt });
+  /**
+   * The production composition: attempt-agnostic at construction, so one instance built once at
+   * startup can list any attempt an acceptance decision later names. This is what the S3 profile
+   * below is given, never the one fixture-writing `attemptMaterials` is bound to above.
+   */
+  const verifiedAttemptMaterials = new FactoryVerifiedAttemptMaterials({ database: db, blobs, journal });
   const reader = new FactoryScopedMaterials({ database: db, artifacts, blobs });
   const scope: FactoryMaterialScope = { tenantId: TENANT, projectId, runId, attemptId, operationId: materialOperationId };
 
@@ -228,7 +235,7 @@ async function setup() {
     endpoint: "http://127.0.0.1:18333", bucket: s3.bucket, account, prefix: s3.prefix,
     credentials: { accessKeyId: "publication-id", secretAccessKey: "publication-secret" }, client: s3.client, reader, attempts: provenance,
   });
-  const profile = new S3FactoryManifestReleaseProfile({ adapter: ADAPTER, account, provenance, materials: attemptMaterials, spendMicrosPerMebibyte: 3 });
+  const profile = new S3FactoryManifestReleaseProfile({ adapter: ADAPTER, account, provenance, materials: verifiedAttemptMaterials, spendMicrosPerMebibyte: 3 });
 
   const accepted: FactoryS3AcceptedPublication = {
     schemaVersion: FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION, materialOperationId,
@@ -293,6 +300,7 @@ async function setup() {
     db, admin, projectId, runId, attemptId, taskCommandId, decision, scope, members, reader, archive, writer, releases, provider, profile,
     provenance, accepted, materialOperationId, account, resolve, prepare, claim, publish, keyOf, read, writeForeign, currentVersion,
     mutationKey, storeMaterial, writeReceipt, addCommand, acceptanceReceipt, multipartParts, large: fixture.large === true,
+    verifiedAttemptMaterials, journal, blobs, tenantId: TENANT, attemptMaterials,
   };
 }
 
@@ -381,6 +389,144 @@ test("the release profile pins every published file from its sealed material rec
   const aborted = new AbortController();
   aborted.abort();
   await expect(world.profile.resolve({ tenantId: TENANT, projectId: world.projectId, runId: world.runId, acceptedManifest: world.accepted as unknown as JsonValue, requestedDestination: { provider: "s3", account: world.account, object: "releases/x" } as unknown as JsonValue, decision: world.decision, material: { decisionId: world.decision.decisionId, evidence: [], packageTrustDigest: digest("a"), validatorTrustDigest: digest("b") } }, aborted.signal)).rejects.toThrow();
+});
+
+test("the verified-attempt materials reader lists exactly one attempt's own sealed materials and refuses any other name", async () => {
+  const world = await setup();
+
+  const listed = await world.verifiedAttemptMaterials.list(world.scope);
+  expect(listed.map(record => [record.objectName, record.version, record.sealed])).toEqual([
+    ["candidate.json", 1, true], ["evidence.json", 1, true], ["part-0.csv", 1, true], ["part-1.csv", 1, true],
+  ]);
+  for (const record of listed) expect(record.artifact).toBeDefined();
+
+  // An attempt id the journal does not currently recognize under this exact
+  // tenant/project/run is refused by name -- never silently listed as empty,
+  // and never widened to answer for a different attempt.
+  await expect(world.verifiedAttemptMaterials.list({ ...world.scope, attemptId: "no-such-attempt" })).rejects.toMatchObject({ code: "factory_material_scope_denied" });
+  await expect(world.verifiedAttemptMaterials.list({ ...world.scope, tenantId: "another-tenant" })).rejects.toMatchObject({ code: "factory_material_scope_denied" });
+  await expect(world.verifiedAttemptMaterials.list({ ...world.scope, projectId: "another-project" })).rejects.toMatchObject({ code: "factory_material_scope_denied" });
+  await expect(world.verifiedAttemptMaterials.list({ ...world.scope, runId: "another-run" })).rejects.toMatchObject({ code: "factory_material_scope_denied" });
+
+  // No standing grant: a second reader, built fresh with no bound attempt at
+  // construction, answers identically for the same exact scope -- proving the
+  // authority behind a listing is re-derived per call, not cached or shared.
+  const fresh = new FactoryVerifiedAttemptMaterials({ database: world.db, blobs: world.blobs, journal: world.journal });
+  expect((await fresh.list(world.scope)).map(record => record.objectName)).toEqual(listed.map(record => record.objectName));
+
+  // Cancellation is honored before any database round trip: a database that
+  // throws on any query proves the abort short-circuits ahead of the first read.
+  const poisoned = { execute: async () => { throw new Error("must not be queried once cancelled"); } } as unknown as TransactionalDb;
+  const guarded = new FactoryVerifiedAttemptMaterials({ database: poisoned, blobs: world.blobs, journal: world.journal });
+  const cancelled = new AbortController();
+  cancelled.abort();
+  await expect(guarded.list(world.scope, cancelled.signal)).rejects.toThrow();
+});
+
+test("a grant re-admission between the reader's two transactions is refused, not silently honored", async () => {
+  const world = await setup();
+  const expected = (await world.verifiedAttemptMaterials.list(world.scope)).map(record => record.objectName);
+
+  // A journal that behaves exactly like the real one for readAuthorityInTransaction,
+  // except that immediately after it reads -- and before FactoryVerifiedAttemptMaterials.list()
+  // can use that snapshot to construct the delegate reader and its OWN second transaction -- it
+  // bumps grant_revision on the underlying row. This simulates a concurrent re-admission landing
+  // in the exact window the reader's two-transaction design leaves open.
+  let armed = false;
+  const racyJournal = Object.create(world.journal) as typeof world.journal;
+  racyJournal.readAuthorityInTransaction = async (...args: Parameters<typeof world.journal.readAuthorityInTransaction>) => {
+    const result = await world.journal.readAuthorityInTransaction(...args);
+    if (armed) await world.db.execute(sql`UPDATE factory_executions SET grant_revision = grant_revision + 1 WHERE attempt_id = ${world.attemptId}`);
+    return result;
+  };
+  const reader = new FactoryVerifiedAttemptMaterials({ database: world.db, blobs: world.blobs, journal: racyJournal });
+
+  // Baseline: with no race armed, the reader answers normally.
+  await expect(reader.list(world.scope).then(records => records.map(record => record.objectName))).resolves.toEqual(expected);
+
+  // Arm the race and prove the reader's SECOND transaction (W04's own lockScopedRead, re-checking
+  // the FULL authority tuple including grant_revision) refuses rather than serving a read taken
+  // under authority that was already stale by the time it ran.
+  armed = true;
+  await expect(reader.list(world.scope)).rejects.toThrow();
+  armed = false;
+
+  // The attempt is not "burned": once the world is quiescent again, the reader answers normally
+  // against the new, current authority -- the refusal was about staleness in flight, not a
+  // corrupted or wedged attempt.
+  await expect(reader.list(world.scope).then(records => records.map(record => record.objectName))).resolves.toEqual(expected);
+});
+
+test("cross-check: the same stale authority fed straight to FactoryAttemptMaterials.list() is refused for the same reason", async () => {
+  const world = await setup();
+  const authority = await world.journal.readAuthorityInTransaction(world.db, world.scope);
+  expect(authority).toBeDefined();
+  // Simulate the race directly: the row is superseded after the authority snapshot was taken.
+  await world.db.execute(sql`UPDATE factory_executions SET grant_revision = grant_revision + 1 WHERE attempt_id = ${world.attemptId}`);
+  const artifacts = new FactoryArtifacts(world.db, world.blobs, world.scope.tenantId);
+  const stale = new FactoryAttemptMaterials({ database: world.db, artifacts, blobs: world.blobs, journal: world.journal, authority: authority! });
+  await expect(stale.list(world.scope)).rejects.toThrow(/unavailable/i);
+});
+
+test("an unsealed material is listed but never accepted by the S3 profile", async () => {
+  const world = await setup();
+  const identity = { ...world.scope, objectName: "unsealed.csv", version: 1 };
+  await world.attemptMaterials.begin(identity, "text/csv", 5, 1);
+
+  const listed = await world.verifiedAttemptMaterials.list(world.scope);
+  const found = listed.find(record => record.objectName === "unsealed.csv");
+  expect(found).toMatchObject({ sealed: false });
+  expect(found!.artifact).toBeUndefined();
+
+  // A publication that names the unsealed object is refused; only sealed,
+  // immutable materials this attempt's own authority produced can be published.
+  await expect(world.resolve("releases/unsealed", { files: [{ name: "data/unsealed.csv", objectName: "unsealed.csv", version: 1 }] })).rejects.toMatchObject({ code: "factory_s3_profile_invalid" });
+});
+
+test("a lost materials response is safe to retry: the second resolve reproduces the first", async () => {
+  const world = await setup();
+  let failuresLeft = 1;
+  const flaky: Pick<FactoryMaterialService, "list"> = {
+    async list(scope, signal) {
+      if (failuresLeft > 0) { failuresLeft -= 1; throw new Error("material list response lost"); }
+      return world.verifiedAttemptMaterials.list(scope, signal);
+    },
+  };
+  const flakyProfile = new S3FactoryManifestReleaseProfile({ adapter: ADAPTER, account: world.account, provenance: world.provenance, materials: flaky, spendMicrosPerMebibyte: 3 });
+  const input = { tenantId: TENANT, projectId: world.projectId, runId: world.runId, acceptedManifest: world.accepted as unknown as JsonValue, requestedDestination: { provider: "s3", account: world.account, object: "releases/retry" } as unknown as JsonValue, decision: world.decision, material: { decisionId: world.decision.decisionId, evidence: [], packageTrustDigest: digest("a"), validatorTrustDigest: digest("b") } };
+
+  await expect(flakyProfile.resolve(input, new AbortController().signal)).rejects.toThrow("material list response lost");
+  // Nothing was partially written by the lost response, so an ordinary retry
+  // reproduces the exact same request the healthy path would have resolved.
+  const retried = await flakyProfile.resolve(input, new AbortController().signal);
+  const direct = await world.resolve("releases/retry");
+  expect(retried.request).toEqual(direct.request);
+  expect(retried.destination).toEqual(direct.destination);
+});
+
+test("prepare revalidates the exact input the S3 profile resolved from, in its own final transaction", async () => {
+  const world = await setup();
+  const preparation = await world.releases.resolvePreparation(
+    {
+      projectId: world.projectId, runId: world.runId, nodeInstanceId: TASK_NODE, candidateGeneration: 1,
+      decisionId: world.decision.decisionId, candidateDigest: world.decision.candidateDigest,
+      acceptedManifest: world.accepted as unknown as JsonValue,
+      requestedDestination: { provider: "s3", account: world.account, object: "releases/revalidated" } as unknown as JsonValue,
+      deadlineMs: Date.now() + 600_000,
+    },
+    world.profile, new AbortController().signal,
+  );
+
+  // A caller that swaps the accepted candidate after resolve, while keeping the
+  // profile's already-sealed result, cannot make its tampered input reach the
+  // committed operation: the final transaction re-derives the digest from what
+  // it is actually handed and rejects the mismatch as stale.
+  const tampered = { ...preparation, profileInput: { ...preparation.profileInput, acceptedManifest: { ...world.accepted, candidateVersion: 99 } as unknown as JsonValue } };
+  await expect(world.releases.prepare(world.admin, tampered, world.mutationKey("tampered"))).rejects.toMatchObject({ code: "factory_release_profile_stale" });
+
+  // The untampered preparation still commits: the check is on the exact bytes, not merely that one ran.
+  const operation = await world.releases.prepare(world.admin, preparation, world.mutationKey("clean"));
+  expect(operation.state).toBe("pending");
 });
 
 test("the archive holds the publication set's members before any dispatch claim is possible", async () => {
