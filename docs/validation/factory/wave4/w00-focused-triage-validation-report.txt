@@ -1,0 +1,472 @@
+W00-FOCUSED-TRIAGE — INDEPENDENT VALIDATION REPORT (UPDATED FOR c8020c441)
+=============================================================================
+
+VERDICT ON ORIGINALLY-REPORTED PACKAGE (698e9a2fb / 78c27fec0): ACCEPT
+VERDICT ON dc3eba210 (sweep, round 1): REJECT (superseded, see section 13)
+VERDICT ON FINAL HEAD c8020c441 (sweep, round 2 — the worker's fix for the
+REJECT above): ACCEPT
+
+Section 13 (bottom of file) is the round-2 re-verification. Everything above it
+(sections 0-12) documents the round-1 REJECT at dc3eba210, which the worker then
+fixed; it is kept for the record and because its root-cause diagnosis is exactly
+what the round-2 fix addresses.
+
+Per team-lead instruction I checked `git log --oneline 698e9a2fb..HEAD`, found the
+sweep had already landed as two commits, read their diffs, and reran the batch
+(rebuilt fresh — the sweep's own file changes pull 4 more files into the
+--auto-extra-base list, so "the batch" at this head is 226 files, not 222). That
+run found FOUR genuine, deterministic failures that do not exist before the
+sweep. Sections 9-11 below are new; sections 1-8 are the original (still-valid)
+validation of 698e9a2fb/78c27fec0, which the sweep is layered on top of.
+
+Package validated: wp/w00-focused-triage, claimed head 698e9a2fb (batch verified
+at 78c27fec0), merge base c1377122b, worktree
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-focused-triage.
+
+Full machine-readable results: /tmp/factory-platform-evidence/w00-focused-triage-validation/results.json
+Raw logs/receipts: /tmp/factory-platform-evidence/w00-focused-triage-validation/logs/
+Coverage: /tmp/factory-platform-evidence/w00-focused-triage-validation/coverage/
+Tools used: /tmp/factory-platform-evidence/w00-focused-triage-validation/tools/
+
+
+0. TOP FINDING — THE SWEEP BREAKS THE 226-FILE BATCH (SEE SECTION 9)
+------------------------------------------------------------------------
+Two commits landed on wp/w00-focused-triage during this validation:
+  7f27a544f  test: stop four more suites hijacking $server/db/connection for the process
+  dc3eba210  docs(tasks): record the $server/db/connection sweep and its victim proofs
+tasks/todo.md confirms this was coordinator-directed ("Sweep (coordinator's
+follow-up)"), so — unlike my first read of this before the coordinator's
+instruction to check the final head — this IS in scope. I read both diffs in
+full (section 9), independently reproduced all four new per-file pairs green
+(section 10), then reran the real target — the combined batch — and found it is
+NOT green: 4 deterministic failures, with root cause identified for one of them
+(section 11). The worker's own verification only ever paired each new file
+against the single named victim (installer-idempotent-local.test.ts); it never
+ran the sweep files against each other or against the rest of the batch, which
+is exactly where the new defect lives.
+
+
+1. TREE, HEAD, COMMITS
+------------------------
+All 8 originally-claimed commits (e54d5884b..698e9a2fb) present on the branch in
+order; 78c27fec0 and 698e9a2fb both present as claimed. Tree was clean at initial
+check. (See finding 0 for the two additional commits that landed mid-session.)
+
+
+2. DIFF REVIEW (git diff integ/w00...HEAD, every hunk read)
+--------------------------------------------------------------
+14 files, 293 insertions(+), 32 deletions(-) for the originally-reported scope.
+- src/extensions/extension-lifecycle-service.ts (+17/-0), src/extensions/trusted-
+  local-runner.ts (+14/-0): additive only. Two new exported functions
+  (resetExtensionServices, resetTrustedLocalRunner), zero existing lines touched.
+  Confirmed nothing in production calls either (both docstrings say so; grep for
+  callers outside __tests__ confirms it).
+- Five test files + two test helpers (mock-cleanup.ts, mock-request.ts) changed to
+  add resets/reverts. No .skip/.only/.todo, no assertion-free tests, no empty
+  catch{} found anywhere in the diff.
+- One judgment call reviewed carefully: packages/@ezcorp/extension-runner/tests/
+  provision.integration.test.ts:35-70 changes `expect(build.mock.calls.length)
+  .toBe(1)` to `.toBe(0)` (over a pre-warmed cache) and adds a new assertion that
+  `sdkFiles` contains real `.js` build output as a floor. This looked like a
+  possible weakening on first read. On inspection the ORIGINAL assertion's own
+  comment ("this test owns the first provision in its process") was the actual
+  bug — a false premise in a pooled run, not a guarded regression — and the new
+  form still requires zero *additional* builds across three toolchain roots (the
+  same guarantee, expressed as a delta instead of an absolute count) plus a new
+  positive check that real bundling happened. Independently reproduced failing at
+  base and green at HEAD (below), which is the strongest evidence available that
+  the replacement assertion still catches the regression it targets.
+- scripts/coverage-thresholds.json and scripts/check-factory-boundaries.ts: NOT
+  modified. Both touched files already carry a 100 threshold key. Neither file is
+  a C13 SHARED_REUSE_MODULES entry (verified against the source list), so no
+  REQUIRED_SHARED_IMPORTS row was needed — correct, not an omission.
+
+
+3. BATCH REPRODUCTION (independent, not from worker's receipts)
+--------------------------------------------------------------------
+Rebuilt the 222-file list myself from combined-integration.py's own logic
+(--auto-extra-base c6ac529d2 + 4 --focused-extra paths needed to reach parity;
+the other 2 of the "coordinator's six" were already present via dedup) — byte-
+identical to the worker's batch-files.txt, and 181-auto-added matches the
+coordinator's own wave4a-driver.log exactly.
+
+Ran it once, one process, with coverage, in the worker's worktree:
+  2747 pass / 0 fail / 222 files / 683.04s / exit 0
+(worker claimed 2747 pass / 0 fail — met; note HEAD moved to 7f27a544f mid-run,
+confirmed non-contaminating per finding 0.)
+
+installer-idempotent-local.test.ts's sixteen tests confirmed running: the file's
+own test-scenario log lines ("Fixture runner unavailable; no source executed")
+appear in the run output at src/__tests__/installer-idempotent-local.test.ts:61,
+and the test-count arithmetic (2747 vs the 2732-test unfixed baseline, +15 net)
+matches the worker's stated math exactly.
+
+
+4. FIVE LEAK PAIRS — REPRODUCED MYSELF AT BOTH ENDS
+--------------------------------------------------------
+Scratch worktree ./.worktrees/w00-focused-triage-base at c1377122b (deps
+installed root+web, removed after use).
+
+  pair                          base (c1377122b)     HEAD
+  leak1 bundled-v4-bootstrap+
+        bundled-wiring-activation    59 pass/3 fail    62 pass/0 fail
+  leak2 trusted-local-runner-in-
+        process+wiring                5 pass/4 fail     9 pass/0 fail
+  leak3 podman.integration+
+        provision.integration        21 pass/1 fail    22 pass/0 fail
+  leak4 executor-slash-command-
+        expansion-e2e+installer       5 pass/1 fail    21 pass/0 fail
+  leak5 bundled-wiring-activation+
+        extension-lifecycle-trusted   3 pass/4 fail     7 pass/0 fail
+
+All five counts match the worker's own bisect/verify receipts exactly. leak4's
+base failure reproduces the precise cited defect: "SyntaxError: Export named
+'checkProjectRole' not found in module '$server/auth/middleware'". leak5's base
+failure reproduces "PGlite is closed" via createWorkspace plus hooks-never-
+installed assertions, exactly as described. The fixes are proven necessary, not
+just proven sufficient.
+
+
+5. STATIC AND COVERAGE GATES (independently rerun)
+--------------------------------------------------------
+typecheck: pass. lint: pass (5315 files). gate-integrity: pass, no gate-weakening
+detected. check-factory-boundaries: pass.
+
+Merged my own lcov (full 222-batch + all 5 HEAD pairs) via scripts/merge-lcov.ts,
+ran with BASE_REF=integ/w00:
+  check-new-file-coverage.ts: PASSED (no new source files)
+  check-patch-coverage.ts:    PASSED (all changed executable lines covered, 2 files)
+Direct DA-record check on the merged lcov confirms both new functions 100% hit:
+  trusted-local-runner.ts:66-68        hits 22/40/46
+  extension-lifecycle-service.ts:204-208  hits 33/69/108/147/72
+
+
+6. CI CONFORMANCE — CONFIRMED, NOT JUST CITED
+---------------------------------------------------
+scripts/test.sh:143-147 and scripts/test-coverage.sh:218 both confirmed one-file-
+per-process. ci.yml:182-186 confirmed as podman.integration.test.ts grouped only
+with supervisor/validator-guest/guest-model podman suites — no leak-pair member
+appears together with its partner in any CI multi-file group today. This claim
+checks out exactly as written.
+
+
+7. THE TWO ACKNOWLEDGED FLAKES — RERUN, NOT FIXED
+--------------------------------------------------------
+sample-loop/index.integration.test.ts alone x2: 1 pass/0 fail both times (load
+~4.0). production-image-lifecycle-launch.integration.test.ts alone x2: 4 pass/0
+fail both times (load ~5-6). Both green at low host load, consistent with the
+worker's load-sensitivity explanation. Left alone as instructed — no timeout
+raised, no retry added.
+
+
+8. SECURITY / GATE-INTEGRITY POSTURE
+----------------------------------------
+No credential values appeared in any log or receipt I produced (checked
+postgres.env handling — URL assembled in-script, never in argv, never echoed).
+No authority check removed; the only production changes are two no-op-in-
+production reset functions. No new EXCLUDES, no lowered threshold, no
+biome.json opt-out.
+
+
+9. SWEEP DIFF REVIEW (7f27a544f, dc3eba210) — read in full
+------------------------------------------------------------
+7f27a544f touches exactly 4 files (85 insertions, 18 deletions), all test-only:
+  src/__tests__/phase-2b-e2e.test.ts: deletes a redundant `$server/db/connection`
+    pass-through (mockDbConnection() already covers it). Pure deletion, no new mock.
+  src/__tests__/scratchpad-e2e.test.ts: same deletion (sync factory → nothing).
+  src/__tests__/mentions-search-symlink-integration.test.ts and
+  mentions-search-workflow-branch.test.ts (near-identical): convert
+  `$server/db/queries/projects`, `$server/db/connection`, `$server/db/schema`
+  from alias mocks to relative-path mocks (`../db/queries/projects` etc.), add
+  `restoreModuleMocks()` to afterAll, and apply the same spread-and-revert
+  pattern to `$server/auth/middleware` that leak4's original fix used
+  (`stubRequireAuth` flag, reverted in afterAll). No assertions changed, no
+  .skip/.only/.todo. dc3eba210 is docs-only (todo.md, GATES.md), consistent with
+  what it changes.
+
+This is structurally the same pattern already validated in section 2 — on its
+own each change looks correct and follows the established fix shape.
+
+
+10. THE FOUR NEW PER-FILE PAIRS — ALL GREEN (as claimed)
+--------------------------------------------------------------
+Independently reproduced at HEAD, matching the worker's tasks/todo.md claim
+exactly: phase-2b-e2e+installer 24p/0f, mentions-search-workflow-branch+installer
+34p/0f, mentions-search-symlink-integration+installer 29p/0f, scratchpad-e2e+
+installer 21p/0f. This is where the worker's own verification stopped.
+
+
+11. THE REAL TARGET — THE COMBINED BATCH — IS NOT GREEN
+--------------------------------------------------------------
+Rebuilt the batch list fresh at dc3eba210: 226 files, 185 auto-added (the sweep's
+4 modified test files are picked up automatically by --auto-extra-base c6ac529d2,
+confirmed via diff against the prior 222-list: exactly the 4 sweep files added).
+
+Full batch, one process, coverage: 2787 pass / 4 fail / 226 files / 603s / exit 1
+  (fail) GET /api/mentions/search — symlink-escape filter > negative control:
+         regular files inside project DO appear
+         (src/__tests__/mentions-search-symlink-integration.test.ts:228)
+  (fail) scratchpad e2e ... mention-picker (type=ext) surfaces scratchpad as an extension
+  (fail) scratchpad e2e ... no longer shows scratchpad as a built-in category
+  (fail) scratchpad e2e ... disabling scratchpad in DB drops it from the mention-picker
+         (all three: src/__tests__/scratchpad-e2e.test.ts, TypeError:
+         Object.entries requires that input parameter not be null or undefined,
+         inside drizzle-orm orderSelectedFields)
+
+Confirmed deterministic (not host-load flake, unlike section 7's two suites):
+reproduced identically 6 times at shrinking cost via bisection —
+226 files (603s) -> 46-file window (61.5s) -> 27-file set (19.8s) -> 5-file set
+(8.3s) -> minimal 2-file and 3-file pairs (~1-8s each), same 4 failures every time.
+
+MINIMAL REPRODUCTIONS (both deterministic, rerun to confirm):
+  Failure 1 (symlink-integration): 2 files —
+    ./src/__tests__/executor-slash-command-expansion-e2e.test.ts
+    ./src/__tests__/mentions-search-symlink-integration.test.ts
+    -> 17 pass / 1 fail
+  Failure 2 (scratchpad-e2e, 3 tests): 3 files —
+    ./src/__tests__/executor-slash-command-expansion-e2e.test.ts
+    ./src/__tests__/mentions-search-workflow-branch.test.ts
+    ./src/__tests__/scratchpad-e2e.test.ts
+    -> 25 pass / 3 fail
+  (executor-slash-command-expansion-e2e + scratchpad-e2e alone: 10 pass/0 fail —
+  workflow-branch's own residue is required too, not just executor's.)
+
+ROOT CAUSE, confirmed for failure 1 with file:line on both sides:
+  web/src/routes/api/mentions/search/+server.ts:12 imports
+  `* as projectQueries from "$server/db/queries/projects"` and calls
+  `projectQueries.getProject(projectId)` (lines 232/328/362/480).
+  src/__tests__/executor-slash-command-expansion-e2e.test.ts:47 (UNCHANGED by
+  the sweep, still present from the original leak4 fix) registers
+  `mock.module("$server/db/queries/projects", () => require("../db/queries/projects"))`
+  — a pass-through onto the ALIAS specifier. Because a `$server/*` alias
+  registration is permanent (the same fact leak4 itself documents), this freezes
+  `$server/db/queries/projects` to the REAL module for the rest of the process.
+  Before the sweep, mentions-search-symlink-integration.test.ts re-claimed that
+  SAME alias with its own `getProject` stub, overriding executor's registration
+  for the query the route needs. The sweep DROPS that alias registration in
+  favor of a relative-path mock (`../db/queries/projects`) — which is exactly
+  right for a route that resolves the relative path, but this route resolves the
+  ALIAS, so the test's stub never reaches it. The route keeps calling the real
+  `getProject`, which cannot find the test's synthetic project "p", and the file
+  listing comes back empty. This is the identical bug class the whole triage
+  targets (an earlier file's permanent alias mock outliving its file), just
+  freshly reintroduced by removing an override that was itself the workaround.
+  Failure 2 (scratchpad-e2e) presents the same signature (a schema/query object
+  arriving `undefined` where the file's own relative-path mock should apply) but
+  I did not trace its exact alias chain — the 3-file minimal repro above is
+  sufficient to hand to the worker.
+
+Neither of these 4 files is in ANY CI group today (same conclusion as section 6
+for the original 5), so this does not fail current CI — but it fails the exact
+thing this triage package exists to make green: the combined 226-file batch.
+
+
+12. FORMAL RE-VERIFICATION OF THE SWEEP (per team-lead's explicit protocol)
+------------------------------------------------------------------------------
+Every hunk read (section 9); confirmed here in addition:
+
+Test counts per suite, 698e9a2fb vs dc3eba210 — UNCHANGED, none added or removed:
+  phase-2b-e2e.test.ts: 8 -> 8 test() blocks (8 pass alone at HEAD)
+  mentions-search-workflow-branch.test.ts: 16 -> 16 test() blocks (18 pass alone,
+    describe-nested; matches before/after)
+  mentions-search-symlink-integration.test.ts: 13 -> 13 (13 pass alone)
+  scratchpad-e2e.test.ts: 5 -> 5 (5 pass alone)
+No expect() line added, removed, or modified anywhere in the sweep diff
+(git diff 698e9a2fb..dc3eba210 -- <4 files>, grepped for expect(: zero hits).
+Only files touched: the 4 test files + tasks/todo.md + GATES.md (git diff --stat
+confirmed: no other helper touched).
+
+Each of the four, run ALONE at HEAD: all green —
+  phase-2b-e2e 8p/0f, workflow-branch 18p/0f, symlink-integration 13p/0f,
+  scratchpad-e2e 5p/0f.
+
+Each of the four, paired with installer-idempotent-local.test.ts — TWO
+baselines, since "the merge base" and "before the sweep" are different commits
+(the worker's own comparison was against 698e9a2fb, after the original 5 leaks
+were fixed, not against the untouched merge base c1377122b):
+
+  pair                    at c1377122b (nothing fixed)   at 698e9a2fb (pre-sweep)   at HEAD
+  phase-2b-e2e+installer      21p/3f                        22p/2f                   24p/0f
+  workflow-branch+installer   18p/1f                        18p/1f                   34p/0f
+  symlink-integration+inst.   13p/1f                        13p/1f                   29p/0f
+  scratchpad-e2e+installer    18p/3f                        21p/0f                   21p/0f
+
+Against the CORRECT pre-sweep baseline (698e9a2fb), the worker's claimed 2, 1, 1,
+0 failures match exactly. (The c1377122b column is extra context I gathered
+along the way, showing the original 5-leak fix already resolves 1 of
+phase-2b-e2e's and all of scratchpad-e2e's pre-sweep failures on its own — not
+requested, included for completeness, does not change any verdict.)
+
+Static gates rerun fresh at dc3eba210: typecheck PASS, lint PASS (5315 files),
+gate-integrity PASS, check-factory-boundaries PASS.
+
+222-file batch (the ORIGINAL list, not auto-rebuilt) rerun once at dc3eba210:
+2747 pass / 0 fail / 222 files / 545.60s / exit 0 — unaffected, because none of
+the 4 sweep files are in this fixed 222-file list. This is consistent with, not
+contradictory to, section 11's finding: the 226-file list (which auto-includes
+the sweep's own changed files, per combined-integration.py's own
+--auto-extra-base logic) is the one that fails. Both are "the batch" depending
+on whether the file-selection step is rerun after the sweep; the coordinator's
+real combined-integration.py run will rebuild the list and will hit the 226-file
+failures.
+
+
+SUMMARY
+-------
+Two verdicts. (1) The originally-reported package, 698e9a2fb/78c27fec0: ACCEPT.
+All five claimed leaks independently reproduced failing at the merge base and
+green at HEAD, exact pass/fail counts matched, 222-file batch 2747 pass/0 fail,
+all gates and CI-grouping claims independently confirmed. (2) The final head,
+dc3eba210, which layers a coordinator-directed sweep on top: REJECT. The sweep's
+four individual pairs are all green exactly as claimed, but the batch they were
+meant to keep green — now 226 files — fails with 4 deterministic, reproducible
+failures. Root cause identified for one (file:line above): executor-slash-
+command-expansion-e2e.test.ts:47 permanently claims the `$server/db/queries/
+projects` alias that mentions-search-symlink-integration.test.ts's route needs,
+and the sweep's own fix removed the override that used to re-claim it. This is
+not a flake (reproduced 6/6 times, deterministic in 1-8s) and not a pre-existing
+CI failure (none of these files share a CI process today) — it is a regression
+introduced by the sweep that the worker's pair-only verification methodology
+structurally could not see. Recommend: do not merge dc3eba210 as-is; the worker
+needs to either restore an alias-level guard for $server/db/queries/projects (and
+whatever scratchpad-e2e's equivalent is) or find another way to make the four new
+files compose safely with the rest of the batch, then rerun the full 226(+)-file
+batch — not just each file against its single named victim — before re-submitting.
+
+Section 12 is the formal re-verification the coordinator asked for after this
+finding: every hunk read, no assertion weakened, no test count changed per suite
+(confirmed for all 4), each file green alone at HEAD, each pair reproduced at
+BOTH the pure merge base and the worker's actual pre-sweep baseline (698e9a2fb) —
+the worker's claimed 2/1/1/0 failure counts match exactly against the correct
+baseline — static gates green at dc3eba210, and the original fixed 222-file list
+still green (2747/0, unaffected because it excludes the sweep's files). None of
+this changes the verdict: the REAL 226-file batch (the one combined-integration.py
+would actually build post-sweep) still fails 4/4 deterministically, per section 11.
+
+
+13. ROUND 2 — c8020c441, THE WORKER'S FIX FOR THE ROUND-1 REJECT
+======================================================================
+Two new commits on top of dc3eba210: 62f6826f5 (fix) and c8020c441 (docs).
+git status --porcelain clean at c8020c441 throughout this round; HEAD did not
+move again during any of my reruns.
+
+13.1 Diff review (dc3eba210..c8020c441), every hunk read
+----------------------------------------------------------
+8 files, 143 insertions(+), 39 deletions(-): the 4 sweep test files again, plus
+src/__tests__/helpers/mock-request.ts (a genuinely shared helper, +30 lines) and
+docs. The fix, precisely matching the root cause I reported:
+- executor-slash-command-expansion-e2e.test.ts:47 no longer separately registers
+  `$server/db/queries/projects` (mockServerAlias() already claims it) — this was
+  the exact line my root-cause finding named as freezing the alias.
+- mock-request.ts adds `serverContextStub()`: one shared factory that spreads
+  the FULL real `$lib/server/context` export set so a partial per-suite factory
+  can no longer delete an export (e.g. getGoalHost) for whoever runs later in
+  the process. Proper DRY reuse, not a new parallel helper.
+- mentions-search-symlink-integration.test.ts and mentions-search-workflow-
+  branch.test.ts: `getProject` moves BACK onto the `$server/db/queries/projects`
+  ALIAS (not a relative path) — spreading the real module so the export set
+  stays whole, reverting it to the real module in afterAll
+  (`mock.module("$server/db/queries/projects", () => realProjects)`). This is
+  the "claim the alias safely" pattern leak4 already established, applied to a
+  second alias. Both also adopt `serverContextStub()` for `$lib/server/context`,
+  and both DROP their `$server/db/schema` / `../db/schema` stub entirely — their
+  own `getDb()` fake ignores the schema argument, so stubbing schema cost
+  nothing for these suites but corrupted a later suite's real drizzle query
+  (`Object.entries(undefined)`), which is exactly the scratchpad-e2e failure I
+  found and had not fully traced. This explains it precisely.
+- scratchpad-e2e.test.ts: one-line change, adopts `serverContextStub()`.
+
+Confirmed: zero `expect(` lines added/removed/modified anywhere in the diff; no
+`.skip/.only/.todo` introduced; per-suite test() counts identical, 698e9a2fb vs
+c8020c441: phase-2b-e2e 8/8, workflow-branch 16/16, symlink-integration 13/13,
+scratchpad-e2e 5/5, executor-slash-command-expansion-e2e 5/5. Only the 4 test
+files + mock-request.ts + docs touched (git diff --stat).
+
+13.2 226-file batch, rebuilt fresh at c8020c441
+----------------------------------------------------
+Rebuilt the file list independently (same combined-integration.py logic, same
+--auto-extra-base and --focused-extra as before): identical 226 files to the
+dc3eba210 list (only file CONTENTS differ, not the selection) — 185 auto-added,
+matching the worker's claim.
+
+Full batch, one process, coverage: 2791 pass / 0 fail / 226 files / 558.17s /
+exit 0. Matches the worker's claim exactly (2787->2791 is the +4 from the three
+previously-broken suites now fully passing plus the count shift from dropping
+the schema stub; 0 fail confirmed). HEAD stayed at c8020c441 throughout,
+confirmed before and after.
+
+13.3 Both minimal repros from section 11 — now green
+------------------------------------------------------
+executor-slash-command-expansion-e2e.test.ts + mentions-search-symlink-
+integration.test.ts: 18 pass / 0 fail (was 17p/1f).
+executor-slash-command-expansion-e2e.test.ts + mentions-search-workflow-
+branch.test.ts + scratchpad-e2e.test.ts: 28 pass / 0 fail (was 25p/3f).
+
+13.4 Ordered-pair matrix: 10 spot-checked (3 red + 7 green), all match
+--------------------------------------------------------------------------
+The worker's tool (tools/pair-matrix.sh) runs every ORDERED pair among 12
+touched files (132 pairs) with no coverage, expecting each pair's pass count to
+equal the sum of its two files run alone. I independently reran their evidence
+files (pair-matrix-2.txt, badpairs-at-base.txt) for internal consistency, then
+spot-checked 10 of the 132 myself at HEAD, including all 3 claimed-red ones:
+
+  pair (order matters)                                          HEAD result
+  trusted-local-runner-wiring + trusted-local-runner-in-process   8p/1f  RED (claimed)
+  scratchpad-e2e + mentions-search-workflow-branch                5p/18f RED (claimed)
+  scratchpad-e2e + mentions-search-symlink-integration            12p/6f RED (claimed)
+  mentions-search-workflow-branch + scratchpad-e2e (reverse)      23p/0f green
+  mentions-search-symlink-integration + scratchpad-e2e (reverse)  18p/0f green
+  trusted-local-runner-in-process + wiring (reverse)               9p/0f green
+  bundled-v4-bootstrap + bundled-wiring-activation                62p/0f green
+  extension-lifecycle-service-trusted-local + scratchpad-e2e       9p/0f green
+  provision.integration + mentions-search-symlink-integration     16p/0f green
+  phase-2b-e2e + trusted-local-runner-wiring                      14p/0f green
+
+All 10 match the worker's claim exactly, both which pairs are red and their
+precise pass/fail counts.
+
+13.5 The 3 red pairs at the merge base (scratch worktree, confirms pre-existing)
+------------------------------------------------------------------------------------
+./.worktrees/w00-focused-triage-base at c1377122b, deps installed root+web,
+removed after use. All 3 red pairs reproduce with IDENTICAL counts and even
+identical failing test names at the pure merge base:
+  wiring+in-process: 8p/1f (same as HEAD)
+  scratchpad+workflow-branch: 5p/18f (same as HEAD)
+  scratchpad+symlink-integration: 12p/6f (same as HEAD)
+This independently confirms the worker's claim: these are pre-existing
+link-order conflicts, not introduced or left unfixed by this branch. I also
+checked 2 reverse-order (green-at-HEAD) pairs at base for contrast: workflow-
+branch+scratchpad reverse is 18p/1f at base (a different, older bug this branch
+does fix) and in-process+wiring reverse is 5p/4f at base (the original,
+already-documented leak2 failure this branch's very first commit fixes) — both
+consistent with, not contradicting, everything already established.
+
+13.6 Runner's-order claim — confirmed by reading the list
+----------------------------------------------------------------
+Checked positions in the freshly-rebuilt 226-file list:
+  mentions-search-symlink-integration:118, mentions-search-workflow-branch:119,
+  scratchpad-e2e:125 -- both mentions suites run BEFORE scratchpad-e2e, i.e. the
+  runner takes the SAFE direction, never "scratchpad before either mentions
+  suite".
+  trusted-local-runner-in-process.integration:129,
+  trusted-local-runner-wiring:130 -- in-process runs BEFORE wiring, the SAFE
+  direction already fixed by the original leak2 commit; the runner never takes
+  "wiring before in-process".
+Confirmed: the runner's actual file order never exercises either red direction.
+
+13.7 Static gates at c8020c441
+-----------------------------------
+typecheck PASS, lint PASS (5315 files), gate-integrity PASS ("no gate-weakening
+or test-cheating changes detected"), check-factory-boundaries PASS.
+
+13.8 Verdict
+----------------
+ACCEPT for final head c8020c441. The round-1 regression is fixed at its exact
+root cause (confirmed by reading the new hunks against my own diagnosis, not
+just by the batch going green). The 226-file batch — rebuilt fresh, not reused
+from a stale list — is 2791 pass/0 fail. Both minimal repros are green. All 10
+spot-checked ordered pairs match the worker's claims exactly, both red and
+green. The 3 remaining red pairs are independently confirmed pre-existing
+(identical at the merge base) and independently confirmed unreachable in the
+runner's actual file order. Static gates are green. No assertion weakened, no
+test count changed, no skip/only/todo, across either round's diff.

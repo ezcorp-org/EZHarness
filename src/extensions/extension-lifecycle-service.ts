@@ -191,6 +191,23 @@ async function initialize(): Promise<LifecycleServices> {
   return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations, blobs };
 }
 
+/**
+ * Forget the initialised services and everything `initialize()` leaves behind.
+ * The application builds them once per process and keeps them, so nothing in
+ * production calls this. A suite that initialises them against its own
+ * database calls it after closing that database: the repository, delivery
+ * queue and migrations here all hold that connection, and the next suite in a
+ * pooled `bun test` process would otherwise inherit them and read "PGlite is
+ * closed" — or, worse, never re-run the initialisation whose effects it is
+ * asserting. Pending recovery timers go with them, for the same reason.
+ */
+export function resetExtensionServices(): void {
+  services = undefined;
+  recoveryCapacityAvailable = false;
+  for (const timer of recoveryTimers.values()) clearTimeout(timer);
+  recoveryTimers.clear();
+}
+
 function getServices(): Promise<LifecycleServices> {
   services ??= initialize().catch((error) => { services = undefined; throw error; });
   return services;

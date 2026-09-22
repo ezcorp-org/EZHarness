@@ -42,9 +42,16 @@ import { mockServerAlias, ADMIN_USER } from "./helpers/mock-request";
 // ── Server-side aliases used by +server.ts ──────────────────────────
 mockServerAlias();
 
-// Aliases the route uses that mockServerAlias() doesn't cover.
+// Aliases the route uses that mockServerAlias() doesn't cover. Each is a
+// pass-through to the real module, and each one CLAIMS its specifier for the
+// whole process: from here `$server/X` is served from this registration rather
+// than resolving through the importing module's own tsconfig, so a later
+// suite's `mock.module("../X", …)` can no longer reach a route that imports
+// the alias. That is why a suite stubbing what a route sees has to claim the
+// alias too, and revert it — see mentions-search-*.test.ts.
+// `$server/db/queries/projects` is NOT listed here: mockServerAlias() above
+// already registers it, so repeating it only added a second claim.
 mock.module("$server/db/queries/attachments", () => require("../db/queries/attachments"));
-mock.module("$server/db/queries/projects", () => require("../db/queries/projects"));
 mock.module("$server/providers/model-capabilities", () => require("../providers/model-capabilities"));
 mock.module("$server/chat/attachments/validator", () => require("../chat/attachments/validator"));
 mock.module("$server/chat/attachments/storage", () => require("../chat/attachments/storage"));
@@ -52,8 +59,20 @@ mock.module("$server/chat/attachments/content-builder", () => require("../chat/a
 
 // Auth middleware lives under web/ — stub it to a fixed admin user so
 // ownership check passes regardless of conv.userId.
+//
+// A `mock.module("$server/…")` is PERMANENT: bun has no unregister, and
+// nothing can restore an export the alias never carried, because no module
+// was ever loaded under that specifier for the snapshot to capture. So this
+// registration has to be safe for every later file in the process on its own
+// terms, in two ways. It spreads the real module, because a partial factory
+// DELETES the exports it omits — dropping `checkProjectRole` here stopped
+// `installer-idempotent-local.test.ts` from linking at all. And the one
+// override reverts with the suite, because a `requireAuth` frozen on this
+// fixture's admin answers for every later file's routes too.
+let stubRequireAuth = true;
 mock.module("$server/auth/middleware", () => ({
-  requireAuth: (_locals: any) => ADMIN_USER,
+  ...require("../auth/middleware"),
+  requireAuth: (locals: any) => (stubRequireAuth ? ADMIN_USER : require("../auth/middleware").requireAuth(locals)),
 }));
 
 // Security middleware — pass-through no-ops.
@@ -222,6 +241,10 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  // The `$server/auth/middleware` registration above cannot be withdrawn, so
+  // withdraw the behaviour instead: from here the alias answers as the real
+  // middleware does.
+  stubRequireAuth = false;
   restoreModuleMocks();
   await closeTestDb();
   await rm(projectRoot, { recursive: true, force: true }).catch(() => {});

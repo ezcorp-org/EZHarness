@@ -18,7 +18,8 @@
  */
 
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
-import { unavailableWorkflowAccess } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, unavailableWorkflowAccess } from "./helpers/mock-cleanup";
+import { serverContextStub } from "./helpers/mock-request";
 import { mkdtemp, mkdir, writeFile, symlink, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -28,12 +29,31 @@ import { join } from "node:path";
 
 let nextProject: { id: string; path: string } | null = null;
 
+// The route resolves `$server/db/queries/projects` through its OWN tsconfig,
+// and a dozen suites in this pool register that alias, so a relative-path mock
+// cannot reach the route: once any file registers a `$server/*` specifier it is
+// served from that registration for the rest of the process. Claim the alias,
+// then, but claim it SAFELY — spread the real module so the export set stays
+// whole, and re-register the real module in afterAll so the value goes back.
+// Bound before the `drizzle-orm` mock below, which the real module builds with.
+const realProjects = require("../db/queries/projects");
+
 mock.module("$server/db/queries/projects", () => ({
+  ...realProjects,
   getProject: async (_id: string) => nextProject,
 }));
 
+// Spread the real module, and revert the one override in afterAll. A
+// `mock.module("$server/…")` cannot be withdrawn, and a PARTIAL factory does
+// not merely shadow the other exports — it deletes them for the rest of the
+// process, because no module was ever loaded under that specifier for a
+// snapshot to restore from. Dropping `checkProjectRole` here stopped
+// `installer-idempotent-local.test.ts` from linking at all, losing its
+// sixteen tests to one unhandled error.
+let stubRequireAuth = true;
 mock.module("$server/auth/middleware", () => ({
-  requireAuth: () => ({ id: "test-user", role: "admin" }),
+  ...require("../auth/middleware"),
+  requireAuth: (locals: unknown) => (stubRequireAuth ? { id: "test-user", role: "admin" } : require("../auth/middleware").requireAuth(locals)),
 }));
 
 mock.module("$lib/server/security/api-keys", () => ({
@@ -44,17 +64,25 @@ mock.module("$lib/server/workflow-access", () => ({
   listVisibleWorkflows: async () => [],
 }));
 
-mock.module("$lib/server/context", () => ({
+// The route statically imports `getWorkflows` for the `type=workflow` branch
+// and the bare-`!` merge. This spec only exercises `type=path`, which returns
+// first — but the export has to exist for the module to link at all. That is
+// true of every OTHER export too, for every later suite in the process:
+// `serverContextStub` supplies the whole list so a partial factory here cannot
+// delete one out from under them.
+mock.module("$lib/server/context", () => serverContextStub({
   getExecutor: () => ({ listAgents: () => [] }),
   getCommandRegistry: () => ({ listCommands: () => [] }),
-  // The route statically imports `getWorkflows` for the `type=workflow`
-  // branch and the bare-`!` merge. This spec only exercises `type=path`,
-  // which returns first — but the export has to exist for the module to
-  // link at all.
   getWorkflows: () => [],
 }));
 
-mock.module("$server/db/connection", () => ({
+// Mocked on the RELATIVE path, not on `$server/db/connection`: the route
+// resolves that alias through its own tsconfig to this same module, so the
+// stub still reaches it, and nothing registers the alias — which would hijack
+// the specifier for every later file and freeze it on this empty database.
+// `restoreModuleMocks()` in afterAll then puts the real module back, which it
+// could never do for an alias.
+mock.module("../db/connection", () => ({
   getDb: () => ({
     select: () => ({
       from: () => ({
@@ -64,10 +92,13 @@ mock.module("$server/db/connection", () => ({
   }),
 }));
 
-mock.module("$server/db/schema", () => ({
-  extensions: {},
-  agentConfigs: {},
-}));
+// No `$server/db/schema` stub. The fake `getDb()` above ignores whatever table
+// it is handed, so the real tables cost these specs nothing — and stubbing them
+// costs a LATER suite everything: this route module is linked ONCE per process,
+// so whichever suite imports it first binds its `extensions` for all of them,
+// and a re-registration in afterAll cannot rebind an import that is already
+// resolved. An empty table then reaches a real drizzle query as
+// `Object.entries(undefined)` inside `orderSelectedFields`.
 
 mock.module("drizzle-orm", () => ({
   eq: () => ({}),
@@ -81,10 +112,20 @@ mock.module("$server/runtime/tools/builtin-registry", () => ({
 }));
 
 afterAll(() => {
+  stubRequireAuth = false;
   mock.module("$lib/server/workflow-access", unavailableWorkflowAccess);
   mock.module("$server/runtime/tools/builtin-registry", () =>
     require("../runtime/tools/builtin-registry"),
   );
+  // Hand the two claimed aliases back to the real modules. The registration
+  // itself cannot be withdrawn, but re-registering updates the values, and an
+  // empty `extensions` table reaching a later suite's real drizzle query is a
+  // TypeError inside `orderSelectedFields`, not a test failure it can read.
+  mock.module("$server/db/queries/projects", () => realProjects);
+  // Puts the relative `../db/connection` stub back. No suite in this pool
+  // claims that alias, so the route reaches the stub natively and the real
+  // module can be restored the ordinary way.
+  restoreModuleMocks();
 });
 
 // Import AFTER mocks.
