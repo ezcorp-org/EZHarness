@@ -15,8 +15,7 @@ import { S3FactoryManifestReleaseProvider } from "./release-s3-publication";
 import { FactoryGitHubReleaseProvider } from "./release-github";
 import type { FactoryReleaseOperation } from "./releases";
 import type { FactoryStartupConfig } from "./startup-config";
-import { composeFactoryReleaseDestinations, factoryGitHubReleaseOptions, FactoryReleaseDestinationError } from "./release-declaration";
-import type { FactoryReleaseCommandProfileInput } from "./protected-command-effects";
+import { composeFactoryReleaseDestinations, factoryGitHubReleaseOptions, type FactoryReleaseDestinationError } from "./release-declaration";
 
 const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
