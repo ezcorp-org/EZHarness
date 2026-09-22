@@ -7,7 +7,7 @@ const projectId = "factory-project";
 const factoryId = "catalog-enrichment-with-a-deliberately-long-definition-name";
 const digest = "a".repeat(64);
 const definitionDigest = "sha256:" + digest;
-type FailureOperation = "list" | "create" | "import" | "save" | "validate" | "export" | "archive" | "versions" | "publish";
+type FailureOperation = "list" | "create" | "import" | "save" | "validate" | "export" | "archive" | "versions" | "publish" | "start";
 
 function definition(version = "0.2.0"): FactoryDefinition {
 	return {
@@ -125,6 +125,14 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 		}
 		if (url.pathname.endsWith("/runs/run-remediation") && method === "GET") {
 			return respond(envelope({ kind: "run.details", resource: { ...runSummary(), parameters: {}, error: { code: "factory_assurance_claim_failed", message: "A required protected claim failed." } } }));
+		}
+		if (url.pathname.endsWith("/grants") && method === "GET") {
+			return respond(envelope({ kind: "grant.page", page: { items: [{ principalKind: "user", principalId: "e2e-admin", action: "factory.run", revision: 2, expiresAtMs: null, revoked: false }] } }));
+		}
+		if (url.pathname.endsWith("/" + encodeURIComponent(factoryId) + "/runs") && method === "POST") {
+			const rejection = reject("start");
+			if (rejection) return rejection;
+			return respond(envelope({ kind: "mutation.accepted", receipt: { resourceId: "run-remediation", commandId: "start-1", statusUrl: "/api/factories/projects/" + projectId + "/runs/run-remediation/commands/start-1" } }), 202);
 		}
 		if (url.pathname.endsWith("/runs") && method === "GET") {
 			return respond(envelope({ kind: "run.page", page: { items: options.runs === false ? [] : [runSummary()] } }));
@@ -348,6 +356,48 @@ test.describe("factory authoring console", () => {
 		const publication = mocked.requests.find(item => item.method === "POST" && item.path.endsWith("/versions"));
 		expect(publication?.headers["if-match"]).toBe("5");
 		expect(publication?.body).toEqual({ version: "0.2.0" });
+	});
+
+	test("starts a run of a published version, refuses bad input, and opens the queued run in Runs @evidence", async ({ page, mockApi }, testInfo) => {
+		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
+		const mocked = await routeFactoryApi(page);
+		await openConsole(page);
+		await page.getByRole("button", { name: /^Versions/ }).click();
+		const open = page.getByRole("button", { name: "Start a run of 0.1.0" });
+		await open.click();
+		const dialog = page.getByRole("dialog", { name: `Start ${factoryId} 0.1.0` });
+		await expect(dialog).toContainText("The run pins version 0.1.0");
+		const input = dialog.getByLabel(/Run input/);
+		const start = dialog.getByRole("button", { name: "Start run", exact: true });
+		await input.fill("{");
+		await start.click();
+		await expect(dialog.getByRole("alert")).toHaveText("Run input is not valid JSON.");
+		await input.fill("[1]");
+		await start.click();
+		await expect(dialog.getByRole("alert")).toHaveText("Run input must be a JSON object of port names.");
+		await dialog.getByRole("button", { name: "Cancel" }).click();
+		await expect(dialog).toBeHidden();
+		await open.click();
+		await dialog.getByRole("button", { name: "Close start run" }).click();
+		await expect(dialog).toBeHidden();
+
+		await open.click();
+		mocked.failNext("start");
+		await dialog.getByRole("button", { name: "Start run", exact: true }).click();
+		await expect(dialog.getByRole("alert")).toHaveText("start unavailable");
+		await dialog.getByLabel(/Run input/).fill('{"catalog":{"kind":"inline","value":"spring"}}');
+		await dialog.getByRole("button", { name: "Start run", exact: true }).click();
+		await expect(dialog.getByRole("status")).toHaveText("Run run-remediation is queued. Acceptance is not the same as a started run.");
+		await captureEvidence(page, testInfo, "factory-run-start-queued");
+		await page.setViewportSize({ width: 390, height: 844 });
+		await expect(dialog.getByRole("button", { name: "Watch in Runs" })).toBeInViewport();
+		await captureEvidence(page, testInfo, "factory-run-start-queued-narrow");
+		const started = mocked.requests.filter(item => item.method === "POST" && item.path.endsWith("/runs")).at(-1);
+		expect(started?.headers["if-match"]).toBe("0");
+		expect(started?.body).toMatchObject({ factoryVersion: "0.1.0", grantRevision: 2, parameters: { catalog: { kind: "inline", value: "spring" } } });
+		await dialog.getByRole("button", { name: "Watch in Runs" }).click();
+		await expect(page).toHaveURL(/view=runs.*run=run-remediation/);
+		await expect(page.getByTestId("factory-run-inspector").getByRole("heading", { level: 2, name: "reference.code.v1" })).toBeVisible();
 	});
 
 	test("creates and imports through the current membership project", async ({ page, mockApi }) => {

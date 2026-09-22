@@ -1,7 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/svelte";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import type { FactoryRunInspection, FactoryRunSummary } from "@ezcorp/factory-sdk/types";
-import FactoryRunInspector, { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, shortDigest, streamSummary } from "./FactoryRunInspector.svelte";
+import FactoryRunInspector from "./FactoryRunInspector.svelte";
+import { FACTORY_STREAM_LABELS, appendUnique, formatBytes, formatMicros, shortDigest, streamSummary } from "./run-format";
 import { FactoryApiClientError, type FactoryRunControlApi, type FactoryRunInspectorApi } from "./client";
 
 const digest = `sha256:${"a".repeat(64)}`;

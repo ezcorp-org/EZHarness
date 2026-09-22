@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/svelte";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import FactoryWorkspace, { factoryWorkspaceView } from "./FactoryWorkspace.svelte";
+import FactoryWorkspace from "./FactoryWorkspace.svelte";
+import { factoryWorkspaceView } from "./workspace-view";
 
 const page = (kind: string, extra: Record<string, unknown> = {}) => Response.json({ schemaVersion: "factory.api.response.v1", kind, page: { items: [] }, ...extra });
 

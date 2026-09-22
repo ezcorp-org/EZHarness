@@ -2,7 +2,8 @@
 	import { onMount } from "svelte";
 	import { goto } from "$app/navigation";
 	import { page } from "$app/state";
-	import FactoryWorkspace, { factoryWorkspaceView, type FactoryWorkspaceView } from "$lib/factory/FactoryWorkspace.svelte";
+	import FactoryWorkspace from "$lib/factory/FactoryWorkspace.svelte";
+	import { factoryWorkspaceView, type FactoryWorkspaceView } from "$lib/factory/workspace-view";
 	import { setActiveProjectId, store } from "$lib/stores.svelte.js";
 	import type { PageData } from "./$types";
 

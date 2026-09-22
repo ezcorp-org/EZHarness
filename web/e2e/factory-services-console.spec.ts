@@ -143,7 +143,7 @@ test("a run started from the version list is watched live to a terminal status w
 	const start = page.getByRole("dialog", { name: `Start ${state.consoleFactoryId} 1.0.0` });
 	await expect(start).toContainText("The run pins version 1.0.0");
 	await start.getByLabel(/Run input/).fill('{"message":{"kind":"inline","value":"W14 console journey"}}');
-	await start.getByRole("button", { name: "Start run" }).click();
+	await start.getByRole("button", { name: "Start run", exact: true }).click();
 	const queued = start.getByRole("status");
 	await expect(queued).toContainText("is queued. Acceptance is not the same as a started run.");
 	await captureEvidence(page, testInfo, "factory-services-run-start");
