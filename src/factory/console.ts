@@ -43,7 +43,7 @@ export interface FactoryConsoleOptions {
  * encrypted installation has no unbound read at all, and this says so by name
  * instead of handing the catalog a store that would answer.
  */
-const UNBOUND_SOURCE_UNAVAILABLE: BlobStore = Object.freeze({
+export const UNBOUND_SOURCE_UNAVAILABLE: BlobStore = Object.freeze({
   put: () => Promise.reject(new Error("factory_console_package_source_unavailable")),
   get: () => Promise.reject(new Error("factory_console_package_source_unavailable")),
 });
