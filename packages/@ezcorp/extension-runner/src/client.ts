@@ -3,6 +3,14 @@ import type { BuildRequest, BuildResult, Runner, RunnerExecution, RunnerInspecti
 import { RunnerError, safeHostError } from "./core";
 import type { ReverseRpc } from "./protocol";
 
+/**
+ * How many times in a row a host may take its own event stream back without a
+ * poll succeeding in between. A worker that is really gone refuses the attach
+ * and ends the loop on the first try; this bound only stops a service that
+ * accepts an attach and then refuses every poll from spinning.
+ */
+const MAX_STREAM_RECOVERIES = 3;
+
 export class RunnerClient implements Runner {
   constructor(private readonly options: { socketPath: string; token: string }) {}
   private call<Value>(method: string, data: unknown): Promise<Value> {
@@ -38,9 +46,23 @@ export class RunnerClient implements Runner {
     await this.call("attach", { workerId: input.workerId });
     let closed = false;
     const listeners = new Set<(method: string, params: unknown) => void>();
+    let recoveries = 0;
     const poll = async () => {
       while (!closed) {
-        const { events } = await this.call<{ events: { id?: string; method: string; params: unknown }[] }>("events", { workerId: input.workerId });
+        let events: { id?: string; method: string; params: unknown }[];
+        try {
+          ({ events } = await this.call<{ events: { id?: string; method: string; params: unknown }[] }>("events", { workerId: input.workerId }));
+          recoveries = 0;
+        } catch (error) {
+          // Losing the stream is not losing the worker. The worker keeps
+          // running and keeps its queue, so take the stream back and carry on
+          // rather than closing a session this host never asked to end. A
+          // worker that is really gone refuses the attach and ends the loop.
+          if (closed || recoveries >= MAX_STREAM_RECOVERIES) throw error;
+          recoveries += 1;
+          await this.call("attach", { workerId: input.workerId });
+          continue;
+        }
         for (const event of events) {
           if (closed) break;
           if (event.id) {
