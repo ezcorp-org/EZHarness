@@ -124,35 +124,26 @@ export function referenceDataPartitionName(index: number): string {
   return `part-${String(index).padStart(5, "0")}.parquet`;
 }
 
-/**
- * Reads the manifest the reduction wrote, refusing anything outside its shape.
- *
- * This is a parse, not a validation pass: everything downstream takes the
- * returned value, so a field that gets past here is a field the reconciliation
- * is entitled to trust the TYPE of. It never makes the reconciliation trust the
- * VALUE: every number here is recomputed from the input and the export.
- */
-export function assertReferenceDataManifest(value: unknown): ReferenceDataManifest {
-  const manifest = record(value, "manifest_shape", "The manifest");
-  const keys = Object.keys(manifest).sort();
-  if (keys.length !== MANIFEST_KEYS.length || keys.some((key, index) => key !== [...MANIFEST_KEYS].sort()[index])) refuse("manifest_shape", `The manifest holds ${keys.join(",")} rather than exactly ${[...MANIFEST_KEYS].sort().join(",")}.`);
-  if (manifest.schemaVersion !== REFERENCE_DATA_MANIFEST_SCHEMA_VERSION) refuse("manifest_schema_version", `The manifest declares ${String(manifest.schemaVersion)}.`);
-
-  const source = record(manifest.source, "manifest_shape", "The manifest source");
+/** The declared source: a sha256 reference and the byte count behind it. */
+function manifestSource(value: unknown): { digest: string; totalBytes: number } {
+  const source = record(value, "manifest_shape", "The manifest source");
   if (typeof source.digest !== "string" || !DIGEST.test(source.digest)) refuse("manifest_shape", "The manifest source digest is not a sha256 reference.");
-  const sourceBytes = whole(source.totalBytes, "The manifest source byte count");
+  return { digest: source.digest, totalBytes: whole(source.totalBytes, "The manifest source byte count") };
+}
 
-  const rowCount = whole(manifest.rowCount, "The manifest row count");
-  if (rowCount === 0 || rowCount > REFERENCE_DATA_LIMITS.maxRows) refuse("manifest_totals", `The manifest declares ${rowCount} row(s), outside 1..${REFERENCE_DATA_LIMITS.maxRows}.`);
-  const total = referenceDataManifestAmount(manifest.totalAmountCents, "The manifest total");
-  const partitionRows = whole(manifest.partitionRows, "The manifest partition size");
-  if (partitionRows !== REFERENCE_DATA_LIMITS.partitionRows) refuse("manifest_totals", `The manifest declares ${partitionRows}-row partitions rather than ${REFERENCE_DATA_LIMITS.partitionRows}.`);
-
-  if (!Array.isArray(manifest.categories) || manifest.categories.length === 0) refuse("manifest_shape", "The manifest names no category.");
+/**
+ * The per-category rollup, checked for strict order and self-consistency.
+ *
+ * The manifest must at least agree with itself before anything compares it with
+ * the export. An internally contradictory manifest is a defect on its own, and
+ * saying so here names it precisely.
+ */
+function manifestCategories(value: unknown, total: bigint, rowCount: number): ReferenceDataManifestCategory[] {
+  if (!Array.isArray(value) || value.length === 0) refuse("manifest_shape", "The manifest names no category.");
   const categories: ReferenceDataManifestCategory[] = [];
   let summed = 0n;
   let counted = 0;
-  for (const entry of manifest.categories) {
+  for (const entry of value) {
     const bucket = record(entry, "manifest_shape", "A manifest category");
     if (Object.keys(bucket).length !== 3 || typeof bucket.category !== "string" || bucket.category.length === 0) refuse("manifest_shape", "A manifest category is not {category,count,sumCents}.");
     const previous = categories.at(-1);
@@ -163,15 +154,16 @@ export function assertReferenceDataManifest(value: unknown): ReferenceDataManife
     counted += count;
     categories.push(Object.freeze({ category: bucket.category, count, sumCents: bucket.sumCents as string }));
   }
-  // The manifest must at least be self-consistent before anything compares it
-  // with the export. An internally contradictory manifest is a defect on its
-  // own, and saying so here names it precisely.
   if (summed !== total) refuse("manifest_totals", `Manifest category sums total ${summed} against a declared ${total}.`);
   if (counted !== rowCount) refuse("manifest_totals", `Manifest category counts total ${counted} against a declared ${rowCount}.`);
+  return categories;
+}
 
-  if (!Array.isArray(manifest.files) || manifest.files.length === 0) refuse("manifest_shape", "The manifest names no exported file.");
+/** The exported members, in the one partition order a reduction may write. */
+function manifestFiles(value: unknown, rowCount: number, partitionRows: number): ReferenceDataManifestFile[] {
+  if (!Array.isArray(value) || value.length === 0) refuse("manifest_shape", "The manifest names no exported file.");
   const files: ReferenceDataManifestFile[] = [];
-  for (const [index, entry] of manifest.files.entries()) {
+  for (const [index, entry] of value.entries()) {
     const member = record(entry, "manifest_shape", "A manifest file");
     if (Object.keys(member).length !== 3 || typeof member.name !== "string" || typeof member.digest !== "string" || !DIGEST.test(member.digest)) refuse("manifest_shape", "A manifest file is not {name,digest,encodedBytes}.");
     const bare = member.name.slice(member.name.lastIndexOf("/") + 1);
@@ -179,10 +171,14 @@ export function assertReferenceDataManifest(value: unknown): ReferenceDataManife
     files.push(Object.freeze({ name: bare, digest: member.digest, encodedBytes: whole(member.encodedBytes, `File ${member.name} size`) }));
   }
   if (files.length !== Math.ceil(rowCount / partitionRows)) refuse("manifest_file_order", `The manifest names ${files.length} file(s) for ${rowCount} row(s) of ${partitionRows}.`);
+  return files;
+}
 
-  if (!Array.isArray(manifest.schema) || manifest.schema.length !== REFERENCE_DATA_PARQUET_SCHEMA.length) refuse("manifest_schema", `The manifest declares ${Array.isArray(manifest.schema) ? manifest.schema.length : 0} column(s).`);
+/** The declared columns, which must be the fixed Parquet schema, in order. */
+function manifestSchema(value: unknown): ReferenceDataManifestField[] {
+  if (!Array.isArray(value) || value.length !== REFERENCE_DATA_PARQUET_SCHEMA.length) refuse("manifest_schema", `The manifest declares ${Array.isArray(value) ? value.length : 0} column(s).`);
   const schema: ReferenceDataManifestField[] = [];
-  for (const [index, entry] of manifest.schema.entries()) {
+  for (const [index, entry] of value.entries()) {
     const field = record(entry, "manifest_schema", "A manifest column");
     const declared = REFERENCE_DATA_PARQUET_SCHEMA[index] as (typeof REFERENCE_DATA_PARQUET_SCHEMA)[number];
     if (field.name !== declared.name || field.physicalType !== declared.physicalType || field.logicalType !== declared.logicalType || field.repetition !== declared.repetition) {
@@ -190,10 +186,41 @@ export function assertReferenceDataManifest(value: unknown): ReferenceDataManife
     }
     schema.push(Object.freeze({ name: declared.name, physicalType: declared.physicalType, logicalType: declared.logicalType, repetition: declared.repetition }));
   }
+  return schema;
+}
+
+/**
+ * Reads the manifest the reduction wrote, refusing anything outside its shape.
+ *
+ * This is a parse, not a validation pass: everything downstream takes the
+ * returned value, so a field that gets past here is a field the reconciliation
+ * is entitled to trust the TYPE of. It never makes the reconciliation trust the
+ * VALUE: every number here is recomputed from the input and the export.
+ *
+ * One parse step per section, run in the order the manifest declares them, so
+ * a manifest with two defects still reports the first one it reported before.
+ */
+export function assertReferenceDataManifest(value: unknown): ReferenceDataManifest {
+  const manifest = record(value, "manifest_shape", "The manifest");
+  const keys = Object.keys(manifest).sort();
+  if (keys.length !== MANIFEST_KEYS.length || keys.some((key, index) => key !== [...MANIFEST_KEYS].sort()[index])) refuse("manifest_shape", `The manifest holds ${keys.join(",")} rather than exactly ${[...MANIFEST_KEYS].sort().join(",")}.`);
+  if (manifest.schemaVersion !== REFERENCE_DATA_MANIFEST_SCHEMA_VERSION) refuse("manifest_schema_version", `The manifest declares ${String(manifest.schemaVersion)}.`);
+
+  const source = manifestSource(manifest.source);
+
+  const rowCount = whole(manifest.rowCount, "The manifest row count");
+  if (rowCount === 0 || rowCount > REFERENCE_DATA_LIMITS.maxRows) refuse("manifest_totals", `The manifest declares ${rowCount} row(s), outside 1..${REFERENCE_DATA_LIMITS.maxRows}.`);
+  const total = referenceDataManifestAmount(manifest.totalAmountCents, "The manifest total");
+  const partitionRows = whole(manifest.partitionRows, "The manifest partition size");
+  if (partitionRows !== REFERENCE_DATA_LIMITS.partitionRows) refuse("manifest_totals", `The manifest declares ${partitionRows}-row partitions rather than ${REFERENCE_DATA_LIMITS.partitionRows}.`);
+
+  const categories = manifestCategories(manifest.categories, total, rowCount);
+  const files = manifestFiles(manifest.files, rowCount, partitionRows);
+  const schema = manifestSchema(manifest.schema);
 
   return Object.freeze({
     schemaVersion: REFERENCE_DATA_MANIFEST_SCHEMA_VERSION,
-    source: Object.freeze({ digest: source.digest, totalBytes: sourceBytes }),
+    source: Object.freeze({ digest: source.digest, totalBytes: source.totalBytes }),
     rowCount,
     totalAmountCents: manifest.totalAmountCents as string,
     categories: Object.freeze(categories),

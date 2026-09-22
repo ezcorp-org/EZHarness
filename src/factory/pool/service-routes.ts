@@ -76,6 +76,65 @@ function serviceError(error: unknown): FactoryPrivateResponse {
   return json(500, { error: "request_failed" });
 }
 
+/** The principal `authenticatePoolPrincipal` proves from the peer identity and the bearer token. */
+type PoolPrincipal = ReturnType<typeof authenticatePoolPrincipal>;
+
+/**
+ * One action on an existing reservation, or `undefined` when the last path segment names none.
+ *
+ * Returning `undefined` rather than a 404 keeps the not-found answer in one place: an unknown
+ * action under a known prefix is not found for the same reason an unknown prefix is.
+ */
+async function reservationAction(service: PoolAdmissionService, request: FactoryPrivateRequest, principal: PoolPrincipal, parts: readonly string[]): Promise<FactoryPrivateResponse | undefined> {
+  const reservationId = reservation(parts[3]!);
+  if (parts[4] === "acknowledge-start" || parts[4] === "renew") {
+    const body = payload(request, ["grantRevision", "allocationGeneration", "allocationToken"]);
+    const input = fence(body, reservationId);
+    return json(200, parts[4] === "acknowledge-start" ? await service.acknowledgeStart(principal, input) : await service.renew(principal, input));
+  }
+  if (parts[4] === "confirm-stopped") {
+    const body = payload(request, ["holderGeneration", "hostId"]);
+    return json(200, await service.acknowledgeStopped(principal, { reservationId, holderGeneration: wireCounter(body.holderGeneration, "holder generation", 1), hostId: wireText(body.hostId, "host id") }));
+  }
+  if (parts[4] === "cancel") {
+    const body = payload(request, ["allocationGeneration"]);
+    return json(200, await service.cancel(principal, reservationId, wireCounter(body.allocationGeneration, "allocation generation", 1)));
+  }
+  return undefined;
+}
+
+/** A supervisor's stop confirmation, with the reimage receipt when the path asks for one. */
+async function supervisorConfirmation(service: PoolAdmissionService, request: FactoryPrivateRequest, principal: PoolPrincipal, url: URL): Promise<FactoryPrivateResponse> {
+  const reimage = url.pathname.endsWith("/reimage");
+  const body = payload(request, reimage ? ["reservationId", "holderGeneration", "hostId", "receipt"] : ["reservationId", "holderGeneration", "hostId"]);
+  const stop: PoolStopInput = { reservationId: wireText(body.reservationId, "reservation id"), holderGeneration: wireCounter(body.holderGeneration, "holder generation", 1), hostId: wireText(body.hostId, "host id") };
+  return json(200, reimage
+    ? await service.confirmReimage(principal, { ...stop, receipt: wireText(body.receipt, "reimage receipt") } satisfies PoolReimageInput)
+    : await service.confirmStopped(principal, stop));
+}
+
+/** The route table itself, matched in the order the paths were written. */
+async function poolRoute(service: PoolAdmissionService, request: FactoryPrivateRequest, principal: PoolPrincipal, url: URL): Promise<FactoryPrivateResponse> {
+  const parts = url.pathname.split("/").filter(Boolean);
+  if (request.method === "POST" && url.pathname === "/v1/pool/requests") {
+    const body = payload(request, ["reservationId", "grantRevision", "grantScope", "resources", "admissionDeadline", "priority", "readySequence", "nodeId"]);
+    return decision(await service.request(principal, requestInput(body)));
+  }
+  if (parts.length === 4 && parts[0] === "v1" && parts[1] === "pool" && parts[2] === "requests" && request.method === "GET") {
+    if (request.body.byteLength !== 0) fail(400, "invalid_request");
+    const result = await service.status(principal, reservation(parts[3]!));
+    return result === undefined ? empty() : json(200, result);
+  }
+  if (parts.length === 5 && parts[0] === "v1" && parts[1] === "pool" && parts[2] === "requests" && request.method === "POST") {
+    const handled = await reservationAction(service, request, principal, parts);
+    if (handled) return handled;
+  }
+  if (request.method === "POST" && (url.pathname === "/v1/pool/supervisor/stop" || url.pathname === "/v1/pool/supervisor/reimage")) {
+    return supervisorConfirmation(service, request, principal, url);
+  }
+  return json(404, { error: "not_found" });
+}
+
 /** One authenticated and bounded route table shared by the Bun and Node TLS listeners. */
 export function createPoolAdmissionRouteHandler(options: PoolAdmissionRouteOptions): (request: FactoryPrivateRequest) => Promise<FactoryPrivateResponse> {
   const snapshot = Object.freeze({
@@ -92,41 +151,7 @@ export function createPoolAdmissionRouteHandler(options: PoolAdmissionRouteOptio
       if (request.headers["x-ezcorp-factory-version"] !== "1") fail(400, "invalid_request");
       const url = new URL(request.path, "https://pool.local");
       if (url.origin !== "https://pool.local" || url.search || url.hash) fail(400, "invalid_request");
-      const parts = url.pathname.split("/").filter(Boolean);
-      if (request.method === "POST" && url.pathname === "/v1/pool/requests") {
-        const body = payload(request, ["reservationId", "grantRevision", "grantScope", "resources", "admissionDeadline", "priority", "readySequence", "nodeId"]);
-        return decision(await snapshot.service.request(principal, requestInput(body)));
-      }
-      if (parts.length === 4 && parts[0] === "v1" && parts[1] === "pool" && parts[2] === "requests" && request.method === "GET") {
-        if (request.body.byteLength !== 0) fail(400, "invalid_request");
-        const result = await snapshot.service.status(principal, reservation(parts[3]!));
-        return result === undefined ? empty() : json(200, result);
-      }
-      if (parts.length === 5 && parts[0] === "v1" && parts[1] === "pool" && parts[2] === "requests" && request.method === "POST") {
-        const reservationId = reservation(parts[3]!);
-        if (parts[4] === "acknowledge-start" || parts[4] === "renew") {
-          const body = payload(request, ["grantRevision", "allocationGeneration", "allocationToken"]);
-          const input = fence(body, reservationId);
-          return json(200, parts[4] === "acknowledge-start" ? await snapshot.service.acknowledgeStart(principal, input) : await snapshot.service.renew(principal, input));
-        }
-        if (parts[4] === "confirm-stopped") {
-          const body = payload(request, ["holderGeneration", "hostId"]);
-          return json(200, await snapshot.service.acknowledgeStopped(principal, { reservationId, holderGeneration: wireCounter(body.holderGeneration, "holder generation", 1), hostId: wireText(body.hostId, "host id") }));
-        }
-        if (parts[4] === "cancel") {
-          const body = payload(request, ["allocationGeneration"]);
-          return json(200, await snapshot.service.cancel(principal, reservationId, wireCounter(body.allocationGeneration, "allocation generation", 1)));
-        }
-      }
-      if (request.method === "POST" && (url.pathname === "/v1/pool/supervisor/stop" || url.pathname === "/v1/pool/supervisor/reimage")) {
-        const reimage = url.pathname.endsWith("/reimage");
-        const body = payload(request, reimage ? ["reservationId", "holderGeneration", "hostId", "receipt"] : ["reservationId", "holderGeneration", "hostId"]);
-        const stop: PoolStopInput = { reservationId: wireText(body.reservationId, "reservation id"), holderGeneration: wireCounter(body.holderGeneration, "holder generation", 1), hostId: wireText(body.hostId, "host id") };
-        return json(200, reimage
-          ? await snapshot.service.confirmReimage(principal, { ...stop, receipt: wireText(body.receipt, "reimage receipt") } satisfies PoolReimageInput)
-          : await snapshot.service.confirmStopped(principal, stop));
-      }
-      return json(404, { error: "not_found" });
+      return await poolRoute(snapshot.service, request, principal, url);
     } catch (error) {
       try { return serviceError(error); }
       catch { return { status: 500, body: Buffer.from('{"error":"response_too_large"}') }; }

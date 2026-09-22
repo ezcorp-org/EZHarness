@@ -53,43 +53,60 @@ function typeMatches(type: string, value: unknown): boolean {
   return typeof value === type;
 }
 
-function validate(schema: SchemaObject, root: SchemaObject, value: unknown): boolean {
-  if (typeof schema.$ref === "string") {
-    const target = resolveReference(root, schema.$ref);
-    return target ? validate(target, root, value) : false;
-  }
+/** The keywords that constrain a value's type and its admissible values. */
+function matchesTypeAndValues(schema: SchemaObject, root: SchemaObject, value: unknown): boolean {
   if (Array.isArray(schema.anyOf) && !schema.anyOf.some((candidate) => candidate && typeof candidate === "object" && validate(candidate as SchemaObject, root, value))) return false;
   if (typeof schema.type === "string" && !typeMatches(schema.type, value)) return false;
   if (Array.isArray(schema.type) && !schema.type.some((candidate) => typeof candidate === "string" && typeMatches(candidate, value))) return false;
   if (schema.const !== undefined && !jsonEqual(schema.const as JsonValue, value as JsonValue)) return false;
   if (Array.isArray(schema.enum) && !schema.enum.some((candidate) => jsonEqual(candidate as JsonValue, value as JsonValue))) return false;
-  if (Array.isArray(value)) {
-    if (typeof schema.minItems === "number" && value.length < schema.minItems) return false;
-    if (typeof schema.maxItems === "number" && value.length > schema.maxItems) return false;
-    if (schema.items && typeof schema.items === "object" && !value.every((item) => validate(schema.items as SchemaObject, root, item))) return false;
+  return true;
+}
+
+function matchesArraySchema(schema: SchemaObject, root: SchemaObject, value: readonly unknown[]): boolean {
+  if (typeof schema.minItems === "number" && value.length < schema.minItems) return false;
+  if (typeof schema.maxItems === "number" && value.length > schema.maxItems) return false;
+  if (schema.items && typeof schema.items === "object" && !value.every((item) => validate(schema.items as SchemaObject, root, item))) return false;
+  return true;
+}
+
+function matchesStringSchema(schema: SchemaObject, value: string): boolean {
+  const length = unicodeLength(value);
+  if (typeof schema.minLength === "number" && length < schema.minLength) return false;
+  if (typeof schema.maxLength === "number" && length > schema.maxLength) return false;
+  return true;
+}
+
+function matchesNumberSchema(schema: SchemaObject, value: number): boolean {
+  if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) return false;
+  if (typeof schema.minimum === "number" && value < schema.minimum) return false;
+  if (typeof schema.maximum === "number" && value > schema.maximum) return false;
+  return true;
+}
+
+function matchesObjectSchema(schema: SchemaObject, root: SchemaObject, object: Record<string, unknown>): boolean {
+  if (Array.isArray(schema.required) && schema.required.some((key) => typeof key !== "string" || !own(object, key))) return false;
+  const properties = schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties) ? (schema.properties as Record<string, unknown>) : {};
+  for (const [key, child] of Object.entries(object)) {
+    if (own(properties, key)) {
+      const property = properties[key];
+      if (!property || typeof property !== "object" || Array.isArray(property) || !validate(property as SchemaObject, root, child)) return false;
+    } else if (schema.additionalProperties === false) return false;
+    else if (schema.additionalProperties && typeof schema.additionalProperties === "object" && !validate(schema.additionalProperties as SchemaObject, root, child)) return false;
   }
-  if (typeof value === "string") {
-    const length = unicodeLength(value);
-    if (typeof schema.minLength === "number" && length < schema.minLength) return false;
-    if (typeof schema.maxLength === "number" && length > schema.maxLength) return false;
+  return true;
+}
+
+function validate(schema: SchemaObject, root: SchemaObject, value: unknown): boolean {
+  if (typeof schema.$ref === "string") {
+    const target = resolveReference(root, schema.$ref);
+    return target ? validate(target, root, value) : false;
   }
-  if (typeof value === "number") {
-    if (!Number.isFinite(value) || (Number.isInteger(value) && !Number.isSafeInteger(value))) return false;
-    if (typeof schema.minimum === "number" && value < schema.minimum) return false;
-    if (typeof schema.maximum === "number" && value > schema.maximum) return false;
-  }
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    const object = value as Record<string, unknown>;
-    if (Array.isArray(schema.required) && schema.required.some((key) => typeof key !== "string" || !own(object, key))) return false;
-    const properties = schema.properties && typeof schema.properties === "object" && !Array.isArray(schema.properties) ? (schema.properties as Record<string, unknown>) : {};
-    for (const [key, child] of Object.entries(object)) {
-      if (own(properties, key)) {
-        const property = properties[key];
-        if (!property || typeof property !== "object" || Array.isArray(property) || !validate(property as SchemaObject, root, child)) return false;
-      } else if (schema.additionalProperties === false) return false;
-      else if (schema.additionalProperties && typeof schema.additionalProperties === "object" && !validate(schema.additionalProperties as SchemaObject, root, child)) return false;
-    }
-  }
+  if (!matchesTypeAndValues(schema, root, value)) return false;
+  if (Array.isArray(value) && !matchesArraySchema(schema, root, value)) return false;
+  if (typeof value === "string" && !matchesStringSchema(schema, value)) return false;
+  if (typeof value === "number" && !matchesNumberSchema(schema, value)) return false;
+  if (value && typeof value === "object" && !Array.isArray(value) && !matchesObjectSchema(schema, root, value as Record<string, unknown>)) return false;
   return true;
 }
 

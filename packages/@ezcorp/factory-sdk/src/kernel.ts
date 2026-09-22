@@ -98,6 +98,61 @@ function createInitialState(
   };
 }
 
+/** Start the run: arm the run timer if the plan has work, then release ready nodes. */
+function applyStart(factory: KernelFactoryPlan, state: KernelState, commands: KernelCommand[]): KernelState {
+  if (state.status !== "created") return state;
+  let next: KernelState = { ...state, status: "running" };
+  if (factory.definition.graph.nodes.length > 0) {
+    const timer = commandFor(next, "start-timer");
+    next = { ...timer.state, runTimerId: timer.id };
+    commands.push({ kind: "start-timer", id: timer.id, deadlineAtMs: next.runDeadlineAtMs });
+  }
+  return activateReady(factory, next, commands);
+}
+
+/**
+ * The events that reach the reducer table. `usage-settled` and `cancel` are
+ * answered by `advanceKernel` itself before the table is reached, so naming
+ * them here would add a branch no run can take.
+ */
+type DispatchedEvent = Exclude<KernelEvent, { readonly kind: "usage-settled" | "cancel" }>;
+
+/**
+ * Dispatch one event to the single reducer that owns its kind.
+ *
+ * `repair` and `replan` share `applyRepair`: a replan is a repair that also
+ * swaps the child pin, and the reducer already distinguishes them by kind.
+ */
+function applyEvent(factory: KernelFactoryPlan, state: KernelState, event: DispatchedEvent, commands: KernelCommand[]): KernelState {
+  switch (event.kind) {
+    case "start":
+      return applyStart(factory, state, commands);
+    case "admission-result":
+      return applyAdmission(factory, state, event, commands);
+    case "node-result":
+      return applyResult(factory, state, event, commands);
+    case "node-failed":
+      return applyFailure(factory, state, event, commands);
+    case "attempt-stopped":
+      return applyStopped(factory, state, event, commands);
+    case "approval-decided":
+      return applyApproval(factory, state, event, commands);
+    case "input-value-read":
+      return applyInputValue(factory, state, event, commands);
+    case "input-page-read":
+      return applyInputPage(factory, state, event, commands);
+    case "timer-expired":
+      return applyTimer(factory, state, event, commands);
+    case "repair":
+    case "replan":
+      return applyRepair(factory, state, event, commands);
+    case "partition-source-invalidated":
+      return applyPartitionInvalidation(factory, state, event, commands);
+    case "partition-node-completed":
+      return applyPartitionCompletion(factory, state, event, commands);
+  }
+}
+
 /** Apply one recorded event. It is deterministic and never reads ambient state. */
 export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, event: KernelEvent): AdvanceResult {
   if (factory.digest !== state.definitionDigest) throw new FactoryKernelError("compiled plan digest does not match kernel state");
@@ -130,55 +185,7 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
     next = beginStopping(factory, next, "RUN_DEADLINE_EXPIRED", commands, false);
   }
 
-  switch (event.kind) {
-    case "start":
-      if (next.status === "created") {
-        next = { ...next, status: "running" };
-        if (factory.definition.graph.nodes.length > 0) {
-          const timer = commandFor(next, "start-timer");
-          next = { ...timer.state, runTimerId: timer.id };
-          commands.push({ kind: "start-timer", id: timer.id, deadlineAtMs: next.runDeadlineAtMs });
-        }
-        next = activateReady(factory, next, commands);
-      }
-      break;
-    case "admission-result":
-      next = applyAdmission(factory, next, event, commands);
-      break;
-    case "node-result":
-      next = applyResult(factory, next, event, commands);
-      break;
-    case "node-failed":
-      next = applyFailure(factory, next, event, commands);
-      break;
-    case "attempt-stopped":
-      next = applyStopped(factory, next, event, commands);
-      break;
-    case "approval-decided":
-      next = applyApproval(factory, next, event, commands);
-      break;
-    case "input-value-read":
-      next = applyInputValue(factory, next, event, commands);
-      break;
-    case "input-page-read":
-      next = applyInputPage(factory, next, event, commands);
-      break;
-    case "timer-expired":
-      next = applyTimer(factory, next, event, commands);
-      break;
-    case "repair":
-      next = applyRepair(factory, next, event, commands);
-      break;
-    case "replan":
-      next = applyRepair(factory, next, event, commands);
-      break;
-    case "partition-source-invalidated":
-      next = applyPartitionInvalidation(factory, next, event, commands);
-      break;
-    case "partition-node-completed":
-      next = applyPartitionCompletion(factory, next, event, commands);
-      break;
-  }
+  next = applyEvent(factory, next, event, commands);
   next = completePendingRepair(factory, next, commands);
   next = refillWaitingMaps(factory, next, commands);
   next = emitPartitionNotifications(factory, state, next, commands);
@@ -535,42 +542,60 @@ function sealedRepairInput(state: KernelState, node: Extract<FactoryNode, { kind
   return { prior, next: snapshotValue(supplied) };
 }
 
-function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: RevisionEvent, commands: KernelCommand[], allowProtected = false): KernelState {
-  if (state.status === "stopping" || (state.pendingRepair && !allowProtected)) return state;
-  const node = nodeFor(factory, event.nodeId);
-  const runtime = state.nodes[event.nodeId];
-  // Re-asking a protected contract about an unchanged candidate is not remediation: a repair must
-  // replace the work that produced the candidate, so acceptance joins approval and release here.
-  if (!allowProtected && (node?.kind === "approval" || node?.kind === "release" || node?.kind === "acceptance")) return state;
-  if (event.kind === "replan" && (node?.kind !== "subfactory" || event.replacement.id !== node.factory.id)) return state;
-  if (node && !runtime) {
-    const parentId = completedMapAncestor(state, event.nodeId);
-    if (parentId) {
-      return applyRepair(factory, state, { ...event, nodeId: parentId }, commands, allowProtected);
-    }
-  }
-  if (!node || !runtime || runtime.status === "blocked" || runtime.status === "ready") return state;
+type PendingRepair = NonNullable<KernelState["pendingRepair"]>;
+/** What one revision replaces on the node it targets, sealed before anything moves. */
+type RepairRevision = Pick<PendingRepair, "priorInput" | "inputOverride" | "priorFactory" | "factoryOverride">;
+
+/**
+ * May this revision touch the node it names?
+ *
+ * Re-asking a protected contract about an unchanged candidate is not remediation: a repair must
+ * replace the work that produced the candidate, so acceptance joins approval and release here.
+ */
+function repairIsAdmissible(node: FactoryNode | undefined, event: RevisionEvent, allowProtected: boolean): boolean {
+  if (!allowProtected && (node?.kind === "approval" || node?.kind === "release" || node?.kind === "acceptance")) return false;
+  if (event.kind === "replan" && (node?.kind !== "subfactory" || event.replacement.id !== node.factory.id)) return false;
+  return true;
+}
+
+/** The prior and replacement input and child pin this revision carries. */
+function repairRevision(state: KernelState, node: FactoryNode, runtime: KernelNodeState, event: RevisionEvent): RepairRevision {
   const sealedInput = node.kind === "task" || node.kind === "subfactory"
     ? sealedRepairInput(state, node, event.nodeId, event.inputOverride)
     : event.inputOverride === undefined ? undefined : (() => { throw new FactoryKernelError("only task and subfactory nodes accept repair input"); })();
-  const inputOverride = sealedInput?.next;
-  const priorInput = sealedInput?.prior;
-  const priorFactory = node.kind === "subfactory" ? runtime.factoryOverride ?? node.factory : undefined;
-  const factoryOverride = event.kind === "replan" ? { ...event.replacement } : undefined;
-  // A repair cannot replay publication or turn remediation into new consent.
+  return {
+    inputOverride: sealedInput?.next,
+    priorInput: sealedInput?.prior,
+    priorFactory: node.kind === "subfactory" ? runtime.factoryOverride ?? node.factory : undefined,
+    factoryOverride: event.kind === "replan" ? { ...event.replacement } : undefined,
+  };
+}
+
+/**
+ * The aggregate scopes above the revised node, outermost last.
+ *
+ * `undefined` means the revision must not apply at all: its node belongs to a
+ * loop iteration the run has already left behind.
+ */
+function repairAggregateIds(state: KernelState, nodeId: string): string[] | undefined {
   const aggregateIds: string[] = [];
-  let childId = event.nodeId;
+  let childId = nodeId;
   for (;;) {
     const parentId = Object.values(state.scopes).find(scope => scope.nodeIds.includes(childId))?.parentNodeId;
     if (!parentId) break;
     const parent = state.nodes[parentId]!;
-    if (parent.loop && !event.nodeId.startsWith(`${parentId}/items/${parent.loop.iteration}/`)) return state;
+    if (parent.loop && !nodeId.startsWith(`${parentId}/items/${parent.loop.iteration}/`)) return undefined;
     aggregateIds.push(parentId);
     childId = parentId;
   }
+  return aggregateIds;
+}
+
+/** Every node a revision discards: the target, its local successors, and their scopes. */
+function repairAffectedNodeIds(factory: KernelFactoryPlan, state: KernelState, nodeId: string, aggregateIds: readonly string[]): Set<string> {
   const affected = new Set<string>();
   const localSuccessors = (id: string) => successorsFor(factory, id).filter(successor => Object.hasOwn(state.nodes, successor));
-  const queue = [event.nodeId, ...aggregateIds.flatMap(localSuccessors)];
+  const queue = [nodeId, ...aggregateIds.flatMap(localSuccessors)];
   for (let index = 0; index < queue.length; index += 1) {
     const id = queue[index]!;
     if (affected.has(id)) continue;
@@ -578,6 +603,60 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Revi
     queue.push(...localSuccessors(id));
     for (const childId of Object.keys(state.nodes)) if (childId.startsWith(`${id}/`)) queue.push(childId);
   }
+  return affected;
+}
+
+/** A first revision opens the pending repair; a later one widens the same record. */
+function widenPendingRepair(prior: PendingRepair | undefined, event: RevisionEvent, affected: ReadonlySet<string>, aggregateIds: readonly string[], revision: RepairRevision, allowProtected: boolean): PendingRepair {
+  if (prior) return {
+    ...prior,
+    nodeIds: [...new Set([...prior.nodeIds, ...affected])],
+    aggregateIds: [...new Set([...prior.aggregateIds, ...aggregateIds])],
+    awaitDependencies: true,
+  };
+  return { rootNodeId: event.nodeId, nodeIds: [...affected], aggregateIds, reason: event.reason, ...(revision.priorInput === undefined ? {} : { priorInput: revision.priorInput }), ...(revision.inputOverride === undefined ? {} : { inputOverride: revision.inputOverride }), ...(revision.priorFactory === undefined ? {} : { priorFactory: revision.priorFactory }), ...(revision.factoryOverride === undefined ? {} : { factoryOverride: revision.factoryOverride }), ...(allowProtected ? { awaitDependencies: true } : {}) };
+}
+
+/** Tell each downstream partition that a boundary output it already consumed is void. */
+function emitPartitionInvalidations(factory: KernelFactoryPlan, state: KernelState, newlyAffected: ReadonlySet<string>, commands: KernelCommand[]): KernelState {
+  if (!state.partition) return state;
+  let next = state;
+  const partition = partitionFor(factory, state.partition.id);
+  for (const edge of partition?.outbound.filter((candidate) => newlyAffected.has(candidate.nodeId)) ?? []) {
+    const generation = state.nodes[edge.nodeId]!.candidateGeneration + 1;
+    if (!Number.isSafeInteger(generation)) throw new FactoryKernelError("candidate generation exhausted");
+    const command = commandFor(next, "invalidate-partition", edge.nodeId);
+    next = command.state;
+    commands.push({
+      kind: "invalidate-partition",
+      id: command.id,
+      sourcePartitionId: state.partition.id,
+      targetPartitionId: edge.toPartitionId,
+      sourceNodeId: edge.nodeId,
+      nodeId: edge.toNodeId,
+      candidateGeneration: generation,
+    });
+  }
+  return next;
+}
+
+function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: RevisionEvent, commands: KernelCommand[], allowProtected = false): KernelState {
+  if (state.status === "stopping" || (state.pendingRepair && !allowProtected)) return state;
+  const node = nodeFor(factory, event.nodeId);
+  const runtime = state.nodes[event.nodeId];
+  if (!repairIsAdmissible(node, event, allowProtected)) return state;
+  if (node && !runtime) {
+    const parentId = completedMapAncestor(state, event.nodeId);
+    if (parentId) {
+      return applyRepair(factory, state, { ...event, nodeId: parentId }, commands, allowProtected);
+    }
+  }
+  if (!node || !runtime || runtime.status === "blocked" || runtime.status === "ready") return state;
+  const revision = repairRevision(state, node, runtime, event);
+  // A repair cannot replay publication or turn remediation into new consent.
+  const aggregateIds = repairAggregateIds(state, event.nodeId);
+  if (!aggregateIds) return state;
+  const affected = repairAffectedNodeIds(factory, state, event.nodeId, aggregateIds);
   const releaseStarted = [...affected].some(id => nodeFor(factory, id)?.kind === "release" && state.nodes[id]?.attempts.length)
     || [event.nodeId, ...aggregateIds].some(id => state.nodes[id]?.map?.protectedEffectStarted);
   const uncertain = [...affected].some(id => state.nodes[id]!.attempts.some(attempt => attempt.uncertain));
@@ -586,31 +665,9 @@ function applyRepair(factory: KernelFactoryPlan, state: KernelState, event: Revi
   const newlyAffected = new Set([...affected].filter((id) => !priorRepair?.nodeIds.includes(id)));
   let next: KernelState = {
     ...state,
-    pendingRepair: priorRepair ? {
-      ...priorRepair,
-      nodeIds: [...new Set([...priorRepair.nodeIds, ...affected])],
-      aggregateIds: [...new Set([...priorRepair.aggregateIds, ...aggregateIds])],
-      awaitDependencies: true,
-    } : { rootNodeId: event.nodeId, nodeIds: [...affected], aggregateIds, reason: event.reason, ...(priorInput === undefined ? {} : { priorInput }), ...(inputOverride === undefined ? {} : { inputOverride }), ...(priorFactory === undefined ? {} : { priorFactory }), ...(factoryOverride === undefined ? {} : { factoryOverride }), ...(allowProtected ? { awaitDependencies: true } : {}) },
+    pendingRepair: widenPendingRepair(priorRepair, event, affected, aggregateIds, revision, allowProtected),
   };
-  if (state.partition) {
-    const partition = partitionFor(factory, state.partition.id);
-    for (const edge of partition?.outbound.filter((candidate) => newlyAffected.has(candidate.nodeId)) ?? []) {
-      const generation = state.nodes[edge.nodeId]!.candidateGeneration + 1;
-      if (!Number.isSafeInteger(generation)) throw new FactoryKernelError("candidate generation exhausted");
-      const command = commandFor(next, "invalidate-partition", edge.nodeId);
-      next = command.state;
-      commands.push({
-        kind: "invalidate-partition",
-        id: command.id,
-        sourcePartitionId: state.partition.id,
-        targetPartitionId: edge.toPartitionId,
-        sourceNodeId: edge.nodeId,
-        nodeId: edge.toNodeId,
-        candidateGeneration: generation,
-      });
-    }
-  }
+  next = emitPartitionInvalidations(factory, next, newlyAffected, commands);
   if (releaseStarted) return beginStopping(factory, next, "PARTITION_SOURCE_INVALIDATED_AFTER_RELEASE", commands, false);
   if (uncertain) return beginStopping(factory, next, "PARTITION_SOURCE_INVALIDATED_WITH_UNCERTAIN_ATTEMPT", commands, false);
   for (const id of affected) next = cancelScope(factory, next, id, commands, true);

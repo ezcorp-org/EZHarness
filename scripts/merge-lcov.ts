@@ -35,6 +35,7 @@ import { resolve, relative, isAbsolute } from "node:path";
 import { filterNoiseDA, isNoiseLine, readSourceLines } from "./lcov-noise-filter.ts";
 import {
   canonicalCoverageProducer,
+  isCompiledWorkspaceOutput,
   NODE_V8_COVERAGE_PRODUCER,
 } from "./coverage-config.ts";
 
@@ -279,6 +280,15 @@ type InputBlock = {
  */
 const absorbInputBlock = async (block: InputBlock | null): Promise<void> => {
   if (!block) return;
+  // COMPILED WORKSPACE OUTPUT never enters the merge. A Node-resolved
+  // producer loads `packages/**/dist/*.js` for an import that Bun resolves to
+  // `packages/**/src/*.ts`, so without this the merged lcov measures one
+  // module twice — once as the source every threshold is keyed on, and once
+  // as the build artefact, under a path no key names. Dropped at the merge
+  // rather than in one leg's filter because every leg feeds this one funnel:
+  // the shard pre-merge, the local host merge, and the CI coverage job's
+  // merge of the downloaded artifacts all run through here.
+  if (isCompiledWorkspaceOutput(block.sf)) return;
   const trustedNodeV8 = block.producer === NODE_V8_PRODUCER;
   const canonicalProducer = canonicalCoverageProducer(block.sf);
   if (canonicalProducer && block.producer !== canonicalProducer) return;

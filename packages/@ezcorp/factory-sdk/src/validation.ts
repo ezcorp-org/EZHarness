@@ -98,14 +98,8 @@ function checkOptionalInteger(record: Record<string, unknown>, key: string, path
     : issue("SCHEMA_BOUND_INVALID", `${key} must be a nonnegative safe integer.`, [...path, key]);
 }
 
-function validateSchemaNode(input: unknown, root: PortSchema, path: readonly (string | number)[], ancestors: ReadonlySet<object>): ValidationResult {
-  if (!isRecord(input)) return issue("SCHEMA_OBJECT_REQUIRED", "A port schema must be an object.", path);
-  const schema = input as PortSchema;
-  for (const key of Object.keys(input)) if (!PORT_SCHEMA_KEYS.has(key)) return issue("SCHEMA_KEYWORD_UNSUPPORTED", `Unsupported schema keyword: ${key}.`, [...path, key]);
-  if (ancestors.has(input)) return issue("SCHEMA_RECURSIVE", "Recursive schemas are not supported.", path);
-  const nextAncestors = new Set(ancestors);
-  nextAncestors.add(input);
-
+/** Keyword shapes: every supported keyword carries the declared JSON type. */
+function validateSchemaKeywordTypes(input: Record<string, unknown>, path: readonly (string | number)[]): ValidationResult {
   if (own(input, "title") && typeof input.title !== "string") return issue("SCHEMA_DESCRIPTION_INVALID", "title must be a string.", [...path, "title"]);
   if (own(input, "description") && typeof input.description !== "string") return issue("SCHEMA_DESCRIPTION_INVALID", "description must be a string.", [...path, "description"]);
   if (own(input, "additionalProperties") && typeof input.additionalProperties !== "boolean") return issue("SCHEMA_ADDITIONAL_PROPERTIES_INVALID", "additionalProperties must be boolean.", [...path, "additionalProperties"]);
@@ -119,6 +113,11 @@ function validateSchemaNode(input: unknown, root: PortSchema, path: readonly (st
     if (!result.ok) return result;
   }
   for (const key of ["minimum", "maximum"]) if (own(input, key) && (typeof input[key] !== "number" || !Number.isFinite(input[key]))) return issue("SCHEMA_BOUND_INVALID", `${key} must be finite.`, [...path, key]);
+  return { ok: true };
+}
+
+/** `const` and `enum` literals: I-JSON, and enum members unique by value. */
+function validateSchemaLiterals(input: Record<string, unknown>, path: readonly (string | number)[]): ValidationResult {
   if (own(input, "const")) {
     const result = validateIJson(input.const);
     if (!result.ok) return issue("SCHEMA_CONST_INVALID", "const must be I-JSON.", [...path, "const", ...result.issues[0]!.path]);
@@ -131,29 +130,45 @@ function validateSchemaNode(input: unknown, root: PortSchema, path: readonly (st
       if (enumValues.slice(0, index).some((value) => jsonEqual(value as JsonValue, enumValues[index] as JsonValue))) return issue("SCHEMA_ENUM_INVALID", "Enum values must be unique.", [...path, "enum", index]);
     }
   }
+  return { ok: true };
+}
 
+/**
+ * A node is either a local reference or a typed node, never both.
+ *
+ * The reference arm returns the referenced node's own verdict; a successful one
+ * falls back to the caller, which still owes the REFERENCING node its `$defs`
+ * walk (the one execution keyword a reference is allowed to carry).
+ */
+function validateSchemaTypeOrReference(input: Record<string, unknown>, root: PortSchema, path: readonly (string | number)[], ancestors: ReadonlySet<object>): ValidationResult {
   if (typeof input.$ref === "string") {
     if (Object.keys(input).some((key) => key !== "$ref" && key !== "$defs" && key !== "title" && key !== "description")) return issue("SCHEMA_REF_SIBLING", "A local reference cannot have execution siblings.", path);
     const target = resolveLocalReference(root, input.$ref);
     if (!target) return issue("SCHEMA_REF_INVALID", "Reference must resolve through a local JSON Pointer.", [...path, "$ref"]);
-    const result = validateSchemaNode(target, root, [...path, "$ref"], nextAncestors);
-    if (!result.ok) return result;
-  } else {
-    if (own(input, "$ref")) return issue("SCHEMA_REF_INVALID", "$ref must be a string.", [...path, "$ref"]);
-    const type = input.type;
-    const types = Array.isArray(type) ? type : typeof type === "string" ? [type] : [];
-    const validNullable = types.length === 2 && types.includes("null") && types[0] !== types[1];
-    if (types.length === 0) return issue("SCHEMA_TYPE_REQUIRED", "A port schema type is required.", [...path, "type"]);
-    if (types.some((entry) => typeof entry !== "string" || !TYPES.has(entry)) || (types.length !== 1 && !validNullable)) return issue("SCHEMA_TYPE_UNSUPPORTED", "Type must be one supported type or a nullable union.", [...path, "type"]);
+    return validateSchemaNode(target, root, [...path, "$ref"], ancestors);
   }
+  if (own(input, "$ref")) return issue("SCHEMA_REF_INVALID", "$ref must be a string.", [...path, "$ref"]);
+  const type = input.type;
+  const types = Array.isArray(type) ? type : typeof type === "string" ? [type] : [];
+  const validNullable = types.length === 2 && types.includes("null") && types[0] !== types[1];
+  if (types.length === 0) return issue("SCHEMA_TYPE_REQUIRED", "A port schema type is required.", [...path, "type"]);
+  if (types.some((entry) => typeof entry !== "string" || !TYPES.has(entry)) || (types.length !== 1 && !validNullable)) return issue("SCHEMA_TYPE_UNSUPPORTED", "Type must be one supported type or a nullable union.", [...path, "type"]);
+  return { ok: true };
+}
 
+/** Paired bounds must not cross. */
+function validateSchemaBoundOrder(schema: PortSchema, path: readonly (string | number)[]): ValidationResult {
   if (schema.minItems !== undefined && schema.maxItems !== undefined && schema.minItems > schema.maxItems) return issue("SCHEMA_BOUND_ORDER", "minItems cannot exceed maxItems.", path);
   if (schema.minLength !== undefined && schema.maxLength !== undefined && schema.minLength > schema.maxLength) return issue("SCHEMA_BOUND_ORDER", "minLength cannot exceed maxLength.", path);
   if (schema.minimum !== undefined && schema.maximum !== undefined && schema.minimum > schema.maximum) return issue("SCHEMA_BOUND_ORDER", "minimum cannot exceed maximum.", path);
+  return { ok: true };
+}
 
+/** The subschemas a node owns: properties, required names, items, and `$defs`. */
+function validateSchemaChildren(input: Record<string, unknown>, root: PortSchema, path: readonly (string | number)[], ancestors: ReadonlySet<object>): ValidationResult {
   const properties = isRecord(input.properties) ? input.properties : undefined;
   if (properties) for (const [name, child] of Object.entries(properties)) {
-    const result = validateSchemaNode(child, root, [...path, "properties", name], nextAncestors);
+    const result = validateSchemaNode(child, root, [...path, "properties", name], ancestors);
     if (!result.ok) return result;
   }
   if (Array.isArray(input.required)) {
@@ -164,14 +179,32 @@ function validateSchemaNode(input: unknown, root: PortSchema, path: readonly (st
     }
   }
   if (isRecord(input.items)) {
-    const result = validateSchemaNode(input.items, root, [...path, "items"], nextAncestors);
+    const result = validateSchemaNode(input.items, root, [...path, "items"], ancestors);
     if (!result.ok) return result;
   }
   if (isRecord(input.$defs)) for (const [name, child] of Object.entries(input.$defs)) {
-    const result = validateSchemaNode(child, root, [...path, "$defs", name], nextAncestors);
+    const result = validateSchemaNode(child, root, [...path, "$defs", name], ancestors);
     if (!result.ok) return result;
   }
   return { ok: true };
+}
+
+function validateSchemaNode(input: unknown, root: PortSchema, path: readonly (string | number)[], ancestors: ReadonlySet<object>): ValidationResult {
+  if (!isRecord(input)) return issue("SCHEMA_OBJECT_REQUIRED", "A port schema must be an object.", path);
+  for (const key of Object.keys(input)) if (!PORT_SCHEMA_KEYS.has(key)) return issue("SCHEMA_KEYWORD_UNSUPPORTED", `Unsupported schema keyword: ${key}.`, [...path, key]);
+  if (ancestors.has(input)) return issue("SCHEMA_RECURSIVE", "Recursive schemas are not supported.", path);
+  const nextAncestors = new Set(ancestors);
+  nextAncestors.add(input);
+
+  const keywords = validateSchemaKeywordTypes(input, path);
+  if (!keywords.ok) return keywords;
+  const literals = validateSchemaLiterals(input, path);
+  if (!literals.ok) return literals;
+  const typing = validateSchemaTypeOrReference(input, root, path, nextAncestors);
+  if (!typing.ok) return typing;
+  const order = validateSchemaBoundOrder(input as PortSchema, path);
+  if (!order.ok) return order;
+  return validateSchemaChildren(input, root, path, nextAncestors);
 }
 
 export function validatePortSchema(schema: PortSchema): ValidationResult {
@@ -186,6 +219,43 @@ function valueTypeMatches(type: string, value: JsonValue): boolean {
   return typeof value === type;
 }
 
+function validateStringValue(schema: PortSchema, value: string, path: readonly (string | number)[]): ValidationResult {
+  const length = unicodeLength(value);
+  if (schema.minLength !== undefined && length < schema.minLength) return issue("VALUE_MIN_LENGTH", "String is shorter than minLength.", path);
+  if (schema.maxLength !== undefined && length > schema.maxLength) return issue("VALUE_MAX_LENGTH", "String is longer than maxLength.", path);
+  return { ok: true };
+}
+
+function validateNumberValue(schema: PortSchema, value: number, path: readonly (string | number)[]): ValidationResult {
+  if (schema.minimum !== undefined && value < schema.minimum) return issue("VALUE_MINIMUM", "Number is below minimum.", path);
+  if (schema.maximum !== undefined && value > schema.maximum) return issue("VALUE_MAXIMUM", "Number is above maximum.", path);
+  return { ok: true };
+}
+
+function validateArrayValue(schema: PortSchema, root: PortSchema, value: readonly JsonValue[], path: readonly (string | number)[]): ValidationResult {
+  if (schema.minItems !== undefined && value.length < schema.minItems) return issue("VALUE_MIN_ITEMS", "Array has fewer items than minItems.", path);
+  if (schema.maxItems !== undefined && value.length > schema.maxItems) return issue("VALUE_MAX_ITEMS", "Array has more items than maxItems.", path);
+  if (schema.items) for (let index = 0; index < value.length; index += 1) {
+    const result = validateValueNode(schema.items, root, value[index] as JsonValue, [...path, index]);
+    if (!result.ok) return result;
+  }
+  return { ok: true };
+}
+
+function validateObjectValue(schema: PortSchema, root: PortSchema, value: { readonly [key: string]: JsonValue }, path: readonly (string | number)[]): ValidationResult {
+  for (const required of schema.required ?? []) if (!own(value, required)) return issue("VALUE_REQUIRED", `Missing required property: ${required}.`, [...path, required]);
+  for (const [key, child] of Object.entries(value)) {
+    const propertySchema = schema.properties && own(schema.properties, key) ? schema.properties[key] : undefined;
+    if (!propertySchema) {
+      if (schema.additionalProperties === false) return issue("VALUE_ADDITIONAL_PROPERTY", `Unexpected property: ${key}.`, [...path, key]);
+    } else {
+      const result = validateValueNode(propertySchema, root, child, [...path, key]);
+      if (!result.ok) return result;
+    }
+  }
+  return { ok: true };
+}
+
 function validateValueNode(schema: PortSchema, root: PortSchema, value: JsonValue, path: readonly (string | number)[]): ValidationResult {
   if (schema.$ref) {
     const target = resolveLocalReference(root, schema.$ref);
@@ -196,33 +266,20 @@ function validateValueNode(schema: PortSchema, root: PortSchema, value: JsonValu
   if (schema.const !== undefined && !jsonEqual(schema.const, value)) return issue("VALUE_CONST", "Value does not match const.", path);
   if (schema.enum && !schema.enum.some((candidate) => jsonEqual(candidate, value))) return issue("VALUE_ENUM", "Value is not in enum.", path);
   if (typeof value === "string") {
-    const length = unicodeLength(value);
-    if (schema.minLength !== undefined && length < schema.minLength) return issue("VALUE_MIN_LENGTH", "String is shorter than minLength.", path);
-    if (schema.maxLength !== undefined && length > schema.maxLength) return issue("VALUE_MAX_LENGTH", "String is longer than maxLength.", path);
+    const text = validateStringValue(schema, value, path);
+    if (!text.ok) return text;
   }
   if (typeof value === "number") {
-    if (schema.minimum !== undefined && value < schema.minimum) return issue("VALUE_MINIMUM", "Number is below minimum.", path);
-    if (schema.maximum !== undefined && value > schema.maximum) return issue("VALUE_MAXIMUM", "Number is above maximum.", path);
+    const numeric = validateNumberValue(schema, value, path);
+    if (!numeric.ok) return numeric;
   }
   if (Array.isArray(value)) {
-    if (schema.minItems !== undefined && value.length < schema.minItems) return issue("VALUE_MIN_ITEMS", "Array has fewer items than minItems.", path);
-    if (schema.maxItems !== undefined && value.length > schema.maxItems) return issue("VALUE_MAX_ITEMS", "Array has more items than maxItems.", path);
-    if (schema.items) for (let index = 0; index < value.length; index += 1) {
-      const result = validateValueNode(schema.items, root, value[index] as JsonValue, [...path, index]);
-      if (!result.ok) return result;
-    }
+    const items = validateArrayValue(schema, root, value, path);
+    if (!items.ok) return items;
   }
   if (value !== null && typeof value === "object" && !Array.isArray(value)) {
-    for (const required of schema.required ?? []) if (!own(value, required)) return issue("VALUE_REQUIRED", `Missing required property: ${required}.`, [...path, required]);
-    for (const [key, child] of Object.entries(value)) {
-      const propertySchema = schema.properties && own(schema.properties, key) ? schema.properties[key] : undefined;
-      if (!propertySchema) {
-        if (schema.additionalProperties === false) return issue("VALUE_ADDITIONAL_PROPERTY", `Unexpected property: ${key}.`, [...path, key]);
-      } else {
-        const result = validateValueNode(propertySchema, root, child, [...path, key]);
-        if (!result.ok) return result;
-      }
-    }
+    const properties = validateObjectValue(schema, root, value, path);
+    if (!properties.ok) return properties;
   }
   return { ok: true };
 }
@@ -248,25 +305,37 @@ function dereference(schema: PortSchema, root: PortSchema): PortSchema | undefin
 function typeSet(schema: PortSchema): ReadonlySet<string> {
   return new Set(Array.isArray(schema.type) ? schema.type : [schema.type as string]);
 }
-function contained(producerInput: PortSchema, consumerInput: PortSchema, producerRoot: PortSchema, consumerRoot: PortSchema): boolean {
-  const producer = dereference(producerInput, producerRoot);
-  const consumer = dereference(consumerInput, consumerRoot);
-  if (!producer || !consumer) return false;
+/** Every producer type is accepted by the consumer; integer widens to number. */
+function containedTypes(producer: PortSchema, consumer: PortSchema): boolean {
   const producerTypes = typeSet(producer);
   const consumerTypes = typeSet(consumer);
   for (const type of producerTypes) if (!consumerTypes.has(type) && !(type === "integer" && consumerTypes.has("number"))) return false;
+  return true;
+}
+
+/** The producer's fixed values are a subset of the values the consumer admits. */
+function containedValues(producer: PortSchema, consumer: PortSchema): boolean {
   if (consumer.const !== undefined && (producer.const === undefined || !jsonEqual(producer.const, consumer.const))) return false;
   if (consumer.enum) {
     const values = producer.const !== undefined ? [producer.const] : producer.enum;
     if (!values || values.some((value) => !consumer.enum?.some((candidate) => jsonEqual(value, candidate)))) return false;
   }
+  return true;
+}
+
+/** Each consumer bound is declared by the producer and is at least as tight. */
+function containedBounds(producer: PortSchema, consumer: PortSchema): boolean {
   if (consumer.minimum !== undefined && (producer.minimum === undefined || producer.minimum < consumer.minimum)) return false;
   if (consumer.maximum !== undefined && (producer.maximum === undefined || producer.maximum > consumer.maximum)) return false;
   if (consumer.minLength !== undefined && (producer.minLength === undefined || producer.minLength < consumer.minLength)) return false;
   if (consumer.maxLength !== undefined && (producer.maxLength === undefined || producer.maxLength > consumer.maxLength)) return false;
   if (consumer.minItems !== undefined && (producer.minItems === undefined || producer.minItems < consumer.minItems)) return false;
   if (consumer.maxItems !== undefined && (producer.maxItems === undefined || producer.maxItems > consumer.maxItems)) return false;
-  if (consumer.items && (!producer.items || !contained(producer.items, consumer.items, producerRoot, consumerRoot))) return false;
+  return true;
+}
+
+/** Required names, per-property containment, and the open/closed object rule. */
+function containedProperties(producer: PortSchema, consumer: PortSchema, producerRoot: PortSchema, consumerRoot: PortSchema): boolean {
   for (const required of consumer.required ?? []) if (!producer.required?.includes(required)) return false;
   for (const [key, property] of Object.entries(producer.properties ?? {})) {
     const target = consumer.properties && own(consumer.properties, key) ? consumer.properties[key] : undefined;
@@ -276,6 +345,17 @@ function contained(producerInput: PortSchema, consumerInput: PortSchema, produce
     for (const key of Object.keys(consumer.properties ?? {})) if (!producer.properties || !own(producer.properties, key)) return false;
   }
   return !(producer.additionalProperties !== false && consumer.additionalProperties === false);
+}
+
+function contained(producerInput: PortSchema, consumerInput: PortSchema, producerRoot: PortSchema, consumerRoot: PortSchema): boolean {
+  const producer = dereference(producerInput, producerRoot);
+  const consumer = dereference(consumerInput, consumerRoot);
+  if (!producer || !consumer) return false;
+  if (!containedTypes(producer, consumer)) return false;
+  if (!containedValues(producer, consumer)) return false;
+  if (!containedBounds(producer, consumer)) return false;
+  if (consumer.items && (!producer.items || !contained(producer.items, consumer.items, producerRoot, consumerRoot))) return false;
+  return containedProperties(producer, consumer, producerRoot, consumerRoot);
 }
 
 export function isSchemaContained(producer: PortSchema, consumer: PortSchema): boolean {
@@ -353,7 +433,15 @@ function executionManifest(factory: CompiledFactory): CompiledExecutionManifest 
   };
 }
 
-function graphNodes(root: FactoryGraph): readonly { readonly id: string; readonly node: FactoryNode; readonly value: JsonValue; readonly depth: number }[] {
+/** One flattened graph node: its ID, the node, its I-JSON form, and its scope depth. */
+type GraphNodeEntry = {
+  readonly id: string;
+  readonly node: FactoryNode;
+  readonly value: JsonValue;
+  readonly depth: number;
+};
+
+function graphNodes(root: FactoryGraph): readonly GraphNodeEntry[] {
   const result: { id: string; node: FactoryNode; value: JsonValue; depth: number }[] = [];
   const pending: { graph: FactoryGraph; depth: number }[] = [{ graph: root, depth: 1 }];
   while (pending.length > 0) {
@@ -397,29 +485,77 @@ function sameKeys(left: Readonly<Record<string, unknown>>, right: Readonly<Recor
   return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index]);
 }
 
-function validateNodeSemantics(factory: CompiledFactory, node: FactoryNode, depth: number): ValidationResult {
-  if (depth > factory.definition.bounds.maxScopeDepth || depth > FACTORY_LIMITS.maxScopeDepth) return issue("COMPILED_SCOPE_DEPTH", "Compiled graph exceeds its scope-depth bound.", ["definition", "graph"]);
+/** Both port records of one node are inside the supported schema subset. */
+function validateNodePorts(node: FactoryNode): ValidationResult {
   const inputs = validateSchemaRecord(node.inputPorts ?? {}, ["indexes", "nodeById", node.id, "inputPorts"]);
   if (!inputs.ok) return inputs;
-  const outputs = validateSchemaRecord(node.outputPorts ?? {}, ["indexes", "nodeById", node.id, "outputPorts"]);
-  if (!outputs.ok) return outputs;
+  return validateSchemaRecord(node.outputPorts ?? {}, ["indexes", "nodeById", node.id, "outputPorts"]);
+}
+
+function validateNodeRepairableInputs(node: FactoryNode): ValidationResult {
   const repairableInputs = node.kind === "task" || node.kind === "subfactory" ? node.repairableInputs : undefined;
   if (repairableInputs !== undefined && (new Set(repairableInputs).size !== repairableInputs.length || repairableInputs.some(name => !Object.hasOwn(node.inputPorts ?? {}, name) || node.bindings?.[name]?.kind !== "literal"))) return issue("COMPILED_REPAIR_INPUT", "Repairable inputs must be unique existing literal-bound input ports.", ["indexes", "nodeById", node.id, "repairableInputs"]);
+  return { ok: true };
+}
+
+/** The bounds every node kind may carry: deadline, retry policy, task iterations. */
+function validateNodeBounds(factory: CompiledFactory, node: FactoryNode): ValidationResult {
   if (node.deadlineMs !== undefined && (!safeCounter(node.deadlineMs, 1) || node.deadlineMs > FACTORY_LIMITS.maximumNodeDeadlineMs || node.deadlineMs > factory.definition.bounds.runDeadlineMs!)) return issue("COMPILED_NODE_DEADLINE", "Node deadline exceeds launch or run bounds.", ["indexes", "nodeById", node.id, "deadlineMs"]);
   if (node.retry !== undefined && (node.kind !== "task" || !safeCounter(node.retry.maxAttempts, 1) || node.retry.maxAttempts > 3 || !safeCounter(node.retry.initialDelayMs) || !safeCounter(node.retry.maximumDelayMs) || node.retry.maximumDelayMs < node.retry.initialDelayMs)) return issue("COMPILED_RETRY", "Compiled retry policy is invalid.", ["indexes", "nodeById", node.id, "retry"]);
   if (node.kind === "task" && node.maxIterations !== undefined && !safeCounter(node.maxIterations, 1)) return issue("COMPILED_TASK_BOUND", "Task iteration bound must be positive.", ["indexes", "nodeById", node.id, "maxIterations"]);
-  if (node.kind === "branch") {
-    if (!validateExpression(node.condition).ok || !sameKeys(node.then.outputs, node.outputPorts ?? {}) || !sameKeys(node.else.outputs, node.outputPorts ?? {})) return issue("COMPILED_BRANCH", "Branch expression and explicit outputs must be valid.", ["indexes", "nodeById", node.id]);
-  } else if (node.kind === "map") {
-    if (!safeCounter(node.maxItems) || node.maxItems > factory.definition.bounds.maxExpandedNodes || !safeCounter(node.maxConcurrency, 1) || node.maxConcurrency > FACTORY_LIMITS.maxConcurrentActivities || !validatePortSchema(node.itemSchema).ok || !sameKeys(node.body.outputs, node.outputPorts ?? {})) return issue("COMPILED_MAP", "Map bounds, item schema, or explicit outputs are invalid.", ["indexes", "nodeById", node.id]);
-  } else if (node.kind === "loop") {
-    if (!safeCounter(node.maxIterations, 1) || node.maxIterations > factory.definition.bounds.maxExpandedNodes || !safeCounter(node.maxElapsedMs, 1) || node.maxElapsedMs > factory.definition.bounds.runDeadlineMs! || !validatePortSchema(node.carriedSchema).ok || !validatePortSchema(node.resultSchema).ok || !validateExpression(node.until).ok || !validateExpression(node.nextInput).ok || !sameKeys(node.body.outputs, node.outputPorts ?? {})) return issue("COMPILED_LOOP", "Loop bounds, schemas, expressions, or explicit outputs are invalid.", ["indexes", "nodeById", node.id]);
-  } else if (node.kind === "join") {
-    if (node.predecessors.length === 0 || new Set(node.predecessors).size !== node.predecessors.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.winners) return issue("COMPILED_JOIN", "Join predecessors and winners output are invalid.", ["indexes", "nodeById", node.id]);
-  } else if (node.kind === "approval") {
-    if (!safeCounter(node.expiresInMs, 1) || node.expiresInMs > FACTORY_LIMITS.maximumApprovalWaitMs || node.choices.length === 0 || new Set(node.choices).size !== node.choices.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.choice) return issue("COMPILED_APPROVAL", "Approval bounds, choices, or choice output are invalid.", ["indexes", "nodeById", node.id]);
-  } else if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!safeCounter(node.maxRepairs) || node.maxRepairs > FACTORY_LIMITS.maxCandidateGenerations - 1)) return issue("COMPILED_REPAIR", "Acceptance repair bound is invalid.", ["indexes", "nodeById", node.id, "maxRepairs"]);
   return { ok: true };
+}
+
+function validateBranchNode(node: Extract<FactoryNode, { kind: "branch" }>): ValidationResult {
+  if (!validateExpression(node.condition).ok || !sameKeys(node.then.outputs, node.outputPorts ?? {}) || !sameKeys(node.else.outputs, node.outputPorts ?? {})) return issue("COMPILED_BRANCH", "Branch expression and explicit outputs must be valid.", ["indexes", "nodeById", node.id]);
+  return { ok: true };
+}
+
+function validateMapNode(factory: CompiledFactory, node: Extract<FactoryNode, { kind: "map" }>): ValidationResult {
+  if (!safeCounter(node.maxItems) || node.maxItems > factory.definition.bounds.maxExpandedNodes || !safeCounter(node.maxConcurrency, 1) || node.maxConcurrency > FACTORY_LIMITS.maxConcurrentActivities || !validatePortSchema(node.itemSchema).ok || !sameKeys(node.body.outputs, node.outputPorts ?? {})) return issue("COMPILED_MAP", "Map bounds, item schema, or explicit outputs are invalid.", ["indexes", "nodeById", node.id]);
+  return { ok: true };
+}
+
+function validateLoopNode(factory: CompiledFactory, node: Extract<FactoryNode, { kind: "loop" }>): ValidationResult {
+  if (!safeCounter(node.maxIterations, 1) || node.maxIterations > factory.definition.bounds.maxExpandedNodes || !safeCounter(node.maxElapsedMs, 1) || node.maxElapsedMs > factory.definition.bounds.runDeadlineMs! || !validatePortSchema(node.carriedSchema).ok || !validatePortSchema(node.resultSchema).ok || !validateExpression(node.until).ok || !validateExpression(node.nextInput).ok || !sameKeys(node.body.outputs, node.outputPorts ?? {})) return issue("COMPILED_LOOP", "Loop bounds, schemas, expressions, or explicit outputs are invalid.", ["indexes", "nodeById", node.id]);
+  return { ok: true };
+}
+
+function validateJoinNode(node: Extract<FactoryNode, { kind: "join" }>): ValidationResult {
+  if (node.predecessors.length === 0 || new Set(node.predecessors).size !== node.predecessors.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.winners) return issue("COMPILED_JOIN", "Join predecessors and winners output are invalid.", ["indexes", "nodeById", node.id]);
+  return { ok: true };
+}
+
+function validateApprovalNode(node: Extract<FactoryNode, { kind: "approval" }>): ValidationResult {
+  if (!safeCounter(node.expiresInMs, 1) || node.expiresInMs > FACTORY_LIMITS.maximumApprovalWaitMs || node.choices.length === 0 || new Set(node.choices).size !== node.choices.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.choice) return issue("COMPILED_APPROVAL", "Approval bounds, choices, or choice output are invalid.", ["indexes", "nodeById", node.id]);
+  return { ok: true };
+}
+
+function validateAcceptanceNode(node: Extract<FactoryNode, { kind: "acceptance" }>): ValidationResult {
+  if (node.maxRepairs !== undefined && (!safeCounter(node.maxRepairs) || node.maxRepairs > FACTORY_LIMITS.maxCandidateGenerations - 1)) return issue("COMPILED_REPAIR", "Acceptance repair bound is invalid.", ["indexes", "nodeById", node.id, "maxRepairs"]);
+  return { ok: true };
+}
+
+/** Dispatch to the one validator that owns this node kind; other kinds add no rule. */
+function validateNodeKindSemantics(factory: CompiledFactory, node: FactoryNode): ValidationResult {
+  if (node.kind === "branch") return validateBranchNode(node);
+  if (node.kind === "map") return validateMapNode(factory, node);
+  if (node.kind === "loop") return validateLoopNode(factory, node);
+  if (node.kind === "join") return validateJoinNode(node);
+  if (node.kind === "approval") return validateApprovalNode(node);
+  if (node.kind === "acceptance") return validateAcceptanceNode(node);
+  return { ok: true };
+}
+
+function validateNodeSemantics(factory: CompiledFactory, node: FactoryNode, depth: number): ValidationResult {
+  if (depth > factory.definition.bounds.maxScopeDepth || depth > FACTORY_LIMITS.maxScopeDepth) return issue("COMPILED_SCOPE_DEPTH", "Compiled graph exceeds its scope-depth bound.", ["definition", "graph"]);
+  const ports = validateNodePorts(node);
+  if (!ports.ok) return ports;
+  const repairable = validateNodeRepairableInputs(node);
+  if (!repairable.ok) return repairable;
+  const bounds = validateNodeBounds(factory, node);
+  if (!bounds.ok) return bounds;
+  return validateNodeKindSemantics(factory, node);
 }
 
 /** Every node in a graph, including the nodes inside branch, map, and loop bodies. */
@@ -467,13 +603,8 @@ export function validateCompiledPartitionArtifact(value: unknown, expectedFactor
   return { ok: true };
 }
 
-/**
- * Workflow-safe validation for an already compiled artifact. It checks the
- * generated schema and every bounded manifest relationship without hashing.
- */
-export function validateCompiledFactory(value: unknown): ValidationResult {
-  if (!isCompiledFactory(value)) return issue("COMPILED_SCHEMA", "Value does not match the generated CompiledFactory schema.", []);
-  const factory = value as CompiledFactory;
+/** Digests, byte bound, launch bounds, presentation pairing, and the dependency lock. */
+function validateCompiledHeader(factory: CompiledFactory): ValidationResult {
   if (!validDigest(factory.digest, true) || (factory.presentationDigest !== undefined && !validDigest(factory.presentationDigest, true))) return issue("COMPILED_DIGEST", "Compiled digests must be lowercase sha256 values.", ["digest"]);
   if (encodedBytes(factory as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("COMPILED_BYTES", "Compiled IR exceeds 16 MiB.", []);
   if (!safeCounter(factory.definition.bounds.maxExpandedNodes, 1) || factory.definition.bounds.maxExpandedNodes > FACTORY_LIMITS.maxExpandedNodes || !safeCounter(factory.definition.bounds.maxScopeDepth, 1) || factory.definition.bounds.maxScopeDepth > FACTORY_LIMITS.maxScopeDepth || !safeCounter(factory.definition.bounds.runDeadlineMs!, 1) || factory.definition.bounds.runDeadlineMs! > FACTORY_LIMITS.maximumRunDeadlineMs) return issue("COMPILED_BOUND", "Compiled definition bounds exceed launch limits.", ["definition", "bounds"]);
@@ -485,8 +616,11 @@ export function validateCompiledFactory(value: unknown): ValidationResult {
     interpreter: factory.definition.interpreterCompatibility,
   } as unknown as JsonValue;
   if (!jsonEqual(factory.lock as unknown as JsonValue, expectedLock)) return issue("COMPILED_LOCK", "Dependency lock does not match the embedded definition.", ["lock"]);
+  return { ok: true };
+}
 
-  const nodes = graphNodes(factory.definition.graph);
+/** Expansion bounds, port schemas, node identity, index agreement, and node semantics. */
+function validateCompiledGraph(factory: CompiledFactory, nodes: readonly GraphNodeEntry[]): ValidationResult {
   if (nodes.length > FACTORY_LIMITS.maxExpandedNodes || expandedNodeCount(factory.definition.graph, factory.definition.bounds.maxExpandedNodes) > factory.definition.bounds.maxExpandedNodes) return issue("COMPILED_NODES", "Compiled node expansion exceeds launch limits.", ["indexes", "nodeById"]);
   const inputSchemas = validateSchemaRecord(factory.definition.inputPorts, ["definition", "inputPorts"]);
   if (!inputSchemas.ok) return inputSchemas;
@@ -500,6 +634,16 @@ export function validateCompiledFactory(value: unknown): ValidationResult {
     const semantics = validateNodeSemantics(factory, node.node, node.depth);
     if (!semantics.ok) return semantics;
   }
+  return { ok: true };
+}
+
+/** The graph edges a node declares: its own `dependsOn` plus a join's predecessors. */
+function declaredDependencies(node: FactoryNode): readonly string[] {
+  return [...(node.dependsOn ?? []), ...(node.kind === "join" ? node.predecessors : [])];
+}
+
+/** Every index holds exactly the graph's node IDs, its edges, and its dependency counts. */
+function validateCompiledIndexes(factory: CompiledFactory, nodes: readonly GraphNodeEntry[], nodeIds: ReadonlySet<string>): ValidationResult {
   const indexKeys = Object.keys(factory.indexes.nodeById);
   const successorKeys = Object.keys(factory.indexes.successors);
   const dependencyKeys = Object.keys(factory.indexes.dependencyCounts);
@@ -507,7 +651,7 @@ export function validateCompiledFactory(value: unknown): ValidationResult {
   const expectedSuccessors = new Map<string, string[]>([...nodeIds].map((id) => [id, []]));
   const dependencies = new Map<string, readonly string[]>();
   for (const { node } of nodes) {
-    const declared = [...(node.dependsOn ?? []), ...(node.kind === "join" ? node.predecessors : [])];
+    const declared = declaredDependencies(node);
     if (new Set(declared).size !== declared.length || declared.some((id) => id === node.id || !nodeIds.has(id))) return issue("COMPILED_DEPENDENCIES", "Declared dependencies must be unique existing nodes.", ["indexes", "dependencyCounts", node.id]);
     dependencies.set(node.id, declared);
     for (const dependency of declared) expectedSuccessors.get(dependency)!.push(node.id);
@@ -518,9 +662,11 @@ export function validateCompiledFactory(value: unknown): ValidationResult {
     if (!isSortedUnique(successors) || successors.length !== expected.length || successors.some((successor, index) => successor !== expected[index])) return issue("COMPILED_SUCCESSORS", "Successor indexes must exactly match declared graph edges.", ["indexes", "successors", id]);
   }
   for (const id of nodeIds) if (!safeCounter(factory.indexes.dependencyCounts[id] as number) || factory.indexes.dependencyCounts[id] !== dependencies.get(id)!.length) return issue("COMPILED_DEPENDENCIES", "Dependency counts do not match declared graph edges.", ["indexes", "dependencyCounts", id]);
-  const checkedManifest = validateCompiledExecutionManifest(executionManifest(factory), factory.digest, factory.executionManifest);
-  if (!checkedManifest.ok) return issue("COMPILED_EXECUTION_MANIFEST", "Compiled execution manifest is invalid.", ["executionManifest"]);
+  return { ok: true };
+}
 
+/** Partition identity, ordering, and the one-partition-per-top-level-node rule. */
+function validateCompiledPartitionManifests(factory: CompiledFactory): ValidationResult {
   const partitionNodeIds = new Set(factory.definition.graph.nodes.map((node) => node.id));
   const partitionByNode = new Map<string, string>();
   const partitionIds = new Set<string>();
@@ -539,6 +685,11 @@ export function validateCompiledFactory(value: unknown): ValidationResult {
     }
   }
   if (partitionByNode.size !== partitionNodeIds.size) return issue("COMPILED_PARTITION_COVERAGE", "Partitions must cover every top-level compiled node.", ["partitions"]);
+  return { ok: true };
+}
+
+/** Cross-partition edge manifests, dependency lists, and canonical partition bytes. */
+function validateCompiledPartitionEdges(factory: CompiledFactory, dependencies: ReadonlyMap<string, readonly string[]>, partitionByNode: ReadonlyMap<string, string>): ValidationResult {
   const inboundByPartition = new Map<string, CompiledPartitionInboundEdge[]>(factory.partitions.map(({ id }) => [id, []]));
   const outboundByPartition = new Map<string, CompiledPartitionOutboundEdge[]>(factory.partitions.map(({ id }) => [id, []]));
   for (let index = 0; index < factory.partitions.length; index += 1) {
@@ -562,7 +713,11 @@ export function validateCompiledFactory(value: unknown): ValidationResult {
     if (!jsonEqual(partition.inbound as unknown as JsonValue, inbound as unknown as JsonValue) || !jsonEqual(partition.outbound as unknown as JsonValue, outbound as unknown as JsonValue)) return issue("COMPILED_PARTITION_EDGES", "Partition edge manifests must exactly match cross-partition graph edges.", ["partitions", index]);
     if (partition.encodedBytes !== encodedBytes(partitionPayload(partition, factory) as unknown as JsonValue)) return issue("COMPILED_PARTITION_BYTES", "Partition bytes must exactly match its canonical manifest and node records.", ["partitions", index, "encodedBytes"]);
   }
+  return { ok: true };
+}
 
+/** Pages name a real partition, carry only its nodes, and cover it in node order. */
+function validateCompiledPages(factory: CompiledFactory, partitionByNode: ReadonlyMap<string, string>, partitionIds: ReadonlySet<string>): ValidationResult {
   const pagedNodes = new Map<string, string[]>();
   const pageIds = new Set<string>();
   for (let index = 0; index < factory.pages.length; index += 1) {
@@ -581,6 +736,52 @@ export function validateCompiledFactory(value: unknown): ValidationResult {
     if (actual.length !== partition.nodeIds.length || actual.some((id, index) => id !== partition.nodeIds[index])) return issue("COMPILED_PAGE_COVERAGE", "Pages must cover each partition in node order.", ["pages"]);
   }
   return { ok: true };
+}
+
+/** The partition each top-level node belongs to, once the manifests are proven exclusive. */
+function partitionByNodeIndex(factory: CompiledFactory): ReadonlyMap<string, string> {
+  const index = new Map<string, string>();
+  for (const partition of factory.partitions) for (const id of partition.nodeIds) index.set(id, partition.id);
+  return index;
+}
+
+/**
+ * Workflow-safe validation for an already compiled artifact. It checks the
+ * generated schema and every bounded manifest relationship without hashing.
+ *
+ * The phases run in the order the checks depend on each other, and each one
+ * REBUILDS the index the previous phase proved canonical instead of carrying a
+ * half-filled accumulator out of a loop that can still fail: after
+ * `validateCompiledGraph` every node ID is unique, and after
+ * `validateCompiledPartitionManifests` every top-level node sits in exactly one
+ * partition, so the rebuilt sets are the same values the single pass produced.
+ */
+export function validateCompiledFactory(value: unknown): ValidationResult {
+  if (!isCompiledFactory(value)) return issue("COMPILED_SCHEMA", "Value does not match the generated CompiledFactory schema.", []);
+  const factory = value as CompiledFactory;
+  const header = validateCompiledHeader(factory);
+  if (!header.ok) return header;
+
+  const nodes = graphNodes(factory.definition.graph);
+  const graph = validateCompiledGraph(factory, nodes);
+  if (!graph.ok) return graph;
+
+  const nodeIds = new Set(nodes.map((entry) => entry.id));
+  const indexes = validateCompiledIndexes(factory, nodes, nodeIds);
+  if (!indexes.ok) return indexes;
+
+  const checkedManifest = validateCompiledExecutionManifest(executionManifest(factory), factory.digest, factory.executionManifest);
+  if (!checkedManifest.ok) return issue("COMPILED_EXECUTION_MANIFEST", "Compiled execution manifest is invalid.", ["executionManifest"]);
+
+  const manifests = validateCompiledPartitionManifests(factory);
+  if (!manifests.ok) return manifests;
+
+  const dependencies = new Map<string, readonly string[]>(nodes.map(({ node }) => [node.id, declaredDependencies(node)]));
+  const partitionByNode = partitionByNodeIndex(factory);
+  const edges = validateCompiledPartitionEdges(factory, dependencies, partitionByNode);
+  if (!edges.ok) return edges;
+
+  return validateCompiledPages(factory, partitionByNode, new Set(factory.partitions.map((partition) => partition.id)));
 }
 
 function validateArtifactReference(reference: FactoryArtifactReference, path: readonly (string | number)[]): ValidationResult {
@@ -637,21 +838,31 @@ function validateRunnerEnvelope(value: unknown, kind: "request" | "result"): Val
   return { ok: true };
 }
 
-export function validateFactoryRunnerRequest(value: unknown): ValidationResult {
-  if (!isFactoryRunnerRequest(value)) return issue("RUNNER_REQUEST_SCHEMA", "Value does not match the generated FactoryRunnerRequest schema.", []);
-  const request = value as FactoryRunnerRequest;
-  const envelope = validateRunnerEnvelope(request, "request");
-  if (!envelope.ok) return envelope;
+/** Every authority field is a bounded identity or a nonnegative safe counter. */
+function validateRunnerAuthority(request: FactoryRunnerRequest): ValidationResult {
   const authority = request.authority;
   for (const [key, field] of Object.entries(authority)) {
     if (typeof field === "string" ? !boundedText(field, 1_024) : !safeCounter(field)) return issue("RUNNER_AUTHORITY", "Runner authority fields must be bounded identities and nonnegative safe counters.", ["authority", key]);
   }
   if (authority.deadlineAtMs < 1) return issue("RUNNER_DEADLINE", "Runner deadline must be a positive epoch millisecond.", ["authority", "deadlineAtMs"]);
-  const runner = validateRunnerReference(request.runner, ["runner"]);
-  if (!runner.ok) return runner;
+  return { ok: true };
+}
+
+/** A supplied model pin agrees with the runner reference it is executed under. */
+function validateRunnerModelPin(request: FactoryRunnerRequest): ValidationResult {
   if (request.model !== undefined && (!boundedText(request.model.provider) || !boundedText(request.model.model) || !validDigest(request.model.configurationDigest, true) || !validDigest(request.model.policyDigest, true) || request.runner.model !== undefined && request.runner.model !== request.model.model || request.runner.configurationDigest !== undefined && request.runner.configurationDigest !== request.model.configurationDigest)) return issue("RUNNER_MODEL_PIN", "Model and policy pins must match the runner reference.", ["model"]);
+  return { ok: true };
+}
+
+/** Broker authority, grants, and the resource ceilings the attempt may spend. */
+function validateRunnerLimits(request: FactoryRunnerRequest): ValidationResult {
   if (!boundedText(request.broker.attemptToken, 4_096) || !boundedText(request.broker.audience) || request.grants.some((grant) => !boundedText(grant)) || new Set(request.grants).size !== request.grants.length) return issue("RUNNER_GRANT", "Broker authority and grants must be bounded and unique.", ["grants"]);
   if (request.resources.maxCostMicros !== undefined && !isUnsignedDecimal(request.resources.maxCostMicros) || request.resources.resourceClass !== undefined && !boundedText(request.resources.resourceClass) || [request.resources.maxTokens, request.resources.maxComputeMs, request.resources.memoryBytes].some((bound) => bound !== undefined && !safeCounter(bound))) return issue("RUNNER_RESOURCES", "Runner resource bounds must use safe counters and unsigned decimal cost.", ["resources"]);
+  return { ok: true };
+}
+
+/** The input payload, the resumed checkpoint, and the journal cursor they imply. */
+function validateRunnerInput(request: FactoryRunnerRequest): ValidationResult {
   if (request.input.kind === "artifact") {
     const artifact = validateArtifactReference(request.input.artifact, ["input", "artifact"]);
     if (!artifact.ok) return artifact;
@@ -662,6 +873,11 @@ export function validateFactoryRunnerRequest(value: unknown): ValidationResult {
   }
   const expectedOperationIndex = (request.checkpoint?.journalCursor ?? -1) + 1;
   if (request.authority.nextOperationIndex !== expectedOperationIndex) return issue("RUNNER_CURSOR", "Next operation index must continue the supplied checkpoint.", ["authority", "nextOperationIndex"]);
+  return { ok: true };
+}
+
+/** Tool declarations carry unique bounded names and supported port schemas. */
+function validateRunnerTools(request: FactoryRunnerRequest): ValidationResult {
   const toolNames = new Set<string>();
   for (let index = 0; index < request.tools.length; index += 1) {
     const tool = request.tools[index]!;
@@ -672,6 +888,24 @@ export function validateFactoryRunnerRequest(value: unknown): ValidationResult {
     if (tool.outputSchema !== undefined && !validatePortSchema(tool.outputSchema).ok) return issue("RUNNER_TOOL_SCHEMA", "Tool output schema is invalid.", ["tools", index, "outputSchema"]);
   }
   return { ok: true };
+}
+
+export function validateFactoryRunnerRequest(value: unknown): ValidationResult {
+  if (!isFactoryRunnerRequest(value)) return issue("RUNNER_REQUEST_SCHEMA", "Value does not match the generated FactoryRunnerRequest schema.", []);
+  const request = value as FactoryRunnerRequest;
+  const envelope = validateRunnerEnvelope(request, "request");
+  if (!envelope.ok) return envelope;
+  const authority = validateRunnerAuthority(request);
+  if (!authority.ok) return authority;
+  const runner = validateRunnerReference(request.runner, ["runner"]);
+  if (!runner.ok) return runner;
+  const model = validateRunnerModelPin(request);
+  if (!model.ok) return model;
+  const limits = validateRunnerLimits(request);
+  if (!limits.ok) return limits;
+  const input = validateRunnerInput(request);
+  if (!input.ok) return input;
+  return validateRunnerTools(request);
 }
 
 /**
@@ -865,12 +1099,8 @@ function validateApiTransportValues(parameters: Readonly<Record<string, FactoryT
   return { ok: true };
 }
 
-/** Strict, workflow-safe validation for trusted C09 route inputs. */
-export function validateFactoryApiRequest(value: unknown): ValidationResult {
-  if (!isFactoryApiRequest(value)) return issue("API_REQUEST_SCHEMA", "Value does not match the generated FactoryApiRequest schema.", []);
-  const request = value as FactoryApiRequest;
-  const path = validateApiPath(request);
-  if (!path.ok) return path;
+/** The envelope every route shares: bounded query values and mutation preconditions. */
+function validateApiEnvelope(request: FactoryApiRequest): ValidationResult {
   if ("query" in request) {
     const query = request.query as { cursor?: string; search?: string };
     if ((query.cursor !== undefined && !boundedText(query.cursor, 2_048)) || (query.search !== undefined && !boundedText(query.search, FACTORY_LIMITS.maxApiIdentifierLength))) return issue("API_QUERY", "Cursor and search values must be bounded and free of control characters.", ["query"]);
@@ -879,9 +1109,19 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
     const preconditions = validateApiPreconditions(request);
     if (!preconditions.ok) return preconditions;
   }
+  return { ok: true };
+}
+
+/** Draft authoring: the definition identity and the 16 MiB source bound. */
+function validateApiDraftRequest(request: FactoryApiRequest): ValidationResult {
   if ((request.kind === "draft.update" || request.kind === "draft.validate") && request.body.source.id !== request.path.factoryId) return issue("API_FACTORY_ID", "The definition ID must match the trusted factory path.", ["body", "source", "id"]);
   if ((request.kind === "draft.create" || request.kind === "draft.update" || request.kind === "draft.validate") && encodedBytes(request.body.source as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_DEFINITION_BYTES", "Factory definition exceeds 16 MiB.", ["body", "source"]);
   if (request.kind === "draft.import" && new TextEncoder().encode(request.body.source).byteLength > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_IMPORT_BYTES", "Imported source exceeds 16 MiB.", ["body", "source"]);
+  return { ok: true };
+}
+
+/** Run lifecycle commands: start, the control actions, and an approval decision. */
+function validateApiRunRequest(request: FactoryApiRequest): ValidationResult {
   if (request.kind === "run.start") {
     if (!validDigest(request.body.definitionDigest, true)) return issue("API_DEFINITION_DIGEST", "Run start needs a prefixed lowercase sha256 definition digest.", ["body", "definitionDigest"]);
     if (!boundedText(request.body.factoryVersion, FACTORY_LIMITS.maxApiIdentifierLength)) return issue("API_VERSION", "Run start needs a bounded factory version.", ["body", "factoryVersion"]);
@@ -899,6 +1139,11 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
   }
   if (request.kind === "run.control" && encodedBytes(request as unknown as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("API_CONTROL_BYTES", "Run control exceeds the 64 KiB durable command bound.", []);
   if (request.kind === "approval.decide" && (!validDigest(request.body.contextDigest, false) || !boundedText(request.body.choice))) return issue("API_CONTEXT_DIGEST", "Approval decision needs a bounded exact choice and lowercase sha256 context digest.", ["body"]);
+  return { ok: true };
+}
+
+/** Authority grants and the service credentials issued against them. */
+function validateApiGrantRequest(request: FactoryApiRequest): ValidationResult {
   if (request.kind === "grant.set" && request.path.principalKind === "service" && request.body.expiresAtMs === null) return issue("API_GRANT_EXPIRY", "Service grants require an expiry.", ["body", "expiresAtMs"]);
   if (request.kind === "service-credential.issue") {
     const order = ["read", "write", "chat"] as const;
@@ -910,6 +1155,11 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
       return issue("API_CREDENTIAL_SCOPES", "Credential scopes must be unique and in canonical order.", ["body", "scopes"]);
     }
   }
+  return { ok: true };
+}
+
+/** What a release is allowed to trust: the package lock and the claim contract. */
+function validateApiReleaseTrustRequest(request: FactoryApiRequest): ValidationResult {
   if (request.kind === "release.trust.publish") {
     const runner = validateRunnerReference(request.body.packageLock, ["body", "packageLock"]);
     if (!runner.ok) return runner;
@@ -922,6 +1172,11 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
     const groupIds = new Set(request.body.claimGroups.map(group => group.id));
     if (groupIds.size !== request.body.claimGroups.length || request.body.claimGroups.some(group => !boundedText(group.id) || group.minimumPasses < 1 || group.minimumPasses > group.claimIds.length || group.claimIds.some(id => !claimIds.has(id)))) return issue("API_RELEASE_CONTRACT_GROUP", "Release contract groups must be unique and reference valid claims.", ["body", "claimGroups"]);
   }
+  return { ok: true };
+}
+
+/** One release operation's life: prepare, approve, bound by policy, then reconcile. */
+function validateApiReleaseOperationRequest(request: FactoryApiRequest): ValidationResult {
   if (request.kind === "release.prepare") {
     if (!validDigest(request.body.candidateDigest, true) || !safeCounter(request.body.candidateGeneration) || !safeCounter(request.body.estimatedSpendMicros) || !safeCounter(request.body.deadlineMs, 1) || encodedBytes(request.body.request) > 1_048_576) return issue("API_RELEASE_PREPARE", "Release preparation needs an exact candidate, bounded counters, and a request no larger than 1 MiB.", ["body"]);
   }
@@ -932,6 +1187,27 @@ export function validateFactoryApiRequest(value: unknown): ValidationResult {
     if ((request.body.action === "attach_receipt") !== (request.body.receipt !== undefined)) return issue("API_RELEASE_RECONCILIATION", "Only receipt attachment accepts an exact provider receipt.", ["body", "receipt"]);
     if (request.body.receipt !== undefined && !validReleaseReceipt(request.body.receipt)) return issue("API_RELEASE_RECONCILIATION", "The provider receipt is invalid.", ["body", "receipt"]);
   }
+  return { ok: true };
+}
+
+/** Strict, workflow-safe validation for trusted C09 route inputs. */
+export function validateFactoryApiRequest(value: unknown): ValidationResult {
+  if (!isFactoryApiRequest(value)) return issue("API_REQUEST_SCHEMA", "Value does not match the generated FactoryApiRequest schema.", []);
+  const request = value as FactoryApiRequest;
+  const path = validateApiPath(request);
+  if (!path.ok) return path;
+  const envelope = validateApiEnvelope(request);
+  if (!envelope.ok) return envelope;
+  const draft = validateApiDraftRequest(request);
+  if (!draft.ok) return draft;
+  const run = validateApiRunRequest(request);
+  if (!run.ok) return run;
+  const grant = validateApiGrantRequest(request);
+  if (!grant.ok) return grant;
+  const trust = validateApiReleaseTrustRequest(request);
+  if (!trust.ok) return trust;
+  const operation = validateApiReleaseOperationRequest(request);
+  if (!operation.ok) return operation;
   const payloadDigest = "preconditions" in request ? validateFactoryApiPayloadDigest(request) : { ok: true } as const;
   if (!payloadDigest.ok) return payloadDigest;
   return { ok: true };
@@ -980,18 +1256,23 @@ function validReleaseOperation(resource: Extract<FactoryApiResponse, { kind: "re
     && safeCounter(resource.dispatchGeneration) && (resource.receipt === undefined || validReleaseReceipt(resource.receipt));
 }
 
-/** Strict, workflow-safe validation for C09 route responses. */
-export function validateFactoryApiResponse(value: unknown): ValidationResult {
-  if (!isFactoryApiResponse(value)) return issue("API_RESPONSE_SCHEMA", "Value does not match the generated FactoryApiResponse schema.", []);
-  const response = value as FactoryApiResponse;
+function validateApiDraftResponse(response: FactoryApiResponse): ValidationResult {
   if (response.kind === "draft.summary" || response.kind === "draft.details") {
     if (!validDraftSummary(response.resource)) return issue("API_DRAFT_RESOURCE", "Draft digest or availability detail is invalid.", ["resource"]);
     if (response.kind === "draft.details" && response.resource.source.id !== response.resource.factoryId) return issue("API_FACTORY_ID", "Draft definition ID must match its resource ID.", ["resource", "source", "id"]);
   }
   if (response.kind === "draft.page" && response.page.items.some((item) => !validDraftSummary(item))) return issue("API_DRAFT_RESOURCE", "Draft page contains an invalid digest or availability detail.", ["page", "items"]);
+  return { ok: true };
+}
+
+function validateApiVersionResponse(response: FactoryApiResponse): ValidationResult {
   if ((response.kind === "version.summary" || response.kind === "version.details") && !validVersion(response.resource)) return issue("API_VERSION_DIGEST", "Published version digests and artifacts must be valid.", ["resource"]);
   if (response.kind === "version.details" && (response.resource.source.id !== response.resource.factoryId || response.resource.source.version !== response.resource.version)) return issue("API_VERSION_IDENTITY", "Published definition identity must match its version resource.", ["resource", "source"]);
   if (response.kind === "version.page" && response.page.items.some((item) => !validVersion(item))) return issue("API_VERSION_DIGEST", "Published version page contains an invalid digest or artifact.", ["page", "items"]);
+  return { ok: true };
+}
+
+function validateApiRunResponse(response: FactoryApiResponse): ValidationResult {
   if (response.kind === "run.details" && !validDigest(response.resource.definitionDigest, true)) return issue("API_RUN_DIGEST", "Run definition digest must be prefixed lowercase sha256.", ["resource", "definitionDigest"]);
   if (response.kind === "run.details") {
     const parameters = validateApiTransportValues(response.resource.parameters, ["resource", "parameters"]);
@@ -1002,10 +1283,19 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
     }
   }
   if (response.kind === "run.page" && response.page.items.some((item) => !validDigest(item.definitionDigest, true))) return issue("API_RUN_DIGEST", "Run page contains an invalid definition digest.", ["page", "items"]);
+  return { ok: true };
+}
+
+function validateApiApprovalResponse(response: FactoryApiResponse): ValidationResult {
   if (response.kind === "approval.resource") {
     if (!validApprovalResource(response.resource)) return issue("API_APPROVAL_RESOURCE", "Approval context and decision evidence are inconsistent.", ["resource"]);
   }
   if (response.kind === "approval.page" && response.page.items.some((item) => !validApprovalResource(item))) return issue("API_APPROVAL_RESOURCE", "Approval page contains inconsistent context or decision evidence.", ["page", "items"]);
+  return { ok: true };
+}
+
+/** Grant expiry and the service-credential metadata issued under it. */
+function validateApiGrantResponse(response: FactoryApiResponse): ValidationResult {
   if (response.kind === "grant.resource" && response.resource.principalKind === "service" && response.resource.expiresAtMs === null) return issue("API_GRANT_EXPIRY", "Service grant resources require an expiry.", ["resource", "expiresAtMs"]);
   if (response.kind === "grant.page" && response.page.items.some((item) => item.principalKind === "service" && item.expiresAtMs === null)) return issue("API_GRANT_EXPIRY", "Service grant page contains a missing expiry.", ["page", "items"]);
   if (response.kind === "service-credential.issued" || response.kind === "service-credential.resource") {
@@ -1019,6 +1309,11 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
       return issue("API_CREDENTIAL_TOKEN", "Issued service credential token is invalid.", ["token"]);
     }
   }
+  return { ok: true };
+}
+
+/** Release trust, contract, operation, approval, notification, and policy resources. */
+function validateApiReleaseResponse(response: FactoryApiResponse): ValidationResult {
   if (response.kind === "release.trust.resource") {
     const runner = validateRunnerReference(response.resource.packageLock, ["resource", "packageLock"]);
     if (!runner.ok) return runner;
@@ -1029,8 +1324,34 @@ export function validateFactoryApiResponse(value: unknown): ValidationResult {
   if (response.kind === "release.approval.resource" && !validDigest(response.resource.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Release approval response contains an invalid context digest.", ["resource", "contextDigest"]);
   if (response.kind === "release.notification.page" && response.page.items.some(item => !validReleaseNotification(item))) return issue("API_RELEASE_NOTIFICATION", "Release notification page contains invalid authority or outcome details.", ["page", "items"]);
   if (response.kind === "release.policy.resource" && !response.resource.revoked && !validDigest(response.resource.contractDigest, true)) return issue("API_RELEASE_POLICY", "Release policy response contains an invalid contract digest.", ["resource", "contractDigest"]);
+  return { ok: true };
+}
+
+/** The two envelopes that carry no resource: a durable receipt and an error. */
+function validateApiEnvelopeResponse(response: FactoryApiResponse): ValidationResult {
   if (response.kind === "mutation.accepted" && (!boundedText(response.receipt.resourceId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.commandId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.statusUrl, 2_048) || !response.receipt.statusUrl.startsWith("/api/factories/"))) return issue("API_RECEIPT", "Durable receipt identities and status URL are invalid.", ["receipt"]);
   if (response.kind === "error" && (!boundedText(response.error.code, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.error.message, 4_096))) return issue("API_ERROR", "Factory API error code and message must be bounded.", ["error"]);
+  return { ok: true };
+}
+
+/** Strict, workflow-safe validation for C09 route responses. */
+export function validateFactoryApiResponse(value: unknown): ValidationResult {
+  if (!isFactoryApiResponse(value)) return issue("API_RESPONSE_SCHEMA", "Value does not match the generated FactoryApiResponse schema.", []);
+  const response = value as FactoryApiResponse;
+  const draft = validateApiDraftResponse(response);
+  if (!draft.ok) return draft;
+  const version = validateApiVersionResponse(response);
+  if (!version.ok) return version;
+  const run = validateApiRunResponse(response);
+  if (!run.ok) return run;
+  const approval = validateApiApprovalResponse(response);
+  if (!approval.ok) return approval;
+  const grant = validateApiGrantResponse(response);
+  if (!grant.ok) return grant;
+  const release = validateApiReleaseResponse(response);
+  if (!release.ok) return release;
+  const envelope = validateApiEnvelopeResponse(response);
+  if (!envelope.ok) return envelope;
   if (encodedBytes(response as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_RESPONSE_BYTES", "Factory API response exceeds 16 MiB.", []);
   return { ok: true };
 }

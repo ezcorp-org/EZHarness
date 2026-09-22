@@ -526,6 +526,102 @@ function notificationPayload(value: unknown): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+/** A queued notification narrowed to the kinds that name a release operation. */
+type OperationNotification = Extract<FactoryNotification, { operationId: string }>;
+/** A queued notification narrowed to the one kind that names a command approval. */
+type CommandApprovalNotification = Extract<FactoryNotification, { approvalId: string }>;
+
+/**
+ * The approval one projected row carries, with every nullable column checked.
+ *
+ * The projection is a LEFT JOIN, so each of these columns is nullable in the
+ * row type and non-null in a row that really is a pending command approval.
+ * Checking them once here is what lets the sealing and the visible record read
+ * them as the values they are.
+ */
+interface ProjectedCommandApproval {
+  readonly context: JsonValue;
+  readonly choices: string[];
+  readonly runId: string;
+  readonly interpreterId: string;
+  readonly commandId: string;
+  readonly nodeInstanceId: string;
+  readonly contextDigest: string;
+  readonly sourceDigest: string;
+  readonly definitionDigest: string;
+  readonly protectedDigest: string;
+  readonly initiator: { readonly kind: "user" | "service"; readonly id: string };
+  readonly actorScope: "owner" | "operator" | "tenant-contract-admin";
+}
+
+/**
+ * True when a projected command approval no longer describes a live decision.
+ *
+ * Every clause is a fence a claim would re-derive: the approval must still be
+ * pending and unexpired, at this installation's execution epoch and the run's
+ * cancellation epoch, on a run that is still going.
+ */
+function commandApprovalStale(row: NotificationProjectionRow, notification: CommandApprovalNotification, payload: Record<string, unknown>, readAt: number): boolean {
+  return notification.approvalId !== row.command_approval_id || payload.approvalId !== row.command_approval_id || row.command_status !== "pending" || Number(row.command_deadline_at_ms) <= readAt || Number(row.command_execution_epoch) !== Number(row.installation_execution_epoch) || Number(row.command_cancellation_epoch) !== Number(row.lifecycle_cancellation_epoch) || !["queued", "running", "waiting"].includes(row.lifecycle_status ?? "") || Number(row.lifecycle_deadline_ms) <= readAt;
+}
+
+/** Whether this actor may see the approval, by the scope it was raised under. */
+function commandApprovalVisibleTo(row: NotificationProjectionRow, permitted: ReadonlySet<FactoryAction>, actor: FactoryPrincipal): boolean {
+  return row.command_actor_scope === "operator" ? permitted.has("factory.approve") : row.command_actor_scope === "owner" ? permitted.has("factory.approve") && row.command_initiator_kind === "user" && row.command_initiator_id === actor.id : row.command_actor_scope === "tenant-contract-admin" ? permitted.has("factory.approve") && permitted.has("factory.trust") : false;
+}
+
+/** Reads the projected approval, refusing a row that cannot be the approval it names. */
+function projectedCommandApproval(row: NotificationProjectionRow): ProjectedCommandApproval {
+  let context: JsonValue, choices: unknown;
+  try { context = JSON.parse(row.command_context_json ?? ""); choices = JSON.parse(row.command_choices_json ?? ""); } catch { throw new FactoryReleaseError("factory_notification_corrupt"); }
+  if (!Array.isArray(choices) || choices.length < 1 || choices.some(value => typeof value !== "string") || !row.command_run_id || !row.command_interpreter_id || !row.command_id || !row.command_node_instance_id || !row.command_context_digest || !row.command_source_digest || !row.command_definition_digest || !row.command_initiator_kind || !row.command_initiator_id || !row.command_actor_scope || !row.command_protected_digest || !/^[a-f0-9]{64}$/.test(row.command_context_digest)) throw new FactoryReleaseError("factory_notification_corrupt");
+  return {
+    context, choices: choices as string[],
+    runId: row.command_run_id, interpreterId: row.command_interpreter_id, commandId: row.command_id, nodeInstanceId: row.command_node_instance_id,
+    contextDigest: row.command_context_digest, sourceDigest: row.command_source_digest, definitionDigest: row.command_definition_digest, protectedDigest: row.command_protected_digest,
+    initiator: { kind: row.command_initiator_kind, id: row.command_initiator_id }, actorScope: row.command_actor_scope,
+  };
+}
+
+/** The approval-request notification an approver may see, or null when it is spent. */
+function visibleApprovalRequest(row: NotificationProjectionRow, notification: OperationNotification, payload: Record<string, unknown>, permitted: ReadonlySet<FactoryAction>, readAt: number): FactoryVisibleReleaseNotification | null {
+  if (!permitted.has("factory.approve") || row.operation_state !== "pending" || row.approval_status !== "pending" || Number(row.approval_expires_at_ms) <= readAt) return null;
+  if (typeof payload.approvalId !== "string" || payload.approvalId !== row.approval_id || payload.expiresAtMs !== Number(row.approval_expires_at_ms) || !row.context_digest || !/^[a-f0-9]{64}$/.test(row.context_digest)) throw new FactoryReleaseError("factory_notification_corrupt");
+  return { notificationId: notification.id, operationId: notification.operationId, createdAtMs: notification.createdAt, kind: "approval_requested", approvalId: row.approval_id, contextDigest: row.context_digest, expiresAtMs: Number(row.approval_expires_at_ms) };
+}
+
+/**
+ * The uncertain or settled outcome a reader may see, or null when the row has
+ * moved past it.
+ *
+ * Both kinds share the dispatch-generation fence, which is what stops a
+ * notification from an earlier dispatch being read as this one's outcome.
+ */
+function visibleReleaseOutcome(row: NotificationProjectionRow, notification: OperationNotification, payload: Record<string, unknown>, permitted: ReadonlySet<FactoryAction>): FactoryVisibleReleaseNotification | null {
+  const generation = Number(row.dispatch_generation);
+  if (!Number.isSafeInteger(generation) || generation < 1 || payload.dispatchGeneration !== generation || typeof row.outcome_code !== "string") {
+    if (notification.kind === "release_uncertain" && row.operation_state !== "uncertain" || notification.kind === "release_settled" && row.operation_state !== "succeeded") return null;
+    throw new FactoryReleaseError("factory_notification_corrupt");
+  }
+  if (notification.kind === "release_uncertain") {
+    if (!permitted.has("factory.operate") || row.operation_state !== "uncertain") return null;
+    if (payload.code !== row.outcome_code) throw new FactoryReleaseError("factory_notification_corrupt");
+    return { notificationId: notification.id, operationId: notification.operationId, createdAtMs: notification.createdAt, kind: "release_uncertain", dispatchGeneration: generation, outcomeCode: row.outcome_code };
+  }
+  if (!permitted.has("factory.release") || row.operation_state !== "succeeded") return null;
+  let receipt: { providerReceiptId?: unknown };
+  try { receipt = JSON.parse(row.receipt_json ?? "null") as { providerReceiptId?: unknown }; } catch { throw new FactoryReleaseError("factory_notification_corrupt"); }
+  if (!receipt || typeof receipt.providerReceiptId !== "string" || payload.providerReceiptId !== receipt.providerReceiptId) throw new FactoryReleaseError("factory_notification_corrupt");
+  return { notificationId: notification.id, operationId: notification.operationId, createdAtMs: notification.createdAt, kind: "release_settled", dispatchGeneration: generation, outcomeCode: row.outcome_code };
+}
+
+/** The operation-scoped notification a reader may see, by its kind. */
+function visibleOperationNotification(row: NotificationProjectionRow, notification: OperationNotification, payload: Record<string, unknown>, permitted: ReadonlySet<FactoryAction>, readAt: number): FactoryVisibleReleaseNotification | null {
+  if (row.operation_state === null) throw new FactoryReleaseError("factory_notification_corrupt");
+  if (notification.kind === "approval_requested") return visibleApprovalRequest(row, notification, payload, permitted, readAt);
+  return visibleReleaseOutcome(row, notification, payload, permitted);
+}
+
 function notificationStore(database: MigrationDb, tenantId: string, projectId: string): DurableDeliveryStore<FactoryNotification> {
   const expectedScope = notificationScope(tenantId, projectId);
   const check = (scope: string | null): void => { if (scope !== expectedScope) throw new FactoryReleaseError("factory_notification_scope"); };
@@ -881,11 +977,7 @@ export class FactoryReleases {
     if (actor.kind !== "user" || actor.authentication !== "session") return { items: [], nextCursor: null };
     return this.database.transaction(async transaction => {
       const readAt = this.now();
-      const permitted = new Set<FactoryAction>();
-      for (const action of ["factory.approve", "factory.operate", "factory.release", "factory.trust"] as const) {
-        try { await this.grants.authorizeInTransaction(transaction, actor, projectId, action); permitted.add(action); }
-        catch (error) { if (!deniedGrant(error)) throw error; }
-      }
+      const permitted = await this.permittedCategoriesInTransaction(transaction, actor, projectId);
       if (!permitted.size) return { items: [], nextCursor: null };
       const cursor = options.cursor ?? "";
       const found = rows<NotificationProjectionRow>(await transaction.execute(sql`
@@ -919,48 +1011,44 @@ export class FactoryReleases {
         const notification = decodeNotification(row, this.tenantId, projectId);
         if (notification.id !== row.notification_id) throw new FactoryReleaseError("factory_notification_corrupt");
         const payload = notificationPayload(notification.payload);
-        if (notification.kind === "command_approval_requested") {
-          if (notification.approvalId !== row.command_approval_id || payload.approvalId !== row.command_approval_id || row.command_status !== "pending" || Number(row.command_deadline_at_ms) <= readAt || Number(row.command_execution_epoch) !== Number(row.installation_execution_epoch) || Number(row.command_cancellation_epoch) !== Number(row.lifecycle_cancellation_epoch) || !["queued", "running", "waiting"].includes(row.lifecycle_status ?? "") || Number(row.lifecycle_deadline_ms) <= readAt) continue;
-          const allowed = row.command_actor_scope === "operator" ? permitted.has("factory.approve") : row.command_actor_scope === "owner" ? permitted.has("factory.approve") && row.command_initiator_kind === "user" && row.command_initiator_id === actor.id : row.command_actor_scope === "tenant-contract-admin" ? permitted.has("factory.approve") && permitted.has("factory.trust") : false;
-          if (!allowed) continue;
-          let context: JsonValue, choices: unknown;
-          try { context = JSON.parse(row.command_context_json ?? ""); choices = JSON.parse(row.command_choices_json ?? ""); } catch { throw new FactoryReleaseError("factory_notification_corrupt"); }
-          if (!Array.isArray(choices) || choices.length < 1 || choices.some(value => typeof value !== "string") || !row.command_run_id || !row.command_interpreter_id || !row.command_id || !row.command_node_instance_id || !row.command_context_digest || !row.command_source_digest || !row.command_definition_digest || !row.command_initiator_kind || !row.command_initiator_id || !row.command_actor_scope || !row.command_protected_digest || !/^[a-f0-9]{64}$/.test(row.command_context_digest)) throw new FactoryReleaseError("factory_notification_corrupt");
-          const sealed = protectFactoryCommandApproval({ tenantId: this.tenantId, projectId, runId: row.command_run_id, interpreterId: row.command_interpreter_id, commandId: row.command_id, sourceSequence: Number(row.command_source_sequence), sourceDigest: row.command_source_digest, nodeInstanceId: row.command_node_instance_id, candidateGeneration: Number(row.command_candidate_generation), attempt: Number(row.command_attempt), initiator: { kind: row.command_initiator_kind, id: row.command_initiator_id }, actorScope: row.command_actor_scope, choices, context, deadlineAtMs: Number(row.command_deadline_at_ms), definitionDigest: row.command_definition_digest, executionEpoch: Number(row.command_execution_epoch), cancellationEpoch: Number(row.command_cancellation_epoch) });
-          if (sealed.contextDigest !== row.command_context_digest || sealed.protectedDigest !== row.command_protected_digest) throw new FactoryReleaseError("factory_notification_corrupt");
-          if (!this.commandApprovalCurrent) throw new FactoryReleaseError("factory_command_approval_authority_unavailable");
-          const expected: FactoryCurrentApprovalFence = { nodeInstanceId: row.command_node_instance_id, candidateGeneration: Number(row.command_candidate_generation), attempt: Number(row.command_attempt), definitionDigest: row.command_definition_digest, executionEpoch: Number(row.command_execution_epoch), cancellationEpoch: Number(row.command_cancellation_epoch), initiator: { kind: row.command_initiator_kind, id: row.command_initiator_id }, actorScope: row.command_actor_scope, choices, context, deadlineAtMs: Number(row.command_deadline_at_ms) };
-          try { await this.commandApprovalCurrent.authority.assertCurrentApprovalInTransaction(transaction, this.commandApprovalCurrent.service, { tenantId: this.tenantId, projectId, logicalRunId: row.command_run_id, interpreterId: row.command_interpreter_id, commandId: row.command_id }, expected); }
-          catch (error) { if (error instanceof FactoryCommandAuthorityError && error.code === "factory_command_stale") continue; throw error; }
-          items.push({ notificationId: notification.id, createdAtMs: notification.createdAt, kind: notification.kind, approvalId: row.command_approval_id, runId: row.command_run_id, commandId: row.command_id, nodeInstanceId: row.command_node_instance_id, contextDigest: row.command_context_digest, context, choices, actorScope: row.command_actor_scope!, expiresAtMs: Number(row.command_deadline_at_ms) });
-          continue;
-        }
-        if (row.operation_state === null) throw new FactoryReleaseError("factory_notification_corrupt");
-        if (notification.kind === "approval_requested") {
-          if (!permitted.has("factory.approve") || row.operation_state !== "pending" || row.approval_status !== "pending" || Number(row.approval_expires_at_ms) <= readAt) continue;
-          if (typeof payload.approvalId !== "string" || payload.approvalId !== row.approval_id || payload.expiresAtMs !== Number(row.approval_expires_at_ms) || !row.context_digest || !/^[a-f0-9]{64}$/.test(row.context_digest)) throw new FactoryReleaseError("factory_notification_corrupt");
-          items.push({ notificationId: notification.id, operationId: notification.operationId, createdAtMs: notification.createdAt, kind: notification.kind, approvalId: row.approval_id, contextDigest: row.context_digest, expiresAtMs: Number(row.approval_expires_at_ms) });
-          continue;
-        }
-        const generation = Number(row.dispatch_generation);
-        if (!Number.isSafeInteger(generation) || generation < 1 || payload.dispatchGeneration !== generation || typeof row.outcome_code !== "string") {
-          if (notification.kind === "release_uncertain" && row.operation_state !== "uncertain" || notification.kind === "release_settled" && row.operation_state !== "succeeded") continue;
-          throw new FactoryReleaseError("factory_notification_corrupt");
-        }
-        if (notification.kind === "release_uncertain") {
-          if (!permitted.has("factory.operate") || row.operation_state !== "uncertain") continue;
-          if (payload.code !== row.outcome_code) throw new FactoryReleaseError("factory_notification_corrupt");
-          items.push({ notificationId: notification.id, operationId: notification.operationId, createdAtMs: notification.createdAt, kind: notification.kind, dispatchGeneration: generation, outcomeCode: row.outcome_code });
-          continue;
-        }
-        if (!permitted.has("factory.release") || row.operation_state !== "succeeded") continue;
-        let receipt: { providerReceiptId?: unknown };
-        try { receipt = JSON.parse(row.receipt_json ?? "null") as { providerReceiptId?: unknown }; } catch { throw new FactoryReleaseError("factory_notification_corrupt"); }
-        if (!receipt || typeof receipt.providerReceiptId !== "string" || payload.providerReceiptId !== receipt.providerReceiptId) throw new FactoryReleaseError("factory_notification_corrupt");
-        items.push({ notificationId: notification.id, operationId: notification.operationId, createdAtMs: notification.createdAt, kind: notification.kind, dispatchGeneration: generation, outcomeCode: row.outcome_code });
+        const visible = notification.kind === "command_approval_requested"
+          ? await this.visibleCommandApprovalInTransaction(transaction, actor, projectId, row, notification, payload, permitted, readAt)
+          : visibleOperationNotification(row, notification, payload, permitted, readAt);
+        if (visible) items.push(visible);
       }
       return { items, nextCursor: found.length > limit ? selected[selected.length - 1]!.notification_id : null };
     });
+  }
+
+  /** The release categories this actor currently holds on the project. A denial narrows the inbox; it never fails the read. */
+  private async permittedCategoriesInTransaction(transaction: MigrationDb, actor: FactoryPrincipal, projectId: string): Promise<Set<FactoryAction>> {
+    const permitted = new Set<FactoryAction>();
+    for (const action of ["factory.approve", "factory.operate", "factory.release", "factory.trust"] as const) {
+      try { await this.grants.authorizeInTransaction(transaction, actor, projectId, action); permitted.add(action); }
+      catch (error) { if (!deniedGrant(error)) throw error; }
+    }
+    return permitted;
+  }
+
+  /**
+   * The command approval this actor may answer, or null when it is not theirs to answer.
+   *
+   * The row is re-sealed from its own columns and then re-checked against the command authority,
+   * so a projection that drifted from the run cannot be presented as an answerable decision.
+   */
+  private async visibleCommandApprovalInTransaction(transaction: MigrationDb, actor: FactoryPrincipal, projectId: string, row: NotificationProjectionRow, notification: CommandApprovalNotification, payload: Record<string, unknown>, permitted: ReadonlySet<FactoryAction>, readAt: number): Promise<FactoryVisibleReleaseNotification | null> {
+    if (commandApprovalStale(row, notification, payload, readAt)) return null;
+    if (!commandApprovalVisibleTo(row, permitted, actor)) return null;
+    const approval = projectedCommandApproval(row);
+    const { context, choices } = approval;
+    const sealed = protectFactoryCommandApproval({ tenantId: this.tenantId, projectId, runId: approval.runId, interpreterId: approval.interpreterId, commandId: approval.commandId, sourceSequence: Number(row.command_source_sequence), sourceDigest: approval.sourceDigest, nodeInstanceId: approval.nodeInstanceId, candidateGeneration: Number(row.command_candidate_generation), attempt: Number(row.command_attempt), initiator: approval.initiator, actorScope: approval.actorScope, choices, context, deadlineAtMs: Number(row.command_deadline_at_ms), definitionDigest: approval.definitionDigest, executionEpoch: Number(row.command_execution_epoch), cancellationEpoch: Number(row.command_cancellation_epoch) });
+    if (sealed.contextDigest !== approval.contextDigest || sealed.protectedDigest !== approval.protectedDigest) throw new FactoryReleaseError("factory_notification_corrupt");
+    if (!this.commandApprovalCurrent) throw new FactoryReleaseError("factory_command_approval_authority_unavailable");
+    const expected: FactoryCurrentApprovalFence = { nodeInstanceId: approval.nodeInstanceId, candidateGeneration: Number(row.command_candidate_generation), attempt: Number(row.command_attempt), definitionDigest: approval.definitionDigest, executionEpoch: Number(row.command_execution_epoch), cancellationEpoch: Number(row.command_cancellation_epoch), initiator: approval.initiator, actorScope: approval.actorScope, choices, context, deadlineAtMs: Number(row.command_deadline_at_ms) };
+    try { await this.commandApprovalCurrent.authority.assertCurrentApprovalInTransaction(transaction, this.commandApprovalCurrent.service, { tenantId: this.tenantId, projectId, logicalRunId: approval.runId, interpreterId: approval.interpreterId, commandId: approval.commandId }, expected); }
+    catch (error) { if (error instanceof FactoryCommandAuthorityError && error.code === "factory_command_stale") return null; throw error; }
+    // commandApprovalStale() already required these two to be the same string.
+    return { notificationId: notification.id, createdAtMs: notification.createdAt, kind: notification.kind, approvalId: notification.approvalId, runId: approval.runId, commandId: approval.commandId, nodeInstanceId: approval.nodeInstanceId, contextDigest: approval.contextDigest, context, choices, actorScope: approval.actorScope, expiresAtMs: Number(row.command_deadline_at_ms) };
   }
 
   async inspect(projectId: string, operationId: string): Promise<FactoryReleaseOperation | null> { text(projectId, operationId); return this.readInTransaction(this.database, projectId, operationId, "none"); }

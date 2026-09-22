@@ -306,6 +306,43 @@ function hasOnlyType(schema: PortSchema, expected: string): boolean {
   return types.length === 1 && types[0] === expected;
 }
 
+/** `not`, `and`, and `or`: boolean operands, boolean result. */
+function inferLogicalSchema(expression: Extract<Expression, { kind: "not" | "and" | "or" }>, availableNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas, context: CompileContext, path: readonly (string | number)[], nodeId: string): PortSchema {
+  if (expression.kind === "not") {
+    const value = inferExpressionSchema(expression.value, availableNodes, scopes, context, [...path, "value"], nodeId);
+    if (value && !hasOnlyType(value, "boolean")) addDiagnostic(context, "EXPRESSION_TYPE", "not requires a boolean expression.", path, nodeId);
+    return { type: "boolean" };
+  }
+  expression.values.forEach((child, index) => {
+    const value = inferExpressionSchema(child, availableNodes, scopes, context, [...path, "values", index], nodeId);
+    if (value && !hasOnlyType(value, "boolean")) addDiagnostic(context, "EXPRESSION_TYPE", `${expression.kind} requires boolean expressions.`, [...path, "values", index], nodeId);
+  });
+  return { type: "boolean" };
+}
+
+/** An ordered comparison needs two numerics or two strings, each a single type. */
+function isOrderedPair(left: PortSchema | undefined, right: PortSchema | undefined): boolean {
+  const leftTypes = left ? schemaTypes(left) : [];
+  const rightTypes = right ? schemaTypes(right) : [];
+  return leftTypes.length === 1 && rightTypes.length === 1 && (((leftTypes[0] === "number" || leftTypes[0] === "integer") && (rightTypes[0] === "number" || rightTypes[0] === "integer")) || (leftTypes[0] === "string" && rightTypes[0] === "string"));
+}
+
+/** `in` and the binary comparisons; `eq` accepts any operand pair. */
+function inferComparisonSchema(expression: Expression, availableNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas, context: CompileContext, path: readonly (string | number)[], nodeId: string): PortSchema {
+  const binary = expression as Extract<Expression, { readonly left: Expression }>;
+  const leftExpression = expression.kind === "in" ? expression.value : binary.left;
+  const rightExpression = expression.kind === "in" ? expression.collection : binary.right;
+  const left = inferExpressionSchema(leftExpression, availableNodes, scopes, context, [...path, "left"], nodeId);
+  const right = inferExpressionSchema(rightExpression, availableNodes, scopes, context, [...path, "right"], nodeId);
+  if (expression.kind === "in") {
+    if (right && !hasOnlyType(right, "array")) addDiagnostic(context, "EXPRESSION_TYPE", "in requires an array collection.", path, nodeId);
+    if (left && right?.items && !isSchemaContained(left, right.items)) addDiagnostic(context, "EXPRESSION_TYPE", "in value is incompatible with collection items.", path, nodeId);
+  } else if (expression.kind !== "eq") {
+    if (left && right && !isOrderedPair(left, right)) addDiagnostic(context, "EXPRESSION_TYPE", "Ordered comparison requires compatible numbers or strings.", path, nodeId);
+  }
+  return { type: "boolean" };
+}
+
 function inferExpressionSchema(expression: Expression, availableNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas, context: CompileContext, path: readonly (string | number)[], nodeId: string): PortSchema | undefined {
   if (expression.kind === "literal") return inferLiteralSchema(expression.value);
   if (expression.kind === "ref") {
@@ -317,38 +354,15 @@ function inferExpressionSchema(expression: Expression, availableNodes: ReadonlyM
     sourceSchema(expression.value, availableNodes, scopes, context, [...path, "value"]);
     return { type: "boolean" };
   }
-  if (expression.kind === "not") {
-    const value = inferExpressionSchema(expression.value, availableNodes, scopes, context, [...path, "value"], nodeId);
-    if (value && !hasOnlyType(value, "boolean")) addDiagnostic(context, "EXPRESSION_TYPE", "not requires a boolean expression.", path, nodeId);
-    return { type: "boolean" };
-  }
-  if (expression.kind === "and" || expression.kind === "or") {
-    expression.values.forEach((child, index) => {
-      const value = inferExpressionSchema(child, availableNodes, scopes, context, [...path, "values", index], nodeId);
-      if (value && !hasOnlyType(value, "boolean")) addDiagnostic(context, "EXPRESSION_TYPE", `${expression.kind} requires boolean expressions.`, [...path, "values", index], nodeId);
-    });
-    return { type: "boolean" };
+  if (expression.kind === "not" || expression.kind === "and" || expression.kind === "or") {
+    return inferLogicalSchema(expression, availableNodes, scopes, context, path, nodeId);
   }
   if (expression.kind === "length") {
     const value = inferExpressionSchema(expression.value, availableNodes, scopes, context, [...path, "value"], nodeId);
     if (value && !(hasOnlyType(value, "string") || hasOnlyType(value, "array"))) addDiagnostic(context, "EXPRESSION_TYPE", "length requires a string or array expression.", path, nodeId);
     return { type: "integer", minimum: 0 };
   }
-  const binary = expression as Extract<Expression, { readonly left: Expression }>;
-  const leftExpression = expression.kind === "in" ? expression.value : binary.left;
-  const rightExpression = expression.kind === "in" ? expression.collection : binary.right;
-  const left = inferExpressionSchema(leftExpression, availableNodes, scopes, context, [...path, "left"], nodeId);
-  const right = inferExpressionSchema(rightExpression, availableNodes, scopes, context, [...path, "right"], nodeId);
-  if (expression.kind === "in") {
-    if (right && !hasOnlyType(right, "array")) addDiagnostic(context, "EXPRESSION_TYPE", "in requires an array collection.", path, nodeId);
-    if (left && right?.items && !isSchemaContained(left, right.items)) addDiagnostic(context, "EXPRESSION_TYPE", "in value is incompatible with collection items.", path, nodeId);
-  } else if (expression.kind !== "eq") {
-    const leftTypes = left ? schemaTypes(left) : [];
-    const rightTypes = right ? schemaTypes(right) : [];
-    const ordered = leftTypes.length === 1 && rightTypes.length === 1 && (((leftTypes[0] === "number" || leftTypes[0] === "integer") && (rightTypes[0] === "number" || rightTypes[0] === "integer")) || (leftTypes[0] === "string" && rightTypes[0] === "string"));
-    if (left && right && !ordered) addDiagnostic(context, "EXPRESSION_TYPE", "Ordered comparison requires compatible numbers or strings.", path, nodeId);
-  }
-  return { type: "boolean" };
+  return inferComparisonSchema(expression, availableNodes, scopes, context, path, nodeId);
 }
 
 function checkBindings(node: FactoryNode, availableNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas, context: CompileContext, path: readonly (string | number)[]): void {
@@ -394,49 +408,167 @@ function validateControlOutputs(node: Extract<FactoryNode, { kind: "branch" | "m
   for (const outputs of childOutputs) for (const name of Object.keys(outputs)) if (!own(outputPorts, name)) addDiagnostic(context, "CONTROL_OUTPUT_UNKNOWN", `Control body declares an unknown output: ${name}.`, [...path, "body", "outputs", name], node.id);
 }
 
+/** Node identity, and the one registration that makes the node visible downstream. */
+function registerGraphNode(node: FactoryNode, context: CompileContext, localNodes: Map<string, FactoryNode>, nodePath: readonly (string | number)[]): void {
+  if (node.id.length === 0 || node.id.includes("/")) addDiagnostic(context, "GRAPH_NODE_ID", "Node ID must be a nonempty instance-path segment without a slash.", [...nodePath, "id"]);
+  if (localNodes.has(node.id) || context.nodes.has(node.id)) addDiagnostic(context, "GRAPH_DUPLICATE_NODE", `Duplicate node ID: ${node.id}.`, [...nodePath, "id"], node.id);
+  else {
+    localNodes.set(node.id, node);
+    context.nodes.set(node.id, node);
+    context.orderedIds.push(node.id);
+  }
+}
+
+/** The bounds any node kind may declare: deadline, retry policy, task iterations. */
+function checkNodeBounds(node: FactoryNode, context: CompileContext, nodePath: readonly (string | number)[]): void {
+  if (node.deadlineMs !== undefined && (!Number.isSafeInteger(node.deadlineMs) || node.deadlineMs <= 0 || node.deadlineMs > FACTORY_LIMITS.maximumNodeDeadlineMs || node.deadlineMs > context.definition.bounds.runDeadlineMs!)) addDiagnostic(context, "BOUND_NODE_DEADLINE", "Node deadline is outside launch or run bounds.", [...nodePath, "deadlineMs"], node.id);
+  if (node.retry && (!Number.isSafeInteger(node.retry.maxAttempts) || node.retry.maxAttempts < 1 || node.retry.maxAttempts > 3 || !Number.isSafeInteger(node.retry.initialDelayMs) || node.retry.initialDelayMs < 0 || !Number.isSafeInteger(node.retry.maximumDelayMs) || node.retry.maximumDelayMs < node.retry.initialDelayMs)) addDiagnostic(context, "BOUND_RETRY", "Retry policy is invalid or exceeds three attempts.", [...nodePath, "retry"], node.id);
+  if (node.kind !== "task" && node.retry) addDiagnostic(context, "RETRY_UNSUPPORTED", "Only task nodes can declare a retry policy.", [...nodePath, "retry"], node.id);
+  if (node.kind === "task" && node.maxIterations !== undefined && (!Number.isSafeInteger(node.maxIterations) || node.maxIterations < 1)) addDiagnostic(context, "BOUND_AGENT_ITERATIONS", "Task iterations require a positive bound.", [...nodePath, "maxIterations"], node.id);
+}
+
+/** Exact pins and their dependency-lock entries: runners, adapters, subfactories. */
+function checkNodePins(node: FactoryNode, context: CompileContext, nodePath: readonly (string | number)[]): void {
+  if (node.kind === "task") { validateRunner(node.runner, context, [...nodePath, "runner"]); checkRunnerLock(node.runner, context, [...nodePath, "runner"]); }
+  if (node.kind === "release") { validateRunner(node.adapter, context, [...nodePath, "adapter"]); checkRunnerLock(node.adapter, context, [...nodePath, "adapter"]); }
+  if (node.kind === "subfactory") { validatePin(node.factory.id, node.factory.version, node.factory.digest, context, [...nodePath, "factory"]); checkFactoryLock(node.factory, context, [...nodePath, "factory"]); }
+  if (node.kind === "subfactory" && node.factory.id === context.definition.id) addDiagnostic(context, "REFERENCE_CYCLE", "A factory cannot reference itself.", [...nodePath, "factory"], node.id);
+}
+
+/** The expansion and wait bounds a control node declares. */
+function checkControlNodeBounds(node: FactoryNode, context: CompileContext, nodePath: readonly (string | number)[]): void {
+  if (node.kind === "map" && (!Number.isSafeInteger(node.maxItems) || node.maxItems < 0 || node.maxItems > context.definition.bounds.maxExpandedNodes || !Number.isSafeInteger(node.maxConcurrency) || node.maxConcurrency < 1 || node.maxConcurrency > FACTORY_LIMITS.maxConcurrentActivities)) addDiagnostic(context, "BOUND_MAP", "Map bounds are invalid.", nodePath, node.id);
+  if (node.kind === "loop" && (!Number.isSafeInteger(node.maxIterations) || node.maxIterations < 1 || node.maxIterations > context.definition.bounds.maxExpandedNodes || !Number.isSafeInteger(node.maxElapsedMs) || node.maxElapsedMs < 1)) addDiagnostic(context, "BOUND_LOOP", "Loop requires positive iteration and elapsed-time bounds.", nodePath, node.id);
+  if (node.kind === "loop") validateBudget(node.budget, context, [...nodePath, "budget"], node.id);
+  if (node.kind === "approval" && (!Number.isSafeInteger(node.expiresInMs) || node.expiresInMs < 1 || node.expiresInMs > FACTORY_LIMITS.maximumApprovalWaitMs || node.choices.length === 0 || new Set(node.choices).size !== node.choices.length)) addDiagnostic(context, "BOUND_APPROVAL", "Approval choices or expiry are invalid.", nodePath, node.id);
+}
+
+/** Join mode, quorum feasibility, and the intrinsic winners output. */
+function checkJoinConfiguration(node: Extract<FactoryNode, { kind: "join" }>, context: CompileContext, nodePath: readonly (string | number)[]): void {
+  if (node.mode === "all" && (node.quorum !== undefined || node.eligibleOutcomes !== undefined)) addDiagnostic(context, "JOIN_CONFIGURATION", "All joins cannot declare quorum outcomes.", nodePath, node.id);
+  if (node.mode !== "all" && (!node.eligibleOutcomes?.length || !Number.isSafeInteger(node.quorum) || (node.quorum ?? 0) < 1 || (node.quorum ?? 0) > node.predecessors.length)) addDiagnostic(context, "JOIN_CONFIGURATION", "Any/quorum joins require eligible outcomes and a positive feasible quorum.", nodePath, node.id);
+  if (Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.winners || !isSchemaContained(joinOutputPorts().winners as PortSchema, node.outputPorts.winners)) addDiagnostic(context, "JOIN_OUTPUT", "Join outputPorts must declare the intrinsic winners record.", [...nodePath, "outputPorts"], node.id);
+}
+
+/** A speculative branch publishes nothing, and an approval declares its choice enum. */
+function checkIntrinsicOutputs(node: FactoryNode, context: CompileContext, nodePath: readonly (string | number)[]): void {
+  if (node.kind === "branch" && (containsPublication(node.then) || containsPublication(node.else))) addDiagnostic(context, "SPECULATIVE_PUBLICATION", "Speculative branches cannot publish or release.", nodePath, node.id);
+  if (node.kind === "approval" && (Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.choice || !isSchemaContained(approvalOutputPorts(node.choices).choice as PortSchema, node.outputPorts.choice))) addDiagnostic(context, "APPROVAL_OUTPUT", "Approval outputPorts must declare the intrinsic choice enum.", [...nodePath, "outputPorts"], node.id);
+}
+
+/** The declared expressions parse: a branch condition, a loop's until and nextInput. */
+function checkNodeExpressions(node: FactoryNode, context: CompileContext, nodePath: readonly (string | number)[]): void {
+  if (node.kind === "branch") {
+    const result = validateExpression(node.condition);
+    if (!result.ok) addDiagnostic(context, result.issues[0]?.code ?? "EXPRESSION_INVALID", result.issues[0]?.message ?? "Branch expression is invalid.", [...nodePath, "condition"], node.id);
+  }
+  if (node.kind === "loop") for (const [field, expression] of [["until", node.until], ["nextInput", node.nextInput]] as const) {
+    const result = validateExpression(expression);
+    if (!result.ok) addDiagnostic(context, result.issues[0]?.code ?? "EXPRESSION_INVALID", result.issues[0]?.message ?? "Loop expression is invalid.", [...nodePath, field], node.id);
+  }
+}
+
+/** Pass one over a graph's nodes: register each node and check what it declares alone. */
+function declareGraphNode(node: FactoryNode, nodePath: readonly (string | number)[], context: CompileContext, localNodes: Map<string, FactoryNode>, speculative: boolean): void {
+  registerGraphNode(node, context, localNodes, nodePath);
+  validateSchemas(node.inputPorts ?? {}, context, [...nodePath, "inputPorts"]);
+  validateSchemas(node.outputPorts ?? {}, context, [...nodePath, "outputPorts"]);
+  checkAuthority(node, context, nodePath);
+  checkNodeBounds(node, context, nodePath);
+  checkNodePins(node, context, nodePath);
+  checkControlNodeBounds(node, context, nodePath);
+  if (node.kind === "join") checkJoinConfiguration(node, context, nodePath);
+  checkIntrinsicOutputs(node, context, nodePath);
+  checkNodeExpressions(node, context, nodePath);
+  if (speculative && (node.kind === "release" || node.effects?.includes("publish"))) addDiagnostic(context, "SPECULATIVE_PUBLICATION", "Speculative scopes cannot publish or release.", nodePath, node.id);
+}
+
+/** The intrinsic value source each control, approval, acceptance, or release node reads. */
+function checkNodeInputSources(node: FactoryNode, availableNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas, context: CompileContext, nodePath: readonly (string | number)[]): void {
+  if (node.kind === "map") {
+    const collection = checkNodeSource(node.collection, node, availableNodes, scopes, context, [...nodePath, "collection"]);
+    if (collection && (!schemaTypes(collection).includes("array") || !collection.items || !isSchemaContained(collection.items, node.itemSchema))) addDiagnostic(context, "MAP_COLLECTION_TYPE", "Map collection must be an array whose items fit itemSchema.", [...nodePath, "collection"], node.id);
+  } else if (node.kind === "loop") {
+    const initial = checkNodeSource(node.initialInput, node, availableNodes, scopes, context, [...nodePath, "initialInput"]);
+    if (initial && !isSchemaContained(initial, node.carriedSchema)) addDiagnostic(context, "LOOP_INPUT_TYPE", "Loop initialInput is incompatible with carriedSchema.", [...nodePath, "initialInput"], node.id);
+  } else if (node.kind === "approval") checkNodeSource(node.context, node, availableNodes, scopes, context, [...nodePath, "context"]);
+  else if (node.kind === "acceptance") {
+    checkNodeSource(node.candidate, node, availableNodes, scopes, context, [...nodePath, "candidate"]);
+    checkNodeSource(node.evidence, node, availableNodes, scopes, context, [...nodePath, "evidence"]);
+  } else if (node.kind === "release") {
+    checkNodeSource(node.acceptedCandidate, node, availableNodes, scopes, context, [...nodePath, "acceptedCandidate"]);
+    checkNodeSource(node.destination, node, availableNodes, scopes, context, [...nodePath, "destination"]);
+  }
+}
+
+/** The inferred type of every expression a node evaluates in its own scope. */
+function checkNodeExpressionTypes(node: FactoryNode, availableNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas, context: CompileContext, nodePath: readonly (string | number)[]): void {
+  if (node.kind === "branch") {
+    const condition = inferExpressionSchema(node.condition, availableNodes, scopes, context, [...nodePath, "condition"], node.id);
+    if (condition && !hasOnlyType(condition, "boolean")) addDiagnostic(context, "EXPRESSION_TYPE", "Branch condition must be boolean.", [...nodePath, "condition"], node.id);
+  }
+  if (node.kind === "loop") {
+    const loopScopes: ScopeSchemas = { ...scopes, loop: { carried: node.carriedSchema, result: node.resultSchema, index: { type: "integer", minimum: 0 } } };
+    const until = inferExpressionSchema(node.until, availableNodes, loopScopes, context, [...nodePath, "until"], node.id);
+    if (until && !hasOnlyType(until, "boolean")) addDiagnostic(context, "EXPRESSION_TYPE", "Loop until expression must be boolean.", [...nodePath, "until"], node.id);
+    const next = inferExpressionSchema(node.nextInput, availableNodes, loopScopes, context, [...nodePath, "nextInput"], node.id);
+    if (next && !isSchemaContained(next, node.carriedSchema)) addDiagnostic(context, "EXPRESSION_TYPE", "Loop nextInput is incompatible with carriedSchema.", [...nodePath, "nextInput"], node.id);
+  }
+}
+
+/** A release publishes only an accepted candidate, and an acceptance uses the pinned contract. */
+function checkReleaseAndAcceptanceRules(node: FactoryNode, context: CompileContext, nodePath: readonly (string | number)[]): void {
+  if (node.kind === "release" && (node.acceptedCandidate.kind !== "ref" || node.acceptedCandidate.root !== "node" || context.nodes.get(node.acceptedCandidate.name)?.kind !== "acceptance" || !context.dependencies.get(node.id)?.has(node.acceptedCandidate.name))) addDiagnostic(context, "RELEASE_ACCEPTANCE", "Release requires a declared dependency on an Acceptance node.", [...nodePath, "acceptedCandidate"], node.id);
+  if (node.kind === "release" && (node.acceptedCandidate.kind !== "ref" || node.acceptedCandidate.path?.length !== 1 || node.acceptedCandidate.path[0] !== "acceptedCandidate")) addDiagnostic(context, "RELEASE_ACCEPTANCE", "Release must bind the exact acceptedCandidate output.", [...nodePath, "acceptedCandidate"], node.id);
+  if (node.kind === "acceptance" && node.contract !== context.definition.acceptance.id) addDiagnostic(context, "ACCEPTANCE_CONTRACT", "Acceptance node must use the definition's pinned contract.", [...nodePath, "contract"], node.id);
+  if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!Number.isSafeInteger(node.maxRepairs) || node.maxRepairs < 0 || node.maxRepairs > FACTORY_LIMITS.maxCandidateGenerations - 1)) addDiagnostic(context, "BOUND_REPAIR", "Acceptance repair bound is invalid.", [...nodePath, "maxRepairs"], node.id);
+}
+
+/** A loop's resultSchema is a closed object whose properties match its output ports. */
+function checkLoopResultSchema(node: Extract<FactoryNode, { kind: "loop" }>, bodyOutputs: Readonly<Record<string, PortSchema | undefined>>, context: CompileContext, nodePath: readonly (string | number)[]): void {
+  if (!hasOnlyType(node.resultSchema, "object") || !node.resultSchema.properties || node.resultSchema.additionalProperties !== false || node.resultSchema.required?.length !== Object.keys(node.resultSchema.properties).length || Object.keys(node.resultSchema.properties).some((name) => !node.resultSchema.required?.includes(name) || !own(node.outputPorts ?? {}, name)) || Object.keys(node.outputPorts ?? {}).some((name) => !own(node.resultSchema.properties ?? {}, name))) addDiagnostic(context, "LOOP_RESULT_SCHEMA", "Loop resultSchema must be a closed object with every output property required and matched to outputPorts.", [...nodePath, "resultSchema"], node.id);
+  else for (const [name, resultPort] of Object.entries(node.resultSchema.properties)) {
+    const bodyOutput = bodyOutputs[name];
+    const outputPort = node.outputPorts?.[name];
+    if (bodyOutput && !isSchemaContained(bodyOutput, resultPort)) addDiagnostic(context, "CONTROL_OUTPUT_TYPE", `Loop body output is incompatible with resultSchema: ${name}.`, [...nodePath, "resultSchema", "properties", name], node.id);
+    if (outputPort && !isSchemaContained(resultPort, outputPort)) addDiagnostic(context, "CONTROL_OUTPUT_TYPE", `Loop resultSchema is incompatible with output port: ${name}.`, [...nodePath, "outputPorts", name], node.id);
+  }
+}
+
+/** Walk each control body in the ancestor scope it can see, then reconcile its outputs. */
+function checkControlBodies(node: FactoryNode, availableNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas, context: CompileContext, nodePath: readonly (string | number)[], depth: number, speculative: boolean): void {
+  if (node.kind === "branch") {
+    const ancestors = new Map([...availableNodes].filter(([id]) => isAncestor(id, node.id, context)));
+    const thenOutputs = walkGraph(node.then, context, [...nodePath, "then"], depth + 1, true, ancestors, scopes);
+    const elseOutputs = walkGraph(node.else, context, [...nodePath, "else"], depth + 1, true, ancestors, scopes);
+    validateControlOutputs(node, [thenOutputs, elseOutputs], context, nodePath);
+  } else if (node.kind === "map") {
+    const ancestors = new Map([...availableNodes].filter(([id]) => isAncestor(id, node.id, context)));
+    const bodyOutputs = walkGraph(node.body, context, [...nodePath, "body"], depth + 1, speculative, ancestors, { ...scopes, map: { item: node.itemSchema, index: { type: "integer", minimum: 0 } } });
+    validateControlOutputs(node, [bodyOutputs], context, nodePath);
+  } else if (node.kind === "loop") {
+    const ancestors = new Map([...availableNodes].filter(([id]) => isAncestor(id, node.id, context)));
+    const bodyOutputs = walkGraph(node.body, context, [...nodePath, "body"], depth + 1, speculative, ancestors, { ...scopes, loop: { carried: node.carriedSchema, result: node.resultSchema, index: { type: "integer", minimum: 0 } } });
+    validateControlOutputs(node, [bodyOutputs], context, nodePath);
+    checkLoopResultSchema(node, bodyOutputs, context, nodePath);
+  }
+}
+
+/** Pass two over a graph's nodes: everything that needs the resolved dependency graph. */
+function checkGraphNode(node: FactoryNode, nodePath: readonly (string | number)[], context: CompileContext, availableNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas, depth: number, speculative: boolean): void {
+  checkRepairableInputs(node, context, nodePath);
+  checkBindings(node, availableNodes, scopes, context, nodePath);
+  checkNodeInputSources(node, availableNodes, scopes, context, nodePath);
+  checkNodeExpressionTypes(node, availableNodes, scopes, context, nodePath);
+  checkReleaseAndAcceptanceRules(node, context, nodePath);
+  checkControlBodies(node, availableNodes, scopes, context, nodePath, depth, speculative);
+}
+
 function walkGraph(graph: FactoryGraph, context: CompileContext, path: readonly (string | number)[], depth: number, speculative: boolean, visibleNodes: ReadonlyMap<string, FactoryNode>, scopes: ScopeSchemas): Readonly<Record<string, PortSchema | undefined>> {
   if (depth > context.definition.bounds.maxScopeDepth || depth > FACTORY_LIMITS.maxScopeDepth) addDiagnostic(context, "BOUND_SCOPE_DEPTH", "Graph scope depth exceeds its bound.", path);
   const localNodes = new Map<string, FactoryNode>();
   graph.nodes.forEach((node, index) => {
-    const nodePath = [...path, "nodes", index];
-    if (node.id.length === 0 || node.id.includes("/")) addDiagnostic(context, "GRAPH_NODE_ID", "Node ID must be a nonempty instance-path segment without a slash.", [...nodePath, "id"]);
-    if (localNodes.has(node.id) || context.nodes.has(node.id)) addDiagnostic(context, "GRAPH_DUPLICATE_NODE", `Duplicate node ID: ${node.id}.`, [...nodePath, "id"], node.id);
-    else {
-      localNodes.set(node.id, node);
-      context.nodes.set(node.id, node);
-      context.orderedIds.push(node.id);
-    }
-    validateSchemas(node.inputPorts ?? {}, context, [...nodePath, "inputPorts"]);
-    validateSchemas(node.outputPorts ?? {}, context, [...nodePath, "outputPorts"]);
-    checkAuthority(node, context, nodePath);
-    if (node.deadlineMs !== undefined && (!Number.isSafeInteger(node.deadlineMs) || node.deadlineMs <= 0 || node.deadlineMs > FACTORY_LIMITS.maximumNodeDeadlineMs || node.deadlineMs > context.definition.bounds.runDeadlineMs!)) addDiagnostic(context, "BOUND_NODE_DEADLINE", "Node deadline is outside launch or run bounds.", [...nodePath, "deadlineMs"], node.id);
-    if (node.retry && (!Number.isSafeInteger(node.retry.maxAttempts) || node.retry.maxAttempts < 1 || node.retry.maxAttempts > 3 || !Number.isSafeInteger(node.retry.initialDelayMs) || node.retry.initialDelayMs < 0 || !Number.isSafeInteger(node.retry.maximumDelayMs) || node.retry.maximumDelayMs < node.retry.initialDelayMs)) addDiagnostic(context, "BOUND_RETRY", "Retry policy is invalid or exceeds three attempts.", [...nodePath, "retry"], node.id);
-    if (node.kind !== "task" && node.retry) addDiagnostic(context, "RETRY_UNSUPPORTED", "Only task nodes can declare a retry policy.", [...nodePath, "retry"], node.id);
-    if (node.kind === "task" && node.maxIterations !== undefined && (!Number.isSafeInteger(node.maxIterations) || node.maxIterations < 1)) addDiagnostic(context, "BOUND_AGENT_ITERATIONS", "Task iterations require a positive bound.", [...nodePath, "maxIterations"], node.id);
-    if (node.kind === "task") { validateRunner(node.runner, context, [...nodePath, "runner"]); checkRunnerLock(node.runner, context, [...nodePath, "runner"]); }
-    if (node.kind === "release") { validateRunner(node.adapter, context, [...nodePath, "adapter"]); checkRunnerLock(node.adapter, context, [...nodePath, "adapter"]); }
-    if (node.kind === "subfactory") { validatePin(node.factory.id, node.factory.version, node.factory.digest, context, [...nodePath, "factory"]); checkFactoryLock(node.factory, context, [...nodePath, "factory"]); }
-    if (node.kind === "subfactory" && node.factory.id === context.definition.id) addDiagnostic(context, "REFERENCE_CYCLE", "A factory cannot reference itself.", [...nodePath, "factory"], node.id);
-    if (node.kind === "map" && (!Number.isSafeInteger(node.maxItems) || node.maxItems < 0 || node.maxItems > context.definition.bounds.maxExpandedNodes || !Number.isSafeInteger(node.maxConcurrency) || node.maxConcurrency < 1 || node.maxConcurrency > FACTORY_LIMITS.maxConcurrentActivities)) addDiagnostic(context, "BOUND_MAP", "Map bounds are invalid.", nodePath, node.id);
-    if (node.kind === "loop" && (!Number.isSafeInteger(node.maxIterations) || node.maxIterations < 1 || node.maxIterations > context.definition.bounds.maxExpandedNodes || !Number.isSafeInteger(node.maxElapsedMs) || node.maxElapsedMs < 1)) addDiagnostic(context, "BOUND_LOOP", "Loop requires positive iteration and elapsed-time bounds.", nodePath, node.id);
-    if (node.kind === "loop") validateBudget(node.budget, context, [...nodePath, "budget"], node.id);
-    if (node.kind === "approval" && (!Number.isSafeInteger(node.expiresInMs) || node.expiresInMs < 1 || node.expiresInMs > FACTORY_LIMITS.maximumApprovalWaitMs || node.choices.length === 0 || new Set(node.choices).size !== node.choices.length)) addDiagnostic(context, "BOUND_APPROVAL", "Approval choices or expiry are invalid.", nodePath, node.id);
-    if (node.kind === "join") {
-      if (node.mode === "all" && (node.quorum !== undefined || node.eligibleOutcomes !== undefined)) addDiagnostic(context, "JOIN_CONFIGURATION", "All joins cannot declare quorum outcomes.", nodePath, node.id);
-      if (node.mode !== "all" && (!node.eligibleOutcomes?.length || !Number.isSafeInteger(node.quorum) || (node.quorum ?? 0) < 1 || (node.quorum ?? 0) > node.predecessors.length)) addDiagnostic(context, "JOIN_CONFIGURATION", "Any/quorum joins require eligible outcomes and a positive feasible quorum.", nodePath, node.id);
-      if (Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.winners || !isSchemaContained(joinOutputPorts().winners as PortSchema, node.outputPorts.winners)) addDiagnostic(context, "JOIN_OUTPUT", "Join outputPorts must declare the intrinsic winners record.", [...nodePath, "outputPorts"], node.id);
-    }
-    if (node.kind === "branch" && (containsPublication(node.then) || containsPublication(node.else))) addDiagnostic(context, "SPECULATIVE_PUBLICATION", "Speculative branches cannot publish or release.", nodePath, node.id);
-    if (node.kind === "approval" && (Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.choice || !isSchemaContained(approvalOutputPorts(node.choices).choice as PortSchema, node.outputPorts.choice))) addDiagnostic(context, "APPROVAL_OUTPUT", "Approval outputPorts must declare the intrinsic choice enum.", [...nodePath, "outputPorts"], node.id);
-    if (node.kind === "branch") {
-      const result = validateExpression(node.condition);
-      if (!result.ok) addDiagnostic(context, result.issues[0]?.code ?? "EXPRESSION_INVALID", result.issues[0]?.message ?? "Branch expression is invalid.", [...nodePath, "condition"], node.id);
-    }
-    if (node.kind === "loop") for (const [field, expression] of [["until", node.until], ["nextInput", node.nextInput]] as const) {
-      const result = validateExpression(expression);
-      if (!result.ok) addDiagnostic(context, result.issues[0]?.code ?? "EXPRESSION_INVALID", result.issues[0]?.message ?? "Loop expression is invalid.", [...nodePath, field], node.id);
-    }
-    if (speculative && (node.kind === "release" || node.effects?.includes("publish"))) addDiagnostic(context, "SPECULATIVE_PUBLICATION", "Speculative scopes cannot publish or release.", nodePath, node.id);
+    declareGraphNode(node, [...path, "nodes", index], context, localNodes, speculative);
   });
 
   const availableNodes = new Map([...visibleNodes, ...localNodes]);
@@ -474,59 +606,7 @@ function walkGraph(graph: FactoryGraph, context: CompileContext, path: readonly 
   if (processed !== localNodes.size) addDiagnostic(context, "GRAPH_CYCLE", "Graph contains a dependency cycle.", path);
 
   graph.nodes.forEach((node, index) => {
-    const nodePath = [...path, "nodes", index];
-    checkRepairableInputs(node, context, nodePath);
-    checkBindings(node, availableNodes, scopes, context, nodePath);
-    if (node.kind === "map") {
-      const collection = checkNodeSource(node.collection, node, availableNodes, scopes, context, [...nodePath, "collection"]);
-      if (collection && (!schemaTypes(collection).includes("array") || !collection.items || !isSchemaContained(collection.items, node.itemSchema))) addDiagnostic(context, "MAP_COLLECTION_TYPE", "Map collection must be an array whose items fit itemSchema.", [...nodePath, "collection"], node.id);
-    } else if (node.kind === "loop") {
-      const initial = checkNodeSource(node.initialInput, node, availableNodes, scopes, context, [...nodePath, "initialInput"]);
-      if (initial && !isSchemaContained(initial, node.carriedSchema)) addDiagnostic(context, "LOOP_INPUT_TYPE", "Loop initialInput is incompatible with carriedSchema.", [...nodePath, "initialInput"], node.id);
-    } else if (node.kind === "approval") checkNodeSource(node.context, node, availableNodes, scopes, context, [...nodePath, "context"]);
-    else if (node.kind === "acceptance") {
-      checkNodeSource(node.candidate, node, availableNodes, scopes, context, [...nodePath, "candidate"]);
-      checkNodeSource(node.evidence, node, availableNodes, scopes, context, [...nodePath, "evidence"]);
-    } else if (node.kind === "release") {
-      checkNodeSource(node.acceptedCandidate, node, availableNodes, scopes, context, [...nodePath, "acceptedCandidate"]);
-      checkNodeSource(node.destination, node, availableNodes, scopes, context, [...nodePath, "destination"]);
-    }
-    if (node.kind === "branch") {
-      const condition = inferExpressionSchema(node.condition, availableNodes, scopes, context, [...nodePath, "condition"], node.id);
-      if (condition && !hasOnlyType(condition, "boolean")) addDiagnostic(context, "EXPRESSION_TYPE", "Branch condition must be boolean.", [...nodePath, "condition"], node.id);
-    }
-    if (node.kind === "loop") {
-      const loopScopes: ScopeSchemas = { ...scopes, loop: { carried: node.carriedSchema, result: node.resultSchema, index: { type: "integer", minimum: 0 } } };
-      const until = inferExpressionSchema(node.until, availableNodes, loopScopes, context, [...nodePath, "until"], node.id);
-      if (until && !hasOnlyType(until, "boolean")) addDiagnostic(context, "EXPRESSION_TYPE", "Loop until expression must be boolean.", [...nodePath, "until"], node.id);
-      const next = inferExpressionSchema(node.nextInput, availableNodes, loopScopes, context, [...nodePath, "nextInput"], node.id);
-      if (next && !isSchemaContained(next, node.carriedSchema)) addDiagnostic(context, "EXPRESSION_TYPE", "Loop nextInput is incompatible with carriedSchema.", [...nodePath, "nextInput"], node.id);
-    }
-    if (node.kind === "release" && (node.acceptedCandidate.kind !== "ref" || node.acceptedCandidate.root !== "node" || context.nodes.get(node.acceptedCandidate.name)?.kind !== "acceptance" || !context.dependencies.get(node.id)?.has(node.acceptedCandidate.name))) addDiagnostic(context, "RELEASE_ACCEPTANCE", "Release requires a declared dependency on an Acceptance node.", [...nodePath, "acceptedCandidate"], node.id);
-    if (node.kind === "release" && (node.acceptedCandidate.kind !== "ref" || node.acceptedCandidate.path?.length !== 1 || node.acceptedCandidate.path[0] !== "acceptedCandidate")) addDiagnostic(context, "RELEASE_ACCEPTANCE", "Release must bind the exact acceptedCandidate output.", [...nodePath, "acceptedCandidate"], node.id);
-    if (node.kind === "acceptance" && node.contract !== context.definition.acceptance.id) addDiagnostic(context, "ACCEPTANCE_CONTRACT", "Acceptance node must use the definition's pinned contract.", [...nodePath, "contract"], node.id);
-    if (node.kind === "acceptance" && node.maxRepairs !== undefined && (!Number.isSafeInteger(node.maxRepairs) || node.maxRepairs < 0 || node.maxRepairs > FACTORY_LIMITS.maxCandidateGenerations - 1)) addDiagnostic(context, "BOUND_REPAIR", "Acceptance repair bound is invalid.", [...nodePath, "maxRepairs"], node.id);
-    if (node.kind === "branch") {
-      const ancestors = new Map([...availableNodes].filter(([id]) => isAncestor(id, node.id, context)));
-      const thenOutputs = walkGraph(node.then, context, [...nodePath, "then"], depth + 1, true, ancestors, scopes);
-      const elseOutputs = walkGraph(node.else, context, [...nodePath, "else"], depth + 1, true, ancestors, scopes);
-      validateControlOutputs(node, [thenOutputs, elseOutputs], context, nodePath);
-    } else if (node.kind === "map") {
-      const ancestors = new Map([...availableNodes].filter(([id]) => isAncestor(id, node.id, context)));
-      const bodyOutputs = walkGraph(node.body, context, [...nodePath, "body"], depth + 1, speculative, ancestors, { ...scopes, map: { item: node.itemSchema, index: { type: "integer", minimum: 0 } } });
-      validateControlOutputs(node, [bodyOutputs], context, nodePath);
-    } else if (node.kind === "loop") {
-      const ancestors = new Map([...availableNodes].filter(([id]) => isAncestor(id, node.id, context)));
-      const bodyOutputs = walkGraph(node.body, context, [...nodePath, "body"], depth + 1, speculative, ancestors, { ...scopes, loop: { carried: node.carriedSchema, result: node.resultSchema, index: { type: "integer", minimum: 0 } } });
-      validateControlOutputs(node, [bodyOutputs], context, nodePath);
-      if (!hasOnlyType(node.resultSchema, "object") || !node.resultSchema.properties || node.resultSchema.additionalProperties !== false || node.resultSchema.required?.length !== Object.keys(node.resultSchema.properties).length || Object.keys(node.resultSchema.properties).some((name) => !node.resultSchema.required?.includes(name) || !own(node.outputPorts ?? {}, name)) || Object.keys(node.outputPorts ?? {}).some((name) => !own(node.resultSchema.properties ?? {}, name))) addDiagnostic(context, "LOOP_RESULT_SCHEMA", "Loop resultSchema must be a closed object with every output property required and matched to outputPorts.", [...nodePath, "resultSchema"], node.id);
-      else for (const [name, resultPort] of Object.entries(node.resultSchema.properties)) {
-        const bodyOutput = bodyOutputs[name];
-        const outputPort = node.outputPorts?.[name];
-        if (bodyOutput && !isSchemaContained(bodyOutput, resultPort)) addDiagnostic(context, "CONTROL_OUTPUT_TYPE", `Loop body output is incompatible with resultSchema: ${name}.`, [...nodePath, "resultSchema", "properties", name], node.id);
-        if (outputPort && !isSchemaContained(resultPort, outputPort)) addDiagnostic(context, "CONTROL_OUTPUT_TYPE", `Loop resultSchema is incompatible with output port: ${name}.`, [...nodePath, "outputPorts", name], node.id);
-      }
-    }
+    checkGraphNode(node, [...path, "nodes", index], context, availableNodes, scopes, depth, speculative);
   });
   const outputSchemas = Object.create(null) as Record<string, PortSchema | undefined>;
   for (const [name, source] of Object.entries(graph.outputs)) outputSchemas[name] = sourceSchema(source, availableNodes, scopes, context, [...path, "outputs", name]);
@@ -686,21 +766,17 @@ function executionManifest(definition: FactoryDefinition, factoryDigest: string)
   };
 }
 
-export function compileFactory(input: unknown): CompileResult {
-  if (!isFactoryDefinition(input)) return { ok: false, diagnostics: [diagnostic("FACTORY_SCHEMA", "Input does not match the canonical FactoryDefinition schema.", [])] };
-  const definition = materializeDefinition(cloneDefinition(input as FactoryDefinition));
-  const diagnostics: CompilerDiagnostic[] = [];
-  const context: CompileContext = { definition, diagnostics, nodes: new Map(), successors: new Map(), dependencies: new Map(), orderedIds: [] };
-
-  const encodedDefinition = canonicalizeJson(definition as unknown as JsonValue);
+/** Launch bounds and the exact identity a compiled factory must carry. */
+function checkDefinitionBounds(definition: FactoryDefinition, encodedDefinition: string, diagnostics: CompilerDiagnostic[]): void {
   if (new TextEncoder().encode(encodedDefinition).byteLength > FACTORY_LIMITS.maxDefinitionBytes) diagnostics.push(diagnostic("BOUND_DEFINITION_BYTES", "Compiled definition exceeds 16 MiB.", []));
   if (!Number.isSafeInteger(definition.bounds.maxExpandedNodes) || definition.bounds.maxExpandedNodes < 1 || definition.bounds.maxExpandedNodes > FACTORY_LIMITS.maxExpandedNodes) diagnostics.push(diagnostic("BOUND_EXPANDED_NODES", "Expanded-node bound is outside launch limits.", ["bounds", "maxExpandedNodes"]));
   if (!Number.isSafeInteger(definition.bounds.maxScopeDepth) || definition.bounds.maxScopeDepth < 1 || definition.bounds.maxScopeDepth > FACTORY_LIMITS.maxScopeDepth) diagnostics.push(diagnostic("BOUND_SCOPE_DEPTH", "Scope-depth bound is outside launch limits.", ["bounds", "maxScopeDepth"]));
   if (!Number.isSafeInteger(definition.bounds.runDeadlineMs) || definition.bounds.runDeadlineMs! < 1 || definition.bounds.runDeadlineMs! > FACTORY_LIMITS.maximumRunDeadlineMs) diagnostics.push(diagnostic("BOUND_RUN_DEADLINE", "Run deadline is outside launch limits.", ["bounds", "runDeadlineMs"]));
   if (definition.id.length === 0 || definition.version.length === 0 || definition.version === "latest" || definition.version.includes("*") || definition.interpreterCompatibility.length === 0) diagnostics.push(diagnostic("FACTORY_IDENTITY", "Factory ID, exact version, and interpreter compatibility are required.", []));
-  validateSchemas(definition.inputPorts, context, ["inputPorts"]);
-  validateSchemas(definition.outputPorts, context, ["outputPorts"]);
+}
 
+/** Every declared package and factory pin is exact and named once. */
+function checkDependencyPins(definition: FactoryDefinition, context: CompileContext): void {
   const pins = new Set<string>();
   definition.packages.forEach((reference, index) => {
     validatePin(reference.name, reference.version, reference.digest, context, ["packages", index]);
@@ -713,15 +789,19 @@ export function compileFactory(input: unknown): CompileResult {
     if (factoryPins.has(reference.id)) addDiagnostic(context, "REFERENCE_DUPLICATE", `Duplicate factory pin: ${reference.id}.`, ["factories", index]);
     factoryPins.add(reference.id);
   });
-  const generatorPackages = new Set<string>();
-  const collectGenerators = (graph: FactoryGraph): void => {
-    for (const node of graph.nodes) {
-      if (node.kind === "task" && node.effects?.includes("write")) generatorPackages.add(node.runner.package);
-      if (node.kind === "branch") { collectGenerators(node.then); collectGenerators(node.else); }
-      else if (node.kind === "map" || node.kind === "loop") collectGenerators(node.body);
-    }
-  };
-  collectGenerators(definition.graph);
+}
+
+/** The packages that produce candidates, so a protected validator cannot share one. */
+function collectGeneratorPackages(graph: FactoryGraph, generatorPackages: Set<string>): void {
+  for (const node of graph.nodes) {
+    if (node.kind === "task" && node.effects?.includes("write")) generatorPackages.add(node.runner.package);
+    if (node.kind === "branch") { collectGeneratorPackages(node.then, generatorPackages); collectGeneratorPackages(node.else, generatorPackages); }
+    else if (node.kind === "map" || node.kind === "loop") collectGeneratorPackages(node.body, generatorPackages);
+  }
+}
+
+/** The acceptance contract: its identity, its claims, and the groups over them. */
+function checkAcceptanceContract(definition: FactoryDefinition, context: CompileContext, generatorPackages: ReadonlySet<string>, diagnostics: CompilerDiagnostic[]): void {
   if (definition.acceptance.id.length === 0 || definition.acceptance.version.length === 0 || definition.acceptance.version === "latest" || definition.acceptance.version.includes("*") || definition.acceptance.claims.length === 0) diagnostics.push(diagnostic("ACCEPTANCE_CONTRACT", "Acceptance contract identity, exact version, and at least one claim are required.", ["acceptance"]));
   const claimIds = new Set<string>();
   definition.acceptance.claims.forEach((claim, index) => {
@@ -742,9 +822,10 @@ export function compileFactory(input: unknown): CompileResult {
     }
   }
   if (definition.acceptance.claims.some((claim) => !claim.required && !groupedClaims.has(claim.id))) diagnostics.push(diagnostic("ACCEPTANCE_GROUP", "Every optional claim must belong to one acceptance group.", ["acceptance", "claims"]));
+}
 
-  walkGraph(definition.graph, context, ["graph"], 1, false, new Map(), {});
-  if (expandedGraphCount(definition.graph, definition.bounds.maxExpandedNodes) > definition.bounds.maxExpandedNodes) diagnostics.push(diagnostic("BOUND_EXPANDED_NODES", "Graph expansion exceeds its expanded-node bound.", ["graph"]));
+/** Each factory output port has one graph source, and the graph declares no other. */
+function checkGraphOutputs(definition: FactoryDefinition, context: CompileContext): void {
   for (const [name, schema] of Object.entries(definition.outputPorts)) {
     const source = definition.graph.outputs[name];
     if (!source) addDiagnostic(context, "GRAPH_OUTPUT_MISSING", `Factory output has no graph source: ${name}.`, ["graph", "outputs", name]);
@@ -754,6 +835,40 @@ export function compileFactory(input: unknown): CompileResult {
     }
   }
   for (const name of Object.keys(definition.graph.outputs)) if (!own(definition.outputPorts, name)) addDiagnostic(context, "GRAPH_OUTPUT_UNKNOWN", `Graph declares unknown factory output: ${name}.`, ["graph", "outputs", name]);
+}
+
+/** The three lookup indexes the kernel reads, in topological node order. */
+function buildCompiledIndexes(order: readonly string[], context: CompileContext): CompiledIndexes {
+  const nodeById = Object.create(null) as Record<string, FactoryNode>;
+  const successors = Object.create(null) as Record<string, readonly string[]>;
+  const dependencyCounts = Object.create(null) as Record<string, number>;
+  for (const id of order) {
+    nodeById[id] = context.nodes.get(id) as FactoryNode;
+    successors[id] = [...(context.successors.get(id) ?? [])].sort(compareText);
+    dependencyCounts[id] = context.dependencies.get(id)?.size ?? 0;
+  }
+  return { nodeById, successors, dependencyCounts };
+}
+
+export function compileFactory(input: unknown): CompileResult {
+  if (!isFactoryDefinition(input)) return { ok: false, diagnostics: [diagnostic("FACTORY_SCHEMA", "Input does not match the canonical FactoryDefinition schema.", [])] };
+  const definition = materializeDefinition(cloneDefinition(input as FactoryDefinition));
+  const diagnostics: CompilerDiagnostic[] = [];
+  const context: CompileContext = { definition, diagnostics, nodes: new Map(), successors: new Map(), dependencies: new Map(), orderedIds: [] };
+
+  const encodedDefinition = canonicalizeJson(definition as unknown as JsonValue);
+  checkDefinitionBounds(definition, encodedDefinition, diagnostics);
+  validateSchemas(definition.inputPorts, context, ["inputPorts"]);
+  validateSchemas(definition.outputPorts, context, ["outputPorts"]);
+
+  checkDependencyPins(definition, context);
+  const generatorPackages = new Set<string>();
+  collectGeneratorPackages(definition.graph, generatorPackages);
+  checkAcceptanceContract(definition, context, generatorPackages, diagnostics);
+
+  walkGraph(definition.graph, context, ["graph"], 1, false, new Map(), {});
+  if (expandedGraphCount(definition.graph, definition.bounds.maxExpandedNodes) > definition.bounds.maxExpandedNodes) diagnostics.push(diagnostic("BOUND_EXPANDED_NODES", "Graph expansion exceeds its expanded-node bound.", ["graph"]));
+  checkGraphOutputs(definition, context);
   if (diagnostics.some(({ code }) => code === "BOUND_DEFINITION_BYTES")) return { ok: false, diagnostics };
 
   const lock = {
@@ -773,15 +888,7 @@ export function compileFactory(input: unknown): CompileResult {
   const partitions = buildPartitions(order.filter((id) => rootNodeIds.has(id)), context, digest);
   const pages = buildPages(partitions, context);
   if (diagnostics.length > 0) return { ok: false, diagnostics };
-  const nodeById = Object.create(null) as Record<string, FactoryNode>;
-  const successors = Object.create(null) as Record<string, readonly string[]>;
-  const dependencyCounts = Object.create(null) as Record<string, number>;
-  for (const id of order) {
-    nodeById[id] = context.nodes.get(id) as FactoryNode;
-    successors[id] = [...(context.successors.get(id) ?? [])].sort(compareText);
-    dependencyCounts[id] = context.dependencies.get(id)?.size ?? 0;
-  }
-  const indexes: CompiledIndexes = { nodeById, successors, dependencyCounts };
+  const indexes: CompiledIndexes = buildCompiledIndexes(order, context);
   const factory: CompiledFactory = {
     schemaVersion: FACTORY_IR_SCHEMA_VERSION,
     digest,
