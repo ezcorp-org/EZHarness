@@ -1024,6 +1024,10 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
           EZ_TEST_CURL_REAL_ALL: "1",
         });
 
+        if (r.exitCode !== 0) {
+          const diagnostic = `${r.stdout}\n${r.stderr}`.replaceAll(RUNNER_TOKEN, "[runner token redacted]");
+          throw new Error(`setup exited ${r.exitCode}\n${diagnostic}`);
+        }
         expect(r.exitCode).toBe(0);
         expect(r.stdout).toContain('ready: {"ready":true}');
         expect(`${r.stdout}${r.stderr}`).not.toContain(RUNNER_TOKEN);
