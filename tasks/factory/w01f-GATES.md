@@ -1,9 +1,16 @@
 # Gates: W01f event-stream detach leak
 
 Scope: one product defect in `packages/@ezcorp/extension-runner/src/service.ts`, reported by
-W18a-sdk as OPEN 2. Branch `wp/w01f-detach`, cut from `wp/w18a-sdk` at `9e7866e2b`. Receipts under
+W18a-sdk as OPEN 2. Branch `wp/w01f-detach`, cut from `wp/w18a-sdk` at `9e7866e2b`; that branch has
+since merged, so `integ/w00` at `850ffaa54` was merged in at `52bd86ddd` and **every gate below was
+re-run on that merge**, with both coverage gates moved to `BASE_REF=integ/w00`. Receipts under
 `/tmp/factory-platform-evidence/w01f/`; probe and reproduction sources are kept as `.ts.txt` under
-`probes/`, raw logs under `logs/`.
+`probes/`, raw logs under `logs/`. Pre-merge receipts keep their `final-*` names; post-merge ones
+are prefixed `postmerge-`.
+
+Against the new base the whole diff is five files: `service.ts`, the one new test file, and the
+three task documents (`logs/postmerge-diff-stat.txt`). No pre-existing test file is touched
+(`logs/postmerge-test-diff.txt`).
 
 ## The defect, reproduced before anything was changed
 
@@ -140,14 +147,18 @@ no `idleTimeout`; its type rejects the option.
 - [x] G9: Every existing assertion still holds and no wire behaviour changed.
   CHECK: the 16 light `extension-runner` and `extension-contract` suites, each in its own process
   EXPECT: all exit 0, including the five pre-existing `service.test.ts` cases unchanged
-  EVIDENCE: `logs/final-light-suites.log` at `869ab1542`, every file exit 0, 73 cases in total. No existing test file was modified: `logs/test-diff.txt`.
+  EVIDENCE: `logs/final-light-suites.log` at `869ab1542`, and `logs/postmerge-light-suites.log`
+  on the merge with `integ/w00`; every file exit 0 in both. No existing test file was modified: `logs/test-diff.txt`.
 
 - [x] G10: Static gates.
   CHECK: `bun run typecheck`; `bun run lint`; `bun scripts/check-factory-boundaries.ts`;
   `bun scripts/gate-integrity.ts`
   EXPECT: all exit 0
-  EVIDENCE: `logs/final-typecheck.log`, `logs/final-lint.log`, `logs/final-boundaries.log`,
-  `logs/final-gate-integrity.log`.
+  EVIDENCE: pre-merge `logs/final-typecheck.log`, `logs/final-lint.log`,
+  `logs/final-boundaries.log`, `logs/final-gate-integrity.log`; on the merge with `integ/w00`,
+  `logs/postmerge-typecheck.log` and `logs/postmerge-all.log` (lint, boundaries, gate integrity all
+  exit 0). The four workspace packages were rebuilt after the merge before the typecheck, because
+  consumers resolve their built `dist` types.
 
 - [x] G11: The real-Podman producers that load this service still pass.
   CHECK: under `flock /tmp/ezcorp-validation-heavy.lock timeout 3600 …` —
@@ -157,7 +168,13 @@ no `idleTimeout`; its type rejects the option.
   `./src/factory/package-preparation.podman.integration.test.ts`; second batch for the remaining
   runner integration suites
   EXPECT: every exit 0
-  EVIDENCE: `logs/heavy-run-1.log`, `logs/heavy-run-2.log`, scripts kept as `heavy-run-*.sh.txt`.
+  EVIDENCE: on the merge with `integ/w00`, all TEN producers in one lock acquisition under
+  `flock --close`, lock held 00:14:19Z to 00:17:00Z, every exit 0, `SUMMARY postmerge_heavy_fail=0`
+  (`logs/postmerge-heavy.log`, script `postmerge-all.sh.txt`): podman.integration 19 pass,
+  main.integration 1 pass, supervisor.podman 2 pass, package-preparation.podman 1 pass,
+  channel-identity 3 pass, provision 3 pass, binary-assets 1 pass, browser 1 pass,
+  native-network 1 pass, podman-devices 6 pass, all 0 fail. The pre-merge runs are retained below.
+  `logs/heavy-run-1.log`, `logs/heavy-run-2.log`, scripts kept as `heavy-run-*.sh.txt`.
   Batch 1 at `57a43bd54`, lock held 23:26:24Z to 23:28:19Z, every exit 0:
   `podman.integration` 19 pass / 0 fail / 103 assertions, `main.integration` 1 pass / 0 fail,
   `supervisor.podman.integration` 2 pass / 0 fail, `package-preparation.podman.integration`
@@ -187,11 +204,13 @@ no `idleTimeout`; its type rejects the option.
   CHECK: `BASE_REF=wp/w18a-sdk bun scripts/check-new-file-coverage.ts`;
   `BASE_REF=wp/w18a-sdk bun scripts/check-patch-coverage.ts`
   EXPECT: both exit 0
-  EVIDENCE: `logs/final-new-file-coverage.log` ("no new source files in this diff"),
-  `logs/final-patch-coverage.log` ("all changed executable lines covered (1 file(s))"), over the
-  merged LCOV in `logs/merged-lcov.info` (21 legs, 597 source files,
-  sha256 `d535cdb4d51e32b422d2c957be3c9fc53a6108359f9c30869adcbf7750e96029`). On that merged LCOV
-  `service.ts` reads 220/220 lines with none missing (`logs/final-service-coverage.txt`). No threshold lowered, no `EXCLUDES` entry, no
+  EVIDENCE: on the merge with `integ/w00`, `logs/postmerge-new-file-coverage.log` ("no new source
+  files in this diff") and `logs/postmerge-patch-coverage.log` ("all changed executable lines
+  covered (1 file(s))"), both with `BASE_REF=integ/w00`, over the merged LCOV in
+  `logs/postmerge-merged-lcov.info` (26 legs, 597 source files,
+  sha256 `a1a7752c86e9817710da113065b9e57487b21ba5a20f0ac027d03763248fa1be`), on which `service.ts`
+  reads 188/188 lines with none missing (`logs/postmerge-service-coverage.txt`). The pre-merge run
+  against `BASE_REF=wp/w18a-sdk` is retained at `logs/final-*-coverage.log`. No threshold lowered, no `EXCLUDES` entry, no
   `.skip/.only/.todo`, no `biome.json` opt-out. The one changed source file is already covered by
   the wildcard key `packages/@ezcorp/extension-runner/src/**: 100`, and the one new file is a test
   file, which both gates classify as non-source, so no threshold key was added.

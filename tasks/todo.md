@@ -2969,6 +2969,9 @@ Branch `wp/w01f-detach`, cut from `wp/w18a-sdk` at `9e7866e2b`. One product defe
       brief named, the production service end to end, the factory supervisor, and six further
       runner integration suites.
 - [x] `BASE_REF=wp/w18a-sdk` new-file and patch coverage over the merged LCOV.
+- [x] After `wp/w18a-sdk` merged, take `integ/w00` at `850ffaa54`, rebuild the workspace packages,
+      and re-run every gate on the merge, with both coverage gates at `BASE_REF=integ/w00` and all
+      ten heavy producers in one lock acquisition under `flock --close`.
 - [x] Diagnose and remove the one observed test failure's dependence on host timing, rather than
       retrying it.
 
