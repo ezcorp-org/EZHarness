@@ -74,4 +74,39 @@ describe("PersonalPrCard", () => {
 		await waitFor(() => expect(view.getByText("Draft PR created")).toBeVisible());
 		expect(view.queryByRole("link", { name: "View PR on GitHub" })).not.toBeInTheDocument();
 	});
+
+	test("links a created draft only to its validated GitHub PR", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ ...ready, state: "created", prUrl: "https://github.com/owner/repo/pull/7" })));
+		const view = render(PersonalPrCard, { runId: "run-3", onreview: vi.fn() });
+		await waitFor(() => expect(view.getByRole("link", { name: "View PR on GitHub" })).toHaveAttribute("href", "https://github.com/owner/repo/pull/7"));
+	});
+
+	test("keeps the repository and review identity in blocked access settings link", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ ...ready, state: "blocked", blockReason: "reconnect_required" })));
+		const view = render(PersonalPrCard, { runId: "run-3", onreview: vi.fn() });
+		await waitFor(() => expect(view.getByRole("link", { name: "Manage GitHub access" })).toHaveAttribute("href", "/settings/github?repositoryId=42&review=proposal-1"));
+		expect(view.getByText("Reconnect your GitHub account to continue.")).toBeVisible();
+	});
+
+	test("shows a safe fallback for a new server state", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ state: "future_state" })));
+		const view = render(PersonalPrCard, { runId: "run-3", onreview: vi.fn() });
+		await waitFor(() => expect(view.getByText("Pull request")).toBeVisible());
+	});
+
+	test("reports a status load error without showing a stale card", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ error: "secret" }, 503)));
+		const view = render(PersonalPrCard, { runId: "run-3", onreview: vi.fn() });
+		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Could not load pull request status"));
+		expect(view.queryByTestId("personal-pr-card")).not.toBeInTheDocument();
+	});
+
+	test("keeps an eligible run actionable after preparation fails", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response({ state: "working", blockReason: "review_not_prepared" })).mockResolvedValueOnce(response({ error: "GitHub is unavailable" }, 503)));
+		const view = render(PersonalPrCard, { runId: "run-3", onreview: vi.fn() });
+		await waitFor(() => expect(view.getByRole("button", { name: "Prepare PR review" })).toBeVisible());
+		await fireEvent.click(view.getByRole("button", { name: "Prepare PR review" }));
+		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("GitHub is unavailable"));
+		expect(view.getByRole("button", { name: "Prepare PR review" })).toBeEnabled();
+	});
 });

@@ -158,6 +158,58 @@ test("explicitly retries only a failed pre-ref attempt from the frozen review", 
 	expect(fetch).toHaveBeenCalledWith("/api/github/personal-prs/proposals/proposal-1/confirm", expect.objectContaining({ method: "POST" }));
 });
 
+test("checks stored status after an uncertain confirmation and reports check errors", async () => {
+	const review = {
+		state: "reviewing", proposalId: "proposal-1", digest: "a".repeat(64),
+		files: [{ path: "src/file.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		title: "Fix file", body: "Tested", checks: [],
+	} as const;
+	const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+	const fetch = vi.fn()
+		.mockResolvedValueOnce(response({ error: "Confirmation outcome unknown" }, 503))
+		.mockResolvedValueOnce(response({ error: "GitHub still unavailable" }, 503))
+		.mockResolvedValueOnce(response({ ...review, state: "failed", recoveryAction: "check_github" }));
+	vi.stubGlobal("fetch", fetch);
+	const onpersonalprupdate = vi.fn();
+	const view = renderPanel({ personalPr: review, onpersonalprupdate });
+	await fireEvent.click(view.getByRole("button", { name: "Create draft PR" }));
+	await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Confirmation outcome unknown"));
+	await fireEvent.click(view.getByRole("button", { name: "Check status" }));
+	await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("GitHub still unavailable"));
+	await fireEvent.click(view.getByRole("button", { name: "Check status" }));
+	await waitFor(() => expect(onpersonalprupdate).toHaveBeenCalledWith(expect.objectContaining({ state: "failed", recoveryAction: "check_github" })));
+	expect(fetch.mock.calls.slice(1).map(([url]) => url)).toEqual(["/api/github/personal-prs/proposals/proposal-1", "/api/github/personal-prs/proposals/proposal-1"]);
+});
+
+test("shows exact binary review bytes and hashes", () => {
+	const view = renderPanel({ personalPr: {
+		state: "reviewing", proposalId: "proposal-1", digest: "a".repeat(64), title: "Binary change", body: "",
+		files: [{ path: "assets/icon.png", status: "modified", additions: 0, deletions: 0, binary: true,
+			beforeBytes: 2, afterBytes: 3, beforeSha256: "b".repeat(64), afterSha256: "c".repeat(64), beforeBase64: "AAE=", afterBase64: "AAEC" }],
+		checks: [],
+	} });
+	expect(view.getByText(/Binary change. Review the exact bytes/)).toBeVisible();
+	expect(view.getByText(/Before: 2 bytes/)).toHaveTextContent("b".repeat(64));
+	expect(view.getByText(/After: 3 bytes/)).toHaveTextContent("c".repeat(64));
+	expect(view.getByRole("link", { name: "Download before" })).toHaveAttribute("href", "data:application/octet-stream;base64,AAE=");
+	expect(view.getByRole("link", { name: "Download after" })).toHaveAttribute("href", "data:application/octet-stream;base64,AAEC");
+});
+
+test("a changed base asks for reimport without offering publication", () => {
+	const view = renderPanel({ personalPr: { state: "stale", recoveryAction: "reimport", proposalId: "proposal-1", digest: "a".repeat(64), files: [], checks: [] } });
+	expect(view.getByText(/Start a new private sandbox import/)).toBeVisible();
+	expect(view.queryByRole("button", { name: "Create draft PR" })).not.toBeInTheDocument();
+});
+
+test("a created proposal shows only a validated GitHub PR link", () => {
+	const view = renderPanel({ personalPr: { state: "created", proposalId: "proposal-1", digest: "a".repeat(64), files: [], checks: [], prUrl: "https://github.com/owner/repo/pull/7" } });
+	expect(view.getByRole("link", { name: "Open draft PR on GitHub" })).toHaveAttribute("href", "https://github.com/owner/repo/pull/7");
+	view.unmount();
+	const unsafe = renderPanel({ personalPr: { state: "created", proposalId: "proposal-2", files: [], checks: [], prUrl: "https://github.com.evil.test/owner/repo/pull/7" } });
+	expect(unsafe.queryByRole("link", { name: "Open draft PR on GitHub" })).not.toBeInTheDocument();
+	expect(unsafe.getByText("PR status: created")).toBeVisible();
+});
+
 describe("code review panel — header", () => {
 	test("titles the panel 'Files changed' like GitHub's review tab", () => {
 		const { getByRole } = renderPanel();

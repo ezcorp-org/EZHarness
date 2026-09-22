@@ -55,3 +55,43 @@ test("pending private sandbox imports without creating a second project", async 
 	await waitFor(() => expect(onimported).toHaveBeenCalledOnce());
 	expect(fetch.mock.calls.some(([url]) => url === "/api/github/sandboxes")).toBe(false);
 });
+
+test("shows connection errors without offering an import", async () => {
+	vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ error: "unavailable" }, 503)));
+	const view = render(GithubSandboxImport, { projectId: "source" });
+	await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Could not load GitHub repositories"));
+	expect(view.queryByRole("button", { name: "Create private sandbox & import" })).not.toBeInTheDocument();
+});
+
+test.each([
+	["disconnected", "Connect GitHub"],
+	["reconnect_required", "Reconnect GitHub"],
+])("directs a %s account to the right setup action", async (status, label) => {
+	vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ status, configured: true })));
+	const view = render(GithubSandboxImport, { projectId: "source" });
+	await waitFor(() => expect(view.getByRole("link", { name: label })).toHaveAttribute("href", "/settings/github"));
+});
+
+test("explains when no approved repositories can be imported", async () => {
+	vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(response(url === "/api/github/connection" ? { status: "connected", configured: true } : { repositories: [] }))));
+	const view = render(GithubSandboxImport, { projectId: "source" });
+	await waitFor(() => expect(view.getByText(/No enabled repositories are available/)).toBeVisible());
+});
+
+test("keeps an admitted private sandbox visible when import fails", async () => {
+	const fetch = vi.fn((url: string) => {
+		if (url === "/api/github/connection") return Promise.resolve(response({ status: "connected", configured: true }));
+		if (url === "/api/github/repositories") return Promise.resolve(response({ repositories: [{ id: 42, fullName: "owner/private", defaultBranch: "main", private: true, accessStatus: "ready" }] }));
+		if (url === "/api/github/sandboxes") return Promise.resolve(response({ project: { id: "new-sandbox" } }, 201));
+		if (url === "/api/github/personal-prs/sandboxes/new-sandbox/import") return Promise.resolve(response({ error: "Import failed" }, 503));
+		throw new Error(`Unexpected URL ${url}`);
+	});
+	vi.stubGlobal("fetch", fetch);
+	const view = render(GithubSandboxImport, { projectId: "source", providers: [{ installationId: "00000000-0000-4000-8000-000000000001", providerId: "local", label: "Local", ready: true }] });
+	await waitFor(() => expect(view.getByLabelText("Repository")).toBeVisible());
+	await fireEvent.change(view.getByLabelText("Repository"), { target: { value: "42" } });
+	await fireEvent.change(view.getByLabelText("Sandbox provider"), { target: { value: "00000000-0000-4000-8000-000000000001" } });
+	await fireEvent.click(view.getByRole("button", { name: "Create private sandbox & import" }));
+	await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Import failed"));
+	expect(view.getByRole("link", { name: "Open the private sandbox" })).toHaveAttribute("href", "/project/new-sandbox/settings");
+});
