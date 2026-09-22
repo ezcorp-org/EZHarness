@@ -130,6 +130,46 @@ export async function readOperatorMasterKey(path: string, id: string, grantableR
   }
 }
 
+/** The facts a wrapped data key is bound to: which installation, and which wrap version. */
+export interface FactoryDataKeyWrapBinding {
+  readonly installationId: string;
+  readonly wrapVersion: number;
+}
+
+/**
+ * Wraps the installation data key under a key the process never exports. A
+ * self-hosted master-key file, a hosted cloud KMS, and a self-hosted external
+ * KMS all implement it (`key-management.ts`), so rotation is one rule for all
+ * three: a new wrap version under the current key, every prior wrap kept.
+ */
+export interface FactoryDataKeyWrapper {
+  /** The key id new wraps use. */
+  currentKeyId(): Promise<string>;
+  wrap(dataKey: Uint8Array, keyId: string, binding: FactoryDataKeyWrapBinding): Promise<Uint8Array>;
+  /** Undefined when this wrapper does not hold `keyId`. Throws when it does and the wrap does not open. */
+  unwrap(wrapped: Uint8Array, keyId: string, binding: FactoryDataKeyWrapBinding): Promise<Uint8Array | undefined>;
+}
+
+/** The operator master-key path as a wrapper. Its bytes and binding are exactly the ones every existing wrap used. */
+export function factoryMasterKeyWrapper(masters: MasterKeyProvider): FactoryDataKeyWrapper {
+  return {
+    async currentKeyId() { const master = await masters.current(); key(master.bytes); return master.id; },
+    async wrap(dataKey, keyId, binding) {
+      const master = await masters.current();
+      if (master.id !== keyId) throw new FactoryEncryptionError("factory_key_conflict");
+      return encryptBytes(dataKey, master.bytes, wrapBinding(binding.installationId, binding.wrapVersion, keyId));
+    },
+    async unwrap(wrapped, keyId, binding) {
+      const master = await masters.get(keyId);
+      return master ? decryptBytes(wrapped, master.bytes, wrapBinding(binding.installationId, binding.wrapVersion, keyId)) : undefined;
+    },
+  };
+}
+
+function wrapperOf(keys: MasterKeyProvider | FactoryDataKeyWrapper): FactoryDataKeyWrapper {
+  return "unwrap" in keys ? keys : factoryMasterKeyWrapper(keys);
+}
+
 export class InstallationDataKey {
   readonly installationId: string;
   private readonly value: Uint8Array;
@@ -137,47 +177,49 @@ export class InstallationDataKey {
   /** Wrap rotation never changes the data-key encryption version or object bytes. */
   readonly dataKeyVersion = 1;
   private constructor(installationId: string, value: Uint8Array, wrapVersion: number) { this.installationId = installationId; this.value = value; this.wrapVersion = wrapVersion; }
-  static async loadOrCreate(installationId: string, wraps: InstallationKeyWrapStore, masters: MasterKeyProvider): Promise<InstallationDataKey> {
+  /** Opens the first wrap, newest first, that this wrapper holds a key for; retained older wraps are tried in turn. */
+  private static async open(installationId: string, existing: readonly InstallationKeyWrap[], wrapper: FactoryDataKeyWrapper): Promise<InstallationDataKey | undefined> {
+    for (const candidate of [...existing].sort((a, b) => b.wrapVersion - a.wrapVersion)) {
+      if (candidate.installationId !== installationId) continue;
+      try {
+        const opened = await wrapper.unwrap(candidate.wrappedDataKey, candidate.masterKeyId, { installationId, wrapVersion: candidate.wrapVersion });
+        if (opened) return new InstallationDataKey(installationId, key(opened), candidate.wrapVersion);
+      } catch { /* retained wraps may belong to other keys */ }
+    }
+    return undefined;
+  }
+  static async loadOrCreate(installationId: string, wraps: InstallationKeyWrapStore, keys: MasterKeyProvider | FactoryDataKeyWrapper): Promise<InstallationDataKey> {
     requireId(installationId);
-    const resolveExisting = async (existing: readonly InstallationKeyWrap[]): Promise<InstallationDataKey | undefined> => {
-      for (const candidate of existing) {
-        const master = await masters.get(candidate.masterKeyId);
-        if (!master) continue;
-        try { return new InstallationDataKey(installationId, decryptBytes(candidate.wrappedDataKey, master.bytes, wrapBinding(installationId, candidate.wrapVersion, candidate.masterKeyId)), candidate.wrapVersion); } catch { /* try retained wrapping versions */ }
-      }
-      return undefined;
-    };
+    const wrapper = wrapperOf(keys);
     const existing = await wraps.load(installationId);
-    const resolved = await resolveExisting(existing);
+    const resolved = await InstallationDataKey.open(installationId, existing, wrapper);
     if (resolved) return resolved;
     if (existing.length > 0) throw new FactoryEncryptionError("factory_key_missing");
-    const master = await masters.current(); key(master.bytes);
+    const keyId = await wrapper.currentKeyId();
     const wrapVersion = 1;
     const dataKey = randomBytes(DATA_KEY_BYTES);
-    await wraps.save({ installationId, wrapVersion, masterKeyId: master.id, wrappedDataKey: encryptBytes(dataKey, master.bytes, wrapBinding(installationId, wrapVersion, master.id)) });
-    const persisted = await resolveExisting(await wraps.load(installationId));
+    await wraps.save({ installationId, wrapVersion, masterKeyId: keyId, wrappedDataKey: await wrapper.wrap(dataKey, keyId, { installationId, wrapVersion }) });
+    const persisted = await InstallationDataKey.open(installationId, await wraps.load(installationId), wrapper);
     if (!persisted) throw new FactoryEncryptionError("factory_key_missing");
     return persisted;
   }
   /** Readonly recovery for workers: never creates or rotates a wrap. */
-  static async loadExisting(installationId: string, wraps: InstallationKeyWrapStore, masters: MasterKeyProvider): Promise<InstallationDataKey> {
+  static async loadExisting(installationId: string, wraps: InstallationKeyWrapStore, keys: MasterKeyProvider | FactoryDataKeyWrapper): Promise<InstallationDataKey> {
     requireId(installationId);
     const existing = await wraps.load(installationId);
     if (existing.length === 0) throw new FactoryEncryptionError("factory_key_missing");
-    for (const candidate of [...existing].sort((a, b) => b.wrapVersion - a.wrapVersion)) {
-      if (candidate.installationId !== installationId) continue;
-      const master = await masters.get(candidate.masterKeyId);
-      if (!master) continue;
-      try { return new InstallationDataKey(installationId, decryptBytes(candidate.wrappedDataKey, master.bytes, wrapBinding(installationId, candidate.wrapVersion, candidate.masterKeyId)), candidate.wrapVersion); } catch { /* retained wraps may use other masters */ }
-    }
-    throw new FactoryEncryptionError("factory_key_missing");
+    const opened = await InstallationDataKey.open(installationId, existing, wrapperOf(keys));
+    if (!opened) throw new FactoryEncryptionError("factory_key_missing");
+    return opened;
   }
-  async rotate(wraps: InstallationKeyWrapStore, masters: MasterKeyProvider): Promise<InstallationDataKey> {
-    const master = await masters.current(); key(master.bytes);
+  /** Adds a wrap under the current key. Earlier wraps and every encrypted object stay exactly as they are. */
+  async rotate(wraps: InstallationKeyWrapStore, keys: MasterKeyProvider | FactoryDataKeyWrapper): Promise<InstallationDataKey> {
+    const wrapper = wrapperOf(keys);
+    const keyId = await wrapper.currentKeyId();
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const rows = await wraps.load(this.installationId);
       const wrapVersion = Math.max(this.wrapVersion, ...rows.map(row => row.wrapVersion)) + 1;
-      const candidate = { installationId: this.installationId, wrapVersion, masterKeyId: master.id, wrappedDataKey: encryptBytes(this.value, master.bytes, wrapBinding(this.installationId, wrapVersion, master.id)) };
+      const candidate = { installationId: this.installationId, wrapVersion, masterKeyId: keyId, wrappedDataKey: await wrapper.wrap(this.value, keyId, { installationId: this.installationId, wrapVersion }) };
       await wraps.save(candidate);
       const persisted = (await wraps.load(this.installationId)).find(row => row.wrapVersion === wrapVersion);
       if (persisted && persisted.masterKeyId === candidate.masterKeyId && Buffer.from(persisted.wrappedDataKey).equals(Buffer.from(candidate.wrappedDataKey))) return new InstallationDataKey(this.installationId, this.value, wrapVersion);
