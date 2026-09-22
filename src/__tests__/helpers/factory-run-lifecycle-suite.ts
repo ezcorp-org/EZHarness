@@ -953,17 +953,33 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(reported.filter(entry => entry.role.includes(completed.task.run.runId))).toEqual([]);
   });
 
-  test("a recorded candidate is re-derived after its attempt's lease ended, and a different result for it conflicts", async () => {
+  test("a recorded candidate is re-derived after its attempt's lease ended, and every other refusal keeps its name", async () => {
     const { completed } = await protectedAcceptance(true, false);
-    // The fixture committed the candidate through its live attempt. From here the attempt is expired:
-    // the journal's authorizer refuses exactly as the run lifecycle does once the lease deadline passed.
-    const expiredJournal = new FactoryExecutionJournal(fixture.db, async () => { throw Object.assign(new Error("factory_run_fence_changed"), { code: "factory_run_fence_changed" }); });
-    const expired = new FactoryReleaseAuthorityStore(fixture.db, tenantId, grants, lifecycle, expiredJournal, completed.artifacts);
+    const lease = completed.authority.deadlineAt.getTime();
+    // The clock is injected, never slept: one store sees the lease still live, one sees it ended.
+    const storeAt = (clockMs: number) => {
+      const clocked = new FactoryRunLifecycle(fixture.db, tenantId, options, () => clockMs);
+      return new FactoryReleaseAuthorityStore(fixture.db, tenantId, grants, clocked, new FactoryExecutionJournal(fixture.db, clocked.authorizeAttemptInTransaction), completed.artifacts);
+    };
+    const live = storeAt(lease - 1), expired = storeAt(lease + 1);
     const commit = { authority: completed.authority, result: completed.result, expectedCurrentGeneration: null };
-    expect(await fixture.db.transaction(transaction => expired.completeCurrentCandidateInTransaction(transaction, commit))).toMatchObject({ candidateGeneration: 0, candidateDigest: completed.result.output.digest });
+    const pointer = { candidateGeneration: 0, candidateDigest: completed.result.output.digest };
+    // Before the deadline the call is unchanged; after it, the recorded terminal is read, not re-recorded.
+    const before = await fixture.db.transaction(transaction => live.completeCurrentCandidateInTransaction(transaction, commit));
+    expect(before).toMatchObject(pointer);
+    expect(await fixture.db.transaction(transaction => expired.completeCurrentCandidateInTransaction(transaction, commit))).toEqual(before);
+    // Two concurrent acceptances converge on the one pointer.
+    const both = await Promise.all([0, 1].map(() => fixture.db.transaction(transaction => expired.completeCurrentCandidateInTransaction(transaction, commit))));
+    expect(both).toEqual([before, before]);
     // The durable result is the one the caller must hold; another is a conflict, not a second truth.
     await expect(fixture.db.transaction(transaction => expired.completeCurrentCandidateInTransaction(transaction, { ...commit, result: { ...completed.result, resultDigest: "f".repeat(64) } })))
       .rejects.toMatchObject({ code: "factory_release_candidate_conflict" });
+    // A stale fence still refuses by name: the authority names an execution epoch the run does not have.
+    await expect(fixture.db.transaction(transaction => expired.completeCurrentCandidateInTransaction(transaction, { ...commit, authority: { ...completed.authority, executionEpoch: completed.authority.executionEpoch + 1 } })))
+      .rejects.toMatchObject({ code: "factory_release_authority_stale" });
+    // A missing terminal is a FIRST completion, and a first completion after the lease still needs a live attempt.
+    await expect(fixture.db.transaction(transaction => expired.completeCurrentCandidateInTransaction(transaction, { ...commit, authority: { ...completed.authority, attemptId: `${completed.authority.attemptId}-never-completed` } })))
+      .rejects.toMatchObject({ code: "factory_run_fence_changed" });
   });
 
   test("validator material registers once per published version, survives a restart, and names an undeclared or changed runtime", async () => {
