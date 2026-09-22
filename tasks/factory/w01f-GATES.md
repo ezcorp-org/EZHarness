@@ -62,30 +62,71 @@ lease for the one form the runtime reports nothing for. Both the poll window and
 declared options with defaults and named refusals, and the lease must outlast one poll or a healthy
 host would be evicted mid-poll. Nothing polls for a disconnect and no timer guesses at one.
 
-**What renews the lease.** Every request from the host that holds the attachment: `/v4/events`,
-`/v4/request` and `/v4/reply`. And while the host still owes a reply to a queued reverse call the
-lease re-arms instead of releasing, because that call already carries its own timeout and deletes
-itself when it expires. Without that, a host legitimately spending longer than one lease inside a
-reverse call would have been evicted mid-work — the first version of this fix did exactly that, and
-the controlled revert in G7 is what pins it.
+**What renews the lease, and what merely defers it.** The two are different and the distinction is
+the fix for validator findings F1 and F2.
+
+RENEWING pushes the deadline one lease into the future. Only a request that PROVES the caller still
+owns the stream may do it, because the protocol carries no host identity and the service cannot
+otherwise tell one authenticated caller from another. Two qualify: `/v4/events`, which is refused
+unless the session is attached and no poll is already parked, and `/v4/reply`, which needs a pending
+identifier that was only ever handed to the holder through that stream. `/v4/attach` starts the
+lease. **`/v4/request` does not renew** — any authenticated caller can issue one.
+
+DEFERRING means the lease does not run at all, against an unchanged deadline. It is deferred while
+the holder's poll is parked (the runtime reports that disconnect directly), while the host owes a
+reply to a queued reverse call, and while a forward call is executing. Each of those re-arms the
+lease when it drains, so waiting one out never buys a host extra silence.
+
+That shape answers both findings. A host waiting inside a long forward call is not evicted
+mid-call, because the call defers the lease for as long as it runs (F1). And a second caller
+hammering `/v4/request` cannot keep a silent holder attached, because none of its calls pushes the
+deadline (F2).
 
 A released attachment now answers nothing and keeps its whole queue, so a replacement host resumes
 the reverse calls **and** the notifications. The previous code fell through after `detach` and
 spliced the notifications out to a client that had already gone.
 
-The v4 wire protocol is byte-identical: same paths, same bodies, same status codes, same error
-codes and messages. Freeze section 6 (host launch, attach, stop) is untouched.
+The v4 wire protocol is unchanged on every route and every refusal the protocol defines, with five
+edge-case differences the validator captured and none of which widens authority (F3; 25 of 30 raw
+captures are byte-identical). Stated exactly, because "byte-identical" was overstated:
+
+| request | base | this branch |
+|---|---|---|
+| `POST /v4/inspect?x=1` | 404 `unknown_method` | 200 |
+| `POST /v4/../v4/inspect` | 404 `unknown_method` | 200 |
+| `POST http://runner/v4/inspect` (absolute-form target) | 404 `unknown_method` | 200 |
+| headers over 4096 bytes | 431, `Connection: close`, no body | 400 with `request_limit` and a typed diagnostic |
+| two valid `Authorization` headers | 200 | 401 |
+
+The first three follow from routing on `new URL(request.url).pathname`, which normalises, where the
+base compared the raw request target; this branch's reading is the conventional HTTP one and is
+kept deliberately, but it is a change. The fourth is the header policy moving from node's parser
+into the handler, where it still runs before authentication, so nothing is bypassed; only the
+status and body changed. The fifth is stricter than the base: Bun joins duplicate header values
+with ", " where node kept the first, so a request carrying two credentials is now refused instead
+of having one of them silently chosen. Every newly accepted spelling still passes the same bearer
+check and reaches the same handler with the same validation.
+
+Freeze section 6 (host launch, attach, stop) is untouched.
 
 **Declared settings.** `eventPollTimeoutMs` default 20 000, range 100 ms – 5 min, refused by name
 as `event_poll_window`. `attachmentLeaseMs` default 30 000, must exceed the poll window and stay
 at or under 600 000, refused by name as `attachment_lease`.
 
-**One control moved rather than lost.** `node:http`'s `maxHeaderSize: 4096` becomes an explicit
-policy check in `handle`, because `Bun.serve` carries no header option; `maxConnections = 32`,
-`headersTimeout` and `requestTimeout` were duplicates of bounds `peer-gateway.py` already enforces
-on the only path an untrusted peer can reach (a 32-permit semaphore and a 360 s relay timeout), and
-the private socket stays 0600 inside an owner-only `mkdtemp` directory. Bun's unix listener accepts
-no `idleTimeout`; its type rejects the option.
+**One control moved rather than lost, and one reason corrected.** `node:http`'s
+`maxHeaderSize: 4096` becomes an explicit policy check in `handle`, because `Bun.serve` carries no
+header option, and it still runs before authentication. `maxConnections = 32` IS genuinely
+duplicated: `peer-gateway.py` holds `asyncio.Semaphore(32)` and closes a connection outright when
+it is locked, and the private socket is reachable only through that gateway and stays 0600 inside
+an owner-only `mkdtemp` directory.
+
+The earlier claim that the gateway's 360 s relay timeout duplicated `headersTimeout` was wrong, and
+the validator measured why (F4): that timeout resets on every read, so it bounds nothing about a
+slow header. The real fact is that Bun's `node:http` shim never honoured `headersTimeout: 5000` in
+the first place. Measured on a connection that sends a partial request line and then goes silent,
+both trees close it after the same ~12 s: base 12 002 ms, this branch 12 003 ms. The control was
+already inert, so removing it changed nothing measurable — which is the honest reason, not the one
+originally given. Bun's unix listener accepts no `idleTimeout`; its type rejects the option.
 
 ## Gates
 
