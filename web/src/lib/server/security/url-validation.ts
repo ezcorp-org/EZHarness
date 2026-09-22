@@ -198,10 +198,26 @@ export function loopbackProvidersBlocked(
 }
 
 /**
- * Host-gateway names container engines write into a container's `/etc/hosts`
- * so it can reach services on its host: Podman writes both, Docker Desktop
- * `host.docker.internal`. Exact names only — matched case-insensitively, with
- * a trailing root dot tolerated, never as a suffix.
+ * Host-gateway names a container engine may write into a container's
+ * `/etc/hosts` so it can reach services on its host. Exact names only —
+ * matched case-insensitively, with a trailing root dot tolerated, never as a
+ * suffix.
+ *
+ * Which engines actually write them there, as measured (not assumed):
+ *   • Podman 6.1.2 (macOS `podman machine`): writes BOTH names. Covered.
+ *   • Colima 0.10.3 (Docker 29.5.2): writes NEITHER. It answers
+ *     `host.docker.internal` / `host.lima.internal` from its DNS instead, so
+ *     this carve-out does NOT apply there — by design, see below.
+ *   • Docker Desktop: not verified.
+ *   • Linux Docker: only when started with
+ *     `--add-host=host.docker.internal:host-gateway` (or compose
+ *     `extra_hosts`), which writes the entry.
+ *
+ * An engine that answers the name from DNS is deliberately NOT covered.
+ * `.internal` is not publicly delegated, but a hostile network's resolver can
+ * still answer for it; trusting DNS here would hand that resolver the choice
+ * of target, which is the rebinding hole the DNS pin exists to close. An
+ * operator on such an engine can make the entry explicit with `extra_hosts`.
  */
 const CONTAINER_HOST_ALIASES = new Set(["host.containers.internal", "host.docker.internal"]);
 
