@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, spyOn, test } from "bun:test";
 import { generateKeyPairSync, type KeyObject } from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
@@ -194,6 +194,26 @@ describe("composeFactoryPrivateService", () => {
     });
     listeners.push(listener);
     expect(listener.url).toMatch(/^https:\/\/127\.0\.0\.1:\d+$/);
+  });
+
+  test("the request-acceptance effect is the installation's validator handler when one is composed, and W05's otherwise", async () => {
+    const commands = await import("./private-commands");
+    const seen: unknown[] = [];
+    const spy = spyOn(commands, "FactoryPrivateCommands").mockImplementation(((options: { effects: Record<string, unknown> }) => { seen.push(options.effects["request-acceptance"]); return {} as never; }) as never);
+    try {
+      const { config } = await material();
+      const db = database();
+      const composed = stores(db);
+      const acceptance = async () => null;
+      listeners.push(await composeFactoryPrivateService({ database: db, config, application: composed.application, stores: composed.stores, transitions: composed.transitions, releases, assurance, stops, acceptance }));
+      listeners.push(await composeFactoryPrivateService({ database: db, config: { ...config, privateService: { ...config.privateService, port: 0 } }, application: composed.application, stores: composed.stores, transitions: composed.transitions, releases, assurance, stops }));
+      expect(seen[0]).toBe(acceptance);
+      // Without one, the command runs W05's effect directly, as it always did.
+      expect(typeof seen[1]).toBe("function");
+      expect(seen[1]).not.toBe(acceptance);
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("the accepted signing keys are read per request, so rotating a file rotates the set", async () => {

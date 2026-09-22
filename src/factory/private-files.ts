@@ -76,6 +76,22 @@ export async function readPrivateBounded(directory: FileHandle, name: string, ma
   }
 }
 
+/**
+ * Reads one owned private regular file by path, through a private directory.
+ *
+ * The composition of `privateDirectory` and `readPrivateBounded` that most
+ * callers write by hand: the directory is proved private first, then the leaf.
+ */
+export async function readPrivateFileBounded(path: string, maximumLength: number): Promise<Uint8Array> {
+  const absolute = resolve(path);
+  const directory = await privateDirectory(dirname(absolute));
+  try {
+    return await readPrivateBounded(directory, basename(absolute), maximumLength);
+  } finally {
+    await directory.close();
+  }
+}
+
 /** Atomically replaces one bounded file in an owned private directory. */
 export async function writePrivateBoundedAtomic(path: string, bytes: Uint8Array, maximumLength: number): Promise<void> {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || !Number.isSafeInteger(maximumLength) || maximumLength < 1 || bytes.byteLength > maximumLength) throw privateError("Private file output is invalid.");

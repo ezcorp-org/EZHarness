@@ -181,6 +181,15 @@ export interface FactoryPrivateServiceCompositionOptions {
   readonly releaseProfiles?: Iterable<FactoryReleaseCommandProfile>;
   /** The host's reporter, so a refusal this service could not classify is readable. */
   readonly report?: (role: string, error: unknown) => void;
+  /**
+   * The `request-acceptance` effect, when this installation schedules validators.
+   *
+   * Absent, the command runs W05's `requestAcceptance` directly, which refuses
+   * by name when no validator evidence exists. Present, it is the handler that
+   * schedules the missing validators and lets the kernel wait while the
+   * `validator-scheduling` role delivers the decision (`validator-acceptance.ts`).
+   */
+  readonly acceptance?: FactoryPrivateCommandHandler;
 }
 
 /**
@@ -230,7 +239,7 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     approvals: new FactoryAssuranceCommands(database, config.tenantId, application.grants, stores.authority, stores.inbox, releases, service),
     effects: {
       "cancel-node": factoryCancelNodeEffect(options.stops),
-      "request-acceptance": protectedEffects.requestAcceptance,
+      "request-acceptance": options.acceptance ?? protectedEffects.requestAcceptance,
       "request-release": protectedEffects.requestRelease,
       "invalidate-partition": partitions.execute.bind(partitions),
       "notify-partition": partitions.execute.bind(partitions),

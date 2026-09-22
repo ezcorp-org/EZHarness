@@ -15,8 +15,8 @@
  * The document carries references — paths, endpoints, identities — and never a
  * credential value, matching `parseFactoryOrchestratorProcessConfig`.
  */
-import { basename, dirname, resolve } from "node:path";
-import { privateDirectory, readPrivateBounded } from "./private-files";
+import { resolve } from "node:path";
+import { readPrivateFileBounded } from "./private-files";
 
 export const FACTORY_STARTUP_CONFIG_SCHEMA = "factory.startup.v1";
 const MAX_CONFIG_BYTES = 64 * 1024;
@@ -161,7 +161,56 @@ export interface FactoryStartupConfig {
     readonly destinations: readonly FactoryStartupReleaseDestination[];
     readonly profiles: readonly FactoryStartupReleaseProfile[];
   };
+  /**
+   * The trusted validator runtimes this installation runs protected claims on.
+   *
+   * A validator runtime is a pinned deployment fact: which runner judges a
+   * claim, in which environment, under which configuration. No factory
+   * definition can state it, because a definition that named its own judge
+   * would be trusting itself. So each runtime is declared here BY REFERENCE —
+   * a private material file and the digest it must have — and the composition
+   * reads it through the private bounded reader and refuses by name when it is
+   * missing, shared, or not the bytes the operator declared.
+   *
+   * Optional. An installation that declares none cannot accept a protected
+   * claim, and its readiness says so; a default runtime would be a judge
+   * nobody chose.
+   */
+  readonly validators?: {
+    readonly runtimes: readonly FactoryStartupValidatorRuntime[];
+  };
   readonly workers?: FactoryWorkerTuning;
+}
+
+/** The runtime kinds a declared validator may name. */
+export const FACTORY_VALIDATOR_RUNTIME_KINDS = Object.freeze(["podman-guest"] as const);
+
+/**
+ * One trusted validator runtime, declared by reference.
+ *
+ * `runner` is the lock the runtime registers under: the exact runner reference
+ * a definition's claim must name, configuration digest included. The material
+ * file carries the rest of the runtime (resources, environment digest, broker
+ * audience, evidence age) and must repeat the same runner, so the document and
+ * the file cannot disagree about which judge they describe.
+ */
+export interface FactoryStartupValidatorRuntime {
+  /** This document's own handle for the runtime; it never reaches the wire. */
+  readonly name: string;
+  readonly kind: (typeof FACTORY_VALIDATOR_RUNTIME_KINDS)[number];
+  readonly runner: {
+    readonly package: string;
+    readonly manifestName: string;
+    readonly version: string;
+    readonly digest: string;
+    readonly export: string;
+    readonly configurationDigest: string;
+    readonly model?: string;
+  };
+  /** The runtime material file, by reference. Read privately, never logged. */
+  readonly materialPath: string;
+  /** `sha256:` over the material file's exact bytes. */
+  readonly materialDigest: string;
 }
 
 /**
@@ -375,13 +424,19 @@ function wellFormedKeyPaths(value: unknown): boolean {
 }
 
 /** One runner this installation dispatches to, with its allocation. */
+const SHA256_DIGEST = /^sha256:[a-f0-9]{64}$/;
+const RUNNER_KEYS = ["package", "manifestName", "version", "digest", "export"] as const;
+
+/** A pinned runner reference: exactly these keys, each a bounded string, the digest a sha256. */
+function wellFormedRunner(runner: unknown, keys: readonly string[] = RUNNER_KEYS): runner is Record<string, string> {
+  return record(runner) && exactKeys(runner, keys)
+    && keys.every((key) => typeof runner[key] === "string" && (runner[key] as string).length > 0 && (runner[key] as string).length <= 512)
+    && SHA256_DIGEST.test(runner.digest as string);
+}
+
 function wellFormedRunnerProfile(value: unknown): boolean {
   if (!record(value) || !exactKeys(value, ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
-  const runner = value.runner;
-  const runnerKeys = ["package", "manifestName", "version", "digest", "export"];
-  if (!record(runner) || !exactKeys(runner, runnerKeys)
-    || runnerKeys.some((key) => typeof runner[key] !== "string" || (runner[key] as string).length === 0 || (runner[key] as string).length > 512)
-    || !/^sha256:[a-f0-9]{64}$/.test(runner.digest as string)) return false;
+  if (!wellFormedRunner(value.runner)) return false;
   if (!wellFormed("identity", value.resourceClass)) return false;
   if (!Array.isArray(value.allowedCapabilities) || value.allowedCapabilities.length > 64
     || value.allowedCapabilities.some((capability) => !wellFormed("identity", capability))
@@ -483,10 +538,29 @@ function wellFormedResourceProfile(value: unknown): boolean {
     && Number.isSafeInteger(budget.computeMs) && (budget.computeMs as number) >= 0;
 }
 
+/**
+ * One declared validator runtime.
+ *
+ * The runner must pin a configuration digest, because `FactoryTrustedValidators`
+ * binds the runtime's configuration to the runner reference a claim names; a
+ * runner without one could not be matched to any runtime and would refuse at
+ * the first claim instead of here.
+ */
+function wellFormedValidatorRuntime(value: unknown): boolean {
+  if (!record(value) || !exactKeys(value, ["name", "kind", "runner", "materialPath", "materialDigest"])) return false;
+  const runner = value.runner;
+  const keys = record(runner) && Object.hasOwn(runner, "model") ? [...RUNNER_KEYS, "configurationDigest", "model"] : [...RUNNER_KEYS, "configurationDigest"];
+  return wellFormed("identity", value.name)
+    && (FACTORY_VALIDATOR_RUNTIME_KINDS as readonly unknown[]).includes(value.kind)
+    && wellFormedRunner(runner, keys) && SHA256_DIGEST.test(runner.configurationDigest!)
+    && wellFormed("path", value.materialPath)
+    && typeof value.materialDigest === "string" && SHA256_DIGEST.test(value.materialDigest);
+}
+
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles",
-  "release.destinations", "release.profiles",
+  "release.destinations", "release.profiles", "validators.runtimes",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
 
@@ -514,7 +588,7 @@ function leaves(value: unknown, prefix = ""): string[] {
     // — so recursing into them would name a value as a field. Each is checked
     // by shape below instead.
     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths"
-      || field === "release.destinations" || field === "release.profiles") { found.push(field); continue; }
+      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes") { found.push(field); continue; }
     found.push(...(record(nested) ? leaves(nested, field) : [field]));
   }
   return found;
@@ -643,6 +717,7 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
       if (new Set(adapters).size !== adapters.length) invalid.push("release.profiles");
     }
   }
+  invalid.push(...invalidValidatorRuntimes(value));
   if (missing.length > 0 || invalid.length > 0) throw new FactoryStartupConfigError(missing, invalid);
 
   const config = value as unknown as FactoryStartupConfig;
@@ -660,16 +735,30 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
   return Object.freeze(config);
 }
 
+/**
+ * Every problem with a present `validators` section, by field.
+ *
+ * A present section declares at least one runtime, because an empty list reads
+ * as configured while trusting nobody. Two runtimes may not share a name or a
+ * runner: the trusted set is keyed by the runner, so a second entry for one
+ * would make which material governs depend on declaration order.
+ */
+function invalidValidatorRuntimes(value: Record<string, unknown>): string[] {
+  const root = read(value, "validators");
+  // A non-record section is already named by the unknown-field scan.
+  if (!root.present || !record(root.value)) return [];
+  const runtimes = read(value, "validators.runtimes").value;
+  if (!Array.isArray(runtimes) || runtimes.length === 0 || runtimes.length > 64) return ["validators.runtimes"];
+  const invalid = runtimes.flatMap((entry, index) => wellFormedValidatorRuntime(entry) ? [] : [`validators.runtimes[${index}]`]);
+  const names = runtimes.map((entry) => (entry as { name?: unknown }).name);
+  const runners = runtimes.map((entry) => canonicalAdapter((entry as { runner?: unknown }).runner));
+  if (new Set(names).size !== names.length || new Set(runners).size !== runners.length) invalid.push("validators.runtimes");
+  return invalid;
+}
+
 /** Read the document through the private bounded reader, as the process entries do. */
 export async function loadFactoryStartupConfig(path: string): Promise<FactoryStartupConfig> {
-  const absolute = resolve(path);
-  const directory = await privateDirectory(dirname(absolute));
-  let bytes: Uint8Array;
-  try {
-    bytes = await readPrivateBounded(directory, basename(absolute), MAX_CONFIG_BYTES);
-  } finally {
-    await directory.close();
-  }
+  const bytes = await readPrivateFileBounded(path, MAX_CONFIG_BYTES);
   let parsed: unknown;
   try {
     parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));

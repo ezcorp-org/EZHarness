@@ -257,6 +257,21 @@ export class FactoryProtectedCommandEffects {
   };
 
   /**
+   * Commits the exact stopped task behind this acceptance command as the current candidate.
+   *
+   * The same re-derivation `requestAcceptance` runs first, in its own committed transaction. A
+   * protected validator can only be planned against a committed candidate, and the acceptance
+   * transaction rolls that write back while the validator's evidence is still missing, so without
+   * this no validator could ever be scheduled. Idempotent: a candidate already current returns
+   * unchanged, and acceptance later re-derives and finds it.
+   */
+  recordCurrentCandidate = async (serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference): Promise<FactoryProtectedTaskSource> => {
+    const { service, reference } = this.capture(serviceValue, referenceValue);
+    return this.database.transaction(transaction => this.authority.withCurrentAcceptanceInTransaction(transaction, service, reference,
+      (tx, context) => this.resolveCurrentCandidate(tx, service, reference, context)));
+  };
+
+  /**
    * Turns one authorized release command into exactly one release operation.
    *
    * The order is the C04 order and the freeze's: read the pinned acceptance and destination under

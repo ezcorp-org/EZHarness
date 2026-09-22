@@ -259,6 +259,21 @@ export class FactoryDefinitions {
     assertFactoryIdentity(key.projectId, key.factoryId, version);
     const snapshot = { ...key };
     await this.grants.authorizeInTransaction(transaction, principal, snapshot.projectId, "read");
+    return this.readPublishedInTransaction(transaction, snapshot, version);
+  }
+
+  /**
+   * One published version, for the installation's own trusted composition.
+   *
+   * No principal, because the caller is not acting for one: the validator
+   * material registration reads every published version to derive the lock a
+   * human later approves, and the material it writes carries no authority of
+   * its own. Every HTTP read still goes through `readVersionInTransaction`,
+   * which authorizes first and then calls this.
+   */
+  async readPublishedInTransaction(transaction: MigrationDb, key: FactoryDefinitionKey, version: string): Promise<{ version: FactoryVersion; compiled: CompiledFactory }> {
+    assertFactoryIdentity(key.projectId, key.factoryId, version);
+    const snapshot = { ...key };
     const row = await this.findVersion(transaction, snapshot, version);
     if (!row) throw new FactoryDefinitionError("factory_version_not_found");
     const bytes = await this.readCompiledBytes(snapshot, row);

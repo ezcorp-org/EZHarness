@@ -3544,3 +3544,18 @@ it is declared in `schema.ts` as `idx_factory_release_operations_identity` but t
 it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
+
+## W09d — compose validators into the installation (branch `wp/w09d-validators`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/factory-platform-evidence/w09d/`.
+
+- [ ] Reproduce at the base: a run whose graph carries an acceptance node cannot reach a validator attempt in the real application (record what refuses and where).
+- [ ] Startup document `validators.runtimes[]`: name, kind, runner lock, material path, material digest; refused by name when missing, unreadable, shared, or the digest does not match; nothing declared holds acceptance with a named reason.
+- [ ] `FactoryTrustedValidators` built from the declaration and shared by assurance, the scheduler, and the dispatch settlement.
+- [ ] Material registration through `registerMaterialInTransaction`: one pass at startup and a bounded role for later publications; idempotent across restarts; a changed runtime refuses by name.
+- [ ] `FactoryProtectedValidatorScheduler` composed as the `validator-scheduling` role over the same runner path, stores, and worker shape; readiness names it running or held.
+- [ ] Validator attempts settle through `FactoryValidatorAttemptDispatch` on the shared attempt dispatcher (routed by the durable assignment, not by a string).
+- [ ] Acceptance waits for its validators instead of failing the run: the command answers null, the role delivers the acceptance or rejection event through the inbox.
+- [ ] Public contract route composed (`createReleaseOperations`), so a contract approval can name the registered lock.
+- [ ] Proof on the real started application, three passes on fresh product databases; negative controls: undeclared validator, tampered material.
+- [ ] Tests per common.md; 100 percent coverage of new files and changed lines; PostgreSQL suites registered; gate file `tasks/factory/w09d-GATES.md`.
