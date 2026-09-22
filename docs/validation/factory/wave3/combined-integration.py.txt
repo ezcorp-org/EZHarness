@@ -4,7 +4,7 @@ root-protected-effects-parent-* runners). Usage:
   combined-integration.py --repo PATH --prefix NAME [--skip a,b] [--patch-bases sha,sha]
 Writes <evidence>/<prefix>-<check>.log, <prefix>-results.json, <prefix>-coverage-results.json."""
 from pathlib import Path
-import argparse, os, subprocess, json, fcntl, shutil, sys, datetime, glob
+import argparse, os, subprocess, json, fcntl, shutil, sys, datetime, glob, posixpath
 ap = argparse.ArgumentParser()
 ap.add_argument('--repo', required=True); ap.add_argument('--prefix', required=True)
 ap.add_argument('--skip', default=''); ap.add_argument('--patch-bases', default='644987ada,2588c9f19edcae24273f4a2049eb3ac37bd6f920')
@@ -12,8 +12,8 @@ ap.add_argument('--quality-base', default='origin/main', help='BASE_REF for crap
 a = ap.parse_args()
 root = Path('/tmp/factory-platform-evidence'); repo = Path(a.repo); P = a.prefix
 skip = set(filter(None, a.skip.split(',')))
-MEASURED = {'sdk': ['packages/@ezcorp/factory-sdk'], 'product': ['src','packages','scripts'], 'postgres': ['src','tests','packages'], 'node': ['packages/@ezcorp/factory-orchestrator','src/factory'], 'web': ['web/src'], 'pool': ['src/factory/pool','src/factory','tests/postgres'], 'compute': ['src/factory','tests/postgres'], 'provisioning': ['src/factory/provisioning','src/factory','tests/postgres'], 'python': ['src/factory/runner/python']}
-PRODUCER_CHECK = {'sdk': 'sdk-tests', 'product': 'focused', 'postgres': 'postgres', 'node': 'node-coverage', 'web': 'web-coverage', 'pool': 'pool-coverage', 'compute': 'compute-coverage', 'provisioning': 'provisioning-coverage', 'python': 'python-coverage'}
+MEASURED = {'sdk': ['packages/@ezcorp/factory-sdk'], 'product': ['src','packages','scripts'], 'postgres': ['src','tests','packages'], 'node': ['packages/@ezcorp/factory-orchestrator','src/factory'], 'web': ['web/src'], 'web-bun': ['web/src','src','packages'], 'pool': ['src/factory/pool','src/factory','tests/postgres'], 'compute': ['src/factory','tests/postgres'], 'provisioning': ['src/factory/provisioning','src/factory','tests/postgres'], 'python': ['src/factory/runner/python']}
+PRODUCER_CHECK = {'sdk': 'sdk-tests', 'product': 'focused', 'postgres': 'postgres', 'node': 'node-coverage', 'web': 'web-coverage', 'web-bun': 'web-bun-coverage', 'pool': 'pool-coverage', 'compute': 'compute-coverage', 'provisioning': 'provisioning-coverage', 'python': 'python-coverage'}
 env = os.environ.copy(); env['PATH'] = '/tmp/factory-tools/bun-1.3.14/bun-linux-x64:' + env['PATH']
 fields = dict(l.split('=', 1) for l in (root / 'postgres.env').read_text().splitlines())
 endpoint = subprocess.check_output(['podman', 'port', 'factory-platform-proof-postgres', '5432'], text=True).strip()
@@ -29,7 +29,7 @@ workflow = (repo / '.github/workflows/db-postgres.yml').read_text()
 ci_files = [l.strip() for l in workflow.splitlines() if l.strip().startswith('./tests/postgres/factory-')]
 assert len(ci_files) >= 20, ci_files
 focused = ['./src/__tests__/factory-run-lifecycle.test.ts','./src/factory/release-authority.integration.test.ts','./src/factory/executions.integration.test.ts','./src/factory/run-inputs.integration.test.ts','./src/db/migrations/add-factory-child-runs.test.ts','./src/db/migrations/bind-factory-child-definition-source.test.ts','./src/db/migrations/bind-factory-child-start-clock.test.ts','./scripts/factory-task-execution-admission-registration.test.ts','./src/db/migrations/add-factory-command-approvals.test.ts','./src/factory/release-application.test.ts','./src/factory/application.test.ts','./src/factory/private-commands.test.ts','./src/__tests__/factory-private-service.test.ts','./src/factory/validator-materials.test.ts','./src/factory/assurance.test.ts','./src/factory/releases.integration.test.ts','./src/factory/attempt-queue.integration.test.ts','./src/delivery-queue/durable-delivery-queue.test.ts','./scripts/factory-validator-materials-registration.test.ts','./src/factory/package-preparation.integration.test.ts','./src/db/migrations/add-factory-package-preparations.test.ts','./src/db/migrations/add-factory-task-outcomes.test.ts','./src/factory/artifacts.integration.test.ts','./src/factory/protected-command-provenance.test.ts','./scripts/factory-protected-command-effects-registration.test.ts','./src/db/factory-schema.test.ts','./src/__tests__/gate-scripts.test.ts']
-ALWAYS_EXTRA = ['./packages/@ezcorp/extension-runner/tests/browser.test.ts','./packages/@ezcorp/extension-runner/tests/channel-identity.test.ts','./packages/@ezcorp/extension-runner/tests/ci-conmon.test.ts','./packages/@ezcorp/extension-runner/tests/ci-delegation.test.ts','./packages/@ezcorp/extension-runner/tests/core.test.ts','./packages/@ezcorp/extension-runner/tests/dependencies.test.ts','./packages/@ezcorp/extension-runner/tests/materials.test.ts','./packages/@ezcorp/extension-runner/tests/protocol.test.ts','./packages/@ezcorp/extension-runner/tests/service.test.ts','./packages/@ezcorp/extension-runner/tests/trusted-local.test.ts','./src/extensions/__tests__/project-pull-request-transport.test.ts','./src/extensions/__tests__/github-projects-handler.test.ts','./src/extensions/__tests__/github-projects-handler.integration.test.ts','./src/extensions/__tests__/github-projects-handler-default-db.test.ts','./src/extensions/__tests__/tool-executor.github-projects-rpc.test.ts','./src/factory/release-adapters.test.ts','./src/__tests__/workflow-release-assets.test.ts','./src/__tests__/workflow-release-consent.test.ts','./src/__tests__/workflow-service-release-authority.test.ts','./src/__tests__/workflow-run-persistence.test.ts','./src/__tests__/workflow-nesting.test.ts','./src/__tests__/workflow-capability-hash.test.ts','./src/__tests__/workflow-delegation-consent.test.ts','./src/__tests__/workflow-delegation-record.test.ts','./src/__tests__/workflow-consent-reconcile.test.ts']
+ALWAYS_EXTRA = ['./packages/@ezcorp/extension-runner/tests/browser.test.ts','./packages/@ezcorp/extension-runner/tests/channel-identity.test.ts','./packages/@ezcorp/extension-runner/tests/ci-conmon.test.ts','./packages/@ezcorp/extension-runner/tests/ci-delegation.test.ts','./packages/@ezcorp/extension-runner/tests/core.test.ts','./packages/@ezcorp/extension-runner/tests/dependencies.test.ts','./packages/@ezcorp/extension-runner/tests/materials.test.ts','./packages/@ezcorp/extension-runner/tests/protocol.test.ts','./packages/@ezcorp/extension-runner/tests/service.test.ts','./packages/@ezcorp/extension-runner/tests/trusted-local.test.ts','./src/extensions/__tests__/project-pull-request-transport.test.ts','./src/extensions/__tests__/github-projects-handler.test.ts','./src/extensions/__tests__/github-projects-handler.integration.test.ts','./src/extensions/__tests__/github-projects-handler-default-db.test.ts','./src/extensions/__tests__/tool-executor.github-projects-rpc.test.ts','./src/factory/release-adapters.test.ts','./src/__tests__/workflow-release-assets.test.ts','./src/__tests__/workflow-release-consent.test.ts','./src/__tests__/workflow-service-release-authority.test.ts','./src/__tests__/workflow-run-persistence.test.ts','./src/__tests__/workflow-nesting.test.ts','./src/__tests__/workflow-capability-hash.test.ts','./src/__tests__/workflow-delegation-consent.test.ts','./src/__tests__/workflow-delegation-record.test.ts','./src/__tests__/workflow-consent-reconcile.test.ts','./src/__tests__/list-flags.test.ts','./src/__tests__/service-capabilities.test.ts','./src/extensions/v4/deliveries.test.ts','./src/__tests__/failover.test.ts','./src/__tests__/factory-service-token.test.ts']
 auto = []
 if a.auto_extra_base:
  changed = subprocess.check_output(['git','diff','--name-only','--diff-filter=AM',a.auto_extra_base,'HEAD'], cwd=repo, text=True).split()
@@ -44,6 +44,8 @@ checks = [
  ('sdk-tests', ['bun','test','--timeout','30000','--coverage','--coverage-reporter=lcov',f'--coverage-dir={cov("sdk")}','./packages/@ezcorp/factory-sdk/src']),
  ('focused', ['bun','test','--timeout','30000','--coverage','--coverage-reporter=lcov',f'--coverage-dir={cov("product")}',*focused]),
  ('web-coverage', ['bash','scripts/web-vitest-coverage.sh','--output',cov('web')]),
+ # web/ bun suites run from web/ (its bunfig and aliases); their lcov is re-rooted at the merge
+ ('web-bun-coverage', ['bash','-c','cd web && exec bun test "$@"','web-bun-coverage','--timeout','30000','--coverage','--coverage-reporter=lcov',f'--coverage-dir={cov("web-bun")}','./src/__tests__/security/bearer-auth.test.ts']),
  ('postgres', ['bun','test','--timeout','60000','--coverage','--coverage-reporter=lcov',f'--coverage-dir={cov("postgres")}',*ci_files]),
  ('types', ['bun','run','typecheck']),
  ('lint', ['bun','run','lint']),
@@ -104,13 +106,17 @@ with open('/tmp/ezcorp-validation-heavy.lock', 'w') as lock:
     r = reusable(label)
     if r: src, prior_head = r; covres['producers'].append({'producer': label, 'input': str(src), 'head': prior_head, 'reused': True, 'sourceIdenticalTo': sha, 'paths': MEASURED[label]})
    if src.exists(): shutil.copyfile(src, inputs / f'{label}.lcov')
-  web = Path(cov('web')) / 'lcov.info'
-  if not web.exists():
-   r = reusable('web')
-   if r: web, prior_head = r; covres['producers'].append({'producer': 'web-vitest', 'input': str(web), 'head': prior_head, 'reused': True, 'sourceIdenticalTo': sha, 'paths': MEASURED['web']})
-  if web.exists():
-   (inputs / 'web.lcov').write_text('\n'.join(('SF:web/' + l[3:]) if l.startswith('SF:') and not l.startswith('SF:web/') and not l.startswith('SF:/') else l for l in web.read_text().splitlines()) + '\n')
-   covres['producers'].append({'producer': 'web-vitest', 'input': str(web), 'head': sha, 'rerooted': True})
+  # web/ producers write SF paths relative to web/ (the bun leg also as ../src, ../packages):
+  # re-root them at the repository root.
+  reroot = lambda l: ('SF:' + posixpath.normpath('web/' + l[3:])) if l.startswith('SF:') and not l.startswith(('SF:web/','SF:/')) else l
+  for label, producer in [('web','web-vitest'), ('web-bun','web-bun')]:
+   src = Path(cov(label)) / 'lcov.info'; rec = {'producer': producer, 'input': str(src), 'head': sha, 'rerooted': True}
+   if not src.exists():
+    r = reusable(label)
+    if r: src, prior_head = r; rec = {'producer': producer, 'input': str(src), 'head': prior_head, 'reused': True, 'sourceIdenticalTo': sha, 'paths': MEASURED[label], 'rerooted': True}
+   if src.exists():
+    (inputs / f'{label}.lcov').write_text('\n'.join(reroot(l) for l in src.read_text().splitlines()) + '\n')
+    covres['producers'].append(rec)
   out = repo / 'coverage' / 'lcov.info'; out.parent.mkdir(exist_ok=True)
   with (root / f'{P}-coverage-merge.log').open('w') as log:
    m = subprocess.run(['bun','scripts/merge-lcov.ts',str(inputs / '*.lcov'),str(out)], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT)
