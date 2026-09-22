@@ -3073,3 +3073,93 @@ why `check-coverage.ts` reports 932 files under threshold locally while the
 diff-scoped gates both pass: the local merge is a factory-surface merge, not a
 product merge. The floor is therefore reported, not fixed, and the twelve
 functions' own contribution to it is the ten files now at exactly 100%.
+### Focused-batch cross-file isolation — wave4a (2026-09-21)
+
+Nine failures in the combined run's `focused` check, which puts 222 files in ONE `bun test`
+process. All nine pass alone. Gates: `tasks/factory/focused-batch-isolation-GATES.md`. Receipts:
+`/tmp/factory-platform-evidence/w00-focused-triage/`.
+
+- [x] Reproduced the batch at `c1377122b`: 2723 pass, 9 fail, 222 files, 599s.
+- [x] Bisected each victim against the files before it. Four leaks, each reproduced in two files.
+- [x] `src/__tests__/bundled-v4-bootstrap.test.ts` — `afterAll(() => mock.restore())` cannot undo
+      `mock.module()`. Its stub `DatabaseLifecycleRepository` persisted, so
+      `bundled-wiring-activation.test.ts` wrote no installation row and `publishExtensionGeneration`
+      refused with `generation_superseded` (3 tests). Now also calls `restoreModuleMocks()`.
+- [x] `src/__tests__/trusted-local-runner-in-process.integration.test.ts` — left the module-level
+      `hooks` and memoised `runner` of `src/extensions/trusted-local-runner.ts` set, so
+      `trusted-local-runner-wiring.test.ts` never saw the unconfigured start it walks from
+      (4 tests). Added `resetTrustedLocalRunner()` beside `configureTrustedLocalRunner`; the
+      integration suite calls it in `afterAll`, the wiring suite in its own `beforeAll`.
+- [x] `packages/@ezcorp/extension-runner/tests/provision.integration.test.ts` — asserted it owned the
+      process's first SDK bundle, which the podman suites build first through `tests/helpers.ts`
+      (1 test). The cache cannot be emptied to force ownership: a second `Bun.build()` in one
+      process really does read the wrong files, measured as `EISDIR` on four packages. The suite now
+      settles the owed build outside the spy and requires its three toolchain roots to add none.
+- [x] `src/__tests__/executor-slash-command-expansion-e2e.test.ts` plus the two shared test helpers
+      — a `mock.module("$server/…")` is permanent and freezes the specifier, so a partial factory
+      deletes the other exports for good. `installer-idempotent-local.test.ts` could not link
+      `checkProjectRole` and its whole file was lost (1 unhandled error, 16 tests never run). The
+      suite now spreads the real middleware and reverts its one override; `mock-request.ts` no
+      longer registers `$server/db/connection`; `mock-cleanup.ts` no longer re-registers `$server/*`
+      aliases, which its own SERVER_ALIAS_PREFIXES comment already says it should not.
+- [x] `src/__tests__/bundled-wiring-activation.test.ts` — a FIFTH leak, which the first one had been
+      hiding: its `beforeAll` initialises the `services` singleton of
+      `src/extensions/extension-lifecycle-service.ts` against its own PGlite and its `afterAll`
+      closes that PGlite. While `bundled-v4-bootstrap.test.ts` still leaked a stub over
+      `getExtensionLifecycle`, that call never reached the real initialisation, so the singleton
+      stayed empty and `extension-lifecycle-service-trusted-local.test.ts` built its own. Repairing
+      the stub exposed the real dependency: 4 tests failed with "PGlite is closed" and with the
+      trusted-local hooks never installed. Added `resetExtensionServices()`, which also clears the
+      recovery timers; both suites call it.
+- [x] Verified: batch green in one process (2747 pass, 0 fail, 222 files, at 78c27fec0); every
+      changed file green alone; typecheck, lint, gate-integrity and factory boundaries green.
+- [x] Sweep (coordinator's follow-up): the four other suites that register `$server/db/connection`
+      themselves, fixed the same way and each proved against `installer-idempotent-local.test.ts`,
+      the victim that reaches the alias through a web route. `phase-2b-e2e` cost it two tests;
+      `mentions-search-workflow-branch` and `mentions-search-symlink-integration` cost it its whole
+      file twice over, first on `checkProjectRole` and then on `listProjects` — each repair exposed
+      the next partial alias in the same block. `scratchpad-e2e` broke no victim and is still
+      changed, because its export set was frozen at `getDb` either way. Two pure pass-throughs were
+      deleted outright; the two genuine stubs moved onto relative paths that `restoreModuleMocks()`
+      can restore, and the middleware stub takes the spread-and-revert pattern. No assertion
+      changed. Pairs now 24 / 34 / 29 / 21 pass, 0 fail.
+- [x] Round 3, after the validator rejected the sweep and was right. The sweep moved three stubs
+      off `$server/*` aliases onto relative paths; that only works while NOTHING claims the alias,
+      and a dozen suites claim `$server/db/queries/projects`, `mockServerAlias()` included. The two
+      mentions suites now claim it again, spread and reverted, and DROP their `$server/db/schema`
+      stub outright — a route module is linked once per process, so re-registering an alias cannot
+      rebind an import already resolved, and an empty table reached a later suite's real drizzle
+      query as `Object.entries(undefined)`. Added `serverContextStub()` so a partial
+      `$lib/server/context` factory can no longer delete `getGoalHost` for whoever follows.
+      Verification replaced: every ORDERED pair among the twelve touched files, 129 of 132 green,
+      and the three red ones measured identical at the merge base c1377122b. Batch 226 files,
+      2791 pass, 0 fail.
+- [ ] Three ordered pairs stay red and are not this branch's: `scratchpad-e2e` before either
+      mentions suite, and `trusted-local-runner-wiring` before the in-process integration. They are
+      link-order conflicts between suites that share one route module or one package mock, they
+      fail identically at the merge base, and the runner's order never takes those directions.
+      Fixing them means redesigning a suite; the obvious shortcut, a private module copy, is the
+      coverage trap that the workflow-branch suite exists to avoid.
+- [ ] The per-file pool is NOT green on this host, and not because of this branch. Two runs, two
+      different untouched real-subprocess suites: `sample-loop/index.integration.test.ts` (1 test)
+      then `production-image-lifecycle-launch.integration.test.ts` (3 tests), each passing alone at
+      the same load, on a box carrying several other agents' pools at load 21 and 36. Left as
+      found: raising a timeout to make a saturated machine green is the gate-weakening CLAUDE.md
+      names. The pool still shows 27575 and 27573 passes over 1860 files with no failure in any
+      file this branch touches, and the two source files changed by addition only.
+
+Review. The five leaks are one shape: process-global state that a test file sets and does not put
+back. Two of them were stacked — the module stub that broke the activation suite was also
+suppressing a lifecycle singleton the trusted-local service suite depends on, so the batch had to be
+re-run after each repair rather than once at the end. Two are module variables (a bun module-mock registry entry, a memoised runner), one is a
+process-wide build cache that is correct in production and only wrong as a test premise, and one is
+bun's alias-mock registry, which has no unregister at all — so the only safe alias mock is one whose
+export set is complete and whose behaviour reverts. The provision suite is the one place a premise,
+not a leak, had to change: its assertion moved from "this process built once" to "these three
+toolchain roots built none", with a new assertion that the bundle really was bundled, because
+forcing the build it assumed is a measured crash. Main's `bun run test` and `test-coverage.sh` host
+pool both run one file per process, so none of these four pairs can share a process in CI today;
+the repair protects the combined runner now and CI against any future grouping.
+
+### Coordinator handoff (2026-09-22 01:10 UTC)
+See `docs/validation/factory/wave4/HANDOFF-2026-09-22.md` for branch heads, in-flight packages (W09b ready for validation; W07c and W01f awaiting verdicts; W01g and W08b in progress; wave4b combined run in progress), rulings, the ordered remaining work (W09b, W01g, W08b, W09c, second W18a pass, W14–W17, W18, W19, W20), and the environment facts.

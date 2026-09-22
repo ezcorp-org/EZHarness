@@ -16,7 +16,7 @@ import { createUser } from "../db/queries/users";
 import { getConfiguredExtensionRunner } from "../extensions/runner-connection";
 import { trustedLocalBunDigest, UNSANDBOXED_ACK_SENTENCE } from "../extensions/runner-mode";
 import { createTrustedLocalHooks } from "../extensions/trusted-local-hooks";
-import { configureTrustedLocalRunner, resolveTrustedLocalRunner } from "../extensions/trusted-local-runner";
+import { configureTrustedLocalRunner, resetTrustedLocalRunner, resolveTrustedLocalRunner } from "../extensions/trusted-local-runner";
 
 /**
  * The join the unit tests cannot make: the REAL `TrustedLocalRunner`,
@@ -59,7 +59,15 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await (await resolveTrustedLocalRunner()).close().catch(() => undefined);
+  // Tolerant of an already-reset module: the last test below puts it back
+  // itself, and this hook must close a runner that is still memoised without
+  // demanding one that is not.
+  await resolveTrustedLocalRunner().then(runner => runner.close()).catch(() => undefined);
+  // The hooks installed above and the runner memoised by the first
+  // resolution are MODULE state: they outlive this file in a pooled `bun
+  // test` process, and the next file to walk this module expects the
+  // unconfigured start a process gives it. Put it back.
+  resetTrustedLocalRunner();
   await closeTestDb();
   await rm(root, { recursive: true, force: true });
   for (const name of ENV) { const value = previous.get(name); if (value === undefined) delete process.env[name]; else process.env[name] = value; }
@@ -117,10 +125,14 @@ describe("the real TrustedLocalRunner through the host wiring", () => {
 
 describe("before the lifecycle service installs the hooks", () => {
   test("resolution refuses with runner_unconfigured rather than constructing a runner that cannot authorise", async () => {
-    // Fresh module instance: the suite above already configured and built
-    // the shared one. Import under a different specifier to get a new
-    // module-level state.
-    const fresh = await import(`../extensions/trusted-local-runner?fresh=${randomUUID()}`);
-    await expect(fresh.resolveTrustedLocalRunner()).rejects.toMatchObject({ code: "runner_unconfigured" });
+    // The suite above configured the module and built its one runner, so put
+    // the module back to a process's starting state first. A `?fresh=` copy
+    // would do the same for the assertion and cost the file its coverage:
+    // bun keeps ONE record per source path and the copy loaded LAST owns it,
+    // so every line only the canonical instance ran — the reset included —
+    // would read as a miss.
+    await (await resolveTrustedLocalRunner()).close().catch(() => undefined);
+    resetTrustedLocalRunner();
+    await expect(resolveTrustedLocalRunner()).rejects.toMatchObject({ code: "runner_unconfigured" });
   });
 });
