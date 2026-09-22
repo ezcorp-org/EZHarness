@@ -3544,3 +3544,38 @@ it is declared in `schema.ts` as `idx_factory_release_operations_identity` but t
 it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
+
+## W09c — compose the release profile set from the declaration (branch `wp/w09c-profiles`)
+
+Worktree `.worktrees/w09c-profiles` from `integ/w00` at `260855e57`. Gate file
+`tasks/factory/w09c-GATES.md`, receipts `/tmp/factory-platform-evidence/w09c/`.
+
+- [x] Reproduced at the base. With only the new lifecycle cases added, the declared S3 profile
+      composed to `[]` and `requestRelease` refused with `factory_protected_effect_untrusted`
+      (0 pass, 3 fail).
+- [x] Each declared profile is built over its destination. An `s3` destination gets
+      `S3FactoryManifestReleaseProfile` over `FactoryVerifiedAttemptMaterials` at the declared
+      cost. A `github` destination gets a W07 publication request lifted through
+      `factorySynchronousReleaseProfile`. Any other kind is refused with
+      `factory_release_profile_unbuildable`.
+- [x] The composed set reaches `FactoryProtectedCommandEffects` through the existing startup path,
+      and the startup composition now hands it the verified materials reader.
+- [x] Proof in the lifecycle suite on PGlite and on real PostgreSQL with the real ordinary store.
+      `requestRelease` prepares an operation. The running `release-outcome` role claims it on an
+      approval written through W05's writers, and the attempt's sealed members publish.
+- [x] Negative controls. A foreign account is refused at prepare with no operation. A revoked
+      policy fails the claim with reason `policy_revoked`. A rejected approval fails it with
+      reason `approval_not_approved`.
+- [x] Coverage, typecheck, lint, boundaries, and gate integrity are green, with no new source file.
+- [ ] A published release through the real started application. Blocked upstream, see Review.
+
+Review (W09c): the composition itself was small. W08b had already made the S3 profile buildable,
+and W09b had already routed the profile set to the private service. The work was mostly proof.
+The real application cannot yet reach a release node, for two reasons, and both were reported to
+the coordinator. First, acceptance is not composed: no validator runtime, no material
+registration, and no validator scheduler. W09d now owns that. Second, nothing delivers a settled
+release back to orchestration. So the end-to-end publishing proof runs in the lifecycle suite
+against real PostgreSQL and the real object store, and the three real-application passes record
+where the run stops. The S3 profile could not be lifted through `factorySynchronousReleaseProfile`,
+because listing sealed materials is I/O. It keeps W08's `resolve`, and its required `build`
+refuses by name. That is recorded as an interface note rather than changed.
