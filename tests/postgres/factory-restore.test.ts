@@ -15,6 +15,7 @@ import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import { FactoryPoolCheckpointSource, factoryDirectRestorePoolLedger } from "../../src/factory/pool/checkpoint";
 import { FactoryPoolLedger, setupFactoryPoolLedger, type PoolSql } from "../../src/factory/pool/ledger";
 import { FactoryRecords } from "../../src/factory/records";
+import { readFactoryRunAudit } from "../../src/factory/audit-archive";
 import { FactoryRestore, factoryRestoreReportDigest, runFactoryClusterRestore, S3FactoryObjectVersionProbe, type FactoryRestoreFence, type FactoryRestoreReport } from "../../src/factory/restore";
 import { FactoryRetention, factoryRetentionSubjectId } from "../../src/factory/retention";
 import { createFactoryReleaseWorld, digest, type FactoryReleaseWorld } from "../../src/__tests__/helpers/factory-release-world";
@@ -82,6 +83,14 @@ function restoreFor(db: FactoryOpenDatabase["db"], options: { masters?: MasterKe
     pool: factoryDirectRestorePoolLedger(poolSql, poolLedger),
     ...(options.temporal ? { temporal: options.temporal } : {}),
     providers: () => world.provider,
+    // The run view, rebuilt by replay before service resumes: the projector's
+    // own contract (contiguous, verified, idempotent) over the restored stream.
+    projections: {
+      async project(key) {
+        const records = new FactoryRecords(db, options.tenant ?? tenantId);
+        for (const batch of await readFactoryRunAudit(records, key)) await records.project(batch, "restore-view", (current, next) => ({ steps: [...((current as { steps?: unknown[] } | null)?.steps ?? []), next.sourceSequence] }));
+      },
+    },
   });
 }
 
@@ -191,6 +200,11 @@ describe("restore into a new execution epoch", () => {
       await expect(journal.operations(guestAuthority)).rejects.toThrow("Factory run epoch is stale or unavailable.");
       for (const check of ["schema", "database-position", "keys", "object-versions"]) expect(finding(report, "check", check)?.disposition).toBe("verified");
       expect(finding(report, "projection", canonicalJson([projectId, "run-expired"]))).toMatchObject({ disposition: "reconciled", reason: "audit_imported_from_archive" });
+      // Every projection was discarded and rebuilt by replay before service resumed.
+      expect(rows<{ run_id: string; sequence: string | number; payload: string }>(await restored.db.execute(sql`SELECT run_id, sequence, payload FROM factory_run_projections WHERE tenant_id = ${tenantId} AND consumer_id = 'restore-view' ORDER BY run_id`)).map(row => [row.run_id, Number(row.sequence), JSON.parse(row.payload)])).toEqual([
+        ["run-audit", 3, { steps: [1, 2, 3] }],
+        ["run-expired", 2, { steps: [1, 2] }],
+      ]);
       expect(finding(report, "worker", "attempt-guest")).toMatchObject({ disposition: "reconciled", reason: "physical_stop_proven" });
       expect(supervisor.stopped.map(command => command.attemptId)).toEqual(["attempt-guest"]);
       expect(report.releaseIdentities).toEqual({ archived: 2, recovered: 2, blocked: 0 });

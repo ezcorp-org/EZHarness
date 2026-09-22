@@ -1445,3 +1445,33 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   good one.
 - Bun's isolated store keeps a STALE version after a lockfile change, and an incremental `bun install --frozen-lockfile` does not remove it. After merging main's dependency bump my worktree held `zod@4.5.2` next to `zod@4.5.4`, and 25 typecheck errors appeared in a package I had never touched. I proved the SOURCE trees were byte-identical against staging and reported the red as inherited — which was wrong, because a tree diff says nothing about the installed graph. Staging, reinstalled clean, was green at the same merge base with the same SDK. After merging a dependency bump: `rm -rf node_modules web/node_modules`, reinstall both, rebuild the workspace packages, THEN judge a red.
 - Attributing a failure away from yourself needs a stronger proof than attributing one to yourself. "The files are identical" is evidence about one input; a build has several. Before telling someone a red is theirs, reproduce it somewhere they control, or rule out every input you own.
+
+## 2026-09-22 — W15 retention, checkpoints, and restore
+
+- **Bun 1.3.14's `toMatchObject` overwrites array elements matched by `expect.any(...)`.** After
+  `expect(value).toMatchObject({ a: [expect.any(Object)] })`, `value.a[0]` was `{}` — measured
+  with a one-line probe. A later read of the same array then failed far from the assertion. Assert
+  lengths or exact values instead of asymmetric matchers inside arrays.
+- **Bun 1.3.14's line coverage reports a function's LAST line as unexecuted when the next function
+  in the file never runs.** A console probe showed the statement ran three times while lcov said 0,
+  and a six-line probe reproduced it: adding an unexecuted method after an executed one zeroed the
+  executed one's last line. Rewriting the statement changes nothing; exercising the following
+  function (or placing the new function where the next one runs) does. Reproduce a coverage
+  anomaly in a probe before rewriting production code to please the gate.
+- **Measure a pause, not only a barrier.** The first barrier drained senders while product writes
+  were already paused, so every writer stalled for the full one-second drain (writer p95 1042 ms).
+  Closing effect claims first and draining while writes still flowed cut the write pause to 54 ms
+  at p95 with the same barrier length. Report the window a user feels beside the total.
+- **Read where a key actually lives before recording it.** The barrier first aborted when the
+  product database held no data-key wrap; the W09b harness showed that a real deployment keeps the
+  wrap in the orchestration process's private file, which the product process must never read. The
+  manifest now says which of the two it saw, and restore proves the key opens with the operator's
+  keys either way.
+- **A re-verification must judge the state it was given, not the state it produced.** Restore's
+  second pass compared the database with the manifest after the first pass had imported archived
+  audit, and called a correct backup incompatible. Capture the comparison input when the epoch
+  opens, before any restore write.
+- **Iterating PostgreSQL suites against a private container is still a heavy producer.** I ran
+  focused PostgreSQL and S3 suites on a private container outside the shared lock to avoid a
+  multi-hour queue. The final evidence runs under the lock; the development runs are disclosed as
+  such rather than presented as the receipts.

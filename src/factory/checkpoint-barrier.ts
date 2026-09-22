@@ -127,6 +127,10 @@ export interface FactoryProductState {
   readonly runCount: number;
   readonly releasesDigest: string;
   readonly attemptsDigest: string;
+  /** Signed physical-stop facts: which attempts a host proved stopped, by receipt digest. */
+  readonly stopsDigest: string;
+  /** Budget holds, the product half of every allocation. */
+  readonly holdsDigest: string;
   readonly objectsDigest: string;
   readonly objectCount: number;
   readonly stateDigest: string;
@@ -227,6 +231,8 @@ export async function captureFactoryProductState(database: MigrationDb, tenantId
     WHERE r.tenant_id = ${tenantId}`);
   const releases = await aggregate(sql`SELECT string_agg(concat_ws('|', project_id, operation_id, state, dispatch_generation, COALESCE(receipt_archive_json, '')), E'\\n' ORDER BY project_id, operation_id) AS body, count(*) AS count FROM factory_release_operations WHERE tenant_id = ${tenantId}`);
   const attempts = await aggregate(sql`SELECT string_agg(concat_ws('|', attempt_id, state, COALESCE(terminal_result_digest, '')), E'\\n' ORDER BY attempt_id) AS body, count(*) AS count FROM factory_attempt_launches WHERE tenant_id = ${tenantId}`);
+  const stops = await aggregate(sql`SELECT string_agg(concat_ws('|', attempt_id, state, COALESCE(stop_receipt_digest, '')), E'\\n' ORDER BY attempt_id) AS body, count(*) AS count FROM factory_task_stops WHERE tenant_id = ${tenantId}`);
+  const holds = await aggregate(sql`SELECT string_agg(concat_ws('|', project_id, run_id, reservation_id, state, amount, COALESCE(actual, ''), COALESCE(receipt_digest, '')), E'\\n' ORDER BY project_id, run_id, reservation_id) AS body, count(*) AS count FROM factory_budget_reservations WHERE tenant_id = ${tenantId}`);
   // Rebuilt as plain objects: a driver's result array carries extra properties canonical JSON refuses.
   const objects = rows<{ projectId: string; objectId: string; blobDigest: string; storageVersion: string; digest: string }>(await database.execute(sql`SELECT project_id AS "projectId", object_id AS "objectId", blob_digest AS "blobDigest", storage_version AS "storageVersion", digest FROM factory_artifacts WHERE tenant_id = ${tenantId}
     UNION ALL SELECT project_id, concat_ws('/', run_id, attempt_id, operation_id, object_name, version, chunk_index), blob_digest, storage_version, chunk_digest FROM factory_artifact_material_chunks WHERE tenant_id = ${tenantId}
@@ -234,6 +240,7 @@ export async function captureFactoryProductState(database: MigrationDb, tenantId
   const partial = {
     runsDigest: sha256Hex(runs.body ?? ""), runCount: Number(runs.count),
     releasesDigest: sha256Hex(releases.body ?? ""), attemptsDigest: sha256Hex(attempts.body ?? ""),
+    stopsDigest: sha256Hex(stops.body ?? ""), holdsDigest: sha256Hex(holds.body ?? ""),
     objectsDigest: sha256Hex(canonicalJson(objects)), objectCount: objects.length,
   };
   return { state: Object.freeze({ ...partial, stateDigest: sha256Hex(canonicalJson(partial)) }), objects };
