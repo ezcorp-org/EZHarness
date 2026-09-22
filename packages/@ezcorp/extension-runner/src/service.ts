@@ -17,6 +17,8 @@ export interface RunnerService {
   close(): Promise<void>;
   /** Worker IDs whose event stream a host holds right now. Observation only; no endpoint exposes it. */
   attachments(): string[];
+  /** Worker IDs whose event-stream poll is parked in this process right now. Observation only. */
+  eventStreams(): string[];
 }
 
 /** One parked event-stream poll answers within this window even when nothing happens. */
@@ -267,6 +269,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
         await rm(privateDirectory, { recursive: true, force: true });
       },
       attachments: () => [...sessions].filter(([, session]) => session.attached).map(([workerId]) => workerId),
+      eventStreams: () => [...sessions].filter(([, session]) => session.wake !== undefined).map(([workerId]) => workerId),
     };
   } catch (error) {
     cleanupGateway?.kill("SIGTERM");

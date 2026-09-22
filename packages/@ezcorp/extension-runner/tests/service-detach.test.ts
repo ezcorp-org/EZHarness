@@ -74,6 +74,19 @@ function call(socketPath: string, path: string, data: unknown, headers: Record<s
   });
 }
 
+/**
+ * Open a /v4/events poll and hand it back only once the SERVICE reports the
+ * poll parked. The write callback below fires when the bytes leave the client,
+ * which is not the same thing: a drop issued before the request reaches the
+ * handler installs no abort listener, so nothing could release the attachment
+ * and the case would hang rather than test anything.
+ */
+async function openParkedEventStream(harness: Harness, workerId: string): Promise<ClientRequest> {
+  const poll = await openEventStream(harness.socketPath, workerId);
+  await until(() => harness.service.eventStreams().includes(workerId));
+  return poll;
+}
+
 /** Open a /v4/events poll and hand back the request once its bytes left the client. */
 function openEventStream(socketPath: string, workerId: string): Promise<ClientRequest> {
   return new Promise(resolve => {
@@ -116,7 +129,7 @@ test("every host disconnect form releases the worker attachment and a replacemen
       await startAndAttach(harness, "worker");
       expect(harness.service.attachments()).toEqual(["worker"]);
 
-      const poll = await openEventStream(harness.socketPath, "worker");
+      const poll = await openParkedEventStream(harness, "worker");
       dropEventStream(poll, drop);
       await until(() => harness.service.attachments().length === 0);
 
@@ -140,7 +153,7 @@ test("a dropped connection releases the attachment from the runtime's own signal
     // never how fast the box answered.
     expect((await call(harness.socketPath, "/v4/attach", { workerId: "worker" })).status).toBe(400);
 
-    const poll = await openEventStream(harness.socketPath, "worker");
+    const poll = await openParkedEventStream(harness, "worker");
     dropEventStream(poll, "request.destroy");
     await until(() => harness.service.attachments().length === 0);
     expect(harness.service.attachments()).toEqual([]);
@@ -154,7 +167,7 @@ test("a host that half-closes and stops collecting is released within one attach
   const harness = await startHarness({ attachmentLeaseMs: LEASE_MS });
   try {
     await startAndAttach(harness, "worker");
-    const poll = await openEventStream(harness.socketPath, "worker");
+    const poll = await openParkedEventStream(harness, "worker");
     dropEventStream(poll, "socket.end");
     await until(() => harness.service.attachments().length === 0);
     expect(harness.service.attachments()).toEqual([]);
@@ -171,7 +184,7 @@ test("one host's disconnect never releases another worker's attachment", async (
     await startAndAttach(harness, "staying");
     expect(harness.service.attachments().sort()).toEqual(["leaving", "staying"]);
 
-    const leaving = await openEventStream(harness.socketPath, "leaving");
+    const leaving = await openParkedEventStream(harness, "leaving");
     const staying = call(harness.socketPath, "/v4/events", { workerId: "staying" });
     dropEventStream(leaving, "request.destroy");
     await until(() => !harness.service.attachments().includes("leaving"));
@@ -193,7 +206,7 @@ test("a process whose hosts all disconnect holds no attachment afterwards", asyn
     for (const workerId of workers) await startAndAttach(harness, workerId);
     expect(harness.service.attachments().sort()).toEqual([...workers].sort());
 
-    const polls = await Promise.all(workers.map(workerId => openEventStream(harness.socketPath, workerId)));
+    const polls = await Promise.all(workers.map(workerId => openParkedEventStream(harness, workerId)));
     for (const [index, poll] of polls.entries()) dropEventStream(poll, DROPS[index % DROPS.length]!);
     await until(() => harness.service.attachments().length === 0);
 
@@ -207,7 +220,7 @@ test("a released attachment keeps every queued reverse call and notification for
   const harness = await startHarness();
   try {
     await startAndAttach(harness, "worker");
-    const poll = await openEventStream(harness.socketPath, "worker");
+    const poll = await openParkedEventStream(harness, "worker");
     dropEventStream(poll, "socket.destroy");
     await until(() => harness.service.attachments().length === 0);
 
