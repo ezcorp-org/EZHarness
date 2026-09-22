@@ -1,4 +1,5 @@
 import {
+  isFactoryGuestMaterialFrame,
   validateFactoryGuestMaterialRequest,
   type FactoryArtifactReference,
   type FactoryGuestMaterialRefusal,
@@ -68,20 +69,6 @@ export interface FactoryGuestMaterialBrokerOptions {
 }
 
 type FactoryGuestMaterialFrameIdentity = Pick<FactoryGuestMaterialRequest, "operationId" | "operationIndex" | "objectName" | "version">;
-
-const FRAME_VERSIONS: ReadonlySet<string> = new Set([
-  "factory.guest-material-begin.v1",
-  "factory.guest-material-chunk.v1",
-  "factory.guest-material-seal.v1",
-  "factory.guest-material-output.v1",
-]);
-
-/** True for the four payload shapes this broker answers itself. */
-export function isFactoryGuestMaterialPayload(payload: unknown): boolean {
-  return !!payload && typeof payload === "object" && !Array.isArray(payload)
-    && typeof (payload as { schemaVersion?: unknown }).schemaVersion === "string"
-    && FRAME_VERSIONS.has((payload as { schemaVersion: string }).schemaVersion);
-}
 
 /**
  * Every refusal the material service can raise, named for the guest.
@@ -289,7 +276,7 @@ export function createFactoryGuestMaterialBroker(options: FactoryGuestMaterialBr
   const frames = createFactoryGuestMaterialFrameBroker(options);
   return Object.freeze({
     async invoke(request: FactoryRunnerRequest, payload: unknown): Promise<unknown> {
-      if (isFactoryGuestMaterialPayload(payload)) return frames.frame(factoryRunnerRequestAuthority(request), payload);
+      if (isFactoryGuestMaterialFrame(payload)) return frames.frame(factoryRunnerRequestAuthority(request), payload);
       if (options.delegate) return options.delegate.invoke(request, payload);
       throw new FactoryGuestFrameError("frame_invalid", "Factory guest reverse payload is not a staging frame and this broker has no other route.");
     },

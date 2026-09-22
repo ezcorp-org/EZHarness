@@ -4,7 +4,11 @@ import { validateExpression } from "./expressions.js";
 import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryGuestMaterialRequest, isFactoryGuestMaterialResponse, isFactoryGuestModelRequest, isFactoryGuestModelResponse, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
 import {
   FACTORY_LAZY_INPUT_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_BEGIN_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_CHUNK_SCHEMA_VERSION,
   FACTORY_GUEST_MATERIAL_LIMITS,
+  FACTORY_GUEST_MATERIAL_OUTPUT_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_SEAL_SCHEMA_VERSION,
   FACTORY_GUEST_MODEL_LIMITS,
   FACTORY_LIMITS,
   type FactoryGuestMaterialIdentity,
@@ -1019,6 +1023,26 @@ function validMaterialIdentity(value: FactoryGuestMaterialIdentity): ValidationR
   if (!validObjectName(value.objectName)) return issue("GUEST_MATERIAL_NAME", "A material object name is a bounded relative path.", ["objectName"]);
   if (!safeCounter(value.version, 1)) return issue("GUEST_MATERIAL_VERSION", "A material version starts at 1 and counts up.", ["version"]);
   return { ok: true };
+}
+
+const GUEST_MATERIAL_FRAME_VERSIONS: ReadonlySet<string> = new Set([
+  FACTORY_GUEST_MATERIAL_BEGIN_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_CHUNK_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_SEAL_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_OUTPUT_SCHEMA_VERSION,
+]);
+
+/**
+ * True when a reverse payload names one of the four staging frames.
+ *
+ * This routes a payload; it does not accept one. A payload it selects is still
+ * checked by {@link validateFactoryGuestMaterialRequest}. It lives beside that
+ * validator so a runner host can route a frame without loading any product
+ * module.
+ */
+export function isFactoryGuestMaterialFrame(payload: unknown): boolean {
+  return typeof payload === "object" && payload !== null && !Array.isArray(payload)
+    && GUEST_MATERIAL_FRAME_VERSIONS.has((payload as { schemaVersion?: unknown }).schemaVersion as string);
 }
 
 /**

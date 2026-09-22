@@ -5,7 +5,7 @@ import { sha256Hex } from "./canonical";
 import { encodeFactoryPageBase64, FACTORY_PAGE_BYTES_LIMIT } from "./page-bytes";
 import { isFactoryGuestMaterialRequest, isFactoryGuestMaterialResponse } from "./schema";
 import { FACTORY_GUEST_MATERIAL_LIMITS } from "./types";
-import { validateFactoryGuestMaterialRequest, validateFactoryGuestMaterialResponse } from "./validation";
+import { isFactoryGuestMaterialFrame, validateFactoryGuestMaterialRequest, validateFactoryGuestMaterialResponse } from "./validation";
 
 /**
  * The staging frame contract, from the side that has to refuse a bad one.
@@ -160,4 +160,22 @@ test("the built barrel exports the frame bounds, both guards, and both validator
   }
   expect((built.factoryGuestMaterialRequestJsonSchema as { $id?: string }).$id).toBe("urn:ezcorp:factory:guest-material-request:v1");
   expect((built.factoryGuestMaterialResponseJsonSchema as { $id?: string }).$id).toBe("urn:ezcorp:factory:guest-material-response:v1");
+});
+
+test("a host routes by frame name alone, and the four staging frames are the only names it routes", () => {
+  for (const frame of [begin(), chunk(), seal(), output()]) expect(isFactoryGuestMaterialFrame(frame)).toBe(true);
+  // Routing is not acceptance: a frame that names a staging version but breaks
+  // its schema is still routed here, and refused by the validator after.
+  expect(isFactoryGuestMaterialFrame({ schemaVersion: "factory.guest-material-seal.v1" })).toBe(true);
+  expect(code({ schemaVersion: "factory.guest-material-seal.v1" })).toBe("GUEST_MATERIAL_SCHEMA");
+  // A model request and every non-frame keep their own route.
+  for (const other of [
+    { schemaVersion: "factory.guest-model-request.v1" },
+    { schemaVersion: "factory.guest-material-response.v1" },
+    { schemaVersion: 1 },
+    {},
+    [seal()],
+    null,
+    "factory.guest-material-seal.v1",
+  ]) expect(isFactoryGuestMaterialFrame(other)).toBe(false);
 });

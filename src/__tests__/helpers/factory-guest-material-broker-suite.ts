@@ -22,7 +22,6 @@ import {
   FACTORY_GUEST_MATERIAL_REFUSALS,
   createFactoryCandidateOutputWriter,
   createFactoryGuestMaterialBroker,
-  isFactoryGuestMaterialPayload,
 } from "../../factory/runner/guest-material-broker";
 import type { FactoryGuestBroker } from "../../factory/runner/guest-model-broker";
 
@@ -435,10 +434,9 @@ test("a payload that is not a staging frame goes to the delegate, or is refused 
   expect(await delegating.invoke(request, { schemaVersion: "factory.guest-model-request.v1", operationId })).toEqual({ accepted: true });
   expect(seen).toHaveLength(1);
   // The staging frames still go to this broker, not to the delegate.
-  expect(isFactoryGuestMaterialPayload({ schemaVersion: "factory.guest-material-seal.v1" })).toBe(true);
-  expect(isFactoryGuestMaterialPayload({ schemaVersion: "factory.guest-model-request.v1" })).toBe(false);
-  expect(isFactoryGuestMaterialPayload(null)).toBe(false);
-  expect(isFactoryGuestMaterialPayload([{ schemaVersion: "factory.guest-material-seal.v1" }])).toBe(false);
+  // Even a malformed one: it is refused here by name, never handed onward.
+  expect(await delegating.invoke(request, { schemaVersion: "factory.guest-material-seal.v1", operationId })).toMatchObject({ status: "refused", refusal: { code: "invalid_request" } });
+  expect(seen).toHaveLength(1);
 
   const alone = fixture.broker();
   await expect(alone.invoke(request, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toThrow("has no other route");
