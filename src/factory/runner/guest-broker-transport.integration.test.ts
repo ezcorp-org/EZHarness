@@ -2,7 +2,7 @@ import { afterAll, expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { canonicalizeJson, sha256Hex, type FactoryRunnerRequest, type JsonValue } from "@ezcorp/factory-sdk";
 import { createFactoryGuestStaging, FactoryGuestMaterialError } from "@ezcorp/factory-sdk/guest-materials";
@@ -15,9 +15,10 @@ import { signFactoryAttemptToken } from "../attempt-token";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../executions";
 import { startFactoryPrivateHttps } from "../private-https";
 import { factoryRunnerRequestAuthority } from "./attempt-authority";
-import { createFactoryDeclaredGuestBrokerClient, createFactoryGuestBrokerClient } from "./guest-broker-client";
+import { createFactoryGuestBrokerClient } from "./guest-broker-client";
 import { FACTORY_GUEST_BROKER_PATH, createFactoryGuestBrokerRouteHandler } from "./guest-broker-service";
 import { createFactoryCandidateOutputWriter, createFactoryGuestMaterialFrameBroker } from "./guest-material-broker";
+import { createFactoryConfiguredGuestBroker } from "./supervisor-process";
 
 /**
  * The byte path a sandboxed guest actually has, end to end over mutual TLS.
@@ -221,44 +222,18 @@ test("an answer the product could not have produced is refused rather than hande
   await expect(other.invoke(fixture.request, frame)).rejects.toThrow("not JSON");
 }, 120_000);
 
-test("a declared broker resolves on first use, so a host may bind before the route exists", async () => {
+test("a supervisor configured with a guest broker forwards staging frames and still refuses a model call by name", async () => {
   const fixture = await setup();
-  const declaration = join(await mkdtemp(join(tmpdir(), "factory-guest-broker-declaration-")), "guest-broker.json");
-  directories.push(dirname(declaration));
-  const host = createFactoryDeclaredGuestBrokerClient(declaration);
-  const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "declared.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 4, chunkCount: 1 };
-
-  // Nothing declared yet: refused by name on the call that needed it, which is
-  // the answer a guest can act on.
-  await expect(host.invoke(fixture.request, frame)).rejects.toThrow("declares no guest broker");
-
-  // Written afterwards, and the SAME client now reaches it. A cached failure
-  // would have made start order part of the contract.
-  await writeFile(declaration, JSON.stringify({ baseUrl: fixture.service.url, serverName: "localhost", tls: fixture.paths }), { mode: 0o600 });
-  expect(await host.invoke(fixture.request, frame)).toMatchObject({ status: "begun", objectName: "declared.bin" });
-  // Resolved once: the second call reuses the transport rather than re-reading.
-  expect(await host.invoke(fixture.request, frame)).toMatchObject({ status: "begun" });
-
-  // A declaration that is not one is refused by name rather than half-built.
-  const broken = join(dirname(declaration), "broken.json");
-  await writeFile(broken, "{not json", { mode: 0o600 });
-  await expect(createFactoryDeclaredGuestBrokerClient(broken).invoke(fixture.request, frame)).rejects.toThrow("is not JSON");
-  const partial = join(dirname(declaration), "partial.json");
-  await writeFile(partial, JSON.stringify({ baseUrl: fixture.service.url }), { mode: 0o600 });
-  await expect(createFactoryDeclaredGuestBrokerClient(partial).invoke(fixture.request, frame)).rejects.toThrow("names no endpoint and credential paths");
-  const emptyTls = join(dirname(declaration), "empty-tls.json");
-  await writeFile(emptyTls, JSON.stringify({ baseUrl: fixture.service.url, tls: { caPath: 1 } }), { mode: 0o600 });
-  await expect(createFactoryDeclaredGuestBrokerClient(emptyTls).invoke(fixture.request, frame)).rejects.toThrow("names no endpoint and credential paths");
-
-  // A payload that is not a staging frame still goes to the delegate without
-  // resolving anything at all.
-  const seen: unknown[] = [];
-  const delegating = createFactoryDeclaredGuestBrokerClient(broken, { delegate: { invoke: async (_request: FactoryRunnerRequest, payload: unknown) => { seen.push(payload); return { accepted: true }; } } });
-  expect(await delegating.invoke(fixture.request, { schemaVersion: "factory.guest-model-request.v1" })).toEqual({ accepted: true });
-  expect(seen).toHaveLength(1);
-
-  // And a declared client whose declaration names a delegate route still
-  // carries that delegate once it resolves.
-  const withDelegate = createFactoryDeclaredGuestBrokerClient(declaration, { delegate: { invoke: async () => ({ accepted: "delegated" }) } });
-  expect(await withDelegate.invoke(fixture.request, { schemaVersion: "factory.guest-model-request.v1" })).toEqual({ accepted: "delegated" });
+  const { caPath, certificatePath, privateKeyPath, serviceTokenPath } = fixture.paths;
+  // Exactly the section a supervisor document carries: a base URL and paths.
+  const host = await createFactoryConfiguredGuestBroker({ baseUrl: fixture.service.url, serviceTokenPath, tls: { caPath, certificatePath, privateKeyPath } });
+  const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "configured.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 4, chunkCount: 1 };
+  expect(await host.invoke(fixture.request, frame)).toMatchObject({ status: "begun", objectName: "configured.bin" });
+  // No route serves a model request yet, so it keeps the host's default answer
+  // rather than reaching a route that would not know it.
+  await expect(host.invoke(fixture.request, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable" });
+  // A section whose credential file is missing fails when the host composes,
+  // before its listener binds, not on a guest's first frame.
+  await expect(createFactoryConfiguredGuestBroker({ baseUrl: fixture.service.url, serviceTokenPath: `${serviceTokenPath}.missing`, tls: { caPath, certificatePath, privateKeyPath } }))
+    .rejects.toThrow();
 }, 120_000);
