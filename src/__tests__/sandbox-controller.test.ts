@@ -144,11 +144,19 @@ test("renews an active method claim through its database heartbeat", async () =>
   });
   const read = await context.controller.admitSandboxMethod(context.owner.id, create.projectId, { group: "sandbox.files.v1", operation: "read", idempotencyKey: "heartbeat-claim", payload: { path: "/a", offsetBytes: 0, lengthBytes: 1 } });
   const originalSetInterval = globalThis.setInterval;
+  const originalClearInterval = globalThis.clearInterval;
   let heartbeat: (() => void) | undefined;
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  let heartbeatTimerCleared = false;
   globalThis.setInterval = ((callback: (...args: unknown[]) => void, _delay?: number, ...args: unknown[]) => {
     heartbeat = () => callback(...args);
-    return originalSetInterval(() => undefined, 60_000);
+    heartbeatTimer = originalSetInterval(() => undefined, 60_000);
+    return heartbeatTimer;
   }) as typeof setInterval;
+  globalThis.clearInterval = ((timer: Parameters<typeof clearInterval>[0]) => {
+    if (timer === heartbeatTimer) heartbeatTimerCleared = true;
+    return originalClearInterval(timer);
+  }) as typeof clearInterval;
   const executing = context.controller.executeAdmittedSandboxMethod(context.owner.id, read.id);
   try {
     await entered.promise;
@@ -161,10 +169,14 @@ test("renews an active method claim through its database heartbeat", async () =>
       WHERE id=${read.id}
     `) as { rows: Array<{ valid: boolean }> };
     expect(renewed.rows[0]?.valid).toBe(true);
+    release.resolve();
+    await executing;
+    expect(heartbeatTimerCleared).toBe(true);
   } finally {
     release.resolve();
     await executing.catch(() => undefined);
     globalThis.setInterval = originalSetInterval;
+    globalThis.clearInterval = originalClearInterval;
   }
 });
 
