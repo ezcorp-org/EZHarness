@@ -1,0 +1,35 @@
+=== W09b merge real-server pass ===
+lock acquired: 2026-09-22T17:00:28Z
+tree: bcd97df484375880035fb7d668c6d297a03350c5 + staged merge of 18c00c907cb497b61adc134d347254045efcd8c0
+shared store check: ok
+--- START web build 2026-09-22T17:00:28Z
+--- END   web build 2026-09-22T17:01:07Z exit=0
+--- START real-server pass 2026-09-22T17:01:07Z
+--- END   real-server pass 2026-09-22T17:01:47Z exit=0
+{
+  "outcome": "passed",
+  "failure": null,
+  "exitCode": 0,
+  "recordFresh": true,
+  "readyStatus": 200,
+  "rolesRunningCount": 9,
+  "rolesRunning": [
+    "compute-admission-dispatch",
+    "compute-admission-poll",
+    "attempt-dispatch",
+    "run-projection",
+    "notification-inbox-delivery",
+    "child-settlement",
+    "release-outcome",
+    "usage-reconciliation",
+    "stop-settlement"
+  ],
+  "rolesHeld": [
+    {
+      "role": "notification-send",
+      "workPackage": "W17"
+    }
+  ],
+  "orchestrationLifecycle": "ready"
+}
+ALL DONE outcome=passed 2026-09-22T17:01:47Z

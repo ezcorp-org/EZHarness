@@ -1,0 +1,18 @@
+=== W09b merge heavy batch A ===
+lock acquired: 2026-09-22T16:53:50Z
+tree: bcd97df484375880035fb7d668c6d297a03350c5 + staged merge of 18c00c907cb497b61adc134d347254045efcd8c0
+dirty: 90 path(s) (the staged merge)
+--- START postgres-producers 2026-09-22T16:53:50Z
+--- END   postgres-producers 2026-09-22T16:54:36Z exit=0
+--- START podman-suites 2026-09-22T16:54:36Z
+--- END   podman-suites 2026-09-22T16:54:53Z exit=0
+--- per-file results ---
+  pg  ./tests/postgres/factory-boot.test.ts|0| 1 pass  0 fail 
+  pg  ./tests/postgres/factory-schema.test.ts|0| 2 pass  0 fail 
+  pg  ./tests/postgres/factory-private-service.test.ts|0| 5 pass  0 fail 
+  pg  ./tests/postgres/factory-migration-restart.test.ts|0| 15 pass  0 fail 
+  pg  ./tests/postgres/factory-tenant-projects.test.ts|0| 5 pass  0 fail 
+  pg  ./tests/postgres/factory-host-launch.test.ts|0| 1 pass  0 fail 
+  pod ./src/factory/runner/attempt-runtime.integration.test.ts|0| 7 pass  0 fail 
+  pod ./src/factory/runner/supervisor-process.podman.integration.test.ts|0| 3 pass  0 fail 
+ALL DONE heavy_batch_status=0 2026-09-22T16:54:53Z
