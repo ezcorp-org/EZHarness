@@ -74,6 +74,36 @@ export function mockServerAlias() {
 }
 
 /**
+ * Every export of `web/src/lib/server/context.ts`, inert, with the suite's own
+ * overrides applied on top.
+ *
+ * That module cannot be loaded from a `bun:test` under `src/` — its whole
+ * import graph is `$server/*` and `$lib/*` — so a suite that needs a route's
+ * context has to stub the alias outright. A `$lib/*` registration is
+ * PERMANENT and its factory DEFINES the export set for the rest of the
+ * process, so a partial stub does not shadow the other exports, it deletes
+ * them: the next suite whose route imports `getGoalHost` cannot link, and
+ * bun reports one unhandled error where a whole test file used to be.
+ * Measured on `executor-slash-command-expansion-e2e.test.ts` behind either
+ * mentions suite. Spread this and override what the suite actually drives;
+ * keep it in step with the real module's export list.
+ */
+export function serverContextStub(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ensureInitialized: async () => {},
+    getExecutor: () => ({ listAgents: () => [] }),
+    getWorkflowExecutor: () => ({}),
+    getBus: () => ({ emit: () => {}, on: () => () => {} }),
+    getCommandRegistry: () => ({ listCommands: () => [] }),
+    getGoalHost: () => null,
+    getWorkflows: () => [],
+    getCachedWorkflows: () => [],
+    reloadWorkflows: async () => {},
+    ...overrides,
+  };
+}
+
+/**
  * Additional $server alias mocks for MCP handlers, including a stub
  * replacement for `$server/mcp/client` so route tests don't spawn real
  * MCP processes.

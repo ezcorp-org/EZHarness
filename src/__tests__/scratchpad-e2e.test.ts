@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { restoreModuleMocks, unavailableWorkflowAccess } from "./helpers/mock-cleanup";
+import { serverContextStub } from "./helpers/mock-request";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "./helpers/test-pglite";
 
 mockDbConnection();
 
 mock.module("$lib/server/workflow-access", unavailableWorkflowAccess);
 
-mock.module("$lib/server/context", () => ({
+mock.module("$lib/server/context", () => serverContextStub({
   getExecutor: () => ({ listAgents: () => [] }),
   getBus: () => ({ emit: () => {}, on: () => () => {} }),
   getCommandRegistry: () => ({ listCommands: async () => [] }),
