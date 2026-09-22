@@ -27,6 +27,9 @@ import { join } from "node:path";
 
 const ROOT = join(import.meta.dir, "..", "..");
 const SCRIPT = join(ROOT, "scripts", "prune-images.sh");
+const BASH = Bun.which("bash") ?? (() => {
+  throw new Error("prune-images tests require bash on PATH");
+})();
 const SANDBOX = mkdtempSync(join(tmpdir(), "prune-images-"));
 const CALLS = join(SANDBOX, "calls.log");
 afterAll(() => rmSync(SANDBOX, { recursive: true, force: true }));
@@ -43,10 +46,10 @@ const FILTER = `label=org.opencontainers.image.title=${TITLE}`;
 function run(args: string[], images: string) {
   rmSync(CALLS, { force: true });
   const proc = Bun.spawnSync({
-    cmd: ["/bin/bash", SCRIPT, ...args],
+    cmd: [BASH, SCRIPT, ...args],
     // Hermetic: pin the engine (a CI runner has a real /usr/bin/docker and the
     // resolver's CI rule would otherwise choose it) and carry no CI variable.
-    env: { PATH: `${SANDBOX}:/usr/bin:/bin`, EZCORP_CONTAINER_ENGINE: "podman", STUB_IMAGES: images },
+    env: { PATH: `${SANDBOX}:${process.env.PATH}`, EZCORP_CONTAINER_ENGINE: "podman", STUB_IMAGES: images },
     stdout: "pipe",
     stderr: "pipe",
   });
