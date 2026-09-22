@@ -15,13 +15,19 @@ prints a credential.
 | Self-hosted Compose | `deploy/factory/compose/installation.yml` and `platform.yml` on rootless Podman, and the supervisor as a host systemd unit | Ten installations provisioned and ready, end to end |
 | Hosted Kubernetes | `src/factory/provisioning/kubernetes-profile.ts` renders the manifests | Manifests validated, and admitted by a local kind cluster only. Not a hosted pass |
 
-The hosted profile has two named gaps. The product reads the supervisor's
+The hosted profile has four named gaps. The product reads the supervisor's
 readiness from a file, and a `restricted` tenant namespace cannot mount the
 host path the supervisor DaemonSet writes to (`hosted-supervisor-readiness`).
 The startup document names the supervisor's host services at `127.0.0.1`, and a
 DaemonSet on host networking is at the node address (`hosted-supervisor-address`).
-Both need a change to the product's readiness and startup surfaces. The gate
-file `tasks/factory/w16-GATES.md` tracks them.
+Both need a change to the product's readiness and startup surfaces. The
+ingress sets the installation and proof headers through the
+`configuration-snippet` annotation, which ingress-nginx 1.9 and later disables
+by default; with it disabled, every request is refused 421
+(`hosted-ingress-snippet`). The supervisor DaemonSet holds one fleet-wide host
+identity, where Compose gives each installation its own host key
+(`hosted-host-identity-shared`). The gate file `tasks/factory/w16-GATES.md`
+tracks all four.
 
 ## Prerequisites
 
@@ -94,8 +100,20 @@ decodes from one.
 bun scripts/factory-fleet-init-local.ts --fleet w16 --root $HOME/.ezcorp-factory-w16 \
   --image localhost/ezcorp-factory@sha256:<digest> --revision <40-hex> --port-base 31000
 bun scripts/factory-fleet.ts $HOME/.ezcorp-factory-w16/fleet.json platform
-bun scripts/factory-fleet.ts $HOME/.ezcorp-factory-w16/fleet.json provision tenant-01
+bun scripts/factory-fleet.ts $HOME/.ezcorp-factory-w16/fleet.json provision tenant-01 --admin-email person@example.com
 ```
+
+Without `--admin-email`, the invitation names `admin@<hostname>`. Every
+mutating command is recorded on the ledger with who asked for it:
+`cli:<account>` from the command line, `operator:<certificate name>` from the
+control plane. The control plane runs at most three tenant operations at once
+and answers 429 beyond that.
+
+A seeded object store names its buckets for the tenant alone. Step 2 therefore
+claims each store bucket for its fleet, as a NOLOGIN role in the database
+cluster, and refuses a bucket that another fleet holds. The claim stays after
+purge, because purge keeps the store's objects. Drop the role only after the
+store's own operator has emptied the bucket.
 
 The seven steps run in order. Each one is idempotent by tenant and records its
 owner, attempts, resources (references only), and failure on the ledger.
@@ -118,10 +136,28 @@ installation before `invitation_issued` serves no traffic: its route answers
 
 ### First administrator and bootstrap
 
-1. Deliver the invitation in `<operator root>/<tenant>/first-admin-invitation.json` to the invited person.
+1. Deliver the invitation in `<operator root>/<tenant>/first-admin-invitation.json` to the invited person. The harness reads its own copy from its delivery directory, so `rotate <tenant> invitation` takes effect without a restart.
 2. The person completes first-run setup with that token (`POST /api/auth/setup` with `invitationToken`). Setup refuses any other email and any other token.
 3. The person signs in, creates the bootstrap project, and sends the exact consent sentence to `POST /api/installation/bootstrap`. This one transaction writes the approve, trust, and release grants, the consent record, and the audit entry.
 4. The operator records the observation: `bun scripts/factory-fleet.ts <fleet.json> observe tenant-01`.
+
+If setup created the administrator but failed before it recorded the
+redemption, setup refuses a second run. The consent in step 3 then records the
+redemption itself, in the same transaction. It does this only for the
+installation's sole user, an administrator with the invited email, while the
+invitation is still valid.
+
+### Trusted ingress
+
+The ingress sets two headers on every request it forwards and overwrites what a
+client sent: the installation ID and a per-installation ingress proof. The
+harness answers only a request whose Host, installation ID, and proof all
+match, and refuses anything else with 421. The proof is a secret that only the
+ingress and that harness hold, so a local process that reaches the harness's
+loopback port cannot pose as the ingress. The ingress certificate authority's
+key is kept outside the directory the ingress container mounts. The Kubernetes profile does not use the proof: its
+NetworkPolicy admits only the ingress controller to the harness, and an
+annotation would publish the proof to anyone who can read the Ingress.
 
 ## Recovery
 
@@ -141,8 +177,19 @@ uncertain work. Purge refuses until that work is closed.
 ## Rotation and revocation
 
 ```sh
-bun scripts/factory-fleet.ts <fleet.json> rotate tenant-01 database     # or temporal, secrets, invitation
+bun scripts/factory-fleet.ts <fleet.json> rotate tenant-01 database     # or temporal, secrets, deployment, invitation
 ```
+
+Two credentials expire and must be rotated before their deadline:
+
+| Credential | Lifetime | Command | Where the deadline is |
+| --- | --- | --- | --- |
+| Service tokens and mesh leaf certificates | 30 days | `rotate <tenant> deployment` | `meshTokensExpireAtMs` on step 5 in `status <tenant>` |
+| Temporal namespace token | 30 days | `rotate <tenant> temporal` | the token's `exp`; rotate with the mesh |
+
+Only a complete step rotates. A rotation that fails is recorded as
+`step.rotation_failed` and leaves the previous credential in force. A database
+or Temporal rotation interrupted by a crash is finished by the next run.
 
 Each rotation proves that the superseded credential no longer works before it
 returns, then re-delivers the new one and restarts the services onto it. The
@@ -155,8 +202,14 @@ authority over them, and teardown records this as the named residue
 ```sh
 bun scripts/factory-fleet.ts <fleet.json> upgrade register <build> <image@sha256:...> <revision> <release directory>
 bun scripts/factory-fleet.ts <fleet.json> upgrade wave <build> --canary tenant-01 tenant-01 tenant-02 ...
+bun scripts/factory-fleet.ts <fleet.json> upgrade abandon <wave>
 bun scripts/factory-fleet.ts <fleet.json> upgrade retire
 ```
+
+One wave runs at a time. A wave that fails for any reason is recorded
+`stopped`. `upgrade abandon` clears a wave left `running` by a process that
+crashed. A wave takes each installation's provisioning lock and skips an
+installation that does not serve traffic.
 
 A wave upgrades its canary alone first. In each installation the order is
 fixed: the host components (supervisor and pool), then the orchestrator, then
@@ -176,18 +229,46 @@ builds are retained at the image and release level only.
 
 ```sh
 bun scripts/factory-fleet.ts <fleet.json> teardown tenant-10 --reason "customer left"
-bun scripts/factory-fleet.ts <fleet.json> purge tenant-10 --approved-by admin:<email> --reason "retention elapsed"
+bun scripts/factory-fleet.ts <fleet.json> purge tenant-10 --approval <approval ID> --reason "retention elapsed"
 ```
+
+Before teardown, an administrator of the installation approves the purge in a
+signed-in session: `POST /api/installation/purge-approval` with the exact
+acknowledgement sentence and a reason. The installation stores the approval
+with its audit entry and returns its ID, valid for seven days. The operator
+passes that ID to `purge`. The provisioner reads the approval from the retained
+database and accepts it only for this installation, before it expires, while
+its approver is still an active administrator. The operator can name an
+approval but cannot create one.
 
 Teardown holds the route, walks the steps backwards, withdraws every login,
 revokes the namespace identity at the Temporal gateway, and destroys the
 delivered secrets. It keeps the databases and the release archive.
 
-Purge requires the approval of a recorded tenant administrator, and no active
-or uncertain work. It drops the databases and the runtime volumes. It keeps the
-master key and its wrap in the operator's escrow, because an archived record
-may be encrypted under the installation's data key. It records the purge as
-the C06 audit-loss statement, `purge.audit_loss`, with the retained archive.
+Teardown moves the key wrap into the operator's escrow before it deletes the
+installation's copy. Purge requires a valid approval and no active or uncertain
+work. It drops the databases and the runtime volumes. It keeps the master key
+and the escrowed wrap, because an archived record may be encrypted under the
+installation's data key. It fails if the escrow is missing. It records the
+purge as the C06 audit-loss statement, `purge.audit_loss`. That record names
+what purge does not remove on this host:
+
+| Retained | Why |
+| --- | --- |
+| Release archive | C06 keeps it |
+| Master key and escrowed wrap | The archive may need them |
+| Temporal namespace history | Kept until the namespace's own retention ends |
+| Ordinary store objects | The seeded store's objects need that store's admin authority |
+
+## Restarts and reboots
+
+The provisioner starts each supervisor as a transient user unit. A transient
+unit does not survive a reboot or a restart of the user manager. For a host
+that must recover on its own, install
+`deploy/factory/systemd/ezcorp-factory-supervisor@.service`, run
+`loginctl enable-linger`, and enable `podman-restart.service` so that rootless
+containers with `restart: unless-stopped` start again.
+
 
 ## CPU-only resource availability
 
