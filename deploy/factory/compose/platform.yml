@@ -21,7 +21,7 @@ name: ${EZCORP_FACTORY_PLATFORM_PROJECT:?rendered by the provisioner}
 services:
   factory-temporal-db:
     image: docker.io/postgres@sha256:2c72031ac25606bf94fd2fece7c35efdf263a48b08446950034f0725653f4efc
-    env_file: [${EZCORP_FACTORY_TEMPORAL_DB_ENV:?}]
+    env_file: ["${EZCORP_FACTORY_TEMPORAL_DB_ENV:?}"]
     environment:
       POSTGRES_USER: temporal
       POSTGRES_DB: temporal
@@ -41,7 +41,7 @@ services:
     depends_on:
       factory-temporal-db: { condition: service_healthy }
       factory-temporal-jwks: { condition: service_started }
-    env_file: [${EZCORP_FACTORY_TEMPORAL_DB_ENV:?}]
+    env_file: ["${EZCORP_FACTORY_TEMPORAL_DB_ENV:?}"]
     environment:
       DB: postgres12
       DB_PORT: 5432

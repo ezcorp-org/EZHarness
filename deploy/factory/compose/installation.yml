@@ -44,7 +44,7 @@ services:
     network_mode: ${EZCORP_FACTORY_POOL_NETWORK:?}
     ports: ["127.0.0.1:${EZCORP_FACTORY_POOL_PORT:?}:${EZCORP_FACTORY_POOL_PORT:?}"]
     command: ["bun", "src/factory/pool/process.ts", "/run/ezcorp/secrets/pool.json"]
-    env_file: [${EZCORP_FACTORY_POOL_ENV:?}]
+    env_file: ["${EZCORP_FACTORY_POOL_ENV:?}"]
     volumes:
       - { type: bind, source: "${EZCORP_FACTORY_DELIVER_POOL:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
       # Each readiness writer mounts only its own directory, so it cannot forge another's record.
@@ -65,7 +65,7 @@ services:
     network_mode: ${EZCORP_FACTORY_GATEWAY_NETWORK:?}
     ports: ["127.0.0.1:${EZCORP_FACTORY_GATEWAY_PORT:?}:${EZCORP_FACTORY_GATEWAY_PORT:?}"]
     command: ["bun", "src/factory/gateway-process.ts", "/run/ezcorp/secrets/gateway.json"]
-    env_file: [${EZCORP_FACTORY_GATEWAY_ENV:?}]
+    env_file: ["${EZCORP_FACTORY_GATEWAY_ENV:?}"]
     volumes:
       - { type: bind, source: "${EZCORP_FACTORY_DELIVER_GATEWAY:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
     healthcheck:
@@ -86,7 +86,7 @@ services:
       - "127.0.0.1:${EZCORP_FACTORY_HARNESS_PORT:?}:${EZCORP_FACTORY_HARNESS_PORT:?}"
       - "127.0.0.1:${EZCORP_FACTORY_PRIVATE_SERVICE_PORT:?}:${EZCORP_FACTORY_PRIVATE_SERVICE_PORT:?}"
     command: ["bun", "src/factory/provisioning/secret-env.ts", "/run/ezcorp/secrets/secret-env.json", "--", "bun", "web/build/index.js"]
-    env_file: [${EZCORP_FACTORY_HARNESS_ENV:?}]
+    env_file: ["${EZCORP_FACTORY_HARNESS_ENV:?}"]
     depends_on:
       pool: { condition: service_healthy }
       gateway: { condition: service_healthy }
@@ -114,7 +114,7 @@ services:
     # Its readiness depends on reaching the harness's private service, and it
     # exits when that peer goes away; `restart` is the daemon supervisor here.
     command: ["node", "src/factory/orchestration-process.ts", "/run/ezcorp/secrets/orchestrator.json"]
-    env_file: [${EZCORP_FACTORY_ORCHESTRATOR_ENV:?}]
+    env_file: ["${EZCORP_FACTORY_ORCHESTRATOR_ENV:?}"]
     volumes:
       - { type: bind, source: "${EZCORP_FACTORY_DELIVER_ORCHESTRATOR:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: "${EZCORP_FACTORY_READINESS_ORCHESTRATION:?}", target: /run/ezcorp/readiness/orchestration, bind: { create_host_path: false } }

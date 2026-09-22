@@ -490,3 +490,32 @@ describe("factorySpawnExecutor", () => {
     expect(result).toEqual({ code: 0, stdout: `scoped|${root}\n`, stderr: "" });
   });
 });
+
+describe("the Compose templates parse and hold the hardening", () => {
+  const parse = async (name: string) => Bun.YAML.parse(await Bun.file(join(REPOSITORY, "deploy/factory/compose", name)).text()) as { services: Record<string, Record<string, unknown>> };
+
+  test("every installation service is read-only, drops all capabilities, is bounded, has a health check, and holds no device or runtime socket", async () => {
+    const { services } = await parse("installation.yml");
+    expect(Object.keys(services).sort()).toEqual(["gateway", "harness", "orchestrator", "pool"]);
+    for (const [name, service] of Object.entries(services)) {
+      expect({ name, readOnly: service.read_only, capDrop: service.cap_drop, privileged: service.privileged, devices: service.devices }).toEqual({ name, readOnly: true, capDrop: ["ALL"], privileged: undefined, devices: undefined });
+      expect(service.healthcheck).toBeDefined();
+      for (const limit of ["mem_limit", "cpus", "pids_limit"]) expect(service[limit]).toBeDefined();
+      expect(JSON.stringify(service.volumes)).not.toMatch(/\.sock/);
+      expect(service.env_file).toEqual([expect.stringMatching(/^\$\{EZCORP_FACTORY_[A-Z]+_ENV:\?\}$/)]);
+    }
+  });
+
+  test("each readiness writer mounts only its own directory; the harness reads all of it read-only", async () => {
+    const { services } = await parse("installation.yml");
+    const readiness = (name: string) => (services[name]!.volumes as { target: string; read_only?: boolean }[]).filter((volume) => volume.target.startsWith("/run/ezcorp/readiness"));
+    expect(readiness("pool").map((volume) => [volume.target, volume.read_only ?? false])).toEqual([["/run/ezcorp/readiness/pool", false]]);
+    expect(readiness("orchestrator").map((volume) => [volume.target, volume.read_only ?? false])).toEqual([["/run/ezcorp/readiness/orchestration", false]]);
+    expect(readiness("harness").map((volume) => [volume.target, volume.read_only ?? false])).toEqual([["/run/ezcorp/readiness", true]]);
+  });
+
+  test("the platform template parses", async () => {
+    const { services } = await parse("platform.yml");
+    expect(Object.keys(services).length).toBeGreaterThan(0);
+  });
+});
