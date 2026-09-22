@@ -12,6 +12,9 @@ import { errorJson } from "$lib/server/http-errors";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { getSessionConfig, setSessionCookie } from "$lib/server/auth/session-cookie";
 import { ensureBundledExtensions } from "$server/extensions/bundled";
+import { getDb } from "$server/db/connection";
+import { factoryBootstrapHost } from "$server/factory/provisioning/bootstrap";
+import { verifyFactoryBootstrapInvitation } from "$server/factory/provisioning/invitation";
 
 // First-boot bootstrap: 3 attempts / 1 hour per IP. Generous for a
 // legitimate single-shot setup, tight enough to block brute-forcing
@@ -41,6 +44,17 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
   }
   const { name, email, password } = result.data;
 
+  // A provisioned installation creates its first administrator only for the
+  // invited person holding the invitation token. Every refusal answers the
+  // same 403, so the response does not say which part was wrong.
+  let bootstrap: Awaited<ReturnType<typeof factoryBootstrapHost>>;
+  try {
+    bootstrap = await factoryBootstrapHost(process.env, getDb());
+    if (bootstrap) verifyFactoryBootstrapInvitation(bootstrap.invitation, { token: result.data.invitationToken, email }, Date.now());
+  } catch {
+    return errorJson(403, "A valid first-administrator invitation is required");
+  }
+
   const passwordHash = await hashPassword(password);
   const user = await createUser({
     email: email.toLowerCase(),
@@ -59,6 +73,8 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
 
   await upsertSetting("instance:initialized", true);
   await insertAuditEntry(user.id, "user:registered");
+  // Identity only: consent is the administrator's separate, explicit act.
+  if (bootstrap) await bootstrap.bootstrap.recordRedeemed(bootstrap.invitation, user.id);
 
   // Mirror the login handler: create a session row so hooks.server.ts's
   // sec-C2 revocation check (missing row = revoked) accepts the cookie on

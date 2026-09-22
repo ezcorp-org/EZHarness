@@ -1,0 +1,129 @@
+# The fleet's shared platform services on the self-hosted Compose profile.
+#
+# Two things every installation shares, and nothing else:
+#
+#   - Temporal, behind a gateway that requires BOTH a client certificate from
+#     the fleet's Temporal CA and a signed token bound to that certificate's
+#     subject (C12 step 3). A tenant reaches only its own namespace, and the
+#     authorizer reads the fleet's revocation list on every request.
+#   - The trusted ingress (C12 step 6), which maps each hostname to exactly one
+#     installation and sets the installation header the harness verifies.
+#
+# Rendered by `ensureFactoryPlatform`: every ${...} comes from `platform.env`,
+# references only. The Temporal database password is an env FILE the operator
+# owns at 0600, never an inline value.
+#
+# The object stores and PostgreSQL are NOT here on this host: the installations
+# use the shared local stores read-only and never reconfigure them. A clean
+# self-hosted host adds them from compose.factory-storage.local.yml.
+name: ${EZCORP_FACTORY_PLATFORM_PROJECT:?rendered by the provisioner}
+
+services:
+  factory-temporal-db:
+    image: docker.io/postgres@sha256:2c72031ac25606bf94fd2fece7c35efdf263a48b08446950034f0725653f4efc
+    env_file: [${EZCORP_FACTORY_TEMPORAL_DB_ENV:?}]
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_DB: temporal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U temporal -d temporal"]
+      interval: 2s
+      timeout: 2s
+      retries: 60
+    volumes: ["temporal-data:/var/lib/postgresql/data"]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 256
+    restart: unless-stopped
+
+  factory-temporal:
+    image: docker.io/temporalio/auto-setup@sha256:813fc7d875d4fd38ae3a7ebf982018e657a3c8bb4f6ac0bdf44b7ce42ce0af24
+    depends_on:
+      factory-temporal-db: { condition: service_healthy }
+      factory-temporal-jwks: { condition: service_started }
+    env_file: [${EZCORP_FACTORY_TEMPORAL_DB_ENV:?}]
+    environment:
+      DB: postgres12
+      DB_PORT: 5432
+      POSTGRES_SEEDS: factory-temporal-db
+      POSTGRES_USER: temporal
+      TEMPORAL_TLS_REQUIRE_CLIENT_AUTH: "true"
+      TEMPORAL_TLS_SERVER_CERT: /factory-temporal-auth/server.crt
+      TEMPORAL_TLS_SERVER_KEY: /factory-temporal-auth/server.key
+      TEMPORAL_TLS_SERVER_CA_CERT: /factory-temporal-auth/ca.crt
+      TEMPORAL_TLS_FRONTEND_CERT: /factory-temporal-auth/server.crt
+      TEMPORAL_TLS_FRONTEND_KEY: /factory-temporal-auth/server.key
+      TEMPORAL_TLS_CLIENT1_CA_CERT: /factory-temporal-auth/ca.crt
+      TEMPORAL_TLS_FRONTEND_SERVER_NAME: temporal.local
+      TEMPORAL_TLS_INTERNODE_SERVER_NAME: temporal.local
+      TEMPORAL_AUTH_AUTHORIZER: default
+      TEMPORAL_AUTH_CLAIM_MAPPER: default
+      TEMPORAL_JWT_KEY_SOURCE1: http://factory-temporal-jwks/jwks.json
+      TEMPORAL_JWT_PERMISSIONS_REGEX: '^(?P<role>admin|write|read|worker):(?P<namespace>[^:]+)$'
+      USE_INTERNAL_FRONTEND: "true"
+      SERVICES: frontend:history:matching:worker:internal-frontend
+    volumes:
+      - ${EZCORP_FACTORY_TEMPORAL_SERVER_DIR:?}:/factory-temporal-auth:ro
+    mem_limit: 1536m
+    cpus: 2.0
+    pids_limit: 1024
+    restart: unless-stopped
+
+  factory-temporal-jwks:
+    image: docker.io/library/nginx@sha256:2f4e10193b0c4f61472245e9d26cea78e7df7af266c7e7cf5e67353ee2731b51
+    volumes:
+      - ${EZCORP_FACTORY_TEMPORAL_SERVER_DIR:?}/jwks.json:/usr/share/nginx/html/jwks.json:ro
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 64
+    restart: unless-stopped
+
+  factory-temporal-authorizer:
+    image: docker.io/oven/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+    command: ["bun", "/factory/factory-temporal-authorizer.mjs"]
+    environment:
+      FACTORY_TEMPORAL_REVOCATIONS: /factory-revocations/revocations.json
+    volumes:
+      - ${EZCORP_FACTORY_AUTHORIZER_SCRIPTS:?}:/factory:ro
+      - ${EZCORP_FACTORY_TEMPORAL_REVOCATIONS_DIR:?}:/factory-revocations:ro
+    mem_limit: 128m
+    cpus: 0.25
+    pids_limit: 64
+    restart: unless-stopped
+
+  factory-temporal-gateway:
+    image: docker.io/envoyproxy/envoy@sha256:6c8227d51b0082250b782a5e676c2d78c6f729bebcab6ac13f4eec17d993c35a
+    depends_on:
+      factory-temporal: { condition: service_started }
+      factory-temporal-authorizer: { condition: service_started }
+    command: ["envoy", "-c", "/factory/factory-temporal-gateway.yaml"]
+    ports: ["127.0.0.1:${EZCORP_FACTORY_TEMPORAL_PORT:?}:7233"]
+    volumes:
+      - ${EZCORP_FACTORY_TEMPORAL_GATEWAY_CONFIG:?}:/factory/factory-temporal-gateway.yaml:ro
+      - ${EZCORP_FACTORY_TEMPORAL_SERVER_DIR:?}:/factory-temporal-auth:ro
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    restart: unless-stopped
+
+  ingress:
+    image: docker.io/library/nginx@sha256:2f4e10193b0c4f61472245e9d26cea78e7df7af266c7e7cf5e67353ee2731b51
+    # The ingress is the one component that fronts every harness, and each
+    # harness listens on host loopback only, so the ingress shares the host's
+    # network namespace and binds 127.0.0.1 alone.
+    network_mode: host
+    command: ["nginx", "-c", "/etc/ezcorp-ingress/nginx.conf", "-g", "daemon off;"]
+    volumes:
+      - ${EZCORP_FACTORY_INGRESS_DIR:?}:/etc/ezcorp-ingress:ro
+    healthcheck:
+      test: ["CMD", "nginx", "-t", "-c", "/etc/ezcorp-ingress/nginx.conf"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    mem_limit: 128m
+    cpus: 0.5
+    pids_limit: 128
+    restart: unless-stopped
+
+volumes:
+  temporal-data:

@@ -3127,4 +3127,6 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryChildArtifactAliases(db);
   const { up: addFactoryLegacyWorkflowAdapters } = await import("./migrations/add-factory-legacy-workflow-adapters");
   await addFactoryLegacyWorkflowAdapters(db);
+  const { up: addFactoryInstallationBootstrap } = await import("./migrations/add-factory-installation-bootstrap");
+  await addFactoryInstallationBootstrap(db);
 }

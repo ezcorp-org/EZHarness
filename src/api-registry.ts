@@ -109,6 +109,10 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/auth/logout", description: "End current session", category: "auth" },
   { method: "GET", path: "/api/auth/me", description: "Get current authenticated user", category: "auth", responseDescription: "User object with id, name, email, role" },
   { method: "POST", path: "/api/auth/setup", description: "Initial admin setup (first-run only)", category: "auth", schemaKey: "setupSchema" },
+  // C12 step 7: the provisioned installation's human bootstrap. The status is
+  // public and names only a state and an invitation; consent is session-only.
+  { method: "GET", path: "/api/installation/bootstrap/status", description: "Where the installation's first-administrator bootstrap stands (state and invitation only)", category: "auth", scope: "public", responseDescription: "{ state, invitationId }" },
+  { method: "POST", path: "/api/installation/bootstrap", description: "Explicit bootstrap consent by the first administrator (human session only)", category: "auth", scope: "session", responseDescription: "{ state, consentDigest, grants }" },
   // F5 moved the BARE `/api/auth/invite` path out of the hooks PUBLIC_PATHS
   // allowlist into PUBLIC_SUBPATHS_ONLY (web/src/hooks.server.ts:397), so both
   // methods are now genuinely reachable by an authenticated admin — before

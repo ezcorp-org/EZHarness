@@ -3221,6 +3221,24 @@ export const factoryReleaseApprovals = pgTable("factory_release_approvals", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), approvalId: text("approval_id").notNull(), operationId: text("operation_id").notNull(), contextDigest: text("context_digest").notNull(), decisionId: text("decision_id").notNull(), principalId: text("principal_id").notNull().references(() => users.id, { onDelete: "restrict" }), grantRevision: bigint("grant_revision", { mode: "number" }).notNull(), expectedGeneration: bigint("expected_generation", { mode: "number" }).notNull(), expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), status: text("status").notNull().$type<"pending" | "approved" | "rejected" | "consumed" | "revoked">(), approvedBy: text("approved_by").references(() => users.id, { onDelete: "restrict" }), approvedGrantRevision: bigint("approved_grant_revision", { mode: "number" }), consumedAt: timestamp("consumed_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.approvalId] }), uniqueIndex("idx_factory_release_approvals_operation_generation").on(table.tenantId, table.projectId, table.operationId, table.expectedGeneration), foreignKey({ columns: [table.tenantId, table.projectId, table.decisionId], foreignColumns: [factoryAcceptanceDecisions.tenantId, factoryAcceptanceDecisions.projectId, factoryAcceptanceDecisions.decisionId] }).onDelete("restrict")]);
 
+/** The installation's first-administrator redemption and explicit bootstrap consent (C01, C12 step 7). */
+export const factoryInstallationBootstrap = pgTable("factory_installation_bootstrap", {
+  installationId: text("installation_id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  invitationId: text("invitation_id").notNull(),
+  adminUserId: text("admin_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  state: text("state").notNull().$type<"redeemed" | "consented">(),
+  projectId: text("project_id"),
+  consentDigest: text("consent_digest"),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
+  consentedAt: timestamp("consented_at", { withTimezone: true }),
+}, (table) => [
+  foreignKey({ name: "factory_installation_bootstrap_project_fkey", columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
+  check("factory_installation_bootstrap_state_check", sql`${table.state} IN ('redeemed', 'consented')`),
+  check("factory_installation_bootstrap_consent_digest_check", sql`${table.consentDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_installation_bootstrap_consent_check", sql`(${table.state} = 'consented') = (${table.projectId} IS NOT NULL AND ${table.consentDigest} IS NOT NULL AND ${table.consentedAt} IS NOT NULL)`),
+]);
+
 /** Retained encrypted wraps for one installation data key; plaintext master keys never enter this schema. */
 export const factoryInstallationKeyWraps = pgTable("factory_installation_key_wraps", {
   installationId: text("installation_id").notNull(),
