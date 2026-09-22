@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { sql } from "drizzle-orm";
-import { referenceCodeV1, type FactoryDefinition, type FactoryRunInspection, type FactoryRunStartBody } from "@ezcorp/factory-sdk";
+import { referenceCodeV1, type FactoryDefinition, type FactoryInspectionPage, type FactoryRunInspection, type FactoryRunStartBody } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { BlobStore } from "../../extensions/v4/types";
@@ -14,6 +14,12 @@ import { canonicalJson } from "@ezcorp/extension-contract";
 import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
 import { digestObject } from "../../extensions/v4/blobs";
 import { factoryPackageTestReference as packageReference, factoryPackageTestRelease } from "./factory-package-preparation-suite";
+
+/** Narrows an inspection to the one section page it must be. */
+function sectionPage<Item>(result: FactoryRunInspection | FactoryInspectionPage): { items: Item[]; nextCursor?: string } {
+  if (!("section" in result)) throw new Error("expected a section page");
+  return result.page as unknown as { items: Item[]; nextCursor?: string };
+}
 
 export interface FactoryConsoleFixture { readonly db: TransactionalDb; readonly blobs: BlobStore; close(): Promise<void> }
 
@@ -155,22 +161,20 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
     test("sections page by keyset, filter server-side, and refuse a forged or misplaced cursor", async () => {
       const first = await a.console.inspections.inspect(OWNER, key(), { section: "attempts", limit: 2 });
       expect(first).toMatchObject({ section: "attempts" });
-      const page = (first as { page: { items: { attemptId: string }[]; nextCursor?: string } }).page;
+      const page = sectionPage<{ attemptId: string }>(first);
       expect(page.items).toHaveLength(2);
-      const second = await a.console.inspections.inspect(OWNER, key(), { section: "attempts", limit: 2, cursor: page.nextCursor! }) as { page: { items: { nodeInstanceId: string }[]; nextCursor?: string } };
-      expect(second.page.items.map(item => item.nodeInstanceId)).toEqual(["node-b"]);
-      expect(second.page.nextCursor).toBeUndefined();
-      const filtered = await a.console.inspections.inspect(OWNER, key(), { section: "attempts", search: "node-b" }) as { page: { items: unknown[] } };
-      expect(filtered.page.items).toHaveLength(1);
+      const second = sectionPage<{ nodeInstanceId: string }>(await a.console.inspections.inspect(OWNER, key(), { section: "attempts", limit: 2, cursor: page.nextCursor! }));
+      expect(second.items.map(item => item.nodeInstanceId)).toEqual(["node-b"]);
+      expect(second.nextCursor).toBeUndefined();
+      const filtered = sectionPage(await a.console.inspections.inspect(OWNER, key(), { section: "attempts", search: "node-b" }));
+      expect(filtered.items).toHaveLength(1);
       for (const cursor of ["not-base64-json", Buffer.from("[1,2]").toString("base64url"), Buffer.from('{"x":1}').toString("base64url")]) {
         await expect(a.console.inspections.inspect(OWNER, key(), { section: "attempts", cursor })).rejects.toMatchObject({ code: "factory_page_invalid" });
       }
       await expect(a.console.inspections.inspect(OWNER, key(), { cursor: page.nextCursor! })).rejects.toMatchObject({ code: "factory_page_invalid" });
       for (const limit of [0, 201, 1.5]) await expect(a.console.inspections.inspect(OWNER, key(), { limit })).rejects.toMatchObject({ code: "factory_page_invalid" });
-      const children = await a.console.inspections.inspect(OWNER, key(), { section: "children", limit: 1 }) as { page: { items: unknown[] } };
-      expect(children.page.items).toHaveLength(1);
-      const artifacts = await a.console.inspections.inspect(OWNER, key(), { section: "artifacts", limit: 1 }) as { page: { items: { artifactId: string }[] } };
-      expect(artifacts.page.items).toHaveLength(1);
+      expect(sectionPage(await a.console.inspections.inspect(OWNER, key(), { section: "children", limit: 1 })).items).toHaveLength(1);
+      expect(sectionPage(await a.console.inspections.inspect(OWNER, key(), { section: "artifacts", limit: 1 })).items).toHaveLength(1);
     });
 
     test("current authority is required, and a missing run is not told apart from another project", async () => {
@@ -268,6 +272,34 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
     test("an event cursor never verifies as a ticket", async () => {
       const view = await a.console.inspections.inspect(OWNER, key()) as FactoryRunInspection;
       await expect(a.console.tickets.download(OWNER, key(), a.artifactId, view.cursor.token)).rejects.toMatchObject({ code: "factory_ticket_invalid" });
+    });
+  });
+
+  describe("cross-project read sharing", () => {
+    test("only the named bytes become readable in the target project, and revocation closes them", async () => {
+      const second = await a.fixture.db.transaction(transaction => a.application.artifacts.stageCandidateOutputInTransaction(transaction, { tenantId: a.tenantId, projectId: PROJECT, logicalRunId: a.runId, interpreterId: "root" }, "work", 1, new TextEncoder().encode("not shared")));
+      const view = await a.console.inspections.inspect(OWNER, key()) as FactoryRunInspection;
+      const shared = view.artifacts.items.find(item => item.artifactId === a.artifactId)!;
+      const body = { targetProjectId: OTHER_PROJECT, mediaType: "text/plain" };
+      await expect(a.console.tickets.share({ ...OWNER, authentication: "api-key" }, key(), a.artifactId, body, "share-key")).rejects.toMatchObject({ code: "factory_human_required" });
+      await expect(a.console.tickets.share(MEMBER, key(), a.artifactId, body, "share-member")).rejects.toMatchObject({ code: "factory_forbidden" });
+      const grant = await a.console.tickets.share(OWNER, key(), a.artifactId, body, "share-owner");
+      expect(grant).toEqual({ sourceProjectId: PROJECT, sourceRunId: a.runId, artifactId: a.artifactId, targetProjectId: OTHER_PROJECT, digest: shared.digest, encodedBytes: shared.encodedBytes, mediaType: "text/plain", revoked: false });
+      expect(await a.console.tickets.share(OWNER, key(), a.artifactId, body, "share-owner")).toEqual(grant);
+      const query = { digest: shared.digest, encodedBytes: shared.encodedBytes, mediaType: "text/plain" };
+      const read = await a.console.tickets.readShared(OWNER, OTHER_PROJECT, a.artifactId, query);
+      expect(new TextDecoder().decode(read.bytes)).toBe("<script>alert('x')</script>");
+      // The reader needs current read on the TARGET; the source membership does not carry over.
+      await expect(a.console.tickets.readShared(MEMBER, OTHER_PROJECT, a.artifactId, query)).rejects.toMatchObject({ code: "factory_forbidden" });
+      // Other bytes of the same run, a changed digest, or another media type stay unreadable.
+      await expect(a.console.tickets.readShared(OWNER, OTHER_PROJECT, second.artifactId, { digest: second.digest, encodedBytes: second.encodedBytes, mediaType: "text/plain" })).rejects.toMatchObject({ code: "factory_artifact_unavailable" });
+      await expect(a.console.tickets.readShared(OWNER, OTHER_PROJECT, a.artifactId, { ...query, digest: second.digest })).rejects.toMatchObject({ code: "factory_artifact_unavailable" });
+      await expect(a.console.tickets.readShared(OWNER, OTHER_PROJECT, a.artifactId, { ...query, mediaType: "application/json" })).rejects.toMatchObject({ code: "factory_artifact_unavailable" });
+      // Evidence, attempts, and release authority do not transfer: the source run is not visible from the target.
+      await expect(a.console.inspections.inspect(OWNER, { projectId: OTHER_PROJECT, runId: a.runId })).rejects.toMatchObject({ code: "factory_run_not_found" });
+      const revoked = await a.console.tickets.unshare(OWNER, key(), a.artifactId, OTHER_PROJECT, "unshare-owner");
+      expect(revoked.revoked).toBe(true);
+      await expect(a.console.tickets.readShared(OWNER, OTHER_PROJECT, a.artifactId, query)).rejects.toMatchObject({ code: "factory_artifact_unavailable" });
     });
   });
 

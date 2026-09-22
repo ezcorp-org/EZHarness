@@ -1627,6 +1627,28 @@
         {
           "additionalProperties": false,
           "properties": {
+            "kind": {
+              "const": "artifact.share.resource",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryArtifactShareResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
             "error": {
               "$ref": "#/definitions/FactoryApiError"
             },
@@ -1805,6 +1827,60 @@
         "digest",
         "encodedBytes",
         "createdAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryArtifactShareResource": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "encodedBytes": {
+          "maximum": 16777216,
+          "minimum": 1,
+          "type": "number"
+        },
+        "mediaType": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "revoked": {
+          "type": "boolean"
+        },
+        "sourceProjectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "sourceRunId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "targetProjectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "sourceProjectId",
+        "sourceRunId",
+        "artifactId",
+        "targetProjectId",
+        "digest",
+        "encodedBytes",
+        "mediaType",
+        "revoked"
       ],
       "type": "object"
     },

@@ -1688,6 +1688,88 @@
             "body"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryArtifactShareBody"
+            },
+            "kind": {
+              "const": "artifact.share",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryArtifactPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "artifact.unshare",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryArtifactSharePath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "artifact.shared.read",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactorySharedArtifactPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactorySharedArtifactQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
         }
       ],
       "description": "Canonical C09 route input. `path` is populated from trusted routing state. Tenant identity is intentionally absent, and resource identity never appears in a request body."
@@ -1788,6 +1870,59 @@
         "artifactId",
         "digest",
         "encodedBytes"
+      ],
+      "type": "object"
+    },
+    "FactoryArtifactShareBody": {
+      "additionalProperties": false,
+      "properties": {
+        "mediaType": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "targetProjectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "targetProjectId",
+        "mediaType"
+      ],
+      "type": "object"
+    },
+    "FactoryArtifactSharePath": {
+      "additionalProperties": false,
+      "description": "A named read of one artifact's exact bytes, granted from its project to another.",
+      "properties": {
+        "artifactId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "targetProjectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifactId",
+        "projectId",
+        "runId",
+        "targetProjectId"
       ],
       "type": "object"
     },
@@ -3162,6 +3297,53 @@
         "chat"
       ],
       "type": "string"
+    },
+    "FactorySharedArtifactPath": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifactId",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactorySharedArtifactQuery": {
+      "additionalProperties": false,
+      "description": "The reader names the exact bytes it was given; nothing else of the source becomes readable.",
+      "properties": {
+        "digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "encodedBytes": {
+          "maximum": 16777216,
+          "minimum": 1,
+          "type": "number"
+        },
+        "mediaType": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "encodedBytes",
+        "mediaType"
+      ],
+      "type": "object"
     },
     "FactoryTenantPath": {
       "additionalProperties": false,

@@ -319,3 +319,49 @@ export interface FactoryArtifactTicket {
   /** @minimum 0 @maximum 9007199254740991 */
   readonly encodedBytes: number;
 }
+
+/** A named read of one artifact's exact bytes, granted from its project to another. */
+export interface FactoryArtifactSharePath extends FactoryArtifactPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly targetProjectId: string;
+}
+
+export interface FactoryArtifactShareBody {
+  /** @minLength 1 @maxLength 512 */
+  readonly targetProjectId: string;
+  /** @minLength 1 @maxLength 128 */
+  readonly mediaType: string;
+}
+
+export interface FactorySharedArtifactPath extends FactoryProjectPath {
+  /** @minLength 1 @maxLength 512 */
+  readonly artifactId: string;
+}
+
+/** The reader names the exact bytes it was given; nothing else of the source becomes readable. */
+export interface FactorySharedArtifactQuery {
+  /** @minLength 71 @maxLength 71 */
+  readonly digest: string;
+  /** @minimum 1 @maximum 16777216 */
+  readonly encodedBytes: number;
+  /** @minLength 1 @maxLength 128 */
+  readonly mediaType: string;
+}
+
+export interface FactoryArtifactShareResource {
+  /** @minLength 1 @maxLength 512 */
+  readonly sourceProjectId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly sourceRunId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly artifactId: string;
+  /** @minLength 1 @maxLength 512 */
+  readonly targetProjectId: string;
+  /** @minLength 71 @maxLength 71 */
+  readonly digest: string;
+  /** @minimum 1 @maximum 16777216 */
+  readonly encodedBytes: number;
+  /** @minLength 1 @maxLength 128 */
+  readonly mediaType: string;
+  readonly revoked: boolean;
+}

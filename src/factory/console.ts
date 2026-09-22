@@ -24,7 +24,6 @@ export interface FactoryConsoleServices {
   readonly packages: FactoryPackageAdmin;
   readonly purge: FactoryPurgeRequests;
   readonly tickets: FactoryArtifactTickets;
-  readonly sharing: FactoryArtifactAccess;
 }
 
 export interface FactoryConsoleOptions {
@@ -59,14 +58,14 @@ export function createFactoryConsole(options: FactoryConsoleOptions): FactoryCon
   const cursors = new FactoryEventCursors(signer, now);
   const preparations = factoryPackageReadiness(options.database, options.tenantId, options.grants, plainBlobStore(options.blobs));
   const trusts = new FactoryPackageTrusts(options.database, options.tenantId, options.grants);
+  const sharing = new FactoryArtifactAccess(options.database, options.tenantId, options.grants, options.artifacts);
   return Object.freeze({
     tenantId: options.tenantId,
     inspections: new FactoryRunInspections(options.database, options.tenantId, options.grants, options.runs, cursors),
     events: new FactoryRunEvents(options.database, options.tenantId, options.grants, cursors),
     packages: new FactoryPackageAdmin(options.database, options.tenantId, options.grants, preparations, trusts),
     purge: new FactoryPurgeRequests(options.database, options.tenantId, now),
-    tickets: new FactoryArtifactTickets(options.database, options.tenantId, options.grants, options.artifacts, signer, now),
-    sharing: new FactoryArtifactAccess(options.database, options.tenantId, options.grants, options.artifacts),
+    tickets: new FactoryArtifactTickets(options.database, options.tenantId, options.grants, options.artifacts, signer, sharing, now),
   });
 }
 

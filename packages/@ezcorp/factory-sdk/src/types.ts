@@ -1,7 +1,8 @@
 import type {
   FactoryArtifactPath, FactoryArtifactTicket, FactoryEventQuery, FactoryInspectionPage, FactoryInspectionQuery, FactoryPackageImpact, FactoryPackageImpactQuery,
   FactoryPackageInstallBody, FactoryPackagePath, FactoryPackageResource, FactoryPackageTrustBody, FactoryPurgePreview, FactoryPurgeRequestBody,
-  FactoryPurgeRequestResource, FactoryRunInspection, FactoryTenantPath,
+  FactoryPurgeRequestResource, FactoryRunInspection, FactoryTenantPath, FactoryArtifactShareBody, FactoryArtifactSharePath, FactoryArtifactShareResource,
+  FactorySharedArtifactPath, FactorySharedArtifactQuery,
 } from "./console-types.js";
 
 export type * from "./console-types.js";
@@ -1103,7 +1104,10 @@ export type FactoryApiRequest =
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "package.trust"; readonly path: FactoryPackagePath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryPackageTrustBody }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "package.impact"; readonly path: FactoryPackagePath; readonly query: FactoryPackageImpactQuery }
   | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "purge.preview"; readonly path: FactoryTenantPath }
-  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "purge.request"; readonly path: FactoryTenantPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryPurgeRequestBody };
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "purge.request"; readonly path: FactoryTenantPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryPurgeRequestBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "artifact.share"; readonly path: FactoryArtifactPath; readonly preconditions: FactoryMutationPreconditions; readonly body: FactoryArtifactShareBody }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "artifact.unshare"; readonly path: FactoryArtifactSharePath; readonly preconditions: FactoryMutationPreconditions }
+  | { readonly schemaVersion: "factory.api.request.v1"; readonly kind: "artifact.shared.read"; readonly path: FactorySharedArtifactPath; readonly query: FactorySharedArtifactQuery };
 
 export interface FactoryDraftSummary {
   /** @minLength 1 @maxLength 512 */
@@ -1420,4 +1424,5 @@ export type FactoryApiResponse =
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "package.impact"; readonly resource: FactoryPackageImpact }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "purge.preview"; readonly resource: FactoryPurgePreview }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "purge.request.resource"; readonly resource: FactoryPurgeRequestResource }
+  | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "artifact.share.resource"; readonly resource: FactoryArtifactShareResource }
   | { readonly schemaVersion: "factory.api.response.v1"; readonly kind: "error"; readonly error: FactoryApiError };
