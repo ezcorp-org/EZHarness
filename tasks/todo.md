@@ -3544,3 +3544,29 @@ it is declared in `schema.ts` as `idx_factory_release_operations_identity` but t
 it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
+
+## W16 — Complete provisioner and deployment profiles (Terra deployment, branch `wp/w16-provisioning`)
+
+Evidence: `/tmp/factory-platform-evidence/w16/`. Gate file: `tasks/factory/w16-GATES.md`.
+Base: `260855e57` (W09b merged). Assumptions are stated in the gate file.
+
+- [ ] P1 Phase model and step ledger: resources prepared, deployment ready, invitation issued, human bootstrap complete; seven ordered C12 steps with explicit owner, attempt, and failure record per step. Extends `src/factory/provisioning/local.ts`; no second workflow.
+- [ ] P2 Step 2: product and independent archive storage credentials written per installation at 0600, prefix scope verified read-only (inside 404, outside 403, foreign 403).
+- [ ] P3 Step 3: Temporal namespace with a namespace-scoped client certificate and token; the local gateway refuses a foreign namespace.
+- [ ] P4 Step 4: JWT and encryption secrets plus a wrapped data key under an operator master key held outside every grantable root; format, mode, and owner verified; a base64 application secret is refused as a master key.
+- [ ] P5 Step 5: per-installation harness, orchestrator, and gateway deployment bundle (startup document, process configs, secret delivery), wrapped key and master key only to the orchestrator.
+- [ ] P6 Step 6: trusted hostname ingress bound to the installation ID; the harness refuses a foreign or missing host; a partial tenant serves no traffic.
+- [ ] P7 Step 7 and bootstrap: first-admin invitation gates first-run setup; explicit bootstrap consent writes trust grants and the bootstrap record with a transactional audit entry.
+- [ ] P8 Fault every step; recover or tear down only owned resources; credential rotation and revocation; rerun idempotence.
+- [ ] P9 Operator-only control plane and tenant directory (routing, membership, resource references only; no tenant route, no product authority).
+- [ ] P10 Compose self-hosted profile (pinned images, secrets by file, health checks, bounded resources, loopback-only networking) and Kubernetes hosted manifests (validated; kind/k3d smoke only if tools exist).
+- [ ] P11 Supervisors outside harnesses: host systemd unit (Compose profile) and privileged DaemonSet (Kubernetes); only they hold runtime access and host identity; separation tested in both profiles.
+- [ ] P12 Fleet upgrades: canary first, C12 order, old build retention, failure-stopped waves, reverse-order additive rollback; teardown keeps the release archive; human-admin purge after active and uncertain work closes.
+- [ ] P13 GPU host profile registration in a new file; production GPU criteria stay a named readiness row.
+- [ ] P14 Ten local installations through the Compose profile on rootless Podman with distinct identities and credentials.
+- [ ] P15 Operator documentation: prerequisites, image and runtime locks, secret references, recovery, drain, upgrades, rollback, CPU-only availability.
+- [ ] P16 Sweep per common.md after `git merge --no-edit integ/w00`.
+
+### Review
+
+(pending)
