@@ -17,7 +17,7 @@ import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import { createFactoryCertificateAuthority, issueFactoryCertificate, type FactoryCommandRunner } from "./certificates";
 import type { FactoryCommandExecutor, FactoryComposeCommand } from "./compose-profile";
-import { ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateText, replaceFactoryPrivateFile } from "./secret-files";
+import { ensureFactoryPrivateCertificatePair, ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateText, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 import { FACTORY_TEMPORAL_CONTROL_SUBJECT, factoryTemporalJwks, type FactoryTemporalAuthorityPaths } from "./temporal";
 import type { FactoryTemporalControlIdentity } from "./temporal-client";
@@ -47,18 +47,8 @@ export function factoryPlatformPaths(operatorRoot: string): FactoryPlatformPaths
 
 async function ensureAuthority(directory: string, subject: string, run?: FactoryCommandRunner): Promise<void> {
   const handle = await openFactoryPrivateDirectory(directory);
-  try {
-    let created: { certificatePem: string; privateKeyPem: string } | undefined;
-    try { await readFactoryPrivateText(handle, "ca.key"); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      created = await createFactoryCertificateAuthority(subject, run);
-    }
-    if (created) {
-      await ensureFactoryPrivateFile(handle, "ca.key", () => created!.privateKeyPem);
-      await ensureFactoryPrivateFile(handle, "ca.crt", () => created!.certificatePem);
-    }
-  } finally { await handle.close(); }
+  try { await ensureFactoryPrivateCertificatePair(handle, { key: "ca.key", certificate: "ca.crt" }, () => createFactoryCertificateAuthority(subject, run)); }
+  finally { await handle.close(); }
 }
 
 /** Temporal and ingress authorities, created once and verified on every rerun. */
@@ -69,13 +59,7 @@ export async function ensureFactoryPlatformMaterial(operatorRoot: string, option
   const temporal = await openFactoryPrivateDirectory(temporalDirectory);
   try {
     const control = { certificatePath: paths.temporal.caCertificatePath, keyPath: paths.temporal.caKeyPath };
-    try { await readFactoryPrivateText(temporal, "control.crt"); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      const issued = await issueFactoryCertificate(control, { subject: FACTORY_TEMPORAL_CONTROL_SUBJECT, usage: "client" }, options.run);
-      await ensureFactoryPrivateFile(temporal, "control.key", () => issued.privateKeyPem);
-      await ensureFactoryPrivateFile(temporal, "control.crt", () => issued.certificatePem);
-    }
+    await ensureFactoryPrivateCertificatePair(temporal, { key: "control.key", certificate: "control.crt" }, () => issueFactoryCertificate(control, { subject: FACTORY_TEMPORAL_CONTROL_SUBJECT, usage: "client" }, options.run));
     await ensureFactoryPrivateFile(temporal, "token.key", () => generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString());
     await ensureFactoryPrivateFile(temporal, "database.env", () => { const password = randomBytes(24).toString("base64url"); return `POSTGRES_PASSWORD=${password}\nPOSTGRES_PWD=${password}\n`; });
     // The server directory: readable by the platform containers (see the file header).
@@ -95,7 +79,7 @@ export async function ensureFactoryPlatformMaterial(operatorRoot: string, option
   try { await ensureFactoryPrivateFile(revocations, "revocations.json", () => `${JSON.stringify({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [] })}\n`); }
   finally { await revocations.close(); }
   await ensureAuthority(paths.ingress.root, "factory-ingress-ca", options.run);
-  for (const name of ["routes", "certs", "conf"]) (await openFactoryPrivateDirectory(resolve(paths.ingress.root, name))).close();
+  for (const name of ["routes", "certs", "conf"]) await (await openFactoryPrivateDirectory(resolve(paths.ingress.root, name))).close();
   return paths;
 }
 

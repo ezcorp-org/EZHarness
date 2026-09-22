@@ -1,6 +1,11 @@
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { randomBytes } from "node:crypto";
+import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { createFactoryCertificateAuthority } from "../../factory/provisioning/certificates";
+import { factoryDatabasePairs } from "../../factory/provisioning/database";
+import type { FactoryDeploymentSettings } from "../../factory/provisioning/deployment";
+import type { FactoryInstallationContext } from "../../factory/provisioning/installation";
 
 /**
  * A 0700 temp root the private reader accepts. It lives under
@@ -22,4 +27,83 @@ export async function writeModeFile(path: string, content: string | Uint8Array, 
   await writeFile(path, content, { mode });
   await chmod(path, mode);
   return path;
+}
+
+/** One installation context whose secret and operator directories sit under `root`. */
+export function makeFactoryTestInstallation(root: string, overrides: Partial<FactoryInstallationContext> = {}): FactoryInstallationContext {
+  const tenantId = overrides.tenantId ?? "tenant-01";
+  const fleetId = overrides.fleetId ?? "fleet-a";
+  return {
+    tenantId,
+    hostname: `${tenantId}.factory.example`,
+    administratorEmail: "first.admin@example.com",
+    fleetId,
+    installationId: `inst-${tenantId}`,
+    invitationId: `invite-${tenantId}`,
+    productDatabase: `factory_product_${tenantId}`,
+    productRole: `factory_role_${tenantId}`,
+    temporalNamespace: `${tenantId}.${fleetId}`,
+    secretDirectory: join(root, "secrets", tenantId),
+    operatorDirectory: join(root, "operator", tenantId),
+    ...overrides,
+  };
+}
+
+/** The error `work` rejects with. Fails the test when `work` resolves. */
+export async function factoryRejection(work: Promise<unknown>): Promise<Error & { code?: string }> {
+  try { await work; }
+  catch (error) { return error as Error & { code?: string }; }
+  throw new Error("expected a rejection");
+}
+
+/** A runner-profile section the startup parser admits. */
+export const FACTORY_TEST_RUNNER_PROFILES = Object.freeze({
+  brokerAudience: "factory-gateway",
+  profiles: [{
+    runner: { package: "@ezcorp/minimal", manifestName: "minimal", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run" },
+    resourceClass: "cpu",
+    allocation: { resources: { cpu: 1 }, memoryBytes: 1_073_741_824, budget: { costMicros: "1000000", tokens: 1_000, computeMs: 600_000 } },
+    allowedCapabilities: [],
+  }],
+});
+
+export const FACTORY_TEST_IMAGE = `registry.test/ezcorp@sha256:${"b".repeat(64)}`;
+
+/** Deployment settings for an installation whose runtime state lives under `runtimeRoot`. */
+export function makeFactoryTestDeploymentSettings(runtimeRoot: string, overrides: Partial<FactoryDeploymentSettings> = {}): FactoryDeploymentSettings {
+  return {
+    network: {
+      databaseHost: "127.0.0.1", databasePort: 55432,
+      ordinaryEndpoint: "http://127.0.0.1:59000", archiveEndpoint: "http://127.0.0.1:59001",
+      temporalAddress: "127.0.0.1:57233", temporalServerName: "temporal.test",
+      publicOrigin: (installation) => `https://${installation.hostname}:30443`,
+      portBase: 40_000,
+    },
+    image: { reference: FACTORY_TEST_IMAGE, revision: "c".repeat(40) },
+    runtimeRoot,
+    runnerProfiles: FACTORY_TEST_RUNNER_PROFILES,
+    cpuCapacity: 4,
+    interpreterCompatibility: "factory-interpreter-1",
+    ...overrides,
+  };
+}
+
+/** The two database credentials `renderFactoryInstallationBundle` reads, as the database step writes them. */
+export async function writeFactoryTestDatabaseCredentials(installation: FactoryInstallationContext): Promise<{ readonly product: string; readonly pool: string }> {
+  await mkdir(installation.secretDirectory, { recursive: true, mode: 0o700 });
+  await chmod(installation.secretDirectory, 0o700);
+  const product = randomBytes(32).toString("base64url");
+  const pool = randomBytes(32).toString("base64url");
+  const [productPair, poolPair] = factoryDatabasePairs(installation);
+  await writeModeFile(join(installation.secretDirectory, productPair!.credentialFile), `${JSON.stringify({ role: productPair!.role, password: product })}\n`);
+  await writeModeFile(join(installation.secretDirectory, poolPair!.credentialFile), `${JSON.stringify({ role: poolPair!.role, password: pool })}\n`);
+  return { product, pool };
+}
+
+/** A real openssl certificate authority written 0600 into `directory` as ca.crt / ca.key. */
+export async function makeFactoryTestAuthority(directory: string, subject = "test-authority"): Promise<{ readonly certificatePath: string; readonly keyPath: string; readonly certificatePem: string }> {
+  const authority = await createFactoryCertificateAuthority(subject);
+  const certificatePath = await writeModeFile(join(directory, "ca.crt"), authority.certificatePem);
+  const keyPath = await writeModeFile(join(directory, "ca.key"), authority.privateKeyPem);
+  return { certificatePath, keyPath, certificatePem: authority.certificatePem };
 }

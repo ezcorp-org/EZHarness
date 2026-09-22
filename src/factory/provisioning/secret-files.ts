@@ -39,8 +39,10 @@ export async function ensureFactoryPrivateFile(directory: FileHandle, name: stri
   try { handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    // Produce the value BEFORE creating the file: a value that throws must not leave an empty file a rerun would keep.
+    const content = value();
     handle = await open(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-    try { await handle.writeFile(value()); await handle.sync(); } finally { await handle.close(); }
+    try { await handle.writeFile(content); await handle.sync(); } finally { await handle.close(); }
     return true;
   }
   try {
@@ -48,6 +50,23 @@ export async function ensureFactoryPrivateFile(directory: FileHandle, name: stri
     if (!status.isFile() || status.uid !== process.getuid?.() || (status.mode & 0o077) !== 0) throw new FactoryProvisioningError("provisioning_secret_unsafe", `Provisioner secret file ${name} must be private and owned by this user.`);
   } finally { await handle.close(); }
   return false;
+}
+
+/**
+ * Write a private key and its certificate once, as one pair.
+ *
+ * The certificate is written LAST and is the pair's commit mark. A key without
+ * its certificate is a crash leftover: it is replaced, never paired with a
+ * freshly issued certificate it does not match. Returns whether this call issued.
+ */
+export async function ensureFactoryPrivateCertificatePair(directory: FileHandle, names: { readonly key: string; readonly certificate: string }, issue: () => Promise<{ readonly certificatePem: string; readonly privateKeyPem: string }>): Promise<boolean> {
+  try { await readPrivateBounded(directory, leaf(names.certificate), FACTORY_PROVISIONED_FILE_LIMIT); return false; }
+  catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  const issued = await issue();
+  await removeFactoryPrivateFile(directory, names.key);
+  await ensureFactoryPrivateFile(directory, names.key, () => issued.privateKeyPem);
+  await ensureFactoryPrivateFile(directory, names.certificate, () => issued.certificatePem);
+  return true;
 }
 
 export async function readFactoryPrivateBytes(directory: FileHandle, name: string, limit = FACTORY_PROVISIONED_FILE_LIMIT): Promise<Uint8Array> {

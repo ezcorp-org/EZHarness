@@ -18,7 +18,7 @@
 import { createHash, createPrivateKey, createPublicKey, createSign, randomBytes, X509Certificate } from "node:crypto";
 import { issueFactoryCertificate, type FactoryCommandRunner, type FactoryIssuedCertificate } from "./certificates";
 import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
-import { ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivatePath, readFactoryPrivateText, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
+import { ensureFactoryPrivateCertificatePair, ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivatePath, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 
 export const FACTORY_TEMPORAL_ISSUER = "ezcorp-factory-local";
@@ -108,11 +108,16 @@ export function parseFactoryTemporalRevocations(value: unknown): FactoryTemporal
 }
 
 async function readRevocations(path: string): Promise<FactoryTemporalRevocations> {
-  try { return parseFactoryTemporalRevocations(JSON.parse(new TextDecoder().decode(await readFactoryPrivatePath(path)))); }
+  let text: string;
+  try { text = new TextDecoder().decode(await readFactoryPrivatePath(path)); }
   catch (error) {
     if ((error as NodeJS.ErrnoException).code === "ENOENT") return { schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [] };
     throw error;
   }
+  let parsed: unknown;
+  try { parsed = JSON.parse(text); }
+  catch { throw new FactoryProvisioningError("temporal_revocations_corrupt", "The Temporal revocation list is corrupt."); }
+  return parseFactoryTemporalRevocations(parsed);
 }
 
 /**
@@ -153,17 +158,7 @@ export class FactoryTemporalStep implements FactoryProvisioningDriver {
     const directory = await openFactoryPrivateDirectory(installation.secretDirectory);
     try {
       const caPem = new TextDecoder().decode(await readFactoryPrivatePath(this.options.authority.caCertificatePath));
-      let issued: FactoryIssuedCertificate | undefined;
-      try { await readFactoryPrivateText(directory, FILES.certificate); }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        issued = await this.options.certificates.issue(installation.temporalNamespace, this.options.authority);
-      }
-      if (issued) {
-        // Key before certificate: a certificate on disk always has its key beside it.
-        await ensureFactoryPrivateFile(directory, FILES.key, () => issued!.privateKeyPem);
-        await ensureFactoryPrivateFile(directory, FILES.certificate, () => issued!.certificatePem);
-      }
+      await ensureFactoryPrivateCertificatePair(directory, { key: FILES.key, certificate: FILES.certificate }, () => this.options.certificates.issue(installation.temporalNamespace, this.options.authority));
       await ensureFactoryPrivateFile(directory, FILES.ca, () => caPem);
       await ensureFactoryPrivateFile(directory, FILES.token, () => this.token(installation));
     } finally { await directory.close(); }

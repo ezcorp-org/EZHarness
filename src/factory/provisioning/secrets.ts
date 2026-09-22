@@ -22,6 +22,7 @@
  */
 import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { InstallationDataKey, StaticMasterKeyProvider, readOperatorMasterKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../encryption";
 import { loadFactoryTemporalPayloadCodec, parseFactoryKeyWrapFile } from "../file-key-wraps";
 import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
@@ -55,25 +56,27 @@ function digest(value: Uint8Array | string): string {
 
 function text(value: string): string { return `${value}\n`; }
 
-/** A write-once file-backed wrap store, used only while the wrap is first created. */
+/**
+ * The file-backed wrap store the provisioner creates the FIRST wrap through.
+ *
+ * It only ever writes one wrap: rewrapping under a new master key is
+ * `InstallationDataKey.rotate` against the orchestrator's own store, not this.
+ * `loadOrCreate` re-reads what `save` wrote, so the round trip goes through the
+ * file, exactly as the Node process will read it.
+ */
 class ProvisionerKeyWrapFile implements InstallationKeyWrapStore {
-  private held: InstallationKeyWrap[] = [];
   constructor(private readonly path: string, private readonly installationId: string, private readonly masterKeyId: string) {}
   async load(installationId: string): Promise<readonly InstallationKeyWrap[]> {
-    try {
-      const wraps = parseFactoryKeyWrapFile(JSON.parse(await readFile(this.path, "utf8")), installationId, this.masterKeyId);
-      return wraps.map((wrap) => ({ ...wrap, wrappedDataKey: Uint8Array.from(wrap.wrappedDataKey) }));
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      return this.held.map((wrap) => ({ ...wrap, wrappedDataKey: Uint8Array.from(wrap.wrappedDataKey) }));
-    }
+    let text: string;
+    try { text = await readFile(this.path, "utf8"); }
+    catch (error) { if ((error as NodeJS.ErrnoException).code === "ENOENT") return []; throw error; }
+    return parseFactoryKeyWrapFile(JSON.parse(text), installationId, this.masterKeyId);
   }
   async save(wrap: InstallationKeyWrap): Promise<void> {
-    this.held = [...this.held.filter((held) => held.wrapVersion !== wrap.wrapVersion), { ...wrap, wrappedDataKey: Uint8Array.from(wrap.wrappedDataKey) }];
     await replaceFactoryPrivateFile(this.path, `${JSON.stringify({
       schemaVersion: "factory.key-wraps.v1",
       installationId: this.installationId,
-      wraps: [...this.held].sort((a, b) => a.wrapVersion - b.wrapVersion).map((held) => ({ installationId: held.installationId, wrapVersion: held.wrapVersion, masterKeyId: held.masterKeyId, wrappedDataKey: Buffer.from(held.wrappedDataKey).toString("base64") })),
+      wraps: [{ installationId: wrap.installationId, wrapVersion: wrap.wrapVersion, masterKeyId: wrap.masterKeyId, wrappedDataKey: Buffer.from(wrap.wrappedDataKey).toString("base64") }],
     })}\n`);
   }
 }
@@ -94,7 +97,8 @@ export function assertFactoryMasterKeyIsRaw(masterKey: Uint8Array, applicationSe
       throw new FactoryProvisioningError("master_key_is_application_secret", "The operator master key is an application secret; generate it separately as raw key material.");
     }
   }
-  if (/^[A-Za-z0-9+/_=-]+$/.test(asText) && asText.length === masterKey.byteLength) throw new FactoryProvisioningError("master_key_is_text", "The operator master key is printable text; it must be raw random bytes, not an encoded secret.");
+  // Raw random bytes are essentially never all printable; an encoded secret always is.
+  if (masterKey.every((byte) => (byte >= 0x20 && byte < 0x7f) || byte === 0x0a || byte === 0x0d)) throw new FactoryProvisioningError("master_key_is_text", "The operator master key is printable text; it must be raw random bytes, not an encoded secret.");
 }
 
 export class FactorySecretsStep implements FactoryProvisioningDriver {
@@ -136,8 +140,8 @@ export class FactorySecretsStep implements FactoryProvisioningDriver {
     finally { await operator.close(); }
     assertFactoryMasterKeyIsRaw(masterBytes, applicationSecrets);
     const grantableRoots = this.options.grantableRoots(installation);
-    for (const root of grantableRoots) {
-      if (installation.operatorDirectory === root || installation.operatorDirectory.startsWith(`${root.replace(/\/+$/, "")}/`) || installation.secretDirectory.startsWith(`${root.replace(/\/+$/, "")}/`)) {
+    for (const root of grantableRoots.map((value) => resolve(value))) {
+      if (installation.operatorDirectory === root || installation.secretDirectory === root || installation.operatorDirectory.startsWith(`${root}/`) || installation.secretDirectory.startsWith(`${root}/`)) {
         throw new FactoryProvisioningError("secrets_inside_grantable_root", "Installation secrets must sit outside every grantable root.");
       }
     }

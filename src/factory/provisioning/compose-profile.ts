@@ -16,6 +16,7 @@ import type { FactoryDeploymentTarget, FactoryInstallationBundle } from "./deplo
 import type { FactoryInstallationContext, FactoryStepResources } from "./installation";
 import { factoryPrivatePath, removeFactoryPrivateDirectory, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
+import type { FactoryUpgradeComponent, FactoryUpgradeTarget } from "./fleet-upgrade";
 
 export interface FactoryCommandResult { readonly code: number; readonly stdout: string; readonly stderr: string }
 export type FactoryCommandExecutor = (command: readonly string[], options?: { readonly env?: Readonly<Record<string, string>>; readonly cwd?: string }) => Promise<FactoryCommandResult>;
@@ -82,6 +83,10 @@ export function factoryComposeEnvironment(bundle: FactoryInstallationBundle, opt
   return Object.freeze({
     EZCORP_FACTORY_PROJECT: factoryComposeProject(installation),
     EZCORP_FACTORY_IMAGE: bundle.image.reference,
+    EZCORP_FACTORY_POOL_IMAGE: bundle.images.pool,
+    EZCORP_FACTORY_GATEWAY_IMAGE: bundle.images.gateway,
+    EZCORP_FACTORY_HARNESS_IMAGE: bundle.images.harness,
+    EZCORP_FACTORY_ORCHESTRATOR_IMAGE: bundle.images.orchestrator,
     EZCORP_FACTORY_REVISION: bundle.image.revision,
     EZCORP_FACTORY_UID: String(options.uid),
     EZCORP_FACTORY_GID: String(options.gid),
@@ -89,6 +94,7 @@ export function factoryComposeEnvironment(bundle: FactoryInstallationBundle, opt
     EZCORP_FACTORY_TENANT: installation.tenantId,
     EZCORP_FACTORY_INSTALLATION: installation.installationId,
     EZCORP_FACTORY_READINESS: bundle.readinessDirectory,
+    EZCORP_FACTORY_HARNESS_DATA: bundle.dataDirectory,
     EZCORP_FACTORY_POOL_PORT: String(ports.pool),
     EZCORP_FACTORY_GATEWAY_PORT: String(ports.gateway),
     EZCORP_FACTORY_HARNESS_PORT: String(ports.harness),
@@ -119,7 +125,7 @@ export function factorySupervisorUnitArguments(bundle: FactoryInstallationBundle
   const config = factoryPrivatePath(bundle.deliveries.supervisor.directory, "supervisor.json");
   return [
     "systemd-run", "--user", "--collect", `--unit=${factorySupervisorUnit(bundle.installation)}`,
-    `--working-directory=${settings.releaseDirectory}`,
+    `--working-directory=${bundle.images.supervisorRelease ?? settings.releaseDirectory}`,
     "--property=Restart=on-failure", "--property=RestartSec=2", "--property=KillMode=control-group", "--property=Delegate=yes",
     "--property=UMask=0077", "--property=TimeoutStopSec=20", "--property=MemoryMax=2G", "--property=TasksMax=1024",
     `--setenv=PATH=${settings.path}`, "--setenv=BUN_RUNTIME_TRANSPILER_CACHE_PATH=0",
@@ -146,7 +152,8 @@ export class FactoryComposeTarget implements FactoryDeploymentTarget {
     return settled;
   }
 
-  async apply(bundle: FactoryInstallationBundle): Promise<FactoryStepResources> {
+  /** Render the installation's env files: the Compose interpolation file and one per service. */
+  async writeEnvironment(bundle: FactoryInstallationBundle): Promise<void> {
     const envFiles: Record<string, string> = {};
     for (const [service, values] of Object.entries(bundle.environment)) {
       const path = resolve(bundle.runtimeDirectory, `${service}.env`);
@@ -154,14 +161,29 @@ export class FactoryComposeTarget implements FactoryDeploymentTarget {
       envFiles[service] = path;
     }
     await replaceFactoryPrivateFile(resolve(bundle.runtimeDirectory, "compose.env"), envFile(factoryComposeEnvironment(bundle, this.options, envFiles)));
-    await this.must(this.compose(bundle, ["up", "--detach", "--no-build", "--remove-orphans"]), "deployment_compose_failed", "compose up");
+  }
+
+  /** Start the supervisor unit; `restart` replaces a running one (a host upgrade moves its release). */
+  async startSupervisor(bundle: FactoryInstallationBundle, restart = false): Promise<void> {
     const unit = factorySupervisorUnit(bundle.installation);
     const active = await this.options.execute(["systemctl", "--user", "is-active", unit]);
-    if (active.stdout.trim() !== "active") {
-      await this.options.execute(["systemctl", "--user", "reset-failed", unit]);
-      await this.must(this.options.execute(factorySupervisorUnitArguments(bundle, this.options.supervisor)), "deployment_supervisor_failed", `start ${unit}`);
-    }
-    return Object.freeze({ composeProject: factoryComposeProject(bundle.installation), supervisorUnit: unit, template: this.options.templatePath });
+    if (active.stdout.trim() === "active" && !restart) return;
+    if (active.stdout.trim() === "active") await this.options.execute(["systemctl", "--user", "stop", unit]);
+    await this.options.execute(["systemctl", "--user", "reset-failed", unit]);
+    await this.must(this.options.execute(factorySupervisorUnitArguments(bundle, this.options.supervisor)), "deployment_supervisor_failed", `start ${unit}`);
+  }
+
+  /** Recreate only the named services onto the images the env file now names. */
+  async recreate(bundle: FactoryInstallationBundle, services: readonly string[]): Promise<void> {
+    await this.writeEnvironment(bundle);
+    await this.must(this.compose(bundle, ["up", "--detach", "--no-build", "--no-deps", ...services]), "deployment_compose_failed", `compose up ${services.join(" ")}`);
+  }
+
+  async apply(bundle: FactoryInstallationBundle): Promise<FactoryStepResources> {
+    await this.writeEnvironment(bundle);
+    await this.must(this.compose(bundle, ["up", "--detach", "--no-build", "--remove-orphans"]), "deployment_compose_failed", "compose up");
+    await this.startSupervisor(bundle);
+    return Object.freeze({ composeProject: factoryComposeProject(bundle.installation), supervisorUnit: factorySupervisorUnit(bundle.installation), template: this.options.templatePath });
   }
 
   /**
@@ -231,3 +253,31 @@ export const factorySpawnExecutor: FactoryCommandExecutor = async (command, opti
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   return { code, stdout, stderr };
 };
+
+/** The Compose services, and whether the supervisor unit moves, for each upgrade component. */
+export const FACTORY_COMPOSE_UPGRADE_SERVICES: Readonly<Record<FactoryUpgradeComponent, { readonly services: readonly string[]; readonly supervisor: boolean }>> = Object.freeze({
+  host: { services: ["pool"], supervisor: true },
+  orchestrator: { services: ["orchestrator"], supervisor: false },
+  harness: { services: ["gateway", "harness"], supervisor: false },
+});
+
+/**
+ * Fleet upgrades on the Compose profile. The ledger already names the new
+ * builds when `apply` runs, so the re-rendered bundle carries them; only the
+ * component's own services are recreated, and the supervisor unit is restarted
+ * onto its new release only for the host component.
+ */
+export class FactoryComposeUpgradeTarget implements FactoryUpgradeTarget {
+  constructor(private readonly bundle: (installation: FactoryInstallationContext) => Promise<FactoryInstallationBundle>, private readonly target: FactoryComposeTarget) {}
+
+  async apply(installation: FactoryInstallationContext, component: FactoryUpgradeComponent): Promise<void> {
+    const bundle = await this.bundle(installation);
+    const plan = FACTORY_COMPOSE_UPGRADE_SERVICES[component];
+    await this.target.recreate(bundle, plan.services);
+    if (plan.supervisor) await this.target.startSupervisor(bundle, true);
+  }
+
+  async ready(installation: FactoryInstallationContext): Promise<void> {
+    await this.target.ready(await this.bundle(installation));
+  }
+}

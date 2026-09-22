@@ -36,6 +36,7 @@ import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES, factoryMasterKeyId
 import { factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateBytes, readFactoryPrivateJson, removeFactoryPrivateDirectory, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 import { factoryTemporalOwnerMarker } from "./temporal";
+import type { FactoryInstallationBuilds } from "./fleet-upgrade";
 
 export const FACTORY_CONTAINER_SERVICES = ["pool", "gateway", "harness", "orchestrator"] as const;
 export const FACTORY_DEPLOYED_SERVICES = [...FACTORY_CONTAINER_SERVICES, "supervisor"] as const;
@@ -87,6 +88,21 @@ export interface FactoryDeploymentSettings {
   /** CPU slots this installation's pool offers. */
   readonly cpuCapacity: number;
   readonly interpreterCompatibility: string;
+  /**
+   * The builds this installation currently runs, per component, once a fleet
+   * upgrade has recorded any. Absent, every component runs `image`.
+   */
+  readonly builds?: (installation: FactoryInstallationContext) => Promise<FactoryInstallationBuilds | undefined>;
+}
+
+/** The image each container service runs, and the release the host supervisor runs. */
+export interface FactoryServiceImages {
+  readonly pool: string;
+  readonly gateway: string;
+  readonly harness: string;
+  readonly orchestrator: string;
+  /** The host checkout the supervisor unit runs; absent means the fleet's default release. */
+  readonly supervisorRelease?: string;
 }
 
 export interface FactoryServiceDelivery {
@@ -101,10 +117,13 @@ export interface FactoryInstallationBundle {
   readonly installation: FactoryInstallationContext;
   readonly ports: FactoryInstallationPorts;
   readonly image: FactoryDeploymentImage;
+  readonly images: FactoryServiceImages;
   readonly hostId: string;
   readonly runtimeDirectory: string;
   readonly readinessDirectory: string;
   readonly runnerRoot: string;
+  /** The harness's writable data directory, owned by the installation's uid. */
+  readonly dataDirectory: string;
   readonly deliveries: Readonly<Record<FactoryDeployedService, FactoryServiceDelivery>>;
   /** Non-secret environment per container service. Secrets arrive through the delivery only. */
   readonly environment: Readonly<Record<(typeof FACTORY_CONTAINER_SERVICES)[number], Readonly<Record<string, string>>>>;
@@ -154,6 +173,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
   const runtimeDirectory = resolve(settings.runtimeRoot, installation.tenantId);
   const readinessDirectory = resolve(runtimeDirectory, "readiness");
   const runnerRoot = resolve(runtimeDirectory, "runner");
+  const dataDirectory = resolve(runtimeDirectory, "harness-data");
   const deliveryRoot = resolve(installation.secretDirectory, "deliver");
   const source = (name: string) => ({ source: factoryPrivatePath(installation.secretDirectory, name) });
   const [productPair, poolPair] = factoryDatabasePairs(installation);
@@ -298,6 +318,14 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
   };
 
   const publicOrigin = settings.network.publicOrigin(installation);
+  const builds = await settings.builds?.(installation);
+  const images: FactoryServiceImages = Object.freeze({
+    pool: builds?.host.image ?? settings.image.reference,
+    gateway: builds?.harness.image ?? settings.image.reference,
+    harness: builds?.harness.image ?? settings.image.reference,
+    orchestrator: builds?.orchestrator.image ?? settings.image.reference,
+    ...(builds ? { supervisorRelease: builds.host.releaseDirectory } : {}),
+  });
   const environment = {
     pool: { HOME: "/tmp" },
     gateway: { HOME: "/tmp" },
@@ -317,7 +345,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       EZCORP_PERM_SWEEP_INTERVAL_MS: String(startup.orphanSweepIntervalMs),
     },
   };
-  return Object.freeze({ installation, ports, image: settings.image, hostId: identities.hostId, runtimeDirectory, readinessDirectory, runnerRoot, deliveries, environment, publicOrigin });
+  return Object.freeze({ installation, ports, image: settings.image, images, hostId: identities.hostId, runtimeDirectory, readinessDirectory, runnerRoot, dataDirectory, deliveries, environment, publicOrigin });
 }
 
 /**
@@ -342,7 +370,7 @@ export async function writeFactoryDeliveries(bundle: FactoryInstallationBundle):
       await replaceFactoryPrivateFile(factoryPrivatePath(delivery.directory, name), bytes);
     }
   }
-  for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, bundle.runnerRoot]) {
+  for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, bundle.runnerRoot, bundle.dataDirectory]) {
     const handle = await openFactoryPrivateDirectory(directory);
     await handle.close();
   }

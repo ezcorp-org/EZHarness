@@ -226,9 +226,10 @@ export class FactorySeededStorageIssuer implements FactoryStorageCredentialIssue
   async issue(installation: FactoryInstallationContext): Promise<FactoryStorageCredential> {
     const text = await readFile(this.serverIdentityPath, "utf8");
     if (Buffer.byteLength(text) > MAX_SEEDED_CONFIG_BYTES) throw new FactoryProvisioningError("storage_identity_unavailable", "The store identity file is too large.");
-    let config: { identities?: Array<{ name?: unknown; credentials?: Array<{ accessKey?: unknown; secretKey?: unknown }> }> };
+    let config: { identities?: Array<{ name?: unknown; credentials?: Array<{ accessKey?: unknown; secretKey?: unknown }> }> } | null;
     try { config = JSON.parse(text); } catch { throw new FactoryProvisioningError("storage_identity_unavailable", "The store identity file is not JSON."); }
-    const credential = config.identities?.find((entry) => entry.name === installation.tenantId)?.credentials?.[0];
+    const identities = Array.isArray(config?.identities) ? config.identities : [];
+    const credential = identities.find((entry) => entry?.name === installation.tenantId)?.credentials?.[0];
     if (typeof credential?.accessKey !== "string" || typeof credential.secretKey !== "string" || !credential.accessKey || !credential.secretKey) throw new FactoryProvisioningError("storage_identity_unavailable", `Storage identity for ${installation.tenantId} is unavailable.`);
     return { accessKey: credential.accessKey, secretKey: credential.secretKey };
   }

@@ -34,6 +34,7 @@ export interface FactoryGatewayProcessConfig {
 
 const IDENTITY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 
+function identity(value: unknown): value is string { return typeof value === "string" && IDENTITY.test(value); }
 function absolute(value: unknown): value is string { return typeof value === "string" && value.length > 0 && value.length <= 4_096 && resolve(value) === value; }
 
 export function parseFactoryGatewayProcessConfig(value: unknown): FactoryGatewayProcessConfig {
@@ -41,7 +42,7 @@ export function parseFactoryGatewayProcessConfig(value: unknown): FactoryGateway
   const keys = record && typeof record === "object" ? Object.keys(record).sort().join(",") : "";
   const tls = record?.tls as Partial<FactoryGatewayProcessConfig["tls"]> | undefined;
   if (keys !== "attemptTokenSecretPath,databaseUrlPath,hostname,installationId,interpreterCompatibility,port,schemaVersion,tenantId,tls" || record!.schemaVersion !== FACTORY_GATEWAY_PROCESS_SCHEMA
-    || !IDENTITY.test(String(record!.installationId)) || !IDENTITY.test(String(record!.tenantId)) || !IDENTITY.test(String(record!.interpreterCompatibility))
+    || !identity(record!.installationId) || !identity(record!.tenantId) || !identity(record!.interpreterCompatibility)
     || typeof record!.hostname !== "string" || !/^[A-Za-z0-9.:-]{1,253}$/.test(record!.hostname) || !Number.isSafeInteger(record!.port) || record!.port! < 1 || record!.port! > 65_535
     || !tls || Object.keys(tls).sort().join(",") !== "caPath,certificatePath,privateKeyPath" || !absolute(tls.caPath) || !absolute(tls.certificatePath) || !absolute(tls.privateKeyPath)
     || !absolute(record!.attemptTokenSecretPath) || !absolute(record!.databaseUrlPath)) {

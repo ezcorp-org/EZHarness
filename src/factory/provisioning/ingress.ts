@@ -23,7 +23,7 @@ import { request as httpsRequest } from "node:https";
 import { readdir } from "node:fs/promises";
 import { issueFactoryCertificate, type FactoryCommandRunner } from "./certificates";
 import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStepResources } from "./installation";
-import { ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateJson, readFactoryPrivatePath, readFactoryPrivateText, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
+import { ensureFactoryPrivateCertificatePair, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateJson, readFactoryPrivatePath, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 import { factoryCertificateHash } from "./temporal";
 
@@ -166,18 +166,13 @@ export class FactoryIngressStep implements FactoryProvisioningDriver {
   }
 
   async ensure(installation: FactoryInstallationContext): Promise<FactoryStepResources> {
+    // A hostname another installation already holds is refused BEFORE anything
+    // is written: a route file left behind would fail every later publish.
+    const claimed = (await readFactoryIngressRoutes(this.options.paths)).find((route) => route.hostname === installation.hostname && route.tenantId !== installation.tenantId);
+    if (claimed) throw new FactoryProvisioningError("ingress_hostname_conflict", `Hostname ${installation.hostname} is bound to ${claimed.tenantId}.`);
     const certs = await openFactoryPrivateDirectory(dir(this.options.paths, "certs"));
     try {
-      let issued: { certificatePem: string; privateKeyPem: string } | undefined;
-      try { await readFactoryPrivateText(certs, `${installation.tenantId}.crt`); }
-      catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-        issued = await issueFactoryCertificate({ certificatePath: `${this.options.paths.root}/ca.crt`, keyPath: `${this.options.paths.root}/ca.key` }, { subject: installation.tenantId, usage: "server", dnsNames: [installation.hostname] }, this.options.run);
-      }
-      if (issued) {
-        await ensureFactoryPrivateFile(certs, `${installation.tenantId}.key`, () => issued!.privateKeyPem);
-        await ensureFactoryPrivateFile(certs, `${installation.tenantId}.crt`, () => issued!.certificatePem);
-      }
+      await ensureFactoryPrivateCertificatePair(certs, { key: `${installation.tenantId}.key`, certificate: `${installation.tenantId}.crt` }, () => issueFactoryCertificate({ certificatePath: `${this.options.paths.root}/ca.crt`, keyPath: `${this.options.paths.root}/ca.key` }, { subject: installation.tenantId, usage: "server", dnsNames: [installation.hostname] }, this.options.run));
     } finally { await certs.close(); }
     const state = await this.currentState(installation) ?? "held";
     await this.writeRoute(installation, state);
@@ -188,7 +183,7 @@ export class FactoryIngressStep implements FactoryProvisioningDriver {
 
   async verify(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void> {
     const current = await this.resources(installation);
-    if (current.certificateHash !== resources.certificateHash || current.installationId !== installation.installationId) throw new FactoryProvisioningError("ingress_resource_mismatch", "The ingress binding changed since it was recorded.");
+    if (current.certificateHash !== resources.certificateHash || resources.installationId !== installation.installationId) throw new FactoryProvisioningError("ingress_resource_mismatch", "The ingress binding changed since it was recorded.");
     await this.expect(installation, await this.currentState(installation) ?? "held");
   }
 
@@ -234,7 +229,8 @@ export function factoryHttpsIngressProbe(address: string, port: number, caPem: s
         response.on("data", (chunk: Buffer) => { size += chunk.byteLength; if (size <= 64 * 1024) chunks.push(chunk); });
         response.once("end", () => settle({ status: response.statusCode ?? 0, route: typeof response.headers["x-ezcorp-route"] === "string" ? response.headers["x-ezcorp-route"] : undefined, body: Buffer.concat(chunks).toString("utf8") }));
       });
-      request.once("timeout", () => request.destroy(new Error("ingress probe timed out")));
+      // Bun does not emit `error` for `destroy(error)`, so the timeout rejects itself.
+      request.once("timeout", () => { const error = new Error("ingress probe timed out"); request.destroy(error); reject(error); });
       request.once("error", reject);
       request.end();
     }),

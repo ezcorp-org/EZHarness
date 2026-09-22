@@ -24,7 +24,7 @@
 import { createPrivateKey, createPublicKey, createSign, generateKeyPairSync, randomBytes, X509Certificate } from "node:crypto";
 import { createFactoryCertificateAuthority, issueFactoryCertificate, type FactoryCommandRunner } from "./certificates";
 import type { FactoryInstallationContext } from "./installation";
-import { ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateText } from "./secret-files";
+import { ensureFactoryPrivateCertificatePair, ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateText } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 
 export const FACTORY_MESH_TOKEN_KEY_ID = "mesh-1";
@@ -89,16 +89,7 @@ export async function ensureFactoryMesh(installation: FactoryInstallationContext
   const operator = await openFactoryPrivateDirectory(installation.operatorDirectory);
   const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
   try {
-    let authority: { certificatePem: string; privateKeyPem: string } | undefined;
-    try { await readFactoryPrivateText(operator, FACTORY_MESH_OPERATOR_FILES.caKey); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      authority = await createFactoryCertificateAuthority(`mesh.${installation.tenantId}`, options.run);
-    }
-    if (authority) {
-      await ensureFactoryPrivateFile(operator, FACTORY_MESH_OPERATOR_FILES.caKey, () => authority!.privateKeyPem);
-      await ensureFactoryPrivateFile(operator, FACTORY_MESH_OPERATOR_FILES.caCertificate, () => authority!.certificatePem);
-    }
+    await ensureFactoryPrivateCertificatePair(operator, { key: FACTORY_MESH_OPERATOR_FILES.caKey, certificate: FACTORY_MESH_OPERATOR_FILES.caCertificate }, () => createFactoryCertificateAuthority(`mesh.${installation.tenantId}`, options.run));
     const caPem = await readFactoryPrivateText(operator, FACTORY_MESH_OPERATOR_FILES.caCertificate);
     await ensureFactoryPrivateFile(secrets, FACTORY_MESH_FILES.caCertificate, () => caPem);
     const ca = { certificatePath: factoryPrivatePath(installation.operatorDirectory, FACTORY_MESH_OPERATOR_FILES.caCertificate), keyPath: factoryPrivatePath(installation.operatorDirectory, FACTORY_MESH_OPERATOR_FILES.caKey) };
@@ -109,13 +100,7 @@ export async function ensureFactoryMesh(installation: FactoryInstallationContext
       [FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey, { subject: identities.orchestrator, usage: "client" as const }],
       [FACTORY_MESH_FILES.supervisorCertificate, FACTORY_MESH_FILES.supervisorKey, { subject: identities.supervisor, usage: "client" as const }],
     ] as const;
-    for (const [certificateFile, keyFile, request] of leaves) {
-      try { await readFactoryPrivateText(secrets, certificateFile); continue; }
-      catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
-      const issued = await issueFactoryCertificate(ca, request, options.run);
-      await ensureFactoryPrivateFile(secrets, keyFile, () => issued.privateKeyPem);
-      await ensureFactoryPrivateFile(secrets, certificateFile, () => issued.certificatePem);
-    }
+    for (const [certificateFile, keyFile, request] of leaves) await ensureFactoryPrivateCertificatePair(secrets, { key: keyFile, certificate: certificateFile }, () => issueFactoryCertificate(ca, request, options.run));
     await ensureFactoryPrivateFile(operator, FACTORY_MESH_OPERATOR_FILES.tokenKey, () => generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString());
     const tokenKeyPem = await readFactoryPrivateText(operator, FACTORY_MESH_OPERATOR_FILES.tokenKey);
     await ensureFactoryPrivateFile(secrets, FACTORY_MESH_FILES.tokenPublicKey, () => createPublicKey(createPrivateKey(tokenKeyPem)).export({ type: "spki", format: "pem" }).toString());

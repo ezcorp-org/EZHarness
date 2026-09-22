@@ -18,8 +18,9 @@
 # host systemd unit (deploy/factory/systemd/ezcorp-factory-supervisor@.service).
 name: ${EZCORP_FACTORY_PROJECT:?rendered by the provisioner}
 
+# Each service names its own pinned image, because a fleet upgrade moves the
+# components one group at a time in C12 order (host, orchestration, harness).
 x-factory-service: &factory-service
-  image: ${EZCORP_FACTORY_IMAGE:?pinned image digest}
   # The host user's own uid inside the container: the private-file reader
   # requires every secret to be owned by the process that reads it.
   userns_mode: keep-id
@@ -39,6 +40,7 @@ x-factory-service: &factory-service
 services:
   pool:
     <<: *factory-service
+    image: ${EZCORP_FACTORY_POOL_IMAGE:?}
     network_mode: ${EZCORP_FACTORY_POOL_NETWORK:?}
     ports: ["127.0.0.1:${EZCORP_FACTORY_POOL_PORT:?}:${EZCORP_FACTORY_POOL_PORT:?}"]
     command: ["bun", "src/factory/pool/process.ts", "/run/ezcorp/secrets/pool.json"]
@@ -58,6 +60,7 @@ services:
 
   gateway:
     <<: *factory-service
+    image: ${EZCORP_FACTORY_GATEWAY_IMAGE:?}
     network_mode: ${EZCORP_FACTORY_GATEWAY_NETWORK:?}
     ports: ["127.0.0.1:${EZCORP_FACTORY_GATEWAY_PORT:?}:${EZCORP_FACTORY_GATEWAY_PORT:?}"]
     command: ["bun", "src/factory/gateway-process.ts", "/run/ezcorp/secrets/gateway.json"]
@@ -76,6 +79,7 @@ services:
 
   harness:
     <<: *factory-service
+    image: ${EZCORP_FACTORY_HARNESS_IMAGE:?}
     network_mode: ${EZCORP_FACTORY_HARNESS_NETWORK:?}
     ports:
       - "127.0.0.1:${EZCORP_FACTORY_HARNESS_PORT:?}:${EZCORP_FACTORY_HARNESS_PORT:?}"
@@ -88,7 +92,10 @@ services:
     volumes:
       - { type: bind, source: "${EZCORP_FACTORY_DELIVER_HARNESS:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
       - { type: bind, source: "${EZCORP_FACTORY_READINESS:?}", target: /run/ezcorp/readiness, read_only: true, bind: { create_host_path: false } }
-      - { type: volume, source: harness-data, target: /var/lib/ezcorp }
+      # A host directory owned by the installation's uid rather than a named
+      # volume: a named volume is created owned by the container's root, which
+      # the keep-id user cannot write. Purge removes it with the runtime root.
+      - { type: bind, source: "${EZCORP_FACTORY_HARNESS_DATA:?}", target: /var/lib/ezcorp, bind: { create_host_path: false } }
     healthcheck:
       test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "--http", "http://127.0.0.1:${EZCORP_FACTORY_HARNESS_PORT:?}/api/ready"]
       interval: 5s
@@ -101,6 +108,7 @@ services:
 
   orchestrator:
     <<: *factory-service
+    image: ${EZCORP_FACTORY_ORCHESTRATOR_IMAGE:?}
     network_mode: ${EZCORP_FACTORY_ORCHESTRATOR_NETWORK:?}
     # Its readiness depends on reaching the harness's private service, and it
     # exits when that peer goes away; `restart` is the daemon supervisor here.
@@ -119,5 +127,3 @@ services:
     cpus: 0.5
     pids_limit: 256
 
-volumes:
-  harness-data:
