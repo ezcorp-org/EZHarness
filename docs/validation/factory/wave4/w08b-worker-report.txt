@@ -1,0 +1,134 @@
+W08b -- S3 manifest release profile over the attempt's own authority
+Implementation worker report
+Worktree: /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w08b-profile
+Branch: wp/w08b-profile, cut from integ/w00 at 850ffaa54
+Final head: 1e332b78ab1e237dad0ba03769b6f44d70b89fa0, merged with integ/w00 at 52fe9fc23
+Tree: clean at every gate below.
+Gate file: tasks/factory/w08b-GATES.md
+Evidence directory: /tmp/factory-platform-evidence/w08b/
+
+WHY
+
+W09b found that S3FactoryManifestReleaseProfile needs Pick<FactoryMaterialService, "list">, and the
+only implementation, FactoryAttemptMaterials, is bound to one attempt's authority at construction.
+A production release.profiles composition builds its profile once and only later, at resolve() time,
+learns which attempt an acceptance decision names -- so no such composition could ever be built.
+This package closes that gap without widening authority.
+
+COMMITS (in order)
+
+f9e19d666  feat(factory): list an accepted attempt's own materials without a standing grant
+b00a0d508  test(factory): compose the S3 profile through the verified-attempt materials reader
+ef4e31264  docs(factory): record the W08b review and checklist in tasks/todo.md
+c617981a3  Merge branch 'integ/w00' into wp/w08b-profile (integ/w00 at b24a8a9e1)
+1e332b78a  Merge branch 'integ/w00' into wp/w08b-profile (integ/w00 at 52fe9fc23, docs-only)
+
+WHAT CHANGED
+
+src/factory/release-s3-scope.ts (W08's file; +56/-1 lines):
+  Added FactoryVerifiedAttemptMaterials, implementing Pick<FactoryMaterialService, "list">.
+  Attempt-agnostic at construction (takes {database, blobs, journal}, no bound attempt). On every
+  call it:
+    1. Snapshots the caller's FactoryMaterialScope.
+    2. Reads the NAMED attempt's own current FactoryAttemptAuthority fresh, via
+       FactoryExecutionJournal.readAuthorityInTransaction, keyed on the caller's exact
+       tenant/project/run/attempt. An attempt the journal does not currently recognize under that
+       exact scope returns undefined, refused as FactoryMaterialError("factory_material_scope_denied")
+       before any material row is read.
+    3. Delegates the actual listing to a freshly constructed FactoryAttemptMaterials under that
+       authority -- W04's one query, scope check, and liveness rule; no second implementation.
+  No edit to artifact-materials.ts (W04's file), release-s3-publication.ts, or
+  release-declaration.ts (W09b's file, untouched as instructed).
+
+src/__tests__/helpers/factory-s3-publication-suite.ts (shared W08 test fixture; +103/-2 lines):
+  Rewired the shared S3 publication conformance suite to build S3FactoryManifestReleaseProfile with
+  FactoryVerifiedAttemptMaterials instead of the fixture-only attempt-bound FactoryAttemptMaterials.
+  This means every existing resolve/prepare/claim/dispatch/reconcile scenario in the suite --
+  including the real-Postgres-and-S3 producer -- now proves the production-composable path, not a
+  test-only shortcut. Also added four new tests:
+    - exact listing for the named attempt; refusal by name of an unknown attempt id and of the real
+      attempt under a mismatched tenant/project/run; no standing grant across a second, independently
+      constructed instance; cancellation honored before any database round trip (a poisoned database
+      double proves the abort short-circuits ahead of the first read).
+    - an unsealed material is listed (visible) but never accepted by the profile
+      (factory_s3_profile_invalid).
+    - a lost materials response is safe to retry: a first resolve() whose materials.list() throws
+      rejects cleanly, and a second resolve() on the same input reproduces the exact request and
+      destination the healthy path would have produced.
+    - prepare() revalidates the exact resolved input in its own final transaction (freeze section 5):
+      a FactoryReleasePreparation whose profileInput.acceptedManifest is swapped after resolve is
+      refused by prepare() with factory_release_profile_stale; the untampered preparation still
+      commits.
+
+TEST COUNTS
+
+  Focused (release-s3-publication.integration.test.ts + .test.ts):     34 pass, 0 fail, 325 assertions
+  Neighbour unit (7 files sharing artifact-materials/release surface): 74 pass, 0 fail, 547 assertions
+  Neighbour PGlite (3 files):                                          59 pass, 0 fail, 457 assertions
+  tests/postgres/factory-releases.test.ts + factory-release-authority.test.ts:
+                                                                        37 pass, 0 fail, 330 assertions
+  tests/postgres/factory-s3-publication.test.ts (real S3 result below): 16 pass, 0 fail, 158 assertions
+
+REAL-S3 RESULT (G8)
+
+Command: flock --close /tmp/ezcorp-validation-heavy.lock timeout 1800 bun test --timeout 900000
+  ./tests/postgres/factory-s3-publication.test.ts
+Env: FACTORY_TEST_POSTGRES_URL built from /tmp/factory-platform-evidence/postgres.env + podman port
+  factory-platform-proof-postgres 5432; EZCORP_FACTORY_STORAGE_SECRETS_DIR=
+  /run/user/1001/ezcorp-factory-storage.0yXaRPtQ. Both shared stores were UP (verified read-only via
+  podman ps --filter name=factory-storage and podman ps -a --filter
+  name=factory-platform-proof-postgres) before running; neither was restarted, recreated, or
+  reconfigured. No credential value was printed or placed in argv.
+Result: 16 pass, 0 fail, 158 assertions, exit 0, 73.63s wall (queued behind two other workers' heavy
+  -lock holders; ran 2026-09-22T00:56:57Z-01:08:10Z). Includes the 256 MiB multipart export leg
+  (large: true in this producer). The suite now runs S3FactoryManifestReleaseProfile through
+  FactoryVerifiedAttemptMaterials, so this is the production-composable path against the real local
+  ordinary SeaweedFS store and real PostgreSQL, publishing one manifest for one accepted attempt and
+  reading it back.
+Evidence: /tmp/factory-platform-evidence/w08b/postgres-s3-publication.log
+
+GATE RESULTS (see tasks/factory/w08b-GATES.md for full CHECK/EXPECT/EVIDENCE detail, G1-G12)
+
+  G1  exact listing for the named attempt through its own re-derived authority         PASS
+  G2  foreign/unknown attempt and cross-tenant/project/run refused by name             PASS
+  G3  cancellation honored before any database round trip                             PASS
+  G4  unsealed material listed but never accepted by the profile                       PASS
+  G5  a lost materials response is safe to retry                                       PASS
+  G6  prepare() revalidates the exact resolved input in its own final transaction      PASS
+  G7  production-composable path proven by the full shared conformance suite           PASS
+  G8  real-S3-and-Postgres case, includes 256 MiB multipart                            PASS
+  G9  ten neighbouring unit/PGlite suites unchanged and green                          PASS
+  G10 typecheck, lint (zero warnings), check-factory-boundaries, gate-integrity        PASS
+  G11 new-file gate (vacuous, no new source file) + patch-coverage gate (1 file, 100%) PASS
+  G12 tests/postgres/factory-releases.test.ts + factory-release-authority.test.ts      PASS
+
+release-s3-scope.ts measures 136 of 136 lines from the focused suites alone (100%). All gates re-ran
+green at the final merged head (1e332b78a), not only at the pre-merge commit.
+
+WHAT REMAINS OPEN (both explicitly out of this package's scope per the brief)
+
+  1. Composition wiring into release.profiles is W09b's. This package proves the builder is buildable
+     and proves it composes the way the declaration will; it does not touch
+     src/factory/release-declaration.ts.
+  2. W04a's unmet deployed-independent-failure-domain criterion (same-host SeaweedFS ordinary+archive
+     pair) is unchanged by this package; not this package's surface.
+
+Nothing from the brief's own checklist is open.
+
+INTERFACE QUESTIONS
+
+None. W04's FactoryAttemptMaterials, FactoryExecutionJournal.readAuthorityInTransaction, and W05's
+FactoryAsyncReleaseProfile / release-profile.ts machinery were exactly right for this composition;
+no fork was needed and none of those files were edited.
+
+ASSUMPTIONS STATED AND ACTED ON
+
+  - "W04's scoped reader" in the brief is the attempt-scoped read/list capability
+    FactoryAttemptMaterials + FactoryExecutionJournal already provide (FactoryScopedMaterials, the
+    class literally named that, implements only read/readChunk, no list) -- so the buildable
+    composition reuses FactoryAttemptMaterials.list() under a freshly re-derived authority rather
+    than adding a list method to W04's file.
+  - factorySynchronousReleaseProfile (protected-command-effects.ts) lifts only the deprecated
+    build()-shaped profiles; S3FactoryManifestReleaseProfile already implements resolve() natively,
+    so it needs no lifting -- the standing ruling "the s3 destination kind maps to the manifest
+    publisher only" confirms this and no code change was needed there.

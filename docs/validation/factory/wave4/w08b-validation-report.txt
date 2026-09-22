@@ -1,0 +1,200 @@
+W08b -- S3 manifest release profile over the attempt's own authority
+Independent validator report
+Package: W08b   Worktree: .worktrees/w08b-profile   Branch: wp/w08b-profile
+Claimed head: 1e332b78ab1e237dad0ba03769b6f44d70b89fa0 (merged with integ/w00 at 52fe9fc23)
+Validation evidence dir: /tmp/factory-platform-evidence/w08b-validation/
+
+VERDICT: ACCEPT
+
+===========================================================================
+1. TREE STATE, COMMITS, RECEIPTS
+===========================================================================
+- `git status --porcelain` empty at all times during validation; HEAD =
+  1e332b78ab1e237dad0ba03769b6f44d70b89fa0, matching the report and gate file exactly.
+- `git log --oneline integ/w00..HEAD`: f9e19d666, b00a0d508, ef4e31264, c617981a3, 1e332b78a --
+  all five commits the report names exist on the branch, in the claimed order.
+- `git diff --stat integ/w00...HEAD`: exactly three files changed --
+  src/factory/release-s3-scope.ts (+55/-1 across the branch, W08's file),
+  src/__tests__/helpers/factory-s3-publication-suite.ts (+103/-2, the shared test fixture),
+  tasks/todo.md (+55, docs). No artifact-materials.ts (W04), no release-declaration.ts (W09b's
+  file -- it does not exist yet in this worktree), no release-s3-publication.ts,
+  no protected-command-effects.ts. Confirms the "surface owned" claim exactly.
+- Opened every receipt the report cites (final-typecheck.log, final-lint.log,
+  final-boundaries.log, final-gate-integrity.log, final-focused-coverage.log,
+  final-new-file-coverage.log, final-patch-coverage.log, final-merge-lcov.log,
+  final-neighbours.log, final-pglite-neighbours.log, postgres-s3-publication.log,
+  postgres-release-neighbours.log): every one shows the pass/exit-0 the report claims for it.
+  No receipt shows a failure the report describes as a pass.
+
+===========================================================================
+2. AUTHORITY -- THE CENTRAL QUESTION
+===========================================================================
+Read FactoryVerifiedAttemptMaterials and every caller in full
+(src/factory/release-s3-scope.ts:183-233 the class; :272-304 its one production caller,
+S3FactoryManifestReleaseProfile.resolve()).
+
+Who can name an attempt: only S3FactoryManifestReleaseProfile.resolve() in production. It does
+NOT forward a caller-supplied attemptId. At release-s3-scope.ts:276-281 it derives
+`scope.attemptId` from `verified.attemptId`, where `verified` comes from
+FactoryPublicationProvenance.attemptForDecision (src/factory/release-publication-set.ts:159-184,
+untouched by this package). That derivation joins `factory_protected_command_effects`
+(kind='request-acceptance', decision='accepted' only) -> `factory_task_completions` ->
+`factory_executions`, keyed on the caller's own tenantId/projectId/runId/decision.decisionId, and
+resolve() further cross-checks the result against input.decision.nodeInstanceId/
+candidateGeneration/candidateDigest (release-s3-scope.ts:277) before ever building a scope. A
+candidate A's release profile can therefore only ever resolve the ONE attempt tied to whatever
+already-accepted decision the caller names; it cannot substitute an unrelated attempt B unless B
+has its own independently accepted decision, which is not a scope violation.
+
+FactoryVerifiedAttemptMaterials.list() itself (release-s3-scope.ts:221-232): reads the NAMED
+attempt's authority fresh via FactoryExecutionJournal.readAuthorityInTransaction
+(src/factory/executions.ts:440-449, a plain `SELECT ... WHERE attempt_id=? AND tenant_id=? AND
+project_id=? AND run_id=? FOR SHARE`, unmodified by this package), refuses with a single opaque
+`factory_material_scope_denied` for an unknown attemptId OR any tenant/project/run mismatch (all
+four cases hit the identical `if (!authority)` branch -- no side channel distinguishing "exists,
+wrong tenant" from "does not exist"), then delegates to a freshly constructed
+FactoryAttemptMaterials (W04's unmodified class) under that authority, which itself re-derives and
+re-locks the FULL authority tuple in a second, independent transaction
+(artifact-materials.ts:566-577 -> executions.ts:482-484,560-564) before returning only that
+attempt's own rows, scoped further by operationId.
+
+readAuthorityInTransaction does NOT filter by status or deadline_at -- a cancelled or expired
+attempt is still found by name. This is pre-existing, unmodified W04/W03 behavior
+(authorizeMaterialReadInTransaction's own comment: "It admits no effect, so it stays available
+after the deadline", executions.ts:481), not something this package introduces or widens: reads of
+already-sealed, immutable materials are documented to outlive an attempt's liveness elsewhere in
+the codebase (e.g. physical-stop lookups use the same function to find a cancelled attempt by
+design). The worker's own tasks/todo.md review states this reasoning explicitly and correctly.
+Since attemptId reaching this reader is never caller-controlled in production (see above), this is
+not an authority-widening path.
+
+Independent scratch test (not in the worktree; not part of the worker's suite):
+/tmp/factory-platform-evidence/w08b-validation/scratch/verified-attempt-materials-toctou.test.ts,
+2 pass, 5 expect() calls (log: logs/scratch-toctou.log). Proves, against the real unmodified code:
+  1. A concurrent grant re-admission landing in the gap between the reader's two internal
+     transactions (readAuthorityInTransaction, then the delegated FactoryAttemptMaterials.list())
+     is refused, not silently served under the now-stale authority -- because the second
+     transaction's lockScopedRead re-checks the FULL tuple including grant_revision.
+  2. The same attempt answers normally again once quiescent, proving the refusal is about
+     in-flight staleness, not a wedged or corrupted attempt.
+  3. Cross-check: feeding a manually-staled FactoryAttemptAuthority straight into
+     FactoryAttemptMaterials.list() (the exact composition FactoryVerifiedAttemptMaterials builds
+     internally) reproduces the same refusal.
+
+Conclusion: no path found that lets a background release role read outside the accepted attempt's
+own scope. A foreign, unknown, or cross-tenant/project/run attempt is refused by name with no
+disclosure of partial matches; list() returns only sealed rows of exactly the named attempt/
+operation; a release profile built for candidate A cannot list candidate B's materials by naming
+B unless B is independently, legitimately accepted -- which is correct behavior, not a leak.
+
+===========================================================================
+3. INTERFACE FREEZE CONFORMANCE (sections 5 and 7)
+===========================================================================
+Section 5 (async release profile): resolve() runs outside the final product transaction
+(release-s3-scope.ts:272-304 does only reads); the two internal read transactions
+FactoryVerifiedAttemptMaterials performs stay inside resolve()'s scope, never inside the final
+transaction. Revalidation of the exact resolved input happens via pure digest comparison
+(assertFactoryReleaseProfileResult / factoryReleaseProfileInputDigest,
+src/factory/release-profile.ts:88-113) -- no additional query, no I/O added to the final
+transaction. Confirmed by a dedicated worker test (G6, "prepare revalidates the exact input... in
+its own final transaction") and by reading FactoryReleases.prepare's call path.
+Section 7 (scoped reader): no frozen type edited. FactoryMaterialService, FactoryScopedArtifactReader,
+and FactoryScopedMaterials (which has no `list`, only read/readChunk, matching the frozen
+interface exactly at interfaces.md:1248-1251) are all untouched. FactoryVerifiedAttemptMaterials is
+a new composition-layer class outside the frozen section, implementing exactly
+Pick<FactoryMaterialService,"list"> as required by S3FactoryManifestReleaseProfile's existing,
+unmodified option type. No frozen surface forked or widened.
+Ownership: no W04 (artifact-materials.ts) or W09b (release-declaration.ts) file touched --
+confirmed directly from `git diff --stat` (section 1).
+
+===========================================================================
+4. RERUN RESULTS (all rerun by me, not read from receipts only)
+===========================================================================
+Command                                                                    Claimed     Mine    Match
+bun run typecheck                                                          exit 0      exit 0   Y
+bun run lint                                                          0 warn/err      0 warn/err Y
+bun scripts/check-factory-boundaries.ts                                    exit 0      exit 0   Y
+bun scripts/gate-integrity.ts                                              exit 0      exit 0   Y
+release-s3-publication.{integration,}.test.ts --coverage                34p/0f/325a  34p/0f/325a Y
+7 neighbour unit files                                                  74p/0f/547a  74p/0f/547a Y
+3 neighbour PGlite files                                                59p/0f/457a  59p/0f/457a Y
+tests/postgres/factory-releases + factory-release-authority              37p/0f/330a  37p/0f/330a Y
+tests/postgres/factory-s3-publication.test.ts (real S3, 256MiB multipart) 16p/0f/158a  16p/0f/158a Y
+BASE_REF=integ/w00 check-new-file-coverage.ts (after own merge-lcov)       PASS         PASS    Y
+BASE_REF=integ/w00 check-patch-coverage.ts                                 PASS         PASS    Y
+release-s3-scope.ts line coverage (own merged lcov.info)                 136/136      136/136  Y
+
+Logs: /tmp/factory-platform-evidence/w08b-validation/logs/{typecheck,lint,boundaries,
+gate-integrity,focused-coverage,neighbours-unit,neighbours-pglite,postgres-neighbours,
+postgres-s3-publication,merge-lcov,new-file-coverage,patch-coverage,scratch-toctou}.log.
+Heavy producers ran under `flock --close /tmp/ezcorp-validation-heavy.lock timeout <n> ...`,
+waited out the coordinator's wave4c holder rather than interrupting it, never restarted or
+reconfigured a shared store. Both S3 containers and the Postgres container were verified up via
+read-only `podman ps` before and after, unchanged. No credential value appears in any log
+(grepped for postgresql://, POSTGRES_PASSWORD, accessKeyId, secretAccessKey -- zero matches).
+PostgreSQL URL was assembled inside a script file (scratch/run-*.sh), never placed in argv or
+printed.
+
+===========================================================================
+5. PLAN-BULLET PROOF MAP (w08b.md checklist)
+===========================================================================
+- Lists accepted attempt's materials through its own re-derived authority; no tenant-wide lister,
+  no standing grant, no cross-scope read; foreign/unknown refused by name -- PROVEN (section 2;
+  suite tests "the verified-attempt materials reader lists exactly..."; my scratch test).
+- factorySynchronousReleaseProfile / buildable S3 profile composition -- PROVEN. Confirmed
+  factorySynchronousReleaseProfile (protected-command-effects.ts:93-107) only lifts a
+  build()-shaped legacy profile; S3FactoryManifestReleaseProfile already implements resolve()
+  natively, so the worker's assumption that no change was needed there is correct and verified by
+  reading the file (untouched, diff --stat confirms zero changes).
+- Build for accepted attempt, list exactly its materials -- PROVEN (G1 test + my scratch test).
+- Refuse a foreign attempt -- PROVEN (G2 test, all four scope dimensions).
+- Refuse an unsealed material -- PROVEN (G4 test).
+- Revalidate exact input in final transaction (freeze section 5) -- PROVEN (G6 test + section 3).
+- Lost response and retry -- PROVEN (G5 test).
+- Cancellation under abortable timeout -- PROVEN (G3 test, poisoned-database technique).
+- Real-S3 case, one manifest, one accepted attempt, read back, 256MiB multipart -- PROVEN,
+  rerun by me (section 4).
+- 100% coverage of new/changed lines; boundaries/gate-integrity green; no gate weakened --
+  PROVEN, rerun by me.
+
+===========================================================================
+6. GATE INTEGRITY / DRY
+===========================================================================
+No .skip/.only/.todo, no empty catch{} in the diff (grepped directly). No lowered threshold, no
+new EXCLUDES entry (gate-integrity.ts passed clean on rerun). grep across src/ for
+"FactoryVerifiedAttemptMaterials" and "readAuthorityInTransaction" found no other implementation of
+this concept -- the class is a thin composition of two pre-existing, unmodified primitives
+(FactoryExecutionJournal.readAuthorityInTransaction, FactoryAttemptMaterials), not a second queue/
+approval/blob/audit path. No REQUIRED_SHARED_IMPORTS row was needed: the new imports are all
+intra-factory (artifact-materials.ts, executions.ts, artifacts.ts), not new shared-module
+boundary crossings, and check-factory-boundaries.ts confirms this by passing clean.
+
+===========================================================================
+7. NEGATIVE-PATH DEPTH -- ONE SOFT GAP, NOT BLOCKING
+===========================================================================
+The worker's own new tests cover: success, negative authority/schema inputs (unknown + three
+cross-scope dimensions), lost response, cancellation/deadline, cross-scope denial. No test
+authored by the worker exercises "concurrent calls" or an "old generation" race specifically at
+FactoryVerifiedAttemptMaterials's own two-transaction boundary. I closed this gap myself with the
+scratch test in section 2 rather than treating it as missing: the property holds by construction
+(W04's exact-tuple-match lockScopedRead fails closed) and I proved it directly against the real
+code. Recommend (non-blocking) the worker or a follow-up land that scratch scenario as a permanent
+test near the other four in factory-s3-publication-suite.ts.
+
+===========================================================================
+8. SECURITY POSTURE
+===========================================================================
+No credential value in any log, receipt, or code (checked). No authority check removed --
+readAuthorityInTransaction and lockScopedRead are unmodified W04/W03 code, reused, not
+reimplemented. No secret reachable by a guest; this package touches no guest-facing surface.
+
+===========================================================================
+VERDICT: ACCEPT
+===========================================================================
+Every commit, receipt, and claimed test count reproduced exactly under my own rerun, including the
+two heavy PostgreSQL producers and the real-S3 256 MiB multipart leg. The central authority design
+is sound: attemptId is never caller-controlled at the reader's production call site, every denial
+path is uniform and non-disclosing, and the reader's two-transaction re-verification fails closed
+under a live race, which I proved independently. No W04 or W09b surface was touched. The only gap
+found (no dedicated concurrent/old-generation test for the new reader) is closed by my own
+scratch test and does not block acceptance.
