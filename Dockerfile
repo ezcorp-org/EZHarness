@@ -149,8 +149,26 @@ RUN apt-get update \
 ARG VERSION=dev
 ARG REVISION=unknown
 ARG CREATED=unknown
+# Whether the build context matched REVISION (clean / dirty / unknown). Set by
+# `bun run podman --prod` from the same detector the dev stack uses; plain
+# builds and the release workflow leave it `unknown`.
+ARG EZCORP_BUILD_SOURCE_STATE=unknown
+# Materialize the build args in a real layer BEFORE the ENV/LABEL that consume
+# them. Podman/Buildah can otherwise satisfy those metadata-only instructions
+# from cache when nothing but a build-arg value changed — measured on podman
+# 6.1.2: a second build with REVISION=bbb222 produced an image labelled AND
+# env-stamped aaa111 from the first. EZCORP_IMAGE_SHA is the migration
+# circuit-breaker key, so a stale value there is worse than `unknown`. This
+# tiny layer's content differs whenever an arg differs, which gives the
+# instructions below a new parent and forces them to re-run. Same technique
+# as Dockerfile.dev.
+RUN printf 'version=%s\nrevision=%s\ncreated=%s\nsource-state=%s\n' \
+      "$VERSION" "$REVISION" "$CREATED" "$EZCORP_BUILD_SOURCE_STATE" \
+      > /app/.ezcorp-image-provenance
 ENV EZCORP_IMAGE_VERSION=$VERSION
 ENV EZCORP_IMAGE_SHA=$REVISION
+ENV EZCORP_IMAGE_BUILD_SOURCE_STATE=$EZCORP_BUILD_SOURCE_STATE
+LABEL org.ezcorp.image.source-state=$EZCORP_BUILD_SOURCE_STATE
 LABEL org.opencontainers.image.title="ezcorp" \
       org.opencontainers.image.version=$VERSION \
       org.opencontainers.image.revision=$REVISION \
