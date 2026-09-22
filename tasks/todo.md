@@ -2993,3 +2993,58 @@ why `check-coverage.ts` reports 932 files under threshold locally while the
 diff-scoped gates both pass: the local merge is a factory-surface merge, not a
 product merge. The floor is therefore reported, not fixed, and the twelve
 functions' own contribution to it is the ten files now at exactly 100%.
+
+## W08b — S3 manifest release profile over the attempt's own authority (branch `wp/w08b-profile`)
+
+Worktree `.worktrees/w08b-profile` from `integ/w00` at `850ffaa54`. Gate file
+`tasks/factory/w08b-GATES.md`, receipts `/tmp/factory-platform-evidence/w08b/`.
+
+- [x] Added `FactoryVerifiedAttemptMaterials` to `src/factory/release-s3-scope.ts` (W08's file):
+      attempt-agnostic at construction, re-derives the named attempt's own current
+      `FactoryAttemptAuthority` fresh via `FactoryExecutionJournal.readAuthorityInTransaction` on
+      every call, then delegates the actual listing to W04's `FactoryAttemptMaterials` under that
+      authority. No new query, no widened authority, no standing grant.
+- [x] Rewired the shared S3 publication conformance suite
+      (`src/__tests__/helpers/factory-s3-publication-suite.ts`) to build `S3FactoryManifestReleaseProfile`
+      with the new attempt-agnostic reader instead of the fixture-only attempt-bound
+      `FactoryAttemptMaterials`, so every existing resolve/prepare/claim/dispatch/reconcile case --
+      across the memory, PGlite, and real-Postgres-and-S3 producers -- now proves the
+      production-composable path.
+- [x] Added direct tests: exact listing for the named attempt; refusal by name of an unknown
+      attempt and of any mismatched tenant/project/run; no standing grant across a second,
+      independently constructed instance; cancellation honored before any database round trip; an
+      unsealed material listed but never accepted by the profile; a lost materials response safe to
+      retry; `prepare()` revalidating the exact resolved input in its own final transaction (freeze
+      section 5).
+- [x] Typecheck, lint (zero warnings after one `import type` fix), `check-factory-boundaries.ts`,
+      `gate-integrity.ts` all green. Patch-coverage gate passes for the one changed source file
+      (`release-s3-scope.ts`, 136/136 new lines from the focused suites alone); no new source file
+      in this diff.
+- [x] Nine neighbouring unit/PGlite suites that share `artifact-materials.ts`, the release store, or
+      the release adapters re-run clean (133 pass, 0 fail across 10 files).
+- [ ] Real-S3-and-Postgres leg (`tests/postgres/factory-s3-publication.test.ts`, includes the 256
+      MiB multipart export) queued behind the shared heavy lock; see the gate file's addendum for
+      the result once it lands.
+
+Review (W08b): the whole package is one seam. `S3FactoryManifestReleaseProfile` already existed and
+already declared exactly the capability it needed --
+`Pick<FactoryMaterialService, "list">` -- so the fix was never to touch the profile, W04's reader, or
+W09b's declaration; it was to notice that the only thing standing between "declared" and "buildable"
+was an attempt-agnostic implementation of that one method. `FactoryAttemptMaterials` binds its
+authority at construction because every one of its OTHER methods (`begin`, `writeChunk`, `seal`)
+needs a live, deadline-checked authority to authorize a write; `list` does not carry that same
+requirement (`authorizeMaterialReadInTransaction` stays available after the deadline), which is
+exactly the seam `FactoryVerifiedAttemptMaterials` sits in -- construct the one write-shaped
+collaborator fresh, per call, from an authority that is itself re-derived fresh, and reuse it for
+exactly one read. Nothing here is a new authorization rule; it is the existing rule, invoked at a
+different point in time than its one prior caller (the gateway, which always has a live token)
+ever needed to invoke it from.
+
+The choice to swap the shared conformance suite's own profile construction, rather than adding a
+second parallel test file, was deliberate and is the reason thirteen pre-existing cases (resolve,
+malformed schema, archive-before-claim, receipt-before-settlement, interrupted staging, foreign
+object conflict, exclusive publication, the 256 MiB multipart leg) now prove the production-composable
+claim for free, including on the real store, without a second copy of that fixture to keep in sync.
+The four new tests earn their place by testing a property the swap could not: that the new reader
+actually refuses a name it was never given, that it holds no state across calls, that it is safe to
+retry, and that a change made after resolve cannot ride the frozen result into a commit.
