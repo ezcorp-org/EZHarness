@@ -135,7 +135,7 @@ export async function preparePersonalPr(userId: string, input: { runId: string; 
   if (!title || title.length > 500 || body.length > 100_000) throw new PersonalPrError("invalid_input", "Invalid pull request title or body");
   const snapshotId = randomUUID(); const proposalId = randomUUID(); const operationId = randomUUID();
   const branch = `ez-personal/${operationId}`;
-  const proposalDigest = sha({ ownerId: userId, conversationId: run.conversation_id, runId: input.runId, projectId, bindingId: status.bindingId, workspaceRevision: Number(workspace.revision), providerGeneration: status.provider.generation, resourceId: status.resource.resourceId, repositoryId: Number(source.repository_id), baseSha: source.base_sha, baseDigest: source.base_digest, treeDigest: snapshot.digest, connectionGeneration: connection.generation, githubAccountId: connection.githubAccountId, operationId, branch, title, body });
+  const proposalDigest = sha({ ownerId: userId, conversationId: run.conversation_id, runId: input.runId, projectId, bindingId: status.bindingId, workspaceRevision: Number(workspace.revision), providerGeneration: status.provider.generation, resourceId: status.resource.resourceId, repositoryId: Number(source.repository_id), baseRef: source.base_ref, baseSha: source.base_sha, baseDigest: source.base_digest, importId: source.id, snapshotId, treeDigest: snapshot.digest, connectionGeneration: connection.generation, githubAccountId: connection.githubAccountId, operationId, branch, title, body });
   await getDb().transaction(async (tx: DbTransaction) => {
     await tx.execute(sql`INSERT INTO github_personal_pr_snapshots (id,import_id,owner_id,project_id,conversation_id,run_id,binding_id,workspace_revision,provider_generation,resource_id,repository_id,base_sha,tree_digest,artifact,checks) VALUES (${snapshotId},${source.id},${userId},${projectId},${run.conversation_id},${input.runId},${status.bindingId},${Number(workspace.revision)},${status.provider.generation},${status.resource!.resourceId},${Number(source.repository_id)},${source.base_sha},${snapshot.digest},${JSON.stringify(files(snapshot))},${JSON.stringify([])})`);
     await tx.execute(sql`INSERT INTO github_personal_pr_proposals (id,snapshot_id,owner_id,github_account_id,connection_generation,repository_id,base_sha,title,body,digest,state,operation_id,branch,expires_at) VALUES (${proposalId},${snapshotId},${userId},${connection.githubAccountId},${connection.generation},${Number(source.repository_id)},${source.base_sha},${title},${body},${proposalDigest},'ready',${operationId},${branch},NOW() + INTERVAL '24 hours')`);
@@ -170,8 +170,8 @@ export async function getPersonalPrForRun(userId: string, runId: string): Promis
 function proposalDigest(row: Row, title: string, body: string): string {
   return sha({ ownerId: row.owner_id, conversationId: row.conversation_id, runId: row.run_id, projectId: row.project_id,
     bindingId: row.binding_id, workspaceRevision: Number(row.workspace_revision), providerGeneration: Number(row.provider_generation),
-    resourceId: row.resource_id, repositoryId: Number(row.repository_id), baseSha: row.base_sha,
-    baseDigest: row.base_digest, treeDigest: row.tree_digest, connectionGeneration: Number(row.connection_generation),
+    resourceId: row.resource_id, repositoryId: Number(row.repository_id), baseRef: row.base_ref, baseSha: row.base_sha,
+    baseDigest: row.base_digest, importId: row.import_id, snapshotId: row.artifact_id, treeDigest: row.tree_digest, connectionGeneration: Number(row.connection_generation),
     githubAccountId: Number(row.github_account_id), operationId: row.operation_id, branch: row.branch, title, body });
 }
 
@@ -186,7 +186,7 @@ async function resetPreRefFailure(userId: string, row: Row, expectedDigest: stri
 }
 
 async function proposalRow(userId: string, proposalId: string): Promise<Row> {
-  const [row] = rows(await getDb().execute(sql`SELECT proposal.*,snapshot.owner_id AS snapshot_owner_id,snapshot.project_id,snapshot.conversation_id,snapshot.run_id,snapshot.binding_id,snapshot.workspace_revision,snapshot.provider_generation,snapshot.resource_id,snapshot.tree_digest,snapshot.artifact AS snapshot_artifact,source.repository_name,source.base_ref,source.base_digest,source.artifact AS base_artifact,source.state AS import_state FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id WHERE proposal.id=${proposalId} AND proposal.owner_id=${userId}`));
+  const [row] = rows(await getDb().execute(sql`SELECT proposal.*,snapshot.id AS artifact_id,snapshot.import_id,snapshot.owner_id AS snapshot_owner_id,snapshot.project_id,snapshot.conversation_id,snapshot.run_id,snapshot.binding_id,snapshot.workspace_revision,snapshot.provider_generation,snapshot.resource_id,snapshot.tree_digest,snapshot.artifact AS snapshot_artifact,source.repository_name,source.base_ref,source.base_digest,source.artifact AS base_artifact,source.state AS import_state FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id WHERE proposal.id=${proposalId} AND proposal.owner_id=${userId}`));
   if (!row) throw new PersonalPrError("not_found", "Review not found");
   return row;
 }
