@@ -2282,6 +2282,146 @@ Behavior, every plan bullet:
 
 Review (W01): the recorded C02 gap is closed. `wait()` after a recovery boundary no longer refuses; one canonical terminal result is digest-sealed into the launch row before the runtime acknowledges it, and `open()` replays it without touching the runner, so a fresh gateway returns the identical result after exactly one start and one invocation. Six defects surfaced and were fixed rather than routed. The merged branch had silently removed the kernel isolation probe from every build, which is a C05 control and not merely the `ENOENT` symptom that exposed it. The isolated runtime accepted any reverse envelope with an `input` key, so a broker frame was bound to nothing even though the v4 guest already sends the exact invocation context. A readiness denial after the durable claim stranded the attempt in `launching` forever. My own first fix then introduced two more, both caught only by the real container suite: probing the kernel on `attach()` cost about four seconds and the guest whose control pipe died did not survive that window, and sweeping orphans on the lazy build and execution paths would destroy another attempt's surviving guest now that execution is detached. Finally, real PostgreSQL parity rejected a plain object as a jsonb column default. One deviation from the freeze for the coordinator to confirm: the durable terminal result lives in two columns on `factory_attempt_launches` rather than in `factory_execution_terminals`, because that table requires verified candidate output bytes and measured usage and so cannot hold a failed, cancelled, or uncertain runner result. It is still no new table.
 
+## W09 — Complete application and service startup (wp/w09-startup)
+
+Owner: coordinator-owned package, delegated. Evidence: `/tmp/factory-platform-evidence/w09/`.
+Gates: `tasks/factory/w09-GATES.md`.
+
+- [x] W09.1 Validated startup configuration. `src/factory/startup-config.ts` parses one factory
+      runtime configuration document strictly and fails by the exact name of each missing required
+      dependency. No composition reads `process.env` a second time.
+- [x] W09.2 Real service probes. `src/factory/service-probes.ts` probes each of the seven
+      `FACTORY_REQUIRED_SERVICES` for real and returns the available set plus a named failure per
+      unavailable service. Admission stays closed until every probe passes.
+- [x] W09.3 Stop-aware bounded workers. `src/factory/background-workers.ts` gives one worker
+      shape: bounded batch, single-flight, own `AbortController`, abort-aware idle wait, stop that
+      awaits the in-flight step. One registry starts in order and stops in reverse.
+- [x] W09.4 Composition root. `src/factory/runtime-composition.ts` composes harness/API stores,
+      Bun gateway roles (execution, materials, archive writer), host supervisor with W01's launch
+      protocol, pool client, encrypted stores, controls, and the archive writer as
+      `FactoryReleases`' `archive`. Registers the eight workers: compute polling, attempts,
+      command/inbox delivery, child settlement, projections, release outcomes, usage
+      reconciliation, notifications.
+- [x] W09.5 Typed seams, not fake success. W03 (stop worker, usage reconciler), W05 (validators),
+      W07/W08 (release profiles), W17 (notification sender) each get a typed seam that refuses
+      when absent. No seam returns a fabricated success.
+- [x] W09.6 Startup race. Reproduce `web/src/lib/server/context.ts` simultaneous initialization and
+      failed-start retry through the real server, then fix at the source.
+- [x] W09.7 Disabled reason string. `factory_disabled` becomes the contract's `factory-disabled`
+      (requirement index discrepancy 9, row C09.7).
+- [x] W09.8 API scopes. Align `src/api-registry.ts` with the C01 authority table (discrepancy 10):
+      version publish becomes `write`, grant management becomes `admin`. Record the package
+      install/quarantine row, which has no lifecycle to register against until W02 lands.
+- [x] W09.9 Process boundaries. An executable test proves only Node links `@temporalio/*`, Node
+      holds no product database, object-store, or provider credential, the supervisor holds only
+      host identity, and runners hold attempt-scoped authority.
+- [x] W09.10 Behaviour tests: shutdown order, credential expiry and refresh, dependency loss,
+      restart, queue backpressure, safe re-drive, simultaneous initialization, failed-start retry.
+- [x] W09.11 Full verification per `common.md` with receipts under the evidence directory.
+- [x] W09.12 Wire the composition root into `ensureInitialized`, with a real-server proof that
+      `/api/ready` reaches `ready`, the registered roles run, and shutdown leaks nothing.
+- [x] W09.13 One registration rule for every role, and the host supervisor readiness the
+      seventh probe reads.
+- [ ] W09.14 Register attempt-dispatch. W01b publishes `createFactoryAttemptDispatchDriver` and the
+      host launch transport; this installation still needs `hostLaunch.{baseUrl,serverName,tls.*}`
+      and `attemptTokenSecretPath` in the startup document. W01b also corrected the old reason:
+      `assertDispatchReady` is a database read, so no container runner is needed in this process.
+- [x] W09.17 Enumerate a tenant's projects as a composition-owned read, bounded, oldest-first, and
+      proved on both engines; register notification-inbox-delivery on top of it.
+- [x] W09.25 Build the four role drivers in src/factory/dispatch-composition.ts, each covered to
+      100%: stop settlement, usage reconciliation, the release provider resolver, release outcome.
+- [ ] W09.26 Assemble them in installationCollaborators. No external blocker: FactoryTaskStops is
+      the one FactoryUsageSettlementAuthority and all fourteen of its arguments are reachable.
+- [ ] W09.18 Register release-outcome. Needs a production `FactoryReleaseProviderResolver`; the
+      claimable scan, the enumerator, and all three providers already exist.
+- [x] W09.19 Construct the pinned model broker from validated configuration, with a missing
+      credential as a named readiness row and never a substitute (W10 Q2).
+- [ ] W09.20 Hand the broker to a runner. Blocked on a contract, not a wiring: the runtime wants
+      `invoke(request, input)`, the broker offers `stream(request)`, and the host launch supervisor
+      wants a third shape. Nothing defines what a guest sends to request a model stream.
+- [x] W09.24 Build the dispatch preflight over W03's recorded allocation (reservation from the
+      queue's own record, lease from readRetainedAdmittedInTransaction, one transaction, GPU with
+      no pinned host refused).
+- [ ] W09.21 Register attempt-dispatch and prove G14 with a real guest. The configuration landed
+      (`hostLaunch.*`, `attemptTokenSecretPath`, `hostStopKeys`). One collaborator remains: a
+      production `FactoryIsolatedRunnerPreflight`. `preparedPackage` is `assertDispatchReady`;
+      `lease(request)` needs the durable record a claimed attempt reads its held allocation back
+      from, which is a compute-admission decision rather than a wiring choice.
+- [ ] W09.22 Register stop-settlement. Needs a `FactoryPoolStopAcknowledger` client over the
+      existing `confirmStopped` route, and a startup-document field for the host PUBLIC keys.
+      Scoped at the integration merge: `IsolatedFactoryAttemptRuntime` needs a launch store, the
+      pool admission client, the gateway-owned provider broker, and `signStopReceipt`, which takes
+      the host private key. C01/C02 keep that key out of the product process, and the host
+      supervisor deliberately links no tenant store, so this is a third process with its own
+      readiness and credentials rather than a seam on either existing one.
+- [x] W09.15 Merge `integ/w00` (1d3edf5b0) and compose the collaborators it brought: the
+      composition-owned release fence reader, and child settlement from W06's scan and settle.
+- [x] W09.23 Correct the store-outage diagnosis: W09 caused it by running
+      scripts/verify-factory-storage.ts, whose durability check recreates the ordinary service from
+      the repository compose file, which on this branch still said mem_limit: 768m. The proof now
+      checks the stores read-only and nothing under repro/ invokes compose or docker.
+- [x] W09.16 Bind the installation row at startup. Found by the real-server proof: the foreign key
+      from `factory_projects` made the first project creation on a flag-on installation answer 500.
+
+### Review
+
+**The first submission was rejected, and the finding was correct.** I built the
+factory composition root and never called it. `startFactoryRuntime` composed,
+probed, and opened admission, and no production code path invoked it, so a
+flag-on installation sat at `booting / factory-services-pending` for the process
+lifetime and every factory route answered 503. My own gate file then presented
+that 503-forever as evidence of fail-closed design and blamed the remaining gaps
+on other packages, which was an overstatement.
+
+`ensureInitialized` now composes the factory after the database opens. The proof
+is a real built server against real PostgreSQL, real S3, a real pool admission
+process, and a real host supervisor process: `/api/ready` answers `200 ready`
+and carries the running and held role lists, and a SIGTERM tears down
+`factory-runtime` second of fourteen, right after the pre-existing
+`background-timers`, with exit 0 and no surviving process. One
+input in that run is simulated and labelled in the receipt — the orchestration
+readiness record — because the pinned Temporal test server is plaintext while
+C01 requires an authenticated namespace, and I would rather label the gap than
+relax the requirement to produce a green light.
+
+Fixing the wiring exposed two more defects of mine. The three seam-driven roles
+could never register: `hold()` had no `define()` counterpart, so supplying a seam
+removed the hold and registered nothing, and my test asserted only absence from
+the held list. And the projection driver was typed against an `applied` count
+that `projectPending` does not return, so that role would have spun at its batch
+bound forever. Every role now follows one rule — register when the driver exists,
+hold by name when it does not — and registered plus held always equals the role
+count.
+
+The pass sentence is still open, and the missing half is mine rather than
+another package's. `FactoryAttemptDispatcher` needs a trusted runner and
+`FactoryPackagePreparations`, whose constructor requires a container runner the
+product process does not hold, so the role holds there and registers unchanged in
+a process that does. Composing that process is the remaining work.
+
+**The second submission was rejected too, and that finding was also correct.**
+The host supervisor's container-runner probe was not safe to repeat.
+`PodmanRunner.prepareStore` ends in an exclusive `flock --nonblock` child held
+for the instance's life, and the probe built a new runner per call, so the second
+probe on one root failed `runner_store_busy` and every successful one leaked a
+lease child. My three passing runs each sampled `/api/ready` the moment it turned
+green and shut down, so none of them could ever have seen a second probe. The
+supervisor now holds one runner for its lifetime and closes it in the run's
+`finally`, and a new test exercises the real `PodmanRunner` across repeated
+probes on one root. The full-stack proof now also holds the supervisor through
+five consecutive `ready` heartbeats and counts its lease children, so a repeat
+failure would fail the proof rather than go unobserved.
+
+**A third defect was in my evidence rather than the product.** The proof harness
+wrote its record with an unimported `writeFileSync`, so every run threw after its
+work was done, exited 1 with an empty log, and left the previous run's record on
+disk for the driver to copy — three receipts described a run older than the
+commit they named. Receipts now carry `recordFresh`, computed from the record's
+own timestamps against the run window. Two other evidence scripts piped test
+output through `tail` inside a loop and recorded `tail`'s exit code; one postgres
+producer was failing on a missing environment variable and read as green. Both
+now accumulate per-file exit codes.
+
 ## W03 — Physical stop, cancellation, and budget settlement
 
 Branch `wp/w03-stop-settlement`, base `integ/w00` at `88effb159`. Gates and receipts:
@@ -2802,6 +2942,140 @@ manifest name must match `^[a-z][a-z0-9-]{0,63}$`, and `FactoryPackagePreparatio
 requires that name to equal a runner reference's package, which the compiled definition writes as
 `@ezcorp/reference-data`. Every domain pack hits it.
 
+## W09b — assemble the four held roles and prove G14
+
+Branch `wp/w09b-assembly` from `wp/w09-startup` at `7af8579fd`. Gate file
+`tasks/factory/w09b-GATES.md`; evidence `/tmp/factory-platform-evidence/w09b/`.
+
+W09 left four roles held with every design question settled. This package is the
+composition volume, the host services the supervisor must carry, and the
+end-to-end proof that a submitted run reaches a real guest.
+
+- [x] One construction of every durable store the roles share (`installation-stores.ts`).
+- [x] `attempt-dispatch`: the preflight, `FactoryRemoteAttemptRuntime` over the
+      host launch client, `FactoryPackagePreparations` over the shared v4 runner
+      client, and W01b's dispatch driver.
+- [x] `stop-settlement`: `FactoryTaskStops` over the host stop transport, the
+      configured host public keys, and `PoolAdmissionClient.confirmStopped`.
+- [x] `usage-reconciliation`: the page driver over the uncertain-hold scan,
+      settling only on `resolve` → `resolved`.
+- [x] `release-outcome`: composed, tested, and wired to W07b's consent reader.
+      The driver reads the one consent the operation already has through
+      `FactoryReleases.readConsentInTransaction` and claims as the run's own
+      live initiator; the injected-consent parameter is gone. A typed absence
+      leaves the operation untouched and is named.
+- [x] `release-outcome` composes from the startup document and runs. The
+      coordinator ruled the document is W09's own surface, so it gained a
+      `release` section: named destinations (S3 and GitHub, credentials by path
+      only) and the profiles that point at them. `release-declaration.ts` turns
+      that into the provider resolver and the `FactoryReleaseCommandProfile`
+      set; the startup suite proves the role registers and runs from the
+      document alone, with nothing supplied by the caller. Grep and full reasoning in the gate file.
+- [x] The supervisor process hosts W01b's host launch service and W03's host
+      stop service, owns the one `PodmanRunner`, and holds the host key. One
+      listener, one runner, one key — no third process.
+- [x] The product process starts the private service the Node orchestrator calls.
+      It had no production caller at all, which is why a submitted run had no
+      path off `queued` however well the roles were composed.
+- [x] G11: a run submitted over public HTTP executes a real guest, three
+      consecutive clean passes on fresh product databases. Measured at
+      `ca101ff19`; receipts in the gate file.
+- [x] W13 follow-on: the `FactoryLegacyEngine` adapter, over `runWorkflow`,
+      `findWorkflowRunByIdempotencyKey` and `getWorkflowRunRow`, with
+      `FactoryLegacyWorkflows` and `FactoryLegacyImports` in the store set.
+      Landed with the `integ/w00` merge, which is what unblocked it.
+- [x] W13 follow-on: C11's thirty-second orphan detection bound is a declared
+      factory readiness setting (`orphanSweepIntervalMs`), checked against the
+      daemon's own reader by `assertFactoryOrphanDetectionBound` on `boot.ts`'s
+      readiness surface, next to the C09 required-service list. A longer
+      interval is a named readiness failure, never a silent pass.
+- [x] G14: 100% line coverage on every new file and both `BASE_REF=integ/w00`
+      gates. "New-file coverage gate PASSED: 23 new source file(s) gated." and
+      "Patch coverage gate PASSED: all changed executable lines covered
+      (40 file(s))." No `EXCLUDES`, no lowered threshold, no skip. Nine of the
+      red receipt's fourteen findings were missing coverage LEGS rather than
+      untested code; the leg set now mirrors `combined-integration.py`.
+- [x] The full sweep at the final head with a clean tree: typecheck, lint,
+      boundaries, gate integrity, schema drift, the focused suites, the Podman
+      suites, and both coverage gates.
+- [x] The `tests/postgres/factory-*` producers and the `postgres` and `pool`
+      coverage legs, rerun once the stores came back: 6 files, 29 pass, 0 fail,
+      and all seven coverage legs exit 0 for the first time.
+- [x] G10b, G11 and G12 refreshed against the live stores, and the harness's
+      startup document now declares an S3 destination: `/api/ready` reports
+      ALL FOUR roles W09 held running, with only `notification-send` (W17)
+      held. Three consecutive passes, each on a fresh product database.
+- [x] G17: the declared destination reaches the real S3 store with the
+      credentials it points at, a wrong secret is refused by the store, and an
+      undeclared account is refused by name. Nothing written to the store.
+- [x] The blockers for a PUBLISHED release are measured, verified and owned. A
+      guest cannot stage an output artifact by any route — `NativeFactoryArtifacts`
+      has no production implementation, the broker frame set has no staging
+      frame, and a fabricated reference fails because
+      `FactoryTaskCompletions` loads the artifact back. The release profile's
+      `materials` collaborator is attempt-bound. Parked by the coordinator into
+      **W01g** (staging frames) and **W08b** (profile lists under the accepted
+      attempt's authority); W09b does not reattempt it. The empty profile set
+      with a prepare-time refusal is the right state until W08b lands.
+
+### W09b review
+
+The four roles: three run, one is composed and holds. `attempt-dispatch`,
+`stop-settlement` and `usage-reconciliation` register and run in the real
+started application, over the real pool, the real host transports, and one
+shared store set. `release-outcome` is now built end to end — it reads W07b's
+consent and claims as the run's own live initiator — and holds on a declaration
+rather than on code: no production code builds a `FactoryReleaseProvider`
+because the startup document names no release destination. The startup suite
+proves both halves, registering and running the role the moment a resolver is
+supplied.
+
+The real-guest run ends `failed`, and that is recorded as **notProven for the
+COMPLETED path**. The minimal guest returns the canonical `cancelled` runner
+result, which `FactoryTaskOutcomes` maps to `node-failed`, so the kernel stops
+the attempt and fails the run. Everything up to the verdict is real — admission
+against the live pool, dispatch through the preflight and the remote runtime, a
+real guest in a real container, a durable terminal result, a physically
+confirmed stop signed by the host, a settled budget hold, a projected terminal
+status — but a guest that reaches `succeeded` has not been run, and no gate here
+claims one has.
+
+Rounds 3 and 4 finished the role. The startup document gained a `release`
+section — named destinations with credentials by reference, and the profiles
+that point at them — and `release-outcome` composes from it and RUNS: nine
+roles running on the real started application, one held, and the one held is
+W17's as planned. The declared destination is proved to reach the live S3 store
+with the credentials it names, a wrong secret refused by the store, and nothing
+written to it.
+
+Round 4 found two blockers rather than shipping a proof, and both are now
+owned. A guest cannot stage an output artifact by any route, and a fabricated
+reference fails because the platform loads the artifact back; that is W01g's.
+The release profile's material lister is attempt-bound; that is W08b's. The
+declaration therefore composes providers and no profile, so `requestRelease`
+refuses at prepare time instead of leaving a claimed operation that can never
+publish.
+
+One correction belongs in this review rather than only in the gate file. I
+reported a typecheck red as inherited from staging on the strength of an empty
+tree diff. It was a stale `zod@4.5.2` in this worktree's Bun store. A tree diff
+proves the source is identical and says nothing about the installed graph.
+
+Round 2's sharpest finding was not in the product. G14's red receipt was
+measuring nine files whose coverage LEG had never been run, and that gap was
+also hiding a live regression: this branch made a dispatch result carry the
+refused commit's cause, and the only suite asserting that result was off the leg
+list and red. Both gates now pass over a leg set that mirrors
+`combined-integration.py`.
+
+Three things were found by doing rather than by reading. The private worker API
+had no production caller at all, so a submitted run had no path off `queued`
+however well the roles were composed. The two readiness gates that the
+orchestrator and the product hold over each other could never converge, because
+the failure path closed the listener the other side needed. And hosting the two
+host routes in the supervisor pulled the product database into a process C01
+says holds only host identity — caught by the boundary test, fixed by splitting
+the attempt wire out of the launch store.
 ### Coordinator log — wave 3 progress (2026-09-20)
 
 - [x] Merged in order: WREG (e659795eb), W02b (a8eff0bfa), W01b (dfe3091f8), W11 (f45a94148), the release-authority manifestName fix (559db1d3e), W10 (b0a2ca872), W01c mount (f30da62fa), W12 (f1af41c16), W03c (8810d6eae), W01d (7d99dc75b). Combined run wave3c green at b0a2ca872; receipts in `docs/validation/factory/wave3/`; `feat/composable-factory-platform` fast-forwarded to 1784ab76c.

@@ -7,9 +7,11 @@ import { signJWT } from "../auth/jwt";
 import { initDb } from "../db/connection";
 import { resolveShellSandbox } from "../runtime/tools/shell";
 import {
+  FACTORY_ORPHAN_DETECTION_BOUND_MS,
   FACTORY_REQUIRED_SERVICES,
   FactoryBootError,
   assertFactoryBootReadiness,
+  assertFactoryOrphanDetectionBound,
   captureFactoryBootConfig,
   factoryBootConfig,
 } from "../factory/boot";
@@ -265,5 +267,61 @@ describe("factory boot flag and readiness", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+
+/**
+ * C11's detection bound, as a startup setting.
+ *
+ * C10 requires an orphaned legacy run to reach a terminal or resumable state
+ * within thirty seconds, and the sweep that would notice is a sub-tick of a
+ * daemon whose default wake is an hour. The bound is therefore declared and
+ * checked, and the check compares the declaration against what the daemon will
+ * really use — a document that says thirty seconds over an hourly daemon is the
+ * silent pass this exists to prevent.
+ */
+describe("assertFactoryOrphanDetectionBound", () => {
+  const enabled: FactoryBootConfig = { enabled: true, projectRoot: "/project" };
+
+  test("accepts a declaration at or under the bound that the daemon really uses", () => {
+    expect(() => assertFactoryOrphanDetectionBound(30_000, 30_000, enabled)).not.toThrow();
+    expect(() => assertFactoryOrphanDetectionBound(5_000, 5_000, enabled)).not.toThrow();
+    expect(FACTORY_ORPHAN_DETECTION_BOUND_MS).toBe(30_000);
+  });
+
+  test("refuses a sweep slower than the bound, and names both numbers", () => {
+    let raised: FactoryBootError | undefined;
+    try {
+      // The daemon's own default: one hour, which misses the bound by two
+      // orders of magnitude.
+      assertFactoryOrphanDetectionBound(3_600_000, 3_600_000, enabled);
+    } catch (error) {
+      raised = error as FactoryBootError;
+    }
+    expect(raised?.code).toBe("factory-orphan-sweep-too-slow");
+    expect(getReadiness()).toMatchObject({ state: "degraded", reason: "factory-orphan-sweep-too-slow", detail: { declaredMs: 3_600_000, boundMs: 30_000 } });
+  });
+
+  test("refuses a declaration the daemon will not honour", () => {
+    let raised: FactoryBootError | undefined;
+    try {
+      assertFactoryOrphanDetectionBound(30_000, 3_600_000, enabled);
+    } catch (error) {
+      raised = error as FactoryBootError;
+    }
+    expect(raised?.code).toBe("factory-orphan-sweep-mismatch");
+    expect(getReadiness()).toMatchObject({ state: "degraded", reason: "factory-orphan-sweep-mismatch", detail: { declaredMs: 30_000, effectiveMs: 3_600_000 } });
+  });
+
+  test("refuses a declaration that is not an interval at all", () => {
+    for (const declared of [0, -1, 1.5, Number.NaN]) {
+      expect(() => assertFactoryOrphanDetectionBound(declared, declared, enabled)).toThrow();
+    }
+  });
+
+  test("an installation with factories off is not held to a factory bound", () => {
+    expect(() => assertFactoryOrphanDetectionBound(3_600_000, 3_600_000, { enabled: false, projectRoot: "/project" })).not.toThrow();
+    expect(getReadiness().state).not.toBe("degraded");
   });
 });

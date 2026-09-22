@@ -1,0 +1,266 @@
+{
+  "validator": "w09b independent validation",
+  "head": "000e71b96465c833da80e51486887e986eaab9c7",
+  "branch": "wp/w09b-assembly",
+  "treeClean": true,
+  "toolchain": {
+    "bun": "1.3.14",
+    "node": "v24.14.1"
+  },
+  "producers": [
+    {
+      "name": "build factory-sdk",
+      "command": "bun run --cwd packages/@ezcorp/factory-sdk build",
+      "exit": 0
+    },
+    {
+      "name": "build factory-transport",
+      "command": "bun run --cwd packages/@ezcorp/factory-transport build",
+      "exit": 0
+    },
+    {
+      "name": "build factory-orchestrator",
+      "command": "bun run --cwd packages/@ezcorp/factory-orchestrator build",
+      "exit": 0
+    },
+    {
+      "name": "typecheck",
+      "command": "bun run typecheck",
+      "exit": 0
+    },
+    {
+      "name": "lint",
+      "command": "bun run lint",
+      "exit": 0
+    },
+    {
+      "name": "boundaries",
+      "command": "bun scripts/check-factory-boundaries.ts",
+      "exit": 0
+    },
+    {
+      "name": "gate-integrity",
+      "command": "bun scripts/gate-integrity.ts",
+      "exit": 0
+    },
+    {
+      "name": "schema-generate-drift",
+      "command": "bun scripts/check-schema-generate-drift.ts",
+      "exit": 0,
+      "detail": "13 generated schema(s) match byte for byte"
+    },
+    {
+      "name": "c13-inventory",
+      "command": "bun test ./scripts/factory-c13-inventory.test.ts",
+      "exit": 0,
+      "counts": "13 pass 0 fail"
+    },
+    {
+      "name": "focused-suites",
+      "command": "bash <copy of>/repro/focused-suites.sh (36 files, coverage)",
+      "exit": 0,
+      "files": 36,
+      "counts": "586 pass 0 fail",
+      "matchesWorkerReceipt": true
+    },
+    {
+      "name": "postgres-producers",
+      "command": "bash <copy of>/repro/postgres-producers.sh",
+      "exit": 0,
+      "files": 6,
+      "counts": "29 pass 0 fail"
+    },
+    {
+      "name": "podman-suites (package pair)",
+      "command": "bash <copy of>/repro/podman-suites.sh",
+      "exit": 0,
+      "files": 2,
+      "counts": "10 pass 0 fail"
+    },
+    {
+      "name": "podman extension-runner",
+      "command": "bun test ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
+      "exit": 0,
+      "counts": "19 pass 0 fail"
+    },
+    {
+      "name": "podman package-preparation",
+      "command": "bun test ./src/factory/package-preparation.podman.integration.test.ts",
+      "exit": 0,
+      "counts": "1 pass 0 fail"
+    },
+    {
+      "name": "coverage-legs (7)",
+      "command": "bash <copy of>/repro/coverage-legs.sh",
+      "exit": 0,
+      "legs": {
+        "focused": 0,
+        "orchestrator": 0,
+        "orchestrator-build": 0,
+        "podman": 0,
+        "pool": 0,
+        "postgres": 0,
+        "vitest": 0
+      }
+    },
+    {
+      "name": "merge-lcov",
+      "exit": 0,
+      "detail": "merged 1264 source files \u2192 coverage/lcov.info",
+      "lcovInputs": 47
+    },
+    {
+      "name": "new-file coverage gate",
+      "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts",
+      "exit": 0,
+      "detail": "New-file coverage gate PASSED: 24 new source file(s) gated."
+    },
+    {
+      "name": "patch coverage gate",
+      "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts",
+      "exit": 0,
+      "detail": "Patch coverage gate PASSED: all changed executable lines covered (41 file(s))."
+    },
+    {
+      "name": "three real-server passes",
+      "command": "flock --close ... bash <copy of>/repro/rebuild-and-run-three.sh",
+      "exit": 0,
+      "runs": [
+        {
+          "n": 1,
+          "outcome": "passed",
+          "exitCode": 0,
+          "recordFresh": true,
+          "running": [
+            "compute-admission-dispatch",
+            "compute-admission-poll",
+            "attempt-dispatch",
+            "run-projection",
+            "notification-inbox-delivery",
+            "child-settlement",
+            "release-outcome",
+            "usage-reconciliation",
+            "stop-settlement"
+          ],
+          "held": [
+            {
+              "role": "notification-send",
+              "workPackage": "W17"
+            }
+          ],
+          "statusTimeline": [
+            "queued",
+            "running",
+            "failed"
+          ],
+          "terminal": {
+            "status": "failed",
+            "at": 7
+          },
+          "restartRunStatus": "failed",
+          "survivors": [],
+          "portAfterStop": "refused"
+        },
+        {
+          "n": 2,
+          "outcome": "passed",
+          "exitCode": 0,
+          "recordFresh": true,
+          "running": [
+            "compute-admission-dispatch",
+            "compute-admission-poll",
+            "attempt-dispatch",
+            "run-projection",
+            "notification-inbox-delivery",
+            "child-settlement",
+            "release-outcome",
+            "usage-reconciliation",
+            "stop-settlement"
+          ],
+          "held": [
+            {
+              "role": "notification-send",
+              "workPackage": "W17"
+            }
+          ],
+          "statusTimeline": [
+            "queued",
+            "running",
+            "failed"
+          ],
+          "terminal": {
+            "status": "failed",
+            "at": 6
+          },
+          "restartRunStatus": "failed",
+          "survivors": [],
+          "portAfterStop": "refused"
+        },
+        {
+          "n": 3,
+          "outcome": "passed",
+          "exitCode": 0,
+          "recordFresh": true,
+          "running": [
+            "compute-admission-dispatch",
+            "compute-admission-poll",
+            "attempt-dispatch",
+            "run-projection",
+            "notification-inbox-delivery",
+            "child-settlement",
+            "release-outcome",
+            "usage-reconciliation",
+            "stop-settlement"
+          ],
+          "held": [
+            {
+              "role": "notification-send",
+              "workPackage": "W17"
+            }
+          ],
+          "statusTimeline": [
+            "queued",
+            "running",
+            "failed"
+          ],
+          "terminal": {
+            "status": "failed",
+            "at": 7
+          },
+          "restartRunStatus": "failed",
+          "survivors": [],
+          "portAfterStop": "refused"
+        }
+      ]
+    },
+    {
+      "name": "negative control",
+      "command": "flock --close ... bash <copy of>/repro/negative-control.sh",
+      "harnessExitCode": 1,
+      "outcome": "failed",
+      "failure": "the server never reported ready",
+      "processLogKeys": 7,
+      "supervisorsBefore": 0,
+      "supervisorsAfter": 0
+    },
+    {
+      "name": "s3 destination proof (G17)",
+      "command": "bun <copy of>/repro/s3-destination-proof.ts",
+      "exit": 0,
+      "outcome": "passed",
+      "wroteToStore": false,
+      "wrongCredentials": "refused: Unknown",
+      "undeclaredAccount": "factory_release_destination_unknown"
+    }
+  ],
+  "podmanGuestContainers": {
+    "window": "2026-09-22T16:14:49Z..16:15:30Z (my run 1)",
+    "guestContainerStarts": 12,
+    "source": "podman events"
+  },
+  "credentialLeakScan": {
+    "secretValuesScanned": 42,
+    "filesWithARealCredentialValue": 0,
+    "note": "one 12-character identifier-shaped value matched two pre-existing test helpers this package did not touch; not a secret"
+  }
+}

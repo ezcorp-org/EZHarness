@@ -1,7 +1,7 @@
 import { createPrivateKey, type KeyObject } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-https";
-import { signFactoryPhysicalStopReceipt, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "./attempt-runtime";
+import { signFactoryPhysicalStopReceipt, type FactoryPhysicalStopReason, type FactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "./attempt-wire";
 
 /** The sealed coordinates a gateway may ask a host to stop. */
 export interface FactoryHostStopCommand {

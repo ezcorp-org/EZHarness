@@ -117,8 +117,15 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     readonly lease: FactoryAttemptLease;
   }
 
-  /** Drives one run to a live, launched attempt through the real kernel and stores. */
-  async function launchedAttempt(): Promise<Attempt> {
+  /**
+   * Drives one run to a live, launched attempt through the real kernel and stores.
+   *
+   * `poolPinsHost` is the C03 distinction, not a knob: the pool names a machine
+   * only for an allocation that binds a whole one, so an ordinary CPU
+   * reservation has none. Both shapes must reach a stop, and the default keeps
+   * every existing case on the pinned one.
+   */
+  async function launchedAttempt(poolPinsHost = true): Promise<Attempt> {
     const started = await lifecycle.start(principal, key, body, 0, `stop-start-${++sequence}`);
     const run = { runId: started.run.runId, revision: started.run.revision };
     const identity = { tenantId, projectId, logicalRunId: run.runId, interpreterId: "root" };
@@ -142,7 +149,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     await new FactoryRunTransitionProjector(fixture.db, tenantId, transitions, lifecycle).project(runKey(run.runId));
     const queued = (await new FactoryCommandOutbox(fixture.db, tenantId, projectId, () => now, "pool").inspect(reserved.outboxCommandId))!;
     const requested = queued.command.body as { request: { resources: Record<string, number> } };
-    const poolLease = { reservationId: reserved.reservationId, tenantId, grantRevision: body.grantRevision, allocationGeneration: 1, holderGeneration: 1, allocationToken: "stop-allocation", fence: "stop-fence", deadlineAt: new Date(now + 60_000), resources: requested.request.resources, hostId };
+    const poolLease = { reservationId: reserved.reservationId, tenantId, grantRevision: body.grantRevision, allocationGeneration: 1, holderGeneration: 1, allocationToken: "stop-allocation", fence: "stop-fence", deadlineAt: new Date(now + 60_000), resources: requested.request.resources, ...(poolPinsHost ? { hostId } : {}) };
     const admissions = new FactoryComputeAdmissions(fixture.db, tenantId, authority, lifecycle.budgets, inbox, { ...requestPool, async request() { return { status: "admitted" as const, reservationId: reserved.reservationId, lease: poolLease }; }, async status() { return undefined; } }, () => now);
     const admitted = await admissions.recover(service, { projectId, runId: run.runId, reservationId: reserved.reservationId });
     if (admitted.status !== "admitted") throw new Error("fixture compute admission failed");
@@ -250,6 +257,24 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
   });
   afterAll(async () => { await fixture?.close(); });
 
+  test("stops an ordinary CPU attempt, whose pool lease pins no host at all", async () => {
+    // C03 pins a machine only for an allocation that binds a whole one, so an
+    // ordinary CPU reservation has none — and the host a stop addresses comes
+    // from the durable launch record, which sealed it when the attempt was
+    // prepared. Requiring the LEASE to name one made every CPU attempt
+    // unstoppable: the guest ran, its result became durable, the kernel issued
+    // `cancel-node`, and the stop refused it `factory_task_stop_stale` on every
+    // pass while the run sat in `stopping`. `confirm` below already applies the
+    // opposite rule to the same fact: having no opinion is not a contradiction.
+    const attempt = await launchedAttempt(false);
+    const { reference } = await cancelled(attempt);
+    const { stops } = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const receipt = await stops.stop(service, reference);
+    expect(receipt.state).toBe("stopped");
+    expect(receipt.stopReceipt).toMatchObject({ processGroupAbsent: true, hostId, reason: "cancelled" });
+    expect(await executionStatus(attempt.attemptId)).toBe("stopped");
+  });
+
   test("stops a still-running attempt from its sealed launch, with no outcome to fabricate", async () => {
     const attempt = await launchedAttempt();
     const { reference } = await cancelled(attempt);
@@ -321,6 +346,34 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await executionStatus(attempt.attemptId)).toBe("stopped");
     expect(await inboxKinds(attempt.run.runId)).toEqual(["admission-result", "cancel", "attempt-stopped", "attempt-stopped"]);
     expect(await late.stops.confirm(service, reference, signed(request!))).toEqual(settled);
+  });
+
+  test("a retried stop that fails again reports the reason this pass learned", async () => {
+    // The durable row already says `uncertain`, and a durable read carries no
+    // cause. Returning that read unchanged is how a retry loses the reason it
+    // just learned: the operator's stream then says only that the stop is
+    // still open, however many passes it takes and whatever they each found.
+    const attempt = await launchedAttempt();
+    const { reference } = await cancelled(attempt);
+    const unreachable = new Error("the host could not be reached");
+    const refused = new Error("the host declined to confirm");
+    let raise: Error = unreachable;
+    let request: FactoryTaskStopRequest | undefined;
+    const { stops } = harness(attempt, stopper(async value => { request = value; throw raise; }), acknowledger({}));
+    const once = await stops.stop(service, reference);
+    expect(once.state).toBe("uncertain");
+    expect(once.cause).toBe(unreachable);
+    raise = refused;
+    const twice = await stops.stop(service, reference);
+    expect(twice.state).toBe("uncertain");
+    // One uncertainty, not two: the sealed event is the same one.
+    expect(twice.event).toEqual(once.event);
+    expect(twice.cause).toBe(refused);
+    expect(await stopRow(attempt.run.runId)).toMatchObject({ state: "uncertain" });
+    // Settled before this test ends, so the uncertainty it created does not
+    // outlive it and become another test's unexplained backlog.
+    const late = harness(attempt, stopper(async value => signed(value)), acknowledger({}));
+    expect((await late.stops.confirm(service, reference, signed(request!))).state).toBe("stopped");
   });
 
   test("only a configured supervisor key can assert a stop, and the pool must agree first", async () => {

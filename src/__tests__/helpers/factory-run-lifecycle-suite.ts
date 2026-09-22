@@ -1024,7 +1024,16 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
         async completeInTransaction(): Promise<never> { throw new Error("completion store unavailable"); },
       } : completions;
       const dispatcher = new FactoryAttemptDispatcher(fixture.db, task.queue, runner, completionStore, outcomes, dispatchReady, dispatchReadinessDisposition, { service: task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" });
-      expect(await dispatcher.dispatchOne()).toEqual({ kind: "outcome_unknown", attemptId: task.dispatch.id });
+      // The cause rides along on the outcome the PRODUCT refused to record,
+      // and only on that one. Before it, the reason existed only inside a
+      // `catch {}`. A runner that threw or answered nonsense is already named
+      // by its own failure code, so it carries no cause and must not grow one
+      // silently.
+      const refused = await dispatcher.dispatchOne();
+      expect(refused).toEqual(mode === "completion"
+        ? { kind: "outcome_unknown", attemptId: task.dispatch.id, cause: expect.anything() }
+        : { kind: "outcome_unknown", attemptId: task.dispatch.id });
+      if (mode === "completion") expect(String((refused as { cause: unknown }).cause)).toContain("completion store unavailable");
       expect(await task.queue.read(projectId, task.dispatch.id)).toMatchObject({ state: "outcome_unknown" });
       await new FactoryRunTransitionProjector(fixture.db, tenantId, task.transitions, lifecycle).project(runKey(task.run.runId));
     }
@@ -1036,7 +1045,11 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     await fixture.db.execute(sql`ALTER TABLE factory_task_outcomes ADD CONSTRAINT task_outcome_rollback CHECK (FALSE) NOT VALID`);
     try {
       const dispatcher = new FactoryAttemptDispatcher(fixture.db, rolledBack.task.queue, { async run() { return uncertain; } }, rolledBack.completions, rolledBack.outcomes, dispatchReady, dispatchReadinessDisposition, { service: rolledBack.task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" });
-      expect(await dispatcher.dispatchOne()).toEqual({ kind: "outcome_unknown", attemptId: rolledBack.task.dispatch.id });
+      // The rolled-back INSERT is what the operator needs to see, and it is
+      // the one thing a bare `catch {}` used to discard.
+      const rolled = await dispatcher.dispatchOne();
+      expect(rolled).toEqual({ kind: "outcome_unknown", attemptId: rolledBack.task.dispatch.id, cause: expect.anything() });
+      expect(String((rolled as { cause: unknown }).cause)).toContain("factory_task_outcomes");
     } finally {
       await fixture.db.execute(sql`ALTER TABLE factory_task_outcomes DROP CONSTRAINT task_outcome_rollback`);
     }
@@ -1079,7 +1092,10 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       expect(await expired.task.queue.claim()).toBeNull();
       return { schemaVersion: "factory.runner.result.v1", status: "cancelled", journalCursor: expired.result.journalCursor, operations: expired.result.operations, usage: expired.result.usage, workspaceCheckpoint: expired.result.workspaceCheckpoint };
     } }, expired.completions, expired.outcomes, dispatchReady, dispatchReadinessDisposition, { service: expired.task.service, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret", leaseMs: 300_000 });
-    expect(await dispatcher.dispatchOne()).toEqual({ kind: "outcome_unknown", attemptId: expired.task.dispatch.id });
+    // An expired owner is refused by the fence, and the fence names itself.
+    const lost = await dispatcher.dispatchOne();
+    expect(lost).toEqual({ kind: "outcome_unknown", attemptId: expired.task.dispatch.id, cause: expect.anything() });
+    expect(String((lost as { cause: unknown }).cause)).toContain("factory_run_fence_changed");
     expect(await expired.task.queue.read(projectId, expired.task.dispatch.id)).toMatchObject({ state: "outcome_unknown", failureCode: "worker_lease_expired" });
     for (const options of [
       { service: { ...expired.task.service, tenantId: "foreign" }, installationId: "dispatcher-installation", attemptTokenSecret: "dispatcher-secret" },

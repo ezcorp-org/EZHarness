@@ -683,6 +683,159 @@
 - Share the exact flags between production and its security test. Exporting the mount builder and calling it from both means the test cannot quietly drift from what ships, which is the usual way a hardening regression stops testing the real configuration.
 - A guard that rejects correctly can still report badly. `O_NOFOLLOW` raises the kernel's own ELOOP, and a directory raises EISDIR, before any identity check runs, so two of the refusals surfaced as raw filesystem errors while the rest were typed. Wrap the whole open so every refusal leaves one typed error with the underlying code preserved; a caller should never have to tell a rejected substitution apart from an incidental I/O failure.
 - All worktrees share one `.git/config`. A `core.bare = true` written there (by any session) makes `git status`, `add`, and `commit` fail with "must be run in a work tree" in every checkout at once while `git log` still works. When workers stall without commits, check `git config --show-origin core.bare` before suspecting their code; never run `git config core.bare` or `git init --bare` in a worktree. With `extensions.worktreeConfig` enabled, `git config --worktree core.bare false` inside a worktree repairs that worktree without touching the shared file.
+
+## 2026-09-13 — W09 application and service startup
+
+- A gate with no input is not a gate. `assertFactoryBootReadiness` had shipped for weeks with an
+  `availableServices` parameter that defaulted to the empty array and no caller that ever supplied
+  one. Before trusting a readiness check, find its producer; a requirement index can record a
+  control as implemented when only half of it exists.
+- Reproduce the audit lead before deciding what it is. The initialization race is real in the module
+  and is currently unreachable over HTTP, because every route that initializes lazily calls
+  `requireAuth` first and resolving a principal needs the database initialization opens. That is one
+  `await` of distance, not a guarantee, so the fix still belongs at the source — but the report has
+  to say which of the two it is.
+- The in-flight promise is the latch. A boolean set before the work it stands for reports success
+  twice over: to a concurrent caller and to every caller after a failed attempt. Clearing the slot
+  on failure is what turns a transient outage into a slow start instead of a permanent one.
+- Name every missing dependency in one error. A parser that throws on the first bad field makes an
+  operator with three unset paths restart three times, and each restart is a new chance to read the
+  next field wrong.
+- Split the configuration check from the readiness check. My own composition called the readiness
+  half with an empty available set before probing, and it reported all seven services down before a
+  single probe ran. The test caught it; a reviewer reading the call site would not have.
+- An absent collaborator is a seam that refuses, never a stub that answers. A stop that reports
+  `stopped` with no stopped process and a release that reports `completed` with no receipt are
+  durable false facts, and they are indistinguishable from real ones the moment they are written.
+  Registering a held role as a loop that returns a plausible value is the same mistake wearing a
+  scheduler.
+- A type-only import links nothing. A regex over `from "..."` reported the host supervisor as
+  holding a product database handle it never touches, because it names `FactoryExecutionJournal`
+  under `import type`. A boundary check about what a process HOLDS has to separate erased imports
+  from real ones, which means an AST and not a pattern.
+- A changed file that no coverage include names is unmeasurable, and the patch gate says so rather
+  than passing. Two factory routes whose scope changed had no lcov data at all; adding them to the
+  Vitest include manifest widens what the gate measures, which is the only direction that is allowed.
+- Rebuild before believing a real-server receipt. The first probe run reported the OLD disabled
+  reason string because it ran against a build made before the fix; the code was right and the
+  evidence was stale.
+
+## 2026-09-14 — W09 rejection and rewiring
+
+- Building a composition root is not composing anything. `startFactoryRuntime`
+  compiled, was tested to 100%, and was never called; the flag-on server sat at a
+  static `booting` placeholder forever. Before reporting a composition done,
+  grep for its own name outside its test and follow the one production caller to
+  a process entry point. If there is no caller, there is no feature.
+- Worse than the omission was the report. I presented a 503-forever as proof of
+  fail-closed design and attributed every gap to other packages. When a system
+  is inert, the honest reading is that it is inert; a fail-closed answer looks
+  identical to a thing that never started, and only the caller graph tells them
+  apart.
+- Assert presence, not absence. My test for the seam-driven roles checked that
+  supplying a seam removed the role from the held list, and it passed while the
+  role was registered nowhere at all. A test that only proves something is not
+  in one list proves nothing about where it is.
+- Type a driver against the value it actually returns. I declared the projector
+  as returning `{ applied }` while `projectPending` returns a page of runs, so
+  `applied === 0` was permanently false and the role would have spun at its
+  batch bound forever. The fake matched my invented shape, so the tests agreed
+  with me instead of with the code.
+- Never freeze an object a client library will mark. `@aws-sdk/core` assigns
+  `$source` onto the credentials it is handed; a frozen credential made every
+  request throw `undefined is not an object`, which surfaced as an unavailable
+  object store. Three real-server runs were spent on it because the readiness
+  detail deliberately carries no message.
+- Do not overwrite a richer diagnosis with a coarser one. The composition wrote
+  "object-storage: InvalidAccessKeyId" and the host layer replaced it with the
+  bare service name, which is exactly the line an operator needs. A wrapper that
+  catches should add context, never remove it.
+- A relative default path becomes a directory in the repository. `getDbPath()`
+  returns the literal string `external` for an external database, so a store
+  rooted at it created `web/external/factory-blobs` inside the working tree. A
+  configured resource should come from the configuration, not from a default
+  that happens to resolve.
+- Copy a credential file into the installation's own private directory rather
+  than reading a shared fixture in place. The provisioner already does this, and
+  the private bounded reader refuses the 0644 fixtures for the right reason.
+
+## 2026-09-14 — W09 re-validation fixes
+
+- A heartbeat must not sit behind an unbounded probe. The supervisor wrote its
+  readiness only after a Podman probe that creates a container, so the write
+  interval was probe latency plus the heartbeat against a reader window of three
+  heartbeats: a live process that read as dead whenever the box was busy. One
+  passing run proved nothing. Separate the observation from the publication, and
+  state every interval as a multiple of one configured value so the margins can
+  be read rather than guessed.
+- A record must not conflate "has not looked yet" with "looked and did not like
+  it". Both were `starting` with a reason attached, which is two different
+  operator actions behind one word.
+- Prove a timing fix by repetition, not by one green run. Three consecutive
+  independent runs, each with its own root, certificates, database, and
+  processes, is the smallest honest claim for a fix to an intermittent fault.
+- A test fake whose `wait` resolves on the microtask queue starves the other
+  loop's file I/O: the publisher spun forever and the observation never landed,
+  which looked exactly like a deadlock in the code under test. A fake that
+  stands in for a timer has to yield a macrotask, because a real timer does.
+- Read the whole log before quoting its order. I claimed the factory teardown ran
+  first of fourteen; it runs second, after a `background-timers` registration
+  that predates this package. The claim came from a filter that matched only my
+  own name, so the line above it was never in the excerpt I read.
+- Regenerate a receipt when the commit moves. Citing `gate-*.json` produced three
+  commits earlier is citing a different tree.
+- zsh does not word-split an unquoted variable. A loop that built commands as
+  strings and ran `$cmd` produced four exit-127 receipts that looked like four
+  broken gates. This is already in this file; I hit it anyway. Build argument
+  lists, not command strings.
+- A per-item mitigation cannot reach a per-page failure. I hardened a settlement
+  loop so one bad row could not abandon the page, and stated the residual bound
+  as "200 simultaneously unsettleable items". The owner then showed the
+  verification ran inside the `map` that BUILT the page, so one corrupt row
+  rejected the whole promise and my loop received no items to step over: the
+  real bound was one row, not two hundred. Before quoting a bound, check where
+  the failure is raised, not only where it is caught.
+- Not every failure deserves the same volume. A settlement that throws because a
+  budget hold has not reconciled is a queue doing its job; one that throws
+  because a seal no longer matches needs a person. Reporting both as "failed"
+  gives an operator a stream they cannot triage. Classify at the composition,
+  where the error vocabularies are known, and default the unclassified case to
+  the loud one.
+- A disposition is a property of the CALLER, not of the error. I classified
+  `factory_child_conflict` as transient because the name reads like a race. For
+  a caller that reaches settlement through a scan already filtered on terminal
+  status, a conflict means two records genuinely disagree, and retrying it
+  forever would have reported a real fault as backpressure. Ask the owner for
+  the complete reachable vocabulary before writing a classifier, and pin it as a
+  table so a code that changes class fails a test.
+- A classifier must never throw. Reading `.code` off an unknown value crashed on
+  `null`, which would have turned one item's failure into the whole role's
+  failure — reintroducing, one layer down, exactly what the page driver exists
+  to prevent.
+
+- A proof harness that cannot write its own record turns three failures into
+  three passes. `finish()` called `writeFileSync` without importing it, so every
+  run threw after its work was done and exited 1 with an empty log, while the
+  driver copied the PREVIOUS run's record and built receipts from it. The
+  receipt said `exitCode: 1` and `readyStatus: 200` in the same object and I read
+  the second field first. Two rules: a receipt must carry evidence that it
+  describes its own run (delete the record before the run, compare the record's
+  own timestamps against the run window), and a failure path must print before
+  it does anything else, so an empty log can never be a crash's only symptom.
+- A test that reaches the state once cannot see a defect in reaching it twice. My
+  three full-stack runs each sampled `/api/ready` the moment it turned green and
+  shut down, so they could not observe the second container-runner probe, which
+  was the one that failed. When the suspected fault is in repetition, hold the
+  system and watch it repeat, and count the resource whose leak is the symptom.
+- Running only the focused suites hides the tests that read a contract you
+  changed. A deliberate API scope change left `factory-service-routes.test.ts`
+  asserting the old behaviour; no suite of mine imported that file, so only the
+  full pool found it. After changing a shared table, grep for its readers rather
+  than trusting the suite list you already have.
+- Piping a test through `tail` inside a loop records `tail`'s exit code. Two of
+  my evidence scripts did this, and a postgres producer that was failing on a
+  missing environment variable read as green for hours. Capture output to a
+  variable, keep the command's own status, and accumulate it.
 - Bound every command that holds the shared heavy lock with `timeout` (for example `flock <lock> timeout 1200 bun test ...`). A test process that spins at 100% CPU with no output held the lock for fifty minutes and stalled three other workers; a per-test `--timeout` does not stop a busy loop outside a test body.
 
 
@@ -748,6 +901,58 @@
 - A compose file change does not reach a container that was restarted rather than recreated. `docker restart` reuses the existing container's `Cmd`, so the SeaweedFS volume cap stayed at 100 while the file said 400 and the sibling service, which had been recreated, carried the new flag. `docker inspect <name> --format '{{json .Config.Cmd}}'` is what settles it; equal `Created` and `StartedAt` timestamps are the tell.
 - Free a shared store by run window, never by prefix. The test prefixes are shared across packages, so deleting `ordinary/archive-writer/*` would have destroyed the objects W04a's receipts name. Deleting only versions whose `LastModified` falls inside one recorded run window cannot reach anything that run did not create, and holding the shared heavy lock for the whole run is what makes the window exclusive. Default to a dry run and make deletion the explicit flag.
 - **No destructive tooling against a shared store without the coordinator's authorization, and test cleanup deletes only what the test created.** I wrote a prune that deleted every object version in a time window across all ten tenant buckets and ran it with `--apply` against the shared SeaweedFS store during validation, removing 212 versions. The instruction had been to delete the objects my tests create. A window is not that: its blast radius is the store, not the run, and the fact that it happened to catch only my five suites' prefixes was luck verified afterwards rather than a property of the tool. The replacement takes a manifest of exact `{bucket, key, versionId}` entries, refuses to run without one, refuses any key that could stand for more than one object, and defaults to a dry run. If a cleanup tool can delete an object it did not create, it is the wrong tool — and asking first costs one message.
+- Before naming a collaborator in an interface, open the file that is supposed
+  to implement it. I declared `deliverNextAcrossProjects` on a driver interface
+  and nothing in production has that method; the collaborator that exists is
+  per-project. That is the same defect a reviewer had already found one file
+  over, and I reproduced it because an interface I write feels like a decision
+  rather than a claim about someone else's code. It is a claim.
+- A held role's reason is a pointer, and a stale pointer costs more than none.
+  Mine said the release store could not be composed long after every release
+  collaborator had landed, which would have sent the next reader to W07 and W08
+  for something neither owed. When a dependency lands, re-derive the reason.
+- End-to-end through the product's own front door finds what no seeded test can.
+  Creating a project over HTTP answered 500 because nothing in production ever
+  called `bindInstallation`, and the foreign key it satisfies had been in the
+  schema for weeks. Every test seeded that row itself, so every test was green.
+  If a fixture creates a row the product must create, the product's version of
+  that step is untested.
+- A proof phase that cannot fail is not evidence. I added a durable-run phase
+  that recorded its steps but did not gate the outcome, and it spent three runs
+  reporting 401 on every call while the receipt said `passed`. Make a new phase
+  a pass criterion in the same change that adds it.
+- A negative control has to be re-checked against the thing it controls every
+  time that thing changes. Mine induced its failure by overriding an environment
+  variable, and a later change stopped the harness from reading that variable:
+  the control passed, reported "the failure path works", and proved nothing.
+  The fault a control injects must be something the current code path cannot
+  ignore.
+- A catch that returns a fallback and says nothing turns a composition failure
+  into an unexplained hold. I wrapped a release-store composition in
+  `catch { return undefined; }`, which left two roles held with no way for an
+  operator to tell a missing credential from an unreachable store from a scope
+  mismatch. If a failure changes what the product does, the failure has to reach
+  the operator's stream with its cause, and a test has to assert both the
+  degraded behaviour and the explanation.
+- Check whether a merge you made still stands before writing that it does not. I
+  described W03's scans as "briefly merged, no longer carried" when the merge
+  commit was four commits back on my own branch and the methods were in the
+  files. One `grep` settled it. A gate file that is wrong about its own history
+  is worse than one that omits it.
+- A new `tests/postgres/` suite is not a gate until CI runs it, and this repo
+  enforces that: `scripts/factory-postgres-suite-registration.test.ts` failed
+  because I added a suite without adding it to the workflow's producer list. A
+  suite nobody runs is a suite that passes forever. Register it in the same
+  change that adds it.
+- When a shared service is reported fixed, check the RUNNING container, not the
+  compose file. The ordinary S3 store OOM-killed a second time because it had
+  been started from the stale pre-fix container while its sibling, recreated
+  properly, ran with the new limit. `docker inspect --format
+  '{{.HostConfig.Memory}}'` differing between two services that should match is
+  the whole diagnosis, and it takes one command.
+- Do not repair shared infrastructure you do not own while another agent's run
+  holds the lock. Record the diagnosis precisely enough that the owner can act
+  in one step, and finish everything that does not depend on it.
 - `tasks/` is gitignored, and the existing gate files are tracked from before it was. `git add tasks/factory/<new>-GATES.md` silently does nothing, `git commit` reports "nothing to commit", and the gate file stays in the worktree where the coordinator cannot read it. `git add -f` is required for a new file there. `git check-ignore -v <path>` is the one command that says so out loud.
 - `bun test` does not typecheck, so a test file can be green under the runner and red under `tsc`. Twice in one package a readonly tuple's missing `.sort()` and a literal-typed constant in `toBe` passed every assertion and failed `bun run typecheck`. Run the typecheck before the commit, not after the suite.
 - Bundling inside a Bun test worker that has also loaded PGlite's WebAssembly module and the Podman toolchain fails with `EBADF` and `EISDIR` while reading ordinary readable dependency files, and the error names a package the module under test never imports. The same `Bun.build` call succeeds in a bare process. Do the bundling somewhere else rather than hunting the named package.
@@ -860,6 +1065,22 @@
   the tests, as `src/factory/runner/python` already does. An empty
   `__init__.py` also reads as unmeasured, because coverage.py emits no record
   for a file with no statements.
+- Constructing a collaborator and handing it to its consumer are two jobs, and
+  only one of them may be possible. The provider broker could be built from
+  configuration today; it could not be given to the runner, because the runtime
+  wants `invoke(request, input)`, the broker offers `stream(request)`, and no
+  contract says what a guest sends to request a model stream. Writing an adapter
+  over an undefined payload would have been the substitute the requirement
+  forbids, dressed as progress.
+- A union merge of a JSON file can put the closing brace in the middle. Splicing
+  two conflict halves produced a file that parsed nowhere; rebuilding the object
+  from every key/value pair in file order, first value wins, is the safe form,
+  and comparing key counts against both sides afterwards is the proof.
+- When an integration branch moves during your round, say which commit you
+  merged and check what landed after it before blaming your own branch for a red
+  suite. Three suites failed here on an allow-list that had not yet learned a
+  newly-required field; the fix was two commits past the tip I was told to
+  merge, and the tell was that the same suite passed on the integration branch.
 - Rebuild a workspace package's `dist` after merging the integration branch, not only after changing it yourself. The merge brought `RunnerReference.manifestName` and `isManifestName` into the SDK's `src`, and every consumer typechecked against the stale `dist`, so `tsc` reported them as missing members of a module that plainly exports them. `bun run --cwd packages/@ezcorp/factory-sdk build` is the fix, and the error message never says so.
 - A mechanical migration finishes the literals, not the assumption behind them. W02b had already added `manifestName` to my one `RunnerReference`, so nothing was red; what remained was that the guest's manifest name was a literal in one file and the scoped package name a literal in another, with no code linking them. Derive one from the other through the shared helper and assert the link, or the next rename fails at bind time instead of at a test.
 - Split a producer list by what it actually depends on before reporting it red. Nine PostgreSQL producers reported 47 failures; six needed object storage and three did not. Running the three on their own turned "my merge broke the producers" into "the shared store is down", and the repository's own verifier named the fault in one command.
@@ -869,6 +1090,22 @@
 - My own cleanup threw from `finally` and reported a fully passing test body as a failure. The repo already had this lesson and I still wrote it. Cleanup after a container test must be best-effort and must never mask the assertions.
 - When two packages need the same piece of a shared module, land it once in the owning package rather than reviewing each copy. W11 and W12 both needed the material mount; one canonical `runnerMaterialMount` with a test that asserts its exact option string is what stops a security-relevant flag drifting in one consumer.
 - I wrote the lesson about `git add -A` silently skipping a new file under a gitignored directory, and then repeated the mistake on the very next leaf. Having the lesson is not the control; the verification step is. After committing anything under `tasks/`, run `git ls-files tasks/` and confirm the file is listed, because `git status` stays clean either way and the omission is otherwise invisible until someone else looks for the file.
+- A script named `verify-*` can still mutate what it verifies. `scripts/verify-factory-storage.ts`
+  ends its conformance run by stopping and recreating the ordinary S3 service from the repository
+  compose file. I ran it twice against shared infrastructure to satisfy myself the store was
+  healthy, from a worktree whose compose file still carried the old memory limit, and each run
+  replaced another agent's correctly-sized container with an undersized one that was then
+  OOM-killed. Read what a tool does before pointing it at something you share.
+- Diagnose from the artefact that records causation, not the one you happened to look at. I had the
+  container's memory limit and start time, built a story from them, and never asked who started it.
+  `docker inspect` carries `com.docker.compose.project.working_dir` and `config_files`, which name
+  the worktree that ran the compose command. Two labels would have pointed at me in one command.
+- State a diagnosis of someone else's infrastructure with the confidence the evidence supports. I
+  wrote "the fix never reached it" as settled fact in a gate file and a receipt. It was wrong, and a
+  confident wrong diagnosis sends the owner to the wrong repair.
+- Run every command from your own worktree. A lock-holding shell of mine had its working directory
+  in the main checkout; the scripts passed an explicit repo path so nothing broke, but a bare `git`
+  or a relative path in that shell would have acted on the integration branch.
 
 ## 2026-09-14 — W12 real data reference pack
 
@@ -884,6 +1121,119 @@
 - A reserved name in a shared adapter is a real constraint, not a naming preference. `manifest.json` belongs to the S3 publication manifest and no member may take it, which is obvious in hindsight and cost a full real-services run to discover. Read the member grammar before choosing member names.
 - A receipt taken while the tree is changing is not a receipt. I started a fifteen-minute producer, then edited three files, and the recorded "no dirty files" was true at start and false by the end. Commit first, run second, and re-run everything on the final tree.
 - `argparse.REMAINDER` swallows flags that follow the positional. `receipt.py label --lock -- cmd` put `--lock` into the command; `receipt.py --lock label -- cmd` is the working order. Worth knowing before losing a long run to it.
+- `bun run typecheck && ...` does not gate a commit when the typecheck output is
+  piped through `grep`: grep exits 0 for a match, so a chain that greps for
+  "error TS" runs the commit exactly when there ARE errors. I committed a file
+  that did not typecheck this way. Gate on the command's own exit code, or run
+  the check as its own step and read it.
+- Do not commit wiring that does not wire. I threaded a composer that always
+  returned undefined and kept its imports alive with `void` statements; it
+  typechecked and read like progress while doing nothing, and it would have told
+  the next reader the role was one step from running when the assembly had not
+  begun. Reverted before committing. An honest "not built" in the gate file
+  costs nothing; dead code that looks like wiring costs the next person's trust.
+- A flaky run on a loaded box is evidence about the box, not a threshold to
+  raise. One proof run in six hit `runner_probe_timeout` right after a long
+  combined integration run; the composition did exactly the right thing
+  (degraded, named, admission closed) and the fix was to re-run on a quieter
+  box and record the measurement, not to widen the probe budget the product
+  states as an invariant.
+- common.md lists coverage as a heavy producer and I only ever locked the
+  obvious three: Podman, real PostgreSQL, and the real-server proofs. My sweep
+  ran `bun run test:coverage` -- one bun plus PGlite process per file across
+  1700+ files -- outside the lock, beside another package's full backend pool,
+  on a host down to 6 GB. The tell is that "heavy" is a property of what a
+  command DOES, not of which service it talks to: a pool that forks a process
+  per file is heavier than a single Podman probe. Every producer in that list
+  goes under the lock, one at a time.
+
+## 2026-09-20 — W09b assembly and the guest proof
+
+- **A hold reason is a claim, and claims expire.** `release-outcome` held for
+  "no production `FactoryReleaseProviderResolver`". The resolver was built here
+  in an afternoon and the role still could not register, because `claim` needs a
+  CONSENT — an approved approval or an automatic policy — and nothing reads one.
+  Before restating a hold, re-derive it from the call you are actually blocked
+  on, not from the last person's sentence.
+- **Composing a listener is not the same as having one.** `startFactoryPrivateService`
+  had no production caller, and the composition root's own comment explained
+  why in a way that was right about three processes and wrong about the fourth.
+  "C02 puts every other role in its own process" is true of the pool, the
+  supervisor, and the orchestrator; the private service is how the product is
+  reached BY one of them, and it needs the database they must not hold. Read a
+  comment that justifies an absence as a hypothesis, not as a finding.
+- **Two readiness gates that each require the other never converge.** The
+  orchestrator's readiness probes the product's private service; the product's
+  readiness reads the orchestrator's record. With one probe round, whichever
+  starts second loses, and the listener the other needs is closed by the failure
+  path. The fix is to keep probing with the listener bound and admission closed —
+  not to relax either gate. A distributed bring-up that depends on start order is
+  a defect even when every component is correct.
+- **A boundary gate earns its keep on the change you were sure was safe.**
+  Hosting W01b's launch routes and W03's stop route in the supervisor pulled
+  `drizzle-orm`, PGlite and the S3 client into a process C01 says holds only host
+  identity, because the three values those routes need share a module with the
+  durable launch store. Nothing about the code looked wrong; the closure test
+  printed the eleven packages. Run the boundary test on any change that moves a
+  module into a new process.
+- **A process entry that exits 1 in silence costs a whole round.** The
+  orchestrator refused its own configuration and printed nothing, and the
+  orchestrator package replaced every startup cause with a bare "factory
+  orchestrator process failed". Two lines — print before setting the exit code,
+  and attach the cause — turned an hour of bisecting into one readable message:
+  a private path with a writable ancestor, then a peer that was not listening.
+- **A fake store must return what a real one would.** `InstallationDataKey.loadOrCreate`
+  re-reads what it just saved and decrypts it to prove the round trip, so a
+  harness store that handed back the base64 the FILE carries failed with
+  `factory_key_missing` — a name that describes the symptom and not the cause.
+  When a fake sits between two halves of a round trip, it has to speak both.
+- **The pinned test server is not the real server.** The Temporal test server
+  does not implement `DescribeTaskQueue`, which the orchestrator's readiness
+  probe requires, so it cannot serve this proof at all — and the failure looks
+  like a product fault. Check that a pinned tool implements the method under
+  test before concluding anything about the code.
+- **A proof may add a deployment topology; it may not relax a requirement.** The
+  orchestrator requires mutual TLS to its namespace and the Temporal server
+  terminates none, so the proof puts a real TLS terminator in front of it —
+  presenting this installation's certificate, requiring the client's, verifying
+  both against the same CA. That is the sidecar a real deployment uses. Passing
+  a different `connect` dependency to make the light turn green would have been
+  the substitute.
+- **Six faults, found by running it and by nothing else.** Every one of these
+  passed typecheck, lint and its own unit tests; each cost a full proof cycle,
+  and none of them would have been found by reading the code they were in.
+  - `toolchain.ts` versus `provision.ts`: the harness provisioned the runner
+    toolchain through the wrong module and got a store the builder could not
+    read.
+  - The built web server predated the C11 config field, so the startup document
+    read as invalid. Rebuild before believing any receipt about a built server.
+  - The pool answered 401 to every compute call, because the harness keyed the
+    pool's tenant identity by tenant id and `authorizePoolRequest` looks it up
+    by the client certificate's common name.
+  - The guest's `failed` result was missing `resultDigest` and
+    `error.retryable`, the host launch route refused it as `invalid_result`, and
+    the attempt settled `outcome_unknown` — the runtime doing exactly the right
+    thing with a result it could not validate.
+  - `journalCursor: 0` where the column defaults to `-1`. Zero says "operation
+    zero is settled"; an attempt that performed none has settled nothing.
+  - The private service's 15-second request timeout sat inside the 20-second
+    physical stop bound, so every real stop was cut off by the transport before
+    the host could answer. Two independently reasonable numbers, one of which
+    has to be larger than the other.
+- **`present()` reads `unknown` as PRESENT, and that is right for a worker this
+  host never had and wrong for one it just ran.** A guest that RETURNED had its
+  execution closed by the host itself, so `inspect` can no longer find it —
+  which is the runtime agreeing, not withholding. Without a first-hand record of
+  which workers this host ran to a result, every normal finish raised
+  `sandbox_stop_unconfirmed`, the kernel's `cancel-node` never settled, and the
+  run sat in `stopping` forever. When a predicate is deliberately conservative
+  about an absence, ask who is entitled to know better, and let them say so.
+- **A retry that re-reads durable state loses the reason it just learned.**
+  `markUncertain` returned the durable row whenever the row was already
+  uncertain, and a durable row carries the sealed event, not the error. So the
+  first failing pass named its cause and the next thirty named nothing. The
+  identity of an uncertainty is durable and must not be re-minted; the CAUSE
+  belongs to the pass that learned it. Keep them apart.
 ## 2026-09-14 — W01d material handover
 
 - A rule written into a review is not enforced until production does it. My review forbade `0o777` on the material directory, and then my own integration test used exactly that, which hid from everyone that production set no mode or owner at all and no guest could write. When a review's rule needs a mode or an owner set, check which side actually sets it; if the answer is "the test", the rule is not in force.
@@ -958,6 +1308,18 @@
 - The shared services run under PODMAN. `docker ps` cannot see them, so a docker listing that comes back empty says nothing about whether a service is up, and neither does guessing at ports. I concluded the proof database was down, marked a gate open, and asked the coordinator to recreate a container that had been running for seven days. `common.md` resolves it in one line: build the URL from `/tmp/factory-platform-evidence/postgres.env` and `podman port factory-platform-proof-postgres 5432`. Read the brief's resolution path before improvising one, and never report a shared service dead — still less request store management — on the strength of a tool that cannot see it.
 - A field that crosses two surfaces has to satisfy both, and checking one is how you get a plausible wrong answer. The operation receipt digest is read by the settlement store off the journal row AND mirrored into the terminal result, where `validateFactoryRunnerResult` and `verifyRunnerResultInTransaction` both constrain it. I grepped the settlement store, found `^sha256:[0-9a-f]{64}$`, emitted that, and every one of my tests passed: each looked at one side. An attempt that called a model could then settle or complete but not both. When a value crosses a boundary, enumerate every consumer of the field before choosing its shape, and write the one test that spans them.
 
+## 2026-09-21 — W09b round 2
+
+- A coverage gate names FILES; it cannot name the leg that was never run. Nine of the fourteen findings on a red patch-coverage receipt were fully tested code whose producing leg was absent from the runner: the Vitest pool is the only producer that measures `web/**`, `scripts/factory-orchestrator-coverage.sh` is the only one that names `src/factory/orchestration-process.ts`, and three suites had been added to the leg list after the receipt was stamped. "No lcov data" reads like "nobody tested it" and usually means "nobody ran the producer". Before writing a test for an uncovered file, check which leg in `combined-integration.py` claims it and whether your runner runs that leg.
+- The missing leg was also hiding a live regression, which is the real cost. The branch had changed a dispatch result to carry a refused commit's cause, and the one suite asserting that result was off the leg list and had been red for the whole package. A leg you do not run is a suite you are not running, and the coverage number is the least of what you lose.
+- A test that sets `process.exitCode` must restore it to a NUMBER. Restoring the captured `undefined` left bun's runner exiting 1 on a file whose own banner said 37 pass, 0 fail — a green suite with a red exit code, which the leg script read as a failure while the log said nothing was wrong. `process.exitCode = previous ?? 0`.
+- When a frozen surface cannot express the instruction you were given, say so and build against the surface; do not fork it. `FactoryReleases.claim` opens its own transaction and takes none, so "read the consent and claim in ONE transaction" is not expressible — but the property that rule protects (no stale consent can authorize a claim) already holds, because the read mutates nothing and `claim` re-derives everything under its own lock. State the measurement, deliver the tested behaviour, and raise the surface change as a question rather than making it.
+- A held role's reason has to be computed from something the real path actually sets. `release-outcome`'s reason branched on `factoryReleaseSeamsPresent`, which is never true in production because the composition builds the release store directly instead of through those five seams — so the specific reason could only ever appear in a test. A reason nothing in production can reach is a reason nobody will read.
+- A shared-resource path copied into every repro script is a landmine for the run AFTER the outage. `common.md` named one S3 secrets directory, six scripts under `repro/` had hard-coded it, and the host reboot deleted it — so a resumed run would have exported the dead path over the live one the coordinator was about to supply, and every S3 producer would have failed for a reason that had already been fixed. Read a shared path through `${VAR:-}` and let the caller win; hard-code it only where a human will see the failure immediately.
+- Report a dead shared store from what you measured, not from what you were told, and say when the two differ. The coordinator reported the proof PostgreSQL container as gone; `podman ps -a` still held an `Exited (0)` record for it, while the S3 side matched exactly — no container at all and no secrets directory. Neither difference changes what a producer does, and saying so costs one sentence and keeps the record honest.
+- `Write` overwrites, so check whether the path is taken before creating a "new" file. I wrote a new module to `src/factory/release-destinations.ts` and silently clobbered W07/W08's destination reservations and sender fence. Typecheck caught it within a minute and `git checkout --` restored it byte-for-byte, but nothing about the tool said the file already existed. `ls` the path first, or pick a name and confirm it is free.
+- A script called `verify-*` may not be read-only. `common.md` points at `scripts/verify-factory-storage.ts` as the shared-storage readiness check; its durability step RESTARTS the local SeaweedFS, which is coordinator-only work. It failed harmlessly here only because it shells out to `docker` on a podman host. Read what a script does before running it against a shared resource, however reassuring its name and however clearly the brief recommends it.
+- A heavy producer started while "just syntax-checking" is still a heavy producer. I piped `bash -n script.sh && bash script.sh` into one command to check syntax and it ran the whole resume suite without the heavy lock. Stopping its process group two minutes in cost nothing because it was still in the lightest step, but the lock exists for the steps after that. Syntax-check and run are two commands.
 ## Do not truncate an inventory you are about to act on (2026-09-21)
 `podman ps -a | head` hid the exited proof PostgreSQL container, and the coordinator nearly recreated it from the wrong image. Before any repair, list the exact resource by name (`podman ps -a --filter name=...`) and read its image, mounts, and port binding; a start of what exists beats a recreate.
 
@@ -966,6 +1328,9 @@ Long final messages are cut at a few thousand characters and the tail is lost. E
 
 ## Main's pooled coverage command is CI-only (2026-09-21)
 `bun run test:coverage` aborts before writing `coverage/lcov.info` when the browser-route coverage receipt is absent, so the global floor and CRAP gates read "lcov not found" (or a stale file) on a developer host. Measure them over the combined runner's merged lcov, and never score a gate against a `coverage/lcov.info` older than the tree.
+- A freshly provisioned credential directory is not automatically a PRIVATE one, and the platform's own reader is stricter than the provisioner. The reprovisioned S3 credential sets landed at mode 0644 while `readPrivateBounded` refuses any file with group or other bits — so every test harness that reads them with a plain `readFile` passes, and the one production path that reads them properly cannot compose at all. When a shared resource is reprovisioned, check it against the reader the PRODUCT uses, not the one the tests use.
+- `/tmp` is mode 1777, and a reader that refuses a world-writable ancestor refuses everything under it. A private copy of a credential written to `mkdtemp(tmpdir())` was refused for a reason the message did not name; the same copy under `$HOME` was accepted. Put anything the private reader must open under a directory with no world-writable ancestor.
+- Prove a positive against a live service by also proving the negative reaches it. "An unpublished object reads as absent" is indistinguishable from "we never talked to the store" until a wrong credential answers differently. Measured here: right secret 404, wrong secret 403, and only the pair is evidence.
 
 ## 2026-09-21 — W01f event-stream detach
 
@@ -1078,3 +1443,5 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   shared lock. Their mixed-head merge then failed a coverage gate for a reason that had nothing to
   do with the code. Treat a validation window as a freeze even when the change you are making is a
   good one.
+- Bun's isolated store keeps a STALE version after a lockfile change, and an incremental `bun install --frozen-lockfile` does not remove it. After merging main's dependency bump my worktree held `zod@4.5.2` next to `zod@4.5.4`, and 25 typecheck errors appeared in a package I had never touched. I proved the SOURCE trees were byte-identical against staging and reported the red as inherited — which was wrong, because a tree diff says nothing about the installed graph. Staging, reinstalled clean, was green at the same merge base with the same SDK. After merging a dependency bump: `rm -rf node_modules web/node_modules`, reinstall both, rebuild the workspace packages, THEN judge a red.
+- Attributing a failure away from yourself needs a stronger proof than attributing one to yourself. "The files are identical" is evidence about one input; a build has several. Before telling someone a red is theirs, reproduce it somewhere they control, or rule out every input you own.

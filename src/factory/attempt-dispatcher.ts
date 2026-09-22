@@ -20,7 +20,16 @@ export type FactoryAttemptDispatchResult =
   | { readonly kind: "idle" }
   | { readonly kind: "completed"; readonly attemptId: string; readonly recovered: boolean; readonly receipt: FactoryTaskCompletionReceipt }
   | { readonly kind: "failed" | "cancelled" | "outcome_unknown"; readonly attemptId: string; readonly recovered: boolean; readonly receipt: FactoryTaskOutcomeReceipt }
-  | { readonly kind: "failed" | "cancelled" | "outcome_unknown" | "retry"; readonly attemptId: string };
+  /**
+   * A pass that moved the attempt without producing a receipt.
+   *
+   * `cause` rides along on the unknown outcomes, and it is the difference
+   * between an operator who can act and one who cannot: before it, a result the
+   * product refused to record settled the attempt `outcome_unknown` and the
+   * reason existed only inside a `catch {}`. It is never a substitute for the
+   * receipt — the attempt is still unknown — it is the one line that says why.
+   */
+  | { readonly kind: "failed" | "cancelled" | "outcome_unknown" | "retry"; readonly attemptId: string; readonly cause?: unknown };
 
 type FactoryAttemptTokenSigner = typeof signFactoryAttemptToken;
 type FactoryDispatchReadiness = {
@@ -113,10 +122,10 @@ export class FactoryAttemptDispatcher {
         return completed;
       });
       return { kind: "completed", attemptId: claim.delivery.id, recovered: false, receipt };
-    } catch {
+    } catch (error) {
       const recovered = await this.recoverClaim(claim).catch(() => undefined);
       if (recovered) return recovered;
-      return this.markUnknown(claim, "completion_outcome_unknown");
+      return this.markUnknown(claim, "completion_outcome_unknown", "outcome_unknown", error);
     }
   }
 
@@ -163,14 +172,14 @@ export class FactoryAttemptDispatcher {
         return recorded;
       });
       return { kind: result.status === "uncertain" ? "outcome_unknown" : result.status, attemptId: claim.delivery.id, recovered: false, receipt };
-    } catch {
+    } catch (error) {
       const recovered = await this.recoverClaim(claim).catch(() => undefined);
       if (recovered) return recovered;
-      return this.markUnknown(claim, "outcome_commit_unknown");
+      return this.markUnknown(claim, "outcome_commit_unknown", "outcome_unknown", error);
     }
   }
 
-  private async markUnknown(claim: ClaimedFactoryAttempt, failureCode: string, kind: "failed" | "cancelled" | "outcome_unknown" = "outcome_unknown"): Promise<FactoryAttemptDispatchResult> {
+  private async markUnknown(claim: ClaimedFactoryAttempt, failureCode: string, kind: "failed" | "cancelled" | "outcome_unknown" = "outcome_unknown", cause?: unknown): Promise<FactoryAttemptDispatchResult> {
     const recovered = await this.recoverClaim(claim).catch(() => undefined);
     if (recovered) return recovered;
     try {
@@ -180,6 +189,6 @@ export class FactoryAttemptDispatcher {
       const current = await this.queue.read(claim.delivery.projectId, claim.delivery.id);
       if (current?.state !== "outcome_unknown") throw error;
     }
-    return { kind, attemptId: claim.delivery.id };
+    return { kind, attemptId: claim.delivery.id, ...(cause === undefined ? {} : { cause }) };
   }
 }

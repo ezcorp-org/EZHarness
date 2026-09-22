@@ -12,7 +12,7 @@ import { AgentExecutor } from "$server/runtime/executor";
 import { WorkflowExecutor } from "$server/runtime/workflow-executor";
 import { loadYamlWorkflows } from "$server/runtime/workflow-loader";
 import { loadReleaseWorkflowEntries } from "$server/runtime/workflow-release-assets";
-import { initDb, closeDb } from "$server/db/connection";
+import { initDb, closeDb, getDb } from "$server/db/connection";
 import { warmKiloCatalog } from "$server/providers/kilo";
 import { validateEnv } from "$server/env-validation";
 import { loadDbCachedWorkflows } from "$server/db/queries/workflows";
@@ -107,12 +107,31 @@ let eventSubscriptionDispatcher: EventSubscriptionDispatcher | null = null;
 let commandRegistry: CommandRegistry | null = null;
 let goalHost: GoalHost | null = null;
 let workflows: CachedWorkflow[] = [];
-let initialized = false;
+let initialization: Promise<void> | null = null;
 
-export async function ensureInitialized(): Promise<void> {
-  if (initialized) return;
-  initialized = true;
+/**
+ * Initialize once, and tell every caller the truth about that one attempt.
+ *
+ * The in-flight promise IS the latch. A boolean set before the work reported
+ * success twice over: to a caller that arrived while initialization was still
+ * running, and to every caller after an attempt that failed. Both then reached
+ * for `getExecutor()` / `getBus()` and got "Server not initialized" — a
+ * readiness answer that the process had no way to retract or retry.
+ *
+ * Seven route handlers call this lazily (`/api/tool-invoke`, `/api/composer/*`,
+ * `/api/extensions/*`, `/api/ez-actions/*`), so "the hooks module awaits it
+ * once at startup" is not the only entry. Clearing the slot on failure is what
+ * makes a transient database outage a slow start instead of a permanent one.
+ */
+export function ensureInitialized(): Promise<void> {
+  initialization ??= initialize().catch((error: unknown) => {
+    initialization = null;
+    throw error;
+  });
+  return initialization;
+}
 
+async function initialize(): Promise<void> {
   validateEnv();
   await initDb();
   // Install signal handlers immediately after the DB opens. The first
@@ -448,6 +467,33 @@ export async function ensureInitialized(): Promise<void> {
   // Load workflows from extension assets + YAML + DB
   workflows = await buildWorkflowCache();
   registerTeardown("extension-workflow-reload", registry.onReload(reloadWorkflows));
+
+  // ── Factory composition (C09) ────────────────────────────────────────
+  // The factory's composition root exists in `src/factory/runtime-composition.ts`
+  // and, until this call, nothing invoked it: a flag-on installation sat at
+  // `booting / factory-services-pending` for the process lifetime while every
+  // store it needed was already constructible, and `/api/factories/*` answered
+  // 503 forever. This is the call.
+  //
+  // It runs LAST in initialize() on purpose. Composition opens product
+  // admission, so everything a factory route can reach — the database, the
+  // extension registry, the executor — is already built when it does. It is
+  // gated on the boot-captured flag, so a flag-off installation composes
+  // nothing and starts no factory service, exactly as C09 requires.
+  //
+  // A failure here degrades the factory and not the host: the readiness state
+  // carries the named reason, `getFactoryApplication()` stays null so every
+  // factory route answers 503, and the rest of the server keeps serving. It is
+  // not swallowed — the operator sees the code in `/api/ready`.
+  const { startFactoryIfEnabled } = await import("$lib/server/factory-boot");
+  const { getShutdownSignal } = await import("$lib/server/shutdown");
+  await startFactoryIfEnabled({
+    database: getDb() as never,
+    databaseUrl: process.env.DATABASE_URL,
+    signal: getShutdownSignal(),
+    registerTeardown,
+    log: console,
+  });
 
   // Signal-driven teardown lives in `$lib/server/shutdown.ts`. The
   // adapter (svelte-adapter-bun) emits `sveltekit:shutdown` BEFORE

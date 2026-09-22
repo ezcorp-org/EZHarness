@@ -1,7 +1,7 @@
 import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-https";
-import { factoryAttemptLaunchIntentFromWire, type FactoryAttemptLaunchIntent, type FactoryAttemptOpenDisposition } from "./attempt-runtime";
+import { factoryAttemptLaunchIntentFromWire, type FactoryAttemptLaunchIntent, type FactoryAttemptOpenDisposition } from "./attempt-wire";
 
 /** What a host reports about one physical attempt. It carries no tenant record. */
 export interface FactoryHostAttemptHandle {

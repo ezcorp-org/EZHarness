@@ -240,10 +240,15 @@ export async function runFactoryOrchestratorProcess(options: FactoryOrchestrator
         if (!restart) await options.readiness.write({ lifecycle: "ready", workerPolling: true, dispatcherLive: true, credentialGeneration });
       }
       if (restart) await options.readiness.write({ lifecycle: "starting", workerPolling: false, dispatcherLive: false, credentialGeneration });
-    } catch {
+    } catch (error) {
       if (options.signal?.aborted) continue;
       await options.readiness.write({ lifecycle: "failed", workerPolling: false, dispatcherLive: false, credentialGeneration, errorCode: "factory_orchestrator_failed" });
-      throw new Error("factory orchestrator process failed");
+      // The cause travels with the refusal. Without it this threw a bare
+      // "factory orchestrator process failed" and the one line worth reading —
+      // which connection, which probe, which loop — was gone, so a start that
+      // failed on a peer's health route was indistinguishable from one that
+      // failed on its own credentials.
+      throw new Error("factory orchestrator process failed", { cause: error });
     } finally {
       session.controller.abort(new Error("factory orchestrator session stopped"));
       if (worker?.getState() === "RUNNING") worker.shutdown();

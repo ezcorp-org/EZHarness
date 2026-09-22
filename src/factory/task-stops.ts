@@ -93,6 +93,17 @@ export interface FactoryTaskStopReceipt {
   readonly state: "uncertain" | "stopped";
   readonly event: Extract<KernelEvent, { readonly kind: "attempt-stopped" }>;
   readonly stopReceipt?: FactoryPhysicalStopReceipt;
+  /**
+   * Why this stop is uncertain, for the caller that will retry it.
+   *
+   * Never persisted and never part of the durable fact: the row is uncertain
+   * whatever the reason, and a later pass may fail for a different one. It
+   * exists because an uncertain stop retried forever is indistinguishable from
+   * a stop nobody is attempting, and the reason used to live only inside a
+   * `catch` — a run that sat in `stopping` for seven minutes had nothing
+   * anywhere to say which fact was wrong.
+   */
+  readonly cause?: unknown;
 }
 
 /** Widened from `string`. W14 maps each member to an HTTP status. */
@@ -253,7 +264,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     try {
       const physical = await this.withDeadline(signal => this.stopper.stop(accepted.request, signal));
       return await this.confirm(service, reference, physical);
-    } catch { return this.markUncertain(service, reference); }
+    } catch (error) { return this.markUncertain(service, reference, error); }
   }
 
   /** Reconciles a late host receipt without invoking or relaunching the runner. */
@@ -375,7 +386,18 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     if (launch.tenantId !== reference.tenantId || launch.projectId !== reference.projectId || launch.runId !== reference.logicalRunId || launch.requestDigest !== authority.requestDigest || launch.grantRevision !== authority.grantRevision) throw new FactoryTaskStopError("factory_task_stop_stale");
     const material = await this.compute.readRetainedAdmittedInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: launch.reservationId });
     const { lease } = material.receipt;
-    if (!lease.hostId || lease.hostId !== launch.hostId || lease.holderGeneration !== launch.holderGeneration || lease.allocationGeneration !== launch.allocationGeneration || lease.allocationToken !== launch.allocationToken || lease.allocationGeneration !== authority.reservationGeneration) throw new FactoryTaskStopError("factory_task_stop_stale");
+    // The pool pins a host only for an allocation that binds a whole one, so an
+    // ordinary CPU reservation has none — which is the same reasoning `confirm`
+    // already applies to `confirmStopped` below: having no opinion is not a
+    // contradiction. Requiring one here made every CPU attempt unstoppable: the
+    // guest ran, its result became durable, the kernel issued `cancel-node`, and
+    // this refused it `factory_task_stop_stale` on every pass while the run sat
+    // in `stopping`. Measured end to end, not reasoned about.
+    //
+    // The host the stop addresses comes from the durable launch record, which
+    // sealed it when the attempt was prepared. A lease that DOES name a host
+    // must still agree with it.
+    if ((lease.hostId !== undefined && lease.hostId !== launch.hostId) || !launch.hostId || lease.holderGeneration !== launch.holderGeneration || lease.allocationGeneration !== launch.allocationGeneration || lease.allocationToken !== launch.allocationToken || lease.allocationGeneration !== authority.reservationGeneration) throw new FactoryTaskStopError("factory_task_stop_stale");
     if (outcome && (outcome.authority.attemptId !== authority.attemptId || outcome.receipt.reservationId !== launch.reservationId || outcome.authority.candidateGeneration !== authority.candidateGeneration || outcome.authority.attemptNumber !== authority.attemptNumber)) throw new FactoryTaskStopError("factory_task_stop_stale");
     stopCount(launch.holderGeneration, 1); stopCount(launch.allocationGeneration, 1);
     return Object.freeze({
@@ -396,17 +418,24 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     });
   }
 
-  private async markUncertain(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<FactoryTaskStopReceipt> {
+  private async markUncertain(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, cause?: unknown): Promise<FactoryTaskStopReceipt> {
     return this.database.transaction(async transaction => {
       const current = await this.readSealed(transaction, service, reference, true);
       if (!current) throw new FactoryTaskStopError("factory_task_stop_not_found");
-      if (current.receipt) return current.receipt;
+      // A row that is already uncertain keeps its first event: the identity of
+      // the uncertainty is durable and a retry must not mint a second one. The
+      // CAUSE is not durable and belongs to this pass, and the durable read has
+      // none — so returning the read unchanged is how every retry after the
+      // first loses the reason it just learned, and the operator's stream says
+      // only that the stop is still open. Measured on a real run, where thirty
+      // consecutive passes reported a causeless refusal.
+      if (current.receipt) return current.receipt.state === "stopped" || cause === undefined ? current.receipt : Object.freeze({ ...current.receipt, cause });
       const atMs = this.clock(current.acceptedAtMs);
       const event = stopEventFor(current.request, current.liveAuthority.authority, atMs, "stop-uncertain", true);
       await this.retainUncertainBudget(transaction, reference, current.request.reservationId);
       await this.inbox.enqueueInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId }, event);
       await transaction.execute(sql`UPDATE factory_task_stops SET state='uncertain',uncertain_event_json=${encodeFactoryPayload(event)},uncertain_event_digest=${stopHash(event)},updated_at=NOW() WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} AND interpreter_id=${reference.interpreterId} AND cancel_command_id=${reference.commandId} AND state IN ('accepted','uncertain')`);
-      return Object.freeze({ state: "uncertain" as const, event });
+      return Object.freeze({ state: "uncertain" as const, event, ...(cause === undefined ? {} : { cause }) });
     });
   }
 
