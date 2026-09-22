@@ -232,7 +232,12 @@ test("the scoped API: tickets, download headers, a read-only key, a service cred
 	const serviceToken = credential.token;
 	const service = await playwright.request.newContext({ baseURL: state.baseURL, extraHTTPHeaders: { Authorization: `Bearer ${serviceToken}` }, storageState: { cookies: [], origins: [] } });
 	try {
-		// Its own project reads exactly; a run that does not exist is a plain 404.
+		// Without a factory grant the service is not a member: a real run and a missing run answer alike.
+		expect((await service.get(`${base}/runs/${runId}/inspection`)).status()).toBe(403);
+		expect((await service.get(`${base}/runs/run-that-does-not-exist/inspection`)).status()).toBe(403);
+		const granted = await page.request.put(`${base}/grants/service/${encodeURIComponent(accountId)}/factory.run`, { headers: { "If-Match": "0", "Idempotency-Key": `w14-service-grant-${Date.now()}` }, data: { expiresAtMs } });
+		expect(granted.status(), await granted.text()).toBe(200);
+		// With one, its own project reads exactly, and a run that does not exist is a plain 404.
 		expect((await service.get(`${base}/runs/${runId}/inspection`)).status()).toBe(200);
 		expect((await service.get(`${base}/runs/run-that-does-not-exist/inspection`)).status()).toBe(404);
 		const foreign = await service.get(`/api/factories/projects/${encodeURIComponent(state.readerProjectId)}/packages`);
