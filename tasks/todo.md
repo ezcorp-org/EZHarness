@@ -350,6 +350,177 @@ Plan review: database time is the sole claim clock. A reclaimed execution receiv
 
 Repair review: claim acquisition and heartbeat expiry now use PostgreSQL time, and every execution attempt has an exact terminalization token. A competing process start reports an unknown retryable outcome and retains its writer lease until the durable supervisor state gives an authoritative result. Raw host callbacks now revalidate the actor, project membership, binding, release, and provider installation before joining one retained provider promise, so an unauthorized request cannot join, poison, or redispatch the effect. The broker test now restores its module mock, which also removes its cross-file test pollution. Verification passed: the combined focused backend gate 168/168, web route/transport 24/24, full typecheck, lint across 4,671 files, both sandbox builds, and diff checks.
 
+## PR #288 repair — Podman setup safety and timeout accuracy
+
+- [x] Reproduce each audit finding with focused setup-script tests.
+- [x] Make trusted-local configuration an atomic, concurrency-safe rewrite that preserves every existing byte and secret.
+- [x] Require the exact trusted-local Compose path and acknowledgement when detecting configured state.
+- [x] Reject unsafe existing environment-file permissions without changing the file.
+- [x] Probe the Linux Compose command with the same semantics as the wrapper.
+- [x] Bound readiness work by an elapsed deadline, including curl and sleep time.
+- [x] Add the strongest available portability check without claiming unavailable Bash 3.2 runtime coverage.
+- [x] Run syntax, focused tests, lint/type checks as relevant, and inspect the final diff.
+- [x] Commit the repair without pushing.
+
+Plan review: keep the setup script dependency-free and Bash 3.2-compatible. Use private sibling files plus atomic rename for an accepted trusted-local update, while refusing concurrent drift. Preserve existing files byte-for-byte except for the approved runner block. Test observable subprocess behavior with stubs and controlled time sources; do not use real wall-clock thresholds.
+
+### Review
+
+- The accepted trusted-local choice now uses a private sibling file, a serialized re-check, and an atomic rename. Existing bytes and secrets remain intact; a failed rename and eight concurrent runs are covered.
+- Trusted-local is configured only when both the exact Compose path and exact acknowledgement are the effective values. Linux isolated-runner detection remains unchanged.
+- Existing environment files with any group/other permissions fail before file or data-directory changes. The operator gets the exact `chmod 600` repair.
+- Linux executes `docker compose version` and falls back only when `docker-compose version` succeeds, matching the production wrapper.
+- Readiness uses one epoch deadline. Curl and sleep each receive the remaining-time cap; deterministic clock stubs prove both bounds without wall-clock assertions.
+- CI now runs the full 30-test behavior suite on macOS with `/bin/bash` and first verifies that it is real Bash 3.2. The job feeds the existing required Backend tests aggregate.
+- Verification: focused suite 30/30; `bash -n`; ShellCheck 0.11.0; Biome full lint; full typecheck; workflow YAML parse; gate integrity; `git diff --check`.
+
+## PR #288 final audit repair
+
+- [x] Keep generated secrets out of child arguments and logs, with a regression probe.
+- [x] Make runner detection reject conflicting trusted-local state on Linux.
+- [x] Detect external environment-file drift before atomic publication.
+- [x] Replace the stale mkdir lock with a PID-owned, crash-recoverable protocol.
+- [x] Derive readiness from `EZCORP_PORT_HOST` and use a clock-independent strict budget.
+- [x] Correct the Linux installation claim in the README.
+- [x] Run focused tests, Bash syntax, ShellCheck, lint, typecheck, workflow parsing, gate integrity, and diff checks.
+- [x] Merge a newer `origin/main` if present, then commit without pushing.
+
+Plan review: keep the implementation dependency-free and compatible with Apple Bash 3.2. Store generated secrets only in private files, use fixed child arguments, and use portable `cmp` for the final drift check. A PID-named lock owner lets concurrent stale-lock cleanup remove only the dead owner's marker. Since portable shell has no compare-and-swap rename, perform the drift check immediately before the atomic rename and document the remaining instruction-level race. Account the maximum curl and sleep allocations against one integer budget so wall-clock changes cannot extend readiness.
+
+### Review
+
+- Generated secrets now flow from OpenSSL into a mode-600 data file and through fixed AWK arguments. The regression stubs every prior/current text processor and proves the known generated value appears in the env file but not child argv or output.
+- Runner detection stops on any non-empty, non-exact Compose override. A Linux regression combines a wrong trusted-local acknowledgement with stale isolated values and proves it is refused.
+- Trusted-local publication snapshots the source, compares it immediately before rename, and leaves an injected external edit intact. Portable shell cannot close the final `cmp`-to-`mv` instruction interval; the source documents that limit.
+- Lock ownership is a PID-named marker. Dead owners are recovered without deleting a later owner's marker; both a single recovery and eight concurrent recoveries pass.
+- Readiness derives the documented host port, honors an explicit URL override, and charges maximum curl and sleep allocations to one clock-independent budget.
+- Verification passed: focused suite 37/37; Bash syntax; ShellCheck; full Biome lint; full backend, web, and backend-test typecheck; workflow YAML parse; gate integrity; and `git diff --check`. `origin/main` remained at `0f949c307` after a fresh fetch, so no merge was needed.
+
+## PR #288 final race-free repair
+
+- [x] Add failing tests for immutable existing env files, unsafe concurrent creation, full readiness duration, public admin URL, and fresh/stopped macOS engine paths.
+- [x] Refactor setup so a fresh private candidate receives the complete runner choice before one atomic no-clobber publication.
+- [x] Never rewrite an existing env file; print exact manual trusted-local settings and stop when its runner state is incomplete.
+- [x] Remove the runner-update lock and all stale/PID ownership machinery.
+- [x] Replace double-counted readiness accounting with a Bash 3.2/BSD-portable watchdog that enforces the complete timeout.
+- [x] Use `EZCORP_PUBLIC_URL` for the printed admin URL while keeping the readiness probe on the explicit URL or host port.
+- [x] Correct the README claims.
+- [x] Run focused tests, Bash syntax, ShellCheck, workflow syntax, lint, typecheck, gate integrity, and diff checks.
+- [x] Challenge the final state machine for unnecessary states or duplicated parsing, then commit without pushing.
+
+Plan review: existing operator files are immutable. Only a private fresh candidate can be changed, and it is published once with `ln` after all choices and validation. A losing concurrent creator must discard its candidate and restart the full existing-file validation path. Readiness uses one relative `read -t` watchdog rather than wall-clock arithmetic.
+
+### Review
+
+- Merged `bd6fd971` before implementation. The dependency-only change had no setup-code overlap.
+- Reduced environment handling to two states: validate an immutable existing file, or finish and validate one private fresh candidate before a single no-clobber hard-link publication. Concurrent losers restart existing-file permission and runner validation. No update lock or PID state remains.
+- Existing incomplete files now stop with exact manual runner settings and remain byte-for-byte unchanged. Fresh rejected choices publish nothing.
+- Readiness uses a private FIFO plus Bash 3.2 `read -t` as one relative watchdog. Fast failures no longer spend synthetic time, active curl/sleep children are stopped at timeout, the probe honors the explicit URL or host port, and the completion message uses `EZCORP_PUBLIC_URL`.
+- Added fresh macOS install, stopped-machine, new-machine, unsafe publication race, immutable file, full-duration retry, watchdog, and public-URL regressions.
+- Verification passed with Bun 1.3.14: focused suite 37/37 and 134 assertions; Bash syntax; ShellCheck; full lint; all backend, web, backend-test, and web-E2E typecheck legs; workflow YAML parse; gate integrity; and `git diff --check`.
+
+## PR #288 independent final-audit repair
+
+- [x] Add failing regressions for placeholder production secrets, Compose environment precedence, macOS Compose probing, and false isolated-runner provisioning.
+- [x] Preserve existing environment files while rejecting unsafe or incomplete effective production configuration with exact manual fixes.
+- [x] Use Compose precedence for readiness and admin URLs.
+- [x] Share functional Compose probing across macOS and Linux, and require Homebrew only when installation is necessary.
+- [x] Require a numeric isolated-runner GID, a live Unix socket, and a non-empty token file.
+- [x] Make `--check --accept-unsandboxed-extensions` report the accepted path accurately.
+- [x] Run focused tests, syntax/static checks, repository gates, and inspect the final diff.
+- [x] Commit the repair locally without pushing.
+
+Plan review: keep existing operator files immutable. Validate the values Compose will actually use, with shell overrides taking precedence over the environment file. Reuse one Compose capability probe on both operating systems. Keep every check compatible with Apple Bash 3.2 and avoid printing or passing secret values to child-process arguments.
+
+### Review
+
+- Existing files remain immutable, but setup now stops before data-directory or stack changes when required production values are missing, too short, or still use the public example placeholders. The error names only variable names and exact generation commands; it never prints a secret.
+- Readiness and the printed admin URL now use exported shell values before parsed env-file values, matching Compose. Quoted scalar and inline-comment cases are covered.
+- macOS accepts either working Compose spelling, installs standalone Compose only when needed, verifies the installed command, and no longer requires Homebrew on a fully provisioned host.
+- Linux isolated mode now requires a numeric container GID, a real Unix socket, and a non-empty credential file. The positive test uses a live Unix socket instead of placeholder paths.
+- Verification passed: 80 focused setup/wrapper tests with 250 assertions; full lint over 4,608 files; full typecheck including backend tests and web E2E; Bash syntax; ShellCheck 0.11; workflow YAML parse; gate integrity; real Linux `--check` with no filesystem changes; `git diff --check`; and Bash 3.2 syntax plus indirect-expansion behavior in the official `bash:3.2` image.
+
+## PR #288 final credential and dry-run repair
+
+- [x] Add failing end-to-end script regressions for invalid runner credentials, blocked check mode, and malformed public URLs.
+- [x] Match the production runner credential contract without exposing credential contents.
+- [x] Stop `--check` at unresolved runner decisions without claiming downstream work.
+- [x] Require a parseable HTTP(S) public URL under Compose precedence.
+- [x] Run focused tests, Bash 3.2/static checks, repository gates, and inspect the final diff.
+- [x] Commit the repair locally without pushing.
+
+Plan review: keep one Bash 3.2-compatible validation path for effective environment values. Validate credential metadata and content without putting values in argv or logs. Represent an unresolved check-mode runner decision as a blocked result so later steps cannot be reported. Preserve immutable existing environment files and atomic fresh publication.
+
+### Review
+
+- Isolated-runner setup now mirrors the production credential reader: absolute regular non-symlink files, bounded size, safe write permissions, and trimmed 32-character-or-longer values without whitespace, controls, or NUL bytes. Tests cover directory, short, writable, symlink, oversized, whitespace, NUL, and relative-path failures with a real Unix socket.
+- Check mode now returns exit 2 at unresolved existing or fresh runner decisions and does not claim that bind-directory or stack work would follow.
+- Effective public URLs must be parseable HTTP(S) values with a host and valid optional port before setup proceeds. Existing files stay byte-for-byte unchanged on rejection.
+- Verification passed: 88 setup/wrapper tests with 305 assertions; 18 production runner contract tests with 92 assertions; full lint; full backend, web, backend-test, and web-E2E typecheck; ShellCheck; Bash syntax; gate integrity; `git diff --check`; and direct credential/URL behavior under the official Bash 3.2 image.
+
+## PR #288 publication-gate repair
+
+- [x] Replace local env-file parsing with the selected Compose client's resolved environment.
+- [x] Require `EZCORP_PUBLIC_URL` to be one canonical HTTP(S) origin, including strict IPv4 and IPv6 validation.
+- [x] Run all non-mutating template, effective-env, port, and timeout validation before `--check` can succeed.
+- [x] Restrict installer-approved runner credentials to portable printable ASCII and cover Unicode whitespace.
+- [x] Use `PODMAN_SOCKET` consistently from engine validation through wrapper launch.
+- [x] Run focused tests, Bash syntax, ShellCheck, lint, typecheck, workflow parsing, gate integrity, and diff checks.
+- [x] Review the complete change for secret exposure, temporary artifacts, duplication, and Bash 3.2 compatibility.
+- [x] Commit the repair locally without pushing.
+
+Plan review: use Compose as the single source of truth for quoting, interpolation,
+comments, and exported-shell precedence. Keep its resolved output private and
+read only a fixed whitelist. Keep URL and credential validation conservative,
+portable, and independent of JavaScript tooling.
+
+### Review
+
+- The installer now reads its fixed effective-environment whitelist from the selected Compose client's `config --environment` output. Private sibling temporary files contain resolver output and errors, and traps remove them.
+- Public URLs must be exact canonical HTTP(S) origins. Curl supplies maintained URL parsing without a network request; installer checks reject userinfo, paths, query strings, fragments, malformed IP literals, and invalid ports.
+- `--check` validates template shape, actual Compose resolution, effective values, runner credentials, ports, and readiness limits without generating or writing real secrets.
+- Installer-approved runner tokens use a documented portable printable-ASCII subset. Regression tests cover NBSP and BOM input.
+- `PODMAN_SOCKET` is used consistently for engine checks and wrapper launch.
+- Merged current `origin/main` at `d81f98387f7636603edb4f30aede740922fff700` after the repair. Verification passed: 88 focused tests with 358 assertions; 25,946 backend tests across 1,655 files; lint across 4,611 files; all backend, web, backend-test, and web-E2E typecheck legs; ShellCheck; workflow YAML parsing; gate integrity; Bash syntax; and `git diff --check`.
+
+## PR #288 final publication gate
+
+- [x] Reject effective Compose values that cannot be represented by the line-oriented resolver output.
+- [x] Publish a fresh environment file to the exact target without following a directory or symlink race.
+- [x] Reject stale runner sockets, URL forms that the application runtime cannot parse, and bind-source conflicts during `--check`.
+- [x] Add end-to-end regressions for every publication-gate finding.
+- [x] Run focused tests, Bash 3.2/static checks, lint, typecheck, workflow parsing, gate integrity, and diff checks.
+- [x] Review the final diff, document verification, and commit locally without pushing.
+
+Plan review: keep Compose as the source of truth for dotenv semantics, but reject
+control or multiline values before line-oriented extraction can truncate them.
+Use the POSIX `link` utility for an exact no-clobber hard link, then require the
+published path to be the same regular non-symlink inode as the private candidate.
+Keep every new validation read-only in `--check` and compatible with Apple Bash
+3.2.
+
+### Review
+
+- Effective exported values now reject control characters before Compose runs.
+  Dotenv double-quoted control escapes and physical multiline quotes fail before
+  resolution; ambiguous multiline or duplicate resolved output fails afterward.
+  Exact shell, quoted-newline, and interpolated-newline regressions do not print
+  their values.
+- Fresh publication now uses the POSIX `link` utility, which targets one exact
+  pathname instead of treating a directory as a destination. Existing
+  directories and symlinks fail closed, directory races cannot receive a nested
+  secret, and success requires the exact target to be the same regular inode as
+  the private candidate.
+- Linux isolated-runner validation now requires an answering HTTP Unix socket,
+  not only a socket inode. URL validation rejects IPv6 zone identifiers that
+  curl accepts but Bun's WHATWG parser rejects. `--check` rejects bind sources
+  that exist as non-directories.
+- Verification passed on the exact tree: setup and wrapper tests 118/118 with
+  412 assertions; full backend pool 25,955/25,955 across 1,655 files; lint over
+  4,611 files; full typecheck; Bash syntax; ShellCheck; official Bash 3.2
+  syntax/indirect-control/`-ef`/`link` behavior; workflow YAML parsing; gate
+  integrity; real Compose adversarial probes; and `git diff --check`.
+
 ## PR #290 CI failure diagnosis
 
 - [x] Capture the completed run and raw failed-job logs for run 35631461630.
