@@ -76,7 +76,7 @@ function provider(): { driver: LocalSandboxDriver; files: Map<string, Buffer> } 
   return { driver, files };
 }
 
-async function controllerFixture(ownerId: string): Promise<{ controller: SandboxController; files: Map<string, Buffer>; installationId: string }> {
+async function controllerFixture(ownerId: string): Promise<{ controller: SandboxController; restart: () => SandboxController; files: Map<string, Buffer>; installationId: string }> {
   const operations = {
     "sandbox.lifecycle.v1": ["create", "inspect", "start", "stop", "destroy"],
     "sandbox.process.v1": ["start", "inspect", "readOutput", "cancel"],
@@ -94,8 +94,9 @@ async function controllerFixture(ownerId: string): Promise<{ controller: Sandbox
   await getTestDb().execute(sql`INSERT INTO extension_release_records(installation_id,kind,id,payload) VALUES (${installationId},'releases','journey-release',${JSON.stringify(release)})`);
   const { driver, files } = provider();
   let controller!: SandboxController;
-  controller = configureSandboxController(driver, runtime, async (userId, _projectId, reference, _group, _operation, input, signal) => controller.executeAdmittedLocalSandboxOperationRaw(userId, (input as { call: { operationId: string } }).call.operationId, reference.installationId, signal));
-  return { controller, files, installationId };
+  const restart = () => controller = configureSandboxController(driver, runtime, async (userId, _projectId, reference, _group, _operation, input, signal) => controller.executeAdmittedLocalSandboxOperationRaw(userId, (input as { call: { operationId: string } }).call.operationId, reference.installationId, signal));
+  restart();
+  return { controller, restart, files, installationId };
 }
 
 test("owner imports, reviews a completed private run, publishes once, and excludes another member", async () => {
@@ -113,7 +114,7 @@ test("owner imports, reviews a completed private run, publishes once, and exclud
   await db.execute(sql`INSERT INTO sessions(id,user_id,token_hash,expires_at) VALUES (${sessionId},${ownerId},${crypto.randomUUID()},NOW()+INTERVAL '1 hour')`);
   const { authorizeUrl } = await startAuthorization({ userId: ownerId, sessionId });
   await completeAuthorization({ userId: ownerId, sessionId, state: new URL(authorizeUrl).searchParams.get("state")!, code: "code" });
-  const { controller, files, installationId } = await controllerFixture(ownerId);
+  const { controller, restart, files, installationId } = await controllerFixture(ownerId);
   const created = await controller.createSandboxProject(ownerId, { name: "Journey", idempotencyKey: "create", providerInstallationId: installationId, providerId: "local", config: {}, limits, privateOwnerOnly: true, privateInitializing: true });
   const imported = await importApprovedRepository(ownerId, { projectId: created.projectId, repositoryId: 42, baseRef: "main", idempotencyKey: "import" });
   expect(imported.importState).toBe("ready");
@@ -135,6 +136,7 @@ test("owner imports, reviews a completed private run, publishes once, and exclud
   await expect(confirmPersonalPr(otherId, { proposalId: ready.proposalId!, expectedDigest: ready.digest! })).rejects.toMatchObject({ code: "not_found" });
   const createdPr = await confirmPersonalPr(ownerId, { proposalId: ready.proposalId!, expectedDigest: ready.digest! });
   expect(createdPr).toMatchObject({ state: "created", prUrl: "https://github.com/owner/repo/pull/7" });
+  restart();
   expect((await getPersonalPrForReviewId(ownerId, ready.proposalId!)).state).toBe("created");
   expect((await confirmPersonalPr(ownerId, { proposalId: ready.proposalId!, expectedDigest: ready.digest! })).state).toBe("created");
   const claims = (await db.execute(sql`SELECT kind,state FROM github_user_effect_claims WHERE user_id=${ownerId} ORDER BY kind`)) as { rows: Array<{ kind: string; state: string }> };
