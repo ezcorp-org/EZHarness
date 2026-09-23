@@ -1,0 +1,22 @@
+# Rootless-Podman overlay. The installer layers this whenever the engine is
+# podman running rootless — which is ALWAYS on macOS and Windows (podman
+# machine) and usually on Linux.
+#
+# The image runs as `USER bun`, uid 1000 (Dockerfile). Under rootless Podman
+# the invoking user maps to container uid 0, so uid 1000 lands in the subuid
+# range with no access to the bind-mounted data dir, and the first boot fails
+# with PGlite unable to open /app/data.
+#
+# `keep-id` maps container uid 1000 back to the invoking user. It is what lets
+# the installer skip the `sudo chown -R 1000:1000` step the README quick start
+# needs on Docker — and skipping it matters here beyond convenience: an
+# installer that needs sudo is an installer that prompts for a password it has
+# no business asking for.
+#
+# Headroom: the setuid preview-spawn helper drops to a per-conversation uid in
+# 90000-99000, which must be mappable inside the user namespace. `podman
+# machine` grants 1,000,000 subuids; a hand-rolled host with the distro-typical
+# 65,536 does not cover the pool. `ezcorp status` reports this.
+services:
+  app:
+    userns_mode: "keep-id:uid=1000,gid=1000"

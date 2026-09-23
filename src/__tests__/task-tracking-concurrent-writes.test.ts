@@ -50,6 +50,14 @@ import { withTaskSnapshotLock } from "../runtime/task-snapshot-lock";
  */
 class SlowStorage {
   private rows = new Map<string, unknown>();
+  private writesRemaining = 0;
+  private writesReady = Promise.resolve();
+  private releaseWrites: (() => void) | undefined;
+
+  holdWritesUntil(count: number): void {
+    this.writesRemaining = count;
+    this.writesReady = new Promise<void>((resolve) => { this.releaseWrites = resolve; });
+  }
   /** Every completed `set`, in order — the write log we assert against. */
   readonly writes: PersistedSnapshot[] = [];
 
@@ -60,6 +68,11 @@ class SlowStorage {
   }
 
   async set<T>(key: string, value: T): Promise<{ ok: true; sizeBytes: number }> {
+    if (this.writesRemaining > 0) {
+      this.writesRemaining -= 1;
+      if (this.writesRemaining === 0) this.releaseWrites?.();
+      await this.writesReady;
+    }
     await Promise.resolve();
     await Promise.resolve();
     this.rows.set(key, structuredClone(value));
@@ -161,6 +174,9 @@ describe("task-tracking extension — concurrent snapshot writes", () => {
   });
 
   test("the unlocked body loses one of the two writes (proves the fix is load-bearing)", async () => {
+    // Both writers must read the original revision before either can save.
+    // Hash completion order otherwise changes this into a revision rejection.
+    storage.holdWritesUntil(2);
     storage.seed({
       schemaVersion: 1,
       activeTaskId: "t1",

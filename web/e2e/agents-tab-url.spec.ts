@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { makeAgent, makeAgentConfig } from "./fixtures/data.js";
+import { resumePage } from "./fixtures/page-data.js";
 
 const STORAGE_KEY = "ezcorp-last-path";
 
@@ -72,19 +73,7 @@ test.describe("Agents page tab URL persistence", () => {
 	test("resume-last-path restores teams tab from root", async ({ page, mockApi }) => {
 		await mockApi({ agents, agentConfigs: [teamConfig] });
 
-		// Establish the origin on a settled page before setting the saved path.
-		// Visiting / here starts its redirect, which can overwrite this value.
-		await page.goto("/agents");
-		await expect(page.getByRole("link", { name: "+ New Agent" })).toBeVisible();
-		await page.evaluate(
-			({ key, value }) => localStorage.setItem(key, value),
-			{ key: STORAGE_KEY, value: "/agents?tab=teams" },
-		);
-		expect(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY)).toBe("/agents?tab=teams");
-
-		// Navigate to root — should redirect to saved path with query params
-		await page.goto("/");
-		await page.waitForURL(/\/agents\?tab=teams/);
+		await resumePage(page, "/agents?tab=teams");
 		await expect(page.getByRole("link", { name: "+ New Team" })).toBeVisible();
 	});
 });

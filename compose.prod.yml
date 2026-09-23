@@ -34,6 +34,18 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # Provenance for local builds. `bun run podman --prod` exports the
+      # *_DEFAULT values from scripts/resolve-dev-image-source-state.sh (the
+      # same detector the dev stack stamps with), so a rebuilt image records
+      # the commit it came from instead of `unknown` — and EZCORP_IMAGE_SHA,
+      # the migration circuit-breaker key, distinguishes one local build from
+      # the next. Explicit EZCORP_BUILD_COMMIT / EZCORP_BUILD_SOURCE_STATE
+      # win; a plain `docker compose` without the wrapper keeps `unknown`.
+      args:
+        VERSION: ${EZCORP_BUILD_VERSION:-${EZCORP_BUILD_VERSION_DEFAULT:-dev}}
+        REVISION: ${EZCORP_BUILD_COMMIT:-${EZCORP_BUILD_COMMIT_DEFAULT:-unknown}}
+        CREATED: ${EZCORP_BUILD_CREATED:-${EZCORP_BUILD_CREATED_DEFAULT:-unknown}}
+        EZCORP_BUILD_SOURCE_STATE: ${EZCORP_BUILD_SOURCE_STATE:-${EZCORP_BUILD_SOURCE_STATE_DEFAULT:-unknown}}
     image: "${EZCORP_IMAGE:-ezcorp:local}"
     # Required for the MCP sandboxed launcher: extensions spawn their
     # MCP servers inside a fresh user+network namespace, which the
