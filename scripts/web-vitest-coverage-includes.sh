@@ -34,6 +34,8 @@ web_vitest_coverage_args() {
     "--coverage.include=src/lib/server/http-errors.ts"
     "--coverage.include=src/lib/server/auth/session-cookie.ts"
     "--coverage.include=src/hooks.server.ts"
+    "--coverage.include=src/routes/api/github/**"
+    "--coverage.include=src/routes/**/settings/github/+page.svelte"
     "--coverage.include=src/lib/server/shutdown.ts"
     "--coverage.include=src/lib/server/extension-helpers.ts"
     "--coverage.include=src/lib/server/conversation-ownership.ts"

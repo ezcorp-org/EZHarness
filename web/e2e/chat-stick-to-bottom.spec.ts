@@ -348,6 +348,14 @@ test.describe("chat stick-to-bottom", () => {
 		await page.waitForTimeout(150);
 
 		const jump = page.getByRole("button", { name: /jump to bottom/i });
+		// The active-run resume can scroll while the thread briefly shrinks.
+		// New tokens must still follow after that programmatic scroll settles.
+		await pushSse(page, {
+			type: "run:token",
+			data: { runId: "run-A", token: TALL_TOKEN("AFTER_RESUME") },
+		});
+		await expect(page.getByText("AFTER_RESUME line 40")).toBeVisible();
+		await expect.poll(() => isAtBottom(page)).toBe(true);
 		await expect(jump).toBeHidden();
 		const pinned = await readContainerMetrics(page);
 		expect(await isAtBottom(page)).toBe(true);

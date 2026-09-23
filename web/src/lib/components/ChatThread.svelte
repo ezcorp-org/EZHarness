@@ -1758,6 +1758,9 @@
 		};
 	});
 
+	// Track programmatic scrolls before their delayed scroll events fire.
+	let previousScrollTop = 0;
+
 	// Persist scroll position per-conv.
 	$effect(() => {
 		if (!container) return;
@@ -1766,7 +1769,7 @@
 		// `scrollTop` as of the previous scroll event — the term that tells a
 		// viewport move (user intent) apart from the thread growing under a
 		// stationary viewport. See nextFollowIntent() / issue #140.
-		let previousScrollTop = el.scrollTop;
+		previousScrollTop = el.scrollTop;
 		const onScroll = () => {
 			// Synchronous follow-intent. Every real scroll (and the
 			// programmatic pin, which lands at scrollHeight) re-decides
@@ -1872,6 +1875,9 @@
 		stuck = true;
 		userScrolledUp = false;
 		sentinel.scrollIntoView({ behavior: "instant" as ScrollBehavior });
+		// A resume render can briefly shrink the thread before adding the
+		// streaming bubble. Its scroll event may arrive after that growth.
+		previousScrollTop = container?.scrollTop ?? previousScrollTop;
 	});
 
 	let stopAnchorWatch: (() => void) | null = null;

@@ -72,12 +72,15 @@ test.describe("Agents page tab URL persistence", () => {
 	test("resume-last-path restores teams tab from root", async ({ page, mockApi }) => {
 		await mockApi({ agents, agentConfigs: [teamConfig] });
 
-		// Pre-set localStorage with teams tab URL
-		await page.goto("/");
+		// Establish the origin on a settled page before setting the saved path.
+		// Visiting / here starts its redirect, which can overwrite this value.
+		await page.goto("/agents");
+		await expect(page.getByRole("link", { name: "+ New Agent" })).toBeVisible();
 		await page.evaluate(
 			({ key, value }) => localStorage.setItem(key, value),
 			{ key: STORAGE_KEY, value: "/agents?tab=teams" },
 		);
+		expect(await page.evaluate((key) => localStorage.getItem(key), STORAGE_KEY)).toBe("/agents?tab=teams");
 
 		// Navigate to root — should redirect to saved path with query params
 		await page.goto("/");
