@@ -570,7 +570,7 @@ describe("the Compose templates parse and hold the hardening", () => {
   test("the harness has a writable /app/.ezcorp from its own app-state directory; nothing else writes under /app", async () => {
     const { services } = await parse("installation.yml");
     const appMounts = (name: string) => (services[name]!.volumes as { source: string; target: string; read_only?: boolean }[]).filter((volume) => volume.target.startsWith("/app"));
-    expect(appMounts("harness")).toEqual([{ type: "bind", source: "${EZCORP_FACTORY_HARNESS_APP_STATE:?}", target: "/app/.ezcorp", bind: { create_host_path: false } } as never]);
+    expect(appMounts("harness")).toEqual([{ type: "bind", source: `\${EZCORP_FACTORY_HARNESS_APP_STATE:?}`, target: "/app/.ezcorp", bind: { create_host_path: false } } as never]);
     expect([...appMounts("gateway"), ...appMounts("orchestrator")]).toEqual([]);
   });
   const hardened = (name: string, service: Record<string, unknown>) => {
