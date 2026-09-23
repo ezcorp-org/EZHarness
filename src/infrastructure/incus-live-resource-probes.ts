@@ -1,5 +1,6 @@
 import { isIP } from "node:net";
 import type { SandboxPreset } from "@ezcorp/extension-contract";
+import { ipv6ToBytes, parseIpv4 } from "../search/egress";
 import type { LiveCommandResult, LiveEnforcementFacts, LiveFixtureHandle } from "./incus-live-cases";
 
 export interface IncusNetworkTarget {
@@ -68,14 +69,29 @@ function isolatedUidMap(value: unknown): boolean {
     && Number(entries[0][1]) > 0 && Number.isSafeInteger(Number(entries[0][1]));
 }
 
-function validTarget(value: IncusNetworkTarget): boolean {
-  if (typeof value?.address !== "string") return false;
-  const family = isIP(value.address);
-  const address = value.address.toLowerCase();
-  return family !== 0 && address !== "::" && address !== "::1"
-    && (family !== 4 || !address.startsWith("127.") && address !== "0.0.0.0")
-    && Number.isSafeInteger(value?.port)
-    && value.port > 0 && value.port <= 65535;
+function canonicalAddress(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const family = isIP(value);
+  if (family === 4) {
+    const bytes = parseIpv4(value);
+    return bytes && bytes[0] !== 0 && bytes[0] !== 127 ? `v4:${bytes.join(".")}` : null;
+  }
+  if (family !== 6) return null;
+  const bytes = ipv6ToBytes(value.toLowerCase());
+  if (!bytes) return null;
+  const zeroPrefix = bytes.slice(0, 10).every(byte => byte === 0);
+  if (zeroPrefix && bytes[10] === 255 && bytes[11] === 255) {
+    return bytes[12] !== 0 && bytes[12] !== 127 ? `v4:${bytes.slice(12).join(".")}` : null;
+  }
+  // This also rejects expanded :: and ::1, plus deprecated v4-compatible
+  // loopback/unspecified spellings. Compare the remaining IPv6 addresses by bytes.
+  if (bytes.slice(0, 12).every(byte => byte === 0)
+    && (bytes[12] === 0 || bytes[12] === 127)) return null;
+  return `v6:${Buffer.from(bytes).toString("hex")}`;
+}
+
+function validPort(value: unknown): value is number {
+  return Number.isSafeInteger(value) && (value as number) > 0 && (value as number) <= 65535;
 }
 
 /** Reads enforced guest cgroups and checks two host-reachable forbidden network targets. */
@@ -83,9 +99,12 @@ export async function observeIncusResourceEnforcement(
   handle: LiveFixtureHandle, preset: SandboxPreset, targets: IncusResourceProbeTargets,
   dependencies: IncusResourceProbeDependencies,
 ): Promise<LiveEnforcementFacts> {
-  requireProbe(validTarget(targets.management) && validTarget(targets.otherProject)
-    && (targets.management.address !== targets.otherProject.address
-      || targets.management.port !== targets.otherProject.port), "distinct IP-literal targets are required");
+  const managementAddress = canonicalAddress(targets.management?.address);
+  const otherAddress = canonicalAddress(targets.otherProject?.address);
+  requireProbe(managementAddress && otherAddress
+    && validPort(targets.management.port) && validPort(targets.otherProject.port)
+    && (managementAddress !== otherAddress || targets.management.port !== targets.otherProject.port),
+  "distinct IP-literal targets are required");
   for (const [name, target] of Object.entries(targets)) {
     requireProbe(await dependencies.hostCanConnect(target), `${name} control target is not reachable from the host`);
   }

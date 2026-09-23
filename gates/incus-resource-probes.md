@@ -11,3 +11,5 @@ Scope: Exact-fixture, host-owned observations for SP04. This module does not cla
 - [ ] Confirm the reviewed Incus profile gives a finite guest `cpu.max`. Current lifecycle sets `limits.cpu`, which may bind CPU placement without a hard quota. A `max` result correctly blocks qualification. No server setting is changed here.
 
 Review: The probe returns only measured and exact-scoped facts. It throws when controls cannot be verified. The witness readiness switch remains false.
+
+Review correction (2026-09-23): Astra found that IPv4-mapped and expanded IPv6 loopback could pass the target check. Red tests reproduced both the false target and duplicate-destination cases. The probe now compares parsed address bytes, rejects loopback and unspecified forms before any host or guest call, and treats mapped IPv4 as the same destination as plain IPv4. Eight focused tests pass. Isolated LCOV reports 81/81 lines and 11/11 functions. Biome passes. Full typecheck is currently blocked by concurrent edits in `incus-live-load-probes.ts/.test.ts`; its errors are outside this module and were sent to the parent agent.

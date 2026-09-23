@@ -83,3 +83,53 @@ test("requires distinct IP-literal destinations before any host probe", async ()
     .rejects.toThrow("distinct IP-literal targets");
   expect(hostCalls).toBe(0);
 });
+
+test("rejects loopback and unspecified IPv6 spellings before any host probe", async () => {
+  let hostCalls = 0;
+  const dependencies: IncusResourceProbeDependencies = {
+    hostCanConnect: async () => { hostCalls++; return true; },
+    runGuest: async () => { throw new Error("must not run"); },
+    readRootQuota: async () => { throw new Error("must not read"); },
+  };
+  for (const address of ["::ffff:127.0.0.1", "0:0:0:0:0:0:0:1", "0:0:0:0:0:0:0:0",
+    "::ffff:0.0.0.0", "127.12.0.1", "0.1.2.3"]) {
+    await expect(observeIncusResourceEnforcement(handle, preset,
+      { ...targets, otherProject: { address, port: 8080 } }, dependencies))
+      .rejects.toThrow("IP-literal targets");
+  }
+  expect(hostCalls).toBe(0);
+});
+
+test("treats IPv4-mapped and plain IPv4 spellings as the same destination", async () => {
+  let hostCalls = 0;
+  const dependencies: IncusResourceProbeDependencies = {
+    hostCanConnect: async () => { hostCalls++; return true; },
+    runGuest: async () => { throw new Error("must not run"); },
+    readRootQuota: async () => { throw new Error("must not read"); },
+  };
+  await expect(observeIncusResourceEnforcement(handle, preset,
+    { management: { address: "10.173.1.10", port: 8080 },
+      otherProject: { address: "::ffff:10.173.1.10", port: 8080 } }, dependencies))
+    .rejects.toThrow("distinct IP-literal targets");
+  expect(hostCalls).toBe(0);
+});
+
+test("accepts distinct non-loopback IPv6 control targets and compares expanded forms", async () => {
+  const dependencies: IncusResourceProbeDependencies = {
+    hostCanConnect: async () => true,
+    readRootQuota: async value => ({ sandboxId: value.sandboxId, bytes: preset.limits.diskBytes }),
+    runGuest: async (_value, argv) => {
+      expect(argv.slice(3)).toEqual(["fd00::1", "8443", "fd00::2", "8080"]);
+      return { exitCode: 0, stdout: JSON.stringify(guest), stderr: "" };
+    },
+  };
+  await expect(observeIncusResourceEnforcement(handle, preset,
+    { management: { address: "fd00::1", port: 8443 },
+      otherProject: { address: "fd00::2", port: 8080 } }, dependencies)).resolves.toMatchObject({
+    privateNetworkProbeBlocked: true,
+  });
+  await expect(observeIncusResourceEnforcement(handle, preset,
+    { management: { address: "fd00::1", port: 8443 },
+      otherProject: { address: "fd00:0:0:0:0:0:0:1", port: 8443 } }, dependencies))
+    .rejects.toThrow("distinct IP-literal targets");
+});
