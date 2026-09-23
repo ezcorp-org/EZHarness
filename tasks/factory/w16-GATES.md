@@ -44,7 +44,7 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `src/factory/service-probes.ts` | Not in the section 16 table; coordinator (W09) | Pool and supervisor probes match on `poolId` and `hostId` only |
 | `src/factory/runner/supervisor-process.ts` | Not in the section 16 table; Terra runtime (W01) | Readiness writer no longer passes the installation |
 | `src/factory/installation-startup.ts` | Not in the section 16 table; coordinator (W09) | The gateway liveness probe counts an HTTP error status as an answer, as its comment states; the transport raised it and no provisioned installation could become ready |
-| `src/factory/pool/process.ts` | Terra deployment (W16) | Identity row keyed by `pool_id`, upgraded in place; W18a-2 is splitting its config parser, so the rest waits for that merge |
+| `src/factory/pool/process.ts` | Terra deployment (W16) | Identity row keyed by `pool_id`, upgraded in place; after W18a-2, the config drops `installationId` and loads `resources.gpuProfilesPath` |
 
 ## Gates
 
@@ -130,22 +130,20 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `hosted-supervisor-address` | The startup document names the host services at 127.0.0.1; the hosted pool and DaemonSet are at cluster and node addresses |
 | `hosted-ingress-snippet` | ingress-nginx 1.9+ disables the `configuration-snippet` annotation that sets the installation header |
 | `hosted-host-identity-shared` | The Kubernetes supervisor DaemonSet holds one fleet-wide host identity (as the Compose fleet host now does too) |
+| `gpu-profile-lease-consumer` | The pool validates GPU host profiles at start, but no lease path calls `factoryHeldAllocationDevices` to authorize devices from them |
 | `orchestrator-build-id-versioning` | The orchestrator does not implement Temporal worker build-ID versioning; builds are retained at the image and release level |
 | Production GPU, eight rows | `FACTORY_PRODUCTION_GPU_CRITERIA`, all unmet with the verdicts in `docs/factory-local-gpu.md` |
 
-## Wiring to land after W18a-2
+## After W18a-2 (landed at 8949b300b)
 
-`src/factory/pool/process.ts` is held by W18a-2. The GPU host profile registry
-is in `src/factory/pool/gpu-host-profiles.ts`; the pool process needs one line
-after its config parse, plus the config field that names the declaration file:
-
-```ts
-const gpuProfiles = await loadFactoryGpuHostProfiles(config.resources.gpuProfilesPath, config.resources.gpuHosts);
-```
-
-The shared-pool ruling also leaves one change for that merge: the pool config's
-`installationId` field, which a shared pool fills with its fleet's host ID
-(`host:<fleet>`) and no longer stores, should leave `parseFactoryPoolProcessConfig`.
+- The pool config no longer carries `installationId`: a pool serves every
+  installation of its fleet, and its identity row keys by `pool_id`.
+- The pool loads `resources.gpuProfilesPath` with `loadFactoryGpuHostProfiles`
+  before its listener binds; a missing, unknown-host, or unproven declaration
+  keeps it degraded as `gpu_profiles_unavailable`. Named gap
+  `gpu-profile-lease-consumer`: no lease path consumes the loaded registry,
+  because `factoryHeldAllocationDevices` (runner/attempt-wire.ts, W02) has no
+  production caller.
 
 ## Waiting on W15's merge
 

@@ -45,7 +45,7 @@ beforeAll(async () => {
   const databaseUrl = new URL(database.databaseUrl);
   configPath = join(root, "pool.json");
   config = {
-    schemaVersion: "factory.pool-process.v1", installationId: "installation-process", poolId: "pool-process", hostname: "127.0.0.1", port: freePort(),
+    schemaVersion: "factory.pool-process.v1", poolId: "pool-process", hostname: "127.0.0.1", port: freePort(),
     database: { credentialsPath: join(root, "database.json"), expectedDatabase: decodeURIComponent(databaseUrl.pathname.slice(1)), expectedRole: decodeURIComponent(databaseUrl.username) },
     tls: { privateKeyPath: join(root, "server.key"), certificatePath: join(root, "server.pem"), caPath: join(root, "ca.pem") },
     tokens: { issuer: "factory-test", audience: "factory-pool", publicKeyPaths: { test: publicKeyPath } },

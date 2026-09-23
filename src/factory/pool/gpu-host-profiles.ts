@@ -15,9 +15,11 @@
  * the same rows as docs/factory-local-gpu.md), and a profile that claims the
  * production tier without evidence for every row is refused.
  *
- * Wiring (pool/process.ts is held by W18a-2): after its config parse, the pool
- * process calls `loadFactoryGpuHostProfiles(path, config.resources.gpuHosts)`
- * and hands the registry to the lease path.
+ * Wiring: the pool process loads `config.resources.gpuProfilesPath` with
+ * `loadFactoryGpuHostProfiles` before its listener binds, so a bad or unproven
+ * declaration keeps the pool degraded (`gpu_profiles_unavailable`). No lease
+ * path consumes the registry yet: `factoryHeldAllocationDevices` has no
+ * production caller, which the W16 gate file names.
  */
 import { basename, dirname, resolve } from "node:path";
 import { privateDirectory, readPrivateBounded } from "../private-files";

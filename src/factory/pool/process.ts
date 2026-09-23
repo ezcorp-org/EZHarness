@@ -6,6 +6,7 @@ import { SQL } from "bun";
 import { privateDirectory, readPrivateBounded } from "../private-files";
 import { type FactoryPoolReadinessWriter, createFactoryPoolReadinessWriter } from "./readiness";
 import type { PoolResourceClass, PoolSql } from "./ledger";
+import { loadFactoryGpuHostProfiles } from "./gpu-host-profiles";
 import { PoolAdmissionService, type PoolAdmissionIdentityConfig } from "./service";
 import { startBunPoolAdmissionHttps, type BunPoolAdmissionHttpsOptions } from "./service-server";
 
@@ -19,7 +20,7 @@ interface PoolListener { readonly url: string; stop(): void }
 
 export interface FactoryPoolProcessConfig {
   readonly schemaVersion: typeof CONFIG_SCHEMA;
-  readonly installationId: string;
+  /** The pool's own identity. A pool may serve many installations (C12), so it names none of them. */
   readonly poolId: string;
   readonly hostname: string;
   readonly port: number;
@@ -47,6 +48,12 @@ export interface FactoryPoolProcessConfig {
      * still cannot be.
      */
     readonly hosts?: readonly string[];
+    /**
+     * The GPU host profile declaration (`gpu-host-profiles.ts`): which devices
+     * one whole-host allocation of each GPU host carries. Absent, no GPU host
+     * authorizes any device. Loaded and validated before the listener binds.
+     */
+    readonly gpuProfilesPath?: string;
   };
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
@@ -89,8 +96,8 @@ function identityConfig(value: unknown, knownHosts: ReadonlySet<string>): value 
 type PoolResourcesConfig = FactoryPoolProcessConfig["resources"];
 
 function validRoot(value: unknown): value is Record<string, unknown> {
-  const required = ["schemaVersion", "installationId", "poolId", "hostname", "port", "database", "tls", "tokens", "identities", "resources", "readinessFilePath"];
-  return record(value) && exact(value, required, ["readinessHeartbeatMs"]) && value.schemaVersion === CONFIG_SCHEMA && text(value.installationId) && text(value.poolId) && text(value.hostname, 253) && integer(value.port, 1, 65_535) && absolutePath(value.readinessFilePath) && (value.readinessHeartbeatMs === undefined || integer(value.readinessHeartbeatMs, 1_000, 60_000));
+  const required = ["schemaVersion", "poolId", "hostname", "port", "database", "tls", "tokens", "identities", "resources", "readinessFilePath"];
+  return record(value) && exact(value, required, ["readinessHeartbeatMs"]) && value.schemaVersion === CONFIG_SCHEMA && text(value.poolId) && text(value.hostname, 253) && integer(value.port, 1, 65_535) && absolutePath(value.readinessFilePath) && (value.readinessHeartbeatMs === undefined || integer(value.readinessHeartbeatMs, 1_000, 60_000));
 }
 function validDatabase(database: unknown): boolean {
   return record(database) && exact(database, ["credentialsPath", "expectedDatabase", "expectedRole"]) && absolutePath(database.credentialsPath) && text(database.expectedDatabase, 256) && text(database.expectedRole, 256);
@@ -106,7 +113,7 @@ function hostList(value: unknown): value is string[] {
   return Array.isArray(value) && value.length <= 10_000 && value.every(host => text(host, 256)) && new Set(value).size === value.length;
 }
 function validResources(resources: unknown): resources is PoolResourcesConfig {
-  if (!record(resources) || !exact(resources, ["capacities", "gpuHosts"], ["hosts"]) || !record(resources.capacities) || Object.keys(resources.capacities).some(key => !(CAPACITY_CLASSES as readonly string[]).includes(key)) || Object.values(resources.capacities).some(capacity => !integer(capacity, 0, 1_000_000)) || !hostList(resources.gpuHosts) || Object.values(resources.capacities).every(value => value === 0) && resources.gpuHosts.length === 0) return false;
+  if (!record(resources) || !exact(resources, ["capacities", "gpuHosts"], ["hosts", "gpuProfilesPath"]) || (resources.gpuProfilesPath !== undefined && !absolutePath(resources.gpuProfilesPath)) || !record(resources.capacities) || Object.keys(resources.capacities).some(key => !(CAPACITY_CLASSES as readonly string[]).includes(key)) || Object.values(resources.capacities).some(capacity => !integer(capacity, 0, 1_000_000)) || !hostList(resources.gpuHosts) || Object.values(resources.capacities).every(value => value === 0) && resources.gpuHosts.length === 0) return false;
   const ordinaryHosts = resources.hosts;
   if (ordinaryHosts !== undefined && !hostList(ordinaryHosts)) return false;
   const gpuHosts = new Set(resources.gpuHosts);
@@ -251,6 +258,8 @@ export async function runConfiguredFactoryPoolProcess(configPath: string, signal
     const service = new PoolAdmissionService(database);
     await service.setup();
     await configureResources(database, service, config); schemaReady = true;
+    phase = "gpu_profiles_unavailable";
+    if (config.resources.gpuProfilesPath !== undefined) await loadFactoryGpuHostProfiles(config.resources.gpuProfilesPath, config.resources.gpuHosts);
     await readiness.write({ lifecycle: "starting", databaseReady, schemaReady, listenerReady: false });
     if (signal.aborted) return;
     phase = "listener_unavailable";

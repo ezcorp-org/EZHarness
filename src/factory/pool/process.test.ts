@@ -22,7 +22,7 @@ async function fixture(overrides: Record<string, unknown> = {}) {
     writeFile(paths.publicKey, keys.publicKey.export({ type: "pkcs1", format: "pem" }), { mode: 0o600 }),
   ]);
   const config = {
-    schemaVersion: "factory.pool-process.v1", installationId: "installation-a", poolId: "pool-a", hostname: "127.0.0.1", port: 8443,
+    schemaVersion: "factory.pool-process.v1", poolId: "pool-a", hostname: "127.0.0.1", port: 8443,
     database: { credentialsPath: paths.database, expectedDatabase: "pool_db", expectedRole: "pool_role" },
     tls: { privateKeyPath: join(root, "server.key"), certificatePath: join(root, "server.pem"), caPath: join(root, "ca.pem") },
     tokens: { issuer: "factory-test", audience: "factory-pool", publicKeyPaths: { test: paths.publicKey } },
@@ -75,14 +75,17 @@ describe("factory pool process config", () => {
   test("snapshots the exact bounded reference-only configuration", async () => {
     const { config } = await fixture();
     const parsed = parseFactoryPoolProcessConfig(config);
-    config.installationId = "mutated";
-    expect(parsed).toMatchObject({ installationId: "installation-a", resources: { capacities: { cpu: 4 }, gpuHosts: [] } });
+    config.poolId = "mutated";
+    expect(parsed).toMatchObject({ poolId: "pool-a", resources: { capacities: { cpu: 4 }, gpuHosts: [] } });
+    // A pool serves every installation of its fleet (C12), so its config names none.
+    expect(parseFactoryPoolProcessConfig({ ...config, poolId: "pool-a" })).not.toHaveProperty("installationId");
   });
 
   test("rejects unknown, relative, empty, oversized, ambiguous, and unsupported configuration", async () => {
     const { config } = await fixture();
     const invalid = [
-      { ...config, extra: true }, { ...config, schemaVersion: "other" }, { ...config, installationId: "" }, { ...config, port: 0 },
+      { ...config, extra: true }, { ...config, schemaVersion: "other" }, { ...config, installationId: "installation-a" }, { ...config, poolId: "" }, { ...config, port: 0 },
+      { ...config, resources: { ...config.resources, gpuProfilesPath: "relative.json" } },
       { ...config, readinessFilePath: "relative.json" }, { ...config, readinessHeartbeatMs: 999 },
       { ...config, database: { ...config.database, credentialsPath: "relative.json" } },
       { ...config, tls: { ...config.tls, caPath: "relative.pem" } },
@@ -114,7 +117,7 @@ describe("factory pool process config", () => {
     // every signed stop was refused with "cannot be acknowledged before a
     // supervisor confirms it". Measured on a real run.
     const base = {
-      schemaVersion: "factory.pool-process.v1", installationId: "installation-a", poolId: "pool-a",
+      schemaVersion: "factory.pool-process.v1", poolId: "pool-a",
       hostname: "127.0.0.1", port: 8443,
       database: { credentialsPath: "/tmp/pool-db.json", expectedDatabase: "pool", expectedRole: "pool" },
       tls: { privateKeyPath: "/tmp/server.key", certificatePath: "/tmp/server.pem", caPath: "/tmp/ca.pem" },
@@ -171,6 +174,18 @@ describe("factory pool process lifecycle", () => {
     const mismatch = await fixture(); const mismatchDatabase = new ProcessDatabase(); mismatchDatabase.resources.set("provider", 1);
     const mismatchController = new AbortController(); const mismatchUpdates: FactoryPoolReadinessUpdate[] = [];
     await expect(runConfiguredFactoryPoolProcess(mismatch.paths.config, mismatchController.signal, dependencies(mismatchDatabase, mismatchController, mismatchUpdates))).rejects.toThrow("schema_unavailable");
+
+    // GPU host profiles load before the listener binds: a missing or invalid declaration keeps the pool degraded by name.
+    const profiles = await fixture(); const profilesPath = join(profiles.paths.database, "..", "gpu-profiles.json");
+    const invalidProfiles = await fixture({ resources: { capacities: { cpu: 4 }, gpuHosts: [], gpuProfilesPath: profilesPath } });
+    await writeFile(profilesPath, JSON.stringify({ schemaVersion: "factory.gpu-host-profiles.v1", hosts: [{ hostId: "gpu-unoffered", tier: "trusted-local", devices: [], cdiDevices: [] }] }), { mode: 0o600 });
+    const profilesController = new AbortController(); const profilesUpdates: FactoryPoolReadinessUpdate[] = [];
+    await expect(runConfiguredFactoryPoolProcess(invalidProfiles.paths.config, profilesController.signal, dependencies(new ProcessDatabase(), profilesController, profilesUpdates))).rejects.toThrow("gpu_profiles_unavailable");
+    expect(profilesUpdates.at(-1)).toMatchObject({ lifecycle: "degraded", errorCode: "gpu_profiles_unavailable", listenerReady: false });
+    await writeFile(profilesPath, JSON.stringify({ schemaVersion: "factory.gpu-host-profiles.v1", hosts: [] }), { mode: 0o600 });
+    const validController = new AbortController(); const validUpdates: FactoryPoolReadinessUpdate[] = [];
+    await runConfiguredFactoryPoolProcess(invalidProfiles.paths.config, validController.signal, dependencies(new ProcessDatabase(), validController, validUpdates));
+    expect(validUpdates.some((update) => update.lifecycle === "ready" && update.listenerReady)).toBe(true);
 
     const listener = await fixture(); const listenerDatabase = new ProcessDatabase(); const listenerController = new AbortController(); const listenerUpdates: FactoryPoolReadinessUpdate[] = [];
     await expect(runConfiguredFactoryPoolProcess(listener.paths.config, listenerController.signal, dependencies(listenerDatabase, listenerController, listenerUpdates, { startError: true }))).rejects.toThrow("listener_unavailable");

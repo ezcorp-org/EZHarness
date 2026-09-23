@@ -341,8 +341,7 @@ export class FactoryFleetHost {
     if (admitted.length === 0) throw new FactoryProvisioningError("host_nothing_admitted", "The fleet host serves no installation yet.");
     const [, poolPair] = factoryDatabasePairs(this.paths.context);
     const pool = parseFactoryPoolProcessConfig({
-      // The parser still requires an installation field; the shared pool names its fleet. Readiness keys on poolId.
-      schemaVersion: "factory.pool-process.v1", installationId: this.paths.context.installationId, poolId: this.identity.poolId,
+      schemaVersion: "factory.pool-process.v1", poolId: this.identity.poolId,
       hostname: "0.0.0.0", port: this.identity.ports.pool,
       database: { credentialsPath: containerSecret("pool-database.json"), expectedDatabase: poolPair!.database, expectedRole: poolPair!.role },
       tls: { privateKeyPath: containerSecret(FACTORY_HOST_FILES.serverKey), certificatePath: containerSecret(FACTORY_HOST_FILES.serverCertificate), caPath: containerSecret(FACTORY_HOST_FILES.trustBundle) },
