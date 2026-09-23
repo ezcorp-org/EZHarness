@@ -640,8 +640,9 @@ print_consequence() {
     show a standing banner on every page, and refuse to build any bundled
     extension until you acknowledge that exact source digest in the UI.
 
-  If that trade is not acceptable, run the stack on a Linux host with the
-  isolated runner (deploy/extension-runner/README.md) and stop here.
+  If that trade is not acceptable, stop here and run the stack with the
+  isolated runner instead: in Colima on this Mac (docs/macos-local-dev.md,
+  "On Colima: it works"), or on a Linux host (deploy/extension-runner/README.md).
 
 EOF
 }
