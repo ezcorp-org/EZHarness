@@ -1,4 +1,4 @@
-import type { SandboxPreset } from "@ezcorp/extension-contract";
+import { sandboxPresetDigest, type SandboxPreset } from "@ezcorp/extension-contract";
 import type { LiveCommandResult, LiveFixtureHandle, LiveLimitLoadFact } from "./incus-live-cases";
 
 type Resource = LiveLimitLoadFact["resource"];
@@ -10,6 +10,15 @@ const CAPS: Record<Resource, number> = {
   pids: 64,
   disk: 256 * 1024 * 1024,
 };
+const HIGH_CAPS: Record<Resource, number> = {
+  memory: 5 * 1024 ** 3,
+  cpu: 8_000,
+  pids: 1_200,
+  disk: 24 * 1024 ** 3,
+};
+const HIGH_RAM_MARGIN = 8 * 1024 ** 3;
+const HIGH_DISK_MARGIN = 16 * 1024 ** 3;
+const HIGH_PID_MARGIN = 1_024;
 const ORDER: Resource[] = ["cpu", "memory", "pids", "disk"];
 const TIMEOUT_MS = 10_000;
 
@@ -20,6 +29,7 @@ export interface IncusLoadHealth {
   hostMemoryPressurePercent: number;
   hostCpuPressurePercent: number;
   hostDiskFreeBytes: number;
+  hostAvailablePids: number;
   hostOomKills: number;
   /** Independent, running fixture identity and a successful guest heartbeat. */
   neighborSandboxId: string;
@@ -34,6 +44,36 @@ export interface IncusLoadProbeDependencies {
   sampleHealth: (handle: LiveFixtureHandle) => Promise<IncusLoadHealth>;
   /** Read the exact fixture root-volume quota through pinned Incus GET. */
   readRootQuota: (handle: LiveFixtureHandle) => Promise<{ sandboxId: string; bytes: number }>;
+  /** Independent post-load guest readback, required for high-load approval. */
+  verifyCleanup?: (handle: LiveFixtureHandle, resource: Resource) => Promise<{
+    filesAbsent: boolean; processesAbsent: boolean }>;
+  /** Host-only operator approval lookup. Never pass an agent-supplied approval. */
+  resolveApprovedBudget?: (binding: IncusLoadBudgetBinding) => Promise<IncusHighLoadBudget | null>;
+}
+
+export interface IncusLoadBudgetBinding {
+  installationId: string;
+  releaseId: string;
+  connectionId: string;
+  presetId: string;
+  presetDigest: string;
+  sandboxId: string;
+}
+
+export interface IncusHighLoadBudget {
+  approvalId: string;
+  approvedBy: string;
+  expiresAt: string;
+  binding: IncusLoadBudgetBinding;
+  expectedLimits: Record<Resource, number>;
+  maxAttempted: Record<Resource, number>;
+  maxDeadlineMs: number;
+}
+
+export interface IncusLoadProbeOptions {
+  /** Required only when the reviewed preset exceeds ordinary safety caps. */
+  scope?: Omit<IncusLoadBudgetBinding, "presetId" | "presetDigest" | "sandboxId">;
+  now?: () => number;
 }
 
 export interface IncusLoadProbeResult {
@@ -65,6 +105,7 @@ function healthy(sample: IncusLoadHealth, baseline: IncusLoadHealth, primary: Li
     && Number.isFinite(sample.hostCpuPressurePercent)
     && sample.hostCpuPressurePercent >= 0 && sample.hostCpuPressurePercent <= 80
     && finite(sample.hostDiskFreeBytes) && sample.hostDiskFreeBytes >= 2 * 1024 ** 3
+    && finite(sample.hostAvailablePids) && sample.hostAvailablePids >= 1_024
     && finite(sample.hostOomKills) && sample.hostOomKills === baseline.hostOomKills
     && sample.neighborSandboxId === baseline.neighborSandboxId
     && sample.neighborSandboxId !== primary.sandboxId
@@ -79,8 +120,9 @@ function healthy(sample: IncusLoadHealth, baseline: IncusLoadHealth, primary: Li
  * No shell, host path, or provider token is accepted from a caller.
  */
 const GUEST_SCRIPT = String.raw`import json, os, pathlib, signal, subprocess, sys, time
-kind, target_text = sys.argv[1:]
+kind, target_text, timeout_text = sys.argv[1:]
 target = int(target_text)
+timeout = int(timeout_text)
 cg = pathlib.Path('/sys/fs/cgroup')
 def read(name): return (cg / name).read_text(encoding='ascii').strip()
 def count(name, key):
@@ -105,7 +147,7 @@ try:
             chunks.append(block)
     elif kind == 'pids':
         for _ in range(target):
-            try: children.append(subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(5)']))
+            try: children.append(subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(120)']))
             except OSError as error:
                 if error.errno != errno.EAGAIN: raise
                 break
@@ -127,9 +169,10 @@ finally:
 child = subprocess.Popen([sys.executable, '-c', script, kind, str(target)],
     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
 try:
-    child.wait(timeout=8)
+    child.wait(timeout=timeout)
 except subprocess.TimeoutExpired:
-    os.killpg(child.pid, signal.SIGKILL)
+    try: os.killpg(child.pid, signal.SIGKILL)
+    except ProcessLookupError: pass
     child.wait(timeout=2)
     raise
 if kind == 'cpu':
@@ -149,41 +192,99 @@ else:
     observed = 0  # disk quota is independently read from Incus by the host
     peak = child.returncode
     events = 0
+try:
+    os.killpg(child.pid, 0)
+    processes_absent = False
+except ProcessLookupError:
+    processes_absent = True
+files_absent = not pathlib.Path('/workspace/.ezh-qualification-load-' + str(child.pid)).exists()
 print(json.dumps({'attempted': target, 'observedLimit': observed, 'peak': peak,
-    'limitEvents': events, 'childExit': child.returncode, 'cleanupComplete': True}))`;
+    'limitEvents': events, 'childExit': child.returncode,
+    'cleanupComplete': processes_absent and files_absent}))`;
+
+function validBinding(binding: IncusLoadBudgetBinding): boolean {
+  return Object.values(binding).every(value => typeof value === "string" && value.length > 0)
+    && /^[a-f0-9]{64}$/.test(binding.presetDigest);
+}
+
+function approvedBudget(value: IncusHighLoadBudget | null, expected: IncusLoadBudgetBinding,
+  limits: Record<Resource, number>, attempted: Record<Resource, number>, now: number): value is IncusHighLoadBudget {
+  if (!value || !/^[A-Za-z0-9-]{8,128}$/.test(value.approvalId)
+    || typeof value.approvedBy !== "string" || !value.approvedBy.trim()
+    || !Number.isFinite(Date.parse(value.expiresAt)) || Date.parse(value.expiresAt) <= now
+    || Date.parse(value.expiresAt) > now + 24 * 60 * 60 * 1000
+    || !value.binding || !validBinding(value.binding)
+    || Object.keys(expected).some(key => value.binding[key as keyof IncusLoadBudgetBinding]
+      !== expected[key as keyof IncusLoadBudgetBinding])
+    || !Number.isSafeInteger(value.maxDeadlineMs) || value.maxDeadlineMs < 10_000
+    || value.maxDeadlineMs > 120_000) return false;
+  return ORDER.every(resource => value.expectedLimits?.[resource] === limits[resource]
+    && Number.isSafeInteger(value.maxAttempted?.[resource])
+    && value.maxAttempted[resource] >= attempted[resource]
+    && value.maxAttempted[resource] <= HIGH_CAPS[resource]);
+}
 
 /** Executes bounded loads. Every fact must be measured, with an independent neighbor. */
 export async function exerciseIncusControlledLoads(
   primary: LiveFixtureHandle, preset: SandboxPreset, deps: IncusLoadProbeDependencies,
+  options: IncusLoadProbeOptions = {},
 ): Promise<IncusLoadProbeResult> {
   const limits = { memory: preset.limits.memoryBytes, cpu: preset.limits.cpuMillis,
     pids: preset.limits.pids, disk: preset.limits.diskBytes };
-  // Reject before any load. The published 4 GiB / 20 GiB preset exceeds these
-  // caps and must use a separate reviewed, safe qualification recipe.
+  const attempted = { memory: limits.memory + 1024 * 1024, cpu: limits.cpu + 1_000,
+    pids: limits.pids + 1, disk: limits.disk + 1024 * 1024 };
+  const high = ORDER.some(resource => !finite(limits[resource]) || attempted[resource] > CAPS[resource]);
+  let deadlineMs = TIMEOUT_MS;
+  if (high) {
+    const scope = options.scope;
+    requireProbe(scope && deps.resolveApprovedBudget && deps.verifyCleanup,
+      "high-load mode requires a host-owned operator approval and cleanup readback");
+    const binding: IncusLoadBudgetBinding = { ...scope, presetId: preset.id,
+      presetDigest: await sandboxPresetDigest(preset), sandboxId: primary.sandboxId };
+    requireProbe(validBinding(binding), "high-load scope is invalid");
+    const budget = await deps.resolveApprovedBudget(binding);
+    requireProbe(approvedBudget(budget, binding, limits, attempted, (options.now ?? Date.now)()),
+      "high-load approval is absent, stale, or bound to another fixture or limit");
+    deadlineMs = budget.maxDeadlineMs;
+  }
   for (const resource of ORDER) {
     requireProbe(finite(limits[resource]) && limits[resource] > 0
-      && limits[resource] < CAPS[resource], `${resource} limit exceeds the reviewed safety cap`);
+      && attempted[resource] <= (high ? HIGH_CAPS[resource] : CAPS[resource]),
+    `${resource} limit exceeds the reviewed safety cap`);
   }
   const baseline = await deps.sampleHealth(primary);
   requireProbe(healthy(baseline, baseline, primary), "host or independent neighbor baseline is unhealthy");
+  if (high) requireProbe(baseline.hostAvailableBytes >= attempted.memory + HIGH_RAM_MARGIN
+    && baseline.hostDiskFreeBytes >= attempted.disk + HIGH_DISK_MARGIN
+    && baseline.hostAvailablePids >= attempted.pids + HIGH_PID_MARGIN,
+  "Xeon RAM, storage pool, or PID headroom is insufficient for approved load");
   const samples: IncusLoadProbeResult["samples"] = [{ resource: "baseline", phase: "before", health: baseline }];
   const readouts: IncusLoadProbeResult["readouts"] = [];
   const facts: LiveLimitLoadFact[] = [];
   for (const resource of ORDER) {
-    const attempted = limits[resource] + (resource === "cpu" ? 1_000 : resource === "pids" ? 1 : 1024 * 1024);
-    requireProbe(attempted <= CAPS[resource], `${resource} attempted load exceeds the safety cap`);
-    // Wait for both operations before assessing either result. An unhealthy
-    // sample must never leave a still-running guest load unobserved.
-    const [command, middle] = await Promise.allSettled([
-      deps.runGuest(primary, ["python3", "-c", GUEST_SCRIPT,
-        resource, String(attempted)], TIMEOUT_MS),
-      new Promise<void>(resolve => setTimeout(resolve, 250)).then(() => deps.sampleHealth(primary)),
-    ]);
-    requireProbe(command.status === "fulfilled" && middle.status === "fulfilled",
+    const target = attempted[resource];
+    // Sample throughout a long load. Wait for the guest command even if a
+    // sample fails, so the caller cannot abandon a still-running process.
+    let finished = false;
+    const commandPromise = deps.runGuest(primary, ["python3", "-c", GUEST_SCRIPT,
+      resource, String(target), String(high ? Math.floor((deadlineMs - 5_000) / 1_000) : 8)], deadlineMs)
+      .finally(() => { finished = true; });
+    const monitorPromise = (async () => {
+      let first = true;
+      while (true) {
+        await new Promise(resolve => setTimeout(resolve, first ? 250 : 1_000));
+        first = false;
+        const sample = await deps.sampleHealth(primary);
+        samples.push({ resource, phase: "during", health: sample });
+        if (!healthy(sample, baseline, primary)) return false;
+        if (finished) return true;
+      }
+    })();
+    const [command, monitor] = await Promise.allSettled([commandPromise, monitorPromise]);
+    requireProbe(command.status === "fulfilled" && monitor.status === "fulfilled",
       `${resource} guest load or in-flight health sample failed`);
+    requireProbe(monitor.value === true, `${resource} affected host or neighbor health`);
     const result = command.value;
-    samples.push({ resource, phase: "during", health: middle.value });
-    requireProbe(healthy(middle.value, baseline, primary), `${resource} affected host or neighbor health`);
     requireProbe(result.stdout.length <= 4096 && result.stderr.length <= 4096
       && result.exitCode === 0, `${resource} guest probe failed`);
     let parsed: Record<string, unknown>;
@@ -195,7 +296,7 @@ export async function exerciseIncusControlledLoads(
     const diskQuota = resource === "disk" ? await deps.readRootQuota(primary) : null;
     const observedLimit = diskQuota?.bytes ?? parsed.observedLimit;
     requireProbe((!diskQuota || diskQuota.sandboxId === primary.sandboxId)
-      && parsed.attempted === attempted && finite(observedLimit)
+      && parsed.attempted === target && finite(observedLimit)
       && observedLimit > 0 && observedLimit <= limits[resource]
       && finite(parsed.peak) && finite(parsed.limitEvents)
       && parsed.cleanupComplete === true, `${resource} evidence is incomplete`);
@@ -206,12 +307,21 @@ export async function exerciseIncusControlledLoads(
     requireProbe(resource === "memory" ? cgroupHit && childExit === -9
       : resource === "cpu" || resource === "pids" ? cgroupHit && childExit === 0
         : childExit === 28, `${resource} containment was not observed`);
+    if (high) {
+      const cleanup = await deps.verifyCleanup!(primary, resource);
+      requireProbe(cleanup.filesAbsent && cleanup.processesAbsent,
+        `${resource} cleanup readback failed`);
+      requireProbe(followup.hostAvailableBytes >= HIGH_RAM_MARGIN
+        && followup.hostDiskFreeBytes >= HIGH_DISK_MARGIN
+        && followup.hostAvailablePids >= HIGH_PID_MARGIN,
+      `${resource} left the host below its safety margin`);
+    }
     const metric = resource === "cpu" ? "cpu.usage_usec"
       : resource === "memory" ? "memory.peak" : resource === "pids" ? "pids.peak" : "disk.enospc";
-    readouts.push({ resource, attempted, observedLimit: Number(observedLimit),
+    readouts.push({ resource, attempted: target, observedLimit: Number(observedLimit),
       metric, metricValue: Number(parsed.peak), limitEvents: Number(parsed.limitEvents),
       childExit: Number(childExit), cleanupComplete: true });
-    facts.push({ resource, attempted, observedLimit: Number(observedLimit),
+    facts.push({ resource, attempted: target, observedLimit: Number(observedLimit),
       contained: true, neighborHealthy: true, hostHealthy: true });
   }
   return { facts, samples, readouts };

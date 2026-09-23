@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
+import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { exerciseIncusControlledLoads, type IncusLoadHealth,
-  type IncusLoadProbeDependencies } from "./incus-live-load-probes";
+  type IncusHighLoadBudget, type IncusLoadProbeDependencies } from "./incus-live-load-probes";
 
 const primary = { sandboxId: "primary", operationId: "primary-create" };
 const small = { ...INCUS_PRESETS[0]!, limits: { ...INCUS_PRESETS[0]!.limits,
@@ -10,6 +11,7 @@ const small = { ...INCUS_PRESETS[0]!, limits: { ...INCUS_PRESETS[0]!.limits,
 const health: IncusLoadHealth = {
   hostId: "xeon", hostAvailableBytes: 8 * 1024 ** 3, hostMemoryPressurePercent: 1,
   hostCpuPressurePercent: 1, hostDiskFreeBytes: 8 * 1024 ** 3,
+  hostAvailablePids: 10_000,
   hostOomKills: 0, neighborSandboxId: "neighbor", neighborBootId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
   neighborHeartbeat: true,
 };
@@ -66,7 +68,7 @@ test("published preset is refused before any resource load", async () => {
     readRootQuota: async () => { calls++; throw new Error("must not read"); },
   };
   await expect(exerciseIncusControlledLoads(primary, INCUS_PRESETS[0]!, deps))
-    .rejects.toThrow("safety cap");
+    .rejects.toThrow("operator approval");
   expect(calls).toBe(0);
 });
 
@@ -100,4 +102,88 @@ test("host OOM, neighbor restart, and wrong root quota identity fail closed", as
   }
   await expect(probe({ readRootQuota: async () => ({ sandboxId: "other", bytes: small.limits.diskBytes }) }).run())
     .rejects.toThrow("disk evidence is incomplete");
+});
+
+const highScope = { installationId: "installation", releaseId: "release", connectionId: "connection" };
+
+async function highProbe(overrides: Partial<IncusLoadProbeDependencies> = {},
+  approvalOverride: Partial<IncusHighLoadBudget> = {}) {
+  const preset = INCUS_PRESETS[0]!;
+  const binding = { ...highScope, presetId: preset.id,
+    presetDigest: await sandboxPresetDigest(preset), sandboxId: primary.sandboxId };
+  const limits = { memory: preset.limits.memoryBytes, cpu: preset.limits.cpuMillis,
+    pids: preset.limits.pids, disk: preset.limits.diskBytes };
+  const budget: IncusHighLoadBudget = { approvalId: "reviewed-1234", approvedBy: "operator",
+    expiresAt: "2026-09-23T23:00:00.000Z", binding, expectedLimits: limits,
+    maxAttempted: { memory: limits.memory + 1024 ** 2, cpu: limits.cpu + 1_000,
+      pids: limits.pids + 1, disk: limits.disk + 1024 ** 2 }, maxDeadlineMs: 120_000,
+    ...approvalOverride };
+  const calls: string[] = [];
+  const highHealth = { ...health, hostAvailableBytes: 48 * 1024 ** 3,
+    hostDiskFreeBytes: 80 * 1024 ** 3 };
+  const deps: IncusLoadProbeDependencies = {
+    runGuest: async (_handle, argv, timeoutMs) => {
+      const resource = argv[3]!;
+      calls.push(resource);
+      expect(timeoutMs).toBe(120_000);
+      expect(argv[5]).toBe("115");
+      return { exitCode: 0, stderr: "", stdout: JSON.stringify({ attempted: Number(argv[4]),
+        observedLimit: resource === "disk" ? 0 : limits[resource as keyof typeof limits],
+        peak: resource === "disk" ? 28 : 1,
+        limitEvents: resource === "disk" ? 0 : 1,
+        childExit: resource === "memory" ? -9 : resource === "disk" ? 28 : 0,
+        cleanupComplete: true }) };
+    },
+    sampleHealth: async () => highHealth,
+    readRootQuota: async () => ({ sandboxId: primary.sandboxId, bytes: limits.disk }),
+    verifyCleanup: async () => ({ filesAbsent: true, processesAbsent: true }),
+    resolveApprovedBudget: async () => budget,
+    ...overrides,
+  };
+  return { calls, run: () => exerciseIncusControlledLoads(primary, preset, deps,
+    { scope: highScope, now: () => Date.parse("2026-09-23T22:00:00.000Z") }) };
+}
+
+test("high-load mode requires host-owned approval and exact fixture binding", async () => {
+  const absent = await highProbe({ resolveApprovedBudget: async () => null });
+  await expect(absent.run()).rejects.toThrow("approval is absent");
+  expect(absent.calls).toHaveLength(0);
+  const wrong = await highProbe({}, { binding: { ...highScope, presetId: INCUS_PRESETS[0]!.id,
+    presetDigest: "a".repeat(64), sandboxId: "other" } });
+  await expect(wrong.run()).rejects.toThrow("bound to another fixture");
+  expect(wrong.calls).toHaveLength(0);
+  const stale = await highProbe({}, { expiresAt: "2026-09-23T21:59:59.000Z" });
+  await expect(stale.run()).rejects.toThrow("approval is absent");
+  const tooBroad = await highProbe({}, { maxAttempted: { memory: 6 * 1024 ** 3,
+    cpu: 8_000, pids: 1_200, disk: 24 * 1024 ** 3 } });
+  await expect(tooBroad.run()).rejects.toThrow("approval is absent");
+});
+
+test("high-load mode rejects insufficient measured Xeon RAM, pool space, or PIDs", async () => {
+  for (const bad of [
+    { ...health, hostAvailableBytes: 8 * 1024 ** 3, hostDiskFreeBytes: 80 * 1024 ** 3 },
+    { ...health, hostAvailableBytes: 48 * 1024 ** 3, hostDiskFreeBytes: 25 * 1024 ** 3 },
+    { ...health, hostAvailableBytes: 48 * 1024 ** 3, hostDiskFreeBytes: 80 * 1024 ** 3,
+      hostAvailablePids: 1_500 },
+  ]) {
+    const example = await highProbe({ sampleHealth: async () => bad });
+    await expect(example.run()).rejects.toThrow("headroom is insufficient");
+    expect(example.calls).toHaveLength(0);
+  }
+});
+
+test("high-load mode rejects failed post-load cleanup readback", async () => {
+  const example = await highProbe({ verifyCleanup: async () => ({ filesAbsent: false, processesAbsent: true }) });
+  await expect(example.run()).rejects.toThrow("cleanup readback failed");
+  expect(example.calls).toEqual(["cpu"]);
+});
+
+test("exact reviewed high-load budget passes bounded fake transport and raw readback", async () => {
+  const example = await highProbe();
+  const result = await example.run();
+  expect(example.calls).toEqual(["cpu", "memory", "pids", "disk"]);
+  expect(result.facts).toHaveLength(4);
+  expect(result.facts[3]?.attempted).toBeGreaterThan(20 * 1024 ** 3);
+  expect(result.readouts[3]?.metric).toBe("disk.enospc");
+  expect(result.samples).toHaveLength(9);
 });
