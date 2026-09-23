@@ -17,6 +17,8 @@ compose_sha=$7
 helper_file=$8
 helper_sha=$9
 alias=${10}
+iptables_version=1.8.9-2
+nftables_version=1.0.6-2+deb12u2
 
 for value in "$base_fingerprint" "$docker_sha" "$compose_sha" "$helper_sha"; do
   if [[ ! "$value" =~ ^[a-f0-9]{64}$ ]]; then echo 'expected exact SHA-256 fingerprint' >&2; exit 2; fi
@@ -48,6 +50,11 @@ bridge = network.get("name")
 if not all(isinstance(name, str) and re.fullmatch(r"[a-z][a-z0-9-]{0,62}", name)
            for name in (pool, bridge)) or network.get("project") != "default" or network.get("type") != "bridge":
     sys.exit("build storage or network does not match the reviewed recipe")
+profile = recipe.get("profile", {}).get("config", {})
+if any(profile.get(key) != value for key, value in {
+    "security.nesting": "true", "security.privileged": "false", "security.idmap.isolated": "true",
+}.items()):
+    sys.exit("build nesting and isolation do not match the reviewed recipe")
 print(f"{pool}\t{bridge}")
 PY
 )
@@ -58,12 +65,23 @@ name="ezh-build-$(date +%s)-$$"
 cleanup() { incus delete "$name" --force --project default >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
-if incus image alias list --project default --format json | python3 -c 'import json,sys;alias=sys.argv[1];sys.exit(0 if any(x.get("name")==alias for x in json.load(sys.stdin)) else 1)' "$alias"; then
-  echo 'image alias already exists; review its fingerprint instead of replacing it' >&2
-  exit 1
-fi
+assert_alias_absent() {
+  alias_state=$(incus image alias list --project default --format json | python3 -c '
+import json, sys
+rows = json.load(sys.stdin)
+if not isinstance(rows, list) or any(not isinstance(row, dict) or not isinstance(row.get("name"), str) for row in rows):
+    sys.exit("image alias inventory is invalid")
+print("present" if any(row["name"] == sys.argv[1] for row in rows) else "absent")
+' "$alias")
+  if [ "$alias_state" = present ]; then
+    echo 'image alias already exists; review its fingerprint instead of replacing it' >&2
+    return 1
+  fi
+}
+assert_alias_absent
 
-incus launch "$base_fingerprint" "$name" --project default --storage "$storage_pool" --network "$network_name"
+incus launch "$base_fingerprint" "$name" --project default --storage "$storage_pool" --network "$network_name" \
+  --config security.nesting=true --config security.privileged=false --config security.idmap.isolated=true
 if ! timeout 75s incus exec "$name" --project default -- sh -eu -c '
   bridge=$1
   set --
@@ -96,9 +114,16 @@ incus file push "$helper_file" "$name/root/ezh-helper.py" --project default
 incus file push "$docker_tar" "$name/root/ezh-docker.tgz" --project default
 incus file push "$compose_binary" "$name/root/ezh-compose" --project default
 
+if ! incus exec "$name" --project default -- sh -eu -c '. /etc/os-release; [ "$ID" = debian ] && [ "$VERSION_ID" = 12 ]'; then
+  echo 'guest base must be Debian 12 for the reviewed package versions' >&2
+  exit 1
+fi
 incus exec "$name" --project default -- env DEBIAN_FRONTEND=noninteractive apt-get update
-incus exec "$name" --project default -- env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "python3=$python_version"
+incus exec "$name" --project default -- env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+  "python3=$python_version" "iptables=$iptables_version" "nftables=$nftables_version"
 incus exec "$name" --project default -- sh -eu -c '
+  update-alternatives --set iptables /usr/sbin/iptables-nft
+  update-alternatives --set ip6tables /usr/sbin/ip6tables-nft
   install -d -m 0755 /usr/local/bin /usr/local/libexec /usr/local/lib/docker/cli-plugins
   tar -xzf /root/ezh-docker.tgz -C /usr/local/bin --strip-components=1
   install -m 0755 /root/ezh-compose /usr/local/lib/docker/cli-plugins/docker-compose
@@ -138,6 +163,46 @@ EOF
   apt-get clean
   rm -rf /var/lib/apt/lists/*
 '
+if ! timeout 120s incus exec "$name" --project default -- sh -eu -c '
+  command -v iptables >/dev/null
+  command -v nft >/dev/null
+  case "$(iptables -V)" in *nf_tables*) ;; *) echo "iptables is not using the nft backend" >&2; exit 1;; esac
+  systemctl start ezh-containerd.service ezh-docker.service
+  systemctl is-active --quiet ezh-containerd.service
+  systemctl is-active --quiet ezh-docker.service
+  docker info --format "{{.ServerVersion}}" >/dev/null
+'; then
+  echo 'nested Docker daemon did not become ready; inspect the temporary guest service logs before publishing' >&2
+  exit 1
+fi
 incus stop "$name" --project default
-incus publish "$name" --project default --alias "$alias"
-incus query "/1.0/images/aliases/$alias?project=default" | python3 -c 'import json,sys;print(json.load(sys.stdin)["metadata"]["target"])'
+assert_alias_absent
+publish_output=$(incus publish "$name" --project default --alias "$alias" --expire 0001-01-01T00:00:00Z)
+published_fingerprint=$(printf '%s\n' "$publish_output" | python3 -c '
+import re, sys
+matches = re.findall(r"(?m)^Instance published with fingerprint: ([a-f0-9]{64})$", sys.stdin.read())
+if len(matches) != 1:
+    sys.exit("published image fingerprint is missing or ambiguous")
+print(matches[0])
+')
+alias_target=$(incus query "/1.0/images/aliases/$alias?project=default" | python3 -c '
+import json, re, sys
+alias = json.load(sys.stdin)
+if not isinstance(alias, dict) or alias.get("name") != sys.argv[1]:
+    sys.exit("published image alias readback is missing or has the wrong name")
+target = alias.get("target")
+if not isinstance(target, str) or not re.fullmatch(r"[a-f0-9]{64}", target):
+    sys.exit("published image alias has no exact fingerprint target")
+print(target)
+' "$alias")
+if [ "$alias_target" != "$published_fingerprint" ]; then
+  echo 'published image alias target differs from the published fingerprint; review server state' >&2
+  exit 1
+fi
+incus query "/1.0/images/$published_fingerprint?project=default" | python3 -c '
+import json, sys
+image = json.load(sys.stdin)
+if not isinstance(image, dict) or image.get("fingerprint") != sys.argv[1] or image.get("expires_at") != "0001-01-01T00:00:00Z":
+    sys.exit("published image fingerprint or non-expiring retention readback differs; review server state")
+' "$published_fingerprint"
+printf '%s\n' "$alias_target"

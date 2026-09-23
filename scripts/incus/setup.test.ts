@@ -288,7 +288,7 @@ test("guest image builder refuses unpinned, mismatched, and changed inputs befor
     expect(run().stderr.toString()).toContain("build storage or network does not match the reviewed recipe");
 
     await writeFile(recipePath, JSON.stringify({ guestImage: pins,
-      storage: checkedInRecipe.storage, network: checkedInRecipe.network }));
+      storage: checkedInRecipe.storage, network: checkedInRecipe.network, profile: checkedInRecipe.profile }));
     args[1] = "c".repeat(64);
     expect(run().stderr.toString()).toContain("reviewed recipe pins");
     args[1] = pins.sourceFingerprint;
@@ -317,6 +317,9 @@ exit 0
     expect(launchArgs[launchArgs.indexOf("--storage") + 1]).toBe(checkedInRecipe.storage.name);
     expect(launchArgs).toContain("--network");
     expect(launchArgs[launchArgs.indexOf("--network") + 1]).toBe(checkedInRecipe.network.name);
+    expect(launchArgs).toContain("security.nesting=true");
+    expect(launchArgs).toContain("security.idmap.isolated=true");
+    expect(launchArgs).toContain("security.privileged=false");
 
     const capture = join(directory, "build-calls");
     await writeFile(incus, `#!/bin/sh
@@ -328,6 +331,7 @@ case "$1" in
     while [ "$1" != -- ]; do shift; done
     shift
     if [ "$1" = env ]; then printf '%s\\n' "$*" >> "$EZH_BUILD_CAPTURE"; exit 39; fi
+    case "$4" in *'/etc/os-release'*) exit 0;; esac
     guest_script=$(printf '%s\\n' "$4" | sed "s#/etc/apt#$EZH_APT_ROOT#g")
     sh -eu -c "$guest_script" sh "$6";;
 esac
@@ -350,6 +354,80 @@ esac
     const ready = networkRun("yes", "yes");
     expect(ready.exitCode).toBe(39);
     expect(await readFile(capture, "utf8")).toContain("apt-get update");
+
+    const published = "a".repeat(64);
+    const aliasCounter = join(directory, "alias-count");
+    await writeFile(incus, `#!/bin/sh
+case "$1" in
+  image)
+    count=$(cat "$EZH_ALIAS_COUNT")
+    count=$((count + 1))
+    printf '%s\\n' "$count" > "$EZH_ALIAS_COUNT"
+    if [ "$EZH_SECOND_ALIAS" = yes ] && [ "$count" -eq 2 ]; then printf '[{"name":"%s"}]\\n' "$EZH_ALIAS"; else printf '[]\\n'; fi;;
+  launch|file|stop|delete) exit 0;;
+  exec)
+    shift
+    while [ "$1" != -- ]; do shift; done
+    shift
+    if [ "$1" = env ]; then printf '%s\\n' "$*" >> "$EZH_BUILD_CAPTURE"; exit 0; fi
+    case "$4" in
+      *'guest has no APT source files'*) guest_script=$(printf '%s\\n' "$4" | sed "s#/etc/apt#$EZH_APT_ROOT#g"); sh -eu -c "$guest_script" sh "$6";;
+      *'/etc/os-release'*) exit 0;;
+      *'docker info'*) printf 'docker-check\\n' >> "$EZH_BUILD_CAPTURE"; [ "$EZH_DOCKER_READY" = yes ];;
+      *) exit 0;;
+    esac;;
+  publish)
+    printf 'publish %s\\n' "$*" >> "$EZH_BUILD_CAPTURE"
+    printf 'Instance published with fingerprint: %s\\n' "$EZH_PUBLISHED";;
+  query)
+    case "$2" in
+      /1.0/images/aliases/*)
+        case "$EZH_QUERY_MODE" in
+          missing) printf '{"description":"","name":"%s","type":"container"}\\n' "$EZH_ALIAS";;
+          wrong) printf '{"description":"","name":"%s","target":"%s","type":"container"}\\n' "$EZH_ALIAS" "$EZH_WRONG_TARGET";;
+          *) printf '{"description":"","name":"%s","target":"%s","type":"container"}\\n' "$EZH_ALIAS" "$EZH_PUBLISHED";;
+        esac;;
+      *)
+        if [ "$EZH_QUERY_MODE" = expiring ]; then expiry=2026-10-23T00:00:00Z; else expiry=0001-01-01T00:00:00Z; fi
+        printf '{"fingerprint":"%s","expires_at":"%s"}\\n' "$EZH_PUBLISHED" "$expiry";;
+    esac;;
+esac
+`);
+    const publishRun = async (mode: string, secondAlias = false, dockerReady = true) => {
+      await Promise.all([writeFile(aliasCounter, "0\n"), writeFile(capture, "")]);
+      const runResult = Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args],
+        { env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}`, EZH_IPV4: "yes", EZH_DNS: "yes",
+          EZH_APT_ROOT: aptRoot, EZH_BUILD_CAPTURE: capture, EZH_ALIAS_COUNT: aliasCounter, EZH_ALIAS: pins.alias,
+          EZH_SECOND_ALIAS: secondAlias ? "yes" : "no", EZH_DOCKER_READY: dockerReady ? "yes" : "no",
+          EZH_PUBLISHED: published, EZH_WRONG_TARGET: "b".repeat(64), EZH_QUERY_MODE: mode } });
+      return { runResult, calls: await readFile(capture, "utf8") };
+    };
+    const directAlias = await publishRun("direct");
+    expect(directAlias.runResult.exitCode).toBe(0);
+    expect(directAlias.runResult.stdout.toString().trim()).toBe(published);
+    expect(directAlias.calls).toContain("publish");
+    expect(directAlias.calls).toContain("iptables=1.8.9-2");
+    expect(directAlias.calls).toContain("nftables=1.0.6-2+deb12u2");
+    expect(directAlias.calls).toContain("docker-check");
+    expect(directAlias.calls).toContain("--expire 0001-01-01T00:00:00Z");
+    const wrongTarget = await publishRun("wrong");
+    expect(wrongTarget.runResult.exitCode).not.toBe(0);
+    expect(wrongTarget.runResult.stderr.toString()).toContain("alias target differs from the published fingerprint");
+    const missingTarget = await publishRun("missing");
+    expect(missingTarget.runResult.exitCode).not.toBe(0);
+    expect(missingTarget.runResult.stderr.toString()).toContain("alias has no exact fingerprint target");
+    const expiring = await publishRun("expiring");
+    expect(expiring.runResult.exitCode).not.toBe(0);
+    expect(expiring.runResult.stderr.toString()).toContain("non-expiring retention readback differs");
+    const appearedAlias = await publishRun("direct", true);
+    expect(appearedAlias.runResult.exitCode).not.toBe(0);
+    expect(appearedAlias.runResult.stderr.toString()).toContain("image alias already exists");
+    expect(appearedAlias.calls).not.toContain("publish");
+    const failedDocker = await publishRun("direct", false, false);
+    expect(failedDocker.runResult.exitCode).not.toBe(0);
+    expect(failedDocker.runResult.stderr.toString()).toContain("nested Docker daemon did not become ready");
+    expect(failedDocker.calls).toContain("docker-check");
+    expect(failedDocker.calls).not.toContain("publish");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
