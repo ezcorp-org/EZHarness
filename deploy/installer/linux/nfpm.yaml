@@ -1,0 +1,64 @@
+# Linux packages for the EZCorp installer core — built by build-packages.sh,
+# which stages every file below and runs nfpm from INSIDE the staging dir.
+# (nfpm expands environment variables in metadata fields like version and arch,
+# but not in `contents` paths — so those are relative to the stage.)
+#
+# The package installs the INSTALLER, not EZCorp itself: the app is a released
+# container image that `ezcorp launch` pulls per user, under rootless Podman.
+# Nothing here runs as root beyond placing files.
+name: ezcorp
+arch: ${EZCORP_PKG_ARCH}
+platform: linux
+version: ${EZCORP_PKG_VERSION}
+section: net
+priority: optional
+# No contact address is declared anywhere in the repo, and a package must not
+# invent one. build-packages.sh fills this from EZCORP_PKG_MAINTAINER, which the
+# release workflow must set; the build refuses to run without it.
+maintainer: ${EZCORP_PKG_MAINTAINER}
+description: |
+  EZCorp — a self-hosted AI platform with persistent memory and extensions.
+  Installs the `ezcorp` command and an applications-menu entry. The first
+  launch downloads the EZCorp container image (about 1 GB) and runs it under
+  your own account with rootless Podman.
+vendor: EZCorp
+homepage: https://github.com/ezcorp-org/EZHarness
+license: MIT
+
+# Per-format lists, each COMPLETE. nfpm's `overrides.<format>.depends`
+# REPLACES the top-level list rather than merging with it — a first build put
+# util-linux/openssl/curl at the top level and podman in the overrides, and
+# the .deb came out depending on podman alone. The version-constraint syntax
+# differs between formats, which is why these cannot share one list.
+#   util-linux  flock — the per-user lifecycle lock
+#   openssl     secret generation
+#   curl        readiness and update checks
+overrides:
+  deb:
+    depends:
+      - podman (>= 4.0)
+      - util-linux
+      - openssl
+      - curl
+  rpm:
+    depends:
+      - podman >= 4.0
+      - util-linux
+      - openssl
+      - curl
+
+contents:
+  - src: ./usr/lib/ezcorp/
+    dst: /usr/lib/ezcorp/
+    type: tree
+  - src: ./usr/bin/ezcorp
+    dst: /usr/bin/ezcorp
+    file_info:
+      mode: 0755
+  - src: ./usr/share/applications/ezcorp.desktop
+    dst: /usr/share/applications/ezcorp.desktop
+  - src: ./usr/share/icons/hicolor/512x512/apps/ezcorp.png
+    dst: /usr/share/icons/hicolor/512x512/apps/ezcorp.png
+
+scripts:
+  postinstall: ./postinstall.sh

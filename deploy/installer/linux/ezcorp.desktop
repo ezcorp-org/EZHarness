@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=EZCorp
+GenericName=AI workspace
+Comment=Chat with persistent memory, running on your own computer
+Exec=ezcorp launch
+Icon=ezcorp
+# A terminal on purpose, not an oversight: first launch downloads about 1 GB
+# with visible progress, and may ask whether to run extensions without the
+# isolated runner — a question that must be answered by a person, which the
+# installer only asks at a real terminal.
+Terminal=true
+Categories=Office;Network;
+Keywords=AI;chat;LLM;assistant;
+StartupNotify=false

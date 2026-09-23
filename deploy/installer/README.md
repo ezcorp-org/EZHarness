@@ -8,6 +8,7 @@ path. The OS packages supply the icon; this supplies the behavior.
 
 ```
 ezcorp install              set up and start EZCorp
+ezcorp launch               set up if needed, otherwise start (the desktop entry)
 ezcorp start | stop         start or stop it (stop leaves the container VM up)
 ezcorp open                 open it in the browser
 ezcorp status               engine, VM, version, URL, readiness, subuid room
@@ -150,8 +151,46 @@ EZCORP_CONFIG_DIR=/tmp/ez/config EZCORP_DATA_ROOT=/tmp/ez/data \
   EZCORP_IMAGE=ezcorp:local deploy/installer/ezcorp install
 ```
 
+## Linux packages (`linux/`)
+
+`.deb` and `.rpm` for amd64 and arm64, built with
+[nfpm](https://nfpm.goreleaser.com/) by `linux/build-packages.sh` and attached to
+each GitHub Release by `.github/workflows/release-installers.yml`, which runs
+after `release-image` succeeds for an `app-v*` tag.
+
+```sh
+EZCORP_PKG_MAINTAINER="Name <email>" \
+  bash deploy/installer/linux/build-packages.sh arm64 1.3.0 dist
+```
+
+What a package installs, and why each piece is shaped the way it is:
+
+| Path | Notes |
+|---|---|
+| `/usr/lib/ezcorp/ezcorp` + the compose files | the core, with `VERSION_FALLBACK` pinned to the package version — package 1.4.0 pulls image 1.4.0 |
+| `/usr/lib/ezcorp/docker-compose` | **vendored** Docker Compose, pinned in `linux/compose.lock` by the SHA-256 its release publishes; the build refuses a mismatch. A stock Linux with only podman has no compose provider at all (verified on Fedora CoreOS) |
+| `/usr/bin/ezcorp` | a wrapper, not a symlink: the core finds its siblings next to itself |
+| `/usr/share/applications/ezcorp.desktop` | runs `ezcorp launch` in a terminal — the only place the runner-mode question may be asked |
+
+Depends on `podman (>= 4.0)`, `util-linux`, `openssl` and `curl`. Each format
+lists all four itself: nfpm's per-format `overrides` *replace* a shared list,
+and an early build silently shipped depending on podman alone.
+
+The package installs **the installer**, not EZCorp. Its post-install script only
+prints how to start. It never runs `ezcorp install`, because package scripts run
+as root and EZCorp installs per user under rootless Podman, and it never answers
+the runner-mode question.
+
+`EZCORP_PKG_MAINTAINER` is required and set from a repository variable in CI. The
+repo declares no contact address, and a package must not invent one.
+
+Verified: `apt` on Debian 12 and `dnf` on Fedora 41 install the packages and
+resolve every dependency. The packaged payload installs and runs EZCorp
+end-to-end on Fedora CoreOS (SELinux enforcing, rootless Podman) in
+`trusted-local` mode, with consent typed at a real terminal.
+
 ## Not here yet
 
-OS packages (`.pkg`, `.deb`, `.rpm`), code signing and notarization, the
-`release-installers.yml` workflow, Windows, and any tray UI. This core is
-what they will all call.
+macOS: the core is Linux-only today (the lifecycle lock uses GNU `stat -c` and
+`realpath -m`), so the `.pkg` needs that ported first, then signing and
+notarization. Also missing: Windows and any tray UI. They will all call this core.

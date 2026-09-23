@@ -910,3 +910,54 @@ describe("compose.trusted-local.yml — held to the app and to production", () =
     expect(yaml).not.toContain("EZCORP_EXTENSION_RUNNER_SOCKET");
   });
 });
+
+describe("ezcorp launch — what the desktop entry runs", () => {
+  test("first launch installs", () => {
+    const result = run(["launch"]);
+    expect(result.exitCode).toBe(0);
+    expect(existsSync(join(configDir, ".env"))).toBe(true);
+    expect(result.log).toContain("up -d");
+  });
+
+  test("later launches start the existing install without re-keying it", () => {
+    expect(run(["launch"]).exitCode).toBe(0);
+    const before = envFile();
+    const again = run(["launch"]);
+    expect(again.exitCode).toBe(0);
+    expect(again.stdout).not.toContain("already set up");
+    // Secrets encrypt the data on disk; a second launch must never mint new ones.
+    expect(envFile()).toBe(before);
+    expect(again.log).toContain("up -d");
+  });
+});
+
+describe("a compose binary shipped beside the core is preferred", () => {
+  // The Linux packages vendor docker-compose beside the core, because a stock
+  // Linux with only podman has no compose provider at all. Run a copy of the
+  // core from a directory that also holds a vendored stub, with the PATH stub
+  // still present, and require the vendored one to win.
+  test("the vendored binary is used over one on PATH", () => {
+    const home = mkdtempSync(join(caseDir, "packaged-"));
+    for (const file of readdirSync(join(REPO_ROOT, "deploy", "installer"))) {
+      if (file.endsWith(".yml") || file === "ezcorp") {
+        writeFileSync(join(home, file), readFileSync(join(REPO_ROOT, "deploy", "installer", file)));
+      }
+    }
+    chmodSync(join(home, "ezcorp"), 0o755);
+    writeFileSync(join(home, "docker-compose"), `#!/usr/bin/env bash\necho "vendored-compose $*" >> "$EZCORP_TEST_LOG"\n`);
+    chmodSync(join(home, "docker-compose"), 0o755);
+
+    const logPath = join(caseDir, "invocations.log");
+    writeFileSync(logPath, "");
+    const proc = Bun.spawnSync({
+      cmd: ["bash", join(home, "ezcorp"), "install"],
+      env: cliEnv({ EZCORP_SEARXNG_CONFIG: join(REPO_ROOT, "deploy", "searxng") }),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    const log = readFileSync(logPath, "utf8");
+    expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+    expect(log).toContain("vendored-compose ");
+    expect(log.split("\n").some((line) => line.startsWith("compose "))).toBe(false);
+  });
+});
