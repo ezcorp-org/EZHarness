@@ -1770,6 +1770,32 @@
             "query"
           ],
           "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "validator.material",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryValidatorMaterialQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
         }
       ],
       "description": "Canonical C09 route input. `path` is populated from trusted routing state. Tenant identity is intentionally absent, and resource identity never appears in a request body."
@@ -3397,6 +3423,28 @@
           "type": "object"
         }
       ]
+    },
+    "FactoryValidatorMaterialQuery": {
+      "additionalProperties": false,
+      "description": "Name a published version, or a validator lock digest; exactly one of the two.",
+      "properties": {
+        "factoryId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "factoryVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "validatorLockDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "type": "object"
     },
     "FactoryVersionPath": {
       "additionalProperties": false,

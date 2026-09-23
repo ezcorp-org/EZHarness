@@ -21,6 +21,7 @@ web_vitest_coverage_args() {
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/packages/[[]referenceId]/impact/+server.ts"
     "--coverage.include=src/routes/api/factories/tenants/[[]tenantId]/purge-preview/+server.ts"
     "--coverage.include=src/routes/api/factories/tenants/[[]tenantId]/purge-requests/+server.ts"
+    "--coverage.include=src/routes/api/factories/projects/[[]projectId]/validator-materials/+server.ts"
     "--coverage.include=src/lib/server/factory-boot.ts"
     "--coverage.include=src/lib/server/context.ts"
     "--coverage.include=src/routes/api/factories/projects/[[]projectId]/definitions/[[]factoryId]/versions/+server.ts"

@@ -236,6 +236,20 @@ describe("FactoryRunInspector", () => {
 		expect(within(screen.getByRole("button", { name: /run-1/ })).getByText("succeeded")).toBeVisible();
 	});
 
+	test("the acceptance card names the contract the run's version pins, and only when one is registered", async () => {
+		const validatorMaterial = { factoryId: "factory-run-1", factoryVersion: "1.0.0", definitionDigest: digest, contractId: "catalog.contract", contractVersion: "3", contractDigest: `sha256:${"c".repeat(64)}`, validatorLockDigest: `sha256:${"d".repeat(64)}`, mandatoryClaims: [{ id: "tests", validatorId: "v-tests", freshnessMs: 1 }, { id: "style", validatorId: "v-style", freshnessMs: 1, required: false }], claimGroups: [{ id: "quality", claimIds: ["tests", "style"], minimumPasses: 1, requireAllDecisive: false }] };
+		const service = api({ inspectRun: vi.fn(async (_project: string, runId: string) => inspection(runId, runId === "run-1" ? { validatorMaterial } : {})), openRunEvents: vi.fn(async () => frames()) });
+		render(FactoryRunInspector, { projectId: "project-1", onOpenInbox: vi.fn(), api: service });
+		await fireEvent.click(await screen.findByRole("button", { name: /run-1/ }));
+		const contract = await screen.findByLabelText("Pinned acceptance contract");
+		expect(contract).toHaveTextContent("catalog.contract · 3");
+		expect(contract).toHaveTextContent("cccccccccccc");
+		expect(contract).toHaveTextContent("dddddddddddd");
+		expect(contract).toHaveTextContent("1 required of 2 · 1 group");
+		await fireEvent.click(screen.getByRole("button", { name: /run-2/ }));
+		await waitFor(() => expect(screen.queryByLabelText("Pinned acceptance contract")).toBeNull());
+	});
+
 	test("no project reads nothing", async () => {
 		const service = api();
 		render(FactoryRunInspector, { projectId: "", onOpenInbox: vi.fn(), api: service });

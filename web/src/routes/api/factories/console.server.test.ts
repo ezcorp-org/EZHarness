@@ -17,7 +17,7 @@ vi.mock("$server/factory/application", async importOriginal => ({ ...(await impo
 
 const services = {
   tenantId: "tenant-1",
-  inspections: { inspect: vi.fn() },
+  inspections: { inspect: vi.fn(), material: vi.fn() },
   events: { read: vi.fn() },
   packages: { list: vi.fn(), install: vi.fn(), transition: vi.fn(), impact: vi.fn() },
   purge: { preview: vi.fn(), request: vi.fn() },
@@ -41,6 +41,7 @@ const trust = await import("./projects/[projectId]/packages/[referenceId]/trust/
 const impact = await import("./projects/[projectId]/packages/[referenceId]/impact/+server");
 const purgePreview = await import("./tenants/[tenantId]/purge-preview/+server");
 const purgeRequests = await import("./tenants/[tenantId]/purge-requests/+server");
+const materials = await import("./projects/[projectId]/validator-materials/+server");
 
 const digest = `sha256:${"a".repeat(64)}`;
 const referenceId = "b".repeat(64);
@@ -106,6 +107,20 @@ describe("console routes", () => {
     expect(await json(section)).toMatchObject({ kind: "run.inspection.page", resource: { section: "attempts" } });
     expect(services.inspections.inspect).toHaveBeenLastCalledWith(session, runParams, { section: "attempts", cursor: "abc" });
     expect((await inspection.GET(event("GET", `${base}/runs/run-1/inspection?section=bogus`, { params: runParams }))).status).toBe(400);
+  });
+
+  test("the validator material read names a version or a lock, and maps a bad query and an absent material", async () => {
+    const material = { factoryId: "factory-1", factoryVersion: "1.0.0", definitionDigest: digest, contractId: "contract", contractVersion: "1", contractDigest: digest, validatorLockDigest: digest, mandatoryClaims: [], claimGroups: [] };
+    services.inspections.material.mockResolvedValue(material);
+    const read = (search: string) => materials.GET(event("GET", `${base}/validator-materials${search}`, { params: { projectId: "project-1" }, auth: "api-key", scopes: ["read"] }));
+    expect(await json(await read("?factoryId=factory-1&factoryVersion=1.0.0&ignored=x"))).toMatchObject({ kind: "validator.material", resource: material });
+    expect(services.inspections.material).toHaveBeenLastCalledWith({ kind: "user", id: "member-1", authentication: "api-key" }, "project-1", { factoryId: "factory-1", factoryVersion: "1.0.0" });
+    await read(`?validatorLockDigest=${encodeURIComponent(digest)}`);
+    expect(services.inspections.material).toHaveBeenLastCalledWith(expect.anything(), "project-1", { validatorLockDigest: digest });
+    services.inspections.material.mockRejectedValueOnce(new FactoryConsoleError("factory_material_query_invalid"));
+    expect((await read("")).status).toBe(400);
+    services.inspections.material.mockRejectedValueOnce(new FactoryConsoleError("factory_material_not_found"));
+    expect((await json(await read("?factoryId=f&factoryVersion=9"))).error?.code).toBe("factory_material_not_found");
   });
 
   test("the event stream reads its first batch before streaming, so refusals are statuses", async () => {

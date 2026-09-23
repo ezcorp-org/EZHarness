@@ -6,7 +6,7 @@
  * tenant purge request. They join the API unions in `types.ts`, so one
  * generated schema validates every request and response.
  */
-import type { FactoryApiPage, FactoryProjectPath, FactoryRunDetails, FactoryRunPath, FactoryRunStatus, JsonValue, RunnerReference } from "./types.js";
+import type { FactoryApiPage, FactoryProjectPath, FactoryReleaseContractBody, FactoryRunDetails, FactoryRunPath, FactoryRunStatus, JsonValue, RunnerReference } from "./types.js";
 
 export const FACTORY_EVENT_SCHEMA_VERSION = "factory.run-event.v1" as const;
 
@@ -178,6 +178,25 @@ export interface FactoryRunReleaseResource {
   readonly outcomeCode?: string;
 }
 
+/**
+ * The registered validator material a published version or a validator lock
+ * names: the contract a release approval pins, never the validator runtimes.
+ */
+export interface FactoryValidatorMaterialResource extends FactoryReleaseContractBody {
+  /** @minLength 1 @maxLength 512 */ readonly factoryId: string;
+  /** @minLength 1 @maxLength 512 */ readonly factoryVersion: string;
+  /** @minLength 71 @maxLength 71 */ readonly definitionDigest: string;
+  /** @minLength 1 @maxLength 512 */ readonly contractId: string;
+  /** @minLength 1 @maxLength 512 */ readonly contractVersion: string;
+}
+
+/** Name a published version, or a validator lock digest; exactly one of the two. */
+export interface FactoryValidatorMaterialQuery {
+  /** @minLength 1 @maxLength 512 */ readonly factoryId?: string;
+  /** @minLength 1 @maxLength 512 */ readonly factoryVersion?: string;
+  /** @minLength 71 @maxLength 71 */ readonly validatorLockDigest?: string;
+}
+
 export interface FactoryRunInspection {
   readonly run: FactoryRunDetails;
   readonly cursor: FactoryEventCursor;
@@ -195,6 +214,8 @@ export interface FactoryRunInspection {
   readonly acceptance: readonly FactoryAcceptanceResource[];
   /** @maxItems 200 */
   readonly releases: readonly FactoryRunReleaseResource[];
+  /** The validator material the run's version registered; absent when it registered none. */
+  readonly validatorMaterial?: FactoryValidatorMaterialResource;
 }
 
 export type FactoryInspectionPage =

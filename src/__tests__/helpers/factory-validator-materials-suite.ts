@@ -17,6 +17,8 @@ import { FactoryRecords } from "../../factory/records";
 import { FactoryReleaseAuthorityStore, type FactoryReleaseRunLifecycle } from "../../factory/release-authority";
 import type { FactoryRunFence } from "../../factory/run-lifecycle";
 import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime, type FactoryValidatorRunLifecycle } from "../../factory/validator-materials";
+import { FactoryConsoleSigner, FactoryEventCursors } from "../../factory/console-tokens";
+import { FactoryRunInspections } from "../../factory/run-inspection";
 
 interface Fixture { readonly db: TransactionalDb; readonly blobs: BlobStore; close(): Promise<void> }
 
@@ -122,6 +124,20 @@ export function factoryValidatorMaterialsConformance(createFixture: () => Promis
   });
 
   afterAll(async () => { await fixture?.close(); });
+
+  test("the console reads the registered material by version and by lock, and nothing else (W09d O2)", async () => {
+    // Only the grants and the database take part in this read.
+    const inspections = new FactoryRunInspections(database, tenantId, grants, {} as never, new FactoryEventCursors(new FactoryConsoleSigner(new Uint8Array(32).fill(7)), () => now));
+    const { projectId: _projectId, ...expected } = material;
+    expect(await inspections.material(admin, projectId, { factoryId: compiled.definition.id, factoryVersion: compiled.definition.version })).toEqual(expected);
+    expect(await inspections.material(admin, projectId, { validatorLockDigest: material.validatorLockDigest })).toEqual(expected);
+    expect(expected).not.toHaveProperty("validators");
+    await expect(inspections.material(admin, projectId, { factoryId: compiled.definition.id, factoryVersion: "9.9.9" })).rejects.toMatchObject({ code: "factory_material_not_found" });
+    for (const query of [{}, { factoryId: compiled.definition.id }, { factoryId: compiled.definition.id, factoryVersion: compiled.definition.version, validatorLockDigest: material.validatorLockDigest }]) {
+      await expect(inspections.material(admin, projectId, query)).rejects.toMatchObject({ code: "factory_material_query_invalid" });
+    }
+    await expect(inspections.material({ kind: "user", id: "validator-outsider", authentication: "session" }, projectId, { validatorLockDigest: material.validatorLockDigest })).rejects.toMatchObject({ code: "factory_forbidden" });
+  });
 
   test("migration and compiled material bind the exact protected runner lock", async () => {
     expect(material).toMatchObject({ projectId, factoryId: compiled.definition.id, definitionDigest: compiled.digest, contractId: compiled.definition.acceptance.id });

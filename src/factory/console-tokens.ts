@@ -12,7 +12,9 @@ export type FactoryConsoleErrorCode =
   | "factory_purge_confirmation"
   | "factory_artifact_not_found"
   | "factory_ticket_invalid"
-  | "factory_ticket_expired";
+  | "factory_ticket_expired"
+  | "factory_material_query_invalid"
+  | "factory_material_not_found";
 
 export class FactoryConsoleError extends Error {
   constructor(readonly code: FactoryConsoleErrorCode) { super(code); this.name = "FactoryConsoleError"; }

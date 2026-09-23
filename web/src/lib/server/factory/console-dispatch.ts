@@ -35,6 +35,8 @@ export async function dispatchFactoryConsoleRequest(application: FactoryApplicat
       return { schemaVersion: VERSION, kind: "artifact.share.resource", resource: await (await application.console()).tickets.share(principal, factoryRunKey(request.path), request.path.artifactId, request.body, request.preconditions.idempotencyKey) };
     case "artifact.unshare":
       return { schemaVersion: VERSION, kind: "artifact.share.resource", resource: await (await application.console()).tickets.unshare(principal, factoryRunKey(request.path), request.path.artifactId, request.path.targetProjectId, request.preconditions.idempotencyKey) };
+    case "validator.material":
+      return { schemaVersion: VERSION, kind: "validator.material", resource: await (await application.console()).inspections.material(principal, request.path.projectId, request.query) };
     case "package.list":
       return { schemaVersion: VERSION, kind: "package.page", page: await (await application.console()).packages.list(principal, request.path.projectId, request.query) };
     case "package.install":
@@ -74,6 +76,8 @@ export const FACTORY_CONSOLE_ERROR_FAMILIES: readonly ErrorFamily[] = [
       answer(404, "Artifact not found.", "factory_artifact_not_found"),
       answer(403, "The artifact ticket is not valid for this request.", "factory_ticket_invalid"),
       answer(410, "The artifact ticket expired.", "factory_ticket_expired"),
+      answer(400, "Name a published version or a validator lock digest, not both.", "factory_material_query_invalid"),
+      answer(404, "No validator material is registered for this version or lock.", "factory_material_not_found"),
     ],
   },
   {

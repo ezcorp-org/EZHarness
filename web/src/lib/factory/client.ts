@@ -36,6 +36,8 @@ import type {
 	FactoryPackageInstallBody,
 	FactoryPackageTransition,
 	FactoryPurgePreview,
+	FactoryValidatorMaterialQuery,
+	FactoryValidatorMaterialResource,
 	FactoryPurgeRequestResource,
 	FactoryGrantResource,
 	FactoryGrantListQuery,
@@ -397,6 +399,12 @@ export class FactoryApiClient {
 
 	private tenant(tenantId: string): string {
 		return "/api/factories/tenants/" + encoded(tenantId);
+	}
+
+	/** The validator material a published version or a validator lock names: the contract a release approval pins. */
+	async validatorMaterial(projectId: string, query: FactoryValidatorMaterialQuery): Promise<FactoryValidatorMaterialResource> {
+		const path = "/api/factories/projects/" + encoded(projectId) + "/validator-materials" + queryString({ factoryId: query.factoryId, factoryVersion: query.factoryVersion, validatorLockDigest: query.validatorLockDigest });
+		return expectKind(await this.read(path), "validator.material").resource;
 	}
 
 	async purgePreview(tenantId: string): Promise<FactoryPurgePreview> {

@@ -1606,6 +1606,28 @@
           "additionalProperties": false,
           "properties": {
             "kind": {
+              "const": "validator.material",
+              "type": "string"
+            },
+            "resource": {
+              "$ref": "#/definitions/FactoryValidatorMaterialResource"
+            },
+            "schemaVersion": {
+              "const": "factory.api.response.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "resource"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
               "const": "purge.request.resource",
               "type": "string"
             },
@@ -3683,6 +3705,10 @@
         },
         "run": {
           "$ref": "#/definitions/FactoryRunDetails"
+        },
+        "validatorMaterial": {
+          "$ref": "#/definitions/FactoryValidatorMaterialResource",
+          "description": "The validator material the run's version registered; absent when it registered none."
         }
       },
       "required": [
@@ -3911,6 +3937,117 @@
           "type": "object"
         }
       ]
+    },
+    "FactoryValidatorMaterialResource": {
+      "additionalProperties": false,
+      "description": "The registered validator material a published version or a validator lock names: the contract a release approval pins, never the validator runtimes.",
+      "properties": {
+        "claimGroups": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "claimIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "id": {
+                "type": "string"
+              },
+              "minimumPasses": {
+                "type": "number"
+              },
+              "requireAllDecisive": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "claimIds",
+              "minimumPasses",
+              "requireAllDecisive"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "contractDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "contractId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "contractVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "definitionDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "factoryId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "factoryVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "mandatoryClaims": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "freshnessMs": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "validatorId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "validatorId",
+              "freshnessMs"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "validatorLockDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "required": [
+        "claimGroups",
+        "contractDigest",
+        "contractId",
+        "contractVersion",
+        "definitionDigest",
+        "factoryId",
+        "factoryVersion",
+        "mandatoryClaims",
+        "validatorLockDigest"
+      ],
+      "type": "object"
     },
     "FactoryVersionDetails": {
       "additionalProperties": false,

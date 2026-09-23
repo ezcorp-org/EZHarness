@@ -279,6 +279,7 @@
   "src/db/migrations/add-factory-service-credentials.ts": 100,
   "web/src/routes/api/factories/_shared.ts": 100,
   "web/src/lib/server/factory/console-dispatch.ts": 100,
+  "web/src/routes/api/factories/projects/[projectId]/validator-materials/+server.ts": 100,
   "web/src/lib/server/factory/route-kit.ts": 100,
   "web/src/routes/api/factories/projects/[projectId]/definitions/+server.ts": 100,
   "web/src/routes/api/factories/projects/[projectId]/definitions/import/+server.ts": 100,

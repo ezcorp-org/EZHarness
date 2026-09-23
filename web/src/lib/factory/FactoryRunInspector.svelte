@@ -324,6 +324,16 @@
 								</tbody>
 							</table>
 						{/if}
+						{#if inspection.validatorMaterial}
+							{@const material = inspection.validatorMaterial}
+							{@const required = material.mandatoryClaims.filter(claim => claim.required !== false).length}
+							<dl class="contract" aria-label="Pinned acceptance contract">
+								<div><dt>Contract</dt><dd title={`${material.contractId} ${material.contractVersion}`}>{material.contractId} · {material.contractVersion}</dd></div>
+								<div><dt>Contract digest</dt><dd><code title={material.contractDigest}>{shortDigest(material.contractDigest)}</code></dd></div>
+								<div><dt>Validator lock</dt><dd><code title={material.validatorLockDigest}>{shortDigest(material.validatorLockDigest)}</code></dd></div>
+								<div><dt>Claims</dt><dd>{required} required of {material.mandatoryClaims.length}{material.claimGroups.length > 0 ? ` · ${material.claimGroups.length} group${material.claimGroups.length === 1 ? "" : "s"}` : ""}</dd></div>
+							</dl>
+						{/if}
 					</section>
 
 					<section class="card" aria-labelledby="releases-title">
@@ -519,6 +529,10 @@
 	.figures dd.warn { color: var(--color-amber-500); }
 	.card-note { margin: 10px 0 0; color: var(--color-text-secondary); font-size: 11px; }
 	.decision { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+	.contract { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px 12px; margin: 12px 0 0; border-top: 1px solid var(--color-border); padding-top: 10px; font-size: 11px; }
+	.contract dt { color: var(--color-text-muted); font-size: 10px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+	.contract dd { margin: 2px 0 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+	.contract code { font-family: var(--font-mono); font-size: 10px; }
 	.reasons, .attempts { width: 100%; margin-top: 10px; border-collapse: collapse; font-size: 11px; }
 	.reasons caption { padding-bottom: 6px; color: var(--color-text-muted); font-size: 10px; text-align: left; text-transform: uppercase; letter-spacing: .06em; }
 	.reasons th, .attempts th { border-bottom: 1px solid var(--color-border); padding: 5px 6px; color: var(--color-text-muted); font-size: 10px; font-weight: 700; text-align: left; }

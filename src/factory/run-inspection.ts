@@ -2,6 +2,8 @@ import { sql } from "drizzle-orm";
 import type {
   FactoryAcceptanceResource, FactoryApiPage, FactoryArtifactResource, FactoryAttemptResource, FactoryBlockerResource, FactoryChildRunResource,
   FactoryInspectionPage, FactoryInspectionQuery, FactoryInspectionSection, FactoryRunCostResource, FactoryRunInspection, FactoryRunReleaseResource, FactoryRunStatus,
+  FactoryValidatorMaterialQuery,
+  FactoryValidatorMaterialResource,
 } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
@@ -10,6 +12,7 @@ import type { FactoryGrants, FactoryPrincipal } from "./grants";
 import { assertFactoryIdentity, encodeFactoryPayload, type FactoryRunKey } from "./records";
 import { FactoryRunLifecycleError, type FactoryRunLifecycle } from "./run-lifecycle";
 import { FACTORY_RUN_STATUS_CONSUMER_ID } from "./run-transition-projector";
+import { FactoryTrustedValidatorError, readFactoryValidatorMaterialInTransaction, type FactoryValidatorMaterialSelector } from "./validator-materials";
 
 const DEFAULT_LIMIT = 50;
 const SECTION_CAP = 200;
@@ -98,9 +101,46 @@ export class FactoryRunInspections {
         costs: await this.costs(transaction, input.key),
         acceptance: await this.acceptance(transaction, input.key),
         releases: await this.releases(transaction, input.key),
+        ...(await this.runMaterial(transaction, input.key)),
       };
     });
     return { run: await this.runs.read(input.principal, input.key), ...partial };
+  }
+
+  /**
+   * The registered validator material a published version or a validator lock
+   * names, for any principal that may read the project (W09d O2).
+   */
+  async material(principal: FactoryPrincipal, projectId: string, query: FactoryValidatorMaterialQuery): Promise<FactoryValidatorMaterialResource> {
+    const input = JSON.parse(encodeFactoryPayload({ principal, projectId, query })) as { principal: FactoryPrincipal; projectId: string; query: FactoryValidatorMaterialQuery };
+    assertFactoryIdentity(input.projectId);
+    const { factoryId, factoryVersion, validatorLockDigest } = input.query;
+    const byVersion = factoryId !== undefined && factoryVersion !== undefined && validatorLockDigest === undefined;
+    const byLock = validatorLockDigest !== undefined && factoryId === undefined && factoryVersion === undefined;
+    if (!byVersion && !byLock) throw new FactoryConsoleError("factory_material_query_invalid");
+    return this.database.transaction(async transaction => {
+      await this.grants.authorizeInTransaction(transaction, input.principal, input.projectId, "read");
+      const found = await this.readMaterial(transaction, input.projectId, byLock ? { validatorLockDigest: validatorLockDigest! } : { factoryId: factoryId!, factoryVersion: factoryVersion! });
+      if (!found) throw new FactoryConsoleError("factory_material_not_found");
+      return found;
+    });
+  }
+
+  private async runMaterial(transaction: MigrationDb, key: FactoryRunKey): Promise<{ validatorMaterial?: FactoryValidatorMaterialResource }> {
+    const [row] = rows<Row>(await transaction.execute(sql`SELECT factory_id, factory_version FROM factory_run_lifecycle WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`));
+    const found = await this.readMaterial(transaction, key.projectId, { factoryId: text(row!.factory_id), factoryVersion: text(row!.factory_version) });
+    return found ? { validatorMaterial: found } : {};
+  }
+
+  /** The public material, or undefined when none is registered. */
+  private async readMaterial(transaction: MigrationDb, projectId: string, selector: FactoryValidatorMaterialSelector): Promise<FactoryValidatorMaterialResource | undefined> {
+    try {
+      const { projectId: _projectId, ...material } = await readFactoryValidatorMaterialInTransaction(transaction, this.tenantId, projectId, selector);
+      return material;
+    } catch (error) {
+      if (error instanceof FactoryTrustedValidatorError && error.code === "factory_validator_material_missing") return undefined;
+      throw error;
+    }
   }
 
   private async authorize(transaction: MigrationDb, principal: FactoryPrincipal, key: FactoryRunKey): Promise<void> {
