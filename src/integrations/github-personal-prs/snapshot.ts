@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export const SNAPSHOT_LIMITS = Object.freeze({ files: 2_000, fileBytes: 256 * 1024, totalBytes: 32 * 1024 * 1024, pathBytes: 1_024 });
+export const SNAPSHOT_LIMITS = Object.freeze({ files: 2_000, fileBytes: 256 * 1024, totalBytes: 32 * 1024 * 1024, pathBytes: 1_024, transferChunkBytes: 256 * 1024, bundleBytes: 48 * 1024 * 1024 });
 
 export interface SnapshotFileInput { path: string; mode: "100644" | "100755"; data: string; sha256: string }
 export interface SnapshotFile { path: string; mode: "100644" | "100755"; bytes: Uint8Array; sha256: string }

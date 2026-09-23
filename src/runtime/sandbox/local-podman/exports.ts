@@ -3,8 +3,6 @@ import { constants } from "node:fs";
 import { open, opendir, type FileHandle } from "node:fs/promises";
 import { validateSnapshot, SNAPSHOT_LIMITS, type SnapshotFileInput } from "../../../integrations/github-personal-prs/snapshot";
 
-const CHUNK = 256 * 1024;
-const MAX_BUNDLE = 48 * 1024 * 1024;
 const MAX_SNAPSHOTS = 3;
 const TTL_MS = 10 * 60_000;
 
@@ -80,7 +78,7 @@ export class FrozenWorkspaceExports {
       const validated = validateSnapshot(files);
       files = validated.files.map(file => ({ path: file.path, mode: file.mode, data: Buffer.from(file.bytes).toString("base64"), sha256: file.sha256 }));
       const bytes = Buffer.from(JSON.stringify(files));
-      if (bytes.length > MAX_BUNDLE) unsafe("Serialized snapshot is too large");
+      if (bytes.length > SNAPSHOT_LIMITS.bundleBytes) unsafe("Serialized snapshot is too large");
       const snapshotId = randomUUID();
       this.snapshots.set(snapshotId, { scope, resourceId, bytes, createdAt: Date.now() });
       return { snapshotId, byteLength: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") };
@@ -91,7 +89,7 @@ export class FrozenWorkspaceExports {
     this.prune();
     const value = this.snapshots.get(snapshotId);
     if (!value || value.scope !== scope || value.resourceId !== resourceId) unsafe("Snapshot is unavailable");
-    if (!Number.isSafeInteger(offsetBytes) || offsetBytes < 0 || offsetBytes > value.bytes.length || !Number.isSafeInteger(lengthBytes) || lengthBytes < 1 || lengthBytes > CHUNK) unsafe("Invalid snapshot range");
+    if (!Number.isSafeInteger(offsetBytes) || offsetBytes < 0 || offsetBytes > value.bytes.length || !Number.isSafeInteger(lengthBytes) || lengthBytes < 1 || lengthBytes > SNAPSHOT_LIMITS.transferChunkBytes) unsafe("Invalid snapshot range");
     const nextOffsetBytes = Math.min(value.bytes.length, offsetBytes + lengthBytes);
     return { snapshotId, offsetBytes, nextOffsetBytes, eof: nextOffsetBytes === value.bytes.length, data: Buffer.from(value.bytes.subarray(offsetBytes, nextOffsetBytes)).toString("base64") };
   }

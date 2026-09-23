@@ -1,9 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { SandboxController, SandboxMethodGroup, SandboxOperationResult } from "../../runtime/sandbox/controller/types";
-import { validateSnapshot, type SnapshotFileInput, type ValidatedSnapshot } from "./snapshot";
-
-const READ_CHUNK = 256 * 1024;
-const MAX_EXPORT = 48 * 1024 * 1024;
+import { SNAPSHOT_LIMITS, validateSnapshot, type SnapshotFileInput, type ValidatedSnapshot } from "./snapshot";
 
 export class WorkspaceTransferError extends Error {
   constructor(public readonly code: "provider_failed" | "tampered_snapshot" | "unsupported_workspace", message: string) {
@@ -26,7 +23,13 @@ async function method(bridge: Bridge, userId: string, projectId: string, convers
 /** Called only inside runPrivateWorkspaceImport for a newly created private resource. */
 export async function importSnapshotToSandbox(bridge: Bridge, userId: string, projectId: string, snapshot: ValidatedSnapshot): Promise<void> {
   const root = await method(bridge, userId, projectId, undefined, "sandbox.files.v1", "list", { path: "/", limit: 1 });
-  if (!Array.isArray(root.entries) || root.entries.length !== 0) throw new WorkspaceTransferError("unsupported_workspace", "Private sandbox is not empty");
+  if (!Array.isArray(root.entries) || root.nextCursor) throw new WorkspaceTransferError("unsupported_workspace", "Private sandbox is not empty");
+  if (root.entries.length === 1) {
+    const housekeeping = root.entries[0] as { path?: string; kind?: string };
+    if (housekeeping.path !== "/lost+found" || housekeeping.kind !== "directory") throw new WorkspaceTransferError("unsupported_workspace", "Private sandbox is not empty");
+    const directory = await method(bridge, userId, projectId, undefined, "sandbox.files.v1", "list", { path: "/lost+found", limit: 1 });
+    if (!Array.isArray(directory.entries) || directory.entries.length !== 0 || directory.nextCursor) throw new WorkspaceTransferError("unsupported_workspace", "Private sandbox is not empty");
+  } else if (root.entries.length !== 0) throw new WorkspaceTransferError("unsupported_workspace", "Private sandbox is not empty");
   const directories = new Set<string>();
   for (const file of snapshot.files) {
     const parts = file.path.split("/");
@@ -36,7 +39,7 @@ export async function importSnapshotToSandbox(bridge: Bridge, userId: string, pr
   }
   for (const path of [...directories].sort((a, b) => a.length - b.length || a.localeCompare(b))) await method(bridge, userId, projectId, undefined, "sandbox.files.v1", "mkdir", { path, recursive: false });
   for (const file of snapshot.files) {
-    if (file.bytes.length > READ_CHUNK) throw new WorkspaceTransferError("unsupported_workspace", "Repository file exceeds sandbox import limit");
+    if (file.bytes.length > SNAPSHOT_LIMITS.transferChunkBytes) throw new WorkspaceTransferError("unsupported_workspace", "Repository file exceeds sandbox import limit");
     const path = `/${file.path}`;
     await method(bridge, userId, projectId, undefined, "sandbox.files.v1", "write", { path, encoding: "base64", data: Buffer.from(file.bytes).toString("base64") });
     await method(bridge, userId, projectId, undefined, "sandbox.files.v1", "chmod", { path, mode: file.mode === "100755" ? 0o755 : 0o644 });
@@ -56,12 +59,12 @@ export async function exportSnapshotFromSandbox(bridge: Bridge, userId: string, 
   const begun = await method(bridge, userId, projectId, conversationId, "sandbox.transfer.v1", "beginExport", {});
   const snapshotId = String(begun.snapshotId);
   const byteLength = Number(begun.byteLength);
-  if (!Number.isSafeInteger(byteLength) || byteLength < 2 || byteLength > MAX_EXPORT || typeof begun.sha256 !== "string") throw new WorkspaceTransferError("tampered_snapshot", "Invalid frozen snapshot receipt");
+  if (!Number.isSafeInteger(byteLength) || byteLength < 2 || byteLength > SNAPSHOT_LIMITS.bundleBytes || typeof begun.sha256 !== "string") throw new WorkspaceTransferError("tampered_snapshot", "Invalid frozen snapshot receipt");
   const chunks: Uint8Array[] = [];
   let offset = 0;
   try {
     while (offset < byteLength) {
-      const read = await method(bridge, userId, projectId, conversationId, "sandbox.transfer.v1", "readExport", { snapshotId, offsetBytes: offset, lengthBytes: Math.min(READ_CHUNK, byteLength - offset) });
+      const read = await method(bridge, userId, projectId, conversationId, "sandbox.transfer.v1", "readExport", { snapshotId, offsetBytes: offset, lengthBytes: Math.min(SNAPSHOT_LIMITS.transferChunkBytes, byteLength - offset) });
       const bytes = Buffer.from(String(read.data), "base64");
       if (bytes.length === 0 || Number(read.offsetBytes) !== offset || Number(read.nextOffsetBytes) !== offset + bytes.length || offset + bytes.length > byteLength || Boolean(read.eof) !== (offset + bytes.length === byteLength)) throw new WorkspaceTransferError("tampered_snapshot", "Frozen snapshot chunk changed");
       chunks.push(bytes);

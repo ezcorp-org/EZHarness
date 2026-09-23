@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
+import { mkdtemp, mkdir, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import type { SandboxController } from "../../runtime/sandbox/controller/types";
+import { LocalWorkspaceFiles } from "../../runtime/sandbox/local-podman/files";
 import { exportSnapshotFromSandbox, importSnapshotToSandbox, WorkspaceTransferError } from "./provider-transfer";
 import { validateSnapshot } from "./snapshot";
 
@@ -38,6 +42,59 @@ describe("sandbox PR transfer", () => {
     });
     await importSnapshotToSandbox(bridge, "owner", "project", validateSnapshot([file("src/a.txt", "hello")]));
     expect(calls).toEqual(["list", "mkdir", "write", "chmod", "stat", "read"]);
+  });
+
+  test("imports into a fresh ext2 workspace with an empty lost+found directory", async () => {
+    const content = Buffer.from("hello");
+    const { bridge, calls } = fakeBridge((operation, payload) => {
+      if (operation === "list" && payload.path === "/") return { entries: [{ path: "/lost+found", kind: "directory" }] };
+      if (operation === "list" && payload.path === "/lost+found") return { entries: [] };
+      if (operation === "stat") return { entry: { kind: "file", sizeBytes: content.length, mode: 0o644 } };
+      if (operation === "read") return { data: content.toString("base64"), encoding: "base64", eof: true };
+      return {};
+    });
+    await importSnapshotToSandbox(bridge, "owner", "project", validateSnapshot([file("src/a.txt", "hello")]));
+    expect(calls).toEqual(["list", "list", "mkdir", "write", "chmod", "stat", "read"]);
+  });
+
+  test("imports through the real workspace file adapter with ext2 housekeeping", async () => {
+    const root = await mkdtemp(join(tmpdir(), "ez-pr-import-"));
+    try {
+      await mkdir(join(root, "lost+found"), { mode: 0o700 });
+      const workspace = new LocalWorkspaceFiles(root, { maxReadBytes: 256 * 1024, maxWriteBytes: 256 * 1024, maxListEntries: 256 });
+      const pending = new Map<string, { operation: string; payload: Record<string, unknown> }>();
+      const call = { scope: { projectId: "project-1", bindingId: "binding-1", generation: 1 }, operationId: "operation-1", idempotencyKey: "retry-1", requestDigest: "a".repeat(64) };
+      const bridge = {
+        async admitSandboxMethod(_user: string, _project: string, input: { operation: string; payload: Record<string, unknown> }) {
+          const id = crypto.randomUUID(); pending.set(id, input); return { id };
+        },
+        async executeAdmittedSandboxMethod(_user: string, id: string) {
+          const input = pending.get(id)!;
+          const request = { call, resourceId: "resource-1", ...input.payload } as never;
+          const result = input.operation === "list" ? await workspace.list(request)
+            : input.operation === "mkdir" ? await workspace.mkdir(request)
+            : input.operation === "write" ? await workspace.write(request)
+            : input.operation === "chmod" ? await workspace.chmod(request)
+            : input.operation === "stat" ? await workspace.stat(request)
+            : input.operation === "read" ? await workspace.read(request)
+            : (() => { throw new Error(`Unexpected workspace operation: ${input.operation}`); })();
+          return { result: { receipt: { outcome: "succeeded" }, ...result } };
+        },
+      };
+      await importSnapshotToSandbox(bridge as never, "owner", "project-1", validateSnapshot([file("src/a.txt", "hello")]));
+      expect(await readFile(join(root, "src/a.txt"), "utf8")).toBe("hello");
+      expect((await workspace.list({ call, resourceId: "resource-1", path: "/lost+found", limit: 1 })).entries).toEqual([]);
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  test("rejects unexpected or occupied ext2 housekeeping content", async () => {
+    const snapshot = validateSnapshot([file("a.txt", "hello")]);
+    for (const entries of [[{ path: "/lost+found", kind: "file" }], [{ path: "/lost+found", kind: "directory" }, { path: "/other", kind: "file" }]]) {
+      const { bridge } = fakeBridge((operation, payload) => operation === "list" && payload.path === "/" ? { entries } : {});
+      await expect(importSnapshotToSandbox(bridge, "owner", "project", snapshot)).rejects.toMatchObject({ code: "unsupported_workspace" });
+    }
+    const occupied = fakeBridge((operation, payload) => operation === "list" && payload.path === "/" ? { entries: [{ path: "/lost+found", kind: "directory" }] } : operation === "list" ? { entries: [{ path: "/lost+found/host-file", kind: "file" }] } : {});
+    await expect(importSnapshotToSandbox(occupied.bridge, "owner", "project", snapshot)).rejects.toMatchObject({ code: "unsupported_workspace" });
   });
 
   test("refuses nonempty workspace and mismatched readback", async () => {

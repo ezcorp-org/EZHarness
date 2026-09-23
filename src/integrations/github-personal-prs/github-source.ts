@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { validateSnapshot, type SnapshotFileInput, type ValidatedSnapshot } from "./snapshot";
+import { SNAPSHOT_LIMITS, validateSnapshot, type SnapshotFileInput, type ValidatedSnapshot } from "./snapshot";
 
 export class GithubSourceError extends Error {
   constructor(public readonly code: "invalid_repository" | "invalid_base" | "unsupported_repository" | "provider_unavailable", message: string) {
@@ -36,14 +36,14 @@ async function approvedTree(input: { repositoryId: number; baseRef: string; toke
   const treeObject = record(commit.tree);
   if (typeof treeObject.sha !== "string" || !SHA.test(treeObject.sha)) throw new GithubSourceError("provider_unavailable", "GitHub commit has no tree");
   const tree = record(await transport(`/repos/${repo}/git/trees/${treeObject.sha}?recursive=1`, input.token));
-  if (tree.truncated !== false || !Array.isArray(tree.tree) || tree.tree.length === 0 || tree.tree.length > 2_000) throw new GithubSourceError("unsupported_repository", "Repository tree is empty or exceeds import limits");
+  if (tree.truncated !== false || !Array.isArray(tree.tree) || tree.tree.length === 0 || tree.tree.length > SNAPSHOT_LIMITS.files) throw new GithubSourceError("unsupported_repository", "Repository tree is empty or exceeds import limits");
   return { baseSha: base.sha, entries: tree.tree };
 }
 
 function supportedBlob(raw: unknown): { path: string; mode: "100644" | "100755"; sha: string; size: number } | null {
   const item = record(raw);
   if (item.type === "tree" && item.mode === "040000") return null;
-  if (item.type !== "blob" || (item.mode !== "100644" && item.mode !== "100755") || typeof item.path !== "string" || typeof item.sha !== "string" || !SHA.test(item.sha) || typeof item.size !== "number" || !Number.isSafeInteger(item.size) || item.size > 256 * 1024 || item.size < 0) throw new GithubSourceError("unsupported_repository", "Repository contains unsupported content");
+  if (item.type !== "blob" || (item.mode !== "100644" && item.mode !== "100755") || typeof item.path !== "string" || typeof item.sha !== "string" || !SHA.test(item.sha) || typeof item.size !== "number" || !Number.isSafeInteger(item.size) || item.size > SNAPSHOT_LIMITS.fileBytes || item.size < 0) throw new GithubSourceError("unsupported_repository", "Repository contains unsupported content");
   return item as { path: string; mode: "100644" | "100755"; sha: string; size: number };
 }
 
@@ -65,7 +65,7 @@ export async function fetchApprovedBase(input: { repositoryId: number; fullName:
     const item = supportedBlob(raw);
     if (!item) continue;
     total += item.size;
-    if (total > 32 * 1024 * 1024) throw new GithubSourceError("unsupported_repository", "Repository exceeds import size limit");
+    if (total > SNAPSHOT_LIMITS.totalBytes) throw new GithubSourceError("unsupported_repository", "Repository exceeds import size limit");
     entries.push(await verifiedBlob(repo, input.token, item, transport));
   }
   try { return { repositoryId: input.repositoryId, fullName: input.fullName, baseRef: input.baseRef, baseSha: tree.baseSha, snapshot: validateSnapshot(entries) }; }
