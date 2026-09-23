@@ -225,6 +225,26 @@ describe("factoryStorageProbeTarget", () => {
 });
 
 describe("factoryGatewayProbeTarget", () => {
+  /** A real mutual-TLS listener answering `status`, and the probe's material for it. */
+  async function listener(status: number) {
+    const root = await privateRoot();
+    const certs = await certificates(roots, "harness.tenant-01");
+    const file = async (name: string, text: string) => { const path = join(root, "secrets", name); await writeFile(path, text, { mode: 0o600 }); await chmod(path, 0o600); return path; };
+    const tls = { caPath: await file("ca.pem", certs.ca), certificatePath: await file("client.pem", certs.clientCert), privateKeyPath: await file("client.key", certs.clientKey) };
+    await writeFile(join(root, "pool-token"), "token\n", { mode: 0o600 });
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca, requestCert: true }, fetch: () => new Response(null, { status }) });
+    const target = factoryGatewayProbeTarget({ ...document(root), gateway: { hostname: "127.0.0.1", port: server.port, tls } } as never);
+    return { target, stop: () => server.stop(true) };
+  }
+
+  test("any HTTP answer from the listener, an error status included, proves it live", async () => {
+    for (const status of [200, 404]) {
+      const { target, stop } = await listener(status);
+      try { expect(await target.health(new AbortController().signal)).toBe(true); }
+      finally { stop(); }
+    }
+  });
+
   test("reports the transport's own failure when the gateway is not listening", async () => {
     const root = await privateRoot();
     const target = factoryGatewayProbeTarget({ ...document(root), gateway: { hostname: "127.0.0.1", port: 1, tls: tlsMaterial } } as never);

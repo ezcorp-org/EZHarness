@@ -165,7 +165,7 @@ export function factoryStorageProbeTarget(blobs: BlobStore): FactoryStorageProbe
 export function factoryGatewayProbeTarget(config: FactoryStartupConfig): FactoryRuntimeDependencies["gateway"] {
   return {
     async health(signal) {
-      const { createGatewayTransport } = await import("@ezcorp/factory-transport");
+      const { createGatewayTransport, GatewayStatusError } = await import("@ezcorp/factory-transport");
       const transport = await createGatewayTransport({
         baseUrl: config.gateway.tls === undefined ? "" : `https://${config.gateway.hostname}:${config.gateway.port}`,
         tls: {
@@ -179,8 +179,13 @@ export function factoryGatewayProbeTarget(config: FactoryStartupConfig): Factory
       // Any HTTP answer proves the listener is bound and terminating TLS with
       // this installation's material. A refused connection or a failed
       // handshake throws, and the probe reports the transport's own code.
-      const response = await transport.request("GET", "/internal/factory/v1/health", undefined, 64 * 1024, signal);
-      return response.statusCode > 0;
+      // The transport raises any non-2xx answer as GatewayStatusError; that is
+      // still an HTTP answer from this installation's listener.
+      try { return (await transport.request("GET", "/internal/factory/v1/health", undefined, 64 * 1024, signal)).statusCode > 0; }
+      catch (error) {
+        if (error instanceof GatewayStatusError) return true;
+        throw error;
+      }
     },
   };
 }
