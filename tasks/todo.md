@@ -3579,6 +3579,12 @@ cannot report task-queue pollers; CI now asks for `FACTORY_TEMPORAL_CLI`. Open: 
 preparation has no product route, quarantine fences nothing live (W02), purge preconditions
 exclude W15/W16, and two installations are proven at the service level only. Gate file:
 `tasks/factory/w14-GATES.md`.
+
+Review update (W14, after the coordinator's rulings): the console answers through the shared route
+boundary (W18a-2's route kit plus one additive error-family hook), the raw stream and bytes routes
+are pinned to the principal-and-scope call pair, and W09d's validator-material read and typed
+contract refusal are in. W15 restore signing is deferred until W15 lands; the branch holds no W15
+commits. The real lane passes 7 of 7 at `096fa0944`; mutation is 93.62%; no W14 line is uncovered.
 ## W18a-2 — second complexity pass and the three coverage-key gaps (branch `wp/w18a2-quality`)
 
 Brief: `/tmp/factory-platform-evidence/w00/briefs/w18a2.md`. Gates: `tasks/factory/w18a2-GATES.md`.
