@@ -63,6 +63,8 @@
 
 	let drafts = $state<readonly FactoryDraftSummary[]>([]);
 	let selected = $state<FactoryDraftDetails | null>(null);
+	/** A draft a newer server wrote: shown as its exported bytes, never edited here. */
+	let readOnlyDraft = $state<{ readonly factoryId: string; readonly source: string } | null>(null);
 	let source = $state<FactoryDefinition | null>(null);
 	let sourceText = $state("");
 	let dirty = $state(false);
@@ -111,6 +113,7 @@
 		loading = true;
 		errorMessage = "";
 		selected = null;
+		readOnlyDraft = null;
 		source = null;
 		try {
 			drafts = await api.listDrafts(targetProject, { archived: false, limit: 200 });
@@ -124,12 +127,23 @@
 	async function openDraft(factoryId: string): Promise<void> {
 		loading = true;
 		errorMessage = "";
+		readOnlyDraft = null;
 		try {
 			const details = await api.getDraft(projectId, factoryId);
 			installDraft(details);
 			versions = await api.listVersions(projectId, factoryId);
 		} catch (error) {
-			errorMessage = describeError(error);
+			if (error instanceof FactoryApiClientError && error.code === "factory_definition_version_unsupported") {
+				selected = null;
+				source = null;
+				try {
+					readOnlyDraft = { factoryId, source: (await api.exportDraft(projectId, factoryId, "json")).source };
+				} catch (exportError) {
+					errorMessage = describeError(exportError);
+				}
+			} else {
+				errorMessage = describeError(error);
+			}
 		} finally {
 			loading = false;
 		}
@@ -234,10 +248,11 @@
 	}
 
 	async function exportDraft(format: "json" | "yaml"): Promise<void> {
-		if (!selected) return;
+		const factoryId = selected?.factoryId ?? readOnlyDraft?.factoryId;
+		if (!factoryId) return;
 		try {
-			const exported = await api.exportDraft(projectId, selected.factoryId, format);
-			downloadFactorySource(selected.factoryId, exported.format, exported.source);
+			const exported = await api.exportDraft(projectId, factoryId, format);
+			downloadFactorySource(factoryId, exported.format, exported.source);
 		} catch (error) {
 			errorMessage = describeError(error);
 		}
@@ -545,6 +560,17 @@
 						{/each}
 					</div>
 				{/if}
+			{:else if readOnlyDraft}
+				<section class="read-only-draft" aria-labelledby="read-only-title">
+					<p class="eyebrow">Read-only</p>
+					<h2 id="read-only-title">{readOnlyDraft.factoryId}</h2>
+					<p role="note">A newer factory server wrote this definition with a schema version this console cannot edit. It is shown exactly as stored. Export it to keep a copy.</p>
+					<div class="editor-actions">
+						<button class="button-secondary" onclick={() => exportDraft("json")}>Export JSON</button>
+						<button class="button-secondary" onclick={() => exportDraft("yaml")}>Export YAML</button>
+					</div>
+					<textarea class="read-only-source" aria-label="Stored definition source" readonly rows="12" value={readOnlyDraft.source}></textarea>
+				</section>
 			{:else}
 				<div class="editor-empty">
 					<div class="empty-mark"><GitBranch size={28} /></div>
@@ -748,6 +774,10 @@
 	.source-editor label { font-size: 12px; font-weight: 700; }
 	.source-editor textarea { min-height: calc(100vh - 345px); resize: vertical; padding: 14px; font-family: var(--font-mono); font-size: 11px; line-height: 1.55; }
 	.source-editor > div { display: flex; justify-content: flex-end; }
+	.read-only-draft { display: grid; gap: 10px; padding: 24px 28px; }
+	.read-only-draft h2 { margin: 0; font-size: 20px; overflow-wrap: anywhere; }
+	.read-only-draft [role="note"] { margin: 0; max-width: 640px; color: var(--color-text-secondary); font-size: 13px; }
+	.read-only-source { box-sizing: border-box; width: 100%; max-height: 520px; resize: vertical; margin: 0; border: 1px solid var(--color-border); border-radius: 3px; background: var(--color-surface-secondary); padding: 12px; color: var(--color-text-primary); font-family: var(--font-mono); font-size: 11px; }
 	.editor-empty { display: grid; min-height: 580px; place-content: center; justify-items: start; padding: 40px; }
 	.editor-empty h2 { max-width: 540px; margin: 8px 0; font-size: clamp(24px, 3vw, 38px); letter-spacing: -.03em; }
 	.editor-empty > p:last-child { max-width: 520px; color: var(--color-text-secondary); }

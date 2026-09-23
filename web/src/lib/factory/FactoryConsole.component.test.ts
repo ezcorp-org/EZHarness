@@ -98,6 +98,49 @@ async function makeDirty(): Promise<void> {
 	await fireEvent.click(screen.getByRole("button", { name: "Apply source" }));
 }
 
+describe("FactoryConsole read-only drafts", () => {
+	beforeEach(() => {
+		vi.stubGlobal("ResizeObserver", class { observe(): void {} unobserve(): void {} disconnect(): void {} });
+	});
+
+	test("a draft a newer server wrote is shown exactly as stored, cannot be edited, and still exports", async () => {
+		const stored = JSON.stringify({ schemaVersion: "factory.v9", id: source().id, futureExecutionField: { mode: "new" } });
+		const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
+		vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:x");
+		vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+		const authoring = api({
+			getDraft: vi.fn(async () => { throw new FactoryApiClientError(409, "factory_definition_version_unsupported", "The definition uses a schema version this server cannot edit."); }),
+			exportDraft: vi.fn(async (_project: string, _factory: string, format: "json" | "yaml") => ({ format, source: stored })),
+		});
+		renderConsole(authoring);
+		await fireEvent.click(await screen.findByRole("button", { name: /catalog-long-running-factory-definition/ }));
+		expect(await screen.findByRole("heading", { name: source().id })).toBeVisible();
+		expect(screen.getByRole("note")).toHaveTextContent("A newer factory server wrote this definition with a schema version this console cannot edit.");
+		const stored_ = screen.getByLabelText("Stored definition source") as HTMLTextAreaElement;
+		expect(stored_.value).toContain('"factory.v9"');
+		expect(stored_.readOnly).toBe(true);
+		expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+		expect(screen.queryByLabelText("Factory definition JSON")).toBeNull();
+		await fireEvent.click(screen.getByRole("button", { name: "Export YAML" }));
+		await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+		expect(authoring.exportDraft).toHaveBeenLastCalledWith("project-a", source().id, "yaml");
+		expect(screen.queryByRole("alert")).toBeNull();
+		vi.restoreAllMocks();
+	});
+
+	test("when even the export is refused, the refusal is shown and nothing is edited", async () => {
+		const authoring = api({
+			getDraft: vi.fn(async () => { throw new FactoryApiClientError(409, "factory_definition_version_unsupported", "unsupported"); }),
+			exportDraft: vi.fn(async () => { throw new FactoryApiClientError(403, "factory_forbidden", "Factory authority is required."); }),
+		});
+		renderConsole(authoring);
+		await fireEvent.click(await screen.findByRole("button", { name: /catalog-long-running-factory-definition/ }));
+		expect(await screen.findByRole("alert")).toBeVisible();
+		expect(screen.queryByLabelText("Stored definition source")).toBeNull();
+		expect(screen.getByText("No draft selected")).toBeVisible();
+	});
+});
+
 describe("FactoryConsole start run", () => {
 	beforeEach(() => {
 		vi.stubGlobal("ResizeObserver", class { observe(): void {} unobserve(): void {} disconnect(): void {} });

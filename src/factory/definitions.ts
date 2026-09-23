@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { compileFactory } from "@ezcorp/factory-sdk/compiler";
 import { isFactoryDefinition } from "@ezcorp/factory-sdk/schema";
-import { FACTORY_LIMITS, parseFactoryJson, parseFactoryYaml, type CompiledFactory, type CompileResult, type FactoryDefinition } from "@ezcorp/factory-sdk";
+import { FACTORY_LIMITS, FACTORY_SCHEMA_VERSION, parseFactoryJson, parseFactoryYaml, type CompiledFactory, type CompileResult, type FactoryDefinition } from "@ezcorp/factory-sdk";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
@@ -33,6 +33,11 @@ function revision(value: number, creation = false): void {
 
 function sourceJson(source: unknown, factoryId: string): string {
   if (!isFactoryDefinition(source)) throw new FactoryDefinitionError("factory_definition_schema_invalid");
+  return boundedSourceJson(source, factoryId);
+}
+
+/** Identity and size, without the schema: what a stored source of another schema version can still be held to. */
+function boundedSourceJson(source: unknown, factoryId: string): string {
   if ((source as FactoryDefinition).id !== factoryId) throw new FactoryDefinitionError("factory_definition_identity_mismatch");
   const text = canonicalJson(source);
   if (new TextEncoder().encode(text).byteLength > MAX_DEFINITION_BYTES) throw new FactoryDefinitionError("factory_definition_too_large");
@@ -56,7 +61,10 @@ function metadata(key: FactoryDefinitionKey, row: DraftRow): FactoryDraftMetadat
 function draft(key: FactoryDefinitionKey, row: DraftRow): FactoryDraft {
   if (row.source_json === undefined) throw new FactoryDefinitionError("factory_definition_corrupt");
   const source = JSON.parse(row.source_json) as FactoryDefinition;
-  if (sourceJson(source, key.factoryId) !== row.source_json || digestObject(source) !== row.source_digest) throw new FactoryDefinitionError("factory_definition_corrupt");
+  // A source of this server's schema version is validated in full; one a newer server wrote is held to
+  // its bytes, identity, size, and digest, and `read` refuses it for editing by name.
+  const text = (source as { schemaVersion?: unknown }).schemaVersion === FACTORY_SCHEMA_VERSION ? sourceJson(source, key.factoryId) : boundedSourceJson(source, key.factoryId);
+  if (text !== row.source_json || digestObject(source) !== row.source_digest) throw new FactoryDefinitionError("factory_definition_corrupt");
   return { ...metadata(key, row), source };
 }
 
@@ -136,7 +144,19 @@ export class FactoryDefinitions {
     });
   }
 
-  read(principal: FactoryPrincipal, key: FactoryDefinitionKey): Promise<FactoryDraft> {
+  /**
+   * The draft for editing. A source whose schema version this server does not
+   * implement (written by a newer server) is refused by name, never passed on
+   * as a definition it cannot validate; `export` still returns its bytes.
+   */
+  async read(principal: FactoryPrincipal, key: FactoryDefinitionKey): Promise<FactoryDraft> {
+    const stored = await this.readStored(principal, key);
+    if ((stored.source as { schemaVersion?: unknown }).schemaVersion !== FACTORY_SCHEMA_VERSION) throw new FactoryDefinitionError("factory_definition_version_unsupported");
+    return stored;
+  }
+
+  /** The stored draft as written, whatever its schema version. */
+  private readStored(principal: FactoryPrincipal, key: FactoryDefinitionKey): Promise<FactoryDraft> {
     const snapshot = { ...key };
     assertFactoryIdentity(key.factoryId);
     return this.database.transaction(async transaction => {
@@ -178,7 +198,8 @@ export class FactoryDefinitions {
   }
 
   async export(principal: FactoryPrincipal, key: FactoryDefinitionKey): Promise<{ revision: number; content: string }> {
-    const current = await this.read(principal, key);
+    // Export works for any stored schema version, so a draft this server cannot edit can still be kept.
+    const current = await this.readStored(principal, key);
     // Canonical JSON is also the supported JSON-subset YAML export.
     return { revision: current.revision, content: canonicalJson(current.source) };
   }

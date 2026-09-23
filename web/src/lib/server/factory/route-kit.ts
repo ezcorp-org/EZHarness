@@ -250,6 +250,7 @@ const ERROR_FAMILIES: readonly ErrorFamily[] = [
       answer(412, "The factory definition revision is stale.", "factory_revision_conflict", "factory_revision_invalid"),
       answer(404, "Factory definition not found.", "factory_definition_not_found", "factory_version_not_found"),
       answer(409, "The factory version conflicts with existing content.", "factory_version_conflict"),
+      answer(409, "The definition uses a schema version this server cannot edit. It is read-only; export it to keep a copy.", "factory_definition_version_unsupported"),
       { ...answer(422, "The factory definition is not publishable.", "factory_definition_invalid"), diagnostics: true },
       answer(400, "The factory definition request is invalid.", "factory_definition_schema_invalid", "factory_definition_identity_mismatch", "factory_definition_too_large", "factory_format_invalid", "factory_page_invalid"),
     ],
