@@ -1,7 +1,7 @@
 # Gates: the package quarantine fence (W02c)
 
 Branch `wp/w02c-quarantine`, created at `integ/w00` `578692e8a`; `integ/w00` advanced to `943b9fa0c`
-(CI and validation docs only) and was merged at `43d224900`. Head of record: `1d06a7394`. Receipts: `/tmp/factory-platform-evidence/w02c/`
+(CI and validation docs only) and was merged at `43d224900`; it advanced again to `8cea0f638` (W09d validators and docs) and was merged at `3695f8351`, the sweep's head. The real-server passes ran at `1d06a7394`. Receipts: `/tmp/factory-platform-evidence/w02c/`
 (`sweep-final/receipts/*.json`, `proof/receipt-*.json`, `proof/record-*.json`). Full report:
 `/tmp/factory-platform-evidence/w02c/report.txt`.
 
@@ -33,6 +33,8 @@ preflight, runtime open) already refused a blocked package. Four things were mis
 | `43d224900` | Merge branch 'integ/w00' into wp/w02c-quarantine |
 | `ce7c6cc4b` | test(factory): prepare the package before racing a launch against a quarantine |
 | `1d06a7394` | ci(factory): run the package fence suite on real PostgreSQL |
+| `09f8c7217` | docs(factory): W02c gate file, review, and lessons |
+| `3695f8351` | Merge branch 'integ/w00' into wp/w02c-quarantine |
 
 ## Gates
 
@@ -43,7 +45,7 @@ preflight, runtime open) already refused a blocked package. Four things were mis
 - [x] G2: The fence is read at admission, preflight and launch, and refuses by name with the generation that blocked it.
   CHECK: `bun test --timeout 120000 ./src/__tests__/factory-package-fence.test.ts`
   EXPECT: 16 pass, 0 fail. The cases "admission refuses ... by name" and "an admitted attempt that has not launched is refused at launch by name" assert `FactoryPackageBlockedError { code, trustRevision: 2, installationGeneration: 1 }` from the runner policy, the dispatcher (queue failure code `factory_package_quarantined`), the preflight and the readiness read.
-  EVIDENCE: `sweep-final/receipts/focused-coverage.json` (198 pass, 0 fail, 1958 assertions over the ten focused files); `sweep-final/receipts/postgres-coverage.json` (real PostgreSQL, 112 pass, 0 fail, 4484 assertions, fence suite included); `sweep-final/receipts/postgres-s3-coverage.json` (package-preparation on PostgreSQL and S3, 22 pass). All at `1d06a7394`, clean tree.
+  EVIDENCE: `sweep-final/receipts/focused-coverage.json` (208 pass, 0 fail, 2096 assertions over the ten focused files); `sweep-final/receipts/postgres-coverage.json` (real PostgreSQL, 118 pass, 0 fail, 4604 assertions, fence suite included); `sweep-final/receipts/postgres-s3-coverage.json` (package-preparation on PostgreSQL and S3, 22 pass). All at `3695f8351`, clean tree. The same legs were green at `1d06a7394` (`sweep-final-1d06a7394/`).
 - [x] G3: Quarantine stops launched attempts through W03's stop path with the typed reason, idempotently, and records each affected run.
   CHECK: the case "quarantine stops a launched attempt through the ordinary cancel and W03's stop path ..." in the same file.
   EXPECT: run `cancelling`; one kernel `cancel` with reason `factory_package_quarantined`; `cancel-node` settled by `FactoryTaskStops.stop` to `stopped`; kernel `stopReason` is the typed reason; one sealed record with disposition `cancel-requested`. The lost-response and double-quarantine cases show one cancel and one record.
@@ -63,7 +65,7 @@ preflight, runtime open) already refused a blocked package. Four things were mis
 - [x] G7: Static gates and coverage at the merged head.
   CHECK: `W02C_REPO=<proof worktree> flock --close /tmp/ezcorp-validation-heavy.lock timeout 7200 bash repro/sweep.sh final` (focused and PostgreSQL coverage, full backend pool, typecheck, lint, boundaries, gate integrity, merged LCOV, `BASE_REF=integ/w00` new-file and patch coverage).
   EXPECT: every leg exits 0.
-  EVIDENCE: `sweep-final/receipts/*.json` at `1d06a7394`, clean tree, 07:09 to 07:25 local: every leg exits 0. Backend pool 28111 pass, 0 fail, 1896 files. New-file gate: 2 new source files gated. Patch gate: all changed executable lines covered (10 files). A preliminary sweep at `43d224900` (`sweep-prelim-43d224900/`) found the unregistered PostgreSQL suite (fixed in `1d06a7394`) and the launch race gap (fixed in `ce7c6cc4b`).
+  EVIDENCE: `sweep-final/receipts/*.json` at `3695f8351`, clean tree, 11:15 to 11:37 local: every leg exits 0. Backend pool 28183 pass, 0 fail, 1900 files. The same sweep at `1d06a7394` (`sweep-final-1d06a7394/`) was also green (28111 pass). New-file gate: 2 new source files gated. Patch gate: all changed executable lines covered (10 files). A preliminary sweep at `43d224900` (`sweep-prelim-43d224900/`) found the unregistered PostgreSQL suite (fixed in `1d06a7394`) and the launch race gap (fixed in `ce7c6cc4b`).
 
 ## Decisions a reviewer should see
 

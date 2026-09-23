@@ -3600,7 +3600,7 @@ Two findings are left open outside scope: the ai-kit installer ignores its posti
 
 ## W02c — the package quarantine fence (branch `wp/w02c-quarantine`)
 
-Base `integ/w00` `578692e8a`, merged `943b9fa0c` at `43d224900`; head of record `1d06a7394`. Receipts: `/tmp/factory-platform-evidence/w02c/`. Gates: `tasks/factory/w02c-GATES.md`.
+Base `integ/w00` `578692e8a`; merged `943b9fa0c` at `43d224900` and `8cea0f638` at `3695f8351`. Passes at `1d06a7394`, sweep at `3695f8351`. Receipts: `/tmp/factory-platform-evidence/w02c/`. Gates: `tasks/factory/w02c-GATES.md`.
 
 - [x] Reproduce at base in the real application (W09b's stack, a guest that waits): quarantine mid-attempt, then start a second run.
 - [x] Typed refusal: `factory_package_quarantined` / `factory_package_revoked` carry the trust revision that set the state and the installation generation it was decided against.
@@ -3611,7 +3611,7 @@ Base `integ/w00` `578692e8a`, merged `943b9fa0c` at `43d224900`; head of record 
 - [x] Fail closed: quarantine and revoke refuse by name when no fence is composed.
 - [x] Lift: a later publish re-admits new attempts only; stopped runs stay cancelled with their reason.
 - [x] Tests: success, concurrent quarantine and admission or launch (one winner), lost response, crash mid-fence and mid-stop, stale revision and generation, cross-tenant, corruption, fail-closed; restart suite; PostgreSQL parity and suite registration.
-- [ ] Real-server proof, three passes: see G6. Two blockers sit outside W02c (Open, below).
+- [x] Real-server proof, three passes (9/9 each, `proof/receipt-v2-pass-*.json`). Two blockers outside W02c are reported in the gate file's Open section.
 - [x] Gate file, review, sweep.
 
 **Review.** The fence existed as a seam with nothing behind it. The real application quarantined a package
