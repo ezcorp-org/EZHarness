@@ -1,12 +1,12 @@
 /**
  * Server-handler tests for five branches of `src/hooks.server.ts` that no
- * suite reached: the legacy `pi_session` migration on BOTH sides of its
- * sec-M4 expiry, the fail-CLOSED 503 when the user table is unreachable, the
+ * suite reached: the retired legacy `pi_session` cookie (sec-M4), the
+ * fail-CLOSED 503 when the user table is unreachable, the
  * unjudgeable-cookie pass-through, the loopback fallback when the adapter
  * cannot report a peer, and the HSTS header on an https request.
  *
  * WHY THESE FIVE. Each is a security control whose WRONG behaviour is silent:
- * a legacy cookie honoured past its window is an unbounded promotion of a
+ * a legacy cookie that is still honoured is an unbounded promotion of a
  * stolen credential; a transient DB failure that fell OPEN would serve every
  * protected route unauthenticated for the length of the outage; a cookie the
  * server cannot judge must neither authenticate nor bounce a legitimate user;
@@ -14,10 +14,9 @@
  * reachable before and are reachable now — the refactor that gave each of them
  * a name is what made their absence from the suite visible.
  *
- * THE CLOCK IS PINNED, NEVER MEASURED. `PI_SESSION_MIGRATION_EXPIRES_AT` is a
- * fixed date in the module, so whether the window is open depends on the
- * wall clock. `vi.setSystemTime` fixes it either side of that date, which
- * turns "usually true today" into an equality the test owns.
+ * NO CLOCK. The migration bridge compared the wall clock with a date in the
+ * module (2026-06-01); that window closed and the bridge is removed, so the
+ * legacy cookie's outcome no longer depends on when the test runs.
  */
 
 // CRITICAL: must run BEFORE the dynamic `await import(...)` of hooks.server,
@@ -25,7 +24,7 @@
 process.env.PI_SKIP_INIT = "1";
 process.env.JWT_SECRET = "test-secret-with-32-chars-minimum-12345";
 
-import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
+import { test, expect, describe, vi, beforeEach } from "vitest";
 
 vi.mock("$server/db/queries/users", () => ({
   getUserCount: vi.fn(),
@@ -74,9 +73,6 @@ import { logger } from "$server/logger";
 const log = logger.child("hooks.server");
 const { handle } = await import("../hooks.server");
 
-/** Milliseconds either side of the sec-M4 expiry (2026-06-01T00:00:00Z). */
-const WINDOW_OPEN = Date.parse("2026-05-31T23:00:00Z");
-const WINDOW_CLOSED = Date.parse("2026-06-01T01:00:00Z");
 
 type CookieJar = { get: ReturnType<typeof vi.fn>; set: ReturnType<typeof vi.fn>; delete: ReturnType<typeof vi.fn>; serialize: ReturnType<typeof vi.fn> };
 
@@ -124,53 +120,40 @@ async function run(event: any, resolve: ReturnType<typeof vi.fn>): Promise<{ res
   }
 }
 
-describe("hooks.server.ts — legacy pi_session migration (sec-M4)", () => {
+describe("hooks.server.ts — retired legacy pi_session cookie (sec-M4)", () => {
   beforeEach(() => {
     vi.mocked(getUserCount).mockReset();
     vi.mocked(getUserCount).mockResolvedValue(1);
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
-  test("past the expiry the legacy cookie is ignored, purged, and warned about exactly once", async () => {
-    vi.setSystemTime(WINDOW_CLOSED);
+  test("the legacy cookie is ignored, purged, never promoted, and warned about exactly once", async () => {
     vi.mocked(log.warn).mockClear();
 
     // Two requests in the same module instance: the warning latches, and a
-    // per-request warning on a closed window would flood the log for every
-    // client still presenting the old cookie.
+    // per-request warning would flood the log for every client still
+    // presenting the old cookie.
     for (const _ of [0, 1]) {
       const { event, cookies } = makeEvent("/projects/abc", { cookies: { pi_session: "legacy-token" } });
       const { thrown } = await run(event, vi.fn());
       if (!isRedirect(thrown)) throw thrown ?? new Error("expected a redirect");
-      // Ignored, so the request is unauthenticated and bounces to /login.
+      // Ignored, so the request is unauthenticated and bounces to /login
+      // (not `session_expired`: the legacy value was never tried as a session).
       expect(thrown.location).toBe("/login?returnTo=%2Fprojects%2Fabc");
-      // Purged, so the client stops presenting it.
-      expect(cookies.set).toHaveBeenCalledWith("pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
+      // Purged, so the client stops presenting it, and nothing else is set:
+      // the legacy value is never re-issued under the current cookie name.
+      expect(cookies.set.mock.calls).toEqual([["pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 }]]);
     }
 
-    const migrationWarnings = vi.mocked(log.warn).mock.calls.filter(([message]) => String(message).includes("pi_session migration window closed"));
-    expect(migrationWarnings).toHaveLength(1);
+    const retirementWarnings = vi.mocked(log.warn).mock.calls.filter(([message]) => String(message).includes("pi_session is retired"));
+    expect(retirementWarnings).toHaveLength(1);
   });
 
-  test("inside the window the legacy cookie is promoted to the current one and retired", async () => {
-    vi.setSystemTime(WINDOW_OPEN);
-    const { event, cookies } = makeEvent("/projects/abc", { cookies: { pi_session: "legacy-token" } });
-
-    // verifyJWT still answers null, so the promoted token fails verification
-    // and the request is refused. What this pins is the PROMOTION: the hook
-    // adopted the legacy value and re-issued it under the current name.
+  test("a request with neither cookie sets nothing", async () => {
+    const { event, cookies } = makeEvent("/projects/abc");
     const { thrown } = await run(event, vi.fn());
     if (!isRedirect(thrown)) throw thrown ?? new Error("expected a redirect");
-
-    expect(cookies.set).toHaveBeenCalledWith("pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
-    // The current cookie is re-issued with the legacy token's own value.
-    const promoted = cookies.set.mock.calls.find(([name]) => name !== "pi_session");
-    expect(promoted?.[1]).toBe("legacy-token");
-    // A rejected session clears the cookie and bounces with the expired reason.
-    expect(thrown.location).toBe("/login?reason=session_expired&returnTo=%2Fprojects%2Fabc");
+    expect(thrown.location).toBe("/login?returnTo=%2Fprojects%2Fabc");
+    expect(cookies.set).not.toHaveBeenCalled();
   });
 });
 

@@ -11,9 +11,9 @@
     "auto-note": {
       "directory": "docs/extensions/examples/auto-note",
       "entrypoint": "extension.ts",
-      "files": 11,
-      "bytes": 134976,
-      "sourceDigest": "a5a7d4ed45148538ae04fbb1d8e207147058356372a4537f91984cb052986070"
+      "files": 12,
+      "bytes": 136200,
+      "sourceDigest": "f52d0d0549d5640899c67f04df9a30404c9e6fad9eb8cd0a6deb8ae0eb99f4bc"
     },
     "cash-recovery-agent": {
       "directory": "docs/extensions/examples/cash-recovery-agent",
@@ -32,9 +32,9 @@
     "claude-design": {
       "directory": "docs/extensions/examples/claude-design",
       "entrypoint": "extension.ts",
-      "files": 27,
-      "bytes": 603245,
-      "sourceDigest": "92849711dea305e788d15a00bb0adc664e70285fb38559625c1fdf165dc8817b"
+      "files": 28,
+      "bytes": 604960,
+      "sourceDigest": "db39b459db9dd880c3bff8af6d7fd2df527a28051c23806f89042c9701f6a08d"
     },
     "code-quality": {
       "directory": "docs/extensions/examples/code-quality",
@@ -88,9 +88,9 @@
     "file-organizer": {
       "directory": "docs/extensions/examples/file-organizer",
       "entrypoint": "extension.ts",
-      "files": 25,
-      "bytes": 203872,
-      "sourceDigest": "c0789628de98045396d2421269af9bbe940bc9e9118ad4f3053f84bb6cc63394"
+      "files": 26,
+      "bytes": 205533,
+      "sourceDigest": "31b8d5a5eea0aa048b68a9a5f1c7b2d6a041b604f66a477f3ed2c57e7e33ff23"
     },
     "file-refactor": {
       "directory": "docs/extensions/examples/file-refactor",
@@ -117,8 +117,8 @@
       "directory": "docs/extensions/examples/graded-card-scanner",
       "entrypoint": "extension.ts",
       "files": 60,
-      "bytes": 312016,
-      "sourceDigest": "32ebee27f599924a27d187d965c59be2d1fd6f9445eb4c55d7029b6092300526"
+      "bytes": 312100,
+      "sourceDigest": "9b5d049b2be9bfe1d62a601cb387f99422678f4c541587b6c91f2f2b7518d177"
     },
     "harness-smoke-test": {
       "directory": "docs/extensions/examples/harness-smoke-test",
@@ -257,8 +257,8 @@
       "directory": "docs/extensions/examples/task-stack",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 79206,
-      "sourceDigest": "c6132b22ee5edc721db6b3bedcbcdca83019b9043602c363dacb9114555eecba"
+      "bytes": 78320,
+      "sourceDigest": "93fe85c14ddda30b178e17ce4b6b9622f5db5839b9d1f670b9a09c6dd2cd02e2"
     },
     "task-tracking": {
       "directory": "docs/extensions/examples/task-tracking",
@@ -348,8 +348,8 @@
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
       "files": 53,
-      "bytes": 398201,
-      "sourceDigest": "5b4a050639fb2ae850f8bae5df5a44581e2f4c415810dab20a148cf177fc6070"
+      "bytes": 400018,
+      "sourceDigest": "e28c36ea4bbab1bda7d63a66f5991825b75ded7a4b3092f9cfeb3afaa0af0b26"
     }
   }
 }

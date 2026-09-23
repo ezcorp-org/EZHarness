@@ -38,8 +38,12 @@ export async function readSessionCookie(file: string): Promise<string> {
   return cookies.join("; ");
 }
 
-/** Inspect the launcher's real authenticated runner transport. */
-export async function inspectProductionRunner(operationId: string): Promise<RunnerInspection> {
+/**
+ * Inspect the launcher's real authenticated runner transport. `timeoutMs`
+ * bounds the wait for the answer; the launcher's readiness probe passes its
+ * whole readiness budget.
+ */
+export async function inspectProductionRunner(operationId: string, timeoutMs = 5_000): Promise<RunnerInspection> {
   const token = (await readFile(required("EZ_EXTENSION_RUNNER_TOKEN_FILE"), "utf8")).trim();
   assert(token, "The launcher must provide a runner credential");
   const response = await fetch("http://localhost/v4/inspect", {
@@ -47,7 +51,7 @@ export async function inspectProductionRunner(operationId: string): Promise<Runn
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ id: operationId }),
-    signal: AbortSignal.timeout(5_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const value: unknown = await response.json();
   if (!response.ok) throw new Error(`Runner inspection returned HTTP ${response.status}`);

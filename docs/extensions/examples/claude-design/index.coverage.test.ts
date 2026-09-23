@@ -24,6 +24,7 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { markGitRepository } from "@ezcorp/sdk/test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getChannel, JsonRpcError } from "@ezcorp/sdk/runtime";
@@ -140,7 +141,7 @@ let prevCwd: string;
 
 beforeEach(() => {
   tmpRoot = mkdtempSync(join(tmpdir(), "claude-design-cov-"));
-  mkdirSync(join(tmpRoot, ".git"));
+  markGitRepository(tmpRoot);
   prevCwd = process.cwd();
   process.chdir(tmpRoot);
   // findProjectRoot honours EZCORP_PROJECT_ROOT first — clear it so the
