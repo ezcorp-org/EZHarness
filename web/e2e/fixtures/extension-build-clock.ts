@@ -28,3 +28,11 @@ export function nextBuildClock(clock: BuildClock, operation: Pick<LifecycleOpera
 export function buildElapsedMs(clock: BuildClock, now: number): number {
   return clock.buildStartedAt === undefined ? 0 : now - clock.buildStartedAt;
 }
+
+/** Bound a fixture wait by the timeout of the scope that actually owns it.
+ * Playwright's `test.info().timeout` remains the test's timeout inside a
+ * `beforeAll` hook, even when that hook calls `test.setTimeout` itself. */
+export function withinTimeout(budgetMs: number, scopeTimeoutMs: number, marginMs: number): number {
+  if (scopeTimeoutMs <= 0) return budgetMs;
+  return Math.min(budgetMs, Math.max(scopeTimeoutMs - marginMs, 1_000));
+}

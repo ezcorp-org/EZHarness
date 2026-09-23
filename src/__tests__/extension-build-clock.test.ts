@@ -6,7 +6,7 @@
  * builds happen to be in flight.
  */
 import { describe, expect, test } from "bun:test";
-import { buildElapsedMs, nextBuildClock } from "../../web/e2e/fixtures/extension-build-clock";
+import { buildElapsedMs, nextBuildClock, withinTimeout } from "../../web/e2e/fixtures/extension-build-clock";
 
 const queued = { state: "queued" as const };
 const building = { state: "building" as const };
@@ -35,5 +35,12 @@ describe("extension build clock", () => {
     clock = nextBuildClock(clock, building, 300_000);
     expect(clock.buildStartedAt).toBe(300_000);
     expect(buildElapsedMs(clock, 330_000)).toBe(30_000);
+  });
+
+  test("the build wait uses its owning hook timeout rather than the shorter test timeout", () => {
+    expect(withinTimeout(480_000, 60_000, 15_000)).toBe(45_000);
+    expect(withinTimeout(480_000, 300_000, 15_000)).toBe(285_000);
+    expect(withinTimeout(240_000, 900_000, 15_000)).toBe(240_000);
+    expect(withinTimeout(120_000, 300_000, 15_000)).toBe(120_000);
   });
 });
