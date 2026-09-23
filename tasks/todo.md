@@ -1289,7 +1289,7 @@ Review: The operator flow is implemented in the isolated worktree. A fresh read-
 
 - [x] Check for an existing PR and compare this branch with current `origin/main`.
 - [x] Audit the staged scope and complete the repository PR template.
-- [ ] Run required local gates and record any unrun live-provider gates.
+- [x] Run required local gates and record any unrun live-provider gates.
 - [x] Commit and push the isolated worktree branch after CI repairs.
 - [x] Open a draft PR, then record its URL and CI state.
 
@@ -1299,6 +1299,7 @@ Review: Draft PR [#303](https://github.com/ezcorp-org/EZHarness/pull/303) is ope
 
 ## Incus live sandbox vertical slice — 2026-09-22
 
+- [x] Preserve the live-slice work, merge the latest `origin/main`, and resolve all conflicts.
 - [x] Implement host-owned Incus lifecycle and operation transport with fixed project/profile scope, idempotency, and bounded responses.
 - [x] Implement safe workspace file and supervised process operations through a versioned guest helper, with real guest qualification gates.
 - [x] Connect the durable sandbox controller to the approved provider release and exact connection revision; preserve unknown outcomes.
@@ -1308,7 +1309,7 @@ Review: Draft PR [#303](https://github.com/ezcorp-org/EZHarness/pull/303) is ope
 
 Plan review: The active MVP is the native EZHarness loop and the existing Incus provider. The current PR has a reviewed SSH setup screen and read-only mTLS probe, but production dispatch, mutable transport, and live workspace wiring are incomplete. Work in this isolated PR worktree with disjoint Sol agent ownership. The host broker must recheck the exact release, connection and resource binding on every effect; any unverified guest control fails closed. Details and gate files: `docs/plans/2026-09-22-incus-live-slice-PLAN.md` and `gates/incus-live-*.md`.
 
-Review: pending.
+Review: Merged `origin/main` at `70e68c825` into the saved live-slice commit (`ab6994931`); four conflicts were resolved without dropping the Incus work. The pinned Bun 1.3.14 full suite passes 26,737 tests across 1,721 files with zero failures. Root typecheck, lint, build, manifest-lock check, and diff check pass. The first full run found a preflight-only broker constructor that opened the database too early and an operator test fixture missing the intentionally required guest image pins; both were repaired and retested. Live guest qualification and hosted PR CI are still open; see `gates/incus-live-integration.md`.
 
 ## Merge current main into pluggable infrastructure — 2026-09-22
 

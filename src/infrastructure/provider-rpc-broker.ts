@@ -83,7 +83,7 @@ export class ProviderRpcBroker {
         revision: scope.revision,
         signal,
       }),
-    private readonly db: Database = getDb(),
+    private readonly db?: Database,
     private readonly actionTransportFactory: (scope: PreparedIncusAction, signal?: AbortSignal) => IncusTransport =
       (scope, signal) => new (scope.approvedGuest ? HostIncusGuestTransport : HostIncusLifecycleTransport)(connections, {
         providerInstallationId: scope.installationId,
@@ -94,6 +94,8 @@ export class ProviderRpcBroker {
         signal,
       }),
   ) {}
+
+  private get database(): Database { return this.db ?? getDb(); }
 
   /** Bind one host-journaled operation to its exact approved release and preset. */
   async prepareAction(
@@ -106,7 +108,7 @@ export class ProviderRpcBroker {
       throw new ContractError("CAPABILITY_DENIED", "Incus action is not available to the host broker");
     }
     const input = validateSandboxProviderMethodValue(operation, "input", inputValue) as Record<string, unknown>;
-    const [binding] = await this.db.select().from(sandboxBindings)
+    const [binding] = await this.database.select().from(sandboxBindings)
       .where(eq(sandboxBindings.id, bindingId)).limit(1);
     if (!binding || binding.tombstonedAt && operation !== "lifecycle.destroy" && operation !== "lifecycle.inspectOperation"
       || binding.providerInstallationId !== snapshot.installation.id || binding.providerReleaseId !== snapshot.release.id
@@ -138,7 +140,7 @@ export class ProviderRpcBroker {
         || input.presetDigest !== binding.presetDigest || input.effectiveSettingsDigest !== binding.effectiveSettingsDigest) {
         throw new ContractError("CAPABILITY_DENIED", "Incus create request changed its approved preset");
       }
-      const [reservation] = await this.db.select().from(sandboxReservations)
+      const [reservation] = await this.database.select().from(sandboxReservations)
         .where(eq(sandboxReservations.bindingId, binding.id)).limit(1);
       if (!reservation || reservation.generation !== binding.generation || reservation.computeState !== "RESERVED"
         || reservation.connectionId !== binding.connectionId || reservation.providerInstallationId !== binding.providerInstallationId
@@ -256,7 +258,7 @@ export class ProviderRpcBroker {
     }
     const dispatch = async (): Promise<JsonValue> => {
       if (isAction(scope)) {
-        const [binding] = await this.db.select().from(sandboxBindings)
+        const [binding] = await this.database.select().from(sandboxBindings)
           .where(eq(sandboxBindings.id, scope.bindingId)).limit(1);
         const inspection = scope.operation === "lifecycle.inspectOperation";
         if (!binding || binding.projectId !== scope.projectId

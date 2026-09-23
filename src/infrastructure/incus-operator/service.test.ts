@@ -23,9 +23,12 @@ const certificateFingerprint = createHash("sha256").update(new X509Certificate(c
 const clientPem = "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n";
 const bootstrap = { ssh: { sshTarget: "dev@sandbox-server", sshIdentityFile: "/host/key", sshKnownHostsFile: "/host/known_hosts",
   sshHostKeySha256: `SHA256:${"A".repeat(43)}` }, endpoint: "https://incus.example:8443" };
+const guestImage = { ...checkedInRecipe.guestImage, fingerprint: "a".repeat(64), sourceFingerprint: "b".repeat(64),
+  pythonPackageVersion: "1.0.0", dockerArchiveSha256: "c".repeat(64), composeSha256: "d".repeat(64) };
 const recipe: IncusSetupRecipe = {
   ...checkedInRecipe, expected: { ...checkedInRecipe.expected, serverCertificateFingerprint: certificateFingerprint,
     sshHostKeySha256: bootstrap.ssh.sshHostKeySha256 },
+  guestImage,
 } as IncusSetupRecipe;
 
 function inventory(): IncusInventory {
@@ -35,7 +38,8 @@ function inventory(): IncusInventory {
     server: { clientVersion: "6.0.6", serverVersion: "6.0.6", certificateFingerprint, certificatePem,
       apiStatus: "stable", clustered: false, firewall: "nftables", serviceActive: true,
       apiExtensions: [...recipe.expected.requiredApiExtensions], storageDrivers: [{ name: "btrfs", version: "6", remote: false }], httpsAddresses: [] },
-    routes: [], projects: [], storagePools: [], networks: [], profiles: [], instances: [], trust: [] };
+    routes: [], projects: [], storagePools: [], networks: [], profiles: [], instances: [], trust: [],
+    images: [{ fingerprint: guestImage.fingerprint, aliases: [guestImage.alias] }] };
 }
 
 async function fixture() {
