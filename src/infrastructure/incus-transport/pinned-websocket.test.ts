@@ -1,8 +1,8 @@
 import { afterAll, expect, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
 import type { AddressInfo } from "node:net";
-import { readdirSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { existsSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { createServer } from "node:tls";
 import { checkServerIdentity } from "node:tls";
 import { openPinnedWebSocket } from "./pinned-websocket";
@@ -91,9 +91,13 @@ test("wrong TLS leaf sends no WebSocket upgrade bytes", async () => {
 
 
 test("certificate fixture removes its temporary files after OpenSSL failure", () => {
-  const directories = () => readdirSync(tmpdir()).filter(name => name.startsWith("ez-incus-tls-test-")).sort();
-  const before = directories();
-  expect(() => makeTestCertificates(() => { throw new Error("OpenSSL unavailable"); }))
+  let directory: string | undefined;
+  expect(() => makeTestCertificates((_command, _args, options) => {
+    directory = String(options.cwd);
+    writeFileSync(join(directory, "partial.pem"), "partial certificate");
+    throw new Error("OpenSSL unavailable");
+  }))
     .toThrow("OpenSSL unavailable");
-  expect(directories()).toEqual(before);
+  expect(directory).toBeDefined();
+  expect(existsSync(directory!)).toBe(false);
 });
