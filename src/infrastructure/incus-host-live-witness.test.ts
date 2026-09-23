@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import type { Database } from "../db/connection";
 import { IncusHostLiveWitness } from "./incus-host-live-witness";
@@ -27,12 +28,14 @@ test("every unmeasured host probe denies instead of reporting a passing fact", a
 test("discarded create reply must replay the same durable fixture operation", async () => {
   let calls = 0;
   let cleanups = 0;
+  const preset = INCUS_PRESETS[0]!;
+  const presetDigest = await sandboxPresetDigest(preset);
   const service = { create: async () => ({ id: `operation-${++calls}`, bindingId: "binding" }),
     destroy: async () => { cleanups++; return { state: "SUCCEEDED" }; } };
   const candidate = new IncusHostLiveWitness({ db: {} as Database,
-    qualifications: { authorizeFixture: async () => ({ preset: INCUS_PRESETS[0]! }) } as unknown as IncusQualificationStore,
+    qualifications: { authorizeFixture: async () => ({ preset, presetDigest }) } as unknown as IncusQualificationStore,
     fixtures: service as unknown as IncusQualificationFixtureService });
-  await expect(candidate.createFixture(scope, INCUS_PRESETS[0]!, "fixture", true))
+  await expect(candidate.createFixture(scope, preset, "fixture", true))
     .rejects.toThrow("replay allocated another fixture");
   expect(calls).toBe(2);
   expect(cleanups).toBe(1);

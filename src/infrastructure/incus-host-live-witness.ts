@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
-import { validateSandboxProviderMethodExchange, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
-import type { SandboxPreset } from "@ezcorp/extension-contract";
+import { sandboxPresetDigest, validateSandboxProviderMethodExchange,
+  type SandboxPreset, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import { getDb, type Database } from "../db/connection";
 import { incusQualificationFixtures, sandboxBindings } from "../db/schema";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease } from "../extensions/release-process";
@@ -150,7 +150,8 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   async createFixture(scope: IncusQualificationScope, preset: SandboxPreset,
     operationId: string, dropFirstReply: boolean): Promise<LiveFixtureHandle> {
     const selected = await this.qualifications.authorizeFixture(scope);
-    if (preset.id !== scope.presetId || preset.id !== selected.preset.id) deny("fixture preset changed");
+    if (preset.id !== scope.presetId || preset.id !== selected.preset.id
+      || await sandboxPresetDigest(preset) !== selected.presetDigest) deny("fixture preset changed");
     // Throw away the first service reply at this host boundary, then ask the
     // durable controller for the same operation. Both IDs must be identical.
     let effectPossible = false;
