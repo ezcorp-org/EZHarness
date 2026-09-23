@@ -34,7 +34,7 @@ async function setup() {
     effectiveSettingsDigest: "b".repeat(64), resourceKey: "binding",
     desiredState: "RUNNING", observedState: "RUNNING" });
   const config = { connectionId: "connection", serverCertificateSha256: "c".repeat(64),
-    project: "ezharness", profile: "ezharness-feature", helperVersion: "1.0.0", guestUser: "sandbox" };
+    project: "ezharness", profile: "ezharness-feature", helperVersion: "0.1.0", guestUser: "sandbox" };
   const connections = { resolveForHost: async () => { throw new Error("unexpected connection lookup"); },
     getMetadata: async () => null } as unknown as ProviderConnectionResolver;
   const calls: IncusTransportRequest[] = [];
@@ -50,7 +50,7 @@ async function setup() {
     approvedGuest: { user: "sandbox", uid: 1000, gid: 1000, helperSha256: "f".repeat(64) },
     expectedCommand: createIncusTransportCommand(operation, input, config),
   });
-  return { broker, calls, scope, db };
+  return { broker, calls, scope, db, connections };
 }
 
 afterEach(async () => { await Promise.all(open.splice(0).map(database => database.close())); });
@@ -106,4 +106,31 @@ test("a stopped binding denies a previously prepared guest action before transpo
     ok: false, error: { kind: "permission" },
   });
   expect(calls).toHaveLength(0);
+});
+
+
+test("default broker factories pass pinned scope to probe, lifecycle, and guest transports", async () => {
+  const { db, connections, scope } = await setup();
+  const broker = new ProviderRpcBroker(connections, undefined, db);
+  const deadline = Date.now() + 10_000;
+  const base = { providerId: "incus", connectionId: "connection", sandboxId: "binding", rpcDeadlineMs: deadline };
+  const guest = { ...scope("files.stat", { ...base, path: "src/app.ts" }),
+    approvedGuest: { user: "sandbox", uid: 1000, gid: 1000, helperSha256: guestHelperSha256() } };
+  const lifecycle = { ...scope("lifecycle.inspect", base), approvedGuest: undefined };
+  for (const action of [guest, lifecycle]) {
+    const outcome = await broker.request(action, { command: action.expectedCommand }, deadline);
+    expect(outcome).toMatchObject({ ok: false, error: { kind: "not_found" } });
+  }
+  const probe = {
+    installationId: guest.installationId, releaseId: guest.releaseId,
+    releaseDigest: guest.releaseDigest, generation: guest.generation,
+    connectionId: guest.connectionId, revision: guest.revision, config: guest.config,
+  };
+  const command: IncusTransportRequest = {
+    action: "probe", connectionId: "connection", deadlineMs: deadline,
+    pins: guest.expectedCommand.pins,
+    tags: { managedBy: "ezharness-incus-sandbox", connectionId: "connection" }, payload: {},
+  };
+  expect(await broker.request(probe, { command }, deadline))
+    .toMatchObject({ ok: false, error: { kind: "not_found" } });
 });

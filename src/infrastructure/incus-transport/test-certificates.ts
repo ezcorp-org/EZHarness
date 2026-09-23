@@ -5,10 +5,10 @@ import { join } from "node:path";
 
 /** Make disposable TLS identities for the loopback transport test. No private
  * key is kept in the repository or shared with a production connection. */
-export function makeTestCertificates(): { read(name: string): string; dispose(): void } {
+export function makeTestCertificates(runOpenSsl = execFileSync): { read(name: string): string; dispose(): void } {
   const directory = mkdtempSync(join(tmpdir(), "ez-incus-tls-test-"));
   const path = (name: string) => join(directory, name);
-  const openssl = (...args: string[]) => execFileSync("openssl", args, { cwd: directory, stdio: "ignore" });
+  const openssl = (...args: string[]) => runOpenSsl("openssl", args, { cwd: directory, stdio: "ignore" });
   const createSelfSigned = (prefix: string, name: string, extensions: string[]) => {
     openssl("req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
       "-keyout", `${prefix}-key.pem`, "-out", `${prefix}-cert.pem`, "-days", "1", "-sha256",

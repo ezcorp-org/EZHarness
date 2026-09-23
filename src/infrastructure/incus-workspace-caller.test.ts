@@ -14,7 +14,7 @@ import { IncusWorkspaceCaller } from "./incus-workspace-caller";
 const open: PGlite[] = [];
 const now = Date.parse("2026-09-22T12:00:00Z");
 
-async function setup() {
+async function setup(defaultInvoke = false) {
   const pglite = new PGlite();
   open.push(pglite);
   await pglite.waitReady;
@@ -64,10 +64,10 @@ async function setup() {
     db, now: () => now,
     resolveRelease: async installationId => { releaseLookups.push(installationId); return release; },
     resolveConnection: async scope => { connectionLookups.push(scope); return connection; },
-    invoke: async (installationId, bindingId, operation, input) => {
+    ...(!defaultInvoke ? { invoke: async (installationId: string, bindingId: string, operation: SandboxProtocolOperation, input: Record<string, unknown>) => {
       calls.push({ installationId, bindingId, operation, input });
       return response(operation, input);
-    },
+    } } : {}),
   });
   return { caller, binding, connection, release, calls, releaseLookups, connectionLookups,
     setResponse: (next: typeof response) => { response = next; } };
@@ -153,4 +153,11 @@ test("unknown action, payload scope injection, missing action suffix, and invali
   await expect(caller.call({ binding, toolCallId: "tool-1:1", action: "file.stat", payload: { path: "src/app.ts" } }))
     .rejects.toThrow("changed path identity");
   expect(calls).toHaveLength(1);
+});
+
+
+test("default caller settles and retires a failed release invocation", async () => {
+  const { caller, binding } = await setup(true);
+  await expect(caller.call({ binding, toolCallId: "tool-1:1", action: "file.stat",
+    payload: { path: "src/app.ts" } })).rejects.toThrow();
 });

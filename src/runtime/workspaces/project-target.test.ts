@@ -47,6 +47,17 @@ describe("resolveLocalProjectTarget", () => {
       .rejects.toThrow("Local workspace fallback was denied");
   });
 
+  test("a stopped durable sandbox binding denies execution", async () => {
+    const project = await createProject({ name: "Stopped target", path: "/amd/stopped-project" });
+    await getTestDb().insert(sandboxBindings).values({
+      id: crypto.randomUUID(), projectId: project.id, providerInstallationId: "incus-provider",
+      providerReleaseId: "release-1", connectionId: "connection-1", resourceKey: "workspace-stopped",
+      desiredState: "RUNNING", observedState: "STOPPED", generation: 1,
+    });
+    await expect(resolveProjectWorkspaceTarget(project, "agent run"))
+      .rejects.toThrow("Local workspace fallback was denied");
+  });
+
   test("the existing sandbox binding also denies the provider route to AMD", async () => {
     const project = await createProject({ name: "Existing sandbox target", path: "/amd/other-canary" });
     await getTestDb().insert(projectWorkspaceBindings).values({
@@ -109,6 +120,19 @@ describe("resolveLocalProjectTarget", () => {
     const target = await resolveProjectWorkspaceTarget(project, "agent run", localWorkspaceTarget(project.path));
     expect(target).toEqual(sandboxWorkspaceTarget(qualified, backend));
     expect(seen).toEqual([row.id]);
+
+    setSandboxWorkspaceTargetResolver(async () => null);
+    await expect(resolveProjectWorkspaceTarget(project, "agent run", sandboxWorkspaceTarget(qualified, backend)))
+      .rejects.toThrow("Local workspace fallback was denied");
+    setSandboxWorkspaceTargetResolver(async () => sandboxWorkspaceTarget({ ...qualified, connectionId: "other-connection" }, backend));
+    await expect(resolveProjectWorkspaceTarget(project, "agent run", sandboxWorkspaceTarget(qualified, backend)))
+      .rejects.toThrow("Local workspace fallback was denied");
+    setSandboxWorkspaceTargetResolver(async () => sandboxWorkspaceTarget({ ...qualified, releaseDigest: "d".repeat(64) }, backend));
+    await expect(resolveProjectWorkspaceTarget(project, "agent run", sandboxWorkspaceTarget(qualified, backend)))
+      .rejects.toThrow("Local workspace fallback was denied");
+    setSandboxWorkspaceTargetResolver(async () => sandboxWorkspaceTarget(qualified, backend));
+    await expect(resolveProjectWorkspaceTarget(project, "agent run", sandboxWorkspaceTarget(qualified, backend)))
+      .resolves.toMatchObject({ kind: "sandbox" });
 
     setSandboxWorkspaceTargetResolver(async () => sandboxWorkspaceTarget({ ...qualified, generation: 4 }, backend));
     await expect(resolveProjectWorkspaceTarget(project, "agent run"))

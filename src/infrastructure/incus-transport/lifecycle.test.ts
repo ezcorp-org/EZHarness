@@ -245,3 +245,26 @@ test("real TLS socket writes a create only after peer and client authentication"
     expect(requests).toHaveLength(0);
   } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 }, 15_000);
+
+
+test("instance list returns only owned, valid sandboxes in stable pages", async () => {
+  const owned = (id: string) => ({ name: `ezh-${createHash("sha256").update("connection-a").update("\0").update(id).digest("hex").slice(0, 32)}`,
+    status: "Running", config: { "user.ezharness.managed_by": "ezharness-incus-sandbox",
+      "user.ezharness.connection_id": "connection-a", "user.ezharness.sandbox_id": id,
+      "user.ezharness.profile": "linux-exec.v1", "user.ezharness.preset_id": "incus-linux-exec-v1",
+      "user.ezharness.generation": "1" } });
+  const entries = [owned("b"), { ...owned("a"), config: { ...owned("a").config, "user.ezharness.connection_id": "other" } },
+    owned("c"), { ...owned("invalid"), name: "ezh-forged" }, owned("a"),
+    { ...owned("wrong"), config: { ...owned("wrong").config, "user.ezharness.generation": "zero" } }];
+  let calls = 0;
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope,
+    (async () => { calls++; return reply(entries); }) as never);
+  const list = (payload: Record<string, unknown>) => transport.request({ ...command, action: "instance.list",
+    sandboxName: undefined, tags: { ...command.tags, sandboxId: undefined }, idempotency: undefined, payload: payload as IncusTransportRequest["payload"] });
+  const first = await list({ limit: 1 }) as { sandboxes: Array<{ sandboxId: string }>; nextCursor: object };
+  expect(first.sandboxes.map(item => item.sandboxId)).toEqual(["a"]);
+  expect(first.nextCursor).toEqual({ connectionId: "connection-a", afterSandboxId: "a" });
+  const second = await list({ limit: 2, cursor: first.nextCursor }) as { sandboxes: Array<{ sandboxId: string }> };
+  expect(second.sandboxes.map(item => item.sandboxId)).toEqual(["b", "c"]);
+  expect(calls).toBe(2);
+});

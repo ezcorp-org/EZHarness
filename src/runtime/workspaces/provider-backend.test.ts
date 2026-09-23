@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -133,4 +133,168 @@ describe("provider sandbox workspace bridge", () => {
       .toEqual(["rg", "grep", "rg", "find"]);
     expect(new Set(guest.calls.filter(call => call.action === "process.start").map(call => call.toolCallId)).size).toBe(4);
   });
+});
+
+function toolWithReply(name: string, reply: (input: Parameters<ProviderSandboxWorkspaceCaller["call"]>[0]) => Promise<unknown>) {
+  return getBuiltinToolDefs(sandboxWorkspaceTarget(binding, createProviderSandboxWorkspaceBackend({ call: reply })))
+    .find(tool => tool.name === name)!;
+}
+
+test("guest file reads reject changed revisions, stalled ranges, and oversized files", async () => {
+  const cases = [
+    { sizeBytes: 1, range: { revision: "changed", offsetBytes: 0, dataBase64: btoa("x") }, message: "changed during read" },
+    { sizeBytes: 1, range: { revision: "rev", offsetBytes: 0, dataBase64: "" }, message: "made no progress" },
+    { sizeBytes: Number.MAX_SAFE_INTEGER, range: null, message: "exceeds the read limit" },
+  ];
+  for (const item of cases) {
+    const seen: WorkspaceGuestAction[] = [];
+    const tool = toolWithReply("readFile", async ({ action }) => {
+      seen.push(action);
+      return action === "file.stat" ? { ok: true, file: { kind: "file", revision: "rev", sizeBytes: item.sizeBytes } }
+        : { ok: true, ...item.range };
+    });
+    const output = await tool.execute("read", { path: "src/input.ts" });
+    expect(output).toMatchObject({ details: { isError: true } });
+    expect((output.content[0] as { text: string }).text).toContain(item.message);
+    expect(seen).toEqual(item.range ? ["file.stat", "file.readRange"] : ["file.stat"]);
+  }
+});
+
+test("guest list rejects paths outside its directory", async () => {
+  const tool = toolWithReply("listFiles", async () => ({ ok: true, entries: [{ path: "elsewhere/secret", kind: "file" }] }));
+  const output = await tool.execute("list", { path: "src" });
+  expect(output).toMatchObject({ details: { isError: true } });
+  expect((output.content[0] as { text: string }).text).toContain("escaped its directory");
+});
+
+test("guest process failures cancel the remote process", async () => {
+  const calls: WorkspaceGuestAction[] = [];
+  const tool = toolWithReply("shell", async ({ action }) => {
+    calls.push(action);
+    if (action === "process.start") return { ok: true, processId: "process", bootId: "boot" };
+    if (action === "process.readOutput") return { ok: true, gap: true };
+    if (action === "process.cancel") return { ok: true };
+    throw new Error("unexpected process inspection");
+  });
+  const output = await tool.execute("shell", { command: "true" });
+  expect(output).toMatchObject({ details: { isError: true } });
+  expect((output.content[0] as { text: string }).text).toContain("output has a gap");
+  expect(calls).toEqual(["process.start", "process.readOutput", "process.cancel"]);
+});
+
+test("guest process output is bounded before it reaches the host", async () => {
+  const calls: WorkspaceGuestAction[] = [];
+  const tool = toolWithReply("shell", async ({ action }) => {
+    calls.push(action);
+    if (action === "process.start") return { ok: true, processId: "process", bootId: "boot" };
+    if (action === "process.readOutput") return { ok: true, chunks: [{ stream: "stdout", dataBase64: Buffer.alloc(64 * 1024, 120).toString("base64") }], eof: false };
+    if (action === "process.inspect") return { ok: true, process: { state: "running" } };
+    if (action === "process.cancel") return { ok: true };
+    throw new Error("output was not bounded");
+  });
+  const output = await tool.execute("shell", { command: "true" });
+  expect(output.details).toMatchObject({ exitCode: -1, truncated: true });
+  expect(calls.filter(action => action === "process.readOutput")).toHaveLength(17);
+  expect(calls.at(-1)).toBe("process.cancel");
+});
+
+test("guest provider errors preserve safe failure details", async () => {
+  for (const [reply, expected] of [
+    [{ ok: false }, "Sandbox provider action failed"],
+    [{ ok: false, error: { code: "revision_conflict", message: "Changed" } }, "Changed"],
+    [{ ok: false, error: { kind: "not_found" } }, "Sandbox provider action failed"],
+  ] as const) {
+    const tool = toolWithReply("readFile", async () => reply);
+    const output = await tool.execute("read", { path: "src/input.ts" });
+    expect(output.details).toMatchObject({ isError: true });
+    expect((output.content[0] as { text: string }).text).toContain(expected);
+  }
+});
+
+test("guest list passes its opaque cursor and filters names in the bound directory", async () => {
+  const cursors: unknown[] = [];
+  const tool = toolWithReply("listFiles", async ({ payload }) => {
+    cursors.push(payload.cursor);
+    return payload.cursor ? { ok: true, entries: [{ path: "src/app.ts", kind: "file" }] }
+      : { ok: true, entries: [{ path: "src/notes.md", kind: "file" }], nextCursor: "page-2" };
+  });
+  const output = await tool.execute("list", { path: "src", pattern: "*.ts" });
+  expect(output.content).toEqual([{ type: "text", text: "app.ts" }]);
+  expect(cursors).toEqual([undefined, "page-2"]);
+});
+
+test("guest process streams stderr and waits for terminal output", async () => {
+  let reads = 0;
+  const tool = toolWithReply("shell", async ({ action }) => {
+    if (action === "process.start") return { ok: true, processId: "process", bootId: "boot" };
+    if (action === "process.readOutput") return { ok: true, chunks: reads++ === 0
+      ? [{ stream: "stderr", dataBase64: btoa("warning") }] : [], eof: reads > 1 };
+    if (action === "process.inspect") return { ok: true, process: { state: reads > 1 ? "failed" : "running", exitCode: 3 } };
+    throw new Error("unexpected cancellation");
+  });
+  const output = await tool.execute("shell", { command: "false" });
+  expect(output.details).toMatchObject({ stderr: "warning", exitCode: 3, truncated: false });
+  expect(reads).toBe(2);
+});
+
+test("guest edit validates ranges and creates a nested guest directory", async () => {
+  const guest = new FakeGuest();
+  const edit = getBuiltinToolDefs(sandboxWorkspaceTarget(binding, createProviderSandboxWorkspaceBackend(guest)))
+    .find(tool => tool.name === "editFile")!;
+  const changed = await edit.execute("edit", { path: "src/input.ts", lineRange: { startLine: 1, endLine: 1 }, new_string: "new line" });
+  expect(changed.details).toMatchObject({ newContent: "new line\n" });
+  const invalid = await edit.execute("edit", { path: "src/input.ts", lineRange: { startLine: 3, endLine: 2 }, new_string: "bad" });
+  expect(invalid.details).toMatchObject({ isError: true });
+  const created = await edit.execute("create", { path: "nested/new.ts", new_string: "guest" });
+  expect(created.details).toMatchObject({ newContent: "guest" });
+  expect(guest.calls.some(call => call.action === "process.start" && (call.payload.argv as string[]).join(" ") === "mkdir -p nested")).toBe(true);
+  expect(guest.files.get("nested/new.ts")?.text).toBe("guest");
+});
+
+test("guest edit never writes when an expected old file is missing", async () => {
+  const actions: WorkspaceGuestAction[] = [];
+  const tool = toolWithReply("editFile", async ({ action }) => {
+    actions.push(action);
+    return { ok: false, error: { kind: "not_found", message: "File not found" } };
+  });
+  const output = await tool.execute("edit", { path: "missing.ts", old_string: "old", new_string: "new" });
+  expect(output.details).toMatchObject({ isError: true });
+  expect(actions).toEqual(["file.stat"]);
+});
+
+
+test("guest list stops after the maximum number of cursor pages", async () => {
+  let pages = 0;
+  const tool = toolWithReply("listFiles", async () => {
+    pages++;
+    return { ok: true, entries: [], nextCursor: `page-${pages}` };
+  });
+  const output = await tool.execute("list", { path: "src" });
+  expect(output.details).toMatchObject({ isError: true });
+  expect((output.content[0] as { text: string }).text).toContain("exceeds the list limit");
+  expect(pages).toBe(100);
+});
+
+test("guest process stops after its bounded poll count and cancels", async () => {
+  let polls = 0;
+  let cancelled = false;
+  const tool = toolWithReply("shell", async ({ action }) => {
+    if (action === "process.start") return { ok: true, processId: "process", bootId: "boot" };
+    if (action === "process.readOutput") { polls++; return { ok: true, chunks: [], eof: false }; }
+    if (action === "process.inspect") return { ok: true, process: { state: "running" } };
+    if (action === "process.cancel") { cancelled = true; return { ok: true }; }
+    throw new Error("unexpected guest action");
+  });
+  const instantTimer = ((...args: Parameters<typeof setTimeout>) => {
+    queueMicrotask(() => args[0]());
+    return 0 as unknown as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(instantTimer);
+  try {
+    const output = await tool.execute("shell", { command: "true", timeout: 30_000 });
+    expect(output.details).toMatchObject({ isError: true });
+    expect((output.content[0] as { text: string }).text).toContain("polling limit reached");
+    expect(polls).toBe(7_000);
+    expect(cancelled).toBe(true);
+  } finally { timer.mockRestore(); }
 });
