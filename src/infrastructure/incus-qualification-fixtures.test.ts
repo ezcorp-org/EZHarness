@@ -18,7 +18,7 @@ const scope: IncusQualificationScope = { installationId: "installation", release
   connectionId: "connection", presetId: INCUS_PRESETS[0]!.id };
 
 async function setup(configureHost = true, pendingCreate = false, providerGeneration = 1,
-  inspectError: Error | null = null) {
+  inspectError: Error | null = null, hostSlots = 2) {
   const client = new PGlite();
   opened.push(client);
   await client.waitReady;
@@ -45,8 +45,10 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
   const admission = new SandboxAdmissionStore(db);
   if (configureHost) await admission.configureHostCapacity({ providerInstallationId: scope.installationId,
     connectionId: scope.connectionId,
-    allocatable: { memoryBytes: 2 * preset.limits.memoryBytes, cpuMillicores: 2 * preset.limits.cpuMillis,
-      pids: 2 * preset.limits.pids, diskBytes: 2 * preset.limits.diskBytes, executionSlots: 2 },
+    allocatable: { memoryBytes: hostSlots * preset.limits.memoryBytes,
+      cpuMillicores: hostSlots * preset.limits.cpuMillis,
+      pids: hostSlots * preset.limits.pids, diskBytes: hostSlots * preset.limits.diskBytes,
+      executionSlots: hostSlots },
     safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 },
   });
   const service = new IncusQualificationFixtureService({ db, qualifications, admission, controller,
@@ -57,7 +59,7 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
       presetId: preset.id, desiredState: "stopped", observedState: "stopped",
       generation: providerGeneration, bootId: null, observedAt: new Date().toISOString() } };
     } });
-  return { db, service, dispatches, controller, admission, presetDigest, effectiveSettingsDigest };
+  return { db, service, dispatches, controller, admission, qualifications, presetDigest, effectiveSettingsDigest };
 }
 
 afterEach(async () => { await Promise.all(opened.splice(0).map(client => client.close())); });
@@ -99,11 +101,14 @@ test("host fixture create and destroy use admission and durable controller witho
 });
 
 test("missing host capacity and reused fixture identity fail closed", async () => {
-  const { service, dispatches } = await setup(false);
+  const { service, dispatches, db } = await setup(false);
   await expect(service.create(scope, "fixture-2")).rejects.toThrow("Host capacity must be configured first");
   expect(dispatches).toEqual([]);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toEqual([]);
+  expect(await db.select().from(schema.sandboxBindings)).toEqual([]);
+  expect(await db.select().from(schema.projects)).toEqual([]);
   await expect(service.create({ ...scope, connectionId: "other" }, "fixture-2"))
-    .rejects.toThrow("identity changed");
+    .rejects.toThrow("Host capacity must be configured first");
   await expect(service.destroy({ ...scope, connectionId: "other" }, "fixture-2"))
     .rejects.toThrow("fixture is unavailable");
 });
@@ -165,4 +170,66 @@ test("destroy denies cleanup when provider generation cannot be read", async () 
   await expect(service.destroy(scope, "fixture-no-readback"))
     .rejects.toThrow("provider readback unavailable");
   expect(dispatches.map(item => item.kind)).toEqual(["CREATE"]);
+});
+
+test("queued admission removes only the never-admitted fixture", async () => {
+  const { service, db, dispatches } = await setup(true, false, 1, null, 1);
+  await service.create(scope, "fixture-reserved");
+  await expect(service.create(scope, "fixture-queued"))
+    .rejects.toThrow("admission QUEUED");
+  const fixtures = await db.select().from(schema.incusQualificationFixtures);
+  expect(fixtures.map(item => item.operationId)).toEqual(["fixture-reserved"]);
+  expect(await db.select().from(schema.sandboxAdmissionRequests)).toHaveLength(1);
+  expect(await db.select().from(schema.projects)).toHaveLength(1);
+  expect(dispatches).toHaveLength(1);
+});
+
+test("recovery cannot delete an admitted fixture or race an active create", async () => {
+  const { service, db } = await setup();
+  const [create, cancel] = await Promise.allSettled([
+    service.create(scope, "fixture-cancel-race"),
+    service.cancelNeverAdmitted(scope, "fixture-cancel-race"),
+  ]);
+  expect(create.status).toBe("fulfilled");
+  expect(cancel.status).toBe("rejected");
+  expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);
+  await expect(service.cancelNeverAdmitted(scope, "fixture-cancel-race"))
+    .rejects.toThrow("may have a provider effect");
+});
+
+test("a lost admission reply retains possible provider effects for recovery", async () => {
+  const { db, admission, qualifications, controller, dispatches } = await setup();
+  const lostReply = Object.create(admission) as SandboxAdmissionStore;
+  lostReply.requestAdmission = async input => {
+    await admission.requestAdmission(input);
+    throw new Error("admission reply lost");
+  };
+  const service = new IncusQualificationFixtureService({ db, admission: lostReply, qualifications, controller });
+  await expect(service.create(scope, "fixture-unknown-admission"))
+    .rejects.toThrow("admission and cleanup failed");
+  expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);
+  expect(await db.select().from(schema.sandboxReservations)).toHaveLength(1);
+  expect(dispatches).toEqual([]);
+});
+
+test("operator recovery removes an old never-admitted fixture with exact scope", async () => {
+  const { db, service, presetDigest, effectiveSettingsDigest } = await setup(false);
+  await db.insert(schema.projects).values({ id: "orphan-project", name: "orphan",
+    path: "/__incus_qualification__/orphan", purpose: "incus-qualification" });
+  await db.insert(schema.sandboxBindings).values({ id: "orphan-binding", projectId: "orphan-project",
+    providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+    connectionId: scope.connectionId, connectionRevision: 1, resourceKey: "orphan-binding",
+    profile: INCUS_PRESETS[0]!.profile, presetId: scope.presetId, presetDigest,
+    effectiveSettingsDigest, desiredState: "STOPPED", observedState: "UNKNOWN" });
+  await db.insert(schema.incusQualificationFixtures).values({ operationId: "fixture-old",
+    projectId: "orphan-project", bindingId: "orphan-binding", installationId: scope.installationId,
+    releaseId: scope.releaseId, connectionId: scope.connectionId, connectionRevision: 1,
+    presetId: scope.presetId, presetDigest, effectiveSettingsDigest });
+  await expect(service.cancelNeverAdmitted({ ...scope, connectionId: "other" }, "fixture-old"))
+    .rejects.toThrow("changed scope");
+  expect(await service.cancelNeverAdmitted(scope, "fixture-old")).toBe(true);
+  expect(await service.cancelNeverAdmitted(scope, "fixture-old")).toBe(false);
+  expect(await db.select().from(schema.projects)).toEqual([]);
+  expect(await db.select().from(schema.sandboxBindings)).toEqual([]);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toEqual([]);
 });

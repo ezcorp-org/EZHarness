@@ -9,7 +9,9 @@ import {
 } from "@ezcorp/extension-contract";
 import { and, eq, sql } from "drizzle-orm";
 import { getDb, type Database, type DbTransaction } from "../db/connection";
-import { incusQualificationFixtures, projects, sandboxBindings, sandboxOperations, type SandboxOperation } from "../db/schema";
+import { incusQualificationFixtures, projectWorkspaceBindings, projects, sandboxAdmissionRequests,
+  sandboxBindings, sandboxOperations, sandboxProjectQuotas, sandboxReservations,
+  type SandboxOperation } from "../db/schema";
 import { releaseRows } from "../db/queries/extension-releases";
 import { getReleaseRuntime, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
 import { digest } from "../../scripts/incus/model";
@@ -315,6 +317,21 @@ function uniqueViolation(error: unknown): boolean {
   return false;
 }
 
+const fixtureLocks = new Map<string, Promise<void>>();
+
+async function withFixtureLock<T>(operationId: string, action: () => Promise<T>): Promise<T> {
+  const previous = fixtureLocks.get(operationId);
+  let release = () => {};
+  const current = new Promise<void>(resolve => { release = resolve; });
+  fixtureLocks.set(operationId, current);
+  if (previous) await previous;
+  try { return await action(); }
+  finally {
+    release();
+    if (fixtureLocks.get(operationId) === current) fixtureLocks.delete(operationId);
+  }
+}
+
 /** Dedicated host fixture path. It creates no user workspace binding and does
  * not relax IncusFeatureService's live-qualification requirement. */
 export class IncusQualificationFixtureService {
@@ -355,6 +372,10 @@ export class IncusQualificationFixtureService {
     if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(operationId)) {
       throw new Error("Invalid Incus qualification fixture operation ID");
     }
+    return withFixtureLock(operationId, () => this.createLocked(scope, operationId));
+  }
+
+  private async createLocked(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
     const selected = await this.qualifications.authorizeFixture(scope);
     const identity = createHash("sha256").update(JSON.stringify([scope, operationId])).digest("hex");
     const projectId = `incus-qual-project-${identity}`;
@@ -392,13 +413,21 @@ export class IncusQualificationFixtureService {
     const resources = { memoryBytes: selected.preset.limits.memoryBytes,
       cpuMillicores: selected.preset.limits.cpuMillis, pids: selected.preset.limits.pids,
       diskBytes: selected.preset.limits.diskBytes, executionSlots: 1 };
-    await this.admission.configureProjectQuota({ projectId, providerInstallationId: scope.installationId,
-      connectionId: scope.connectionId, limit: resources });
     const request = { bindingId, generation: 1, idempotencyScope: "incus-qualification",
       idempotencyKey: operationId };
-    const admitted = await this.admission.requestAdmission({ ...request, kind: "CREATE", resources });
-    if (admitted.state !== "ADMITTED") {
-      throw new Error(`Incus qualification fixture admission ${admitted.state}: ${admitted.reason}`);
+    try {
+      await this.admission.configureProjectQuota({ projectId, providerInstallationId: scope.installationId,
+        connectionId: scope.connectionId, limit: resources });
+      const admitted = await this.admission.requestAdmission({ ...request, kind: "CREATE", resources });
+      if (admitted.state !== "ADMITTED") {
+        throw new Error(`Incus qualification fixture admission ${admitted.state}: ${admitted.reason}`);
+      }
+    } catch (error) {
+      try { await this.cancelNeverAdmittedLocked(scope, operationId); }
+      catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "Incus qualification fixture admission and cleanup failed");
+      }
+      throw error;
     }
     const operation = await this.controller.requestAndDispatch({ ...request, kind: "CREATE",
       payload: { profile: selected.preset.profile, presetId: scope.presetId,
@@ -410,6 +439,55 @@ export class IncusQualificationFixtureService {
       await this.admission.recordObservedState(bindingId, 1, "STOPPED", intent);
     }
     return operation;
+  }
+
+  /** Recover an old failed pre-admission attempt. Any durable effect or
+   * reservation keeps the fixture for normal controller reconciliation. */
+  async cancelNeverAdmitted(scope: IncusQualificationScope, operationId: string): Promise<boolean> {
+    return withFixtureLock(operationId, () => this.cancelNeverAdmittedLocked(scope, operationId));
+  }
+
+  private async cancelNeverAdmittedLocked(scope: IncusQualificationScope, operationId: string): Promise<boolean> {
+    return this.db.transaction(async (tx: DbTransaction) => {
+      const [fixture] = await tx.select().from(incusQualificationFixtures)
+        .where(eq(incusQualificationFixtures.operationId, operationId)).limit(1).for("update");
+      if (!fixture) return false;
+      if (fixture.installationId !== scope.installationId || fixture.releaseId !== scope.releaseId
+        || fixture.connectionId !== scope.connectionId || fixture.presetId !== scope.presetId) {
+        throw new Error("Incus qualification fixture operation changed scope");
+      }
+      const [binding] = await tx.select().from(sandboxBindings)
+        .where(eq(sandboxBindings.id, fixture.bindingId)).limit(1).for("update");
+      const [project] = await tx.select().from(projects)
+        .where(eq(projects.id, fixture.projectId)).limit(1).for("update");
+      if (!binding || !project || project.purpose !== "incus-qualification"
+        || binding.projectId !== fixture.projectId || binding.resourceKey !== fixture.bindingId
+        || binding.providerInstallationId !== fixture.installationId
+        || binding.providerReleaseId !== fixture.releaseId
+        || binding.connectionId !== fixture.connectionId
+        || binding.connectionRevision !== fixture.connectionRevision
+        || binding.presetId !== fixture.presetId || binding.presetDigest !== fixture.presetDigest
+        || binding.effectiveSettingsDigest !== fixture.effectiveSettingsDigest) {
+        throw new Error("Incus qualification fixture ownership changed");
+      }
+      const [operation] = await tx.select({ id: sandboxOperations.id }).from(sandboxOperations)
+        .where(eq(sandboxOperations.bindingId, fixture.bindingId)).limit(1);
+      const [reservation] = await tx.select({ bindingId: sandboxReservations.bindingId }).from(sandboxReservations)
+        .where(eq(sandboxReservations.bindingId, fixture.bindingId)).limit(1);
+      const [workspace] = await tx.select({ projectId: projectWorkspaceBindings.projectId })
+        .from(projectWorkspaceBindings).where(eq(projectWorkspaceBindings.projectId, fixture.projectId)).limit(1);
+      const admissions = await tx.select().from(sandboxAdmissionRequests)
+        .where(eq(sandboxAdmissionRequests.bindingId, fixture.bindingId));
+      if (operation || reservation || workspace || admissions.some((item: { state: string }) => item.state === "ADMITTED")) {
+        throw new Error("Incus qualification fixture may have a provider effect");
+      }
+      await tx.delete(sandboxAdmissionRequests).where(eq(sandboxAdmissionRequests.bindingId, fixture.bindingId));
+      await tx.delete(sandboxProjectQuotas).where(eq(sandboxProjectQuotas.projectId, fixture.projectId));
+      await tx.delete(incusQualificationFixtures).where(eq(incusQualificationFixtures.operationId, operationId));
+      await tx.delete(sandboxBindings).where(eq(sandboxBindings.id, fixture.bindingId));
+      await tx.delete(projects).where(eq(projects.id, fixture.projectId));
+      return true;
+    });
   }
 
   async destroy(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
