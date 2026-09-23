@@ -60,7 +60,8 @@ function instanceRecord(image = recipe.guestImage!.fingerprint) {
       "limits.cpu.allowance": `${preset.limits.cpuMillis}ms/1000ms`,
       "limits.processes": String(preset.limits.pids) },
     expanded_config: { "security.privileged": "false", "security.idmap.isolated": "true" },
-    expanded_devices: { eth0: { type: "nic", network: recipe.network.name, "security.port_isolation": "true" } },
+    expanded_devices: { eth0: { type: "nic", network: recipe.network.name, "security.port_isolation": "true" },
+      root: recipe.profile.devices.root },
     devices: { root: { type: "disk", path: "/", pool: recipe.storage.name,
       size: String(preset.limits.diskBytes) } } };
 }
@@ -86,6 +87,9 @@ test("wrong project, forged image, and altered limits deny readback", async () =
     .rejects.toThrow("backend image fingerprint");
   await expect(backend(undefined, selected.preset.imageDigest, { eth0: {
     ...recipe.profile.devices.eth0, "security.port_isolation": "false" } }).value.image(selected))
+    .rejects.toThrow("feature devices changed");
+  await expect(backend(undefined, selected.preset.imageDigest, { ...recipe.profile.devices,
+    eth0: { ...recipe.profile.devices.eth0, "security.port_isolation": "false" } }).value.image(selected))
     .rejects.toThrow("feature NIC isolation changed");
   await expect(backend(instanceRecord("f".repeat(64))).value.instance(selected, sandboxId))
     .rejects.toThrow("fixture identity or image changed");
@@ -105,6 +109,10 @@ test("wrong project, forged image, and altered limits deny readback", async () =
   (unisolatedNic.expanded_devices.eth0 as Record<string, string>)["security.port_isolation"] = "false";
   await expect(backend(unisolatedNic).value.instance(selected, sandboxId))
     .rejects.toThrow("fixture NIC isolation changed");
+  const extraNic = instanceRecord();
+  (extraNic.expanded_devices as Record<string, unknown>).eth1 = { type: "nic", name: "eth1", network: "unsafe" };
+  await expect(backend(extraNic).value.instance(selected, sandboxId))
+    .rejects.toThrow("fixture devices changed");
 });
 
 test("fractional CPU reservation reads the hard allowance, not rounded CPU placement", async () => {

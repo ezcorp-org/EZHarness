@@ -110,7 +110,9 @@ export class HostIncusLiveReadback {
       const profile = object(metadata(await session.request("GET",
         `/1.0/profiles/${encodeURIComponent(context.recipe.profile.name)}?project=${project}`)));
       assert(profile.name === context.recipe.profile.name, "backend profile changed");
-      const profileNic = object(object(profile.devices).eth0);
+      const profileDevices = object(profile.devices);
+      assert(Object.keys(profileDevices).sort().join(",") === "eth0,root", "backend feature devices changed");
+      const profileNic = object(profileDevices.eth0);
       assert(profileNic.type === "nic" && profileNic.name === "eth0"
         && profileNic.network === context.recipe.network.name
         && profileNic["security.port_isolation"] === "true", "backend feature NIC isolation changed");
@@ -166,6 +168,8 @@ export class HostIncusLiveReadback {
         && pids <= context.preset.limits.pids && diskBytes <= context.preset.limits.diskBytes,
       "backend fixture limits changed");
       const nic = object(object(instance.expanded_devices).eth0);
+      assert(Object.keys(object(instance.expanded_devices)).sort().join(",") === "eth0,root",
+        "backend fixture devices changed");
       assert(nic.type === "nic" && nic.network === context.recipe.network.name
         && nic["security.port_isolation"] === "true", "backend fixture NIC isolation changed");
       return { state: instance.status === "Running" ? "running" : "stopped",

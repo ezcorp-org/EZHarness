@@ -252,6 +252,7 @@ async function createInstance({ session, command, project, collection, input, po
   const profile = object(metadata(await session.request("GET", `/1.0/profiles/${policy.incusProfile}?project=${project}`)));
   if (profile.name !== policy.incusProfile) denied("Incus profile identity changed");
   const devices = object(profile.devices);
+  if (Object.keys(devices).sort().join(",") !== "eth0,root") denied("Incus feature profile has unexpected devices");
   const root = object(devices.root);
   if (root.type !== "disk" || root.path !== "/" || typeof root.pool !== "string" || !NAME.test(root.pool) || root.source !== undefined) denied("Incus root disk profile is unsafe");
   const nic = object(devices.eth0);

@@ -87,6 +87,19 @@ test("create refuses a feature NIC without backend port isolation before allocat
   expect(writes).toBe(0);
 });
 
+test("create refuses an extra profile device before allocation", async () => {
+  let writes = 0;
+  const fetcher = async (url: string, init: RequestInit) => {
+    if (init.method !== "GET") { writes++; return reply({ id: "unexpected" }, 202); }
+    if (new URL(url).pathname.includes("/profiles/")) return reply({ ...safeProfile,
+      devices: { ...safeProfile.devices, eth1: { type: "nic", name: "eth1", network: "unsafe" } } });
+    return reply({}, 404);
+  };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  await expect(transport.request(command)).rejects.toMatchObject({ kind: "permission", effect: "none" });
+  expect(writes).toBe(0);
+});
+
 test("lost mutation response stays unknown with a stable operation identity", async () => {
   let writes = 0;
   const fetcher = async (url: string, init: RequestInit) => {
