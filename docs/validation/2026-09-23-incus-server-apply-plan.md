@@ -17,18 +17,22 @@ The output files must be new private paths: the CLI writes them with mode `0600`
 
 The [candidate manifest](2026-09-23-incus-image-inputs.md) identifies Debian 12 amd64 default build `20260923_05:24`, base fingerprint `7ccaa583b060cfec673f96fa9acd52d153a35a8090d68be4cd946280f4b61907`, Python `3.11.2-1+b1`, Docker static `docker-29.8.1.tgz`, Compose v5.5.1, and the current helper source. These are candidates, not recipe pins or an approved build. The operator must approve the exact versions, artifact hashes, and transfer path before the first server write. Recheck all staged files against the manifest and inspect the actual server state again. If the remote build is gone, use only the already verified split-image files; do not substitute a moving alias.
 
-The proposed first write imports the exact reviewed split base image into the **default** project. The server-side import command is:
+The read-only follow-up in the [prewrite packet](2026-09-23-incus-server-prewrite-review.md) found that the server has no storage pool and its default profile has no root disk or NIC. The builder's first guest therefore requires the reviewed `ezharness-btrfs` pool and managed `ezharness0` NAT bridge **before** launch. The setup planner cannot create them first because it stays blocked until the published image exists. Review the exact pool and bridge commands in the packet as separate prebuild writes. The proposed first server write is creation of the private staging directory, followed by transfer and hash checks; the pool creation is the first Incus configuration write. Do not run the old builder with an unqualified default-profile launch.
+
+After verifying the staged files and precreating the exact pool and bridge, import the reviewed split base image into the **default** project. The server-side import command for the selected staging path is:
 
 ```sh
-incus image import /approved/incus.tar.xz /approved/rootfs.squashfs --alias ezh-base-20260923 --project default
+incus image import /home/dev/ezh-incus-image-20260923/incus.tar.xz \
+  /home/dev/ezh-incus-image-20260923/rootfs.squashfs \
+  --alias ezh-base-20260923 --project default
 ```
 
 Before that command, verify the transferred metadata SHA-256 `ef5a700d30426a2e237499a887f77f59b7527b66f98af8d4207354fb54d7a76a` and root SHA-256 `5f22057b045cffc162824bae27f4a0df2457aed7bb274a903d4b0f411631b973`. After it, read `incus image info 7ccaa583b060cfec673f96fa9acd52d153a35a8090d68be4cd946280f4b61907 --project default`; stop if the local fingerprint does not resolve. Do not infer the published guest fingerprint from these hashes.
 
-Prepare a separately reviewed copy of the recipe with `guestImage.sourceFingerprint`, `pythonPackageVersion`, `dockerArchiveSha256`, and `composeSha256` set to the candidate values below; keep `guestImage.fingerprint` null until publish. Confirm that `sha256sum src/infrastructure/incus-guest/helper.py` still equals the recipe's helper hash. The build script rejects any null or mismatched input. Transfer that reviewed recipe, [builder](../../scripts/incus/build-guest-image.sh), helper, and the two runtime files to the approved server through a controlled operator path. Verify the transferred files there. Then run this **proposed** command from the directory holding those exact files:
+Prepare a separately reviewed copy of the recipe with `guestImage.sourceFingerprint`, `pythonPackageVersion`, `dockerArchiveSha256`, and `composeSha256` set to the candidate values below; keep `guestImage.fingerprint` null until publish. Confirm that `sha256sum src/infrastructure/incus-guest/helper.py` still equals the recipe's helper hash. The build script rejects any null or mismatched input. Transfer that reviewed recipe, [builder](../../scripts/incus/build-guest-image.sh), helper, and the two runtime files to the approved server through the packet's controlled operator path. Verify the transferred files there. The revised builder must use the recipe's explicit storage pool and bridge at launch. Confirm its new hash in the packet before transfer. Then run this **proposed** command from the directory holding those exact files:
 
 ```sh
-bash build-guest-image.sh reviewed-recipe.json \
+bash build-guest-image.sh candidate-recipe.json \
   7ccaa583b060cfec673f96fa9acd52d153a35a8090d68be4cd946280f4b61907 \
   3.11.2-1+b1 docker-29.8.1.tgz \
   d8db66739d2e28d4933786d73e918d9be643a67fbd835db1bf740d650a259e70 \
@@ -38,7 +42,7 @@ bash build-guest-image.sh reviewed-recipe.json \
   ezharness-guest-0-1-0
 ```
 
-The builder verifies file hashes, launches a temporary guest, installs the exact Python package, Docker, Compose, and helper, creates `sandbox` as UID/GID 1000 and the private helper state directory, stops and publishes the guest, and prints the actual published fingerprint. The first real `apt-get update` and exact Python install remain untested. If either fails, stop and review; do not change the package version during the run. Its exit trap deletes the temporary build guest. It does not remove the imported base or a published image. Record the output fingerprint, inspect the image and alias in the default project, and only then request review of a recipe copy with `guestImage.fingerprint` set to that exact value. The checked-in recipe must change only through the normal reviewed source process.
+The builder verifies file hashes, launches a temporary guest with the reviewed pool and bridge, installs the exact Python package, Docker, Compose, and helper, creates `sandbox` as UID/GID 1000 and the private helper state directory, stops and publishes the guest, and prints the actual published fingerprint. The first real guest network, `apt-get update`, and exact Python install remain untested. If any fails, stop and review; do not change the package version during the run. Its exit trap deletes the temporary build guest. It does not remove the imported base, pool, bridge, or a published image. Record the output fingerprint, inspect the image and alias in the default project, and only then request review of a recipe copy with `guestImage.fingerprint` set to that exact value. The checked-in recipe must change only through the normal reviewed source process.
 
 ## 3. Generate and approve the setup plan
 
@@ -73,7 +77,7 @@ Require `ready: true`, no failures, matching image fingerprint and alias, matchi
 
 ## Approvals still needed
 
-1. Approve the exact base metadata/root hashes, Docker and Compose binaries and hashes, Python package version, helper source hash, controlled transfer path, and base import plus image build on `dev@sandbox-server.taile1c5b0.ts.net`.
+1. Approve the exact base metadata/root hashes, Docker and Compose binaries and hashes, Python package version, helper and revised builder source hashes, controlled transfer path, prebuild storage pool and NAT bridge commands, base import, and image build on `dev@sandbox-server.taile1c5b0.ts.net`.
 2. Review the actual published image fingerprint and the resulting recipe change. No published fingerprint is known today.
 3. Review the fresh engine-generated certificate scope, full setup plan, and exact saved digest; approve **Apply** only for that digest. No certificate fingerprint, credentials, or approved plan digest is supplied by this document.
 4. After server verification, approve and run the separate live guest qualification with its explicit cleanup scope.
