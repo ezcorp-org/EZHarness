@@ -3646,3 +3646,21 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+
+## W15b — Runtime key management and migration follow-ups (branch `wp/w15b-runtime-kms`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w15b.md`. Gate file: `tasks/factory/w15b-GATES.md`.
+
+- [x] R1 one key-service unit for the orchestrator codec and the restore; each non-file kind proven at runtime (Node launcher and full stack); mismatches refuse typed; the manifest names the kind.
+- [x] R2 the retention kind constraint is replaced by name; proven on the old table shape under PGlite and PostgreSQL.
+- [x] R3 the effect-claims comment corrected.
+- [x] R4 unchanged by design.
+- [x] Gates, receipts, report.
+
+Review (W15b): The orchestrator's payload codec and the restore now open the data key through one unit,
+so a startup document that selects a cloud KMS or a transit engine works at runtime, not only in the
+restore. The Node process may link the KMS client, and the boundary test says exactly that. A wrap
+made under another service, or a service that cannot open it, refuses with `FactoryEncryptionError`.
+The retention kind constraint is replaced by name on every boot. The first backend-pool run failed
+because the batch leaked the PostgreSQL environment into it; the batch now uses subshells.
+
