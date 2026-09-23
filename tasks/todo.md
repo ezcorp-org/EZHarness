@@ -3,9 +3,9 @@
 - [x] Reproduce the review findings and assign isolated Sol worktrees.
 - [x] Fix OAuth session revocation and refresh recovery; integrate focused tests.
 - [x] Add migration upgrade, idempotency, and foreign-key tests.
-- [ ] Fix real filesystem import and publication recovery; remove repeated identity and limits.
+- [x] Fix real filesystem import and publication recovery; remove repeated identity and limits.
 - [ ] Fix GitHub setup, base selection, empty-change feedback, and diff drawer state.
-- [ ] Diagnose and fix hosted launcher cancellation failure.
+- [x] Diagnose and fix hosted launcher cancellation failure.
 - [ ] Review combined changes and pass full local checks, coverage, build, and browser lanes.
 - [ ] Update PR #308 and check hosted CI.
 

@@ -13,6 +13,7 @@
   "src/integrations/github-personal-prs/service.ts": 100,
   "src/runtime/sandbox/local-podman/exports.ts": 100,
   "src/db/migrations/add-github-personal-prs.ts": 100,
+  "src/db/migrations/add-github-personal-pr-claims.ts": 100,
   "src/db/migrations/add-github-user-connections.ts": 100,
   "src/integrations/github-user/broker.ts": 100,
   "src/integrations/github-user/config.ts": 100,

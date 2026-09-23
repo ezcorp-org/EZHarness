@@ -87,6 +87,16 @@ test("preserves frozen reviews on repeated migration and enforces owner and arti
     FROM github_personal_pr_proposals proposal
     JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id
     WHERE proposal.id='existing-proposal'`)).rows;
+  // Recreate a review written before durable publication claims were added.
+  await db.execute(sql`ALTER TABLE github_personal_pr_proposals
+    DROP COLUMN claim_owner, DROP COLUMN claim_expires_at`);
+  const legacy = await readReview();
+  await migrate(db);
+  expect(await readReview()).toEqual(legacy.map(row => ({ ...row, claim_owner: null, claim_expires_at: null })));
+
+  // Repeated boot must also preserve a claim that a current publisher owns.
+  await db.execute(sql`UPDATE github_personal_pr_proposals
+    SET claim_owner='active-publisher',claim_expires_at='2030-01-01' WHERE id='existing-proposal'`);
   const before = await readReview();
   await migrate(db);
   await migrate(db);

@@ -85,14 +85,17 @@ must check that existing credentials still decrypt before accepting traffic.
 2. Open the displayed GitHub verification link and enter the code shown by this
    installation. Only enter a code that you just requested here. Approve the App
    for the correct GitHub account, then return to the Settings tab.
-3. Install the App for the repositories you need. Request organization approval
-   if required, then return and check repository access.
-4. Create a private GitHub sandbox and select a repository. Wait for import to
-   finish before opening its chat.
+3. Use the App installation link in Settings or the empty repository list to
+   enable the repositories you need. Request organization approval if required,
+   then return and check repository access.
+4. Create a private GitHub sandbox and select a repository and base branch.
+   The default branch is selected initially. Wait for import to finish before
+   opening its chat.
 5. Make changes in that sandbox. One private sandbox has one owner conversation;
    later runs in that conversation build on its earlier changes.
 6. Select **Prepare PR review**, review the saved changes, and confirm creation
    of a draft pull request. The UI states when no verified checks are recorded.
+   If the sandbox has no changes, preparation reports that result.
 
 V1 accepts up to 2,000 regular files, 256 KiB per file, and 32 MiB of file content.
 It rejects links, submodules, special files, and changes to GitHub workflow files.
@@ -103,6 +106,18 @@ bound to the owner, sandbox, conversation, and latest completed run. A different
 run or account cannot substitute files. GitHub writes require a fresh confirmed
 proposal and the same connection generation. Disconnect blocks new dispatches;
 an already dispatched GitHub request can still complete and must be reconciled.
+
+Publication records an expiring claim before it writes to GitHub. If the host
+stops before saving a commit ID, the owner can explicitly retry after the claim
+expires. The retry uses the same reviewed files and a new operation and branch.
+An old worker cannot resume publication under the replaced claim. If a commit
+ID was saved, recovery only checks the exact remote branch and draft PR.
+**Check GitHub** is read-only; it does not start another publication.
+
+Logout prevents an in-flight authorization callback from saving credentials.
+A DNS failure before token refresh is sent can be retried after the network
+recovers. A failure after dispatch can leave token rotation uncertain and still
+requires reconnection.
 
 Device-flow disconnect removes this installation's saved credentials and blocks
 new local dispatches. It does not claim to revoke GitHub authorization remotely.
