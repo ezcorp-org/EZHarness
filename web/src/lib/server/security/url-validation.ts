@@ -9,13 +9,14 @@
 //      every resolved address against isPrivateOrLoopback(). Closes the
 //      DNS-rebinding window where "evil.example" → 127.0.0.1.
 //
-// Plus ONE deliberate carve-out, `checkLocalProviderTarget()` — see its
-// doc block. It is opt-in per call site: `isPrivateOrLoopback()` itself is
+// Plus two deliberate carve-outs, both inside `checkLocalProviderTarget()` —
+// see its doc block. It is opt-in per call site: `isPrivateOrLoopback()` itself is
 // unchanged, so a future route that reaches for the general guard keeps the
 // strict sec-H1 posture with no carve-out at all.
 
 import { isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
+import { readFile } from "node:fs/promises";
 
 const LOOPBACK_HOSTNAMES = new Set([
 	"localhost",
@@ -196,6 +197,86 @@ export function loopbackProvidersBlocked(
 	return lower === "1" || lower === "true";
 }
 
+/**
+ * Host-gateway names a container engine may write into a container's
+ * `/etc/hosts` so it can reach services on its host. Exact names only —
+ * matched case-insensitively, never as a suffix. A trailing root dot is a
+ * different hosts-file token and must not inherit an undotted entry's trust.
+ *
+ * Which engines actually write them there, as measured (not assumed):
+ *   • Podman 6.1.2 (macOS `podman machine`): writes BOTH names. Covered.
+ *   • Colima 0.10.3 (Docker 29.5.2): writes NEITHER. It answers
+ *     `host.docker.internal` / `host.lima.internal` from its DNS instead, so
+ *     this carve-out does NOT apply there — by design, see below.
+ *   • Docker Desktop: not verified.
+ *   • Linux Docker: only when started with
+ *     `--add-host=host.docker.internal:host-gateway` (or compose
+ *     `extra_hosts`), which writes the entry.
+ *
+ * An engine that answers the name from DNS is deliberately NOT covered.
+ * `.internal` is not publicly delegated, but a hostile network's resolver can
+ * still answer for it; trusting DNS here would hand that resolver the choice
+ * of target, which is the rebinding hole the DNS pin exists to close. An
+ * operator on such an engine can make the entry explicit with `extra_hosts`.
+ */
+const CONTAINER_HOST_ALIASES = new Set(["host.containers.internal", "host.docker.internal"]);
+
+/** Cloud instance-metadata endpoints. Never reachable through the alias carve-out. */
+const METADATA_IPV4 = "169.254.169.254";
+const METADATA_IPV6 = ["fd00:ec2::254", `::ffff:${METADATA_IPV4}`].map((address) => expandIPv6(address)!);
+
+function isMetadataAddress(address: string): boolean {
+	if (address === METADATA_IPV4) return true;
+	if (isIP(address) !== 6) return false;
+	const expanded = expandIPv6(address);
+	return expanded !== null && METADATA_IPV6.some((metadata) => expanded.every((part, i) => part === metadata[i]));
+}
+
+let readHostsFile = (): Promise<string> => readFile("/etc/hosts", "utf8");
+
+/** Replace the `/etc/hosts` reader, or restore the real one with `null`. */
+export function _setHostsFileReaderForTests(reader: (() => Promise<string>) | null): void {
+	readHostsFile = reader ?? (() => readFile("/etc/hosts", "utf8"));
+}
+
+function canonicalHost(hostname: string): string {
+	return hostname.toLowerCase();
+}
+
+/** Every address a hosts-file text maps `hostname` to (exact name match). */
+export function hostsFileAddresses(hostsText: string, hostname: string): string[] {
+	const wanted = canonicalHost(hostname);
+	const addresses: string[] = [];
+	for (const raw of hostsText.split("\n")) {
+		const line = raw.replace(/#.*/, "").trim();
+		if (!line) continue;
+		const [address, ...names] = line.split(/\s+/);
+		if (address && names.some((name) => canonicalHost(name) === wanted)) addresses.push(address);
+	}
+	return addresses;
+}
+
+/**
+ * True only when `hostname` is one of {@link CONTAINER_HOST_ALIASES} AND this
+ * process's `/etc/hosts` maps it, to IP literals that are not a metadata
+ * endpoint. The hosts file is written by the container engine, not served by
+ * DNS, so an attacker-controlled resolver cannot mint this answer: on a host
+ * whose engine did not write the entry, the name falls through to the
+ * DNS-pinned path and is refused as before.
+ */
+export async function isEngineProvidedHostAlias(hostname: string): Promise<boolean> {
+	const name = canonicalHost(hostname);
+	if (!CONTAINER_HOST_ALIASES.has(name)) return false;
+	let hostsText: string;
+	try {
+		hostsText = await readHostsFile();
+	} catch {
+		return false;
+	}
+	const addresses = hostsFileAddresses(hostsText, name);
+	return addresses.length > 0 && addresses.every((a) => isIP(a) !== 0 && !isMetadataAddress(a));
+}
+
 /** {@link checkLocalProviderTarget}'s verdict: proceed, or the 400 to return. */
 export type LocalProviderTargetCheck = { ok: true } | { ok: false; error: string };
 
@@ -228,6 +309,27 @@ export type LocalProviderTargetCheck = { ok: true } | { ok: false; error: string
  * ports on its own host. That principal can already run host code through the
  * extension/tool surface, so the carve-out grants no reach they lacked — which
  * is precisely why it stops at loopback and does not extend one bit further.
+ *
+ * ── The container-host carve-out: loopback, as seen from a container ──
+ * In a container, the literal carve-out above is accepted but useless:
+ * `localhost` is the container itself, so the auto-filled Ollama URL is
+ * refused at connect time. The host's Ollama is reachable only through the
+ * engine's host-gateway name — which resolves to a private address and was
+ * therefore refused by the DNS pin. Measured in the prod container on Podman:
+ * `localhost` allowed-but-unreachable; `host.containers.internal` and
+ * `host.docker.internal` reachable-but-refused. No working URL existed.
+ *
+ * So {@link isEngineProvidedHostAlias} names are accepted too, on the same
+ * reasoning: they reach the same host the loopback carve-out already reaches
+ * from a bare-metal install. Bounded as tightly:
+ *   • Names: two exact engine-defined aliases. Not a suffix, not a pattern,
+ *     not compose service names.
+ *   • Source of truth: the container's `/etc/hosts`, written by the engine.
+ *     DNS is never consulted for the decision, so the rebinding defense below
+ *     is untouched — the same name answered only by DNS is still refused.
+ *   • Addresses: cloud-metadata endpoints are refused even if mapped.
+ *   • Principal and kill-switch: unchanged — admin only, and
+ *     {@link BLOCK_LOOPBACK_ENV} turns this carve-out off with the other.
  */
 export async function checkLocalProviderTarget(
 	baseUrl: string,
@@ -240,6 +342,10 @@ export async function checkLocalProviderTarget(
 	}
 
 	if (isLoopbackLiteral(parsed.hostname) && !loopbackProvidersBlocked()) {
+		return { ok: true };
+	}
+
+	if (!loopbackProvidersBlocked() && (await isEngineProvidedHostAlias(parsed.hostname))) {
 		return { ok: true };
 	}
 
