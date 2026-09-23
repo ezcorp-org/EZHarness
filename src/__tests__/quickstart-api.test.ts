@@ -62,7 +62,7 @@ describe("GET /api/quickstart", () => {
     expect(res.status).toBe(401);
   });
 
-  test("with nothing configured, only `provider` is already satisfied", async () => {
+  test("with nothing configured, keyless chat is ready but provider setup is incomplete", async () => {
     const event = createMockEvent({
       url: "http://localhost/api/quickstart",
       user: testUser,
@@ -70,12 +70,10 @@ describe("GET /api/quickstart", () => {
     const res = await GET(event);
     expect(res.status).toBe(200);
     const data = await jsonFromResponse(res);
-    // `provider` answers "can this user chat", and a fresh install can: the
-    // keyless Kilo tier (#155) answers anonymously. This test predates that
-    // tier and asserted `false` here, which is what made the chat banner tell
-    // every fresh install to add an API key "to send your first message".
+    // The keyless Kilo tier answers anonymously, without completing setup.
     expect(data.steps).toEqual({
-      provider: true,
+      provider: false,
+      usableProvider: true,
       chat: false,
       extension: false,
       agent: false,

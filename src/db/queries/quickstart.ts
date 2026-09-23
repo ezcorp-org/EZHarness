@@ -5,6 +5,7 @@ import { LLM_PROVIDERS, type LlmProviderSpec } from "../../runtime/routing/llm-p
 
 export interface QuickstartSteps {
   provider: boolean;
+  usableProvider: boolean;
   chat: boolean;
   extension: boolean;
   agent: boolean;
@@ -14,7 +15,7 @@ export interface QuickstartSteps {
  * Has anyone CONFIGURED a provider credential (a stored API key or OAuth)?
  *
  * This is deliberately narrower than "can this install chat" — see
- * {@link hasUsableProvider}. Onboarding asks this question: its "a provider is
+ * {@link getProviderReadiness}. Onboarding asks this question: its "a provider is
  * already connected" notice and the skip flow both mean a credential someone
  * set up, and a keyless tier is not that.
  */
@@ -37,7 +38,7 @@ export function anyKeylessProvider(specs: readonly LlmProviderSpec[]): boolean {
 }
 
 /**
- * Can this install send a chat message at all?
+ * Has a credential been configured, and can this install send a chat message?
  *
  * Until the Kilo gateway landed (#155) this was the same question as
  * {@link hasAnyProvider}. It no longer is: Kilo's free models answer an
@@ -47,21 +48,20 @@ export function anyKeylessProvider(specs: readonly LlmProviderSpec[]): boolean {
  * tell that user to "add an API key … to send your first message", on every
  * fresh install, falsely.
  *
- * This is the same rule web/src/lib/server/provider-availability.ts applies
- * to the model picker, which already treats a keyless provider as available.
+ * The checklist reads `configured`; the chat banner reads `usable`. The
+ * model picker also treats a keyless provider as available.
  */
-export async function hasUsableProvider(
+export async function getProviderReadiness(
   specs: readonly LlmProviderSpec[] = LLM_PROVIDERS,
-): Promise<boolean> {
-  return anyKeylessProvider(specs) || (await hasAnyProvider());
+): Promise<{ configured: boolean; usable: boolean }> {
+  const configured = await hasAnyProvider();
+  return { configured, usable: configured || anyKeylessProvider(specs) };
 }
 
 export async function getQuickstartSteps(userId: string): Promise<QuickstartSteps> {
   const db = getDb();
-  const [providerUsable, chatRow, extensionRow, agentRow] = await Promise.all([
-    // "Can this user chat", not "did someone store a key" — this step drives
-    // the chat banner and the checklist, both of which mean the former.
-    hasUsableProvider(),
+  const [providerReadiness, chatRow, extensionRow, agentRow] = await Promise.all([
+    getProviderReadiness(),
     db
       .select({ v: sql`1` })
       .from(conversations)
@@ -81,7 +81,8 @@ export async function getQuickstartSteps(userId: string): Promise<QuickstartStep
       .limit(1),
   ]);
   return {
-    provider: providerUsable,
+    provider: providerReadiness.configured,
+    usableProvider: providerReadiness.usable,
     chat: chatRow.length > 0,
     extension: extensionRow.length > 0,
     agent: agentRow.length > 0,
