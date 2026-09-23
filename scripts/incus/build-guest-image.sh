@@ -175,6 +175,23 @@ if ! timeout 120s incus exec "$name" --project default -- sh -eu -c '
   echo 'nested Docker daemon did not become ready; inspect the temporary guest service logs before publishing' >&2
   exit 1
 fi
+incus exec "$name" --project default -- sh -eu -c '
+  systemctl stop ezh-docker.service ezh-containerd.service
+  if systemctl is-active --quiet ezh-docker.service || systemctl is-active --quiet ezh-containerd.service; then
+    echo "Docker or containerd is still active; refusing to publish its state" >&2
+    exit 1
+  fi
+  rm -rf -- /var/lib/docker /var/lib/containerd
+  if [ -L /etc/machine-id ]; then echo "systemd machine-id is a symlink; inspect it before publishing" >&2; exit 1; fi
+  : > /etc/machine-id
+  install -d -m 0755 /var/lib/dbus
+  rm -f -- /var/lib/dbus/machine-id
+  ln -s /etc/machine-id /var/lib/dbus/machine-id
+  if [ -s /etc/machine-id ] || [ ! -L /var/lib/dbus/machine-id ] || [ -e /var/lib/docker ] || [ -e /var/lib/containerd ]; then
+    echo "guest identity or Docker state was not cleared" >&2
+    exit 1
+  fi
+'
 incus stop "$name" --project default
 assert_alias_absent
 publish_output=$(incus publish "$name" --project default --alias "$alias" --expire 0001-01-01T00:00:00Z)

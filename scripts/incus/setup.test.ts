@@ -357,6 +357,7 @@ esac
 
     const published = "a".repeat(64);
     const aliasCounter = join(directory, "alias-count");
+    const hygieneScript = join(directory, "hygiene-script");
     await writeFile(incus, `#!/bin/sh
 case "$1" in
   image)
@@ -364,7 +365,8 @@ case "$1" in
     count=$((count + 1))
     printf '%s\\n' "$count" > "$EZH_ALIAS_COUNT"
     if [ "$EZH_SECOND_ALIAS" = yes ] && [ "$count" -eq 2 ]; then printf '[{"name":"%s"}]\\n' "$EZH_ALIAS"; else printf '[]\\n'; fi;;
-  launch|file|stop|delete) exit 0;;
+  launch|file|delete) exit 0;;
+  stop) printf 'stop\\n' >> "$EZH_BUILD_CAPTURE"; exit 0;;
   exec)
     shift
     while [ "$1" != -- ]; do shift; done
@@ -374,6 +376,7 @@ case "$1" in
       *'guest has no APT source files'*) guest_script=$(printf '%s\\n' "$4" | sed "s#/etc/apt#$EZH_APT_ROOT#g"); sh -eu -c "$guest_script" sh "$6";;
       *'/etc/os-release'*) exit 0;;
       *'docker info'*) printf 'docker-check\\n' >> "$EZH_BUILD_CAPTURE"; [ "$EZH_DOCKER_READY" = yes ];;
+      *'rm -rf -- /var/lib/docker /var/lib/containerd'*) printf 'hygiene\\n' >> "$EZH_BUILD_CAPTURE"; printf '%s\\n' "$4" > "$EZH_HYGIENE_SCRIPT"; [ "$EZH_HYGIENE_READY" = yes ];;
       *) exit 0;;
     esac;;
   publish)
@@ -393,12 +396,13 @@ case "$1" in
     esac;;
 esac
 `);
-    const publishRun = async (mode: string, secondAlias = false, dockerReady = true) => {
+    const publishRun = async (mode: string, secondAlias = false, dockerReady = true, hygieneReady = true) => {
       await Promise.all([writeFile(aliasCounter, "0\n"), writeFile(capture, "")]);
       const runResult = Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args],
         { env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}`, EZH_IPV4: "yes", EZH_DNS: "yes",
           EZH_APT_ROOT: aptRoot, EZH_BUILD_CAPTURE: capture, EZH_ALIAS_COUNT: aliasCounter, EZH_ALIAS: pins.alias,
           EZH_SECOND_ALIAS: secondAlias ? "yes" : "no", EZH_DOCKER_READY: dockerReady ? "yes" : "no",
+          EZH_HYGIENE_READY: hygieneReady ? "yes" : "no", EZH_HYGIENE_SCRIPT: hygieneScript,
           EZH_PUBLISHED: published, EZH_WRONG_TARGET: "b".repeat(64), EZH_QUERY_MODE: mode } });
       return { runResult, calls: await readFile(capture, "utf8") };
     };
@@ -409,6 +413,16 @@ esac
     expect(directAlias.calls).toContain("iptables=1.8.9-2");
     expect(directAlias.calls).toContain("nftables=1.0.6-2+deb12u2");
     expect(directAlias.calls).toContain("docker-check");
+    expect(directAlias.calls).toContain("hygiene");
+    const stages = directAlias.calls.trim().split("\n");
+    expect(stages.indexOf("docker-check")).toBeLessThan(stages.indexOf("hygiene"));
+    expect(stages.indexOf("hygiene")).toBeLessThan(stages.indexOf("stop"));
+    expect(stages.indexOf("stop")).toBeLessThan(stages.findIndex(stage => stage.startsWith("publish ")));
+    const cleanup = await readFile(hygieneScript, "utf8");
+    expect(cleanup).toContain("systemctl stop ezh-docker.service ezh-containerd.service");
+    expect(cleanup).toContain("rm -rf -- /var/lib/docker /var/lib/containerd");
+    expect(cleanup).toContain(": > /etc/machine-id");
+    expect(cleanup).toContain("ln -s /etc/machine-id /var/lib/dbus/machine-id");
     expect(directAlias.calls).toContain("--expire 0001-01-01T00:00:00Z");
     const wrongTarget = await publishRun("wrong");
     expect(wrongTarget.runResult.exitCode).not.toBe(0);
@@ -427,7 +441,13 @@ esac
     expect(failedDocker.runResult.exitCode).not.toBe(0);
     expect(failedDocker.runResult.stderr.toString()).toContain("nested Docker daemon did not become ready");
     expect(failedDocker.calls).toContain("docker-check");
+    expect(failedDocker.calls).not.toContain("hygiene");
     expect(failedDocker.calls).not.toContain("publish");
+    const failedHygiene = await publishRun("direct", false, true, false);
+    expect(failedHygiene.runResult.exitCode).not.toBe(0);
+    expect(failedHygiene.calls).toContain("hygiene");
+    expect(failedHygiene.calls).not.toContain("stop");
+    expect(failedHygiene.calls).not.toContain("publish");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
