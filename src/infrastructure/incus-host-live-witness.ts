@@ -1,12 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { sandboxPresetDigest, validateSandboxProviderMethodExchange,
   type SandboxPreset, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import { getDb, type Database } from "../db/connection";
 import { incusQualificationFixtures, sandboxBindings } from "../db/schema";
+import { releaseRows } from "../db/queries/extension-releases";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease } from "../extensions/release-process";
-import { IncusQualificationFixtureService, IncusQualificationStore, type IncusQualificationScope } from "./incus-qualification";
-import type { HostIncusLiveWitness, LiveFixtureHandle } from "./incus-live-cases";
+import type { IncusSetupRecipe } from "../../scripts/incus/model";
+import { IncusQualificationFixtureService, IncusQualificationStore, type IncusImageReceipt,
+  type IncusQualificationScope } from "./incus-qualification";
+import type { HostIncusLiveWitness, LiveFixtureHandle, LiveFixtureInspection } from "./incus-live-cases";
+import { HostIncusLiveReadback, type LiveReadbackContext } from "./incus-transport/live-readback";
 import { ProviderConnectionStore } from "./provider-connections/store";
 
 const MAX_FILE_BYTES = 64 * 1024;
@@ -39,7 +43,18 @@ export interface IncusHostLiveWitnessDependencies {
   /** Replace only with a test seam that performs the same protected release call. */
   invokeGuest?: (installationId: string, bindingId: string, operation: SandboxProtocolOperation,
     input: Record<string, unknown>) => Promise<unknown>;
+  readSetup?: (installationId: string) => Promise<IncusImageReceipt | null>;
+  backend?: Pick<HostIncusLiveReadback, "image" | "instance">;
   now?: () => number;
+}
+
+async function readSetup(db: Database, installationId: string): Promise<IncusImageReceipt | null> {
+  const [row] = releaseRows<IncusImageReceipt>(await db.execute(sql`SELECT
+    provider_release_id AS "providerReleaseId", provider_release_digest AS "providerReleaseDigest",
+    connection_id AS "connectionId", connection_revision AS "connectionRevision", state, recipe
+    FROM incus_operator_setups WHERE provider_installation_id = ${installationId}
+    ORDER BY created_at DESC, id DESC LIMIT 1`));
+  return row ?? null;
 }
 
 async function invokeRelease(installationId: string, bindingId: string, operation: SandboxProtocolOperation,
@@ -61,6 +76,8 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   private readonly qualifications: IncusQualificationStore;
   private readonly fixtures: IncusQualificationFixtureService;
   private readonly invokeGuest: NonNullable<IncusHostLiveWitnessDependencies["invokeGuest"]>;
+  private readonly readSetup: NonNullable<IncusHostLiveWitnessDependencies["readSetup"]>;
+  private readonly backend: NonNullable<IncusHostLiveWitnessDependencies["backend"]>;
   private readonly now: () => number;
 
   constructor(deps: IncusHostLiveWitnessDependencies = {}) {
@@ -69,6 +86,8 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     this.fixtures = deps.fixtures ?? new IncusQualificationFixtureService({ db: this.db,
       qualifications: this.qualifications });
     this.invokeGuest = deps.invokeGuest ?? invokeRelease;
+    this.readSetup = deps.readSetup ?? (id => readSetup(this.db, id));
+    this.backend = deps.backend ?? new HostIncusLiveReadback(new ProviderConnectionStore(this.db));
     this.now = deps.now ?? Date.now;
   }
 
@@ -139,8 +158,31 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     }
   }
 
-  async observe(_scope: IncusQualificationScope, _preset: SandboxPreset): ReturnType<HostIncusLiveWitness["observe"]> {
-    return deny("backend image and helper readback is not implemented");
+  private async context(scope: IncusQualificationScope, preset: SandboxPreset): Promise<{
+    context: LiveReadbackContext; helperDigest: string;
+  }> {
+    const selected = await this.qualifications.authorizeFixture(scope);
+    const setup = await this.readSetup(scope.installationId);
+    const image = setup?.recipe?.guestImage;
+    if (setup?.state !== "verified" || setup.providerReleaseId !== scope.releaseId
+      || setup.providerReleaseDigest !== selected.snapshot.release.releaseDigest
+      || setup.connectionId !== scope.connectionId || setup.connectionRevision !== selected.connection.revision
+      || selected.preset.id !== preset.id || selected.presetDigest !== await sandboxPresetDigest(preset)
+      || image?.fingerprint !== preset.imageDigest || !preset.helperDigests.includes(image.helperSha256)
+      || setup.recipe.profile.name !== selected.connection.configuration.profile) {
+      deny("verified setup, release, connection, image, or helper changed");
+    }
+    return { context: { scope, connection: selected.connection, preset,
+      presetDigest: selected.presetDigest, effectiveSettingsDigest: selected.effectiveSettingsDigest,
+      recipe: setup.recipe as IncusSetupRecipe }, helperDigest: image.helperSha256 };
+  }
+
+  async observe(scope: IncusQualificationScope, preset: SandboxPreset): ReturnType<HostIncusLiveWitness["observe"]> {
+    const selected = await this.context(scope, preset);
+    const observed = await this.backend.image(selected.context);
+    if (observed.imageDigest !== preset.imageDigest || observed.helperDigest !== selected.helperDigest
+      || observed.profile !== preset.profile) deny("backend artifact readback changed");
+    return observed;
   }
 
   async controlFacts(_scope: IncusQualificationScope, _preset: SandboxPreset): ReturnType<HostIncusLiveWitness["controlFacts"]> {
@@ -180,8 +222,39 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     }
   }
 
-  async inspectFixture(_handle: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["inspectFixture"]> {
-    return deny("backend resource and guest identity readback is not implemented");
+  async inspectFixture(handle: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["inspectFixture"]> {
+    const { scope, selected, binding } = await this.owned(handle, false);
+    const approved = await this.context(scope, selected.preset);
+    const observed = await this.backend.instance(approved.context, handle.sandboxId);
+    const expected = binding.observedState === "RUNNING" ? "running"
+      : binding.observedState === "STOPPED" ? "stopped"
+        : binding.observedState === "ABSENT" ? "absent" : "unknown";
+    if (observed.state !== expected) deny("backend and durable fixture state disagree");
+    if (observed.state === "absent") return { sandboxId: handle.sandboxId, state: "absent" } as LiveFixtureInspection;
+    if (observed.imageDigest !== selected.preset.imageDigest || observed.profile !== selected.preset.profile
+      || !observed.memoryBytes || !observed.cpuMillis || !observed.pids || !observed.diskBytes
+      || !observed.storageDriver || observed.privateNetwork !== true
+      || observed.restrictedProject !== true || observed.unprivileged !== true) {
+      deny("backend fixture resource or isolation readback changed");
+    }
+    let bootId: string | null = null;
+    if (observed.state === "running") {
+      const guest = await this.run(handle,
+        ["sh", "-c", "id -un; pwd; cat /proc/sys/kernel/random/boot_id"], 30_000);
+      const [user, workspace, boot, ...extra] = guest.stdout.trim().split("\n");
+      if (guest.exitCode !== 0 || user !== selected.connection.configuration.guestUser
+        || workspace !== "/workspace" || !/^[a-f0-9-]{36}$/.test(boot ?? "") || extra.length) {
+        deny("guest user, workspace, or boot identity is unavailable");
+      }
+      bootId = boot!;
+    }
+    return { sandboxId: handle.sandboxId, state: observed.state,
+      imageDigest: observed.imageDigest, helperDigest: approved.helperDigest,
+      profile: observed.profile, workspaceRoot: "/workspace", guestUser: selected.connection.configuration.guestUser,
+      memoryBytes: observed.memoryBytes, cpuMillis: observed.cpuMillis, pids: observed.pids,
+      diskBytes: observed.diskBytes, storageDriver: observed.storageDriver,
+      privateNetwork: observed.privateNetwork, restrictedProject: observed.restrictedProject,
+      unprivileged: observed.unprivileged, bootId };
   }
 
   async observeEnforcement(_handle: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["observeEnforcement"]> {
