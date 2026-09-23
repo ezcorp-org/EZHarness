@@ -1321,3 +1321,17 @@ Review: Merged `origin/main` at `70e68c825` into the saved live-slice commit (`a
 Plan review: Preserve the Incus live slice first. Keep the feature's behavior and the incoming main changes. The parent agent owns post-merge verification and push.
 
 Review: The incoming three no-Git-ancestor tests use filesystem stubs that avoid host layout dependence; all three targeted files pass. Regenerated `manifest.lock.json` from the resolved source tree. The parent agent will run post-merge gates before push.
+
+## Incus first live guest milestone — 2026-09-23
+
+- [ ] Repair PR #303's per-file coverage failure in `release-process.ts` with behavior-based tests; preserve the 100% threshold.
+- [ ] Define and implement host-authorized cleanup for retained guests when their provider release is disabled or retired; prove the release cannot start new effects.
+- [ ] Complete the pinned guest-image build and setup path, or record the exact unavailable artifact/server prerequisite without marking it ready.
+- [ ] Add a production-path feature lifecycle fixture that uses the approved connection, controller, workspace tools, and cleanup receipt without host fallback.
+- [ ] Run the combined milestone's focused tests, typecheck, lint, build, full repository suite, coverage, and hosted CI on one exact commit.
+- [ ] Run reviewed server setup and a real create → edit → Compose → test → reconnect → destroy qualification only after the image, identity, and plan match their reviewed pins.
+- [ ] Record a milestone review with exact SHA, logs, unsupported capabilities, and open release gates; keep PR #303 draft until live qualification passes.
+
+Plan review: Four isolated worktrees split the coverage, retained-guest cleanup, guest-image readiness, and production-path fixture work. The root agent owns integration, live read-only inventory, the combined tests, PR updates, and the milestone verdict. A fake provider or a passing local test does not satisfy the live guest gate. Do not loosen CI or make an unreviewed SSH server change to pass a fixture.
+
+Review: pending.
