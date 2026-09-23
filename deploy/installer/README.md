@@ -57,9 +57,12 @@ not provision a runner inside a macOS VM. OS packages and VM support are not
 included in this core's validated configurations. This is an installer limit,
 not a restriction on the application's other deployment methods.
 
-Linux lifecycle commands also require `flock` (util-linux) and `realpath`.
+Linux lifecycle commands also require `flock` (util-linux), `getent` and `realpath`.
 Install, start, stop, update, suggestions and uninstall share one per-user lock
-under `XDG_RUNTIME_DIR`, or `TMPDIR` (`/tmp` by default) when it is unset.
+under `.ezcorp-installer-lock` in the account home returned by `getent passwd`.
+The location does not depend on `HOME`, `XDG_RUNTIME_DIR` or `TMPDIR`, so login
+shells and background jobs use the same lock. An unavailable or ambiguous
+account lookup stops the command before it creates config or data.
 A second command stops with a clear message. The lock stays held through
 startup and rollback, and its file survives purge. Config and data overrides
 must not contain that lock directory. Status and help remain available while

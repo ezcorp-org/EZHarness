@@ -110,6 +110,16 @@ stub("xdg-open", ['echo "open $*" >> "$EZCORP_TEST_LOG"', "exit 0"].join("\n"));
 stub("docker", ['echo "docker $*" >> "$EZCORP_TEST_LOG"', "exit 0"].join("\n"));
 stub("id", `echo "\${EZCORP_TEST_UID:-1000}"`);
 stub("uname", `echo "\${EZCORP_TEST_OS:-Linux}"`);
+stub(
+  "getent",
+  [
+    `mode="\${EZCORP_TEST_PASSWD_MODE:-valid}"`,
+    '[ "$mode" = missing ] && exit 2',
+    'printf \'test:x:%s:1000::%s:/bin/sh\\n\' "$2" "$EZCORP_TEST_ACCOUNT_HOME"',
+    '[ "$mode" = ambiguous ] && echo "extra:x:1000:1000::/other:/bin/sh"',
+    "exit 0",
+  ].join("\n"),
+);
 stub("openssl", ['echo generated >> "$EZCORP_TEST_KEY_LOG"', 'exec "$EZCORP_TEST_REAL_OPENSSL" "$@"'].join("\n"));
 stub(
   "sed",
@@ -141,6 +151,7 @@ let runnerSocket: ReturnType<typeof Bun.listen>;
 let runnerDir: string;
 let runnerToken: string;
 let runtimeDir: string;
+let accountHome: string;
 
 beforeEach(() => {
   caseDir = mkdtempSync(join(SANDBOX, "case-"));
@@ -149,7 +160,9 @@ beforeEach(() => {
   runnerDir = join(caseDir, "runner");
   runnerToken = join(caseDir, "runner-token");
   runtimeDir = join(caseDir, "runtime");
+  accountHome = join(caseDir, "account-home");
   mkdirSync(runtimeDir);
+  mkdirSync(accountHome);
   mkdirSync(runnerDir);
   writeFileSync(runnerToken, "test-only-runner-token");
   runnerSocket = Bun.listen({ unix: join(runnerDir, "runner.sock"), socket: { data() {} } });
@@ -170,6 +183,7 @@ function cliEnv(extraEnv: Record<string, string | undefined> = {}): Record<strin
     EZCORP_TEST_REAL_SED: REAL_SED,
     EZCORP_TEST_REAL_OPENSSL: REAL_OPENSSL,
     EZCORP_TEST_KEY_LOG: join(caseDir, "key-generation.log"),
+    EZCORP_TEST_ACCOUNT_HOME: accountHome,
     EZCORP_READY_TIMEOUT: "30",
     EZ_RUNNER_SOCKET_DIR: runnerDir,
     EZ_RUNNER_TOKEN_FILE: runnerToken,
@@ -198,6 +212,17 @@ function run(args: string[], extraEnv: Record<string, string | undefined> = {}, 
 
 function envFile(): string {
   return readFileSync(join(configDir, ".env"), "utf8");
+}
+
+function commandPath(commands: string[]): string {
+  const directory = join(caseDir, "minimal-bin");
+  mkdirSync(directory);
+  for (const command of commands) {
+    const executable = Bun.which(command);
+    if (!executable) throw new Error(`Missing fixture command: ${command}`);
+    symlinkSync(executable, join(directory, command));
+  }
+  return directory;
 }
 
 describe("ezcorp install — the config it generates", () => {
@@ -380,11 +405,17 @@ describe("installer lifecycle failures", () => {
         }),
       ]);
       expect(existsSync(join(configDir, ".env"))).toBe(false);
-      for (const args of [["install"], ["start"], ["stop"], ["update", "next"], ["suggestions", "on"], ["uninstall"]]) {
-        const contender = run(args);
-        expect(contender.exitCode).not.toBe(0);
-        expect(contender.stderr).toContain("another EZCorp lifecycle command");
-        expect(contender.log).not.toContain("compose ");
+      const otherRuntime = join(caseDir, "other-runtime");
+      const otherTemp = join(caseDir, "other-temp");
+      mkdirSync(otherRuntime);
+      mkdirSync(otherTemp);
+      for (const environment of [{}, { XDG_RUNTIME_DIR: otherRuntime, TMPDIR: otherTemp }, { XDG_RUNTIME_DIR: undefined, TMPDIR: otherTemp }]) {
+        for (const args of [["install"], ["start"], ["stop"], ["update", "next"], ["suggestions", "on"], ["uninstall"]]) {
+          const contender = run(args, environment);
+          expect(contender.exitCode).not.toBe(0);
+          expect(contender.stderr).toContain("another EZCorp lifecycle command");
+          expect(contender.log).not.toContain("compose ");
+        }
       }
     } finally {
       if (release) release();
@@ -401,7 +432,7 @@ describe("installer lifecycle failures", () => {
 
   test("purge preserves the lock inode for the next lifecycle command", () => {
     expect(run(["install"]).exitCode).toBe(0);
-    const lockPath = join(runtimeDir, `ezcorp-installer-${process.getuid?.()}`, "lifecycle.lock");
+    const lockPath = join(accountHome, ".ezcorp-installer-lock", "lifecycle.lock");
     const inode = statSync(lockPath).ino;
     expect(run(["uninstall", "--purge"], {}, "DELETE\n").exitCode).toBe(0);
     expect(statSync(lockPath).ino).toBe(inode);
@@ -418,16 +449,25 @@ describe("installer lifecycle failures", () => {
   });
 
   test("missing flock stops before config or data creation", () => {
-    const minimalBin = join(caseDir, "minimal-bin");
-    mkdirSync(minimalBin);
-    for (const command of ["bash", "dirname", "uname"]) {
-      const executable = Bun.which(command);
-      if (!executable) throw new Error(`Missing fixture command: ${command}`);
-      symlinkSync(executable, join(minimalBin, command));
-    }
-    const result = run(["install"], { PATH: minimalBin });
+    const result = run(["install"], { PATH: commandPath(["bash", "dirname", "uname"]) });
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("flock");
+    expect(existsSync(configDir)).toBe(false);
+    expect(existsSync(dataRoot)).toBe(false);
+  });
+
+  test("missing account lookup stops before config or data creation", () => {
+    const result = run(["install"], { PATH: commandPath(["bash", "dirname", "uname", "flock"]) });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("getent");
+    expect(existsSync(configDir)).toBe(false);
+    expect(existsSync(dataRoot)).toBe(false);
+  });
+
+  test.each(["missing", "ambiguous"])("a %s account record cannot select an alternate lock", (mode) => {
+    const result = run(["install"], { EZCORP_TEST_PASSWD_MODE: mode });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("account home");
     expect(existsSync(configDir)).toBe(false);
     expect(existsSync(dataRoot)).toBe(false);
   });

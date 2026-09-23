@@ -69,16 +69,25 @@ quiet() { if [ "${EZCORP_VERBOSE:-0}" = "1" ]; then "$@"; else "$@" >/dev/null 2
 with_lifecycle_lock() {
   [ "$(uname -s)" = Linux ] || die "this installer core currently supports Linux with a configured isolated runner."
   command -v flock >/dev/null 2>&1 || die "flock is required to protect installer operations. Install util-linux and try again."
+  command -v getent >/dev/null 2>&1 || die "getent is required to resolve a stable account home for the installer lock."
   command -v realpath >/dev/null 2>&1 || die "realpath is required to verify the installer lock location."
-  local runtime_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
-  local lock_dir="$runtime_dir/ezcorp-installer-$UID" lock_file canonical_lock root result=0
-  [ -d "$runtime_dir" ] || die "the runtime directory does not exist: $runtime_dir"
+  local account_record account_name account_password account_uid account_gid account_gecos account_home account_shell
+  account_record="$(getent passwd "$UID")" || die "could not resolve the account home for the installer lock."
+  case "$account_record" in
+    ""|*$'\n'*) die "could not resolve one account home for the installer lock." ;;
+  esac
+  IFS=: read -r account_name account_password account_uid account_gid account_gecos account_home account_shell <<< "$account_record"
+  [ "$account_uid" = "$UID" ] && [[ "$account_home" = /* ]] && [ -d "$account_home" ] \
+    || die "could not resolve a valid account home for the installer lock."
+  # Login shells, cron and services may have different HOME/runtime/temp env.
+  # The account database gives all commands for this UID the same lock root.
+  local lock_dir="$account_home/.ezcorp-installer-lock" lock_file canonical_lock root result=0
   lock_file="$lock_dir/lifecycle.lock"
   canonical_lock="$(realpath -m -- "$lock_file")" || die "could not resolve the installer lock location."
   for root in "$CONFIG_DIR" "$DATA_ROOT"; do
     root="$(realpath -m -- "$root")" || die "could not resolve the installer data location."
     case "$canonical_lock" in
-      "$root"|"${root%/}/"*) die "the lifecycle lock must stay outside config and data directories. Choose a separate XDG_RUNTIME_DIR." ;;
+      "$root"|"${root%/}/"*) die "the lifecycle lock must stay outside config and data directories. Choose paths that do not contain $lock_dir." ;;
     esac
   done
   [ -d "$lock_dir" ] || mkdir -m 700 "$lock_dir" || die "could not create a private installer lock directory."
