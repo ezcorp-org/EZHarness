@@ -25,8 +25,13 @@ async function lockAuthority(tx: DbTransaction, userId: string): Promise<{ gener
   return row;
 }
 
-async function requireLiveSession(tx: DbTransaction, userId: string, sessionId: string): Promise<void> {
+async function lockSession(tx: DbTransaction, sessionId: string) {
   const [session] = await tx.select({ userId: sessions.userId, expiresAt: sessions.expiresAt }).from(sessions).where(eq(sessions.id, sessionId)).for("update");
+  return session;
+}
+
+async function requireLiveSession(tx: DbTransaction, userId: string, sessionId: string): Promise<void> {
+  const session = await lockSession(tx, sessionId);
   if (!session || session.userId !== userId || session.expiresAt <= new Date()) throw new GithubUserError("SESSION_EXPIRED", "Sign in again to connect GitHub");
 }
 
@@ -214,11 +219,13 @@ export async function pollDeviceAuthorization({ userId, sessionId, attemptId }: 
     }
   }
   const result = await getDb().transaction(async (tx: DbTransaction) => {
+    // Keep the same session → authority order as start, poll, cancel, and OAuth.
+    // Holding this row lock prevents logout from racing the token commit.
+    const session = await lockSession(tx, sessionId);
     const authority = await lockAuthority(tx, userId);
     const [attempt] = await tx.select().from(githubUserDeviceAttempts).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
     if (!attempt || attempt.userId !== userId || attempt.sessionDigest !== digest(sessionId)) throw unavailableAttempt();
     if (attempt.status !== "pending" || attempt.pollClaimToken !== claimed.claimToken) return { status: "cancelled" as const };
-    const [session] = await tx.select({ userId: sessions.userId, expiresAt: sessions.expiresAt }).from(sessions).where(eq(sessions.id, sessionId));
     if (!session || session.userId !== userId || session.expiresAt <= new Date() || attempt.expiresAt <= new Date() || authority.generation !== attempt.expectedGeneration) {
       const status = attempt.expiresAt <= new Date() ? "expired" : "cancelled";
       await tx.update(githubUserDeviceAttempts).set({ status, pollClaimToken: null, pollClaimExpiresAt: null }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));

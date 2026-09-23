@@ -2,6 +2,7 @@ import { afterAll, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../../__tests__/helpers/test-pglite";
 import { createUser } from "../../../db/queries/users";
+import { revokeSession } from "../../../db/queries/sessions";
 import { githubUserConnections, githubUserDeviceAttempts, sessions } from "../../../db/schema";
 import { up as migrateDeviceAttempts } from "../../../db/migrations/add-github-user-device-attempts";
 import { cancelDeviceAuthorization, checkRepository, disconnect, getConnectionStatus, pollDeviceAuthorization, startDeviceAuthorization } from "../broker";
@@ -180,7 +181,7 @@ test("cancel, disconnect, supersede, and revoked session fence a late provider s
     if (action === "cancel") await cancelDeviceAuthorization({ ...a, attemptId: attempt.attemptId });
     else if (action === "disconnect") await disconnect({ userId: a.userId });
     else if (action === "supersede") await start(a);
-    else await getTestDb().delete(sessions).where(eq(sessions.id, a.sessionId));
+    else expect(await revokeSession(a.sessionId)).toBe(true);
     gate.resolve();
     expect((await pending).status).toBe("cancelled");
     expect((await getTestDb().select().from(githubUserConnections).where(eq(githubUserConnections.userId, a.userId))).length).toBe(0);
