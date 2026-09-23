@@ -1481,3 +1481,10 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
   because visibility is eventually consistent. A running execution has no history length there.
 - W15: A PostgreSQL point-in-time replica refuses to start when its `max_connections` is below the
   primary's. Pass the primary's value to the replica.
+- W15: Never stop a locked run with `pkill -f <pattern>`. It killed the `flock` parent, the lock
+  released, and the orphaned `bun test` kept running on the shared PostgreSQL outside the lock, then
+  left a temporary database no one can attribute. Record the batch's PID and kill that process
+  group only, and never change the tree while a batch that reads it live is running.
+- W15: A test that seeds `factory_installation` directly and then claims an effect needs the
+  explicit freshness opt-out (`openFactoryEffectClaimsForTest`). Find such tests with a grep over
+  every lane, including Podman lanes, before changing a gate default.
