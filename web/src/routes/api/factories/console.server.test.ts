@@ -172,6 +172,9 @@ describe("console routes", () => {
     expect(read.headers.get("content-disposition")).toContain("attachment");
     expect(services.tickets.readShared).toHaveBeenLastCalledWith(session, "project-2", "artifact-1", { digest, encodedBytes: 4, mediaType: "text/plain" });
     expect((await sharedRead.GET(event("GET", "/api/factories/projects/project-2/shared-artifacts/artifact-1", { params: { projectId: "project-2", artifactId: "artifact-1" } }))).status).toBe(400);
+    // Found on the real stack: a share with other bytes is "unavailable" in the service, and a plain 404 here.
+    services.tickets.readShared.mockRejectedValueOnce(new FactoryArtifactAccessError("factory_artifact_unavailable"));
+    expect((await sharedRead.GET(event("GET", `/api/factories/projects/project-2/shared-artifacts/artifact-1?digest=${digest}&encodedBytes=4&mediaType=text%2Fplain`, { params: { projectId: "project-2", artifactId: "artifact-1" } }))).status).toBe(404);
   });
 
   test("package administration: read to list and preview, a human tenant administrator to change", async () => {
@@ -276,6 +279,7 @@ describe("console route kit", () => {
       [new FactoryPackagePreparationError("factory_package_trust_corrupt"), 500, "factory_package_trust_corrupt"],
       [new FactoryArtifactError("factory_artifact_not_found"), 404, "factory_artifact_not_found"],
       [new FactoryArtifactAccessError("factory_artifact_grant_not_found"), 404, "factory_artifact_grant_not_found"],
+      [new FactoryArtifactAccessError("factory_artifact_unavailable"), 404, "factory_artifact_unavailable"],
       [new FactoryArtifactError("factory_artifact_digest_invalid"), 400, "factory_artifact_digest_invalid"],
       [new FactoryArtifactAccessError("factory_human_required"), 403, "factory_human_required"],
       [new FactoryArtifactAccessError("factory_artifact_grant_conflict"), 409, "factory_artifact_grant_conflict"],

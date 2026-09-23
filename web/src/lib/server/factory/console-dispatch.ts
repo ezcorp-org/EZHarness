@@ -55,7 +55,8 @@ export async function dispatchFactoryConsoleRequest(application: FactoryApplicat
 }
 
 const ARTIFACT_ANSWERS = [
-  answer(404, "Artifact not found.", "factory_artifact_not_found", "factory_artifact_grant_not_found"),
+  // An unshared or mismatched read is "unavailable" in the service and a plain 404 here, so it never tells a share apart from nothing.
+  answer(404, "Artifact not found.", "factory_artifact_not_found", "factory_artifact_grant_not_found", "factory_artifact_unavailable"),
   answer(403, "A human session is required to share an artifact.", "factory_human_required"),
   answer(409, "A different share already uses this identity.", "factory_artifact_conflict", "factory_artifact_grant_conflict"),
   answer(400, "The artifact request is invalid.", "factory_artifact_digest_invalid", "factory_artifact_identity_invalid", "factory_artifact_reference_invalid", "factory_artifact_size_invalid", "factory_artifact_json_invalid", "factory_artifact_grant_invalid"),
