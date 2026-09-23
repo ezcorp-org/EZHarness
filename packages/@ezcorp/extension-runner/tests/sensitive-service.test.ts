@@ -72,10 +72,15 @@ test("the sensitive service route redacts runner errors", async () => {
   const service = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
   try {
     const context = { workerId: "provider-error", invocationId: "invocation", releaseId: "release", principalId: "host", scopeId: "scope", token: "capability", deadline: Date.now() + 30_000 };
-    await rawRunnerCall(socketPath, "/v4/start", `Bearer ${token}`, JSON.stringify({ workerId: "provider-error", artifactDigest: "a".repeat(64), context, limits: executionLimits }));
-    const response = await rawRunnerCall(socketPath, "/v4/sensitive-request", `Bearer ${token}`, JSON.stringify({ workerId: "provider-error", params: {} }));
-    expect(response).toContain("Sensitive provider request failed");
-    expect(response).not.toContain(canary);
+    const execution = await new RunnerClient({ socketPath, token }).start({ workerId: "provider-error", artifactDigest: "a".repeat(64), context, limits: executionLimits }, async () => null);
+    try {
+      const error = await requestSensitiveProviderResult(execution, {}).catch(reason => reason);
+      expect(error).toMatchObject({ code: "sensitive_failed", message: "Sensitive provider request failed" });
+      expect(String(error)).not.toContain(canary);
+      const response = await rawRunnerCall(socketPath, "/v4/sensitive-request", `Bearer ${token}`, JSON.stringify({ workerId: "provider-error", params: {} }));
+      expect(response).toContain("Sensitive provider request failed");
+      expect(response).not.toContain(canary);
+    } finally { await execution.close(); }
   } finally {
     await service.close();
     await rm(directory, { recursive: true, force: true });
