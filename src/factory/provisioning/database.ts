@@ -86,6 +86,18 @@ export function factoryDatabaseMarker(resource: "role" | "database", installatio
   return `factory-provisioner-${resource}:${installation.fleetId}:${installation.installationId}:${pair.kind}:${plan}`;
 }
 
+/**
+ * Whether either credential of a product and pool pair logs in to the OTHER
+ * pair's database. With fewer than two pairs (an installation owns only its
+ * product pair; the fleet host only its pool pair) there is no other database
+ * of this step's to test, and nothing is tried.
+ */
+export async function factoryDatabaseCrossLogin(pairs: readonly FactoryDatabasePair[], logsIn: (pair: FactoryDatabasePair, other: FactoryDatabasePair) => Promise<boolean>): Promise<boolean> {
+  const [product, pool] = pairs;
+  if (!product || !pool) return false;
+  return await logsIn(product, pool) || await logsIn(pool, product);
+}
+
 interface RoleRow { oid: string; rolcanlogin: boolean; marker: string | null }
 interface DatabaseRow { oid: string; owner: string; marker: string | null }
 
@@ -156,8 +168,7 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
     // tenant out of another's. The cluster's maintenance database is the
     // operator's to lock down and is deliberately not asserted here. With one
     // pair there is no other database of this step's to test against.
-    const [product, pool] = this.pairs(installation);
-    if (product && pool && (await this.canLogin(product.role, (await this.credential(installation, product)).password, pool.database) || await this.canLogin(pool.role, (await this.credential(installation, pool)).password, product.database))) {
+    if (await factoryDatabaseCrossLogin(this.pairs(installation), async (pair, other) => this.canLogin(pair.role, (await this.credential(installation, pair)).password, other.database))) {
       throw new FactoryProvisioningError("database_not_isolated", "An installation credential reaches a database it does not own.");
     }
   }
