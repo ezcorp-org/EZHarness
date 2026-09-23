@@ -515,6 +515,22 @@ function wellFormedKeyManagement(value: unknown): boolean {
   return false;
 }
 
+/**
+ * W15's two recovery sections. Temporal client TLS is all three paths or none,
+ * and never without the endpoint it is for; the key service is one
+ * well-formed kind.
+ */
+function recoverySectionProblems(value: Record<string, unknown>, missing: string[], invalid: string[]): void {
+  const temporalTls = FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("temporalHttp.tls."));
+  const temporalTlsPresent = temporalTls.filter((spec) => read(value, spec.field).present);
+  if (temporalTlsPresent.length > 0 && temporalTlsPresent.length < temporalTls.length) {
+    for (const spec of temporalTls) if (!temporalTlsPresent.includes(spec)) missing.push(spec.field);
+  }
+  if (temporalTlsPresent.length > 0 && !read(value, "temporalHttp.endpoint").present) missing.push("temporalHttp.endpoint");
+  const keyManagement = read(value, "keyManagement");
+  if (keyManagement.present && !wellFormedKeyManagement(keyManagement.value)) invalid.push("keyManagement");
+}
+
 /** One adapter reference, its action, its destination, and its cost. */
 function wellFormedReleaseProfile(value: unknown): boolean {
   if (!record(value) || !exactKeys(value, ["adapter", "action", "destination", "estimatedSpendMicros"])) return false;
@@ -646,15 +662,7 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
   const retryPresent = retryFields.filter((field) => read(value, field).present);
   if (retryPresent.length === 1) missing.push(retryFields.find((field) => !retryPresent.includes(field))!);
 
-  // Temporal client TLS is all three paths or none, and never without the endpoint it is for.
-  const temporalTls = FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("temporalHttp.tls."));
-  const temporalTlsPresent = temporalTls.filter((spec) => read(value, spec.field).present);
-  if (temporalTlsPresent.length > 0 && temporalTlsPresent.length < temporalTls.length) {
-    for (const spec of temporalTls) if (!temporalTlsPresent.includes(spec)) missing.push(spec.field);
-  }
-  if (temporalTlsPresent.length > 0 && !read(value, "temporalHttp.endpoint").present) missing.push("temporalHttp.endpoint");
-  const keyManagement = read(value, "keyManagement");
-  if (keyManagement.present && !wellFormedKeyManagement(keyManagement.value)) invalid.push("keyManagement");
+  recoverySectionProblems(value, missing, invalid);
 
   const tokenFields = ["privateService.tokens.issuer", "privateService.tokens.audience", "privateService.tokens.publicKeyPaths"];
   const tokensPresent = tokenFields.filter((field) => read(value, field).present);
