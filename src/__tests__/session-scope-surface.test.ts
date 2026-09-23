@@ -92,7 +92,6 @@ const SESSION_GATE_PRIMITIVES = [
   "requireAdminSession(",
   "mcpControlRequest(",
   "handleFactorySessionApi(",
-  "handleFactoryConsoleSessionApi(",
 ] as const;
 
 /**
@@ -270,20 +269,6 @@ describe("scope: \"session\" ⇄ requireSessionAuth — both directions, derived
     const body = declarations.get("handleFactorySessionApi")?.body;
     expect(body).toContain('scope: "session"');
     expect(body).toContain("handleFactoryApi(event");
-  });
-
-  test("the console session wrapper reaches the session guard on both of its scopes", async () => {
-    // `handleFactoryConsoleSessionApi` counts as a session primitive above, so
-    // it must be one: it may only select the two human scopes, and the
-    // principal resolver it reaches must call `requireSessionAuth` for both.
-    const declarations = await declarationsOf(join(REPO_ROOT, "web/src/routes/api/factories/_console.ts"));
-    const wrapper = declarations.get("handleFactoryConsoleSessionApi")?.body;
-    expect(wrapper).toContain('scope: options.administrator ? "admin-session" : "session"');
-    expect(wrapper).toContain("handleFactoryConsoleApi(event");
-    const resolver = declarations.get("resolveFactoryConsolePrincipal")?.body;
-    expect(resolver).toContain('const human = scope === "session" || scope === "admin-session";');
-    expect(resolver).toContain("human ? requireSessionAuth(locals) : checkAuth(locals)");
-    expect(resolver).toContain('checkRole(locals, "admin")');
   });
 
   test("a session gate is never confused with a plain read on the same file", () => {

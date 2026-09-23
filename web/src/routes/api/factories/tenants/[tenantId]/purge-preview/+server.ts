@@ -1,9 +1,5 @@
-import { handleFactoryConsoleSessionApi } from "../../../_console";
+import { handleFactorySessionApi } from "../../../_shared";
 import type { RequestHandler } from "./$types";
 
-/** The closing preconditions and the audit a purge would destroy. Human tenant administrator only. */
-export const GET: RequestHandler = event => handleFactoryConsoleSessionApi(event, {
-  administrator: true,
-  build: () => ({ kind: "purge.preview", path: { tenantId: event.params.tenantId } }),
-  run: async ({ principal, console }) => ({ schemaVersion: "factory.api.response.v1", kind: "purge.preview", resource: await console.purge.preview(principal, event.params.tenantId) } as const),
-});
+/** The closing preconditions and the audit a purge would destroy. A human tenant administrator. */
+export const GET: RequestHandler = event => handleFactorySessionApi(event, () => ({ kind: "purge.preview", path: { tenantId: event.params.tenantId } }));

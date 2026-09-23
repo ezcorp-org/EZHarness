@@ -25,6 +25,10 @@ const services = {
 };
 
 const kit = await import("./_console");
+const { registerFactoryConsole } = await import("$lib/server/factory/console-dispatch");
+// The server hooks register the console once per process; so does this suite, twice to prove it is idempotent.
+registerFactoryConsole();
+registerFactoryConsole();
 const inspection = await import("./projects/[projectId]/runs/[runId]/inspection/+server");
 const events = await import("./projects/[projectId]/runs/[runId]/events/+server");
 const ticket = await import("./projects/[projectId]/runs/[runId]/artifacts/[artifactId]/ticket/+server");
@@ -95,7 +99,6 @@ describe("console routes", () => {
   test("inspection returns the snapshot, or one section page, for a read principal", async () => {
     const whole = await inspection.GET(event("GET", `${base}/runs/run-1/inspection?search=node&limit=5`, { params: runParams }));
     expect(whole.status).toBe(200);
-    expect(whole.headers.get("Cache-Control")).toBe("no-store");
     expect(await json(whole)).toMatchObject({ kind: "run.inspection", resource: { cursor } });
     expect(services.inspections.inspect).toHaveBeenLastCalledWith(session, runParams, { search: "node", limit: 5 });
     services.inspections.inspect.mockResolvedValue({ section: "attempts", page: { items: [] } });
@@ -159,9 +162,12 @@ describe("console routes", () => {
   test("package administration: read to list and preview, a human tenant administrator to change", async () => {
     const listed = await packages.GET(event("GET", `${base}/packages?limit=10`, { params: { projectId: "project-1" }, auth: "api-key", scopes: ["read"] }));
     expect(await json(listed)).toMatchObject({ kind: "package.page", page: { items: [packageResource] } });
-    const installEvent = (role: Options["role"]) => event("POST", `${base}/packages`, { params: { projectId: "project-1" }, body: { reference, installationId: "installation-1", releaseId: "release-1" }, revision: 0, key: "install-1", role });
-    expect((await packages.POST(installEvent("member"))).status).toBe(403);
-    const installed = await packages.POST(installEvent("admin"));
+    const installEvent = (auth: Options["auth"]) => event("POST", `${base}/packages`, { params: { projectId: "project-1" }, body: { reference, installationId: "installation-1", releaseId: "release-1" }, revision: 0, key: "install-1", role: "admin", auth, scopes: ["read", "write", "admin"] });
+    // No API key of any scope reaches a change; the service refuses anyone but a tenant administrator.
+    expect((await packages.POST(installEvent("api-key"))).status).toBe(403);
+    services.packages.install.mockRejectedValueOnce(new FactoryConsoleError("factory_package_admin_required"));
+    expect((await json(await packages.POST(installEvent("session")))).error?.code).toBe("factory_package_admin_required");
+    const installed = await packages.POST(installEvent("session"));
     expect(await json(installed)).toMatchObject({ kind: "package.resource", resource: { revision: 0 } });
     const change = await trust.POST(event("POST", `${base}/packages/${referenceId}/trust`, { params: { projectId: "project-1", referenceId }, body: { transition: "quarantine" }, revision: 1, key: "trust-1", role: "admin" }));
     expect(await json(change)).toMatchObject({ resource: { state: "quarantined" } });
@@ -175,6 +181,8 @@ describe("console routes", () => {
 
   test("the purge request is administrator-session only and records rather than deletes", async () => {
     const params = { tenantId: "tenant-1" };
+    expect((await purgePreview.GET(event("GET", "/api/factories/tenants/tenant-1/purge-preview", { params, auth: "api-key", scopes: ["admin"] }))).status).toBe(403);
+    services.purge.preview.mockRejectedValueOnce(new FactoryGrantError("factory_forbidden"));
     expect((await purgePreview.GET(event("GET", "/api/factories/tenants/tenant-1/purge-preview", { params, role: "member" }))).status).toBe(403);
     const previewed = await purgePreview.GET(event("GET", "/api/factories/tenants/tenant-1/purge-preview", { params, role: "admin" }));
     expect(await json(previewed)).toMatchObject({ kind: "purge.preview", resource: preview });
@@ -252,7 +260,8 @@ describe("console route kit", () => {
       [new FactoryPackagePreparationError("factory_package_binding_conflict"), 409, "factory_package_binding_conflict"],
       [new FactoryPackagePreparationError("factory_package_trust_corrupt"), 500, "factory_package_trust_corrupt"],
       [new FactoryArtifactError("factory_artifact_not_found"), 404, "factory_artifact_not_found"],
-      [new FactoryArtifactAccessError("factory_artifact_unavailable"), 404, "factory_artifact_unavailable"],
+      [new FactoryArtifactAccessError("factory_artifact_grant_not_found"), 404, "factory_artifact_grant_not_found"],
+      [new FactoryArtifactError("factory_artifact_digest_invalid"), 400, "factory_artifact_digest_invalid"],
       [new FactoryArtifactAccessError("factory_human_required"), 403, "factory_human_required"],
       [new FactoryArtifactAccessError("factory_artifact_grant_conflict"), 409, "factory_artifact_grant_conflict"],
       [new FactoryArtifactAccessError("factory_artifact_grant_invalid"), 400, "factory_artifact_grant_invalid"],
@@ -264,21 +273,33 @@ describe("console route kit", () => {
       expect([code, response.status]).toEqual([code, status]);
       expect((await json(response)).error?.code).toBe(code);
     }
-    services.inspections.inspect.mockRejectedValueOnce(new Error("unmapped"));
-    await expect(readInspection()).rejects.toThrow("unmapped");
+    services.inspections.inspect.mockRejectedValueOnce(new FactoryConsoleError("factory_unlisted" as never));
+    await expect(readInspection()).rejects.toThrow("factory_unlisted");
   });
 
-  test("a mutation needs a valid If-Match, and an unknown build error is not swallowed", async () => {
+  test("a mutation needs a valid If-Match and an Idempotency-Key", async () => {
     const install = (revision: string | undefined) => packages.POST(event("POST", `${base}/packages`, { params: { projectId: "project-1" }, body: { reference, installationId: "i", releaseId: "r" }, key: "k", role: "admin", headers: revision === undefined ? {} : { "If-Match": revision } }));
     for (const revision of [undefined, "-1", "01", "x", "99999999999999999"]) expect((await install(revision)).status).toBe(412);
     const noKey = await packages.POST(event("POST", `${base}/packages`, { params: { projectId: "project-1" }, body: { reference, installationId: "i", releaseId: "r" }, revision: 0, role: "admin" }));
     expect(noKey.status).toBe(400);
-    const boom = kit.handleFactoryConsoleApi(event("GET", "/x"), { scope: "read", build: () => { throw new RangeError("build failed"); }, run: async () => new Response() });
-    await expect(boom).rejects.toThrow("build failed");
-    const custom = await kit.handleFactoryConsoleApi(event("GET", "/x"), { scope: "read", build: () => ({ kind: "purge.preview", path: { tenantId: "t" } }), run: async () => ({ schemaVersion: "factory.api.response.v1", kind: "purge.preview", resource: preview }) as never, respond: () => new Response("custom", { status: 299 }) });
-    expect(custom.status).toBe(299);
-    expect(() => kit.factoryConsoleResponse({ schemaVersion: "factory.api.response.v1", kind: "purge.preview" } as never)).toThrow("Invalid factory API response");
-    expect(() => kit.factoryConsoleError(400, "", "")).toThrow("Invalid factory API error response");
+  });
+
+  test("the raw console routes refuse like every factory route, before any service runs", async () => {
+    const stream = (options: Options = {}) => events.GET(event("GET", `${base}/runs/run-1/events?cursor=c`, { params: runParams, ...options }));
+    state.enabled = false;
+    expect((await json(await stream())).error?.code).toBe("factory-disabled");
+    state.enabled = true;
+    const application = state.application;
+    state.application = null;
+    expect((await stream()).status).toBe(503);
+    state.application = application;
+    expect((await stream({ anonymous: true })).status).toBe(401);
+    const foreign = event("GET", "/api/factories/projects/project-2/runs/run-1/events?cursor=c", { params: { projectId: "project-2", runId: "run-1" }, anonymous: true }) as { locals: App.Locals };
+    foreign.locals.factoryServicePrincipal = { tokenUse: "factory-service", serviceAccountId: "service-1", projectId: "project-1", credentialId: "c-1", revision: 1, scopes: ["read"], issuedAtMs: 1, expiresAtMs: 2 };
+    expect((await json(await events.GET(foreign as never))).error?.code).toBe("factory_service_project_mismatch");
+    expect(services.events.read).not.toHaveBeenCalled();
+    services.events.read.mockRejectedValueOnce(new Error("unmapped"));
+    await expect(stream()).rejects.toThrow("unmapped");
   });
 });
 

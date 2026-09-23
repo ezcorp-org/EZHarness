@@ -155,6 +155,11 @@ describe("scope enforcement coverage", () => {
         // only then dispatches an SDK-validated request. Keep the import and
         // call checks together so mentioning the wrapper in prose is not enough.
         !(relative.startsWith("/factories/") && content.includes('_shared"') && (content.includes("handleFactoryApi(event,") || content.includes("handleFactorySessionApi(event,"))) &&
+        // handleFactoryConsoleRaw (`_console.ts`) is the same boundary for the
+        // three console routes that answer a stream or bytes: it resolves the
+        // principal through the route kit at the read scope before any lookup.
+        // The kit file itself is pinned below.
+        !(relative.startsWith("/factories/") && content.includes('_console"') && content.includes("handleFactoryConsoleRaw(event,")) &&
         !(content.includes('from "$lib/server/extensions/mcp-request"') && content.includes("mcpControlRequest(locals,")) &&
         // `verifyWebhookAuth` (src/extensions/webhook-auth.ts) is the public
         // webhook-ingress route's gate: constant-time per-hook bearer-secret
@@ -175,5 +180,6 @@ describe("scope enforcement coverage", () => {
     expect(factoryGate).toContain("requireScope(event.locals, options.scope)");
     expect(factoryGate).toContain("requireSessionAuth(event.locals)");
     expect(await Bun.file(`${apiDir}/factories/_shared.ts`).text()).toContain("resolveFactoryPrincipal(event, options)");
+    expect(await Bun.file(`${apiDir}/factories/_console.ts`).text()).toContain('resolveFactoryPrincipal(event, { scope: "read" })');
   });
 });
