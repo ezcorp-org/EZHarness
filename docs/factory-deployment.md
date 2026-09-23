@@ -118,6 +118,16 @@ cluster, and refuses a bucket that another fleet holds. Purge releases the
 claim, so no role of the fleet stays on the cluster; the store's objects stay,
 because removing them needs the store's own admin authority.
 
+### Database connections
+
+Every installation's harness and gateway, and the fleet's shared pool, connect
+to one PostgreSQL cluster. The product's default pool is 20 connections per
+process, which would exhaust a 100-connection server at three installations.
+Step 5 therefore sets `DB_POOL_MAX` to 4 for each harness and 2 for each
+gateway (`databasePoolMax` in the deployment settings). Ten installations then
+hold at most 60, the shared pool 8, and the provisioner about 16. Size the
+cluster's `max_connections` above the fleet's total before adding installations.
+
 ### The fleet host
 
 One pool and one host supervisor serve every installation of a fleet

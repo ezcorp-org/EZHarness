@@ -52,6 +52,8 @@ export const FACTORY_CONTAINER_PATHS = Object.freeze({
   projects: "/var/lib/ezcorp/projects",
 });
 
+export const FACTORY_DEFAULT_DATABASE_POOL_MAX = Object.freeze({ harness: 4, gateway: 2 });
+
 export interface FactoryInstallationPorts {
   readonly harness: number;
   readonly privateService: number;
@@ -88,6 +90,13 @@ export interface FactoryDeploymentSettings {
   /** The fleet host's shared pool and supervisor, as every installation names them. */
   readonly host: FactoryFleetHostFacts;
   readonly interpreterCompatibility: string;
+  /**
+   * Database connections each service may open (`DB_POOL_MAX`). Every
+   * installation's harness and gateway share one cluster with the rest of the
+   * fleet, so the product's default of 20 each would exhaust a 100-connection
+   * server at three installations. Default: harness 4, gateway 2.
+   */
+  readonly databasePoolMax?: { readonly harness: number; readonly gateway: number };
   /**
    * The builds this installation currently runs, per component, once a fleet
    * upgrade has recorded any. Absent, every component runs `image`.
@@ -297,11 +306,13 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     harness: builds?.harness.image ?? settings.image.reference,
     orchestrator: builds?.orchestrator.image ?? settings.image.reference,
   });
+  const poolMax = settings.databasePoolMax ?? FACTORY_DEFAULT_DATABASE_POOL_MAX;
   const environment = {
-    gateway: { HOME: "/tmp" },
+    gateway: { HOME: "/tmp", DB_POOL_MAX: String(poolMax.gateway) },
     orchestrator: { HOME: "/tmp" },
     harness: {
       PORT: String(ports.harness), HOST: "0.0.0.0", ORIGIN: publicOrigin,
+      DB_POOL_MAX: String(poolMax.harness),
       HOME: `${FACTORY_CONTAINER_PATHS.data}/home`,
       EZCORP_FACTORY_ENABLED: "1",
       EZCORP_INSTALLATION_ID: installation.installationId,

@@ -16,6 +16,7 @@ import {
 import { parseFactoryStartupConfig } from "../startup-config";
 import {
   FACTORY_CONTAINER_SERVICES,
+  FACTORY_DEFAULT_DATABASE_POOL_MAX,
   FACTORY_DEPLOYED_SERVICES,
   FactoryDeploymentStep,
   factoryDeploymentHandle,
@@ -193,6 +194,12 @@ describe("renderFactoryInstallationBundle", () => {
     expect(seen).toEqual(["tenant-01"]);
     expect(upgraded.images).toEqual({ gateway: builds.harness.image, harness: builds.harness.image, orchestrator: builds.orchestrator.image });
     expect(upgraded.image.reference).toBe(FACTORY_TEST_IMAGE);
+  });
+
+  test("the harness and gateway get bounded database pools, overridable per fleet", async () => {
+    expect([bundle.environment.harness.DB_POOL_MAX, bundle.environment.gateway.DB_POOL_MAX]).toEqual([String(FACTORY_DEFAULT_DATABASE_POOL_MAX.harness), String(FACTORY_DEFAULT_DATABASE_POOL_MAX.gateway)]);
+    const tuned = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime"), { databasePoolMax: { harness: 6, gateway: 3 } }));
+    expect([tuned.environment.harness.DB_POOL_MAX, tuned.environment.gateway.DB_POOL_MAX]).toEqual(["6", "3"]);
   });
 
   test("a builds provider that has recorded nothing leaves every service on the pinned image", async () => {
