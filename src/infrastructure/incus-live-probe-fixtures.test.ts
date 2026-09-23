@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmod, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
@@ -63,11 +63,13 @@ test("reviewed plan creates four private AMD canaries and exactly two allocation
   const { db, root, scope, service } = await fixture();
   const plan = await service.plan(scope, "run-one");
   expect((await readdir(root))).toHaveLength(0);
+  expect((await service.status(scope, "run-one")).state).toBe("absent");
   expect(Object.keys(plan.config.cases).sort()).toEqual(["drift", "missingControl", "unqualified", "unsupported"]);
   expect(plan.config.unqualifiedPresetId).toBe(INCUS_PRESETS[0]!.id);
   const first = await service.apply(scope, "run-one", plan.digest);
   const second = await service.apply(scope, "run-one", plan.digest);
   expect(second).toEqual(first);
+  expect((await service.status(scope, "run-one")).state).toBe("ready");
   expect(first.receipt.projectIds).toHaveLength(4);
   expect(first.receipt.bindingIds).toHaveLength(2);
   expect(new Set(first.receipt.canaryPaths).size).toBe(4);
@@ -115,6 +117,15 @@ test("an occupied deterministic project ID is denied before local file creation"
   expect(await db.select().from(schema.sandboxBindings)).toHaveLength(0);
 });
 
+test("an interrupted empty directory has incomplete status and safe cleanup", async () => {
+  const { root, scope, service } = await fixture();
+  const plan = await service.plan(scope, "run-one");
+  await mkdir(plan.directory, { mode: 0o700 });
+  expect((await service.status(scope, "run-one")).state).toBe("incomplete");
+  expect((await service.cleanup(scope, "run-one", plan.digest)).state).toBe("cleaned");
+  expect(await readdir(root)).toHaveLength(0);
+});
+
 test("cleanup removes only reviewed controls and denied requests; it is idempotent", async () => {
   const { db, root, scope, service, disable } = await fixture();
   const plan = await service.plan(scope, "run-one");
@@ -125,8 +136,10 @@ test("cleanup removes only reviewed controls and denied requests; it is idempote
     payloadHash: "digest", memoryBytes: 1, cpuMillicores: 1, pids: 1, diskBytes: 1,
     executionSlots: 1, state: "REJECTED", reason: "PROJECT_QUOTA_NOT_CONFIGURED" });
   disable();
+  expect((await service.status(scope, "run-one")).state).toBe("ready");
   expect((await service.cleanup(scope, "run-one", plan.digest)).state).toBe("cleaned");
   expect((await service.cleanup(scope, "run-one", plan.digest)).state).toBe("cleaned");
+  expect((await service.status(scope, "run-one")).state).toBe("absent");
   expect(await readdir(root)).toHaveLength(0);
   expect(await db.select().from(schema.projects)).toHaveLength(0);
   expect(await db.select().from(schema.sandboxBindings)).toHaveLength(0);
@@ -138,6 +151,7 @@ test("cleanup refuses a provider effect or altered canary and keeps all records"
   const plan = await service.plan(scope, "run-one");
   const { receipt } = await service.apply(scope, "run-one", plan.digest);
   await writeFile(receipt.canaryPaths[0]!, "changed");
+  expect((await service.status(scope, "run-one")).state).toBe("incomplete");
   await expect(service.cleanup(scope, "run-one", plan.digest)).rejects.toThrow("canary changed");
   expect(await db.select().from(schema.projects)).toHaveLength(4);
   const expected = `EZHarness AMD control canary ${plan.directory.split("/").at(-1)} unsupported\n`;

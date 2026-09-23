@@ -74,6 +74,10 @@ async function ensureCanary(path: string, content: string): Promise<void> {
   } catch (error) {
     if (!(error && typeof error === "object" && "code" in error && error.code === "EEXIST")) throw error;
   }
+  await verifyCanary(path, content);
+}
+
+async function verifyCanary(path: string, content: string): Promise<void> {
   const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = await file.stat();
@@ -194,6 +198,36 @@ export class IncusLiveProbeFixtureService {
       canaryPaths: kinds.map(kind => plan.config.cases[kind].canaryPath) };
   }
 
+  /** Read the saved host-owned fixture without depending on an active release. */
+  async status(scope: IncusQualificationScope, operationId: string): Promise<{
+    state: "absent" | "ready" | "incomplete";
+    receipt: IncusProbeFixtureReceipt | null;
+  }> {
+    const plan = await this.savedPlan(scope, operationId);
+    if (!plan) {
+      const id = identity(scope, operationId);
+      const directory = join(this.deps.rootDirectory, id);
+      const [project] = await this.db.select({ id: projects.id }).from(projects)
+        .where(eq(projects.id, expectedCases(directory, id).unsupported.projectId)).limit(1);
+      const local = await readdir(directory).then(() => true).catch((error: unknown) => {
+        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return false;
+        throw error;
+      });
+      return { state: project || local ? "incomplete" : "absent", receipt: null };
+    }
+    const receipt = this.receipt(plan, "ready");
+    try {
+      await this.assertOwned(this.db, plan, true);
+      const listed = await readdir(plan.directory);
+      if (listed.length !== kinds.length + 1 || !listed.includes("plan.json")) {
+        return { state: "incomplete", receipt };
+      }
+      for (const kind of kinds) await verifyCanary(plan.config.cases[kind].canaryPath,
+        canaryContent(identity(scope, operationId), kind));
+      return { state: "ready", receipt };
+    } catch { return { state: "incomplete", receipt }; }
+  }
+
   private async savedPlan(scope: IncusQualificationScope, operationId: string): Promise<IncusProbeFixturePlan | null> {
     assertScope(scope, operationId);
     await privateDirectory(this.deps.rootDirectory);
@@ -204,7 +238,12 @@ export class IncusLiveProbeFixtureService {
       if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
       throw error;
     }
-    const file = await open(join(directory, "plan.json"), constants.O_RDONLY | constants.O_NOFOLLOW);
+    const file = await open(join(directory, "plan.json"), constants.O_RDONLY | constants.O_NOFOLLOW)
+      .catch((error: unknown) => {
+        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return null;
+        throw error;
+      });
+    if (!file) return null;
     let content: string;
     try {
       const stat = await file.stat();
@@ -240,6 +279,14 @@ export class IncusLiveProbeFixtureService {
       const [project] = await this.db.select({ id: projects.id }).from(projects)
         .where(eq(projects.id, cases.unsupported.projectId)).limit(1);
       if (project) throw new Error("Incus probe fixture receipt is missing");
+      const local = await readdir(directory).catch((error: unknown): string[] => {
+        if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") return [];
+        throw error;
+      });
+      if (local.length) throw new Error("Incus probe fixture receipt is missing");
+      await rmdir(directory).catch((error: unknown) => {
+        if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) throw error;
+      });
       return { planDigest: reviewedDigest, state: "cleaned",
         projectIds: kinds.map(kind => cases[kind].projectId),
         bindingIds: kinds.flatMap(kind => cases[kind].bindingId ? [cases[kind].bindingId] : []),
