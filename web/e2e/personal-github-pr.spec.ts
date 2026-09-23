@@ -90,6 +90,47 @@ test("owner checks an uncertain GitHub result after reload @evidence", async ({ 
 	expect(checks).toBe(1);
 });
 
+test("failed confirmation shows the error and checks the saved GitHub result before recovery", async ({ page, mockApi }) => {
+	let state: "reviewing" | "failed" | "created" = "reviewing";
+	let confirmations = 0;
+	const view = () => ({
+		state, recoveryAction: state === "failed" ? "check_github" : undefined,
+		proposalId: "proposal-1", digest: "a".repeat(64),
+		repository: { id: 42, fullName: "owner/private", baseRef: "main", baseSha: "b".repeat(40) },
+		files: [{ path: "src/exact-file.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		checks: [], title: "Fix a file", body: "Verified in sandbox",
+		reviewPath: `/project/${project.id}/chat/${conversation.id}?review=proposal-1`,
+		prUrl: state === "created" ? "https://github.com/owner/private/pull/7" : undefined,
+	});
+	await mockApi({ projects: [project], conversations: [conversation], messages, routes: {
+		"/api/github/personal-prs/runs/run-1": () => view(),
+		"/api/github/personal-prs/proposals/proposal-1": () => view(),
+	} });
+	await page.route("**/api/github/personal-prs/proposals/proposal-1/confirm", (route) => {
+		confirmations++;
+		if (confirmations === 1) {
+			state = "failed";
+			return route.fulfill({ status: 502, json: { error: "GitHub result is uncertain" } });
+		}
+		state = "created";
+		return route.fulfill({ json: view() });
+	});
+	await page.goto(`/project/${project.id}/chat/${conversation.id}`);
+	await page.getByRole("button", { name: "Review & create draft PR" }).click();
+	const review = page.getByTestId("personal-pr-review");
+	await expect(review.getByTestId("personal-pr-exact-diff")).toContainText("+after");
+	await review.getByRole("button", { name: "Create draft PR" }).click();
+	await expect(review.getByRole("alert")).toHaveText("GitHub result is uncertain");
+	await expect(review.getByRole("button", { name: "Create draft PR" })).toBeDisabled();
+	expect(confirmations).toBe(1);
+	await review.getByRole("button", { name: "Check status" }).click();
+	await expect(review.getByRole("button", { name: "Check GitHub result" })).toBeVisible();
+	await expect(review.getByRole("button", { name: "Create draft PR" })).toHaveCount(0);
+	await review.getByRole("button", { name: "Check GitHub result" }).click();
+	await expect(review.getByRole("link", { name: "Open draft PR on GitHub" })).toHaveAttribute("href", "https://github.com/owner/private/pull/7");
+	expect(confirmations).toBe(2);
+});
+
 test.describe("mobile draft PR", () => {
 	test.use({ viewport: { width: 390, height: 844 } });
 	test("review stays usable on mobile @evidence", async ({ page, mockApi }, testInfo) => {

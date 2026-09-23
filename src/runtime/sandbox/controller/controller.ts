@@ -5,7 +5,7 @@ import { sql } from "drizzle-orm";
 import { getDb, type DbTransaction } from "../../../db/connection";
 import { getProjectMembership } from "../../../db/queries/project-members";
 import { getReleaseRuntime, releaseBinding, resolveActiveRelease, type ActiveExtensionRelease, type ReleaseRuntimeDependencies } from "../../../extensions/release-process";
-import { SandboxControllerError, type AdmittedSandboxMethod, type AdmittedSandboxOperation, type LocalSandboxDriver, type LocalSandboxProvider, type NativeWorkspaceCommand, type SandboxController, type SandboxMethodInput, type SandboxOperationResult, type SandboxProjectStatus, type SandboxProviderInvocation } from "./types";
+import { SandboxControllerError, type AdmittedSandboxMethod, type AdmittedSandboxOperation, type LocalSandboxDriver, type LocalSandboxProvider, type NativeWorkspaceCommand, type SandboxController, type SandboxMethodInput, type SandboxOperationResult, type SandboxProjectStatus, type SandboxProviderInvocation, type SandboxWorkspaceTarget, type WorkspacePrincipal } from "./types";
 
 type Row = Record<string, unknown>;
 type ProviderResult = { receipt: ProviderReceipt; resource?: SandboxResource };
@@ -37,6 +37,16 @@ async function requireMember(userId: string, projectId: string, allowIncomplete 
     const importing = privateImport.getStore();
     if (binding.private_initialization_state !== "importing" || importing?.userId !== userId || importing.projectId !== projectId || importing.operationId !== binding.private_initialization_operation_id) throw new SandboxControllerError("WORKSPACE_IMPORT_INCOMPLETE", "Repository import must finish before using this sandbox");
   }
+}
+async function requireNativeWorkspacePrincipal(target: SandboxWorkspaceTarget, principal: WorkspacePrincipal): Promise<void> {
+  if (!principal.userId || !principal.conversationId) throw new SandboxControllerError("PROJECT_ACCESS_DENIED", "An authenticated workspace principal is required");
+  const conversation = rows(await getDb().execute(sql`SELECT project_id,user_id FROM conversations WHERE id=${principal.conversationId}`))[0];
+  if (!conversation || conversation.project_id !== target.projectId || conversation.user_id !== principal.userId) throw new SandboxControllerError("CONVERSATION_ACCESS_DENIED", "Conversation does not belong to the authenticated project member");
+  await requireMember(principal.userId, target.projectId);
+  const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${target.bindingId} AND project_id=${target.projectId}`))[0];
+  if (binding) requirePrivateConversation(binding, principal.conversationId, true);
+  const workspace = rows(await getDb().execute(sql`SELECT binding_id,revision FROM project_workspace_bindings WHERE project_id=${target.projectId}`))[0];
+  if (!workspace || workspace.binding_id !== target.bindingId || Number(workspace.revision) !== target.revision) throw new SandboxControllerError("STALE_WORKSPACE_BINDING", "Workspace binding changed");
 }
 function receiptMatches(call: SandboxCreateInput["call"], receipt: ProviderReceipt): void {
   if (receipt.operationId !== call.operationId || receipt.idempotencyKey !== call.idempotencyKey || receipt.requestDigest !== call.requestDigest) throw new SandboxControllerError("PROVIDER_RECEIPT_MISMATCH", "Provider receipt does not match the admitted operation");
@@ -524,14 +534,7 @@ export function createSandboxController(driver: LocalSandboxDriver, runtime: Pic
     async runNativeWorkspaceProcess(target, command, signal, principal) {
       nativeCommand(command);
       signal?.throwIfAborted();
-      if (!principal.userId || !principal.conversationId) throw new SandboxControllerError("PROJECT_ACCESS_DENIED", "An authenticated workspace principal is required");
-      const conversation = rows(await getDb().execute(sql`SELECT project_id,user_id FROM conversations WHERE id=${principal.conversationId}`))[0];
-      if (!conversation || conversation.project_id !== target.projectId || conversation.user_id !== principal.userId) throw new SandboxControllerError("CONVERSATION_ACCESS_DENIED", "Conversation does not belong to the authenticated project member");
-      await requireMember(principal.userId, target.projectId);
-      const binding = rows(await getDb().execute(sql`SELECT * FROM sandbox_provider_bindings WHERE id=${target.bindingId} AND project_id=${target.projectId}`))[0];
-      if (binding) requirePrivateConversation(binding, principal.conversationId, true);
-      const workspace = rows(await getDb().execute(sql`SELECT binding_id,revision FROM project_workspace_bindings WHERE project_id=${target.projectId}`))[0];
-      if (!workspace || workspace.binding_id !== target.bindingId || Number(workspace.revision) !== target.revision) throw new SandboxControllerError("STALE_WORKSPACE_BINDING", "Workspace binding changed");
+      await requireNativeWorkspacePrincipal(target, principal);
       await this.reconcileSandboxProcess(principal.userId, target.projectId);
       await reconcileFileWriter(target.bindingId, signal);
       const retained = rows(await getDb().execute(sql`SELECT operation_id FROM sandbox_writer_leases WHERE binding_id=${target.bindingId}`))[0];

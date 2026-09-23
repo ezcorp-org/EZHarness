@@ -141,6 +141,28 @@ test("reconciles an uncertain failed publication through confirm without offerin
 	expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ expectedDigest: failed.digest, title: failed.title, body: failed.body });
 });
 
+test.each([
+	{ state: "reviewing", recoveryAction: undefined, button: "Create draft PR", message: "Could not create draft PR", remainsEnabled: false },
+	{ state: "failed", recoveryAction: "check_github", button: "Check GitHub result", message: "Could not check GitHub result", remainsEnabled: true },
+] as const)("reports a safe fallback when $button rejects with a non-Error value", async ({ state, recoveryAction, button, message, remainsEnabled }) => {
+	const review = {
+		state, recoveryAction, proposalId: "proposal-1", digest: "a".repeat(64),
+		files: [{ path: "src/file.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		title: "Fix file", body: "Tested", checks: [],
+	};
+	const fetch = vi.fn().mockRejectedValue({ secret: "internal failure detail" });
+	vi.stubGlobal("fetch", fetch);
+	const onpersonalprupdate = vi.fn();
+	const view = renderPanel({ personalPr: review, onpersonalprupdate });
+	await fireEvent.click(view.getByRole("button", { name: button }));
+	await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent(message));
+	expect(view.getByRole("alert")).not.toHaveTextContent("internal failure detail");
+	if (remainsEnabled) expect(view.getByRole("button", { name: button })).toBeEnabled();
+	else expect(view.getByRole("button", { name: button })).toBeDisabled();
+	expect(fetch).toHaveBeenCalledOnce();
+	expect(onpersonalprupdate).not.toHaveBeenCalled();
+});
+
 test("explicitly retries only a failed pre-ref attempt from the frozen review", async () => {
 	const failed = {
 		state: "failed", recoveryAction: "retry_pre_ref", proposalId: "proposal-1", digest: "a".repeat(64),

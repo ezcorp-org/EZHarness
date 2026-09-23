@@ -63,10 +63,11 @@ async function eligibleRun(userId: string, runId: string): Promise<{ run: Row; p
   const active = rows(await getDb().execute(activeRunQuery(run, userId)));
   if (!isUniqueLatestRun(runId, latest, active)) throw new PersonalPrError("conflict", "Review the latest completed run in this conversation");
   const projectId = String(run.project_id);
+  const [source] = rows(await getDb().execute(sql`SELECT * FROM github_personal_pr_imports WHERE project_id=${projectId} AND owner_id=${userId} AND state='ready'`));
+  if (!source) throw new PersonalPrError("conflict", "No ready imported repository for this run");
   const status = await getSandboxController().getProjectSandboxStatus(userId, projectId);
   if (!status.privateOwnerOnly || status.initializationState !== "ready" || status.privateConversationId !== run.conversation_id || !status.resource) throw new PersonalPrError("forbidden", "Run is not in your private sandbox conversation");
-  const [source] = rows(await getDb().execute(sql`SELECT * FROM github_personal_pr_imports WHERE project_id=${projectId} AND owner_id=${userId} AND state='ready'`));
-  if (!source || source.binding_id !== status.bindingId || Number(source.provider_generation) !== status.provider.generation || source.resource_id !== status.resource.resourceId) throw new PersonalPrError("conflict", "Imported repository or sandbox changed");
+  if (source.binding_id !== status.bindingId || Number(source.provider_generation) !== status.provider.generation || source.resource_id !== status.resource.resourceId) throw new PersonalPrError("conflict", "Imported repository or sandbox changed");
   return { run, projectId, source, status };
 }
 
@@ -198,6 +199,36 @@ function verifiedArtifacts(row: Row): { base: ValidatedSnapshot; current: Valida
   return { base, current };
 }
 
+type ConfirmationInput = { proposalId: string; expectedDigest: string; title?: string; body?: string };
+
+async function reviewForPublication(userId: string, input: ConfirmationInput, row: Row): Promise<{ title: string; body: string; artifacts: ReturnType<typeof verifiedArtifacts> }> {
+  if (row.state !== "ready" || row.digest !== input.expectedDigest || row.import_state !== "ready") throw new PersonalPrError("conflict", "Review changed. Prepare a new review");
+  const title = (input.title ?? String(row.title)).trim();
+  const body = input.body ?? String(row.body);
+  if (!title || title.length > 500 || body.length > 100_000) throw new PersonalPrError("invalid_input", "Invalid pull request title or body");
+  if (proposalDigest(row, String(row.title), String(row.body)) !== row.digest) throw new PersonalPrError("conflict", "Review identity changed");
+  const artifacts = verifiedArtifacts(row);
+  const status = await getSandboxController().getProjectSandboxStatus(userId, String(row.project_id));
+  if (!status.privateOwnerOnly || status.initializationState !== "ready" || status.privateConversationId !== row.conversation_id ||
+      status.bindingId !== row.binding_id || status.provider.generation !== Number(row.provider_generation) ||
+      status.resource?.resourceId !== row.resource_id || status.resource?.observedState !== "stopped") throw new PersonalPrError("conflict", "Private sandbox changed after review");
+  return { title, body, artifacts };
+}
+
+function assertLivePublication(live: Row | undefined, row: Row, userId: string, expectedDigest: string, treeDigest: string): void {
+  if (live?.state !== "ready" || live.digest !== expectedDigest || new Date(String(live.expires_at)).getTime() <= Date.now() || live.owner_id !== userId || live.private_owner_id !== userId || live.private_conversation_id !== live.conversation_id || live.private_initialization_state !== "ready" || live.import_state !== "ready" || live.run_status !== "success" || !live.finished_at || Number(live.live_revision) !== Number(live.workspace_revision) || live.binding_id !== row.binding_id || Number(live.provider_generation) !== Number(row.provider_generation) || live.provider_resource_id !== live.resource_id || live.observed_state !== "stopped" || live.tree_digest !== treeDigest) throw new PersonalPrError("conflict", "Review changed before publication");
+}
+
+async function claimPublication(tx: DbTransaction, userId: string, input: ConfirmationInput, row: Row, title: string, body: string, nextDigest: string, treeDigest: string): Promise<void> {
+  const [live] = rows(await tx.execute(sql`SELECT proposal.state,proposal.digest,proposal.expires_at,snapshot.owner_id,snapshot.conversation_id,snapshot.run_id,snapshot.binding_id,snapshot.workspace_revision,snapshot.provider_generation,snapshot.resource_id,snapshot.tree_digest,source.state AS import_state,workspace.revision AS live_revision,binding.private_owner_id,binding.private_conversation_id,binding.private_initialization_state,resource.provider_resource_id,resource.observed_state,run.status AS run_status,run.finished_at FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id JOIN project_workspace_bindings workspace ON workspace.project_id=snapshot.project_id AND workspace.binding_id=snapshot.binding_id JOIN sandbox_provider_bindings binding ON binding.id=snapshot.binding_id JOIN sandbox_resources resource ON resource.binding_id=binding.id JOIN runs run ON run.id=snapshot.run_id WHERE proposal.id=${input.proposalId} AND proposal.owner_id=${userId} FOR UPDATE OF proposal`));
+  assertLivePublication(live, row, userId, input.expectedDigest, treeDigest);
+  const latest = rows(await tx.execute(latestRunQuery(row, userId)));
+  const active = rows(await tx.execute(activeRunQuery(row, userId)));
+  if (!isUniqueLatestRun(String(row.run_id), latest, active)) throw new PersonalPrError("conflict", "A newer run needs a new review");
+  const updated = rows(await tx.execute(sql`UPDATE github_personal_pr_proposals SET state='creating',title=${title},body=${body},digest=${nextDigest},dispatched_at=NOW() WHERE id=${input.proposalId} AND owner_id=${userId} AND state='ready' AND digest=${input.expectedDigest} RETURNING id`));
+  if (!updated.length) throw new PersonalPrError("conflict", "Review was already confirmed");
+}
+
 async function reconcileProposal(userId: string, row: Row): Promise<PersonalPrView> {
   if (!row.commit_sha) throw new PersonalPrError("conflict", "Publication outcome is uncertain. Check GitHub before another attempt");
   let published: PublishedPr | null;
@@ -214,7 +245,7 @@ async function reconcileProposal(userId: string, row: Row): Promise<PersonalPrVi
 }
 
 /** Final host-only confirmation. The broker claims this operation under the connection generation lock. */
-export async function confirmPersonalPr(userId: string, input: { proposalId: string; expectedDigest: string; title?: string; body?: string }): Promise<PersonalPrView> {
+export async function confirmPersonalPr(userId: string, input: ConfirmationInput): Promise<PersonalPrView> {
   if (!validId(input.proposalId) || !/^[a-f0-9]{64}$/.test(input.expectedDigest)) throw new PersonalPrError("invalid_input", "Invalid review confirmation");
   const row = await proposalRow(userId, input.proposalId);
   if (row.state === "created") return getPersonalPrForReviewId(userId, input.proposalId);
@@ -224,29 +255,11 @@ export async function confirmPersonalPr(userId: string, input: { proposalId: str
   }
   if (row.state === "creating" || row.state === "failed") return reconcileProposal(userId, row);
   if (row.state === "stale") throw new PersonalPrError("conflict", "Base changed. Import its current version into a new private sandbox for a new review");
-  if (row.state !== "ready" || row.digest !== input.expectedDigest || row.import_state !== "ready") throw new PersonalPrError("conflict", "Review changed. Prepare a new review");
-  const title = (input.title ?? String(row.title)).trim();
-  const body = input.body ?? String(row.body);
-  if (!title || title.length > 500 || body.length > 100_000) throw new PersonalPrError("invalid_input", "Invalid pull request title or body");
-  if (proposalDigest(row, String(row.title), String(row.body)) !== row.digest) throw new PersonalPrError("conflict", "Review identity changed");
-  const artifacts = verifiedArtifacts(row);
-  const controller = getSandboxController();
-  const status = await controller.getProjectSandboxStatus(userId, String(row.project_id));
-  if (!status.privateOwnerOnly || status.initializationState !== "ready" || status.privateConversationId !== row.conversation_id ||
-      status.bindingId !== row.binding_id || status.provider.generation !== Number(row.provider_generation) ||
-      status.resource?.resourceId !== row.resource_id || status.resource?.observedState !== "stopped") throw new PersonalPrError("conflict", "Private sandbox changed after review");
+  const { title, body, artifacts } = await reviewForPublication(userId, input, row);
   const nextDigest = proposalDigest(row, title, body);
   try {
     const result = await withUserToken({ userId, repositoryId: Number(row.repository_id), kind: "publish", operationId: String(row.operation_id), expectedGeneration: Number(row.connection_generation),
-      authorizeDispatch: async tx => {
-        const [live] = rows(await tx.execute(sql`SELECT proposal.state,proposal.digest,proposal.expires_at,snapshot.owner_id,snapshot.conversation_id,snapshot.run_id,snapshot.binding_id,snapshot.workspace_revision,snapshot.provider_generation,snapshot.resource_id,snapshot.tree_digest,source.state AS import_state,workspace.revision AS live_revision,binding.private_owner_id,binding.private_conversation_id,binding.private_initialization_state,resource.provider_resource_id,resource.observed_state,run.status AS run_status,run.finished_at FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id JOIN project_workspace_bindings workspace ON workspace.project_id=snapshot.project_id AND workspace.binding_id=snapshot.binding_id JOIN sandbox_provider_bindings binding ON binding.id=snapshot.binding_id JOIN sandbox_resources resource ON resource.binding_id=binding.id JOIN runs run ON run.id=snapshot.run_id WHERE proposal.id=${input.proposalId} AND proposal.owner_id=${userId} FOR UPDATE OF proposal`));
-        if (live?.state !== "ready" || live.digest !== input.expectedDigest || new Date(String(live.expires_at)).getTime() <= Date.now() || live.owner_id !== userId || live.private_owner_id !== userId || live.private_conversation_id !== live.conversation_id || live.private_initialization_state !== "ready" || live.import_state !== "ready" || live.run_status !== "success" || !live.finished_at || Number(live.live_revision) !== Number(live.workspace_revision) || live.binding_id !== row.binding_id || Number(live.provider_generation) !== Number(row.provider_generation) || live.provider_resource_id !== live.resource_id || live.observed_state !== "stopped" || live.tree_digest !== artifacts.current.digest) throw new PersonalPrError("conflict", "Review changed before publication");
-        const latest = rows(await tx.execute(latestRunQuery(row, userId)));
-        const active = rows(await tx.execute(activeRunQuery(row, userId)));
-        if (!isUniqueLatestRun(String(row.run_id), latest, active)) throw new PersonalPrError("conflict", "A newer run needs a new review");
-        const updated = rows(await tx.execute(sql`UPDATE github_personal_pr_proposals SET state='creating',title=${title},body=${body},digest=${nextDigest},dispatched_at=NOW() WHERE id=${input.proposalId} AND owner_id=${userId} AND state='ready' AND digest=${input.expectedDigest} RETURNING id`));
-        if (!updated.length) throw new PersonalPrError("conflict", "Review was already confirmed");
-      },
+      authorizeDispatch: tx => claimPublication(tx, userId, input, row, title, body, nextDigest, artifacts.current.digest),
     }, token => publishFrozenDraft({ token, repositoryId: Number(row.repository_id), repositoryName: String(row.repository_name), baseRef: String(row.base_ref), baseSha: String(row.base_sha), branch: String(row.branch), title, body,
       base: artifacts.base, current: artifacts.current,
       onCommitReady: async commitSha => {

@@ -27,10 +27,12 @@ let githubWrites = 0;
 let baseMoved = false;
 let reconcileMode: "missing" | "published" | "not_found" = "missing";
 let duringExport: (() => Promise<void>) | undefined;
+let statusCalls = 0;
 class FakeGithubUserError extends Error { constructor(public readonly code: string) { super(code); } }
 class FakePrPublisherError extends Error { constructor(public readonly code: string) { super(code); } }
 const controller = {
   getProjectSandboxStatus: async (userId: string) => {
+	statusCalls++;
     if (userId !== owner) throw new Error("private sandbox denied");
     return { privateOwnerOnly: true, initializationState: state, privateConversationId: conversation, bindingId,
       provider: { generation: 1 }, operation: state === "pending" ? { id: "create-op", action: "create", state: "admitted" } : null,
@@ -86,9 +88,15 @@ async function seed() {
   await db.execute(sql`INSERT INTO sandbox_resources(id,binding_id,provider_resource_id,desired_state,observed_state,limits) VALUES ('internal-resource',${bindingId},${resourceId},'stopped','stopped','{}')`);
 }
 
-beforeEach(async () => { await setupTestDb(); state = "pending"; conversation = null; publishCount = 0; canDispatch = true; effectChecks = 0; maxEffectChecks = Number.POSITIVE_INFINITY; githubWrites = 0; baseMoved = false; reconcileMode = "missing"; duringExport = undefined; await seed(); });
+beforeEach(async () => { await setupTestDb(); state = "pending"; conversation = null; publishCount = 0; canDispatch = true; effectChecks = 0; maxEffectChecks = Number.POSITIVE_INFINITY; githubWrites = 0; baseMoved = false; reconcileMode = "missing"; duringExport = undefined; statusCalls = 0; await seed(); });
 
 describe("personal PR service with durable database state", () => {
+  test("does not touch a sandbox for an owner run without a GitHub import", async () => {
+    await getTestDb().execute(sql`INSERT INTO runs(id,agent_name,project_id,conversation_id,user_id,status,started_at,finished_at) VALUES (${runId},'agent',${projectId},${conversationId},${owner},'success',NOW()-INTERVAL '1 minute',NOW())`);
+    expect(await getPersonalPrForRun(owner, runId)).toEqual({ state: "no_changes", projectId });
+    expect(statusCalls).toBe(0);
+    await expect(getPersonalPrForRun(other, runId)).rejects.toMatchObject({ code: "not_found" });
+  });
   test("imports once, binds a completed owner run and exact snapshot, confirms once, replays safely", async () => {
     const imported = await importApprovedRepository(owner, { projectId, repositoryId: 42, baseRef: "main", idempotencyKey: "same-import" });
     expect(imported.importState).toBe("ready");
