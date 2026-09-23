@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { mockDbConnection, getTestDb, setupTestDb } from "../../__tests__/helpers/test-pglite";
 import { validateSnapshot, type SnapshotFileInput } from "./snapshot";
@@ -195,6 +195,40 @@ describe("personal PR service with durable database state", () => {
     expect(publishCount).toBe(1);
     release();
     expect((await original).state).toBe("created");
+  });
+
+  test("heartbeat renews only a current live claim", async () => {
+    const ready = await prepareReadyRun();
+    const { entered, release } = pausePublisher();
+    let heartbeat: (() => void) | undefined;
+    const interval = spyOn(globalThis, "setInterval").mockImplementation(callback => {
+      heartbeat = callback as () => void;
+      return { unref: () => {} } as ReturnType<typeof setInterval>;
+    });
+    try {
+      const original = confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: ready.digest! });
+      await entered;
+      expect(heartbeat).toBeDefined();
+      await getTestDb().execute(sql`UPDATE github_personal_pr_proposals SET claim_expires_at=NOW()+INTERVAL '10 seconds' WHERE id=${ready.proposalId}`);
+      const before = (await getTestDb().execute(sql`SELECT claim_owner,claim_expires_at FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`)).rows[0] as { claim_owner: string; claim_expires_at: Date };
+      heartbeat!();
+      const renewed = (await getTestDb().execute(sql`SELECT claim_expires_at FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`)).rows[0] as { claim_expires_at: Date };
+      expect(new Date(renewed.claim_expires_at).getTime()).toBeGreaterThan(new Date(before.claim_expires_at).getTime());
+      await getTestDb().execute(sql`UPDATE github_personal_pr_proposals SET claim_owner='replacement',claim_expires_at=NOW()+INTERVAL '10 seconds' WHERE id=${ready.proposalId}`);
+      const stolen = (await getTestDb().execute(sql`SELECT claim_expires_at FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`)).rows[0] as { claim_expires_at: Date };
+      heartbeat!();
+      const afterStolen = (await getTestDb().execute(sql`SELECT claim_expires_at FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`)).rows[0] as { claim_expires_at: Date };
+      expect(afterStolen.claim_expires_at).toEqual(stolen.claim_expires_at);
+      await getTestDb().execute(sql`UPDATE github_personal_pr_proposals SET claim_owner=${before.claim_owner},claim_expires_at=NOW()-INTERVAL '1 second' WHERE id=${ready.proposalId}`);
+      const expired = (await getTestDb().execute(sql`SELECT claim_expires_at FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`)).rows[0] as { claim_expires_at: Date };
+      heartbeat!();
+      const afterExpired = (await getTestDb().execute(sql`SELECT claim_expires_at FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`)).rows[0] as { claim_expires_at: Date };
+      expect(afterExpired.claim_expires_at).toEqual(expired.claim_expires_at);
+      release();
+      await expect(original).rejects.toMatchObject({ code: "conflict" });
+    } finally {
+      interval.mockRestore();
+    }
   });
 
   test("a stale publisher cannot resume or fail a replacement claim", async () => {
