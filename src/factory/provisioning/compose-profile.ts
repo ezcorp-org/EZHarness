@@ -104,6 +104,7 @@ export function factoryComposeEnvironment(bundle: FactoryInstallationBundle, opt
     EZCORP_FACTORY_HOST_READINESS_POOL: host.poolReadinessDirectory,
     EZCORP_FACTORY_HOST_READINESS_SUPERVISOR: host.supervisorReadinessDirectory,
     EZCORP_FACTORY_HARNESS_DATA: bundle.dataDirectory,
+    EZCORP_FACTORY_HARNESS_APP_STATE: resolve(bundle.dataDirectory, "app-state"),
     EZCORP_FACTORY_GATEWAY_PORT: String(ports.gateway),
     EZCORP_FACTORY_HARNESS_PORT: String(ports.harness),
     EZCORP_FACTORY_PRIVATE_SERVICE_PORT: String(ports.privateService),
@@ -187,7 +188,8 @@ export class FactoryComposeTarget implements FactoryDeploymentTarget {
    * named failure naming the first service still not ready.
    */
   async ready(bundle: FactoryInstallationBundle): Promise<void> {
-    const deadline = this.now() + (this.options.readyTimeoutMs ?? 360_000);
+    // Ten minutes: an upgraded harness migrates before it answers, on a host shared by every installation.
+    const deadline = this.now() + (this.options.readyTimeoutMs ?? 600_000);
     const fetchStatus = this.options.fetchStatus ?? (async (url: string) => { try { return (await fetch(url, { signal: AbortSignal.timeout(5_000) })).status; } catch { return 0; } });
     let waiting = "harness";
     while (this.now() < deadline) {

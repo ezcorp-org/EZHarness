@@ -360,7 +360,7 @@ export async function writeFactoryDeliveries(bundle: FactoryInstallationBundle):
     } finally { await directory.close(); }
   }
   // The harness boots only with its projects root and home present (`boot.ts` refuses an unresolvable project root).
-  for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, resolve(bundle.readinessDirectory, "orchestration"), bundle.dataDirectory, resolve(bundle.dataDirectory, "projects"), resolve(bundle.dataDirectory, "home")]) {
+  for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, resolve(bundle.readinessDirectory, "orchestration"), bundle.dataDirectory, resolve(bundle.dataDirectory, "projects"), resolve(bundle.dataDirectory, "home"), resolve(bundle.dataDirectory, "app-state")]) {
     const handle = await openFactoryPrivateDirectory(directory);
     await handle.close();
   }

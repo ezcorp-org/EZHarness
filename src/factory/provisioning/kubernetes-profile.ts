@@ -114,7 +114,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
         ? { name: "readiness", mountPath: `${FACTORY_CONTAINER_PATHS.readiness}/${ORCHESTRATION}`, subPath: ORCHESTRATION }
         : { name: "readiness", mountPath: FACTORY_CONTAINER_PATHS.readiness, readOnly: true },
       { name: "tmp", mountPath: "/tmp" },
-      ...(service === "harness" ? [{ name: "harness-data", mountPath: FACTORY_CONTAINER_PATHS.data }] : []),
+      ...(service === "harness" ? [{ name: "harness-data", mountPath: FACTORY_CONTAINER_PATHS.data }, { name: "harness-data", mountPath: "/app/.ezcorp", subPath: "app-state" }] : []),
     ],
     ...(service === "harness" ? {
       ports: [{ name: "http", containerPort: bundle.ports.harness }],

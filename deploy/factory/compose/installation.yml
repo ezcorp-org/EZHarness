@@ -79,6 +79,8 @@ services:
       # volume: a named volume is created owned by the container's root, which
       # the keep-id user cannot write. Purge removes it with the runtime root.
       - { type: bind, source: "${EZCORP_FACTORY_HARNESS_DATA:?}", target: /var/lib/ezcorp, bind: { create_host_path: false } }
+      # The product's daemons keep state under `.ezcorp` in their working directory, /app, which the read-only root refuses.
+      - { type: bind, source: "${EZCORP_FACTORY_HARNESS_APP_STATE:?}", target: /app/.ezcorp, bind: { create_host_path: false } }
     healthcheck:
       test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "--http", "http://127.0.0.1:${EZCORP_FACTORY_HARNESS_PORT:?}/api/ready"]
       interval: 5s
