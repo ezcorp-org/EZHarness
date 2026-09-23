@@ -41,6 +41,15 @@ export function releaseBinding(snapshot: ActiveExtensionRelease): string {
   return canonicalJson({ releaseId: snapshot.release.id, releaseDigest: snapshot.release.releaseDigest, generation: snapshot.installation.generation, grants: snapshot.installation.grants, policyDigest: snapshot.release.policyDigest });
 }
 
+function validateHostCapabilityEnvelope(raw: unknown, context: InvocationContext): Record<string, unknown> {
+  assertJson(raw);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ContractError("INVALID_CONTEXT", "Invalid capability envelope");
+  const envelope = raw as Record<string, unknown>;
+  if (Object.keys(envelope).some(key => key !== "context" && key !== "input") || !Object.hasOwn(envelope, "input") || canonicalJson(validateInvocationContext(envelope.context)) !== canonicalJson(context)) throw new ContractError("CONTEXT_MISMATCH", "Capability context does not match active invocation");
+  if (!envelope.input || typeof envelope.input !== "object" || Array.isArray(envelope.input)) throw new ContractError("INVALID_REQUEST", "Host capability parameters must be an object");
+  return envelope.input as Record<string, unknown>;
+}
+
 const outputMethods = new Set(["ezcorp/state", "ezcorp/page-state"]);
 interface ReleaseCallOptions { skipTimeout?: boolean; signal?: AbortSignal; invocationGuard?: InvocationGuard }
 
@@ -228,47 +237,44 @@ export class ReleaseProcess extends ExtensionProcess {
     signal?.addEventListener("abort", onAbort, { once: true });
     const request = (method: string, input: unknown) => Promise.race([worker!.request(method, input), cancellation.promise]);
     const locks = new InvocationLocks(this.extensionId, context, snapshot.installation.generation);
+    const handleWorkerRpc = async (rpcMethod: string, raw: unknown): Promise<unknown> => {
+      checkCancellation();
+      if (!accepting || this.releaseClosed || Date.now() >= context.deadline || !this.releaseCalls.has(invocationId)) throw new ContractError("EXPIRED_CONTEXT", "Extension invocation is no longer active");
+      const inputValue = validateHostCapabilityEnvelope(raw, context);
+      if (rpcMethod === "ezcorp/lock.acquire" || rpcMethod === "ezcorp/lock.release") {
+        if (providerScope) throw new ContractError("CAPABILITY_DENIED", "Provider invocation does not permit locks");
+        await assertCurrentBinding();
+        return locks.request(rpcMethod, inputValue);
+      }
+      if (rpcMethod === INCUS_PROVIDER_TRANSPORT_RPC) {
+        if (!providerScope || !this.runtime?.providerRpcBroker) throw new ContractError("CAPABILITY_DENIED", "Provider transport requires a host-owned invocation");
+        return locks.effect(rpcMethod, async () => {
+          await assertCurrentBinding();
+          return this.runtime!.providerRpcBroker!.request(providerScope, inputValue, context.deadline, signal);
+        }, effectAdmission);
+      }
+      if (providerScope) throw new ContractError("CAPABILITY_DENIED", "Provider invocation permits only its transport");
+      const input: Record<string, unknown> = { ...inputValue, _meta: { ezCallId: token } };
+      delete input._toolName;
+      if (method === "tools/call") input._toolName = params.name;
+      if (outputMethods.has(rpcMethod)) {
+        if (!notification) throw new ContractError("CAPABILITY_UNAVAILABLE", "UI mediator is unavailable");
+        if (rpcMethod === "ezcorp/state" && !snapshot.release.manifest.panel) throw new ContractError("UNDECLARED_CONTRIBUTION", "No panel is declared");
+        if (rpcMethod === "ezcorp/page-state" && !snapshot.release.manifest.pages?.some(page => page.id === input.pageId)) throw new ContractError("UNDECLARED_CONTRIBUTION", "Page is not declared");
+        await locks.effect(rpcMethod, () => withRuntimeToolContext(runtimeContext, () => notification({ jsonrpc: "2.0", method: rpcMethod, params: input })), effectAdmission);
+        return { ok: true };
+      }
+      if (!handler) throw new ContractError("CAPABILITY_UNAVAILABLE", "Host capability broker is not wired");
+      const response = await locks.effect(rpcMethod, () => withRuntimeToolContext(runtimeContext, () => handler({ jsonrpc: "2.0", id: crypto.randomUUID(), method: rpcMethod, params: input })), effectAdmission);
+      if (response.error?.code === -32009) throw new ContractError("STATE_CONFLICT", "State changed; reload before retrying.");
+      if (response.error) throw new ContractError("CAPABILITY_DENIED", response.error.message);
+      assertJson(response.result);
+      return response.result;
+    };
     try {
       if (invocationGuard) await invocationGuard();
       checkCancellation();
-      worker = await runner.start({ workerId, artifactDigest: snapshot.release.artifactDigest, context, limits: snapshot.limits }, async (rpcMethod, raw) => {
-        checkCancellation();
-        if (!accepting || this.releaseClosed || Date.now() >= context.deadline || !this.releaseCalls.has(invocationId)) throw new ContractError("EXPIRED_CONTEXT", "Extension invocation is no longer active");
-        assertJson(raw);
-        if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new ContractError("INVALID_CONTEXT", "Invalid capability envelope");
-        const envelope = raw as Record<string, unknown>;
-        if (Object.keys(envelope).some(key => key !== "context" && key !== "input") || !Object.hasOwn(envelope, "input") || canonicalJson(validateInvocationContext(envelope.context)) !== canonicalJson(context)) throw new ContractError("CONTEXT_MISMATCH", "Capability context does not match active invocation");
-        if (!envelope.input || typeof envelope.input !== "object" || Array.isArray(envelope.input)) throw new ContractError("INVALID_REQUEST", "Host capability parameters must be an object");
-        if (rpcMethod === "ezcorp/lock.acquire" || rpcMethod === "ezcorp/lock.release") {
-          if (providerScope) throw new ContractError("CAPABILITY_DENIED", "Provider invocation does not permit locks");
-          await assertCurrentBinding();
-          return locks.request(rpcMethod, envelope.input as Record<string, unknown>);
-        }
-        if (rpcMethod === INCUS_PROVIDER_TRANSPORT_RPC) {
-          if (!providerScope || !this.runtime?.providerRpcBroker) throw new ContractError("CAPABILITY_DENIED", "Provider transport requires a host-owned invocation");
-          return locks.effect(rpcMethod, async () => {
-            await assertCurrentBinding();
-            return this.runtime!.providerRpcBroker!.request(providerScope, envelope.input as Record<string, unknown>, context.deadline, signal);
-          }, effectAdmission);
-        }
-        if (providerScope) throw new ContractError("CAPABILITY_DENIED", "Provider invocation permits only its transport");
-        const input: Record<string, unknown> = { ...envelope.input as Record<string, unknown>, _meta: { ezCallId: token } };
-        delete input._toolName;
-        if (method === "tools/call") input._toolName = params.name;
-        if (outputMethods.has(rpcMethod)) {
-          if (!notification) throw new ContractError("CAPABILITY_UNAVAILABLE", "UI mediator is unavailable");
-          if (rpcMethod === "ezcorp/state" && !snapshot.release.manifest.panel) throw new ContractError("UNDECLARED_CONTRIBUTION", "No panel is declared");
-          if (rpcMethod === "ezcorp/page-state" && !snapshot.release.manifest.pages?.some(page => page.id === input.pageId)) throw new ContractError("UNDECLARED_CONTRIBUTION", "Page is not declared");
-          await locks.effect(rpcMethod, () => withRuntimeToolContext(runtimeContext, () => notification({ jsonrpc: "2.0", method: rpcMethod, params: input })), effectAdmission);
-          return { ok: true };
-        }
-        if (!handler) throw new ContractError("CAPABILITY_UNAVAILABLE", "Host capability broker is not wired");
-        const response = await locks.effect(rpcMethod, () => withRuntimeToolContext(runtimeContext, () => handler({ jsonrpc: "2.0", id: crypto.randomUUID(), method: rpcMethod, params: input })), effectAdmission);
-        if (response.error?.code === -32009) throw new ContractError("STATE_CONFLICT", "State changed; reload before retrying.");
-        if (response.error) throw new ContractError("CAPABILITY_DENIED", response.error.message);
-        assertJson(response.result);
-        return response.result;
-      });
+      worker = await runner.start({ workerId, artifactDigest: snapshot.release.artifactDigest, context, limits: snapshot.limits }, handleWorkerRpc);
       this.releaseWorkers.set(workerId, worker);
       checkCancellation();
       if (this.releaseClosed) throw new ContractError("CLOSED", "Runtime closed during startup");

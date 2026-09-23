@@ -191,25 +191,32 @@ export class FramedExecution extends SensitiveRunnerExecution {
     if (!value || typeof value !== "object" || Array.isArray(value)) throw new RunnerError("protocol_error", "Expected JSON-RPC object");
     const frame = value as Frame;
     if (frame.jsonrpc !== "2.0" || (frame.id !== undefined && typeof frame.id !== "string" && !Number.isSafeInteger(frame.id))) throw new RunnerError("protocol_error", "Invalid JSON-RPC version or ID");
-    if (frame.method !== undefined) {
-      if (typeof frame.method !== "string" || frame.method.length > 128 || "result" in frame || "error" in frame || "sensitive" in frame) throw new RunnerError("protocol_error", "Invalid request");
-      if (this.sensitiveMode) {
-        if (frame.id !== undefined) this.send({ jsonrpc: "2.0", id: frame.id, error: { code: -32001, message: sensitiveChannelError().message } });
-        return;
-      }
-      if (frame.id === undefined) { for (const listener of this.listeners) listener(frame.method, frame.params); return; }
-      const key = `${typeof frame.id}:${frame.id}`;
-      if (this.reversePending >= 32 || this.reverseIds.has(key)) throw new RunnerError("protocol_error", "Duplicate or excess host request");
-      this.reversePending++;
-      this.reverseIds.add(key);
-      void this.reverse(frame.method, frame.params).then(result => {
-        if (!this.stopped) this.send({ jsonrpc: "2.0", id: frame.id, result });
-      }, error => {
-        const safe = safeHostError(error);
-        if (!this.stopped) this.send({ jsonrpc: "2.0", id: frame.id, error: { code: safe.code === "STATE_CONFLICT" ? -32009 : -32001, message: safe.message } });
-      }).catch(error => this.fail(error instanceof Error ? error : new Error(String(error)))).finally(() => { this.reversePending--; this.reverseIds.delete(key); });
+    if (frame.method !== undefined) { this.acceptRequest(frame); return; }
+    this.acceptResponse(frame);
+  }
+
+  private acceptRequest(frame: Frame): void {
+    const method = frame.method;
+    if (typeof method !== "string" || method.length > 128 || "result" in frame || "error" in frame || "sensitive" in frame) throw new RunnerError("protocol_error", "Invalid request");
+    if (this.sensitiveMode) {
+      if (frame.id !== undefined) this.send({ jsonrpc: "2.0", id: frame.id, error: { code: -32001, message: sensitiveChannelError().message } });
       return;
     }
+    if (frame.id === undefined) { for (const listener of this.listeners) listener(method, frame.params); return; }
+    const key = `${typeof frame.id}:${frame.id}`;
+    if (this.reversePending >= 32 || this.reverseIds.has(key)) throw new RunnerError("protocol_error", "Duplicate or excess host request");
+    this.reversePending++;
+    this.reverseIds.add(key);
+    void this.reverse(method, frame.params).then(result => {
+      if (!this.stopped) this.send({ jsonrpc: "2.0", id: frame.id, result });
+    }, error => {
+      const safe = safeHostError(error);
+      if (!this.stopped) this.send({ jsonrpc: "2.0", id: frame.id, error: { code: safe.code === "STATE_CONFLICT" ? -32009 : -32001, message: safe.message } });
+    }).catch(error => this.fail(error instanceof Error ? error : new Error(String(error)))).finally(() => { this.reversePending--; this.reverseIds.delete(key); });
+    return;
+  }
+
+  private acceptResponse(frame: Frame): void {
     const hasResult = "result" in frame;
     const hasError = "error" in frame;
     const hasSensitive = "sensitive" in frame;

@@ -48,6 +48,65 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       response.end(value, () => { clear(); resolve(); });
     });
   };
+  async function handleStart(data: StartRequest, response: ServerResponse): Promise<void> {
+    identifier(data.workerId);
+    validateInvocationContext(data.context);
+    validateResourceLimits(data.limits);
+    if (sessions.size + starting >= 4 || sessions.has(data.workerId)) throw new RunnerError("runner_busy", "Worker session limit reached");
+    const pending: Session["pending"] = new Map();
+    const events: Event[] = [];
+    starting++;
+    const execution = await options.runner.start(data as StartRequest, (method, params) => new Promise((resolve, reject) => {
+      const session = sessions.get(data.workerId);
+      if (session?.sensitive) { reject(sensitiveChannelError()); return; }
+      if (!session || pending.size >= 32 || events.length >= 32) { reject(new RunnerError("host_unavailable", "Host reverse RPC unavailable")); return; }
+      const id = randomUUID();
+      const timer = setTimeout(() => { pending.delete(id); reject(new RunnerError("host_timeout", "Host reverse RPC timed out")); }, Math.max(1, Math.min(60_000, data.context.deadline - Date.now())));
+      pending.set(id, { resolve, reject, timer });
+      events.push({ id, method, params });
+      session.wake?.();
+    })).finally(() => { starting--; });
+    const timer = setTimeout(() => { void closeSession(data.workerId); }, Math.max(1, Math.min(data.limits.timeoutMs, data.context.deadline - Date.now())));
+    const session: Session = { execution, pending, events, timer, sensitive: false, ordinaryRequests: 0 };
+    sessions.set(data.workerId, session);
+    execution.onNotification((method, params) => {
+      if (session.sensitive) return;
+      if (events.length >= 32) { void closeSession(data.workerId); return; }
+      events.push({ method, params });
+      session.wake?.();
+    });
+    send(response, 200, { workerId: data.workerId });
+    return;
+  }
+
+  async function handleSensitiveRequest(data: { workerId: string; params: unknown }, response: ServerResponse): Promise<void> {
+    const session = sessions.get(identifier(data.workerId));
+    if (!session) throw new RunnerError("unknown_worker", "Worker is unavailable");
+    if (session.ordinaryRequests > 0 || session.pending.size > 0) throw new RunnerError("sensitive_busy", "Sensitive provider requests require idle ordinary channels");
+    session.sensitive = true;
+    session.events.length = 0;
+    session.wake?.();
+    try {
+      await sendSensitive(response, await requestSensitiveProviderResult(session.execution, data.params));
+    } catch {
+      throw new RunnerError("sensitive_failed", "Sensitive provider request failed");
+    }
+    return;
+  }
+
+  async function handleEvents(data: { workerId: string }, response: ServerResponse): Promise<void> {
+    const session = sessions.get(identifier(data.workerId));
+    if (!session || session.wake) throw new RunnerError("unknown_worker", "Worker event stream is unavailable or already attached");
+    if (session.events.length === 0) await new Promise<void>(resolve => {
+      const timer = setTimeout(finish, 20_000);
+      function finish() { clearTimeout(timer); session!.wake = undefined; response.off("close", finish); resolve(); }
+      session.wake = finish;
+      response.once("close", finish);
+    });
+    send(response, 200, { events: session.sensitive ? [] : session.events.splice(0) });
+    return;
+  }
+
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const authorization = Buffer.from(request.headers.authorization ?? "");
     const expected = Buffer.from(`Bearer ${options.token}`);
@@ -65,36 +124,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
         send(response, 200, await options.runner.build(data as BuildRequest));
         return;
       }
-      case "/v4/start": {
-        identifier(data.workerId);
-        validateInvocationContext(data.context);
-        validateResourceLimits(data.limits);
-        if (sessions.size + starting >= 4 || sessions.has(data.workerId)) throw new RunnerError("runner_busy", "Worker session limit reached");
-        const pending: Session["pending"] = new Map();
-        const events: Event[] = [];
-        starting++;
-        const execution = await options.runner.start(data as StartRequest, (method, params) => new Promise((resolve, reject) => {
-          const session = sessions.get(data.workerId);
-          if (session?.sensitive) { reject(sensitiveChannelError()); return; }
-          if (!session || pending.size >= 32 || events.length >= 32) { reject(new RunnerError("host_unavailable", "Host reverse RPC unavailable")); return; }
-          const id = randomUUID();
-          const timer = setTimeout(() => { pending.delete(id); reject(new RunnerError("host_timeout", "Host reverse RPC timed out")); }, Math.max(1, Math.min(60_000, data.context.deadline - Date.now())));
-          pending.set(id, { resolve, reject, timer });
-          events.push({ id, method, params });
-          session.wake?.();
-        })).finally(() => { starting--; });
-        const timer = setTimeout(() => { void closeSession(data.workerId); }, Math.max(1, Math.min(data.limits.timeoutMs, data.context.deadline - Date.now())));
-        const session: Session = { execution, pending, events, timer, sensitive: false, ordinaryRequests: 0 };
-        sessions.set(data.workerId, session);
-        execution.onNotification((method, params) => {
-          if (session.sensitive) return;
-          if (events.length >= 32) { void closeSession(data.workerId); return; }
-          events.push({ method, params });
-          session.wake?.();
-        });
-        send(response, 200, { workerId: data.workerId });
-        return;
-      }
+      case "/v4/start": await handleStart(data, response); return;
       case "/v4/request": {
         const session = sessions.get(identifier(data.workerId));
         if (!session || typeof data.method !== "string" || data.method.length > 128) throw new RunnerError("unknown_worker", "Worker is unavailable");
@@ -105,32 +135,8 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
         finally { session.ordinaryRequests--; }
         return;
       }
-      case "/v4/sensitive-request": {
-        const session = sessions.get(identifier(data.workerId));
-        if (!session) throw new RunnerError("unknown_worker", "Worker is unavailable");
-        if (session.ordinaryRequests > 0 || session.pending.size > 0) throw new RunnerError("sensitive_busy", "Sensitive provider requests require idle ordinary channels");
-        session.sensitive = true;
-        session.events.length = 0;
-        session.wake?.();
-        try {
-          await sendSensitive(response, await requestSensitiveProviderResult(session.execution, data.params));
-        } catch {
-          throw new RunnerError("sensitive_failed", "Sensitive provider request failed");
-        }
-        return;
-      }
-      case "/v4/events": {
-        const session = sessions.get(identifier(data.workerId));
-        if (!session || session.wake) throw new RunnerError("unknown_worker", "Worker event stream is unavailable or already attached");
-        if (session.events.length === 0) await new Promise<void>(resolve => {
-          const timer = setTimeout(finish, 20_000);
-          function finish() { clearTimeout(timer); session!.wake = undefined; response.off("close", finish); resolve(); }
-          session.wake = finish;
-          response.once("close", finish);
-        });
-        send(response, 200, { events: session.sensitive ? [] : session.events.splice(0) });
-        return;
-      }
+      case "/v4/sensitive-request": await handleSensitiveRequest(data, response); return;
+      case "/v4/events": await handleEvents(data, response); return;
       case "/v4/reply": {
         const session = sessions.get(identifier(data.workerId));
         const pending = session?.pending.get(data.id);

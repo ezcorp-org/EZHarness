@@ -228,7 +228,7 @@ function hasCompleteSandboxContribution(provider: SandboxProviderDeclaration): p
   return sandboxContributionFields.every(field => provider[field] !== undefined);
 }
 
-function validateSandboxProviderSemantics(provider: SandboxProviderDeclaration): void {
+function validateSandboxProviderIdentityAndPresets(provider: SandboxProviderDeclaration): void {
   if (!sandboxIdentityPattern.test(provider.id)) throw new ContractError("INVALID_MANIFEST", "Invalid sandbox provider identity");
   if (provider.profiles.length === 0 || provider.profiles.length > SANDBOX_PROFILES.length || new Set(provider.profiles).size !== provider.profiles.length) throw new ContractError("INVALID_MANIFEST", "Sandbox provider profiles must be unique and non-empty");
   if (provider.presets.length === 0 || provider.presets.length > 32) throw new ContractError("INVALID_MANIFEST", "Sandbox providers must declare a bounded non-empty preset list");
@@ -242,12 +242,16 @@ function validateSandboxProviderSemantics(provider: SandboxProviderDeclaration):
     validateSandboxPresetSemantics(preset);
   }
   if (provider.profiles.some(profile => !coveredProfiles.has(profile))) throw new ContractError("INVALID_MANIFEST", "Every advertised sandbox profile requires a preset");
+}
 
+function validateSandboxProviderCapabilities(provider: SandboxProviderDeclaration): void {
   if (provider.capabilities !== undefined) {
     if (provider.capabilities.length < sandboxStableCapabilities.length || provider.capabilities.length > sandboxProviderCapabilities.length || new Set(provider.capabilities).size !== provider.capabilities.length || provider.capabilities.some(capability => !sandboxProviderCapabilities.includes(capability))) throw new ContractError("INVALID_MANIFEST", "Sandbox provider capabilities must be unique, bounded, and supported");
     if (sandboxStableCapabilities.some(capability => !provider.capabilities!.includes(capability))) throw new ContractError("INVALID_MANIFEST", "Sandbox provider v1 requires lifecycle, files, and processes capabilities");
   }
+}
 
+function validateSandboxProviderContributionSemantics(provider: SandboxProviderDeclaration): void {
   const contributionFieldCount = sandboxContributionFields.filter(field => provider[field] !== undefined).length;
   if (contributionFieldCount !== 0 && contributionFieldCount !== sandboxContributionFields.length) throw new ContractError("INVALID_MANIFEST", "Sandbox provider contribution fields must be declared together");
   if (provider.capabilities !== undefined && !hasCompleteSandboxContribution(provider)) throw new ContractError("INVALID_MANIFEST", "Sandbox provider capabilities require a complete contribution");
@@ -263,6 +267,12 @@ function validateSandboxProviderSemantics(provider: SandboxProviderDeclaration):
     const advertised = provider.capabilities?.includes(capability) ?? false;
     if (Boolean(methods[group]) !== advertised) throw new ContractError("INVALID_MANIFEST", `Sandbox ${group} methods must exactly match the advertised capability`);
   }
+}
+
+function validateSandboxProviderSemantics(provider: SandboxProviderDeclaration): void {
+  validateSandboxProviderIdentityAndPresets(provider);
+  validateSandboxProviderCapabilities(provider);
+  validateSandboxProviderContributionSemantics(provider);
 }
 
 export function validateSandboxProviderContribution(value: unknown): SandboxProtocolContribution {
@@ -998,52 +1008,7 @@ function validateProviderResultRecord(record: Record<string, unknown>): boolean 
   return false;
 }
 
-function validateSandboxProtocolValue(operation: SandboxProtocolOperation, direction: SandboxProviderSchemaDirection, record: Record<string, unknown>): void {
-  if (direction === "result" && !validateProviderResultRecord(record)) {
-    if ((record.error as SandboxProviderError).code === "OUTCOME_UNKNOWN" && !sandboxMutationOperations.includes(operation)) throw new ContractError("INVALID_PROVIDER_VALUE", "Only a mutating sandbox operation can have an unknown outcome");
-    return;
-  }
-  if (operation === "describe") {
-    if (!sandboxIdentityPattern.test(String(record.providerId))) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid described sandbox provider identity");
-    if (direction === "result") {
-      const profiles = record.profiles as string[];
-      const presetIds = record.presetIds as string[];
-      const capabilities = record.capabilities as SandboxProviderCapability[] | undefined;
-      if (profiles.length === 0 || profiles.length > SANDBOX_PROFILES.length || new Set(profiles).size !== profiles.length || presetIds.length === 0 || presetIds.length > 32 || new Set(presetIds).size !== presetIds.length || presetIds.some(id => !sandboxIdentityPattern.test(id))) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid described sandbox profiles or presets");
-      if (capabilities !== undefined && (capabilities.length < sandboxStableCapabilities.length || capabilities.length > sandboxProviderCapabilities.length || new Set(capabilities).size !== capabilities.length || capabilities.some(capability => !sandboxProviderCapabilities.includes(capability)) || sandboxStableCapabilities.some(capability => !capabilities.includes(capability)))) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid described sandbox capabilities");
-    }
-    return;
-  }
-  if (operation === "preflight") {
-    if (direction === "input") {
-      for (const field of ["providerId", "presetId"] as const) if (!sandboxIdentityPattern.test(String(record[field]))) throw new ContractError("INVALID_PROVIDER_VALUE", `Invalid sandbox preflight ${field}`);
-      requireStableId(record.connectionId, "preflight connectionId");
-      for (const field of ["presetDigest", "effectiveSettingsDigest"] as const) if (!digestPattern.test(String(record[field]))) throw new ContractError("INVALID_PROVIDER_VALUE", `Invalid sandbox preflight ${field}`);
-    } else validateSandboxCompatibilityObservation(record.observation as unknown as SandboxCompatibilityObservation);
-    return;
-  }
-
-  if (operation === "lifecycle.list") {
-    if (direction === "input") {
-      if (!sandboxIdentityPattern.test(String(record.providerId))) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid sandbox providerId");
-      requireStableId(record.connectionId, "connectionId");
-      requireSafeInteger(record.rpcDeadlineMs, "RPC deadline", 1, 8_640_000_000_000_000);
-      requireSafeInteger(record.limit, "list limit", 1, sandboxProtocolMaximums.listItems);
-      const cursor = record.cursor as Record<string, unknown> | undefined;
-      if (cursor) { requireStableId(cursor.connectionId, "list cursor connectionId"); requireStableId(cursor.afterSandboxId, "list cursor sandboxId"); }
-    } else {
-      const sandboxes = record.sandboxes as Record<string, unknown>[];
-      if (sandboxes.length > sandboxProtocolMaximums.listItems) throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox list result exceeds its absolute limit");
-      for (const sandbox of sandboxes) validateSandboxInspection(sandbox);
-      if (new Set(sandboxes.map(sandbox => sandbox.sandboxId)).size !== sandboxes.length) throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox list contains duplicate identities");
-      const cursor = record.nextCursor as Record<string, unknown> | undefined;
-      if (cursor) { requireStableId(cursor.connectionId, "list cursor connectionId"); requireStableId(cursor.afterSandboxId, "list cursor sandboxId"); }
-    }
-    return;
-  }
-
-  if (direction === "input") validateSandboxRequestScope(record, sandboxMutationOperations.includes(operation));
-
+function validateSandboxLifecycleValue(operation: SandboxProtocolOperation, direction: SandboxProviderSchemaDirection, record: Record<string, unknown>): void {
   if (operation === "lifecycle.create" && direction === "input") {
     requireStableId(record.presetId, "create presetId");
     for (const field of ["presetDigest", "effectiveSettingsDigest"] as const) if (!digestPattern.test(String(record[field]))) throw new ContractError("INVALID_PROVIDER_VALUE", `Invalid sandbox create ${field}`);
@@ -1068,102 +1033,172 @@ function validateSandboxProtocolValue(operation: SandboxProtocolOperation, direc
       if (lifecycleKind !== (inspected.desiredState !== null && inspected.observedState !== null)) throw new ContractError("INVALID_PROVIDER_VALUE", "Desired and observed states are required only for lifecycle operations");
       if (["succeeded", "failed", "cancelled", "outcome_unknown"].includes(String(inspected.state)) !== (inspected.finishedAt !== null)) throw new ContractError("INVALID_PROVIDER_VALUE", "Operation completion time does not match its state");
     }
-  } else if (operation.startsWith("files.")) {
-    if (direction === "input") {
-      requireSandboxPath(record.path, "file path", operation === "files.list" || operation === "files.stat");
-      if (operation === "files.list") {
-        requireSafeInteger(record.limit, "file list limit", 1, sandboxProtocolMaximums.listItems);
-        const cursor = record.cursor as Record<string, unknown> | undefined;
-        if (cursor) { requireStableId(cursor.sandboxId, "file cursor sandboxId"); requireStableId(cursor.directoryRevision, "file cursor revision"); requireSandboxBasename(cursor.afterName, "file cursor name"); }
-      } else if (operation === "files.readRange") {
-        requireStableId(record.revision, "file revision");
-        requireSafeInteger(record.offsetBytes, "file range offset");
-        requireSafeInteger(record.lengthBytes, "file range length", 1, sandboxProtocolMaximums.fileChunkBytes);
-      } else if (operation === "files.writeAtomic") {
-        if (record.expectedRevision !== null) requireStableId(record.expectedRevision, "expected file revision");
-        requireSafeInteger(record.byteLength, "file byte length", 0, sandboxProtocolMaximums.fileChunkBytes);
-        if (base64ByteLength(record.dataBase64, "file data", sandboxProtocolMaximums.fileChunkBytes) !== record.byteLength) throw new ContractError("INVALID_PROVIDER_VALUE", "File byte length does not match its canonical base64 data");
-      } else if (operation === "files.remove") requireStableId(record.expectedRevision, "expected file revision");
-    } else if (operation === "files.stat") validateFileStat(record.file as Record<string, unknown>, true);
-    else if (operation === "files.list") {
-      requireStableId(record.directoryRevision, "directory revision");
-      const entries = record.entries as Record<string, unknown>[];
-      if (entries.length > sandboxProtocolMaximums.listItems) throw new ContractError("INVALID_PROVIDER_VALUE", "File list result exceeds its absolute limit");
-      for (const entry of entries) validateFileStat(entry);
-      if (new Set(entries.map(entry => entry.path)).size !== entries.length) throw new ContractError("INVALID_PROVIDER_VALUE", "File list contains duplicate paths");
-      const cursor = record.nextCursor as Record<string, unknown> | undefined;
+  }
+}
+
+function validateSandboxFileValue(operation: SandboxProtocolOperation, direction: SandboxProviderSchemaDirection, record: Record<string, unknown>): void {
+  if (direction === "input") {
+    requireSandboxPath(record.path, "file path", operation === "files.list" || operation === "files.stat");
+    if (operation === "files.list") {
+      requireSafeInteger(record.limit, "file list limit", 1, sandboxProtocolMaximums.listItems);
+      const cursor = record.cursor as Record<string, unknown> | undefined;
       if (cursor) { requireStableId(cursor.sandboxId, "file cursor sandboxId"); requireStableId(cursor.directoryRevision, "file cursor revision"); requireSandboxBasename(cursor.afterName, "file cursor name"); }
     } else if (operation === "files.readRange") {
-      requireSandboxPath(record.path, "file path");
       requireStableId(record.revision, "file revision");
       requireSafeInteger(record.offsetBytes, "file range offset");
+      requireSafeInteger(record.lengthBytes, "file range length", 1, sandboxProtocolMaximums.fileChunkBytes);
+    } else if (operation === "files.writeAtomic") {
+      if (record.expectedRevision !== null) requireStableId(record.expectedRevision, "expected file revision");
       requireSafeInteger(record.byteLength, "file byte length", 0, sandboxProtocolMaximums.fileChunkBytes);
       if (base64ByteLength(record.dataBase64, "file data", sandboxProtocolMaximums.fileChunkBytes) !== record.byteLength) throw new ContractError("INVALID_PROVIDER_VALUE", "File byte length does not match its canonical base64 data");
-    } else if (operation === "files.writeAtomic") {
-      requireSandboxPath(record.path, "file path"); requireStableId(record.revision, "file revision"); requireSafeInteger(record.sizeBytes, "file size");
-    }
-  } else if (operation.startsWith("processes.")) {
-    if (operation === "processes.start") {
-      if (direction === "input") {
-        const argv = record.argv as string[];
-        if (argv.length === 0 || argv.length > sandboxProtocolMaximums.argvEntries || argv.some(argument => typeof argument !== "string" || argument.includes("\0") || utf8Encoder.encode(argument).byteLength === 0 || utf8Encoder.encode(argument).byteLength > sandboxProtocolMaximums.argumentBytes) || argv.reduce((bytes, argument) => bytes + utf8Encoder.encode(argument).byteLength, 0) > sandboxProtocolMaximums.environmentBytes) throw new ContractError("INVALID_PROVIDER_VALUE", "Process argv exceeds its bounds");
-        requireSandboxPath(record.cwd, "process cwd", true);
-        requireStableId(record.user, "process user");
-        const env = record.env as Array<Record<string, unknown>>;
-        if (env.length > sandboxProtocolMaximums.environmentEntries || new Set(env.map(entry => entry.name)).size !== env.length || env.some(entry => typeof entry.name !== "string" || !environmentNamePattern.test(entry.name) || typeof entry.value !== "string" || entry.value.includes("\0") || utf8Encoder.encode(entry.value).byteLength > sandboxProtocolMaximums.argumentBytes) || env.reduce((bytes, entry) => bytes + utf8Encoder.encode(String(entry.name)).byteLength + utf8Encoder.encode(String(entry.value)).byteLength, 0) > sandboxProtocolMaximums.environmentBytes) throw new ContractError("INVALID_PROVIDER_VALUE", "Process environment exceeds its bounds");
-        requireSafeInteger(record.processDeadlineMs, "process deadline", 1, 8_640_000_000_000_000);
-        const executionWindow = Number(record.processDeadlineMs) - Number(record.rpcDeadlineMs);
-        if (executionWindow < 0 || executionWindow > sandboxProtocolMaximums.processDeadlineMs) throw new ContractError("INVALID_PROVIDER_VALUE", "Process deadline exceeds the allowed execution window");
-      } else { requireStableId(record.processId, "processId"); requireStableId(record.bootId, "bootId"); requireUtcTimestamp(record.startedAt, "process startedAt"); }
-    } else if (operation === "processes.inspect") {
-      if (direction === "input") { requireStableId(record.processId, "processId"); requireStableId(record.bootId, "bootId"); }
-      else {
-        const process = record.process as Record<string, unknown>;
-        for (const field of ["processId", "sandboxId", "bootId"] as const) requireStableId(process[field], `process ${field}`);
-        requireUtcTimestamp(process.startedAt, "process startedAt");
-        if (process.finishedAt !== null) requireUtcTimestamp(process.finishedAt, "process finishedAt");
-        if (process.exitCode !== null) requireSafeInteger(process.exitCode, "process exit code", 0, 255);
-        if (process.signal !== null && (typeof process.signal !== "string" || !/^SIG[A-Z0-9]{1,16}$/.test(process.signal))) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid process signal");
-        const terminal = ["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(String(process.state));
-        if (terminal !== (process.finishedAt !== null) || (!terminal && (process.exitCode !== null || process.signal !== null))) throw new ContractError("INVALID_PROVIDER_VALUE", "Process terminal fields do not match its state");
-      }
-    } else if (operation === "processes.readOutput") {
-      if (direction === "input") {
-        requireStableId(record.processId, "processId"); requireStableId(record.bootId, "bootId"); requireSafeInteger(record.maxBytes, "process output bound", 1, sandboxProtocolMaximums.processOutputBytes);
-        const cursor = record.cursor as Record<string, unknown>;
-        for (const field of ["sandboxId", "processId", "bootId"] as const) requireStableId(cursor[field], `output cursor ${field}`);
-        requireSafeInteger(cursor.offsetBytes, "output cursor offset");
-      } else {
-        const chunks = record.chunks as Array<Record<string, unknown>>;
-        if (chunks.length > sandboxProtocolMaximums.processOutputChunks) throw new ContractError("INVALID_PROVIDER_VALUE", "Process output has too many chunks");
-        let total = 0;
-        for (const chunk of chunks) { requireSafeInteger(chunk.offsetBytes, "output chunk offset"); requireSafeInteger(chunk.byteLength, "output chunk length", 0, sandboxProtocolMaximums.processOutputBytes); const actual = base64ByteLength(chunk.dataBase64, "process output", sandboxProtocolMaximums.processOutputBytes); if (actual !== chunk.byteLength) throw new ContractError("INVALID_PROVIDER_VALUE", "Output byte length does not match its canonical base64 data"); total += actual; }
-        if (total > sandboxProtocolMaximums.processOutputBytes) throw new ContractError("INVALID_PROVIDER_VALUE", "Process output exceeds its absolute bound");
-        const cursor = record.nextCursor as Record<string, unknown>;
-        for (const field of ["sandboxId", "processId", "bootId"] as const) requireStableId(cursor[field], `output cursor ${field}`);
-        requireSafeInteger(cursor.offsetBytes, "output cursor offset");
-        const gap = record.gap as Record<string, unknown> | undefined;
-        if (gap) { requireSafeInteger(gap.fromOffsetBytes, "output gap start"); requireSafeInteger(gap.toOffsetBytes, "output gap end", Number(gap.fromOffsetBytes) + 1); }
-      }
-    } else if (direction === "input") { requireStableId(record.processId, "processId"); requireStableId(record.bootId, "bootId"); }
-  } else if (operation.startsWith("endpoints.")) {
-    if (operation === "endpoints.open") {
-      if (direction === "input") {
-        requireSafeInteger(record.port, "endpoint port", 1, 65_535);
-        requireUtcTimestamp(record.expiresAt, "endpoint expiry");
-        const lifetime = Date.parse(String(record.expiresAt)) - Number(record.rpcDeadlineMs);
-        if (lifetime <= 0 || lifetime > 24 * 60 * 60 * 1_000) throw new ContractError("INVALID_PROVIDER_VALUE", "Endpoint expiry must be after the RPC deadline and within 24 hours");
-      }
-      else {
-        requireStableId(record.endpointId, "endpointId"); requireUtcTimestamp(record.expiresAt, "endpoint expiry");
-        try {
-          if (typeof record.url !== "string" || utf8Encoder.encode(record.url).byteLength > sandboxProtocolMaximums.endpointUrlBytes) throw new Error();
-          const endpoint = new URL(record.url);
-          if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password) throw new Error();
-        } catch { throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox endpoint URL must be bounded HTTPS without embedded credentials"); }
-      }
-    } else if (direction === "input") requireStableId(record.endpointId, "endpointId");
+    } else if (operation === "files.remove") requireStableId(record.expectedRevision, "expected file revision");
+  } else if (operation === "files.stat") validateFileStat(record.file as Record<string, unknown>, true);
+  else if (operation === "files.list") {
+    requireStableId(record.directoryRevision, "directory revision");
+    const entries = record.entries as Record<string, unknown>[];
+    if (entries.length > sandboxProtocolMaximums.listItems) throw new ContractError("INVALID_PROVIDER_VALUE", "File list result exceeds its absolute limit");
+    for (const entry of entries) validateFileStat(entry);
+    if (new Set(entries.map(entry => entry.path)).size !== entries.length) throw new ContractError("INVALID_PROVIDER_VALUE", "File list contains duplicate paths");
+    const cursor = record.nextCursor as Record<string, unknown> | undefined;
+    if (cursor) { requireStableId(cursor.sandboxId, "file cursor sandboxId"); requireStableId(cursor.directoryRevision, "file cursor revision"); requireSandboxBasename(cursor.afterName, "file cursor name"); }
+  } else if (operation === "files.readRange") {
+    requireSandboxPath(record.path, "file path");
+    requireStableId(record.revision, "file revision");
+    requireSafeInteger(record.offsetBytes, "file range offset");
+    requireSafeInteger(record.byteLength, "file byte length", 0, sandboxProtocolMaximums.fileChunkBytes);
+    if (base64ByteLength(record.dataBase64, "file data", sandboxProtocolMaximums.fileChunkBytes) !== record.byteLength) throw new ContractError("INVALID_PROVIDER_VALUE", "File byte length does not match its canonical base64 data");
+  } else if (operation === "files.writeAtomic") {
+    requireSandboxPath(record.path, "file path"); requireStableId(record.revision, "file revision"); requireSafeInteger(record.sizeBytes, "file size");
   }
+}
+
+function validateSandboxProcessArgv(argv: string[]): void {
+  if (argv.length === 0 || argv.length > sandboxProtocolMaximums.argvEntries || argv.some(argument => typeof argument !== "string" || argument.includes("\0") || utf8Encoder.encode(argument).byteLength === 0 || utf8Encoder.encode(argument).byteLength > sandboxProtocolMaximums.argumentBytes) || argv.reduce((bytes, argument) => bytes + utf8Encoder.encode(argument).byteLength, 0) > sandboxProtocolMaximums.environmentBytes) throw new ContractError("INVALID_PROVIDER_VALUE", "Process argv exceeds its bounds");
+}
+
+function validateSandboxProcessEnvironment(env: Array<Record<string, unknown>>): void {
+  if (env.length > sandboxProtocolMaximums.environmentEntries || new Set(env.map(entry => entry.name)).size !== env.length || env.some(entry => typeof entry.name !== "string" || !environmentNamePattern.test(entry.name) || typeof entry.value !== "string" || entry.value.includes("\0") || utf8Encoder.encode(entry.value).byteLength > sandboxProtocolMaximums.argumentBytes) || env.reduce((bytes, entry) => bytes + utf8Encoder.encode(String(entry.name)).byteLength + utf8Encoder.encode(String(entry.value)).byteLength, 0) > sandboxProtocolMaximums.environmentBytes) throw new ContractError("INVALID_PROVIDER_VALUE", "Process environment exceeds its bounds");
+}
+
+function validateSandboxProcessValue(operation: SandboxProtocolOperation, direction: SandboxProviderSchemaDirection, record: Record<string, unknown>): void {
+  if (operation === "processes.start") {
+    if (direction === "input") {
+      validateSandboxProcessArgv(record.argv as string[]);
+      requireSandboxPath(record.cwd, "process cwd", true);
+      requireStableId(record.user, "process user");
+      validateSandboxProcessEnvironment(record.env as Array<Record<string, unknown>>);
+      requireSafeInteger(record.processDeadlineMs, "process deadline", 1, 8_640_000_000_000_000);
+      const executionWindow = Number(record.processDeadlineMs) - Number(record.rpcDeadlineMs);
+      if (executionWindow < 0 || executionWindow > sandboxProtocolMaximums.processDeadlineMs) throw new ContractError("INVALID_PROVIDER_VALUE", "Process deadline exceeds the allowed execution window");
+    } else { requireStableId(record.processId, "processId"); requireStableId(record.bootId, "bootId"); requireUtcTimestamp(record.startedAt, "process startedAt"); }
+  } else if (operation === "processes.inspect") {
+    if (direction === "input") { requireStableId(record.processId, "processId"); requireStableId(record.bootId, "bootId"); }
+    else {
+      const process = record.process as Record<string, unknown>;
+      for (const field of ["processId", "sandboxId", "bootId"] as const) requireStableId(process[field], `process ${field}`);
+      requireUtcTimestamp(process.startedAt, "process startedAt");
+      if (process.finishedAt !== null) requireUtcTimestamp(process.finishedAt, "process finishedAt");
+      if (process.exitCode !== null) requireSafeInteger(process.exitCode, "process exit code", 0, 255);
+      if (process.signal !== null && (typeof process.signal !== "string" || !/^SIG[A-Z0-9]{1,16}$/.test(process.signal))) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid process signal");
+      const terminal = ["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(String(process.state));
+      if (terminal !== (process.finishedAt !== null) || (!terminal && (process.exitCode !== null || process.signal !== null))) throw new ContractError("INVALID_PROVIDER_VALUE", "Process terminal fields do not match its state");
+    }
+  } else if (operation === "processes.readOutput") {
+    if (direction === "input") {
+      requireStableId(record.processId, "processId"); requireStableId(record.bootId, "bootId"); requireSafeInteger(record.maxBytes, "process output bound", 1, sandboxProtocolMaximums.processOutputBytes);
+      const cursor = record.cursor as Record<string, unknown>;
+      for (const field of ["sandboxId", "processId", "bootId"] as const) requireStableId(cursor[field], `output cursor ${field}`);
+      requireSafeInteger(cursor.offsetBytes, "output cursor offset");
+    } else {
+      const chunks = record.chunks as Array<Record<string, unknown>>;
+      if (chunks.length > sandboxProtocolMaximums.processOutputChunks) throw new ContractError("INVALID_PROVIDER_VALUE", "Process output has too many chunks");
+      let total = 0;
+      for (const chunk of chunks) { requireSafeInteger(chunk.offsetBytes, "output chunk offset"); requireSafeInteger(chunk.byteLength, "output chunk length", 0, sandboxProtocolMaximums.processOutputBytes); const actual = base64ByteLength(chunk.dataBase64, "process output", sandboxProtocolMaximums.processOutputBytes); if (actual !== chunk.byteLength) throw new ContractError("INVALID_PROVIDER_VALUE", "Output byte length does not match its canonical base64 data"); total += actual; }
+      if (total > sandboxProtocolMaximums.processOutputBytes) throw new ContractError("INVALID_PROVIDER_VALUE", "Process output exceeds its absolute bound");
+      const cursor = record.nextCursor as Record<string, unknown>;
+      for (const field of ["sandboxId", "processId", "bootId"] as const) requireStableId(cursor[field], `output cursor ${field}`);
+      requireSafeInteger(cursor.offsetBytes, "output cursor offset");
+      const gap = record.gap as Record<string, unknown> | undefined;
+      if (gap) { requireSafeInteger(gap.fromOffsetBytes, "output gap start"); requireSafeInteger(gap.toOffsetBytes, "output gap end", Number(gap.fromOffsetBytes) + 1); }
+    }
+  } else if (direction === "input") { requireStableId(record.processId, "processId"); requireStableId(record.bootId, "bootId"); }
+}
+
+function validateSandboxEndpointValue(operation: SandboxProtocolOperation, direction: SandboxProviderSchemaDirection, record: Record<string, unknown>): void {
+  if (operation === "endpoints.open") {
+    if (direction === "input") {
+      requireSafeInteger(record.port, "endpoint port", 1, 65_535);
+      requireUtcTimestamp(record.expiresAt, "endpoint expiry");
+      const lifetime = Date.parse(String(record.expiresAt)) - Number(record.rpcDeadlineMs);
+      if (lifetime <= 0 || lifetime > 24 * 60 * 60 * 1_000) throw new ContractError("INVALID_PROVIDER_VALUE", "Endpoint expiry must be after the RPC deadline and within 24 hours");
+    }
+    else {
+      requireStableId(record.endpointId, "endpointId"); requireUtcTimestamp(record.expiresAt, "endpoint expiry");
+      try {
+        if (typeof record.url !== "string" || utf8Encoder.encode(record.url).byteLength > sandboxProtocolMaximums.endpointUrlBytes) throw new Error();
+        const endpoint = new URL(record.url);
+        if (endpoint.protocol !== "https:" || endpoint.username || endpoint.password) throw new Error();
+      } catch { throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox endpoint URL must be bounded HTTPS without embedded credentials"); }
+    }
+  } else if (direction === "input") requireStableId(record.endpointId, "endpointId");
+}
+
+function validateSandboxScopedOperation(operation: SandboxProtocolOperation, direction: SandboxProviderSchemaDirection, record: Record<string, unknown>): void {
+  if (operation.startsWith("lifecycle.")) validateSandboxLifecycleValue(operation, direction, record);
+  else if (operation.startsWith("files.")) validateSandboxFileValue(operation, direction, record);
+  else if (operation.startsWith("processes.")) validateSandboxProcessValue(operation, direction, record);
+  else if (operation.startsWith("endpoints.")) validateSandboxEndpointValue(operation, direction, record);
+}
+
+function validateSandboxDescribeValue(direction: SandboxProviderSchemaDirection, record: Record<string, unknown>): void {
+  if (!sandboxIdentityPattern.test(String(record.providerId))) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid described sandbox provider identity");
+  if (direction === "result") {
+    const profiles = record.profiles as string[];
+    const presetIds = record.presetIds as string[];
+    const capabilities = record.capabilities as SandboxProviderCapability[] | undefined;
+    if (profiles.length === 0 || profiles.length > SANDBOX_PROFILES.length || new Set(profiles).size !== profiles.length || presetIds.length === 0 || presetIds.length > 32 || new Set(presetIds).size !== presetIds.length || presetIds.some(id => !sandboxIdentityPattern.test(id))) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid described sandbox profiles or presets");
+    if (capabilities !== undefined && (capabilities.length < sandboxStableCapabilities.length || capabilities.length > sandboxProviderCapabilities.length || new Set(capabilities).size !== capabilities.length || capabilities.some(capability => !sandboxProviderCapabilities.includes(capability)) || sandboxStableCapabilities.some(capability => !capabilities.includes(capability)))) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid described sandbox capabilities");
+  }
+}
+
+function validateSandboxPreflightValue(direction: SandboxProviderSchemaDirection, record: Record<string, unknown>): void {
+  if (direction === "input") {
+    for (const field of ["providerId", "presetId"] as const) if (!sandboxIdentityPattern.test(String(record[field]))) throw new ContractError("INVALID_PROVIDER_VALUE", `Invalid sandbox preflight ${field}`);
+    requireStableId(record.connectionId, "preflight connectionId");
+    for (const field of ["presetDigest", "effectiveSettingsDigest"] as const) if (!digestPattern.test(String(record[field]))) throw new ContractError("INVALID_PROVIDER_VALUE", `Invalid sandbox preflight ${field}`);
+  } else validateSandboxCompatibilityObservation(record.observation as unknown as SandboxCompatibilityObservation);
+}
+
+function validateSandboxListValue(direction: SandboxProviderSchemaDirection, record: Record<string, unknown>): void {
+  if (direction === "input") {
+    if (!sandboxIdentityPattern.test(String(record.providerId))) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid sandbox providerId");
+    requireStableId(record.connectionId, "connectionId");
+    requireSafeInteger(record.rpcDeadlineMs, "RPC deadline", 1, 8_640_000_000_000_000);
+    requireSafeInteger(record.limit, "list limit", 1, sandboxProtocolMaximums.listItems);
+    const cursor = record.cursor as Record<string, unknown> | undefined;
+    if (cursor) { requireStableId(cursor.connectionId, "list cursor connectionId"); requireStableId(cursor.afterSandboxId, "list cursor sandboxId"); }
+  } else {
+    const sandboxes = record.sandboxes as Record<string, unknown>[];
+    if (sandboxes.length > sandboxProtocolMaximums.listItems) throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox list result exceeds its absolute limit");
+    for (const sandbox of sandboxes) validateSandboxInspection(sandbox);
+    if (new Set(sandboxes.map(sandbox => sandbox.sandboxId)).size !== sandboxes.length) throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox list contains duplicate identities");
+    const cursor = record.nextCursor as Record<string, unknown> | undefined;
+    if (cursor) { requireStableId(cursor.connectionId, "list cursor connectionId"); requireStableId(cursor.afterSandboxId, "list cursor sandboxId"); }
+  }
+}
+
+function validateSandboxProtocolValue(operation: SandboxProtocolOperation, direction: SandboxProviderSchemaDirection, record: Record<string, unknown>): void {
+  if (direction === "result" && !validateProviderResultRecord(record)) {
+    if ((record.error as SandboxProviderError).code === "OUTCOME_UNKNOWN" && !sandboxMutationOperations.includes(operation)) throw new ContractError("INVALID_PROVIDER_VALUE", "Only a mutating sandbox operation can have an unknown outcome");
+    return;
+  }
+  if (operation === "describe") { validateSandboxDescribeValue(direction, record); return; }
+  if (operation === "preflight") { validateSandboxPreflightValue(direction, record); return; }
+  if (operation === "lifecycle.list") { validateSandboxListValue(direction, record); return; }
+
+  if (direction === "input") validateSandboxRequestScope(record, sandboxMutationOperations.includes(operation));
+
+  validateSandboxScopedOperation(operation, direction, record);
 
   if (direction === "result" && Object.hasOwn(record, "receipt")) validateSandboxReceipt(record.receipt as Record<string, unknown>);
 }
@@ -1176,15 +1211,7 @@ export function validateSandboxProviderMethodValue(operation: SandboxProtocolOpe
   return value;
 }
 
-export function validateSandboxProviderMethodExchange(operation: SandboxProtocolOperation, inputValue: unknown, resultValue: unknown): { input: unknown; result: unknown } {
-  const input = validateSandboxProviderMethodValue(operation, "input", inputValue) as Record<string, unknown>;
-  const result = validateSandboxProviderMethodValue(operation, "result", resultValue) as Record<string, unknown>;
-  if (operation === "describe" && input.providerId !== result.providerId) throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox describe result changed provider identity");
-  if (result.ok === false) {
-    const error = result.error as SandboxProviderError;
-    if (input.operationId !== undefined && error.operationId !== undefined && error.operationId !== input.operationId) throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox error changed operation identity");
-    return { input, result };
-  }
+function validateSandboxLifecycleExchange(operation: SandboxProtocolOperation, input: Record<string, unknown>, result: Record<string, unknown>): void {
   if (operation === "lifecycle.list") {
     const sandboxes = result.sandboxes as Array<Record<string, unknown>>;
     if (sandboxes.length > Number(input.limit)) throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox list exceeded the requested limit");
@@ -1196,7 +1223,11 @@ export function validateSandboxProviderMethodExchange(operation: SandboxProtocol
   else if (operation === "lifecycle.inspectOperation") {
     const inspected = result.operation as Record<string, unknown>;
     if (inspected.operationId !== input.operationId || inspected.sandboxId !== input.sandboxId) throw new ContractError("INVALID_PROVIDER_VALUE", "Operation inspection changed its scoped identity");
-  } else if (operation === "files.stat" && (result.file as Record<string, unknown>).path !== input.path) throw new ContractError("INVALID_PROVIDER_VALUE", "File stat changed path identity");
+  }
+}
+
+function validateSandboxFileExchange(operation: SandboxProtocolOperation, input: Record<string, unknown>, result: Record<string, unknown>): void {
+  if (operation === "files.stat" && (result.file as Record<string, unknown>).path !== input.path) throw new ContractError("INVALID_PROVIDER_VALUE", "File stat changed path identity");
   else if (operation === "files.list") {
     const entries = result.entries as Array<Record<string, unknown>>;
     if (entries.length > Number(input.limit)) throw new ContractError("INVALID_PROVIDER_VALUE", "File list exceeded the requested limit");
@@ -1208,7 +1239,10 @@ export function validateSandboxProviderMethodExchange(operation: SandboxProtocol
   } else if (operation === "files.readRange") {
     if (result.path !== input.path || result.revision !== input.revision || result.offsetBytes !== input.offsetBytes || Number(result.byteLength) > Number(input.lengthBytes)) throw new ContractError("INVALID_PROVIDER_VALUE", "File range result changed its revision-bound request");
   } else if (operation === "files.writeAtomic" && result.path !== input.path) throw new ContractError("INVALID_PROVIDER_VALUE", "Atomic write changed path identity");
-  else if (operation === "processes.start") {
+}
+
+function validateSandboxProcessExchange(operation: SandboxProtocolOperation, input: Record<string, unknown>, result: Record<string, unknown>): void {
+  if (operation === "processes.start") {
     if (result.bootId === undefined || result.processId === undefined) throw new ContractError("INVALID_PROVIDER_VALUE", "Process start omitted its stable identity");
   } else if (operation === "processes.inspect") {
     const process = result.process as Record<string, unknown>;
@@ -1232,7 +1266,30 @@ export function validateSandboxProviderMethodExchange(operation: SandboxProtocol
     if (Number(nextCursor.offsetBytes) !== expectedOffset) throw new ContractError("INVALID_PROVIDER_VALUE", "Process output cursor does not follow returned bytes");
     const total = chunks.reduce((bytes, chunk) => bytes + Number(chunk.byteLength), 0);
     if (total > Number(input.maxBytes)) throw new ContractError("INVALID_PROVIDER_VALUE", "Process output exceeded the requested byte bound");
-  } else if (operation === "endpoints.open" && result.expiresAt !== input.expiresAt) throw new ContractError("INVALID_PROVIDER_VALUE", "Endpoint result changed the approved expiry");
+  }
+}
+
+function validateSandboxEndpointExchange(operation: SandboxProtocolOperation, input: Record<string, unknown>, result: Record<string, unknown>): void {
+  if (operation === "endpoints.open" && result.expiresAt !== input.expiresAt) throw new ContractError("INVALID_PROVIDER_VALUE", "Endpoint result changed the approved expiry");
+}
+
+function validateSandboxSuccessfulExchange(operation: SandboxProtocolOperation, input: Record<string, unknown>, result: Record<string, unknown>): void {
+  if (operation.startsWith("lifecycle.")) validateSandboxLifecycleExchange(operation, input, result);
+  else if (operation.startsWith("files.")) validateSandboxFileExchange(operation, input, result);
+  else if (operation.startsWith("processes.")) validateSandboxProcessExchange(operation, input, result);
+  else if (operation.startsWith("endpoints.")) validateSandboxEndpointExchange(operation, input, result);
+}
+
+export function validateSandboxProviderMethodExchange(operation: SandboxProtocolOperation, inputValue: unknown, resultValue: unknown): { input: unknown; result: unknown } {
+  const input = validateSandboxProviderMethodValue(operation, "input", inputValue) as Record<string, unknown>;
+  const result = validateSandboxProviderMethodValue(operation, "result", resultValue) as Record<string, unknown>;
+  if (operation === "describe" && input.providerId !== result.providerId) throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox describe result changed provider identity");
+  if (result.ok === false) {
+    const error = result.error as SandboxProviderError;
+    if (input.operationId !== undefined && error.operationId !== undefined && error.operationId !== input.operationId) throw new ContractError("INVALID_PROVIDER_VALUE", "Sandbox error changed operation identity");
+    return { input, result };
+  }
+  validateSandboxSuccessfulExchange(operation, input, result);
 
   const receipt = result.receipt as Record<string, unknown> | undefined;
   const expectedKind = sandboxMutationKinds[operation as keyof typeof sandboxMutationKinds];
