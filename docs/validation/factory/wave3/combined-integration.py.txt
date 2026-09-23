@@ -126,7 +126,8 @@ with open('/tmp/ezcorp-validation-heavy.lock', 'w') as lock:
    for base in filter(None, a.patch_bases.split(',')):
     for label, script in [('new-file','scripts/check-new-file-coverage.ts'),('patch','scripts/check-patch-coverage.ts')]:
      e = env.copy(); e['BASE_REF'] = base
-     with (root / f'{P}-coverage-{label}-{base[:9]}.log').open('w') as log:
+     # a ref such as origin/main names a file: keep a SHA's 9-character prefix, spell a ref with '/' in full with '_'
+     with (root / f"{P}-coverage-{label}-{(base if '/' in base else base[:9]).replace('/', '_')}.log").open('w') as log:
       r = subprocess.run(['bun',script], cwd=repo, env=e, stdout=log, stderr=subprocess.STDOUT)
      covres['checks'].append({'name': label, 'base': base, 'exitCode': r.returncode}); print(json.dumps(covres['checks'][-1]), flush=True)
      if r.returncode: failed = True
