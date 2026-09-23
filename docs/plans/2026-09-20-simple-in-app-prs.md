@@ -1,5 +1,10 @@
 # Simple in-app pull requests from a private sandbox
 
+Update 2026-09-23: shared-App connection setup follows
+[Shared GitHub device flow](2026-09-23-shared-github-device-flow.md). Tokens stay
+on each self-hosted installation. The frozen review and publication contract
+in this plan remains unchanged.
+
 Status: implementation plan, 2026-09-22. No product code changes. Read with the [personal GitHub connection plan](2026-09-22-user-github-connections-for-prs.md).
 
 ## Decision and scope

@@ -1013,7 +1013,10 @@ same RUN so they don't bloat the runtime layer.
 ## Default extension runner
 
 For personal GitHub connection configuration, see
-[Personal GitHub](features/platform/personal-github.md#operator-setup).
+[Personal GitHub](features/platform/personal-github.md#shared-app-setup).
+The shared App uses device authorization; each self-hosted backend talks directly
+to GitHub and stores its own encrypted tokens. The public Cloudflare Worker is
+not a token relay. See [Worker deployment](../worker/github-connect/README.md).
 
 Dev and production Compose now connect to the isolated host runner by default.
 Follow [runner setup](../deploy/extension-runner/README.md) before the first app

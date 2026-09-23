@@ -82,6 +82,7 @@ services:
       # Public origin for clickable deep-links in ai-kit tool responses.
       - EZCORP_PUBLIC_URL=${EZCORP_PUBLIC_URL:-}
       # Personal GitHub App connection. Credentials remain in the app service.
+      - EZ_GITHUB_AUTH_MODE=${EZ_GITHUB_AUTH_MODE:-device}
       - EZ_GITHUB_INSTANCE_ID=${EZ_GITHUB_INSTANCE_ID:-}
       - EZ_GITHUB_APP_ID=${EZ_GITHUB_APP_ID:-}
       - EZ_GITHUB_APP_SLUG=${EZ_GITHUB_APP_SLUG:-}

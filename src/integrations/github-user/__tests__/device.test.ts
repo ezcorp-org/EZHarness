@@ -1,4 +1,4 @@
-import { afterAll, beforeEach, expect, test } from "bun:test";
+import { afterAll, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../../../__tests__/helpers/test-pglite";
 import { createUser } from "../../../db/queries/users";
@@ -17,6 +17,7 @@ let pollResult: unknown;
 let polls = 0;
 let refreshes = 0;
 let accountId = 71;
+let accountStatus = 200;
 let pollGate: Promise<void> | undefined;
 let enteredPoll: (() => void) | undefined;
 
@@ -37,7 +38,7 @@ function github(): void {
       if (pollGate) await pollGate;
       return reply(pollResult);
     }
-    if (url.endsWith("/user")) return reply({ id: accountId, login: "owner" });
+    if (url.endsWith("/user")) return reply({ id: accountId, login: "owner" }, accountStatus);
     if (url.includes("/user/installations?")) return reply({ total_count: 1, installations: [{ id: 50, app_id: 123, permissions: { contents: "write", pull_requests: "write" } }] });
     if (url.includes("/user/installations/50/repositories?")) return reply({ total_count: 1, repositories: [{ id: 42, full_name: "owner/repo", default_branch: "main", private: true }] });
     if (url.endsWith("/repos/owner/repo")) return reply({ id: 42, permissions: { pull: true, push: true } });
@@ -64,7 +65,7 @@ beforeEach(async () => {
   delete process.env.EZ_GITHUB_APP_CLIENT_SECRET;
   delete process.env.EZ_GITHUB_APP_CALLBACK_URL;
   pollResult = { error: "authorization_pending" };
-  polls = 0; refreshes = 0; accountId = 71; pollGate = undefined; enteredPoll = undefined;
+  polls = 0; refreshes = 0; accountId = 71; accountStatus = 200; pollGate = undefined; enteredPoll = undefined;
   github();
 });
 afterAll(async () => {
@@ -192,6 +193,51 @@ test("provider denial and local expiry are terminal", async () => {
   const expired = await start(a);
   await getTestDb().update(githubUserDeviceAttempts).set({ expiresAt: new Date(0) }).where(eq(githubUserDeviceAttempts.attemptId, expired.attemptId));
   expect((await pollDeviceAuthorization({ ...a, attemptId: expired.attemptId })).status).toBe("expired");
+});
+
+test("a slow exchange retains its claim through the full provider request budget", async () => {
+  const now = Date.now();
+  setSystemTime(now);
+  const gate = Promise.withResolvers<void>();
+  try {
+    const a = await principal("lease");
+    const attempt = await start(a);
+    await due(attempt.attemptId);
+    pollResult = token;
+    const entered = Promise.withResolvers<void>();
+    enteredPoll = entered.resolve;
+    pollGate = gate.promise;
+    const first = pollDeviceAuthorization({ ...a, attemptId: attempt.attemptId });
+    await entered.promise;
+    setSystemTime(now + 31_000);
+    const second = pollDeviceAuthorization({ ...a, attemptId: attempt.attemptId });
+    gate.resolve();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    expect(secondResult.status).toBe("pending");
+    expect(firstResult.status).toBe("connected");
+    expect(polls).toBe(1);
+  } finally {
+    gate.resolve();
+    setSystemTime();
+  }
+});
+
+test("account lookup failure after exchange closes the consumed device attempt", async () => {
+  for (const failure of ["http", "invalid"] as const) {
+    const a = await principal(`lookup-${failure}`);
+    const attempt = await start(a);
+    await due(attempt.attemptId);
+    pollResult = token;
+    accountStatus = failure === "http" ? 503 : 200;
+    accountId = failure === "invalid" ? 0 : 71;
+    await expect(pollDeviceAuthorization({ ...a, attemptId: attempt.attemptId })).rejects.toMatchObject({ code: "DEVICE_RESTART_REQUIRED" });
+    expect(await pollDeviceAuthorization({ ...a, attemptId: attempt.attemptId })).toEqual({ status: "cancelled" });
+    expect((await getConnectionStatus({ userId: a.userId })).status).toBe("disconnected");
+    const [row] = await getTestDb().select().from(githubUserDeviceAttempts).where(eq(githubUserDeviceAttempts.attemptId, attempt.attemptId));
+    expect(row.pollClaimToken).toBeNull();
+    expect(row.pollClaimExpiresAt).toBeNull();
+  }
+  expect(polls).toBe(2);
 });
 
 test("changed App binding cancels polling, and another GitHub account cannot replace the owner", async () => {

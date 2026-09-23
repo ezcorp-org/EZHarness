@@ -1,4 +1,10 @@
 {
+  "src/integrations/github-app-directory/worker.ts": 100,
+  "src/db/migrations/add-github-user-device-attempts.ts": 100,
+  "web/src/routes/api/github/device/_route.ts": 100,
+  "web/src/routes/api/github/device/start/+server.ts": 100,
+  "web/src/routes/api/github/device/poll/+server.ts": 100,
+  "web/src/routes/api/github/device/cancel/+server.ts": 100,
   "src/integrations/github-personal-prs/snapshot.ts": 100,
   "src/integrations/github-personal-prs/github-source.ts": 100,
   "src/integrations/github-personal-prs/review-diff.ts": 100,

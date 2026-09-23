@@ -1,5 +1,10 @@
 # Personal GitHub connections for sandbox pull requests
 
+Update 2026-09-23: the shared-App authentication and setup design is now defined
+by [Shared GitHub device flow](2026-09-23-shared-github-device-flow.md). It replaces
+the per-deployment App/callback setup below with direct device authorization.
+The owner-private sandbox and publication invariants below still apply.
+
 Status: revised execution plan, 2026-09-22. No product code changed by this document. The [in-app PR plan](2026-09-20-simple-in-app-prs.md) owns the review UI, immutable change-set format, publisher, receipts, and recovery details. This plan owns the personal credential, private sandbox, and authorization boundary.
 
 ## Outcome and v1 scope

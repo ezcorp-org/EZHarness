@@ -86,6 +86,7 @@ services:
       # in-app update banner and the periodic GitHub Releases poll.
       EZCORP_CHECK_UPDATES: "${EZCORP_CHECK_UPDATES:-true}"
       # Personal GitHub App connection; see docs/features/platform/personal-github.md.
+      EZ_GITHUB_AUTH_MODE: "${EZ_GITHUB_AUTH_MODE:-device}"
       EZ_GITHUB_INSTANCE_ID: "${EZ_GITHUB_INSTANCE_ID:-}"
       EZ_GITHUB_APP_ID: "${EZ_GITHUB_APP_ID:-}"
       EZ_GITHUB_APP_SLUG: "${EZ_GITHUB_APP_SLUG:-}"

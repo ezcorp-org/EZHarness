@@ -189,7 +189,8 @@ export async function pollDeviceAuthorization({ userId, sessionId, attemptId }: 
     if (next > now.getTime()) return { result: { status: "pending" as const, nextPollAt: new Date(next).toISOString() } };
     const claimToken = crypto.randomUUID();
     const nextPollAt = new Date(now.getTime() + attempt.intervalSeconds * 1000);
-    await tx.update(githubUserDeviceAttempts).set({ pollClaimToken: claimToken, pollClaimExpiresAt: new Date(now.getTime() + 30_000), nextPollAt }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+    // Two sequential 15-second GitHub calls plus time to persist the result.
+    await tx.update(githubUserDeviceAttempts).set({ pollClaimToken: claimToken, pollClaimExpiresAt: new Date(now.getTime() + 90_000), nextPollAt }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
     return { attempt, claimToken };
   });
   if ("result" in claimed) return claimed.result;
@@ -198,9 +199,16 @@ export async function pollDeviceAuthorization({ userId, sessionId, attemptId }: 
   const approvedPair = response.status === "connected" ? response.pair : undefined;
   let account: { id: number; login: string } | undefined;
   if (approvedPair) {
-    const user = await githubApi<{ id: number; login: string }>(approvedPair.access_token, "/user");
-    if (!Number.isSafeInteger(user.id) || user.id <= 0 || typeof user.login !== "string" || !user.login) throw new GithubUserError("INVALID_ACCOUNT", "Invalid GitHub account");
-    account = { id: user.id, login: user.login };
+    try {
+      const user = await githubApi<{ id: number; login: string }>(approvedPair.access_token, "/user");
+      if (!Number.isSafeInteger(user.id) || user.id <= 0 || typeof user.login !== "string" || !user.login) throw new GithubUserError("INVALID_ACCOUNT", "Invalid GitHub account");
+      account = { id: user.id, login: user.login };
+    } catch {
+      // The exchange consumed the code. Retrying it cannot recover this attempt.
+      await getDb().update(githubUserDeviceAttempts).set({ status: "cancelled", pollClaimToken: null, pollClaimExpiresAt: null })
+        .where(and(eq(githubUserDeviceAttempts.attemptId, attemptId), eq(githubUserDeviceAttempts.status, "pending"), eq(githubUserDeviceAttempts.pollClaimToken, claimed.claimToken)));
+      throw new GithubUserError("DEVICE_RESTART_REQUIRED", "GitHub account lookup failed. Start a new connection.");
+    }
   }
   const result = await getDb().transaction(async (tx: DbTransaction) => {
     const authority = await lockAuthority(tx, userId);
