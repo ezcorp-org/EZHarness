@@ -29,6 +29,7 @@ mock.module("$server/infrastructure/incus-feature-service", () => ({ IncusFeatur
   async start(input: Record<string, unknown>) { calls.push(`start:${input.bindingId}`); return { state: "QUEUED", reason: "capacity", operation: null }; }
   async stop(input: Record<string, unknown>) { calls.push(`stop:${input.bindingId}`); return operation; }
   async destroy(input: Record<string, unknown>) { calls.push(`destroy:${input.bindingId}`); return operation; }
+  async destroyRetired(input: Record<string, unknown>) { calls.push(`destroyRetired:${input.bindingId}:${input.idempotencyScope}:${input.idempotencyKey}`); return operation; }
   async reconcile(limit?: number) { calls.push(`reconcile:${limit}`); return { processed: 0 }; }
 } }));
 
@@ -62,6 +63,8 @@ test("feature route rejects extra authority, missing idempotency, and malformed 
     { action: "prepare", projectId: "project-a", installationId: "install-a", connectionId: "connection-a", presetId: "preset-a", qualification: { forged: true } },
     { action: "create", projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a" },
     { action: "start", projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a", idempotencyKey: "", imageFingerprint: "a".repeat(64) },
+    { action: "destroyRetired", projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a" },
+    { action: "destroyRetired", projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a", idempotencyKey: "key-a", operation: "create" },
     { action: "reconcile", limit: 1000 },
   ]) expect((await POST(event(admin, body))).status).toBe(400);
   expect(calls).toEqual([]);
@@ -91,6 +94,20 @@ test("capacity rejection is reported as conflict", async () => {
   const response = await POST(event(admin, { action: "create", projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a", idempotencyKey: "denied" }));
   expect(response.status).toBe(409);
   expect(await response.json()).toMatchObject({ state: "REJECTED", reason: "capacity" });
+});
+
+test("retired destroy is a separate admin action with exact project and idempotency scope", async () => {
+  calls.length = 0;
+  const input = { action: "destroyRetired", projectId: "project-a", bindingId: "binding-a",
+    idempotencyScope: "retired", idempotencyKey: "cleanup" };
+  expect((await POST(event({}, input))).status).toBe(401);
+  expect((await POST(event(admin, { ...input, projectId: "other" }))).status).toBe(404);
+  const response = await POST(event(admin, input));
+  expect(response.status).toBe(202);
+  expect(await response.json()).toMatchObject({ operation: { id: "operation-a" } });
+  expect(calls).toEqual(["destroyRetired:binding-a:retired:cleanup"]);
+  await POST(event(admin, { ...input, action: "destroy" }));
+  expect(calls.at(-1)).toBe("destroy:binding-a");
 });
 
 test("status and reconciliation expose only operator state", async () => {

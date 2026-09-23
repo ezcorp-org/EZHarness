@@ -9,6 +9,7 @@ import {
   type HostAuthorizedIncusMethodCaller,
   type IncusDispatchScope,
 } from "../sandboxes/incus-dispatcher";
+import { callRetiredIncusCleanup } from "./incus-retired-cleanup";
 
 /** Host-only method caller. A provider worker cannot supply this authority. */
 export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
@@ -65,10 +66,16 @@ export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
         throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
       }
     }
-    let snapshot: Awaited<ReturnType<typeof resolveActiveRelease>>;
+    let snapshot: Awaited<ReturnType<typeof resolveActiveRelease>> | null = null;
     try { snapshot = await resolveActiveRelease(scope.installationId, getReleaseRuntime()); }
-    catch { throw new IncusDispatchAuthorizationError("RELEASE_REVOKED"); }
-    if (snapshot.release.id !== scope.releaseId || snapshot.installation.generation < 1) {
+    catch { /* A retained release is checked against its persisted approval below. */ }
+    if (!snapshot || snapshot.release.id !== scope.releaseId) {
+      if (receipt.kind !== "DESTROY" || !["lifecycle.destroy", "lifecycle.inspectOperation"].includes(operation)) {
+        throw new IncusDispatchAuthorizationError("RELEASE_REVOKED");
+      }
+      return callRetiredIncusCleanup(getDb(), current, operation, input);
+    }
+    if (snapshot.installation.generation < 1) {
       throw new IncusDispatchAuthorizationError("RELEASE_CHANGED");
     }
     const runtime = getReleaseRuntime();

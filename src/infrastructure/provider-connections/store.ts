@@ -126,6 +126,37 @@ export class ProviderConnectionStore {
 
   /** Trusted host use only. Never expose this result to an extension or RPC reply. */
   async resolveForHost(scope: ProviderConnectionScope): Promise<ProviderConnectionCredentials> {
+    return this.resolveScoped(scope, null);
+  }
+
+  /** Cleanup only: the caller must also prove a retained binding and journal. */
+  async resolveRetiredForHost(scope: ProviderConnectionScope, releaseDigest: string): Promise<ProviderConnectionCredentials> {
+    if (!releaseDigest) throw new Error("Retired provider release is unavailable");
+    return this.resolveScoped(scope, releaseDigest);
+  }
+
+  /** Read the immutable release and historical approval for exact host cleanup. */
+  async loadRetiredRelease(installationId: string, releaseId: string) {
+    return this.database.transaction(transaction => this.retiredRelease(installationId, releaseId, transaction));
+  }
+
+  private async retiredRelease(installationId: string, releaseId: string,
+    transaction: Parameters<DatabaseLifecycleRepository["read"]>[1], digest?: string) {
+    const state = await this.lifecycle.read(installationId, transaction);
+    const release = state?.releases[releaseId];
+    if (!state || state.installation.id !== installationId || !release || release.id !== releaseId
+      || release.installationId !== installationId || digest && release.releaseDigest !== digest
+      || state.installation.enabled && state.installation.status === "active"
+        && state.installation.activeReleaseId === releaseId
+      || !Object.values(state.approvals).some(approval => approval.status === "consumed"
+        && approval.releaseId === releaseId && approval.releaseDigest === release.releaseDigest
+        && approval.principalId === state.installation.ownerId && approval.scope === state.installation.scope)) {
+      throw new Error("Retired provider release is unavailable");
+    }
+    return { installation: state.installation, release };
+  }
+
+  private async resolveScoped(scope: ProviderConnectionScope, retiredDigest: string | null): Promise<ProviderConnectionCredentials> {
     return this.database.transaction(async (transaction) => {
       const rows = releaseRows<Row>(await transaction.execute(sql`SELECT ${credentialColumns} FROM provider_connections
         WHERE id = ${scope.connectionId} FOR SHARE`));
@@ -134,7 +165,8 @@ export class ProviderConnectionStore {
         row.providerInstallationId !== scope.providerInstallationId || row.providerReleaseId !== scope.providerReleaseId) {
         throw new Error("Provider connection is missing, stale, or revoked");
       }
-      await this.assertActive(row.providerInstallationId, row.providerReleaseId, transaction);
+      if (retiredDigest === null) await this.assertActive(row.providerInstallationId, row.providerReleaseId, transaction);
+      else await this.retiredRelease(scope.providerInstallationId, scope.providerReleaseId, transaction, retiredDigest);
       try {
         const publicRow = metadata(row);
         return { ...publicRow, privateKeyPem: decryptWithAad(row.privateKeyCiphertext, aadFor(publicRow)) };

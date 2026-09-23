@@ -9,7 +9,7 @@ import { up as addProviderConnections } from "../../db/migrations/add-provider-c
 import { ProviderConnectionStore } from "./store";
 
 const installation = { id: "provider-installation", ownerId: "owner", scope: "global", activeReleaseId: "release-a", generation: 2, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 2 };
-const release = { id: "release-a", releaseDigest: "sha256:test" };
+const release = { id: "release-a", installationId: installation.id, releaseDigest: "sha256:test" };
 const approval = { id: "approval-a", installationId: installation.id, releaseId: release.id, releaseDigest: release.releaseDigest, principalId: "owner", scope: "global", status: "consumed", expectedGeneration: 1 };
 
 async function fixture(directory: string) {
@@ -86,6 +86,29 @@ test("provider host access follows the live approved release", async () => {
     await client.query("UPDATE extension_release_installations SET payload = $1 WHERE id = $2", [JSON.stringify({ ...installation, activeReleaseId: "release-b", generation: 3, acknowledgedGeneration: 3 }), installation.id]);
     await expect(store.resolveForHost(scope)).rejects.toThrow("not active and approved");
     await expect(store.create({ ...input, id: "new-connection" })).rejects.toThrow("not active and approved");
+    await client.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test("retired host credentials require exact approved release and current unrevoked revision", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "provider-retired-"));
+  try {
+    const { client, db } = await fixture(directory);
+    const store = new ProviderConnectionStore(db);
+    await store.create(input);
+    const scope = { connectionId: input.id, providerInstallationId: installation.id,
+      providerReleaseId: release.id, revision: 1 };
+    await client.query("UPDATE extension_release_installations SET payload = $1 WHERE id = $2",
+      [JSON.stringify({ ...installation, enabled: false, status: "disabled", generation: 3 }), installation.id]);
+    await expect(store.resolveForHost(scope)).rejects.toThrow("not active and approved");
+    expect((await store.resolveRetiredForHost(scope, release.releaseDigest)).privateKeyPem).toBe(input.privateKeyPem);
+    await expect(store.resolveRetiredForHost({ ...scope, revision: 2 }, release.releaseDigest)).rejects.toThrow();
+    await expect(store.resolveRetiredForHost({ ...scope, providerReleaseId: "other" }, release.releaseDigest)).rejects.toThrow();
+    await expect(store.resolveRetiredForHost(scope, "wrong-digest")).rejects.toThrow();
+    await store.revoke(input.id, 1);
+    await expect(store.resolveRetiredForHost(scope, release.releaseDigest)).rejects.toThrow();
     await client.close();
   } finally {
     await rm(directory, { recursive: true, force: true });

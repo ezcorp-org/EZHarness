@@ -50,6 +50,7 @@ async function fixture() {
   let providerState: "running" | "stopped" = "stopped";
   let providerGeneration = 1;
   let inspectUnavailable = false;
+  const retiredCalls: string[] = [];
   const service = new IncusFeatureService({
     db, controller, admission, activeRelease: async () => snapshot,
     connectionRevision: async () => connection.revision,
@@ -68,6 +69,12 @@ async function fixture() {
       desiredState: providerState, observedState: providerState,
       generation: providerGeneration, bootId: "boot-1", observedAt: "2026-09-22T12:00:00Z",
     } }; },
+    retiredCleanup: async (_db, binding, operation) => {
+      retiredCalls.push(operation);
+      return { ok: true, sandbox: { sandboxId: binding.id, profile: binding.profile,
+        presetId: binding.presetId, desiredState: "stopped", observedState: "stopped",
+        generation: providerGeneration, bootId: "boot-1", observedAt: "2026-09-22T12:00:00Z" } };
+    },
     now: () => Date.parse("2026-09-22T12:00:00Z"),
   });
   const configureAdmission = async () => {
@@ -81,7 +88,7 @@ async function fixture() {
   };
   return { db, service, controller, admission, dispatches, connection, setQualification: (value: boolean) => { qualificationAvailable = value; },
     setProvider: (state: "running" | "stopped", generation: number) => { providerState = state; providerGeneration = generation; },
-    setInspectUnavailable: (value: boolean) => { inspectUnavailable = value; }, configureAdmission, preset };
+    setInspectUnavailable: (value: boolean) => { inspectUnavailable = value; }, configureAdmission, preset, retiredCalls };
 }
 
 afterEach(async () => { await Promise.all(databases.splice(0).map(db => db.close())); });
@@ -156,6 +163,25 @@ test("expired qualification blocks new work but permits stop and destroy; destro
   const replay = await service.destroy(request("destroy"));
   expect(replay.id).toBe(destroyed.id);
   expect(dispatches.filter(item => item.kind === "DESTROY")).toHaveLength(1);
+});
+
+test("retired destroy journals an exact stopped guest and replays without another readback", async () => {
+  const { service, controller, admission, dispatches, preset, configureAdmission, retiredCalls } = await fixture();
+  const binding = await service.prepare({ projectId: "project", installationId: "installation",
+    connectionId: "connection", presetId: preset.id });
+  await configureAdmission();
+  const request = { bindingId: binding.id, idempotencyScope: "retired", idempotencyKey: "cleanup" };
+  await service.create({ ...request, idempotencyKey: "create" });
+  await service.reconcile();
+  const destroyed = await service.destroyRetired(request);
+  expect(destroyed.kind).toBe("DESTROY");
+  expect(dispatches.at(-1)?.payload).toEqual({ expectedGeneration: 1 });
+  expect(retiredCalls).toEqual(["lifecycle.inspect"]);
+  expect((await controller.getBinding(binding.id))?.tombstonedAt).toBeInstanceOf(Date);
+  expect((await service.destroyRetired(request)).id).toBe(destroyed.id);
+  expect(retiredCalls).toHaveLength(1);
+  await service.reconcile();
+  expect((await admission.getReservation(binding.id))?.diskState).toBe("RELEASED");
 });
 
 test("reservation settlement is bounded, fair after a bad row, and durable across polls", async () => {

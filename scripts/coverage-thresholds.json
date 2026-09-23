@@ -1,4 +1,5 @@
 {
+  "src/infrastructure/incus-retired-cleanup.ts": 100,
   "src/extensions/runner-mode.ts": 100,
   "src/extensions/trusted-local-runner.ts": 100,
   "src/extensions/trusted-local-hooks.ts": 100,

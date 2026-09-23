@@ -9,13 +9,14 @@ import type { RequestHandler } from "./$types";
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 
-type Action = "prepare" | "create" | "start" | "stop" | "destroy" | "status" | "reconcile";
+type Action = "prepare" | "create" | "start" | "stop" | "destroy" | "destroyRetired" | "status" | "reconcile";
 const fields: Record<Action, readonly string[]> = {
   prepare: ["action", "projectId", "installationId", "connectionId", "presetId"],
   create: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
   start: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
   stop: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
   destroy: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
+  destroyRetired: ["action", "projectId", "bindingId", "idempotencyScope", "idempotencyKey"],
   status: ["action", "projectId", "bindingId"],
   reconcile: ["action", "limit"],
 };
@@ -107,6 +108,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       return json(effect, { status: effect.state === "REJECTED" ? 409 : 202 });
     }
     if (action === "stop") return json({ operation: await configured.stop(mutation) }, { status: 202 });
+    if (action === "destroyRetired") return json({ operation: await configured.destroyRetired(mutation) }, { status: 202 });
     return json({ operation: await configured.destroy(mutation) }, { status: 202 });
   } catch (error) { return safeFailure(error); }
 };

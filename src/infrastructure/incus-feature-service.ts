@@ -14,6 +14,7 @@ import { SandboxAdmissionStore, type SandboxResourceVector } from "../sandboxes/
 import { SandboxController } from "../sandboxes/controller";
 import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { IncusMethodCaller } from "./incus-method-caller";
+import { callRetiredIncusCleanup } from "./incus-retired-cleanup";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
 import { digest as setupDigest } from "../../scripts/incus/model";
 
@@ -27,6 +28,7 @@ export interface IncusFeatureServiceDependencies {
   /** Must read host-produced SP01–SP08 evidence; absent evidence denies provisioning. */
   loadQualification: (scope: { installationId: string; releaseId: string; connectionId: string; presetId: string }) => Promise<LiveSandboxPresetQualification | null>;
   inspect?: (installationId: string, bindingId: string, input: Record<string, unknown>) => Promise<unknown>;
+  retiredCleanup?: typeof callRetiredIncusCleanup;
   now?: () => number;
   assertReady?: typeof assertSandboxPresetReady;
 }
@@ -83,6 +85,7 @@ export class IncusFeatureService {
   private readonly resolveConnection: NonNullable<IncusFeatureServiceDependencies["resolveConnection"]>;
   private readonly connectionRevision: NonNullable<IncusFeatureServiceDependencies["connectionRevision"]>;
   private readonly inspect: NonNullable<IncusFeatureServiceDependencies["inspect"]>;
+  private readonly retiredCleanup: typeof callRetiredIncusCleanup;
   private readonly now: () => number;
   private readonly assertReady: typeof assertSandboxPresetReady;
 
@@ -94,6 +97,7 @@ export class IncusFeatureService {
     this.resolveConnection = deps.resolveConnection ?? (scope => new ProviderConnectionStore(this.db).resolveForHost(scope));
     this.connectionRevision = deps.connectionRevision ?? (async id => (await new ProviderConnectionStore(this.db).getMetadata(id))?.revision ?? null);
     this.inspect = deps.inspect ?? inspectRelease;
+    this.retiredCleanup = deps.retiredCleanup ?? callRetiredIncusCleanup;
     this.now = deps.now ?? Date.now;
     this.assertReady = deps.assertReady ?? assertSandboxPresetReady;
   }
@@ -254,6 +258,33 @@ export class IncusFeatureService {
     await this.admission.markCleanupIntent(binding.id, binding.generation, intentId("DESTROY", request));
     const operation = await this.controller.requestAndDispatch({ ...request, kind: "DESTROY",
       generation: binding.generation, payload: { expectedGeneration } });
+    await this.settle(operation);
+    return operation;
+  }
+
+  /** Explicit host cleanup of a stopped guest after its approved release retires. */
+  async destroyRetired(request: IncusFeatureRequest): Promise<SandboxOperation> {
+    const replay = await this.existing(request, "DESTROY");
+    if (replay) return replay;
+    const binding = await this.controller.getBinding(request.bindingId);
+    if (!binding || binding.tombstonedAt || binding.resourceKey !== binding.id
+      || !binding.connectionRevision || !binding.presetId || binding.observedState !== "STOPPED") {
+      throw new Error("Retired Incus binding is unavailable");
+    }
+    const input = { providerId: "incus", connectionId: binding.connectionId,
+      sandboxId: binding.id, rpcDeadlineMs: this.now() + 30_000 };
+    const observed = validateSandboxProviderMethodExchange("lifecycle.inspect", input,
+      await this.retiredCleanup(this.db, binding, "lifecycle.inspect", input)).result as Record<string, unknown>;
+    const sandbox = observed.sandbox as Record<string, unknown> | undefined;
+    if (observed.ok !== true || !sandbox || sandbox.sandboxId !== binding.id
+      || sandbox.profile !== binding.profile || sandbox.presetId !== binding.presetId
+      || sandbox.observedState !== "stopped" || !Number.isSafeInteger(sandbox.generation)
+      || (sandbox.generation as number) < 1) {
+      throw new Error("Retired Incus sandbox generation is unavailable");
+    }
+    await this.admission.markCleanupIntent(binding.id, binding.generation, intentId("DESTROY", request));
+    const operation = await this.controller.requestAndDispatch({ ...request, kind: "DESTROY",
+      generation: binding.generation, payload: { expectedGeneration: sandbox.generation } });
     await this.settle(operation);
     return operation;
   }
