@@ -48,10 +48,10 @@
     "gate:report": "bun scripts/quality-report.ts --text"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.13",
-    "@types/bun": "1.3.14",
+    "@biomejs/biome": "2.5.14",
+    "@types/bun": "1.4.2",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^26.5.1",
+    "@types/node": "^26.6.1",
     "drizzle-kit": "^0.31.9"
   },
   "peerDependencies": {
@@ -68,7 +68,7 @@
     "@ezcorp/extension-runner": "workspace:*",
     "@ezcorp/harness-client": "workspace:*",
     "@ezcorp/sdk": "workspace:*",
-    "@huggingface/transformers": "^4.2.0",
+    "@huggingface/transformers": "^4.3.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@zxing/library": "^0.23.0",
     "drizzle-orm": "^0.45.2",

@@ -188,10 +188,10 @@ describe("installShutdownHandlers", () => {
 
 		installShutdownHandlers();
 		const firstOnCount = onSpy.mock.calls.filter(
-			([sig]) => sig === "SIGTERM" || sig === "SIGINT",
+			([sig]) => ["SIGTERM", "SIGINT"].includes(sig),
 		).length;
 		const firstOnceCount = onceSpy.mock.calls.filter(
-			([ev]) => ev === "sveltekit:shutdown",
+			([ev]) => ["sveltekit:shutdown"].includes(ev),
 		).length;
 		expect(firstOnCount).toBe(2);
 		expect(firstOnceCount).toBe(1);
@@ -199,7 +199,7 @@ describe("installShutdownHandlers", () => {
 		// Second call is a no-op (installed guard).
 		installShutdownHandlers();
 		const secondOnCount = onSpy.mock.calls.filter(
-			([sig]) => sig === "SIGTERM" || sig === "SIGINT",
+			([sig]) => ["SIGTERM", "SIGINT"].includes(sig),
 		).length;
 		expect(secondOnCount).toBe(2);
 	});
