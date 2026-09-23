@@ -47,7 +47,20 @@ export interface FactoryDatabaseStepOptions {
   readonly afterExternalResourceCreated?: (resource: "role" | "database", kind: FactoryDatabaseKind) => Promise<void>;
   /** Fault injection: runs after a rotation's ALTER ROLE and before its credential swap. Tests only. */
   readonly afterRotationAltered?: (kind: FactoryDatabaseKind) => Promise<void>;
+  /**
+   * Which pairs this step owns. An installation owns its product database; the
+   * fleet host owns the one pool database every installation's pool traffic
+   * shares. Default: both, the per-installation model.
+   */
+  readonly kinds?: readonly FactoryDatabaseKind[];
 }
+
+/**
+ * Extensions the product's boot and migrations create. pgvector is not a
+ * trusted extension, so the owner role cannot create it; the provisioner does,
+ * as the cluster administrator, before the product first connects.
+ */
+export const FACTORY_PRODUCT_EXTENSIONS = Object.freeze(["vector", "pg_trgm"] as const);
 
 /**
  * SQLSTATEs that mean "this credential may not log in here": a wrong password
@@ -82,10 +95,34 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
   constructor(private readonly options: FactoryDatabaseStepOptions) { this.admin = new SQL(options.adminUrl, { max: 2 }); }
   async close(): Promise<void> { await this.admin.close(); }
 
+  private pairs(installation: FactoryInstallationContext): readonly FactoryDatabasePair[] {
+    const kinds = this.options.kinds ?? FACTORY_DATABASE_KINDS;
+    return factoryDatabasePairs(installation).filter((pair) => kinds.includes(pair.kind));
+  }
+
+  /** Run `work` as the administrator inside one database of the cluster. */
+  private async inDatabase<Result>(database: string, work: (client: SQL) => Promise<Result>): Promise<Result> {
+    const url = new URL(this.options.adminUrl); url.pathname = `/${database}`;
+    const client = new SQL(url.toString(), { max: 1 });
+    try { return await work(client); } finally { await client.close(); }
+  }
+
+  private async ensureExtensions(pair: FactoryDatabasePair): Promise<void> {
+    if (pair.kind !== "product") return;
+    await this.inDatabase(pair.database, async (client) => { for (const extension of FACTORY_PRODUCT_EXTENSIONS) await client.unsafe(`CREATE EXTENSION IF NOT EXISTS ${quote(extension)}`); });
+  }
+
+  private async verifyExtensions(pair: FactoryDatabasePair): Promise<void> {
+    if (pair.kind !== "product") return;
+    const present = await this.inDatabase(pair.database, async (client) => (await client`SELECT extname FROM pg_extension` as { extname: string }[]).map((row) => row.extname));
+    const missing = FACTORY_PRODUCT_EXTENSIONS.filter((extension) => !present.includes(extension));
+    if (missing.length > 0) throw new FactoryProvisioningError("database_extension_missing", `The product database lacks ${missing.join(", ")}.`);
+  }
+
   async ensure(installation: FactoryInstallationContext, recorded: FactoryStepResources | undefined): Promise<FactoryStepResources> {
     const progress: Record<string, string> = { ...(recorded ?? {}) };
     const record = async (update: Record<string, string>) => { Object.assign(progress, update); await this.options.progress(installation, update); };
-    for (const pair of factoryDatabasePairs(installation)) {
+    for (const pair of this.pairs(installation)) {
       const plan = progress[`${pair.kind}Plan`] ?? randomBytes(12).toString("hex");
       if (!progress[`${pair.kind}Plan`]) await record({ [`${pair.kind}Plan`]: plan });
       const credential = await this.credential(installation, pair);
@@ -93,6 +130,7 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
       await this.ensureDatabase(installation, pair, plan, credential.password, progress, record);
       await this.admin.unsafe(`REVOKE ALL ON DATABASE ${quote(pair.database)} FROM PUBLIC`);
       await this.admin.unsafe(`GRANT CONNECT, TEMPORARY ON DATABASE ${quote(pair.database)} TO ${quote(pair.role)}`);
+      await this.ensureExtensions(pair);
       await this.login(pair, credential.password);
     }
     const resources = this.resources(installation, progress);
@@ -101,7 +139,7 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
   }
 
   async verify(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void> {
-    for (const pair of factoryDatabasePairs(installation)) {
+    for (const pair of this.pairs(installation)) {
       const plan = resources[`${pair.kind}Plan`];
       if (!plan) throw new FactoryProvisioningError("database_resource_mismatch", `The ${pair.kind} database has no recorded plan.`);
       const role = await this.roleRow(pair.role);
@@ -110,14 +148,16 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
         || !database || database.oid !== resources[`${pair.kind}DatabaseOid`] || database.owner !== pair.role || database.marker !== factoryDatabaseMarker("database", installation, pair, plan)) {
         throw new FactoryProvisioningError("database_lost", `The ${pair.kind} database or role lost its recorded provenance.`);
       }
+      await this.verifyExtensions(pair);
       await this.login(pair, (await this.credential(installation, pair)).password);
     }
     // Each credential must be refused by the OTHER pair's database: the PUBLIC
     // revoke is what makes that true, and it is the same revoke that keeps one
     // tenant out of another's. The cluster's maintenance database is the
-    // operator's to lock down and is deliberately not asserted here.
-    const [product, pool] = factoryDatabasePairs(installation);
-    if (await this.canLogin(product!.role, (await this.credential(installation, product!)).password, pool!.database) || await this.canLogin(pool!.role, (await this.credential(installation, pool!)).password, product!.database)) {
+    // operator's to lock down and is deliberately not asserted here. With one
+    // pair there is no other database of this step's to test against.
+    const [product, pool] = this.pairs(installation);
+    if (product && pool && await this.canLogin(product!.role, (await this.credential(installation, product!)).password, pool!.database) || await this.canLogin(pool!.role, (await this.credential(installation, pool!)).password, product!.database)) {
       throw new FactoryProvisioningError("database_not_isolated", "An installation credential reaches a database it does not own.");
     }
   }
@@ -127,7 +167,7 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
    * records stay until a human purges them, and nothing can connect meanwhile.
    */
   async teardown(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void> {
-    for (const pair of factoryDatabasePairs(installation)) {
+    for (const pair of this.pairs(installation)) {
       const plan = resources[`${pair.kind}Plan`];
       const role = await this.roleRow(pair.role);
       if (!role) continue;
@@ -138,11 +178,15 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
         await this.admin`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = ${pair.database} AND usename = ${pair.role}`;
       }
     }
+    // The role can no longer log in, so its password is worthless; destroy every copy anyway.
+    const directory = await openFactoryPrivateDirectory(installation.secretDirectory);
+    try { for (const pair of this.pairs(installation)) { await removeFactoryPrivateFile(directory, pair.credentialFile); await removeFactoryPrivateFile(directory, pending(pair)); } }
+    finally { await directory.close(); }
   }
 
   /** Drop both pairs for good. Only after teardown, only with this installation's markers. */
   async purge(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<void> {
-    for (const pair of factoryDatabasePairs(installation)) {
+    for (const pair of this.pairs(installation)) {
       const plan = resources[`${pair.kind}Plan`];
       const database = await this.databaseRow(pair.database);
       if (database) {
@@ -167,7 +211,7 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
    * of its own role.
    */
   async rotate(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<FactoryStepResources> {
-    for (const pair of factoryDatabasePairs(installation)) {
+    for (const pair of this.pairs(installation)) {
       const previous = (await this.credential(installation, pair)).password;
       await replaceFactoryPrivateFile(factoryPrivatePath(installation.secretDirectory, pending(pair)), `${JSON.stringify({ role: pair.role, password: randomBytes(32).toString("base64url") })}\n`);
       await this.credential(installation, pair);
@@ -274,7 +318,7 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
 
   private resources(installation: FactoryInstallationContext, progress: Readonly<Record<string, string>>): FactoryStepResources {
     const entries: Record<string, string> = {};
-    for (const pair of factoryDatabasePairs(installation)) {
+    for (const pair of this.pairs(installation)) {
       for (const field of ["Plan", "RoleOid", "DatabaseOid", "DatabasePhase"]) entries[`${pair.kind}${field}`] = progress[`${pair.kind}${field}`]!;
       entries[`${pair.kind}Role`] = pair.role;
       entries[`${pair.kind}Database`] = pair.database;

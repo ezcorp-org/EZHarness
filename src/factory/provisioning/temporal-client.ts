@@ -13,6 +13,7 @@ import { createRequire } from "node:module";
 import { resolve } from "node:path";
 import { FACTORY_TEMPORAL_CONTROL_SUBJECT, factoryTemporalToken, type FactoryTemporalAccessProbe, type FactoryTemporalAuthorityPaths, type FactoryTemporalNamespaceAdmin } from "./temporal";
 import { readFactoryPrivatePath } from "./secret-files";
+import { factoryTemporalLocalArchiveUris, factoryTemporalNamespaceArguments, factoryTemporalRegisterRequest } from "./temporal-namespace";
 import { FactoryProvisioningError } from "./steps";
 
 interface TemporalConnection {
@@ -36,7 +37,6 @@ export interface FactoryTemporalControlIdentity {
 }
 
 const GRPC = Object.freeze({ notFound: 5, alreadyExists: 6, permissionDenied: 7, unauthenticated: 16 });
-const RETENTION_SECONDS = 3 * 24 * 60 * 60;
 
 let loaded: Promise<TemporalClientModule> | undefined;
 /** Load `@temporalio/client` from the orchestrator package that owns it. */
@@ -74,7 +74,9 @@ export function factoryTemporalNamespaceAdmin(endpoint: FactoryTemporalEndpoint,
   };
   return {
     register: (namespace, ownerMarker) => session(async (connection) => {
-      try { await connection.workflowService.registerNamespace({ namespace, description: ownerMarker, workflowExecutionRetentionPeriod: { seconds: RETENTION_SECONDS } }); }
+      const archive = factoryTemporalLocalArchiveUris(namespace);
+      const request = factoryTemporalRegisterRequest(factoryTemporalNamespaceArguments(namespace, archive.history, archive.visibility), ownerMarker);
+      try { await connection.workflowService.registerNamespace({ ...request }); }
       catch (error) { if (code(error) !== GRPC.alreadyExists) throw new FactoryProvisioningError("temporal_register_failed", `Namespace ${namespace} could not be registered.`); }
     }),
     owner: (namespace) => session(async (connection) => {

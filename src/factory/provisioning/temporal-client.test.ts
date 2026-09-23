@@ -79,7 +79,11 @@ describe("factoryTemporalNamespaceAdmin", () => {
   test("register connects with the control identity and a short-lived control token, then closes", async () => {
     const fake = fakeClient();
     await factoryTemporalNamespaceAdmin(endpoint, control, authority, fake.client).register("tenant-01.fleet-a", "factory-provisioner:fleet-a:inst-1");
-    expect(fake.calls).toEqual([{ method: "register", request: { namespace: "tenant-01.fleet-a", description: "factory-provisioner:fleet-a:inst-1", workflowExecutionRetentionPeriod: { seconds: 3 * 24 * 60 * 60 } } }]);
+    expect(fake.calls).toEqual([{ method: "register", request: {
+      namespace: "tenant-01.fleet-a", description: "factory-provisioner:fleet-a:inst-1", workflowExecutionRetentionPeriod: { seconds: 30 * 24 * 60 * 60 },
+      historyArchivalState: 2, historyArchivalUri: "file:///tmp/factory-temporal-archival/history/tenant-01.fleet-a",
+      visibilityArchivalState: 2, visibilityArchivalUri: "file:///tmp/factory-temporal-archival/visibility/tenant-01.fleet-a",
+    } }]);
     expect(fake.closed()).toBe(1);
     const options = fake.connects[0] as { address: string; tls: { serverNameOverride: string; serverRootCACertificate: Buffer; clientCertPair: { crt: Buffer; key: Buffer } }; metadata: { authorization: string }; connectTimeout: number };
     expect(options.address).toBe("127.0.0.1:7233");

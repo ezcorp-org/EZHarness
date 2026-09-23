@@ -12,11 +12,14 @@
  *
  * Layout, one namespace per installation (C01's one installation per tenant):
  *
- *   - The four tenant processes share ONE pod. The product reads its pool's
- *     and orchestrator's readiness from files (`service-probes.ts`), so they
- *     must share a filesystem; an `emptyDir` is that filesystem, and it is the
- *     only thing they share. Each container mounts only its own copy of its
- *     own secrets.
+ *   - The three tenant processes share ONE pod. The product reads its
+ *     orchestrator's readiness from a file (`service-probes.ts`), so they must
+ *     share a filesystem; an `emptyDir` is that filesystem, and it is the only
+ *     thing they share. Each container mounts only its own copy of its own
+ *     secrets.
+ *   - The pool and the supervisor are the fleet host's, shared by every
+ *     installation (coordinator ruling 2026-09-22): a Deployment and a
+ *     DaemonSet in the fleet's system namespace.
  *   - Secrets arrive as Kubernetes Secrets, one per service, created FROM the
  *     provisioner's delivery directories — never written into a manifest. A
  *     Secret volume is a tree of symbolic links owned by root, which the
@@ -28,11 +31,11 @@
  *     `privileged`, and the only workload given the container runtime socket
  *     and the host identity.
  *
- * Known gap, named rather than hidden: the product reads the SUPERVISOR's
- * readiness from a file too, and a restricted namespace cannot mount the
- * hostPath the DaemonSet would write it to. The hosted profile therefore needs
- * a network readiness probe for the supervisor (`hosted-supervisor-readiness`
- * in the gate file); these manifests do not paper over it.
+ * Known gap, named rather than hidden: the product reads the shared POOL's and
+ * SUPERVISOR's readiness from files too, and a pod in a tenant namespace cannot
+ * mount a file another namespace writes. The hosted profile therefore needs a
+ * network readiness probe for both (`hosted-supervisor-readiness` in the gate
+ * file); these manifests do not paper over it.
  */
 import type { FactoryInstallationBundle } from "./deployment";
 import { FACTORY_CONTAINER_PATHS, FACTORY_CONTAINER_SERVICES } from "./deployment";
@@ -56,14 +59,12 @@ export interface FactoryKubernetesSettings {
 }
 
 const LIMITS: Readonly<Record<(typeof FACTORY_CONTAINER_SERVICES)[number], { readonly memory: string; readonly cpu: string }>> = Object.freeze({
-  pool: { memory: "384Mi", cpu: "500m" },
   gateway: { memory: "384Mi", cpu: "500m" },
   harness: { memory: "1536Mi", cpu: "1000m" },
   orchestrator: { memory: "512Mi", cpu: "500m" },
 });
 
 const COMMANDS: Readonly<Record<(typeof FACTORY_CONTAINER_SERVICES)[number], readonly string[]>> = Object.freeze({
-  pool: ["bun", "src/factory/pool/process.ts", `${FACTORY_CONTAINER_PATHS.secrets}/pool.json`],
   gateway: ["bun", "src/factory/gateway-process.ts", `${FACTORY_CONTAINER_PATHS.secrets}/gateway.json`],
   harness: ["bun", "src/factory/provisioning/secret-env.ts", `${FACTORY_CONTAINER_PATHS.secrets}/secret-env.json`, "--", "bun", "web/build/index.js"],
   orchestrator: ["node", "src/factory/orchestration-process.ts", `${FACTORY_CONTAINER_PATHS.secrets}/orchestrator.json`],
@@ -80,7 +81,7 @@ function labels(bundle: FactoryInstallationBundle): Readonly<Record<string, stri
 }
 
 /** The readiness directory a writing service owns, matching the Compose profile's per-writer mounts. */
-const readinessWriter = (service: "pool" | "orchestrator" | "gateway"): "pool" | "orchestration" => (service === "pool" ? "pool" : "orchestration");
+const ORCHESTRATION = "orchestration";
 
 const restrictedContainer = (runAsUser: number) => ({
   runAsNonRoot: true, runAsUser, runAsGroup: runAsUser, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true,
@@ -109,8 +110,8 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
     volumeMounts: [
       { name: deliveredVolume(service), mountPath: FACTORY_CONTAINER_PATHS.secrets, readOnly: true },
       // Each readiness writer mounts only its own subdirectory, so it cannot forge another's record; readers see all of it read-only.
-      service === "pool" || service === "orchestrator"
-        ? { name: "readiness", mountPath: `${FACTORY_CONTAINER_PATHS.readiness}/${readinessWriter(service)}`, subPath: readinessWriter(service) }
+      service === "orchestrator"
+        ? { name: "readiness", mountPath: `${FACTORY_CONTAINER_PATHS.readiness}/${ORCHESTRATION}`, subPath: ORCHESTRATION }
         : { name: "readiness", mountPath: FACTORY_CONTAINER_PATHS.readiness, readOnly: true },
       { name: "tmp", mountPath: "/tmp" },
       ...(service === "harness" ? [{ name: "harness-data", mountPath: FACTORY_CONTAINER_PATHS.data }] : []),
@@ -120,7 +121,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
       readinessProbe: { httpGet: { path: "/api/ready", port: bundle.ports.harness }, periodSeconds: 5, failureThreshold: 3 },
       livenessProbe: { httpGet: { path: "/api/health", port: bundle.ports.harness }, periodSeconds: 10, failureThreshold: 6, initialDelaySeconds: 30 },
     } : {
-      readinessProbe: { exec: { command: service === "gateway" ? ["bun", "src/factory/provisioning/readiness-check.ts", "--tcp", `127.0.0.1:${bundle.ports.gateway}`] : ["bun", "src/factory/provisioning/readiness-check.ts", `${FACTORY_CONTAINER_PATHS.readiness}/${readinessWriter(service)}/${readinessWriter(service)}.json`] }, periodSeconds: 5 },
+      readinessProbe: { exec: { command: service === "gateway" ? ["bun", "src/factory/provisioning/readiness-check.ts", "--tcp", `127.0.0.1:${bundle.ports.gateway}`] : ["bun", "src/factory/provisioning/readiness-check.ts", `${FACTORY_CONTAINER_PATHS.readiness}/${ORCHESTRATION}/${ORCHESTRATION}.json`] }, periodSeconds: 5 },
     }),
   }));
   const copy = FACTORY_CONTAINER_SERVICES.map((service) => `cp -L /source/${service}/* /delivered/${service}/ && chmod 0600 /delivered/${service}/*`).join(" && ");
@@ -174,21 +175,60 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
         egress: [
           { to: [{ namespaceSelector: {}, podSelector: { matchLabels: { "k8s-app": "kube-dns" } } }], ports: [{ protocol: "UDP", port: 53 }, { protocol: "TCP", port: 53 }] },
           { to: settings.egressCidrs.map((cidr) => ({ ipBlock: { cidr } })), ports: settings.egressPorts.map((port) => ({ protocol: "TCP", port })) },
-          { to: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.systemNamespace } } }], ports: [{ protocol: "TCP", port: bundle.ports.supervisor }] },
+          // The fleet host's shared pool and supervisor, in the system namespace.
+          { to: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.systemNamespace } } }], ports: [{ protocol: "TCP", port: bundle.host.ports.pool }, { protocol: "TCP", port: bundle.host.ports.supervisor }] },
         ],
       },
     },
   ]);
 }
 
-/** The fleet's system namespace: the supervisor DaemonSet and nothing tenant-scoped. */
-export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSettings, image: string): readonly FactoryKubernetesObject[] {
+/** The fleet's system namespace: the shared pool, the supervisor DaemonSet, and nothing tenant-scoped. */
+export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSettings, image: string, poolPort: number): readonly FactoryKubernetesObject[] {
   const namespace = settings.systemNamespace;
   const common = { "app.kubernetes.io/part-of": "ezcorp-factory", "ezcorp.io/fleet": settings.fleetId };
   return Object.freeze([
     { apiVersion: "v1", kind: "Namespace", metadata: { name: namespace, labels: { ...common, "pod-security.kubernetes.io/enforce": "privileged" } } },
     { apiVersion: "v1", kind: "ServiceAccount", metadata: { name: "factory-supervisor", namespace, labels: common }, automountServiceAccountToken: false },
     { apiVersion: "v1", kind: "Secret", metadata: { name: "factory-supervisor-host-identity", namespace, labels: common }, type: "Opaque" },
+    // The shared pool: restricted like any tenant workload, its delivery copied from its Secret as in an installation pod.
+    { apiVersion: "v1", kind: "Secret", metadata: { name: factoryKubernetesSecretName("pool"), namespace, labels: common }, type: "Opaque" },
+    {
+      apiVersion: "apps/v1", kind: "Deployment", metadata: { name: "factory-pool", namespace, labels: common },
+      spec: {
+        replicas: 1, strategy: { type: "Recreate" },
+        selector: { matchLabels: { "app.kubernetes.io/name": "factory-pool" } },
+        template: {
+          metadata: { labels: { ...common, "app.kubernetes.io/name": "factory-pool" } },
+          spec: {
+            automountServiceAccountToken: false, enableServiceLinks: false,
+            securityContext: { runAsNonRoot: true, runAsUser: settings.runAsUser, runAsGroup: settings.runAsUser, seccompProfile: { type: "RuntimeDefault" } },
+            initContainers: [{
+              name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: ["sh", "-ec", "umask 077 && cp -L /source/pool/* /delivered/pool/ && chmod 0600 /delivered/pool/*"],
+              securityContext: restrictedContainer(settings.runAsUser),
+              resources: { requests: { memory: "32Mi", cpu: "50m" }, limits: { memory: "64Mi", cpu: "100m" } },
+              volumeMounts: [{ name: "pool-secret-source", mountPath: "/source/pool", readOnly: true }, { name: "pool-secrets", mountPath: "/delivered/pool" }],
+            }],
+            containers: [{
+              name: "pool", image, imagePullPolicy: "IfNotPresent",
+              command: ["bun", "src/factory/pool/process.ts", `${FACTORY_CONTAINER_PATHS.secrets}/pool.json`],
+              securityContext: restrictedContainer(settings.runAsUser),
+              resources: { requests: { memory: "512Mi", cpu: "500m" }, limits: { memory: "512Mi", cpu: "1" } },
+              ports: [{ name: "pool", containerPort: poolPort }],
+              volumeMounts: [{ name: "pool-secrets", mountPath: FACTORY_CONTAINER_PATHS.secrets, readOnly: true }, { name: "readiness", mountPath: `${FACTORY_CONTAINER_PATHS.readiness}/pool` }, { name: "tmp", mountPath: "/tmp" }],
+              readinessProbe: { exec: { command: ["bun", "src/factory/provisioning/readiness-check.ts", `${FACTORY_CONTAINER_PATHS.readiness}/pool/pool.json`] }, periodSeconds: 5 },
+            }],
+            volumes: [
+              { name: "pool-secret-source", secret: { secretName: factoryKubernetesSecretName("pool"), defaultMode: 0o400 } },
+              { name: "pool-secrets", emptyDir: { medium: "Memory", sizeLimit: "4Mi" } },
+              { name: "readiness", emptyDir: { medium: "Memory", sizeLimit: "1Mi" } },
+              { name: "tmp", emptyDir: { sizeLimit: "64Mi" } },
+            ],
+          },
+        },
+      },
+    },
+    { apiVersion: "v1", kind: "Service", metadata: { name: "factory-pool", namespace, labels: common }, spec: { selector: { "app.kubernetes.io/name": "factory-pool" }, ports: [{ name: "pool", port: poolPort, targetPort: poolPort }] } },
     {
       apiVersion: "apps/v1", kind: "DaemonSet", metadata: { name: "factory-supervisor", namespace, labels: common },
       spec: {

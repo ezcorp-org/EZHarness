@@ -7,17 +7,19 @@ import { createFactoryCertificateAuthority, factorySpawnRunner, issueFactoryCert
 import type { FactoryInstallationContext } from "./installation";
 import { FactoryProvisioningError } from "./steps";
 import {
-  FACTORY_HOST_KEY_ID,
   FACTORY_MESH_FILES,
   FACTORY_MESH_OPERATOR_FILES,
   FACTORY_MESH_TOKEN_KEY_ID,
-  FACTORY_POOL_AUDIENCE,
   FACTORY_PRIVATE_SERVICE_AUDIENCE,
   ensureFactoryMesh,
   factoryMeshIdentities,
   factoryMeshToken,
+  factoryMeshTokenExpiry,
   rotateFactoryMesh,
 } from "./mesh";
+
+/** Every file the installation mesh writes to the secret directory. The pool token is the fleet host's. */
+const MESH_WRITTEN = Object.values(FACTORY_MESH_FILES).filter((name) => name !== FACTORY_MESH_FILES.harnessPoolToken);
 
 const NOW_MS = 1_800_000_000_000;
 let root: string;
@@ -54,8 +56,7 @@ function certificate(pem: string): X509Certificate { return new X509Certificate(
 describe("factoryMeshIdentities and factoryMeshToken", () => {
   test("identities are scoped by tenant, fleet, and installation", () => {
     expect(factoryMeshIdentities(installation)).toEqual({
-      harness: "harness.tenant-01", orchestrator: "orchestrator.tenant-01", supervisor: "supervisor.tenant-01",
-      hostId: "host.tenant-01.fleet-a", issuer: "factory-mesh:inst-tenant-01",
+      harness: "harness.tenant-01", orchestrator: "orchestrator.tenant-01", issuer: "factory-mesh:inst-tenant-01",
     });
   });
 
@@ -68,6 +69,14 @@ describe("factoryMeshIdentities and factoryMeshToken", () => {
     expect(decoded.claims).toMatchObject({ sub: "s", iss: "i", aud: "a", scope: ["x", "y"], iat: 10, exp: 10 + 30 * 24 * 60 * 60 });
     const other = generateKeyPairSync("rsa", { modulusLength: 2048 }).publicKey.export({ type: "spki", format: "pem" }).toString();
     expect(claimsUnder(other, token)).toBeUndefined();
+    expect(factoryMeshTokenExpiry(`${token}\n`)).toBe((10 + 30 * 24 * 60 * 60) * 1_000);
+  });
+
+  test("an expiry is read only from a token that has one", () => {
+    const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+    for (const token of ["not-a-token", `${encode({})}.${Buffer.from("{broken").toString("base64url")}.x`, `${encode({})}.${encode(null)}.x`, `${encode({})}.${encode({ exp: "soon" })}.x`]) expect(factoryMeshTokenExpiry(token)).toBeUndefined();
+    // Anything but a malformed token is a bug in the caller, and surfaces.
+    expect(() => factoryMeshTokenExpiry(undefined as unknown as string)).toThrow(TypeError);
   });
 });
 
@@ -83,7 +92,6 @@ describe("ensureFactoryMesh", () => {
       [FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, "CN=localhost"],
       [FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey, "CN=harness.tenant-01"],
       [FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey, "CN=orchestrator.tenant-01"],
-      [FACTORY_MESH_FILES.supervisorCertificate, FACTORY_MESH_FILES.supervisorKey, "CN=supervisor.tenant-01"],
     ];
     for (const [certificateFile, keyFile, subject] of expected) {
       const leaf = certificate(await text(secret(certificateFile)));
@@ -100,29 +108,22 @@ describe("ensureFactoryMesh", () => {
     expect(certificate(await text(secret(FACTORY_MESH_FILES.harnessCertificate))).keyUsage).toEqual(["1.3.6.1.5.5.7.3.2"]);
   });
 
-  test("tokens verify with the delivered public key and carry the expected audiences and scopes", async () => {
-    await ensureFactoryMesh(installation, { now: () => NOW_MS });
+  test("the orchestrator's token verifies with the delivered public key and carries its audience and scope; no pool token is minted here", async () => {
+    const state = await ensureFactoryMesh(installation, { now: () => NOW_MS });
     const publicKeyPem = await text(secret(FACTORY_MESH_FILES.tokenPublicKey));
     expect(createPublicKey(createPrivateKey(await text(operator(FACTORY_MESH_OPERATOR_FILES.tokenKey)))).export({ type: "spki", format: "pem" }).toString()).toBe(publicKeyPem);
-    const issued: Array<[string, Record<string, unknown>]> = [
-      [FACTORY_MESH_FILES.harnessPoolToken, { sub: "tenant-01", aud: FACTORY_POOL_AUDIENCE, scope: ["pool:tenant:tenant-01", "pool:grant:tenant-01:factory"] }],
-      [FACTORY_MESH_FILES.supervisorPoolToken, { sub: "supervisor.tenant-01", aud: FACTORY_POOL_AUDIENCE, scope: ["pool:supervisor:supervisor.tenant-01"] }],
-      [FACTORY_MESH_FILES.orchestratorToken, { sub: "orchestrator.tenant-01", aud: FACTORY_PRIVATE_SERVICE_AUDIENCE, scope: ["factory:orchestrate"] }],
-    ];
-    for (const [file, expected] of issued) {
-      const decoded = claimsUnder(publicKeyPem, await text(secret(file)));
-      expect(decoded?.claims).toMatchObject({ ...expected, iss: "factory-mesh:inst-tenant-01", iat: NOW_MS / 1_000 });
-    }
+    const decoded = claimsUnder(publicKeyPem, await text(secret(FACTORY_MESH_FILES.orchestratorToken)));
+    expect(decoded?.claims).toMatchObject({ sub: "orchestrator.tenant-01", aud: FACTORY_PRIVATE_SERVICE_AUDIENCE, scope: ["factory:orchestrate"], iss: "factory-mesh:inst-tenant-01", iat: NOW_MS / 1_000 });
+    expect(state.tokensExpireAtMs).toBe(NOW_MS + 30 * 24 * 60 * 60 * 1_000);
+    expect(await Bun.file(secret(FACTORY_MESH_FILES.harnessPoolToken)).exists()).toBe(false);
   });
 
-  test("delivers a host signing pair, its key id, and an attempt-token secret; the operator keeps the authority keys", async () => {
+  test("delivers an attempt-token secret and no host key; the operator keeps the authority keys", async () => {
     await ensureFactoryMesh(installation);
-    const hostKey = await text(secret(FACTORY_MESH_FILES.hostKey));
-    expect(createPublicKey(createPrivateKey(hostKey)).export({ type: "spki", format: "pem" }).toString()).toBe(await text(secret(FACTORY_MESH_FILES.hostPublicKey)));
-    expect(await text(secret(FACTORY_MESH_FILES.hostKeyId))).toBe(FACTORY_HOST_KEY_ID);
     expect(await text(secret(FACTORY_MESH_FILES.attemptTokenSecret))).toMatch(/^[a-f0-9]{64}\n$/);
     const delivered = await readdir(installation.secretDirectory);
-    expect(delivered.sort()).toEqual(Object.values(FACTORY_MESH_FILES).sort());
+    expect(delivered.sort()).toEqual([...MESH_WRITTEN].sort());
+    expect(delivered.some((name) => name.startsWith("host-"))).toBe(false);
     expect(delivered).not.toContain(FACTORY_MESH_OPERATOR_FILES.caKey);
     expect(delivered).not.toContain(FACTORY_MESH_OPERATOR_FILES.tokenKey);
     expect((await readdir(installation.operatorDirectory)).sort()).toEqual(Object.values(FACTORY_MESH_OPERATOR_FILES).sort());
@@ -144,13 +145,13 @@ describe("ensureFactoryMesh", () => {
   test("after a crash that lost one leaf, a rerun issues only that leaf under the same authority", async () => {
     await ensureFactoryMesh(installation);
     const harness = await text(secret(FACTORY_MESH_FILES.harnessCertificate));
-    await rm(secret(FACTORY_MESH_FILES.supervisorCertificate));
+    await rm(secret(FACTORY_MESH_FILES.orchestratorCertificate));
     const issued: string[] = [];
     await ensureFactoryMesh(installation, { run: async (command, args) => { issued.push(args[0]!); await factorySpawnRunner(command, args); } });
     expect(issued).toEqual(["genpkey", "req", "x509"]);
     expect(await text(secret(FACTORY_MESH_FILES.harnessCertificate))).toBe(harness);
-    const supervisor = certificate(await text(secret(FACTORY_MESH_FILES.supervisorCertificate)));
-    expect(supervisor.checkPrivateKey(createPrivateKey(await text(secret(FACTORY_MESH_FILES.supervisorKey))))).toBe(true);
+    const orchestrator = certificate(await text(secret(FACTORY_MESH_FILES.orchestratorCertificate)));
+    expect(orchestrator.checkPrivateKey(createPrivateKey(await text(secret(FACTORY_MESH_FILES.orchestratorKey))))).toBe(true);
   });
 
   test("a CA key a crash left without its certificate is replaced, and the mesh completes", async () => {
@@ -161,15 +162,6 @@ describe("ensureFactoryMesh", () => {
     const ca = certificate(await text(operator(FACTORY_MESH_OPERATOR_FILES.caCertificate)));
     expect(await text(operator(FACTORY_MESH_OPERATOR_FILES.caKey))).not.toBe(stale);
     expect(ca.checkPrivateKey(createPrivateKey(await text(operator(FACTORY_MESH_OPERATOR_FILES.caKey))))).toBe(true);
-  });
-
-  test("a host key a crash left without its public half is kept and its public half derived from it", async () => {
-    await ensureFactoryMesh(installation);
-    const hostKey = await text(secret(FACTORY_MESH_FILES.hostKey));
-    await rm(secret(FACTORY_MESH_FILES.hostPublicKey));
-    await ensureFactoryMesh(installation);
-    expect(await text(secret(FACTORY_MESH_FILES.hostKey))).toBe(hostKey);
-    expect(await text(secret(FACTORY_MESH_FILES.hostPublicKey))).toBe(createPublicKey(createPrivateKey(hostKey)).export({ type: "spki", format: "pem" }).toString());
   });
 
   test("a certificate from another authority is refused as mesh_certificate_invalid", async () => {
@@ -188,7 +180,7 @@ describe("ensureFactoryMesh", () => {
 
   test("a certificate paired with another leaf's key is refused", async () => {
     await ensureFactoryMesh(installation);
-    await writeModeFile(secret(FACTORY_MESH_FILES.harnessKey), await text(secret(FACTORY_MESH_FILES.supervisorKey)));
+    await writeModeFile(secret(FACTORY_MESH_FILES.harnessKey), await text(secret(FACTORY_MESH_FILES.orchestratorKey)));
     expect((await factoryRejection(ensureFactoryMesh(installation))).code).toBe("mesh_certificate_invalid");
   });
 
@@ -196,7 +188,7 @@ describe("ensureFactoryMesh", () => {
     await ensureFactoryMesh(installation, { now: () => NOW_MS });
     const error = await factoryRejection(ensureFactoryMesh(installation, { now: () => NOW_MS + 31 * 24 * 60 * 60 * 1_000 }));
     expect(error.code).toBe("mesh_token_expired");
-    expect(error.message).toBe("Mesh token mesh-harness-pool.token has expired; rotate the installation's deployment step.");
+    expect(error.message).toBe("Mesh token mesh-orchestrator.token has expired; rotate the installation's deployment step.");
   });
 
   test("a token that is not a JWT, or has no expiry, is refused as mesh_token_invalid", async () => {
@@ -212,13 +204,13 @@ describe("ensureFactoryMesh", () => {
 
   test("an unsafe token file is refused as unsafe, not reported as a malformed token", async () => {
     await ensureFactoryMesh(installation, { now: () => NOW_MS });
-    await chmod(secret(FACTORY_MESH_FILES.supervisorPoolToken), 0o644);
-    expect((await factoryRejection(ensureFactoryMesh(installation, { now: () => NOW_MS }))).message).toBe("Provisioner secret file mesh-supervisor-pool.token must be private and owned by this user.");
+    await chmod(secret(FACTORY_MESH_FILES.orchestratorToken), 0o644);
+    expect((await factoryRejection(ensureFactoryMesh(installation, { now: () => NOW_MS }))).message).toBe("Provisioner secret file mesh-orchestrator.token must be private and owned by this user.");
   });
 
   test("a certificate for another identity under the right authority is refused", async () => {
     await ensureFactoryMesh(installation);
-    await writeModeFile(secret(FACTORY_MESH_FILES.orchestratorCertificate), await text(secret(FACTORY_MESH_FILES.supervisorCertificate)));
+    await writeModeFile(secret(FACTORY_MESH_FILES.orchestratorCertificate), await text(secret(FACTORY_MESH_FILES.harnessCertificate)));
     expect((await factoryRejection(ensureFactoryMesh(installation))).code).toBe("mesh_certificate_invalid");
   });
 
@@ -238,7 +230,7 @@ describe("ensureFactoryMesh", () => {
     const mine = certificate(await text(operator(FACTORY_MESH_OPERATOR_FILES.caCertificate)));
     const theirs = certificate(await text(secret(FACTORY_MESH_FILES.harnessCertificate, other)));
     expect(theirs.verify(mine.publicKey)).toBe(false);
-    const token = await text(secret(FACTORY_MESH_FILES.harnessPoolToken, other));
+    const token = await text(secret(FACTORY_MESH_FILES.orchestratorToken, other));
     expect(claimsUnder(await text(secret(FACTORY_MESH_FILES.tokenPublicKey)), token)).toBeUndefined();
   });
 
@@ -264,12 +256,12 @@ describe("ensureFactoryMesh", () => {
     expect(certificate(await text(secret(FACTORY_MESH_FILES.serverCertificate))).subject).toBe("CN=localhost");
   });
 
-  for (const file of [FACTORY_MESH_FILES.hostKey, FACTORY_MESH_FILES.harnessCertificate]) {
+  for (const file of [FACTORY_MESH_FILES.attemptTokenSecret, FACTORY_MESH_FILES.harnessCertificate]) {
     test(`an unsafe existing ${file} is refused rather than trusted or replaced`, async () => {
       await ensureFactoryMesh(installation);
       const before = await text(secret(file));
       await chmod(secret(file), 0o644);
-      expect((await factoryRejection(ensureFactoryMesh(installation))).message).toBe("Private file must be owned, private, regular, and bounded.");
+      expect((await factoryRejection(ensureFactoryMesh(installation))).message).toMatch(/^(Private file must be owned, private, regular, and bounded\.|Provisioner secret file .+ must be private and owned by this user\.)$/);
       expect(await text(secret(file))).toBe(before);
     });
   }
@@ -286,19 +278,19 @@ describe("rotateFactoryMesh", () => {
     expect(created.tokensExpireAtMs).toBe(NOW_MS + 30 * 24 * 60 * 60 * 1_000);
     expect(rotated.tokensExpireAtMs).toBe(later + 30 * 24 * 60 * 60 * 1_000);
     expect(Object.isFrozen(rotated)).toBe(true);
-    for (const file of [FACTORY_MESH_FILES.harnessPoolToken, FACTORY_MESH_FILES.supervisorPoolToken, FACTORY_MESH_FILES.orchestratorToken, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey, FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey, FACTORY_MESH_FILES.supervisorCertificate, FACTORY_MESH_FILES.supervisorKey]) {
+    for (const file of [FACTORY_MESH_FILES.orchestratorToken, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey, FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey]) {
       expect(after[file]).not.toBe(before[file]);
       expect((await stat(secret(file))).mode & 0o777).toBe(0o600);
     }
-    for (const file of [FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.tokenPublicKey, FACTORY_MESH_FILES.attemptTokenSecret, FACTORY_MESH_FILES.hostKey, FACTORY_MESH_FILES.hostPublicKey, FACTORY_MESH_FILES.hostKeyId]) expect(after[file]).toBe(before[file]);
+    for (const file of [FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.tokenPublicKey, FACTORY_MESH_FILES.attemptTokenSecret]) expect(after[file]).toBe(before[file]);
     expect(await snapshot(installation.operatorDirectory)).toEqual(operatorBefore);
     const ca = certificate(await text(operator(FACTORY_MESH_OPERATOR_FILES.caCertificate)));
-    for (const [cert, key] of [[FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey], [FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey], [FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey], [FACTORY_MESH_FILES.supervisorCertificate, FACTORY_MESH_FILES.supervisorKey]] as const) {
+    for (const [cert, key] of [[FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey], [FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey], [FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey]] as const) {
       const leaf = certificate(after[cert]!);
       expect(leaf.verify(ca.publicKey)).toBe(true);
       expect(leaf.checkPrivateKey(createPrivateKey(after[key]!))).toBe(true);
     }
-    const claims = claimsUnder(after[FACTORY_MESH_FILES.tokenPublicKey]!, after[FACTORY_MESH_FILES.harnessPoolToken]!);
+    const claims = claimsUnder(after[FACTORY_MESH_FILES.tokenPublicKey]!, after[FACTORY_MESH_FILES.orchestratorToken]!);
     expect(claims?.claims.exp).toBe(Math.floor(later / 1_000) + 30 * 24 * 60 * 60);
     // The rotated mesh is what a rerun now proves, byte for byte.
     await ensureFactoryMesh(installation, { now: () => later });

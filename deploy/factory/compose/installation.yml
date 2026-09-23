@@ -9,13 +9,14 @@
 # Networking is least-privilege by construction. Every service runs in its own
 # pasta namespace and can reach exactly the host loopback ports it forwards
 # with `-T`, and nothing else on loopback: the harness reaches its database,
-# its two stores, its pool, its gateway, and its supervisor; the pool and the
-# gateway reach only the database; the orchestrator reaches only Temporal and
-# its own harness's private service. Listeners publish on 127.0.0.1 only, and
-# the ingress is the one component that fronts the harness for a browser.
+# its two stores, its gateway, and the fleet host's shared pool and supervisor;
+# the gateway reaches only the database; the orchestrator reaches only Temporal
+# and its own harness's private service. Listeners publish on 127.0.0.1 only,
+# and the ingress is the one component that fronts the harness for a browser.
 #
-# The host supervisor is NOT here: C05 places it outside every container as a
-# host systemd unit (deploy/factory/systemd/ezcorp-factory-supervisor@.service).
+# The pool and the host supervisor are the fleet host's, shared by every
+# installation (host.yml and a host systemd unit); the harness reads their
+# readiness records read-only.
 name: ${EZCORP_FACTORY_PROJECT:?rendered by the provisioner}
 
 # Each service names its own pinned image, because a fleet upgrade moves the
@@ -38,27 +39,6 @@ x-factory-service: &factory-service
     ezcorp.factory.revision: ${EZCORP_FACTORY_REVISION:?}
 
 services:
-  pool:
-    <<: *factory-service
-    image: ${EZCORP_FACTORY_POOL_IMAGE:?}
-    network_mode: ${EZCORP_FACTORY_POOL_NETWORK:?}
-    ports: ["127.0.0.1:${EZCORP_FACTORY_POOL_PORT:?}:${EZCORP_FACTORY_POOL_PORT:?}"]
-    command: ["bun", "src/factory/pool/process.ts", "/run/ezcorp/secrets/pool.json"]
-    env_file: ["${EZCORP_FACTORY_POOL_ENV:?}"]
-    volumes:
-      - { type: bind, source: "${EZCORP_FACTORY_DELIVER_POOL:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
-      # Each readiness writer mounts only its own directory, so it cannot forge another's record.
-      - { type: bind, source: "${EZCORP_FACTORY_READINESS_POOL:?}", target: /run/ezcorp/readiness/pool, bind: { create_host_path: false } }
-    healthcheck:
-      test: ["CMD", "bun", "src/factory/provisioning/readiness-check.ts", "/run/ezcorp/readiness/pool/pool.json"]
-      interval: 3s
-      timeout: 5s
-      retries: 40
-      start_period: 5s
-    mem_limit: 384m
-    cpus: 0.5
-    pids_limit: 128
-
   gateway:
     <<: *factory-service
     image: ${EZCORP_FACTORY_GATEWAY_IMAGE:?}
@@ -88,11 +68,13 @@ services:
     command: ["bun", "src/factory/provisioning/secret-env.ts", "/run/ezcorp/secrets/secret-env.json", "--", "bun", "web/build/index.js"]
     env_file: ["${EZCORP_FACTORY_HARNESS_ENV:?}"]
     depends_on:
-      pool: { condition: service_healthy }
       gateway: { condition: service_healthy }
     volumes:
       - { type: bind, source: "${EZCORP_FACTORY_DELIVER_HARNESS:?}", target: /run/ezcorp/secrets, read_only: true, bind: { create_host_path: false } }
-      - { type: bind, source: "${EZCORP_FACTORY_READINESS:?}", target: /run/ezcorp/readiness, read_only: true, bind: { create_host_path: false } }
+      # Read-only: this installation's orchestration record, and the fleet host's pool and supervisor records.
+      - { type: bind, source: "${EZCORP_FACTORY_READINESS_ORCHESTRATION:?}", target: /run/ezcorp/readiness/orchestration, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${EZCORP_FACTORY_HOST_READINESS_POOL:?}", target: /run/ezcorp/readiness/pool, read_only: true, bind: { create_host_path: false } }
+      - { type: bind, source: "${EZCORP_FACTORY_HOST_READINESS_SUPERVISOR:?}", target: /run/ezcorp/readiness/supervisor, read_only: true, bind: { create_host_path: false } }
       # A host directory owned by the installation's uid rather than a named
       # volume: a named volume is created owned by the container's root, which
       # the keep-id user cannot write. Purge removes it with the runtime root.

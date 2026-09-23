@@ -29,8 +29,12 @@ const FILES = { ordinary: "ordinary-storage.json", archive: "archive-storage.jso
 
 /** Records every claim; the step must claim each (store, bucket) before it takes a credential and again on verify. */
 const claimed: string[] = [];
-const claims: FactoryStorageClaims = { async claim(target, scope) { claimed.push(`${target.fleetId}:${scope.domain}:${scope.bucket}`); } };
-beforeEach(() => { claimed.length = 0; });
+const released: string[] = [];
+const claims: FactoryStorageClaims = {
+  async claim(target, scope) { claimed.push(`${target.fleetId}:${scope.domain}:${scope.bucket}`); },
+  async release(target, scope) { released.push(`${target.fleetId}:${scope.domain}:${scope.bucket}`); },
+};
+beforeEach(() => { claimed.length = 0; released.length = 0; });
 
 let root: string;
 let installation: FactoryInstallationContext;
@@ -473,7 +477,7 @@ describe("store claims", () => {
   test("a bucket another fleet holds is refused before any credential is taken", async () => {
     const store = new ScopedStore();
     const ordinary = new MintedIssuer(store, "ordinary");
-    const refusing: FactoryStorageClaims = { async claim() { throw new FactoryProvisioningError("storage_claimed_by_other_fleet", "held"); } };
+    const refusing: FactoryStorageClaims = { async claim() { throw new FactoryProvisioningError("storage_claimed_by_other_fleet", "held"); }, async release() { throw new Error("unused"); } };
     const step = new FactoryStorageStep({ claims: refusing, ordinary: domainConfig(ordinary, "ordinary"), archive: domainConfig(new MintedIssuer(store, "archive"), "archive"), probe: store, foreignBucket: () => "tenant-99" });
     expect((await factoryRejection(step.ensure(installation))).code).toBe("storage_claimed_by_other_fleet");
     expect(ordinary.log).toEqual([]);
@@ -507,11 +511,14 @@ describe("store claims", () => {
               statements.push(query);
               const create = /^CREATE ROLE (\w+) NOLOGIN$/.exec(query);
               if (create) staged.set(create[1]!, null);
+              const drop = /^DROP ROLE (\w+)$/.exec(query);
+              if (drop) staged.delete(drop[1]!);
               const comment = /^COMMENT ON ROLE (\w+) IS '(.*)'$/.exec(query);
               if (comment) staged.set(comment[1]!, comment[2]!);
             },
           });
           const result = await work(transaction);
+          roles.clear();
           for (const [name, marker] of staged) roles.set(name, marker);
           return result;
         },
@@ -563,5 +570,36 @@ describe("store claims", () => {
     const registry = factoryDatabaseStorageClaims("postgres://admin@127.0.0.1:1/postgres", fake.connect);
     expect((await factoryRejection(registry.claim({ ...installation, fleetId: "Bad'Fleet" }, scope))).code).toBe("storage_claim_invalid");
     expect(fake.statements).toEqual([]);
+  });
+
+  test("release drops this installation's own claim, and a rerun is a no-op", async () => {
+    const fake = cluster();
+    const registry = factoryDatabaseStorageClaims("postgres://admin@127.0.0.1:1/postgres", fake.connect);
+    await registry.claim(installation, scope);
+    const role = factoryStorageClaimRole(scope);
+    await registry.release(installation, scope);
+    expect(fake.roles.has(role)).toBe(false);
+    expect(fake.statements).toContain(`DROP ROLE ${role}`);
+    const before = fake.statements.length;
+    await registry.release(installation, scope);
+    expect(fake.statements.slice(before).some((statement) => statement.startsWith("DROP ROLE"))).toBe(false);
+    expect(fake.closed()).toBe(3);
+  });
+
+  test("release leaves another fleet's or another tenant's claim exactly as it was", async () => {
+    const role = factoryStorageClaimRole(scope);
+    for (const marker of ["factory-store-claim:other-fleet:tenant-01", `factory-store-claim:${installation.fleetId}:tenant-02`, null]) {
+      const fake = cluster(new Map([[role, marker]]));
+      await factoryDatabaseStorageClaims("postgres://admin@127.0.0.1:1/postgres", fake.connect).release(installation, scope);
+      expect(fake.roles.get(role)).toBe(marker);
+      expect(fake.statements.some((statement) => statement.startsWith("DROP ROLE"))).toBe(false);
+      expect(fake.statements[0]).toContain("pg_advisory_xact_lock");
+    }
+  });
+
+  test("purge releases the claim of both domains", async () => {
+    const { step } = mintedStep();
+    await step.purge(installation);
+    expect(released).toEqual([`${installation.fleetId}:ordinary:tenant-01`, `${installation.fleetId}:archive:tenant-01`]);
   });
 });

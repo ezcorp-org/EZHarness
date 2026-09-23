@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { createFactoryCertificateAuthority } from "../../factory/provisioning/certificates";
 import { factoryDatabasePairs } from "../../factory/provisioning/database";
 import type { FactoryDeploymentSettings } from "../../factory/provisioning/deployment";
+import { FACTORY_HOST_FILES, factoryFleetHostIdentity, factoryFleetHostPaths, type FactoryFleetHostFacts } from "../../factory/provisioning/host";
 import type { FactoryInstallationContext } from "../../factory/provisioning/installation";
 
 /**
@@ -70,6 +71,32 @@ export const FACTORY_TEST_RUNNER_PROFILES = Object.freeze({
 export const FACTORY_TEST_IMAGE = `registry.test/ezcorp@sha256:${"b".repeat(64)}`;
 
 /** Deployment settings for an installation whose runtime state lives under `runtimeRoot`. */
+/**
+ * The fleet host's facts for a test fleet whose runtime root is `runtimeRoot`:
+ * its secrets and operator directories sit beside it, under the same private
+ * root. `writeFactoryTestHostMaterial` writes the two public files a harness
+ * delivery copies from it.
+ */
+export function makeFactoryTestHostFacts(runtimeRoot: string, portBase = 40_000): FactoryFleetHostFacts {
+  const paths = factoryFleetHostPaths("fleet-a", { secretsRoot: join(dirname(runtimeRoot), "host-secrets"), operatorRoot: join(dirname(runtimeRoot), "host-operator"), runtimeRoot });
+  return Object.freeze({
+    ...factoryFleetHostIdentity("fleet-a", portBase),
+    caCertificatePath: join(paths.context.secretDirectory, FACTORY_HOST_FILES.caCertificate),
+    hostPublicKeyPath: join(paths.context.secretDirectory, FACTORY_HOST_FILES.hostPublicKey),
+    poolReadinessDirectory: join(paths.readinessDirectory, "pool"),
+    supervisorReadinessDirectory: join(paths.readinessDirectory, "supervisor"),
+  });
+}
+
+/** Write the host's authority and stop-receipt public key where `facts` names them, as private marker files. */
+export async function writeFactoryTestHostMaterial(facts: FactoryFleetHostFacts): Promise<void> {
+  const directory = dirname(facts.caCertificatePath);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await chmod(directory, 0o700);
+  await writeModeFile(facts.caCertificatePath, `marker:${FACTORY_HOST_FILES.caCertificate}\n`);
+  await writeModeFile(facts.hostPublicKeyPath, `marker:${FACTORY_HOST_FILES.hostPublicKey}\n`);
+}
+
 export function makeFactoryTestDeploymentSettings(runtimeRoot: string, overrides: Partial<FactoryDeploymentSettings> = {}): FactoryDeploymentSettings {
   return {
     network: {
@@ -82,7 +109,7 @@ export function makeFactoryTestDeploymentSettings(runtimeRoot: string, overrides
     image: { reference: FACTORY_TEST_IMAGE, revision: "c".repeat(40) },
     runtimeRoot,
     runnerProfiles: FACTORY_TEST_RUNNER_PROFILES,
-    cpuCapacity: 4,
+    host: makeFactoryTestHostFacts(runtimeRoot),
     interpreterCompatibility: "factory-interpreter-1",
     ...overrides,
   };

@@ -68,6 +68,8 @@ export interface FactoryStorageDomainConfig {
 /** Claims a (store, bucket) for one fleet, or refuses because another fleet holds it. Idempotent for the holder. */
 export interface FactoryStorageClaims {
   claim(installation: FactoryInstallationContext, scope: FactoryStorageScope): Promise<void>;
+  /** Drop this installation's claim, and only its own. Idempotent. */
+  release(installation: FactoryInstallationContext, scope: FactoryStorageScope): Promise<void>;
 }
 
 export interface FactoryStorageStepOptions {
@@ -192,6 +194,15 @@ export class FactoryStorageStep implements FactoryProvisioningDriver {
     if (unsupported.length > 0) throw new FactoryStorageRevocationUnsupported(unsupported.map((outcome) => outcome.split(":")[0] as FactoryStorageDomain));
   }
 
+  /**
+   * Purge leaves no cluster-wide object behind: the claim roles go. The store's
+   * objects stay, because removing them needs the store's own admin authority;
+   * the purge's audit-loss record names that residue.
+   */
+  async purge(installation: FactoryInstallationContext): Promise<void> {
+    for (const domain of FACTORY_STORAGE_DOMAINS) await this.options.claims.release(installation, factoryStorageScope(installation, domain, this.config(domain)));
+  }
+
   async rotate(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<FactoryStepResources> {
     for (const domain of FACTORY_STORAGE_DOMAINS) {
       const config = this.config(domain);
@@ -289,10 +300,8 @@ const connectClaims = (url: string): FactoryStorageClaimClient => new SQL(url, {
  * The claim registry on the database cluster: one NOLOGIN role per
  * (store, bucket), whose comment names the holding fleet and tenant. Roles are
  * cluster-wide, so every fleet whose databases share the cluster sees every
- * claim. A claim outlives teardown and purge on purpose: purge keeps the
- * store's objects, so the bucket still holds this fleet's data. The operator
- * releases it by dropping the role once the store's own operator has emptied
- * the bucket.
+ * claim. A claim outlives teardown, while the installation's records are kept,
+ * and is released at purge so no role of the fleet remains on the cluster.
  */
 export function factoryDatabaseStorageClaims(adminUrl: string, connect: (url: string) => FactoryStorageClaimClient = connectClaims): FactoryStorageClaims {
   return {
@@ -311,6 +320,19 @@ export function factoryDatabaseStorageClaims(adminUrl: string, connect: (url: st
           } else if (held.marker !== marker) {
             throw new FactoryProvisioningError("storage_claimed_by_other_fleet", `The ${scope.domain} store's bucket ${scope.bucket} is held by another fleet or tenant; a seeded store serves one fleet.`);
           }
+        });
+      } finally { await client.close(); }
+    },
+    async release(installation, scope) {
+      const role = factoryStorageClaimRole(scope);
+      const marker = `factory-store-claim:${installation.fleetId}:${installation.tenantId}`;
+      const client = connect(adminUrl);
+      try {
+        await client.begin(async (transaction) => {
+          await transaction`SELECT pg_advisory_xact_lock(hashtextextended(${role}::text, 0))`;
+          const [held] = await transaction`SELECT shobj_description(oid, 'pg_authid') AS marker FROM pg_roles WHERE rolname = ${role}` as { marker: string | null }[];
+          // Another fleet's claim, or none, is left exactly as it is.
+          if (held?.marker === marker) await transaction.unsafe(`DROP ROLE ${role}`);
         });
       } finally { await client.close(); }
     },

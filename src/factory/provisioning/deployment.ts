@@ -1,6 +1,7 @@
 /**
- * C12 step 5: the installation's harness, orchestration process, gateway, pool,
- * and supervisor, each given exactly the secrets it needs.
+ * C12 step 5: the installation's harness, orchestration process, and gateway,
+ * each given exactly the secrets it needs, admitted to the fleet host's shared
+ * pool and supervisor (`host.ts`).
  *
  * This module renders WHAT runs and WHAT each process receives. A deployment
  * target (`compose-profile.ts`, `kubernetes-profile.ts`) decides HOW. The split
@@ -13,26 +14,25 @@
  *
  *   - the wrapped data key and the operator master key reach the ORCHESTRATOR
  *     only, as C12 step 5 requires;
- *   - the host signing key reaches the SUPERVISOR only, which C05 makes the one
- *     holder of host identity; the product gets its public half;
- *   - the SUPERVISOR receives no tenant secret: no database credential, no
- *     application secret, no storage key, no attempt-token secret;
- *   - no service receives another installation's anything, because nothing in
- *     a delivery is shared across installations.
+ *   - the host signing key stays with the fleet host's SUPERVISOR, which C05
+ *     makes the one holder of host identity; the product gets its public half;
+ *   - the shared supervisor and pool receive no tenant secret: no database
+ *     credential, no application secret, no storage key, no attempt-token secret;
+ *   - no service receives another installation's anything: the host's shared
+ *     services hold only public trust material for each admitted installation.
  *
  * Every rendered document is parsed by the SAME parser its process runs before
  * it is written, so the provisioner cannot deliver a configuration the process
  * would refuse.
  */
 import { resolve } from "node:path";
-import { parseFactoryPoolProcessConfig } from "../pool/process";
-import { parseFactorySupervisorProcessConfig } from "../runner/supervisor-process";
 import { parseFactoryStartupConfig, type FactoryStartupRunnerProfile } from "../startup-config";
 import { factoryDatabasePairs, type FactoryDatabaseCredential } from "./database";
 import { factoryDeliveryDirectory, type FactoryInstallationContext, type FactoryProvisioningDriver, type FactoryStepResources } from "./installation";
 import { FACTORY_BOOTSTRAP_INVITATION_FILE } from "./invitation";
 import { FACTORY_INGRESS_PROOF_FILE } from "./ingress";
-import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_POOL_AUDIENCE, FACTORY_PRIVATE_SERVICE_AUDIENCE, ensureFactoryMesh, factoryMeshIdentities, rotateFactoryMesh } from "./mesh";
+import { FACTORY_HOST_FILES, type FactoryFleetHost, type FactoryFleetHostFacts } from "./host";
+import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_PRIVATE_SERVICE_AUDIENCE, ensureFactoryMesh, factoryMeshIdentities, rotateFactoryMesh } from "./mesh";
 import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES, factoryMasterKeyId } from "./secrets";
 import { factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateBytes, readFactoryPrivateJson, removeFactoryPrivateDirectory, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { readdir } from "node:fs/promises";
@@ -40,8 +40,8 @@ import { FactoryProvisioningError } from "./steps";
 import { factoryTemporalOwnerMarker } from "./temporal";
 import type { FactoryInstallationBuilds } from "./fleet-upgrade";
 
-export const FACTORY_CONTAINER_SERVICES = ["pool", "gateway", "harness", "orchestrator"] as const;
-export const FACTORY_DEPLOYED_SERVICES = [...FACTORY_CONTAINER_SERVICES, "supervisor"] as const;
+export const FACTORY_CONTAINER_SERVICES = ["gateway", "harness", "orchestrator"] as const;
+export const FACTORY_DEPLOYED_SERVICES = FACTORY_CONTAINER_SERVICES;
 export type FactoryDeployedService = typeof FACTORY_DEPLOYED_SERVICES[number];
 
 /** Where things live INSIDE a container. The host supervisor uses host paths instead. */
@@ -56,8 +56,6 @@ export interface FactoryInstallationPorts {
   readonly harness: number;
   readonly privateService: number;
   readonly gateway: number;
-  readonly pool: number;
-  readonly supervisor: number;
 }
 
 /** How services reach the fleet's shared infrastructure, as seen from inside a service. */
@@ -87,8 +85,8 @@ export interface FactoryDeploymentSettings {
   readonly runtimeRoot: string;
   /** The runner profiles this installation declares: a deployment fact, not a definition fact. */
   readonly runnerProfiles: { readonly brokerAudience: string; readonly profiles: readonly FactoryStartupRunnerProfile[] };
-  /** CPU slots this installation's pool offers. */
-  readonly cpuCapacity: number;
+  /** The fleet host's shared pool and supervisor, as every installation names them. */
+  readonly host: FactoryFleetHostFacts;
   readonly interpreterCompatibility: string;
   /**
    * The builds this installation currently runs, per component, once a fleet
@@ -97,14 +95,11 @@ export interface FactoryDeploymentSettings {
   readonly builds?: (installation: FactoryInstallationContext) => Promise<FactoryInstallationBuilds | undefined>;
 }
 
-/** The image each container service runs, and the release the host supervisor runs. */
+/** The image each of the installation's container services runs. */
 export interface FactoryServiceImages {
-  readonly pool: string;
   readonly gateway: string;
   readonly harness: string;
   readonly orchestrator: string;
-  /** The host checkout the supervisor unit runs; absent means the fleet's default release. */
-  readonly supervisorRelease?: string;
 }
 
 export interface FactoryServiceDelivery {
@@ -120,13 +115,13 @@ export interface FactoryServiceDelivery {
 export interface FactoryDeploymentHandle {
   readonly installation: FactoryInstallationContext;
   readonly runtimeDirectory: string;
+  /** The installation's own readiness writers; the pool's and the supervisor's records are the host's. */
   readonly readinessDirectory: string;
-  readonly runnerRoot: string;
 }
 
 export function factoryDeploymentHandle(installation: FactoryInstallationContext, runtimeRoot: string): FactoryDeploymentHandle {
   const runtimeDirectory = resolve(runtimeRoot, installation.tenantId);
-  return Object.freeze({ installation, runtimeDirectory, readinessDirectory: resolve(runtimeDirectory, "readiness"), runnerRoot: resolve(runtimeDirectory, "runner") });
+  return Object.freeze({ installation, runtimeDirectory, readinessDirectory: resolve(runtimeDirectory, "readiness") });
 }
 
 export interface FactoryInstallationBundle extends FactoryDeploymentHandle {
@@ -134,10 +129,9 @@ export interface FactoryInstallationBundle extends FactoryDeploymentHandle {
   readonly ports: FactoryInstallationPorts;
   readonly image: FactoryDeploymentImage;
   readonly images: FactoryServiceImages;
-  readonly hostId: string;
+  readonly host: FactoryFleetHostFacts;
   readonly runtimeDirectory: string;
   readonly readinessDirectory: string;
-  readonly runnerRoot: string;
   /** The harness's writable data directory, owned by the installation's uid. */
   readonly dataDirectory: string;
   readonly deliveries: Readonly<Record<FactoryDeployedService, FactoryServiceDelivery>>;
@@ -163,7 +157,7 @@ export function factoryInstallationPorts(tenantId: string, portBase: number): Fa
   const match = TENANT_NUMBER.exec(tenantId);
   if (!match || !Number.isSafeInteger(portBase) || portBase < 1_024 || portBase + 100 * 10 > 65_535) throw new FactoryProvisioningError("deployment_ports_invalid", "Installation ports cannot be derived.");
   const base = portBase + Number(match[1]) * 10;
-  return Object.freeze({ harness: base, privateService: base + 1, gateway: base + 2, pool: base + 3, supervisor: base + 4 });
+  return Object.freeze({ harness: base, privateService: base + 1, gateway: base + 2 });
 }
 
 function databaseUrl(network: FactoryDeploymentNetwork, database: string, credential: FactoryDatabaseCredential): string {
@@ -180,32 +174,32 @@ const readinessPath = (writer: "pool" | "orchestration" | "supervisor") => `${FA
 /**
  * Render the whole installation: documents, deliveries, environment.
  *
- * Pure apart from reading the two database credentials, which it needs to
- * build the URLs the pool and the harness connect with.
+ * Pure apart from reading the product database credential, which it needs to
+ * build the URL the harness and the gateway connect with.
  */
 export async function renderFactoryInstallationBundle(installation: FactoryInstallationContext, settings: FactoryDeploymentSettings): Promise<FactoryInstallationBundle> {
   if (!/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(settings.image.reference)) throw new FactoryProvisioningError("deployment_image_unpinned", "The deployment image must be pinned by digest.");
   const ports = factoryInstallationPorts(installation.tenantId, settings.network.portBase);
   const identities = factoryMeshIdentities(installation);
-  const { runtimeDirectory, readinessDirectory, runnerRoot } = factoryDeploymentHandle(installation, settings.runtimeRoot);
+  const { runtimeDirectory, readinessDirectory } = factoryDeploymentHandle(installation, settings.runtimeRoot);
+  const host = settings.host;
   const dataDirectory = resolve(runtimeDirectory, "harness-data");
   const source = (name: string) => ({ source: factoryPrivatePath(installation.secretDirectory, name) });
-  const [productPair, poolPair] = factoryDatabasePairs(installation);
+  const [productPair] = factoryDatabasePairs(installation);
   const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
-  let productCredential: FactoryDatabaseCredential, poolCredential: FactoryDatabaseCredential;
-  try {
-    productCredential = await readFactoryPrivateJson<FactoryDatabaseCredential>(secrets, productPair!.credentialFile);
-    poolCredential = await readFactoryPrivateJson<FactoryDatabaseCredential>(secrets, poolPair!.credentialFile);
-  } finally { await secrets.close(); }
+  let productCredential: FactoryDatabaseCredential;
+  try { productCredential = await readFactoryPrivateJson<FactoryDatabaseCredential>(secrets, productPair!.credentialFile); }
+  finally { await secrets.close(); }
   const clientTls = (certificate: string, key: string) => ({ caPath: secretPath(FACTORY_MESH_FILES.caCertificate), certificatePath: secretPath(certificate), privateKeyPath: secretPath(key) });
   const serverTls = clientTls(FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey);
   const harnessTls = clientTls(FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey);
-  const poolId = `pool.${installation.tenantId}`;
+  // The shared pool and supervisor present the host's server certificate; the harness trusts the host authority for them alone.
+  const hostTls = { ...harnessTls, caPath: secretPath(FACTORY_HOST_FILES.caCertificate) };
   const masterKeyId = factoryMasterKeyId(installation);
 
   const startup = parseFactoryStartupConfig({
     schemaVersion: "factory.startup.v1",
-    installationId: installation.installationId, tenantId: installation.tenantId, poolId, hostId: identities.hostId,
+    installationId: installation.installationId, tenantId: installation.tenantId, poolId: host.poolId, hostId: host.hostId,
     temporalNamespace: installation.temporalNamespace,
     orphanSweepIntervalMs: 30_000,
     orchestrationReadinessFilePath: readinessPath("orchestration"),
@@ -218,13 +212,13 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       hostname: "0.0.0.0", port: ports.privateService, certificateIdentity: identities.orchestrator, tls: serverTls,
       tokens: { issuer: identities.issuer, audience: FACTORY_PRIVATE_SERVICE_AUDIENCE, publicKeyPaths: { [FACTORY_MESH_TOKEN_KEY_ID]: secretPath(FACTORY_MESH_FILES.tokenPublicKey) } },
     },
-    pool: { baseUrl: `https://127.0.0.1:${ports.pool}`, serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken), tls: harnessTls },
+    pool: { baseUrl: `https://127.0.0.1:${host.ports.pool}`, serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken), tls: hostTls },
     hostLaunch: {
-      baseUrl: `https://127.0.0.1:${ports.supervisor}`, serverName: "localhost",
+      baseUrl: `https://127.0.0.1:${host.ports.supervisor}`, serverName: "localhost",
       attemptTokenSecretPath: secretPath(FACTORY_MESH_FILES.attemptTokenSecret),
-      tls: { ...harnessTls, serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken) },
+      tls: { ...hostTls, serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken) },
     },
-    hostStopKeys: [{ hostId: identities.hostId, hostKeyId: FACTORY_HOST_KEY_ID, publicKeyPath: secretPath(FACTORY_MESH_FILES.hostPublicKey) }],
+    hostStopKeys: [{ hostId: host.hostId, hostKeyId: FACTORY_HOST_KEY_ID, publicKeyPath: secretPath(FACTORY_HOST_FILES.hostPublicKey) }],
     runnerProfiles: settings.runnerProfiles,
     storage: {
       ordinary: { endpoint: settings.network.ordinaryEndpoint, bucket: installation.tenantId, prefix: "ordinary", credentialSet: "ordinary", credentialsPath: secretPath("ordinary-storage.json") },
@@ -252,40 +246,6 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     readinessFilePath: readinessPath("orchestration"), readinessHeartbeatMs: 5_000,
   };
 
-  const pool = parseFactoryPoolProcessConfig({
-    schemaVersion: "factory.pool-process.v1", installationId: installation.installationId, poolId,
-    hostname: "0.0.0.0", port: ports.pool,
-    database: { credentialsPath: secretPath("pool-database.json"), expectedDatabase: poolPair!.database, expectedRole: poolPair!.role },
-    tls: { privateKeyPath: serverTls.privateKeyPath, certificatePath: serverTls.certificatePath, caPath: serverTls.caPath },
-    tokens: { issuer: identities.issuer, audience: FACTORY_POOL_AUDIENCE, publicKeyPaths: { [FACTORY_MESH_TOKEN_KEY_ID]: secretPath(FACTORY_MESH_FILES.tokenPublicKey) } },
-    identities: {
-      tenants: { [identities.harness]: { tenantId: installation.tenantId, tokenSubject: installation.tenantId } },
-      supervisors: { [identities.supervisor]: { supervisorId: identities.supervisor, tokenSubject: identities.supervisor, hostIds: [identities.hostId] } },
-    },
-    resources: { capacities: { cpu: settings.cpuCapacity }, gpuHosts: [], hosts: [identities.hostId] },
-    // Heartbeats sized for ten installations on one host: each supervisor beat
-    // probes the container runtime, and the product tolerates a record up to
-    // several of its own 5 s heartbeats old.
-    readinessFilePath: readinessPath("pool"), readinessHeartbeatMs: 4_000,
-  });
-
-  const supervisorDirectory = factoryDeliveryDirectory(installation, "supervisor");
-  const hostSecret = (name: string) => resolve(supervisorDirectory, name);
-  const supervisor = parseFactorySupervisorProcessConfig({
-    schemaVersion: "factory.supervisor-process.v1", installationId: installation.installationId, hostId: identities.hostId,
-    hostKeyPath: hostSecret(FACTORY_MESH_FILES.hostKey), hostKeyId: FACTORY_HOST_KEY_ID,
-    runnerRoot, readinessFilePath: resolve(readinessDirectory, "supervisor", "supervisor.json"), readinessHeartbeatMs: 4_000,
-    services: {
-      hostname: "127.0.0.1", port: ports.supervisor, allowedPeers: [identities.harness],
-      hostKeyIdPath: hostSecret(FACTORY_MESH_FILES.hostKeyId),
-      tls: { caPath: hostSecret(FACTORY_MESH_FILES.caCertificate), certificatePath: hostSecret(FACTORY_MESH_FILES.serverCertificate), privateKeyPath: hostSecret(FACTORY_MESH_FILES.serverKey) },
-      pool: {
-        baseUrl: `https://127.0.0.1:${ports.pool}`, serviceTokenPath: hostSecret(FACTORY_MESH_FILES.supervisorPoolToken),
-        tls: { caPath: hostSecret(FACTORY_MESH_FILES.caCertificate), certificatePath: hostSecret(FACTORY_MESH_FILES.supervisorCertificate), privateKeyPath: hostSecret(FACTORY_MESH_FILES.supervisorKey) },
-      },
-    },
-  });
-
   const gateway = {
     schemaVersion: "factory.gateway-process.v1", installationId: installation.installationId, tenantId: installation.tenantId,
     hostname: "0.0.0.0", port: ports.gateway,
@@ -297,11 +257,6 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
 
   const mesh = (...names: string[]) => Object.fromEntries(names.map((name) => [name, source(name)]));
   const deliveries: Record<FactoryDeployedService, FactoryServiceDelivery> = {
-    pool: { service: "pool", directory: factoryDeliveryDirectory(installation, "pool"), files: {
-      ...mesh(FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.tokenPublicKey),
-      "pool-database.json": { document: { databaseUrl: databaseUrl(settings.network, poolPair!.database, poolCredential) } },
-      "pool.json": { document: pool },
-    } },
     gateway: { service: "gateway", directory: factoryDeliveryDirectory(installation, "gateway"), files: {
       ...mesh(FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.attemptTokenSecret),
       "gateway-database-url": { text: `${databaseUrl(settings.network, productPair!.database, productCredential)}\n` },
@@ -309,9 +264,12 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     } },
     harness: { service: "harness", directory: factoryDeliveryDirectory(installation, "harness"), files: {
       ...mesh(FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey,
-        FACTORY_MESH_FILES.tokenPublicKey, FACTORY_MESH_FILES.harnessPoolToken, FACTORY_MESH_FILES.attemptTokenSecret, FACTORY_MESH_FILES.hostPublicKey,
+        FACTORY_MESH_FILES.tokenPublicKey, FACTORY_MESH_FILES.harnessPoolToken, FACTORY_MESH_FILES.attemptTokenSecret,
         FACTORY_APPLICATION_SECRET_FILES.jwt, FACTORY_APPLICATION_SECRET_FILES.encryption, FACTORY_APPLICATION_SECRET_FILES.salt,
         "ordinary-storage.json", "archive-storage.json"),
+      // The host's public material: its authority, for the shared pool and supervisor, and its stop-receipt key.
+      [FACTORY_HOST_FILES.caCertificate]: { source: host.caCertificatePath },
+      [FACTORY_HOST_FILES.hostPublicKey]: { source: host.hostPublicKeyPath },
       // Created by steps 6 and 7, which publish them into this delivery themselves.
       [FACTORY_BOOTSTRAP_INVITATION_FILE]: { ...source(FACTORY_BOOTSTRAP_INVITATION_FILE), optional: true },
       [FACTORY_INGRESS_PROOF_FILE]: { ...source(FACTORY_INGRESS_PROOF_FILE), optional: true },
@@ -330,24 +288,16 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       [FACTORY_KEY_FILES.master]: { source: factoryPrivatePath(installation.operatorDirectory, FACTORY_KEY_FILES.master) },
       "orchestrator.json": { document: orchestrator },
     } },
-    supervisor: { service: "supervisor", directory: supervisorDirectory, files: {
-      ...mesh(FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.supervisorCertificate, FACTORY_MESH_FILES.supervisorKey,
-        FACTORY_MESH_FILES.supervisorPoolToken, FACTORY_MESH_FILES.hostKey, FACTORY_MESH_FILES.hostKeyId),
-      "supervisor.json": { document: supervisor },
-    } },
   };
 
   const publicOrigin = settings.network.publicOrigin(installation);
   const builds = await settings.builds?.(installation);
   const images: FactoryServiceImages = Object.freeze({
-    pool: builds?.host.image ?? settings.image.reference,
     gateway: builds?.harness.image ?? settings.image.reference,
     harness: builds?.harness.image ?? settings.image.reference,
     orchestrator: builds?.orchestrator.image ?? settings.image.reference,
-    ...(builds ? { supervisorRelease: builds.host.releaseDirectory } : {}),
   });
   const environment = {
-    pool: { HOME: "/tmp" },
     gateway: { HOME: "/tmp" },
     orchestrator: { HOME: "/tmp" },
     harness: {
@@ -366,7 +316,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       EZCORP_PERM_SWEEP_INTERVAL_MS: String(startup.orphanSweepIntervalMs),
     },
   };
-  return Object.freeze({ installation, ports, image: settings.image, images, hostId: identities.hostId, runtimeDirectory, readinessDirectory, runnerRoot, dataDirectory, deliveries, environment, publicOrigin });
+  return Object.freeze({ installation, ports, image: settings.image, images, host, runtimeDirectory, readinessDirectory, dataDirectory, deliveries, environment, publicOrigin });
 }
 
 /**
@@ -398,7 +348,8 @@ export async function writeFactoryDeliveries(bundle: FactoryInstallationBundle):
       for (const name of await readdir(delivery.directory)) if (!kept.has(name)) await removeFactoryPrivateFile(directory, name);
     } finally { await directory.close(); }
   }
-  for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, ...["pool", "orchestration", "supervisor"].map((writer) => resolve(bundle.readinessDirectory, writer)), bundle.runnerRoot, bundle.dataDirectory]) {
+  // The harness boots only with its projects root and home present (`boot.ts` refuses an unresolvable project root).
+  for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, resolve(bundle.readinessDirectory, "orchestration"), bundle.dataDirectory, resolve(bundle.dataDirectory, "projects"), resolve(bundle.dataDirectory, "home")]) {
     const handle = await openFactoryPrivateDirectory(directory);
     await handle.close();
   }
@@ -407,6 +358,8 @@ export async function writeFactoryDeliveries(bundle: FactoryInstallationBundle):
 export interface FactoryDeploymentStepOptions {
   readonly settings: FactoryDeploymentSettings;
   readonly target: FactoryDeploymentTarget;
+  /** The fleet host the installation is admitted to. */
+  readonly host: Pick<FactoryFleetHost, "admit" | "release" | "mintInstallationToken">;
   readonly mesh?: Parameters<typeof ensureFactoryMesh>[1];
 }
 
@@ -420,6 +373,8 @@ export class FactoryDeploymentStep implements FactoryProvisioningDriver {
 
   async ensure(installation: FactoryInstallationContext): Promise<FactoryStepResources> {
     const mesh = await ensureFactoryMesh(installation, this.options.mesh);
+    await this.options.host.admit(installation);
+    const poolTokenExpiresAtMs = await this.options.host.mintInstallationToken(installation);
     const bundle = await this.bundle(installation);
     await writeFactoryDeliveries(bundle);
     const applied = await this.options.target.apply(bundle);
@@ -429,12 +384,13 @@ export class FactoryDeploymentStep implements FactoryProvisioningDriver {
       profile: this.options.target.profile,
       image: bundle.image.reference,
       revision: bundle.image.revision,
-      hostId: bundle.hostId,
+      hostId: bundle.host.hostId,
+      poolId: bundle.host.poolId,
       temporalOwner: factoryTemporalOwnerMarker(installation),
       harnessPort: String(bundle.ports.harness),
       publicOrigin: bundle.publicOrigin,
       runtimeDirectory: bundle.runtimeDirectory,
-      meshTokensExpireAtMs: String(mesh.tokensExpireAtMs),
+      meshTokensExpireAtMs: String(Math.min(mesh.tokensExpireAtMs, poolTokenExpiresAtMs)),
     });
   }
 
@@ -446,10 +402,17 @@ export class FactoryDeploymentStep implements FactoryProvisioningDriver {
     return factoryDeploymentHandle(installation, this.options.settings.runtimeRoot);
   }
 
-  /** Stop every service and destroy every delivery. Needs no credential, so a damaged installation still stops. Data stays until purge. */
+  /**
+   * Stop every service, leave the fleet host's trust, and destroy every
+   * delivery and the host-minted pool token. Needs no credential, so a damaged
+   * installation still stops. Data stays until purge.
+   */
   async teardown(installation: FactoryInstallationContext): Promise<void> {
     await this.options.target.remove(this.handle(installation));
+    await this.options.host.release(installation);
     await removeFactoryPrivateDirectory(resolve(installation.secretDirectory, "deliver"));
+    const secrets = await openFactoryPrivateDirectory(installation.secretDirectory);
+    try { await removeFactoryPrivateFile(secrets, FACTORY_MESH_FILES.harnessPoolToken); } finally { await secrets.close(); }
   }
 
   /** Re-deliver after another step rotated a credential, and restart onto it. */
@@ -468,8 +431,9 @@ export class FactoryDeploymentStep implements FactoryProvisioningDriver {
    */
   async rotate(installation: FactoryInstallationContext, resources: FactoryStepResources): Promise<FactoryStepResources> {
     const minted = await rotateFactoryMesh(installation, this.options.mesh);
+    const poolTokenExpiresAtMs = await this.options.host.mintInstallationToken(installation, true);
     await this.redeliver(installation);
-    return Object.freeze({ ...resources, meshTokensExpireAtMs: String(minted.tokensExpireAtMs) });
+    return Object.freeze({ ...resources, meshTokensExpireAtMs: String(Math.min(minted.tokensExpireAtMs, poolTokenExpiresAtMs)) });
   }
 
   async purge(installation: FactoryInstallationContext): Promise<void> {

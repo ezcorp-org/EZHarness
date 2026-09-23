@@ -119,6 +119,11 @@ export async function runFactoryFleetCommand(command: string, rest: readonly str
       if (action === "retire") return { retired: await fleet.upgrades.retire((await context.purgeChecks()).census) };
       throw new FactoryProvisioningError("cli_usage", "upgrade <register|wave|abandon|retire> ...");
     }
+    case "host": {
+      if (args[0] === "status") return { host: { poolId: fleet.host.identity.poolId, hostId: fleet.host.identity.hostId, admitted: (await fleet.host.admitted()).map((entry) => entry.tenantId) } };
+      if (args[0] === "decommission") { await fleet.host.decommission(); return { host: { decommissioned: fleet.host.identity.hostId } }; }
+      throw new FactoryProvisioningError("cli_usage", "host <status|decommission>");
+    }
     case "status": {
       if (args[0]) return { status: await fleet.provisioner.status(args[0]), events: await fleet.provisioner.ledger.events(args[0]), builds: await fleet.upgrades.builds(args[0]) ?? null };
       return { directory: await fleet.provisioner.ledger.directory() };
@@ -143,7 +148,7 @@ export async function runFactoryFleetMain(argv: readonly string[], compose: Fact
   const [settingsPath, command, ...rest] = argv;
   let fleet: FactoryComposedFleet | undefined;
   try {
-    if (!settingsPath || !command) throw new FactoryProvisioningError("cli_usage", "usage: factory-fleet.ts <fleet.json> <platform|provision|observe|rotate|teardown|purge|upgrade|status> ...");
+    if (!settingsPath || !command) throw new FactoryProvisioningError("cli_usage", "usage: factory-fleet.ts <fleet.json> <platform|provision|observe|rotate|teardown|purge|upgrade|host|status> ...");
     const settings = await loadFactoryFleetSettings(settingsPath);
     fleet = await composeFactoryProvisioner(settings, { compose, uid: process.getuid!(), gid: process.getgid!() });
     const composed = fleet;

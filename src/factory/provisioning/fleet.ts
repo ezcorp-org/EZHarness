@@ -15,10 +15,11 @@
 import { resolve } from "node:path";
 import { parseFactoryStartupConfig, type FactoryStartupRunnerProfile } from "../startup-config";
 import { SQL } from "bun";
-import { FactoryComposeTarget, FactoryComposeUpgradeTarget, factorySpawnExecutor, type FactoryCommandExecutor, type FactoryComposeCommand } from "./compose-profile";
+import { FactoryComposeHostTarget, FactoryComposeTarget, FactoryComposeUpgradeTarget, factorySpawnExecutor, type FactoryCommandExecutor, type FactoryComposeCommand } from "./compose-profile";
 import { FactoryFleetUpgrades, type FactoryBuild } from "./fleet-upgrade";
 import { FactoryDatabaseStep } from "./database";
 import { FactoryDeploymentStep, factoryInstallationPorts, type FactoryDeploymentSettings, type FactoryDeploymentTarget } from "./deployment";
+import { FactoryFleetHost, type FactoryFleetHostRuntime } from "./host";
 import { FactoryIngressStep, factoryHttpsIngressProbe } from "./ingress";
 import type { FactoryInstallationContext } from "./installation";
 import { FactoryInvitationStep } from "./invitation";
@@ -132,6 +133,8 @@ export interface FactoryFleetRuntime {
   readonly gid: number;
   /** Supplied by the hosted profile; the Compose target is built otherwise. */
   readonly target?: FactoryDeploymentTarget;
+  /** Supplied by the hosted profile or a test; the Compose host target is built otherwise. */
+  readonly hostTarget?: FactoryFleetHostRuntime;
 }
 
 /** The build every installation is first deployed with: the fleet's pinned image at its revision. */
@@ -148,6 +151,8 @@ export interface FactoryComposedFleet {
   readonly deployment: FactoryDeploymentStep;
   readonly ingress: FactoryIngressStep;
   readonly deploymentSettings: FactoryDeploymentSettings;
+  /** The fleet host: the shared pool and supervisor every installation is admitted to. */
+  readonly host: FactoryFleetHost;
   /** Whether Temporal serves through the gateway: the control identity can describe the system namespace. */
   platformServes(): Promise<boolean>;
   close(): Promise<void>;
@@ -162,7 +167,10 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   const adminUrl = await secretText(settings.database.adminUrlPath);
   const controlUrl = await secretText(settings.control.databaseUrlPath);
   let provisioner: LocalFactoryProvisioner | undefined;
-  const database = new FactoryDatabaseStep({ adminUrl, progress: (installation, resources) => provisioner!.ledger.stepProgress(installation.tenantId, "database", resources) });
+  // Each installation owns its product database; the fleet host owns the one shared pool database.
+  const database = new FactoryDatabaseStep({ adminUrl, kinds: ["product"], progress: (installation, resources) => provisioner!.ledger.stepProgress(installation.tenantId, "database", resources) });
+  let host: FactoryFleetHost | undefined;
+  const hostDatabase = new FactoryDatabaseStep({ adminUrl, kinds: ["pool"], progress: (_host, resources) => host!.recordDatabaseProgress(resources) });
   const issuer = (domain: "ordinary" | "archive"): FactoryStorageCredentialIssuer => new FactorySeededStorageIssuer(settings.storage[domain].issuer.serverIdentityPath);
   const storage = new FactoryStorageStep({
     claims: factoryDatabaseStorageClaims(adminUrl),
@@ -183,6 +191,22 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   const secrets = new FactorySecretsStep({ registry: { conflicts: (tenantId, digests) => provisioner!.ledger.digestConflicts(tenantId, digests) }, grantableRoots: () => ["/var/lib/ezcorp/projects"] });
   const upgradeSql = new SQL(controlUrl, { max: 2 });
   let upgrades: FactoryFleetUpgrades | undefined;
+  const hostTarget = runtime.hostTarget ?? new FactoryComposeHostTarget({
+    compose: runtime.compose, templatePath: resolve(settings.release.directory, "deploy/factory/compose/host.yml"), execute,
+    supervisor: { bun: settings.release.bun, releaseDirectory: settings.release.directory, path: settings.release.path },
+    databasePort: settings.database.servicePort, uid: runtime.uid, gid: runtime.gid,
+  });
+  host = new FactoryFleetHost({
+    settings: {
+      fleetId: settings.fleetId, secretsRoot: settings.roots.secrets, operatorRoot: settings.roots.operator, runtimeRoot: settings.roots.runtime,
+      portBase: settings.installations.portBase, cpuCapacity: settings.installations.cpuCapacity,
+      database: { host: settings.database.serviceHost, port: settings.database.servicePort },
+      build: { image: settings.image.reference, revision: settings.image.revision, release: settings.release.directory },
+    },
+    runtime: hostTarget, database: hostDatabase,
+    locked: (work) => provisioner!.ledger.lockedOn(`factory-host:${settings.fleetId}`, work),
+  });
+  const fleetHost = host;
   const deploymentSettings: FactoryDeploymentSettings = {
     network: {
       databaseHost: settings.database.serviceHost, databasePort: settings.database.servicePort,
@@ -194,18 +218,17 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
     image: settings.image,
     runtimeRoot: settings.roots.runtime,
     runnerProfiles: settings.installations.runnerProfiles,
-    cpuCapacity: settings.installations.cpuCapacity,
+    host: fleetHost.facts(),
     interpreterCompatibility: settings.installations.interpreterCompatibility,
     builds: (installation) => upgrades!.builds(installation.tenantId),
   };
   const storagePorts = [settings.storage.ordinary.endpoint, settings.storage.archive.endpoint].map((endpointUrl) => Number(new URL(endpointUrl).port));
   const composeTarget = new FactoryComposeTarget({
     compose: runtime.compose, templatePath: resolve(settings.release.directory, "deploy/factory/compose/installation.yml"), execute,
-    supervisor: { bun: settings.release.bun, releaseDirectory: settings.release.directory, path: settings.release.path },
     databasePort: settings.database.servicePort, storagePorts, temporalPort: settings.temporal.port, uid: runtime.uid, gid: runtime.gid,
   });
   const target = runtime.target ?? composeTarget;
-  const deployment = new FactoryDeploymentStep({ settings: deploymentSettings, target });
+  const deployment = new FactoryDeploymentStep({ settings: deploymentSettings, target, host: fleetHost });
   const ingress = new FactoryIngressStep({
     paths: { root: platform.ingress.root, mountedRoot: "/etc/ezcorp-ingress", listenAddress: settings.ingress.address, listenPort: settings.ingress.port },
     authority: { certificatePath: platform.ingress.caCertificatePath, keyPath: platform.ingress.caKeyPath },
@@ -221,7 +244,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   });
   const composed = provisioner;
   await composed.setup();
-  upgrades = new FactoryFleetUpgrades(upgradeSql, new FactoryComposeUpgradeTarget((installation) => deployment.bundle(installation), composeTarget), async (tenantId) => {
+  upgrades = new FactoryFleetUpgrades(upgradeSql, new FactoryComposeUpgradeTarget((installation) => deployment.bundle(installation), composeTarget, fleetHost), async (tenantId) => {
     const record = await composed.ledger.installation(tenantId);
     if (!record) throw new FactoryProvisioningError("provisioning_unknown_tenant", `No installation is recorded for ${tenantId}.`);
     const { raw: _raw, phase: _phase, planLimits: _limits, membershipRefs: _refs, ...context } = record;
@@ -230,7 +253,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   await upgrades.setup();
   await upgrades.register(factoryFleetDefaultBuild(settings));
   const fleetUpgrades = upgrades;
-  return Object.freeze({ provisioner: composed, upgrades: fleetUpgrades, platform, settings, database, deployment, ingress, deploymentSettings, platformServes: async () => (await temporalAdmin.owner("temporal-system")) !== undefined, close: async () => { await composed.close(); await database.close(); await upgradeSql.close(); } });
+  return Object.freeze({ provisioner: composed, upgrades: fleetUpgrades, platform, settings, database, deployment, ingress, deploymentSettings, host: fleetHost, platformServes: async () => (await temporalAdmin.owner("temporal-system")) !== undefined, close: async () => { await composed.close(); await database.close(); await hostDatabase.close(); await upgradeSql.close(); } });
 }
 
 export { factoryPlatformPaths };

@@ -18,12 +18,15 @@ import type { FactoryInstallationContext, FactoryProvisioningDriver, FactoryStep
 import { factoryFleetResourceName, factoryInstallationNames } from "../../src/factory/provisioning/installation";
 import { assertFactoryStepResources, FactoryProvisioningLedger } from "../../src/factory/provisioning/ledger";
 import { FACTORY_PURGE_RETAINED, LocalFactoryProvisioner, type FactoryPurgeChecks, type FactoryProvisioningDrivers } from "../../src/factory/provisioning/local";
-import { replaceFactoryPrivateFile } from "../../src/factory/provisioning/secret-files";
+import { factoryPrivatePath, replaceFactoryPrivateFile } from "../../src/factory/provisioning/secret-files";
 import { FactorySecretsStep } from "../../src/factory/provisioning/secrets";
 import { FactoryProvisioningError, FACTORY_PROVISIONING_STEPS, type FactoryProvisioningStepName } from "../../src/factory/provisioning/steps";
 import { FactoryStorageRevocationUnsupported } from "../../src/factory/provisioning/storage";
 import { FactoryFleetUpgrades, type FactoryBuild, type FactoryUpgradeComponent } from "../../src/factory/provisioning/fleet-upgrade";
 import { factoryDatabaseCensus } from "../../src/factory/provisioning/census";
+import { FactoryFleetHost, factoryFleetHostPaths, type FactoryFleetHostBundle, type FactoryFleetHostPaths, type FactoryFleetHostRuntime } from "../../src/factory/provisioning/host";
+import { ensureFactoryMesh } from "../../src/factory/provisioning/mesh";
+import { factoryDatabaseStorageClaims, factoryStorageClaimRole } from "../../src/factory/provisioning/storage";
 
 const url = process.env.FACTORY_TEST_POSTGRES_URL;
 if (!url) throw new Error("FACTORY_TEST_POSTGRES_URL is required for real PostgreSQL provisioning conformance.");
@@ -80,13 +83,13 @@ class SeededStorageDriver extends RecordingDriver {
   override async teardown(installation: FactoryInstallationContext): Promise<void> { await super.teardown(installation); throw new FactoryStorageRevocationUnsupported(["ordinary", "archive"]); }
 }
 
-function drivers(database: FactoryDatabaseStep, secrets: FactoryProvisioningDriver): FactoryProvisioningDrivers {
+function drivers(database: FactoryDatabaseStep, secrets: FactoryProvisioningDriver, overrides: { readonly storage?: RecordingDriver; readonly deployment?: RecordingDriver } = {}): FactoryProvisioningDrivers {
   return {
     database: database as FactoryProvisioningDrivers["database"],
-    storage: new SeededStorageDriver() as FactoryProvisioningDrivers["storage"],
+    storage: (overrides.storage ?? new SeededStorageDriver()) as FactoryProvisioningDrivers["storage"],
     temporal: new RecordingDriver("temporal") as FactoryProvisioningDrivers["temporal"],
     secrets: secrets as FactoryProvisioningDrivers["secrets"],
-    deployment: new RecordingDriver("deployment") as FactoryProvisioningDrivers["deployment"],
+    deployment: (overrides.deployment ?? new RecordingDriver("deployment")) as FactoryProvisioningDrivers["deployment"],
     ingress: new RecordingDriver("ingress") as unknown as FactoryProvisioningDrivers["ingress"],
     invitation: new RecordingDriver("invitation") as FactoryProvisioningDrivers["invitation"],
   };
@@ -94,7 +97,8 @@ function drivers(database: FactoryDatabaseStep, secrets: FactoryProvisioningDriv
 
 function provisioner(options: { readonly fault?: (step: FactoryProvisioningStepName, point: "before" | "after") => Promise<void>; readonly afterExternalResourceCreated?: (resource: "role" | "database", kind: FactoryDatabaseKind) => Promise<void>; readonly afterRotationAltered?: (kind: FactoryDatabaseKind) => Promise<void> } = {}): LocalFactoryProvisioner {
   let created: LocalFactoryProvisioner | undefined;
-  const database = new FactoryDatabaseStep({ adminUrl: url!, progress: (installation, resources) => created!.ledger.stepProgress(installation.tenantId, "database", resources), ...(options.afterExternalResourceCreated ? { afterExternalResourceCreated: options.afterExternalResourceCreated } : {}), ...(options.afterRotationAltered ? { afterRotationAltered: options.afterRotationAltered } : {}) });
+  // Each installation owns its product database; the fleet host owns the shared pool database (`hostDatabase`).
+  const database = new FactoryDatabaseStep({ adminUrl: url!, kinds: ["product"], progress: (installation, resources) => created!.ledger.stepProgress(installation.tenantId, "database", resources), ...(options.afterExternalResourceCreated ? { afterExternalResourceCreated: options.afterExternalResourceCreated } : {}), ...(options.afterRotationAltered ? { afterRotationAltered: options.afterRotationAltered } : {}) });
   databaseSteps.push(database);
   testPools?.push(database);
   const secrets = new FactorySecretsStep({ registry: { conflicts: (tenantId, digests) => created!.ledger.digestConflicts(tenantId, digests) }, grantableRoots: () => [join(root, "projects")] });
@@ -114,9 +118,30 @@ async function canLogin(role: string, password: string, database: string): Promi
   try { await client`SELECT 1`; return true; } catch { return false; } finally { await client.close(); }
 }
 
-async function credential(tenantId: string, kind: FactoryDatabaseKind): Promise<{ role: string; password: string }> {
-  const file = kind === "product" ? "product-database.json" : "pool-database-credential.json";
-  return JSON.parse(await Bun.file(join(names(tenantId).secretDirectory, file)).text());
+async function credential(tenantId: string): Promise<{ role: string; password: string }> {
+  return JSON.parse(await Bun.file(join(names(tenantId).secretDirectory, "product-database.json")).text());
+}
+
+/** Fleets this suite creates a host for; each gets its own shared pool pair, dropped in afterAll. */
+const hostFleets: string[] = [];
+
+/** A fleet host's paths on a fleet of its own, so each host test owns a distinct shared pool pair. */
+async function hostFleet(label: string): Promise<{ readonly fleet: string; readonly paths: FactoryFleetHostPaths; readonly roots: { secretsRoot: string; operatorRoot: string; runtimeRoot: string } }> {
+  const fleet = `${fleetId}${label}`;
+  hostFleets.push(fleet);
+  const { mkdir } = await import("node:fs/promises");
+  const base = join(root, `fleet-${label}`);
+  const roots = { secretsRoot: join(base, "secrets"), operatorRoot: join(base, "operator"), runtimeRoot: join(base, "runtime") };
+  for (const directory of [base, ...Object.values(roots)]) await mkdir(directory, { recursive: true, mode: 0o700 });
+  return { fleet, paths: factoryFleetHostPaths(fleet, roots), roots };
+}
+
+/** The database step a fleet host owns: the one shared pool pair, its progress kept in `progress`. */
+function hostDatabase(progress: Record<string, string>, afterExternalResourceCreated?: (resource: "role" | "database", kind: FactoryDatabaseKind) => Promise<void>): FactoryDatabaseStep {
+  const step = new FactoryDatabaseStep({ adminUrl: url!, kinds: ["pool"], progress: async (_host, resources) => { Object.assign(progress, resources); }, ...(afterExternalResourceCreated ? { afterExternalResourceCreated } : {}) });
+  databaseSteps.push(step);
+  testPools?.push(step);
+  return step;
 }
 
 beforeAll(async () => {
@@ -137,6 +162,15 @@ afterAll(async () => {
       if ((await admin`SELECT 1 FROM pg_roles WHERE rolname = ${role}`)[0]) await admin.unsafe(`DROP ROLE "${role}"`);
     }
   }
+  for (const fleet of hostFleets) {
+    for (const tenantId of ["host", "tenant-90", "tenant-91"]) {
+      for (const [database, role] of [[factoryFleetResourceName("factory_product", fleet, tenantId), factoryFleetResourceName("factory_role", fleet, tenantId)], [factoryFleetResourceName("factory_pool", fleet, tenantId), factoryFleetResourceName("factory_poolrole", fleet, tenantId)]]) {
+        if ((await admin`SELECT 1 FROM pg_database WHERE datname = ${database}`)[0]) await admin.unsafe(`DROP DATABASE "${database}" WITH (FORCE)`);
+        if ((await admin`SELECT 1 FROM pg_roles WHERE rolname = ${role}`)[0]) await admin.unsafe(`DROP ROLE "${role}"`);
+      }
+    }
+    for (const row of await admin`SELECT rolname FROM pg_roles WHERE shobj_description(oid, 'pg_authid') LIKE ${`factory-store-claim:${fleet}:%`}` as { rolname: string }[]) await admin.unsafe(`DROP ROLE "${row.rolname}"`);
+  }
   await admin.unsafe(`DROP DATABASE "${controlName}" WITH (FORCE)`);
   await admin.close();
   await removeFactoryPrivateRoot(root);
@@ -152,12 +186,11 @@ describe("the seven steps and four phases", () => {
     expect(recorded).toEqual(["storage:ensure", "temporal:ensure", "deployment:ensure", "ingress:ensure", "invitation:ensure", "ingress:serve"]);
     const events = (await provisioner().ledger.events("tenant-01")).map((event) => event.event);
     expect(events.filter((event) => event.startsWith("phase."))).toEqual(["phase.resources_prepared", "phase.deployment_ready", "phase.invitation_issued"]);
-    for (const kind of ["product", "pool"] as const) {
-      const pair = factoryDatabasePairs({ ...names("tenant-01"), ...request("tenant-01"), fleetId, installationId: installation.installationId, invitationId: "x" })[kind === "product" ? 0 : 1]!;
-      const own = await credential("tenant-01", kind);
-      expect(await canLogin(own.role, own.password, pair.database)).toBe(true);
-      expect((await admin`SELECT has_database_privilege('public', ${pair.database}, 'CONNECT') AS allowed`)[0]).toEqual({ allowed: false });
-    }
+    const own = await credential("tenant-01");
+    expect(await canLogin(own.role, own.password, installation.productDatabase)).toBe(true);
+    expect((await admin`SELECT has_database_privilege('public', ${installation.productDatabase}, 'CONNECT') AS allowed`)[0]).toEqual({ allowed: false });
+    // An installation owns no pool database: the fleet host's pool is shared.
+    expect((await admin`SELECT 1 FROM pg_database WHERE datname = ${factoryFleetResourceName("factory_pool", fleetId, "tenant-01")}`).length).toBe(0);
   });
 
   test("`through` stops at the phase its steps establish, and a partial tenant is not served", async () => {
@@ -238,19 +271,40 @@ describe("faults and recovery", () => {
     expect((await run.status("tenant-41")).steps.find((entry) => entry.step === "deployment")!.state).toBe("failed");
   });
 
-  for (const [tenantId, interrupted, kind] of [["tenant-42", "role", "product"], ["tenant-43", "database", "product"], ["tenant-44", "role", "pool"], ["tenant-45", "database", "pool"]] as const) {
-    test(`a crash inside ${kind} ${interrupted} creation is recognised on the rerun, never adopted blindly`, async () => {
+  for (const [tenantId, interrupted] of [["tenant-42", "role"], ["tenant-43", "database"]] as const) {
+    test(`a crash inside product ${interrupted} creation is recognised on the rerun, never adopted blindly`, async () => {
       let armed = true;
-      const crashing = provisioner({ afterExternalResourceCreated: async (resource, at) => { if (armed && resource === interrupted && at === kind) { armed = false; throw new Error(`injected ${resource} crash`); } } });
+      const crashing = provisioner({ afterExternalResourceCreated: async (resource, at) => { if (armed && resource === interrupted && at === "product") { armed = false; throw new Error(`injected ${resource} crash`); } } });
       expect((await factoryRejection(crashing.provision(request(tenantId)))).message).toBe(`injected ${interrupted} crash`);
       const database = (await crashing.status(tenantId)).steps.find((entry) => entry.step === "database")!;
       expect(database.state).toBe("failed");
-      if (interrupted === "database") expect(database.resources[`${kind}DatabasePhase`]).toBe("creating");
+      if (interrupted === "database") expect(database.resources.productDatabasePhase).toBe("creating");
       const recovered = await provisioner().provision(request(tenantId));
       expect(recovered.phase).toBe("invitation_issued");
-      const own = await credential(tenantId, kind);
-      const pair = factoryDatabasePairs({ ...names(tenantId), ...request(tenantId), fleetId, installationId: recovered.installationId, invitationId: "x" })[kind === "product" ? 0 : 1]!;
-      expect(await canLogin(own.role, own.password, pair.database)).toBe(true);
+      const own = await credential(tenantId);
+      expect(await canLogin(own.role, own.password, recovered.productDatabase)).toBe(true);
+    });
+  }
+
+  for (const [label, interrupted] of [["c1", "role"], ["c2", "database"]] as const) {
+    test(`a crash inside the fleet host's shared pool ${interrupted} creation is recognised on the rerun, never adopted blindly`, async () => {
+      const { paths } = await hostFleet(label);
+      const progress: Record<string, string> = {};
+      let armed = true;
+      const crashing = hostDatabase(progress, async (resource, at) => { if (armed && resource === interrupted && at === "pool") { armed = false; throw new Error(`injected ${resource} crash`); } });
+      expect((await factoryRejection(crashing.ensure(paths.context, undefined))).message).toBe(`injected ${interrupted} crash`);
+      if (interrupted === "database") {
+        expect(progress.poolDatabasePhase).toBe("creating");
+        // Without the recorded plan, the half-made database is someone else's: refused, not adopted.
+        expect((await factoryRejection(hostDatabase({}).ensure(paths.context, undefined))).code).toBe("database_foreign");
+      }
+      const resources = await hostDatabase(progress).ensure(paths.context, { ...progress });
+      expect(Object.keys(resources).filter((key) => key.startsWith("product"))).toEqual([]);
+      const [, pool] = factoryDatabasePairs(paths.context);
+      const own = JSON.parse(await Bun.file(join(paths.context.secretDirectory, "pool-database-credential.json")).text()) as { role: string; password: string };
+      expect(own.role).toBe(pool!.role);
+      expect(await canLogin(own.role, own.password, pool!.database)).toBe(true);
+      expect((await admin`SELECT 1 FROM pg_database WHERE datname = ${paths.context.productDatabase}`).length).toBe(0);
     });
   }
 
@@ -293,9 +347,9 @@ describe("credentials: uniqueness, rotation, and revocation", () => {
   test("rotating the database credential makes the old password fail before it returns", async () => {
     const run = provisioner();
     await run.provision(request("tenant-52"));
-    const old = await credential("tenant-52", "product");
+    const old = await credential("tenant-52");
     await run.rotate("tenant-52", "database");
-    const next = await credential("tenant-52", "product");
+    const next = await credential("tenant-52");
     const database = factoryFleetResourceName("factory_product", fleetId, "tenant-52");
     expect(next.password).not.toBe(old.password);
     expect(await canLogin(old.role, old.password, database)).toBe(false);
@@ -309,29 +363,29 @@ describe("credentials: uniqueness, rotation, and revocation", () => {
     let armed = true;
     const run = provisioner({ afterRotationAltered: async (kind) => { if (armed && kind === "product") { armed = false; throw new Error("injected rotation crash"); } } });
     await run.provision(request("tenant-54"));
-    const old = await credential("tenant-54", "product");
+    const old = await credential("tenant-54");
     const database = factoryFleetResourceName("factory_product", fleetId, "tenant-54");
     await expect(run.rotate("tenant-54", "database")).rejects.toThrow("injected rotation crash");
     const pendingPath = join(names("tenant-54").secretDirectory, "product-database.json.pending");
     const next = JSON.parse(await Bun.file(pendingPath).text()) as { role: string; password: string };
     // The role already has the pending password, and the live file still names the old one.
-    expect((await credential("tenant-54", "product")).password).toBe(old.password);
+    expect((await credential("tenant-54")).password).toBe(old.password);
     expect(await canLogin(old.role, old.password, database)).toBe(false);
     expect(await canLogin(next.role, next.password, database)).toBe(true);
     await run.provision(request("tenant-54"));
-    expect((await credential("tenant-54", "product")).password).toBe(next.password);
+    expect((await credential("tenant-54")).password).toBe(next.password);
     expect(await Bun.file(pendingPath).exists()).toBe(false);
   });
 
   test("a pending credential whose ALTER never ran is applied on the next read", async () => {
     const run = provisioner();
     await run.provision(request("tenant-55"));
-    const old = await credential("tenant-55", "pool");
+    const old = await credential("tenant-55");
     const next = { role: old.role, password: randomBytes(32).toString("base64url") };
-    await replaceFactoryPrivateFile(join(names("tenant-55").secretDirectory, "pool-database-credential.json.pending"), `${JSON.stringify(next)}\n`);
+    await replaceFactoryPrivateFile(join(names("tenant-55").secretDirectory, "product-database.json.pending"), `${JSON.stringify(next)}\n`);
     await run.provision(request("tenant-55"));
-    const database = factoryFleetResourceName("factory_pool", fleetId, "tenant-55");
-    expect((await credential("tenant-55", "pool")).password).toBe(next.password);
+    const database = factoryFleetResourceName("factory_product", fleetId, "tenant-55");
+    expect((await credential("tenant-55")).password).toBe(next.password);
     expect(await canLogin(old.role, old.password, database)).toBe(false);
     expect(await canLogin(next.role, next.password, database)).toBe(true);
   });
@@ -450,6 +504,29 @@ describe("the provisioner's own guards", () => {
   });
 });
 
+describe("the product database's extensions", () => {
+  test("vector and pg_trgm are created by the cluster administrator, verified on every rerun, and restored after loss", async () => {
+    const run = provisioner();
+    const installation = await run.provision(request("tenant-82"));
+    const inProduct = async <Result>(work: (client: SQL) => Promise<Result>): Promise<Result> => {
+      const target = new URL(url!); target.pathname = `/${installation.productDatabase}`;
+      const client = new SQL(target.toString(), { max: 1 });
+      try { return await work(client); } finally { await client.close(); }
+    };
+    const extensions = await inProduct(async (client) => await client`SELECT e.extname, pg_get_userbyid(e.extowner) AS owner FROM pg_extension e WHERE e.extname IN ('vector', 'pg_trgm') ORDER BY e.extname` as { extname: string; owner: string }[]);
+    const administrator = decodeURIComponent(new URL(url!).username);
+    // pgvector is not a trusted extension: the owner role could not have created it, the administrator did.
+    expect(extensions).toEqual([{ extname: "pg_trgm", owner: administrator }, { extname: "vector", owner: administrator }]);
+    expect(extensions.every((row) => row.owner !== installation.productRole)).toBe(true);
+    await inProduct((client) => client.unsafe("DROP EXTENSION pg_trgm"));
+    expect((await factoryRejection(run.provision(request("tenant-82")))).code).toBe("database_extension_missing");
+    expect((await run.status("tenant-82")).steps.find((entry) => entry.step === "database")!.state).toBe("failed");
+    // The rerun resumes the failed step, which creates what is missing and verifies it.
+    expect((await run.provision(request("tenant-82"))).phase).toBe("invitation_issued");
+    expect((await inProduct(async (client) => await client`SELECT extname FROM pg_extension WHERE extname = 'pg_trgm'` as unknown[])).length).toBe(1);
+  });
+});
+
 describe("teardown and purge", () => {
   const APPROVAL_63 = "7c1e2d3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f";
   /** Closed or open work, and an approvals store that knows one approval, issued by tenant-63's administrator. */
@@ -461,10 +538,15 @@ describe("teardown and purge", () => {
   test("teardown holds the route first, walks steps backwards, withdraws logins, keeps data, and names its residue", async () => {
     const run = provisioner();
     await run.provision(request("tenant-60"));
-    const product = await credential("tenant-60", "product");
+    const product = await credential("tenant-60");
     const database = factoryFleetResourceName("factory_product", fleetId, "tenant-60");
+    const secretFile = (name: string) => join(names("tenant-60").secretDirectory, name);
+    // A rotation a crash left pending is a credential too: teardown destroys it with the live one.
+    await replaceFactoryPrivateFile(secretFile("product-database.json.pending"), `${JSON.stringify({ role: product.role, password: randomBytes(32).toString("base64url") })}\n`);
     const before = stepsOf("tenant-60").length;
     const outcome = await run.teardown("tenant-60", { reason: "customer left" });
+    expect(await Bun.file(secretFile("product-database.json")).exists()).toBe(false);
+    expect(await Bun.file(secretFile("product-database.json.pending")).exists()).toBe(false);
     expect(outcome.installation.phase).toBe("torn_down");
     expect(outcome.residues.map((residue) => [residue.step, residue.failure.code])).toEqual([["storage", "storage_revocation_unsupported"]]);
     expect(stepsOf("tenant-60").slice(before).map((call) => `${call.step}:${call.action}`)).toEqual(["ingress:hold", "invitation:teardown", "ingress:teardown", "deployment:teardown", "temporal:teardown", "storage:teardown"]);
@@ -514,7 +596,7 @@ describe("teardown and purge", () => {
     expect((await factoryRejection(run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "x" }, census({ active: 0, uncertain: 2 })))).code).toBe("purge_work_open");
     const purged = await run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "retention elapsed", actor: "operator:operator-alice" }, census({ active: 0, uncertain: 0 }));
     expect(purged.phase).toBe("purged");
-    for (const database of [installation.productDatabase, factoryFleetResourceName("factory_pool", fleetId, "tenant-63")]) expect((await admin`SELECT 1 FROM pg_database WHERE datname = ${database}`).length).toBe(0);
+    expect((await admin`SELECT 1 FROM pg_database WHERE datname = ${installation.productDatabase}`).length).toBe(0);
     expect(await Bun.file(join(names("tenant-63").operatorDirectory, "master.key")).exists()).toBe(true);
     expect(await Bun.file(join(names("tenant-63").operatorDirectory, "escrow-wraps.json")).bytes()).toEqual(wraps);
     expect(await Bun.file(join(names("tenant-63").secretDirectory, "application-jwt-secret")).exists()).toBe(false);
@@ -830,6 +912,135 @@ describe("the operator entry", () => {
     } finally {
       await admin.unsafe(`DROP DATABASE IF EXISTS "${controlDatabase}" WITH (FORCE)`);
       await admin.unsafe(`DROP ROLE IF EXISTS "${controlDatabase}_role"`);
+    }
+  });
+});
+
+describe("the fleet host: one shared pool and supervisor, and no residue on the cluster", () => {
+  /** Records what the host asked of its runtime; runs nothing. */
+  class RecordingHostRuntime implements FactoryFleetHostRuntime {
+    readonly calls: string[] = [];
+    readonly bundles: FactoryFleetHostBundle[] = [];
+    async apply(bundle: FactoryFleetHostBundle): Promise<void> { this.calls.push(`apply:${bundle.admitted.map((entry) => entry.tenantId).join(",")}`); this.bundles.push(bundle); }
+    async ready(bundle: FactoryFleetHostBundle): Promise<void> { this.calls.push(`ready:${bundle.admitted.length}`); }
+    async remove(): Promise<void> { this.calls.push("remove"); }
+    async purge(): Promise<void> { this.calls.push("purge"); }
+  }
+
+  /** Step 5 reduced to what the host needs: the installation's own mesh authority, admission, and release. */
+  class AdmittingDeployment extends RecordingDriver {
+    constructor(private readonly host: FactoryFleetHost) { super("deployment"); }
+    override async ensure(installation: FactoryInstallationContext, recorded: FactoryStepResources | undefined): Promise<FactoryStepResources> {
+      await ensureFactoryMesh(installation);
+      await this.host.admit(installation);
+      return super.ensure(installation, recorded);
+    }
+    override async teardown(installation: FactoryInstallationContext): Promise<void> {
+      await super.teardown(installation);
+      await this.host.release(installation);
+    }
+  }
+
+  /** Storage that claims its buckets for the fleet on the real cluster, and releases them at purge. */
+  class ClaimingStorage extends RecordingDriver {
+    constructor(private readonly claims: ReturnType<typeof factoryDatabaseStorageClaims>, private readonly endpoint: string) { super("storage"); }
+    private scopes(installation: FactoryInstallationContext) {
+      return (["ordinary", "archive"] as const).map((domain) => ({ domain, endpoint: `${this.endpoint}/${domain}`, bucket: installation.tenantId, prefix: domain }));
+    }
+    override async ensure(installation: FactoryInstallationContext, recorded: FactoryStepResources | undefined): Promise<FactoryStepResources> {
+      for (const scope of this.scopes(installation)) await this.claims.claim(installation, scope);
+      return super.ensure(installation, recorded);
+    }
+    override async purge(installation: FactoryInstallationContext): Promise<void> {
+      for (const scope of this.scopes(installation)) await this.claims.release(installation, scope);
+      await super.purge(installation);
+    }
+  }
+
+  test("two installations share one pool and one supervisor; teardown, purge, and decommission leave no role or database of the fleet", async () => {
+    const { fleet, roots } = await hostFleet("nr");
+    const runtime = new RecordingHostRuntime();
+    let created: LocalFactoryProvisioner | undefined;
+    let host: FactoryFleetHost | undefined;
+    const hostPoolStep = new FactoryDatabaseStep({ adminUrl: url!, kinds: ["pool"], progress: (_host, resources) => host!.recordDatabaseProgress(resources) });
+    databaseSteps.push(hostPoolStep);
+    testPools?.push(hostPoolStep);
+    host = new FactoryFleetHost({
+      settings: {
+        fleetId: fleet, ...roots, portBase: 31_000, cpuCapacity: 2, database: { host: "127.0.0.1", port: 5432 },
+        build: { image: `localhost/ezcorp-factory@sha256:${"a".repeat(64)}`, revision: "b".repeat(40), release: "/release" },
+      },
+      runtime,
+      database: hostPoolStep,
+      locked: (work) => created!.ledger.lockedOn(`factory-host:${fleet}`, work),
+    });
+    const product = new FactoryDatabaseStep({ adminUrl: url!, kinds: ["product"], progress: (installation, resources) => created!.ledger.stepProgress(installation.tenantId, "database", resources) });
+    databaseSteps.push(product);
+    testPools?.push(product);
+    const claims = factoryDatabaseStorageClaims(url!);
+    const endpoint = `http://claims-${fleet}.invalid:1`;
+    const secrets = new FactorySecretsStep({ registry: { conflicts: (tenantId, digests) => created!.ledger.digestConflicts(tenantId, digests) }, grantableRoots: () => [join(root, "projects")] });
+    created = new LocalFactoryProvisioner({
+      fleetId: fleet, controlDatabaseUrl: controlUrl, secretsRoot: roots.secretsRoot, operatorRoot: roots.operatorRoot,
+      drivers: drivers(product, secrets, { storage: new ClaimingStorage(claims, endpoint), deployment: new AdmittingDeployment(host) }),
+    });
+    const run = created;
+    testPools?.push(run);
+    const request90 = { tenantId: "tenant-90", hostname: `tenant-90.${fleet}.factory.test`, administratorEmail: "admin@tenant-90.example.test" };
+    const request91 = { tenantId: "tenant-91", hostname: `tenant-91.${fleet}.factory.test`, administratorEmail: "admin@tenant-91.example.test" };
+    {
+      await run.provision(request90);
+      await run.provision(request91);
+
+      // One pool and one supervisor serve both: both identities in the pool's tenants and the supervisor's peers.
+      const both = await host.render();
+      expect(both.admitted.map((entry) => entry.tenantId)).toEqual(["tenant-90", "tenant-91"]);
+      const tenants = (both.pool as { identities: { tenants: Record<string, { tenantId: string }> } }).identities.tenants;
+      expect(Object.fromEntries(Object.entries(tenants).map(([name, entry]) => [name, entry.tenantId]))).toEqual({ "harness.tenant-90": "tenant-90", "harness.tenant-91": "tenant-91" });
+      expect((both.supervisor as { services: { allowedPeers: string[] } }).services.allowedPeers).toEqual(["harness.tenant-90", "harness.tenant-91"]);
+      expect((both.pool as { poolId: string }).poolId).toBe(host.identity.poolId);
+      // Each installation's pool token names its own tenant only.
+      for (const tenantId of ["tenant-90", "tenant-91"]) {
+        const token = await Bun.file(factoryPrivatePath(join(roots.secretsRoot, tenantId), "mesh-harness-pool.token")).text();
+        const claimsOf = JSON.parse(Buffer.from(token.trim().split(".")[1]!, "base64url").toString("utf8")) as { sub: string; iss: string; scope: string[] };
+        expect(claimsOf).toMatchObject({ sub: tenantId, iss: host.identity.issuer });
+        expect(claimsOf.scope).toEqual([`pool:tenant:${tenantId}`, `pool:grant:${tenantId}:factory`, `pool:restore:${tenantId}`]);
+      }
+      // The shared pool database exists once, owned by the host, and no installation owns one.
+      const [, hostPool] = factoryDatabasePairs(host.paths.context);
+      expect((await admin`SELECT 1 FROM pg_database WHERE datname = ${hostPool!.database}`).length).toBe(1);
+      for (const tenantId of ["tenant-90", "tenant-91"]) expect((await admin`SELECT 1 FROM pg_database WHERE datname = ${factoryFleetResourceName("factory_pool", fleet, tenantId)}`).length).toBe(0);
+      expect(runtime.calls).toEqual(["apply:tenant-90", "ready:1", "apply:tenant-90,tenant-91", "ready:2"]);
+
+      // Releasing one leaves the other served.
+      await run.teardown("tenant-90", { reason: "left" });
+      expect((await host.admitted()).map((entry) => entry.tenantId)).toEqual(["tenant-91"]);
+      const one = await host.render();
+      expect(Object.keys((one.pool as { identities: { tenants: Record<string, unknown> } }).identities.tenants)).toEqual(["harness.tenant-91"]);
+      expect((one.supervisor as { services: { allowedPeers: string[] } }).services.allowedPeers).toEqual(["harness.tenant-91"]);
+      expect((await factoryRejection(host.decommission())).code).toBe("host_in_use");
+
+      await run.teardown("tenant-91", { reason: "left" });
+      expect(await host.admitted()).toEqual([]);
+      expect(runtime.calls.slice(-1)).toEqual(["remove"]);
+      expect((await factoryRejection(host.render())).code).toBe("host_nothing_admitted");
+
+      const checks: FactoryPurgeChecks = { census: { count: async () => ({ active: 0, uncertain: 0 }) }, approvals: { verify: async () => ({ approvedBy: "admin:admin@example.test" }) } };
+      const approval = "0f8b2f7a-1c1d-4a4e-9a0b-6d1f2e3c4b5a";
+      await run.purge("tenant-90", { approvalId: approval, reason: "retention elapsed" }, checks);
+      await run.purge("tenant-91", { approvalId: approval, reason: "retention elapsed" }, checks);
+      await host.decommission();
+      expect(runtime.calls.slice(-1)).toEqual(["purge"]);
+
+      // Nothing of the fleet remains on the cluster: no role, no database, no store claim.
+      const roles = await admin`SELECT rolname FROM pg_roles WHERE shobj_description(oid, 'pg_authid') LIKE ${`factory-provisioner-%:${fleet}:%`} OR shobj_description(oid, 'pg_authid') LIKE ${`factory-store-claim:${fleet}:%`}` as unknown[];
+      const databases = await admin`SELECT datname FROM pg_database WHERE shobj_description(oid, 'pg_database') LIKE ${`factory-provisioner-%:${fleet}:%`}` as unknown[];
+      expect(roles).toEqual([]);
+      expect(databases).toEqual([]);
+      for (const tenantId of ["tenant-90", "tenant-91"]) {
+        for (const domain of ["ordinary", "archive"]) expect((await admin`SELECT 1 FROM pg_roles WHERE rolname = ${factoryStorageClaimRole({ endpoint: `${endpoint}/${domain}`, bucket: tenantId })}`).length).toBe(0);
+      }
+      expect((await admin`SELECT 1 FROM pg_roles WHERE rolname = ${hostPool!.role}`).length).toBe(0);
     }
   });
 });

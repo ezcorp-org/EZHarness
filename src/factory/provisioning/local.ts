@@ -45,7 +45,7 @@ export interface FactoryDeploymentDriver extends FactoryPurgeableDriver {
 
 export interface FactoryProvisioningDrivers {
   readonly database: FactoryPurgeableDriver & { readonly step: "database" };
-  readonly storage: FactoryProvisioningDriver & { readonly step: "storage" };
+  readonly storage: FactoryPurgeableDriver & { readonly step: "storage" };
   readonly temporal: FactoryProvisioningDriver & { readonly step: "temporal" };
   readonly secrets: FactoryProvisioningDriver & { readonly step: "secrets" };
   readonly deployment: FactoryDeploymentDriver;
@@ -373,6 +373,7 @@ export class LocalFactoryProvisioner {
       const steps = new Map((await this.ledger.steps(tenantId)).map((entry) => [entry.step, entry]));
       await this.options.drivers.deployment.purge(installation, steps.get("deployment")!.resources);
       await this.options.drivers.database.purge(installation, steps.get("database")!.resources);
+      await this.options.drivers.storage.purge(installation, steps.get("storage")!.resources);
       await escrowFactoryArchiveKey(installation);
       await this.ledger.event({ tenantId, step: null, event: "purge.audit_loss", detail: { approvedBy: approval.approvedBy, approvalId: request.approvalId, reason: request.reason.slice(0, 256), activeAtPurge: String(open.active), uncertainAtPurge: String(open.uncertain), ...FACTORY_PURGE_RETAINED } });
       await this.ledger.setPhase(tenantId, "purged", { approvedBy: approval.approvedBy });

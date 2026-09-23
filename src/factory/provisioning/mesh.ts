@@ -3,23 +3,21 @@
  * processes present to each other.
  *
  * Each installation gets its own mesh authority, so nothing issued for one
- * installation is accepted by another's listeners. The identities, by client
- * certificate common name:
+ * installation is accepted by another installation's listeners. The
+ * identities, by client certificate common name:
  *
- *   - `harness.<tenant>`       the product process, calling the pool, the
- *                              supervisor's launch/stop services, the gateway
+ *   - `harness.<tenant>`       the product process, calling its gateway, and
+ *                              the fleet host's shared pool and supervisor
  *   - `orchestrator.<tenant>`  the Node orchestrator, calling the product's
  *                              private service
- *   - `supervisor.<tenant>`    the host supervisor, calling the pool to confirm
- *                              a stop
  *
  * Every listener presents the one server certificate (`localhost`, 127.0.0.1),
- * because every listener binds loopback. Tokens are RS256 under a mesh key the
- * operator holds; listeners get only its public half.
+ * because every listener binds loopback. The orchestrator's token is RS256
+ * under a mesh key the operator holds; listeners get only its public half.
  *
- * The host SIGNING key is separate from all of this: it belongs to the
- * supervisor alone and signs physical-stop receipts, and the product holds only
- * its public half to verify them.
+ * The shared pool and supervisor are the fleet host's (`host.ts`): it mints
+ * the harness's pool token with the host key, holds the host signing key, and
+ * trusts this installation's authority while the installation is admitted.
  */
 import { createPrivateKey, createPublicKey, createSign, generateKeyPairSync, randomBytes, X509Certificate } from "node:crypto";
 import { createFactoryCertificateAuthority, issueFactoryCertificate, type FactoryCommandRunner } from "./certificates";
@@ -38,13 +36,11 @@ export const FACTORY_MESH_FILES = Object.freeze({
   serverCertificate: "mesh-server.crt", serverKey: "mesh-server.key",
   harnessCertificate: "mesh-harness.crt", harnessKey: "mesh-harness.key",
   orchestratorCertificate: "mesh-orchestrator.crt", orchestratorKey: "mesh-orchestrator.key",
-  supervisorCertificate: "mesh-supervisor.crt", supervisorKey: "mesh-supervisor.key",
   tokenPublicKey: "mesh-token.pub",
+  /** Minted by the fleet host (`host.ts`) into the installation's secret directory. */
   harnessPoolToken: "mesh-harness-pool.token",
-  supervisorPoolToken: "mesh-supervisor-pool.token",
   orchestratorToken: "mesh-orchestrator.token",
   attemptTokenSecret: "attempt-token-secret",
-  hostKey: "host-signing.key", hostPublicKey: "host-signing.pub", hostKeyId: "host-signing.kid",
 });
 /** Operator-only: never delivered to any process. */
 export const FACTORY_MESH_OPERATOR_FILES = Object.freeze({ caCertificate: "mesh-ca.crt", caKey: "mesh-ca.key", tokenKey: "mesh-token.key" });
@@ -52,8 +48,6 @@ export const FACTORY_MESH_OPERATOR_FILES = Object.freeze({ caCertificate: "mesh-
 export interface FactoryMeshIdentities {
   readonly harness: string;
   readonly orchestrator: string;
-  readonly supervisor: string;
-  readonly hostId: string;
   readonly issuer: string;
 }
 
@@ -61,8 +55,6 @@ export function factoryMeshIdentities(installation: FactoryInstallationContext):
   return Object.freeze({
     harness: `harness.${installation.tenantId}`,
     orchestrator: `orchestrator.${installation.tenantId}`,
-    supervisor: `supervisor.${installation.tenantId}`,
-    hostId: `host.${installation.tenantId}.${installation.fleetId}`,
     issuer: `factory-mesh:${installation.installationId}`,
   });
 }
@@ -74,6 +66,17 @@ export function factoryMeshToken(input: { readonly subject: string; readonly iss
   return `${body}.${signer.sign(createPrivateKey(input.keyPem)).toString("base64url")}`;
 }
 
+/** A token's expiry in milliseconds, or undefined when it has none or is not a token. */
+export function factoryMeshTokenExpiry(token: string): number | undefined {
+  try {
+    const claims = JSON.parse(Buffer.from(token.trim().split(".")[1] ?? "", "base64url").toString("utf8")) as { exp?: unknown } | null;
+    return Number.isSafeInteger(claims?.exp) ? (claims!.exp as number) * 1_000 : undefined;
+  } catch (error) {
+    if (error instanceof SyntaxError) return undefined;
+    throw error;
+  }
+}
+
 export interface FactoryMeshOptions {
   readonly run?: FactoryCommandRunner;
   readonly now?: () => number;
@@ -83,26 +86,20 @@ function meshAuthority(installation: FactoryInstallationContext) {
   return { certificatePath: factoryPrivatePath(installation.operatorDirectory, FACTORY_MESH_OPERATOR_FILES.caCertificate), keyPath: factoryPrivatePath(installation.operatorDirectory, FACTORY_MESH_OPERATOR_FILES.caKey) };
 }
 
-/** The four leaf certificates every installation's processes present, with their key files. */
+/** The three leaf certificates every installation's processes present, with their key files. */
 function meshLeaves(installation: FactoryInstallationContext) {
   const identities = factoryMeshIdentities(installation);
   return [
     [FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, { subject: "localhost", usage: "server" as const, dnsNames: ["localhost"], ipAddresses: ["127.0.0.1"] }],
     [FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey, { subject: identities.harness, usage: "client" as const }],
     [FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey, { subject: identities.orchestrator, usage: "client" as const }],
-    [FACTORY_MESH_FILES.supervisorCertificate, FACTORY_MESH_FILES.supervisorKey, { subject: identities.supervisor, usage: "client" as const }],
   ] as const;
 }
 
-/** The three service tokens, each as its file and the text a fresh mint writes. */
+/** The installation's own service token, as its file and the text a fresh mint writes. The pool token is the host's. */
 function meshTokens(installation: FactoryInstallationContext, keyPem: string, nowSeconds: number): ReadonlyArray<readonly [string, () => string]> {
   const identities = factoryMeshIdentities(installation);
-  const token = (subject: string, audience: string, scope: readonly string[]) => () => `${factoryMeshToken({ subject, issuer: identities.issuer, audience, scope, keyPem, nowSeconds })}\n`;
-  return [
-    [FACTORY_MESH_FILES.harnessPoolToken, token(installation.tenantId, FACTORY_POOL_AUDIENCE, [`pool:tenant:${installation.tenantId}`, `pool:grant:${installation.tenantId}:factory`])],
-    [FACTORY_MESH_FILES.supervisorPoolToken, token(identities.supervisor, FACTORY_POOL_AUDIENCE, [`pool:supervisor:${identities.supervisor}`])],
-    [FACTORY_MESH_FILES.orchestratorToken, token(identities.orchestrator, FACTORY_PRIVATE_SERVICE_AUDIENCE, ["factory:orchestrate"])],
-  ];
+  return [[FACTORY_MESH_FILES.orchestratorToken, () => `${factoryMeshToken({ subject: identities.orchestrator, issuer: identities.issuer, audience: FACTORY_PRIVATE_SERVICE_AUDIENCE, scope: ["factory:orchestrate"], keyPem, nowSeconds })}\n`]];
 }
 
 export interface FactoryMeshState {
@@ -129,16 +126,6 @@ export async function ensureFactoryMesh(installation: FactoryInstallationContext
     await ensureFactoryPrivateFile(secrets, FACTORY_MESH_FILES.tokenPublicKey, () => createPublicKey(createPrivateKey(tokenKeyPem)).export({ type: "spki", format: "pem" }).toString());
     for (const [file, mint] of meshTokens(installation, tokenKeyPem, Math.floor((options.now ?? Date.now)() / 1_000))) await ensureFactoryPrivateFile(secrets, file, mint);
     await ensureFactoryPrivateFile(secrets, FACTORY_MESH_FILES.attemptTokenSecret, () => `${randomBytes(32).toString("hex")}\n`);
-    let hostKeyPem: string | undefined;
-    try { hostKeyPem = await readFactoryPrivateText(secrets, FACTORY_MESH_FILES.hostKey); }
-    catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-      const generated = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey.export({ type: "pkcs8", format: "pem" }).toString();
-      await ensureFactoryPrivateFile(secrets, FACTORY_MESH_FILES.hostKey, () => generated);
-      hostKeyPem = generated;
-    }
-    await ensureFactoryPrivateFile(secrets, FACTORY_MESH_FILES.hostPublicKey, () => createPublicKey(createPrivateKey(hostKeyPem!)).export({ type: "spki", format: "pem" }).toString());
-    await ensureFactoryPrivateFile(secrets, FACTORY_MESH_FILES.hostKeyId, () => FACTORY_HOST_KEY_ID);
     return await verifyFactoryMesh(installation, secrets, caPem, (options.now ?? Date.now)());
   } finally { await operator.close(); await secrets.close(); }
 }
@@ -184,14 +171,8 @@ async function verifyFactoryMesh(installation: FactoryInstallationContext, secre
   }
   let tokensExpireAtMs = Number.MAX_SAFE_INTEGER;
   for (const [file] of meshTokens(installation, "", 0)) {
-    let claims: { exp?: unknown } | null;
-    try { claims = JSON.parse(Buffer.from((await readFactoryPrivateText(secrets, file)).trim().split(".")[1] ?? "", "base64url").toString("utf8")) as { exp?: unknown } | null; }
-    catch (error) {
-      if (!(error instanceof SyntaxError)) throw error;
-      claims = null;
-    }
-    if (!Number.isSafeInteger(claims?.exp)) throw new FactoryProvisioningError("mesh_token_invalid", `Mesh token ${file} has no expiry.`);
-    const expiresAtMs = (claims!.exp as number) * 1_000;
+    const expiresAtMs = factoryMeshTokenExpiry(await readFactoryPrivateText(secrets, file));
+    if (expiresAtMs === undefined) throw new FactoryProvisioningError("mesh_token_invalid", `Mesh token ${file} has no expiry.`);
     if (expiresAtMs <= nowMs) throw new FactoryProvisioningError("mesh_token_expired", `Mesh token ${file} has expired; rotate the installation's deployment step.`);
     tokensExpireAtMs = Math.min(tokensExpireAtMs, expiresAtMs);
   }

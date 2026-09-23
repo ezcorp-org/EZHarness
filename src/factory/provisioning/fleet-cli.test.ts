@@ -19,6 +19,11 @@ function context(overrides: Partial<Record<string, unknown>> = {}) {
       ledger: { events: record("events"), directory: record("directory") },
     },
     upgrades: { adopt: record("adopt"), register: record("register"), wave: record("wave"), abandon: record("abandon"), retire: record("retire"), builds: async () => undefined },
+    host: {
+      identity: { poolId: "pool.w16", hostId: "host.w16" },
+      admitted: async () => [{ tenantId: "tenant-01" }, { tenantId: "tenant-02" }],
+      decommission: async () => { calls.push(["decommission"]); },
+    },
   } as unknown as FactoryComposedFleet;
   const value: FactoryFleetCommandContext = {
     settings, fleet,
@@ -87,9 +92,16 @@ describe("fleet commands", () => {
     expect(calls.find((call) => call[0] === "purge")!.slice(2)).toEqual([{ approvalId: APPROVAL, reason: "done", ...WHO }, checks]);
   });
 
+  test("host status names the shared pool, the host, and the admitted installations; decommission reaches the host", async () => {
+    const { value, calls } = context();
+    expect(await runFactoryFleetCommand("host", ["status"], value)).toEqual({ host: { poolId: "pool.w16", hostId: "host.w16", admitted: ["tenant-01", "tenant-02"] } });
+    expect(await runFactoryFleetCommand("host", ["decommission"], value)).toEqual({ host: { decommissioned: "host.w16" } });
+    expect(calls).toEqual([["decommission"]]);
+  });
+
   test("every malformed command is a usage error, never a partial action", async () => {
     const { value, calls } = context();
-    for (const [command, args] of [["rotate", ["tenant-01"]], ["rotate", ["tenant-01", "ingress"]], ["rotate", []], ["teardown", []], ["purge", ["tenant-01"]], ["purge", ["tenant-01", "--approved-by", "admin:a@b.c"]], ["purge", []], ["upgrade", ["abandon"]], ["upgrade", ["register", "b2"]], ["upgrade", ["wave", "b2", "tenant-01"]], ["upgrade", ["wave", "b2", "--canary", "tenant-01"]], ["upgrade", ["nonsense"]], ["upgrade", []], ["nonsense", []]] as const) {
+    for (const [command, args] of [["rotate", ["tenant-01"]], ["rotate", ["tenant-01", "ingress"]], ["rotate", []], ["teardown", []], ["purge", ["tenant-01"]], ["purge", ["tenant-01", "--approved-by", "admin:a@b.c"]], ["purge", []], ["upgrade", ["abandon"]], ["upgrade", ["register", "b2"]], ["upgrade", ["wave", "b2", "tenant-01"]], ["upgrade", ["wave", "b2", "--canary", "tenant-01"]], ["upgrade", ["nonsense"]], ["upgrade", []], ["host", []], ["host", ["nonsense"]], ["nonsense", []]] as const) {
       expect(await usage(runFactoryFleetCommand(command, args, value))).toBe("cli_usage");
     }
     expect(calls).toEqual([]);

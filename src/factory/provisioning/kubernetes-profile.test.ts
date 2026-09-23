@@ -42,7 +42,7 @@ beforeAll(async () => {
   await writeFactoryTestDatabaseCredentials(installation);
   bundle = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime")));
   objects = renderFactoryKubernetesInstallation(bundle, SETTINGS);
-  system = renderFactoryKubernetesSystem(SETTINGS, bundle.image.reference);
+  system = renderFactoryKubernetesSystem(SETTINGS, bundle.image.reference, bundle.host.ports.pool);
 });
 afterAll(async () => { await removeFactoryPrivateRoot(root); });
 
@@ -96,8 +96,8 @@ describe("renderFactoryKubernetesInstallation", () => {
       expect(secret.data).toBeUndefined();
       expect(secret.stringData).toBeUndefined();
     }
-    // The supervisor's delivery has no tenant Secret at all.
-    expect(secrets.map((secret) => (secret.metadata as { name: string }).name)).not.toContain(factoryKubernetesSecretName("supervisor"));
+    // The shared pool's and the supervisor's material is the fleet host's: no tenant Secret for either.
+    for (const shared of ["pool", "supervisor"]) expect(secrets.map((secret) => (secret.metadata as { name: string }).name)).not.toContain(factoryKubernetesSecretName(shared));
   });
 
   test("each container mounts only its own secrets emptyDir", () => {
@@ -115,16 +115,18 @@ describe("renderFactoryKubernetesInstallation", () => {
     // Only the copier sees the Secret sources, read-only.
     const copier = spec.initContainers![0]!;
     expect(copier.volumeMounts.filter((mount) => mount.name.endsWith("-secret-source")).every((mount) => mount.readOnly === true)).toBe(true);
-    expect(copier.command.join(" ")).toContain("umask 077 && cp -L /source/pool/* /delivered/pool/ && chmod 0600 /delivered/pool/*");
+    expect(copier.command.join(" ")).toContain("umask 077 && cp -L /source/gateway/* /delivered/gateway/ && chmod 0600 /delivered/gateway/*");
+    expect(copier.command.join(" ")).not.toContain("/source/pool/");
   });
 
   test("only the harness writes project data; the product reads readiness it does not write", () => {
     const [deployment] = kind(objects, "Deployment");
     const byName = Object.fromEntries(podSpec(deployment!).containers.map((container) => [container.name, container]));
     expect(byName.harness!.volumeMounts).toContainEqual({ name: "harness-data", mountPath: FACTORY_CONTAINER_PATHS.data });
-    for (const service of ["pool", "gateway", "orchestrator"]) expect(byName[service]!.volumeMounts.map((mount) => mount.name)).not.toContain("harness-data");
+    for (const service of ["gateway", "orchestrator"]) expect(byName[service]!.volumeMounts.map((mount) => mount.name)).not.toContain("harness-data");
     const readiness = (service: string) => byName[service]!.volumeMounts.find((mount) => mount.name === "readiness")!.readOnly;
-    expect([readiness("harness"), readiness("gateway"), readiness("pool"), readiness("orchestrator")]).toEqual([true, true, undefined, undefined]);
+    expect([readiness("harness"), readiness("gateway"), readiness("orchestrator")]).toEqual([true, true, undefined]);
+    expect(byName.pool).toBeUndefined();
   });
 
   test("each container gets only its own non-secret environment and runs its own process", () => {
@@ -134,14 +136,12 @@ describe("renderFactoryKubernetesInstallation", () => {
       const { EZCORP_INGRESS_PROOF_FILE: _proof, ...expected } = bundle.environment[service] as Record<string, string>;
       expect(Object.fromEntries(byName[service]!.env.map((entry) => [entry.name, entry.value]))).toEqual(expected);
     }
-    expect(byName.pool!.command).toEqual(["bun", "src/factory/pool/process.ts", "/run/ezcorp/secrets/pool.json"]);
+    expect(Object.keys(byName).sort()).toEqual(["gateway", "harness", "orchestrator"]);
     expect(byName.orchestrator!.command[0]).toBe("node");
     const probe = (service: string) => JSON.stringify((byName[service] as unknown as { readinessProbe: unknown }).readinessProbe);
     expect(probe("gateway")).toContain(`--tcp","127.0.0.1:${bundle.ports.gateway}`);
-    expect(probe("pool")).toContain("/run/ezcorp/readiness/pool/pool.json");
     expect(probe("orchestrator")).toContain("/run/ezcorp/readiness/orchestration/orchestration.json");
     const readiness = (name: string): unknown => (byName[name]!.volumeMounts as { name: string }[]).find((mount) => mount.name === "readiness");
-    expect(readiness("pool")).toEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/pool", subPath: "pool" });
     expect(readiness("orchestrator")).toEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/orchestration", subPath: "orchestration" });
     expect(readiness("harness")).toEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness", readOnly: true });
     expect(probe("harness")).toContain("/api/ready");
@@ -158,7 +158,8 @@ describe("renderFactoryKubernetesInstallation", () => {
     const policy = policies[1]!.spec as { ingress: unknown[]; egress: { to: unknown[]; ports: { port: number }[] }[] };
     expect(policy.ingress).toEqual([{ from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ingress-nginx" } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] }]);
     expect(policy.egress[1]).toEqual({ to: [{ ipBlock: { cidr: "10.0.0.0/24" } }, { ipBlock: { cidr: "10.0.1.0/24" } }], ports: [5432, 7233, 9000].map((port) => ({ protocol: "TCP", port })) });
-    expect(policy.egress[2]!.ports).toEqual([{ protocol: "TCP", port: bundle.ports.supervisor }] as never);
+    // The fleet host's shared pool and supervisor, both in the system namespace.
+    expect(policy.egress[2]).toEqual({ to: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ezcorp-factory-system" } } }], ports: [{ protocol: "TCP", port: 41_002 }, { protocol: "TCP", port: 41_003 }] } as never);
   });
 
   test("the rendered list is frozen", () => {
@@ -184,6 +185,27 @@ describe("renderFactoryKubernetesSystem", () => {
     expect(privileged as unknown[]).toEqual([daemonSet]);
     const socketHolders = everything.filter((object) => JSON.stringify(object).includes(SETTINGS.runtimeSocketPath));
     expect(socketHolders as unknown[]).toEqual([daemonSet]);
+  });
+
+  test("the shared pool runs in the system namespace, restricted, from its own Secret, with its own readiness", () => {
+    const [pool] = kind(system, "Deployment");
+    expect((pool!.metadata as { name: string; namespace: string })).toMatchObject({ name: "factory-pool", namespace: "ezcorp-factory-system" });
+    const spec = podSpec(pool!);
+    expect(spec.hostNetwork).toBeUndefined();
+    expect(spec.automountServiceAccountToken).toBe(false);
+    expect(spec.securityContext).toMatchObject({ runAsNonRoot: true, runAsUser: 10_001 });
+    const [container] = spec.containers;
+    expect(container!.command).toEqual(["bun", "src/factory/pool/process.ts", "/run/ezcorp/secrets/pool.json"]);
+    for (const each of [container!, spec.initContainers![0]!]) {
+      expect(each.securityContext.privileged).toBeUndefined();
+      expect(each.securityContext).toMatchObject({ runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } });
+    }
+    expect(container!.volumeMounts).toContainEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/pool" });
+    expect(JSON.stringify((container as unknown as { readinessProbe: unknown }).readinessProbe)).toContain("/run/ezcorp/readiness/pool/pool.json");
+    expect(spec.volumes).toContainEqual({ name: "pool-secret-source", secret: { secretName: factoryKubernetesSecretName("pool"), defaultMode: 0o400 } });
+    expect(kind(system, "Secret").map((secret) => (secret.metadata as { name: string }).name)).toContain(factoryKubernetesSecretName("pool"));
+    const [service] = kind(system, "Service");
+    expect(service!.spec).toEqual({ selector: { "app.kubernetes.io/name": "factory-pool" }, ports: [{ name: "pool", port: 41_002, targetPort: 41_002 }] });
   });
 
   test("nothing tenant-scoped is rendered into the system namespace", () => {

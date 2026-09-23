@@ -9,6 +9,7 @@
  *   bun scripts/factory-fleet.ts <fleet.json> teardown <tenant> --reason <text>
  *   bun scripts/factory-fleet.ts <fleet.json> purge <tenant> --approval <approval ID> --reason <text>
  *   bun scripts/factory-fleet.ts <fleet.json> upgrade register|wave|abandon|retire ...
+ *   bun scripts/factory-fleet.ts <fleet.json> host status|decommission
  *   bun scripts/factory-fleet.ts <fleet.json> status [tenant]
  *
  * The commands live in src/factory/provisioning/fleet-cli.ts. This file only

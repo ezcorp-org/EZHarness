@@ -6,15 +6,14 @@ import {
   factoryRejection,
   makeFactoryPrivateRoot,
   makeFactoryTestDeploymentSettings,
+  makeFactoryTestHostFacts,
   makeFactoryTestInstallation,
   removeFactoryPrivateRoot,
   writeFactoryTestDatabaseCredentials,
+  writeFactoryTestHostMaterial,
   writeModeFile,
 } from "../../__tests__/helpers/factory-private-root";
-import { parseFactoryPoolProcessConfig } from "../pool/process";
-import { parseFactorySupervisorProcessConfig } from "../runner/supervisor-process";
 import { parseFactoryStartupConfig } from "../startup-config";
-import { factoryDatabasePairs } from "./database";
 import {
   FACTORY_CONTAINER_SERVICES,
   FACTORY_DEPLOYED_SERVICES,
@@ -29,6 +28,7 @@ import {
 import type { FactoryInstallationBuilds } from "./fleet-upgrade";
 import type { FactoryInstallationContext } from "./installation";
 import { FACTORY_INGRESS_PROOF_FILE } from "./ingress";
+import { FACTORY_HOST_FILES } from "./host";
 import { FACTORY_BOOTSTRAP_INVITATION_FILE } from "./invitation";
 import { FACTORY_MESH_FILES, FACTORY_MESH_OPERATOR_FILES } from "./mesh";
 import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES } from "./secrets";
@@ -46,9 +46,10 @@ const MESH_FILE_NAMES = Object.values(FACTORY_MESH_FILES);
 
 const marker = (name: string) => `marker:${name}\n`;
 
-/** Seed every file a delivery copies, the way the earlier steps would have left them. */
-async function seedInstallationFiles(installation: FactoryInstallationContext, options: { readonly mesh: boolean }): Promise<{ readonly product: string; readonly pool: string }> {
+/** Seed every file a delivery copies, the way the earlier steps (and the fleet host) would have left them. */
+async function seedInstallationFiles(installation: FactoryInstallationContext, options: { readonly mesh: boolean; readonly runtimeRoot: string }): Promise<{ readonly product: string; readonly pool: string }> {
   const passwords = await writeFactoryTestDatabaseCredentials(installation);
+  await writeFactoryTestHostMaterial(makeFactoryTestHostFacts(options.runtimeRoot));
   for (const name of [...TENANT_SECRET_FILES, ...(options.mesh ? MESH_FILE_NAMES : [])]) await writeModeFile(join(installation.secretDirectory, name), marker(name));
   await mkdir(installation.operatorDirectory, { recursive: true, mode: 0o700 });
   await chmod(installation.operatorDirectory, 0o700);
@@ -65,10 +66,10 @@ async function filesIn(directory: string): Promise<Record<string, string>> {
 const mode = async (path: string) => (await stat(path)).mode & 0o777;
 
 describe("factoryInstallationPorts", () => {
-  test("derives five consecutive ports ten apart per tenant number", () => {
-    expect(factoryInstallationPorts("tenant-01", 40_000)).toEqual({ harness: 40_010, privateService: 40_011, gateway: 40_012, pool: 40_013, supervisor: 40_014 });
+  test("derives three consecutive ports ten apart per tenant number", () => {
+    expect(factoryInstallationPorts("tenant-01", 40_000)).toEqual({ harness: 40_010, privateService: 40_011, gateway: 40_012 });
     expect(factoryInstallationPorts("tenant-00", 1_024).harness).toBe(1_024);
-    expect(factoryInstallationPorts("tenant-99", 64_535).supervisor).toBe(64_535 + 990 + 4);
+    expect(factoryInstallationPorts("tenant-99", 64_535).gateway).toBe(64_535 + 990 + 2);
     expect(Object.isFrozen(factoryInstallationPorts("tenant-02", 40_000))).toBe(true);
   });
 
@@ -96,17 +97,17 @@ describe("renderFactoryInstallationBundle", () => {
   beforeAll(async () => {
     root = await makeFactoryPrivateRoot();
     installation = makeFactoryTestInstallation(root);
-    passwords = await seedInstallationFiles(installation, { mesh: true });
+    passwords = await seedInstallationFiles(installation, { mesh: true, runtimeRoot: join(root, "runtime") });
     bundle = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime")));
   });
   afterAll(async () => { await removeFactoryPrivateRoot(root); });
 
-  test("names the installation's ports, host, directories and origin", () => {
+  test("names the installation's ports, the fleet host, directories and origin", () => {
     expect(bundle.ports).toEqual(factoryInstallationPorts("tenant-01", 40_000));
-    expect(bundle.hostId).toBe("host.tenant-01.fleet-a");
+    expect(bundle.host).toEqual(makeFactoryTestHostFacts(join(root, "runtime")));
+    expect([bundle.host.poolId, bundle.host.hostId, bundle.host.ports]).toEqual(["pool.fleet-a", "host.fleet-a", { pool: 41_002, supervisor: 41_003 }]);
     expect(bundle.runtimeDirectory).toBe(join(root, "runtime", "tenant-01"));
     expect(bundle.readinessDirectory).toBe(join(bundle.runtimeDirectory, "readiness"));
-    expect(bundle.runnerRoot).toBe(join(bundle.runtimeDirectory, "runner"));
     expect(bundle.dataDirectory).toBe(join(bundle.runtimeDirectory, "harness-data"));
     expect(bundle.publicOrigin).toBe("https://tenant-01.factory.example:30443");
     expect(bundle.environment.harness.ORIGIN).toBe(bundle.publicOrigin);
@@ -115,9 +116,8 @@ describe("renderFactoryInstallationBundle", () => {
     expect(Object.keys(bundle.environment).sort()).toEqual([...FACTORY_CONTAINER_SERVICES].sort());
   });
 
-  test("without a builds provider every container runs the pinned image and the supervisor runs the fleet default", () => {
-    expect(bundle.images).toEqual({ pool: FACTORY_TEST_IMAGE, gateway: FACTORY_TEST_IMAGE, harness: FACTORY_TEST_IMAGE, orchestrator: FACTORY_TEST_IMAGE });
-    expect(bundle.images.supervisorRelease).toBeUndefined();
+  test("without a builds provider every container runs the pinned image", () => {
+    expect(bundle.images).toEqual({ gateway: FACTORY_TEST_IMAGE, harness: FACTORY_TEST_IMAGE, orchestrator: FACTORY_TEST_IMAGE });
   });
 
   test("the orchestrator delivery alone holds the master key and the wrapped data key", () => {
@@ -127,27 +127,29 @@ describe("renderFactoryInstallationBundle", () => {
     expect(bundle.deliveries.orchestrator.files[FACTORY_KEY_FILES.master]).toEqual({ source: join(installation.operatorDirectory, FACTORY_KEY_FILES.master) });
   });
 
-  test("the supervisor holds the host signing key and no tenant secret", () => {
-    const supervisor = Object.keys(bundle.deliveries.supervisor.files).sort();
-    expect(supervisor).toContain(FACTORY_MESH_FILES.hostKey);
-    expect(supervisor).toEqual([
-      FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.supervisorCertificate,
-      FACTORY_MESH_FILES.supervisorKey, FACTORY_MESH_FILES.supervisorPoolToken, FACTORY_MESH_FILES.hostKey, FACTORY_MESH_FILES.hostKeyId, "supervisor.json",
-    ].sort());
-    for (const forbidden of [...TENANT_SECRET_FILES, FACTORY_KEY_FILES.master, FACTORY_MESH_FILES.attemptTokenSecret, "pool-database.json", "gateway-database-url", "harness-database-url", "product-database.json", "pool-database-credential.json"]) {
-      expect(supervisor).not.toContain(forbidden);
+  test("no installation delivery holds a pool, a supervisor, or the host signing key; the harness gets the host's public material", () => {
+    expect(Object.keys(bundle.deliveries).sort()).toEqual(["gateway", "harness", "orchestrator"]);
+    for (const delivery of Object.values(bundle.deliveries)) {
+      for (const name of ["pool.json", "supervisor.json", "pool-database.json", FACTORY_HOST_FILES.hostKey]) expect(Object.keys(delivery.files)).not.toContain(name);
     }
+    expect(bundle.deliveries.harness.files[FACTORY_HOST_FILES.caCertificate]).toEqual({ source: bundle.host.caCertificatePath });
+    expect(bundle.deliveries.harness.files[FACTORY_HOST_FILES.hostPublicKey]).toEqual({ source: bundle.host.hostPublicKeyPath });
+    expect(bundle.deliveries.harness.files[FACTORY_MESH_FILES.harnessPoolToken]).toEqual({ source: join(installation.secretDirectory, FACTORY_MESH_FILES.harnessPoolToken) });
   });
 
-  test("only the supervisor holds the host signing key; the harness gets its public half", () => {
-    const holders = Object.values(bundle.deliveries).filter((delivery) => FACTORY_MESH_FILES.hostKey in delivery.files).map((delivery) => delivery.service);
-    expect(holders).toEqual(["supervisor"]);
-    expect(FACTORY_MESH_FILES.hostPublicKey in bundle.deliveries.harness.files).toBe(true);
+  test("the startup document names the fleet host's shared pool and supervisor, trusted through the host authority", () => {
+    const startup = parseFactoryStartupConfig(JSON.parse(JSON.stringify((bundle.deliveries.harness.files["factory-startup.json"] as { document: unknown }).document)));
+    expect([startup.poolId, startup.hostId]).toEqual(["pool.fleet-a", "host.fleet-a"]);
+    const json = JSON.stringify(startup);
+    expect(json).toContain("https://127.0.0.1:41002");
+    expect(json).toContain("https://127.0.0.1:41003");
+    expect(json).toContain(`/run/ezcorp/secrets/${FACTORY_HOST_FILES.caCertificate}`);
+    expect(json).toContain(`/run/ezcorp/secrets/${FACTORY_HOST_FILES.hostPublicKey}`);
   });
 
   test("the harness delivery holds no master key, no wrapped key, and no operator material", () => {
     const harness = Object.keys(bundle.deliveries.harness.files);
-    for (const forbidden of [FACTORY_KEY_FILES.master, FACTORY_KEY_FILES.wraps, FACTORY_MESH_FILES.hostKey, ...Object.values(FACTORY_MESH_OPERATOR_FILES).filter((name) => name !== FACTORY_MESH_FILES.caCertificate)]) {
+    for (const forbidden of [FACTORY_KEY_FILES.master, FACTORY_KEY_FILES.wraps, FACTORY_HOST_FILES.hostKey, ...Object.values(FACTORY_MESH_OPERATOR_FILES).filter((name) => name !== FACTORY_MESH_FILES.caCertificate)]) {
       expect(harness).not.toContain(forbidden);
     }
     for (const delivery of Object.values(bundle.deliveries)) {
@@ -157,48 +159,39 @@ describe("renderFactoryInstallationBundle", () => {
     }
   });
 
-  test("the rendered pool, startup and supervisor documents are accepted by their own process parsers", () => {
-    const document = (service: keyof typeof bundle.deliveries, name: string) => (bundle.deliveries[service].files[name] as { document: unknown }).document;
-    const pool = document("pool", "pool.json");
-    const startup = document("harness", "factory-startup.json");
-    const supervisor = document("supervisor", "supervisor.json");
-    expect(parseFactoryPoolProcessConfig(JSON.parse(JSON.stringify(pool)))).toEqual(pool as never);
+  test("the rendered startup document is accepted by its own process parser", () => {
+    const startup = (bundle.deliveries.harness.files["factory-startup.json"] as { document: unknown }).document;
     expect(parseFactoryStartupConfig(JSON.parse(JSON.stringify(startup)))).toEqual(startup as never);
-    expect(parseFactorySupervisorProcessConfig(JSON.parse(JSON.stringify(supervisor)))).toEqual(supervisor as never);
-    const [, poolPair] = factoryDatabasePairs(installation);
-    expect((pool as { database: { expectedRole: string } }).database.expectedRole).toBe(poolPair!.role);
-    expect((supervisor as { hostKeyPath: string }).hostKeyPath).toBe(join(bundle.deliveries.supervisor.directory, FACTORY_MESH_FILES.hostKey));
   });
 
   test("database URLs carry each service's own credential, and only there", () => {
     const text = (service: keyof typeof bundle.deliveries, name: string) => (bundle.deliveries[service].files[name] as { text: string }).text;
     expect(text("gateway", "gateway-database-url")).toContain(passwords.product);
     expect(text("harness", "harness-database-url")).toContain(passwords.product);
-    const poolDocument = (bundle.deliveries.pool.files["pool-database.json"] as { document: { databaseUrl: string } }).document;
-    expect(new URL(poolDocument.databaseUrl).password).toBe(passwords.pool);
-    expect(new URL(poolDocument.databaseUrl).host).toBe("127.0.0.1:55432");
+    expect(new URL(text("gateway", "gateway-database-url").trim()).host).toBe("127.0.0.1:55432");
     expect(JSON.stringify(bundle.environment)).not.toContain(passwords.product);
-    expect(JSON.stringify(bundle.deliveries.supervisor)).not.toContain(passwords.product);
-    expect(JSON.stringify(bundle.deliveries.supervisor)).not.toContain(passwords.pool);
+    // The installation no longer owns a pool database: no delivery carries a pool credential.
+    expect(JSON.stringify(bundle.deliveries)).not.toContain(passwords.pool);
   });
 
   test("a second installation's deliveries share no path with the first", async () => {
     const other = makeFactoryTestInstallation(root, { tenantId: "tenant-02" });
-    await seedInstallationFiles(other, { mesh: false });
+    await seedInstallationFiles(other, { mesh: false, runtimeRoot: join(root, "runtime") });
     const second = await renderFactoryInstallationBundle(other, makeFactoryTestDeploymentSettings(join(root, "runtime")));
     const paths = (value: FactoryInstallationBundle) => Object.values(value.deliveries).flatMap((delivery) => [delivery.directory, ...Object.values(delivery.files).flatMap((entry) => "source" in entry ? [entry.source] : [])]);
     const firstPaths = new Set(paths(bundle));
-    expect(paths(second).filter((path) => firstPaths.has(path))).toEqual([]);
+    // Only the fleet host's public material is common to both.
+    expect(paths(second).filter((path) => firstPaths.has(path)).sort()).toEqual([bundle.host.caCertificatePath, bundle.host.hostPublicKeyPath].sort());
     expect(second.ports.harness).toBe(40_020);
   });
 
-  test("a builds provider moves each service onto its component's image and the supervisor onto the host release", async () => {
+  test("a builds provider moves each service onto its component's image; the host component is the fleet host's", async () => {
     const build = (component: string, digit: string) => ({ buildId: `${component}-2`, image: `registry.test/${component}@sha256:${digit.repeat(64)}`, revision: "e".repeat(40), releaseDirectory: `/srv/releases/${component}` });
     const builds: FactoryInstallationBuilds = { host: build("host", "1"), harness: build("harness", "2"), orchestrator: build("orchestrator", "3") };
     const seen: string[] = [];
     const upgraded = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime"), { builds: async (value) => { seen.push(value.tenantId); return builds; } }));
     expect(seen).toEqual(["tenant-01"]);
-    expect(upgraded.images).toEqual({ pool: builds.host.image, gateway: builds.harness.image, harness: builds.harness.image, orchestrator: builds.orchestrator.image, supervisorRelease: "/srv/releases/host" });
+    expect(upgraded.images).toEqual({ gateway: builds.harness.image, harness: builds.harness.image, orchestrator: builds.orchestrator.image });
     expect(upgraded.image.reference).toBe(FACTORY_TEST_IMAGE);
   });
 
@@ -230,7 +223,7 @@ describe("writeFactoryDeliveries", () => {
   beforeAll(async () => {
     root = await makeFactoryPrivateRoot();
     installation = makeFactoryTestInstallation(root);
-    passwords = await seedInstallationFiles(installation, { mesh: true });
+    passwords = await seedInstallationFiles(installation, { mesh: true, runtimeRoot: join(root, "runtime") });
     bundle = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime")));
     await writeFactoryDeliveries(bundle);
   });
@@ -244,19 +237,18 @@ describe("writeFactoryDeliveries", () => {
       for (const name of delivered) expect(await mode(join(delivery.directory, name))).toBe(0o600);
     }
     expect(bundle.deliveries.harness.files[FACTORY_INGRESS_PROOF_FILE]).toEqual({ source: join(installation.secretDirectory, FACTORY_INGRESS_PROOF_FILE), optional: true });
-    for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, bundle.runnerRoot, bundle.dataDirectory]) expect(await mode(directory)).toBe(0o700);
+    // The harness boots only with its projects root and home present.
+    for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, bundle.dataDirectory, join(bundle.dataDirectory, "projects"), join(bundle.dataDirectory, "home")]) expect(await mode(directory)).toBe(0o700);
   });
 
-  test("each readiness writer has its own private directory, and every rendered record path sits in its writer's directory", async () => {
-    for (const writer of ["pool", "orchestration", "supervisor"]) expect(await mode(join(bundle.readinessDirectory, writer))).toBe(0o700);
+  test("the orchestration writer has its own private directory; the pool and supervisor records are the fleet host's", async () => {
+    expect(await mode(join(bundle.readinessDirectory, "orchestration"))).toBe(0o700);
+    expect(await readdir(bundle.readinessDirectory)).toEqual(["orchestration"]);
     const startup = parseFactoryStartupConfig(JSON.parse(await readFile(join(bundle.deliveries.harness.directory, "factory-startup.json"), "utf8")));
     expect([startup.poolReadinessFilePath, startup.orchestrationReadinessFilePath, startup.supervisorReadinessFilePath]).toEqual([
       "/run/ezcorp/readiness/pool/pool.json", "/run/ezcorp/readiness/orchestration/orchestration.json", "/run/ezcorp/readiness/supervisor/supervisor.json",
     ]);
-    expect(parseFactoryPoolProcessConfig(JSON.parse(await readFile(join(bundle.deliveries.pool.directory, "pool.json"), "utf8"))).readinessFilePath).toBe("/run/ezcorp/readiness/pool/pool.json");
     expect(JSON.parse(await readFile(join(bundle.deliveries.orchestrator.directory, "orchestrator.json"), "utf8")).readinessFilePath).toBe("/run/ezcorp/readiness/orchestration/orchestration.json");
-    // The supervisor runs on the host, so its record path is the host path the harness mounts read-only.
-    expect(parseFactorySupervisorProcessConfig(JSON.parse(await readFile(join(bundle.deliveries.supervisor.directory, "supervisor.json"), "utf8"))).readinessFilePath).toBe(join(bundle.readinessDirectory, "supervisor", "supervisor.json"));
   });
 
   test("an optional source is delivered once it exists and withdrawn once it is gone, in place", async () => {
@@ -273,11 +265,11 @@ describe("writeFactoryDeliveries", () => {
   });
 
   test("a missing required source is refused, and an unsafe optional source is refused rather than skipped", async () => {
-    const missing: FactoryInstallationBundle = { ...bundle, deliveries: { ...bundle.deliveries, pool: { ...bundle.deliveries.pool, files: { "absent.txt": { source: join(installation.secretDirectory, "absent.txt") } } } } };
+    const missing: FactoryInstallationBundle = { ...bundle, deliveries: { ...bundle.deliveries, gateway: { ...bundle.deliveries.gateway, files: { "absent.txt": { source: join(installation.secretDirectory, "absent.txt") } } } } };
     expect((await factoryRejection(writeFactoryDeliveries(missing))).code).toBe("ENOENT");
     const unsafe = join(installation.secretDirectory, "unsafe-optional.txt");
     await writeModeFile(unsafe, "readable\n", 0o644);
-    const tainted: FactoryInstallationBundle = { ...bundle, deliveries: { ...bundle.deliveries, pool: { ...bundle.deliveries.pool, files: { "unsafe-optional.txt": { source: unsafe, optional: true } } } } };
+    const tainted: FactoryInstallationBundle = { ...bundle, deliveries: { ...bundle.deliveries, gateway: { ...bundle.deliveries.gateway, files: { "unsafe-optional.txt": { source: unsafe, optional: true } } } } };
     expect((await factoryRejection(writeFactoryDeliveries(tainted))).message).toContain("private");
     await rm(unsafe);
     await writeFactoryDeliveries(bundle);
@@ -287,44 +279,40 @@ describe("writeFactoryDeliveries", () => {
     const orchestrator = await filesIn(bundle.deliveries.orchestrator.directory);
     expect(orchestrator[FACTORY_KEY_FILES.master]).toBe(marker(FACTORY_KEY_FILES.master));
     expect(orchestrator[FACTORY_KEY_FILES.wraps]).toBe(marker(FACTORY_KEY_FILES.wraps));
-    const pool = await filesIn(bundle.deliveries.pool.directory);
-    expect(JSON.parse(pool["pool.json"]!)).toEqual(JSON.parse(JSON.stringify((bundle.deliveries.pool.files["pool.json"] as { document: unknown }).document)));
+    const harness = await filesIn(bundle.deliveries.harness.directory);
+    expect(JSON.parse(harness["factory-startup.json"]!)).toEqual(JSON.parse(JSON.stringify((bundle.deliveries.harness.files["factory-startup.json"] as { document: unknown }).document)));
+    expect(harness[FACTORY_HOST_FILES.caCertificate]).toBe(`marker:${FACTORY_HOST_FILES.caCertificate}\n`);
     const gateway = await filesIn(bundle.deliveries.gateway.directory);
     expect(gateway["gateway-database-url"]).toBe((bundle.deliveries.gateway.files["gateway-database-url"] as { text: string }).text);
   });
 
-  test("the written supervisor directory contains no tenant secret byte", async () => {
-    const supervisor = Object.values(await filesIn(bundle.deliveries.supervisor.directory)).join("\n");
-    expect(supervisor).toContain(marker(FACTORY_MESH_FILES.hostKey));
-    for (const secret of [passwords.product, passwords.pool, ...TENANT_SECRET_FILES.map(marker), marker(FACTORY_MESH_FILES.attemptTokenSecret), marker(FACTORY_KEY_FILES.master)]) {
-      expect(supervisor).not.toContain(secret);
+  test("no written delivery but the orchestrator's holds the master key, and none holds the pool credential", async () => {
+    for (const service of ["gateway", "harness"] as const) {
+      const text = Object.values(await filesIn(bundle.deliveries[service].directory)).join("\n");
+      expect(text).not.toContain(marker(FACTORY_KEY_FILES.master));
+      expect(text).not.toContain(passwords.pool);
     }
-    const harness = Object.values(await filesIn(bundle.deliveries.harness.directory)).join("\n");
-    expect(harness).not.toContain(marker(FACTORY_KEY_FILES.master));
-    expect(harness).not.toContain(marker(FACTORY_MESH_FILES.hostKey));
   });
 
-  test("the written documents parse with the process parsers", async () => {
-    expect(parseFactoryPoolProcessConfig(JSON.parse(await readFile(join(bundle.deliveries.pool.directory, "pool.json"), "utf8"))).poolId).toBe("pool.tenant-01");
+  test("the written startup document parses with the process parser", async () => {
     expect(parseFactoryStartupConfig(JSON.parse(await readFile(join(bundle.deliveries.harness.directory, "factory-startup.json"), "utf8"))).tenantId).toBe("tenant-01");
-    expect(parseFactorySupervisorProcessConfig(JSON.parse(await readFile(join(bundle.deliveries.supervisor.directory, "supervisor.json"), "utf8"))).hostId).toBe("host.tenant-01.fleet-a");
   });
 
   test("a rewrite is idempotent, and a file dropped from a delivery is gone after the next write", async () => {
     await writeFactoryDeliveries(bundle);
-    expect((await readdir(bundle.deliveries.pool.directory)).sort()).toEqual(Object.keys(bundle.deliveries.pool.files).sort());
-    const { [FACTORY_MESH_FILES.tokenPublicKey]: _dropped, ...kept } = bundle.deliveries.pool.files;
-    const narrowed: FactoryInstallationBundle = { ...bundle, deliveries: { ...bundle.deliveries, pool: { ...bundle.deliveries.pool, files: kept } } };
+    expect((await readdir(bundle.deliveries.gateway.directory)).sort()).toEqual(Object.keys(bundle.deliveries.gateway.files).sort());
+    const { [FACTORY_MESH_FILES.attemptTokenSecret]: _dropped, ...kept } = bundle.deliveries.gateway.files;
+    const narrowed: FactoryInstallationBundle = { ...bundle, deliveries: { ...bundle.deliveries, gateway: { ...bundle.deliveries.gateway, files: kept } } };
     await writeFactoryDeliveries(narrowed);
-    const after = await readdir(bundle.deliveries.pool.directory);
-    expect(after).not.toContain(FACTORY_MESH_FILES.tokenPublicKey);
+    const after = await readdir(bundle.deliveries.gateway.directory);
+    expect(after).not.toContain(FACTORY_MESH_FILES.attemptTokenSecret);
     expect(after.sort()).toEqual(Object.keys(kept).sort());
   });
 
   test("a source that is not private is refused rather than delivered", async () => {
     const leaky = join(installation.secretDirectory, "leaky.txt");
     await writeModeFile(leaky, "world readable\n", 0o644);
-    const tainted: FactoryInstallationBundle = { ...bundle, deliveries: { ...bundle.deliveries, pool: { ...bundle.deliveries.pool, files: { "leaky.txt": { source: leaky } } } } };
+    const tainted: FactoryInstallationBundle = { ...bundle, deliveries: { ...bundle.deliveries, gateway: { ...bundle.deliveries.gateway, files: { "leaky.txt": { source: leaky } } } } };
     const error = await factoryRejection(writeFactoryDeliveries(tainted));
     expect(error.message).toContain("private");
   });
@@ -344,6 +332,25 @@ function recordingTarget(options: { readonly failReady?: Error } = {}): FactoryD
   };
 }
 
+/** Every minted pool token is distinct across fake hosts, as real mints are. */
+let mintSerial = 0;
+
+/** The fleet host as the step sees it: admission, release, and the pool token it mints into the installation. */
+function recordingHost(options: { readonly expiresAtMs?: number } = {}) {
+  const calls: string[] = [];
+  return {
+    calls,
+    async admit(installation: FactoryInstallationContext) { calls.push(`admit:${installation.tenantId}`); return makeFactoryTestHostFacts(join(installation.secretDirectory, "..", "..", "runtime")); },
+    async release(installation: Pick<FactoryInstallationContext, "tenantId">) { calls.push(`release:${installation.tenantId}`); },
+    async mintInstallationToken(installation: FactoryInstallationContext, force = false) {
+      calls.push(`mint:${installation.tenantId}:${force}`);
+      const path = join(installation.secretDirectory, FACTORY_MESH_FILES.harnessPoolToken);
+      if (force || !(await Bun.file(path).exists())) { mintSerial += 1; await writeModeFile(path, `pool-token-${mintSerial}\n`); }
+      return options.expiresAtMs ?? Date.now() + 40 * 24 * 60 * 60 * 1000;
+    },
+  };
+}
+
 describe("FactoryDeploymentStep", () => {
   let root: string;
   let installation: FactoryInstallationContext;
@@ -351,18 +358,21 @@ describe("FactoryDeploymentStep", () => {
   beforeAll(async () => {
     root = await makeFactoryPrivateRoot();
     installation = makeFactoryTestInstallation(root);
-    await seedInstallationFiles(installation, { mesh: false });
+    await seedInstallationFiles(installation, { mesh: false, runtimeRoot: join(root, "runtime") });
   });
   afterAll(async () => { await removeFactoryPrivateRoot(root); });
 
   test("ensure creates the mesh, writes deliveries, applies, waits ready, and returns references only", async () => {
     const target = recordingTarget();
-    const step = new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target });
+    const host = recordingHost();
+    const step = new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, host });
     expect(step.step).toBe("deployment");
     const resources = await step.ensure(installation);
     expect(target.calls.map((call) => call.method)).toEqual(["apply", "ready"]);
+    // Admitted to the fleet host before anything renders, with its pool token minted.
+    expect(host.calls).toEqual(["admit:tenant-01", "mint:tenant-01:false"]);
     expect(resources).toEqual({
-      composeProject: "project-tenant-01", profile: "compose", image: FACTORY_TEST_IMAGE, revision: "c".repeat(40), hostId: "host.tenant-01.fleet-a",
+      composeProject: "project-tenant-01", profile: "compose", image: FACTORY_TEST_IMAGE, revision: "c".repeat(40), hostId: "host.fleet-a", poolId: "pool.fleet-a",
       temporalOwner: factoryTemporalOwnerMarker(installation), harnessPort: "40010", publicOrigin: "https://tenant-01.factory.example:30443",
       runtimeDirectory: join(root, "runtime", "tenant-01"), meshTokensExpireAtMs: expect.any(String),
     });
@@ -376,16 +386,21 @@ describe("FactoryDeploymentStep", () => {
     for (const name of Object.values(FACTORY_MESH_OPERATOR_FILES)) expect(operator).toContain(name);
     expect(secrets).not.toContain(FACTORY_MESH_OPERATOR_FILES.caKey);
     expect(secrets).not.toContain(FACTORY_MESH_OPERATOR_FILES.tokenKey);
-    // The delivered supervisor host key is the real one the mesh generated.
-    const hostKey = await readFile(join(installation.secretDirectory, "deliver", "supervisor", FACTORY_MESH_FILES.hostKey), "utf8");
-    expect(hostKey).toContain("PRIVATE KEY");
-    expect(hostKey).toBe(await readFile(join(installation.secretDirectory, FACTORY_MESH_FILES.hostKey), "utf8"));
+    // The installation holds no host signing key: that is the fleet host supervisor's alone.
+    expect(secrets).not.toContain(FACTORY_HOST_FILES.hostKey);
+    expect(await readFile(join(installation.secretDirectory, "deliver", "harness", FACTORY_MESH_FILES.harnessPoolToken), "utf8")).toBe(await readFile(join(installation.secretDirectory, FACTORY_MESH_FILES.harnessPoolToken), "utf8"));
+  });
+
+  test("the recorded token deadline is the earlier of the mesh token's and the host-minted pool token's", async () => {
+    const soon = Date.now() + 24 * 60 * 60 * 1000;
+    const resources = await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target: recordingTarget(), host: recordingHost({ expiresAtMs: soon }) }).ensure(installation);
+    expect(Number(resources.meshTokensExpireAtMs)).toBe(soon);
   });
 
   test("a rerun of ensure keeps the mesh the running processes already trust", async () => {
     const before = await readFile(join(installation.secretDirectory, FACTORY_MESH_FILES.serverCertificate), "utf8");
     const target = recordingTarget();
-    await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target }).ensure(installation);
+    await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, host: recordingHost() }).ensure(installation);
     expect(await readFile(join(installation.secretDirectory, FACTORY_MESH_FILES.serverCertificate), "utf8")).toBe(before);
     expect(target.calls.map((call) => call.method)).toEqual(["apply", "ready"]);
   });
@@ -393,13 +408,13 @@ describe("FactoryDeploymentStep", () => {
   test("ensure fails when the target never becomes ready", async () => {
     const failure = Object.assign(new Error("not ready"), { code: "deployment_not_ready" });
     const target = recordingTarget({ failReady: failure });
-    const error = await factoryRejection(new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target }).ensure(installation));
+    const error = await factoryRejection(new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, host: recordingHost() }).ensure(installation));
     expect(error.code).toBe("deployment_not_ready");
   });
 
   test("verify asks the target to prove readiness of this installation's bundle", async () => {
     const target = recordingTarget();
-    await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target }).verify(installation);
+    await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, host: recordingHost() }).verify(installation);
     expect(target.calls).toEqual([{ method: "ready", tenantId: "tenant-01" }]);
   });
 
@@ -407,19 +422,21 @@ describe("FactoryDeploymentStep", () => {
     const target = recordingTarget();
     const delivered = join(installation.secretDirectory, "deliver", "harness", FACTORY_APPLICATION_SECRET_FILES.jwt);
     await writeModeFile(join(installation.secretDirectory, FACTORY_APPLICATION_SECRET_FILES.jwt), "rotated-jwt\n");
-    await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target }).redeliver(installation);
+    await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, host: recordingHost() }).redeliver(installation);
     expect(await readFile(delivered, "utf8")).toBe("rotated-jwt\n");
     expect(target.calls.map((call) => call.method)).toEqual(["remove", "apply", "ready"]);
   });
 
-  test("rotate re-mints the mesh leaves and tokens, re-delivers, restarts, and records the new token deadline", async () => {
+  test("rotate re-mints the mesh leaves and tokens, has the host force a new pool token, re-delivers, restarts, and records the new token deadline", async () => {
     const target = recordingTarget();
+    const host = recordingHost();
     const certificate = join(installation.secretDirectory, FACTORY_MESH_FILES.serverCertificate);
     const token = join(installation.secretDirectory, FACTORY_MESH_FILES.harnessPoolToken);
     const [certificateBefore, tokenBefore] = [await readFile(certificate, "utf8"), await readFile(token, "utf8")];
     const later = Date.now() + 60_000;
     const recorded = { composeProject: "project-tenant-01", meshTokensExpireAtMs: "1" };
-    const rotated = await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, mesh: { now: () => later } }).rotate(installation, recorded);
+    const rotated = await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, host, mesh: { now: () => later } }).rotate(installation, recorded);
+    expect(host.calls).toEqual(["mint:tenant-01:true"]);
     expect(rotated).toEqual({ composeProject: "project-tenant-01", meshTokensExpireAtMs: expect.any(String) });
     expect(Number(rotated.meshTokensExpireAtMs)).toBeGreaterThan(later);
     expect(Object.isFrozen(rotated)).toBe(true);
@@ -430,38 +447,43 @@ describe("FactoryDeploymentStep", () => {
     expect(target.calls.map((call) => call.method)).toEqual(["remove", "apply", "ready"]);
   });
 
-  test("teardown removes the services and every delivery, and a second teardown still succeeds", async () => {
+  test("teardown removes the services, leaves the fleet host, destroys every delivery and the pool token, and a second teardown still succeeds", async () => {
     const target = recordingTarget();
-    const step = new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target });
+    const host = recordingHost();
+    const step = new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, host });
     await step.teardown(installation);
     expect(target.calls).toEqual([{ method: "remove", tenantId: "tenant-01" }]);
-    expect(await readdir(installation.secretDirectory)).not.toContain("deliver");
+    expect(host.calls).toEqual(["release:tenant-01"]);
+    const left = await readdir(installation.secretDirectory);
+    expect(left).not.toContain("deliver");
+    expect(left).not.toContain(FACTORY_MESH_FILES.harnessPoolToken);
     await step.teardown(installation);
     expect(target.calls.map((call) => call.method)).toEqual(["remove", "remove"]);
+    expect(host.calls).toEqual(["release:tenant-01", "release:tenant-01"]);
   });
 
   test("purge hands the installation's handle to the target", async () => {
     const target = recordingTarget();
-    await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target }).purge(installation);
+    await new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, host: recordingHost() }).purge(installation);
     expect(target.calls).toEqual([{ method: "purge", tenantId: "tenant-01" }]);
   });
 
   test("teardown and purge need no credential: an installation that cannot render still stops and purges", async () => {
     const handles: unknown[] = [];
     const target: FactoryDeploymentTarget = { ...recordingTarget(), async remove(handle) { handles.push(handle); }, async purge(handle) { handles.push(handle); } };
-    const step = new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target });
+    const step = new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, host: recordingHost() });
     const unrendered = makeFactoryTestInstallation(root, { tenantId: "tenant-04" });
     await step.teardown(unrendered);
     await step.purge(unrendered);
     const handle = factoryDeploymentHandle(unrendered, join(root, "runtime"));
     expect(handles).toEqual([handle, handle]);
-    expect(handle).toEqual({ installation: unrendered, runtimeDirectory: join(root, "runtime", "tenant-04"), readinessDirectory: join(root, "runtime", "tenant-04", "readiness"), runnerRoot: join(root, "runtime", "tenant-04", "runner") });
+    expect(handle).toEqual({ installation: unrendered, runtimeDirectory: join(root, "runtime", "tenant-04"), readinessDirectory: join(root, "runtime", "tenant-04", "readiness") });
   });
 
   test("a target failure during teardown or purge is reported, never swallowed", async () => {
     const failure = Object.assign(new Error("stop failed"), { code: "deployment_supervisor_failed" });
     const target: FactoryDeploymentTarget = { ...recordingTarget(), async remove() { throw failure; }, async purge() { throw failure; } };
-    const step = new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target });
+    const step = new FactoryDeploymentStep({ settings: makeFactoryTestDeploymentSettings(join(root, "runtime")), target, host: recordingHost() });
     expect(await factoryRejection(step.teardown(installation))).toBe(failure);
     expect(await factoryRejection(step.purge(installation))).toBe(failure);
   });
