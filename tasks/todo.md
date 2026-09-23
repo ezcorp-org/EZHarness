@@ -3547,22 +3547,20 @@ arbiters and only two.
 
 ## W09d — compose validators into the installation (branch `wp/w09d-validators`)
 
-Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/factory-platform-evidence/w09d/`. Gates: `tasks/factory/w09d-GATES.md`.
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/factory-platform-evidence/w09d/`. Gates: `tasks/factory/w09d-GATES.md`. Report: `/tmp/factory-platform-evidence/w09d/report.txt`.
 
-- [x] Reproduce at the base: a run whose graph carries an acceptance node cannot reach a validator attempt in the real application (record what refuses and where). `reproduction.json`.
-- [x] Startup document `validators.runtimes[]`: name, kind, runner lock, material path, material digest; refused by name when missing, unreadable, shared, or the digest does not match; nothing declared holds acceptance with a named reason in readiness.
-- [x] `FactoryTrustedValidators` built from the declaration and shared by assurance, the scheduler, and the dispatch settlement.
-- [x] Material registration through `registerMaterialInTransaction`: one pass at startup and a bounded role for later publications; idempotent across restarts; a changed runtime refuses by name.
-- [x] `FactoryProtectedValidatorScheduler` composed as the `validator-scheduling` role over the same runner path, stores, and worker shape; readiness names it running or held, with the reason.
-- [x] Validator attempts settle through `FactoryValidatorAttemptDispatch` on the shared attempt dispatcher (routed by the durable assignment, not by a string).
-- [x] Acceptance waits for its validators instead of failing the run: the command answers null, the role delivers the acceptance or rejection event through the inbox.
-- [x] Public contract route: by ruling W09c composes `createReleaseOperations`; removed here, carried by the proof as a disclosed proof-only commit.
-- [x] Rulings applied: `recordCurrentCandidate` and `decideAcceptance` (decision and inbox event in one transaction); the release-authority candidate re-derivation fix merged with its tests; typed rejection for a validator that fails or ends uncertain; immediate named refusal when no validator is composed; restart and foreign-reference tests.
-- [x] Orchestrator side on the Temporal test server (`test/temporal-replay.test.ts`): waits on null, completes once from the inbox event; a typed rejection fails the node without a cancel-node.
-- [x] Proof on the real started application, three passes on fresh product databases (round 2, after the rulings). Round 1 passed with the then-proposed fix: `attempts/round1-proposed-fix/`.
-- [x] Negative controls, round 2: undeclared validator (`factory_validator_runtime_untrusted`), tampered material (`factory_validator_declaration_digest_mismatch` at startup).
-- [x] Tests per common.md; 100 percent coverage of new files and changed lines; PostgreSQL suites green; gate file `tasks/factory/w09d-GATES.md`.
+- [x] Reproduce at the base: a run whose graph carries an acceptance node reaches no validator attempt (`reproduction.json`).
+- [x] Startup document `validators.runtimes[]` by reference; every refusal named; nothing declared holds both roles with a reason readiness shows.
+- [x] `FactoryTrustedValidators` from the declaration, shared by assurance, the scheduler, and the validator settlement.
+- [x] Material registration once per published version per process; idempotent across restarts; a changed runtime refuses by name.
+- [x] `validator-scheduling` role over W05's scheduler; the one attempt dispatcher settles validator attempts, routed by the durable assignment.
+- [x] Rulings: `recordCurrentCandidate` and `decideAcceptance` (decision and inbox event in one transaction); typed rejection for a failed or uncertain validator; immediate named refusal when nothing is composed; the release-authority candidate fix with injected-clock tests; the release operations supplier left to W09c.
+- [x] O1: the validator reservation is settled on its terminal (idempotent), or held uncertain under the typed reason.
+- [x] O5: a refused effect fails the run through a recorded `command-failed` kernel event and a projected `fail-run`.
+- [x] Orchestrator side on the Temporal test server (84 of 84 in the package's node leg).
+- [x] Proof: three passes and two controls on fresh databases, from this branch plus wp/w01g-staging only.
+- [x] Tests per common.md; coverage of new files and changed lines; PostgreSQL producers; gate file.
 
 ### Review
 
-The package composes W05's validator pieces from a startup declaration and adds no rule of its own. The base reproduction showed why nothing reached a validator: no material was registered, no contract could be approved, and the acceptance command refused `factory_assurance_not_found`. With the composition and the coordinator's rulings applied, the real application registers the material, admits the validator through the pool, runs it in Podman through the one attempt dispatcher, records a strict PASS, decides `accepted`, and delivers the event with its receipt in one transaction, so the release node's `request-release` issues. Three passes did that on fresh product databases, both controls refused by name, and the orchestrator's Temporal suite proves the kernel waits on the null answer and completes the node once. The proof needed a W05 fix that only real timing exposed (the candidate re-derivation required a live lease); it is merged by ruling and tested with an injected clock. Open, each with an owner: the validator reservation is never settled (W05); no public read of the registered lock (W14); the release operations supplier and release profiles (W09c); the contract route's opaque 500 for a missing material (W18a-2); a failed workflow is never projected, so the run stays `running`.
+The package composes W05's validator pieces from a startup declaration, and the coordinator's rulings closed the gaps the real application exposed. The base reproduction showed no material, no contract route, and an acceptance command refusing `factory_assurance_not_found`. At the final code the started application registers the material, admits the validator through the pool, runs it in Podman through the one attempt dispatcher, records a strict PASS, decides `accepted`, and delivers the event in the decision's transaction. It then settles the validator's reservation, and when the release effect refuses (no profile yet, W09c) the run ends `failed` with a projected typed reason instead of hanging in `running`. Three passes did that on fresh databases, both controls refused by name, and the orchestrator's Temporal leg passes 84 of 84. Two defects only real timing showed are fixed at their roots with tests: the candidate re-derivation that required a live lease, and a failed effect on an acceptance or release node that left a cancel nothing could answer. Open, each with its owner: the public lock read and the contract route's opaque 500 (W14), and the release operations supplier and profiles (W09c).
