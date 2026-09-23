@@ -61,11 +61,11 @@ See [docs/development-lifecycle.md](docs/development-lifecycle.md#local-hooks-sh
 **Worktree isolation (binding):** ALWAYS run agents in a separate git
 worktree — never let a spawned agent edit the primary working directory
 directly. Before delegating work, create an isolated worktree on its own
-branch (`git worktree add ./worktrees/<slug> -b <branch>`), point the
+branch (`git worktree add ./.worktrees/<slug> -b <branch>`), point the
 agent at that path, and have it do all reads/writes/commits there. This
 keeps parallel agents from contaminating each other or the main tree, and
-keeps `main` clean. When using the Agent/Workflow tools, pass
-`isolation: "worktree"` so each agent gets its own worktree automatically.
+keeps `main` clean. Give Agent/Workflow tools that precreated path;
+automatic `isolation: "worktree"` creates checkouts in `.claude/worktrees/`.
 Notes: `tasks/` is gitignored and does NOT propagate to a fresh worktree —
 copy any planning docs over after `git worktree add`; and dev-container
 compose mounts resolve relative paths from the compose CWD, so recreate the
