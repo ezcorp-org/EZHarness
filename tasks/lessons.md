@@ -1463,3 +1463,5 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A behaviour-free split can still be proved by more than the existing tests. Run the old function and the new one
   side by side on generated inputs, and compare exact outputs, including error lists. That is cheap, and it found
   nothing to fix here, which is the point.
+- Replacing a suffix-based error mapping with explicit code lists silently drops any code built outside a literal `new XError("code")`. My search for thrown codes missed `unavailable()`, a helper in another file, and a real journey caught the 500. Before removing a pattern rule, list every code the class can carry, including helper-built ones, or keep a test per code the old rule matched.
+- Never edit a shell script while a job is executing it. Bash reads a running script incrementally, so shifted bytes can make it re-run or skip steps. Write the new version to a new file.
