@@ -205,9 +205,15 @@ describe("sec-M4: the legacy pi_session cookie is retired, never promoted (sourc
     expect(block).not.toMatch(/setSessionCookie\(|ezcorp_session/);
   });
 
+  // The removed bridge compared Date.now() with Date.parse("2026-06-01…"):
+  // on that date the server's behaviour changed with no deploy.
+  const CALENDAR_LITERAL = /(?:Date\.parse|new Date)\(\s*["'`]\d{4}-\d{2}-\d{2}/;
+
+  test("the calendar-literal pattern catches the removed expiry line (positive control)", () => {
+    expect('const PI_SESSION_MIGRATION_EXPIRES_AT = Date.parse("2026-06-01T00:00:00Z");').toMatch(CALENDAR_LITERAL);
+  });
+
   test("no calendar date in the hook decides what it accepts", () => {
-    // The removed bridge compared Date.now() with Date.parse("2026-06-01…"):
-    // on that date the server's behaviour changed with no deploy.
-    expect(HOOKS_SRC).not.toMatch(/(?:Date\.parse|new Date)\(\s*["'`]\d{4}-\d{2}-\d{2}/);
+    expect(HOOKS_SRC).not.toMatch(CALENDAR_LITERAL);
   });
 });

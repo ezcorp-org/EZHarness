@@ -3552,7 +3552,7 @@ Base `integ/w00` `94fb95b6a`. Receipts: `/tmp/factory-platform-evidence/w18b/`. 
 - [x] Reproduce each failure alone at base and record the assertion and the cause.
 - [x] Project root: the SDK walk accepts only a real git marker (a `.git` directory with `HEAD`, or a `.git` file naming `gitdir:`); every example copy routes through the SDK; tests pin a stray empty `.git` above the start.
 - [x] pi_session: remove the expired migration bridge and its calendar literal; the legacy cookie is always purged, never promoted; tests and docs follow.
-- [x] Launcher readiness: the runner probe reuses `inspectProductionRunner` and waits inside the launcher's one readiness budget, not a separate one-second deadline; a test pins a slow runner inspect.
+- [x] Launcher readiness: the runner probe reuses `inspectProductionRunner` and waits inside the launcher's readiness budget (one constant, `readiness_seconds=120`, used for the socket wait, the probe, and the health wait), not a separate one-second deadline; a test pins a slow runner inspect.
 - [x] The five files alone, the full backend pool, typecheck, lint, both boundary checks, gate-integrity, both coverage gates.
 - [x] Gate file `tasks/factory/w18b-GATES.md`, report, review paragraph.
 
