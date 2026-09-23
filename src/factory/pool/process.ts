@@ -86,27 +86,42 @@ function identityConfig(value: unknown, knownHosts: ReadonlySet<string>): value 
   return Object.values(value.supervisors).every(item => record(item) && exact(item, ["supervisorId", "tokenSubject", "hostIds"]) && text(item.supervisorId, 256) && text(item.tokenSubject, 256) && Array.isArray(item.hostIds) && item.hostIds.length <= 10_000 && new Set(item.hostIds).size === item.hostIds.length && item.hostIds.every(host => typeof host === "string" && knownHosts.has(host)));
 }
 
-/** Strict reference-only configuration parser. */
-export function parseFactoryPoolProcessConfig(value: unknown): FactoryPoolProcessConfig {
+type PoolResourcesConfig = FactoryPoolProcessConfig["resources"];
+
+function validRoot(value: unknown): value is Record<string, unknown> {
   const required = ["schemaVersion", "installationId", "poolId", "hostname", "port", "database", "tls", "tokens", "identities", "resources", "readinessFilePath"];
-  if (!record(value) || !exact(value, required, ["readinessHeartbeatMs"]) || value.schemaVersion !== CONFIG_SCHEMA || !text(value.installationId) || !text(value.poolId) || !text(value.hostname, 253) || !integer(value.port, 1, 65_535) || !absolutePath(value.readinessFilePath) || value.readinessHeartbeatMs !== undefined && !integer(value.readinessHeartbeatMs, 1_000, 60_000)) throw new Error("factory pool config is invalid");
-  const database = value.database;
-  if (!record(database) || !exact(database, ["credentialsPath", "expectedDatabase", "expectedRole"]) || !absolutePath(database.credentialsPath) || !text(database.expectedDatabase, 256) || !text(database.expectedRole, 256)) throw new Error("factory pool config is invalid");
-  const tls = value.tls;
-  if (!record(tls) || !exact(tls, ["privateKeyPath", "certificatePath", "caPath"]) || Object.values(tls).some(path => !absolutePath(path))) throw new Error("factory pool config is invalid");
-  const tokens = value.tokens;
-  if (!record(tokens) || !exact(tokens, ["issuer", "audience", "publicKeyPaths"]) || !text(tokens.issuer, 512) || !text(tokens.audience, 512) || !textRecord(tokens.publicKeyPaths) || Object.values(tokens.publicKeyPaths).some(path => !absolutePath(path))) throw new Error("factory pool config is invalid");
-  const resources = value.resources;
-  if (!record(resources) || !exact(resources, ["capacities", "gpuHosts"], ["hosts"]) || !record(resources.capacities) || Object.keys(resources.capacities).some(key => !(CAPACITY_CLASSES as readonly string[]).includes(key)) || Object.values(resources.capacities).some(capacity => !integer(capacity, 0, 1_000_000)) || !Array.isArray(resources.gpuHosts) || resources.gpuHosts.length > 10_000 || resources.gpuHosts.some(host => !text(host, 256)) || new Set(resources.gpuHosts).size !== resources.gpuHosts.length || Object.values(resources.capacities).every(value => value === 0) && resources.gpuHosts.length === 0) throw new Error("factory pool config is invalid");
+  return record(value) && exact(value, required, ["readinessHeartbeatMs"]) && value.schemaVersion === CONFIG_SCHEMA && text(value.installationId) && text(value.poolId) && text(value.hostname, 253) && integer(value.port, 1, 65_535) && absolutePath(value.readinessFilePath) && (value.readinessHeartbeatMs === undefined || integer(value.readinessHeartbeatMs, 1_000, 60_000));
+}
+function validDatabase(database: unknown): boolean {
+  return record(database) && exact(database, ["credentialsPath", "expectedDatabase", "expectedRole"]) && absolutePath(database.credentialsPath) && text(database.expectedDatabase, 256) && text(database.expectedRole, 256);
+}
+function validTls(tls: unknown): boolean {
+  return record(tls) && exact(tls, ["privateKeyPath", "certificatePath", "caPath"]) && Object.values(tls).every(path => absolutePath(path));
+}
+function validTokens(tokens: unknown): boolean {
+  return record(tokens) && exact(tokens, ["issuer", "audience", "publicKeyPaths"]) && text(tokens.issuer, 512) && text(tokens.audience, 512) && textRecord(tokens.publicKeyPaths) && Object.values(tokens.publicKeyPaths).every(path => absolutePath(path));
+}
+/** A bounded list of distinct host names. */
+function hostList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.length <= 10_000 && value.every(host => text(host, 256)) && new Set(value).size === value.length;
+}
+function validResources(resources: unknown): resources is PoolResourcesConfig {
+  if (!record(resources) || !exact(resources, ["capacities", "gpuHosts"], ["hosts"]) || !record(resources.capacities) || Object.keys(resources.capacities).some(key => !(CAPACITY_CLASSES as readonly string[]).includes(key)) || Object.values(resources.capacities).some(capacity => !integer(capacity, 0, 1_000_000)) || !hostList(resources.gpuHosts) || Object.values(resources.capacities).every(value => value === 0) && resources.gpuHosts.length === 0) return false;
   const ordinaryHosts = resources.hosts;
-  if (ordinaryHosts !== undefined && (!Array.isArray(ordinaryHosts) || ordinaryHosts.length > 10_000 || ordinaryHosts.some(host => !text(host, 256)) || new Set(ordinaryHosts).size !== ordinaryHosts.length)) throw new Error("factory pool config is invalid");
-  const gpuHosts = new Set(resources.gpuHosts as string[]);
+  if (ordinaryHosts !== undefined && !hostList(ordinaryHosts)) return false;
+  const gpuHosts = new Set(resources.gpuHosts);
   // One host is either a whole-host allocation or an ordinary one, never both:
   // the first binds capacity and the second binds none, and a host declared as
   // each would be two different things under one name.
-  if ((ordinaryHosts as string[] | undefined)?.some(host => gpuHosts.has(host))) throw new Error("factory pool config is invalid");
-  const knownHosts = new Set([...gpuHosts, ...(ordinaryHosts as string[] | undefined ?? [])]);
-  if (!identityConfig(value.identities, knownHosts)) throw new Error("factory pool config is invalid");
+  return !(ordinaryHosts as string[] | undefined)?.some(host => gpuHosts.has(host));
+}
+function knownHosts(resources: PoolResourcesConfig): ReadonlySet<string> {
+  return new Set([...resources.gpuHosts, ...(resources.hosts ?? [])]);
+}
+
+/** Strict reference-only configuration parser. */
+export function parseFactoryPoolProcessConfig(value: unknown): FactoryPoolProcessConfig {
+  if (!validRoot(value) || !validDatabase(value.database) || !validTls(value.tls) || !validTokens(value.tokens) || !validResources(value.resources) || !identityConfig(value.identities, knownHosts(value.resources))) throw new Error("factory pool config is invalid");
   return JSON.parse(JSON.stringify(value)) as FactoryPoolProcessConfig;
 }
 

@@ -1451,3 +1451,15 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - `getByRole("button", { name: "Start run" })` in Playwright is a case-insensitive substring match, so it also matched "Close start run". Use `exact: true` for any button label that another label contains.
 - Queue at most one job on the shared heavy lock. I queued mutation and the journeys together; I had to stop one. Chain the heavy work into one script instead.
 - zsh does not word-split an unquoted `$var`, and `pkill -f <pattern>` kills the calling shell when the pattern is in its own command line. Use `bash -c` for arrays, and stop a server by its port.
+
+## 2026-09-22 — A measured list is stale after a merge (W18a-2)
+
+- Recompute a complexity or CRAP list on the tree you will hand over. Do not trust the list in the brief. The brief
+  named six functions from wave4c. After the W09b merge, `parseFactoryStartupConfig` was at 65 and
+  `parseFactoryPoolProcessConfig` was at 44 instead of 37. Only a fresh run of the gate showed this.
+- A bun coverage run from `web/` writes root files as `SF:../src/...` and web files as `SF:src/...`. Rewrite both
+  prefixes before merging. Otherwise the root coverage of that leg lands under a path no gate reads. The global floor
+  showed this, as a `../../../src/db/migrate.ts` entry.
+- A behaviour-free split can still be proved by more than the existing tests. Run the old function and the new one
+  side by side on generated inputs, and compare exact outputs, including error lists. That is cheap, and it found
+  nothing to fix here, which is the point.
