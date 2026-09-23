@@ -42,7 +42,9 @@ services:
       # the next. Explicit EZCORP_BUILD_COMMIT / EZCORP_BUILD_SOURCE_STATE
       # win; a plain `docker compose` without the wrapper keeps `unknown`.
       args:
+        VERSION: ${EZCORP_BUILD_VERSION:-${EZCORP_BUILD_VERSION_DEFAULT:-dev}}
         REVISION: ${EZCORP_BUILD_COMMIT:-${EZCORP_BUILD_COMMIT_DEFAULT:-unknown}}
+        CREATED: ${EZCORP_BUILD_CREATED:-${EZCORP_BUILD_CREATED_DEFAULT:-unknown}}
         EZCORP_BUILD_SOURCE_STATE: ${EZCORP_BUILD_SOURCE_STATE:-${EZCORP_BUILD_SOURCE_STATE_DEFAULT:-unknown}}
     image: "${EZCORP_IMAGE:-ezcorp:local}"
     # Required for the MCP sandboxed launcher: extensions spawn their

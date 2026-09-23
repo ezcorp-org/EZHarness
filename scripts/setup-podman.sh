@@ -640,8 +640,9 @@ print_consequence() {
     show a standing banner on every page, and refuse to build any bundled
     extension until you acknowledge that exact source digest in the UI.
 
-  If that trade is not acceptable, run the stack on a Linux host with the
-  isolated runner (deploy/extension-runner/README.md) and stop here.
+  If that trade is not acceptable, stop here and run the stack with the
+  isolated runner instead: in Colima on this Mac (docs/macos-local-dev.md,
+  "On Colima: it works"), or on a Linux host (deploy/extension-runner/README.md).
 
 EOF
 }
@@ -998,6 +999,14 @@ while [ "$readiness_timed_out" = 0 ]; do
     rm -f "$ready_probe_tmp"
     ready_probe_tmp=""
     ok "ready: $body"
+    # A rebuild leaves the previous ~4.5 GB image dangling and nothing else
+    # removes it; enough re-runs fill the machine disk. Only superseded,
+    # untagged images carrying this project's label are touched, and only
+    # after the new one is serving. A failure here is reported, not fatal.
+    say "reclaiming superseded images"
+    if ! bash "$REPO_ROOT/scripts/prune-images.sh"; then
+      todo "could not prune superseded images — run: bun run podman:prune"
+    fi
     printf '\nOpen %s and create the admin account.\n' "$admin_url"
     exit 0
   fi

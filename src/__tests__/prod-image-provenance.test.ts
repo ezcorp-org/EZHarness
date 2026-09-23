@@ -35,6 +35,10 @@ describe("prod image provenance", () => {
       expect(wrapper).toMatch(new RegExp(`^export ${exported}$`, "m"));
       expect(compose).toContain(`\${${exported}:-unknown}`);
     }
+    for (const exported of ["EZCORP_BUILD_VERSION_DEFAULT", "EZCORP_BUILD_CREATED_DEFAULT"]) {
+      expect(wrapper).toMatch(new RegExp(`^export ${exported}=`, "m"));
+      expect(compose).toContain(`\${${exported}:-`);
+    }
     expect(compose).toMatch(/^\s+REVISION: \$\{EZCORP_BUILD_COMMIT:-\$\{EZCORP_BUILD_COMMIT_DEFAULT:-unknown\}\}$/m);
   });
 
@@ -42,7 +46,7 @@ describe("prod image provenance", () => {
     const compose = await read("compose.prod.yml");
     const dockerfile = await read("Dockerfile");
     const args = [...compose.matchAll(/^\s{8}([A-Z_]+): \$\{/gm)].map((m) => m[1]);
-    expect(args).toEqual(expect.arrayContaining(["REVISION", "EZCORP_BUILD_SOURCE_STATE"]));
+    expect(args).toEqual(expect.arrayContaining(["VERSION", "REVISION", "CREATED", "EZCORP_BUILD_SOURCE_STATE"]));
     for (const arg of args) expect(dockerfile).toMatch(new RegExp(`^ARG ${arg}=`, "m"));
   });
 
@@ -59,3 +63,4 @@ describe("prod image provenance", () => {
     expect(provenance).toBeLessThan(Math.min(envSha, labelRevision));
   });
 });
+
