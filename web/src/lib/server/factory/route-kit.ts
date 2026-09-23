@@ -108,7 +108,7 @@ export function factoryResponse(value: FactoryApiResponse): Response {
 type FactoryCodedError = Error & { readonly code: string; readonly diagnostics?: unknown };
 
 /** One HTTP answer shared by a set of error codes of one family. */
-interface ErrorAnswer {
+export interface ErrorAnswer {
   readonly status: number;
   readonly message: string;
   readonly codes: ReadonlySet<string>;
@@ -121,13 +121,13 @@ interface ErrorAnswer {
  * to a retryable 500 with the `storage` message, or is rethrown when the family
  * has no such fallback.
  */
-interface ErrorFamily {
+export interface ErrorFamily {
   readonly type: abstract new (...args: never[]) => FactoryCodedError;
   readonly storage: string | null;
   readonly answers: readonly ErrorAnswer[];
 }
 
-function answer(status: number, message: string, ...codes: string[]): ErrorAnswer {
+export function answer(status: number, message: string, ...codes: string[]): ErrorAnswer {
   return { status, message, codes: new Set(codes) };
 }
 
@@ -242,13 +242,29 @@ const ERROR_FAMILIES: readonly ErrorFamily[] = [
   },
 ];
 
+const registeredFamilies: ErrorFamily[] = [];
+
+/**
+ * Adds the error family of a registered dispatcher, so its refusals map to a
+ * status like the built-in ones. It must not name a class a built-in family
+ * already owns. Returns the function that removes it.
+ */
+export function registerFactoryErrorFamily(family: ErrorFamily): () => void {
+  if (ERROR_FAMILIES.some(candidate => candidate.type === family.type)) throw new Error("A built-in factory error family already owns this class.");
+  registeredFamilies.push(family);
+  return () => {
+    const index = registeredFamilies.indexOf(family);
+    if (index >= 0) registeredFamilies.splice(index, 1);
+  };
+}
+
 /**
  * Maps a thrown factory error to its HTTP answer. A 5xx answer is retryable and
  * a 4xx answer is not; an error outside every family is rethrown.
  */
 export function mappedFactoryError(error: unknown): Response {
   if (error instanceof FactoryParseError) return factoryErrorResponse(400, error.code, error.message);
-  const family = ERROR_FAMILIES.find(candidate => error instanceof candidate.type);
+  const family = [...ERROR_FAMILIES, ...registeredFamilies].find(candidate => error instanceof candidate.type);
   if (!family) throw error;
   const { code, diagnostics } = error as FactoryCodedError;
   const found = family.answers.find(candidate => candidate.codes.has(code));
