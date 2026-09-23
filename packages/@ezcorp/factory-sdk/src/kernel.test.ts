@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { compileFactory } from "./compiler";
-import { FactoryKernelError, advanceKernel, createKernelState } from "./kernel";
+import { FACTORY_COMMAND_FAILED_DETAIL_LIMIT, FactoryKernelError, advanceKernel, createKernelState, factoryCommandFailedEvent } from "./kernel";
 import { referenceCodeV1 } from "./references.js";
 import { FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "./types";
 import type { CompiledFactory, FactoryDefinition, FactoryNode, JsonValue } from "./types";
@@ -159,6 +159,114 @@ describe("factory kernel", () => {
     const stopped = advanceKernel(graph, cancelling.nextState, event("uncertain", { kind: "attempt-stopped", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt, uncertain: true }));
     expect(stopped.nextState.status).toBe("stopping");
     expect(stopped.nextState.unresolvedUncertainNodeIds).toEqual(["only"]);
+  });
+
+  test("a failed effect command stops the run and fails it with the typed reason, never a cancel", () => {
+    const graph = compiled([{ id: "only", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "only" } });
+    let state = advanceKernel(graph, createKernelState(graph, "run-command-failed", {}, 0), event("start", { kind: "start" })).nextState;
+    const admission = state.nodes.only!.attempts.at(-1)!;
+    state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: admission.candidateGeneration, granted: true })).nextState;
+    const only = dispatchedAttempt(state, "only");
+    const reason = "FACTORY_COMMAND_FAILED: request-release run:release:request-release:7: factory gateway returned HTTP 500";
+    const failing = advanceKernel(graph, state, event("failed", { kind: "command-failed", commandId: "run:release:request-release:7", error: reason }));
+    // The physical attempt is stopped first, exactly as a run deadline stops it.
+    expect(failing.nextState.status).toBe("stopping");
+    expect(failing.nextState.stopKind).toBe("failed");
+    expect(failing.nextState.stopReason).toBe(reason);
+    expect(failing.commands.map((command) => command.kind)).toEqual(["cancel-node"]);
+    const stopped = advanceKernel(graph, failing.nextState, event("stopped", { kind: "attempt-stopped", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt }));
+    expect(stopped.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error: reason })]);
+    expect(stopped.commands.some((command) => command.kind === "cancel-run")).toBe(false);
+    // Redelivering the same event changes nothing.
+    expect(advanceKernel(graph, stopped.nextState, event("failed", { kind: "command-failed", commandId: "run:release:request-release:7", error: reason })).commands).toEqual([]);
+  });
+
+  test("a failed acceptance effect with no physical work left fails the run at once, and needs a bounded reason", () => {
+    // The shape the started application hit: the candidate is done, and the acceptance node — the
+    // one virtual node — waits on its effect when that effect's command fails.
+    const graph = compiled([
+      { id: "candidate", kind: "task", runner, outputPorts: { candidate: { type: "string" } } },
+      { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: referenceCodeV1.acceptance.id, candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, outputPorts: { acceptedCandidate: { type: "string" } } },
+    ], {});
+    let state = advanceKernel(graph, createKernelState(graph, "run-command-failed-idle", {}, 0), event("start", { kind: "start" })).nextState;
+    const admission = state.nodes.candidate!.attempts.at(-1)!;
+    const admitted = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "candidate", commandId: admission.commandId, candidateGeneration: 0, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    const done = advanceKernel(graph, admitted.nextState, event("done", { kind: "node-result", nodeId: "candidate", commandId: dispatch.id, candidateGeneration: 0, attempt: 1, output: { candidate: "tree" } }));
+    const acceptance = done.commands.find((command) => command.kind === "request-acceptance")!;
+    state = done.nextState;
+    const reason = `FACTORY_COMMAND_FAILED: request-acceptance ${acceptance.id}: factory gateway returned HTTP 500`;
+    const failed = advanceKernel(graph, state, event("failed", { kind: "command-failed", commandId: acceptance.id, error: reason }));
+    expect(failed.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error: reason })]);
+    expect(failed.commands.some((command) => command.kind === "cancel-node")).toBe(false);
+    expect(failed.nextState.status).toBe("failed");
+    expect(failed.nextState.nodes.accept?.status).toBe("failed");
+    expect(() => advanceKernel(graph, state, event("empty", { kind: "command-failed", commandId: acceptance.id, error: "" }))).toThrow(FactoryKernelError);
+    expect(() => advanceKernel(graph, state, event("long", { kind: "command-failed", commandId: acceptance.id, error: "x".repeat(4097) }))).toThrow(FactoryKernelError);
+  });
+
+  test("a validator that crashed or ended uncertain fails the acceptance node in place with its typed reason, and starts no repair", () => {
+    for (const maxRepairs of [0, 2]) {
+      const graph = compiled([
+        { id: "candidate", kind: "task", runner, outputPorts: { candidate: { type: "string" } } },
+        { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: referenceCodeV1.acceptance.id, candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, maxRepairs, outputPorts: { acceptedCandidate: { type: "string" } } },
+      ], {});
+      const state = advanceKernel(graph, createKernelState(graph, `run-validator-crashed-${maxRepairs}`, {}, 0), event("start", { kind: "start" })).nextState;
+      const admission = state.nodes.candidate!.attempts.at(-1)!;
+      const admitted = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "candidate", commandId: admission.commandId, candidateGeneration: 0, granted: true }));
+      const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+      const done = advanceKernel(graph, admitted.nextState, event("done", { kind: "node-result", nodeId: "candidate", commandId: dispatch.id, candidateGeneration: 0, attempt: 1, output: { candidate: "tree" } }));
+      const acceptance = done.commands.find((command) => command.kind === "request-acceptance")!;
+      const failed = advanceKernel(graph, done.nextState, event("crashed", { kind: "node-failed", nodeId: "accept", commandId: acceptance.id, candidateGeneration: 0, attempt: 1, error: "factory_validator_attempt_failed", failureKind: "execution" }));
+      // No repair round: nothing re-dispatches the candidate, and nothing stops a virtual attempt.
+      expect(failed.commands.some((command) => command.kind === "request-admission" || command.kind === "dispatch-node" || command.kind === "cancel-node")).toBe(false);
+      expect(failed.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error: "factory_validator_attempt_failed" })]);
+      expect(failed.nextState.nodes.accept).toMatchObject({ status: "failed", error: "factory_validator_attempt_failed", candidateGeneration: 0 });
+      expect(failed.nextState.stopReason).toBe("factory_validator_attempt_failed");
+    }
+  });
+
+  test("the command-failed builder names the kind, the command, and a bounded detail, with one id per command", () => {
+    const built = factoryCommandFailedEvent({ id: "run:release:request-release:7", kind: "request-release" }, "factory_protected_effect_untrusted", 9);
+    expect(built).toEqual({ kind: "command-failed", id: "run:release:request-release:7:command-failed", atMs: 9, commandId: "run:release:request-release:7", error: "FACTORY_COMMAND_FAILED: request-release run:release:request-release:7: factory_protected_effect_untrusted" });
+    const long = factoryCommandFailedEvent({ id: "c", kind: "k" }, "x".repeat(FACTORY_COMMAND_FAILED_DETAIL_LIMIT + 10), 1);
+    expect(long.error).toBe(`FACTORY_COMMAND_FAILED: k c: ${"x".repeat(FACTORY_COMMAND_FAILED_DETAIL_LIMIT)}`);
+  });
+
+  test("a failed release effect fails the run at once: the release's attempt is the effect, so nothing is left to stop", () => {
+    const graph = compiled([
+      { id: "candidate", kind: "task", runner, outputPorts: { candidate: { type: "string" } } },
+      { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: referenceCodeV1.acceptance.id, candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, outputPorts: { acceptedCandidate: { type: "string" } } },
+      { id: "release", kind: "release", dependsOn: ["accept"], adapter: runner, acceptedCandidate: { kind: "ref", root: "node", name: "accept", path: ["acceptedCandidate"] }, destination: { kind: "literal", value: { target: "t" } }, effects: ["publish"], outputPorts: { receipt: { type: "object", additionalProperties: true } } },
+    ], {});
+    let state = advanceKernel(graph, createKernelState(graph, "run-release-failed", {}, 0), event("start", { kind: "start" })).nextState;
+    const admission = state.nodes.candidate!.attempts.at(-1)!;
+    const admitted = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "candidate", commandId: admission.commandId, candidateGeneration: 0, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    const done = advanceKernel(graph, admitted.nextState, event("done", { kind: "node-result", nodeId: "candidate", commandId: dispatch.id, candidateGeneration: 0, attempt: 1, output: { candidate: "tree" } }));
+    const acceptance = done.commands.find((command) => command.kind === "request-acceptance")!;
+    const accepted = advanceKernel(graph, done.nextState, event("accepted", { kind: "node-result", nodeId: "accept", commandId: acceptance.id, candidateGeneration: 0, attempt: 1, output: { acceptedCandidate: "tree" } }));
+    const release = accepted.commands.find((command) => command.kind === "request-release")!;
+    state = accepted.nextState;
+    const reason = `FACTORY_COMMAND_FAILED: request-release ${release.id}: factory gateway returned HTTP 500`;
+    const failed = advanceKernel(graph, state, event("failed", { kind: "command-failed", commandId: release.id, error: reason }));
+    expect(failed.commands.some((command) => command.kind === "cancel-node")).toBe(false);
+    expect(failed.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error: reason })]);
+    expect(failed.nextState.status).toBe("failed");
+    expect(failed.nextState.nodes.release).toMatchObject({ status: "failed", error: reason });
+  });
+
+  test("a failed dispatch still stops its task, because a lost response may hide a launch that committed", () => {
+    const graph = compiled([{ id: "only", kind: "task", runner }], {});
+    let state = advanceKernel(graph, createKernelState(graph, "run-dispatch-failed", {}, 0), event("start", { kind: "start" })).nextState;
+    const admission = state.nodes.only!.attempts.at(-1)!;
+    const admitted = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: 0, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    state = admitted.nextState;
+    const failed = advanceKernel(graph, state, event("failed", { kind: "command-failed", commandId: dispatch.id, error: "FACTORY_COMMAND_FAILED: dispatch-node" }));
+    expect(failed.commands.filter((command) => command.kind === "cancel-node").map((command) => command.nodeId)).toEqual(["only"]);
+    expect(failed.nextState.status).toBe("stopping");
+    expect(failed.nextState.stopReason).toBe("FACTORY_COMMAND_FAILED: dispatch-node");
   });
 
   test("cancelling a map stops admitted items and never opens a blocked index", () => {

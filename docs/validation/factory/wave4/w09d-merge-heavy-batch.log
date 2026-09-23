@@ -1,0 +1,20 @@
+queued 2026-09-23T10:31:27Z
+=== W09d merge heavy batch ===
+lock acquired: 2026-09-23T12:38:05Z
+tree: ceb995563bbce6e1c3f53f2755ca2b9239831f88 + staged merge of d41f16a1dab06b2170ab9da5a6db607e804a42ea
+--- START postgres-producers 2026-09-23T12:38:05Z
+--- END   postgres-producers 2026-09-23T12:39:29Z exit=0
+--- START orchestrator-leg 2026-09-23T12:39:29Z
+--- END   orchestrator-leg 2026-09-23T12:41:28Z exit=0
+--- START podman-podman.integration 2026-09-23T12:41:28Z
+--- END   podman-podman.integration 2026-09-23T12:42:49Z exit=0
+--- START podman-attempt-runtime.integration 2026-09-23T12:42:49Z
+--- END   podman-attempt-runtime.integration 2026-09-23T12:43:03Z exit=0
+--- START podman-supervisor.podman.integration 2026-09-23T12:43:03Z
+--- END   podman-supervisor.podman.integration 2026-09-23T12:43:15Z exit=0
+--- START podman-package-preparation.podman.integration 2026-09-23T12:43:15Z
+--- END   podman-package-preparation.podman.integration 2026-09-23T12:43:25Z exit=0
+--- START real-server-pass 2026-09-23T12:43:25Z
+--- END   real-server-pass 2026-09-23T12:44:44Z exit=0
+BATCH DONE status=0 2026-09-23T12:44:44Z
+wrapper exit=0 2026-09-23T12:44:44Z

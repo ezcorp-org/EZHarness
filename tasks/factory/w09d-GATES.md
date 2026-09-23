@@ -1,0 +1,177 @@
+# W09d — compose validators into the installation
+
+Owner: coordinator-added sub-package of W09. Branch `wp/w09d-validators` from
+`integ/w00` at `260855e57`. Evidence directory: `/tmp/factory-platform-evidence/w09d/`.
+Full report: `/tmp/factory-platform-evidence/w09d/report.txt`.
+
+W09c measured that acceptance was not composed in production: the gateway was
+built with an empty runtime set, the startup document could not declare a
+validator, no material was ever registered, and nothing scheduled a validator.
+This package composes W05's pieces from a declaration and adds no rule of its
+own; admission, binding, evidence, and the verdict stay W05's.
+
+## What changed
+
+- `validators.runtimes[]` in the startup document (`startup-config.ts`): name,
+  kind (`podman-guest`), the runner lock (with its configuration digest), the
+  material path, and the material digest. `validator-declaration.ts` reads each
+  file through the private bounded reader and refuses by name:
+  `factory_validator_declaration_unreadable` (missing, shared, oversized),
+  `factory_validator_declaration_digest_mismatch`, and
+  `factory_validator_declaration_invalid` (not a runtime, or another runner or
+  kind than the document declares).
+- `validator-composition.ts`: the gateway from the declaration (a runtime W05
+  refuses is named, `factory_validator_runtime_rejected`), the resource policy
+  W05's scheduler asks for (live `factory.run` grant of the run's initiator, the
+  runtime's resource class from `runnerProfiles`), the settlement router that
+  lets the ONE attempt dispatcher settle a validator attempt through
+  `FactoryValidatorAttemptDispatch` (routed by the durable assignment row), and
+  material registration once per published version per process.
+- `validator-acceptance.ts`: `request-acceptance` records the current
+  candidate, schedules the missing validators, and answers `null`. The
+  `validator-scheduling` role reserves, admits once the pool admits, and when
+  every claim's attempt has a completed terminal it decides through
+  `decideAcceptance` (the unchanged `requestAcceptance` with a hook) and
+  delivers the event through `FactoryInbox` in the same transaction as the
+  receipt. A validator attempt that fails (`delivered` with no terminal,
+  `cancelled`, `dead_letter`) is answered with the typed failure
+  `factory_validator_attempt_failed`; an unknown outcome with
+  `factory_validator_attempt_uncertain`. Coordinator ruling 2026-09-23 (round 3,
+  F2): such a validator judged nothing, so this is NOT a rejection. The event
+  carries `failureKind: execution`; the kernel fails the virtual acceptance
+  node in place with the typed reason, starts no repair round, and the reason
+  is the projected run error (only a strict FAIL report is
+  `acceptance_rejected`). Every claim is visited on every pass (F3): a
+  completed claim settles its own reservation even when another claim failed,
+  the typed failure waits until every claim is terminal, and each failed
+  claim's reservation is held uncertain in the event's transaction, so the
+  envelope closes only after reconciliation settles them. With no validator composed, `request-acceptance` refuses at once:
+  `factory_validator_none_declared`, or `factory_validator_unavailable` with
+  the composition's reason.
+- `runtime-workers.ts`: roles `validator-material-registration` and
+  `validator-scheduling`, held together with a named reason when nothing is
+  declared or the declaration did not compose. Readiness now carries each held
+  role's reason (`runtime-composition.ts`).
+- `installation-startup.ts`: the validator region builds the gateway from the
+  declaration, composes the roles, routes the dispatcher's settlement, and maps
+  the private service's `request-acceptance`. The public release operations
+  supplier (`createReleaseOperations`) is W09c's by ruling and is NOT composed
+  here; the proof carries it as a disclosed proof-only commit.
+- Changes to surfaces this package consumes, each ruled by the coordinator:
+  - `FactoryProtectedCommandEffects.recordCurrentCandidate` and
+    `decideAcceptance` (`src/factory/protected-command-effects.ts`).
+    Coordinator ruling 2026-09-22: approved for W09d as the fourth writer of
+    protected-command-effects.ts; W05 inherits it. Additive: `requestAcceptance`
+    now delegates to `decideAcceptance` with no hook, byte-for-byte the same
+    decision.
+  - `FactoryReleaseAuthorityStore.completeCurrentCandidateInTransaction`
+    (`src/factory/release-authority.ts`) reads a recorded candidate terminal
+    through the journal's historical reader instead of re-recording it; the
+    first completion keeps its live authorization, a different result refuses
+    `factory_release_candidate_conflict`. Coordinator ruling 2026-09-22:
+    approved for W09d; W05 inherits it; found only by real timing on the
+    started application (the existing tests pin the clock).
+  - `FactoryDefinitions.readPublishedInTransaction`: the existing read without
+    a principal, which the authorized read now calls. Coordinator ruling
+    2026-09-22: approved for W09d; W05 inherits.
+  - The kernel event `command-failed` (`packages/@ezcorp/factory-sdk/src/kernel-types.ts`,
+    `kernel.ts`; owner Sol controls) and its delivery in the orchestrator workflow
+    (`packages/@ezcorp/factory-orchestrator/src/workflow.ts`; owner W09). Coordinator
+    ruling 2026-09-22 (round 2, O5): landed by W09d at the root the reproduction
+    named; the owners inherit it.
+  - `readPrivatePath` in `private-files.ts`, byte-identical to W01g's helper of
+    the same name so the two branches add one reader, not two.
+  - `factoryCommandFailedEvent` in the kernel (`packages/@ezcorp/factory-sdk/src/kernel.ts`;
+    owner Sol controls), one builder for the `command-failed` event, used by the
+    orchestrator workflow (owner W09) and by `factoryNamedRefusalEffect` in
+    `private-service-composition.ts`. A refused effect now answers the event
+    itself with the refusal's name (for example
+    `FACTORY_COMMAND_FAILED: request-release <command>: factory_protected_effect_untrusted`),
+    and the workflow takes an activity's detail from its cause, not Temporal's
+    "Activity task failed" wrapper (F4). The outcome is unchanged: an effect
+    runs once and any failure of it already failed the run. Coordinator ruling
+    2026-09-23 (round 3, F4): approved for W09d; the owners inherit it.
+  - `src/__tests__/helpers/factory-run-lifecycle-suite.ts` (owner W06): W09d
+    adds test cases only (about 240 lines: the composed validator acceptance
+    fixture, registration, the role end to end, the typed validator failure with
+    the envelope held until reconciliation, `recordCurrentCandidate`, and the
+    candidate re-derivation with an injected clock). No existing case changes.
+    Coordinator ruling 2026-09-23 (round 3, F5): approved for W09d; W06
+    inherits it.
+  - `src/factory/plain-values.ts` (new, F7): the one `isPlainRecord` guard and
+    the one `factoryErrorCode` reader, used by `startup-config.ts`,
+    `validator-declaration.ts`, `validator-composition.ts`, and
+    `validator-acceptance.ts` in place of their private copies. Older copies
+    in files this package does not own are left to their owners.
+- Harness finding, recorded: the validator's runner reference (the package plus
+  its configuration digest) is a separate package reference. It must be bound,
+  trusted, and prepared for the project like any runner; otherwise the
+  dispatcher refuses the admitted attempt `runner_package_denied` (measured).
+  That is a deployment step, not a composition gap: the harness performs it with
+  the product's own classes, as it does for the task package.
+
+## Gates
+
+- [x] G0: The reproduction at the base: a run whose graph carries an acceptance node reaches no validator attempt in the real application.
+  CHECK: `W09D_REPO=.worktrees/w09d-proof-base W09D_MODE=reproduction W09D_LABEL=reproduction bash /tmp/factory-platform-evidence/w09d/repro/one-run.sh` (inside `all-proofs.sh`, under the heavy lock)
+  EXPECT: no row in `factory_validator_materials`, no protected-validator admission or attempt, the contract route refuses `factory_release_application_unavailable`, and the acceptance command refuses
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/reproduction.json` (base `2ddd5fd16` = integ/w00 `94fb95b6a` + wp/w01g-staging `179674cbf`): contract 503 `factory_release_application_unavailable`; the candidate COMPLETED; `request-acceptance` refused `factory_assurance_not_found` (private service 500, workflow failed); zero materials, admissions, assignments, validator attempts; the run stayed `running` (a failed workflow is never projected — recorded, not W09d's). Judged by `/tmp/factory-platform-evidence/w09d/judged.json`.
+
+- [x] G1: The declaration is validated, and every refusal is named.
+  CHECK: `bun test --timeout 30000 ./src/factory/startup-config.test.ts ./src/factory/validator-declaration.test.ts`
+  EXPECT: exit 0; missing, shared, oversized, tampered, malformed, other-runner and other-kind materials each refuse by their code and name the runtime, never the bytes
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/focused-suites.json`
+
+- [x] G2: The composition: nothing declared holds both roles with a reason readiness shows; a declaration composes both roles over the shared stores; each missing collaborator holds them by name.
+  CHECK: `bun test --timeout 30000 ./src/factory/installation-startup.test.ts ./src/factory/runtime-workers.test.ts ./src/factory/runtime-composition.test.ts ./src/factory/private-service-composition.test.ts ./src/factory/validator-composition.test.ts ./src/factory/validator-acceptance.test.ts`
+  EXPECT: exit 0
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/focused-suites.json`
+
+- [x] G3: Against real stores (PGlite and real PostgreSQL): registration is idempotent across two concurrent processes and a restart, and refuses a changed or undeclared runtime by name; the role schedules, admits, runs through the shared dispatcher, and delivers an acceptance exactly once; a restarted role writes no second plan or event; a foreign tenant or run is refused; a failing claim is delivered as a rejection; a validator attempt that never completes gets the typed `execution` failure once, and the envelope closes only after its uncertain hold settles; recordCurrentCandidate is idempotent and refuses a foreign or stale reference by name (`factory_protected_effect_scope`, `factory_command_forbidden`, `factory_transition_command_not_found`); the candidate re-derivation succeeds after the lease (injected clock), is unchanged before it, refuses a stale fence and a missing terminal by name, and converges under concurrency.
+  CHECK: `bun test --timeout 120000 ./src/__tests__/factory-run-lifecycle.test.ts`; `flock --close /tmp/ezcorp-validation-heavy.lock timeout 2400 bash /tmp/factory-platform-evidence/w09d/repro/postgres-producers.sh`
+  EXPECT: both exit 0
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/focused-suites.json` (21 files, all pass), `/tmp/factory-platform-evidence/w09d/receipts/postgres-producers.json` at `8f9f8913a` (7 files, all pass: lifecycle 66, lifecycle-s3 66, validator-materials 9, multiclaim 3, boot 1, schema 2, private-service 5)
+
+- [x] G4: The real started application, three passes on fresh product databases, from this branch plus wp/w01g-staging only (the brief's sanctioned merge; no proof-only product commit): a validator attempt runs in Podman, the strict report is recorded, the acceptance is journaled and projected, the release node reaches requestRelease, and the run then ends failed with a projected `FACTORY_COMMAND_FAILED` reason (O5).
+  CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 14400 bash /tmp/factory-platform-evidence/w09d/repro/round5.sh`, judged by `W09D_REQUIRE_PROJECTED_FAILURE=1 W09D_REQUIRE_NAMED_REFUSAL=1 python3 repro/judge.py`
+  EXPECT: `proof-1..3` and both controls pass the judge
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/proof-1.json`, `proof-2.json`, `proof-3.json`, `three-passes.json`, `judged.json`, `logs/round5-wrapper.log`. Producing commit `ceada04f5` (clean) = this branch at `8f9f8913a` (the final product code, integ/w00 `578692e8a` merged) merged with wp/w01g-staging `f00605f72`; no proof-only product commit. Each pass: the validator ran in Podman and COMPLETED, a strict PASS result, decision `accepted`, the event applied by the kernel, the validator reservation `settled`, `request-release` issued and refused `factory_protected_effect_untrusted` (no profile, W09c), and the run ended `failed` with `FACTORY_COMMAND_FAILED: request-release <command>: factory_protected_effect_untrusted` projected (the refusal's name, F4). Round 4 at `e99533e4a`, which projected only "Activity task failed": `attempts/round4-e99533e4a/`. The public contract route is W09c's and not on this branch, so the harness writes the operator's approval through the product's own `FactoryAssurance.approveContract` (`assuranceSteps.contractDirect`), as it installs the runner package. Earlier rounds: `attempts/`.
+
+- [x] G5: Negative controls on the real application.
+  CHECK: the same `run-three.sh` (modes `undeclared` and `tampered`)
+  EXPECT: undeclared: no validator runs and `factory_validator_runtime_untrusted` is named; tampered: no validator runs and `factory_validator_declaration_digest_mismatch` is named at startup, with both roles held
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/negative-undeclared.json` (`factory_validator_runtime_untrusted` at registration, `factory_validator_material_missing` at the acceptance command, no admission or attempt, run ended `failed` with `FACTORY_COMMAND_FAILED: request-acceptance <command>: factory_validator_material_missing`), `negative-tampered.json` (`factory_validator_declaration_digest_mismatch: w09d-claim` at startup, both roles held with that reason, the acceptance command refused `factory_validator_unavailable` at once, run ended `failed` with that name projected). Same producing commit as G4.
+
+- [x] G6: 100 percent coverage of every new file and every changed line.
+  CHECK: merge the focused LCOVs into `coverage/lcov.info`, then `BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts && BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts`
+  EXPECT: both exit 0
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/coverage-gates.json` (focused legs, the orchestrator node leg, and the PostgreSQL legs merged)
+
+- [x] G8: The orchestrator side on the Temporal test server: the kernel keeps an acceptance node waiting on a null effect and completes it once from its inbox event (a duplicate signal applies once); a typed rejection from the inbox fails the node without a cancel-node.
+  CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 1800 bash -c 'cd packages/@ezcorp/factory-orchestrator && npx tsc -b tsconfig.build.json --force && node --test --experimental-strip-types test/temporal-replay.test.ts'`
+  EXPECT: exit 0, both new cases pass, and their histories replay
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/logs/orchestrator-leg.log` and `coverage-orchestrator/test-progress.log`: the package's whole node --test set with coverage at `8f9f8913a`, 86 pass, 0 fail, including the acceptance-by-inbox case, the typed validator failure at maxRepairs 0 and 2 (no repair, typed reason), the effect-failed case (detail from the activity's cause), and the named command-failed case, all replayed. Earlier: `logs/orchestrator-temporal.log`, `logs/orchestrator-coverage-attempt1-progress.log` (one failed assertion, a parse in my test, fixed in `71f4caf3d`).
+
+- [x] G9: O1 and O5 are closed with tests (see Open).
+  CHECK: `bun test --timeout 120000 ./src/__tests__/factory-run-lifecycle.test.ts ./src/factory/validator-acceptance.test.ts ./packages/@ezcorp/factory-sdk/src/kernel.test.ts`; the orchestrator leg in `round3.sh`
+  EXPECT: all pass
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/focused-suites.json`, `/tmp/factory-platform-evidence/w09d/logs/orchestrator-leg.log`, and the round-4 proof (reservations `settled`, runs `failed` with a projected reason)
+
+- [x] G10: Round 3 (validator ACCEPT-WITH-FIXES at `d1a0f31e0`): F1 to F7.
+  CHECK: `bun test ./scripts/factory-c13-inventory.test.ts`; `bun test ./src/factory/validator-acceptance.test.ts ./src/factory/plain-values.test.ts ./src/factory/private-service-composition.test.ts ./packages/@ezcorp/factory-sdk/src/kernel.test.ts`; the lifecycle suite on PGlite and PostgreSQL; the orchestrator leg; the proof judged with `W09D_REQUIRE_NAMED_REFUSAL=1`
+  EXPECT: all pass; a crashed validator starts no repair and projects its typed reason; a two-claim failure settles the completed claim and holds the failed one; the envelope closes only after that hold settles; each projected effect failure names its refusal; the foreign refusals are asserted by name
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/focused-suites.json` (21 files), `receipts/postgres-producers.json`, `logs/orchestrator-leg.log` and `coverage-orchestrator/test-progress.log` (86 of 86), `judged.json` (all six pass with the named-refusal check), `receipts/coverage-gates.json`
+
+- [x] G7: No gate weakened, and the static gates are green at the final head.
+  CHECK: `bun run typecheck && bun run lint && bun scripts/check-factory-boundaries.ts && bun scripts/gate-integrity.ts`
+  EXPECT: all exit 0
+  EVIDENCE: `/tmp/factory-platform-evidence/w09d/receipts/typecheck.json`, `lint.json`, `boundaries.json`, `gate-integrity.json`, `postgres-suite-registration.json`
+
+## Open, and why
+
+- [x] O1 (ruled to W09d, round 2): the validator reservation is settled by the scheduling role on a completed terminal, with the measured usage and the terminal fact digest, idempotently; a failed or uncertain attempt's hold is marked uncertain under the typed reason for the usage-reconciliation role. Tests: the lifecycle suite (settled once, a restart settles nothing twice; a dead-lettered attempt held `uncertain` / `factory_validator_attempt_failed`) and the driver unit tests. Previously: `FactoryValidatorAttemptDispatch` records the terminal fact and nothing settles the protected-validator budget reservation or releases its pool lease, so the reservation stays `running` and the root envelope cannot close while it does. W05's settlement; raised as a question, not changed.
+- [ ] O2 (ruled to W14): No public read of a version's registered validator lock. The operator needs the lock digest to publish trust and approve the contract; the proof reads `factory_validator_materials`. The console (W14) owns the read.
+- [ ] O3 (ruled to W09c): A published release. The release node's `request-release` reaches `requestRelease`, which refuses `factory_protected_effect_untrusted` because no release profile is composed for its adapter. W09c owns release profiles.
+- [ ] O4 (ruled to W14): The public contract route answers an opaque 500 when the named lock has no registered material. `FactoryTrustedValidatorError` (`factory_validator_material_missing`) is not mapped in `web/src/routes/api/factories/_shared.ts`, which W18a-2 owns; a named 4xx belongs there.
+- [x] O5 (ruled to W09d, round 2): fixed at the root. Reproduced first in every receipt before the fix (`reproduction.json` and `attempts/round2-with-proof-only-commit/`: the workflow failed `FACTORY_COMMAND_FAILED`, the run stayed `running`). The workflow now delivers a `command-failed` kernel event instead of throwing; the kernel stops and fails the run with the typed reason through `beginStopping`/`fail-run`, a recorded transition the projector turns into a failed run. The kernel also fails an acceptance or release node in place when its own effect command failed (its attempt IS that command; a cancel-node for it could never resolve, measured in `attempts/round3-release-stuck-stopping/`); task nodes keep the ordinary stop. Tests: `packages/@ezcorp/factory-sdk/src/kernel.test.ts` (four cases), the orchestrator's Temporal suite (the effect-failed case, with replay), and the round-3 proof judged with the projected-failure check. Owners: Sol controls (kernel), W09 (workflow). Previously: At the base, and in the proof on the release node's refusal, the Temporal workflow fails on a refused effect and nothing projects it. Not W09d's; measured in every receipt's `statusTimeline`.
+- [x] O6: The W05 defect. Merged by ruling (see "Changes to surfaces"); tests in the lifecycle suite.
