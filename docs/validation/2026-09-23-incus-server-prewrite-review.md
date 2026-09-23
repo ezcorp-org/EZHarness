@@ -147,8 +147,27 @@ The host-side evidence points to a DHCP/DNS firewall mismatch. At NixOS source H
            my.devContainer.enable = true;
 ```
 
-This source change and any host activation are **separate, unapproved work**. The NixOS checkout has unrelated local edits, so prepare a clean, reviewed source revision containing only this line. Check that `nix eval --raw /home/dev/work/nixos#nixosConfigurations.sandbox-server.config.my.incus.bridgeName` returns `ezharness0`. On the server, `sudo nixos-rebuild test --flake /home/dev/work/nixos#sandbox-server` would change the live firewall for a temporary trial; read back its exact nft input permits and retest DHCP/DNS in a disposable guest before a separately reviewed `sudo nixos-rebuild switch --flake /home/dev/work/nixos#sandbox-server` makes the change persistent. Neither rebuild command nor a new guest test was run for this packet. Do not rerun the builder until host networking is qualified, then use the same pinned artifacts and record the new build outcome.
+The proposed source change is now committed in an isolated server-side Nix worktree at `/tmp/ezh-nixos-bridge-review-20260923` as `f143071eb533d90788d16caa386e6641242cdac9`. It starts from host source HEAD `71be0630893b82be3084b1014774668db9110520` and changes only that one `flake.nix` line; `git diff --check` passed and the worktree is clean. Read-only Nix evaluation gave `my.incus.bridgeName = ezharness0` and an interface firewall allowance of TCP 53 and UDP 53/67. Offline `nix build --no-link` succeeded, producing `/nix/store/spkx13gcwryacv7fd7sx3mrw1q351mg8-nixos-system-sandbox-server-26.05.20260430.15f4ee4`. The **active** nft input rules still permit those ports only on `incusbr0`. No host activation or disposable-guest retest has occurred.
+
+The canonical `/home/dev/work/nixos` checkout has unrelated local edits. Integrate only reviewed commit `f143071e` into the intended canonical host source revision, preserving those edits. Check the resulting source and `nix eval --raw /home/dev/work/nixos#nixosConfigurations.sandbox-server.config.my.incus.bridgeName` before activation. The next proposed live command is `sudo nixos-rebuild test --flake /home/dev/work/nixos#sandbox-server`; **this is a separate, unapproved server mutation**. Read back nft input permits for `ezharness0`, then prove DHCP and DNS in a disposable guest. After that proof, `sudo nixos-rebuild switch --flake /home/dev/work/nixos#sandbox-server` is a separate persistent host change. Neither command has run.
+
+Source commit `edd2072d3` adds a bounded guest-network readiness check before APT. Its exact `build-guest-image.sh` bytes were copied to `/tmp/ezh-incus-image-inputs-20260923/build-guest-image-next.sh` (6,964 bytes, mode `0755`); SHA-256 is `4c99b8b464e29899b5df07aec9dfc5588adcaa3a7bfee640b1cdf1fc4f2d7d5f`, and `bash -n` passed. This version is **not on the server**. After reviewed `nixos-rebuild test`, a passing disposable-guest DHCP/DNS proof, and the separately reviewed persistent `switch`, transfer it to the existing private server stage as `build-guest-image.sh`, replacing the previous hash `716e5d7bd23d76c2a0a0dd40dba13d762a5fcde05aa2775c538ad6b10a7b448d`. Verify the new server hash before rerunning the exact builder command in the [apply plan](2026-09-23-incus-server-apply-plan.md). Do not infer a published guest fingerprint from either source digest.
+
+```sh
+scp -O -F /dev/null -i /home/dev/.ssh/id_ed25519_personal \
+  -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+  -o GlobalKnownHostsFile=/dev/null -o UpdateHostKeys=no \
+  -o UserKnownHostsFile=/home/dev/.ssh/known_hosts \
+  /tmp/ezh-incus-image-inputs-20260923/build-guest-image-next.sh \
+  dev@sandbox-server.taile1c5b0.ts.net:/home/dev/ezh-incus-image-20260923/build-guest-image.sh
+ssh -F /dev/null -i /home/dev/.ssh/id_ed25519_personal \
+  -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes \
+  -o GlobalKnownHostsFile=/dev/null -o UpdateHostKeys=no \
+  -o UserKnownHostsFile=/home/dev/.ssh/known_hosts \
+  dev@sandbox-server.taile1c5b0.ts.net \
+  'sha256sum /home/dev/ezh-incus-image-20260923/build-guest-image.sh'
+```
 
 ## Open gates
 
-The reviewed-image gate is **not complete**. The base image is imported; the bootstrap pool and bridge have a passing apply receipt and verification; and the revised builder is transferred with the expected hash. The first build failed on guest networking. A reviewed host firewall correction, passing DHCP/DNS guest proof, successful image build, published fingerprint, helper check inside a live guest, and nested Compose qualification remain open. The full setup plan is blocked. After a guest image is published, review its fingerprint and a fresh engine-generated full setup plan digest before any full setup apply. Live guest qualification remains separate.
+The reviewed-image gate is **not complete**. The base image is imported; the bootstrap pool and bridge have a passing apply receipt and verification; and the previous builder remains on the server at its verified hash. The first build failed on guest networking. The one-line host correction is built and committed offline, but host activation, DHCP/DNS guest proof, new builder transfer, successful image build, published fingerprint, helper check inside a live guest, and nested Compose qualification remain open. The full setup plan is blocked. After a guest image is published, review its fingerprint and a fresh engine-generated full setup plan digest before any full setup apply. Live guest qualification remains separate.
