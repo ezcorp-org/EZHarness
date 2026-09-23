@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INCUS_PROVIDER_ID, incusManifest } from "../../extensions/incus-sandbox/manifest";
@@ -73,6 +73,44 @@ test("connection metadata must match the actual known-hosts key", async () => {
     otherKey[otherKey.length - 1] = (otherKey[otherKey.length - 1] ?? 0) ^ 1;
     await writeFile(knownHosts, `host.example ssh-ed25519 ${encodedKey}\nhost.example ssh-ed25519 ${otherKey.toString("base64")}\n`);
     await expect(verifyKnownHostPin(connection)).rejects.toThrow("does not match");
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("guest image builder refuses unpinned, mismatched, and changed inputs before launch", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "incus-image-build-"));
+  try {
+    const image = checkedInRecipe.guestImage;
+    const docker = join(directory, "docker.tgz");
+    const compose = join(directory, "compose");
+    const helper = join(directory, "helper.py");
+    const recipePath = join(directory, "recipe.json");
+    await Promise.all([writeFile(docker, "docker"), writeFile(compose, "compose"), writeFile(helper, "helper")]);
+    const hash = (value: string) => createHash("sha256").update(value).digest("hex");
+    const pins = { ...image, sourceFingerprint: "b".repeat(64), pythonPackageVersion: "3.11.2-6+deb12u1",
+      dockerArchiveSha256: hash("docker"), composeSha256: hash("compose"), helperSha256: hash("helper") };
+    const args = [recipePath, pins.sourceFingerprint, pins.pythonPackageVersion, docker, pins.dockerArchiveSha256,
+      compose, pins.composeSha256, helper, pins.helperSha256, pins.alias];
+    const run = () => Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args]);
+
+    await writeFile(recipePath, JSON.stringify({ guestImage: image }));
+    expect(run().stderr.toString()).toContain("reviewed recipe pins");
+
+    await writeFile(recipePath, JSON.stringify({ guestImage: pins }));
+    args[1] = "c".repeat(64);
+    expect(run().stderr.toString()).toContain("reviewed recipe pins");
+    args[1] = pins.sourceFingerprint;
+    await writeFile(docker, "changed docker");
+    expect(run().exitCode).not.toBe(0);
+
+    await writeFile(docker, "docker");
+    const incus = join(directory, "incus");
+    await writeFile(incus, `#!/bin/sh\nprintf '[{"name":"${pins.alias}"}]\\n'\n`);
+    await chmod(incus, 0o755);
+    const guarded = Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args],
+      { env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}` } });
+    expect(guarded.stderr.toString()).toContain("image alias already exists");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

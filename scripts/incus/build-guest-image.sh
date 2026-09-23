@@ -2,20 +2,21 @@
 # Run on the approved Incus server only after the input fingerprints are reviewed.
 set -euo pipefail
 
-if [ "$#" -ne 9 ]; then
-  echo 'usage: build-guest-image.sh BASE_FINGERPRINT PYTHON_PACKAGE_VERSION DOCKER_TAR DOCKER_SHA256 COMPOSE_BINARY COMPOSE_SHA256 HELPER_PY HELPER_SHA256 ALIAS' >&2
+if [ "$#" -ne 10 ]; then
+  echo 'usage: build-guest-image.sh RECIPE_JSON BASE_FINGERPRINT PYTHON_PACKAGE_VERSION DOCKER_TAR DOCKER_SHA256 COMPOSE_BINARY COMPOSE_SHA256 HELPER_PY HELPER_SHA256 ALIAS' >&2
   exit 2
 fi
 
-base_fingerprint=$1
-python_version=$2
-docker_tar=$3
-docker_sha=$4
-compose_binary=$5
-compose_sha=$6
-helper_file=$7
-helper_sha=$8
-alias=$9
+recipe_file=$1
+base_fingerprint=$2
+python_version=$3
+docker_tar=$4
+docker_sha=$5
+compose_binary=$6
+compose_sha=$7
+helper_file=$8
+helper_sha=$9
+alias=${10}
 
 for value in "$base_fingerprint" "$docker_sha" "$compose_sha" "$helper_sha"; do
   if [[ ! "$value" =~ ^[a-f0-9]{64}$ ]]; then echo 'expected exact SHA-256 fingerprint' >&2; exit 2; fi
@@ -23,9 +24,23 @@ done
 if [[ ! "$python_version" =~ ^[A-Za-z0-9.+:~_-]{1,128}$ ]] || [[ ! "$alias" =~ ^[a-z][a-z0-9-]{0,62}$ ]]; then
   echo 'invalid pinned package version or alias' >&2; exit 2
 fi
-for artifact in "$docker_tar" "$compose_binary" "$helper_file"; do
+for artifact in "$recipe_file" "$docker_tar" "$compose_binary" "$helper_file"; do
   if [ ! -f "$artifact" ]; then echo "missing artifact: $artifact" >&2; exit 2; fi
 done
+python3 - "$recipe_file" "$base_fingerprint" "$python_version" "$docker_sha" "$compose_sha" "$helper_sha" "$alias" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    image = json.load(source)["guestImage"]
+expected = (image["sourceFingerprint"], image["pythonPackageVersion"],
+            image["dockerArchiveSha256"], image["composeSha256"],
+            image["helperSha256"], image["alias"])
+if any(value is None for value in expected) or tuple(sys.argv[2:]) != expected:
+    sys.exit("build inputs do not match the reviewed recipe pins")
+if image["user"] != "sandbox" or image["uid"] != 1000 or image["gid"] != 1000:
+    sys.exit("guest identity does not match the reviewed recipe")
+PY
 printf '%s  %s\n' "$docker_sha" "$docker_tar" "$compose_sha" "$compose_binary" "$helper_sha" "$helper_file" | sha256sum --check --status
 
 name="ezh-build-$(date +%s)-$$"
