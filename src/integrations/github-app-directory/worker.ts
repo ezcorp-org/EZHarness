@@ -1,4 +1,4 @@
-/// <reference path="../../../worker/github-connect/worker-configuration.d.ts" />
+/// <reference path="../../../services/github-connect/worker-configuration.d.ts" />
 
 const RESPONSE_HEADERS = {
   "cache-control": "no-store",
