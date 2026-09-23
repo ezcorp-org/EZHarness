@@ -42,6 +42,24 @@ function parse<T>(value: unknown): T { return typeof value === "string" ? JSON.p
 function files(snapshot: ValidatedSnapshot): SnapshotFileInput[] { return snapshot.files.map(file => ({ path: file.path, mode: file.mode, data: Buffer.from(file.bytes).toString("base64"), sha256: file.sha256 })); }
 function sha(value: unknown): string { return createHash("sha256").update(canonicalJson(value)).digest("hex"); }
 function validId(value: string): boolean { return /^[A-Za-z0-9_-]{1,128}$/.test(value); }
+const PUBLICATION_LEASE_SECONDS = 300;
+const PUBLICATION_HEARTBEAT_MS = 15_000;
+interface ProposalIdentity {
+  ownerId: string; conversationId: string; runId: string; projectId: string; bindingId: string;
+  workspaceRevision: number; providerGeneration: number; resourceId: string; repositoryId: number;
+  baseRef: string; baseSha: string; baseDigest: string; importId: string; snapshotId: string;
+  treeDigest: string; connectionGeneration: number; githubAccountId: number;
+  operationId: string; branch: string; title: string; body: string;
+}
+function digestProposal(identity: ProposalIdentity): string { return sha(identity); }
+function identityFromRow(row: Row, title: string, body: string): ProposalIdentity {
+  return { ownerId: String(row.owner_id), conversationId: String(row.conversation_id), runId: String(row.run_id), projectId: String(row.project_id),
+    bindingId: String(row.binding_id), workspaceRevision: Number(row.workspace_revision), providerGeneration: Number(row.provider_generation),
+    resourceId: String(row.resource_id), repositoryId: Number(row.repository_id), baseRef: String(row.base_ref), baseSha: String(row.base_sha),
+    baseDigest: String(row.base_digest), importId: String(row.import_id), snapshotId: String(row.artifact_id), treeDigest: String(row.tree_digest),
+    connectionGeneration: Number(row.connection_generation), githubAccountId: Number(row.github_account_id), operationId: String(row.operation_id),
+    branch: String(row.branch), title, body };
+}
 function latestRunQuery(run: Row, userId: string) {
   return sql`SELECT id,status,started_at,created_at FROM runs WHERE project_id=${run.project_id} AND conversation_id=${run.conversation_id} AND user_id=${userId} ORDER BY started_at DESC,created_at DESC LIMIT 2`;
 }
@@ -136,7 +154,7 @@ export async function preparePersonalPr(userId: string, input: { runId: string; 
   if (!title || title.length > 500 || body.length > 100_000) throw new PersonalPrError("invalid_input", "Invalid pull request title or body");
   const snapshotId = randomUUID(); const proposalId = randomUUID(); const operationId = randomUUID();
   const branch = `ez-personal/${operationId}`;
-  const proposalDigest = sha({ ownerId: userId, conversationId: run.conversation_id, runId: input.runId, projectId, bindingId: status.bindingId, workspaceRevision: Number(workspace.revision), providerGeneration: status.provider.generation, resourceId: status.resource.resourceId, repositoryId: Number(source.repository_id), baseRef: source.base_ref, baseSha: source.base_sha, baseDigest: source.base_digest, importId: source.id, snapshotId, treeDigest: snapshot.digest, connectionGeneration: connection.generation, githubAccountId: connection.githubAccountId, operationId, branch, title, body });
+  const proposalDigest = digestProposal({ ownerId: userId, conversationId: String(run.conversation_id), runId: input.runId, projectId, bindingId: status.bindingId, workspaceRevision: Number(workspace.revision), providerGeneration: status.provider.generation, resourceId: status.resource.resourceId, repositoryId: Number(source.repository_id), baseRef: String(source.base_ref), baseSha: String(source.base_sha), baseDigest: String(source.base_digest), importId: String(source.id), snapshotId, treeDigest: snapshot.digest, connectionGeneration: connection.generation, githubAccountId: connection.githubAccountId, operationId, branch, title, body });
   await getDb().transaction(async (tx: DbTransaction) => {
     await tx.execute(sql`INSERT INTO github_personal_pr_snapshots (id,import_id,owner_id,project_id,conversation_id,run_id,binding_id,workspace_revision,provider_generation,resource_id,repository_id,base_sha,tree_digest,artifact,checks) VALUES (${snapshotId},${source.id},${userId},${projectId},${run.conversation_id},${input.runId},${status.bindingId},${Number(workspace.revision)},${status.provider.generation},${status.resource!.resourceId},${Number(source.repository_id)},${source.base_sha},${snapshot.digest},${JSON.stringify(files(snapshot))},${JSON.stringify([])})`);
     await tx.execute(sql`INSERT INTO github_personal_pr_proposals (id,snapshot_id,owner_id,github_account_id,connection_generation,repository_id,base_sha,title,body,digest,state,operation_id,branch,expires_at) VALUES (${proposalId},${snapshotId},${userId},${connection.githubAccountId},${connection.generation},${Number(source.repository_id)},${source.base_sha},${title},${body},${proposalDigest},'ready',${operationId},${branch},NOW() + INTERVAL '24 hours')`);
@@ -146,11 +164,12 @@ export async function preparePersonalPr(userId: string, input: { runId: string; 
 
 export async function getPersonalPrForReviewId(userId: string, proposalId: string): Promise<PersonalPrView> {
   if (!validId(proposalId)) throw new PersonalPrError("not_found", "Review not found");
-  const [row] = rows(await getDb().execute(sql`SELECT proposal.*,snapshot.conversation_id,snapshot.run_id,snapshot.project_id,snapshot.artifact AS snapshot_artifact,source.repository_name,source.base_ref,source.artifact AS base_artifact FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id WHERE proposal.id=${proposalId} AND proposal.owner_id=${userId}`));
+  const [row] = rows(await getDb().execute(sql`SELECT proposal.*,proposal.claim_expires_at <= NOW() AS claim_expired,snapshot.conversation_id,snapshot.run_id,snapshot.project_id,snapshot.artifact AS snapshot_artifact,source.repository_name,source.base_ref,source.artifact AS base_artifact FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id WHERE proposal.id=${proposalId} AND proposal.owner_id=${userId}`));
   if (!row) throw new PersonalPrError("not_found", "Review not found");
   const base = validateSnapshot(parse<SnapshotFileInput[]>(row.base_artifact));
   const current = validateSnapshot(parse<SnapshotFileInput[]>(row.snapshot_artifact));
-  return { state: row.state as PersonalPrState, projectId: String(row.project_id), proposalId, digest: String(row.digest), repository: { id: Number(row.repository_id), fullName: String(row.repository_name), baseRef: String(row.base_ref), baseSha: String(row.base_sha) }, files: await buildReviewDiff(base, current), checks: [], title: String(row.title), body: String(row.body), ...(row.pr_url ? { prUrl: String(row.pr_url) } : {}), ...(row.failure_code ? { blockReason: String(row.failure_code) } : {}), ...(row.state === "failed" && !row.commit_sha ? { recoveryAction: "retry_pre_ref" as const } : row.state === "failed" || row.state === "creating" ? { recoveryAction: "check_github" as const } : row.state === "stale" ? { recoveryAction: "reimport" as const } : {}), reviewPath: `/project/${row.project_id}/chat/${row.conversation_id}?review=${proposalId}` };
+  const retryablePreCommit = !row.commit_sha && (row.state === "failed" || row.state === "creating" && (row.claim_expired === true || row.claim_expires_at == null));
+  return { state: row.state as PersonalPrState, projectId: String(row.project_id), proposalId, digest: String(row.digest), repository: { id: Number(row.repository_id), fullName: String(row.repository_name), baseRef: String(row.base_ref), baseSha: String(row.base_sha) }, files: await buildReviewDiff(base, current), checks: [], title: String(row.title), body: String(row.body), ...(row.pr_url ? { prUrl: String(row.pr_url) } : {}), ...(row.failure_code ? { blockReason: String(row.failure_code) } : {}), ...(retryablePreCommit ? { recoveryAction: "retry_pre_ref" as const } : row.state === "failed" || row.state === "creating" ? { recoveryAction: "check_github" as const } : row.state === "stale" ? { recoveryAction: "reimport" as const } : {}), reviewPath: `/project/${row.project_id}/chat/${row.conversation_id}?review=${proposalId}` };
 }
 
 export async function getPersonalPrForRun(userId: string, runId: string): Promise<PersonalPrView> {
@@ -169,11 +188,7 @@ export async function getPersonalPrForRun(userId: string, runId: string): Promis
 }
 
 function proposalDigest(row: Row, title: string, body: string): string {
-  return sha({ ownerId: row.owner_id, conversationId: row.conversation_id, runId: row.run_id, projectId: row.project_id,
-    bindingId: row.binding_id, workspaceRevision: Number(row.workspace_revision), providerGeneration: Number(row.provider_generation),
-    resourceId: row.resource_id, repositoryId: Number(row.repository_id), baseRef: row.base_ref, baseSha: row.base_sha,
-    baseDigest: row.base_digest, importId: row.import_id, snapshotId: row.artifact_id, treeDigest: row.tree_digest, connectionGeneration: Number(row.connection_generation),
-    githubAccountId: Number(row.github_account_id), operationId: row.operation_id, branch: row.branch, title, body });
+  return digestProposal(identityFromRow(row, title, body));
 }
 
 async function resetPreRefFailure(userId: string, row: Row, expectedDigest: string): Promise<string> {
@@ -181,9 +196,25 @@ async function resetPreRefFailure(userId: string, row: Row, expectedDigest: stri
   const operationId = randomUUID();
   const branch = `ez-personal/${operationId}`;
   const digest = proposalDigest({ ...row, operation_id: operationId, branch }, String(row.title), String(row.body));
-  const updated = rows(await getDb().execute(sql`UPDATE github_personal_pr_proposals SET state='ready',operation_id=${operationId},branch=${branch},digest=${digest},failure_code=NULL,dispatched_at=NULL,completed_at=NULL WHERE id=${row.id} AND owner_id=${userId} AND state='failed' AND commit_sha IS NULL AND digest=${expectedDigest} RETURNING id`));
+  const updated = rows(await getDb().execute(sql`UPDATE github_personal_pr_proposals SET state='ready',operation_id=${operationId},branch=${branch},digest=${digest},failure_code=NULL,dispatched_at=NULL,completed_at=NULL,claim_owner=NULL,claim_expires_at=NULL WHERE id=${row.id} AND owner_id=${userId} AND state='failed' AND commit_sha IS NULL AND digest=${expectedDigest} RETURNING id`));
   if (!updated.length) throw new PersonalPrError("conflict", "Publication recovery changed. Reload the review");
   return digest;
+}
+
+/** A crashed publisher cannot reach a branch without first persisting its commit SHA. */
+async function recoverExpiredPreCommit(userId: string, row: Row, expectedDigest: string): Promise<string> {
+  if (row.digest !== expectedDigest) throw new PersonalPrError("conflict", "Reload the review before retrying publication");
+  return getDb().transaction(async (tx: DbTransaction) => {
+    const [live] = rows(await tx.execute(sql`SELECT state,digest,operation_id,commit_sha,claim_expires_at > NOW() AS claim_live FROM github_personal_pr_proposals WHERE id=${row.id} AND owner_id=${userId} FOR UPDATE`));
+    if (live?.state !== "creating" || live.digest !== expectedDigest || live.operation_id !== row.operation_id || live.commit_sha) throw new PersonalPrError("conflict", "Publication changed. Reload the review");
+    if (live.claim_live === true) throw new PersonalPrError("conflict", "Publication is still running. Check the review again later");
+    const operationId = randomUUID();
+    const branch = `ez-personal/${operationId}`;
+    const digest = proposalDigest({ ...row, operation_id: operationId, branch }, String(row.title), String(row.body));
+    const updated = rows(await tx.execute(sql`UPDATE github_personal_pr_proposals SET state='ready',operation_id=${operationId},branch=${branch},digest=${digest},failure_code=NULL,dispatched_at=NULL,completed_at=NULL,claim_owner=NULL,claim_expires_at=NULL WHERE id=${row.id} AND owner_id=${userId} AND state='creating' AND commit_sha IS NULL AND operation_id=${row.operation_id} RETURNING id`));
+    if (!updated.length) throw new PersonalPrError("conflict", "Publication changed. Reload the review");
+    return digest;
+  });
 }
 
 async function proposalRow(userId: string, proposalId: string): Promise<Row> {
@@ -199,7 +230,7 @@ function verifiedArtifacts(row: Row): { base: ValidatedSnapshot; current: Valida
   return { base, current };
 }
 
-type ConfirmationInput = { proposalId: string; expectedDigest: string; title?: string; body?: string };
+type ConfirmationInput = { proposalId: string; expectedDigest: string; title?: string; body?: string; retryPreCommit?: boolean };
 
 async function reviewForPublication(userId: string, input: ConfirmationInput, row: Row): Promise<{ title: string; body: string; artifacts: ReturnType<typeof verifiedArtifacts> }> {
   if (row.state !== "ready" || row.digest !== input.expectedDigest || row.import_state !== "ready") throw new PersonalPrError("conflict", "Review changed. Prepare a new review");
@@ -219,14 +250,27 @@ function assertLivePublication(live: Row | undefined, row: Row, userId: string, 
   if (live?.state !== "ready" || live.digest !== expectedDigest || new Date(String(live.expires_at)).getTime() <= Date.now() || live.owner_id !== userId || live.private_owner_id !== userId || live.private_conversation_id !== live.conversation_id || live.private_initialization_state !== "ready" || live.import_state !== "ready" || live.run_status !== "success" || !live.finished_at || Number(live.live_revision) !== Number(live.workspace_revision) || live.binding_id !== row.binding_id || Number(live.provider_generation) !== Number(row.provider_generation) || live.provider_resource_id !== live.resource_id || live.observed_state !== "stopped" || live.tree_digest !== treeDigest) throw new PersonalPrError("conflict", "Review changed before publication");
 }
 
-async function claimPublication(tx: DbTransaction, userId: string, input: ConfirmationInput, row: Row, title: string, body: string, nextDigest: string, treeDigest: string): Promise<void> {
+async function claimPublication(tx: DbTransaction, userId: string, input: ConfirmationInput, row: Row, title: string, body: string, nextDigest: string, treeDigest: string, claimOwner: string): Promise<void> {
   const [live] = rows(await tx.execute(sql`SELECT proposal.state,proposal.digest,proposal.expires_at,snapshot.owner_id,snapshot.conversation_id,snapshot.run_id,snapshot.binding_id,snapshot.workspace_revision,snapshot.provider_generation,snapshot.resource_id,snapshot.tree_digest,source.state AS import_state,workspace.revision AS live_revision,binding.private_owner_id,binding.private_conversation_id,binding.private_initialization_state,resource.provider_resource_id,resource.observed_state,run.status AS run_status,run.finished_at FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id JOIN project_workspace_bindings workspace ON workspace.project_id=snapshot.project_id AND workspace.binding_id=snapshot.binding_id JOIN sandbox_provider_bindings binding ON binding.id=snapshot.binding_id JOIN sandbox_resources resource ON resource.binding_id=binding.id JOIN runs run ON run.id=snapshot.run_id WHERE proposal.id=${input.proposalId} AND proposal.owner_id=${userId} FOR UPDATE OF proposal`));
   assertLivePublication(live, row, userId, input.expectedDigest, treeDigest);
   const latest = rows(await tx.execute(latestRunQuery(row, userId)));
   const active = rows(await tx.execute(activeRunQuery(row, userId)));
   if (!isUniqueLatestRun(String(row.run_id), latest, active)) throw new PersonalPrError("conflict", "A newer run needs a new review");
-  const updated = rows(await tx.execute(sql`UPDATE github_personal_pr_proposals SET state='creating',title=${title},body=${body},digest=${nextDigest},dispatched_at=NOW() WHERE id=${input.proposalId} AND owner_id=${userId} AND state='ready' AND digest=${input.expectedDigest} RETURNING id`));
+  const updated = rows(await tx.execute(sql`UPDATE github_personal_pr_proposals SET state='creating',title=${title},body=${body},digest=${nextDigest},dispatched_at=NOW(),claim_owner=${claimOwner},claim_expires_at=NOW()+${PUBLICATION_LEASE_SECONDS}*INTERVAL '1 second' WHERE id=${input.proposalId} AND owner_id=${userId} AND state='ready' AND digest=${input.expectedDigest} RETURNING id`));
   if (!updated.length) throw new PersonalPrError("conflict", "Review was already confirmed");
+}
+
+async function assertPublicationClaim(userId: string, proposalId: string, operationId: string, claimOwner: string): Promise<void> {
+  const [claim] = rows(await getDb().execute(sql`SELECT id FROM github_personal_pr_proposals WHERE id=${proposalId} AND owner_id=${userId} AND operation_id=${operationId} AND state='creating' AND claim_owner=${claimOwner} AND claim_expires_at > NOW()`));
+  if (!claim) throw new PersonalPrError("conflict", "Publication claim is no longer current");
+}
+
+function heartbeatPublication(userId: string, proposalId: string, operationId: string, claimOwner: string): () => void {
+  const timer = setInterval(() => {
+    void getDb().execute(sql`UPDATE github_personal_pr_proposals SET claim_expires_at=NOW()+${PUBLICATION_LEASE_SECONDS}*INTERVAL '1 second' WHERE id=${proposalId} AND owner_id=${userId} AND operation_id=${operationId} AND state='creating' AND claim_owner=${claimOwner} AND claim_expires_at > NOW()`).catch(() => undefined);
+  }, PUBLICATION_HEARTBEAT_MS);
+  timer.unref();
+  return () => clearInterval(timer);
 }
 
 async function reconcileProposal(userId: string, row: Row): Promise<PersonalPrView> {
@@ -250,33 +294,48 @@ export async function confirmPersonalPr(userId: string, input: ConfirmationInput
   const row = await proposalRow(userId, input.proposalId);
   if (row.state === "created") return getPersonalPrForReviewId(userId, input.proposalId);
   if (row.state === "failed" && !row.commit_sha) {
+    if (input.retryPreCommit !== true) throw new PersonalPrError("conflict", "Explicit owner retry is required for this publication");
     const digest = await resetPreRefFailure(userId, row, input.expectedDigest);
+    return confirmPersonalPr(userId, { ...input, expectedDigest: digest });
+  }
+  if (row.state === "creating" && !row.commit_sha) {
+    if (input.retryPreCommit !== true) return getPersonalPrForReviewId(userId, input.proposalId);
+    const digest = await recoverExpiredPreCommit(userId, row, input.expectedDigest);
     return confirmPersonalPr(userId, { ...input, expectedDigest: digest });
   }
   if (row.state === "creating" || row.state === "failed") return reconcileProposal(userId, row);
   if (row.state === "stale") throw new PersonalPrError("conflict", "Base changed. Import its current version into a new private sandbox for a new review");
   const { title, body, artifacts } = await reviewForPublication(userId, input, row);
   const nextDigest = proposalDigest(row, title, body);
+  const claimOwner = randomUUID();
   try {
     const result = await withUserToken({ userId, repositoryId: Number(row.repository_id), kind: "publish", operationId: String(row.operation_id), expectedGeneration: Number(row.connection_generation),
-      authorizeDispatch: tx => claimPublication(tx, userId, input, row, title, body, nextDigest, artifacts.current.digest),
-    }, token => publishFrozenDraft({ token, repositoryId: Number(row.repository_id), repositoryName: String(row.repository_name), baseRef: String(row.base_ref), baseSha: String(row.base_sha), branch: String(row.branch), title, body,
-      base: artifacts.base, current: artifacts.current,
-      onCommitReady: async commitSha => {
-        const updated = rows(await getDb().execute(sql`UPDATE github_personal_pr_proposals SET commit_sha=${commitSha} WHERE id=${input.proposalId} AND owner_id=${userId} AND state='creating' AND operation_id=${row.operation_id} AND commit_sha IS NULL RETURNING id`));
-        if (!updated.length) throw new PersonalPrError("conflict", "Publication claim changed");
-      },
-    }, async (credential, path, method, body) => {
-      await assertUserEffectCurrent({ userId, operationId: String(row.operation_id), repositoryId: Number(row.repository_id), expectedGeneration: Number(row.connection_generation) });
-      return githubApiRequest(credential, path, method, body);
-    }));
-    await getDb().execute(sql`UPDATE github_personal_pr_proposals SET state='created',pr_url=${result.url},completed_at=NOW() WHERE id=${input.proposalId} AND owner_id=${userId} AND state='creating' AND commit_sha=${result.commitSha}`);
+      authorizeDispatch: tx => claimPublication(tx, userId, input, row, title, body, nextDigest, artifacts.current.digest, claimOwner),
+    }, async token => {
+      const stopHeartbeat = heartbeatPublication(userId, input.proposalId, String(row.operation_id), claimOwner);
+      try {
+        return await publishFrozenDraft({
+          token, repositoryId: Number(row.repository_id), repositoryName: String(row.repository_name), baseRef: String(row.base_ref), baseSha: String(row.base_sha), branch: String(row.branch), title, body,
+          base: artifacts.base, current: artifacts.current,
+          onCommitReady: async commitSha => {
+            const updated = rows(await getDb().execute(sql`UPDATE github_personal_pr_proposals SET commit_sha=${commitSha} WHERE id=${input.proposalId} AND owner_id=${userId} AND state='creating' AND operation_id=${row.operation_id} AND claim_owner=${claimOwner} AND claim_expires_at > NOW() AND commit_sha IS NULL RETURNING id`));
+            if (!updated.length) throw new PersonalPrError("conflict", "Publication claim changed");
+          },
+        }, async (credential, path, method, body) => {
+          await assertPublicationClaim(userId, input.proposalId, String(row.operation_id), claimOwner);
+          await assertUserEffectCurrent({ userId, operationId: String(row.operation_id), repositoryId: Number(row.repository_id), expectedGeneration: Number(row.connection_generation) });
+          return githubApiRequest(credential, path, method, body);
+        });
+      } finally { stopHeartbeat(); }
+    });
+    const completed = rows(await getDb().execute(sql`UPDATE github_personal_pr_proposals SET state='created',pr_url=${result.url},completed_at=NOW(),claim_owner=NULL,claim_expires_at=NULL WHERE id=${input.proposalId} AND owner_id=${userId} AND state='creating' AND operation_id=${row.operation_id} AND claim_owner=${claimOwner} AND commit_sha=${result.commitSha} RETURNING id`));
+    if (!completed.length) throw new PersonalPrError("conflict", "Publication claim changed");
     return getPersonalPrForReviewId(userId, input.proposalId);
   } catch (error) {
-    const [after] = rows(await getDb().execute(sql`SELECT state,commit_sha FROM github_personal_pr_proposals WHERE id=${input.proposalId} AND owner_id=${userId}`));
+    const [after] = rows(await getDb().execute(sql`SELECT state,commit_sha FROM github_personal_pr_proposals WHERE id=${input.proposalId} AND owner_id=${userId} AND operation_id=${row.operation_id} AND claim_owner=${claimOwner}`));
     if (after?.state === "creating") {
       const knownBaseChange = error instanceof PrPublisherError && error.code === "base_changed";
-      await getDb().execute(sql`UPDATE github_personal_pr_proposals SET state=${knownBaseChange ? "stale" : "failed"},failure_code=${knownBaseChange ? "base_changed_reimport_required" : after.commit_sha ? "outcome_unknown" : "pre_ref_retryable"},completed_at=NOW() WHERE id=${input.proposalId} AND owner_id=${userId} AND state='creating'`);
+      await getDb().execute(sql`UPDATE github_personal_pr_proposals SET state=${knownBaseChange ? "stale" : "failed"},failure_code=${knownBaseChange ? "base_changed_reimport_required" : after.commit_sha ? "outcome_unknown" : "pre_ref_retryable"},completed_at=NOW(),claim_owner=NULL,claim_expires_at=NULL WHERE id=${input.proposalId} AND owner_id=${userId} AND state='creating' AND operation_id=${row.operation_id} AND claim_owner=${claimOwner}`);
     }
     if (error instanceof PersonalPrError || error instanceof PrPublisherError || error instanceof GithubUserError) throw error;
     throw new PersonalPrError("unavailable", "GitHub publication failed; check the review before retrying");

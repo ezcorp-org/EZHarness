@@ -27,6 +27,7 @@ let githubWrites = 0;
 let baseMoved = false;
 let reconcileMode: "missing" | "published" | "not_found" = "missing";
 let duringExport: (() => Promise<void>) | undefined;
+let duringPublish: (() => Promise<void>) | undefined;
 let statusCalls = 0;
 class FakeGithubUserError extends Error { constructor(public readonly code: string) { super(code); } }
 class FakePrPublisherError extends Error { constructor(public readonly code: string) { super(code); } }
@@ -65,6 +66,7 @@ mock.module("./publisher", () => ({
     expect(input.base.digest).toBe(base.digest);
     expect(input.current.digest).toBe(changed.digest);
     await request(input.token, "/repos/owner/repo", "GET");
+    await duringPublish?.();
     if (baseMoved) throw new FakePrPublisherError("base_changed");
     await request(input.token, "/repos/owner/repo/git/blobs", "POST");
     await request(input.token, "/repos/owner/repo/git/refs", "POST");
@@ -88,7 +90,24 @@ async function seed() {
   await db.execute(sql`INSERT INTO sandbox_resources(id,binding_id,provider_resource_id,desired_state,observed_state,limits) VALUES ('internal-resource',${bindingId},${resourceId},'stopped','stopped','{}')`);
 }
 
-beforeEach(async () => { await setupTestDb(); state = "pending"; conversation = null; publishCount = 0; canDispatch = true; effectChecks = 0; maxEffectChecks = Number.POSITIVE_INFINITY; githubWrites = 0; baseMoved = false; reconcileMode = "missing"; duringExport = undefined; statusCalls = 0; await seed(); });
+beforeEach(async () => { await setupTestDb(); state = "pending"; conversation = null; publishCount = 0; canDispatch = true; effectChecks = 0; maxEffectChecks = Number.POSITIVE_INFINITY; githubWrites = 0; baseMoved = false; reconcileMode = "missing"; duringExport = undefined; duringPublish = undefined; statusCalls = 0; await seed(); });
+
+async function prepareReadyRun() {
+  await importApprovedRepository(owner, { projectId, repositoryId: 42, baseRef: "main", idempotencyKey: "same-import" });
+  conversation = conversationId;
+  await getTestDb().execute(sql`UPDATE sandbox_provider_bindings SET private_conversation_id=${conversationId},private_initialization_state='ready' WHERE id=${bindingId}`);
+  await getTestDb().execute(sql`INSERT INTO runs(id,agent_name,project_id,conversation_id,user_id,status,started_at,finished_at) VALUES (${runId},'agent',${projectId},${conversationId},${owner},'success',NOW()-INTERVAL '1 minute',NOW())`);
+  return preparePersonalPr(owner, { runId });
+}
+
+function pausePublisher(): { entered: Promise<void>; release: () => void } {
+  let enter!: () => void;
+  let release!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; });
+  const pause = new Promise<void>(resolve => { release = resolve; });
+  duringPublish = async () => { enter(); await pause; };
+  return { entered, release };
+}
 
 describe("personal PR service with durable database state", () => {
   test("does not touch a sandbox for an owner run without a GitHub import", async () => {
@@ -150,6 +169,48 @@ describe("personal PR service with durable database state", () => {
     expect(publishCount).toBe(0);
   });
 
+  test("recovers a crashed pre-commit publication on explicit owner retry", async () => {
+    const ready = await prepareReadyRun();
+    const before = (await getTestDb().execute(sql`SELECT operation_id,branch FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`)).rows[0] as { operation_id: string; branch: string };
+    await getTestDb().execute(sql`UPDATE github_personal_pr_proposals SET state='creating',commit_sha=NULL,claim_owner='crashed-publisher',claim_expires_at=NOW()-INTERVAL '1 second' WHERE id=${ready.proposalId}`);
+    expect((await getPersonalPrForReviewId(owner, ready.proposalId!)).recoveryAction).toBe("retry_pre_ref");
+    expect((await confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: ready.digest! })).recoveryAction).toBe("retry_pre_ref");
+    expect(publishCount).toBe(0);
+    const completed = await confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: ready.digest!, retryPreCommit: true });
+    expect(completed.state).toBe("created");
+    const after = (await getTestDb().execute(sql`SELECT operation_id,branch FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`)).rows[0] as { operation_id: string; branch: string };
+    expect(after.operation_id).not.toBe(before.operation_id);
+    expect(after.branch).not.toBe(before.branch);
+    expect(publishCount).toBe(1);
+  });
+
+  test("refuses a concurrent retry while the original publisher owns a live lease", async () => {
+    const ready = await prepareReadyRun();
+    const { entered, release } = pausePublisher();
+    const original = confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: ready.digest! });
+    await entered;
+    expect((await getPersonalPrForReviewId(owner, ready.proposalId!)).recoveryAction).toBe("check_github");
+    expect((await confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: ready.digest! })).recoveryAction).toBe("check_github");
+    await expect(confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: ready.digest!, retryPreCommit: true })).rejects.toMatchObject({ code: "conflict" });
+    expect(publishCount).toBe(1);
+    release();
+    expect((await original).state).toBe("created");
+  });
+
+  test("a stale publisher cannot resume or fail a replacement claim", async () => {
+    const ready = await prepareReadyRun();
+    const { entered, release } = pausePublisher();
+    const original = confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: ready.digest! });
+    await entered;
+    await getTestDb().execute(sql`UPDATE github_personal_pr_proposals SET claim_expires_at=NOW()-INTERVAL '1 second' WHERE id=${ready.proposalId}`);
+    duringPublish = undefined;
+    expect((await confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: ready.digest!, retryPreCommit: true })).state).toBe("created");
+    release();
+    await expect(original).rejects.toMatchObject({ code: "conflict" });
+    expect((await getPersonalPrForReviewId(owner, ready.proposalId!)).state).toBe("created");
+    expect(githubWrites).toBe(2);
+  });
+
   test("rejects a newer active run before and during snapshot export", async () => {
     await importApprovedRepository(owner, { projectId, repositoryId: 42, baseRef: "main", idempotencyKey: "same-import" });
     conversation = conversationId;
@@ -182,7 +243,7 @@ describe("personal PR service with durable database state", () => {
     expect(failed.blockReason).toBe("pre_ref_retryable");
     const first = await getTestDb().execute(sql`SELECT operation_id,branch FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`);
     maxEffectChecks = Number.POSITIVE_INFINITY;
-    expect((await confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: failed.digest! })).state).toBe("created");
+    expect((await confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: failed.digest!, retryPreCommit: true })).state).toBe("created");
     const second = await getTestDb().execute(sql`SELECT operation_id,branch FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`);
     expect(second.rows[0]?.operation_id).not.toBe(first.rows[0]?.operation_id);
     expect(second.rows[0]?.branch).not.toBe(first.rows[0]?.branch);

@@ -3033,6 +3033,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addGithubUserDeviceAttempts(db);
   const { up: addGithubPersonalPrs } = await import("./migrations/add-github-personal-prs");
   await addGithubPersonalPrs(db);
+  const { up: addGithubPersonalPrClaims } = await import("./migrations/add-github-personal-pr-claims");
+  await addGithubPersonalPrClaims(db);
   const { up: addWorkflowDelegationRelease } = await import("./migrations/add-workflow-delegation-release");
   await addWorkflowDelegationRelease(db);
   const { extensionControlTools } = await import("../extensions/extension-control");

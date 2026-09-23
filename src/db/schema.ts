@@ -3049,4 +3049,6 @@ export const githubPersonalPrProposals = pgTable("github_personal_pr_proposals",
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
   completedAt: timestamp("completed_at", { withTimezone: true }),
+  claimOwner: text("claim_owner"),
+  claimExpiresAt: timestamp("claim_expires_at", { withTimezone: true }),
 }, (table) => [index("github_personal_pr_proposals_owner").on(table.ownerId, table.id)]);
