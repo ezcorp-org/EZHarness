@@ -12,9 +12,10 @@
  * unprivileged-userns restrictions.
  *
  * This module FFIs `syscall(2)` directly (libc `syscall` symbol) so we do
- * not depend on a Landlock-aware libc. Everything here is x86_64; the
- * syscall numbers below are the x86_64 ABI. A non-x86_64 host degrades to
- * the advisory tier in the probe (we refuse to guess syscall numbers).
+ * not depend on a Landlock-aware libc. Syscall numbers come from a per-arch
+ * table (`SYSCALLS_BY_ARCH`) holding only VERIFIED entries; an arch absent
+ * from it degrades to the advisory tier in the probe — we still refuse to
+ * guess.
  *
  * Spec: tasks/ez-code.md Phase A1. Durable path = FFI (landrun is pre-1.0
  * and not installed here).
@@ -24,11 +25,48 @@ import { dlopen, FFIType, ptr, toArrayBuffer } from "bun:ffi";
 import { execFileSync } from "node:child_process";
 import { existsSync, statSync } from "node:fs";
 
-/** x86_64 syscall numbers. */
-export const SYS_landlock_create_ruleset = 444n;
-export const SYS_landlock_add_rule = 445n;
-export const SYS_landlock_restrict_self = 446n;
-export const SYS_prctl = 157n;
+/**
+ * Per-arch syscall numbers. ONLY verified entries belong here: an arch that is
+ * absent is exactly how `selectTier()` knows to fall back to `advisory`, so a
+ * guessed entry would turn "no sandbox, and we say so" into "a sandbox that
+ * calls the wrong syscalls".
+ *
+ * The three Landlock syscalls postdate the asm-generic table unification, so
+ * they are 444/445/446 on every arch that uses it — x86_64 and aarch64 alike.
+ * `prctl` is NOT: it predates unification and is 157 on x86_64 but 167 on
+ * aarch64. On aarch64, 157 is `setsid(2)`. Enabling arm64 by flipping the arch
+ * gate alone would therefore have issued `setsid` in place of
+ * `prctl(PR_SET_NO_NEW_PRIVS)`; `setNoNewPrivs()` would have returned -1 and,
+ * because the jail is fail-closed, every sandboxed spawn would have aborted.
+ *
+ * Verified on aarch64 (kernel 7.1.10, Landlock in the active LSM list) by
+ * FFI-ing each number from Bun inside the app image:
+ *   syscall(444, NULL, 0, VERSION) → 9          (Landlock ABI v9)
+ *   syscall(157, NO_NEW_PRIVS, 1)  → -1         NoNewPrivs stays 0
+ *   syscall(167, NO_NEW_PRIVS, 1)  → 0          NoNewPrivs becomes 1
+ */
+export const SYSCALLS_BY_ARCH = {
+  x64: { landlock_create_ruleset: 444n, landlock_add_rule: 445n, landlock_restrict_self: 446n, prctl: 157n },
+  arm64: { landlock_create_ruleset: 444n, landlock_add_rule: 445n, landlock_restrict_self: 446n, prctl: 167n },
+} as const;
+
+export type SyscallTable = (typeof SYSCALLS_BY_ARCH)[keyof typeof SYSCALLS_BY_ARCH];
+
+/** The verified syscall table for `arch`, or null when it has none. */
+export function syscallsFor(arch: string): SyscallTable | null {
+  return Object.hasOwn(SYSCALLS_BY_ARCH, arch)
+    ? SYSCALLS_BY_ARCH[arch as keyof typeof SYSCALLS_BY_ARCH]
+    : null;
+}
+
+// Resolved for the running process. An arch with no table never reaches the
+// FFI — `selectTier()` has already chosen `advisory` — so the x86_64 fallback
+// below only keeps these constants well-typed; it is never issued there.
+const SYSCALLS = syscallsFor(process.arch) ?? SYSCALLS_BY_ARCH.x64;
+export const SYS_landlock_create_ruleset = SYSCALLS.landlock_create_ruleset;
+export const SYS_landlock_add_rule = SYSCALLS.landlock_add_rule;
+export const SYS_landlock_restrict_self = SYSCALLS.landlock_restrict_self;
+export const SYS_prctl = SYSCALLS.prctl;
 
 /** prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0). */
 export const PR_SET_NO_NEW_PRIVS = 38n;
@@ -183,7 +221,11 @@ function libcCandidates(): string[] {
     // ldd missing or static — fall through to the basename candidate.
   }
   // Common absolute locations as a last resort.
-  cands.push("/lib/x86_64-linux-gnu/libc.so.6", "/usr/lib/libc.so.6");
+  cands.push(
+    "/lib/x86_64-linux-gnu/libc.so.6",
+    "/lib/aarch64-linux-gnu/libc.so.6",
+    "/usr/lib/libc.so.6",
+  );
   return cands;
 }
 
