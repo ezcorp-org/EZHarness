@@ -142,4 +142,5 @@ export async function invokeExtensionToolFromComposer(
 		await form.locator(`#field-${key}`).fill(value);
 	}
 	await form.getByRole("button", { name: "Add", exact: true }).click();
+	await expect(form).not.toBeVisible();
 }
