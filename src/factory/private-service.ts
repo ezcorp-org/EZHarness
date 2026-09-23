@@ -8,7 +8,7 @@ import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import type { FactoryActivities, FactoryDefinitionSource, FactoryIdentity } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import type { createFactoryArtifactActivities } from "./artifact-activities";
 import { verifyPoolToken, type PoolTokenVerifierOptions } from "./pool/service-token";
-import { startFactoryPrivateHttps, type FactoryPrivateHttpsOptions, type FactoryPrivateResponse } from "./private-https";
+import { startFactoryPrivateHttps, type FactoryPrivateHttpsOptions, type FactoryPrivateRequest, type FactoryPrivateResponse } from "./private-https";
 import { assertFactoryIdentity, FactoryRecordError } from "./records";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
@@ -62,11 +62,122 @@ function scopedIdentity(body: Record<string, unknown>, tenantId: string): Factor
   return { tenantId, projectId: body.projectId as string, logicalRunId: body.logicalRunId as string, interpreterId: body.interpreterId as string };
 }
 
+/** What every route below reads: the service's options, its tenant, and the identity it acts as. */
+interface PrivateRouteContext {
+  readonly options: FactoryPrivateServiceOptions;
+  readonly tenantId: string;
+  readonly service: TrustedFactoryServiceIdentity;
+}
+type PrivateRouteBody = Record<string, unknown>;
+/** A route group answers a request it owns and returns `null` for one it does not. */
+type PrivateRoute = (context: PrivateRouteContext, request: FactoryPrivateRequest, body: PrivateRouteBody) => Promise<FactoryPrivateResponse | null>;
+
+const NO_CONTENT = (): FactoryPrivateResponse => ({ status: 204, body: Buffer.alloc(0) });
+
+/** The mTLS peer must match the configured certificate, and the bearer token must name that peer with the orchestrate scope. */
+async function authorized(request: FactoryPrivateRequest, certificateIdentity: string, tokens: FactoryPrivateServiceOptions["tokens"]): Promise<boolean> {
+  try {
+    const bearer = request.headers.authorization;
+    if (!bearer?.startsWith("Bearer ") || request.peerIdentity !== certificateIdentity) throw new Error("Unauthorized certificate.");
+    const claims = verifyPoolToken(bearer.slice(7), await tokens());
+    if (claims.sub !== request.peerIdentity || !claims.scope.includes("factory:orchestrate")) throw new Error("Unauthorized service.");
+    return true;
+  } catch { return false; }
+}
+
+const outboxRoute: PrivateRoute = async ({ options }, request, body) => {
+  const path = request.path;
+  if (request.method === "POST" && path === "/internal/factory/v1/outbox/claim") {
+    if (Object.keys(body).length !== 0) invalid();
+    return json(200, await options.queue.claim());
+  }
+  if (request.method === "POST" && path === "/internal/factory/v1/outbox/settle") {
+    if (!["delivered", "retry", "outcome_unknown"].includes(body.outcome as string) || (body.errorCode !== undefined && (typeof body.errorCode !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(body.errorCode)))) invalid();
+    const claim = object(body.claim);
+    if (typeof claim.claimToken !== "string" || claim.claimToken.length > 512) invalid();
+    object(claim.command);
+    await options.queue.settle(claim as unknown as ClaimedFactoryCommand, body.outcome as "delivered" | "retry" | "outcome_unknown", body.errorCode as string | undefined);
+    return NO_CONTENT();
+  }
+  if (request.method === "POST" && path === "/internal/factory/v1/outbox/confirm-inbox") return json(200, await options.queue.confirmInboxIdentity(object(body.command) as unknown as FactoryTransportCommand));
+  return null;
+};
+
+const definitionRoute: PrivateRoute = async ({ options, tenantId, service }, request, body) => {
+  const path = request.path;
+  if (request.method !== "POST" || !path.startsWith("/internal/factory/v1/definitions/")) return null;
+  const scoped = { ...body, ...scopedIdentity(body, tenantId) };
+  if (path === "/internal/factory/v1/definitions/resolve") {
+    assertFactoryIdentity(body.commandId as string);
+    return json(200, await options.commands.resolveFactory(service, { ...scopedIdentity(body, tenantId), commandId: body.commandId as string, factory: body.factory as Parameters<FactoryActivities["resolveFactory"]>[0]["factory"] }));
+  }
+  if (path === "/internal/factory/v1/definitions/manifest") return manifestBytes(await options.artifacts.loadManifestPage(scoped as Parameters<FactoryActivities["loadManifestPage"]>[0]));
+  if (path === "/internal/factory/v1/definitions/page") return bytes(decodeFactoryPageBase64((await options.artifacts.loadDefinitionPage(scoped as Parameters<FactoryActivities["loadDefinitionPage"]>[0])).contentBase64));
+  if (path === "/internal/factory/v1/definitions/execution-manifest") return bytes(artifactJson.canonical(await options.artifacts.loadExecutionManifest(scoped as Parameters<FactoryActivities["loadExecutionManifest"]>[0])));
+  if (path === "/internal/factory/v1/definitions/partition") return bytes(artifactJson.canonical(await options.artifacts.loadPartitionArtifact(scoped as Parameters<FactoryActivities["loadPartitionArtifact"]>[0])));
+  return json(404, { error: "not_found" });
+};
+
+const transitionRoute: PrivateRoute = async ({ options, tenantId }, request, body) => {
+  const path = request.path;
+  const transition = /^\/internal\/factory\/v1\/transitions\/(\d+)\/(pages\/(\d+)|finalize|manifest|page)$/.exec(path);
+  if (transition) {
+    const sequence = Number(transition[1]);
+    const action = transition[2];
+    if (!Number.isSafeInteger(sequence) || sequence < 1 || body.sourceSequence !== sequence) invalid();
+    const scoped = { ...body, ...scopedIdentity(body, tenantId) };
+    if (transition[3] !== undefined) {
+      if (request.method !== "PUT" || body.index !== Number(transition[3])) invalid();
+      return json(200, await options.artifacts.stageTransitionPage(scoped as Parameters<FactoryActivities["stageTransitionPage"]>[0]));
+    }
+    if (request.method !== "POST") invalid();
+    if (action === "finalize") return json(200, await options.artifacts.finalizeTransitionArtifact(scoped as Parameters<FactoryActivities["finalizeTransitionArtifact"]>[0]));
+    if (action === "manifest") return manifestBytes(await options.artifacts.loadTransitionManifest(scoped as Parameters<FactoryActivities["loadTransitionManifest"]>[0]));
+    return bytes(decodeFactoryPageBase64((await options.artifacts.loadTransitionPage(scoped as Parameters<FactoryActivities["loadTransitionPage"]>[0])).contentBase64));
+  }
+  if (request.method === "POST" && path === "/internal/factory/v1/transitions") {
+    await options.artifacts.recordTransition({ ...body, ...scopedIdentity(body, tenantId) } as Parameters<FactoryActivities["recordTransition"]>[0]);
+    return NO_CONTENT();
+  }
+  return null;
+};
+
+const commandRoute: PrivateRoute = async ({ options, tenantId, service }, request, body) => {
+  const path = request.path;
+  const execution = /^\/internal\/factory\/v1\/executions\/([^/?#]+)(\/cancel)?$/.exec(path);
+  const effect = /^\/internal\/factory\/v1\/commands\/([^/?#]+)$/.exec(path);
+  if (!execution && !effect) return null;
+  const identity = scopedIdentity(body, tenantId);
+  const command = object(body.command);
+  assertFactoryIdentity(command.id as string);
+  if (execution) {
+    const target = decodeURIComponent(execution[1]!);
+    if (execution[2] ? request.method !== "POST" || command.kind !== "cancel-node" || target !== command.attemptCommandId : request.method !== "PUT" || command.kind !== "dispatch-node" || target !== command.id) invalid();
+  } else if (request.method !== "POST" || decodeURIComponent(effect![1]!) !== command.id || command.kind === "dispatch-node" || command.kind === "cancel-node") invalid();
+  const event = await options.commands.execute(service, { ...identity, commandId: command.id as string });
+  return event === null ? NO_CONTENT() : json(200, event);
+};
+
+// Tried in this order; the first group that owns the path answers.
+const PRIVATE_ROUTES: readonly PrivateRoute[] = [outboxRoute, definitionRoute, transitionRoute, commandRoute];
+
+async function routePrivateRequest(context: PrivateRouteContext, request: FactoryPrivateRequest): Promise<FactoryPrivateResponse> {
+  if (request.headers["x-ezcorp-factory-version"] !== "1" || (request.method !== "GET" && request.headers["content-type"] !== "application/json")) invalid();
+  if (request.method === "GET" && request.path === "/internal/factory/v1/health" && request.body.byteLength === 0) return json(200, { schemaVersion: "factory.private-service.v1", tenantId: context.tenantId });
+  const body = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(request.body)));
+  for (const route of PRIVATE_ROUTES) {
+    const answer = await route(context, request, body);
+    if (answer) return answer;
+  }
+  return json(404, { error: "not_found" });
+}
+
 /** Installation-scoped private worker API; mTLS and a separate RS256 audience gate every route. */
 export function startFactoryPrivateService(options: FactoryPrivateServiceOptions): { url: string; stop(): void } {
   const { tenantId, certificateIdentity } = options;
   assertFactoryIdentity(tenantId, certificateIdentity);
   const service = Object.freeze({ subject: certificateIdentity, tenantId });
+  const context: PrivateRouteContext = { options, tenantId, service };
   return startFactoryPrivateHttps({
     tls: options.tls, hostname: options.hostname, port: options.port, maxBodyBytes: MAX_TRANSPORT_ENVELOPE_BYTES, maxResponseBytes: MAX_TRANSPORT_ENVELOPE_BYTES,
     // The caller sets this above the longest effect this service serves. The
@@ -76,76 +187,9 @@ export function startFactoryPrivateService(options: FactoryPrivateServiceOptions
     // command was retried against a host that was already stopping the guest.
     ...(options.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: options.requestTimeoutMs }),
     async handle(request) {
-      try {
-        const bearer = request.headers.authorization;
-        if (!bearer?.startsWith("Bearer ") || request.peerIdentity !== certificateIdentity) throw new Error("Unauthorized certificate.");
-        const claims = verifyPoolToken(bearer.slice(7), await options.tokens());
-        if (claims.sub !== request.peerIdentity || !claims.scope.includes("factory:orchestrate")) throw new Error("Unauthorized service.");
-      } catch { return json(401, { error: "unauthorized" }); }
-      try {
-        if (request.headers["x-ezcorp-factory-version"] !== "1" || (request.method !== "GET" && request.headers["content-type"] !== "application/json")) invalid();
-        const path = request.path;
-        if (request.method === "GET" && path === "/internal/factory/v1/health" && request.body.byteLength === 0) return json(200, { schemaVersion: "factory.private-service.v1", tenantId });
-        const body = object(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(request.body)));
-        if (request.method === "POST" && path === "/internal/factory/v1/outbox/claim") {
-          if (Object.keys(body).length !== 0) invalid();
-          return json(200, await options.queue.claim());
-        }
-        if (request.method === "POST" && path === "/internal/factory/v1/outbox/settle") {
-          if (!["delivered", "retry", "outcome_unknown"].includes(body.outcome as string) || (body.errorCode !== undefined && (typeof body.errorCode !== "string" || !/^[A-Za-z0-9_.:-]{1,128}$/.test(body.errorCode)))) invalid();
-          const claim = object(body.claim);
-          if (typeof claim.claimToken !== "string" || claim.claimToken.length > 512) invalid();
-          object(claim.command);
-          await options.queue.settle(claim as unknown as ClaimedFactoryCommand, body.outcome as "delivered" | "retry" | "outcome_unknown", body.errorCode as string | undefined);
-          return { status: 204, body: Buffer.alloc(0) };
-        }
-        if (request.method === "POST" && path === "/internal/factory/v1/outbox/confirm-inbox") return json(200, await options.queue.confirmInboxIdentity(object(body.command) as unknown as FactoryTransportCommand));
-        if (request.method === "POST" && path.startsWith("/internal/factory/v1/definitions/")) {
-          const scoped = { ...body, ...scopedIdentity(body, tenantId) };
-          if (path === "/internal/factory/v1/definitions/resolve") {
-            assertFactoryIdentity(body.commandId as string);
-            return json(200, await options.commands.resolveFactory(service, { ...scopedIdentity(body, tenantId), commandId: body.commandId as string, factory: body.factory as Parameters<FactoryActivities["resolveFactory"]>[0]["factory"] }));
-          }
-          if (path === "/internal/factory/v1/definitions/manifest") return manifestBytes(await options.artifacts.loadManifestPage(scoped as Parameters<FactoryActivities["loadManifestPage"]>[0]));
-          if (path === "/internal/factory/v1/definitions/page") return bytes(decodeFactoryPageBase64((await options.artifacts.loadDefinitionPage(scoped as Parameters<FactoryActivities["loadDefinitionPage"]>[0])).contentBase64));
-          if (path === "/internal/factory/v1/definitions/execution-manifest") return bytes(artifactJson.canonical(await options.artifacts.loadExecutionManifest(scoped as Parameters<FactoryActivities["loadExecutionManifest"]>[0])));
-          if (path === "/internal/factory/v1/definitions/partition") return bytes(artifactJson.canonical(await options.artifacts.loadPartitionArtifact(scoped as Parameters<FactoryActivities["loadPartitionArtifact"]>[0])));
-          return json(404, { error: "not_found" });
-        }
-        const transition = /^\/internal\/factory\/v1\/transitions\/(\d+)\/(pages\/(\d+)|finalize|manifest|page)$/.exec(path);
-        if (transition) {
-          const sequence = Number(transition[1]);
-          const action = transition[2];
-          if (!Number.isSafeInteger(sequence) || sequence < 1 || body.sourceSequence !== sequence) invalid();
-          const scoped = { ...body, ...scopedIdentity(body, tenantId) };
-          if (transition[3] !== undefined) {
-            if (request.method !== "PUT" || body.index !== Number(transition[3])) invalid();
-            return json(200, await options.artifacts.stageTransitionPage(scoped as Parameters<FactoryActivities["stageTransitionPage"]>[0]));
-          }
-          if (request.method !== "POST") invalid();
-          if (action === "finalize") return json(200, await options.artifacts.finalizeTransitionArtifact(scoped as Parameters<FactoryActivities["finalizeTransitionArtifact"]>[0]));
-          if (action === "manifest") return manifestBytes(await options.artifacts.loadTransitionManifest(scoped as Parameters<FactoryActivities["loadTransitionManifest"]>[0]));
-          return bytes(decodeFactoryPageBase64((await options.artifacts.loadTransitionPage(scoped as Parameters<FactoryActivities["loadTransitionPage"]>[0])).contentBase64));
-        }
-        if (request.method === "POST" && path === "/internal/factory/v1/transitions") {
-          await options.artifacts.recordTransition({ ...body, ...scopedIdentity(body, tenantId) } as Parameters<FactoryActivities["recordTransition"]>[0]);
-          return { status: 204, body: Buffer.alloc(0) };
-        }
-        const execution = /^\/internal\/factory\/v1\/executions\/([^/?#]+)(\/cancel)?$/.exec(path);
-        const effect = /^\/internal\/factory\/v1\/commands\/([^/?#]+)$/.exec(path);
-        if (execution || effect) {
-          const identity = scopedIdentity(body, tenantId);
-          const command = object(body.command);
-          assertFactoryIdentity(command.id as string);
-          if (execution) {
-            const target = decodeURIComponent(execution[1]!);
-            if (execution[2] ? request.method !== "POST" || command.kind !== "cancel-node" || target !== command.attemptCommandId : request.method !== "PUT" || command.kind !== "dispatch-node" || target !== command.id) invalid();
-          } else if (request.method !== "POST" || decodeURIComponent(effect![1]!) !== command.id || command.kind === "dispatch-node" || command.kind === "cancel-node") invalid();
-          const event = await options.commands.execute(service, { ...identity, commandId: command.id as string });
-          return event === null ? { status: 204, body: Buffer.alloc(0) } : json(200, event);
-        }
-        return json(404, { error: "not_found" });
-      } catch (error) { return errorResponse(error, options.report, { method: request.method, path: request.path }); }
+      if (!(await authorized(request, certificateIdentity, () => options.tokens()))) return json(401, { error: "unauthorized" });
+      try { return await routePrivateRequest(context, request); }
+      catch (error) { return errorResponse(error, options.report, { method: request.method, path: request.path }); }
     },
   });
 }

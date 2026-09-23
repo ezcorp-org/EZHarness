@@ -3641,3 +3641,34 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+## W18a-2 — second complexity pass and the three coverage-key gaps (branch `wp/w18a2-quality`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w18a2.md`. Gates: `tasks/factory/w18a2-GATES.md`.
+Receipts: `/tmp/factory-platform-evidence/w18a2/`.
+
+- [x] Split `mappedError` (92) and `dispatchFactoryRequest` (43) in `web/src/routes/api/factories/_shared.ts`. The result is one answer table per error class and six owner groups.
+- [x] Split `handle` (59) in `src/factory/private-service.ts` into authentication plus four route groups, in the same order.
+- [x] Split `readSealed` (54) in `src/factory/task-stops.ts` into scope, request, authority, and event checks, in the same order.
+- [x] Split `parseFactoryOrchestratorProcessConfig` (37) and `parseFactoryPoolProcessConfig` (44) into one predicate per section.
+- [x] Split `parseFactoryStartupConfig` (65). This function was not on the brief, because W09b took it above 30 after wave4c.
+- [x] Add threshold keys at 100 for `private-files.ts` and the two migrations. Add `src/factory/private-files.test.ts`, because the file was a real gap.
+- [x] Re-measure `private-files.ts`, `boot.ts`, and `factory-service-token.ts` on the fullest local lcov, and name the covering leg for each.
+- [x] Run the CRAP gate against origin/main over the fullest lcov: exit 0. Fix the two real gaps it showed (`loadExisting`, `initPglite`).
+- [x] Run the common sweep at `868d8c853`, the head after the `integ/w00` merge.
+
+### Review
+
+Seven functions went from complexity 37–92 to 3–7. Each split kept its check or route order. The worst function in
+the six files is now `wellFormed` at 24, which this package did not change. The existing suites passed unchanged,
+and every combined-runner producer exited 0. Old-versus-new runs agreed on 840 error inputs, 10871 process configs,
+and 11727 startup documents, error lists included. The three coverage-key files are gated at 100 and measure 100.
+
+The whole-diff CRAP gate exits 0 on the fullest local merged lcov. That is the runner's legs plus seventeen
+single-suite legs. Over the runner's own lcov, six functions still read red. Each one is a leg-list gap, and one
+named suite covers it at 100 percent. The coordinator is asked to add four bun suites and one web bun suite to the
+runner. Two gaps were real and are fixed. `InstallationDataKey.loadExisting` had no bun caller and now has a direct
+test. `initPglite` carried a changed line whose factory branch cannot run, and that line now matches origin/main.
+
+The global floor (73.88 percent), the per-file thresholds, and the origin/main new-file gate stay red. The cause is
+files that only CI's repository-wide shards or the browser receipt measure. None of those files is one this
+package changed.
