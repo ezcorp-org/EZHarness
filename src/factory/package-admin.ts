@@ -60,9 +60,10 @@ export class FactoryPackageAdmin {
     assertFactoryIdentity(input.projectId);
     const limit = input.query.limit ?? DEFAULT_LIMIT;
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > IMPACT_CAP) throw new FactoryConsoleError("factory_page_invalid");
-    const after = input.query.cursor === undefined ? null : storedDigest(input.query.cursor);
     return this.database.transaction(async transaction => {
+      // Authority first, then the shape of what is named: a refused caller learns nothing from a 404.
       await this.grants.authorizeInTransaction(transaction, input.principal, input.projectId, "read");
+      const after = input.query.cursor === undefined ? null : storedDigest(input.query.cursor);
       const found = rows<BindingRow>(await transaction.execute(sql`${this.bindingSelect(input.projectId)}
         ${after === null ? sql`` : sql`AND b.reference_digest > ${after}`}
         ${input.query.search === undefined ? sql`` : sql`AND strpos(b.package_name, ${input.query.search}) > 0`}
@@ -88,9 +89,9 @@ export class FactoryPackageAdmin {
   }
 
   async read(principal: FactoryPrincipal, projectId: string, referenceId: string): Promise<FactoryPackageResource> {
-    const digest = storedDigest(referenceId);
     return this.database.transaction(async transaction => {
       await this.grants.authorizeInTransaction(transaction, principal, projectId, "read");
+      const digest = storedDigest(referenceId);
       const [row] = rows<BindingRow>(await transaction.execute(sql`${this.bindingSelect(projectId)} AND b.reference_digest=${digest}`));
       if (!row) throw new FactoryConsoleError("factory_package_not_found");
       return resource(row);
