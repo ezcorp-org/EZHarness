@@ -83,4 +83,17 @@ describe("attachment storage", () => {
     expect(storagePath.startsWith(attachmentsRoot(root))).toBe(true);
     expect(storagePath.includes("../")).toBe(false);
   });
+
+  test("local attachment reads reject a path outside the selected workspace", async () => {
+    const outside = await mkdtemp(join(tmpdir(), "ezcorp-other-project-"));
+    try {
+      const written = await writeAttachment({ workspaceTarget: localWorkspaceTarget(outside),
+        conversationId: "c", messageId: "m", filename: "secret.txt", mimeType: "text/plain",
+        bytes: new TextEncoder().encode("other project") });
+      await expect(readAttachmentBytes(localWorkspaceTarget(root), written.storagePath))
+        .rejects.toThrow("outside the selected local workspace");
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
 });

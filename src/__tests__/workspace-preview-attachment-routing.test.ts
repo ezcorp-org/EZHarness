@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 
 import {
   deleteForConversation,
+  deleteForMessage,
   readAttachmentBytes,
   writeAttachment,
 } from "../chat/attachments/storage";
@@ -71,6 +72,8 @@ describe("sandbox attachment routing", () => {
       .rejects.toThrow("Local workspace fallback was denied");
     await expect(deleteForConversation({ workspaceTarget: target, conversationId: "conversation" }))
       .rejects.toThrow("Local workspace fallback was denied");
+    await expect(deleteForMessage({ workspaceTarget: target, conversationId: "conversation", messageId: "message" }))
+      .rejects.toThrow("Local workspace fallback was denied");
 
     expect(await readFile(canaryPath, "utf8")).toBe("AMD_ATTACHMENT_CANARY");
     await expect(access(join(canaryDir, "write.txt"))).rejects.toThrow();
@@ -105,10 +108,34 @@ describe("sandbox attachment routing", () => {
     });
     expect(written).toEqual({ storagePath: "opaque://attachment-1", sizeBytes: 3 });
     expect(await readAttachmentBytes(target, written.storagePath)).toEqual(bytes);
+    await deleteForMessage({ workspaceTarget: target, conversationId: "conversation", messageId: "message" });
     await deleteForConversation({ workspaceTarget: target, conversationId: "conversation" });
-    expect(requests).toHaveLength(3);
+    expect(requests).toHaveLength(4);
+    expect(requests[2]).toEqual({ binding, conversationId: "conversation", messageId: "message" });
     for (const request of requests as Array<{ binding: SandboxWorkspaceBinding }>) {
       expect(request.binding).toEqual(binding);
+    }
+  });
+
+  test("invalid sandbox write receipts do not become stored attachment references", async () => {
+    const bytes = new Uint8Array([1, 2, 3]);
+    for (const receipt of [
+      { storageKey: "", sizeBytes: bytes.byteLength },
+      { storageKey: "opaque://attachment-1", sizeBytes: bytes.byteLength - 1 },
+    ]) {
+      const target = sandboxWorkspaceTarget(binding, toolBackend({
+        attachments: {
+          async write(request) {
+            expect(request.binding).toEqual(binding);
+            return receipt;
+          },
+          async read() { throw new Error("unexpected read"); },
+          async delete() { throw new Error("unexpected delete"); },
+        },
+      }));
+      await expect(writeAttachment({ workspaceTarget: target, conversationId: "conversation",
+        messageId: "message", filename: "a.png", mimeType: "image/png", bytes }))
+        .rejects.toThrow("invalid write receipt");
     }
   });
 });
