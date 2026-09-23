@@ -131,6 +131,17 @@ test("candidate evidence is bound to release, source, artifact, preset recipe, i
   await expect(assertSandboxPresetReleaseQualification({ ...release, artifactDigest: digest("f") }, release.verification, NOW)).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
 });
 
+test("activated release keeps intact candidate evidence after its deadline", async () => {
+  const { release, qualification } = await qualifiedRelease();
+  const later = Date.parse("2026-09-21T14:00:00.000Z");
+  await expect(assertSandboxPresetReleaseQualification(release, release.verification, later)).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
+  await expect(assertSandboxPresetReleaseQualification(release, release.verification, later, "integrity")).resolves.toBeUndefined();
+  const missing = rebindRelease(release, { verification: { ...release.verification!, sandboxPresetQualifications: [] } });
+  await expect(assertSandboxPresetReleaseQualification(missing, missing.verification, later, "integrity")).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
+  const forged = rebindRelease(release, { verification: { ...release.verification!, sandboxPresetQualifications: [{ ...qualification, cases: qualification.cases.slice(1) }] } });
+  await expect(assertSandboxPresetReleaseQualification(forged, forged.verification, later, "integrity")).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
+});
+
 test("Ready requires exact live SP01-SP08 evidence for the selected current release and settings", async () => {
   const { release, qualification: candidate } = await qualifiedRelease();
   const live: LiveSandboxPresetQualification = {
@@ -149,6 +160,8 @@ test("Ready requires exact live SP01-SP08 evidence for the selected current rele
   };
   const context = { providerId: "incus", presetId: "nixos-small", connectionId: "connection-1", effectiveSettingsDigest: digest("a"), now: NOW };
   await expect(assertSandboxPresetReady(release, live, context)).resolves.toBeUndefined();
+  await expect(assertSandboxPresetReady(release, { ...live, validUntil: "2026-09-21T15:00:00.000Z" }, { ...context, now: Date.parse("2026-09-21T14:00:00.000Z") })).resolves.toBeUndefined();
+  await expect(assertSandboxPresetReady(release, live, { ...context, now: Date.parse("2026-09-21T14:00:00.000Z") })).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
   for (const changed of [
     { ...live, cases: live.cases.filter(result => result.caseId !== "SP04") },
     { ...live, cases: live.cases.map(result => result.caseId === "SP06" ? { ...result, status: "failed" as const } : result) },

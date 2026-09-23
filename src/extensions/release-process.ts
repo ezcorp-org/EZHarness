@@ -34,7 +34,7 @@ export async function resolveActiveRelease(extensionId: string, runtime: Release
   if (!snapshot?.installation.enabled || snapshot.installation.uninstalled || snapshot.installation.status !== "active" || snapshot.installation.activeReleaseId !== snapshot.release.id || snapshot.installation.id !== extensionId || snapshot.release.installationId !== extensionId || snapshot.installation.acknowledgedGeneration !== snapshot.installation.generation) throw new ContractError("RELEASE_NOT_ACTIVE", "Extension has no active acknowledged release");
   validateManifest(snapshot.release.manifest);
   validateResourceLimits(snapshot.limits);
-  await assertSandboxPresetReleaseQualification(snapshot.release);
+  await assertSandboxPresetReleaseQualification(snapshot.release, snapshot.release.verification, Date.now(), "integrity");
   return snapshot;
 }
 export function releaseBinding(snapshot: ActiveExtensionRelease): string {

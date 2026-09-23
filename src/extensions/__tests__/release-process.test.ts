@@ -53,6 +53,23 @@ test("runtime resolution denies unqualified sandbox releases before worker start
   }
 });
 
+test("runtime resolves an activated sandbox release after candidate expiry but still checks integrity", async () => {
+  const fixture = releaseRuntimeFixture("sandbox-installation", sandboxExtensionManifest());
+  await qualifySandboxRuntime(fixture.snapshot);
+  const release = fixture.snapshot.release;
+  for (const qualification of release.verification!.sandboxPresetQualifications!) {
+    qualification.verifiedAt = new Date(Date.now() - 7_200_000).toISOString();
+    qualification.validUntil = new Date(Date.now() - 3_600_000).toISOString();
+  }
+  const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...storedInput } = release;
+  release.releaseDigest = digestObject(storedInput);
+  const runtime: ReleaseRuntimeDependencies = { runner: async () => fixture.runner, resolve: async () => fixture.snapshot };
+  await expect(resolveActiveRelease(fixture.snapshot.installation.id, runtime)).resolves.toBe(fixture.snapshot);
+  release.verification!.sandboxPresetQualifications![0]!.cases.pop();
+  release.releaseDigest = digestObject(storedInput);
+  await expect(resolveActiveRelease(fixture.snapshot.installation.id, runtime)).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
+});
+
 test("host-owned Incus calls reject cancellation and missing broker before provider work", async () => {
   const fixture = harness();
   const input = { providerId: "incus", connectionId: "connection" };

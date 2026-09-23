@@ -1,7 +1,7 @@
 import { afterAll, beforeEach, expect, test } from "bun:test";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
 import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
-import { validateManifest } from "@ezcorp/extension-contract";
+import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, validateManifest } from "@ezcorp/extension-contract";
 import { eq } from "drizzle-orm";
 import { users, extensionStorage, extensionWebhooks, extensionSchedules, extensionSecrets } from "../db/schema";
 import { getPageCache } from "./page-cache";
@@ -20,6 +20,7 @@ import type { AgentEvents } from "../types";
 import { isRegisteredExtensionEvent, registerExtensionEvent, unregisterExtensionEvent } from "../runtime/sse-conversation-filter";
 import { digestObject } from "./v4/blobs";
 import { sandboxProviderDeclaration } from "../__tests__/helpers/sandbox-preset";
+import { sandboxPresetQualificationReleaseDigest } from "./v4/sandbox-preset-qualification";
 
 mockDbConnection();
 beforeEach(setupTestDb);
@@ -130,6 +131,25 @@ test("enabled publication refuses an unqualified sandbox release", async () => {
   const { installation, release } = await fixture(false, false, true);
   await expect(publishExtensionGeneration(installation, release, { "one.txt": "one", "two.txt": "two" })).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
   expect((await getExtension(installation.id))?.version).toBe("1.0.0");
+});
+
+test("publication accepts expired intact candidate evidence and rejects forged cases", async () => {
+  const { installation, release } = await fixture(false, false, true);
+  const preset = release.manifest.sandboxProviders![0]!.presets[0]!;
+  const qualification = {
+    producer: "host" as const, providerId: "incus", presetId: preset.id, profile: preset.profile,
+    releaseDigest: sandboxPresetQualificationReleaseDigest(release), presetDigest: await sandboxPresetDigest(preset),
+    verifiedAt: "2026-09-21T11:00:00.000Z", validUntil: "2026-09-21T12:00:00.000Z",
+    cases: CANDIDATE_SANDBOX_QUALIFICATION_CASES.map(caseId => ({ caseId, status: "passed" as const })),
+  };
+  release.verification = { catalog: "verified", smoke: "not_declared", capabilities: [], sandboxPresetQualifications: [qualification] };
+  const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...storedInput } = release;
+  release.releaseDigest = digestObject(storedInput);
+  await publishExtensionGeneration(installation, release, { "one.txt": "one", "two.txt": "two" });
+  expect((await getExtension(installation.id))?.version).toBe("2.0.0");
+  qualification.cases.pop();
+  release.releaseDigest = digestObject(storedInput);
+  await expect(publishExtensionGeneration(installation, release, { "one.txt": "one", "two.txt": "two" })).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
 });
 
 test("immutable placeholder resolution never falls back to host paths", () => {

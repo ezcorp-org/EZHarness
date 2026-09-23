@@ -97,9 +97,16 @@ test("sandbox approval and activation require current stored and freshly verifie
   await expect(stale.lifecycle.approve(human, staleBuild.installation.id, approval.id, true)).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
   expect((await stale.lifecycle.inspect(actor, staleBuild.installation.id)).approvals[approval.id]!.status).toBe("pending");
   expect(state.installation.enabled).toBe(false);
+
+  const expiredActivation = sandboxLifecycleHarness();
+  const expiringRelease = await releaseFixture(expiredActivation);
+  const approvedInput = await approved(expiringRelease);
+  expiredActivation.clock.now = Date.parse("2026-09-21T13:00:00.000Z");
+  await expect(expiredActivation.lifecycle.activate(actor, approvedInput)).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
+  expect((await expiredActivation.lifecycle.inspect(actor, expiringRelease.installation.id)).installation.enabled).toBe(false);
 });
 
-test("sandbox reconciliation rechecks qualification before retrying publication", async () => {
+test("sandbox reconciliation retries publication after candidate expiry", async () => {
   let publications = 0;
   const setup = sandboxLifecycleHarness();
   setup.dependencies.publish = async () => { publications++; if (publications === 1) throw new Error("publication interrupted"); };
@@ -108,15 +115,16 @@ test("sandbox reconciliation rechecks qualification before retrying publication"
   expect(activation.state).toBe("reconciling");
   expect(publications).toBe(1);
   setup.clock.now = Date.parse("2026-09-21T13:00:00.000Z");
-  await expect(setup.lifecycle.reconcile(actor, built.installation.id)).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
-  expect(publications).toBe(1);
+  await expect(setup.lifecycle.reconcile(actor, built.installation.id)).resolves.toBeUndefined();
+  expect(publications).toBe(2);
+  expect((await setup.lifecycle.inspect(actor, built.installation.id)).installation.status).toBe("active");
 });
 
-test("sandbox reconciliation rechecks expired evidence after publication was acknowledged", async () => {
+test("sandbox reconciliation accepts expired candidate evidence after publication was acknowledged", async () => {
   const setup = sandboxLifecycleHarness();
   const built = await releaseFixture(setup);
   const activation = await setup.lifecycle.activate(actor, await approved(built));
   expect(activation.state).toBe("active");
   setup.clock.now = Date.parse("2026-09-21T13:00:00.000Z");
-  await expect(setup.lifecycle.reconcile(actor, built.installation.id)).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
+  await expect(setup.lifecycle.reconcile(actor, built.installation.id)).resolves.toBeUndefined();
 });

@@ -113,6 +113,22 @@ describe("sandbox preset qualification", () => {
     await expect(validateCandidateSandboxPresetQualifications(manifest, undefined, RELEASE_DIGEST, NOW)).rejects.toThrow();
   });
 
+  test("historical candidate checks preserve identity and interval integrity after expiry", async () => {
+    const preset = linuxPreset();
+    const manifest = manifestWith([preset]);
+    const evidence = await candidateQualification(preset);
+    const later = Date.parse("2026-09-21T14:00:00.000Z");
+    await expect(validateCandidateSandboxPresetQualifications(manifest, [evidence], RELEASE_DIGEST, later)).rejects.toThrow();
+    expect(await validateCandidateSandboxPresetQualifications(manifest, [evidence], RELEASE_DIGEST, later, "integrity")).toEqual([evidence]);
+    for (const invalid of [
+      { ...evidence, releaseDigest: "0".repeat(64) },
+      { ...evidence, cases: evidence.cases.slice(1) },
+      { ...evidence, validUntil: evidence.verifiedAt },
+      { ...evidence, verifiedAt: "2026-09-21T15:00:00.000Z", validUntil: "2026-09-21T16:00:00.000Z" },
+    ]) await expect(validateCandidateSandboxPresetQualifications(manifest, [invalid], RELEASE_DIGEST, later, "integrity")).rejects.toThrow();
+    await expect(validateCandidateSandboxPresetQualifications(manifest, undefined, RELEASE_DIGEST, later, "integrity")).rejects.toThrow();
+  });
+
   test("requires separate live Ready evidence with all eight cases", async () => {
     const preset = composePreset();
     const context = { providerId: "incus", releaseDigest: RELEASE_DIGEST, connectionId: "connection-1", effectiveSettingsDigest: EFFECTIVE_SETTINGS_DIGEST, now: NOW };

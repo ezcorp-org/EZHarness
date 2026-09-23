@@ -419,7 +419,7 @@ export class ExtensionLifecycle {
     const state = await this.inspect(actor, installationId);
     const installation = state.installation;
     const release = installation.enabled && installation.activeReleaseId ? this.release(state, installation.activeReleaseId) : null;
-    if (release) await assertSandboxPresetReleaseQualification(release, release.verification, this.now());
+    if (release) await assertSandboxPresetReleaseQualification(release, release.verification, this.now(), "integrity");
     if (installation.acknowledgedGeneration === installation.generation) return;
     await this.dependencies.publish(installation, release);
     await this.transaction(actor, installationId, (current) => {

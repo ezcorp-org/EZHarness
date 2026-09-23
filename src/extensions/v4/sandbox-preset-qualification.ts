@@ -18,11 +18,12 @@ export function sandboxPresetQualificationReleaseDigest(release: ReleaseRecord):
   return digestObject(releaseInput);
 }
 
-/** Requires current host-produced SP01/SP02/SP03/SP05/SP07/SP08 evidence for every declared preset. */
+/** Checks host-produced SP01/SP02/SP03/SP05/SP07/SP08 evidence for every declared preset. */
 export async function assertSandboxPresetReleaseQualification(
   release: ReleaseRecord,
   verification: CandidateVerificationReport | undefined = release.verification,
   now = Date.now(),
+  mode: "current" | "integrity" = "current",
 ): Promise<void> {
   if (release.manifest.sandboxProviders === undefined) return;
   await validateCandidateSandboxPresetQualifications(
@@ -30,6 +31,7 @@ export async function assertSandboxPresetReleaseQualification(
     verification?.sandboxPresetQualifications,
     sandboxPresetQualificationReleaseDigest(release),
     now,
+    mode,
   );
 }
 
@@ -39,7 +41,7 @@ export async function assertSandboxPresetReady(
   qualification: LiveSandboxPresetQualification,
   context: SandboxPresetReadyContext,
 ): Promise<void> {
-  await assertSandboxPresetReleaseQualification(release, release.verification, context.now);
+  await assertSandboxPresetReleaseQualification(release, release.verification, context.now, "integrity");
   const provider = release.manifest.sandboxProviders?.find(candidate => candidate.id === context.providerId);
   const preset = provider?.presets.find(candidate => candidate.id === context.presetId);
   if (!preset) throw new ContractError("INVALID_QUALIFICATION", "Ready requires a declared sandbox provider preset");

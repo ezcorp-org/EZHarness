@@ -1364,10 +1364,10 @@ export async function resolveSandboxPreset(providerValue: unknown, requestValue:
   return validateWire("sandboxPresetResolution", resolution);
 }
 
-function validateQualificationTime(verifiedAt: string, validUntil: string, now: number): void {
+function validateQualificationTime(verifiedAt: string, validUntil: string, now: number, requireCurrent = true): void {
   const verified = Date.parse(verifiedAt);
   const expiry = Date.parse(validUntil);
-  if (!Number.isFinite(now) || !utcTimestampPattern.test(verifiedAt) || !utcTimestampPattern.test(validUntil) || !Number.isFinite(verified) || !Number.isFinite(expiry) || verified > now || expiry <= now || expiry <= verified) throw new ContractError("INVALID_QUALIFICATION", "Sandbox qualification is stale or has an invalid validity interval");
+  if (!Number.isFinite(now) || !utcTimestampPattern.test(verifiedAt) || !utcTimestampPattern.test(validUntil) || !Number.isFinite(verified) || !Number.isFinite(expiry) || verified > now || (requireCurrent && expiry <= now) || expiry <= verified) throw new ContractError("INVALID_QUALIFICATION", "Sandbox qualification is stale or has an invalid validity interval");
 }
 
 function validateQualificationCases(cases: Array<{ caseId: string; status: string }>, required: readonly string[]): void {
@@ -1382,9 +1382,10 @@ function declaredSandboxPresets(manifest: ExtensionManifestV4): Array<{ provider
 /**
  * Validates host-produced static evidence for every advertised preset. The
  * expected release digest is the stable pre-verification release-input digest,
- * because the stored release digest also covers this evidence.
+ * because the stored release digest also covers this evidence. Integrity mode
+ * checks an activated release's saved evidence without extending its validity.
  */
-export async function validateCandidateSandboxPresetQualifications(manifestValue: unknown, qualificationsValue: unknown, expectedReleaseDigest: string, now = Date.now()): Promise<SandboxPresetQualification[]> {
+export async function validateCandidateSandboxPresetQualifications(manifestValue: unknown, qualificationsValue: unknown, expectedReleaseDigest: string, now = Date.now(), mode: "current" | "integrity" = "current"): Promise<SandboxPresetQualification[]> {
   const manifest = validateManifest(manifestValue);
   if (!digestPattern.test(expectedReleaseDigest)) throw new ContractError("INVALID_QUALIFICATION", "Expected sandbox provider release digest must be lowercase SHA-256");
   const declared = declaredSandboxPresets(manifest);
@@ -1403,7 +1404,7 @@ export async function validateCandidateSandboxPresetQualifications(manifestValue
   for (const { providerId, preset } of declared) {
     const qualification = qualified.get(`${providerId}\u0000${preset.id}`);
     if (qualification?.producer !== "host" || qualification.profile !== preset.profile || qualification.releaseDigest !== expectedReleaseDigest || qualification.presetDigest !== await sandboxPresetDigest(preset)) throw new ContractError("INVALID_QUALIFICATION", "Sandbox qualification does not match its provider release and preset");
-    validateQualificationTime(qualification.verifiedAt, qualification.validUntil, now);
+    validateQualificationTime(qualification.verifiedAt, qualification.validUntil, now, mode === "current");
     validateQualificationCases(qualification.cases, CANDIDATE_SANDBOX_QUALIFICATION_CASES);
   }
   return validated;

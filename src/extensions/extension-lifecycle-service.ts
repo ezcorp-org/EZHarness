@@ -266,7 +266,7 @@ export async function publishExtensionGeneration(installation: InstallationRecor
     const rows = releaseRows<{ payload: string }>(result);
     const current: InstallationRecord | undefined = rows[0] ? JSON.parse(rows[0].payload) : undefined;
     if (!current || current.generation !== installation.generation || current.activeReleaseId !== installation.activeReleaseId || current.enabled !== installation.enabled) throw new LifecycleError("generation_superseded", "A newer activation replaced this catalog update.");
-    if (release && installation.enabled) await assertSandboxPresetReleaseQualification(release);
+    if (release && installation.enabled) await assertSandboxPresetReleaseQualification(release, release.verification, Date.now(), "integrity");
     if (release && installation.enabled && (release.id !== current.activeReleaseId || release.installationId !== current.id || !hasExactReleaseGrants(release.manifest, current.grants))) throw new LifecycleError("grant_mismatch", "Publication requires the exact approved release permission set.");
     if (!release || !installation.enabled) {
       await transaction.update(extensions).set(serializeJsonbFields({ enabled: false, disabledByUser: true, grantedPermissions: {}, updatedAt: new Date() })).where(eq(extensions.id, installation.id));
