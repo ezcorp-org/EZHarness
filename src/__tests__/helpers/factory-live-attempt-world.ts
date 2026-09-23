@@ -42,6 +42,13 @@ import { FactoryUsageSettlements } from "../../factory/usage-settlement";
 import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 
+/**
+ * An admission fence that admits every package. Test-only and named for what it
+ * does: a suite that does not exercise package trust passes it explicitly, because
+ * the production runner policy refuses to be built without a fence.
+ */
+export const packagesTrustedForTest: FactoryPackageAdmissionFence = Object.freeze({ async readActiveInTransaction() { return undefined; } });
+
 export interface FactoryLiveAttemptWorldOptions {
   /** Prefix for every identifier this world writes. */
   readonly label: string;
@@ -104,7 +111,7 @@ export interface FactoryLiveAttemptWorld {
   startRun(): Promise<FactoryStartedRun>;
   /** Admits compute and commits the transition that carries `dispatch-node`. */
   dispatchable(poolPinsHost?: boolean): Promise<FactoryDispatchableRun>;
-  /** Admits the attempt through the production runner policy, with an optional package fence. */
+  /** Admits the attempt through the production runner policy. Without `packages`, every package is admitted. */
   admitAttempt(run: FactoryDispatchableRun, packages?: FactoryPackageAdmissionFence): Promise<FactoryRunnerRequest>;
   /**
    * Drives one run to a live, launched attempt.
@@ -199,7 +206,7 @@ export async function createFactoryLiveAttemptWorld(fixture: { readonly db: Tran
     return { ...started, admissions, journal, queue, reservationId: reserved.reservationId, dispatchReference: { ...identity, commandId: dispatch.id }, state: next };
   }
 
-  async function admitAttempt(run: FactoryDispatchableRun, packages?: FactoryPackageAdmissionFence): Promise<FactoryRunnerRequest> {
+  async function admitAttempt(run: FactoryDispatchableRun, packages: FactoryPackageAdmissionFence = packagesTrustedForTest): Promise<FactoryRunnerRequest> {
     const dispatch = run.state.commands.find(command => command.kind === "dispatch-node")!;
     const taskNode = run.compiled.indexes.nodeById[dispatch.nodeId];
     if (taskNode?.kind !== "task") throw new Error("fixture dispatch task is missing");

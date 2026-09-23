@@ -17,6 +17,7 @@ import { digestObject } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryAttemptDispatcher } from "../../factory/attempt-dispatcher";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
+import { FactoryNativeRunnerPolicy } from "../../factory/native-runner-policy";
 import { createFactoryPackageTrusts, FACTORY_PACKAGE_FENCE_MAX_LIMIT, FactoryPackageFence } from "../../factory/package-fence";
 import { FactoryPackageBlockedError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, factoryPackageDispatchDisposition } from "../../factory/package-preparation";
 import { factoryAttemptPreflight } from "../../factory/runner/attempt-preflight";
@@ -364,6 +365,14 @@ export function factoryPackageFenceConformance(create: () => Promise<FactoryPack
     expect(await cancelEvents(attempt.run.runId)).toEqual([]);
     // Publishing blocks nothing, so it needs no fence.
     expect(await unfenced.publish(principal, { projectId, reference, expectedRevision: 1 }, "fence-unfenced-publish")).toMatchObject({ revision: 2, state: "active" });
+  });
+
+  test("a runner policy cannot be built without the package fence: omission is a type error and is refused at runtime", () => {
+    const runners = [{ runner: reference, resourceClass: "cpu", allocation: profile, allowedCapabilities: [...(firstTask.capabilities ?? [])], tools: [] }];
+    // @ts-expect-error The admission fence is a required argument.
+    expect(() => new FactoryNativeRunnerPolicy(tenantId, world.grants, runners, "factory-broker")).toThrow("factory_native_policy_invalid");
+    expect(() => new FactoryNativeRunnerPolicy(tenantId, world.grants, runners, "factory-broker", {} as never)).toThrow("factory_native_policy_invalid");
+    expect(new FactoryNativeRunnerPolicy(tenantId, world.grants, runners, "factory-broker", trusts)).toBeInstanceOf(FactoryNativeRunnerPolicy);
   });
 
   test("a quarantine with no live attempt records nothing and cancels nothing", async () => {

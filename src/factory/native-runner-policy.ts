@@ -96,11 +96,14 @@ export class FactoryNativeRunnerPolicy implements FactoryTaskRunnerPolicy {
     private readonly grants: Pick<FactoryGrants, "tenantId" | "authorizeInTransaction">,
     values: readonly FactoryNativeRunnerProfile[],
     private readonly brokerAudience: string,
-    /** Read inside the admission transaction; the production composition always supplies it. */
-    private readonly packages?: FactoryPackageAdmissionFence,
+    /**
+     * Read inside the admission transaction. Required: a policy without the
+     * package fence would admit attempts of a quarantined or revoked package.
+     */
+    private readonly packages: FactoryPackageAdmissionFence,
   ) {
     assertFactoryIdentity(tenantId, brokerAudience);
-    if (grants.tenantId !== tenantId || values.length === 0) throw new FactoryNativeRunnerPolicyError("factory_native_policy_invalid");
+    if (grants.tenantId !== tenantId || values.length === 0 || typeof packages?.readActiveInTransaction !== "function") throw new FactoryNativeRunnerPolicyError("factory_native_policy_invalid");
     const profiles = new Map<string, FactoryNativeRunnerProfile>();
     for (const raw of snapshot(values)) {
       assertFactoryIdentity(raw.resourceClass);
@@ -130,7 +133,7 @@ export class FactoryNativeRunnerPolicy implements FactoryTaskRunnerPolicy {
     // The package fence at admission: a quarantined or revoked package admits no
     // new attempt. Read under the scope lock the command authority already holds,
     // so it serializes with the quarantine that would fence this attempt.
-    await this.packages?.readActiveInTransaction(transaction, input.reference.projectId, context.node.runner);
+    await this.packages.readActiveInTransaction(transaction, input.reference.projectId, context.node.runner);
     const capabilities = [...(context.node.capabilities ?? [])];
     if (!unique(capabilities) || capabilities.some(capability => !context.compiled.definition.capabilities.includes(capability) || !profile.allowedCapabilities.includes(capability))) throw new FactoryNativeRunnerPolicyError("factory_native_capability_denied");
     const limits = context.node.resources;
