@@ -1454,6 +1454,9 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Copy a harness by its whole closure, and re-copy when its owner moves. W01g's harness gained a supervisor wrapper (`bun-host.sh`) and moved its host mount from a proof branch into `wp/w01g-staging`; a stale copy failed twice before a single product line ran.
 - A fix proven in the kernel alone can still hang in the real application. The first `command-failed` handler stopped the run through `beginStopping`, which emits a `cancel-node` for every node it thinks is physical; a release node's only attempt was the effect that had just failed, so the cancel could never resolve and the run sat in `stopping`. The kernel tests passed because they used a task node. Prove a lifecycle change on the node kind the real run actually ends on.
 
+- A proof judge should check the exact thing a finding names. Round 4 passed with "a projected FACTORY_COMMAND_FAILED reason" while that reason said only "Activity task failed". The judge now requires the refusal's code, and it would have failed round 4.
+- After a worktree moves, rebuild everything that stored an absolute path. The Python virtual environments kept shebangs to the old path, so the typecheck failed although no source changed. Harness scripts with hard-coded worktree paths failed the same way.
+
 ## 2026-09-22 — W18b pool fixes
 
 - A failure label copied from a test name is a hypothesis, not a cause. W15 recorded the launcher failure as a Unix socket path limit because the test is named for it; the real error was a `TimeoutError` from a one-second readiness probe. Run the failing file under the pool's concurrency (six copies at once reproduced it 1 in 24) and read the error before naming a cause.
