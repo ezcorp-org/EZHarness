@@ -12,7 +12,7 @@ import type { TransactionalDb } from "../../db/migrations/types";
 import { FileBlobStore } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryArtifacts } from "../../factory/artifacts";
-import { FactoryAttemptMaterials, FactoryScopedMaterials, FactoryWorkspaceCheckpoints } from "../../factory/artifact-materials";
+import { FACTORY_MATERIAL_LIMITS, FactoryAttemptMaterials, FactoryScopedMaterials, FactoryWorkspaceCheckpoints, type FactoryArtifactBlobStore } from "../../factory/artifact-materials";
 import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
 import { digestObject } from "../../extensions/v4/blobs";
 import type { AgentRun } from "../../types";
@@ -22,6 +22,7 @@ import {
   FACTORY_GUEST_MATERIAL_REFUSALS,
   createFactoryCandidateOutputWriter,
   createFactoryGuestMaterialBroker,
+  createFactoryGuestMaterialServices,
 } from "../../factory/runner/guest-material-broker";
 import type { FactoryGuestBroker } from "../../factory/runner/guest-model-broker";
 
@@ -92,6 +93,13 @@ async function setup(options: { deadlineMs?: number } = {}) {
   const reader = new FactoryScopedMaterials({ database: db, artifacts, blobs });
   const output = createFactoryCandidateOutputWriter({ database: db, artifacts, journal });
 
+  /** A request this installation never admitted: no journal row, and optionally no run. */
+  const unadmitted = (run = runId) => {
+    const attemptId = `broker-attempt-${randomUUID()}`;
+    const request = runnerRequest({ attemptId, projectId, runId: run, deadlineAtMs: Date.now() + 600_000 });
+    return { request, operationId: `${run}:node-a:0:0` };
+  };
+
   const admit = async (nodeInstanceId = "node-a", deadlineMs = options.deadlineMs ?? 600_000) => {
     const attemptId = `broker-attempt-${randomUUID()}`;
     const request = runnerRequest({ attemptId, projectId, runId, nodeInstanceId, deadlineAtMs: Date.now() + deadlineMs });
@@ -102,12 +110,8 @@ async function setup(options: { deadlineMs?: number } = {}) {
   };
 
   /** A fresh broker every time, so a "restart" is a real rebuild of every object. */
-  const broker = (delegate?: FactoryGuestBroker, now?: () => number): FactoryGuestBroker => createFactoryGuestMaterialBroker({
-    services: {
-      materials: (authority: FactoryAttemptAuthority) => new FactoryAttemptMaterials({ database: db, artifacts, blobs, journal, authority }),
-      reader: () => reader,
-      output,
-    },
+  const broker = (delegate?: FactoryGuestBroker, now?: () => number, store: FactoryArtifactBlobStore = blobs): FactoryGuestBroker => createFactoryGuestMaterialBroker({
+    services: createFactoryGuestMaterialServices({ database: db, artifacts: store === blobs ? artifacts : new FactoryArtifacts(db, store, TENANT), blobs: store, journal }),
     ...(delegate ? { delegate } : {}),
     ...(now ? { now } : {}),
   });
@@ -120,7 +124,7 @@ async function setup(options: { deadlineMs?: number } = {}) {
 
   const materials = (authority: FactoryAttemptAuthority) => new FactoryAttemptMaterials({ database: db, artifacts, blobs, journal, authority });
   const checkpoints = new FactoryWorkspaceCheckpoints({ database: db, artifacts, blobs, journal });
-  return { db, artifacts, journal, reader, projectId, runId, admit, broker, guest, output, materials, checkpoints };
+  return { db, artifacts, blobs, journal, reader, projectId, runId, admit, unadmitted, broker, guest, output, materials, checkpoints };
 }
 
 async function refusalOf(action: Promise<unknown>): Promise<string> {
@@ -411,6 +415,62 @@ test("a frame the shared contract refuses never reaches the material service", a
   const shapeless = await instance.invoke(request, { schemaVersion: "factory.guest-material-seal.v1", operationId: 12, operationIndex: -4, objectName: "a/b", version: 0, digest: 7 }) as FactoryGuestMaterialResponse;
   expect(shapeless).toMatchObject({ status: "refused", operationId: "unknown:0", operationIndex: 0, objectName: "unknown", version: 1 });
 });
+
+test("an attempt this installation never admitted is refused as unknown_attempt, not as a stale epoch", async () => {
+  const fixture = await setup();
+  // The run exists; the attempt was never admitted into it.
+  const { request, operationId } = fixture.unadmitted();
+  expect(await refusalOf(fixture.guest(request, operationId).stageOutput("never.bin", new Uint8Array([1])))).toBe("unknown_attempt");
+  // Nor was the run itself.
+  const orphan = fixture.unadmitted(`broker-run-${randomUUID()}`);
+  expect(await refusalOf(fixture.guest(orphan.request, orphan.operationId).stageOutput("never.bin", new Uint8Array([1])))).toBe("unknown_attempt");
+  // Contrast: an admitted attempt whose fence moved is still a stale epoch.
+  const admitted = await fixture.admit();
+  await fixture.db.execute(sql`UPDATE factory_executions SET cancellation_epoch=cancellation_epoch+1 WHERE attempt_id=${admitted.attemptId}`);
+  expect(await refusalOf(fixture.guest(admitted.request, admitted.operationId).stageOutput("moved.bin", new Uint8Array([1])))).toBe("stale_epoch");
+});
+
+test("an object-store fault mid-upload is unavailable, and the same frames succeed once the store is back", async () => {
+  const fixture = await setup();
+  const { request, operationId } = await fixture.admit();
+  // The real store, with its writes switched off. Reads still work, and every
+  // other method is the store's own.
+  let down = true;
+  const store = fixture.blobs;
+  const flaky = new Proxy(store, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (typeof value !== "function") return value;
+      if (property === "put" || property === "putBound") {
+        return (...args: unknown[]) => down ? Promise.reject(new Error("object store unreachable")) : (value as (...a: unknown[]) => unknown).apply(target, args);
+      }
+      return (value as (...a: unknown[]) => unknown).bind(target);
+    },
+  }) as FactoryArtifactBlobStore;
+  const instance = fixture.broker(undefined, undefined, flaky);
+  const bytes = new TextEncoder().encode('{"retry":true}');
+  // A store fault is not a decision about this attempt: the guest is told to
+  // retry, not that it was superseded.
+  expect(await refusalOf(fixture.guest(request, operationId, instance).stageOutput("retry.json", bytes))).toBe("unavailable");
+  down = false;
+  const staged = await fixture.guest(request, operationId, instance).stageOutput("retry.json", bytes);
+  expect(staged.digest).toBe(`sha256:${sha256Hex(bytes)}`);
+});
+
+test("a begin that contradicts the material it names is a conflict, and a full operation is operation_full", async () => {
+  const fixture = await setup();
+  const { request, operationId } = await fixture.admit();
+  const instance = fixture.broker();
+  const begin = (objectName: string, totalBytes = 4) => instance.invoke(request, { schemaVersion: "factory.guest-material-begin.v1", operationId, operationIndex: 0, objectName, version: 1, mediaType: "application/octet-stream", totalBytes, chunkCount: 1 }) as Promise<FactoryGuestMaterialResponse>;
+  expect(await begin("plan.bin")).toMatchObject({ status: "begun" });
+  // The same name and version, planned differently.
+  expect(await begin("plan.bin", 5)).toMatchObject({ status: "refused", refusal: { code: "conflict" } });
+  // Fill the operation to its bound, then one more.
+  for (let index = 1; index < FACTORY_MATERIAL_LIMITS.maxObjectsPerOperation; index += 1) {
+    expect(await begin(`fill-${index}.bin`)).toMatchObject({ status: "begun" });
+  }
+  expect(await begin("one-too-many.bin")).toMatchObject({ status: "refused", refusal: { code: "operation_full" } });
+}, 120_000);
 
 test("a host with no material service for the attempt refuses by name", async () => {
   const fixture = await setup();

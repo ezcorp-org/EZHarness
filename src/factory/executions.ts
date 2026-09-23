@@ -184,6 +184,25 @@ function durableRunnerRequest(value: unknown, requestHash: string): FactoryDurab
 }
 
 /** Durable C02 journal; the gateway authenticates and supplies its authority. */
+/**
+ * Why the journal's liveness fence refused an attempt.
+ *
+ * `factory_attempt_unknown`: nothing in this scope has that attempt (or its
+ * run), so it was never admitted here. `factory_attempt_not_live`: it exists,
+ * and one of its fences moved (installation or run epoch, execution epoch,
+ * cancellation epoch, reservation generation, grant revision, deadline, or a
+ * status that no longer admits effects). The fence checks those together, so
+ * the second code does not say which one moved.
+ */
+export type FactoryAttemptLivenessCode = "factory_attempt_unknown" | "factory_attempt_not_live";
+
+export class FactoryAttemptLivenessError extends Error {
+  constructor(readonly code: FactoryAttemptLivenessCode, message: string) {
+    super(message);
+    this.name = "FactoryAttemptLivenessError";
+  }
+}
+
 export class FactoryExecutionJournal {
   constructor(private readonly db: TransactionalDb, private readonly authorizeInTransaction: FactoryAttemptAuthorizer, private readonly now: () => Date = () => new Date()) {}
   get database(): TransactionalDb { return this.db; }
@@ -539,14 +558,14 @@ export class FactoryExecutionJournal {
 
   private assertLiveInput(authority: FactoryAttemptAuthority): void {
     assertIdentity(authority);
-    if (authority.deadlineAt.getTime() <= this.now().getTime()) throw new Error("Factory attempt authority is stale or expired.");
+    if (authority.deadlineAt.getTime() <= this.now().getTime()) throw new FactoryAttemptLivenessError("factory_attempt_not_live", "Factory attempt authority is stale or expired.");
   }
 
   private async lockLive(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
     await this.lockRunFence(database, authority);
     await this.authorizeInTransaction(database, authority);
     const locked = releaseRows(await database.execute(sql`UPDATE factory_executions SET updated_at=updated_at WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND deadline_at > NOW() AND status IN ('admitted', 'running') RETURNING attempt_id`));
-    if (!locked.length) throw new Error("Factory attempt is stale, cancelled, or expired.");
+    if (!locked.length) await this.refuseAttempt(database, authority, "Factory attempt is stale, cancelled, or expired.");
   }
 
   private async lockTerminalCompletion(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<{ request_hash: string; request_json: unknown; status: string }> {
@@ -560,17 +579,27 @@ export class FactoryExecutionJournal {
   private async lockScopedRead(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
     await this.lockRunFence(database, authority);
     const stored = releaseRows(await database.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} FOR UPDATE`));
-    if (!stored.length) throw new Error("Factory attempt is unavailable to this tenant.");
+    if (!stored.length) await this.refuseAttempt(database, authority, "Factory attempt is unavailable to this tenant.");
+  }
+
+  /** Names a refused attempt: never admitted in this scope, or admitted and no longer live. */
+  private async refuseAttempt(database: MigrationDb, authority: FactoryAttemptAuthority, message: string): Promise<never> {
+    const known = releaseRows(await database.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId}`));
+    throw new FactoryAttemptLivenessError(known.length ? "factory_attempt_not_live" : "factory_attempt_unknown", message);
   }
 
   private async lockRunFence(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
     // Every Factory product transaction follows this order. Project authority
     // comes first, then the installation epoch, then the run; rows below a
     // run (lifecycle, budget, journal) are locked only after this fence.
+    const message = "Factory run epoch is stale or unavailable.";
     const installation = await lockFactoryScope(database, authority.tenantId, authority.projectId);
-    if (installation?.executionEpoch !== authority.executionEpoch) throw new Error("Factory run epoch is stale or unavailable.");
+    if (installation === null) throw new FactoryAttemptLivenessError("factory_attempt_unknown", message);
+    if (installation.executionEpoch !== authority.executionEpoch) throw new FactoryAttemptLivenessError("factory_attempt_not_live", message);
     const run = releaseRows(await database.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND execution_epoch=${authority.executionEpoch} FOR UPDATE`));
-    if (!run.length) throw new Error("Factory run epoch is stale or unavailable.");
+    if (run.length) return;
+    const known = releaseRows(await database.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId}`));
+    throw new FactoryAttemptLivenessError(known.length ? "factory_attempt_not_live" : "factory_attempt_unknown", message);
   }
 
 }

@@ -20,7 +20,9 @@ import {
   type FactoryMaterialRecord,
   type FactoryScopedArtifactReader,
 } from "../artifact-materials";
-import type { FactoryAttemptAuthority, FactoryExecutionJournal } from "../executions";
+import { FactoryAttemptLivenessError, type FactoryAttemptAuthority, type FactoryExecutionJournal } from "../executions";
+import { FactoryGrantError } from "../grants";
+import { FactoryRunLifecycleError } from "../run-lifecycle";
 import { factoryRunnerRequestAuthority } from "./attempt-authority";
 import { FactoryGuestFrameError } from "./guest-frames";
 import type { FactoryGuestBroker } from "./guest-model-broker";
@@ -117,21 +119,39 @@ function detail(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message.slice(0, 4_096) : fallback;
 }
 
+/** The run lifecycle's refusals of an attempt's authority, named for the guest. */
+const RUN_LIFECYCLE_REFUSALS: Readonly<Record<string, FactoryGuestMaterialRefusal>> = Object.freeze({
+  factory_run_not_found: "unknown_attempt",
+  factory_scope_mismatch: "unknown_attempt",
+  factory_run_fence_changed: "stale_epoch",
+  factory_run_stopped: "stale_epoch",
+  factory_run_terminal: "stale_epoch",
+});
+
+/** The grant refusals that mean the run's initiator no longer holds its authority. */
+const GRANT_REFUSALS: Readonly<Record<string, FactoryGuestMaterialRefusal>> = Object.freeze({
+  factory_forbidden: "stale_epoch",
+  factory_grant_stale: "stale_epoch",
+});
+
 /**
  * Classifies one failure.
  *
- * A `FactoryMaterialError` carries an exact code, so it maps exactly. Anything
- * else came out of the journal's own liveness statement, which refuses a moved
- * run epoch, execution epoch, cancellation epoch, reservation generation, grant
- * revision, and a non-admitted status together in one UPDATE. Telling them
- * apart would need a second read under authority this adapter does not hold, so
- * they share one name and its documentation says what it covers.
+ * Every refusal the services raise is typed and maps by its code: the
+ * material service's own, the journal's liveness fence (an attempt never
+ * admitted here is `unknown_attempt`; one whose fence moved is `stale_epoch`),
+ * and the run lifecycle and grant checks the fence calls. Anything untyped is
+ * a fault in the database or the object store, not a decision about this
+ * attempt, so it is `unavailable`: the guest retries rather than stops.
  */
 export function factoryGuestMaterialRefusal(error: unknown): FactoryGuestMaterialRefusal {
   if (error instanceof FactoryCandidateOutputError) return "output_not_canonical_json";
   if (error instanceof FactoryMaterialError) return FACTORY_GUEST_MATERIAL_REFUSALS[error.code] ?? "unavailable";
   if (error instanceof FactoryArtifactAccessError) return "unknown_material";
-  return "stale_epoch";
+  if (error instanceof FactoryAttemptLivenessError) return error.code === "factory_attempt_unknown" ? "unknown_attempt" : "stale_epoch";
+  if (error instanceof FactoryRunLifecycleError) return RUN_LIFECYCLE_REFUSALS[error.code] ?? "unavailable";
+  if (error instanceof FactoryGrantError) return GRANT_REFUSALS[error.code] ?? "unavailable";
+  return "unavailable";
 }
 
 /**
