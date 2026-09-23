@@ -127,6 +127,8 @@ const composeRecorder = [
   'printf "EZCORP_BUILD_SOURCE_STATE=%s\\n" "$EZCORP_BUILD_SOURCE_STATE"',
   'printf "EZCORP_BUILD_COMMIT_DEFAULT=%s\\n" "$EZCORP_BUILD_COMMIT_DEFAULT"',
   'printf "EZCORP_BUILD_SOURCE_STATE_DEFAULT=%s\\n" "$EZCORP_BUILD_SOURCE_STATE_DEFAULT"',
+  'printf "EZCORP_BUILD_VERSION_DEFAULT=%s\\n" "$EZCORP_BUILD_VERSION_DEFAULT"',
+  'printf "EZCORP_BUILD_CREATED_DEFAULT=%s\\n" "$EZCORP_BUILD_CREATED_DEFAULT"',
   'printf "EZ_RUNNER_GROUP=%s\\n" "$EZ_RUNNER_GROUP"',
   'if test -v EZ_RUNNER_GROUP; then printf "EZ_RUNNER_GROUP_SET=1\\n"; else printf "EZ_RUNNER_GROUP_SET=0\\n"; fi',
   'printf "ARGV=%s\\n" "$*"',
@@ -245,6 +247,8 @@ interface Run {
     buildCommitDefault: string;
     buildSourceState: string;
     buildSourceStateDefault: string;
+    buildVersionDefault: string;
+    buildCreatedDefault: string;
     runnerGroup: string;
     runnerGroupSet: string;
     argv: string;
@@ -283,6 +287,8 @@ function run(args: string[], env: Record<string, string> = {}, dotenv?: string):
           buildCommit: read("EZCORP_BUILD_COMMIT"),
           buildCommitDefault: read("EZCORP_BUILD_COMMIT_DEFAULT"),
           buildSourceState: read("EZCORP_BUILD_SOURCE_STATE"),
+          buildVersionDefault: read("EZCORP_BUILD_VERSION_DEFAULT"),
+          buildCreatedDefault: read("EZCORP_BUILD_CREATED_DEFAULT"),
           buildSourceStateDefault: read("EZCORP_BUILD_SOURCE_STATE_DEFAULT"),
           runnerGroup: read("EZ_RUNNER_GROUP"),
           runnerGroupSet: read("EZ_RUNNER_GROUP_SET"),
@@ -392,6 +398,32 @@ function resolveRunnerGroup(mode: "--docker" | "--podman", env: Record<string, s
 }
 
 describe("podman wrapper — the invocation it guarantees", () => {
+  test("missing package metadata does not prevent Compose from running", () => {
+    const result = run(["config"]);
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.invocation?.buildVersionDefault).toBe("unknown");
+  });
+
+  test("version comes from package.json and creation time comes from the checkout commit", () => {
+    const packagePath = join(SANDBOX, "package.json");
+    const version = "7.8.9";
+    writeFileSync(packagePath, `${JSON.stringify({ name: "fixture", version }, null, 2)}\n`);
+    try {
+      const result = run(["config"]);
+      expect(result.exitCode, result.stderr).toBe(0);
+      expect(result.invocation?.buildVersionDefault).toBe(version);
+      expect(result.invocation?.buildCreatedDefault).toBe(sandboxGit("show", "-s", "--format=%cI", "HEAD"));
+    } finally {
+      rmSync(packagePath);
+    }
+  });
+
+  test("unavailable Git metadata leaves creation time unknown without blocking Compose", () => {
+    const result = run(["config"], { PATH: `${BIN_GIT_UNAVAILABLE}:${BIN}:${baseEnv.PATH}` });
+    expect(result.exitCode, result.stderr).toBe(0);
+    expect(result.invocation?.buildCreatedDefault).toBe("unknown");
+  });
+
   test("layers the Podman override and points Compose at the Podman socket", () => {
     const result = run(["up", "-d"]);
     expect(result.exitCode).toBe(0);
@@ -772,6 +804,7 @@ describe("podman wrapper — the invocation it guarantees", () => {
         GIT_CONFIG_VALUE_0: "true",
       });
       expect(result.invocation?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
+      expect(result.invocation?.buildCreatedDefault).toBe(sandboxGit("show", "-s", "--format=%cI", "HEAD"));
       expect(result.invocation?.buildSourceStateDefault).toBe("dirty");
     } finally {
       rmSync(caseDifferentInput, { force: true });
