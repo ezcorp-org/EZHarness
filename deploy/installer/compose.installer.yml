@@ -21,6 +21,10 @@ name: ezcorp
 services:
   app:
     image: "${EZCORP_IMAGE}"
+    # Same startup check as the server stack; the core requires an existing
+    # isolated runner and never selects trusted-local as a fallback.
+    entrypoint: ["/bin/sh", "/app/deploy/extension-runner/app-entrypoint.sh"]
+    command: ["bun", "run", "web/build/index.js"]
     cap_add:
       - NET_ADMIN
     restart: unless-stopped
@@ -29,10 +33,13 @@ services:
       # Host side only. The container side is fixed at 3000 because the image
       # pins EZCORP_PORT=3000 and in-container loopback callers
       # (web/src/lib/server/security/bundled-creds.ts) resolve to it.
-      - "${EZCORP_PORT_HOST}:3000"
+      - "127.0.0.1:${EZCORP_PORT_HOST}:3000"
     env_file:
       - .env
     environment:
+      BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
+      EZCORP_EXTENSION_RUNNER_SOCKET: /run/ez-extension-runner/runner.sock
+      EZCORP_EXTENSION_RUNNER_TOKEN_FILE: /run/secrets/extension-runner-token
       EZCORP_PORT: "3000"
       ORIGIN: "${EZCORP_PUBLIC_URL}"
       EZCORP_PUBLIC_URL: "${EZCORP_PUBLIC_URL}"
@@ -50,7 +57,21 @@ services:
       EZCORP_INSTALL_CHANNEL: installer
       IDLE_TIMEOUT: "0"
       SEARXNG_BASE_URL: "${SEARXNG_BASE_URL:-http://searxng:8080}"
+    group_add:
+      - "${EZ_RUNNER_GROUP}"
     volumes:
+      - type: bind
+        source: ${EZ_RUNNER_SOCKET_DIR}
+        target: /run/ez-extension-runner
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${EZ_RUNNER_TOKEN_FILE}
+        target: /run/secrets/extension-runner-token
+        read_only: true
+        bind:
+          create_host_path: false
       - "${EZCORP_DATA_ROOT}/data:/app/data"
       - ext-data:/app/.ezcorp
       - "${EZCORP_DATA_ROOT}/extensions:/app/.ezcorp/extensions"

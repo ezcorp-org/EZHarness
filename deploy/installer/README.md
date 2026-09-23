@@ -24,6 +24,39 @@ ezcorp uninstall [--purge]  remove it (--purge also deletes your data)
 | `compose.installer.yml` | pull-only stack, absolute host paths, suggestion sidecars behind a profile |
 | `compose.machine.yml` | rootless-Podman overlay (`keep-id`), layered whenever podman runs rootless |
 
+## Prerequisites
+
+This core currently supports a Linux host with a provisioned **isolated
+extension runner**. Follow
+[the runner setup](../extension-runner/README.md) before the first install.
+Export its host socket directory, credential file and container-visible group:
+
+```sh
+export EZ_RUNNER_SOCKET_DIR=/run/ez-extension-runner
+export EZ_RUNNER_TOKEN_FILE=/etc/ezharness/extension-runner-token
+export EZ_RUNNER_GROUP=1 # use the verified group from your runner setup
+```
+
+The installer checks these settings before it creates data or secrets. It saves
+them in its private `.env` for later commands. The socket directory and token
+are mounted read-only. The app's normal startup check still verifies the runner
+credential and isolation controls. There is no automatic trusted-local fallback.
+
+Configure the runner service's `EZ_EXTENSION_APP_UID` for the app's actual
+host-visible UID: your login UID with rootless Podman's `keep-id` mapping, or
+1000 with rootful Docker. Use the runner guide to verify its shared group map.
+On Linux, start Podman's API socket before use (`systemctl --user enable --now
+podman.socket`). Compose always uses the selected Podman socket, even when
+Docker is also installed.
+
+Linux Docker installs require a login UID of 1000 and a rootful Docker daemon.
+Use rootless Podman for other login UIDs. The installer does not change owners
+of existing data or request sudo. It validates the runner settings, then lets
+Compose and the app verify mount availability and mapped-group access. It does
+not provision a runner inside a macOS VM. OS packages and VM support are not
+included in this core's validated configurations. This is an installer limit,
+not a restriction on the application's other deployment methods.
+
 ## Decisions worth knowing before editing
 
 **Secrets and data are one unit.** The three secrets live in `.env`; the data
@@ -37,17 +70,24 @@ may remove either.
 in-container loopback callers resolve to it, so the installer never sets that
 variable. What must track the chosen port is `EZCORP_PUBLIC_URL`, which feeds
 `ORIGIN`: left unset, svelte-adapter-bun defaults the scheme to `https` and
-login breaks over plain HTTP.
+login breaks over plain HTTP. The host port binds only to `127.0.0.1`, because
+this local installer serves plain HTTP.
 
 **The suggestion sidecar is opt-in.** It backs only the composer's
 prompt-enhancement row, and costs a ~1 GB model plus a 4 GB memory
 reservation. With the profile off, `EZCORP_SUGGEST_OLLAMA_URL` must stay unset
 — a set URL means dialing a host that does not exist on every keystroke.
+Turning suggestions off recreates the app with the URL removed before stopping
+the sidecar. Non-purge uninstall keeps the opt-in setting with `.env`, so a
+reinstall restores both together.
 
 **Updates run from the host.** The app cannot pull and recreate itself without
 a mounted container socket, which `compose.prod.yml` already records as
 host-root-equivalent and rejected. `ezcorp update` snapshots the data first and
 rolls back if the new version does not reach `ready`.
+Both backup and restore require a successful container stop. If the failed
+version cannot stop, the installer preserves both data copies and prints the
+backup path. It never restores files beneath a running app.
 
 **Readiness is checked before the browser opens.** `/api/ready` distinguishes
 "still booting" from `data-recovery-needed`; the degraded case prints the
@@ -59,7 +99,7 @@ backup path instead of opening a broken app.
 engine/compose/curl binaries. Run it with `bun test
 ./src/__tests__/installer-core.test.ts`.
 
-Manual end-to-end against a locally built image:
+Manual end-to-end against a locally built image, after runner provisioning:
 
 ```sh
 EZCORP_CONFIG_DIR=/tmp/ez/config EZCORP_DATA_ROOT=/tmp/ez/data \

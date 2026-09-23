@@ -1,5 +1,5 @@
-import { afterAll, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -58,17 +58,54 @@ stub(
   [
     'echo "podman $*" >> "$EZCORP_TEST_LOG"',
     'case "$1 $2" in',
-    '  "machine inspect") echo "running"; exit 0 ;;',
+    '  "machine inspect")',
+    `    [ "\${EZCORP_TEST_NATIVE_PODMAN:-0}" = 1 ] && exit 1`,
+    `    case "$*" in *PodmanSocket*) echo "\${EZCORP_TEST_SOCKET:-/tmp/podman.sock}" ;; *) echo "running" ;; esac; exit 0 ;;`,
+    '  "info --format") echo "/run/user/1000/podman/podman.sock"; exit 0 ;;',
     '  "image exists") exit 0 ;;',
+    `  "pull "*) exit "\${EZCORP_TEST_FAIL_PULL:-0}" ;;`,
     "esac",
     "exit 0",
   ].join("\n"),
 );
-stub("docker-compose", ['echo "compose $*" >> "$EZCORP_TEST_LOG"', "exit 0"].join("\n"));
+stub(
+  "docker-compose",
+  [
+    `echo "compose host=\${DOCKER_HOST:-unset} $*" >> "$EZCORP_TEST_LOG"`,
+    'case " $* " in',
+    '  *" stop "*|*" down "*)',
+    '    count=$(cat "$EZCORP_CONFIG_DIR/stop-count" 2>/dev/null || echo 0)',
+    '    count=$((count + 1)); echo "$count" > "$EZCORP_CONFIG_DIR/stop-count"',
+    `    [ "$count" = "\${EZCORP_TEST_FAIL_STOP_NUMBER:-0}" ] && exit 1 ;;`,
+    '  *" up -d "*)',
+    `    [ "\${EZCORP_TEST_FAIL_UP:-0}" = 1 ] && exit 1`,
+    `    if [ "\${EZCORP_TEST_MUTATE_UPDATE:-0}" = 1 ] && ! grep -q "^EZCORP_IMAGE=ezcorp:test$" "$EZCORP_CONFIG_DIR/.env"; then`,
+    '      echo migrated > "$EZCORP_DATA_ROOT/data/sentinel"',
+    '    fi ;;',
+    'esac',
+    "exit 0",
+  ].join("\n"),
+);
 // The readiness probe is what gates "open the browser"; always ready here.
-stub("curl", ['echo "curl $*" >> "$EZCORP_TEST_LOG"', 'echo \'{"state":"ready","since":"now"}\'', "exit 0"].join("\n"));
+stub(
+  "curl",
+  [
+    'echo "curl $*" >> "$EZCORP_TEST_LOG"',
+    `state="\${EZCORP_TEST_READY_STATE:-ready}"`,
+    `if [ "\${EZCORP_TEST_MUTATE_UPDATE:-0}" = 1 ] && ! grep -q "^EZCORP_IMAGE=ezcorp:test$" "$EZCORP_CONFIG_DIR/.env"; then state=data-recovery-needed; fi`,
+    'if [ "$state" != ready ]; then',
+    '  case " $* " in *" -f"*|*" --fail "*) exit 22 ;; esac',
+    'fi',
+    'printf \'{"state":"%s","since":"now"}\\n\' "$state"',
+    "exit 0",
+  ].join("\n"),
+);
 // Keep the real install from opening a browser window on the test machine.
 stub("open", ['echo "open $*" >> "$EZCORP_TEST_LOG"', "exit 0"].join("\n"));
+stub("xdg-open", ['echo "open $*" >> "$EZCORP_TEST_LOG"', "exit 0"].join("\n"));
+stub("docker", ['echo "docker $*" >> "$EZCORP_TEST_LOG"', "exit 0"].join("\n"));
+stub("id", `echo "\${EZCORP_TEST_UID:-1000}"`);
+stub("uname", `echo "\${EZCORP_TEST_OS:-Linux}"`);
 
 afterAll(() => {
   rmSync(SANDBOX, { recursive: true, force: true });
@@ -84,15 +121,26 @@ interface Run {
 let caseDir: string;
 let configDir: string;
 let dataRoot: string;
+let runnerSocket: ReturnType<typeof Bun.listen>;
+let runnerDir: string;
+let runnerToken: string;
 
 beforeEach(() => {
   caseDir = mkdtempSync(join(SANDBOX, "case-"));
   configDir = join(caseDir, "config");
   dataRoot = join(caseDir, "data");
+  runnerDir = join(caseDir, "runner");
+  runnerToken = join(caseDir, "runner-token");
+  mkdirSync(runnerDir);
+  writeFileSync(runnerToken, "test-only-runner-token");
+  runnerSocket = Bun.listen({ unix: join(runnerDir, "runner.sock"), socket: { data() {} } });
 });
 
-function run(args: string[], extraEnv: Record<string, string> = {}, stdin = ""): Run {
+afterEach(() => runnerSocket.stop(true));
+
+function run(args: string[], extraEnv: Record<string, string | undefined> = {}, stdin = ""): Run {
   const logPath = join(caseDir, "invocations.log");
+  writeFileSync(logPath, "");
   const proc = Bun.spawnSync({
     cmd: ["bash", SCRIPT, ...args],
     env: {
@@ -103,6 +151,10 @@ function run(args: string[], extraEnv: Record<string, string> = {}, stdin = ""):
       EZCORP_CONTAINER_ENGINE: "podman",
       EZCORP_IMAGE: "ezcorp:test",
       EZCORP_TEST_LOG: logPath,
+      EZCORP_READY_TIMEOUT: "30",
+      EZ_RUNNER_SOCKET_DIR: runnerDir,
+      EZ_RUNNER_TOKEN_FILE: runnerToken,
+      EZ_RUNNER_GROUP: "1",
       ...extraEnv,
     },
     stdin: new TextEncoder().encode(stdin),
@@ -258,6 +310,183 @@ describe("ezcorp uninstall — what it may and may not destroy", () => {
     expect(confirmed.exitCode).toBe(0);
     expect(existsSync(dataRoot)).toBe(false);
   });
+
+  test("reinstall keeps the suggestion opt-in together with its URL", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    expect(run(["suggestions", "on"]).exitCode).toBe(0);
+    expect(run(["uninstall"]).exitCode).toBe(0);
+    const restarted = run(["install"]);
+    expect(restarted.exitCode).toBe(0);
+    expect(envFile()).toContain("EZCORP_SUGGEST_OLLAMA_URL=http://ollama:11434");
+    expect(restarted.log).toContain("--profile suggest");
+  });
+});
+
+describe("installer lifecycle failures", () => {
+  test.each(["EZ_RUNNER_SOCKET_DIR", "EZ_RUNNER_TOKEN_FILE", "EZ_RUNNER_GROUP"])(
+    "missing %s stops installation before any data or secrets are created",
+    (key) => {
+      const result = run(["install"], { [key]: "" });
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain(key);
+      expect(result.stderr).toContain("deploy/extension-runner/README.md");
+      expect(existsSync(dataRoot)).toBe(false);
+      expect(result.log).not.toContain("compose ");
+    },
+  );
+
+  test("runner paths and group are saved for later starts", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    expect(envFile()).toContain(`EZ_RUNNER_SOCKET_DIR=${runnerDir}`);
+    expect(envFile()).toContain(`EZ_RUNNER_TOKEN_FILE=${runnerToken}`);
+    expect(envFile()).toContain("EZ_RUNNER_GROUP=1");
+    const result = run(["start"], { EZ_RUNNER_SOCKET_DIR: undefined, EZ_RUNNER_TOKEN_FILE: undefined, EZ_RUNNER_GROUP: undefined });
+    expect(result.exitCode).toBe(0);
+    expect(result.log).toContain("up -d");
+  });
+
+  test.each([
+    ["EZ_RUNNER_SOCKET_DIR", "relative/runner"],
+    ["EZ_RUNNER_TOKEN_FILE", "relative/runner-token"],
+    ["EZ_RUNNER_GROUP", "not-a-group"],
+  ])("invalid %s stops installation before Compose", (key, value) => {
+    const result = run(["install"], { [key]: value });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain(key);
+    expect(result.log).not.toContain("compose ");
+    expect(existsSync(dataRoot)).toBe(false);
+  });
+
+  test("leaves mapped-group access checks to the app container", () => {
+    chmodSync(runnerDir, 0o000);
+    chmodSync(runnerToken, 0o000);
+    try {
+      const result = run(["install"]);
+      expect(result.exitCode).toBe(0);
+      expect(result.log).toContain("up -d");
+    } finally {
+      chmodSync(runnerDir, 0o700);
+      chmodSync(runnerToken, 0o600);
+    }
+  });
+
+  test("stops an update before copying live data if the stack cannot stop", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    writeFileSync(join(dataRoot, "data", "sentinel"), "original");
+    const before = envFile();
+    const result = run(["update", "next"], { EZCORP_TEST_FAIL_STOP_NUMBER: "1" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not stop");
+    expect(envFile()).toBe(before);
+    expect(readdirSync(dataRoot)).not.toContainEqual(expect.stringMatching(/^pre-update-/));
+    expect(result.log).not.toContain("pull ");
+  });
+
+  test("keeps both copies when the failed update cannot stop for rollback", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    writeFileSync(join(dataRoot, "data", "sentinel"), "original");
+    const result = run(["update", "next"], { EZCORP_TEST_FAIL_STOP_NUMBER: "2", EZCORP_TEST_MUTATE_UPDATE: "1" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not stop");
+    expect(readFileSync(join(dataRoot, "data", "sentinel"), "utf8")).toBe("migrated\n");
+    const snapshots = readdirSync(dataRoot).filter((name) => name.startsWith("pre-update-"));
+    expect(snapshots).toHaveLength(1);
+    expect(readFileSync(join(dataRoot, snapshots[0]!, "sentinel"), "utf8")).toBe("original");
+    expect(result.stderr).toContain(join(dataRoot, snapshots[0]!));
+  });
+
+  test("restores the old image and data after a failed update", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    writeFileSync(join(dataRoot, "data", "sentinel"), "original");
+    const before = envFile();
+    const result = run(["update", "next"], { EZCORP_TEST_MUTATE_UPDATE: "1" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("rolled back");
+    expect(envFile()).toBe(before);
+    expect(readFileSync(join(dataRoot, "data", "sentinel"), "utf8")).toBe("original");
+  });
+
+  test("a failed download does not claim the app restarted when Compose fails", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    const before = envFile();
+    const result = run(["update", "next"], { EZCORP_TEST_FAIL_PULL: "1", EZCORP_TEST_FAIL_UP: "1" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not restart");
+    expect(result.stderr).not.toContain("was restarted");
+    expect(envFile()).toBe(before);
+  });
+
+  test("a successful update retains data and removes its temporary snapshot", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    writeFileSync(join(dataRoot, "data", "sentinel"), "original");
+    const result = run(["update", "next"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("Updated to");
+    expect(envFile()).toContain("EZCORP_IMAGE=ghcr.io/ezcorp-org/ezcorp:next");
+    expect(readFileSync(join(dataRoot, "data", "sentinel"), "utf8")).toBe("original");
+    expect(readdirSync(dataRoot).filter((name) => name.startsWith("pre-update-"))).toEqual([]);
+  });
+
+  test.each(["install", "start", "open"])("%s shows recovery details without opening a browser", (command) => {
+    if (command !== "install") expect(run(["install"]).exitCode).toBe(0);
+    const result = run([command], { EZCORP_TEST_READY_STATE: "data-recovery-needed" });
+    expect(result.exitCode).not.toBe(0);
+    expect(`${result.stdout}${result.stderr}`).toContain(join(dataRoot, "data", "backups"));
+    expect(result.log).not.toContain("open http");
+  });
+
+  test("open checks readiness before opening a healthy app", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    const result = run(["open"]);
+    expect(result.exitCode).toBe(0);
+    expect(result.log).toContain("/api/ready");
+    expect(result.log.indexOf("/api/ready")).toBeLessThan(result.log.indexOf("open http"));
+  });
+
+  test("disabling suggestions recreates the app without the sidecar URL", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    expect(run(["suggestions", "on"]).exitCode).toBe(0);
+    const result = run(["suggestions", "off"]);
+    expect(result.exitCode).toBe(0);
+    expect(envFile()).not.toContain("EZCORP_SUGGEST_OLLAMA_URL");
+    expect(result.log).toContain("up -d");
+    const composeCalls = result.log.split("\n").filter((line) => line.startsWith("compose "));
+    expect(composeCalls.length).toBeGreaterThanOrEqual(2);
+    for (const call of composeCalls) {
+      expect(call).toContain("host=unix:///tmp/podman.sock");
+      expect(call).toContain("compose.machine.yml");
+    }
+  });
+
+  test("native Podman directs Compose to Podman even with a Docker host set", () => {
+    const result = run(["install"], { EZCORP_TEST_NATIVE_PODMAN: "1", DOCKER_HOST: "unix:///wrong/docker.sock" });
+    expect(result.exitCode).toBe(0);
+    expect(result.log).toContain("compose host=unix:///run/user/1000/podman/podman.sock");
+    expect(result.log).not.toContain("host=unix:///wrong/docker.sock");
+  });
+
+  test("Podman socket paths can contain spaces", () => {
+    const result = run(["install"], { EZCORP_TEST_SOCKET: "/tmp/Podman socket/podman.sock" });
+    expect(result.exitCode).toBe(0);
+    expect(result.log).toContain("compose host=unix:///tmp/Podman socket/podman.sock");
+  });
+
+  test("Docker on Linux rejects an incompatible user before creating data", () => {
+    const result = run(["install"], { EZCORP_CONTAINER_ENGINE: "docker", EZCORP_TEST_UID: "1001" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("1000");
+    expect(result.stderr).toContain("Podman");
+    expect(existsSync(dataRoot)).toBe(false);
+    expect(existsSync(join(configDir, ".env"))).toBe(false);
+  });
+
+  test.each(["stop", "uninstall"])("%s reports an engine failure instead of claiming success", (command) => {
+    expect(run(["install"]).exitCode).toBe(0);
+    const result = run([command], { EZCORP_TEST_FAIL_STOP_NUMBER: "1" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not");
+    expect(existsSync(join(configDir, ".env"))).toBe(true);
+  });
 });
 
 describe("compose.installer.yml — the contracts it must honor", () => {
@@ -286,7 +515,7 @@ describe("compose.installer.yml — the contracts it must honor", () => {
 
     const pinned = dockerfile.match(/^ENV EZCORP_PORT=(\d+)/m)?.[1];
     expect(pinned).toBeDefined();
-    expect(compose).toContain(`"\${EZCORP_PORT_HOST}:${pinned}"`);
+    expect(compose).toContain(`"127.0.0.1:\${EZCORP_PORT_HOST}:${pinned}"`);
     expect(compose).toContain(`EZCORP_PORT: "${pinned}"`);
   });
 
@@ -302,5 +531,23 @@ describe("compose.installer.yml — the contracts it must honor", () => {
     // the image, which is image state and vanishes on the next pull.
     expect(text).toContain("EZCORP_DB_PATH: /app/data/ezcorp");
     expect(text).toContain("EZCORP_SECRETS_DIR: /app/data");
+  });
+
+  test("keeps the isolated runner connection and startup check used by production", async () => {
+    const compose = Bun.YAML.parse(await Bun.file(COMPOSE_INSTALLER).text()) as {
+      services: { app: { entrypoint: string[]; environment: Record<string, string>; group_add: string[]; volumes: unknown[] } };
+    };
+    const runner = Bun.YAML.parse(await Bun.file(join(REPO_ROOT, "deploy/extension-runner/compose.runner.yml")).text()) as typeof compose;
+    const base = Bun.YAML.parse(await Bun.file(join(REPO_ROOT, "deploy/extension-runner/compose.app.yml")).text()) as typeof compose;
+    expect(compose.services.app.entrypoint).toEqual(base.services.app.entrypoint);
+    for (const [key, value] of Object.entries(runner.services.app.environment)) {
+      expect(compose.services.app.environment[key]).toBe(value);
+    }
+    expect(compose.services.app.group_add).toEqual([`\${EZ_RUNNER_GROUP}`]);
+    const mounts = compose.services.app.volumes.filter((value) => typeof value === "object");
+    expect(mounts).toEqual([
+      { type: "bind", source: `\${EZ_RUNNER_SOCKET_DIR}`, target: "/run/ez-extension-runner", read_only: true, bind: { create_host_path: false } },
+      { type: "bind", source: `\${EZ_RUNNER_TOKEN_FILE}`, target: "/run/secrets/extension-runner-token", read_only: true, bind: { create_host_path: false } },
+    ]);
   });
 });

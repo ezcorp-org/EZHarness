@@ -104,22 +104,30 @@ compose_cmd() {
 
 compose() {
   local files=(-f "$COMPOSE_INSTALLER")
+  local environment=()
+  local socket
   engine_is_rootless_podman && files+=(-f "$COMPOSE_MACHINE")
   [ "$(suggestions_state)" = "on" ] && files+=(--profile suggest)
+  if [ "$ENGINE" = "podman" ]; then
+    socket="$(podman_socket)" || return 1
+    environment+=("DOCKER_HOST=unix://$socket")
+  fi
   # shellcheck disable=SC2046
-  env $(machine_env) EZCORP_DATA_ROOT="$DATA_ROOT" EZCORP_SEARXNG_CONFIG="$SEARXNG_CONFIG" \
+  env "${environment[@]}" EZCORP_DATA_ROOT="$DATA_ROOT" EZCORP_SEARXNG_CONFIG="$SEARXNG_CONFIG" \
     $(compose_cmd) "${files[@]}" --project-directory "$CONFIG_DIR" --env-file "$ENV_FILE" "$@"
 }
 
-# On macOS/Windows the engine is a VM reached over a socket; compose needs to
-# be pointed at it. On Linux the socket is the local one and DOCKER_HOST is
-# left alone.
-machine_env() {
-  if [ "$ENGINE" = "podman" ] && podman machine inspect >/dev/null 2>&1; then
-    local socket
+# Always point Compose at the selected engine, including native Linux Podman
+# when Docker is installed too. Keep paths as one argument, even with spaces.
+podman_socket() {
+  local socket
+  if podman machine inspect >/dev/null 2>&1; then
     socket="$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null || true)"
-    [ -n "$socket" ] && printf 'DOCKER_HOST=unix://%s' "$socket"
+  else
+    socket="$(podman info --format '{{.Host.RemoteSocket.Path}}' 2>/dev/null || true)"
   fi
+  [ -n "$socket" ] || die "could not find the Podman API socket. Start podman.socket on Linux, or the Podman VM on macOS."
+  printf '%s' "$socket"
 }
 
 machine_running() {
@@ -138,6 +146,17 @@ ensure_machine() {
 
 image_present() {
   $ENGINE image exists "$1" 2>/dev/null || $ENGINE image inspect "$1" >/dev/null 2>&1
+}
+
+ensure_runtime() {
+  detect_engine
+  # Rootful engines do not map an arbitrary login UID to the image's UID.
+  # Never fix this by taking ownership of the user's existing data.
+  if [ "$(uname -s)" = Linux ] && ! engine_is_rootless_podman && [ "$(id -u)" != 1000 ]; then
+    die "the Linux $ENGINE bind mounts require the app's UID 1000. Use rootless Podman with your own account; no data ownership was changed."
+  fi
+  ensure_runner_config
+  ensure_machine
 }
 
 # ── Port selection ─────────────────────────────────────────────────────────
@@ -198,11 +217,34 @@ EZCORP_ENCRYPTION_SALT=$(rand_b64 16)
 EZCORP_JWT_SECRET=$(rand_b64 32)
 SEARXNG_SECRET=$(openssl rand -hex 32)
 EZCORP_UPDATE_REPO=$UPDATE_REPO
+EZ_RUNNER_SOCKET_DIR=$EZ_RUNNER_SOCKET_DIR
+EZ_RUNNER_TOKEN_FILE=$EZ_RUNNER_TOKEN_FILE
+EZ_RUNNER_GROUP=$EZ_RUNNER_GROUP
 ENV
   chmod 600 "$ENV_FILE"
 }
 
 env_get() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | head -1; }
+
+# The core connects to a provisioned isolated runner. It cannot provision a
+# host service or silently change the security mode on the user's behalf.
+ensure_runner_config() {
+  local key value
+  for key in EZ_RUNNER_SOCKET_DIR EZ_RUNNER_TOKEN_FILE EZ_RUNNER_GROUP; do
+    value="${!key-}"
+    if [ -z "${!key+x}" ]; then value="$(env_get "$key" || true)"; fi
+    [ -n "$value" ] || die "$key is required. Provision the isolated extension runner first; see deploy/extension-runner/README.md."
+    export "$key=$value"
+  done
+  [[ "$EZ_RUNNER_GROUP" =~ ^[0-9]+$ ]] || die "EZ_RUNNER_GROUP must be a numeric container-visible group. See deploy/extension-runner/README.md."
+  [[ "$EZ_RUNNER_SOCKET_DIR" = /* ]] \
+    || die "EZ_RUNNER_SOCKET_DIR must be an absolute path to the provisioned socket directory. See deploy/extension-runner/README.md."
+  [[ "$EZ_RUNNER_TOKEN_FILE" = /* ]] \
+    || die "EZ_RUNNER_TOKEN_FILE must be an absolute path to the runner credential file. See deploy/extension-runner/README.md."
+  # The host login may not belong to the app's mapped supplementary group.
+  # Compose rejects absent mounts; the app entrypoint checks access, peer UID,
+  # credentials and isolation from the actual container. Never read the token.
+}
 
 write_state() {
   cat > "$STATE_FILE" <<JSON
@@ -235,7 +277,7 @@ wait_ready() {
   url="$(app_url)/api/ready"
   deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ))
   while [ "$(date +%s)" -lt "$deadline" ]; do
-    body="$(curl -fsS --max-time 5 "$url" 2>/dev/null || true)"
+    body="$(curl -sS --max-time 5 "$url" 2>/dev/null || true)"
     case "$body" in
       *'"state":"ready"'*)    return 0 ;;
       *'data-recovery-needed'*)
@@ -253,6 +295,16 @@ wait_ready() {
   return 1
 }
 
+require_ready() {
+  local result=0
+  wait_ready || result=$?
+  case "$result" in
+    0) return 0 ;;
+    2) return 1 ;;
+    *) die "EZCorp did not become ready in time. Run 'ezcorp status'." ;;
+  esac
+}
+
 open_browser() {
   local url; url="$(app_url)"
   case "$(uname -s)" in
@@ -263,7 +315,7 @@ open_browser() {
 
 # ── Commands ───────────────────────────────────────────────────────────────
 cmd_install() {
-  detect_engine
+  ensure_runtime
   local image port
   image="${EZCORP_IMAGE:-$IMAGE_REPO:${EZCORP_VERSION:-$VERSION_FALLBACK}}"
 
@@ -275,7 +327,6 @@ cmd_install() {
     return
   fi
 
-  ensure_machine
   port="$(pick_port)"
   [ "$port" = "$PORT_FIRST" ] || say "Port $PORT_FIRST was busy, using $port."
   write_env "$port" "$image"
@@ -296,11 +347,7 @@ cmd_install() {
   quiet compose up -d || die "EZCorp could not start. Run 'ezcorp status' for details."
 
   step "Waiting for EZCorp to be ready..."
-  case "$(wait_ready; echo $?)" in
-    0) ;;
-    2) exit 1 ;;
-    *) die "EZCorp did not become ready in time. Run 'ezcorp status'." ;;
-  esac
+  require_ready || exit 1
 
   write_state
   say ""
@@ -313,16 +360,13 @@ cmd_install() {
 }
 
 cmd_start() {
-  detect_engine
   [ -f "$ENV_FILE" ] || die "EZCorp is not set up yet. Run 'ezcorp install'."
-  ensure_machine
+  ensure_runtime
   step "Starting EZCorp..."
   quiet compose up -d || die "EZCorp could not start. Run 'ezcorp status' for details."
-  case "$(wait_ready; echo $?)" in
-    0) say "EZCorp is running at $(app_url)"; open_browser ;;
-    2) exit 1 ;;
-    *) die "EZCorp did not become ready in time. Run 'ezcorp status'." ;;
-  esac
+  require_ready || exit 1
+  say "EZCorp is running at $(app_url)"
+  open_browser
 }
 
 # `stop` deliberately leaves the podman machine running: it may be hosting
@@ -333,7 +377,7 @@ cmd_stop() {
   [ -f "$ENV_FILE" ] || die "EZCorp is not set up yet."
   machine_running || { say "EZCorp is not running."; return 0; }
   step "Stopping EZCorp..."
-  quiet compose stop || true
+  quiet compose stop || die "could not stop EZCorp. Your data was not removed. Run 'ezcorp status'."
   say "EZCorp stopped. Your data is untouched."
   if [ "${1:-}" = "--all" ] && [ "$ENGINE" = "podman" ] && podman machine inspect >/dev/null 2>&1; then
     step "Stopping the container VM..."
@@ -358,13 +402,14 @@ cmd_status() {
     return 0
   fi
   machine_running || { say "state:       VM stopped"; return 0; }
-  local body; body="$(curl -fsS --max-time 5 "$(app_url)/api/ready" 2>/dev/null || true)"
+  local body; body="$(curl -sS --max-time 5 "$(app_url)/api/ready" 2>/dev/null || true)"
   say "ready:       ${body:-not responding}"
   [ "${EZCORP_VERBOSE:-0}" = "1" ] && compose ps || true
 }
 
 cmd_open() {
   [ -f "$ENV_FILE" ] || die "EZCorp is not set up yet. Run 'ezcorp install'."
+  require_ready || exit 1
   open_browser
 }
 
@@ -374,9 +419,8 @@ cmd_open() {
 # upgrade leg: a migration that fails on someone's only copy of their data is
 # the worst outcome this installer can produce.
 cmd_update() {
-  detect_engine
   [ -f "$ENV_FILE" ] || die "EZCorp is not set up yet. Run 'ezcorp install'."
-  ensure_machine
+  ensure_runtime
 
   local current target snapshot
   current="$(env_get EZCORP_IMAGE)"
@@ -394,36 +438,37 @@ cmd_update() {
   [ "$target" = "$current" ] && { say "EZCorp is already up to date ($current)."; return 0; }
 
   step "Backing up your data..."
-  snapshot="$DATA_ROOT/pre-update-$(date -u +%Y%m%d%H%M%S)"
-  quiet compose stop || true
-  cp -a "$DATA_ROOT/data" "$snapshot" || die "could not back up your data — update stopped, nothing changed."
+  quiet compose stop || die "could not stop EZCorp. Update cancelled before copying or changing data."
+  snapshot="$(mktemp -d "$DATA_ROOT/pre-update-XXXXXX")" || die "could not create a backup directory. EZCorp remains stopped."
+  cp -a "$DATA_ROOT/data/." "$snapshot/" || die "could not back up your data — update stopped, nothing changed."
 
   step "Downloading $target..."
   if ! quiet $ENGINE pull "$target"; then
-    quiet compose up -d || true
+    quiet compose up -d && wait_ready \
+      || die "could not download the update, and EZCorp could not restart. The old image and data are unchanged. Run 'ezcorp status'."
     die "could not download the update. EZCorp was restarted unchanged."
   fi
 
   sed -i.bak "s|^EZCORP_IMAGE=.*|EZCORP_IMAGE=$target|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
-  quiet compose up -d || true
-
-  if [ "$(wait_ready; echo $?)" = "0" ]; then
+  if quiet compose up -d && wait_ready; then
     write_state
     rm -rf "$snapshot"
     say "Updated to $target."
   else
     say "The update did not come up cleanly. Rolling back to $current..."
-    quiet compose stop || true
-    rm -rf "$DATA_ROOT/data" && mv "$snapshot" "$DATA_ROOT/data"
+    quiet compose stop || die "could not stop the failed update. No data was restored or removed. Your pre-update backup is at $snapshot. Stop the containers before recovery."
+    rm -rf "$DATA_ROOT/data" && mv "$snapshot" "$DATA_ROOT/data" \
+      || die "could not restore the backup at $snapshot. EZCorp remains stopped."
     sed -i.bak "s|^EZCORP_IMAGE=.*|EZCORP_IMAGE=$current|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
-    quiet compose up -d || true
-    wait_ready >/dev/null 2>&1 || true
+    quiet compose up -d && wait_ready \
+      || die "restored the data and image $current, but EZCorp could not restart. Run 'ezcorp status'."
     die "rolled back to $current. Your data was restored from the backup taken before the update."
   fi
 }
 
 cmd_suggestions() {
-  detect_engine
+  [ -f "$ENV_FILE" ] || die "EZCorp is not set up yet. Run 'ezcorp install'."
+  ensure_runtime
   case "${1:-}" in
     on)
       touch "$CONFIG_DIR/.suggestions-on"
@@ -438,7 +483,8 @@ cmd_suggestions() {
       # The URL must go too: with the profile off there is no such host, and a
       # set URL means the composer dials a dead address on every keystroke.
       sed -i.bak '/^EZCORP_SUGGEST_OLLAMA_URL=/d' "$ENV_FILE" 2>/dev/null && rm -f "$ENV_FILE.bak"
-      quiet $(compose_cmd) -f "$COMPOSE_INSTALLER" --project-directory "$CONFIG_DIR" --env-file "$ENV_FILE" --profile suggest stop ollama ollama-init || true
+      quiet compose up -d app || die "could not apply the suggestion setting to EZCorp. Run 'ezcorp start'."
+      quiet compose --profile suggest stop ollama ollama-init || die "could not stop the suggestion model. Run 'ezcorp status'."
       say "Local suggestions off."
       ;;
     *) die "usage: ezcorp suggestions on|off" ;;
@@ -457,7 +503,7 @@ cmd_uninstall() {
 
   if [ -f "$ENV_FILE" ] && machine_running; then
     step "Stopping EZCorp..."
-    quiet compose down || true
+    quiet compose down || die "could not stop and remove the EZCorp containers. No data was deleted."
   fi
 
   if [ "$purge" = "1" ]; then
@@ -477,7 +523,7 @@ cmd_uninstall() {
     # install with orphaned data — every stored provider key undecryptable,
     # every session dead, and no error message saying so. Only --purge, which
     # removes both, may delete it.
-    rm -f "$STATE_FILE" "$CONFIG_DIR/.suggestions-on"
+    rm -f "$STATE_FILE"
     say ""
     say "EZCorp was removed. Your data is still here:"
     say "  $DATA_ROOT"
