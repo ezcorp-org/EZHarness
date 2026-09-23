@@ -44,6 +44,8 @@ interface ProbeDependencies {
   qualifications?: IncusQualificationStore;
   inventory?: (context: LiveReadbackContext) => Promise<string[]>;
   backendImage?: (context: LiveReadbackContext) => Promise<void>;
+  inventoryTransport?: Pick<HostIncusLifecycleTransport, "request">;
+  readback?: Pick<HostIncusLiveReadback, "image">;
   feature?: IncusFeatureService;
   admission?: SandboxAdmissionStore;
   /** Test seam; production always re-reads the approved release and setup. */
@@ -71,23 +73,37 @@ async function localCanary(path: string): Promise<Uint8Array> {
   }
 }
 
-async function listBackend(context: LiveReadbackContext, db: Database): Promise<string[]> {
+export function createIncusControlInventoryTransport(context: LiveReadbackContext,
+  db: Database): HostIncusLifecycleTransport {
   const { scope, connection, preset, presetDigest, effectiveSettingsDigest, recipe } = context;
-  const certificate = new X509Certificate(connection.serverCertificatePem);
-  const transport = new HostIncusLifecycleTransport(new ProviderConnectionStore(db), {
+  return new HostIncusLifecycleTransport(new ProviderConnectionStore(db), {
     providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
     revision: connection.revision,
     approvedPreset: { profile: preset.profile, incusProfile: recipe.profile.name,
       presetId: preset.id, presetDigest, effectiveSettingsDigest,
       imageFingerprint: preset.imageDigest, limits: preset.limits },
   });
+}
+
+export async function listIncusControlBackendInventory(context: LiveReadbackContext, db: Database,
+  transport: Pick<HostIncusLifecycleTransport, "request"> = createIncusControlInventoryTransport(context, db)): Promise<string[]> {
+  const certificate = new X509Certificate(context.connection.serverCertificatePem);
+  return listIncusControlInventory(context, transport,
+    createHash("sha256").update(certificate.raw).digest("hex"));
+}
+
+/** Read every page of the protected, connection-scoped Incus inventory. */
+export async function listIncusControlInventory(context: LiveReadbackContext,
+  transport: Pick<HostIncusLifecycleTransport, "request">,
+  certificateSha256: string): Promise<string[]> {
+  const { scope, connection, preset, presetDigest, effectiveSettingsDigest } = context;
   const ids: string[] = [];
   let cursor: { connectionId: string; afterSandboxId: string } | undefined;
   for (let page = 0; page < 100; page++) {
     const result = await transport.request({
       action: "instance.list", connectionId: scope.connectionId, deadlineMs: Date.now() + 30_000,
       pins: { connectionId: scope.connectionId,
-        serverCertificateSha256: createHash("sha256").update(certificate.raw).digest("hex"),
+        serverCertificateSha256: certificateSha256,
         project: connection.project, profile: connection.configuration.profile,
         helperVersion: connection.configuration.helperVersion, guestUser: connection.configuration.guestUser },
       tags: { managedBy: "ezharness-incus-sandbox", connectionId: scope.connectionId },
@@ -116,6 +132,8 @@ export class IncusLiveControlProbes {
   private readonly qualifications: IncusQualificationStore;
   private readonly inventory: NonNullable<ProbeDependencies["inventory"]>;
   private readonly backendImage: NonNullable<ProbeDependencies["backendImage"]>;
+  private readonly inventoryTransport?: ProbeDependencies["inventoryTransport"];
+  private readonly readback: Pick<HostIncusLiveReadback, "image">;
   private readonly feature: IncusFeatureService;
   private readonly admission: SandboxAdmissionStore;
   private readonly contextOverride?: ProbeDependencies["context"];
@@ -123,18 +141,27 @@ export class IncusLiveControlProbes {
   constructor(private readonly config: IncusControlProbeConfig, deps: ProbeDependencies = {}) {
     this.db = deps.db ?? getDb();
     this.qualifications = deps.qualifications ?? new IncusQualificationStore({ db: this.db });
-    this.inventory = deps.inventory ?? (context => listBackend(context, this.db));
-    this.backendImage = deps.backendImage ?? (async context => {
-      await new HostIncusLiveReadback(new ProviderConnectionStore(this.db)).image(context);
-    });
+    this.inventoryTransport = deps.inventoryTransport;
+    this.readback = deps.readback ?? new HostIncusLiveReadback(new ProviderConnectionStore(this.db));
+    this.inventory = deps.inventory ?? this.listInventory.bind(this);
+    this.backendImage = deps.backendImage ?? this.readBackendImage.bind(this);
     this.feature = deps.feature ?? new IncusFeatureService({ db: this.db,
-      loadQualification: scope => this.qualifications.load(scope) });
+      loadQualification: this.qualifications.load.bind(this.qualifications) });
     this.admission = deps.admission ?? new SandboxAdmissionStore(this.db);
     this.contextOverride = deps.context;
     const cases = Object.values(config.cases);
     if (cases.length !== 4 || cases.some(item => !item?.projectId || !item.canaryPath)
       || new Set(cases.map(item => item.canaryPath)).size !== 4
       || !config.unqualifiedPresetId) unavailable("four distinct operator controls are required");
+  }
+
+  private listInventory(context: LiveReadbackContext): Promise<string[]> {
+    return listIncusControlBackendInventory(context, this.db, this.inventoryTransport
+      ?? createIncusControlInventoryTransport(context, this.db));
+  }
+
+  private async readBackendImage(context: LiveReadbackContext): Promise<void> {
+    await this.readback.image(context);
   }
 
   private async context(scope: IncusQualificationScope): Promise<LiveReadbackContext> {

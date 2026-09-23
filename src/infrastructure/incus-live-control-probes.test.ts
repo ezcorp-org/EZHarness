@@ -1,4 +1,5 @@
-import { afterEach, expect, test } from "bun:test";
+import { afterAll, afterEach, expect, test } from "bun:test";
+import { createHash, X509Certificate } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,10 +14,16 @@ import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { digest } from "../../scripts/incus/model";
 import type { LiveReadbackContext } from "./incus-transport/live-readback";
+import { makeTestCertificates } from "./incus-transport/test-certificates";
 import { IncusFeatureService } from "./incus-feature-service";
 import type { IncusQualificationStore } from "./incus-qualification";
 import type { ProviderConnectionCredentials } from "./provider-connections/store";
-import { IncusLiveControlProbes, type IncusControlProbeConfig } from "./incus-live-control-probes";
+import { createIncusControlInventoryTransport, IncusLiveControlProbes,
+  listIncusControlBackendInventory, listIncusControlInventory,
+  type IncusControlProbeConfig } from "./incus-live-control-probes";
+
+const certificates = makeTestCertificates();
+afterAll(() => certificates.dispose());
 
 const active: Array<{ db: PGlite; directory: string }> = [];
 afterEach(async () => {
@@ -75,7 +82,8 @@ async function fixture() {
     preset, presetDigest, effectiveSettingsDigest,
     recipe: { profile: { name: "reviewed" }, guestImage: { alias: "reviewed-alias" } } } as unknown as LiveReadbackContext;
   let backendIds = ["existing-sandbox"];
-  const probes = new IncusLiveControlProbes({ cases, unqualifiedPresetId: INCUS_PRESETS[1]!.id }, {
+  const config = { cases, unqualifiedPresetId: INCUS_PRESETS[1]!.id };
+  const probes = new IncusLiveControlProbes(config, {
     db, qualifications, feature, admission, context: async () => context,
     inventory: async () => [...backendIds],
     backendImage: async drifted => {
@@ -84,7 +92,8 @@ async function fixture() {
       }
     },
   });
-  return { db, preset, scope, cases, probes, setBackendIds: (ids: string[]) => { backendIds = ids; } };
+  return { db, preset, scope, cases, probes, context, config, qualifications, feature, admission,
+    setBackendIds: (ids: string[]) => { backendIds = ids; } };
 }
 
 test("four production denial paths reject without a reservation, operation, or backend change", async () => {
@@ -142,4 +151,65 @@ test("configuration requires separate AMD files and a present control project", 
     unqualifiedPresetId: INCUS_PRESETS[1]!.id }, { db })).toThrow("four distinct");
   await db.delete(schema.projects).where((await import("drizzle-orm")).eq(schema.projects.id, cases.unsupported.projectId));
   await expect(probes.attempt("unsupported", scope, preset)).rejects.toThrow("not a user project");
+});
+
+test("production inventory request pins its certificate, scope, and page cursor", async () => {
+  const { db, context } = await fixture();
+  const selected = { ...context, connection: { ...context.connection,
+    serverCertificatePem: certificates.read("server-cert.pem") } };
+  expect(createIncusControlInventoryTransport(selected, db)).toBeDefined();
+  const commands: Array<Record<string, unknown>> = [];
+  const transport = { request: async (command: Record<string, unknown>) => {
+    commands.push(command);
+    return commands.length === 1
+      ? { ok: true, sandboxes: [{ sandboxId: "one" }],
+        nextCursor: { connectionId: selected.scope.connectionId, afterSandboxId: "one" } }
+      : { ok: true, sandboxes: [{ sandboxId: "two" }] };
+  } };
+  expect(await listIncusControlBackendInventory(selected, db, transport as never)).toEqual(["one", "two"]);
+  expect(commands).toHaveLength(2);
+  const fingerprint = createHash("sha256").update(new X509Certificate(selected.connection.serverCertificatePem).raw)
+    .digest("hex");
+  expect((commands[0]!.pins as Record<string, unknown>).serverCertificateSha256).toBe(fingerprint);
+  expect((commands[0]!.tags as Record<string, unknown>).connectionId).toBe(selected.scope.connectionId);
+  expect((commands[1]!.payload as Record<string, unknown>).cursor)
+    .toEqual({ connectionId: selected.scope.connectionId, afterSandboxId: "one" });
+});
+
+test("inventory rejects malformed pages, cross-connection cursors, and unbounded paging", async () => {
+  const { context } = await fixture();
+  const run = (value: unknown) => listIncusControlInventory(context,
+    { request: async () => value } as never, "a".repeat(64));
+  await expect(run({ ok: false, sandboxes: [] })).rejects.toThrow("inventory is invalid");
+  await expect(run({ ok: true, sandboxes: [{ sandboxId: 7 }] })).rejects.toThrow("identity is invalid");
+  await expect(run({ ok: true, sandboxes: [],
+    nextCursor: { connectionId: "another", afterSandboxId: "one" } })).rejects.toThrow("cursor is invalid");
+  let calls = 0;
+  await expect(listIncusControlInventory(context, { request: async () => {
+    calls++;
+    return { ok: true, sandboxes: [],
+      nextCursor: { connectionId: context.scope.connectionId, afterSandboxId: "one" } };
+  } } as never, "a".repeat(64))).rejects.toThrow("exceeds bounded pages");
+  expect(calls).toBe(100);
+});
+
+test("default probe delegates inventory and backend drift to protected readback ports", async () => {
+  const { db, preset, scope, context, config, qualifications, feature, admission } = await fixture();
+  const selected = { ...context, connection: { ...context.connection,
+    serverCertificatePem: certificates.read("server-cert.pem") } };
+  const calls: string[] = [];
+  const probes = new IncusLiveControlProbes(config, { db, qualifications, feature, admission,
+    context: async () => selected,
+    inventoryTransport: { request: async () => { calls.push("inventory");
+      return { ok: true, sandboxes: [{ sandboxId: "scoped-instance" }] }; } } as never,
+    readback: { image: async observed => { calls.push("readback");
+      if (observed.recipe.guestImage?.alias !== "reviewed-alias") {
+        throw new Error("Incus live backend readback failed: backend image fingerprint, type, or alias changed");
+      }
+      return { observation: {} as never, imageDigest: "", helperDigest: "", profile: "" };
+    } },
+  });
+  expect((await probes.snapshot("drift", scope)).backendIds).toEqual(["scoped-instance"]);
+  expect(await probes.attempt("drift", scope, preset)).toBe("DENIED_DRIFT");
+  expect(calls).toEqual(["inventory", "readback"]);
 });
