@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
 import * as schema from "../db/schema";
 import { migrate } from "../db/migrate";
-import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "./executions";
+import { FactoryAttemptLivenessError, FactoryExecutionJournal, type FactoryAttemptAuthority } from "./executions";
 import type { FactoryRunnerRequest, JsonValue } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
 import { verifyFactoryExecutionAdmission } from "../__tests__/helpers/factory-execution-admission-suite";
@@ -164,4 +164,42 @@ test("durably admits, journals, cancels, and reconciles a tenant-scoped factory 
   expect(await snapshotJournal.admit(mutable)).toMatchObject({ reused: false });
   expect(await snapshotJournal.status(expected)).toMatchObject({ status: "admitted" });
   expect(await snapshotJournal.request(expected)).toEqual(expectedRequest);
+});
+
+test("the liveness fence names an attempt it never admitted apart from one whose fence moved", async () => {
+  const database = new PGlite({ extensions: { vector, pg_trgm } });
+  databases.push(database);
+  await database.waitReady;
+  const db = drizzle(database, { schema });
+  await migrate(db);
+  await db.execute(sql`INSERT INTO projects(id, name, path) VALUES ('project-a', 'Project A', '/tmp/project-a')`);
+  await db.execute(sql`INSERT INTO factory_installation(singleton, tenant_id, execution_epoch) VALUES (1, 'tenant-a', 6)`);
+  await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('tenant-a', 'project-a')`);
+  await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('tenant-a', 'project-a', 'run-a', ${`sha256:${"a".repeat(64)}`}, 'test', 6, 'run-request', '{}')`);
+  const journal = new FactoryExecutionJournal(db, async () => {});
+  const code = async (attempt: FactoryAttemptAuthority, read = false) => {
+    const error = await db.transaction(transaction => read
+      ? journal.authorizeMaterialReadInTransaction(transaction, attempt)
+      : journal.authorizeMaterialWriteInTransaction(transaction, attempt)).then(() => undefined, (failure: unknown) => failure);
+    expect(error).toBeInstanceOf(FactoryAttemptLivenessError);
+    return (error as FactoryAttemptLivenessError).code;
+  };
+
+  // Never admitted: the run is live and the attempt row does not exist.
+  expect(await code(authority({ attemptId: "never-admitted" }))).toBe("factory_attempt_unknown");
+  expect(await code(authority({ attemptId: "never-admitted" }), true)).toBe("factory_attempt_unknown");
+  // Nor its run, nor its project.
+  expect(await code(authority({ attemptId: "never-admitted", runId: "run-missing" }))).toBe("factory_attempt_unknown");
+  expect(await code(authority({ attemptId: "never-admitted", projectId: "project-missing" }))).toBe("factory_attempt_unknown");
+
+  // Admitted, then its fence moves: the same calls name it not live.
+  const admitted = admission(authority({ attemptId: "admitted-attempt" }));
+  await journal.admit(admitted);
+  await db.transaction(transaction => journal.authorizeMaterialWriteInTransaction(transaction, admitted));
+  expect(await code({ ...admitted, cancellationEpoch: 1 })).toBe("factory_attempt_not_live");
+  expect(await code({ ...admitted, cancellationEpoch: 1 }, true)).toBe("factory_attempt_not_live");
+  expect(await code({ ...admitted, executionEpoch: 7 })).toBe("factory_attempt_not_live");
+  await db.execute(sql`UPDATE factory_runs SET execution_epoch=5 WHERE run_id='run-a'`);
+  expect(await code(admitted)).toBe("factory_attempt_not_live");
+  expect(await code({ ...admitted, deadlineAt: new Date(Date.now() - 1_000) })).toBe("factory_attempt_not_live");
 });

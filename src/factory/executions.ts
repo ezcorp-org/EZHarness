@@ -564,8 +564,13 @@ export class FactoryExecutionJournal {
   private async lockLive(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
     await this.lockRunFence(database, authority);
     await this.authorizeInTransaction(database, authority);
-    const locked = releaseRows(await database.execute(sql`UPDATE factory_executions SET updated_at=updated_at WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND deadline_at > NOW() AND status IN ('admitted', 'running') RETURNING attempt_id`));
-    if (!locked.length) await this.refuseAttempt(database, authority, "Factory attempt is stale, cancelled, or expired.");
+    const locked = await database.execute(sql`UPDATE factory_executions SET updated_at=updated_at
+      WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId}
+        AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber}
+        AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch}
+        AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} AND deadline_at > NOW() AND status IN ('admitted', 'running')
+      RETURNING attempt_id`);
+    await this.requireAttempt(database, authority, "Factory attempt is stale, cancelled, or expired.", locked);
   }
 
   private async lockTerminalCompletion(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<{ request_hash: string; request_json: unknown; status: string }> {
@@ -578,12 +583,15 @@ export class FactoryExecutionJournal {
 
   private async lockScopedRead(database: MigrationDb, authority: FactoryAttemptAuthority): Promise<void> {
     await this.lockRunFence(database, authority);
-    const stored = releaseRows(await database.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} FOR UPDATE`));
-    if (!stored.length) await this.refuseAttempt(database, authority, "Factory attempt is unavailable to this tenant.");
+    await this.requireAttempt(database, authority, "Factory attempt is unavailable to this tenant.", await database.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId} AND node_instance_id=${authority.nodeInstanceId} AND candidate_generation=${authority.candidateGeneration} AND attempt_number=${authority.attemptNumber} AND grant_revision=${authority.grantRevision} AND reservation_generation=${authority.reservationGeneration} AND execution_epoch=${authority.executionEpoch} AND cancellation_epoch=${authority.cancellationEpoch} AND request_hash=${authority.requestDigest} FOR UPDATE`));
   }
 
-  /** Names a refused attempt: never admitted in this scope, or admitted and no longer live. */
-  private async refuseAttempt(database: MigrationDb, authority: FactoryAttemptAuthority, message: string): Promise<never> {
+  /**
+   * Passes when the fence statement matched the attempt; otherwise names why
+   * not: never admitted in this scope, or admitted and no longer live.
+   */
+  private async requireAttempt(database: MigrationDb, authority: FactoryAttemptAuthority, message: string, matched: unknown): Promise<void> {
+    if (releaseRows(matched).length) return;
     const known = releaseRows(await database.execute(sql`SELECT attempt_id FROM factory_executions WHERE attempt_id=${authority.attemptId} AND tenant_id=${authority.tenantId} AND project_id=${authority.projectId} AND run_id=${authority.runId}`));
     throw new FactoryAttemptLivenessError(known.length ? "factory_attempt_not_live" : "factory_attempt_unknown", message);
   }
