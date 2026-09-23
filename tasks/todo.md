@@ -1324,17 +1324,19 @@ Review: The incoming three no-Git-ancestor tests use filesystem stubs that avoid
 
 ## Incus first live guest milestone — 2026-09-23
 
-- [ ] Repair PR #303's per-file coverage failure in `release-process.ts` with behavior-based tests; preserve the 100% threshold.
-- [ ] Define and implement host-authorized cleanup for retained guests when their provider release is disabled or retired; prove the release cannot start new effects.
-- [ ] Complete the pinned guest-image build and setup path, or record the exact unavailable artifact/server prerequisite without marking it ready.
-- [ ] Add a production-path feature lifecycle fixture that uses the approved connection, controller, workspace tools, and cleanup receipt without host fallback.
+- [x] Repair PR #303's per-file coverage failure in `release-process.ts` with behavior-based tests; preserve the 100% threshold.
+- [x] Define and implement host-authorized cleanup for stopped retained guests when their provider release is disabled or retired; prove the release cannot start new effects.
+- [x] Complete the pinned guest-image build and setup path, or record the exact unavailable artifact/server prerequisite without marking it ready.
+- [x] Add a production-path feature lifecycle fixture that uses the approved connection, controller, workspace tools, and cleanup receipt without host fallback.
 - [ ] Run the combined milestone's focused tests, typecheck, lint, build, full repository suite, coverage, and hosted CI on one exact commit.
 - [ ] Run reviewed server setup and a real create → edit → Compose → test → reconnect → destroy qualification only after the image, identity, and plan match their reviewed pins.
 - [ ] Record a milestone review with exact SHA, logs, unsupported capabilities, and open release gates; keep PR #303 draft until live qualification passes.
 
 Plan review: Four isolated worktrees split the coverage, retained-guest cleanup, guest-image readiness, and production-path fixture work. The root agent owns integration, live read-only inventory, the combined tests, PR updates, and the milestone verdict. A fake provider or a passing local test does not satisfy the live guest gate. Do not loosen CI or make an unreviewed SSH server change to pass a fixture.
 
-Review: pending.
+Review in progress. Four Sol worktrees supplied the release-process coverage tests, retired-release cleanup, image input evidence, and offline lifecycle fixture. The integrated code at `f11c5bc1b` passed 68 focused tests, typecheck, lint, build, Svelte check, and 26,747 full-suite tests across 1,723 files with zero failures. The local bare `bun run test:coverage` ran 27,556 tests with zero failures, then exited before the strict threshold check because matching browser `BROWSER_COVERAGE_RAW` and `BROWSER_COVERAGE_LCOV` inputs were absent. `AGENTS.md` now points to the supported `scripts/ci-local.sh` wrapper. Hosted CI on `f11c5bc1b` passed 49 of 50 checks; the strict gate found uncovered `extension-runner/src/client.ts` lines 68–71. A fifth Sol worktree added a sensitive-failure redaction test at `e08fafe11`; focused LCOV hits all four lines, and the hosted rerun remains pending. Do not count the local bare command as a coverage pass.
+
+The real server has Incus 6.0.6 and no image in its default project. `docs/validation/2026-09-23-incus-image-inputs.md` records verified candidate base, Docker, Compose, and helper digests. `docs/validation/2026-09-23-incus-server-apply-plan.md` gives the exact reviewed import/build and digest-gated setup sequence. The recipe still has no published image fingerprint, and no image was imported or built. The production live-case witness is not installed. No SSH mutation or real guest lifecycle was run. Retired-release cleanup is restricted to stopped guests; handling a running guest needs a separate reviewed stop policy. The live feature, image, and independent-provider gates remain open.
 
 ## Incus M1 offline feature flow fixture
 
