@@ -388,3 +388,9 @@
 ## 2026-09-22 — Setup code versus Harness integration
 
 - When describing infrastructure setup, trace the complete product path from UI/API through host-owned connection and transport to the server. A deterministic CLI and an offline provider adapter do not mean EZHarness can configure or use the server. State exactly which parts are wired and which remain standalone.
+
+## 2026-09-23 — Stop verification loops before the live outcome
+
+- Keep one visible next acceptance result: an EZHarness-created sandbox on the real server. Once code CI is green, stop editing for incidental documentation or repeat checks and complete the missing operator setup and live workflow.
+- Treat direct Incus guests and a built image as image evidence only. Never report them as an EZHarness provider connection or feature sandbox.
+- Prepare one complete, reviewable server setup plan with pinned recipe and generated client identity before requesting its Apply approval. Split server writes only when a real dependency requires it, and state the remaining path after each stage.
