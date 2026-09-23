@@ -23,11 +23,12 @@ permissions:
 
 jobs:
   linux-packages:
-    # release-image also runs on manual dispatch against a branch; only a
-    # successful run for an app-v* tag produced a Release to attach to.
+    # release-image also runs on manual dispatch against a branch. A branch
+    # named app-v* must not authorize packages for an unrelated tag.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push' &&
        startsWith(github.event.workflow_run.head_branch, 'app-v'))
     runs-on: ubuntu-latest
     strategy:
@@ -53,6 +54,23 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Verify package source matches the published image
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PACKAGE_TAG: ${{ steps.tag.outputs.tag }}
+          RUN_EVENT: ${{ github.event.workflow_run.event }}
+          RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = workflow_run ]; then
+            [ "$RUN_EVENT" = push ] && [ -n "$RUN_SHA" ] \
+              || { echo "::error::packages require a successful release-image tag push"; exit 1; }
+            tag_sha="$(git rev-parse --verify "refs/tags/$PACKAGE_TAG^{commit}")"
+            [ "$tag_sha" = "$RUN_SHA" ] && [ "$(git rev-parse HEAD)" = "$RUN_SHA" ] \
+              || { echo "::error::tag $PACKAGE_TAG no longer points to the image run commit"; exit 1; }
+          fi
+          gh release view "$PACKAGE_TAG" >/dev/null \
+            || { echo "::error::release $PACKAGE_TAG does not exist"; exit 1; }
 
       - name: Install nfpm (pinned, checksum-verified)
         run: |

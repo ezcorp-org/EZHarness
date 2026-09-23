@@ -898,3 +898,13 @@ uses explicit portable empty-variable syntax and preserves its literal rebuild c
 tests pass 132 tests and 315 assertions. The repaired full backend pool passes 26,273 tests across
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
+## PR #313 package release review — 2026-09-23
+
+- [x] Read PR scope, inherited commits, package workflow and tests.
+- [x] Reproduce the workflow_run tag/source mismatch and inspect other release risks.
+- [x] Repair verified gaps with focused tests; run package, lint, workflow and type checks.
+- [ ] Push a safe fix to the PR head and report CI, review, and stack blockers.
+
+Plan review: review only commit dba77aaba for implementation changes. Treat #311 and #312 as context. First prove that a successful release-image manual run on an app-v* branch passes the package workflow condition, then make the release job require a successful tag-push run and a matching tag commit. Keep package changes minimal and do not touch #311.
+
+Review so far: A successful manual `release-image` run on a branch named `app-vX.Y.Z` met the old workflow condition despite skipping the tag/version check and Release creation. The package workflow then checked out the distinct tag. The repair requires an automatic run to have a `push` event, compares the checked-out tag commit with the image run SHA, and verifies the Release exists before downloading package tools. The explicit package workflow dispatch remains available. The test executes the actual workflow shell with a temporary tagged git repository: it rejects a branch event, a mismatched commit and a missing Release, and accepts both a matching tag push and manual package dispatch. The existing invalid-version package test failed on NixOS because it removed `bash` from PATH; it now uses the shared build stub and asserts the real validation error. Focused core and package suites pass 85 tests; Actionlint, gate integrity, lint, typecheck, Bash syntax, and diff check pass.

@@ -157,6 +157,8 @@ EZCORP_CONFIG_DIR=/tmp/ez/config EZCORP_DATA_ROOT=/tmp/ez/data \
 [nfpm](https://nfpm.goreleaser.com/) by `linux/build-packages.sh` and attached to
 each GitHub Release by `.github/workflows/release-installers.yml`, which runs
 after `release-image` succeeds for an `app-v*` tag.
+The automatic path accepts only a successful tag-push image run whose commit
+still matches the tag. A manual package run requires an existing Release.
 
 ```sh
 EZCORP_PKG_MAINTAINER="Name <email>" \

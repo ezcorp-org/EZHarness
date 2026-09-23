@@ -1,5 +1,7 @@
 # Lessons
 
+- A test that creates a temporary Git repository must pass a minimal explicit environment to every Git subprocess. Pre-commit hooks export repository variables such as `GIT_DIR`; inheriting them can make `git init` rewrite the shared repository configuration instead of the temporary repository.
+
 - When infrastructure is not provisioned, separate locally verifiable contract work from later network qualification. Do not infer AMD, Xeon, Incus, Infisical, or credential availability from a delivery plan.
 
 - Describe a raw entrypoint subprocess as a process, not an installed immutable release.
