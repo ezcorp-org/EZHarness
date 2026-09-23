@@ -3585,6 +3585,18 @@ boundary (W18a-2's route kit plus one additive error-family hook), the raw strea
 are pinned to the principal-and-scope call pair, and W09d's validator-material read and typed
 contract refusal are in. W15 restore signing is deferred until W15 lands; the branch holds no W15
 commits. The real lane passes 7 of 7 at `096fa0944`; mutation is 93.62%; no W14 line is uncovered.
+
+Review update (W14, round 2, head `28a720913` on `d6f143ccb`): the static-review fixes (H1, M1, M2,
+L1 to L3, L5, L7) and the thirteen proof-map items are done or recorded as waiting, each with its
+spec named in `tasks/factory/w14-GATES.md`. The real lane passes 11 of 11 at a clean head
+(`journeys-11`). New through the real application: both fixed save/publish orders, catch-up and 410
+on the event cursor, validator-material reads, no release authority through a share, grant expiry
+and a ticket recheck, a live approval blocker with mid-stream revocation, a read-only future draft
+that still exports, and long labels with a 40-node map at 1440 and 390 px in light and dark. Real
+captures found four more defects, all fixed: the 390 px tab rail, a lone run card, the purge caption
+casing, and an unbounded evidence wait. Mutation is 95.60%; no W14 line is uncovered. Waiting: W15
+(restore, L4, M3), W02c (fence and quarantine commit), W09c (web inbox composition), W01g (a real
+candidate), W16 (two HTTP installations).
 ## W18a-2 — second complexity pass and the three coverage-key gaps (branch `wp/w18a2-quality`)
 
 Brief: `/tmp/factory-platform-evidence/w00/briefs/w18a2.md`. Gates: `tasks/factory/w18a2-GATES.md`.

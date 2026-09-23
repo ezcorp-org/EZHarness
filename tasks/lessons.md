@@ -1472,3 +1472,11 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
 - A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
 - A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.
+
+## 2026-09-23 — W14 round 2
+
+- A receipt proves a head only if nothing changed the tree while it ran. Commit every fix before queueing the heavy job, and draft documents outside the worktree until the job ends; an edit during the run mixes two heads in one receipt.
+- `waitForLoadState("networkidle")` never settles on a page that holds a live stream (SSE). Bound every idle wait in a shared capture helper; a journey that watches a waiting run otherwise spends its whole timeout before the screenshot.
+- Check `scripts/coverage-config.ts` before adding a test for an uncovered Svelte line. A browser-canonical source takes coverage only from browser journeys, so a component test that already exercises the line does not count.
+- In a serial Playwright file one failure skips every later journey. Read "did not run" as untested, not as passed, and rerun the whole file after the fix.
+
