@@ -62,7 +62,7 @@ describe("GET /api/quickstart", () => {
     expect(res.status).toBe(401);
   });
 
-  test("returns all steps false when nothing exists", async () => {
+  test("with nothing configured, only `provider` is already satisfied", async () => {
     const event = createMockEvent({
       url: "http://localhost/api/quickstart",
       user: testUser,
@@ -70,8 +70,12 @@ describe("GET /api/quickstart", () => {
     const res = await GET(event);
     expect(res.status).toBe(200);
     const data = await jsonFromResponse(res);
+    // `provider` answers "can this user chat", and a fresh install can: the
+    // keyless Kilo tier (#155) answers anonymously. This test predates that
+    // tier and asserted `false` here, which is what made the chat banner tell
+    // every fresh install to add an API key "to send your first message".
     expect(data.steps).toEqual({
-      provider: false,
+      provider: true,
       chat: false,
       extension: false,
       agent: false,
