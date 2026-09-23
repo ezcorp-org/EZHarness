@@ -17,7 +17,6 @@ import {
   setHandler,
   sleep,
   isCancellation,
-  patched,
 } from "@temporalio/workflow";
 import {
   CONTINUE_AFTER_EVENTS,
@@ -68,9 +67,6 @@ type ExecutableCommand = Exclude<KernelCommand, TerminalCommand | TimerCommand>;
 function isTerminal(command: KernelCommand): command is TerminalCommand {
   return command.kind === "complete-run" || command.kind === "complete-partition" || command.kind === "fail-run" || command.kind === "cancel-run";
 }
-
-/** The Temporal patch marking the command-failed delivery; histories before it replay the old throw. */
-const FACTORY_COMMAND_FAILED_PATCH = "factory-command-failed-event";
 
 /**
  * The kernel event for an effect command the orchestrator could not execute.
@@ -282,8 +278,9 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
         // leaving the product run `running` forever: nothing projects a failed
         // workflow. The failure now becomes a recorded kernel event, so the run
         // stops and fails with a typed reason through its own transitions.
-        // Patched, so a history recorded before this change replays unchanged.
-        if (!patched(FACTORY_COMMAND_FAILED_PATCH)) { workflowError = workflowFailure(error, "FACTORY_COMMAND_FAILED"); return; }
+        // No patch marker: a workflow whose effect failed under the old code
+        // threw and closed at that point, so no live history can replay into
+        // this branch with the old outcome.
         const failed = commandFailedEvent(command, error, Date.now());
         if (!knownIds.has(failed.id)) { knownIds.add(failed.id); inbox.push(failed); }
       })
