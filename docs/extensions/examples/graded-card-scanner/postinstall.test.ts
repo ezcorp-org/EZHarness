@@ -2,6 +2,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { markGitRepository } from "@ezcorp/sdk/test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findProjectRoot, installApp, main } from "./scripts/postinstall";
@@ -14,7 +15,7 @@ describe("findProjectRoot", () => {
   test("walks up to the nearest .git directory", () => {
     const root = makeTmp();
     try {
-      mkdirSync(join(root, ".git"));
+      markGitRepository(root);
       const nested = join(root, "a", "b", "c");
       mkdirSync(nested, { recursive: true });
       expect(findProjectRoot(nested)).toBe(root);
@@ -23,11 +24,15 @@ describe("findProjectRoot", () => {
     }
   });
 
-  test("falls back to the starting dir when no .git exists above", () => {
+  test("falls back to the starting dir when no git repository encloses it, ignoring a stray empty .git", () => {
     const dir = makeTmp();
+    // A bare `.git` directory is not a repository (the host once carried an
+    // empty `/tmp/.git`); the walk passes it and returns `from`.
+    mkdirSync(join(dir, ".git"));
+    const start = join(dir, "child");
+    mkdirSync(start);
     try {
-      // tmpdir ancestry has no .git — the walk exhausts and returns `from`.
-      expect(findProjectRoot(dir)).toBe(dir);
+      expect(findProjectRoot(start)).toBe(start);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

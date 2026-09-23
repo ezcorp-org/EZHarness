@@ -120,17 +120,20 @@ async function copySkills(destBase: string, dryRun: boolean): Promise<void> {
   }
 }
 
-// ── walk up for project root ──────────────────────────────────────────────────
+// ── project root ──────────────────────────────────────────────────────────────
 
-function findProjectRoot(startDir: string): string | null {
-  let dir = nodePath.resolve(startDir);
-  for (let i = 0; i < 20; i++) {
-    if (nodeFs.existsSync(nodePath.join(dir, ".git"))) return dir;
-    const parent = nodePath.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
-  }
-  return null;
+/**
+ * The git repository enclosing `startDir`, as git itself reports it. Asking
+ * git (rather than probing for any `.git` entry) ignores a stray empty `.git`
+ * directory above the project, such as one left in a shared `/tmp`. The
+ * caller's `GIT_*` variables are dropped so git discovers from `startDir`
+ * even when this runs inside a git hook, which exports `GIT_DIR`. The CLI
+ * runs outside EZCorp, so it cannot rely on the SDK's walk.
+ */
+function gitProjectRoot(startDir: string): string | null {
+  const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
+  const git = Bun.spawnSync(["git", "rev-parse", "--show-toplevel"], { cwd: nodePath.resolve(startDir), env, stdout: "pipe", stderr: "ignore" });
+  return git.exitCode === 0 ? git.stdout.toString().trim() : null;
 }
 
 // ── targets ───────────────────────────────────────────────────────────────────
@@ -207,7 +210,7 @@ async function installWindsurf(opts: Required<Pick<InstallOptions, "home" | "dry
 }
 
 async function installEzcorp(opts: Required<Pick<InstallOptions, "home" | "dryRun" | "cwd">> & { projectPath?: string }): Promise<void> {
-  const root = opts.projectPath ?? findProjectRoot(opts.cwd);
+  const root = opts.projectPath ?? gitProjectRoot(opts.cwd);
   if (!root) {
     throw new Error(
       "Could not find a project root (no .git directory found). Pass --project <path>.",

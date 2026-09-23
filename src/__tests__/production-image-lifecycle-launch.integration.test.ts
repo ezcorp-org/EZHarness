@@ -279,6 +279,45 @@ test("long persistent state keeps the authenticated runner transport below the U
   }
 }, 30_000);
 
+test("launcher readiness waits for a runner whose first answer takes longer than a second", async () => {
+  const fixture = await makeFixture();
+  const delayedInspections = join(fixture.directory, "delayed-inspections.log");
+  const realPodman = Bun.which("podman");
+  if (!realPodman) throw new Error("podman is required for the launcher fixture");
+  // The runner answers the readiness `inspect` only after a Podman state
+  // query, whose latency follows host load. Inject that latency past the
+  // one-second deadline the launcher's probe used to allow: a parallel pool
+  // produced it for real and the launcher refused a healthy runner. The
+  // runner gives Podman a scrubbed environment, so the paths are baked in.
+  await executable(join(fixture.bin, "podman"), `#!/bin/sh
+if [ "$1" = inspect ] && [ "$2" = "--format={{json .State}}" ]; then
+  sleep 2
+  printf '%s\n' "$3" >> '${delayedInspections}'
+fi
+exec '${realPodman}' "$@"
+`);
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  try {
+    await writeFile(fixture.setsidRelease, "release");
+    const launched = launch(fixture, ["true"]);
+    child = launched;
+    const [exit, stdout, stderr] = await Promise.all([
+      launched.exited,
+      new Response(launched.stdout).text(),
+      new Response(launched.stderr).text(),
+    ]);
+    expect(exit, `${stdout}\n${stderr}\n${await launcherDiagnostics(fixture.receipt)}`).toBe(0);
+    // The readiness inspection itself went through the delayed path. The
+    // runner names a worker's container from its store root and the id.
+    const readinessContainer = `ez-v4-${new Bun.CryptoHasher("sha256").update(`${join(fixture.state, "store")}:launcher-readiness`).digest("hex").slice(0, 32)}`;
+    expect((await readFile(delayedInspections, "utf8")).trim().split("\n")).toContain(readinessContainer);
+  } finally {
+    if (child && child.exitCode === null) child.kill("SIGTERM");
+    if (child) await child.exited;
+    await removeFixture(fixture);
+  }
+}, 30_000);
+
 test("launcher cancellation reaps its verifier and runner before streams drain", async () => {
   const fixture = await makeFixture();
   const verifierReady = join(fixture.directory, "verifier-ready");
