@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { sql } from "drizzle-orm";
 import { mockDbConnection, getTestDb, setupTestDb } from "../../__tests__/helpers/test-pglite";
 import { validateSnapshot, type SnapshotFileInput } from "./snapshot";
@@ -28,6 +28,7 @@ let baseMoved = false;
 let reconcileMode: "missing" | "published" | "not_found" = "missing";
 let duringExport: (() => Promise<void>) | undefined;
 let duringPublish: (() => Promise<void>) | undefined;
+let afterCommitReady: (() => Promise<void>) | undefined;
 let statusCalls = 0;
 class FakeGithubUserError extends Error { constructor(public readonly code: string) { super(code); } }
 class FakePrPublisherError extends Error { constructor(public readonly code: string) { super(code); } }
@@ -69,8 +70,9 @@ mock.module("./publisher", () => ({
     await duringPublish?.();
     if (baseMoved) throw new FakePrPublisherError("base_changed");
     await request(input.token, "/repos/owner/repo/git/blobs", "POST");
-    await request(input.token, "/repos/owner/repo/git/refs", "POST");
     await input.onCommitReady("b".repeat(40));
+    await afterCommitReady?.();
+    await request(input.token, "/repos/owner/repo/git/refs", "POST");
     return { url: "https://github.com/owner/repo/pull/7", number: 7, branch: "ez-personal/test", commitSha: "b".repeat(40) };
   },
   reconcileFrozenDraft: async () => reconcileMode === "published" ? { url: "https://github.com/owner/repo/pull/7", number: 7, branch: "ez-personal/test", commitSha: "b".repeat(40) } : null,
@@ -90,7 +92,7 @@ async function seed() {
   await db.execute(sql`INSERT INTO sandbox_resources(id,binding_id,provider_resource_id,desired_state,observed_state,limits) VALUES ('internal-resource',${bindingId},${resourceId},'stopped','stopped','{}')`);
 }
 
-beforeEach(async () => { await setupTestDb(); state = "pending"; conversation = null; publishCount = 0; canDispatch = true; effectChecks = 0; maxEffectChecks = Number.POSITIVE_INFINITY; githubWrites = 0; baseMoved = false; reconcileMode = "missing"; duringExport = undefined; duringPublish = undefined; statusCalls = 0; await seed(); });
+beforeEach(async () => { await setupTestDb(); state = "pending"; conversation = null; publishCount = 0; canDispatch = true; effectChecks = 0; maxEffectChecks = Number.POSITIVE_INFINITY; githubWrites = 0; baseMoved = false; reconcileMode = "missing"; duringExport = undefined; duringPublish = undefined; afterCommitReady = undefined; statusCalls = 0; await seed(); });
 
 async function prepareReadyRun() {
   await importApprovedRepository(owner, { projectId, repositoryId: 42, baseRef: "main", idempotencyKey: "same-import" });
@@ -169,6 +171,22 @@ describe("personal PR service with durable database state", () => {
     expect(publishCount).toBe(0);
   });
 
+  test("stores the commit before creating a ref and keeps an interrupted outcome read-only", async () => {
+    const ready = await prepareReadyRun();
+    afterCommitReady = async () => {
+      const [checkpoint] = (await getTestDb().execute(sql`SELECT state,commit_sha FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`)).rows as Array<{ state: string; commit_sha: string | null }>;
+      expect(checkpoint).toEqual({ state: "creating", commit_sha: "b".repeat(40) });
+      expect(githubWrites).toBe(1);
+      throw new Error("interrupted before ref creation");
+    };
+    await expect(confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: ready.digest! })).rejects.toMatchObject({ code: "unavailable" });
+    const failed = await getPersonalPrForReviewId(owner, ready.proposalId!);
+    expect(failed.blockReason).toBe("outcome_unknown");
+    await expect(confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: failed.digest!, retryPreCommit: true })).rejects.toMatchObject({ code: "conflict" });
+    expect(githubWrites).toBe(1);
+    expect(publishCount).toBe(1);
+  });
+
   test("recovers a crashed pre-commit publication on explicit owner retry", async () => {
     const ready = await prepareReadyRun();
     const before = (await getTestDb().execute(sql`SELECT operation_id,branch FROM github_personal_pr_proposals WHERE id=${ready.proposalId}`)).rows[0] as { operation_id: string; branch: string };
@@ -201,10 +219,11 @@ describe("personal PR service with durable database state", () => {
     const ready = await prepareReadyRun();
     const { entered, release } = pausePublisher();
     let heartbeat: (() => void) | undefined;
-    const interval = spyOn(globalThis, "setInterval").mockImplementation(callback => {
+    const originalSetInterval = globalThis.setInterval;
+    globalThis.setInterval = ((callback: () => void) => {
       heartbeat = callback as () => void;
       return { unref: () => {} } as ReturnType<typeof setInterval>;
-    });
+    }) as typeof setInterval;
     try {
       const original = confirmPersonalPr(owner, { proposalId: ready.proposalId!, expectedDigest: ready.digest! });
       await entered;
@@ -227,7 +246,7 @@ describe("personal PR service with durable database state", () => {
       release();
       await expect(original).rejects.toMatchObject({ code: "conflict" });
     } finally {
-      interval.mockRestore();
+      globalThis.setInterval = originalSetInterval;
     }
   });
 
