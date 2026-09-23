@@ -94,6 +94,7 @@ test("device flow starts without a secret and binds its code to a verified user 
 });
 
 test("public App defaults and stable local instance ID need no secret or callback", async () => {
+  const a = await principal("defaults");
   delete process.env.EZ_GITHUB_APP_ID;
   delete process.env.EZ_GITHUB_APP_CLIENT_ID;
   delete process.env.EZ_GITHUB_APP_SLUG;
@@ -103,10 +104,12 @@ test("public App defaults and stable local instance ID need no secret or callbac
   expect(config.appSlug).toBe("ezcorp-github-auth");
   expect(config.instanceId).toMatch(/^[A-Za-z0-9_-]{32}$/);
   expect(getGithubUserConfig().instanceId).toBe(config.instanceId);
+  expect(await getConnectionStatus({ userId: a.userId })).toEqual({ configured: true, authMode: "device", status: "disconnected", installUrl: "https://github.com/apps/ezcorp-github-auth/installations/new" });
   await expect(startDeviceAuthorization({ userId: crypto.randomUUID(), sessionId: "missing" })).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
   expect(polls).toBe(0);
   process.env.EZ_GITHUB_AUTH_MODE = "oauth";
   expect(() => getGithubUserConfig()).toThrow("not configured");
+  expect(await getConnectionStatus({ userId: a.userId })).toEqual({ configured: false, authMode: null, status: "disconnected" });
 });
 
 test("device migration is idempotent and marks pre-device connection rows as OAuth", async () => {
@@ -129,6 +132,7 @@ test("approved device connection stores provenance, return review, and refreshes
   expect(row.authFlow).toBe("device");
   expect(row.accessCiphertext).not.toContain(token.access_token);
   expect((await getConnectionStatus({ userId: a.userId })).authMode).toBe("device");
+  expect((await getConnectionStatus({ userId: a.userId })).installUrl).toBe("https://github.com/apps/ezharness-test/installations/new");
   await getTestDb().update(githubUserConnections).set({ accessExpiresAt: new Date(0) }).where(eq(githubUserConnections.userId, a.userId));
   expect((await checkRepository({ userId: a.userId, repositoryId: 42 })).status).toBe("ready");
   expect(refreshes).toBe(1);

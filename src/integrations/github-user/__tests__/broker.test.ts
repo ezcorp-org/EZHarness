@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { setupTestDb, closeTestDb, mockDbConnection, getTestDb } from "../../../__tests__/helpers/test-pglite";
 import { restoreModuleMocks } from "../../../__tests__/helpers/mock-cleanup";
 import { createUser } from "../../../db/queries/users";
+import { revokeSession } from "../../../db/queries/sessions";
 import { githubUserAuthorities, githubUserConnections, githubUserEffectClaims, sessions } from "../../../db/schema";
 import { decryptWithAad } from "../../../providers/encryption";
 import { assertUserEffectCurrent, checkRepository, completeAuthorization, disconnect, getConnectionBinding, getConnectionStatus, listAccessibleRepositories, startAuthorization, withUserToken, withUserTokenReadOnly } from "../broker";
@@ -101,6 +102,24 @@ describe("personal GitHub credential broker", () => {
     await disconnect({ userId: a });
     release();
     await expect(completing).rejects.toThrow("stale");
+    expect((await getConnectionStatus({ userId: a })).status).toBe("disconnected");
+  });
+
+  test("revoking the browser session fences a callback still exchanging its code", async () => {
+    const a = await userId("revoked-during-callback@github-user.test");
+    await seedSession("revoked-callback-session", a);
+    let release!: () => void;
+    let entered!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const exchanging = new Promise<void>((resolve) => { entered = resolve; });
+    setGithubFetch(async () => { entered(); await gate; });
+    const { authorizeUrl } = await startAuthorization({ userId: a, sessionId: "revoked-callback-session" });
+    const state = new URL(authorizeUrl).searchParams.get("state")!;
+    const completing = completeAuthorization({ userId: a, sessionId: "revoked-callback-session", state, code: "first" });
+    await exchanging;
+    expect(await revokeSession("revoked-callback-session")).toBe(true);
+    release();
+    await expect(completing).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
     expect((await getConnectionStatus({ userId: a })).status).toBe("disconnected");
   });
 

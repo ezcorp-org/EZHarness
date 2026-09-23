@@ -1,4 +1,4 @@
-import { guardedFetch } from "../../search/egress";
+import { EgressBlockedError, guardedFetch } from "../../search/egress";
 
 /** Narrow GitHub transport. Tokens never enter a URL or guest process. */
 export class GithubUserError extends Error {
@@ -11,7 +11,12 @@ async function request(url: string, init: RequestInit, host: "github.com" | "api
       mode: "backend", allowedHosts: [host], maxRedirects: 0, maxBodyBytes: 1_000_000,
       timeoutMs: 15_000, retryConnectionFailures: false,
     });
-  } catch {
+  } catch (error) {
+    // DNS resolution happens before guardedFetch can open a connection. The
+    // caller may safely retry a single-use refresh token in this one case.
+    if (error instanceof EgressBlockedError && error.reason === "no-address") {
+      throw new GithubUserError("PROVIDER_NOT_SENT", "GitHub is unavailable");
+    }
     // The network error might include request headers. Do not propagate it.
     throw new GithubUserError("PROVIDER_NETWORK", "GitHub is unavailable");
   }

@@ -3,7 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { getDb, type DbTransaction } from "../../db/connection";
 import { githubUserAuthorities, githubUserConnections, githubUserDeviceAttempts, githubUserEffectClaims, githubUserOAuthAttempts, sessions } from "../../db/schema";
 import { decryptWithAad, encryptWithAad } from "../../providers/encryption";
-import { getGithubOAuthConfig, getGithubUserConfig, isGithubUserConfigured } from "./config";
+import { getGithubOAuthConfig, getGithubUserConfig } from "./config";
 import { beginDeviceCode, exchangeCode, exchangeDeviceCode, githubApi, GithubUserError, refreshDevicePair, refreshPair, revokeToken, type GithubTokenPair } from "./transport";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
@@ -26,17 +26,19 @@ async function lockAuthority(tx: DbTransaction, userId: string): Promise<{ gener
 }
 
 async function requireLiveSession(tx: DbTransaction, userId: string, sessionId: string): Promise<void> {
-  const [session] = await tx.select({ userId: sessions.userId, expiresAt: sessions.expiresAt }).from(sessions).where(eq(sessions.id, sessionId));
+  const [session] = await tx.select({ userId: sessions.userId, expiresAt: sessions.expiresAt }).from(sessions).where(eq(sessions.id, sessionId)).for("update");
   if (!session || session.userId !== userId || session.expiresAt <= new Date()) throw new GithubUserError("SESSION_EXPIRED", "Sign in again to connect GitHub");
 }
 
-export type ConnectionStatus = { configured: boolean; authMode: "device" | "oauth" | null; status: "disconnected" | "connected" | "reconnect_required"; account?: { id: number; login: string } };
+const installationUrl = (appSlug: string) => `https://github.com/apps/${appSlug}/installations/new`;
+export type ConnectionStatus = { configured: boolean; authMode: "device" | "oauth" | null; status: "disconnected" | "connected" | "reconnect_required"; installUrl?: string; account?: { id: number; login: string } };
 export async function getConnectionStatus({ userId }: { userId: string }): Promise<ConnectionStatus> {
-  const configured = isGithubUserConfigured();
-  const authMode = configured ? getGithubUserConfig().mode : null;
+  let config: ReturnType<typeof getGithubUserConfig> | undefined;
+  try { config = getGithubUserConfig(); } catch { /* Invalid configuration is reported as disconnected. */ }
+  const publicConfig = config ? { configured: true, authMode: config.mode, installUrl: installationUrl(config.appSlug) } : { configured: false, authMode: null };
   const [row] = await getDb().select().from(githubUserConnections).where(eq(githubUserConnections.userId, userId));
-  if (!row) return { configured, authMode, status: "disconnected" };
-  return { configured, authMode, status: row.state, account: { id: row.githubAccountId, login: row.githubLogin } };
+  if (!row) return { ...publicConfig, status: "disconnected" };
+  return { ...publicConfig, status: row.state, account: { id: row.githubAccountId, login: row.githubLogin } };
 }
 
 /** Host-only immutable identity to bind a new proposal before review. */
@@ -101,6 +103,7 @@ export async function completeAuthorization({ userId, sessionId, state, code }: 
   }
   try {
     const previousToken = await getDb().transaction(async (tx: DbTransaction) => {
+      await requireLiveSession(tx, userId, sessionId);
       const authority = await lockAuthority(tx, userId);
       if (authority.generation !== attempt.expectedGeneration) throw new GithubUserError("STALE_CALLBACK", "GitHub authorization is stale");
       const [old] = await tx.select().from(githubUserConnections).where(eq(githubUserConnections.userId, userId));
@@ -298,7 +301,9 @@ async function currentToken(userId: string): Promise<{ token: string; connection
       return { token: pair.access_token, connectionId: fresh.connectionId, generation: authority.generation, accountId: fresh.githubAccountId };
     });
   } catch (error) {
-    await markReconnect(userId, row.connectionId);
+    // DNS resolution failed before dispatch, so GitHub cannot have rotated the
+    // refresh token. All failures after dispatch remain ambiguous and fail closed.
+    if (!(error instanceof GithubUserError && error.code === "PROVIDER_NOT_SENT")) await markReconnect(userId, row.connectionId);
     throw error;
   }
 }
@@ -372,7 +377,7 @@ export async function checkRepository({ userId, repositoryId }: { userId: string
   try {
     const current = await currentToken(userId);
     const result = await checkRepositoryWithToken(current.token, repositoryId, config.appId);
-    if (result.status === "repository_not_enabled") return { ...result, installUrl: `https://github.com/apps/${config.appSlug}/installations/new` };
+    if (result.status === "repository_not_enabled") return { ...result, installUrl: installationUrl(config.appSlug) };
     return result;
   } catch (error) {
     if (error instanceof GithubUserError && (error.code === "RECONNECT_REQUIRED" || error.code === "GITHUB_401")) return { status: "reconnect_required" };
