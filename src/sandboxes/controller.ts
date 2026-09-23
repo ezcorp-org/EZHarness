@@ -60,6 +60,11 @@ export interface SandboxProviderRequest {
     providerInstallationId: string;
     providerReleaseId: string;
     connectionId: string;
+    connectionRevision: number | null;
+    profile: string | null;
+    presetId: string | null;
+    presetDigest: string | null;
+    effectiveSettingsDigest: string | null;
     resourceKey: string | null;
   };
 }
@@ -84,6 +89,11 @@ export interface CreateSandboxBindingInput {
   providerInstallationId: string;
   providerReleaseId: string;
   connectionId: string;
+  connectionRevision?: number | null;
+  profile?: string | null;
+  presetId?: string | null;
+  presetDigest?: string | null;
+  effectiveSettingsDigest?: string | null;
   resourceKey?: string | null;
   desiredState?: SandboxDesiredState;
   observedState?: SandboxObservedState;
@@ -157,6 +167,11 @@ function providerRequest(operation: SandboxOperation, binding: SandboxBinding): 
       providerInstallationId: binding.providerInstallationId,
       providerReleaseId: binding.providerReleaseId,
       connectionId: binding.connectionId,
+      connectionRevision: binding.connectionRevision,
+      profile: binding.profile,
+      presetId: binding.presetId,
+      presetDigest: binding.presetDigest,
+      effectiveSettingsDigest: binding.effectiveSettingsDigest,
       resourceKey: binding.resourceKey,
     },
   };
@@ -184,6 +199,11 @@ export class SandboxController {
       providerInstallationId: input.providerInstallationId,
       providerReleaseId: input.providerReleaseId,
       connectionId: input.connectionId,
+      connectionRevision: input.connectionRevision ?? null,
+      profile: input.profile ?? null,
+      presetId: input.presetId ?? null,
+      presetDigest: input.presetDigest ?? null,
+      effectiveSettingsDigest: input.effectiveSettingsDigest ?? null,
       resourceKey: input.resourceKey ?? null,
       desiredState: input.desiredState ?? "STOPPED",
       observedState: input.observedState ?? "UNKNOWN",

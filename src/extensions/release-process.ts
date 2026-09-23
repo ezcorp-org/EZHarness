@@ -8,7 +8,8 @@ import { getRuntimeToolContext, withRuntimeToolContext } from "./runtime-tool-co
 import type { MigrationDb } from "../db/migrations/types";
 import { isServiceInvocation } from "./service-invocation";
 import { assertSandboxPresetReleaseQualification } from "./v4/sandbox-preset-qualification";
-import { INCUS_PROVIDER_PREFLIGHT_METHOD, INCUS_PROVIDER_TRANSPORT_RPC, type PreparedIncusProbe, type ProviderRpcBroker } from "../infrastructure/provider-rpc-broker";
+import { INCUS_PROVIDER_PREFLIGHT_METHOD, INCUS_PROVIDER_TRANSPORT_RPC, type PreparedIncusAction, type PreparedIncusProbe, type ProviderRpcBroker } from "../infrastructure/provider-rpc-broker";
+import type { SandboxProtocolOperation } from "@ezcorp/extension-contract";
 
 export interface ActiveExtensionRelease {
   release: ReleaseRecord;
@@ -120,26 +121,56 @@ export class ReleaseProcess extends ExtensionProcess {
     if (input.connectionId !== connectionId || input.providerId !== "incus") {
       throw new ContractError("INVALID_REQUEST", "Provider preflight connection does not match");
     }
+    return this.callHostIncusMethod(INCUS_PROVIDER_PREFLIGHT_METHOD, input, providerScope, options);
+  }
+
+  /** Only a host-owned binding may request a provider effect. */
+  async callIncusSandboxOperation(
+    bindingId: string,
+    operation: SandboxProtocolOperation,
+    input: Record<string, unknown>,
+    options?: ReleaseCallOptions,
+  ): Promise<JsonRpcResponse> {
+    if (options?.signal?.aborted) throw new ContractError("CANCELLED", "Extension invocation cancelled");
+    this.ensureRunning();
+    const broker = this.runtime?.providerRpcBroker;
+    if (!broker) throw new ContractError("CAPABILITY_UNAVAILABLE", "Provider transport is not configured");
+    const providerScope = await broker.prepareAction(await this.active(), bindingId, operation, input);
+    return this.callHostIncusMethod(providerScope.method, input, providerScope, options);
+  }
+
+  private async callHostIncusMethod(
+    method: string,
+    input: Record<string, unknown>,
+    providerScope: PreparedIncusProbe | PreparedIncusAction,
+    options?: ReleaseCallOptions,
+  ): Promise<JsonRpcResponse> {
+    const snapshot = await this.active();
+    if (providerScope.installationId !== snapshot.installation.id || providerScope.releaseId !== snapshot.release.id
+      || providerScope.releaseDigest !== snapshot.release.releaseDigest || providerScope.generation !== snapshot.installation.generation) {
+      throw new ContractError("RELEASE_CHANGED", "Provider release changed before invocation");
+    }
     const token = registerCallProvenance({
       actorExtensionId: this.extensionId, onBehalfOf: snapshot.installation.ownerId,
+      ...("projectId" in providerScope ? { projectId: providerScope.projectId, projectBindingId: providerScope.bindingId } : {}),
       conversationId: null, ownerless: false, runId: null, parentCallId: null, kind: "tool",
     });
     const invocationId = crypto.randomUUID();
-    const operation = this.execute(INCUS_PROVIDER_PREFLIGHT_METHOD, { ...input, _meta: { ezCallId: token } }, invocationId,
+    const pending = this.execute(method, { ...input, _meta: { ezCallId: token } }, invocationId,
       undefined, undefined, options?.signal, options?.invocationGuard, providerScope);
-    this.releaseCalls.set(invocationId, operation);
-    try { return { jsonrpc: "2.0", id: invocationId, result: await operation }; }
+    this.releaseCalls.set(invocationId, pending);
+    try { return { jsonrpc: "2.0", id: invocationId, result: await pending }; }
     finally { this.releaseCalls.delete(invocationId); releaseCallProvenance(token); }
   }
 
-  private async execute(method: string, params: Record<string, unknown>, invocationId: string, handler: typeof this.releaseHandler, notification: typeof this.releaseNotification, signal?: AbortSignal, invocationGuard?: InvocationGuard, providerScope?: PreparedIncusProbe): Promise<unknown> {
+  private async execute(method: string, params: Record<string, unknown>, invocationId: string, handler: typeof this.releaseHandler, notification: typeof this.releaseNotification, signal?: AbortSignal, invocationGuard?: InvocationGuard, providerScope?: PreparedIncusProbe | PreparedIncusAction): Promise<unknown> {
     const runtimeContext = { ...(getRuntimeToolContext() ?? {}) };
     const checkCancellation = () => { if (signal?.aborted) throw new ContractError("CANCELLED", "Extension invocation cancelled; admitted effects may already have completed"); };
     if (invocationGuard) await invocationGuard();
     checkCancellation();
     const snapshot = await this.active();
     checkCancellation();
-    if (providerScope && (method !== INCUS_PROVIDER_PREFLIGHT_METHOD || providerScope.installationId !== snapshot.installation.id
+    if (providerScope && (method !== ("method" in providerScope ? providerScope.method : INCUS_PROVIDER_PREFLIGHT_METHOD) || providerScope.installationId !== snapshot.installation.id
       || providerScope.releaseId !== snapshot.release.id || providerScope.releaseDigest !== snapshot.release.releaseDigest
       || providerScope.generation !== snapshot.installation.generation)) {
       throw new ContractError("RELEASE_CHANGED", "Provider release changed before invocation");

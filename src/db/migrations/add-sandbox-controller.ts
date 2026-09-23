@@ -9,6 +9,11 @@ export async function up(database: MigrationDb): Promise<void> {
     provider_installation_id TEXT NOT NULL,
     provider_release_id TEXT NOT NULL,
     connection_id TEXT NOT NULL,
+    connection_revision INTEGER CHECK (connection_revision > 0),
+    profile TEXT,
+    preset_id TEXT,
+    preset_digest TEXT,
+    effective_settings_digest TEXT,
     resource_key TEXT,
     desired_state TEXT NOT NULL CHECK (desired_state IN ('ABSENT', 'STOPPED', 'RUNNING')),
     observed_state TEXT NOT NULL CHECK (observed_state IN ('UNKNOWN', 'ABSENT', 'STOPPED', 'RUNNING', 'ERROR')),
@@ -49,6 +54,11 @@ export async function up(database: MigrationDb): Promise<void> {
   await database.execute(sql`CREATE INDEX IF NOT EXISTS idx_provider_sandbox_operations_reconcile
     ON provider_sandbox_operations(state, created_at)`);
   await database.execute(sql`ALTER TABLE sandbox_bindings ADD COLUMN IF NOT EXISTS current_operation_id TEXT`);
+  await database.execute(sql`ALTER TABLE sandbox_bindings ADD COLUMN IF NOT EXISTS connection_revision INTEGER`);
+  await database.execute(sql`ALTER TABLE sandbox_bindings ADD COLUMN IF NOT EXISTS profile TEXT`);
+  await database.execute(sql`ALTER TABLE sandbox_bindings ADD COLUMN IF NOT EXISTS preset_id TEXT`);
+  await database.execute(sql`ALTER TABLE sandbox_bindings ADD COLUMN IF NOT EXISTS preset_digest TEXT`);
+  await database.execute(sql`ALTER TABLE sandbox_bindings ADD COLUMN IF NOT EXISTS effective_settings_digest TEXT`);
   await database.execute(sql`ALTER TABLE provider_sandbox_operations ADD COLUMN IF NOT EXISTS reconcile_order BIGINT`);
   await database.execute(sql`CREATE SEQUENCE IF NOT EXISTS sandbox_reconcile_order_seq`);
   await database.execute(sql`CREATE INDEX IF NOT EXISTS idx_provider_sandbox_operations_reconcile_order

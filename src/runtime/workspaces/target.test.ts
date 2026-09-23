@@ -10,6 +10,7 @@ import {
 } from "./host-routing-proof";
 import {
   WORKSPACE_TOOL_NAMES,
+  createSandboxAgentProviders,
   isLocalFallbackDenied,
   isWorkspaceToolName,
   localWorkspaceTarget,
@@ -204,6 +205,52 @@ describe("production built-in workspace routing", () => {
     expect(shellResult.details).toMatchObject({ exitCode: 0 });
     expect(shellResult.content[0]).toEqual({ type: "text", text: `${root}\n` });
   });
+});
+
+test("code-agent shell and file adapters use the selected sandbox with unique tool calls", async () => {
+  const requests: SandboxWorkspaceToolRequest[] = [];
+  const target = sandboxWorkspaceTarget(binding, {
+    async execute(request) {
+      requests.push(request);
+      if (request.toolName === "shell") return {
+        content: [{ type: "text", text: "fallback output" }],
+        details: { stdout: "sandbox output", stderr: "warning", exitCode: 3 },
+      };
+      return { content: [{ type: "text", text: "sandbox file" }], details: {} };
+    },
+  });
+  const { shell, file } = createSandboxAgentProviders(target);
+
+  expect(await shell.run("pwd", { timeout: 10_000 })).toEqual({
+    stdout: "sandbox output", stderr: "warning", exitCode: 3,
+  });
+  expect(await file.read("hello.txt")).toBe("sandbox file");
+  await file.write("hello.txt", "new content");
+  expect(await file.exists("hello.txt")).toBe(true);
+  expect(requests.map(request => request.toolName)).toEqual(["shell", "readFile", "editFile", "readFile"]);
+  expect(requests.map(request => request.toolCallId)).toEqual([
+    "agent-provider-1", "agent-provider-2", "agent-provider-3", "agent-provider-4",
+  ]);
+  expect(requests[0]?.params).toEqual({ command: "pwd", timeout: 10_000 });
+  expect(requests[2]?.params).toEqual({ path: "hello.txt", new_string: "new content" });
+  for (const request of requests) expect(request.binding).toEqual(binding);
+});
+
+test("code-agent adapters fail closed on sandbox errors and denied local fallback", async () => {
+  let response = { content: [{ type: "text" as const, text: "sandbox failed" }],
+    details: { isError: true, code: "sandbox_error", localFallbackDenied: false } };
+  const { shell, file } = createSandboxAgentProviders(sandboxWorkspaceTarget(binding, {
+    async execute() { return response; },
+  }));
+
+  await expect(shell.run("pwd")).rejects.toThrow("sandbox failed");
+  await expect(file.read("hello.txt")).rejects.toThrow("sandbox failed");
+  await expect(file.write("hello.txt", "new content")).rejects.toThrow("sandbox failed");
+  expect(await file.exists("hello.txt")).toBe(false);
+
+  response = { content: [{ type: "text", text: "local fallback denied" }],
+    details: { isError: true, code: "sandbox_workspace_unavailable", localFallbackDenied: true } };
+  await expect(file.exists("hello.txt")).rejects.toThrow("local fallback denied");
 });
 
 describe("sandbox host routing proof", () => {

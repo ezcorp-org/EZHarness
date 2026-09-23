@@ -3011,6 +3011,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addExtensionReleases(db);
   const { up: addProviderConnections } = await import("./migrations/add-provider-connections");
   await addProviderConnections(db);
+  const { up: addIncusQualification } = await import("./migrations/add-incus-qualification");
+  await addIncusQualification(db);
   const { up: addIncusOperatorSetups } = await import("./migrations/add-incus-operator-setups");
   await addIncusOperatorSetups(db);
   const { up: addExtensionEventReceipts } = await import("./migrations/add-extension-event-receipts");

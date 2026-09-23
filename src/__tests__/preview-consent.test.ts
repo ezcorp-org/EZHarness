@@ -103,6 +103,25 @@ describe("exposeDetectedPort", () => {
       consent.exposeDetectedPort({ userId: userA, conversationId: "", port: 5173 }),
     ).rejects.toThrow(/conversationId/);
   });
+
+  test("rejects missing and foreign conversations without creating a preview", async () => {
+    await expect(consent.exposeDetectedPort({
+      userId: userA, conversationId: crypto.randomUUID(), port: 5173,
+    })).rejects.toThrow("conversation is not owned");
+    await expect(consent.exposeDetectedPort({
+      userId: userB, conversationId: convA, port: 5173,
+    })).rejects.toThrow("conversation is not owned");
+    expect(await getDb().select().from(previewSessions)).toHaveLength(0);
+  });
+
+  test("rejects a conversation whose project has no usable workspace path", async () => {
+    const unavailable = await createProject({ name: "Unavailable preview workspace", path: "" });
+    const conversation = await createConversation(unavailable.id, { userId: userA });
+    await expect(consent.exposeDetectedPort({
+      userId: userA, conversationId: conversation.id, port: 5173,
+    })).rejects.toThrow("project workspace is unavailable");
+    expect(await getDb().select().from(previewSessions)).toHaveLength(0);
+  });
 });
 
 describe("always-expose preference (D3)", () => {

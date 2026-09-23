@@ -81,6 +81,15 @@ export const sandboxBindings = pgTable("sandbox_bindings", {
   providerInstallationId: text("provider_installation_id").notNull(),
   providerReleaseId: text("provider_release_id").notNull(),
   connectionId: text("connection_id").notNull(),
+  // Null on bindings created before connection revisions were pinned. Live
+  // provider dispatch rejects these rows until an operator rebinds them.
+  connectionRevision: integer("connection_revision"),
+  // Immutable qualified profile selection. Null means the row predates live
+  // provider admission and cannot be dispatched to Incus.
+  profile: text("profile"),
+  presetId: text("preset_id"),
+  presetDigest: text("preset_digest"),
+  effectiveSettingsDigest: text("effective_settings_digest"),
   resourceKey: text("resource_key"),
   desiredState: text("desired_state").notNull().$type<SandboxDesiredState>(),
   observedState: text("observed_state").notNull().$type<SandboxObservedState>(),

@@ -47,6 +47,7 @@ export interface IncusInventory {
   storagePools: IncusStoragePool[];
   networks: IncusNetwork[];
   profiles: IncusProfile[];
+  images?: Array<{ fingerprint: string; aliases: string[] }>;
   instances: Array<{ name: string; project: string; status: string; type: string }>;
   trust: Array<{ fingerprint: string; name: string; restricted: boolean; projects: string[]; type: string }>;
 }
@@ -75,6 +76,18 @@ export interface IncusSetupRecipe {
   project: { name: string; description: string; config: Record<string, string> };
   profile: { name: string; description: string; config: Record<string, string>; devices: Record<string, Record<string, string>> };
   server: { httpsAddress: string };
+  guestImage?: {
+    alias: string;
+    fingerprint: string | null;
+    sourceFingerprint: string | null;
+    helperSha256: string;
+    user: "sandbox";
+    uid: 1000;
+    gid: 1000;
+    pythonPackageVersion: string | null;
+    dockerArchiveSha256: string | null;
+    composeSha256: string | null;
+  };
   providerClient?: { name: string; certificateFingerprint: string; certificatePem: string; projects: string[]; restricted: true };
 }
 

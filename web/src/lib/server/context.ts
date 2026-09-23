@@ -150,6 +150,9 @@ export async function ensureInitialized(): Promise<void> {
   await registry.loadFromDb();
   const { initializeLocalSandbox } = await import("$server/runtime/sandbox/startup");
   await initializeLocalSandbox();
+  const { initializeIncusSandboxWorkspace, startIncusSandboxReconciler } = await import("$server/infrastructure/incus-startup");
+  initializeIncusSandboxWorkspace();
+  registerTeardown("incus-sandbox-reconciler", startIncusSandboxReconciler());
   const agents = await loadAgents(agentsDir, { includeDb: true });
   bus = new EventBus<AgentEvents>();
   // Phase 3a (Secure Preview): register the live conversation SSE bus so the

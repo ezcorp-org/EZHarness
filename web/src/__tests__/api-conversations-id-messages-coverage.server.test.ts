@@ -421,6 +421,17 @@ describe("POST — attachments: file count + project + validator + persist", () 
     expect(body.error).toContain("Sandbox workspace is unavailable");
   });
 
+  test("missing project row refuses attachment storage before any file write", async () => {
+    getProject.mockResolvedValue(null);
+    const res = await POST(makeMultipartEvent({ form: makeMultipartWithFile("hi") }));
+    expect(res.status).toBe(500);
+    expect((await res.json()) as { error?: string }).toMatchObject({
+      error: "Project path not resolvable for attachment storage",
+    });
+    expect(writeAttachment).not.toHaveBeenCalled();
+    expect(insertAttachment).not.toHaveBeenCalled();
+  });
+
   test("validateAttachment rejects TOO_LARGE → 413", async () => {
     validateAttachment.mockResolvedValue({ ok: false, code: "TOO_LARGE" });
     const res = await POST(makeMultipartEvent({ form: makeMultipartWithFile("hi") }));

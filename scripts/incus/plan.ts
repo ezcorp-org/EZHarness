@@ -1,6 +1,7 @@
 import { isIP } from "node:net";
 import { canonicalJson, type SandboxPreset } from "@ezcorp/extension-contract";
 import { INCUS_PROVIDER_ID, incusManifest } from "../../extensions/incus-sandbox/manifest";
+import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
 import type { IncusInventory, IncusSetupPlan, IncusSetupRecipe, SetupStep } from "./model";
 import { SETUP_SCHEMA_VERSION, assertExactKeys, assertRecord, assertSafeName, assertSetupPlanDigest, assertSha256, digest, inventoryFingerprint, isSubset } from "./model";
 
@@ -93,7 +94,7 @@ function overlaps(left: string, right: string): boolean {
 
 export function validateRecipe(recipe: IncusSetupRecipe): void {
   assertRecord(recipe, "recipe");
-  assertExactKeys(recipe, ["schemaVersion", "id", "version", "expected", "storage", "network", "project", "profile", "server", "providerClient"], "recipe");
+  assertExactKeys(recipe, ["schemaVersion", "id", "version", "expected", "storage", "network", "project", "profile", "server", "guestImage", "providerClient"], "recipe");
   for (const [value, keys, label] of [
     [recipe.expected, ["hostname", "architecture", "incusVersion", "serverCertificateFingerprint", "sshHostKeySha256", "firewall", "minimumRootFreeBytes", "requiredApiExtensions"], "expected host"],
     [recipe.storage, ["name", "driver", "size", "sizeBytes", "defaultVolumeSize"], "storage"],
@@ -106,6 +107,20 @@ export function validateRecipe(recipe: IncusSetupRecipe): void {
     assertExactKeys(value, keys, label);
   }
   if (recipe.schemaVersion !== SETUP_SCHEMA_VERSION) throw new Error("unsupported Incus recipe schema");
+  if (recipe.guestImage) {
+    const image = recipe.guestImage;
+    assertRecord(image, "guest image");
+    assertExactKeys(image, ["alias", "fingerprint", "sourceFingerprint", "helperSha256", "user", "uid", "gid", "pythonPackageVersion", "dockerArchiveSha256", "composeSha256"], "guest image");
+    assertSafeName(image.alias, "guest image alias");
+    if (image.user !== "sandbox" || image.uid !== 1000 || image.gid !== 1000) throw new Error("guest image must pin sandbox user 1000:1000");
+    assertSha256(image.helperSha256, "guest helper digest");
+    if (image.helperSha256 !== guestHelperSha256()) throw new Error("guest helper source differs from the reviewed image recipe");
+    for (const [value, label] of [[image.fingerprint, "guest image fingerprint"], [image.sourceFingerprint, "guest source fingerprint"],
+      [image.dockerArchiveSha256, "Docker archive digest"], [image.composeSha256, "Compose digest"]] as const) {
+      if (value !== null) assertSha256(value, label);
+    }
+    if (image.pythonPackageVersion !== null && !/^[A-Za-z0-9.+:~_-]{1,128}$/.test(image.pythonPackageVersion)) throw new Error("Python package version must be exact");
+  }
   assertSafeName(recipe.id, "recipe id");
   if (!VERSION.test(recipe.version)) throw new Error("recipe version must be exact semantic version");
   assertSafeName(recipe.expected.hostname, "expected hostname");
@@ -175,6 +190,15 @@ export function createSetupPlan(recipe: IncusSetupRecipe, inventory: IncusInvent
   incusManifest.sandboxProviders?.find(provider => provider.id === INCUS_PROVIDER_ID)?.presets ?? []): IncusSetupPlan {
   validateRecipe(recipe);
   const blocked: string[] = presetCompatibilityReasons(recipe, presets);
+  if (!recipe.guestImage) blocked.push("guest_image_missing_from_recipe");
+  if (recipe.guestImage) {
+    const image = recipe.guestImage;
+    if (!image.fingerprint || !image.sourceFingerprint || !image.pythonPackageVersion ||
+        !image.dockerArchiveSha256 || !image.composeSha256) blocked.push("guest_image_artifact_unpinned");
+    else if (!inventory.images?.some(value => value.fingerprint === image.fingerprint && value.aliases.includes(image.alias))) {
+      blocked.push("guest_image_missing_or_drifted");
+    }
+  }
   if (inventory.connection.sshHostKeySha256 !== recipe.expected.sshHostKeySha256) blocked.push("ssh_host_key_changed");
   if (inventory.host.hostname !== recipe.expected.hostname) blocked.push("hostname_mismatch");
   if (inventory.host.architecture !== recipe.expected.architecture) blocked.push("architecture_mismatch");

@@ -1296,3 +1296,27 @@ Review: The operator flow is implemented in the isolated worktree. A fresh read-
 Plan review: no PR exists for `feat/pluggable-infrastructure-v1`. This worktree contains the shared provider contracts, controller, adapters, workspace routing, and Incus operator setup from prior turns. Submit them together as a draft because live provider and guest qualification are still open. Do not claim production readiness in the PR.
 
 Review: Draft PR [#303](https://github.com/ezcorp-org/EZHarness/pull/303) is open. The first CI run exposed synthetic private-key fixtures in the working tree, a missing visual-evidence mapping, and route/test fixtures that predate the required workspace target. Runtime-generated TLS identities, an index-page screenshot and mapping, and updated fixtures now pass their focused checks. The first local full suite recorded 26,560 pass and 12 fail across 1,709 files under concurrent host load; all seven failed files passed on isolated rerun after the targeted fixes. The new browser run did not reach its spec because real-auth global setup timed out with seven bundled builds pending. Coverage and the next hosted CI run remain open. Live SSH apply, mTLS provider probe, and guest workload qualification remain release gates.
+
+## Incus live sandbox vertical slice — 2026-09-22
+
+- [x] Implement host-owned Incus lifecycle and operation transport with fixed project/profile scope, idempotency, and bounded responses.
+- [x] Implement safe workspace file and supervised process operations through a versioned guest helper, with real guest qualification gates.
+- [x] Connect the durable sandbox controller to the approved provider release and exact connection revision; preserve unknown outcomes.
+- [x] Connect a persisted sandbox binding to the EZHarness-native workspace tools without host fallback.
+- [ ] Exercise create, workspace tool, process, stop/reconnect, and cleanup as one end-to-end flow.
+- [ ] Run focused checks, typecheck, lint, build, full tests, hosted CI, and live server qualification; record any unrun gate exactly.
+
+Plan review: The active MVP is the native EZHarness loop and the existing Incus provider. The current PR has a reviewed SSH setup screen and read-only mTLS probe, but production dispatch, mutable transport, and live workspace wiring are incomplete. Work in this isolated PR worktree with disjoint Sol agent ownership. The host broker must recheck the exact release, connection and resource binding on every effect; any unverified guest control fails closed. Details and gate files: `docs/plans/2026-09-22-incus-live-slice-PLAN.md` and `gates/incus-live-*.md`.
+
+Review: pending.
+
+## Merge current main into pluggable infrastructure — 2026-09-22
+
+- [ ] Preserve all current work in a branch commit.
+- [ ] Fetch and merge the latest `origin/main`.
+- [ ] Resolve each conflict and inspect the resulting diff.
+- [ ] Report the merge receipt and remaining verification to the parent agent.
+
+Plan review: Preserve the Incus live slice first. Keep the feature's behavior and the incoming main changes. The parent agent owns post-merge verification and push.
+
+Review: pending.

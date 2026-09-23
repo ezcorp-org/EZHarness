@@ -11,11 +11,14 @@ mockDbConnection();
 
 const { createProject } = await import("../../db/queries/projects");
 const { projectWorkspaceBindings, sandboxBindings } = await import("../../db/schema");
-const { resolveLocalProjectTarget, resolveProjectWorkspaceTarget } = await import("./project-target");
+const { resolveLocalProjectTarget, resolveProjectWorkspaceTarget, setSandboxWorkspaceTargetResolver } = await import("./project-target");
 const { localWorkspaceTarget, sandboxWorkspaceTarget } = await import("./target");
 
 beforeAll(async () => setupTestDb(), 30_000);
-afterAll(async () => closeTestDb());
+afterAll(async () => {
+  setSandboxWorkspaceTargetResolver(null);
+  await closeTestDb();
+});
 
 describe("resolveLocalProjectTarget", () => {
   test("keeps an unbound project on its current local root", async () => {
@@ -81,5 +84,35 @@ describe("resolveLocalProjectTarget", () => {
     await expect(resolveProjectWorkspaceTarget(project, "agent run", sandboxWorkspaceTarget({
       ...binding, connectionId: "other-connection",
     }, target.backend))).rejects.toThrow("Local workspace fallback was denied");
+  });
+
+  test("resolves a persisted running binding through host injection and refuses a changed target", async () => {
+    const project = await createProject({ name: "Host resolved", path: "/amd/resolver-canary" });
+    const row = {
+      id: crypto.randomUUID(), projectId: project.id,
+      providerInstallationId: "incus-provider", providerReleaseId: "release-1",
+      connectionId: "connection-1", resourceKey: "workspace-resolved",
+      desiredState: "RUNNING" as const, observedState: "RUNNING" as const, generation: 3,
+    };
+    await getTestDb().insert(sandboxBindings).values(row);
+    const qualified = {
+      projectId: project.id, workspaceId: row.resourceKey, connectionId: row.connectionId,
+      providerId: "incus", generation: row.generation, presetId: "feature",
+      releaseDigest: "a".repeat(64), presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64),
+    };
+    const backend = { async execute() { return { content: [], details: {} }; } };
+    const seen: string[] = [];
+    setSandboxWorkspaceTargetResolver(async binding => {
+      seen.push(binding.id);
+      return sandboxWorkspaceTarget(qualified, backend);
+    });
+    const target = await resolveProjectWorkspaceTarget(project, "agent run", localWorkspaceTarget(project.path));
+    expect(target).toEqual(sandboxWorkspaceTarget(qualified, backend));
+    expect(seen).toEqual([row.id]);
+
+    setSandboxWorkspaceTargetResolver(async () => sandboxWorkspaceTarget({ ...qualified, generation: 4 }, backend));
+    await expect(resolveProjectWorkspaceTarget(project, "agent run"))
+      .rejects.toThrow("Local workspace fallback was denied");
+    setSandboxWorkspaceTargetResolver(null);
   });
 });

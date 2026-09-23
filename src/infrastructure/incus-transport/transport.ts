@@ -18,6 +18,18 @@ export interface HostConnectionScope {
   providerReleaseId: string;
   revision: number;
   signal?: AbortSignal;
+  approvedPreset?: {
+    /** Contract profile identifier, such as linux-exec.v1. */
+    profile: string;
+    /** Profile name in the approved Incus project. */
+    incusProfile: string;
+    presetId: string;
+    presetDigest: string;
+    effectiveSettingsDigest: string;
+    imageFingerprint: string;
+    limits: { memoryBytes: number; cpuMillis: number; pids: number; diskBytes: number };
+  };
+  approvedGuest?: { user: string; uid: number; gid: number; helperSha256: string };
 }
 
 export interface ResolvedIncusConnection {
@@ -37,7 +49,7 @@ export interface HostConnectionResolver {
   }): Promise<ResolvedIncusConnection>;
 }
 
-type PinnedFetch = (url: string, init: RequestInit & {
+export type PinnedFetch = (url: string, init: RequestInit & {
   proxy: false;
   decompress: false;
   tls: {
@@ -118,7 +130,7 @@ function parseHttpResponse(wire: Buffer): Response {
 // Queue no HTTP bytes until the TLS socket is authorized and its actual leaf
 // matches the stored pin. Bun fetch and https.request can deliver a GET before
 // a checkServerIdentity rejection, so the socket is checked here explicitly.
-function verifiedHttpsGet(url: string, init: Parameters<PinnedFetch>[1]): Promise<Response> {
+export function verifiedHttpsRequest(url: string, init: Parameters<PinnedFetch>[1]): Promise<Response> {
   return new Promise((resolve, reject) => {
     const target = new URL(url);
     const hostname = target.hostname.replace(/^\[|\]$/g, "");
@@ -160,19 +172,36 @@ function verifiedHttpsGet(url: string, init: Parameters<PinnedFetch>[1]): Promis
         try { resolve(parseHttpResponse(Buffer.concat(chunks, length))); }
         catch (error) { reject(error); }
       });
-      socket.write(`GET ${target.pathname}${target.search} HTTP/1.1\r\nHost: ${target.host}\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n`);
+      const method = init.method ?? "GET";
+      if (!/^(GET|POST|PUT|PATCH|DELETE)$/.test(method)) {
+        socket.destroy();
+        reject(new Error("Unsupported Incus method"));
+        return;
+      }
+      const body = typeof init.body === "string" ? init.body : "";
+      if (Buffer.byteLength(body) > 16 * 1024) {
+        socket.destroy();
+        reject(new IncusTransportError("resource_exhausted", "Incus request is too large"));
+        return;
+      }
+      const ifMatch = new Headers(init.headers).get("if-match");
+      if (ifMatch && (!/^[\x21-\x7e]{1,128}$/.test(ifMatch) || ifMatch.includes("\r") || ifMatch.includes("\n"))) {
+        socket.destroy(); reject(new Error("Invalid Incus ETag")); return;
+      }
+      const headers = `${method} ${target.pathname}${target.search} HTTP/1.1\r\nHost: ${target.host}\r\nAccept: application/json\r\nAccept-Encoding: identity\r\nConnection: close\r\n${ifMatch ? `If-Match: ${ifMatch}\r\n` : ""}${body ? `Content-Type: application/json\r\nContent-Length: ${Buffer.byteLength(body)}\r\n` : ""}\r\n`;
+      socket.write(headers + body);
     });
   });
 }
 
-function object(value: unknown): Record<string, unknown> {
+export function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new IncusTransportError("unavailable", "Invalid Incus probe response");
   }
   return value as Record<string, unknown>;
 }
 
-function pinnedOrigin(endpoint: string): URL {
+export function pinnedOrigin(endpoint: string): URL {
   try {
     const url = new URL(endpoint);
     if (url.protocol !== "https:" || !url.hostname || url.username || url.password
@@ -185,7 +214,7 @@ function pinnedOrigin(endpoint: string): URL {
   }
 }
 
-function pinnedCertificate(pem: string): X509Certificate {
+export function pinnedCertificate(pem: string): X509Certificate {
   try {
     return new X509Certificate(pem);
   } catch {
@@ -193,11 +222,11 @@ function pinnedCertificate(pem: string): X509Certificate {
   }
 }
 
-async function boundedJson(response: Response): Promise<Record<string, unknown>> {
+export async function boundedJson(response: Response, allowErrorStatus = false): Promise<Record<string, unknown>> {
   if (response.status >= 300 && response.status < 400) {
     throw new IncusTransportError("permission", "Incus probe redirect was denied");
   }
-  if (!response.ok) throw new IncusTransportError("unavailable", "Incus probe request failed");
+  if (!response.ok && !allowErrorStatus) throw new IncusTransportError("unavailable", "Incus probe request failed");
   const declaredSize = Number(response.headers.get("content-length"));
   if (Number.isFinite(declaredSize) && declaredSize > MAX_RESPONSE_BYTES) {
     throw new IncusTransportError("resource_exhausted", "Incus probe response is too large");
@@ -245,7 +274,7 @@ export class HostIncusProbeTransport implements IncusTransport {
   constructor(
     private readonly connections: HostConnectionResolver,
     private readonly scope: HostConnectionScope,
-    private readonly http: PinnedFetch = verifiedHttpsGet,
+    private readonly http: PinnedFetch = verifiedHttpsRequest,
   ) {}
 
   async request(command: Readonly<IncusTransportRequest>): Promise<IncusProbeResult> {

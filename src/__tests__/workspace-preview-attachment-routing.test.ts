@@ -259,6 +259,26 @@ describe("sandbox preview serving", () => {
     expect(fixture.localTouches).toEqual({ files: 0, loopback: 0 });
   });
 
+  test("provider serve failure returns 502 without host file or loopback fallback", async () => {
+    const fixture = deps();
+    let serves = 0;
+    const target = sandboxWorkspaceTarget(binding, toolBackend({
+      previews: {
+        async open() {},
+        async serve() { serves++; throw new Error("guest connection lost"); },
+        async close() {},
+      },
+    }));
+    const response = await handlePreviewRequest({
+      previewId, requestPath: "/live", cookieToken: "valid",
+      request: new Request(`https://${previewId}.preview.example.test/live`),
+    }, { ...fixture.value, resolveWorkspaceTarget: () => target });
+
+    expect(response.status).toBe(502);
+    expect(serves).toBe(1);
+    expect(fixture.localTouches).toEqual({ files: 0, loopback: 0 });
+  });
+
   test("sandbox provider receives a sanitized POST with its body intact", async () => {
     const fixture = deps();
     let providerRequest: Request | undefined;

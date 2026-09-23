@@ -66,8 +66,9 @@ export function incusMethodName(operation: SandboxProtocolOperation): string {
 }
 
 const commonPreset: Omit<SandboxPreset, "id" | "profile" | "recipeDigest" | "storage"> = {
-  imageDigest: "f1cfb02e245d196ab3b6175027289ff2ae1c7cd5e47137e2ed063302a2d67d32",
-  helperDigests: ["adf03619fffd352fcb1bbb7b765c38e8e687aa71d3a723c38f5c56f8758940f3"],
+  // Fail closed until the reviewed image builder publishes a real fingerprint.
+  imageDigest: "0".repeat(64),
+  helperDigests: ["804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75"],
   network: { mode: "private", outbound: "restricted" },
   limits: {
     memoryBytes: 4_294_967_296,

@@ -5,6 +5,7 @@ import testImages from "../../scripts/test-images.json";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import { SandboxAdmissionStore } from "./admission";
 import { SandboxController } from "./controller";
+import { IncusSandboxProviderDispatcher } from "./incus-dispatcher";
 
 const container = `sandbox-controller-postgres-${crypto.randomUUID()}`;
 let client: SQL | undefined;
@@ -176,4 +177,53 @@ test("controller migration reapplies and reconnects on real PostgreSQL", async (
   expect(recovery).toEqual(expect.objectContaining({ examined: 1, inspected: 1, completed: 1 }));
   expect((await recoveredController.getOperation("operation"))?.state).toBe("SUCCEEDED");
   expect((await recoveredController.getBinding("binding"))?.cleanupConfirmedAt).toBeInstanceOf(Date);
+
+  await reopenedClient`INSERT INTO projects (id) VALUES ('live-project')`;
+  const calls: string[] = [];
+  const liveController = new SandboxController(drizzle(reopenedClient), new IncusSandboxProviderDispatcher({
+    call: async (_scope, method, input) => {
+      calls.push(method);
+      if (method === "incus/lifecycle/inspectOperation") {
+        return { ok: true, operation: {
+          operationId: input.operationId, kind: "create", sandboxId: input.sandboxId,
+          state: "succeeded", desiredState: "stopped", observedState: "stopped",
+          resourceId: null, startedAt: "2026-09-22T12:00:00Z", finishedAt: "2026-09-22T12:00:01Z", error: null,
+        } };
+      }
+      return { ok: true, receipt: {
+        operationId: "pg-provider-operation", kind: "create", requestId: input.requestId,
+        idempotencyKey: input.idempotencyKey, sandboxId: input.sandboxId,
+        acceptedAt: "2026-09-22T12:00:00Z",
+      } };
+    },
+  }, () => Date.parse("2026-09-22T11:59:00Z")));
+  await liveController.createBinding({
+    id: "live-binding", projectId: "live-project", providerInstallationId: "live-installation",
+    providerReleaseId: "live-release", connectionId: "live-connection", connectionRevision: 3,
+    profile: "linux-exec.v1", presetId: "incus-linux-exec-v1",
+    presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64),
+  });
+  const live = await liveController.requestAndDispatch({
+    bindingId: "live-binding", kind: "CREATE", generation: 1,
+    idempotencyScope: "lifecycle", idempotencyKey: "create", payload: {
+      profile: "linux-exec.v1", presetId: "incus-linux-exec-v1",
+      presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64),
+    },
+  });
+  expect(live.state).toBe("PROVIDER_PENDING");
+  const reopenedLive = new SandboxController(drizzle(reopenedClient), new IncusSandboxProviderDispatcher({
+    call: async (scope, method, input) => {
+      expect(scope.connectionRevision).toBe(3);
+      calls.push(method);
+      return { ok: true, operation: {
+        operationId: input.operationId, kind: "create", sandboxId: input.sandboxId,
+        state: "succeeded", desiredState: "stopped", observedState: "stopped",
+        resourceId: null, startedAt: "2026-09-22T12:00:00Z", finishedAt: "2026-09-22T12:00:01Z", error: null,
+      } };
+    },
+  }, () => Date.parse("2026-09-22T11:59:00Z")));
+  await reopenedLive.reconcile();
+  expect((await reopenedLive.getOperation(live.id))?.state).toBe("SUCCEEDED");
+  expect((await reopenedLive.getBinding("live-binding"))?.observedState).toBe("STOPPED");
+  expect(calls).toEqual(["incus/lifecycle/create", "incus/lifecycle/inspectOperation"]);
 }, 30_000);

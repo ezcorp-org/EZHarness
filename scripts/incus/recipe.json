@@ -1,7 +1,19 @@
 {
   "schemaVersion": 1,
   "id": "incus-xeon-compose",
-  "version": "1.1.0",
+  "version": "1.2.0",
+  "guestImage": {
+    "alias": "ezharness-guest-0-1-0",
+    "fingerprint": null,
+    "sourceFingerprint": null,
+    "helperSha256": "804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75",
+    "user": "sandbox",
+    "uid": 1000,
+    "gid": 1000,
+    "pythonPackageVersion": null,
+    "dockerArchiveSha256": null,
+    "composeSha256": null
+  },
   "expected": {
     "hostname": "sandbox-server",
     "architecture": "x86_64",

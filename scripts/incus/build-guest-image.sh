@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Run on the approved Incus server only after the input fingerprints are reviewed.
+set -euo pipefail
+
+if [ "$#" -ne 9 ]; then
+  echo 'usage: build-guest-image.sh BASE_FINGERPRINT PYTHON_PACKAGE_VERSION DOCKER_TAR DOCKER_SHA256 COMPOSE_BINARY COMPOSE_SHA256 HELPER_PY HELPER_SHA256 ALIAS' >&2
+  exit 2
+fi
+
+base_fingerprint=$1
+python_version=$2
+docker_tar=$3
+docker_sha=$4
+compose_binary=$5
+compose_sha=$6
+helper_file=$7
+helper_sha=$8
+alias=$9
+
+for value in "$base_fingerprint" "$docker_sha" "$compose_sha" "$helper_sha"; do
+  if [[ ! "$value" =~ ^[a-f0-9]{64}$ ]]; then echo 'expected exact SHA-256 fingerprint' >&2; exit 2; fi
+done
+if [[ ! "$python_version" =~ ^[A-Za-z0-9.+:~_-]{1,128}$ ]] || [[ ! "$alias" =~ ^[a-z][a-z0-9-]{0,62}$ ]]; then
+  echo 'invalid pinned package version or alias' >&2; exit 2
+fi
+for artifact in "$docker_tar" "$compose_binary" "$helper_file"; do
+  if [ ! -f "$artifact" ]; then echo "missing artifact: $artifact" >&2; exit 2; fi
+done
+printf '%s  %s\n' "$docker_sha" "$docker_tar" "$compose_sha" "$compose_binary" "$helper_sha" "$helper_file" | sha256sum --check --status
+
+name="ezh-build-$(date +%s)-$$"
+cleanup() { incus delete "$name" --force --project default >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+if incus image alias list --project default --format json | python3 -c 'import json,sys;alias=sys.argv[1];sys.exit(0 if any(x.get("name")==alias for x in json.load(sys.stdin)) else 1)' "$alias"; then
+  echo 'image alias already exists; review its fingerprint instead of replacing it' >&2
+  exit 1
+fi
+
+incus launch "$base_fingerprint" "$name" --project default
+incus file push "$helper_file" "$name/root/ezh-helper.py" --project default
+incus file push "$docker_tar" "$name/root/ezh-docker.tgz" --project default
+incus file push "$compose_binary" "$name/root/ezh-compose" --project default
+
+incus exec "$name" --project default -- env DEBIAN_FRONTEND=noninteractive apt-get update
+incus exec "$name" --project default -- env DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "python3=$python_version"
+incus exec "$name" --project default -- sh -eu -c '
+  install -d -m 0755 /usr/local/bin /usr/local/libexec /usr/local/lib/docker/cli-plugins
+  tar -xzf /root/ezh-docker.tgz -C /usr/local/bin --strip-components=1
+  install -m 0755 /root/ezh-compose /usr/local/lib/docker/cli-plugins/docker-compose
+  install -o root -g root -m 0755 /root/ezh-helper.py /usr/local/libexec/ezharness-helper
+  groupadd -g 1000 sandbox
+  useradd -u 1000 -g 1000 -m -d /workspace -s /bin/sh sandbox
+  install -d -o 1000 -g 1000 -m 0700 /workspace /var/lib/ezharness-helper
+  groupadd -f docker
+  usermod -aG docker sandbox
+  cat >/etc/systemd/system/ezh-containerd.service <<EOF
+[Unit]
+Description=Containerd for EZHarness guest
+After=network-online.target
+[Service]
+ExecStart=/usr/local/bin/containerd
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+EOF
+  cat >/etc/systemd/system/ezh-docker.service <<EOF
+[Unit]
+Description=Docker for EZHarness guest
+Requires=ezh-containerd.service
+After=ezh-containerd.service network-online.target
+[Service]
+ExecStart=/usr/local/bin/dockerd --host=unix:///var/run/docker.sock --storage-driver=vfs
+Restart=on-failure
+[Install]
+WantedBy=multi-user.target
+EOF
+  systemctl enable ezh-containerd.service ezh-docker.service
+  python3 --version
+  docker compose version
+  stat -c "%u:%g:%a" /var/lib/ezharness-helper | grep --line-buffered -x "1000:1000:700"
+  stat -c "%u:%g:%a" /usr/local/libexec/ezharness-helper | grep --line-buffered -x "0:0:755"
+  rm -f /root/ezh-helper.py /root/ezh-docker.tgz /root/ezh-compose
+  apt-get clean
+  rm -rf /var/lib/apt/lists/*
+'
+incus stop "$name" --project default
+incus publish "$name" --project default --alias "$alias"
+incus query "/1.0/images/aliases/$alias?project=default" | python3 -c 'import json,sys;print(json.load(sys.stdin)["metadata"]["target"])'

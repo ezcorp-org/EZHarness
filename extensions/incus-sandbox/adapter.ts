@@ -221,6 +221,39 @@ function sandboxResourceName(connectionId: string, sandboxId: string): string {
   return `ezh-${digest}`;
 }
 
+/** The host uses the same pure mapping to authorize the exact worker request. */
+export function createIncusTransportCommand(
+  operation: SandboxProtocolOperation,
+  input: Record<string, unknown>,
+  config: IncusConnectionConfig,
+): IncusTransportRequest {
+  const action = actionByOperation[operation as keyof typeof actionByOperation];
+  if (!action) throw new ContractError("METHOD_NOT_FOUND", "Unknown Incus provider operation");
+  const connectionId = input.connectionId as string;
+  const sandboxId = input.sandboxId as string | undefined;
+  return {
+    action,
+    connectionId,
+    deadlineMs: input.rpcDeadlineMs as number,
+    pins: config,
+    tags: {
+      managedBy: "ezharness-incus-sandbox",
+      connectionId,
+      ...(sandboxId ? { sandboxId } : {}),
+    },
+    ...(sandboxId ? { sandboxName: sandboxResourceName(connectionId, sandboxId) } : {}),
+    ...(mutationOperations.has(operation)
+      ? {
+          idempotency: {
+            requestId: input.requestId as string,
+            key: input.idempotencyKey as string,
+          },
+        }
+      : {}),
+    payload: transportPayload(operation, input, config),
+  };
+}
+
 export function describeIncusProvider(): unknown {
   return {
     providerId: INCUS_PROVIDER_ID,
@@ -373,29 +406,7 @@ export class IncusSandboxAdapter {
         return providerFailure("INVALID_ARGUMENT", "The process output cursor escaped its process scope");
       }
     }
-    const connectionId = input.connectionId as string;
-    const sandboxId = input.sandboxId as string | undefined;
-    const command: IncusTransportRequest = {
-      action,
-      connectionId,
-      deadlineMs: input.rpcDeadlineMs as number,
-      pins: this.config,
-      tags: {
-        managedBy: "ezharness-incus-sandbox",
-        connectionId,
-        ...(sandboxId ? { sandboxId } : {}),
-      },
-      ...(sandboxId ? { sandboxName: sandboxResourceName(connectionId, sandboxId) } : {}),
-      ...(mutationOperations.has(operation)
-        ? {
-            idempotency: {
-              requestId: input.requestId as string,
-              key: input.idempotencyKey as string,
-            },
-          }
-        : {}),
-      payload: transportPayload(operation, input, this.config),
-    };
+    const command = createIncusTransportCommand(operation, input, this.config);
     try {
       return await this.transport.request(command);
     } catch (cause) {

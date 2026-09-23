@@ -277,6 +277,35 @@ describe("createPreviewSession", () => {
     expect(await preview.listPreviewsForUser(userA)).toHaveLength(before.length);
   });
 
+  test("failed sandbox open revokes its inserted row before it can be served", async () => {
+    let attemptedId: string | undefined;
+    const target = sandboxWorkspaceTarget({
+      projectId: "failed-open-project", workspaceId: "failed-open-workspace",
+      connectionId: "failed-open-connection", providerId: "incus", generation: 1,
+      presetId: "isolated-feature", releaseDigest: "a".repeat(64),
+      presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64),
+    }, {
+      async execute() { return { content: [], details: {} }; },
+      previews: {
+        async open(request: SandboxPreviewOpenRequest) {
+          attemptedId = request.previewId;
+          throw new Error("provider open failed");
+        },
+        async serve() { return new Response("must not serve"); },
+        async close() {},
+      },
+    });
+    await expect(preview.createPreviewSession({
+      userId: userA, conversationId: convA, kind: "dynamic", targetPort: 4173,
+      workspaceTarget: target,
+    })).rejects.toThrow("provider open failed");
+    expect(attemptedId).toBeDefined();
+    const row = await preview.getPreviewByIdRaw(attemptedId!);
+    expect(row?.status).toBe("revoked");
+    expect(row?.revokedAt).toBeInstanceOf(Date);
+    expect(await preview.getServablePreview(attemptedId!, userA)).toBeUndefined();
+  });
+
   test("sandbox static preview stores no AMD path and opens through its capability", async () => {
     const opened: SandboxPreviewOpenRequest[] = [];
     const binding = {

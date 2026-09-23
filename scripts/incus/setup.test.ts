@@ -9,6 +9,7 @@ import { digest, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe
 import { applySetupPlan, classifyApplyResult } from "./apply";
 import { inspectIncus, verifyKnownHostPin } from "./inspect";
 import { createSetupPlan, validateRecipe, verifySetupPlan } from "./plan";
+import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
 
 const pem = "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n";
 
@@ -97,6 +98,7 @@ test("inspection uses a fixed bounded read-only snapshot and drops unneeded serv
     ["incus\0list\0--all-projects\0--format=json", "[]"], ["incus\0config\0trust\0list\0--format=json", "[]"],
     ["ip\0-j\0route\0show\0table\0all", JSON.stringify([{ dst: "192.168.0.0/24" }, { dst: "100.81.181.39" }])],
     ["ip\0-j\0address\0show", JSON.stringify([{ ifname: "lo", addr_info: [{ local: "127.0.0.1" }] }, { ifname: "tailscale0", addr_info: [{ local: "100.81.181.39" }] }])],
+    ["incus\0image\0list\0--project=default\0--format=json", "[]"],
   ]);
   let active = 0;
   let maximumActive = 0;
@@ -128,12 +130,26 @@ describe("Incus setup planning", () => {
     const compatibleInventory = inventory({ server: { ...inventory().server, storageDrivers: [{ name: "btrfs", version: "6", remote: false }] } });
     const compatible = createSetupPlan(checkedInRecipe as IncusSetupRecipe, compatibleInventory);
     expect(compatible.blockedReasons.some(reason => reason.startsWith("preset_"))).toBe(false);
+    expect(compatible.blockedReasons).toContain("guest_image_artifact_unpinned");
     const plan = createSetupPlan(recipe(), inventory());
     expect(plan.status).toBe("blocked");
     for (const preset of advertised) {
       expect(plan.blockedReasons).toContain(`preset_storage_driver_incompatible:${preset.id}:lvm:requires_${[...preset.requirements.storageDrivers].sort().join("_or_")}`);
       expect(plan.blockedReasons).toContain(`preset_root_disk_too_small:${preset.id}:16GiB:requires_20GiB`);
     }
+  });
+
+  test("guest image requires reviewed helper, artifact pins and exact installed alias", () => {
+    const image = { alias: "ezharness-guest-0-1-0", fingerprint: "a".repeat(64), sourceFingerprint: "b".repeat(64),
+      helperSha256: guestHelperSha256(), user: "sandbox" as const, uid: 1000 as const, gid: 1000 as const,
+      pythonPackageVersion: "3.11.2-6+deb12u1", dockerArchiveSha256: "c".repeat(64), composeSha256: "d".repeat(64) };
+    expect(() => validateRecipe(recipe({ guestImage: { ...image, helperSha256: "e".repeat(64) } }))).toThrow("guest helper source differs");
+    const missing = createSetupPlan(recipe({ guestImage: image }), inventory());
+    expect(missing.blockedReasons).toContain("guest_image_missing_or_drifted");
+    const present = createSetupPlan(recipe({ guestImage: image }), inventory({ images: [{ fingerprint: image.fingerprint, aliases: [image.alias] }] }));
+    expect(present.blockedReasons).not.toContain("guest_image_missing_or_drifted");
+    const aliasDrift = createSetupPlan(recipe({ guestImage: image }), inventory({ images: [{ fingerprint: image.fingerprint, aliases: ["other"] }] }));
+    expect(aliasDrift.blockedReasons).toContain("guest_image_missing_or_drifted");
   });
 
   test("is deterministic for reordered equivalent inventory and changes on meaningful input", () => {

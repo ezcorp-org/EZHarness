@@ -70,6 +70,15 @@ function methodName(operation: SandboxProtocolOperation): string {
   return (methodGroup.methods[group] as unknown as Record<string, string>)[name]!;
 }
 
+function protocolManifest(): ExtensionManifestV4 {
+  return {
+    ...sandboxFixtureManifest,
+    permissions: { storage: true },
+    methods: SANDBOX_PROVIDER_OPERATIONS.map(operation => ({ name: methodName(operation), ...sandboxProviderMethodSchemas(operation) })),
+    sandboxProviders: [provider()],
+  };
+}
+
 describe("sandbox.provider.v1 canonical protocol", () => {
   test("publishes exactly the frozen v1 methods through one validator and accepts their canonical manifest schemas", () => {
     expect(SANDBOX_PROVIDER_OPERATIONS).toEqual([
@@ -79,13 +88,25 @@ describe("sandbox.provider.v1 canonical protocol", () => {
       "processes.start", "processes.inspect", "processes.readOutput", "processes.cancel",
       "endpoints.open", "endpoints.close",
     ]);
-    const manifest: ExtensionManifestV4 = {
-      ...sandboxFixtureManifest,
-      permissions: { storage: true },
-      methods: SANDBOX_PROVIDER_OPERATIONS.map(operation => ({ name: methodName(operation), ...sandboxProviderMethodSchemas(operation) })),
-      sandboxProviders: [provider()],
-    };
+    const manifest = protocolManifest();
     expect(validateManifest(manifest)).toEqual(manifest);
+  });
+
+  test("requires declared network and host API permissions for sandbox providers", () => {
+    const networkProvider = provider();
+    networkProvider.requiredPermissions = ["networkTcp"];
+    const networkManifest = { ...protocolManifest(), sandboxProviders: [networkProvider] };
+    expect(() => validateManifest(networkManifest)).toThrow("undeclared networkTcp permission");
+    expect(validateManifest({ ...networkManifest, permissions: { networkTcp: ["example.com:443"] } }))
+      .toBeTruthy();
+
+    const hostApiProvider = provider();
+    hostApiProvider.requiredPermissions = ["hostApi"];
+    const hostApiManifest = { ...protocolManifest(), sandboxProviders: [hostApiProvider] };
+    expect(() => validateManifest(hostApiManifest)).toThrow("undeclared hostApi permission");
+    expect(validateManifest({ ...hostApiManifest, permissions: {
+      hostApi: { routes: [{ method: "POST", path: "/api/incus/inspect" }], events: false },
+    } })).toBeTruthy();
   });
 
   test("accepts a bounded exchange for every frozen v1 method", () => {
