@@ -240,6 +240,8 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
       .map(row => JSON.parse(row.payload) as KernelEvent).filter(event => event.kind === "usage-settled" || event.kind === "attempt-stopped");
     return events.reduce((state, event) => advanceKernel(attempt.compiled, state.nextState, event), cancelledState).nextState.status;
   }
+  /** Stored settlement revisions, normalized: PostgreSQL returns a BIGINT as a string, PGlite as a number. */
+  const settlementRows = async (runId: string) => rows<{ revision: number | string; source: string }>(await fixture.db.execute(sql`SELECT revision, source FROM factory_usage_settlements WHERE run_id=${runId} ORDER BY revision`)).map(row => ({ revision: Number(row.revision), source: row.source }));
   const settlementOf = (settlements: FactoryUsageSettlements, attempt: Attempt) => fixture.db.transaction(transaction => settlements.readLatestInTransaction(transaction, { projectId, runId: attempt.run.runId, reservationId: attempt.reservationId }));
   const stopRow = async (runId: string) => rows<{ state: string; source: string; attempt_command_id: string | null }>(await fixture.db.execute(sql`SELECT state,source,attempt_command_id FROM factory_task_stops WHERE run_id=${runId}`))[0];
 
@@ -770,7 +772,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     for (const receipt of stopped) expect(receipt).toEqual(stopped[0]!);
     // A racer that lost the row may have recorded uncertainty first; a retry converges on the one settled stop.
     expect(await racers[0]!.stops.stop(service, reference)).toEqual(stopped[0]!);
-    expect(rows(await fixture.db.execute(sql`SELECT revision, source FROM factory_usage_settlements WHERE run_id=${attempt.run.runId}`))).toEqual([{ revision: 1, source: "no-operations" }]);
+    expect(await settlementRows(attempt.run.runId)).toEqual([{ revision: 1, source: "no-operations" }]);
     expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "usage-settled")).toHaveLength(1);
     expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
   });
@@ -795,7 +797,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     const restarted = harness(attempt, stopper(async request => signed(request)), acknowledger());
     expect((await restarted.stops.stop(service, reference)).event).toMatchObject({ kind: "attempt-stopped", uncertain: false });
     expect(await restarted.stops.stop(service, reference)).toMatchObject({ state: "stopped" });
-    expect(rows(await fixture.db.execute(sql`SELECT revision, source FROM factory_usage_settlements WHERE run_id=${attempt.run.runId}`))).toEqual([{ revision: 1, source: "no-operations" }]);
+    expect(await settlementRows(attempt.run.runId)).toEqual([{ revision: 1, source: "no-operations" }]);
     expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "usage-settled")).toHaveLength(1);
     expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
     expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
