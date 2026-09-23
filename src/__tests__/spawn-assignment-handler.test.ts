@@ -268,6 +268,29 @@ describe("spawn-assignment — scope gates", () => {
 describe("spawn-assignment — rate + depth", () => {
   const validParams = { v: 1, task: "hi", agentConfigId: "cfg-alice-helper" };
 
+  test("the 51st request in one token window is rate limited and audited", async () => {
+    const ext = `burst-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const now = Date.now;
+    const windowStart = now();
+    Date.now = () => windowStart;
+    try {
+      // Invalid payloads stop after the rate gate, so this exercises the
+      // production token bucket without creating 50 child assignments.
+      for (let i = 0; i < 50; i++) {
+        const resp = await handleSpawnAssignmentRpc(ext, rpc({ v: 0 }, `burst-${i}`), makeCtx());
+        expect(resp.error?.code).toBe(-32602);
+      }
+      const limited = await handleSpawnAssignmentRpc(ext, rpc(validParams, "burst-limited"), makeCtx());
+      expect(limited.error?.code).toBe(-32029);
+      expect(limited.error?.message).toBe("Rate limited");
+      expect(startAssignmentCalls).toHaveLength(0);
+      expect((await lastAudit(ext))?.metadata).toMatchObject({ reason: "rate-limited" });
+    } finally {
+      Date.now = now;
+    }
+  });
+
   test("60 tight-loop requests → ~50 accepted, remainder -32029 + audit rate-limited", async () => {
     // Phase 4 §M2 added per-success work (SPAWN_AUTHORIZED audit
     // chain + the M4 fallback console.warn that fires for every
@@ -700,6 +723,32 @@ describe("spawn-assignment — dispatch", () => {
 
 describe("spawn-assignment — Phase 4 pass-through fields", () => {
   const baseParams = { v: 1, task: "build a thing", agentConfigId: "cfg-alice-helper" };
+
+  test("autonomous continuation forwards a positive finite cycle limit", async () => {
+    const ext = `cycle-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, autonomousContinuation: { maxCycles: 4 } }, "cycle-1"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.autonomousContinuation).toEqual({ maxCycles: 4 });
+  });
+
+  test("invalid autonomous cycle limits cannot select a child cycle count", async () => {
+    const ext = `invalid-cycle-ext-${crypto.randomUUID().slice(0, 8)}`;
+    await wireConversation(CONV_WIRED, ext);
+    const resp = await handleSpawnAssignmentRpc(
+      ext,
+      rpc({ ...baseParams, autonomousContinuation: { maxCycles: -1 } }, "cycle-invalid"),
+      makeCtx(),
+    );
+    expect(resp.error).toBeUndefined();
+    expect(startAssignmentCalls).toHaveLength(1);
+    expect(startAssignmentCalls[0]!.autonomousContinuation).toEqual({});
+  });
 
   test("reuseSubConversationFor: pre-existing sub-conv with matching agentConfigId is reused", async () => {
     const ext = `reuse-ext-${crypto.randomUUID().slice(0, 8)}`;
