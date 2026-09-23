@@ -23,11 +23,43 @@ ezcorp uninstall [--purge]  remove it (--purge also deletes your data)
 | `ezcorp` | the core; all OS packages call it |
 | `compose.installer.yml` | pull-only stack, absolute host paths, suggestion sidecars behind a profile |
 | `compose.machine.yml` | rootless-Podman overlay (`keep-id`), layered whenever podman runs rootless |
+| `compose.isolated.yml` | isolated extension runner connection — layered in `isolated` mode (the default) |
+| `compose.trusted-local.yml` | unsandboxed extensions — layered only in `trusted-local` mode, which the user typed consent for |
+
+## Extension runner modes
+
+The app will not start without an extension runner, so every install records
+one of two modes in `.env` (`EZCORP_INSTALL_RUNNER_MODE`) and keeps it; the
+installer never changes an install's mode.
+
+| Mode | When | What extensions get |
+|---|---|---|
+| `isolated` (default) | the three `EZ_RUNNER_*` variables below are set | the full sandbox: a separate host service, seven controls |
+| `trusted-local` | **none** of them is set, and the user typed `I understand` at a terminal | none of the seven controls — the app's full reach |
+
+`trusted-local` is decision C in
+[the install-burden record](../../docs/decisions/2026-09-12-extension-runner-install-burden.md).
+It exists because the isolated runner is eight root-only Linux steps, which a
+one-click install cannot ask of a non-technical user. The installer offers it
+under three rules, each tested in `src/__tests__/installer-core.test.ts`:
+
+- **Only a person can choose it.** The explanation is printed and the answer
+  must be typed at a real terminal. There is no flag or environment variable
+  that selects it: the app's acknowledgement is a sentence so it cannot be
+  switched on by copying a line, and an installer flag would be exactly that.
+  From a pipe or a script, install refuses and explains both options.
+- **It is never a fallback.** If *any* runner variable is set, the user is
+  configuring isolation, and a missing or invalid one stays a hard error.
+- **Nothing downstream changes.** Each extension build and release still needs
+  its own explicit approval in the app, and the app shows a standing warning
+  banner in this mode.
+
+`ezcorp status` reports the mode. To change it, reinstall (your data is kept).
 
 ## Prerequisites
 
-This core currently supports a Linux host with a provisioned **isolated
-extension runner**. Follow
+For the default `isolated` mode, this core supports a Linux host with a
+provisioned **isolated extension runner**. Follow
 [the runner setup](../extension-runner/README.md) before the first install.
 Export its host socket directory, credential file and container-visible group:
 
@@ -40,7 +72,8 @@ export EZ_RUNNER_GROUP=1 # use the verified group from your runner setup
 The installer checks these settings before it creates data or secrets. It saves
 them in its private `.env` for later commands. The socket directory and token
 are mounted read-only. The app's normal startup check still verifies the runner
-credential and isolation controls. There is no automatic trusted-local fallback.
+credential and isolation controls. There is no automatic trusted-local fallback;
+see [Extension runner modes](#extension-runner-modes) for the explicit choice.
 
 Configure the runner service's `EZ_EXTENSION_APP_UID` for the app's actual
 host-visible UID: your login UID with rootless Podman's `keep-id` mapping, or
