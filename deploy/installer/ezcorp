@@ -66,6 +66,34 @@ step() { printf '→ %s\n' "$*"; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 quiet() { if [ "${EZCORP_VERBOSE:-0}" = "1" ]; then "$@"; else "$@" >/dev/null 2>&1; fi; }
 
+with_lifecycle_lock() {
+  [ "$(uname -s)" = Linux ] || die "this installer core currently supports Linux with a configured isolated runner."
+  command -v flock >/dev/null 2>&1 || die "flock is required to protect installer operations. Install util-linux and try again."
+  command -v realpath >/dev/null 2>&1 || die "realpath is required to verify the installer lock location."
+  local runtime_dir="${XDG_RUNTIME_DIR:-${TMPDIR:-/tmp}}"
+  local lock_dir="$runtime_dir/ezcorp-installer-$UID" lock_file canonical_lock root result=0
+  [ -d "$runtime_dir" ] || die "the runtime directory does not exist: $runtime_dir"
+  lock_file="$lock_dir/lifecycle.lock"
+  canonical_lock="$(realpath -m -- "$lock_file")" || die "could not resolve the installer lock location."
+  for root in "$CONFIG_DIR" "$DATA_ROOT"; do
+    root="$(realpath -m -- "$root")" || die "could not resolve the installer data location."
+    case "$canonical_lock" in
+      "$root"|"${root%/}/"*) die "the lifecycle lock must stay outside config and data directories. Choose a separate XDG_RUNTIME_DIR." ;;
+    esac
+  done
+  [ -d "$lock_dir" ] || mkdir -m 700 "$lock_dir" || die "could not create a private installer lock directory."
+  [ ! -L "$lock_dir" ] && [ "$(stat -c '%u:%a' "$lock_dir")" = "$UID:700" ] \
+    || die "the installer lock directory must be private and owned by your account: $lock_dir"
+  umask 077
+  # flock owns the descriptor and waits for this entire command. --close keeps
+  # browser/engine descendants from retaining it after the installer exits.
+  # Keep the inode across purge; deleting a live lock permits two owners.
+  flock --nonblock --conflict-exit-code 75 --close "$lock_file" \
+    bash -c 'source "$1"; shift; dispatch "$@"' ezcorp "$HERE/ezcorp" "$@" || result=$?
+  [ "$result" != 75 ] || die "another EZCorp lifecycle command is running. Wait for it to finish, then try again."
+  exit "$result"
+}
+
 # ── Engine ─────────────────────────────────────────────────────────────────
 ENGINE="${EZCORP_CONTAINER_ENGINE:-}"
 detect_engine() {
@@ -541,25 +569,34 @@ cmd_uninstall() {
   fi
 }
 
-case "${1:-}" in
-  install)     shift; cmd_install "$@" ;;
-  start)       shift; cmd_start "$@" ;;
-  stop)        shift; cmd_stop "$@" ;;
-  status)      shift; cmd_status "$@" ;;
-  open)        shift; cmd_open "$@" ;;
-  update)      shift; cmd_update "$@" ;;
-  suggestions) shift; cmd_suggestions "$@" ;;
-  uninstall)   shift; cmd_uninstall "$@" ;;
-  ""|-h|--help|help)
-    say "EZCorp — a self-hosted AI platform that runs on your own machine."
-    say ""
-    say "  ezcorp install              set up and start EZCorp"
-    say "  ezcorp start | stop         start or stop it"
-    say "  ezcorp open                 open it in your browser"
-    say "  ezcorp status               check on it"
-    say "  ezcorp update [version]     get the latest version"
-    say "  ezcorp suggestions on|off   local suggestion model (~1 GB, 4 GB RAM)"
-    say "  ezcorp uninstall [--purge]  remove it (--purge also deletes your data)"
-    ;;
-  *) die "unknown command: $1 — run 'ezcorp help'" ;;
-esac
+dispatch() {
+  case "${1:-}" in
+    install)     shift; cmd_install "$@" ;;
+    start)       shift; cmd_start "$@" ;;
+    stop)        shift; cmd_stop "$@" ;;
+    status)      shift; cmd_status "$@" ;;
+    open)        shift; cmd_open "$@" ;;
+    update)      shift; cmd_update "$@" ;;
+    suggestions) shift; cmd_suggestions "$@" ;;
+    uninstall)   shift; cmd_uninstall "$@" ;;
+    ""|-h|--help|help)
+      say "EZCorp — a self-hosted AI platform that runs on your own machine."
+      say ""
+      say "  ezcorp install              set up and start EZCorp"
+      say "  ezcorp start | stop         start or stop it"
+      say "  ezcorp open                 open it in your browser"
+      say "  ezcorp status               check on it"
+      say "  ezcorp update [version]     get the latest version"
+      say "  ezcorp suggestions on|off   local suggestion model (~1 GB, 4 GB RAM)"
+      say "  ezcorp uninstall [--purge]  remove it (--purge also deletes your data)"
+      ;;
+    *) die "unknown command: $1 — run 'ezcorp help'" ;;
+  esac
+}
+
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+  case "${1:-}" in
+    install|start|stop|update|suggestions|uninstall) with_lifecycle_lock "$@" ;;
+    *) dispatch "$@" ;;
+  esac
+fi

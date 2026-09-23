@@ -1,5 +1,5 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -42,13 +42,15 @@ const SCRIPT = join(REPO_ROOT, "deploy", "installer", "ezcorp");
 const COMPOSE_INSTALLER = join(REPO_ROOT, "deploy", "installer", "compose.installer.yml");
 const REAL_SED = Bun.which("sed") ?? "";
 if (!REAL_SED) throw new Error("Installer CLI tests require sed");
+const REAL_OPENSSL = Bun.which("openssl") ?? "";
+if (!REAL_OPENSSL) throw new Error("Installer CLI tests require openssl");
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "ezcorp-installer-"));
 const BIN = join(SANDBOX, "bin");
 mkdirSync(BIN, { recursive: true });
 
-function stub(name: string, body: string): void {
-  const path = join(BIN, name);
+function stub(name: string, body: string, directory = BIN): void {
+  const path = join(directory, name);
   writeFileSync(path, `#!/usr/bin/env bash\n${body}\n`);
   chmodSync(path, 0o755);
 }
@@ -108,6 +110,7 @@ stub("xdg-open", ['echo "open $*" >> "$EZCORP_TEST_LOG"', "exit 0"].join("\n"));
 stub("docker", ['echo "docker $*" >> "$EZCORP_TEST_LOG"', "exit 0"].join("\n"));
 stub("id", `echo "\${EZCORP_TEST_UID:-1000}"`);
 stub("uname", `echo "\${EZCORP_TEST_OS:-Linux}"`);
+stub("openssl", ['echo generated >> "$EZCORP_TEST_KEY_LOG"', 'exec "$EZCORP_TEST_REAL_OPENSSL" "$@"'].join("\n"));
 stub(
   "sed",
   [
@@ -137,6 +140,7 @@ let dataRoot: string;
 let runnerSocket: ReturnType<typeof Bun.listen>;
 let runnerDir: string;
 let runnerToken: string;
+let runtimeDir: string;
 
 beforeEach(() => {
   caseDir = mkdtempSync(join(SANDBOX, "case-"));
@@ -144,6 +148,8 @@ beforeEach(() => {
   dataRoot = join(caseDir, "data");
   runnerDir = join(caseDir, "runner");
   runnerToken = join(caseDir, "runner-token");
+  runtimeDir = join(caseDir, "runtime");
+  mkdirSync(runtimeDir);
   mkdirSync(runnerDir);
   writeFileSync(runnerToken, "test-only-runner-token");
   runnerSocket = Bun.listen({ unix: join(runnerDir, "runner.sock"), socket: { data() {} } });
@@ -151,26 +157,33 @@ beforeEach(() => {
 
 afterEach(() => runnerSocket.stop(true));
 
+function cliEnv(extraEnv: Record<string, string | undefined> = {}): Record<string, string | undefined> {
+  return {
+    ...process.env,
+    PATH: `${BIN}:${process.env.PATH ?? ""}`,
+    XDG_RUNTIME_DIR: runtimeDir,
+    EZCORP_CONFIG_DIR: configDir,
+    EZCORP_DATA_ROOT: dataRoot,
+    EZCORP_CONTAINER_ENGINE: "podman",
+    EZCORP_IMAGE: "ezcorp:test",
+    EZCORP_TEST_LOG: join(caseDir, "invocations.log"),
+    EZCORP_TEST_REAL_SED: REAL_SED,
+    EZCORP_TEST_REAL_OPENSSL: REAL_OPENSSL,
+    EZCORP_TEST_KEY_LOG: join(caseDir, "key-generation.log"),
+    EZCORP_READY_TIMEOUT: "30",
+    EZ_RUNNER_SOCKET_DIR: runnerDir,
+    EZ_RUNNER_TOKEN_FILE: runnerToken,
+    EZ_RUNNER_GROUP: "1",
+    ...extraEnv,
+  };
+}
+
 function run(args: string[], extraEnv: Record<string, string | undefined> = {}, stdin = ""): Run {
   const logPath = join(caseDir, "invocations.log");
   writeFileSync(logPath, "");
   const proc = Bun.spawnSync({
     cmd: ["bash", SCRIPT, ...args],
-    env: {
-      ...process.env,
-      PATH: `${BIN}:${process.env.PATH ?? ""}`,
-      EZCORP_CONFIG_DIR: configDir,
-      EZCORP_DATA_ROOT: dataRoot,
-      EZCORP_CONTAINER_ENGINE: "podman",
-      EZCORP_IMAGE: "ezcorp:test",
-      EZCORP_TEST_LOG: logPath,
-      EZCORP_TEST_REAL_SED: REAL_SED,
-      EZCORP_READY_TIMEOUT: "30",
-      EZ_RUNNER_SOCKET_DIR: runnerDir,
-      EZ_RUNNER_TOKEN_FILE: runnerToken,
-      EZ_RUNNER_GROUP: "1",
-      ...extraEnv,
-    },
+    env: cliEnv(extraEnv),
     stdin: new TextEncoder().encode(stdin),
     stdout: "pipe",
     stderr: "pipe",
@@ -337,6 +350,88 @@ describe("ezcorp uninstall — what it may and may not destroy", () => {
 });
 
 describe("installer lifecycle failures", () => {
+  test("concurrent lifecycle commands cannot pass an install's key-generation boundary", async () => {
+    const reached = Promise.withResolvers<void>();
+    let release: (() => void) | undefined;
+    const barrier = Bun.listen({
+      hostname: "127.0.0.1",
+      port: 0,
+      socket: {
+        data(socket) {
+          release = () => socket.end("continue\n");
+          reached.resolve();
+        },
+      },
+    });
+    const barrierBin = join(caseDir, "barrier-bin");
+    mkdirSync(barrierBin);
+    stub("lsof", ['exec 3<>"/dev/tcp/127.0.0.1/$EZCORP_TEST_BARRIER_PORT"', 'echo ready >&3', 'read -r gate <&3', "exit 1"].join("\n"), barrierBin);
+    const first = Bun.spawn({
+      cmd: ["bash", SCRIPT, "install"],
+      env: cliEnv({ PATH: `${barrierBin}:${BIN}:${process.env.PATH ?? ""}`, EZCORP_TEST_BARRIER_PORT: String(barrier.port) }),
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    try {
+      await Promise.race([
+        reached.promise,
+        first.exited.then(async (code) => {
+          throw new Error(`Install exited before barrier (${code}): ${await new Response(first.stderr).text()}`);
+        }),
+      ]);
+      expect(existsSync(join(configDir, ".env"))).toBe(false);
+      for (const args of [["install"], ["start"], ["stop"], ["update", "next"], ["suggestions", "on"], ["uninstall"]]) {
+        const contender = run(args);
+        expect(contender.exitCode).not.toBe(0);
+        expect(contender.stderr).toContain("another EZCorp lifecycle command");
+        expect(contender.log).not.toContain("compose ");
+      }
+    } finally {
+      if (release) release();
+      else first.kill();
+      await first.exited;
+      barrier.stop(true);
+    }
+    expect(first.exitCode).toBe(0);
+    const original = envFile();
+    expect(run(["install"]).exitCode).toBe(0);
+    expect(envFile()).toBe(original);
+    expect(readFileSync(join(caseDir, "key-generation.log"), "utf8").trim().split("\n")).toHaveLength(4);
+  });
+
+  test("purge preserves the lock inode for the next lifecycle command", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    const lockPath = join(runtimeDir, `ezcorp-installer-${process.getuid?.()}`, "lifecycle.lock");
+    const inode = statSync(lockPath).ino;
+    expect(run(["uninstall", "--purge"], {}, "DELETE\n").exitCode).toBe(0);
+    expect(statSync(lockPath).ino).toBe(inode);
+    expect(run(["install"]).exitCode).toBe(0);
+    expect(statSync(lockPath).ino).toBe(inode);
+  });
+
+  test.each(["EZCORP_CONFIG_DIR", "EZCORP_DATA_ROOT"])("rejects %s when its purge would contain the lock", (key) => {
+    const result = run(["install"], { [key]: caseDir });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("lock must stay outside");
+    expect(existsSync(join(configDir, ".env"))).toBe(false);
+    expect(result.log).not.toContain("compose ");
+  });
+
+  test("missing flock stops before config or data creation", () => {
+    const minimalBin = join(caseDir, "minimal-bin");
+    mkdirSync(minimalBin);
+    for (const command of ["bash", "dirname", "uname"]) {
+      const executable = Bun.which(command);
+      if (!executable) throw new Error(`Missing fixture command: ${command}`);
+      symlinkSync(executable, join(minimalBin, command));
+    }
+    const result = run(["install"], { PATH: minimalBin });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("flock");
+    expect(existsSync(configDir)).toBe(false);
+    expect(existsSync(dataRoot)).toBe(false);
+  });
+
   test.each(["EZ_RUNNER_SOCKET_DIR", "EZ_RUNNER_TOKEN_FILE", "EZ_RUNNER_GROUP"])(
     "missing %s stops installation before any data or secrets are created",
     (key) => {

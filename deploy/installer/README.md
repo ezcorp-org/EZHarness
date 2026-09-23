@@ -57,6 +57,14 @@ not provision a runner inside a macOS VM. OS packages and VM support are not
 included in this core's validated configurations. This is an installer limit,
 not a restriction on the application's other deployment methods.
 
+Linux lifecycle commands also require `flock` (util-linux) and `realpath`.
+Install, start, stop, update, suggestions and uninstall share one per-user lock
+under `XDG_RUNTIME_DIR`, or `TMPDIR` (`/tmp` by default) when it is unset.
+A second command stops with a clear message. The lock stays held through
+startup and rollback, and its file survives purge. Config and data overrides
+must not contain that lock directory. Status and help remain available while
+another command runs.
+
 ## Decisions worth knowing before editing
 
 **Secrets and data are one unit.** The three secrets live in `.env`; the data
