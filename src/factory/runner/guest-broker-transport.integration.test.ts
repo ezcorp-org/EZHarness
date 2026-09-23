@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { randomUUID } from "node:crypto";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,7 +7,7 @@ import { sql } from "drizzle-orm";
 import { canonicalizeJson, sha256Hex, type FactoryRunnerRequest, type JsonValue } from "@ezcorp/factory-sdk";
 import { createFactoryGuestStaging, FactoryGuestMaterialError } from "@ezcorp/factory-sdk/guest-materials";
 import { closeTestDb, setupTestDb } from "../../__tests__/helpers/test-pglite";
-import { certificates, nodeHttpsRequest, type Certificates } from "../../__tests__/helpers/factory-certificates";
+import { certificates, nodeHttpsRequest, signedServiceToken, type Certificates } from "../../__tests__/helpers/factory-certificates";
 import { FileBlobStore } from "../../extensions/v4/blobs";
 import { FactoryArtifacts } from "../artifacts";
 import { signFactoryAttemptToken } from "../attempt-token";
@@ -15,7 +15,8 @@ import { FactoryExecutionJournal } from "../executions";
 import { startFactoryPrivateHttps } from "../private-https";
 import { factoryRunnerRequestAuthority } from "./attempt-authority";
 import { createFactoryGuestBrokerClient } from "./guest-broker-client";
-import { FACTORY_GUEST_BROKER_PATH, createFactoryGuestBrokerRouteHandler } from "./guest-broker-service";
+import { FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE, createFactoryGuestBrokerRouteHandler } from "./guest-broker-service";
+import { factoryAttemptInvocationId, factoryAttemptWorkerId } from "./attempt-wire";
 import { createFactoryGuestMaterialFrameBroker, createFactoryGuestMaterialServices } from "./guest-material-broker";
 import { createFactoryConfiguredGuestBroker } from "./supervisor-process";
 import { FACTORY_GUEST_BROKER_UNCONFIGURED, composeFactoryGuestBroker } from "../guest-broker-composition";
@@ -34,6 +35,10 @@ import type { FactoryStartupConfig } from "../startup-config";
 const TENANT = "tenant-a";
 const SECRET = "guest-broker-transport-secret";
 const INSTALLATION = "installation-a";
+/** The host id the client certificate's host runs as. */
+const HOST = "host-a";
+const TOKEN_ISSUER = "factory-test";
+const TOKEN_AUDIENCE = "factory-guest-broker";
 
 const directories: string[] = [];
 const closing: Array<() => Promise<void>> = [];
@@ -61,14 +66,14 @@ function runnerRequest(attemptId: string, projectId: string, runId: string, dead
   } as FactoryRunnerRequest;
 }
 
-async function clientSecrets(root: string, certs: Certificates) {
+async function clientSecrets(root: string, certs: Certificates, hostToken: string) {
   const paths = { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key"), serviceTokenPath: join(root, "token") };
   await writeFile(paths.caPath, certs.ca);
   await writeFile(paths.certificatePath, certs.clientCert);
   await writeFile(paths.privateKeyPath, certs.clientKey);
-  // The host's own service credential. It authenticates the HOST; the attempt
-  // token in the body is what authorizes the frame.
-  await writeFile(paths.serviceTokenPath, "host-service-credential");
+  // The host's own bearer token. It authenticates the HOST; the attempt token
+  // in the body is what names the attempt.
+  await writeFile(paths.serviceTokenPath, hostToken);
   return paths;
 }
 
@@ -96,9 +101,22 @@ async function setup() {
   const broker = createFactoryGuestMaterialFrameBroker({ services: createFactoryGuestMaterialServices({ database: db, artifacts, blobs, journal }) });
 
   const certs = await certificates(directories, TENANT);
+  // The host's bearer-token key pair, and a token minted for the host.
+  const hostKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const hostPublicKey = hostKeys.publicKey.export({ type: "spki", format: "pem" }).toString();
+  const hostToken = (claims: Record<string, unknown> = {}, key = hostKeys.privateKey) => signedServiceToken(key, {
+    sub: TENANT, iss: TOKEN_ISSUER, aud: TOKEN_AUDIENCE, exp: Math.floor(Date.now() / 1_000) + 600, scope: [FACTORY_GUEST_BROKER_SCOPE], ...claims,
+  });
+  // Which host holds the attempt's lease. The route asks; a test moves it.
+  let lease: string | undefined = HOST;
   const service = startFactoryPrivateHttps({
     tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca },
-    handle: createFactoryGuestBrokerRouteHandler({ allowedPeers: [TENANT], broker, jwtSecret: SECRET, installationId: INSTALLATION }),
+    handle: createFactoryGuestBrokerRouteHandler({
+      hosts: { [TENANT]: HOST },
+      tokens: async () => ({ issuer: TOKEN_ISSUER, audience: TOKEN_AUDIENCE, publicKeys: { test: hostPublicKey } }),
+      leaseHost: async () => lease,
+      broker, jwtSecret: SECRET, installationId: INSTALLATION,
+    }),
   });
   closing.push(async () => { service.stop(); });
 
@@ -106,8 +124,9 @@ async function setup() {
   // exactly as `FactoryRemoteAttemptRuntime` carries it.
   const token = await signFactoryAttemptToken(authority, SECRET, INSTALLATION, 600);
   const tokened = { ...request, broker: { ...request.broker, attemptToken: token } } as FactoryRunnerRequest;
-  const paths = await clientSecrets(root, certs);
-  return { db, artifacts, blobs, journal, service, certs, paths, request: tokened, authority, projectId, runId, operationId: `${runId}:node-a:0:0` };
+  const paths = await clientSecrets(root, certs, hostToken());
+  const setLease = (host: string | undefined) => { lease = host; };
+  return { db, artifacts, blobs, journal, service, certs, paths, hostToken, hostPublicKey, setLease, request: tokened, authority, attemptId, projectId, runId, operationId: `${runId}:node-a:0:0` };
 }
 
 test("a guest stages and promotes an output across a real host boundary", async () => {
@@ -165,15 +184,34 @@ test("the route authenticates the host and the attempt separately, and refuses e
   const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "probe.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 4, chunkCount: 1 };
   const token = fixture.request.broker.attemptToken;
   const url = `${fixture.service.url}${FACTORY_GUEST_BROKER_PATH}`;
-  const call = (options: Parameters<typeof nodeHttpsRequest>[2]) => nodeHttpsRequest(url, fixture.certs, options);
+  const call = (options: Parameters<typeof nodeHttpsRequest>[2]) => nodeHttpsRequest(url, fixture.certs, { token: fixture.hostToken(), ...options });
 
   // A foreign client certificate: the peer is not a host this product serves.
   const foreign = await call({ method: "POST", body: { attemptToken: token, payload: frame }, certificate: "foreign", headers: { "x-ezcorp-factory-version": "1" } });
   expect(foreign.status).toBe(403);
 
-  // The right host, a token that is not this installation's.
+  // The right certificate with no bearer token, or one that does not hold: a
+  // foreign key, another subject, no route scope, or expired.
+  const otherKey = generateKeyPairSync("rsa", { modulusLength: 2048 }).privateKey;
+  for (const bearer of [undefined, fixture.hostToken({}, otherKey), fixture.hostToken({ sub: "tenant-b" }), fixture.hostToken({ scope: ["factory:orchestrate"] }), fixture.hostToken({ exp: 1 })]) {
+    const refused = await call({ method: "POST", body: { attemptToken: token, payload: frame }, token: bearer, headers: { "x-ezcorp-factory-version": "1" } });
+    expect(refused.status).toBe(401);
+    expect(JSON.parse(refused.body.toString("utf8"))).toEqual({ error: "unauthorized" });
+  }
+
+  // The right host, an attempt token that is not this installation's.
   const wrongToken = await call({ method: "POST", body: { attemptToken: "not-a-signed-attempt-token", payload: frame }, headers: { "x-ezcorp-factory-version": "1" } });
   expect(wrongToken.status).toBe(401);
+
+  // A declared host, a valid attempt token, but another host holds the lease,
+  // or no launch records one: refused by name before the broker.
+  for (const holder of ["host-b", undefined]) {
+    fixture.setLease(holder);
+    const elsewhere = await call({ method: "POST", body: { attemptToken: token, payload: frame }, headers: { "x-ezcorp-factory-version": "1" } });
+    expect(elsewhere.status).toBe(403);
+    expect(JSON.parse(elsewhere.body.toString("utf8"))).toEqual({ error: "forbidden_host" });
+  }
+  fixture.setLease(HOST);
 
   // The right host and the right token, but nothing to answer.
   for (const body of [{ attemptToken: token }, { payload: frame }, ["not", "an", "object"], "text"]) {
@@ -253,10 +291,17 @@ async function composedRoute(fixture: Awaited<ReturnType<typeof setup>>, overrid
   const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
   const port = probe.port;
   probe.stop(true);
+  const tokenKey = join(root, "host-token.pem");
+  await writeFile(tokenKey, fixture.hostPublicKey, { mode: 0o600 });
+  await chmod(tokenKey, 0o600);
   const config = {
     installationId: INSTALLATION,
     hostLaunch: { attemptTokenSecretPath: files.secret },
-    guestBroker: { hostname: "127.0.0.1", port, allowedPeers: [TENANT], tls: { caPath: files.ca, certificatePath: files.cert, privateKeyPath: files.key } },
+    guestBroker: {
+      hostname: "127.0.0.1", port, hosts: { [TENANT]: HOST },
+      tls: { caPath: files.ca, certificatePath: files.cert, privateKeyPath: files.key },
+      tokens: { issuer: TOKEN_ISSUER, audience: TOKEN_AUDIENCE, publicKeyPaths: { test: tokenKey } },
+    },
   } as unknown as FactoryStartupConfig;
   const reported: Array<{ role: string; error: unknown }> = [];
   const composed = await composeFactoryGuestBroker({
@@ -273,6 +318,11 @@ test("the product binds the guest-broker route from its startup document, and a 
   const { composed, reported, secret } = await composedRoute(fixture);
   expect(composed.readiness).toEqual({ state: "bound" });
   expect(reported).toEqual([]);
+  // The launch record the dispatcher writes, naming the host that holds the
+  // lease. The route reads it through the runtime's own launch reader.
+  const receipt = JSON.stringify({ projectId: fixture.projectId, artifactDigest: "b".repeat(64) });
+  await fixture.db.execute(sql`INSERT INTO factory_attempt_launches(attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,state)
+    VALUES (${fixture.attemptId},${TENANT},${fixture.projectId},${fixture.runId},${"c".repeat(64)},'{}','reservation-a',1,1,1,'allocation-a',${HOST},${`sha256:${"d".repeat(64)}`},${receipt}::jsonb,${"b".repeat(64)},${factoryAttemptWorkerId(fixture.attemptId)},${factoryAttemptInvocationId(fixture.attemptId, 0, 1)},'launched')`);
 
   // The token verifies with the dispatcher's own secret file, not a copy.
   const token = await signFactoryAttemptToken(fixture.authority, secret, INSTALLATION, 600);
@@ -287,8 +337,15 @@ test("the product binds the guest-broker route from its startup document, and a 
 
   // A token signed with any other secret is refused before the broker.
   const forged = { ...request, broker: { ...request.broker, attemptToken: await signFactoryAttemptToken(fixture.authority, `${secret}-other`, INSTALLATION, 600) } } as FactoryRunnerRequest;
-  await expect(host.invoke(forged, { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "forged.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 1, chunkCount: 1 }))
-    .rejects.toThrow();
+  const probe = { schemaVersion: "factory.guest-material-begin.v1", operationId: fixture.operationId, operationIndex: 0, objectName: "forged.bin", version: 1, mediaType: "application/octet-stream", totalBytes: 1, chunkCount: 1 };
+  await expect(host.invoke(forged, probe)).rejects.toMatchObject({ response: { statusCode: 401 } });
+
+  // The same host and a valid token, after the lease moved to another host:
+  // this host no longer holds the attempt, so it may not forward for it.
+  await fixture.db.execute(sql`UPDATE factory_attempt_launches SET host_id='host-b' WHERE attempt_id=${fixture.attemptId}`);
+  const moved = await host.invoke(request, probe).then(() => undefined, (error: unknown) => error as { response: { statusCode: number; body: Buffer } });
+  expect(moved?.response.statusCode).toBe(403);
+  expect(JSON.parse(moved!.response.body.toString("utf8"))).toEqual({ error: "forbidden_host" });
 }, 120_000);
 
 test("an undeclared route is named in readiness, and a declared one that cannot bind is reported and named", async () => {

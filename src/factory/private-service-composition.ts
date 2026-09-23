@@ -45,6 +45,7 @@ import { FactoryPartitionCommands } from "./partition-commands";
 import { FactoryPrivateCommands, type FactoryPrivateCommandHandler } from "./private-commands";
 import { readPrivateText as readPrivateFileText } from "./private-files";
 import { startFactoryPrivateService } from "./private-service";
+import type { PoolTokenVerifierOptions } from "./pool/service-token";
 import { FactoryProtectedCommandEffects, type FactoryReleaseCommandProfile } from "./protected-command-effects";
 import type { FactoryReleases } from "./releases";
 import type { FactoryStartedListener } from "./runtime-composition";
@@ -60,6 +61,22 @@ import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } fr
 const MAX_PRIVATE_MATERIAL_BYTES = 64 * 1024;
 
 const readPrivateText = (path: string) => readPrivateFileText(path, MAX_PRIVATE_MATERIAL_BYTES);
+
+/**
+ * A service bearer-token verifier from a startup document's `tokens` section.
+ *
+ * The keys are read per request, so rotating a key file rotates the accepted
+ * set without restarting the product.
+ */
+export function factoryServiceTokenVerifier(tokens: { readonly issuer: string; readonly audience: string; readonly publicKeyPaths: Readonly<Record<string, string>> }): () => Promise<PoolTokenVerifierOptions> {
+  return async () => ({
+    issuer: tokens.issuer,
+    audience: tokens.audience,
+    publicKeys: Object.fromEntries(await Promise.all(
+      Object.entries(tokens.publicKeyPaths).map(async ([kid, path]) => [kid, await readPrivateText(path)] as const),
+    )),
+  });
+}
 
 /**
  * Longer than the longest effect this service serves, and measured rather than
@@ -241,15 +258,7 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     port: config.privateService.port,
     requestTimeoutMs: FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS,
     tls: { ca, cert, key },
-    // Read per request, so rotating a key file rotates the accepted set without
-    // restarting the product.
-    tokens: async () => ({
-      issuer: tokens.issuer,
-      audience: tokens.audience,
-      publicKeys: Object.fromEntries(await Promise.all(
-        Object.entries(tokens.publicKeyPaths).map(async ([kid, path]) => [kid, await readPrivateText(path)] as const),
-      )),
-    }),
+    tokens: factoryServiceTokenVerifier(tokens),
     queue: new (await import("./transport-queue")).FactoryTransportQueue(
       new FactoryInstallationCommandOutbox(database, config.tenantId),
       stores.inbox,

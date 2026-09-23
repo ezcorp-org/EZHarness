@@ -4,9 +4,11 @@
  * A sandboxed guest runs on `--network=none`, so its reverse frame is its only
  * byte path. The runner host carries each staging frame here, because only this
  * process holds the tenant database and the material service. The route adds no
- * authority: the mutual-TLS peer must be a declared HOST identity, and the
- * attempt token in the body must verify with the same secret the dispatcher
- * signs with. Every scope field comes from that verified token.
+ * authority: the mutual-TLS peer must be a declared HOST identity whose bearer
+ * token verifies, the attempt token in the body must verify with the same
+ * secret the dispatcher signs with, and the host must be the one whose lease
+ * the attempt's launch record names. Every scope field comes from the verified
+ * attempt token.
  *
  * The startup document declares the route in `guestBroker`. Without it nothing
  * is bound, and readiness names `factory_guest_broker_unconfigured`, so an
@@ -20,6 +22,8 @@ import type { BlobStore } from "../extensions/v4/types";
 import type { FactoryApplication } from "./application";
 import { loadFactoryAttemptTokenSecret } from "./attempt-composition";
 import { readPrivateText } from "./private-files";
+import { factoryServiceTokenVerifier } from "./private-service-composition";
+import { readFactoryAttemptLaunchFacts } from "./runner/attempt-runtime";
 import { startFactoryPrivateHttps } from "./private-https";
 import { FACTORY_GUEST_BROKER_MAX_BODY_BYTES, createFactoryGuestBrokerRouteHandler } from "./runner/guest-broker-service";
 import { createFactoryGuestMaterialFrameBroker, createFactoryGuestMaterialServices } from "./runner/guest-material-broker";
@@ -78,7 +82,17 @@ export async function composeFactoryGuestBroker(options: FactoryGuestBrokerCompo
       hostname: declared.hostname,
       port: declared.port,
       maxBodyBytes: FACTORY_GUEST_BROKER_MAX_BODY_BYTES,
-      handle: createFactoryGuestBrokerRouteHandler({ allowedPeers: declared.allowedPeers, broker, jwtSecret, installationId: config.installationId }),
+      handle: createFactoryGuestBrokerRouteHandler({
+        hosts: declared.hosts,
+        tokens: factoryServiceTokenVerifier(declared.tokens),
+        leaseHost: async (authority) => {
+          const launch = await options.database.transaction(transaction => readFactoryAttemptLaunchFacts(transaction, authority.attemptId, authority.candidateGeneration, authority.attemptNumber));
+          return launch?.tenantId === authority.tenantId ? launch.hostId : undefined;
+        },
+        broker,
+        jwtSecret,
+        installationId: config.installationId,
+      }),
     });
     return Object.freeze({ readiness: Object.freeze({ state: "bound" }), listener });
   } catch (error) {

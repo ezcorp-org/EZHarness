@@ -124,15 +124,19 @@ export interface FactoryStartupConfig {
    * path, and the host that carries it holds no database. This process binds
    * the route and answers each frame under the attempt token the frame carries,
    * verified with `hostLaunch.attemptTokenSecretPath`, so a declared route
-   * needs `hostLaunch`. `allowedPeers` names HOST certificate identities, never
-   * a tenant. Optional: without it no route is bound, readiness says so by
-   * name, and a guest that stages nothing is unaffected. All parts or none.
+   * needs `hostLaunch`. `hosts` maps each HOST certificate identity (never a
+   * tenant) to the host id it runs as; a host may forward only for attempts
+   * whose lease it holds. `tokens` verifies each host's bearer token, in the
+   * same shape as the private service's. Optional: without it no route is
+   * bound, readiness says so by name, and a guest that stages nothing is
+   * unaffected. All parts or none.
    */
   readonly guestBroker?: {
     readonly hostname: string;
     readonly port: number;
-    readonly allowedPeers: readonly string[];
+    readonly hosts: Readonly<Record<string, string>>;
     readonly tls: FactoryStartupTlsMaterial;
+    readonly tokens: { readonly issuer: string; readonly audience: string; readonly publicKeyPaths: Readonly<Record<string, string>> };
   };
   /** An operator's verified replication statement. Absent on a development host. */
   readonly archiveReplicationEvidence?: string;
@@ -334,6 +338,8 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "guestBroker.hostname", kind: "identity", optional: true },
   { field: "guestBroker.port", kind: "port", optional: true },
   ...tls("guestBroker", true),
+  { field: "guestBroker.tokens.issuer", kind: "statement", optional: true },
+  { field: "guestBroker.tokens.audience", kind: "statement", optional: true },
   { field: "archiveReplicationEvidence", kind: "statement", optional: true },
   { field: "workers.batch", kind: "count", optional: true },
   { field: "workers.idleDelayMs", kind: "interval", optional: true },
@@ -392,6 +398,14 @@ function wellFormedKeyPaths(value: unknown): boolean {
   const entries = Object.entries(value);
   return entries.length >= 1 && entries.length <= 32
     && entries.every(([kid, path]) => wellFormed("identity", kid) && wellFormed("path", path));
+}
+
+/** Host certificate identity to host id: at least one, at most 64, both identities. */
+function wellFormedHostMap(value: unknown): boolean {
+  if (!record(value)) return false;
+  const entries = Object.entries(value);
+  return entries.length >= 1 && entries.length <= 64
+    && entries.every(([peer, hostId]) => wellFormed("identity", peer) && wellFormed("identity", hostId));
 }
 
 /** One runner this installation dispatches to, with its allocation. */
@@ -505,7 +519,7 @@ function wellFormedResourceProfile(value: unknown): boolean {
 
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
-  "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles", "guestBroker.allowedPeers",
+  "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles", "guestBroker.hosts", "guestBroker.tokens.publicKeyPaths",
   "release.destinations", "release.profiles",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
@@ -533,7 +547,7 @@ function leaves(value: unknown, prefix = ""): string[] {
     // Three branches are maps whose KEYS are data — a key id, a resource class
     // — so recursing into them would name a value as a field. Each is checked
     // by shape below instead.
-    if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths" || field === "guestBroker.allowedPeers"
+    if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths" || field === "guestBroker.hosts" || field === "guestBroker.tokens.publicKeyPaths"
       || field === "release.destinations" || field === "release.profiles") { found.push(field); continue; }
     found.push(...(record(nested) ? leaves(nested, field) : [field]));
   }
@@ -581,14 +595,15 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
 
   // The guest-broker route is every part or none, and it verifies attempt
   // tokens with the host launch secret, so it cannot stand without one.
-  const brokerFields = [...FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("guestBroker.")).map((spec) => spec.field), "guestBroker.allowedPeers"];
+  const brokerFields = [...FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("guestBroker.")).map((spec) => spec.field), "guestBroker.hosts", "guestBroker.tokens.publicKeyPaths"];
   const brokerSupplied = brokerFields.filter((field) => read(value, field).present);
   if (brokerSupplied.length > 0) {
     for (const field of brokerFields) if (!brokerSupplied.includes(field)) missing.push(field);
     if (!read(value, "hostLaunch.attemptTokenSecretPath").present) missing.push("hostLaunch.attemptTokenSecretPath");
-    const peers = read(value, "guestBroker.allowedPeers");
-    if (peers.present && (!Array.isArray(peers.value) || peers.value.length === 0 || peers.value.length > 64
-      || peers.value.some((peer) => !wellFormed("identity", peer)) || new Set(peers.value).size !== peers.value.length)) invalid.push("guestBroker.allowedPeers");
+    const hosts = read(value, "guestBroker.hosts");
+    if (hosts.present && !wellFormedHostMap(hosts.value)) invalid.push("guestBroker.hosts");
+    const brokerKeys = read(value, "guestBroker.tokens.publicKeyPaths");
+    if (brokerKeys.present && !wellFormedKeyPaths(brokerKeys.value)) invalid.push("guestBroker.tokens.publicKeyPaths");
   }
 
   // Host PUBLIC keys, by reference. Each entry names a host, a key id, and a

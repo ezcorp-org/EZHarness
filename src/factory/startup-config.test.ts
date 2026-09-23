@@ -452,8 +452,9 @@ describe("the guest-broker route", () => {
   const guestBroker = {
     hostname: "127.0.0.1",
     port: 9446,
-    allowedPeers: ["supervisor-01"],
+    hosts: { "supervisor-01": "host-01" },
     tls: { caPath: "/run/tls/ca.pem", certificatePath: "/run/tls/cert.pem", privateKeyPath: "/run/tls/key.pem" },
+    tokens: { issuer: "factory-hosts", audience: "factory-guest-broker", publicKeyPaths: { hosts: "/run/secrets/host-token.pem" } },
   };
 
   test("is optional, and a complete section is kept exactly", () => {
@@ -463,7 +464,7 @@ describe("the guest-broker route", () => {
 
   test("is every part or none, and names each missing part", () => {
     const { missing } = reject(valid({ hostLaunch, guestBroker: { port: 9446 } }));
-    for (const field of ["guestBroker.hostname", "guestBroker.allowedPeers", "guestBroker.tls.caPath", "guestBroker.tls.certificatePath", "guestBroker.tls.privateKeyPath"]) {
+    for (const field of ["guestBroker.hostname", "guestBroker.hosts", "guestBroker.tls.caPath", "guestBroker.tls.certificatePath", "guestBroker.tls.privateKeyPath", "guestBroker.tokens.issuer", "guestBroker.tokens.audience", "guestBroker.tokens.publicKeyPaths"]) {
       expect(missing).toContain(field);
     }
     expect(missing).not.toContain("guestBroker.port");
@@ -473,9 +474,12 @@ describe("the guest-broker route", () => {
     expect(reject(valid({ guestBroker })).missing).toContain("hostLaunch.attemptTokenSecretPath");
   });
 
-  test("names host identities: a non-empty, bounded list of unique identities", () => {
-    for (const allowedPeers of [[], "supervisor-01", ["ok", ""], ["same", "same"], Array.from({ length: 65 }, (_, index) => `host-${index}`), [{ peer: "x" }]]) {
-      expect(reject(valid({ hostLaunch, guestBroker: { ...guestBroker, allowedPeers } })).invalid).toContain("guestBroker.allowedPeers");
+  test("maps each host certificate identity to one host id, and verifies host tokens by key", () => {
+    for (const hosts of [{}, "supervisor-01", ["supervisor-01"], { "supervisor-01": "" }, { "": "host-01" }, { "supervisor-01": 7 }, Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`peer-${index}`, `host-${index}`]))]) {
+      expect(reject(valid({ hostLaunch, guestBroker: { ...guestBroker, hosts } })).invalid).toContain("guestBroker.hosts");
+    }
+    for (const publicKeyPaths of [{}, { hosts: "" }, "path"]) {
+      expect(reject(valid({ hostLaunch, guestBroker: { ...guestBroker, tokens: { ...guestBroker.tokens, publicKeyPaths } } })).invalid).toContain("guestBroker.tokens.publicKeyPaths");
     }
     // A field the section does not define is refused rather than ignored.
     expect(reject(valid({ hostLaunch, guestBroker: { ...guestBroker, audience: "x" } })).invalid).toContain("guestBroker.audience");

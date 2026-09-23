@@ -1,5 +1,7 @@
 import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-https";
 import { verifyFactoryAttemptToken } from "../attempt-token";
+import type { FactoryAttemptAuthority } from "../executions";
+import { verifyPoolToken, type PoolTokenVerifierOptions } from "../pool/service-token";
 import type { FactoryGuestMaterialFrameBroker } from "./guest-material-broker";
 
 /**
@@ -12,17 +14,20 @@ import type { FactoryGuestMaterialFrameBroker } from "./guest-material-broker";
  * database, and no material service. The frame therefore travels back the way
  * the launch came, over the same mutual TLS, and is answered here.
  *
- * **Two independent facts authorize one frame, and neither is the frame.** The
- * mutual-TLS peer identity says which host may drive attempts at all, exactly
- * as the launch and stop routes require. The attempt token says which attempt
- * the frame belongs to, and it is the guest's own short-lived credential minted
- * for that attempt: it carries the tenant, project, run, node instance,
- * candidate generation, every fence counter, and the deadline. Nothing in the
- * body names a scope, and nothing in the body is trusted to.
+ * **The host and the attempt are each proved, and neither by the frame.** The
+ * host proves itself twice, as the private service's callers do: its mutual-TLS
+ * peer identity must be a declared host, and its bearer token must verify, name
+ * that same identity, and carry `factory:guest-broker`. The attempt token says
+ * which attempt the frame belongs to; it is the guest's own short-lived
+ * credential, carrying the tenant, project, run, node instance, candidate
+ * generation, every fence counter, and the deadline. Then the two are bound:
+ * the host must be the one that holds the attempt's lease, exactly as the
+ * launch route refuses an intent for another host. A declared host forwarding
+ * for an attempt it does not hold is refused `forbidden_host`.
  *
- * The token is read from the body rather than the `Authorization` header
- * because the header already carries the host's service credential and both
- * facts are needed. It is never logged and never leaves this function.
+ * The attempt token is read from the body because the `Authorization` header
+ * carries the host's own token. It is never logged and never leaves this
+ * function.
  */
 
 export const FACTORY_GUEST_BROKER_PATH = "/v1/guest/broker";
@@ -30,9 +35,16 @@ export const FACTORY_GUEST_BROKER_PATH = "/v1/guest/broker";
 /** One staging frame plus its own base64 chunk, with room for the JSON envelope. */
 export const FACTORY_GUEST_BROKER_MAX_BODY_BYTES = 128 * 1024;
 
+/** The scope a host's bearer token must carry to forward a guest frame. */
+export const FACTORY_GUEST_BROKER_SCOPE = "factory:guest-broker";
+
 export interface FactoryGuestBrokerServiceOptions {
-  /** mTLS peer identities allowed to forward a guest frame. */
-  readonly allowedPeers: readonly string[];
+  /** Each host that may forward a guest frame: its mTLS peer identity, and the host id it runs as. */
+  readonly hosts: Readonly<Record<string, string>>;
+  /** The issuer, audience, and public keys a host's bearer token verifies against. Read per request. */
+  tokens(): Promise<PoolTokenVerifierOptions>;
+  /** The host that holds this attempt's lease, or undefined when no launch records one. */
+  leaseHost(authority: FactoryAttemptAuthority): Promise<string | undefined>;
   readonly broker: FactoryGuestMaterialFrameBroker;
   readonly jwtSecret: string;
   readonly installationId: string;
@@ -52,11 +64,13 @@ function json(status: number, value: unknown): FactoryPrivateResponse {
  * from "the product process is down".
  */
 export function createFactoryGuestBrokerRouteHandler(options: FactoryGuestBrokerServiceOptions): (request: FactoryPrivateRequest) => Promise<FactoryPrivateResponse> {
-  const peers = new Set(options.allowedPeers);
+  const hosts = new Map(Object.entries(options.hosts));
   return async (request: FactoryPrivateRequest): Promise<FactoryPrivateResponse> => {
     if (request.path !== FACTORY_GUEST_BROKER_PATH) return json(404, { error: "not_found" });
     if (request.method !== "POST") return json(405, { error: "method_not_allowed" });
-    if (!peers.has(request.peerIdentity)) return json(403, { error: "forbidden" });
+    const hostId = hosts.get(request.peerIdentity);
+    if (hostId === undefined) return json(403, { error: "forbidden" });
+    if (!await hostTokenVerifies(request, options)) return json(401, { error: "unauthorized" });
     if (request.body.byteLength > FACTORY_GUEST_BROKER_MAX_BODY_BYTES) return json(413, { error: "request_too_large" });
 
     let body: { attemptToken?: unknown; payload?: unknown };
@@ -68,7 +82,21 @@ export function createFactoryGuestBrokerRouteHandler(options: FactoryGuestBroker
     // An unverifiable token is never an attempt. The frame is refused here
     // rather than reaching a broker that would have to invent a scope for it.
     if (!authority) return json(401, { error: "unauthorized" });
+    // A host forwards only for the attempts its own lease holds.
+    if (await options.leaseHost(authority) !== hostId) return json(403, { error: "forbidden_host" });
 
     return json(200, await options.broker.frame(authority, body.payload));
   };
+}
+
+/** The host's bearer token verifies, names the peer that sent it, and carries the route's scope. */
+async function hostTokenVerifies(request: FactoryPrivateRequest, options: FactoryGuestBrokerServiceOptions): Promise<boolean> {
+  const bearer = request.headers.authorization;
+  if (!bearer?.startsWith("Bearer ")) return false;
+  try {
+    const claims = verifyPoolToken(bearer.slice(7), await options.tokens());
+    return claims.sub === request.peerIdentity && claims.scope.includes(FACTORY_GUEST_BROKER_SCOPE);
+  } catch {
+    return false;
+  }
 }
