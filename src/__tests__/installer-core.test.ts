@@ -199,6 +199,28 @@ describe("ezcorp install — port selection", () => {
     }
   });
 
+  test("skips a port held by a listener that never accepts", () => {
+    // The real case: a stopped container leaves podman's port forward bound.
+    // Nothing accepts connections there, so a connect-probe calls the port
+    // free and compose then fails to bind it. Observed on a dev machine with
+    // a leftover forward on 4000 after the VM restarted.
+    stub(
+      "lsof",
+      [
+        // Report a listener on 4000 only, like the leftover forward.
+        'for arg in "$@"; do case "$arg" in -iTCP:4000) echo "ssh 1 u IPv4 TCP *:4000 (LISTEN)"; exit 0 ;; esac; done',
+        "exit 1",
+      ].join("\n"),
+    );
+    try {
+      const result = run(["install"]);
+      expect(result.exitCode).toBe(0);
+      expect(Number(envFile().match(/^EZCORP_PORT_HOST=(\d+)$/m)?.[1])).toBe(4001);
+    } finally {
+      rmSync(join(BIN, "lsof"), { force: true });
+    }
+  });
+
   test("a second install resumes instead of re-keying", () => {
     run(["install"]);
     const first = envFile();

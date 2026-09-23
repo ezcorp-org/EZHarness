@@ -147,8 +147,22 @@ image_present() {
 # depend on that. What must track the chosen port is EZCORP_PUBLIC_URL, which
 # feeds ORIGIN — left unset, svelte-adapter-bun defaults the scheme to https
 # and login breaks over plain HTTP.
+# A CONNECT probe is not sufficient here, and the failure it misses is the
+# common one. A stopped container leaves podman's port forward (an ssh/gvproxy
+# listener) bound to the host port: nothing accepts the connection, so a
+# connect probe calls the port free, and compose then fails to bind it —
+# observed on this machine with a leftover forward on 4000 after the VM
+# restarted. Ask the OS who is LISTENING instead, and keep the connect probe
+# only as a last resort on hosts with neither tool.
 port_free() {
-  ! (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null
+  local p="$1"
+  if command -v lsof >/dev/null 2>&1; then
+    ! lsof -nP -iTCP:"$p" -sTCP:LISTEN >/dev/null 2>&1
+  elif command -v ss >/dev/null 2>&1; then
+    ! ss -ltnH "sport = :$p" 2>/dev/null | grep -q .
+  else
+    ! (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null
+  fi
 }
 
 pick_port() {
