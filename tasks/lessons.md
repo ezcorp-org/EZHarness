@@ -1463,3 +1463,11 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
 - A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
 - A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.
+
+## 2026-09-23 — W03e usage settlement for stops with no operations
+
+- A proof check must encode the product's rule, including its conditions. The kernel needs an explicit `uncertain: false` only after an earlier uncertain stop event; my first harness demanded it always, and one real pass failed a correct run. Derive the expected event from the observed history, then rerun the passes rather than re-scoring a recorded one.
+- Read the consumer before emitting an event. The kernel ignores a certain `attempt-stopped` for an attempt it already holds as uncertain unless the event says `uncertain: false`, so a late stop receipt had never cleared anything, in the measured path too. The real stop went through `stop-uncertain` first on the base run, which is exactly the case that stayed stuck.
+- PostgreSQL returns BIGINT as a string and PGlite as a number. Normalize numeric columns in shared conformance suites, or the PostgreSQL leg fails a correct change.
+- In zsh an unquoted `$files` does not word-split; a loop over it runs once with the whole list. Use `${=files}` or a bash script.
+- The pre-commit hook runs real-PostgreSQL suites for staged test helpers; those belong under the heavy lock, so a scratch proof commit skips only the hook's test step and says so.
