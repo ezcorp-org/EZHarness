@@ -48,8 +48,12 @@ test("a retention deadline can extend its class period and can never shorten it"
 
 test("an open restore epoch closes run admission and a stale checkpoint closes effect claims", async () => {
   const reason = async () => rows<{ reason: string | null }>(await fixture.db.execute(sql`SELECT factory_effect_claims_closed_reason('tenant-migration') AS reason`))[0]!.reason;
+  // Fail closed: with no policy row and no sealed checkpoint, claims are closed.
+  expect(await reason()).toBe("checkpoint_stale");
+  // Only an explicit row turns the rule off.
+  await fixture.db.execute(sql`INSERT INTO factory_checkpoint_policy (tenant_id, enforce_freshness, max_age_seconds) VALUES ('tenant-migration', FALSE, 900)`);
   expect(await reason()).toBeNull();
-  await fixture.db.execute(sql`INSERT INTO factory_checkpoint_policy (tenant_id, max_age_seconds) VALUES ('tenant-migration', 900)`);
+  await fixture.db.execute(sql`UPDATE factory_checkpoint_policy SET enforce_freshness = TRUE WHERE tenant_id = 'tenant-migration'`);
   expect(await reason()).toBe("checkpoint_stale");
   await fixture.db.execute(sql`INSERT INTO factory_checkpoints (tenant_id, checkpoint_id, state, execution_epoch, key_wrap_version, started_at_ms, duration_ms, product_lsn, manifest_digest, manifest_archive_json, sealed_at)
     VALUES ('tenant-migration','old','sealed',1,1,0,5,'0/1',${`sha256:${"a".repeat(64)}`},'{}', clock_timestamp() - interval '16 minutes')`);

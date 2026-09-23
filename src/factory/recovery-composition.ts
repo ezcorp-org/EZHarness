@@ -1,14 +1,16 @@
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryWorkerProgress } from "./background-workers";
-import { FactoryCheckpointCoordinator, type FactoryCheckpointPoolSource } from "./checkpoint-barrier";
+import { FactoryCheckpointCoordinator, type FactoryCheckpointPoolSource, type FactoryCheckpointSlotSource } from "./checkpoint-barrier";
 import { createPoolCheckpointClient, type PoolAdmissionClient, type PoolCheckpointClient } from "./pool/client";
 import type { FactoryRestorePoolLedger } from "./restore";
 import { factoryPoolSnapshotFromPages } from "./pool/checkpoint";
 import { S3FactoryRecoveryArchive } from "./recovery-archive";
 import { S3FactoryReleaseArchive } from "./release-adapters";
 import { loadFactoryStorageCredentials } from "./release-composition";
+import { readPrivateFileBounded } from "./private-files";
 import { FactoryRetention, S3FactoryRetentionBlobEraser } from "./retention";
 import type { FactoryStartupConfig } from "./startup-config";
+import { FactoryTemporalHttpPositions } from "./temporal-retention";
 
 /**
  * W15's two background roles, composed for the product process.
@@ -20,12 +22,12 @@ import type { FactoryStartupConfig } from "./startup-config";
  * its own tenant-scoped mutual-TLS client, never its database.
  *
  * `retention-gc` enrolls, archives early, and collects due subjects.
- * `checkpoint-barrier` keeps a sealed checkpoint younger than the interval;
- * on its first pass it turns on the database's freshness rule, so from then on
- * a release claim or attempt launch is refused whenever the newest sealed
- * checkpoint is older than fifteen minutes. The rule is enforced only where
- * this role runs, because an installation that cannot run barriers would
- * otherwise have its effect claims closed forever.
+ * `checkpoint-barrier` keeps a sealed checkpoint younger than the interval.
+ * The database refuses a release claim or attempt launch whenever the newest
+ * sealed checkpoint is older than fifteen minutes, whether or not this role
+ * runs: an installation that cannot run barriers fails closed, and readiness
+ * reports the held role. Each barrier holds one of the pool's sixteen
+ * cluster-wide slots and records every live workflow's Temporal position.
  */
 
 /** How often a barrier runs. Well inside the fifteen-minute bound, so one aborted barrier never lets it lapse. */
@@ -68,6 +70,29 @@ export function factoryCheckpointStep(coordinator: Pick<FactoryCheckpointCoordin
 /** The pool checkpoint source over the tenant's mutual-TLS client. */
 export function factoryPoolCheckpointClientSource(client: Pick<PoolCheckpointClient, "checkpoint">): FactoryCheckpointPoolSource {
   return { snapshotTenant: (_tenantId, signal) => factoryPoolSnapshotFromPages(after => client.checkpoint(after, signal)) };
+}
+
+/** The pool's cluster-wide barrier slots over the tenant's mutual-TLS client. */
+export function factoryPoolCheckpointClientSlots(client: Pick<PoolCheckpointClient, "acquireCheckpointSlot" | "releaseCheckpointSlot">): FactoryCheckpointSlotSource {
+  return {
+    acquire: async signal => { const slot = await client.acquireCheckpointSlot(signal); return slot === null ? null : { token: slot.token }; },
+    release: async (token, signal) => { await client.releaseCheckpointSlot(token, signal); },
+  };
+}
+
+/**
+ * The tenant namespace's Temporal position reader, from the startup document.
+ * No endpoint means no checkpoint could record positions, so the barrier role
+ * does not compose and holds by name.
+ */
+export async function factoryTemporalPositionsFromConfig(config: Pick<FactoryStartupConfig, "temporalNamespace" | "temporalHttp">): Promise<FactoryTemporalHttpPositions> {
+  const http = config.temporalHttp;
+  if (http === undefined) throw new Error("the startup document declares no temporalHttp endpoint, so no checkpoint could record Temporal positions");
+  const text = async (path: string) => new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateFileBounded(path, 64 * 1024));
+  return new FactoryTemporalHttpPositions({
+    endpoint: http.endpoint, namespace: config.temporalNamespace,
+    ...(http.tls === undefined ? {} : { tls: { cert: await text(http.tls.certificatePath), key: await text(http.tls.privateKeyPath), ca: await text(http.tls.caPath) } }),
+  });
 }
 
 /** Rows per restore-import request, inside the pool wire's 16 KiB body bound. */
@@ -127,7 +152,8 @@ export async function composeFactoryRecoveryRoles(input: FactoryRecoveryComposit
       tenantId: config.tenantId, baseUrl: config.pool.baseUrl,
       tls: { caPath: config.pool.tls.caPath, certificatePath: config.pool.tls.certificatePath, privateKeyPath: config.pool.tls.privateKeyPath, serviceTokenPath: config.pool.serviceTokenPath },
     })))();
-    const coordinator = new FactoryCheckpointCoordinator({ database, tenantId: config.tenantId, installationId: config.installationId, archive, pool: factoryPoolCheckpointClientSource(client) });
+    const temporal = await factoryTemporalPositionsFromConfig(config);
+    const coordinator = new FactoryCheckpointCoordinator({ database, tenantId: config.tenantId, installationId: config.installationId, archive, pool: factoryPoolCheckpointClientSource(client), slots: factoryPoolCheckpointClientSlots(client), temporal });
     roles.checkpoint = factoryCheckpointStep(coordinator, report);
   } catch (error) { report("checkpoint-barrier", error); }
   return roles;

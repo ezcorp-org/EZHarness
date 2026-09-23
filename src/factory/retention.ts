@@ -1,6 +1,6 @@
-import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { canonicalJson } from "@ezcorp/extension-contract";
-import { sql } from "drizzle-orm";
+import { sql, type SQL } from "drizzle-orm";
 import { FACTORY_RETENTION_PERIOD_MS, type FactoryRetentionClass, type FactoryRetentionSubjectKind } from "../db/migrations/add-factory-recovery";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
@@ -9,6 +9,7 @@ import { archiveFactoryRunAudit, readFactoryArchivedRunAudit } from "./audit-arc
 import { assertFactoryIdentity, FactoryRecords, type FactoryRunKey } from "./records";
 import { parseFactoryArchiveReference, type FactoryRecoveryArchive } from "./recovery-archive";
 import type { FactoryArchiveObject, FactoryReleaseArchive } from "./releases";
+import { factoryArchiveClient, type ArchiveS3ClientLike } from "./release-adapters";
 
 /**
  * C06 reference-aware retention (W15).
@@ -39,7 +40,30 @@ export const FACTORY_RETENTION_CLASS_OF: Readonly<Record<FactoryRetentionSubject
   candidate_artifact: "unaccepted_candidate",
   key_wrap: "key_version",
   release: "release",
+  accepted_evidence: "accepted_evidence",
+  approval: "approval",
+  receipt: "receipt",
 });
+
+/**
+ * The per-run immutable facts C06 keeps for the audit period: validator
+ * evidence, human approvals, and task and stop receipts. Each run with such a
+ * fact is one subject, anchored when the run became terminal. Like a release,
+ * each is tombstoned at its deadline and never deleted here: final deletion is
+ * the explicit C09 purge.
+ */
+const RUN_FACTS: readonly { readonly kind: FactoryRetentionSubjectKind; readonly exists: SQL }[] = Object.freeze([
+  { kind: "accepted_evidence", exists: sql`EXISTS (SELECT 1 FROM factory_acceptance_evidence e WHERE e.tenant_id = l.tenant_id AND e.project_id = l.project_id AND e.run_id = l.run_id)` },
+  { kind: "approval", exists: sql`(EXISTS (SELECT 1 FROM factory_command_approvals c WHERE c.tenant_id = l.tenant_id AND c.project_id = l.project_id AND c.run_id = l.run_id)
+    OR EXISTS (SELECT 1 FROM factory_release_approvals a JOIN factory_release_operations o ON o.tenant_id = a.tenant_id AND o.project_id = a.project_id AND o.operation_id = a.operation_id
+      WHERE a.tenant_id = l.tenant_id AND a.project_id = l.project_id AND o.run_id = l.run_id))` },
+  { kind: "receipt", exists: sql`(EXISTS (SELECT 1 FROM factory_task_completions c WHERE c.tenant_id = l.tenant_id AND c.project_id = l.project_id AND c.run_id = l.run_id)
+    OR EXISTS (SELECT 1 FROM factory_task_outcomes t WHERE t.tenant_id = l.tenant_id AND t.project_id = l.project_id AND t.run_id = l.run_id)
+    OR EXISTS (SELECT 1 FROM factory_task_stops s WHERE s.tenant_id = l.tenant_id AND s.project_id = l.project_id AND s.run_id = l.run_id AND s.stop_receipt_json IS NOT NULL))` },
+]);
+
+/** Kinds tombstoned at their deadline and never deleted by this role. */
+const IMMUTABLE_KINDS: ReadonlySet<FactoryRetentionSubjectKind> = new Set(["release", ...RUN_FACTS.map(fact => fact.kind)]);
 
 /** Kinds whose primary copy may expire only after a verified archive copy exists. */
 const ARCHIVED_KINDS: ReadonlySet<FactoryRetentionSubjectKind> = new Set(["run_audit", "release"]);
@@ -160,10 +184,10 @@ export async function factoryForeignReferrer(transaction: MigrationDb, target: k
 
 /** Deletes one content-addressed object's current version from the tenant's ordinary S3 prefix. */
 export class S3FactoryRetentionBlobEraser implements FactoryRetentionBlobEraser {
-  private readonly client: Pick<S3Client, "send">;
-  constructor(private readonly options: { readonly endpoint: string; readonly bucket: string; readonly prefix: string; readonly credentials: { readonly accessKeyId: string; readonly secretAccessKey: string }; readonly client?: Pick<S3Client, "send"> }) {
+  private readonly client: ArchiveS3ClientLike;
+  constructor(private readonly options: { readonly endpoint: string; readonly bucket: string; readonly prefix: string; readonly credentials: { readonly accessKeyId: string; readonly secretAccessKey: string }; readonly client?: ArchiveS3ClientLike }) {
     s3ObjectKey(options.prefix, "0".repeat(64));
-    this.client = options.client ?? new S3Client({ endpoint: options.endpoint, region: "us-east-1", forcePathStyle: true, credentials: options.credentials, maxAttempts: 1 });
+    this.client = factoryArchiveClient(options);
   }
 
   async erase(blobDigest: string, signal?: AbortSignal): Promise<void> {
@@ -227,6 +251,15 @@ export class FactoryRetention {
           AND NOT EXISTS (SELECT 1 FROM factory_retention_records r WHERE r.tenant_id = o.tenant_id AND r.subject_kind = 'release' AND r.subject_id = ('[' || to_json(o.project_id::text)::text || ',' || to_json(o.operation_id::text)::text || ']'))
         ORDER BY o.updated_at LIMIT ${limit}
         ON CONFLICT (tenant_id, subject_kind, subject_id) DO NOTHING RETURNING subject_id`));
+      for (const fact of RUN_FACTS) {
+        count += inserted(await transaction.execute(sql`INSERT INTO factory_retention_records (tenant_id, subject_kind, subject_id, project_id, run_id, retention_class, anchored_at_ms, retain_until_ms)
+          SELECT l.tenant_id, ${fact.kind}, ('[' || to_json(l.project_id::text)::text || ',' || to_json(l.run_id::text)::text || ']'), l.project_id, l.run_id, ${FACTORY_RETENTION_CLASS_OF[fact.kind]}, a.anchor, a.anchor + ${period(fact.kind)}
+          FROM factory_run_lifecycle l CROSS JOIN LATERAL (SELECT (floor(extract(epoch FROM l.updated_at) * 1000))::bigint AS anchor) a
+          WHERE l.tenant_id = ${this.tenantId} AND l.status IN (${TERMINAL}) AND ${fact.exists}
+            AND NOT EXISTS (SELECT 1 FROM factory_retention_records r WHERE r.tenant_id = l.tenant_id AND r.subject_kind = ${fact.kind} AND r.subject_id = ('[' || to_json(l.project_id::text)::text || ',' || to_json(l.run_id::text)::text || ']'))
+          ORDER BY l.updated_at LIMIT ${limit}
+          ON CONFLICT (tenant_id, subject_kind, subject_id) DO NOTHING RETURNING subject_id`));
+      }
       return count;
     });
   }
@@ -286,7 +319,7 @@ export class FactoryRetention {
       const refusal = await this.database.transaction(transaction => this.liveReference(transaction, subject));
       if (refusal) { outcomes.push(await this.refuse(subject, refusal)); continue; }
       await this.tombstone(subject, now);
-      if (subject.subjectKind === "release") { outcomes.push(await this.refuse(subject, IMMUTABLE_FACT, "tombstoned")); continue; }
+      if (IMMUTABLE_KINDS.has(subject.subjectKind)) { outcomes.push(await this.refuse(subject, IMMUTABLE_FACT, "tombstoned")); continue; }
       outcomes.push(await this.collect(subject, now, signal));
     }
     return outcomes;
@@ -357,6 +390,8 @@ export class FactoryRetention {
     if (rows(await transaction.execute(sql`SELECT 1 FROM factory_child_runs WHERE ${scoped} AND (parent_run_id = ${key.runId} OR child_run_id = ${key.runId}) AND state <> 'settled' LIMIT 1`)).length) return "child_unsettled";
     if (rows(await transaction.execute(sql`SELECT 1 FROM factory_release_operations WHERE ${scoped} AND run_id = ${key.runId} AND state IN ('pending','executing','uncertain') LIMIT 1`)).length) return "release_unsettled";
     if (rows(await transaction.execute(sql`SELECT 1 FROM factory_attempt_launches WHERE ${scoped} AND run_id = ${key.runId} AND state IN ('prepared','launching','launched','uncertain') LIMIT 1`)).length) return "attempt_live";
+    // A per-run fact is only tombstoned, so the run-level checks above are all it needs.
+    if (IMMUTABLE_KINDS.has(subject.subjectKind)) return null;
     if (subject.subjectKind === "run_audit") {
       const referrer = await factoryForeignReferrer(transaction, "factory_audit_batches", { tenant_id: this.tenantId, project_id: key.projectId, run_id: key.runId });
       return referrer ? `referenced_by:${referrer}` : null;

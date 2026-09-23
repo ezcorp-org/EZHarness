@@ -1,4 +1,4 @@
-import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { HeadObjectCommand } from "@aws-sdk/client-s3";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
 import type { TransactionalDb } from "../db/migrations/types";
@@ -6,7 +6,7 @@ import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestObject, s3ObjectKey } from "../extensions/v4/blobs";
 import { importFactoryArchivedRunAudit, readFactoryArchivedRunAudit, readFactoryRunAudit } from "./audit-archive";
-import { captureFactoryProductState, factoryInterpreterWorkflowId, factoryKeyWrapDigest, factorySchemaDigest, latestFactoryCheckpoint, type FactoryCheckpointManifest, type FactoryCheckpointSeal, type FactoryCheckpointTemporalSource } from "./checkpoint-barrier";
+import { captureFactoryProductState, factoryInterpreterWorkflowId, factoryKeyWrapDigest, factorySchemaDigest, findFactoryCheckpoint, latestFactoryCheckpoint, type FactoryCheckpointManifest, type FactoryCheckpointSeal, type FactoryCheckpointTemporalSource } from "./checkpoint-barrier";
 import type { InstallationDataKey } from "./encryption";
 import type { FactoryPrincipal } from "./grants";
 import { validateFactoryStopReceipt, type FactoryJournalHostKey } from "./journal-validation";
@@ -17,6 +17,7 @@ import type { FactoryPhysicalStopReceipt } from "./runner/attempt-wire";
 import type { FactoryHostStopCommand } from "./runner/host-stop-service";
 import type { FactoryPoolStopAcknowledger } from "./task-stops";
 import { factoryTemporalPositionMoved } from "./temporal-retention";
+import { factoryArchiveClient, type ArchiveS3ClientLike } from "./release-adapters";
 
 /**
  * C06 restore into a new execution epoch (W15).
@@ -106,13 +107,14 @@ export interface FactoryRestoreOptions {
   readonly loadDataKey: () => Promise<InstallationDataKey>;
   readonly objects: FactoryObjectVersionProbe;
   readonly fence: FactoryRestoreFence;
-  readonly workers: FactoryRestoreWorkerStopper;
+  /** Absent when this installation names no host transport: every live worker is then blocked, never assumed stopped. */
+  readonly workers?: FactoryRestoreWorkerStopper;
   readonly hostKeys: ReadonlyMap<string, FactoryJournalHostKey>;
   readonly poolStops?: FactoryPoolStopAcknowledger;
   readonly pool?: FactoryRestorePoolLedger;
   readonly temporal?: FactoryCheckpointTemporalSource;
   /** The provider that owns an archived release's destination, or null when this installation has none for it. */
-  readonly providers: (intent: FactoryArchivedReleaseIntent) => FactoryReleaseProvider | null;
+  readonly providers: (intent: FactoryArchivedReleaseIntent) => FactoryReleaseProvider | null | Promise<FactoryReleaseProvider | null>;
   /** Rebuilds one run's projections by replaying its verified audit stream. */
   readonly projections?: { project(key: FactoryRunKey, limit?: number): Promise<unknown> };
   readonly now?: () => number;
@@ -184,10 +186,10 @@ function findingId(kind: FactoryRestoreSubject, subject: string, reason: string)
 
 /** HEADs one exact object version in the ordinary store with the restore's read-only credentials. */
 export class S3FactoryObjectVersionProbe implements FactoryObjectVersionProbe {
-  private readonly client: Pick<S3Client, "send">;
-  constructor(private readonly options: { readonly endpoint: string; readonly bucket: string; readonly prefix: string; readonly credentials: { readonly accessKeyId: string; readonly secretAccessKey: string }; readonly client?: Pick<S3Client, "send"> }) {
+  private readonly client: ArchiveS3ClientLike;
+  constructor(private readonly options: { readonly endpoint: string; readonly bucket: string; readonly prefix: string; readonly credentials: { readonly accessKeyId: string; readonly secretAccessKey: string }; readonly client?: ArchiveS3ClientLike }) {
     s3ObjectKey(options.prefix, "0".repeat(64));
-    this.client = options.client ?? new S3Client({ endpoint: options.endpoint, region: "us-east-1", forcePathStyle: true, credentials: options.credentials, maxAttempts: 1 });
+    this.client = factoryArchiveClient(options);
   }
 
   async exists(blobDigest: string, storageVersion: string, signal?: AbortSignal): Promise<boolean> {
@@ -236,6 +238,20 @@ export class FactoryRestore {
     if (!checkpoint) throw new FactoryRestoreError("factory_restore_no_checkpoint");
     const epoch = await this.openEpoch(input.restoreId, input.mode, checkpoint.manifest, checkpoint.seal);
     return Object.freeze({ ...input, ...checkpoint, ...epoch, started });
+  }
+
+  /**
+   * The session of an epoch already opened, for a re-verification after an
+   * operator fixed a blocked finding: the same restore id, mode, epochs, and
+   * the exact checkpoint the epoch pinned.
+   */
+  async resume(restoreId: string, signal?: AbortSignal): Promise<FactoryRestoreSession> {
+    assertFactoryIdentity(restoreId);
+    const epoch = rows<{ mode: FactoryRestoreMode; checkpoint_id: string; manifest_digest: string; previous_epoch: string | number; execution_epoch: string | number }>(await this.database.execute(sql`SELECT mode, checkpoint_id, manifest_digest, previous_epoch, execution_epoch FROM factory_restore_epochs WHERE tenant_id = ${this.tenantId} AND restore_id = ${restoreId}`))[0];
+    if (!epoch) throw new FactoryRestoreError("factory_restore_not_found");
+    const checkpoint = await findFactoryCheckpoint(this.options.archive, this.tenantId, epoch.checkpoint_id, epoch.manifest_digest, signal);
+    if (!checkpoint) throw new FactoryRestoreError("factory_restore_no_checkpoint");
+    return Object.freeze({ restoreId, mode: epoch.mode, ...checkpoint, previousEpoch: Number(epoch.previous_epoch), executionEpoch: Number(epoch.execution_epoch), started: this.monotonic() });
   }
 
   /** Every check and reconciliation for an opened epoch, recorded as findings, then the sealed report. */
@@ -388,9 +404,11 @@ export class FactoryRestore {
    * checkpoint's.
    */
   private async compareTemporal(mode: FactoryRestoreMode, manifest: FactoryCheckpointManifest, record: (finding: Omit<FactoryRestoreFinding, "findingId">) => Promise<void>, signal?: AbortSignal): Promise<void> {
-    if (!this.options.temporal) { await record({ subjectKind: "check", subjectId: "temporal", disposition: mode === "cluster" ? "blocked" : "verified", reason: mode === "cluster" ? "temporal_unavailable" : "no_live_namespace_reader", detail: {} }); return; }
-    if (mode === "cluster" && !manifest.temporal.captured) { await record({ subjectKind: "check", subjectId: "temporal", disposition: "blocked", reason: "temporal_not_captured", detail: { reason: manifest.temporal.reason } }); return; }
-    const recorded = new Map(manifest.temporal.captured ? manifest.temporal.workflows.map(workflow => [workflow.workflowId, workflow]) : []);
+    // Unverified is never verified: with no live reader, or no recorded
+    // positions to compare against, service stays closed in either mode.
+    if (!this.options.temporal) { await record({ subjectKind: "check", subjectId: "temporal", disposition: "blocked", reason: mode === "cluster" ? "temporal_unavailable" : "temporal_unverified", detail: {} }); return; }
+    if (!manifest.temporal.captured) { await record({ subjectKind: "check", subjectId: "temporal", disposition: "blocked", reason: "temporal_not_captured", detail: { reason: manifest.temporal.reason } }); return; }
+    const recorded = new Map(manifest.temporal.workflows.map(workflow => [workflow.workflowId, workflow]));
     const ids = manifest.product.liveRuns.flatMap(run => run.interpreters.map(interpreter => factoryInterpreterWorkflowId(this.tenantId, run.runId, interpreter.interpreterId)));
     const live = new Map((await this.options.temporal.positions(ids, signal)).map(position => [position.workflowId, position]));
     for (const run of manifest.product.liveRuns) {
@@ -445,24 +463,34 @@ export class FactoryRestore {
   private async recoverReleases(restoreId: string, record: (finding: Omit<FactoryRestoreFinding, "findingId">) => Promise<void>, signal?: AbortSignal): Promise<FactoryRestoreReport["releaseIdentities"]> {
     let archived = 0, recovered = 0, blocked = 0;
     for (const objects of await this.options.archive.operations(this.tenantId, signal)) {
-      const intent = await this.latest<FactoryArchivedReleaseIntent>(objects.intent, value => value.operationId === objects.operationId && value.tenantId === this.tenantId);
-      if (!intent) continue;
       archived += 1;
-      const outcome = await this.recoverRelease(restoreId, intent, objects, signal);
+      const intent = await this.latest<FactoryArchivedReleaseIntent>(objects.intent, value => value.operationId === objects.operationId && value.tenantId === this.tenantId);
+      // A listed release identity whose intent cannot be read is not skipped:
+      // its run is unknown, so the whole tenant stays closed until an operator
+      // resolves it. C06 forbids losing a dispatched identity silently.
+      if (!intent.value) {
+        blocked += 1;
+        await record({ subjectKind: "check", subjectId: `release-intent:${objects.operationId}`, disposition: "blocked", reason: intent.unreadable > 0 ? "release_intent_unreadable" : "release_intent_missing", detail: { operationId: objects.operationId, objects: objects.intent.length, unreadable: intent.unreadable } });
+        continue;
+      }
+      const outcome = await this.recoverRelease(restoreId, intent.value, objects, signal);
       if (outcome.disposition === "blocked") blocked += 1; else recovered += 1;
-      await record({ subjectKind: "release", subjectId: canonicalJson([intent.projectId, intent.operationId]), ...outcome });
-      if (outcome.disposition === "blocked") await record({ subjectKind: "run", subjectId: canonicalJson([intent.projectId, intent.runId]), disposition: "blocked", reason: "release_unreconciled", detail: { operationId: intent.operationId } });
+      await record({ subjectKind: "release", subjectId: canonicalJson([intent.value.projectId, intent.value.operationId]), ...outcome });
+      if (outcome.disposition === "blocked") await record({ subjectKind: "run", subjectId: canonicalJson([intent.value.projectId, intent.value.runId]), disposition: "blocked", reason: "release_unreconciled", detail: { operationId: intent.value.operationId } });
     }
     return { archived, recovered, blocked };
   }
 
   private async recoverRelease(restoreId: string, intent: FactoryArchivedReleaseIntent, objects: FactoryArchivedReleaseObjects, signal?: AbortSignal): Promise<Omit<FactoryRestoreFinding, "findingId" | "subjectKind" | "subjectId">> {
     const row = rows<{ state: string; receipt_json: string | null; dispatch_generation: string | number; request_digest: string }>(await this.database.execute(sql`SELECT state, receipt_json, dispatch_generation, request_digest FROM factory_release_operations WHERE tenant_id = ${this.tenantId} AND project_id = ${intent.projectId} AND operation_id = ${intent.operationId}`))[0];
-    const receipt = await this.latest<FactoryProviderReceipt>(objects.receipt, value => value.operationId === intent.operationId && value.requestDigest === intent.requestDigest
+    const read = await this.latest<FactoryProviderReceipt>(objects.receipt, value => value.operationId === intent.operationId && value.requestDigest === intent.requestDigest
       && value.provider === intent.destination.provider && value.account === intent.destination.account && value.object === intent.destination.object);
+    // An unreadable receipt is not "no receipt": proving no effect would then contradict a receipt the archive holds.
+    if (!read.value && read.unreadable > 0) return { disposition: "blocked", reason: "release_receipt_unreadable", detail: { operationId: intent.operationId, unreadable: read.unreadable } };
+    const receipt = read.value;
     if (row?.state === "succeeded" && row.receipt_json !== null && (!receipt || canonicalJson(JSON.parse(row.receipt_json)) === canonicalJson(receipt))) return { disposition: "verified", reason: "settled_in_restored_database", detail: { operationId: intent.operationId } };
     if (row && row.request_digest !== intent.requestDigest) return { disposition: "blocked", reason: "archive_conflicts_with_database", detail: { operationId: intent.operationId } };
-    const provider = this.options.providers(intent);
+    const provider = await this.options.providers(intent);
     if (!provider) return this.recordRecovered(restoreId, intent, receipt, false, "provider_unavailable");
     const operation = { ...intent, tenantId: this.tenantId, dispatchGeneration: receipt?.dispatchGeneration ?? Number(row?.dispatch_generation ?? 0) } as unknown as FactoryReleaseOperation;
     if (receipt) {
@@ -480,14 +508,21 @@ export class FactoryRestore {
     return { disposition: verified || noEffect ? "reconciled" : "blocked", reason, detail: { operationId: intent.operationId, ...(receipt ? { providerReceiptId: receipt.providerReceiptId } : {}) } };
   }
 
-  /** The newest archived JSON object that matches, read through the verifying archive. */
-  private async latest<Value>(objects: readonly FactoryArchiveObject[], matches: (value: Value) => boolean): Promise<Value | null> {
+  /**
+   * The newest archived JSON object that matches, read through the verifying
+   * archive, with a count of the objects that could not be read or did not
+   * match. The caller decides what an unreadable object blocks; it is never
+   * dropped here.
+   */
+  private async latest<Value>(objects: readonly FactoryArchiveObject[], matches: (value: Value) => boolean): Promise<{ readonly value: Value | null; readonly unreadable: number }> {
+    let unreadable = 0;
     for (const object of [...objects].reverse()) {
       let value: Value;
-      try { value = await readFactoryRecoveryJson<Value>(this.options.releaseArchive, object); } catch { continue; }
-      if (value && typeof value === "object" && matches(value)) return value;
+      try { value = await readFactoryRecoveryJson<Value>(this.options.releaseArchive, object); } catch { unreadable += 1; continue; }
+      if (value && typeof value === "object" && matches(value)) return { value, unreadable };
+      unreadable += 1;
     }
-    return null;
+    return { value: null, unreadable };
   }
 
   /**
@@ -506,6 +541,7 @@ export class FactoryRestore {
       const command: FactoryHostStopCommand = { attemptId: row.attempt_id, reservationId: row.reservation_id, workerId: row.worker_id, holderGeneration: Number(row.holder_generation), allocationGeneration: Number(row.allocation_generation), hostId: row.host_id, reason: "lease-revoked" };
       const subject = canonicalJson([row.project_id, row.run_id]);
       try {
+        if (!this.options.workers) throw new Error("worker_stopper_unavailable");
         const receipt = await this.options.workers.stop(command, signal ?? new AbortController().signal);
         const verdict = validateFactoryStopReceipt(command, receipt, this.options.hostKeys);
         if (!verdict.ok) throw new Error(verdict.issues[0]!.code);

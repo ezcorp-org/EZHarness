@@ -6,6 +6,7 @@ import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { FactoryRecords } from "../../factory/records";
 import { factoryRequestedReleaseProfile, FactoryReleases, type FactoryArchiveObject, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseArchive, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider, type FactoryReleaseRequest, type FactorySenderFence } from "../../factory/releases";
 import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
+import { openFactoryEffectClaimsForTest } from "./factory-effect-claims";
 
 /**
  * A real `FactoryReleases` store over a real database, for the recovery suites.
@@ -71,6 +72,7 @@ export async function createFactoryReleaseWorld(options: FactoryReleaseWorldOpti
   const key = (kind: string) => `${tenantId}-${kind}-${++sequence}`;
   const records = new FactoryRecords(database, tenantId);
   await records.bindInstallation();
+  await openFactoryEffectClaimsForTest(database, tenantId);
   await database.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Release',${`/tmp/${projectId}`}) ON CONFLICT (id) DO NOTHING`);
   await records.bindProject(projectId);
   await database.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${admin.id},${`${admin.id}@example.test`},'x','Recovery admin','admin') ON CONFLICT (id) DO NOTHING`);

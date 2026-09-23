@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { FactoryPoolCheckpointSource, factoryDirectRestorePoolLedger, factoryPoolSnapshotFromPages, POOL_CHECKPOINT_PAGE_ROWS } from "../../src/factory/pool/checkpoint";
+import { FactoryPoolCheckpointSlots, FactoryPoolCheckpointSource, factoryDirectCheckpointSlots, factoryDirectRestorePoolLedger, factoryPoolSnapshotFromPages, POOL_CHECKPOINT_PAGE_ROWS } from "../../src/factory/pool/checkpoint";
+import { FACTORY_CHECKPOINT_LIMITS } from "../../src/factory/checkpoint-barrier";
 import { type FactoryPoolLedger, poolRows, type PoolSql } from "../../src/factory/pool/ledger";
 import { PoolAdmissionService, type PoolPrincipal } from "../../src/factory/pool/service";
 import { setupFactoryPoolPostgres } from "./helpers/factory-pool-database";
@@ -92,5 +93,44 @@ describe("the pool checkpoint", () => {
     const target = live.find(row => row.state === "held")!;
     expect(await direct.revoke(String(target.reservation_id), Number(target.allocation_generation))).toEqual({ state: "revoking" });
     expect((await direct.importLost("tenant-a", [])).imported).toEqual([]);
+  });
+
+  test("at most sixteen tenants hold a barrier slot at once, across the whole pool", async () => {
+    // Twenty tenants ask at the same moment: sixteen get a slot, four are told to wait.
+    const tenants = Array.from({ length: 20 }, (_, index) => `slot-tenant-${index}`);
+    const acquired = await Promise.all(tenants.map(tenantId => service.acquireCheckpointSlot(tenant(tenantId))));
+    const held = acquired.filter(slot => slot !== null);
+    expect(held).toHaveLength(FACTORY_CHECKPOINT_LIMITS.maxConcurrentBarriers);
+    expect(new Set(held.map(slot => slot!.slot)).size).toBe(FACTORY_CHECKPOINT_LIMITS.maxConcurrentBarriers);
+    expect(poolRows(await pool.unsafe("SELECT 1 FROM factory_pool_checkpoint_slots WHERE tenant_id IS NOT NULL"))).toHaveLength(FACTORY_CHECKPOINT_LIMITS.maxConcurrentBarriers);
+    const holder = tenants[acquired.findIndex(slot => slot !== null)]!, waiter = tenants[acquired.indexOf(null)]!;
+    // A tenant that already holds a slot renews it instead of taking a second one.
+    const renewed = (await service.acquireCheckpointSlot(tenant(holder)))!;
+    expect(renewed.slot).toBe(acquired.find(slot => slot !== null)!.slot);
+    expect(await service.acquireCheckpointSlot(tenant(waiter))).toBeNull();
+    // Another tenant's token frees nothing; the holder's own token frees its slot for the waiter.
+    expect(await service.releaseCheckpointSlot(tenant(waiter), renewed.token)).toBe(false);
+    expect(await service.releaseCheckpointSlot(tenant(holder), acquired.find(slot => slot !== null)!.token)).toBe(false);
+    expect(await service.releaseCheckpointSlot(tenant(holder), renewed.token)).toBe(true);
+    const moved = (await service.acquireCheckpointSlot(tenant(waiter)))!;
+    expect(moved.slot).toBe(renewed.slot);
+    await expect(service.releaseCheckpointSlot(tenant(waiter), "")).rejects.toThrow();
+    for (const [index, slot] of acquired.entries()) if (slot) await service.releaseCheckpointSlot(tenant(tenants[index]!), slot.token);
+    await service.releaseCheckpointSlot(tenant(waiter), moved.token);
+    expect(poolRows(await pool.unsafe("SELECT 1 FROM factory_pool_checkpoint_slots WHERE tenant_id IS NOT NULL"))).toHaveLength(0);
+  });
+
+  test("a slot whose holder died is reclaimed when its hold runs out, never held for good", async () => {
+    const short = new FactoryPoolCheckpointSlots(pool, 1);
+    const direct = factoryDirectCheckpointSlots(new FactoryPoolCheckpointSlots(pool), "slot-late");
+    // Fill every slot with a one-millisecond hold, as sixteen coordinators that then died.
+    for (let index = 0; index < FACTORY_CHECKPOINT_LIMITS.maxConcurrentBarriers; index += 1) expect(await short.acquire(`slot-dead-${index}`)).not.toBeNull();
+    // The late tenant polls until a hold has run out; the database clock decides, not this test.
+    let slot: { readonly token: string } | null = null;
+    for (let attempt = 0; attempt < 200 && slot === null; attempt += 1) slot = await direct.acquire();
+    expect(slot).not.toBeNull();
+    await direct.release(slot!.token);
+    expect(() => new FactoryPoolCheckpointSlots(pool, 0)).toThrow("malformed");
+    await pool.unsafe("UPDATE factory_pool_checkpoint_slots SET tenant_id = NULL, token = NULL, expires_at = NULL");
   });
 });

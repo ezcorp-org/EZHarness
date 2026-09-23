@@ -250,6 +250,39 @@ export function factoryRetentionConformance(label: string, createFixture: () => 
       expect((await retention.read("run_audit", factoryRetentionSubjectId(projectId, "run-race")))!.state).toBe("collected");
     });
 
+    test("validator evidence, approvals, and receipts are kept for their class period, then tombstoned and never deleted", async () => {
+      // `run-released` carries accepted evidence and a release approval; it becomes terminal now.
+      await fixture.db.execute(sql`INSERT INTO factory_run_lifecycle(tenant_id,project_id,run_id,factory_id,factory_version,definition_digest,grant_revision,status,deadline_ms,parameters_json,parameters_digest,updated_at)
+        VALUES (${tenantId},${projectId},'run-released','retention-factory','v1',${digest("d")},1,'succeeded',${clock + DAY},'{}',${digest("e")},to_timestamp(${clock}::double precision / 1000))`);
+      // `run-receipt` carries one task completion receipt: execution, output, terminal, command, completion.
+      await terminalRun("run-receipt", "succeeded", 1);
+      const bare = (fill: string) => fill.repeat(64);
+      await fixture.db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status) VALUES ('attempt-receipt',${tenantId},${projectId},'run-receipt','node-receipt',0,1,1,1,1,0,NOW() + INTERVAL '1 hour',${bare("2")},'{}'::jsonb,'admitted')`);
+      await fixture.db.execute(sql`INSERT INTO factory_artifacts(object_id,tenant_id,project_id,run_id,kind,candidate_node_instance_id,candidate_generation,digest,blob_digest,storage_version,encoded_bytes) VALUES ('output-receipt',${tenantId},${projectId},'run-receipt','candidate_output','node-receipt',0,${digest("5")},${bare("7")},'version-1',64)`);
+      await fixture.db.execute(sql`INSERT INTO factory_execution_terminals(tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_id,request_digest,result_digest,terminal_result_digest,result_json,output_artifact_id,output_digest,output_bytes,execution_epoch,cancellation_epoch,terminal_fact_digest) VALUES (${tenantId},${projectId},'run-receipt','node-receipt',0,'attempt-receipt',${bare("2")},${bare("3")},${digest("4")},'{}','output-receipt',${digest("5")},64,1,0,${digest("6")})`);
+      await fixture.db.execute(sql`INSERT INTO factory_transition_commands(tenant_id,project_id,run_id,interpreter_id,command_id,source_sequence,command_digest) VALUES (${tenantId},${projectId},'run-receipt','root','task-receipt',1,${digest("8")})`);
+      await fixture.db.execute(sql`INSERT INTO factory_task_completions(tenant_id,project_id,run_id,interpreter_id,command_id,attempt_id,input_digest,authority_json,receipt_json,receipt_digest) VALUES (${tenantId},${projectId},'run-receipt','root','task-receipt','attempt-receipt',${digest("9")},'{}','{}',${digest("a")})`);
+      await retention.enroll();
+      const released = factoryRetentionSubjectId(projectId, "run-released"), receipted = factoryRetentionSubjectId(projectId, "run-receipt");
+      for (const [kind, subjectId] of [["accepted_evidence", released], ["approval", released], ["receipt", receipted]] as const) {
+        const subject = (await retention.read(kind, subjectId))!;
+        expect(subject).toMatchObject({ retentionClass: kind, state: "retained" });
+        expect(subject.retainUntilMs - subject.anchoredAtMs).toBe(FACTORY_RETENTION_PERIOD_MS[kind]);
+      }
+      // A run with none of these facts enrolls none of them.
+      expect(await retention.read("receipt", released)).toBeNull();
+      expect(await retention.read("approval", receipted)).toBeNull();
+      clock += 366 * DAY;
+      const outcomes = await retention.collectDue();
+      for (const [kind, subjectId] of [["accepted_evidence", released], ["approval", released], ["receipt", receipted]] as const) {
+        expect(outcomes.find(outcome => outcome.subjectKind === kind && outcome.subjectId === subjectId)).toEqual({ subjectKind: kind, subjectId, action: "tombstoned", reason: "immutable_fact_retained_until_purge" });
+        expect((await retention.read(kind, subjectId))!.state).toBe("tombstoned");
+      }
+      expect(rows(await fixture.db.execute(sql`SELECT 1 FROM factory_acceptance_evidence WHERE tenant_id = ${tenantId} AND run_id = 'run-released'`)).length).toBe(1);
+      expect(rows(await fixture.db.execute(sql`SELECT 1 FROM factory_release_approvals WHERE tenant_id = ${tenantId}`)).length).toBeGreaterThan(0);
+      expect(rows(await fixture.db.execute(sql`SELECT 1 FROM factory_task_completions WHERE tenant_id = ${tenantId} AND run_id = 'run-receipt'`)).length).toBe(1);
+    });
+
     test("a cancelled pass stops before its next subject", async () => {
       const controller = new AbortController();
       controller.abort(new FactoryRetentionError("factory_retention_invalid"));

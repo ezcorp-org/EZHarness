@@ -1,6 +1,5 @@
-import { basename, dirname } from "node:path";
 import { FactoryEncryptionError, type FactoryDataKeyWrapBinding, type FactoryDataKeyWrapper } from "./encryption";
-import { privateDirectory, readPrivateBounded } from "./private-files.ts";
+import { readPrivateFileBounded } from "./private-files.ts";
 
 /**
  * C06's two KMS wrapping adapters (W15). Each wraps the installation data key
@@ -111,9 +110,7 @@ export class FactoryTransitKmsWrapper implements FactoryDataKeyWrapper {
   }
 
   private async token(): Promise<string> {
-    const directory = await privateDirectory(dirname(this.options.tokenPath));
-    try { return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateBounded(directory, basename(this.options.tokenPath), 4_096)).trim(); }
-    finally { await directory.close(); }
+    return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateFileBounded(this.options.tokenPath, 4_096)).trim();
   }
 
   private async call(operation: "encrypt" | "decrypt", body: Record<string, string>): Promise<Record<string, unknown>> {

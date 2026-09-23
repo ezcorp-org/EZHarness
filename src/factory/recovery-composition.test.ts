@@ -4,7 +4,8 @@ import { join } from "node:path";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryCheckpointOutcome } from "./checkpoint-barrier";
 import type { PoolCheckpointClient } from "./pool/client";
-import { composeFactoryRecoveryRoles, FACTORY_CHECKPOINT_INTERVAL_MS, FACTORY_RESTORE_IMPORT_CHUNK, factoryCheckpointStep, factoryClientRestorePoolLedger, factoryPoolCheckpointClientSource, factoryRetentionStep } from "./recovery-composition";
+import { composeFactoryRecoveryRoles, FACTORY_CHECKPOINT_INTERVAL_MS, FACTORY_RESTORE_IMPORT_CHUNK, factoryCheckpointStep, factoryClientRestorePoolLedger, factoryPoolCheckpointClientSlots, factoryPoolCheckpointClientSource, factoryRetentionStep, factoryTemporalPositionsFromConfig } from "./recovery-composition";
+import { FactoryTemporalHttpPositions } from "./temporal-retention";
 import type { FactoryStartupConfig } from "./startup-config";
 
 const signal = new AbortController().signal;
@@ -67,6 +68,8 @@ describe("the pool's checkpoint and restore over its client", () => {
         return { position: `0/${start}`, rows: page, next: start + 16 < all.length ? page.at(-1)!.reservation_id : null };
       },
       async restoreImport(batch) { imports.push(batch.length); return { present: ["p"], imported: batch.map(row => String(row.reservation_id)), overcommitted: [] }; },
+      acquireCheckpointSlot: async () => null,
+      releaseCheckpointSlot: async () => true,
     };
     return { checkpoints, imports };
   }
@@ -107,13 +110,14 @@ describe("composition from the startup document", () => {
   afterAll(async () => { await rm(directory, { recursive: true, force: true }); });
 
   const storage = (kind: string, file = `${kind}.json`) => ({ endpoint: `http://${kind}.invalid`, bucket: "tenant-c", prefix: `${kind}/prefix`, credentialSet: `${kind}-set`, credentialsPath: join(directory, file) });
-  const config = (archiveFile = "archive.json", ordinaryFile = "ordinary.json") => ({
-    tenantId: "tenant-c", installationId: "installation-c",
+  const config = (archiveFile = "archive.json", ordinaryFile = "ordinary.json", temporalHttp: unknown = { endpoint: "http://temporal.invalid:7243" }) => ({
+    tenantId: "tenant-c", installationId: "installation-c", temporalNamespace: "tenant-c.factory",
+    ...(temporalHttp === null ? {} : { temporalHttp }),
     storage: { ordinary: storage("ordinary", ordinaryFile), archive: storage("archive", archiveFile) },
     pool: { baseUrl: "https://pool.invalid", serviceTokenPath: join(directory, "missing-token"), tls: { caPath: join(directory, "ca"), certificatePath: join(directory, "cert"), privateKeyPath: join(directory, "key") } },
   }) as unknown as FactoryStartupConfig;
   const database = {} as TransactionalDb;
-  const pool: PoolCheckpointClient = { checkpoint: async () => ({ position: "0/0", rows: [], next: null }), restoreImport: async () => ({ present: [], imported: [], overcommitted: [] }) };
+  const pool: PoolCheckpointClient = { checkpoint: async () => ({ position: "0/0", rows: [], next: null }), restoreImport: async () => ({ present: [], imported: [], overcommitted: [] }), acquireCheckpointSlot: async () => null, releaseCheckpointSlot: async () => true };
 
   test("both roles compose from the archive and ordinary credential sets and the pool client", async () => {
     const reports: string[] = [];
@@ -132,5 +136,39 @@ describe("composition from the startup document", () => {
     expect(roles.retention).toBeUndefined();
     expect(roles.checkpoint).toBeUndefined();
     expect(partial).toEqual(["retention-gc", "checkpoint-barrier"]);
+  });
+
+  test("with no Temporal endpoint the barrier role holds: no checkpoint may omit Temporal positions", async () => {
+    const reports: { role: string; message: string }[] = [];
+    const roles = await composeFactoryRecoveryRoles({ config: config("archive.json", "ordinary.json", null), database, report: (role, error) => reports.push({ role, message: (error as Error).message }), poolClient: async () => pool });
+    expect(typeof roles.retention).toBe("function");
+    expect(roles.checkpoint).toBeUndefined();
+    expect(reports).toEqual([{ role: "checkpoint-barrier", message: "the startup document declares no temporalHttp endpoint, so no checkpoint could record Temporal positions" }]);
+  });
+
+  test("the Temporal reader carries the namespace and the client TLS read by reference", async () => {
+    for (const name of ["temporal.pem", "temporal.key", "temporal-ca.pem"]) await writeFile(join(directory, name), `${name} contents`, { mode: 0o600 });
+    const tls = { caPath: join(directory, "temporal-ca.pem"), certificatePath: join(directory, "temporal.pem"), privateKeyPath: join(directory, "temporal.key") };
+    const seen: unknown[] = [];
+    const fetcher = (async (url: URL, init: { tls?: unknown }) => { seen.push({ url: url.toString(), tls: init.tls }); return Response.json({ executions: [] }); }) as unknown as typeof fetch;
+    const reader = await factoryTemporalPositionsFromConfig({ temporalNamespace: "tenant-c.factory", temporalHttp: { endpoint: "https://temporal.internal:7243", tls } });
+    expect(reader.namespace).toBe("tenant-c.factory");
+    // The reader built from the document is the visibility-list reader; drive it with a recording fetch.
+    const recorded = new FactoryTemporalHttpPositions({ endpoint: "https://temporal.internal:7243", namespace: reader.namespace, fetch: fetcher, tls: { cert: "temporal.pem contents", key: "temporal.key contents", ca: "temporal-ca.pem contents" } });
+    expect(await recorded.positions(["tenant-c/run-1"])).toEqual([{ workflowId: "tenant-c/run-1", runId: null, status: "not_found", historyLength: null }]);
+    expect(seen).toHaveLength(1);
+    await expect(factoryTemporalPositionsFromConfig({ temporalNamespace: "tenant-c.factory", temporalHttp: { endpoint: "https://temporal.internal:7243", tls: { ...tls, caPath: join(directory, "absent-ca.pem") } } })).rejects.toThrow();
+  });
+
+  test("the barrier holds a pool slot through the client, and a full pool defers it", async () => {
+    const calls: string[] = [];
+    const slots = factoryPoolCheckpointClientSlots({
+      acquireCheckpointSlot: async () => { calls.push("acquire"); return calls.length === 1 ? { slot: 2, token: "slot-token", expiresAt: "2026-09-22T00:00:15.000Z" } : null; },
+      releaseCheckpointSlot: async token => { calls.push(`release:${token}`); return true; },
+    });
+    expect(await slots.acquire(signal)).toEqual({ token: "slot-token" });
+    await slots.release("slot-token", signal);
+    expect(await slots.acquire(signal)).toBeNull();
+    expect(calls).toEqual(["acquire", "release:slot-token", "acquire"]);
   });
 });

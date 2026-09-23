@@ -162,7 +162,48 @@ export interface FactoryStartupConfig {
     readonly profiles: readonly FactoryStartupReleaseProfile[];
   };
   readonly workers?: FactoryWorkerTuning;
+  /**
+   * The tenant namespace's Temporal HTTP API, for W15's checkpoint barrier.
+   *
+   * Every checkpoint records the Temporal position of each live workflow, so a
+   * restore can tell whether the live namespace moved past the restored product
+   * stream. Absent, the `checkpoint-barrier` role holds by name, readiness is
+   * `degraded`, and effect claims stay closed: C06 fails closed rather than
+   * sealing a checkpoint a restore could not verify. The client TLS material is
+   * all three paths or none.
+   */
+  readonly temporalHttp?: { readonly endpoint: string; readonly tls?: FactoryStartupTlsMaterial };
+  /**
+   * How the installation data key is wrapped. Absent, the operator master key
+   * named in `keys` wraps it. Every secret is by REFERENCE: a file the private
+   * bounded reader reads at composition, never a value in this document.
+   */
+  readonly keyManagement?: FactoryStartupKeyManagement;
 }
+
+/** The data-key wrapping service: the operator's own master key file, a hosted cloud KMS key, or a self-hosted transit engine. */
+export type FactoryStartupKeyManagement =
+  | { readonly kind: "operator-master-key" }
+  | {
+      readonly kind: "cloud-kms";
+      /** The KMS key id or ARN new wraps use. */
+      readonly keyId: string;
+      readonly region: string;
+      /** A private JSON file with `accessKeyId` and `secretAccessKey`. */
+      readonly credentialsPath: string;
+      readonly endpoint?: string;
+    }
+  | {
+      readonly kind: "transit";
+      /** A Vault or OpenBao server. */
+      readonly endpoint: string;
+      readonly keyName: string;
+      /** A private file holding the transit token, read for every call. */
+      readonly tokenPath: string;
+      readonly mount?: string;
+      /** The server's CA certificate, when it is not publicly trusted. */
+      readonly caPath?: string;
+    };
 
 /**
  * One place a release may publish, named so a profile can point at it.
@@ -319,6 +360,10 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "workers.idleDelayMs", kind: "interval", optional: true },
   { field: "workers.errorDelayMs", kind: "interval", optional: true },
   { field: "workers.maxErrorDelayMs", kind: "interval", optional: true },
+  { field: "temporalHttp.endpoint", kind: "url", optional: true },
+  { field: "temporalHttp.tls.caPath", kind: "path", optional: true },
+  { field: "temporalHttp.tls.certificatePath", kind: "path", optional: true },
+  { field: "temporalHttp.tls.privateKeyPath", kind: "path", optional: true },
 ]);
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -451,6 +496,25 @@ function wellFormedReleaseDestination(value: unknown): boolean {
   return false;
 }
 
+/** One data-key wrapping service, by kind, with only that kind's fields. */
+function wellFormedKeyManagement(value: unknown): boolean {
+  if (!record(value)) return false;
+  if (value.kind === "operator-master-key") return exactKeys(value, ["kind"]);
+  if (value.kind === "cloud-kms") {
+    const required = ["kind", "keyId", "region", "credentialsPath"];
+    if (!exactKeys(value, required) && !exactKeys(value, [...required, "endpoint"])) return false;
+    return wellFormed("statement", value.keyId) && wellFormed("identity", value.region) && wellFormed("path", value.credentialsPath)
+      && (value.endpoint === undefined || httpsUrl(value.endpoint));
+  }
+  if (value.kind === "transit") {
+    const optional = ["mount", "caPath"].filter((key) => Object.hasOwn(value, key));
+    if (!exactKeys(value, ["kind", "endpoint", "keyName", "tokenPath", ...optional])) return false;
+    return httpsUrl(value.endpoint) && wellFormed("identity", value.keyName) && wellFormed("path", value.tokenPath)
+      && (value.mount === undefined || wellFormed("identity", value.mount)) && (value.caPath === undefined || wellFormed("path", value.caPath));
+  }
+  return false;
+}
+
 /** One adapter reference, its action, its destination, and its cost. */
 function wellFormedReleaseProfile(value: unknown): boolean {
   if (!record(value) || !exactKeys(value, ["adapter", "action", "destination", "estimatedSpendMicros"])) return false;
@@ -486,7 +550,7 @@ function wellFormedResourceProfile(value: unknown): boolean {
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles",
-  "release.destinations", "release.profiles",
+  "release.destinations", "release.profiles", "keyManagement",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
 
@@ -514,7 +578,7 @@ function leaves(value: unknown, prefix = ""): string[] {
     // — so recursing into them would name a value as a field. Each is checked
     // by shape below instead.
     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths"
-      || field === "release.destinations" || field === "release.profiles") { found.push(field); continue; }
+      || field === "release.destinations" || field === "release.profiles" || field === "keyManagement") { found.push(field); continue; }
     found.push(...(record(nested) ? leaves(nested, field) : [field]));
   }
   return found;
@@ -581,6 +645,16 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
   const retryFields = ["readinessRetry.delayMs", "readinessRetry.windowMs"];
   const retryPresent = retryFields.filter((field) => read(value, field).present);
   if (retryPresent.length === 1) missing.push(retryFields.find((field) => !retryPresent.includes(field))!);
+
+  // Temporal client TLS is all three paths or none, and never without the endpoint it is for.
+  const temporalTls = FACTORY_STARTUP_FIELDS.filter((spec) => spec.field.startsWith("temporalHttp.tls."));
+  const temporalTlsPresent = temporalTls.filter((spec) => read(value, spec.field).present);
+  if (temporalTlsPresent.length > 0 && temporalTlsPresent.length < temporalTls.length) {
+    for (const spec of temporalTls) if (!temporalTlsPresent.includes(spec)) missing.push(spec.field);
+  }
+  if (temporalTlsPresent.length > 0 && !read(value, "temporalHttp.endpoint").present) missing.push("temporalHttp.endpoint");
+  const keyManagement = read(value, "keyManagement");
+  if (keyManagement.present && !wellFormedKeyManagement(keyManagement.value)) invalid.push("keyManagement");
 
   const tokenFields = ["privateService.tokens.issuer", "privateService.tokens.audience", "privateService.tokens.publicKeyPaths"];
   const tokensPresent = tokenFields.filter((field) => read(value, field).present);

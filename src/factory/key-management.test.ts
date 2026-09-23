@@ -2,38 +2,9 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { canonicalJson } from "@ezcorp/extension-contract";
-import { InstallationDataKey, StaticMasterKeyProvider, type InstallationKeyWrap, type InstallationKeyWrapStore } from "./encryption";
-import { FactoryCloudKmsWrapper, FactoryTransitKmsWrapper, type FactoryCloudKmsClient } from "./key-management";
-
-class MemoryWraps implements InstallationKeyWrapStore {
-  readonly rows: InstallationKeyWrap[] = [];
-  async load(installationId: string) { return this.rows.filter(row => row.installationId === installationId).sort((a, b) => b.wrapVersion - a.wrapVersion); }
-  async save(wrap: InstallationKeyWrap) { if (!this.rows.some(row => row.installationId === wrap.installationId && row.wrapVersion === wrap.wrapVersion)) this.rows.push({ ...wrap, wrappedDataKey: Uint8Array.from(wrap.wrappedDataKey) }); }
-}
-
-/** A cloud KMS with the real service's contract: a key never leaves it, and the encryption context is authenticated. */
-class FakeCloudKms implements FactoryCloudKmsClient {
-  private readonly keys = new Map<string, Buffer>();
-  calls: string[] = [];
-  key(id: string) { if (!this.keys.has(id)) this.keys.set(id, randomBytes(32)); return this.keys.get(id)!; }
-  async encrypt(input: Parameters<FactoryCloudKmsClient["encrypt"]>[0]) {
-    this.calls.push(`encrypt:${input.KeyId}`);
-    const iv = randomBytes(12);
-    const cipher = createCipheriv("aes-256-gcm", this.key(input.KeyId), iv);
-    cipher.setAAD(Buffer.from(canonicalJson(input.EncryptionContext)));
-    const body = Buffer.concat([cipher.update(input.Plaintext), cipher.final()]);
-    return { CiphertextBlob: new Uint8Array(Buffer.concat([iv, cipher.getAuthTag(), body])), KeyId: input.KeyId };
-  }
-  async decrypt(input: Parameters<FactoryCloudKmsClient["decrypt"]>[0]) {
-    this.calls.push(`decrypt:${input.KeyId}`);
-    const blob = Buffer.from(input.CiphertextBlob);
-    const decipher = createDecipheriv("aes-256-gcm", this.key(input.KeyId), blob.subarray(0, 12));
-    decipher.setAAD(Buffer.from(canonicalJson(input.EncryptionContext)));
-    decipher.setAuthTag(blob.subarray(12, 28));
-    return { Plaintext: new Uint8Array(Buffer.concat([decipher.update(blob.subarray(28)), decipher.final()])), KeyId: input.KeyId };
-  }
-}
+import { InstallationDataKey, StaticMasterKeyProvider } from "./encryption";
+import { FactoryCloudKmsWrapper, FactoryTransitKmsWrapper } from "./key-management";
+import { FakeCloudKms, MemoryWraps } from "../__tests__/helpers/factory-kms-doubles";
 
 const installationId = "kms-installation";
 
@@ -165,5 +136,17 @@ describe("self-hosted external KMS (transit engine)", () => {
     await expect(lying.unwrap(new TextEncoder().encode("vault:v1:x"), "transit:transit/factory-data-key", { installationId, wrapVersion: 1 })).rejects.toMatchObject({ code: "factory_decryption_failed" });
     expect(() => new FactoryTransitKmsWrapper({ endpoint: "http://x", keyName: "bad name", tokenPath })).toThrow();
     expect(() => new FactoryTransitKmsWrapper({ endpoint: "http://x", keyName: "ok", mount: "../escape", tokenPath })).toThrow();
+  });
+});
+
+describe("a wrapping service outage", () => {
+  test("fails closed as a missing key, and keeps the service's own error as the cause", async () => {
+    const wraps = new MemoryWraps();
+    const kms = new FakeCloudKms();
+    await InstallationDataKey.loadOrCreate(installationId, wraps, new FactoryCloudKmsWrapper({ keyId: "arn:kms:key/outage", client: kms }));
+    const outage = new FactoryCloudKmsWrapper({ keyId: "arn:kms:key/outage", client: { encrypt: kms.encrypt.bind(kms), decrypt: async () => { throw new Error("kms transport down"); } } });
+    const refused = await InstallationDataKey.loadExisting(installationId, wraps, outage).then(() => null, (error: unknown) => error as Error & { code?: string; cause?: AggregateError });
+    expect(refused?.code).toBe("factory_key_missing");
+    expect(refused?.cause?.errors.map(error => (error as Error).message)).toEqual(["kms transport down"]);
   });
 });

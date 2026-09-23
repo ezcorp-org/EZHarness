@@ -3598,3 +3598,15 @@ counted the intentionally ungated ledger tables. Open: real cloud KMS and Tempor
 proven on this host, the shared PostgreSQL does not archive WAL, and deployed restore, provisioner
 namespace settings, and failure-domain independence wait for W16. C09 purge, C08.14 inbox
 tombstones, and a signing surface are not built.
+
+### W15 round 2 (validator ACCEPT-WITH-FIXES at 0fe67b822)
+
+- [ ] H1 freshness fails closed: no policy row means enforce at 900 s; a held `checkpoint-barrier` role makes readiness `degraded`. Tests for both.
+- [ ] H2 an archived release intent that cannot be read or matched is a tenant-blocking finding. PostgreSQL test.
+- [ ] H3 the startup document names the Temporal HTTP endpoint; the barrier records positions in every checkpoint; a tenant restore with no reader blocks as `temporal_unverified`. Full-stack manifest shows `captured: true`.
+- [ ] M1 the pool service enforces at most sixteen barriers in flight across installations (checkpoint slots); the production barrier takes a slot or defers. PostgreSQL test and 100-tenant proof through slots.
+- [ ] M2 enroll debug_log, accepted_evidence, approval, and receipt with their periods; tests.
+- [ ] M3 production callers: key wrapper selected by the startup document (operator master key file, cloud KMS, transit KMS); restore reachable through a private operator command; tests through the installation composition.
+- [ ] L1 disclose the pool ledger and release-adapter extractions with the coordinator ruling. M4 correct the pool-failure attribution.
+- [ ] Low: L2 one archive S3 client construction; L5 keep the unwrap cause; L6 name the incompatible-schema branch in a test; L4 write the one-tenant-per-database rule at the gate.
+- [ ] Sweep after `git merge --no-edit integ/w00`; private legs before the private container is removed; remove `w15-private-postgres` and note it in report.txt.

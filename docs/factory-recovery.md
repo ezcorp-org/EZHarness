@@ -15,8 +15,12 @@ was superseded. The deadline is the anchor plus the class period:
 | --- | --- | --- |
 | Ordinary history | 30 days | Temporal workflow history (namespace retention) |
 | Unaccepted candidate | 90 days | `candidate_output` artifacts of terminal runs |
+| Debug log | 90 days | No factory store holds debug logs today, so nothing enrolls |
 | Canonical audit | 365 days | A run's audit batches and projections |
-| Release, receipt, approval, accepted evidence | 365 days | Settled release operations |
+| Release | 365 days | Settled release operations |
+| Accepted evidence | 365 days | A terminal run's validator evidence |
+| Approval | 365 days | A terminal run's command and release approvals |
+| Receipt | 365 days | A terminal run's task completion, outcome, and stop receipts |
 | Key version | 365 days after it is superseded | Prior data-key wraps |
 
 A database CHECK refuses a deadline below its class period. A release can
@@ -46,9 +50,15 @@ The import refuses a gap or a conflicting digest.
 ## Compatible checkpoints
 
 The `checkpoint-barrier` role seals a checkpoint at least every five minutes.
-On its first pass it turns on the freshness rule: from then on, a release claim
-or an attempt launch is refused while the newest sealed checkpoint is older
-than 15 minutes.
+The database refuses a release claim or an attempt launch while the newest
+sealed checkpoint is older than 15 minutes. This rule holds with no policy
+row: a new installation cannot claim an effect until its first barrier seals.
+If the role cannot compose, it is held, readiness is `degraded` with the reason
+`factory-checkpoint-barrier-held`, and effect claims stay closed.
+
+The role needs three things from the startup document: the archive credential
+set, the pool client, and `temporalHttp`, the tenant namespace's Temporal HTTP
+API. Every checkpoint records the Temporal position of each live workflow.
 
 One barrier does these steps:
 
@@ -67,8 +77,14 @@ One barrier does these steps:
 7. It commits the sealed row and resumes writes and claims.
 
 The target is 2 seconds and the maximum is 10 seconds. Past the maximum the
-barrier aborts, records an aborted attempt, and claims no checkpoint. A cycle
-across tenants runs at most 16 barriers at once. Barrier windows are recorded
+barrier aborts, records an aborted attempt, and claims no checkpoint. The abort
+itself adds the rollback time, a few milliseconds, to the measured duration.
+
+At most 16 barriers run at once across every tenant that shares a pool. The
+pool service holds sixteen slots. A barrier runs only while it holds one. When
+every slot is held, the barrier defers and the role retries on its next pass.
+A slot expires 15 seconds after it is taken, so a coordinator that dies cannot
+hold one for good. Barrier windows are recorded
 with their duration so C11 can exclude them from steady-state percentiles.
 
 Every `factory_*` table carries the barrier's statement trigger. A barrier
@@ -98,11 +114,16 @@ Create or update each tenant namespace with the arguments that
 and visibility archival to the given URIs. `verifyFactoryTemporalRetention`
 reads the settings through the Temporal HTTP API and names any unmet criterion.
 
+Workflow positions are read through the visibility list, because the HTTP
+describe route cannot address a workflow id that contains `/`. A running
+workflow has no history length there; a closed one has.
+
 ## Key wrapping
 
 The installation data key never changes. Rotation adds a wrap under the
 current key and keeps every earlier wrap. No encrypted object is rewritten.
-Three wrappers exist:
+The startup document's `keyManagement` section selects the wrapper. Absent, the
+operator master key in `keys` is used. Three wrappers exist:
 
 - The operator master-key file (`readOperatorMasterKey`), for self-hosted use.
 - `FactoryCloudKmsWrapper`, for hosted use with a cloud KMS client that has the
@@ -113,7 +134,21 @@ Three wrappers exist:
 ## Restore
 
 A restore runs against a restored product database, before the product process
-admits work.
+admits work. The operator runs it with the restore command:
+
+```
+DATABASE_URL=... EZCORP_FACTORY_STARTUP_CONFIG=... bun scripts/factory-restore.ts begin --restore-id <id> --fence <attestation.json>
+bun scripts/factory-restore.ts verify --restore-id <id> --fence <attestation.json>
+bun scripts/factory-restore.ts status --restore-id <id>
+```
+
+The command builds the restore from the installation's own composition: its
+release providers, host stop client, pool clients, Temporal reader, and key
+wrapper. A part that cannot compose is named in `uncomposed`, and its check
+blocks. The fence attestation is a private JSON file with `restoreId`,
+`ingress`, and `credentials`. The operator or the provisioner writes it after
+the old deployment's ingress route is withdrawn and its credentials are
+revoked. The command exits 2 while a tenant-blocking check remains.
 
 1. `FactoryRestore.open` raises the installation's execution epoch and records
    an open restore epoch. From this moment, run admission, release claims, and
@@ -125,11 +160,14 @@ admits work.
    `uncertain`, and blocks any whose capacity another holder now has.
 4. It compares Temporal positions. A tenant restore keeps the live namespace
    and blocks a run whose workflow moved past the restored product stream. A
-   cluster restore requires every position to equal the manifest's.
+   cluster restore requires every position to equal the manifest's. With no
+   live reader, or a manifest without positions, the check blocks in both
+   modes.
 5. It verifies every run's audit stream, imports archived batches the database
    no longer holds, and rebuilds projections.
 6. It recovers every release identity in the archive and checks each receipt
-   with its provider. Nothing is dispatched.
+   with its provider. Nothing is dispatched. An archived intent or receipt that
+   cannot be read blocks the tenant; no identity is skipped.
 7. It asks the original supervisor to stop every worker that was live at the
    old epoch, and verifies the signed stop receipt. It revokes every live pool
    reservation the restored database does not know.

@@ -1,5 +1,5 @@
 import { verifyPoolToken, type PoolTokenVerifierOptions } from "./service-token";
-import { FactoryPoolCheckpointSource, type PoolCheckpointPage } from "./checkpoint";
+import { FactoryPoolCheckpointSlots, FactoryPoolCheckpointSource, setupFactoryPoolCheckpointSlots, type PoolCheckpointPage, type PoolCheckpointSlot } from "./checkpoint";
 import { FactoryPoolLedger, type PoolDecision, type PoolLease, type PoolLeaseStatus, type PoolResourceVector, type PoolSql, setupFactoryPoolLedger } from "./ledger";
 
 export interface PoolTenantCertificate { tenantId: string; tokenSubject: string }
@@ -38,7 +38,7 @@ export function authenticatePoolPrincipal(certificateCommonName: string, bearerT
 export class PoolAdmissionService {
   readonly ledger: FactoryPoolLedger;
   constructor(private readonly database: PoolSql, ledger?: FactoryPoolLedger) { this.ledger = ledger ?? new FactoryPoolLedger(database); }
-  async setup(): Promise<void> { await setupFactoryPoolLedger(this.database); await this.database.unsafe("CREATE TABLE IF NOT EXISTS factory_pool_admission_grants (reservation_id text PRIMARY KEY, tenant_id text NOT NULL, grant_revision integer NOT NULL, grant_scope text NOT NULL, admission_deadline timestamptz NOT NULL)"); }
+  async setup(): Promise<void> { await setupFactoryPoolLedger(this.database); await this.database.unsafe("CREATE TABLE IF NOT EXISTS factory_pool_admission_grants (reservation_id text PRIMARY KEY, tenant_id text NOT NULL, grant_revision integer NOT NULL, grant_scope text NOT NULL, admission_deadline timestamptz NOT NULL)"); await setupFactoryPoolCheckpointSlots(this.database); }
   async request(principal: PoolPrincipal, input: PoolAdmissionRequest): Promise<PoolDecision> {
     const identity = tenant(principal); opaque(input.reservationId, "reservation id"); opaque(input.grantScope, "grant scope"); counter(input.grantRevision, "grant revision", 1);
     const grantScope = input.grantScope;
@@ -112,5 +112,16 @@ export class PoolAdmissionService {
     const identity = tenant(principal);
     scope(identity, `pool:restore:${identity.tenantId}`);
     return new FactoryPoolCheckpointSource(this.database).importLost(identity.tenantId, rows);
+  }
+
+  /** C06/C12: a cluster-wide barrier slot for this tenant, or null when sixteen other tenants hold every slot. */
+  async acquireCheckpointSlot(principal: PoolPrincipal): Promise<PoolCheckpointSlot | null> {
+    return new FactoryPoolCheckpointSlots(this.database).acquire(tenant(principal).tenantId);
+  }
+
+  /** Frees this tenant's slot. Another tenant's token frees nothing. */
+  async releaseCheckpointSlot(principal: PoolPrincipal, token: string): Promise<boolean> {
+    opaque(token, "checkpoint slot token");
+    return new FactoryPoolCheckpointSlots(this.database).release(tenant(principal).tenantId, token);
   }
 }

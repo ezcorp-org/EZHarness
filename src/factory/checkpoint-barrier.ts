@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
-import { FACTORY_RECOVERY_UNGATED_TABLES } from "../db/migrations/add-factory-recovery";
+import { FACTORY_CHECKPOINT_MAX_AGE_SECONDS, FACTORY_RECOVERY_UNGATED_TABLES } from "../db/migrations/add-factory-recovery";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestBytes } from "../extensions/v4/blobs";
@@ -52,7 +52,7 @@ export const FACTORY_CHECKPOINT_LIMITS = Object.freeze({
   targetMs: 2_000,
   maximumMs: 10_000,
   maxConcurrentBarriers: 16,
-  maxAgeMs: 15 * 60_000,
+  maxAgeMs: FACTORY_CHECKPOINT_MAX_AGE_SECONDS * 1_000,
   /** The longest the drain step waits for in-flight senders before fencing them. */
   drainMs: 1_000,
   pollMs: 5,
@@ -93,6 +93,17 @@ export interface FactoryCheckpointPoolSnapshot {
   /** The pool database's own position for the snapshot. */
   readonly position: string;
   readonly rows: readonly Record<string, unknown>[];
+}
+
+/**
+ * The cluster-wide barrier limit (C06/C12). The pool service holds sixteen
+ * slots for every tenant that shares it; a barrier runs only while it holds
+ * one, so at most sixteen barriers are in flight across the deployment.
+ */
+export interface FactoryCheckpointSlotSource {
+  /** A slot token, or null when every slot is held by another tenant. */
+  acquire(signal?: AbortSignal): Promise<{ readonly token: string } | null>;
+  release(token: string, signal?: AbortSignal): Promise<void>;
 }
 
 /** The tenant's rows of the shared pool ledger, read in one pool transaction. */
@@ -185,7 +196,8 @@ export interface FactoryCheckpointSeal {
 export type FactoryCheckpointOutcome =
   | { readonly kind: "sealed"; readonly checkpointId: string; readonly durationMs: number; readonly writePauseMs: number; readonly lsn: string; readonly manifest: FactoryArchiveObject; readonly seal: FactoryArchiveObject; readonly fenced: number; readonly withinTarget: boolean }
   | { readonly kind: "aborted"; readonly checkpointId: string; readonly durationMs: number; readonly code: FactoryCheckpointAbortCode }
-  | { readonly kind: "skipped"; readonly reason: "restore_epoch_open" };
+  | { readonly kind: "skipped"; readonly reason: "restore_epoch_open" }
+  | { readonly kind: "deferred"; readonly reason: "barrier_slots_full" };
 
 export interface FactoryCheckpointOptions {
   readonly database: TransactionalDb;
@@ -194,6 +206,8 @@ export interface FactoryCheckpointOptions {
   readonly archive: FactoryRecoveryArchive;
   readonly pool?: FactoryCheckpointPoolSource;
   readonly temporal?: FactoryCheckpointTemporalSource;
+  /** The cluster-wide slot a barrier holds while it runs. Production always passes the pool's. */
+  readonly slots?: FactoryCheckpointSlotSource;
   /** Only ever lowers the contract maximum, so a test can drive the abort path; never raises it. */
   readonly maximumMs?: number;
   readonly now?: () => number;
@@ -334,9 +348,22 @@ export class FactoryCheckpointCoordinator {
     return { sealed: Number(row.sealed), aborted: Number(row.aborted), totalMs: Number(row.total ?? 0), maxMs: Number(row.maximum ?? 0) };
   }
 
-  /** Runs one barrier. Every exit either seals a checkpoint or records an aborted attempt that claims nothing. */
+  /**
+   * Runs one barrier while holding a cluster-wide slot. With every slot held
+   * elsewhere it defers and claims nothing; otherwise every exit either seals a
+   * checkpoint or records an aborted attempt that claims nothing.
+   */
   async run(signal?: AbortSignal): Promise<FactoryCheckpointOutcome> {
     if (rows(await this.database.execute(sql`SELECT 1 FROM factory_restore_epochs WHERE tenant_id = ${this.tenantId} AND state <> 'enabled' LIMIT 1`)).length) return { kind: "skipped", reason: "restore_epoch_open" };
+    const slots = this.options.slots;
+    if (!slots) return this.runBarrier(signal);
+    const slot = await slots.acquire(signal);
+    if (slot === null) return { kind: "deferred", reason: "barrier_slots_full" };
+    try { return await this.runBarrier(signal); }
+    finally { await slots.release(slot.token, signal); }
+  }
+
+  private async runBarrier(signal?: AbortSignal): Promise<FactoryCheckpointOutcome> {
     const checkpointId = randomUUID();
     const startedAtMs = this.now();
     const started = this.monotonic();
@@ -479,14 +506,24 @@ export function factoryInterpreterWorkflowId(tenantId: string, runId: string, in
  * archive alone. A seal is trusted only if its manifest reads back, names this
  * tenant and checkpoint, and its digest matches the seal.
  */
-export async function latestFactoryCheckpoint(archive: FactoryRecoveryArchive, tenantId: string, signal?: AbortSignal): Promise<{ readonly seal: FactoryCheckpointSeal; readonly manifest: FactoryCheckpointManifest } | null> {
+/** Every valid seal the archive holds for the tenant, newest first. */
+async function factoryCheckpointSeals(archive: FactoryRecoveryArchive, tenantId: string, signal?: AbortSignal): Promise<FactoryCheckpointSeal[]> {
   const seals: FactoryCheckpointSeal[] = [];
   for (const object of await archive.list(tenantId, "checkpoint", FACTORY_CHECKPOINT_SEALS_RECORD, signal)) {
     const seal = await readFactoryRecoveryJson<FactoryCheckpointSeal>(archive, object, signal);
     if (seal?.schemaVersion === FACTORY_CHECKPOINT_SEAL_SCHEMA && seal.tenantId === tenantId && Number.isSafeInteger(seal.sealedAtMs)) seals.push(seal);
   }
-  seals.sort((left, right) => right.sealedAtMs - left.sealedAtMs || right.checkpointId.localeCompare(left.checkpointId));
-  const seal = seals[0];
+  return seals.sort((left, right) => right.sealedAtMs - left.sealedAtMs || right.checkpointId.localeCompare(left.checkpointId));
+}
+
+export async function latestFactoryCheckpoint(archive: FactoryRecoveryArchive, tenantId: string, signal?: AbortSignal): Promise<{ readonly seal: FactoryCheckpointSeal; readonly manifest: FactoryCheckpointManifest } | null> {
+  const seal = (await factoryCheckpointSeals(archive, tenantId, signal))[0];
+  return seal ? { seal, manifest: await readFactoryCheckpointManifest(archive, seal, signal) } : null;
+}
+
+/** One sealed checkpoint by its id and manifest digest, as a restore epoch pinned it; null when the archive lacks it. */
+export async function findFactoryCheckpoint(archive: FactoryRecoveryArchive, tenantId: string, checkpointId: string, manifestDigest: string, signal?: AbortSignal): Promise<{ readonly seal: FactoryCheckpointSeal; readonly manifest: FactoryCheckpointManifest } | null> {
+  const seal = (await factoryCheckpointSeals(archive, tenantId, signal)).find(candidate => candidate.checkpointId === checkpointId && candidate.manifestDigest === manifestDigest);
   return seal ? { seal, manifest: await readFactoryCheckpointManifest(archive, seal, signal) } : null;
 }
 
@@ -499,34 +536,4 @@ export async function readFactoryCheckpointManifest(archive: Pick<FactoryRecover
   return manifest;
 }
 
-export interface FactoryCheckpointCycleResult {
-  readonly outcomes: readonly { readonly tenantId: string; readonly outcome: FactoryCheckpointOutcome | { readonly kind: "failed"; readonly error: string } }[];
-  readonly maxInFlight: number;
-  readonly durationMs: number;
-}
 
-/**
- * One cycle across tenants with at most sixteen barriers in flight. With 100
- * tenants and the ten-second maximum the worst case is about seventy seconds
- * per cycle, inside the fifteen-minute bound.
- */
-export async function runFactoryCheckpointCycle(coordinators: readonly Pick<FactoryCheckpointCoordinator, "tenantId" | "run">[], options: { readonly maxConcurrent?: number; readonly monotonic?: () => number; readonly signal?: AbortSignal } = {}): Promise<FactoryCheckpointCycleResult> {
-  const maxConcurrent = options.maxConcurrent ?? FACTORY_CHECKPOINT_LIMITS.maxConcurrentBarriers;
-  if (!Number.isSafeInteger(maxConcurrent) || maxConcurrent < 1 || maxConcurrent > FACTORY_CHECKPOINT_LIMITS.maxConcurrentBarriers) throw new FactoryCheckpointError("factory_checkpoint_invalid");
-  const monotonic = options.monotonic ?? (() => performance.now());
-  const started = monotonic();
-  const outcomes: FactoryCheckpointCycleResult["outcomes"][number][] = new Array(coordinators.length);
-  let next = 0, inFlight = 0, maxInFlight = 0;
-  const lane = async () => {
-    while (next < coordinators.length && !options.signal?.aborted) {
-      const index = next++;
-      const coordinator = coordinators[index]!;
-      inFlight += 1; maxInFlight = Math.max(maxInFlight, inFlight);
-      try { outcomes[index] = { tenantId: coordinator.tenantId, outcome: await coordinator.run(options.signal) }; }
-      catch (error) { outcomes[index] = { tenantId: coordinator.tenantId, outcome: { kind: "failed", error: error instanceof Error ? error.message : String(error) } }; }
-      finally { inFlight -= 1; }
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(maxConcurrent, coordinators.length) }, lane));
-  return { outcomes: outcomes.filter(Boolean), maxInFlight, durationMs: Math.round(monotonic() - started) };
-}

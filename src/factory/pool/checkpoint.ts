@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { FactoryCheckpointPoolSnapshot, FactoryCheckpointPoolSource } from "../checkpoint-barrier";
+import { FACTORY_CHECKPOINT_LIMITS, type FactoryCheckpointPoolSnapshot, type FactoryCheckpointPoolSource, type FactoryCheckpointSlotSource } from "../checkpoint-barrier";
 import type { FactoryRestorePoolLedger } from "../restore";
 import type { FactoryPoolLedger } from "./ledger";
 import { normalizePoolResourceVector, POOL_RESOURCE_CLASSES, POOL_SCHEDULER_LOCK_SQL, poolRows as rows, type PoolResourceVector, type PoolSql } from "./ledger";
@@ -137,5 +137,67 @@ export function factoryDirectRestorePoolLedger(database: PoolSql, ledger: Pick<F
     importLost: (tenantId, snapshot) => source.importLost(tenantId, snapshot),
     liveRows: async tenantId => (await source.snapshotTenant(tenantId)).rows,
     revoke: async (reservationId, allocationGeneration) => ({ state: (await ledger.cancel(reservationId, allocationGeneration)).state }),
+  };
+}
+
+/**
+ * How long a barrier slot is held before the pool reclaims it. A barrier aborts
+ * at its ten-second maximum, so a slot outlives any barrier that holds it; the
+ * margin covers the abort's rollback. A coordinator that dies mid-barrier
+ * loses its slot when the hold runs out, never for good.
+ */
+export const POOL_CHECKPOINT_SLOT_HOLD_MS = FACTORY_CHECKPOINT_LIMITS.maximumMs + 5_000;
+
+/** The cluster-wide barrier slots: one row per slot, so the limit is a row count the database enforces. */
+export async function setupFactoryPoolCheckpointSlots(database: PoolSql): Promise<void> {
+  const slots = FACTORY_CHECKPOINT_LIMITS.maxConcurrentBarriers;
+  await database.unsafe(`CREATE TABLE IF NOT EXISTS factory_pool_checkpoint_slots (
+    slot integer PRIMARY KEY CHECK (slot >= 0 AND slot < ${slots}),
+    tenant_id text, token text, expires_at timestamptz,
+    CHECK ((tenant_id IS NULL) = (token IS NULL) AND (token IS NULL) = (expires_at IS NULL))
+  )`);
+  await database.unsafe(`INSERT INTO factory_pool_checkpoint_slots (slot) SELECT generate_series(0, ${slots - 1}) ON CONFLICT (slot) DO NOTHING`);
+}
+
+/**
+ * C06/C12: at most sixteen checkpoint barriers in flight across every tenant
+ * that shares this pool. The pool is the one service every installation
+ * reaches, so it holds the limit. A tenant holds at most one slot: a second
+ * acquire by the same tenant renews the slot it already holds.
+ */
+export class FactoryPoolCheckpointSlots {
+  constructor(private readonly database: PoolSql, private readonly holdMs = POOL_CHECKPOINT_SLOT_HOLD_MS) {
+    if (!Number.isSafeInteger(holdMs) || holdMs < 1) throw new Error("Pool checkpoint slot hold is malformed.");
+  }
+
+  /** A free, expired, or already-held slot, or null when sixteen other tenants hold every slot. */
+  async acquire(tenantId: string): Promise<PoolCheckpointSlot | null> {
+    const token = randomUUID();
+    const [row] = rows<{ slot: number; expires_at: Date | string }>(await this.database.unsafe(`UPDATE factory_pool_checkpoint_slots
+      SET tenant_id = $1, token = $2, expires_at = clock_timestamp() + ($3::integer * interval '1 millisecond')
+      WHERE slot = (SELECT slot FROM factory_pool_checkpoint_slots
+        WHERE tenant_id IS NULL OR tenant_id = $1 OR expires_at <= clock_timestamp()
+        ORDER BY (tenant_id IS NOT DISTINCT FROM $1) DESC, slot LIMIT 1 FOR UPDATE SKIP LOCKED)
+      RETURNING slot, expires_at`, [tenantId, token, this.holdMs]));
+    return row ? { slot: Number(row.slot), token, expiresAt: new Date(row.expires_at).toISOString() } : null;
+  }
+
+  /** Frees the slot this acquire returned. A slot the pool already reclaimed and gave away is left alone. */
+  async release(tenantId: string, token: string): Promise<boolean> {
+    return rows(await this.database.unsafe("UPDATE factory_pool_checkpoint_slots SET tenant_id = NULL, token = NULL, expires_at = NULL WHERE tenant_id = $1 AND token = $2 RETURNING slot", [tenantId, token])).length === 1;
+  }
+}
+
+export interface PoolCheckpointSlot {
+  readonly slot: number;
+  readonly token: string;
+  readonly expiresAt: string;
+}
+
+/** The barrier's slot source over the pool database directly, for a process that holds the pool connection. */
+export function factoryDirectCheckpointSlots(slots: FactoryPoolCheckpointSlots, tenantId: string): FactoryCheckpointSlotSource {
+  return {
+    acquire: async () => { const slot = await slots.acquire(tenantId); return slot === null ? null : { token: slot.token }; },
+    release: async token => { await slots.release(tenantId, token); },
   };
 }

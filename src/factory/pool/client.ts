@@ -1,6 +1,6 @@
 import { createGatewayTransport, GatewayStatusError, type GatewayResponse, type GatewayTransport, type GatewayTransportOptions } from "@ezcorp/factory-transport";
 import { POOL_LEASE_STATES, POOL_QUEUE_FULL_HTTP_STATUS, POOL_QUEUE_FULL_REASON, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseState, type PoolLeaseStatus, type PoolResourceClass, type PoolResourceVector } from "./ledger";
-import type { PoolCheckpointPage } from "./checkpoint";
+import type { PoolCheckpointPage, PoolCheckpointSlot } from "./checkpoint";
 import type { PoolAdmissionRequest, PoolLeaseFenceInput, PoolStopInput } from "./service";
 import { parseWireJson, POOL_HTTP_BYTES_LIMIT, wireCounter, wireExact, wireIsoDate, wireRecord, wireResources, wireText } from "./wire";
 
@@ -32,6 +32,10 @@ export interface PoolAdmissionClient {
 export interface PoolCheckpointClient {
   /** One page of this tenant's live reservations, for a checkpoint barrier. */
   checkpoint(after: string | null, signal?: AbortSignal): Promise<PoolCheckpointPage>;
+  /** A cluster-wide barrier slot, or null when every slot is held by another tenant. */
+  acquireCheckpointSlot(signal?: AbortSignal): Promise<PoolCheckpointSlot | null>;
+  /** Frees the slot `acquireCheckpointSlot` returned. */
+  releaseCheckpointSlot(token: string, signal?: AbortSignal): Promise<boolean>;
   /** Re-create lost live reservations as `uncertain`. Needs the tenant's restore scope. */
   restoreImport(rows: readonly Record<string, unknown>[], signal?: AbortSignal): Promise<{ readonly present: readonly string[]; readonly imported: readonly string[]; readonly overcommitted: readonly string[] }>;
 }
@@ -241,6 +245,20 @@ export async function createPoolCheckpointClient(options: PoolAdmissionClientOpt
       const rows = input.rows.map(row => wireRecord(row, "checkpoint row"));
       if (rows.some(row => row.tenant_id !== tenantId)) throw new Error("Pool admission returned another tenant's checkpoint row.");
       return { position: wireText(input.position, "checkpoint position"), rows, next: input.next === null ? null : wireText(input.next, "checkpoint cursor") };
+    },
+    async acquireCheckpointSlot(signal?: AbortSignal) {
+      const input = wireRecord(json(await requestJson(transport, "POST", "/v1/pool/checkpoint-slot", {}, signal), "checkpoint slot"), "checkpoint slot");
+      wireExact(input, ["slot"], "checkpoint slot");
+      if (input.slot === null) return null;
+      const slot = wireRecord(input.slot, "checkpoint slot");
+      wireExact(slot, ["slot", "token", "expiresAt"], "checkpoint slot");
+      return { slot: wireCounter(slot.slot, "checkpoint slot", 0), token: wireText(slot.token, "checkpoint slot token"), expiresAt: wireIsoDate(slot.expiresAt, "checkpoint slot expiry").toISOString() };
+    },
+    async releaseCheckpointSlot(token: string, signal?: AbortSignal) {
+      const input = wireRecord(json(await requestJson(transport, "POST", "/v1/pool/checkpoint-slot/release", { token: wireText(token, "checkpoint slot token") }, signal), "checkpoint slot release"), "checkpoint slot release");
+      wireExact(input, ["released"], "checkpoint slot release");
+      if (typeof input.released !== "boolean") throw new Error("Pool admission returned an invalid checkpoint slot release.");
+      return input.released;
     },
     async restoreImport(rows: readonly Record<string, unknown>[], signal?: AbortSignal) {
       const input = wireRecord(json(await requestJson(transport, "POST", "/v1/pool/restore-import", { rows }, signal), "restore import"), "restore import");

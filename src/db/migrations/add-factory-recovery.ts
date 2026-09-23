@@ -37,6 +37,13 @@ export const FACTORY_RECOVERY_UNGATED_TABLES = Object.freeze([
   "factory_recovered_releases",
 ] as const);
 
+/**
+ * The C06 recovery-point bound. With no policy row a tenant is held to it:
+ * effect claims stay closed until a sealed checkpoint younger than this
+ * exists, so an installation that never runs a barrier fails closed.
+ */
+export const FACTORY_CHECKPOINT_MAX_AGE_SECONDS = 900;
+
 const DAY_MS = 86_400_000;
 /** Minimum retention per class, in milliseconds after the anchor. */
 export const FACTORY_RETENTION_PERIOD_MS = Object.freeze({
@@ -53,7 +60,7 @@ export const FACTORY_RETENTION_PERIOD_MS = Object.freeze({
 
 export type FactoryRetentionClass = keyof typeof FACTORY_RETENTION_PERIOD_MS;
 export const FACTORY_RETENTION_CLASSES = Object.freeze(Object.keys(FACTORY_RETENTION_PERIOD_MS) as FactoryRetentionClass[]);
-export const FACTORY_RETENTION_SUBJECT_KINDS = Object.freeze(["run_audit", "candidate_artifact", "key_wrap", "release"] as const);
+export const FACTORY_RETENTION_SUBJECT_KINDS = Object.freeze(["run_audit", "candidate_artifact", "key_wrap", "release", "accepted_evidence", "approval", "receipt"] as const);
 export type FactoryRetentionSubjectKind = (typeof FACTORY_RETENTION_SUBJECT_KINDS)[number];
 
 function quoted(values: readonly string[]): string {
@@ -172,6 +179,12 @@ export async function up(database: MigrationDb): Promise<void> {
  * table that is not.
  */
 async function installGates(database: MigrationDb): Promise<void> {
+  // One tenant per product database is a precondition of this gate. The pause
+  // flag is read with no tenant filter and both advisory locks are
+  // database-wide, so a barrier pauses every writer in its database. That is
+  // exact for the deployed topology (one installation, one tenant, one product
+  // database, bound by `factory_installation`) and would over-pause if two
+  // tenants ever shared one database.
   await database.execute(sql`CREATE OR REPLACE FUNCTION factory_checkpoint_barrier_gate() RETURNS trigger LANGUAGE plpgsql AS $$
   BEGIN
     IF current_setting('ezcorp.factory_barrier_member', true) IS DISTINCT FROM 'on' THEN
@@ -194,7 +207,10 @@ async function installGates(database: MigrationDb): Promise<void> {
     -- A barrier closes claims before it drains senders. The flag expires on its
     -- own, so a coordinator that dies mid-barrier cannot close claims for good.
     IF EXISTS (SELECT 1 FROM factory_checkpoint_gate WHERE tenant_id = p_tenant AND claims_paused_until > clock_timestamp()) THEN RETURN 'checkpoint_barrier'; END IF;
+    -- No policy row means the default bound, never "no bound": an installation
+    -- that has not sealed a checkpoint has no provable recovery point.
     SELECT enforce_freshness, max_age_seconds INTO v_enforce, v_max_age FROM factory_checkpoint_policy WHERE tenant_id = p_tenant;
+    IF NOT FOUND THEN v_enforce := TRUE; v_max_age := ${sql.raw(String(FACTORY_CHECKPOINT_MAX_AGE_SECONDS))}; END IF;
     IF v_enforce IS TRUE THEN
       SELECT max(sealed_at) INTO v_newest FROM factory_checkpoints WHERE tenant_id = p_tenant AND state = 'sealed';
       IF v_newest IS NULL OR clock_timestamp() - v_newest > make_interval(secs => v_max_age) THEN RETURN 'checkpoint_stale'; END IF;

@@ -16,6 +16,8 @@ const page = { position: "0/1", rows: [{ reservation_id: "r-1", tenant_id: "tena
 const service = {
   checkpoint: mock(async () => page),
   restoreImport: mock(async () => ({ present: ["r-1"], imported: ["r-2"], overcommitted: [] })),
+  acquireCheckpointSlot: mock(async () => ({ slot: 3, token: "slot-token", expiresAt: "2026-09-22T00:00:15.000Z" })),
+  releaseCheckpointSlot: mock(async () => true),
 } as unknown as PoolAdmissionService;
 const identities = { tenants: { "tenant-one": { tenantId: "tenant-01", tokenSubject: "tenant-one" } }, supervisors: {} };
 const handler = createPoolAdmissionRouteHandler({ identities, tokens: { issuer: "factory-test", audience: "factory-pool", publicKeys: { test: keys.publicKey.export({ type: "pkcs1", format: "pem" }).toString() } }, service });
@@ -36,6 +38,15 @@ describe("the pool's C06 checkpoint routes", () => {
     await handler(request("/v1/pool/checkpoint", { after: "r-1" }));
     expect(service.checkpoint).toHaveBeenLastCalledWith(expect.anything(), "r-1");
     expect((await answer(handler(request("/v1/pool/checkpoint", { after: "r-1", extra: true })))).status).toBe(400);
+  });
+
+  test("a tenant acquires and releases its own barrier slot", async () => {
+    expect(await answer(handler(request("/v1/pool/checkpoint-slot", {})))).toEqual({ status: 200, body: { slot: { slot: 3, token: "slot-token", expiresAt: "2026-09-22T00:00:15.000Z" } } });
+    expect(service.acquireCheckpointSlot).toHaveBeenLastCalledWith(expect.objectContaining({ kind: "tenant", tenantId: "tenant-01" }));
+    expect((await answer(handler(request("/v1/pool/checkpoint-slot", { tenantId: "tenant-02" })))).status).toBe(400);
+    expect(await answer(handler(request("/v1/pool/checkpoint-slot/release", { token: "slot-token" })))).toEqual({ status: 200, body: { released: true } });
+    expect(service.releaseCheckpointSlot).toHaveBeenLastCalledWith(expect.objectContaining({ tenantId: "tenant-01" }), "slot-token");
+    for (const body of [{}, { token: "" }, { token: "t", extra: 1 }]) expect((await answer(handler(request("/v1/pool/checkpoint-slot/release", body)))).status).toBe(400);
   });
 
   test("a restore import is bounded and every row must be an object", async () => {

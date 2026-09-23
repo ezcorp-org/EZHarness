@@ -1,47 +1,28 @@
 import { describe, expect, test } from "bun:test";
 import { factoryWorkflowId } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
 import { factoryRecoveryMemoryStores } from "../__tests__/helpers/factory-recovery-memory";
-import { FACTORY_CHECKPOINT_LIMITS, FACTORY_CHECKPOINT_MANIFEST_SCHEMA, FACTORY_CHECKPOINT_SEAL_SCHEMA, FACTORY_CHECKPOINT_SEALS_RECORD, FactoryCheckpointCoordinator, FactoryCheckpointError, factoryInterpreterWorkflowId, latestFactoryCheckpoint, readFactoryCheckpointManifest, runFactoryCheckpointCycle, type FactoryCheckpointOutcome } from "./checkpoint-barrier";
+import { FACTORY_CHECKPOINT_LIMITS, FACTORY_CHECKPOINT_MANIFEST_SCHEMA, FACTORY_CHECKPOINT_SEAL_SCHEMA, FACTORY_CHECKPOINT_SEALS_RECORD, FactoryCheckpointCoordinator, FactoryCheckpointError, factoryInterpreterWorkflowId, latestFactoryCheckpoint, readFactoryCheckpointManifest, type FactoryCheckpointSlotSource } from "./checkpoint-barrier";
 import { writeFactoryRecoveryJson } from "./recovery-archive";
 
-describe("the checkpoint cycle across tenants", () => {
-  test("at most sixteen barriers are ever in flight, and every tenant gets one", async () => {
-    let inFlight = 0, peak = 0;
-    let open!: () => void;
-    const full = new Promise<void>(settle => { open = settle; });
-    const tenants = Array.from({ length: 100 }, (_, index) => ({
-      tenantId: `tenant-${index}`,
-      async run(): Promise<FactoryCheckpointOutcome> {
-        inFlight += 1; peak = Math.max(peak, inFlight);
-        // The first sixteen hold until all sixteen lanes are busy, which is the
-        // observed moment the bound is tested; later ones return at once.
-        if (inFlight === FACTORY_CHECKPOINT_LIMITS.maxConcurrentBarriers) open();
-        if (index < FACTORY_CHECKPOINT_LIMITS.maxConcurrentBarriers) await full;
-        inFlight -= 1;
-        if (index === 7) throw new Error("tenant database unreachable");
-        return { kind: "skipped", reason: "restore_epoch_open" };
-      },
-    }));
-    const cycle = await runFactoryCheckpointCycle(tenants, { monotonic: () => 0 });
-    expect(cycle.maxInFlight).toBe(16);
-    expect(peak).toBe(16);
-    expect(cycle.outcomes).toHaveLength(100);
-    expect(cycle.outcomes[7]).toEqual({ tenantId: "tenant-7", outcome: { kind: "failed", error: "tenant database unreachable" } });
-    expect(cycle.durationMs).toBe(0);
+describe("the cluster-wide barrier slot", () => {
+  // Only the restore-epoch check and the gate-coverage query reach this database.
+  function coordinator(slots: FactoryCheckpointSlotSource, failure = new Error("gate coverage unreadable")) {
+    let calls = 0;
+    const database = { execute: async () => { calls += 1; if (calls > 1) throw failure; return []; } } as never;
+    return new FactoryCheckpointCoordinator({ database, tenantId: "tenant-a", installationId: "installation-a", archive: factoryRecoveryMemoryStores().archive, slots });
+  }
+
+  test("with every slot held elsewhere the barrier defers and claims nothing", async () => {
+    const released: string[] = [];
+    const outcome = await coordinator({ acquire: async () => null, release: async token => { released.push(token); } }).run();
+    expect(outcome).toEqual({ kind: "deferred", reason: "barrier_slots_full" });
+    expect(released).toEqual([]);
   });
 
-  test("a smaller bound is honoured, a larger one is refused, and a cancelled cycle starts nothing new", async () => {
-    let peak = 0, inFlight = 0;
-    const tenant = (id: string) => ({ tenantId: id, async run(): Promise<FactoryCheckpointOutcome> { inFlight += 1; peak = Math.max(peak, inFlight); await Promise.resolve(); inFlight -= 1; return { kind: "skipped", reason: "restore_epoch_open" }; } });
-    expect((await runFactoryCheckpointCycle([tenant("a"), tenant("b"), tenant("c")], { maxConcurrent: 2 })).maxInFlight).toBe(2);
-    expect(peak).toBeLessThanOrEqual(2);
-    await expect(runFactoryCheckpointCycle([], { maxConcurrent: 17 })).rejects.toBeInstanceOf(FactoryCheckpointError);
-    await expect(runFactoryCheckpointCycle([], { maxConcurrent: 0 })).rejects.toBeInstanceOf(FactoryCheckpointError);
-    const cancelled = new AbortController(); cancelled.abort();
-    expect((await runFactoryCheckpointCycle([tenant("a")], { signal: cancelled.signal })).outcomes).toEqual([]);
-    expect((await runFactoryCheckpointCycle([])).outcomes).toEqual([]);
-    const plain = await runFactoryCheckpointCycle([{ tenantId: "x", run: async () => { throw "not an error object"; } }]);
-    expect(plain.outcomes[0]).toEqual({ tenantId: "x", outcome: { kind: "failed", error: "not an error object" } });
+  test("a held slot is released whatever the barrier does", async () => {
+    const released: string[] = [];
+    await expect(coordinator({ acquire: async () => ({ token: "slot-token" }), release: async token => { released.push(token); } }).run()).rejects.toThrow("gate coverage unreadable");
+    expect(released).toEqual(["slot-token"]);
   });
 });
 

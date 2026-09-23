@@ -33,7 +33,7 @@ export async function factoryRecoveryStorage(tenant = "tenant-09") {
   }
 
   return {
-    run, tenant, ordinaryPrefix, ordinaryClient, archiveClient, blobs, archiveOptions,
+    run, tenant, ordinaryPrefix, ordinaryEndpoint, ordinaryCredentials, ordinaryClient, archiveClient, blobs, archiveOptions,
     archive: new S3FactoryRecoveryArchive(archiveOptions),
     releaseArchive: new S3FactoryReleaseArchive(archiveOptions),
     eraser: new S3FactoryRetentionBlobEraser({ endpoint: ordinaryEndpoint, bucket: tenant, prefix: ordinaryPrefix, credentials: ordinaryCredentials, client: ordinaryClient }),

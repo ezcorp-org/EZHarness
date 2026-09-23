@@ -27,6 +27,7 @@ import { FactoryRecords } from "../../factory/records";
 import { factoryRequestedReleaseProfile, FactoryReleases, type FactoryDestinationReservationReader, type FactoryProviderReceipt, type FactoryReleaseAuthority, type FactoryReleaseAuthorityReader, type FactoryReleaseClaim, type FactoryReleaseMaterial, type FactoryReleaseMaterialReader, type FactoryReleaseOperation, type FactoryReleaseProvider } from "../../factory/releases";
 import { FaultInjectingArchive, MemoryFactoryReleaseArchive, type FactoryArchiveStore } from "./factory-archive-fixtures";
 import { unboundFactoryValidatorBinders } from "./factory-validator-binders";
+import { openFactoryEffectClaimsForTest } from "./factory-effect-claims";
 
 export interface FactoryArchiveWriterFixture {
   readonly db: TransactionalDb;
@@ -85,6 +86,7 @@ export async function factoryArchiveWriterWorld(fixture: FactoryArchiveWriterFix
 
   const records = new FactoryRecords(db, TENANT);
   await records.bindInstallation();
+  await openFactoryEffectClaimsForTest(db, TENANT);
   await db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${projectId},'Archive',${`/tmp/${projectId}`})`);
   await records.bindProject(projectId);
   await db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${admin.id},${`${admin.id}@example.test`},'x','archive','admin')`);

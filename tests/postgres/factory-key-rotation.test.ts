@@ -1,11 +1,10 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { ListObjectVersionsCommand } from "@aws-sdk/client-s3";
-import { canonicalJson } from "@ezcorp/extension-contract";
 import { EncryptedBlobStore, EncryptedRecordCodec, InstallationDataKey, StaticMasterKeyProvider } from "../../src/factory/encryption";
 import { DatabaseInstallationKeyWrapStore } from "../../src/factory/encryption-key-wrap-store";
 import { FactoryCheckpointCoordinator, factoryKeyWrapDigest, latestFactoryCheckpoint } from "../../src/factory/checkpoint-barrier";
-import { FactoryCloudKmsWrapper, type FactoryCloudKmsClient } from "../../src/factory/key-management";
+import { FactoryCloudKmsWrapper } from "../../src/factory/key-management";
+import { FakeCloudKms } from "../../src/__tests__/helpers/factory-kms-doubles";
 import { FactoryRecords } from "../../src/factory/records";
 import { factoryRecoveryStorage } from "./helpers/factory-recovery-storage";
 import { setupFactoryPostgres } from "./helpers/factory-test-database";
@@ -20,25 +19,6 @@ import { setupFactoryPostgres } from "./helpers/factory-test-database";
 const tenantId = "rotation-tenant", installationId = "rotation-installation";
 let fixture: Awaited<ReturnType<typeof setupFactoryPostgres>>;
 let storage: Awaited<ReturnType<typeof factoryRecoveryStorage>>;
-
-/** A cloud KMS double with the service's contract: the key never leaves it and the context is authenticated. */
-function cloudKms(): FactoryCloudKmsClient {
-  const key = randomBytes(32);
-  return {
-    async encrypt(input) {
-      const iv = randomBytes(12), cipher = createCipheriv("aes-256-gcm", key, iv);
-      cipher.setAAD(Buffer.from(canonicalJson(input.EncryptionContext)));
-      const body = Buffer.concat([cipher.update(input.Plaintext), cipher.final()]);
-      return { CiphertextBlob: new Uint8Array(Buffer.concat([iv, cipher.getAuthTag(), body])) };
-    },
-    async decrypt(input) {
-      const blob = Buffer.from(input.CiphertextBlob), decipher = createDecipheriv("aes-256-gcm", key, blob.subarray(0, 12));
-      decipher.setAAD(Buffer.from(canonicalJson(input.EncryptionContext)));
-      decipher.setAuthTag(blob.subarray(12, 28));
-      return { Plaintext: new Uint8Array(Buffer.concat([decipher.update(blob.subarray(28)), decipher.final()])) };
-    },
-  };
-}
 
 async function versionsUnder(client: typeof storage.ordinaryClient, prefix: string) {
   const listed = await client.send(new ListObjectVersionsCommand({ Bucket: storage.tenant, Prefix: `${prefix}/` }));
@@ -77,7 +57,7 @@ test("rotation rewraps the data key, keeps every wrap, and leaves archived and c
 
   // Rotate twice: to a new operator master key, then to a hosted cloud KMS key.
   const rotated = await original.rotate(wraps, new StaticMasterKeyProvider(second, [first, second]));
-  const kms = cloudKms();
+  const kms = new FakeCloudKms();
   await rotated.rotate(wraps, new FactoryCloudKmsWrapper({ keyId: "arn:kms:rotation-key", client: kms }));
   expect((await wraps.load(installationId)).map(row => [row.wrapVersion, row.masterKeyId])).toEqual([[3, "arn:kms:rotation-key"], [2, "master-2"], [1, "master-1"]]);
 

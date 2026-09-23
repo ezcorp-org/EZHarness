@@ -133,6 +133,14 @@ async function poolRoute(service: PoolAdmissionService, request: FactoryPrivateR
     const body = payload(request, ["after"]);
     return json(200, await service.checkpoint(principal, body.after === undefined || body.after === null ? null : wireText(body.after, "checkpoint cursor")));
   }
+  if (request.method === "POST" && url.pathname === "/v1/pool/checkpoint-slot") {
+    payload(request, []);
+    return json(200, { slot: await service.acquireCheckpointSlot(principal) });
+  }
+  if (request.method === "POST" && url.pathname === "/v1/pool/checkpoint-slot/release") {
+    const body = payload(request, ["token"]);
+    return json(200, { released: await service.releaseCheckpointSlot(principal, wireText(body.token, "checkpoint slot token")) });
+  }
   if (request.method === "POST" && url.pathname === "/v1/pool/restore-import") {
     const body = payload(request, ["rows"]);
     if (!Array.isArray(body.rows) || body.rows.length > 64) fail(400, "invalid_request");

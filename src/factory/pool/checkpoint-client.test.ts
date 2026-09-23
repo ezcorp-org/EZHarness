@@ -45,6 +45,25 @@ describe("the pool checkpoint client", () => {
     await expect(client.checkpoint(null)).rejects.toThrow("invalid checkpoint page");
   });
 
+  test("acquires and releases a barrier slot, and refuses a malformed answer", async () => {
+    reply = json({ slot: { slot: 3, token: "slot-token", expiresAt: "2026-09-22T00:00:15.000Z" } });
+    expect(await client.acquireCheckpointSlot()).toEqual({ slot: 3, token: "slot-token", expiresAt: "2026-09-22T00:00:15.000Z" });
+    expect(bodies.at(-1)).toEqual({});
+    reply = json({ slot: null });
+    expect(await client.acquireCheckpointSlot()).toBeNull();
+    for (const bad of [{ slot: null, extra: 1 }, { slot: { slot: -1, token: "t", expiresAt: "2026-09-22T00:00:15.000Z" } }, { slot: { slot: 1, token: "t" } }]) {
+      reply = json(bad);
+      await expect(client.acquireCheckpointSlot()).rejects.toThrow();
+    }
+    reply = json({ released: true });
+    expect(await client.releaseCheckpointSlot("slot-token")).toBe(true);
+    expect(bodies.at(-1)).toEqual({ token: "slot-token" });
+    reply = json({ released: "yes" });
+    await expect(client.releaseCheckpointSlot("slot-token")).rejects.toThrow("invalid checkpoint slot release");
+    reply = json({ released: false, extra: 1 });
+    await expect(client.releaseCheckpointSlot("slot-token")).rejects.toThrow();
+  });
+
   test("sends a restore import and validates the three lists", async () => {
     reply = json({ present: ["r-1"], imported: ["r-2"], overcommitted: ["r-3"] });
     expect(await client.restoreImport([{ reservation_id: "r-2" }])).toEqual({ present: ["r-1"], imported: ["r-2"], overcommitted: ["r-3"] });

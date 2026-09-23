@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
@@ -18,9 +19,13 @@ import { FactoryRecords } from "../../src/factory/records";
 import { readFactoryRunAudit } from "../../src/factory/audit-archive";
 import { FactoryRestore, factoryRestoreReportDigest, runFactoryClusterRestore, S3FactoryObjectVersionProbe, type FactoryRestoreFence, type FactoryRestoreReport } from "../../src/factory/restore";
 import { FactoryRetention, factoryRetentionSubjectId } from "../../src/factory/retention";
+import { S3FactoryRecoveryArchive } from "../../src/factory/recovery-archive";
+import { factoryArchiveRoot, factoryArchiveSegment, S3FactoryReleaseArchive, writeFactoryArchiveImmutable } from "../../src/factory/release-adapters";
 import { createFactoryReleaseWorld, digest, type FactoryReleaseWorld } from "../../src/__tests__/helpers/factory-release-world";
 import { FactoryRecoveryDatabases, FactorySigningSupervisor, launchFactoryAttempt, type FactoryOpenDatabase } from "./helpers/factory-recovery-databases";
 import { factoryRecoveryStorage } from "./helpers/factory-recovery-storage";
+import { runFactoryRestoreCommand } from "../../src/factory/restore-command";
+import { FACTORY_STARTUP_CONFIG_SCHEMA } from "../../src/factory/startup-config";
 
 /**
  * C06 restore against real PostgreSQL copies, the real ordinary store, and the
@@ -70,18 +75,21 @@ async function lifecycle(db: FactoryOpenDatabase["db"], runId: string, status: s
     VALUES (${tenantId},${projectId},${runId},'restore-factory','v1',${digest("d")},1,${status},${Date.now() + 86_400_000},'{}',${digest("e")},to_timestamp(${updatedMs}::double precision / 1000))`);
 }
 
-function restoreFor(db: FactoryOpenDatabase["db"], options: { masters?: MasterKey[]; temporal?: FactoryCheckpointTemporalSource; poolSql?: PoolSql; poolLedger?: FactoryPoolLedger; tenant?: string } = {}): FactoryRestore {
+/** A live namespace that has not moved since the checkpoint: every live workflow still running on its recorded run. */
+const stillNamespace: FactoryCheckpointTemporalSource = { namespace: "restore", positions: async ids => ids.map(workflowId => ({ workflowId, runId: "t", status: "WORKFLOW_EXECUTION_STATUS_RUNNING", historyLength: null })) };
+
+function restoreFor(db: FactoryOpenDatabase["db"], options: { masters?: MasterKey[]; temporal?: FactoryCheckpointTemporalSource | null; poolSql?: PoolSql; poolLedger?: FactoryPoolLedger; tenant?: string; archive?: Pick<typeof storage, "archive" | "releaseArchive"> } = {}): FactoryRestore {
   const poolSql = options.poolSql ?? pool.client as unknown as PoolSql;
   const poolLedger = options.poolLedger ?? ledger;
   return new FactoryRestore({
     database: db, tenantId: options.tenant ?? tenantId, installationId,
-    archive: storage.archive, releaseArchive: storage.releaseArchive,
+    archive: (options.archive ?? storage).archive, releaseArchive: (options.archive ?? storage).releaseArchive,
     loadDataKey: () => InstallationDataKey.loadExisting(installationId, new DatabaseInstallationKeyWrapStore(db), new StaticMasterKeyProvider((options.masters ?? [master])[0]!, options.masters ?? [master])),
     objects: new S3FactoryObjectVersionProbe({ endpoint: "unused", bucket: storage.tenant, prefix: storage.ordinaryPrefix, credentials: { accessKeyId: "unused", secretAccessKey: "unused" }, client: storage.ordinaryClient }),
     fence, workers: supervisor, hostKeys: supervisor.hostKeys,
     poolStops: { confirmStopped: async input => poolLedger.confirmStopped(input) },
     pool: factoryDirectRestorePoolLedger(poolSql, poolLedger),
-    ...(options.temporal ? { temporal: options.temporal } : {}),
+    ...(options.temporal === null ? {} : { temporal: options.temporal ?? stillNamespace }),
     providers: () => world.provider,
     // The run view, rebuilt by replay before service resumes: the projector's
     // own contract (contiguous, verified, idempotent) over the restored stream.
@@ -145,7 +153,7 @@ beforeAll(async () => {
   guestAuthority = { ...fields, requestDigest: factoryRunnerRequestDigest(request), deadlineAt: new Date(deadlineAtMs) };
 
   // The barrier, then the backup at the barrier.
-  const barrier = new FactoryCheckpointCoordinator({ database: primary.db, tenantId, installationId, archive: storage.archive, pool: new FactoryPoolCheckpointSource(pool.client as unknown as PoolSql) });
+  const barrier = new FactoryCheckpointCoordinator({ database: primary.db, tenantId, installationId, archive: storage.archive, pool: new FactoryPoolCheckpointSource(pool.client as unknown as PoolSql), temporal: stillNamespace });
   const sealed = await barrier.run();
   expect(sealed.kind).toBe("sealed");
   manifest = (await latestFactoryCheckpoint(storage.archive, tenantId))!.manifest;
@@ -253,6 +261,19 @@ describe("restore into a new execution epoch", () => {
     } finally { await restored.close(); }
   }, 120_000);
 
+  test("a backup whose factory schema differs from the checkpoint's is incompatible", async () => {
+    const restored = await restoredCopy("schema");
+    try {
+      // A column the checkpoint's schema never had: a backup from another product build.
+      await restored.db.execute(sql`ALTER TABLE factory_run_projections ADD COLUMN w15_foreign_build TEXT`);
+      const restore = restoreFor(restored.db);
+      const report = await restore.begin({ restoreId: "restore-schema", mode: "tenant" });
+      expect(finding(report, "check", "schema")).toMatchObject({ disposition: "blocked", reason: "incompatible_schema" });
+      expect(report.blockedChecks).toContain("check:schema:incompatible_schema");
+      await expect(restore.sign("restore-schema", admin, factoryRestoreReportDigest(report))).rejects.toMatchObject({ code: "factory_restore_blocked" });
+    } finally { await restored.close(); }
+  }, 120_000);
+
   test("a missing master key or a missing key version blocks the restore", async () => {
     const restored = await restoredCopy("keys");
     try {
@@ -348,9 +369,24 @@ describe("restore into a new execution epoch", () => {
     } finally { await tenantCopy.close(); }
     const noneCopy = await restoredCopy("temporal-cluster-none");
     try {
-      const withoutPositions = await restoreFor(noneCopy.db).begin({ restoreId: "restore-cluster-none", mode: "cluster" });
+      const withoutPositions = await restoreFor(noneCopy.db, { temporal: null }).begin({ restoreId: "restore-cluster-none", mode: "cluster" });
       expect(finding(withoutPositions, "check", "temporal")).toMatchObject({ disposition: "blocked", reason: "temporal_unavailable" });
+      expect(withoutPositions.blockedChecks).toContain("check:temporal:temporal_unavailable");
     } finally { await noneCopy.close(); }
+    // A tenant restore with no live reader cannot tell whether the namespace moved: unverified, and closed.
+    const unverifiedCopy = await restoredCopy("temporal-tenant-none");
+    try {
+      const unverified = await restoreFor(unverifiedCopy.db, { temporal: null }).begin({ restoreId: "restore-tenant-none", mode: "tenant" });
+      expect(finding(unverified, "check", "temporal")).toMatchObject({ disposition: "blocked", reason: "temporal_unverified" });
+      await expect(restoreFor(unverifiedCopy.db, { temporal: null }).sign("restore-tenant-none", admin, factoryRestoreReportDigest(unverified))).rejects.toMatchObject({ code: "factory_restore_blocked" });
+    } finally { await unverifiedCopy.close(); }
+    // A manifest that recorded no positions cannot be compared in either mode.
+    const uncapturedCopy = await restoredCopy("temporal-uncaptured");
+    try {
+      const uncaptured: FactoryCheckpointManifest = { ...manifest, temporal: { captured: false, reason: "no Temporal position source" } };
+      const report = await restoreFor(uncapturedCopy.db).begin({ restoreId: "restore-uncaptured", mode: "tenant", checkpoint: { seal: (await latestFactoryCheckpoint(storage.archive, tenantId))!.seal, manifest: uncaptured } });
+      expect(finding(report, "check", "temporal")).toMatchObject({ disposition: "blocked", reason: "temporal_not_captured" });
+    } finally { await uncapturedCopy.close(); }
     const clusterCopy = await restoredCopy("temporal-cluster");
     const secondCopy = await restoredCopy("temporal-cluster-2");
     try {
@@ -375,6 +411,81 @@ describe("restore into a new execution epoch", () => {
         expect(finding(report, "run", canonicalJson([projectId, "run-pre"]))).toMatchObject({ disposition: "verified", reason: "temporal_position_consistent" });
       }
     } finally { await clusterCopy.close(); await secondCopy.close(); }
+  }, 120_000);
+
+  test("a release identity whose archived intent or receipt cannot be read blocks the tenant instead of vanishing", async () => {
+    // Its own archive sub-prefix, so the corrupt objects touch no other restore in this suite.
+    const options = { ...storage.archiveOptions, prefix: `${storage.archiveOptions.prefix}/unreadable` };
+    const archive = { archive: new S3FactoryRecoveryArchive(options), releaseArchive: new S3FactoryReleaseArchive(options) };
+    const operation = (operationId: string, kind: string) => `${factoryArchiveRoot(options.prefix)}/${factoryArchiveSegment(tenantId)}/${factoryArchiveSegment(operationId)}/${kind}`;
+    const text = (value: string) => new TextEncoder().encode(value);
+    // A corrupt intent, a receipt with no intent at all, and a readable intent whose only receipt is corrupt.
+    await writeFactoryArchiveImmutable(options, storage.archiveClient, operation("op-corrupt", "intent"), text("{not json"));
+    await writeFactoryArchiveImmutable(options, storage.archiveClient, operation("op-orphan", "receipt"), text("{}"));
+    await writeFactoryArchiveImmutable(options, storage.archiveClient, operation("op-receipt", "intent"), text(canonicalJson({ tenantId, projectId, runId: "run-audit", operationId: "op-receipt", requestDigest: digest("r"), destination: { provider: "memory", account: "a", object: "o" } })));
+    await writeFactoryArchiveImmutable(options, storage.archiveClient, operation("op-receipt", "receipt"), text("{not json"));
+    const restored = await restoredCopy("unreadable");
+    try {
+      const restore = restoreFor(restored.db, { archive });
+      const report = await restore.begin({ restoreId: "restore-unreadable", mode: "tenant", checkpoint: (await latestFactoryCheckpoint(storage.archive, tenantId))! });
+      expect(finding(report, "check", "release-intent:op-corrupt")).toMatchObject({ disposition: "blocked", reason: "release_intent_unreadable", detail: { operationId: "op-corrupt", objects: 1, unreadable: 1 } });
+      expect(finding(report, "check", "release-intent:op-orphan")).toMatchObject({ disposition: "blocked", reason: "release_intent_missing", detail: { objects: 0, unreadable: 0 } });
+      expect(finding(report, "release", canonicalJson([projectId, "op-receipt"]))).toMatchObject({ disposition: "blocked", reason: "release_receipt_unreadable" });
+      expect(finding(report, "run", canonicalJson([projectId, "run-audit"]))).toMatchObject({ disposition: "blocked" });
+      // Every listed identity is counted, and none is silently dropped.
+      expect(report.releaseIdentities).toEqual({ archived: 3, recovered: 0, blocked: 3 });
+      await expect(restore.sign("restore-unreadable", admin, factoryRestoreReportDigest(report))).rejects.toMatchObject({ code: "factory_restore_blocked" });
+    } finally { await restored.close(); }
+  }, 120_000);
+
+  test("the operator command restores through the installation's own composition from its startup document", async () => {
+    const directory = await mkdtemp(join(process.env.HOME!, ".w15-restore-command-"));
+    const temporal = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ executions: [{ execution: { runId: "t" }, status: "WORKFLOW_EXECUTION_STATUS_RUNNING", startTime: "2026-09-22T00:00:00Z" }] }) });
+    const restored = await restoredCopy("command");
+    try {
+      const file = async (name: string, content: string | Uint8Array) => { const path = join(directory, name); await writeFile(path, content, { mode: 0o600 }); return path; };
+      const credentials = async (name: string, value: { accessKeyId: string; secretAccessKey: string }) => file(name, JSON.stringify({ identities: [{ name: tenantId, credentials: [{ accessKey: value.accessKeyId, secretKey: value.secretAccessKey }] }] }));
+      const wraps = rows<{ wrap_version: number; master_key_id: string; wrapped_data_key: Uint8Array }>(await restored.db.execute(sql`SELECT wrap_version, master_key_id, wrapped_data_key FROM factory_installation_key_wraps WHERE installation_id = ${installationId}`));
+      const tls = { caPath: join(directory, "absent-ca.pem"), certificatePath: join(directory, "absent.pem"), privateKeyPath: join(directory, "absent.key") };
+      const storageEntry = (kind: "ordinary" | "archive", endpoint: string, prefix: string, credentialsPath: string) => ({ endpoint, bucket: storage.tenant, prefix, credentialSet: `${kind}-set`, credentialsPath });
+      const config = await file("startup.json", JSON.stringify({
+        schemaVersion: FACTORY_STARTUP_CONFIG_SCHEMA, installationId, tenantId, poolId: "pool-restore", temporalNamespace: "restore",
+        orchestrationReadinessFilePath: join(directory, "o.json"), poolReadinessFilePath: join(directory, "p.json"), supervisorReadinessFilePath: join(directory, "s.json"), hostId, orphanSweepIntervalMs: 30_000,
+        gateway: { hostname: "127.0.0.1", port: 8443, tls }, privateService: { hostname: "127.0.0.1", port: 8444, certificateIdentity: "factory-private", tls },
+        pool: { baseUrl: "https://127.0.0.1:1", serviceTokenPath: join(directory, "absent-token"), tls },
+        storage: {
+          ordinary: storageEntry("ordinary", storage.ordinaryEndpoint, storage.ordinaryPrefix, await credentials("ordinary.json", storage.ordinaryCredentials)),
+          archive: storageEntry("archive", storage.archiveOptions.endpoint, storage.archiveOptions.prefix, await credentials("archive.json", storage.archiveOptions.credentials)),
+        },
+        keys: {
+          masterKeyFilePath: await file("master.key", master.bytes), masterKeyId: master.id, grantableRoots: ["/srv/project"],
+          wrappedKeyFilePath: await file("wraps.json", JSON.stringify({ schemaVersion: "factory.key-wraps.v1", installationId, wraps: wraps.map(wrap => ({ installationId, wrapVersion: Number(wrap.wrap_version), masterKeyId: wrap.master_key_id, wrappedDataKey: Buffer.from(wrap.wrapped_data_key).toString("base64") })) })),
+        },
+        temporalHttp: { endpoint: `http://127.0.0.1:${temporal.port}` },
+      }));
+      const fencePath = await file("fence.json", JSON.stringify({ restoreId: "restore-command", ingress: "old ingress route withdrawn", credentials: "old service credentials revoked" }));
+      const lines: string[] = [];
+      const io = { env: {}, out: (line: string) => lines.push(line), database: async () => ({ db: restored.db, close: async () => {} }) };
+      // The pool and the host transport are unreachable here, so their checks block; everything else verifies.
+      expect(await runFactoryRestoreCommand(["begin", "--restore-id", "restore-command", "--fence", fencePath, "--config", config], io)).toBe(2);
+      const begun = JSON.parse(lines.at(-1)!) as { reportDigest: string; blockedChecks: string[]; uncomposed: string[] };
+      expect(begun.blockedChecks.sort()).toEqual(["pool:ledger:pool_unavailable", "worker:attempt-guest:worker_stop_unproven"]);
+      expect(begun.uncomposed).toEqual(["restore-pool", "restore-host-keys"]);
+      const findings = rows<{ subject_kind: string; subject_id: string; disposition: string; reason: string; detail_json: string }>(await restored.db.execute(sql`SELECT subject_kind, subject_id, disposition, reason, detail_json FROM factory_restore_findings WHERE tenant_id = ${tenantId} AND restore_id = 'restore-command'`));
+      const of = (kind: string, subjectId: string) => findings.find(row => row.subject_kind === kind && row.subject_id === subjectId);
+      expect(of("check", "keys")).toMatchObject({ disposition: "verified" });
+      expect(of("check", "fence-ingress")).toMatchObject({ disposition: "verified" });
+      expect(of("run", canonicalJson([projectId, "run-audit"]))?.reason).not.toBe("temporal_ahead_of_product");
+      expect(JSON.parse(of("worker", "attempt-guest")!.detail_json)).toEqual({ error: "worker_stopper_unavailable" });
+      // Re-verification after a fix keeps the same epoch; status reads it.
+      expect(await runFactoryRestoreCommand(["verify", "--restore-id", "restore-command", "--fence", fencePath, "--config", config], io)).toBe(2);
+      expect(await runFactoryRestoreCommand(["status", "--restore-id", "restore-command", "--config", config], io)).toBe(0);
+      expect(JSON.parse(lines.at(-1)!)).toMatchObject({ restoreId: "restore-command", state: "awaiting_signature" });
+    } finally {
+      temporal.stop(true);
+      await restored.close();
+      await rm(directory, { recursive: true, force: true });
+    }
   }, 120_000);
 
   test("a missing object version blocks the restore", async () => {

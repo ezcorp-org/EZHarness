@@ -57,8 +57,8 @@ export interface InstallationKeyWrapStore {
 
 export class FactoryEncryptionError extends Error {
   readonly code: "factory_key_missing" | "factory_key_unsafe" | "factory_key_invalid" | "factory_key_conflict" | "factory_payload_too_large" | "factory_decryption_failed" | "factory_encryption_binding_invalid";
-  constructor(code: FactoryEncryptionError["code"]) {
-    super(code);
+  constructor(code: FactoryEncryptionError["code"], options?: { readonly cause?: unknown }) {
+    super(code, options);
     this.code = code;
     this.name = "FactoryEncryptionError";
   }
@@ -177,31 +177,40 @@ export class InstallationDataKey {
   /** Wrap rotation never changes the data-key encryption version or object bytes. */
   readonly dataKeyVersion = 1;
   private constructor(installationId: string, value: Uint8Array, wrapVersion: number) { this.installationId = installationId; this.value = value; this.wrapVersion = wrapVersion; }
-  /** Opens the first wrap, newest first, that this wrapper holds a key for; retained older wraps are tried in turn. */
-  private static async open(installationId: string, existing: readonly InstallationKeyWrap[], wrapper: FactoryDataKeyWrapper): Promise<InstallationDataKey | undefined> {
+  /**
+   * Opens the first wrap, newest first, that this wrapper holds a key for;
+   * retained older wraps are tried in turn. A wrap that fails to open is
+   * skipped, but its failure is kept: when nothing opens, the refusal carries
+   * every cause, so a KMS outage is not mistaken for a missing key.
+   */
+  private static async open(installationId: string, existing: readonly InstallationKeyWrap[], wrapper: FactoryDataKeyWrapper): Promise<{ readonly key?: InstallationDataKey; readonly failures: readonly unknown[] }> {
+    const failures: unknown[] = [];
     for (const candidate of [...existing].sort((a, b) => b.wrapVersion - a.wrapVersion)) {
       if (candidate.installationId !== installationId) continue;
       try {
         const opened = await wrapper.unwrap(candidate.wrappedDataKey, candidate.masterKeyId, { installationId, wrapVersion: candidate.wrapVersion });
-        if (opened) return new InstallationDataKey(installationId, key(opened), candidate.wrapVersion);
-      } catch { /* retained wraps may belong to other keys */ }
+        if (opened) return { key: new InstallationDataKey(installationId, key(opened), candidate.wrapVersion), failures };
+      } catch (error) { failures.push(error); }
     }
-    return undefined;
+    return { failures };
+  }
+  private static missing(failures: readonly unknown[]): FactoryEncryptionError {
+    return new FactoryEncryptionError("factory_key_missing", failures.length === 0 ? undefined : { cause: new AggregateError(failures, "no retained wrap opened") });
   }
   static async loadOrCreate(installationId: string, wraps: InstallationKeyWrapStore, keys: MasterKeyProvider | FactoryDataKeyWrapper): Promise<InstallationDataKey> {
     requireId(installationId);
     const wrapper = wrapperOf(keys);
     const existing = await wraps.load(installationId);
     const resolved = await InstallationDataKey.open(installationId, existing, wrapper);
-    if (resolved) return resolved;
-    if (existing.length > 0) throw new FactoryEncryptionError("factory_key_missing");
+    if (resolved.key) return resolved.key;
+    if (existing.length > 0) throw InstallationDataKey.missing(resolved.failures);
     const keyId = await wrapper.currentKeyId();
     const wrapVersion = 1;
     const dataKey = randomBytes(DATA_KEY_BYTES);
     await wraps.save({ installationId, wrapVersion, masterKeyId: keyId, wrappedDataKey: await wrapper.wrap(dataKey, keyId, { installationId, wrapVersion }) });
     const persisted = await InstallationDataKey.open(installationId, await wraps.load(installationId), wrapper);
-    if (!persisted) throw new FactoryEncryptionError("factory_key_missing");
-    return persisted;
+    if (!persisted.key) throw InstallationDataKey.missing(persisted.failures);
+    return persisted.key;
   }
   /** Readonly recovery for workers: never creates or rotates a wrap. */
   static async loadExisting(installationId: string, wraps: InstallationKeyWrapStore, keys: MasterKeyProvider | FactoryDataKeyWrapper): Promise<InstallationDataKey> {
@@ -209,8 +218,8 @@ export class InstallationDataKey {
     const existing = await wraps.load(installationId);
     if (existing.length === 0) throw new FactoryEncryptionError("factory_key_missing");
     const opened = await InstallationDataKey.open(installationId, existing, wrapperOf(keys));
-    if (!opened) throw new FactoryEncryptionError("factory_key_missing");
-    return opened;
+    if (!opened.key) throw InstallationDataKey.missing(opened.failures);
+    return opened.key;
   }
   /** Adds a wrap under the current key. Earlier wraps and every encrypted object stay exactly as they are. */
   async rotate(wraps: InstallationKeyWrapStore, keys: MasterKeyProvider | FactoryDataKeyWrapper): Promise<InstallationDataKey> {
