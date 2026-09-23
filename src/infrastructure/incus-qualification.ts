@@ -7,7 +7,7 @@ import {
   type SandboxCompatibilityObservation,
   type SandboxPreset,
 } from "@ezcorp/extension-contract";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb, type Database, type DbTransaction } from "../db/connection";
 import { incusQualificationFixtures, projectWorkspaceBindings, projects, sandboxAdmissionRequests,
   sandboxBindings, sandboxOperations, sandboxProjectQuotas, sandboxReservations,
@@ -344,6 +344,42 @@ export class IncusQualificationFixtureService {
     return row ?? null;
   }
 
+  private async ownedFixture(scope: IncusQualificationScope, operationId: string) {
+    const row = await this.fixture(operationId);
+    if (!row || row.installationId !== scope.installationId || row.releaseId !== scope.releaseId
+      || row.connectionId !== scope.connectionId || row.presetId !== scope.presetId) {
+      throw new Error("Incus qualification fixture is unavailable");
+    }
+    const [project] = await this.db.select({ purpose: projects.purpose }).from(projects)
+      .where(eq(projects.id, row.projectId)).limit(1);
+    const binding = await this.controller.getBinding(row.bindingId);
+    if (project?.purpose !== "incus-qualification" || !binding || binding.projectId !== row.projectId
+      || binding.resourceKey !== row.bindingId || binding.providerInstallationId !== row.installationId
+      || binding.providerReleaseId !== row.releaseId || binding.connectionId !== row.connectionId
+      || binding.connectionRevision !== row.connectionRevision || binding.presetId !== row.presetId
+      || binding.presetDigest !== row.presetDigest
+      || binding.effectiveSettingsDigest !== row.effectiveSettingsDigest) {
+      throw new Error("Incus qualification fixture binding changed");
+    }
+    return { row, binding };
+  }
+
+  /** Read only the durable state owned by this exact operator fixture. */
+  async status(scope: IncusQualificationScope, operationId: string) {
+    const { row, binding } = await this.ownedFixture(scope, operationId);
+    const [operation] = await this.db.select({ id: sandboxOperations.id, kind: sandboxOperations.kind,
+      state: sandboxOperations.state, generation: sandboxOperations.generation,
+      providerOperationId: sandboxOperations.providerOperationId, errorCode: sandboxOperations.errorCode,
+      createdAt: sandboxOperations.createdAt, updatedAt: sandboxOperations.updatedAt })
+      .from(sandboxOperations).where(eq(sandboxOperations.bindingId, row.bindingId))
+      .orderBy(desc(sandboxOperations.createdAt), desc(sandboxOperations.id)).limit(1);
+    return { fixture: { operationId: row.operationId, installationId: row.installationId,
+      releaseId: row.releaseId, connectionId: row.connectionId, connectionRevision: row.connectionRevision,
+      presetId: row.presetId, projectId: row.projectId, bindingId: row.bindingId },
+      binding: { id: binding.id, generation: binding.generation, desiredState: binding.desiredState,
+        observedState: binding.observedState }, operation: operation ?? null };
+  }
+
   private assertFixture(row: NonNullable<Awaited<ReturnType<IncusQualificationFixtureService["fixture"]>>>,
     scope: IncusQualificationScope, revision: number, presetDigest: string, settingsDigest: string): void {
     if (row.installationId !== scope.installationId || row.releaseId !== scope.releaseId
@@ -491,21 +527,53 @@ export class IncusQualificationFixtureService {
     });
   }
 
+  async setPower(scope: IncusQualificationScope, operationId: string,
+    desiredState: "running" | "stopped", idempotencyKey: string): Promise<SandboxOperation> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(idempotencyKey)) {
+      throw new Error("Invalid Incus qualification fixture power operation ID");
+    }
+    const { row, binding } = await this.ownedFixture(scope, operationId);
+    const kind = desiredState === "running" ? "START" : "STOP";
+    const request = { bindingId: row.bindingId, generation: binding.generation,
+      idempotencyScope: "incus-qualification-power", idempotencyKey: `${operationId}:${idempotencyKey}` };
+    const [replay] = await this.db.select().from(sandboxOperations).where(and(
+      eq(sandboxOperations.bindingId, row.bindingId),
+      eq(sandboxOperations.idempotencyScope, request.idempotencyScope),
+      eq(sandboxOperations.idempotencyKey, request.idempotencyKey))).limit(1);
+    if (replay) {
+      if (replay.kind !== kind) throw new Error("Incus qualification fixture power identity changed");
+      return replay;
+    }
+    const expectedGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now,
+      desiredState === "running" ? "stopped" : "running");
+    if (desiredState === "running") {
+      const selected = await this.qualifications.authorizeFixture(scope);
+      this.assertFixture(row, scope, selected.connection.revision,
+        selected.presetDigest, selected.effectiveSettingsDigest);
+      const resources = { memoryBytes: selected.preset.limits.memoryBytes,
+        cpuMillicores: selected.preset.limits.cpuMillis, pids: selected.preset.limits.pids,
+        diskBytes: selected.preset.limits.diskBytes, executionSlots: 1 };
+      const admitted = await this.admission.requestAdmission({ ...request, kind: "START", resources });
+      if (admitted.state !== "ADMITTED") {
+        throw new Error(`Incus qualification fixture admission ${admitted.state}: ${admitted.reason}`);
+      }
+    }
+    if (desiredState === "stopped") {
+      await this.admission.markStopIntent(row.bindingId, binding.generation,
+        `incus-qualification-stop-${operationId}-${idempotencyKey}`);
+    }
+    const operation = await this.controller.requestAndDispatch({ ...request, kind,
+      payload: { expectedGeneration } });
+    const observedState = desiredState === "running" ? "RUNNING" : "STOPPED";
+    if (operation.state === "SUCCEEDED" && (await this.controller.getBinding(row.bindingId))?.observedState === observedState) {
+      await this.admission.recordObservedState(row.bindingId, binding.generation, observedState,
+        `incus-qualification-${kind.toLowerCase()}-${operationId}-${idempotencyKey}`);
+    }
+    return operation;
+  }
+
   async destroy(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
-    const row = await this.fixture(operationId);
-    if (!row || row.installationId !== scope.installationId || row.releaseId !== scope.releaseId
-      || row.connectionId !== scope.connectionId || row.presetId !== scope.presetId) {
-      throw new Error("Incus qualification fixture is unavailable");
-    }
-    const binding = await this.controller.getBinding(row.bindingId);
-    if (!binding || binding.projectId !== row.projectId || binding.resourceKey !== row.bindingId
-      || binding.providerInstallationId !== row.installationId
-      || binding.providerReleaseId !== row.releaseId || binding.connectionId !== row.connectionId
-      || binding.connectionRevision !== row.connectionRevision || binding.presetDigest !== row.presetDigest
-      || binding.presetId !== row.presetId
-      || binding.effectiveSettingsDigest !== row.effectiveSettingsDigest) {
-      throw new Error("Incus qualification fixture binding changed");
-    }
+    const { row, binding } = await this.ownedFixture(scope, operationId);
     const request = { bindingId: row.bindingId, generation: binding.generation,
       idempotencyScope: "incus-qualification", idempotencyKey: `${operationId}:destroy` };
     const [replay] = await this.db.select().from(sandboxOperations).where(and(

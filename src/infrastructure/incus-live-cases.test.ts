@@ -75,6 +75,19 @@ test("a controlled load gap prevents SP04 and still cleans up the fixture", asyn
   expect(value.destroyed).toHaveLength(1);
 });
 
+test("a failed replay after the first create cleans the primary fixture", async () => {
+  const value = witness();
+  let creates = 0;
+  const originalCreate = value.value.createFixture;
+  value.value.createFixture = async (...args) => {
+    if (++creates === 2) throw new Error("lost reply replay failed");
+    return originalCreate(...args);
+  };
+  await expect(createIncusLiveCaseRunner({ witness: value.value })(scope, preset))
+    .rejects.toThrow("lost reply replay failed");
+  expect(value.destroyed).toHaveLength(1);
+});
+
 test("missing Compose artifact cannot be called a real Compose pass", async () => {
   const value = witness({ observe: async () => ({ observation: { ...observation, nestedCompose: true },
     profile: preset.profile, imageDigest: preset.imageDigest, helperDigest: GUEST_HELPER_SHA256 }) });

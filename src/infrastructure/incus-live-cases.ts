@@ -252,7 +252,9 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
     const primaryId = `qual-primary-${fixtureToken}`;
     const unrelatedId = `qual-unrelated-${fixtureToken}`;
     const recoveryId = `qual-recovery-${fixtureToken}`;
-    const primary = await witness.createFixture(scope, preset, primaryId, true);
+    // The witness must reconcile or clean a create that throws before it can
+    // return a handle. Once a handle exists, all later failures clean it here.
+    let primary: LiveFixtureHandle | null = null;
     let unrelated: LiveFixtureHandle | null = null;
     let recovery: LiveFixtureHandle | null = null;
     let primaryDestroyed = false;
@@ -261,6 +263,7 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
     let failure: unknown;
     const cleanupErrors: unknown[] = [];
     try {
+      primary = await witness.createFixture(scope, preset, primaryId, true);
       requireFact(stableId(primary.sandboxId) && primary.operationId === primaryId,
         "created fixture lacks a stable operation identity");
       const replay = await witness.createFixture(scope, preset, primaryId, false);
@@ -319,7 +322,7 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
     } catch (error) {
       failure = error;
     } finally {
-      if (!primaryDestroyed) {
+      if (primary && !primaryDestroyed) {
         try { await witness.destroyFixture(primary); } catch (error) { cleanupErrors.push(error); }
       }
       if (unrelated && !unrelatedDestroyed) {

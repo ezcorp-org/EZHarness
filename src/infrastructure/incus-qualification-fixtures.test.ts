@@ -34,12 +34,15 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
   const qualifications = { authorizeFixture: async () => ({ connection: { revision: 1 }, preset,
     presetDigest, effectiveSettingsDigest }) } as unknown as IncusQualificationStore;
   const dispatches: SandboxProviderRequest[] = [];
+  let providerState: "running" | "stopped" = "stopped";
   const controller = new SandboxController(db, { dispatch: async request => {
     dispatches.push(request);
     if (pendingCreate && request.kind === "CREATE") {
       return { outcome: "PENDING", providerOperationId: `provider-${request.operationId}` };
     }
-    return { outcome: "SUCCEEDED", observedState: request.kind === "DESTROY" ? "ABSENT" : "STOPPED" };
+    providerState = request.kind === "START" ? "running" : "stopped";
+    return { outcome: "SUCCEEDED", observedState: request.kind === "DESTROY" ? "ABSENT"
+      : request.kind === "START" ? "RUNNING" : "STOPPED" };
   }, inspectOperation: async request => ({ outcome: "SUCCEEDED",
     providerOperationId: request.providerOperationId ?? undefined, observedState: "STOPPED" }) });
   const admission = new SandboxAdmissionStore(db);
@@ -56,7 +59,7 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
       if (inspectError) throw inspectError;
       return { ok: true, sandbox: { sandboxId: input.sandboxId,
       profile: preset.profile,
-      presetId: preset.id, desiredState: "stopped", observedState: "stopped",
+      presetId: preset.id, desiredState: providerState, observedState: providerState,
       generation: providerGeneration, bootId: null, observedAt: new Date().toISOString() } };
     } });
   return { db, service, dispatches, controller, admission, qualifications, presetDigest, effectiveSettingsDigest };
@@ -113,6 +116,16 @@ test("missing host capacity and reused fixture identity fail closed", async () =
     .rejects.toThrow("fixture is unavailable");
 });
 
+test("missing published setup and inactive release deny creation before provider dispatch", async () => {
+  const { service, qualifications, dispatches, db } = await setup();
+  qualifications.authorizeFixture = async () => { throw new Error("Incus qualification image is unpublished"); };
+  await expect(service.create(scope, "fixture-no-setup")).rejects.toThrow("image is unpublished");
+  qualifications.authorizeFixture = async () => { throw new Error("Incus qualification release is unavailable"); };
+  await expect(service.create(scope, "fixture-inactive")).rejects.toThrow("release is unavailable");
+  expect(dispatches).toEqual([]);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toEqual([]);
+});
+
 test("an uncertain create remains journaled and replays one provider operation", async () => {
   const { service, controller, dispatches, db } = await setup(true, true);
   const first = await service.create(scope, "fixture-pending");
@@ -165,6 +178,41 @@ test("destroy uses the inspected provider generation after guest power changes",
   expect(destroyed.state).toBe("SUCCEEDED");
   expect(dispatches[1]?.generation).toBe(1);
   expect(dispatches[1]?.payload).toEqual({ expectedGeneration: 7 });
+});
+
+test("fixture status stays in exact scope and exposes safe durable state", async () => {
+  const { service } = await setup();
+  await service.create(scope, "fixture-status");
+  const status = await service.status(scope, "fixture-status");
+  expect(status.fixture).toMatchObject({ operationId: "fixture-status", ...scope });
+  expect(status.binding).toMatchObject({ observedState: "STOPPED" });
+  expect(status.operation).toMatchObject({ kind: "CREATE", state: "SUCCEEDED" });
+  expect(JSON.stringify(status)).not.toContain("requestPayload");
+  await expect(service.status({ ...scope, connectionId: "other" }, "fixture-status"))
+    .rejects.toThrow("fixture is unavailable");
+});
+
+test("fixture power uses inspected generation, durable idempotency, and exact ownership", async () => {
+  const { service, dispatches, db } = await setup(true, false, 7);
+  await service.create(scope, "fixture-power");
+  const started = await service.setPower(scope, "fixture-power", "running", "power-start");
+  expect(started.state).toBe("SUCCEEDED");
+  expect((await service.setPower(scope, "fixture-power", "running", "power-start")).id).toBe(started.id);
+  expect(dispatches[1]).toMatchObject({ kind: "START", payload: { expectedGeneration: 7 } });
+  const stopped = await service.setPower(scope, "fixture-power", "stopped", "power-stop");
+  expect(stopped.state).toBe("SUCCEEDED");
+  expect((await service.status(scope, "fixture-power")).binding.observedState).toBe("STOPPED");
+  expect(dispatches.map(item => item.kind)).toEqual(["CREATE", "START", "STOP"]);
+  await expect(service.setPower({ ...scope, connectionId: "other" }, "fixture-power", "running", "other"))
+    .rejects.toThrow("fixture is unavailable");
+  await expect(service.setPower(scope, "fixture-power", "running", "power-stop"))
+    .rejects.toThrow("power identity changed");
+  const [fixture] = await db.select().from(schema.incusQualificationFixtures);
+  await db.update(schema.sandboxBindings).set({ connectionId: "other" })
+    .where(eq(schema.sandboxBindings.id, fixture!.bindingId));
+  await expect(service.setPower(scope, "fixture-power", "stopped", "another-stop"))
+    .rejects.toThrow("fixture binding changed");
+  expect(dispatches).toHaveLength(3);
 });
 
 test("non-unique database errors are not treated as concurrent create replay", async () => {
