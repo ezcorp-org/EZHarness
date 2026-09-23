@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
-import { sandboxPresetDigest, validateSandboxProviderMethodExchange,
+import { resolveSandboxPreset, sandboxPresetDigest, validateSandboxProviderMethodExchange,
   type SandboxPreset, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import { getDb, type Database } from "../db/connection";
 import { incusQualificationFixtures, sandboxBindings } from "../db/schema";
@@ -17,6 +17,8 @@ import { ProviderConnectionStore, type ProviderConnectionCredentials,
 
 const MAX_FILE_BYTES = 64 * 1024;
 const POLL_MS = 100;
+const CONTROL_DENIALS = ["unsupported", "missingControl", "drift", "unqualified"] as const;
+type ControlDenial = (typeof CONTROL_DENIALS)[number];
 const guestOperations = new Set<SandboxProtocolOperation>([
   "files.stat", "files.readRange", "files.writeAtomic", "processes.start", "processes.inspect", "processes.readOutput",
 ]);
@@ -54,6 +56,15 @@ export interface IncusHostLiveWitnessDependencies {
   resolveConnection?: (scope: ProviderConnectionScope) => Promise<ProviderConnectionCredentials>;
   readSetup?: (installationId: string) => Promise<IncusImageReceipt | null>;
   backend?: Pick<HostIncusLiveReadback, "image" | "instance">;
+  /** An operator-owned probe must call production admission and read independent
+   * reservation, operation, backend inventory, and local canary state. No default. */
+  controlProbe?: {
+    snapshot(kind: ControlDenial, scope: IncusQualificationScope): Promise<{
+      reservationIds: string[]; operationIds: string[]; backendIds: string[];
+      canaryIdentity: string; canaryBytes: Uint8Array;
+    }>;
+    attempt(kind: ControlDenial, scope: IncusQualificationScope, preset: SandboxPreset): Promise<string>;
+  };
   now?: () => number;
 }
 
@@ -89,6 +100,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   private readonly resolveConnection: NonNullable<IncusHostLiveWitnessDependencies["resolveConnection"]>;
   private readonly readSetup: NonNullable<IncusHostLiveWitnessDependencies["readSetup"]>;
   private readonly backend: NonNullable<IncusHostLiveWitnessDependencies["backend"]>;
+  private readonly controlProbe: IncusHostLiveWitnessDependencies["controlProbe"];
   private readonly now: () => number;
 
   constructor(deps: IncusHostLiveWitnessDependencies = {}) {
@@ -101,10 +113,11 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     this.resolveConnection = deps.resolveConnection ?? (scope => new ProviderConnectionStore(this.db).resolveForHost(scope));
     this.readSetup = deps.readSetup ?? (id => readSetup(this.db, id));
     this.backend = deps.backend ?? new HostIncusLiveReadback(new ProviderConnectionStore(this.db));
+    this.controlProbe = deps.controlProbe;
     this.now = deps.now ?? Date.now;
   }
 
-  private async owned(handle: LiveFixtureHandle, requireRunning: boolean) {
+  private async persistedOwned(handle: LiveFixtureHandle, requireRunning: boolean, allowTombstoned = false) {
     const [fixture] = await this.db.select().from(incusQualificationFixtures)
       .where(eq(incusQualificationFixtures.operationId, handle.operationId)).limit(1);
     if (!fixture || fixture.bindingId !== handle.sandboxId) deny("fixture identity changed");
@@ -114,12 +127,18 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       || binding.providerInstallationId !== fixture.installationId || binding.providerReleaseId !== fixture.releaseId
       || binding.connectionId !== fixture.connectionId || binding.connectionRevision !== fixture.connectionRevision
       || binding.presetId !== fixture.presetId || binding.presetDigest !== fixture.presetDigest
-      || binding.effectiveSettingsDigest !== fixture.effectiveSettingsDigest || binding.tombstonedAt
+      || binding.effectiveSettingsDigest !== fixture.effectiveSettingsDigest
+      || binding.tombstonedAt && !allowTombstoned
       || requireRunning && (binding.desiredState !== "RUNNING" || binding.observedState !== "RUNNING")) {
       deny("fixture binding changed or is not running");
     }
     const scope: IncusQualificationScope = { installationId: fixture.installationId, releaseId: fixture.releaseId,
       connectionId: fixture.connectionId, presetId: fixture.presetId };
+    return { fixture, binding, scope };
+  }
+
+  private async owned(handle: LiveFixtureHandle, requireRunning: boolean, allowTombstoned = false) {
+    const { fixture, binding, scope } = await this.persistedOwned(handle, requireRunning, allowTombstoned);
     const selected = await this.qualifications.authorizeFixture(scope);
     if (selected.connection.revision !== fixture.connectionRevision || selected.presetDigest !== fixture.presetDigest
       || selected.effectiveSettingsDigest !== fixture.effectiveSettingsDigest) deny("reviewed fixture settings changed");
@@ -202,8 +221,71 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     return observed;
   }
 
-  async controlFacts(_scope: IncusQualificationScope, _preset: SandboxPreset): ReturnType<HostIncusLiveWitness["controlFacts"]> {
-    return deny("denied admissions and local canary probe are not implemented");
+  async controlFacts(scope: IncusQualificationScope, preset: SandboxPreset): ReturnType<HostIncusLiveWitness["controlFacts"]> {
+    if (!this.controlProbe) deny("operator-owned production admission, inventory, and distinct canary probes are unavailable");
+    const { context } = await this.context(scope, preset);
+    const provider = (await this.qualifications.authorizeFixture(scope)).snapshot.release.manifest
+      .sandboxProviders?.find(item => item.id === "incus" && item.kind === "sandbox");
+    if (!provider) deny("reviewed provider declaration is unavailable");
+    const observed = (await this.backend.image(context)).observation;
+    const request = { profile: preset.profile, presetId: preset.id, observation: observed };
+    const baseline = await resolveSandboxPreset(provider, request);
+    const repeated = await resolveSandboxPreset(provider, request);
+    const change = (Object.keys(preset.allowedOverrides) as Array<keyof SandboxPreset["limits"]>)
+      .find(key => {
+        const bounds = preset.allowedOverrides[key];
+        return bounds && (bounds.minimum !== preset.limits[key] || bounds.maximum !== preset.limits[key]);
+      });
+    if (!change) deny("reviewed preset has no measurable settings change");
+    const bounds = preset.allowedOverrides[change]!;
+    const alternate = bounds.minimum !== preset.limits[change] ? bounds.minimum : bounds.maximum;
+    const changed = await resolveSandboxPreset(provider,
+      { ...request, overrides: { [change]: alternate } });
+    if (baseline.effectiveSettingsDigest !== repeated.effectiveSettingsDigest
+      || baseline.effectiveSettingsDigest === changed.effectiveSettingsDigest) {
+      deny("effective settings resolution is not deterministic");
+    }
+    const codes = new Map<ControlDenial, string>();
+    const deltas = new Map<ControlDenial, number>();
+    const canaries: Array<{ kind: ControlDenial; identity: string; before: string; after: string }> = [];
+    for (const kind of CONTROL_DENIALS) {
+      const before = await this.controlProbe.snapshot(kind, scope);
+      const code = await this.controlProbe.attempt(kind, scope, preset);
+      const after = await this.controlProbe.snapshot(kind, scope);
+      const ids = (values: string[]) => Array.isArray(values) && values.every(value =>
+        typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value))
+        && new Set(values).size === values.length
+        ? [...values].sort().join("\0") : deny("control inventory identity is invalid");
+      const allocationDelta = after.reservationIds.length + after.operationIds.length + after.backendIds.length
+        - before.reservationIds.length - before.operationIds.length - before.backendIds.length;
+      if (typeof code !== "string" || !code.startsWith("DENIED_")
+        || allocationDelta !== 0
+        || ids(before.reservationIds) !== ids(after.reservationIds)
+        || ids(before.operationIds) !== ids(after.operationIds)
+        || ids(before.backendIds) !== ids(after.backendIds)
+        || !before.canaryIdentity || before.canaryIdentity !== after.canaryIdentity
+        || !(before.canaryBytes instanceof Uint8Array) || !(after.canaryBytes instanceof Uint8Array)) {
+        deny(`${kind} admission or allocation readback changed`);
+      }
+      codes.set(kind, code);
+      deltas.set(kind, allocationDelta);
+      canaries.push({ kind, identity: before.canaryIdentity,
+        before: createHash("sha256").update(before.canaryBytes).digest("hex"),
+        after: createHash("sha256").update(after.canaryBytes).digest("hex") });
+    }
+    if (new Set(canaries.map(value => value.identity)).size !== CONTROL_DENIALS.length
+      || canaries.some(value => value.before !== value.after)) deny("distinct local canaries changed");
+    const beforeCanaryDigest = createHash("sha256").update(JSON.stringify(canaries.map(value =>
+      [value.kind, value.identity, value.before]))).digest("hex");
+    const afterCanaryDigest = createHash("sha256").update(JSON.stringify(canaries.map(value =>
+      [value.kind, value.identity, value.after]))).digest("hex");
+    return { baselinePlanDigest: baseline.effectiveSettingsDigest,
+      repeatedPlanDigest: repeated.effectiveSettingsDigest, changedPlanDigest: changed.effectiveSettingsDigest,
+      unsupportedAdmissionCode: codes.get("unsupported")!, unsupportedAllocationDelta: deltas.get("unsupported")!,
+      missingControlAdmissionCode: codes.get("missingControl")!, missingControlAllocationDelta: deltas.get("missingControl")!,
+      driftAdmissionCode: codes.get("drift")!, driftAllocationDelta: deltas.get("drift")!,
+      unqualifiedAdmissionCode: codes.get("unqualified")!, unqualifiedAllocationDelta: deltas.get("unqualified")!,
+      localCanaryBefore: beforeCanaryDigest, localCanaryAfter: afterCanaryDigest };
   }
 
   async createFixture(scope: IncusQualificationScope, preset: SandboxPreset,
@@ -240,7 +322,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   }
 
   async inspectFixture(handle: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["inspectFixture"]> {
-    const { scope, selected, binding } = await this.owned(handle, false);
+    const { scope, selected, binding } = await this.owned(handle, false, true);
     const approved = await this.context(scope, selected.preset);
     const observed = await this.backend.instance(approved.context, handle.sandboxId);
     const expected = binding.observedState === "RUNNING" ? "running"
@@ -327,6 +409,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     let offset = 0;
     let stdout = "";
     let stderr = "";
+    let terminalExitCode: number | null = null;
     while (this.now() < deadline) {
       const output = await this.guest(handle, "processes.readOutput", { processId: start.processId,
         bootId: start.bootId, cursor: { sandboxId: handle.sandboxId, processId: start.processId,
@@ -341,15 +424,16 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
         offset += bytes.length;
       }
       const next = output.nextCursor as Record<string, unknown> | undefined;
-      if (next?.offsetBytes !== offset || stdout.length + stderr.length > MAX_FILE_BYTES) deny("guest process output exceeded bound");
+      if (next?.offsetBytes !== offset || offset > MAX_FILE_BYTES) deny("guest process output exceeded bound");
       const inspected = await this.guest(handle, "processes.inspect", { processId: start.processId, bootId: start.bootId });
       const process = inspected.process as Record<string, unknown> | undefined;
       if (process?.processId !== start.processId || process.sandboxId !== handle.sandboxId
         || process.bootId !== start.bootId) deny("guest process identity changed");
       if (["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(String(process.state))) {
-        if (output.eof !== true || !Number.isSafeInteger(process.exitCode)) deny("guest process output is incomplete");
-        return { exitCode: Number(process.exitCode), stdout, stderr };
+        if (!Number.isSafeInteger(process.exitCode)) deny("guest process exit is unavailable");
+        terminalExitCode = Number(process.exitCode);
       }
+      if (terminalExitCode !== null && output.eof === true) return { exitCode: terminalExitCode, stdout, stderr };
       await new Promise(resolve => setTimeout(resolve, POLL_MS));
     }
     return deny("guest process deadline expired");
@@ -365,7 +449,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   }
 
   async destroyFixture(handle: LiveFixtureHandle): Promise<void> {
-    const { scope } = await this.owned(handle, false);
+    const { scope } = await this.persistedOwned(handle, false, true);
     const operation = await this.fixtures.destroy(scope, handle.operationId);
     if (operation.state !== "SUCCEEDED" || operation.kind !== "DESTROY" || operation.bindingId !== handle.sandboxId) {
       deny("fixture destroy is not verified");

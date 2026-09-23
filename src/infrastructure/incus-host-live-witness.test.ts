@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
-import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
+import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import recipe from "../../scripts/incus/recipe.json";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import type { Database } from "../db/connection";
@@ -61,6 +61,68 @@ test("observe requires exact verified setup and rejects forged backend artifact 
     .rejects.toThrow("backend artifact");
 });
 
+test("default setup readback selects the saved host receipt", async () => {
+  const preset = INCUS_PRESETS[0]!;
+  const selected = { snapshot: { release: { releaseDigest: "a".repeat(64) } },
+    connection: { revision: 1, configuration: { profile: "compose" } },
+    preset, presetDigest: await sandboxPresetDigest(preset), effectiveSettingsDigest: "b".repeat(64) };
+  const receipt = { state: "verified", providerReleaseId: scope.releaseId,
+    providerReleaseDigest: selected.snapshot.release.releaseDigest,
+    connectionId: scope.connectionId, connectionRevision: 1, recipe: recipe as IncusSetupRecipe };
+  let reads = 0;
+  const db = { execute: async () => { reads++; return { rows: [receipt] }; } } as unknown as Database;
+  const candidate = new IncusHostLiveWitness({ db,
+    qualifications: { authorizeFixture: async () => selected } as unknown as IncusQualificationStore,
+    fixtures: {} as IncusQualificationFixtureService,
+    backend: { image: async () => ({ observation: { backendApi: "incus.v1", backendVersion: "6.0.6",
+      architecture: "amd64", storageDriver: "btrfs", isolation: "container", nestedCompose: true },
+      imageDigest: preset.imageDigest, helperDigest: preset.helperDigests[0]!, profile: preset.profile }),
+    instance: async () => ({ state: "absent" }) },
+  });
+  expect((await candidate.observe(scope, preset)).imageDigest).toBe(preset.imageDigest);
+  expect(reads).toBe(1);
+});
+
+test("control facts derive plan digests and reject allocation or canary changes", async () => {
+  const preset = INCUS_PRESETS[0]!;
+  const presetDigest = await sandboxPresetDigest(preset);
+  const selected = { snapshot: { release: { releaseDigest: "a".repeat(64), manifest: incusManifest } },
+    connection: { revision: 1, configuration: { profile: "compose" } },
+    preset, presetDigest, effectiveSettingsDigest: "b".repeat(64) };
+  const setup = { state: "verified", providerReleaseId: scope.releaseId,
+    providerReleaseDigest: selected.snapshot.release.releaseDigest,
+    connectionId: scope.connectionId, connectionRevision: 1, recipe: recipe as IncusSetupRecipe };
+  const observation = { backendApi: "incus.v1", backendVersion: "6.0.6", architecture: "amd64" as const,
+    storageDriver: "btrfs", isolation: "container" as const, nestedCompose: true };
+  const candidate = (fault: "none" | "allocation" | "canary") => {
+    const seen = new Map<string, number>();
+    return new IncusHostLiveWitness({ db: {} as Database,
+      qualifications: { authorizeFixture: async () => selected } as unknown as IncusQualificationStore,
+      fixtures: {} as IncusQualificationFixtureService, readSetup: async () => setup,
+      backend: { image: async () => ({ observation, imageDigest: preset.imageDigest,
+        helperDigest: preset.helperDigests[0]!, profile: preset.profile }),
+      instance: async () => ({ state: "absent" }) },
+      controlProbe: {
+        snapshot: async kind => {
+          const count = seen.get(kind) ?? 0;
+          seen.set(kind, count + 1);
+          return { reservationIds: fault === "allocation" && kind === "drift" && count === 1 ? ["new-reservation"] : [],
+            operationIds: [], backendIds: [], canaryIdentity: `canary-${kind}`,
+            canaryBytes: new TextEncoder().encode(fault === "canary" && kind === "drift" && count === 1 ? "changed" : "safe") };
+        },
+        attempt: async kind => `DENIED_${kind.toUpperCase()}`,
+      },
+    });
+  };
+  const facts = await candidate("none").controlFacts(scope, preset);
+  expect(facts.baselinePlanDigest).toBe(facts.repeatedPlanDigest);
+  expect(facts.changedPlanDigest).not.toBe(facts.baselinePlanDigest);
+  expect(facts.unsupportedAllocationDelta).toBe(0);
+  expect(facts.localCanaryBefore).toBe(facts.localCanaryAfter);
+  await expect(candidate("allocation").controlFacts(scope, preset)).rejects.toThrow("allocation readback changed");
+  await expect(candidate("canary").controlFacts(scope, preset)).rejects.toThrow("distinct local canaries changed");
+});
+
 test("inspection rejects a backend state that disagrees with the durable fixture", async () => {
   const preset = INCUS_PRESETS[0]!;
   const presetDigest = await sandboxPresetDigest(preset);
@@ -73,7 +135,7 @@ test("inspection rejects a backend state that disagrees with the durable fixture
   const binding = { id: handle.sandboxId, projectId: fixture.projectId, resourceKey: handle.sandboxId,
     providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
     connectionId: scope.connectionId, connectionRevision: 1, presetId: preset.id, presetDigest,
-    effectiveSettingsDigest: selected.effectiveSettingsDigest, tombstonedAt: null,
+    effectiveSettingsDigest: selected.effectiveSettingsDigest, tombstonedAt: null as Date | null,
     observedState: "STOPPED", desiredState: "STOPPED" };
   const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({
     limit: async () => table === incusQualificationFixtures ? [fixture] : [binding],
@@ -81,16 +143,26 @@ test("inspection rejects a backend state that disagrees with the durable fixture
   const setup = { state: "verified", providerReleaseId: scope.releaseId,
     providerReleaseDigest: selected.snapshot.release.releaseDigest,
     connectionId: scope.connectionId, connectionRevision: 1, recipe: recipe as IncusSetupRecipe };
+  let authorized = true;
   const candidate = new IncusHostLiveWitness({ db,
-    qualifications: { authorizeFixture: async () => selected } as unknown as IncusQualificationStore,
-    fixtures: {} as IncusQualificationFixtureService, readSetup: async () => setup,
+    qualifications: { authorizeFixture: async () => {
+      if (!authorized) throw new Error("release unavailable");
+      return selected;
+    } } as unknown as IncusQualificationStore,
+    fixtures: { destroy: async () => ({ state: "SUCCEEDED", kind: "DESTROY", bindingId: handle.sandboxId }),
+      status: async () => ({ fixture, binding }) } as unknown as IncusQualificationFixtureService,
+    readSetup: async () => setup,
     backend: { image: async () => { throw new Error("unused"); },
       instance: async () => ({ state: "absent" }) },
   });
   await expect(candidate.inspectFixture(handle)).rejects.toThrow("backend and durable fixture state disagree");
   binding.observedState = "ABSENT";
   binding.desiredState = "ABSENT";
+  binding.tombstonedAt = new Date();
   expect(await candidate.inspectFixture(handle)).toMatchObject({ sandboxId: handle.sandboxId, state: "absent" });
+  authorized = false;
+  await candidate.destroyFixture(handle);
+  await expect(candidate.setPower(handle, "running")).rejects.toThrow("fixture binding changed");
 });
 
 test("discarded create reply must replay the same durable fixture operation", async () => {
@@ -137,6 +209,7 @@ test("fixture guest file and process calls use the exact running release and con
   const selected = { connection: { revision: 1 }, preset, presetDigest,
     effectiveSettingsDigest: fixture.effectiveSettingsDigest };
   const calls: Array<{ operation: string; input: Record<string, unknown> }> = [];
+  let outputPages = 0;
   const candidate = new IncusHostLiveWitness({ db,
     qualifications: { authorizeFixture: async () => selected } as unknown as IncusQualificationStore,
     fixtures: {} as IncusQualificationFixtureService,
@@ -153,10 +226,13 @@ test("fixture guest file and process calls use the exact running release and con
         offsetBytes: 0, dataBase64: "b2s=", byteLength: 2, eof: true };
       if (operation === "processes.start") return { ok: true, processId: "process-1", bootId: "boot-1",
         startedAt: "2026-09-23T12:00:00.000Z" };
-      if (operation === "processes.readOutput") return { ok: true,
-        chunks: [{ stream: "stdout", offsetBytes: 0, dataBase64: "b2s=", byteLength: 2 }],
-        nextCursor: { sandboxId: handle.sandboxId, processId: "process-1", bootId: "boot-1", offsetBytes: 2 },
-        eof: true };
+      if (operation === "processes.readOutput") {
+        const page = outputPages++;
+        return { ok: true,
+          chunks: [{ stream: "stdout", offsetBytes: page, dataBase64: page === 0 ? "bw==" : "aw==", byteLength: 1 }],
+          nextCursor: { sandboxId: handle.sandboxId, processId: "process-1", bootId: "boot-1", offsetBytes: page + 1 },
+          eof: page > 0 };
+      }
       if (operation === "processes.inspect") return { ok: true,
         process: { processId: "process-1", sandboxId: handle.sandboxId, bootId: "boot-1",
           state: "succeeded", startedAt: "2026-09-23T12:00:00.000Z",
@@ -168,7 +244,7 @@ test("fixture guest file and process calls use the exact running release and con
   expect(new TextDecoder().decode(await candidate.readFile(handle, "marker"))).toBe("ok");
   expect(await candidate.run(handle, ["printf", "ok"], 30_000)).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
   expect(calls.map(call => call.operation)).toEqual(["files.writeAtomic", "files.stat", "files.readRange",
-    "processes.start", "processes.readOutput", "processes.inspect"]);
+    "processes.start", "processes.readOutput", "processes.inspect", "processes.readOutput", "processes.inspect"]);
   expect(calls.every(call => call.input.sandboxId === handle.sandboxId && call.input.connectionId === scope.connectionId))
     .toBe(true);
   binding.observedState = "STOPPED";
