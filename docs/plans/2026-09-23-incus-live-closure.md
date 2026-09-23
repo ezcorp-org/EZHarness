@@ -20,4 +20,11 @@ Pre-apply inspection also found the installed release's preset `imageDigest` is 
 4. Live host fixture and SP01–SP08 witness: infrastructure and operator API files after the setup verifies. No weakening of feature readiness.
 5. Root integration: tests, CI, security/resource checks, evidence, PR description and final review.
 
+## Newly measured gaps
+
+- The live witness now checks reviewed image/helper identity and exact guest scope, but its production readiness gate stays closed until controlled admission, resource-load, restart, and cleanup probes have operator-owned inputs and live readback. Offline 100% coverage of a probe does not qualify its server behavior.
+- The selected `4 GiB` memory and `20 GiB` disk preset needs a dedicated, reviewed high-load budget and independently healthy neighbor to prove containment. A smaller test profile proves only that smaller profile. The Incus create path now sets a hard CPU allowance and the readback checks it; actual `cpu.max` still needs a guest measurement.
+- The live route must be in the API registry with session scope. Hosted CI caught its omission; the route contract and session-scope tests now pass locally.
+- SP06 needs an actual isolated-app restart and a lost-cleanup response with durable reconciliation. Reconstructing an object in one process is not proof of an app restart.
+
 The [root gate ledger](../../gates/incus-live-pr303.md) is authoritative. Each leaf records actual commands and results. A test fixture is not a user feature proof.
