@@ -45,6 +45,13 @@ function safePath(path: string): string {
   return path;
 }
 
+function inventoryIds(values: string[]): string {
+  if (!Array.isArray(values) || values.some(value => typeof value !== "string"
+    || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value))
+    || new Set(values).size !== values.length) deny("control inventory identity is invalid");
+  return [...values].sort().join("\0");
+}
+
 export interface IncusHostLiveWitnessDependencies {
   db?: Database;
   qualifications?: IncusQualificationStore;
@@ -255,17 +262,13 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       const before = await this.controlProbe.snapshot(kind, scope);
       const code = await this.controlProbe.attempt(kind, scope, preset);
       const after = await this.controlProbe.snapshot(kind, scope);
-      const ids = (values: string[]) => Array.isArray(values) && values.every(value =>
-        typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value))
-        && new Set(values).size === values.length
-        ? [...values].sort().join("\0") : deny("control inventory identity is invalid");
       const allocationDelta = after.reservationIds.length + after.operationIds.length + after.backendIds.length
         - before.reservationIds.length - before.operationIds.length - before.backendIds.length;
       if (typeof code !== "string" || !code.startsWith("DENIED_")
         || allocationDelta !== 0
-        || ids(before.reservationIds) !== ids(after.reservationIds)
-        || ids(before.operationIds) !== ids(after.operationIds)
-        || ids(before.backendIds) !== ids(after.backendIds)
+        || inventoryIds(before.reservationIds) !== inventoryIds(after.reservationIds)
+        || inventoryIds(before.operationIds) !== inventoryIds(after.operationIds)
+        || inventoryIds(before.backendIds) !== inventoryIds(after.backendIds)
         || !before.canaryIdentity || before.canaryIdentity !== after.canaryIdentity
         || !(before.canaryBytes instanceof Uint8Array) || !(after.canaryBytes instanceof Uint8Array)) {
         deny(`${kind} admission or allocation readback changed`);

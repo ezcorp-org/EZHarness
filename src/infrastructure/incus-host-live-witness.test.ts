@@ -94,7 +94,7 @@ test("control facts derive plan digests and reject allocation or canary changes"
     connectionId: scope.connectionId, connectionRevision: 1, recipe: recipe as IncusSetupRecipe };
   const observation = { backendApi: "incus.v1", backendVersion: "6.0.6", architecture: "amd64" as const,
     storageDriver: "btrfs", isolation: "container" as const, nestedCompose: true };
-  const candidate = (fault: "none" | "allocation" | "canary" | "artifact") => {
+  const candidate = (fault: "none" | "allocation" | "canary" | "artifact" | "inventory") => {
     const seen = new Map<string, number>();
     return new IncusHostLiveWitness({ db: {} as Database,
       qualifications: { authorizeFixture: async () => selected } as unknown as IncusQualificationStore,
@@ -106,7 +106,8 @@ test("control facts derive plan digests and reject allocation or canary changes"
         snapshot: async kind => {
           const count = seen.get(kind) ?? 0;
           seen.set(kind, count + 1);
-          return { reservationIds: fault === "allocation" && kind === "drift" && count === 1 ? ["new-reservation"] : [],
+          return { reservationIds: fault === "allocation" && kind === "drift" && count === 1
+            ? ["new-reservation"] : fault === "inventory" ? ["same", "same"] : [],
             operationIds: [], backendIds: [], canaryIdentity: `canary-${kind}`,
             canaryBytes: new TextEncoder().encode(fault === "canary" && kind === "drift" && count === 1 ? "changed" : "safe") };
         },
@@ -122,6 +123,7 @@ test("control facts derive plan digests and reject allocation or canary changes"
   await expect(candidate("allocation").controlFacts(scope, preset)).rejects.toThrow("allocation readback changed");
   await expect(candidate("canary").controlFacts(scope, preset)).rejects.toThrow("distinct local canaries changed");
   await expect(candidate("artifact").controlFacts(scope, preset)).rejects.toThrow("backend artifact changed");
+  await expect(candidate("inventory").controlFacts(scope, preset)).rejects.toThrow("control inventory identity is invalid");
 });
 
 test("inspection rejects a backend state that disagrees with the durable fixture", async () => {
