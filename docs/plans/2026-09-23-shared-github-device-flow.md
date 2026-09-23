@@ -41,7 +41,7 @@ Show cancel, expiry, denied access, network failure, reconnect, and polling back
 ## Work and acceptance
 
 - [x] Sol backend author: durable device flow, direct refresh, transport validation, migration, regression coverage.
-- [ ] Sol web author: session-only routes, Settings device flow, account recovery, desktop/mobile evidence and tests.
+- [x] Sol web author: session-only routes, Settings device flow, account recovery, desktop/mobile evidence and tests.
 - [x] Sol Worker author: stateless public service, configuration, generated types, local Worker proof, deployment instructions.
 - [x] Coordinator: shared contract, route registry, coverage wiring, deployment/env docs, integration.
 - [x] Separate Sol review team: cross-user/session/install isolation, refresh/cancel races, no central credential handling, user flow, Worker data handling.
