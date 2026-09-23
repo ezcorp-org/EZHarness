@@ -1,0 +1,126 @@
+{
+  "receipt": "w18a2-merge-real-server-pass",
+  "producingCommit": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+  "mergeStaged": true,
+  "startedAt": "2026-09-23T13:49:57-04:00",
+  "finishedAt": "2026-09-23T13:50:40-04:00",
+  "exitCode": 0,
+  "recordStartedAt": "2026-09-23T17:49:57.418Z",
+  "recordFinishedAt": "2026-09-23T17:50:39.815Z",
+  "recordFresh": true,
+  "outcome": "passed",
+  "failure": null,
+  "readyStatus": 200,
+  "rolesRunning": [
+    "compute-admission-dispatch",
+    "compute-admission-poll",
+    "attempt-dispatch",
+    "run-projection",
+    "notification-inbox-delivery",
+    "child-settlement",
+    "release-outcome",
+    "usage-reconciliation",
+    "stop-settlement"
+  ],
+  "rolesRunningCount": 9,
+  "rolesHeld": [
+    {
+      "role": "notification-send",
+      "workPackage": "W17",
+      "reason": "a notification is not delivered until a sender confirms it left this host"
+    },
+    {
+      "role": "validator-material-registration",
+      "workPackage": "W09d",
+      "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+    },
+    {
+      "role": "validator-scheduling",
+      "workPackage": "W09d",
+      "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+    }
+  ],
+  "rolesHeldCount": 3,
+  "sharedStores": {
+    "statuses": [
+      {
+        "store": "ordinary",
+        "port": 18333,
+        "reachable": true,
+        "detail": "http 403"
+      },
+      {
+        "store": "archive",
+        "port": 18334,
+        "reachable": true,
+        "detail": "http 403"
+      }
+    ],
+    "unreachable": []
+  },
+  "temporal": {
+    "port": 38243,
+    "tlsPort": 43167,
+    "reachable": true
+  },
+  "privateService": {
+    "port": 39729,
+    "accepting": true
+  },
+  "orchestrationLifecycle": "ready",
+  "hostProcesses": {
+    "pool": "ready",
+    "supervisor": "ready"
+  },
+  "guestPackage": {
+    "reference": {
+      "package": "@ezcorp/w09b-guest",
+      "manifestName": "w09b-guest",
+      "version": "1.0.0",
+      "digest": "sha256:7836206a51aea644482cac4a7a9de8c9a42311fbbd1abcca97abcfeadefb12d7",
+      "export": "run"
+    },
+    "artifactDigest": "7836206a51aea644482cac4a7a9de8c9a42311fbbd1abcca97abcfeadefb12d7",
+    "sourceDigest": "cf8c739fdf0251175cc4f59db64d751bc288a0b5851d84118cf376df388d496c",
+    "buildMs": 4224
+  },
+  "durableRun": {
+    "runId": "bee07923-31fd-4b57-9277-421191eaa4f5",
+    "startedStatus": 202,
+    "readBackStatus": 200,
+    "readBackStatusValue": "queued",
+    "terminal": {
+      "status": "failed",
+      "at": 7
+    },
+    "restart": {
+      "readyState": "ready",
+      "runStatus": "failed",
+      "runId": "bee07923-31fd-4b57-9277-421191eaa4f5",
+      "firstExit": {
+        "code": 0,
+        "signal": null
+      }
+    }
+  },
+  "notProven": [
+    "a COMPLETED runner result: the completed variant carries a staged output artifact, and staging one needs the auxiliary material service a minimal guest has no mount for (W01c/W04). The guest here returns the canonical `cancelled` result \u2014 the one member of the union that needs no staged artifact \u2014 which the dispatcher records and the projector projects.",
+    "a PUBLISHED release: `release-outcome` runs here and its scan finds nothing, because this guest's definition carries no release node and no approval or policy was written. What is proved is that the role composes from the declared destination and runs; what is not is a claimable operation being claimed and published, which needs a release node in the definition plus an approval or policy through W05's production writers. The declared destination itself is proved to reach the real store by the s3-destination-proof receipt.",
+    "notification-send: W17, as planned."
+  ],
+  "shutdown": {
+    "exited": {
+      "code": 0,
+      "signal": null
+    },
+    "childrenAtRun": 0,
+    "survivors": [],
+    "portAfterStop": "refused",
+    "teardownLog": [
+      "{\"ts\":\"2026-09-23T17:50:38.270Z\",\"level\":\"info\",\"msg\":\"graceful shutdown begin\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\",\"teardownCount\":14}",
+      "{\"ts\":\"2026-09-23T17:50:38.273Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"factory-runtime\",\"ms\":0}",
+      "{\"ts\":\"2026-09-23T17:50:38.275Z\",\"level\":\"info\",\"msg\":\"graceful shutdown complete\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\"}"
+    ]
+  },
+  "recordSha256": "f1390e7a5b9fd1025a04d89492ff0b660bea89a366dddabacfbc50cd73ab5a73"
+}

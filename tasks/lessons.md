@@ -1463,6 +1463,20 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
 - A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
 - A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.
+## 2026-09-22 — A measured list is stale after a merge (W18a-2)
+
+- Recompute a complexity or CRAP list on the tree you will hand over. Do not trust the list in the brief. The brief
+  named six functions from wave4c. After the W09b merge, `parseFactoryStartupConfig` was at 65 and
+  `parseFactoryPoolProcessConfig` was at 44 instead of 37. Only a fresh run of the gate showed this.
+- A bun coverage run from `web/` writes root files as `SF:../src/...` and web files as `SF:src/...`. Rewrite both
+  prefixes before merging. Otherwise the root coverage of that leg lands under a path no gate reads. The global floor
+  showed this, as a `../../../src/db/migrate.ts` entry.
+- A behaviour-free split can still be proved by more than the existing tests. Run the old function and the new one
+  side by side on generated inputs, and compare exact outputs, including error lists. That is cheap, and it found
+  nothing to fix here, which is the point.
+- Verify live state before you answer a factual question about it. When the user asked which model the subagents run on, the first answer came from the spawn parameter, not from evidence. Ask the agents (or read the source) first, then answer with the evidence named.
+- An outer `timeout` around a command that waits for a lock counts the wait. The first W18a-2 combined run waited about 1.6 hours for the heavy lock inside `timeout 9000` and was killed (exit 124) in its node leg. Put the timeout inside the lock (`flock ... timeout N cmd`), or rely on the runner's own per-leg bound.
+- Never pipe a command that must run to completion into a reader that can close early (head, a limited grep). A closed pipe kills git commit with SIGPIPE and nothing is committed. Write to a file, then summarize from the file.
 
 ## 2026-09-23 — W03e usage settlement for stops with no operations
 

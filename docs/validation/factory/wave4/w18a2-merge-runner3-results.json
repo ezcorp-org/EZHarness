@@ -1,0 +1,94 @@
+[
+ {
+  "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+  "dirty": true,
+  "name": "sdk-build",
+  "exitCode": 0,
+  "start": "2026-09-23T19:10:27",
+  "end": "2026-09-23T19:10:27",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-sdk",
+   "build"
+  ]
+ },
+ {
+  "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+  "dirty": true,
+  "name": "transport-build",
+  "exitCode": 0,
+  "start": "2026-09-23T19:10:27",
+  "end": "2026-09-23T19:10:27",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-transport",
+   "build"
+  ]
+ },
+ {
+  "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+  "dirty": true,
+  "name": "types",
+  "exitCode": 0,
+  "start": "2026-09-23T19:10:27",
+  "end": "2026-09-23T19:11:27",
+  "command": [
+   "bun",
+   "run",
+   "typecheck"
+  ]
+ },
+ {
+  "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+  "dirty": true,
+  "name": "lint",
+  "exitCode": 0,
+  "start": "2026-09-23T19:11:27",
+  "end": "2026-09-23T19:11:29",
+  "command": [
+   "bun",
+   "run",
+   "lint"
+  ]
+ },
+ {
+  "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+  "dirty": true,
+  "name": "gate-integrity",
+  "exitCode": 0,
+  "start": "2026-09-23T19:11:29",
+  "end": "2026-09-23T19:11:32",
+  "command": [
+   "bun",
+   "scripts/gate-integrity.ts"
+  ]
+ },
+ {
+  "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+  "dirty": true,
+  "name": "boundaries",
+  "exitCode": 0,
+  "start": "2026-09-23T19:11:32",
+  "end": "2026-09-23T19:11:33",
+  "command": [
+   "bun",
+   "scripts/check-factory-boundaries.ts"
+  ]
+ },
+ {
+  "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+  "dirty": true,
+  "name": "compute-coverage",
+  "exitCode": 0,
+  "start": "2026-09-23T19:11:33",
+  "end": "2026-09-23T19:12:32",
+  "command": [
+   "bash",
+   "scripts/factory-compute-admissions-coverage.sh"
+  ]
+ }
+]
