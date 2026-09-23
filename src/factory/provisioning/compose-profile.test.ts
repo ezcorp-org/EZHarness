@@ -148,6 +148,8 @@ describe("factoryComposeEnvironment", () => {
 
   test("carries references only: identities, ports, paths, images, each service's network allowance, and the host's readiness directories", () => {
     const environment = factoryComposeEnvironment(bundle, PORTS, envFiles);
+    // The product's daemons write `.ezcorp` under /app; the harness gets its own writable copy from its data directory.
+    expect(environment.EZCORP_FACTORY_HARNESS_APP_STATE).toBe(join(bundle.dataDirectory, "app-state"));
     expect(environment).toMatchObject({
       EZCORP_FACTORY_PROJECT: "ezcorp-factory-fleet-a-tenant-01",
       EZCORP_FACTORY_HARNESS_IMAGE: bundle.images.harness,
@@ -286,6 +288,14 @@ describe("FactoryComposeTarget.ready", () => {
     expect(clock.slept).toEqual([3, 3, 3, 3]);
     const healthy = fakeExecutor((command) => isCompose(command, "ps") ? { code: 0, stdout: HEALTHY, stderr: "" } : undefined);
     expect((await factoryRejection(target(healthy, { ...virtualClock(), readyTimeoutMs: 1, ...harness(503) }).ready(bundle))).message).toContain("still waiting on harness.");
+  });
+
+  test("the default deadline is ten minutes: an upgraded harness migrates before it answers", async () => {
+    const clock = virtualClock();
+    const execute = fakeExecutor((command) => isCompose(command, "ps") ? { code: 0, stdout: HEALTHY, stderr: "" } : undefined);
+    const error = await factoryRejection(target(execute, { ...clock, pollMs: 60_000, ...harness(503) }).ready(bundle));
+    expect(error.code).toBe("deployment_not_ready");
+    expect(clock.slept).toHaveLength(10);
   });
 
   test("a zero timeout never probes and names the harness", async () => {
@@ -556,6 +566,13 @@ describe("factorySpawnExecutor", () => {
 
 describe("the Compose templates parse and hold the hardening", () => {
   const parse = async (name: string) => Bun.YAML.parse(await Bun.file(join(REPOSITORY, "deploy/factory/compose", name)).text()) as { services: Record<string, Record<string, unknown>> };
+
+  test("the harness has a writable /app/.ezcorp from its own app-state directory; nothing else writes under /app", async () => {
+    const { services } = await parse("installation.yml");
+    const appMounts = (name: string) => (services[name]!.volumes as { source: string; target: string; read_only?: boolean }[]).filter((volume) => volume.target.startsWith("/app"));
+    expect(appMounts("harness")).toEqual([{ type: "bind", source: "${EZCORP_FACTORY_HARNESS_APP_STATE:?}", target: "/app/.ezcorp", bind: { create_host_path: false } } as never]);
+    expect([...appMounts("gateway"), ...appMounts("orchestrator")]).toEqual([]);
+  });
   const hardened = (name: string, service: Record<string, unknown>) => {
     expect({ name, readOnly: service.read_only, capDrop: service.cap_drop, privileged: service.privileged, devices: service.devices }).toEqual({ name, readOnly: true, capDrop: ["ALL"], privileged: undefined, devices: undefined });
     expect(service.healthcheck).toBeDefined();

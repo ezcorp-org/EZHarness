@@ -245,7 +245,7 @@ describe("writeFactoryDeliveries", () => {
     }
     expect(bundle.deliveries.harness.files[FACTORY_INGRESS_PROOF_FILE]).toEqual({ source: join(installation.secretDirectory, FACTORY_INGRESS_PROOF_FILE), optional: true });
     // The harness boots only with its projects root and home present.
-    for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, bundle.dataDirectory, join(bundle.dataDirectory, "projects"), join(bundle.dataDirectory, "home")]) expect(await mode(directory)).toBe(0o700);
+    for (const directory of [bundle.runtimeDirectory, bundle.readinessDirectory, bundle.dataDirectory, join(bundle.dataDirectory, "projects"), join(bundle.dataDirectory, "home"), join(bundle.dataDirectory, "app-state")]) expect(await mode(directory)).toBe(0o700);
   });
 
   test("the orchestration writer has its own private directory; the pool and supervisor records are the fleet host's", async () => {

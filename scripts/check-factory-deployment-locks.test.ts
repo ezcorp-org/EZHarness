@@ -91,3 +91,22 @@ test("the default root is the repository", async () => {
   await runFactoryDeploymentLockCheck(["bun", entry], pathToFileURL(entry).href, undefined, { log: (line) => lines.push(line), exit: () => undefined });
   expect(lines.at(-1)).toMatch(/^Factory deployment locks OK: \d+ image references, all pinned\.$/);
 });
+
+describe("the deployment files keep the fixes the live runs needed", () => {
+  const repository = resolve(import.meta.dir, "..");
+
+  test("the image makes /app readable by the host user's uid, in the builder stage, before the runtime stage copies it", async () => {
+    const lines = (await Bun.file(join(repository, "deploy/factory/Dockerfile")).text()).split("\n").map((line) => line.trim());
+    const chmod = lines.indexOf("RUN chmod -R a+rX,go-w /app");
+    const runtimeCopy = lines.indexOf("COPY --from=builder /app /app");
+    const runtimeStage = lines.findIndex((line, index) => index > 0 && /^FROM \$\{BUN_RUNTIME_IMAGE\}/.test(line));
+    expect(chmod).toBeGreaterThan(-1);
+    expect(chmod).toBeLessThan(runtimeStage);
+    expect(runtimeStage).toBeLessThan(runtimeCopy);
+  });
+
+  test("the Temporal gateway's Envoy runs as the container's root, which is the host user owning its mounted config", async () => {
+    const platform = Bun.YAML.parse(await Bun.file(join(repository, "deploy/factory/compose/platform.yml")).text()) as { services: Record<string, { environment?: Record<string, string> }> };
+    expect(platform.services["factory-temporal-gateway"]!.environment).toEqual({ ENVOY_UID: "0" });
+  });
+});

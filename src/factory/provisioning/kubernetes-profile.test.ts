@@ -123,6 +123,8 @@ describe("renderFactoryKubernetesInstallation", () => {
     const [deployment] = kind(objects, "Deployment");
     const byName = Object.fromEntries(podSpec(deployment!).containers.map((container) => [container.name, container]));
     expect(byName.harness!.volumeMounts).toContainEqual({ name: "harness-data", mountPath: FACTORY_CONTAINER_PATHS.data });
+    // The product's daemons write `.ezcorp` under /app, which the restricted pod's image cannot; it is the data volume's app-state.
+    expect(byName.harness!.volumeMounts).toContainEqual({ name: "harness-data", mountPath: "/app/.ezcorp", subPath: "app-state" });
     for (const service of ["gateway", "orchestrator"]) expect(byName[service]!.volumeMounts.map((mount) => mount.name)).not.toContain("harness-data");
     const readiness = (service: string) => byName[service]!.volumeMounts.find((mount) => mount.name === "readiness")!.readOnly;
     expect([readiness("harness"), readiness("gateway"), readiness("orchestrator")]).toEqual([true, true, undefined]);
