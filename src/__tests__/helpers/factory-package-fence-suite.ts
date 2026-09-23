@@ -8,11 +8,12 @@
  */
 import { afterEach, beforeEach, expect, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
-import type { ResourceLimits, Runner } from "@ezcorp/extension-contract";
+import type { ResourceLimits, Runner, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { advanceKernel, referenceCodeV1, type FactoryRunnerRequest, type KernelEvent, type RunnerReference } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { DatabaseLifecycleRepository, releaseRows as rows } from "../../db/queries/extension-releases";
+import { digestObject } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryAttemptDispatcher } from "../../factory/attempt-dispatcher";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
@@ -41,9 +42,12 @@ export function factoryPackageFenceConformance(create: () => Promise<FactoryPack
   const firstTask = referenceCodeV1.graph.nodes[0]!;
   if (firstTask.kind !== "task") throw new Error("the reference factory's first node is not a task");
   const reference: RunnerReference = firstTask.runner;
-  const neverBuilds: Pick<Runner, "build" | "collectArtifacts"> = {
-    async build() { throw new Error("the fence never builds a package"); },
-    async collectArtifacts() { throw new Error("the fence never reads package artifacts"); },
+  // The package's built bytes, already in the runner's store, so a preparation
+  // verifies them and never builds.
+  const artifacts: WorkspaceFiles = { "extension.ts": "export {};", ".runner/recipe.json": "{}" };
+  const cachedRunner: Pick<Runner, "build" | "collectArtifacts"> = {
+    async build() { throw new Error("the fence suite never builds a package"); },
+    async collectArtifacts() { return structuredClone(artifacts); },
   };
 
   let fixture: FactoryPackageFenceFixture;
@@ -57,13 +61,13 @@ export function factoryPackageFenceConformance(create: () => Promise<FactoryPack
     fixture = await create();
     world = await createFactoryLiveAttemptWorld(fixture, { label: "fence", tenantId, projectId, principal, factoryId: "fence-factory", hostId, now, profile, service, hostKeys });
     repository = new DatabaseLifecycleRepository(fixture.db);
-    const release = factoryPackageRelease(reference, "c".repeat(64), "d".repeat(64), installationId, "fence-release");
+    const release = factoryPackageRelease(reference, "c".repeat(64), digestObject(artifacts), installationId, "fence-release");
     await repository.create({
       installation: { id: installationId, ownerId: principal.id, scope: `project:${projectId}`, generation: 1, activeReleaseId: release.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 },
       workspaces: {}, revisions: {}, operations: {}, releases: { [release.id]: release }, approvals: {},
     });
     trusts = createFactoryPackageTrusts(fixture.db, tenantId, world.grants, () => now);
-    preparations = new FactoryPackagePreparations(fixture.db, tenantId, world.grants, trusts, new FactoryV4PackageCatalog(repository, world.objectStore), neverBuilds, limits);
+    preparations = new FactoryPackagePreparations(fixture.db, tenantId, world.grants, trusts, new FactoryV4PackageCatalog(repository, world.objectStore), cachedRunner, limits);
     fence = new FactoryPackageFence(fixture.db, tenantId, world.grants, () => now);
     await preparations.bind(principal, { projectId, reference, installationId, releaseId: release.id }, "fence-bind");
     await trusts.publish(principal, { projectId, reference, expectedRevision: 0 }, "fence-trust");
@@ -200,6 +204,8 @@ export function factoryPackageFenceConformance(create: () => Promise<FactoryPack
   });
 
   test("a quarantine racing a launch has one winner: the launch is refused, or it proceeds on a run that is already being cancelled", async () => {
+    // Prepared, so a launch that reads trust before the quarantine commits passes.
+    await preparations.prepare(projectId, reference);
     const run = await world.dispatchable();
     const request = await world.admitAttempt(run);
     const [decided, launch] = await Promise.all([settle(quarantine()), settle(preparations.assertDispatchReady(request))]);
