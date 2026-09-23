@@ -129,7 +129,7 @@ test("migration preserves a local project and durable controller rows reopen cle
       diskBytes: 10_000,
     }));
     const indexes = await database.query<{ indexname: string }>(
-      "SELECT indexname FROM pg_indexes WHERE tablename LIKE 'sandbox_%'",
+      "SELECT indexname FROM pg_indexes WHERE tablename LIKE 'sandbox_%' OR tablename = 'provider_sandbox_operations'",
     );
     expect(indexes.rows.map((row) => row.indexname)).toEqual(expect.arrayContaining([
       "idx_sandbox_bindings_provider_resource",

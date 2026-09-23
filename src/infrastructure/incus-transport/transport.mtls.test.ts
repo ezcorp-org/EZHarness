@@ -1,19 +1,21 @@
-import { expect, test } from "bun:test";
+import { afterAll, expect, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
-import { readFileSync } from "node:fs";
 import { createServer, type Server } from "node:https";
 import type { AddressInfo } from "node:net";
 import { IncusTransportError, type IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
 import { HostIncusProbeTransport } from "./transport";
+import { makeTestCertificates } from "./test-certificates";
 
-const fixture = (name: string) => readFileSync(new URL(`./mtls-fixtures/${name}`, import.meta.url), "utf8");
+const certificates = makeTestCertificates();
+afterAll(() => certificates.dispose());
+const fixture = certificates.read;
 const serverCert = fixture("server-cert.pem");
 const serverKey = fixture("server-key.pem");
 const otherServerCert = fixture("other-server-cert.pem");
 const otherServerKey = fixture("other-server-key.pem");
 const substituteServerCert = fixture("substitute-server-cert.pem");
 const substituteServerKey = fixture("substitute-server-key.pem");
-const clientCa = fixture("client-ca.pem");
+const clientCa = fixture("client-ca-cert.pem");
 const clientCert = fixture("client-cert.pem");
 const clientKey = fixture("client-key.pem");
 const wrongClientCert = fixture("wrong-client-cert.pem");

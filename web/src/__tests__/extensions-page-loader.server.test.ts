@@ -35,7 +35,7 @@ describe("/extensions +page.server.ts", () => {
 			return [{ id: "i1", isBundled: false } as any];
 		});
 
-		const result = (await load({} as any)) as {
+		const result = (await load({ locals: {} } as any)) as {
 			bundledExtensions: { id: string; isBundled: boolean }[];
 			installedExtensions: { id: string; isBundled: boolean }[];
 		};
@@ -65,7 +65,7 @@ describe("/extensions +page.server.ts", () => {
 				: ([{ id: "i1", name: "some-user-extension", isBundled: false }] as any);
 		});
 
-		const result = (await load({} as any)) as {
+		const result = (await load({ locals: {} } as any)) as {
 			bundledExtensions: Array<Record<string, unknown>>;
 			installedExtensions: Array<Record<string, unknown>>;
 		};
@@ -113,7 +113,7 @@ describe("/extensions +page.server.ts", () => {
 			] as any;
 		});
 
-		const result = (await load({} as any)) as { installedExtensions: unknown[] };
+		const result = (await load({ locals: {} } as any)) as { installedExtensions: unknown[] };
 		const payload = JSON.stringify(result);
 		expect(payload).not.toContain("SSR-URL-LEAK");
 		expect(payload).not.toContain("SSR-HDR-LEAK");
@@ -125,7 +125,7 @@ describe("/extensions +page.server.ts", () => {
 
 	test("returns empty arrays when no extensions exist (no error path)", async () => {
 		vi.mocked(listExtensions).mockResolvedValue([] as any);
-		const result = (await load({} as any)) as {
+		const result = (await load({ locals: {} } as any)) as {
 			bundledExtensions: unknown[];
 			installedExtensions: unknown[];
 		};
@@ -135,7 +135,7 @@ describe("/extensions +page.server.ts", () => {
 
 	test("soft-fails to empty arrays when DB throws (SSR-resilient)", async () => {
 		vi.mocked(listExtensions).mockRejectedValue(new Error("ECONNREFUSED"));
-		const result = (await load({} as any)) as {
+		const result = (await load({ locals: {} } as any)) as {
 			bundledExtensions: unknown[];
 			installedExtensions: unknown[];
 		};

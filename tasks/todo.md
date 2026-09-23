@@ -1284,12 +1284,15 @@ Review: the setup planner blocks the checked-in LVM/16 GiB recipe against both a
 Plan review: the user selected reviewed SSH server setup as part of v1. Use the approved Incus extension release and host-owned bootstrap credentials. Browser input selects an approved provider installation; it cannot choose a local SSH key path, upload a TLS private key, or mark a blocked recipe ready. Server-changing apply uses the exact reviewed plan digest. The pinned first-server recipe now uses compatible Btrfs/20 GiB settings.
 
 Review: The operator flow is implemented in the isolated worktree. A fresh read-only inspection of the real sandbox server produced a ready 15-step plan with the compatible Btrfs/20 GiB recipe. The hardened SSH command also passed read-only inspection. No server settings changed. Focused tests, route contract tests, browser E2E, typecheck, lint, script compilation, and production build pass; the full repository suite passed 26,065 tests across 1,676 files with zero failures. An older plan cannot apply after a newer one is saved, and the database permits one active SSH apply per installation. Detailed evidence is in `docs/validation/2026-09-22-incus-operator-flow.md`. Live SSH apply, provider probe, and guest workload qualification remain separate release gates.
+
 ## Submit pluggable infrastructure PR — 2026-09-22
 
 - [x] Check for an existing PR and compare this branch with current `origin/main`.
-- [ ] Audit the staged scope and complete the repository PR template.
+- [x] Audit the staged scope and complete the repository PR template.
 - [ ] Run required local gates and record any unrun live-provider gates.
-- [ ] Commit and push the isolated worktree branch.
-- [ ] Open a draft PR, then record its URL and CI state.
+- [x] Commit and push the isolated worktree branch after CI repairs.
+- [x] Open a draft PR, then record its URL and CI state.
 
 Plan review: no PR exists for `feat/pluggable-infrastructure-v1`. This worktree contains the shared provider contracts, controller, adapters, workspace routing, and Incus operator setup from prior turns. Submit them together as a draft because live provider and guest qualification are still open. Do not claim production readiness in the PR.
+
+Review: Draft PR [#303](https://github.com/ezcorp-org/EZHarness/pull/303) is open. The first CI run exposed synthetic private-key fixtures in the working tree, a missing visual-evidence mapping, and route/test fixtures that predate the required workspace target. Runtime-generated TLS identities, an index-page screenshot and mapping, and updated fixtures now pass their focused checks. The first local full suite recorded 26,560 pass and 12 fail across 1,709 files under concurrent host load; all seven failed files passed on isolated rerun after the targeted fixes. The new browser run did not reach its spec because real-auth global setup timed out with seven bundled builds pending. Coverage and the next hosted CI run remain open. Live SSH apply, mTLS provider probe, and guest workload qualification remain release gates.

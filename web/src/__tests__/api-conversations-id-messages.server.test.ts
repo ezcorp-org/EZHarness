@@ -50,6 +50,13 @@ vi.mock("$server/db/queries/projects", () => ({
   getProject,
 }));
 
+vi.mock("$server/runtime/workspaces/project-target", () => ({
+  resolveLocalProjectTarget: async (project: { path: string | null }) => {
+    if (!project.path) throw new Error("Project path is unavailable");
+    return { kind: "local", root: project.path };
+  },
+}));
+
 vi.mock("$lib/server/context", () => ({
   getExecutor: () => ({ streamChat }),
   getGoalHost: () => null,
@@ -550,7 +557,7 @@ describe("POST /api/conversations/[id]/messages — fork attachment inheritance"
     // Cloned from the edited USER row onto the freshly-created fork.
     expect(cloneAttachmentsForFork).toHaveBeenCalledTimes(1);
     expect(cloneAttachmentsForFork).toHaveBeenCalledWith({
-      projectRoot: "/proj",
+      workspaceTarget: { kind: "local", root: "/proj" },
       conversationId: "c1",
       sourceMessageId: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       targetMessageId: "m-new",
@@ -613,7 +620,7 @@ describe("POST /api/conversations/[id]/messages — fork attachment inheritance"
     expect(body.attachments).toEqual([]);
   });
 
-  test("missing project path degrades — no clone, turn still succeeds", async () => {
+  test("missing project path denies the turn before a local tool can run", async () => {
     getMessages.mockResolvedValue([
       { id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "user", parentMessageId: null },
     ]);
@@ -626,7 +633,7 @@ describe("POST /api/conversations/[id]/messages — fork attachment inheritance"
         body: { content: "hi", editOf: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     expect(cloneAttachmentsForFork).not.toHaveBeenCalled();
   });
 

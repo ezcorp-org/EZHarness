@@ -33,7 +33,11 @@ test("an admin reviews a saved Incus plan before SSH apply and probes only after
     return route.fulfill({ json: body.action === "probe" ? { setup, result: { result: { ok: true } } } : { setup } });
   });
 
-  await page.goto("/extensions/incus-setup");
+  await page.goto("/extensions");
+  const setupLink = page.getByRole("link", { name: "Set up Incus" });
+  await expect(setupLink).toBeVisible();
+  await captureEvidence(page, testInfo, "extensions-incus-entry", { fullPage: true });
+  await setupLink.click();
   await expect(page.getByRole("heading", { name: "Connect an Incus server" })).toBeVisible();
   await page.getByRole("button", { name: "Inspect and make plan" }).click();
   await expect(page.getByText(digest)).toBeVisible();

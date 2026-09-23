@@ -130,7 +130,7 @@ test("controller migration reapplies and reconnects on real PostgreSQL", async (
   const indexes = await reopenedClient`
     SELECT indexname
     FROM pg_indexes
-    WHERE tablename LIKE 'sandbox_%'
+    WHERE tablename LIKE 'sandbox_%' OR tablename = 'provider_sandbox_operations'
     ORDER BY indexname
   `;
   const checks = await reopenedClient`

@@ -51,6 +51,13 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
+vi.mock("$server/runtime/workspaces/project-target", () => ({
+  resolveLocalProjectTarget: async (project: { path: string | null }) => {
+    if (!project.path) throw new Error("Project path is unavailable");
+    return { kind: "local", root: project.path };
+  },
+}));
+
 // ── Mock surface ────────────────────────────────────────────────────
 
 const getConversation = vi.fn();
@@ -406,12 +413,12 @@ describe("POST — attachments: file count + project + validator + persist", () 
     expect(body.code).toBe("TOO_MANY_FILES");
   });
 
-  test("project path missing → 500", async () => {
+  test("project path missing → workspace unavailable", async () => {
     getProject.mockResolvedValue({ id: "p1", path: null });
     const res = await POST(makeMultipartEvent({ form: makeMultipartWithFile("hi") }));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("Project path not resolvable");
+    expect(body.error).toContain("Sandbox workspace is unavailable");
   });
 
   test("validateAttachment rejects TOO_LARGE → 413", async () => {

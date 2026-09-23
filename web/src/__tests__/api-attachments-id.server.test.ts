@@ -21,6 +21,14 @@ vi.mock("$server/db/queries/conversations", () => ({
 	getConversation: vi.fn(),
 }));
 
+vi.mock("$server/db/queries/projects", () => ({
+	getProject: vi.fn(async () => ({ id: "project", path: "/tmp/attachment-project" })),
+}));
+
+vi.mock("$server/runtime/workspaces/project-target", () => ({
+	resolveLocalProjectTarget: vi.fn(async (project: { path: string }) => ({ kind: "local", root: project.path })),
+}));
+
 vi.mock("$server/db/queries/audit-log", () => ({
 	insertAuditEntry: vi.fn(async () => undefined),
 }));
