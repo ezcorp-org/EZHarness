@@ -168,7 +168,8 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
   enqueue. That is met by a deterministic event id and time, the inbox's own
   idempotency on that id and hash, and a scan of settled operations whose event
   is missing. G8 proves each part. Writing the event inside W07's settlement
-  transaction would need a hook in `releases.ts`, which is not approved.
+  transaction would need a hook in `releases.ts`, which is not approved. Accepted by coordinator ruling
+  2026-09-23. W07 adds no hook.
 - **One protected-effects instance.** `installation-startup.ts` builds
   `FactoryProtectedCommandEffects` once in the release region. It hands that
   instance to the private service and to the delivery.
@@ -195,8 +196,9 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
    `/tmp/factory-platform-evidence/w09c/e2e/repro/` already consents over
    HTTP, waits for the role to publish, and reads the manifest back once an
    operation exists.
-2. **A failed Release node emits a `cancel-node`.** This is W06's kernel; see
-   the disclosure above.
+2. **A failed Release node emits a `cancel-node`.** By coordinator ruling
+   2026-09-23 this is on the kernel backlog (W06 and W13 area) for W18's final
+   gate. The pinning test stays as written.
 
 ## Interface notes
 
