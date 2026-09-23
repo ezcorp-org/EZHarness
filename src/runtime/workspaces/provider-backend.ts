@@ -184,13 +184,8 @@ export function createProviderSandboxWorkspaceBackend(caller: ProviderSandboxWor
 
       try {
         const params = paramsObject(request.params);
-        switch (request.toolName) {
-          case "readFile": {
-            const path = guestPath(params.path);
-            const content = await read(path);
-            return result(truncateText(content.text, getToolOutputLimit("readFile"), "readFile").text);
-          }
-          case "editFile": {
+        const executeFileTool = async (toolName: "readFile" | "editFile" | "listFiles" | "readDirectory"): Promise<AgentToolResult<unknown>> => {
+          const editFile = async (): Promise<AgentToolResult<unknown>> => {
             const path = guestPath(params.path);
             const replacement = string(params.new_string, "replacement text");
             let old: { text: string; revision: string } | null = null;
@@ -226,87 +221,110 @@ export function createProviderSandboxWorkspaceBackend(caller: ProviderSandboxWor
               executable: false,
             });
             return result(`Updated ${path}`, { oldContent: old?.text ?? null, newContent: next });
-          }
-          case "listFiles": {
-            const path = guestPath(params.path, ".");
-            let entries = await list(path);
-            if (typeof params.pattern === "string") {
-              const glob = new Bun.Glob(params.pattern);
-              entries = entries.filter(entry => glob.match(relativeName(path, string(entry.path, "entry path"))));
+          };
+          switch (toolName) {
+            case "readFile": {
+              const path = guestPath(params.path);
+              const content = await read(path);
+              return result(truncateText(content.text, getToolOutputLimit("readFile"), "readFile").text);
             }
-            return result(entries.map(entry => `${relativeName(path, string(entry.path, "entry path"))}${entry.kind === "directory" ? "/" : ""}`).join("\n") || "(empty directory)");
-          }
-          case "readDirectory": {
-            const path = guestPath(params.path, ".");
-            const maxDepth = boundedNumber(params.depth, 2, 3);
-            const lines: string[] = [];
-            const walk = async (directory: string, prefix: string, depth: number): Promise<void> => {
-              const entries = (await list(directory))
-                .filter(entry => !relativeName(directory, string(entry.path, "entry path")).startsWith("."))
-                .sort((a, b) => (a.kind === b.kind ? String(a.path).localeCompare(String(b.path)) : a.kind === "directory" ? -1 : 1));
-              for (const [index, entry] of entries.entries()) {
-                const name = relativeName(directory, string(entry.path, "entry path"));
-                if (name === "node_modules") continue;
-                const last = index === entries.length - 1;
-                lines.push(`${prefix}${last ? "└── " : "├── "}${name}${entry.kind === "directory" ? "/" : ""}`);
-                if (entry.kind === "directory" && depth < maxDepth) await walk(string(entry.path, "entry path"), prefix + (last ? "    " : "│   "), depth + 1);
+            case "editFile":
+              return editFile();
+            case "listFiles": {
+              const path = guestPath(params.path, ".");
+              let entries = await list(path);
+              if (typeof params.pattern === "string") {
+                const glob = new Bun.Glob(params.pattern);
+                entries = entries.filter(entry => glob.match(relativeName(path, string(entry.path, "entry path"))));
               }
-            };
-            await walk(path, "", 1);
-            return result(lines.join("\n") || "(empty directory)");
+              return result(entries.map(entry => `${relativeName(path, string(entry.path, "entry path"))}${entry.kind === "directory" ? "/" : ""}`).join("\n") || "(empty directory)");
+            }
+            case "readDirectory": {
+              const path = guestPath(params.path, ".");
+              const maxDepth = boundedNumber(params.depth, 2, 3);
+              const lines: string[] = [];
+              const walk = async (directory: string, prefix: string, depth: number): Promise<void> => {
+                const entries = (await list(directory))
+                  .filter(entry => !relativeName(directory, string(entry.path, "entry path")).startsWith("."))
+                  .sort((a, b) => (a.kind === b.kind ? String(a.path).localeCompare(String(b.path)) : a.kind === "directory" ? -1 : 1));
+                for (const [index, entry] of entries.entries()) {
+                  const name = relativeName(directory, string(entry.path, "entry path"));
+                  if (name === "node_modules") continue;
+                  const last = index === entries.length - 1;
+                  lines.push(`${prefix}${last ? "└── " : "├── "}${name}${entry.kind === "directory" ? "/" : ""}`);
+                  if (entry.kind === "directory" && depth < maxDepth) await walk(string(entry.path, "entry path"), prefix + (last ? "    " : "│   "), depth + 1);
+                }
+              };
+              await walk(path, "", 1);
+              return result(lines.join("\n") || "(empty directory)");
+            }
           }
+        };
+        const executeSearchTool = async (toolName: "grep" | "glob"): Promise<AgentToolResult<unknown>> => {
+          switch (toolName) {
+            case "grep": {
+              const pattern = string(params.pattern, "search pattern");
+              const path = guestPath(params.path, ".");
+              const argv = ["rg", "-n", "--color=never"];
+              if (params.caseSensitive === false) argv.push("-i");
+              if (typeof params.include === "string") argv.push("-g", params.include);
+              if (params.noIgnore === true) argv.push("--no-ignore");
+              argv.push("--", pattern, path);
+              let backend = "rg";
+              let output = await run(argv, 30_000);
+              if (output.exitCode === 127 || (output.exitCode === -1 && !output.stderr)) {
+                backend = "grep";
+                const fallback = ["grep", "-RnI", "--color=never"];
+                if (params.caseSensitive === false) fallback.push("-i");
+                if (typeof params.include === "string") fallback.push(`--include=${params.include}`);
+                if (params.noIgnore !== true) {
+                  for (const name of [".git", "node_modules", "dist", "build", "coverage"]) fallback.push(`--exclude-dir=${name}`);
+                }
+                fallback.push("-e", pattern, path);
+                output = await run(fallback, 30_000);
+              }
+              if (output.exitCode === 1) return result("No matches found.", { matchCount: 0, pattern });
+              if (output.exitCode !== 0) throw new Error(output.stderr || "Sandbox search failed");
+              const text = output.stdout.trim();
+              return result(text, { matchCount: text ? text.split("\n").length : 0, pattern, backend, truncated: output.truncated });
+            }
+            case "glob": {
+              const pattern = string(params.pattern, "glob pattern");
+              const path = guestPath(params.path, ".");
+              let output = await run(["rg", "--files", "-g", pattern, "--", path], 30_000);
+              if (output.exitCode === 127 || (output.exitCode === -1 && !output.stderr)) {
+                output = await run(["find", path, "-type", "f"], 30_000);
+                if (output.exitCode === 0) {
+                  const glob = new Bun.Glob(pattern);
+                  output.stdout = output.stdout.split("\n").filter(file => glob.match(posix.relative(path, file))).join("\n");
+                }
+              }
+              if (output.exitCode === 1) return result("No files found matching pattern.", { fileCount: 0, truncated: false });
+              if (output.exitCode !== 0) throw new Error(output.stderr || "Sandbox glob failed");
+              const files = output.stdout.trim().split("\n").filter(Boolean).sort();
+              if (!files.length) return result("No files found matching pattern.", { fileCount: 0, truncated: false });
+              const maxResults = boundedNumber(params.maxResults, 200, 10_000);
+              const truncated = output.truncated || files.length > maxResults;
+              const selected = files.slice(0, maxResults);
+              return result(selected.join("\n") + (truncated ? `\n[truncated at ${maxResults} results]` : ""), { fileCount: selected.length, truncated });
+            }
+          }
+        };
+        switch (request.toolName) {
+          case "readFile":
+          case "editFile":
+          case "listFiles":
+          case "readDirectory":
+            return await executeFileTool(request.toolName);
           case "shell": {
             const command = string(params.command, "command");
             const outcome = await run(["/bin/sh", "-c", command], boundedNumber(params.timeout, 30_000, 600_000));
             const output = outcome.stderr ? `${outcome.stdout}\n${outcome.stderr}` : outcome.stdout;
             return result(output || "(no output)", { ...outcome, streaming: false });
           }
-          case "grep": {
-            const pattern = string(params.pattern, "search pattern");
-            const path = guestPath(params.path, ".");
-            const argv = ["rg", "-n", "--color=never"];
-            if (params.caseSensitive === false) argv.push("-i");
-            if (typeof params.include === "string") argv.push("-g", params.include);
-            if (params.noIgnore === true) argv.push("--no-ignore");
-            argv.push("--", pattern, path);
-            let backend = "rg";
-            let output = await run(argv, 30_000);
-            if (output.exitCode === 127 || (output.exitCode === -1 && !output.stderr)) {
-              backend = "grep";
-              const fallback = ["grep", "-RnI", "--color=never"];
-              if (params.caseSensitive === false) fallback.push("-i");
-              if (typeof params.include === "string") fallback.push(`--include=${params.include}`);
-              if (params.noIgnore !== true) {
-                for (const name of [".git", "node_modules", "dist", "build", "coverage"]) fallback.push(`--exclude-dir=${name}`);
-              }
-              fallback.push("-e", pattern, path);
-              output = await run(fallback, 30_000);
-            }
-            if (output.exitCode === 1) return result("No matches found.", { matchCount: 0, pattern });
-            if (output.exitCode !== 0) throw new Error(output.stderr || "Sandbox search failed");
-            const text = output.stdout.trim();
-            return result(text, { matchCount: text ? text.split("\n").length : 0, pattern, backend, truncated: output.truncated });
-          }
-          case "glob": {
-            const pattern = string(params.pattern, "glob pattern");
-            const path = guestPath(params.path, ".");
-            let output = await run(["rg", "--files", "-g", pattern, "--", path], 30_000);
-            if (output.exitCode === 127 || (output.exitCode === -1 && !output.stderr)) {
-              output = await run(["find", path, "-type", "f"], 30_000);
-              if (output.exitCode === 0) {
-                const glob = new Bun.Glob(pattern);
-                output.stdout = output.stdout.split("\n").filter(file => glob.match(posix.relative(path, file))).join("\n");
-              }
-            }
-            if (output.exitCode === 1) return result("No files found matching pattern.", { fileCount: 0, truncated: false });
-            if (output.exitCode !== 0) throw new Error(output.stderr || "Sandbox glob failed");
-            const files = output.stdout.trim().split("\n").filter(Boolean).sort();
-            if (!files.length) return result("No files found matching pattern.", { fileCount: 0, truncated: false });
-            const maxResults = boundedNumber(params.maxResults, 200, 10_000);
-            const truncated = output.truncated || files.length > maxResults;
-            const selected = files.slice(0, maxResults);
-            return result(selected.join("\n") + (truncated ? `\n[truncated at ${maxResults} results]` : ""), { fileCount: selected.length, truncated });
-          }
+          case "grep":
+          case "glob":
+            return await executeSearchTool(request.toolName);
         }
       } catch (error) {
         return toolError(error instanceof Error ? error.message : String(error));

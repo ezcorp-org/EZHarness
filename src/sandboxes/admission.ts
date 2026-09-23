@@ -463,41 +463,45 @@ export class SandboxAdmissionStore {
       const [reservation] = await transaction.select().from(sandboxReservations)
         .where(eq(sandboxReservations.bindingId, binding.id)).limit(1).for("update");
 
-      let state: "ADMITTED" | "QUEUED" | "REJECTED" = "REJECTED";
-      let reason: SandboxAdmissionReason | null = null;
-      let increment = input.resources;
-      if (binding.generation !== input.generation) reason = "STALE_GENERATION";
-      else if (binding.tombstonedAt) reason = "BINDING_TOMBSTONED";
-      else if (!host) reason = "HOST_CAPACITY_NOT_CONFIGURED";
-      else if (!quota) reason = "PROJECT_QUOTA_NOT_CONFIGURED";
-      else if (quota.providerInstallationId !== binding.providerInstallationId || quota.connectionId !== binding.connectionId) {
-        reason = "PROJECT_QUOTA_HOST_MISMATCH";
-      } else if (input.kind === "START" && !reservation) reason = "RESERVATION_NOT_FOUND";
-      else if (reservation?.diskState === "RELEASE_REQUESTED" || reservation?.diskState === "RELEASED") {
-        reason = "CLEANUP_PENDING";
-      } else if (input.kind === "START" && reservation?.computeState === "RELEASE_REQUESTED") {
-        reason = "STOP_OUTCOME_PENDING";
-      } else if (input.kind === "START" && reservation?.computeState === "RESERVED") {
-        reason = "COMPUTE_ALREADY_RESERVED";
-      } else if (input.kind === "START" && reservation?.diskBytes !== input.resources.diskBytes) {
-        reason = "RETAINED_DISK_MISMATCH";
-      } else if (input.kind === "CREATE" && reservation) {
-        reason = reservation.cleanupRequestedAt ? "CLEANUP_PENDING" : "COMPUTE_ALREADY_RESERVED";
-      } else if (host && quota) {
-        const projectLimit = vectorFrom(quota);
-        const hostLimit = usableCapacity(host);
-        reason = firstRequestExcess(input.resources, projectLimit, "PROJECT")
-          ?? firstRequestExcess(input.resources, hostLimit, "HOST");
-        if (!reason) {
-          increment = input.kind === "START" ? { ...input.resources, diskBytes: 0 } : input.resources;
-          const projectUsed = await usage(transaction, sql`project_id = ${binding.projectId}`);
-          const hostUsed = await usage(transaction, sql`
-            provider_installation_id = ${binding.providerInstallationId} AND connection_id = ${binding.connectionId}`);
-          reason = firstCapacityExcess(projectUsed, increment, projectLimit, "PROJECT")
-            ?? firstCapacityExcess(hostUsed, increment, hostLimit, "HOST");
-          state = reason ? "QUEUED" : "ADMITTED";
+      const decideCapacity = async (): Promise<{ state: "ADMITTED" | "QUEUED" | "REJECTED"; reason: SandboxAdmissionReason | null }> => {
+        let state: "ADMITTED" | "QUEUED" | "REJECTED" = "REJECTED";
+        let reason: SandboxAdmissionReason | null = null;
+        let increment = input.resources;
+        if (binding.generation !== input.generation) reason = "STALE_GENERATION";
+        else if (binding.tombstonedAt) reason = "BINDING_TOMBSTONED";
+        else if (!host) reason = "HOST_CAPACITY_NOT_CONFIGURED";
+        else if (!quota) reason = "PROJECT_QUOTA_NOT_CONFIGURED";
+        else if (quota.providerInstallationId !== binding.providerInstallationId || quota.connectionId !== binding.connectionId) {
+          reason = "PROJECT_QUOTA_HOST_MISMATCH";
+        } else if (input.kind === "START" && !reservation) reason = "RESERVATION_NOT_FOUND";
+        else if (reservation?.diskState === "RELEASE_REQUESTED" || reservation?.diskState === "RELEASED") {
+          reason = "CLEANUP_PENDING";
+        } else if (input.kind === "START" && reservation?.computeState === "RELEASE_REQUESTED") {
+          reason = "STOP_OUTCOME_PENDING";
+        } else if (input.kind === "START" && reservation?.computeState === "RESERVED") {
+          reason = "COMPUTE_ALREADY_RESERVED";
+        } else if (input.kind === "START" && reservation?.diskBytes !== input.resources.diskBytes) {
+          reason = "RETAINED_DISK_MISMATCH";
+        } else if (input.kind === "CREATE" && reservation) {
+          reason = reservation.cleanupRequestedAt ? "CLEANUP_PENDING" : "COMPUTE_ALREADY_RESERVED";
+        } else if (host && quota) {
+          const projectLimit = vectorFrom(quota);
+          const hostLimit = usableCapacity(host);
+          reason = firstRequestExcess(input.resources, projectLimit, "PROJECT")
+            ?? firstRequestExcess(input.resources, hostLimit, "HOST");
+          if (!reason) {
+            increment = input.kind === "START" ? { ...input.resources, diskBytes: 0 } : input.resources;
+            const projectUsed = await usage(transaction, sql`project_id = ${binding.projectId}`);
+            const hostUsed = await usage(transaction, sql`
+              provider_installation_id = ${binding.providerInstallationId} AND connection_id = ${binding.connectionId}`);
+            reason = firstCapacityExcess(projectUsed, increment, projectLimit, "PROJECT")
+              ?? firstCapacityExcess(hostUsed, increment, hostLimit, "HOST");
+            state = reason ? "QUEUED" : "ADMITTED";
+          }
         }
-      }
+        return { state, reason };
+      };
+      const { state, reason } = await decideCapacity();
 
       if (state === "ADMITTED") {
         if (input.kind === "CREATE") {

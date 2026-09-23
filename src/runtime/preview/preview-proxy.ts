@@ -479,48 +479,52 @@ export async function handlePreviewRequest(
   if (!row || row.userId !== claims.userId) return notFound();
 
   if (row.workspaceTarget?.kind === "sandbox") {
-    const target = deps.resolveWorkspaceTarget?.(row.workspaceTarget);
-    if (
-      target?.kind !== "sandbox"
-      || !sameSandboxWorkspaceBinding(row.workspaceTarget.binding, target.binding)
-      || !target.backend?.previews
-      || !(row.expiresAt instanceof Date)
-      || row.expiresAt.getTime() <= Date.now()
-    ) {
-      return badGateway();
-    }
-    if (row.kind === "dynamic") {
-      if (!Number.isInteger(row.targetPort) || (row.targetPort ?? 0) <= 0) return notFound();
-      if (deps.checkRate && !deps.checkRate(previewId)) return tooManyRequests();
-    }
-    if (!opts.request) return badGateway();
-    try {
-      // Preview access has already been checked. Build from the URL rather
-      // than from the original Request: Bun 1.3.14 can retain original
-      // headers when a replacement Headers object is empty.
-      const hasBody = opts.request.method !== "GET" && opts.request.method !== "HEAD";
-      const requestInit: RequestInit & { duplex?: "half" } = {
-        method: opts.request.method,
-        headers: sanitizeInboundHeaders(opts.request.headers),
-        body: hasBody ? opts.request.body : undefined,
-        signal: opts.request.signal,
-        // Bun/undici needs half duplex when forwarding a streaming body.
-        duplex: hasBody ? "half" : undefined,
-      };
-      const providerRequest = new Request(opts.request.url, requestInit);
-      const response = await target.backend.previews.serve({
-        binding: target.binding,
-        previewId,
-        userId: claims.userId,
-        targetPort: row.targetPort,
-        requestPath,
-        request: providerRequest,
-        expiresAt: row.expiresAt,
-      });
-      return sanitizeUpstreamResponse(response);
-    } catch {
-      return badGateway();
-    }
+    const sandboxReference = row.workspaceTarget;
+    const serveSandbox = async (): Promise<Response> => {
+      const target = deps.resolveWorkspaceTarget?.(sandboxReference);
+      if (
+        target?.kind !== "sandbox"
+        || !sameSandboxWorkspaceBinding(sandboxReference.binding, target.binding)
+        || !target.backend?.previews
+        || !(row.expiresAt instanceof Date)
+        || row.expiresAt.getTime() <= Date.now()
+      ) {
+        return badGateway();
+      }
+      if (row.kind === "dynamic") {
+        if (!Number.isInteger(row.targetPort) || (row.targetPort ?? 0) <= 0) return notFound();
+        if (deps.checkRate && !deps.checkRate(previewId)) return tooManyRequests();
+      }
+      if (!opts.request) return badGateway();
+      try {
+        // Preview access has already been checked. Build from the URL rather
+        // than from the original Request: Bun 1.3.14 can retain original
+        // headers when a replacement Headers object is empty.
+        const hasBody = opts.request.method !== "GET" && opts.request.method !== "HEAD";
+        const requestInit: RequestInit & { duplex?: "half" } = {
+          method: opts.request.method,
+          headers: sanitizeInboundHeaders(opts.request.headers),
+          body: hasBody ? opts.request.body : undefined,
+          signal: opts.request.signal,
+          // Bun/undici needs half duplex when forwarding a streaming body.
+          duplex: hasBody ? "half" : undefined,
+        };
+        const providerRequest = new Request(opts.request.url, requestInit);
+        const response = await target.backend.previews.serve({
+          binding: target.binding,
+          previewId,
+          userId: claims.userId,
+          targetPort: row.targetPort,
+          requestPath,
+          request: providerRequest,
+          expiresAt: row.expiresAt,
+        });
+        return sanitizeUpstreamResponse(response);
+      } catch {
+        return badGateway();
+      }
+    };
+    return serveSandbox();
   }
 
   // Best-effort liveness bump.

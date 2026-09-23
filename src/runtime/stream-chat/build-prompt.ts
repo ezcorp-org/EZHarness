@@ -234,13 +234,17 @@ export async function buildPromptInput(
     } catch { /* Lesson mention resolution failure is non-fatal */ }
   }
 
+  return addAttachmentContent(text, options);
+}
+/** Lift the selected model's attachment parts only after all literal notes are composed. */
+async function addAttachmentContent(text: string, options: BuildPromptOptions): Promise<BuildPromptResult> {
   // Multi-modal attachments for the current turn: convert to pi-ai parts.
   // Images go through the prompt(text, images) overload; text/pdf content
   // is inlined into the prompt string. Incompatible attachments throw
   // UnsupportedAttachmentError, which the endpoint should have prevented —
   // if we reach here, the user provided a model that can't accept them and
   // we surface the error rather than silently dropping content.
-  const images: import("@earendil-works/pi-ai").ImageContent[] = [];
+  const images: BuildPromptResult["images"] = [];
   if (options.attachments && options.attachments.length > 0 && options.provider && options.model) {
     const { getCapabilitiesWithExtensions } = await import("../../providers/model-capabilities");
     const { buildUserContent } = await import("../../chat/attachments/content-builder");
