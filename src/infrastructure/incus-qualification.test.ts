@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { LIVE_SANDBOX_QUALIFICATION_CASES, type SandboxCompatibilityObservation } from "@ezcorp/extension-contract";
+import { LIVE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, type SandboxCompatibilityObservation } from "@ezcorp/extension-contract";
 import { incusManifest } from "../../extensions/incus-sandbox/manifest";
 import recipeTemplate from "../../scripts/incus/recipe.json";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
@@ -88,6 +88,27 @@ beforeAll(async () => {
 afterAll(async () => client.close());
 
 describe("host Incus qualification store", () => {
+  test("fixture authorization pins the current release, connection, preset, and published image", async () => {
+    let published = true;
+    const fixtureStore = new IncusQualificationStore({ db,
+      activeRelease: async () => snapshot,
+      connectionRevision: async () => revision,
+      resolveConnection: async () => connection(),
+      imageReceipt: async () => published ? imageReceipt() : null,
+      probe: async () => { throw new Error("Fixture authorization must not run the host probe"); },
+    });
+    const selected = await fixtureStore.authorizeFixture(scope);
+    expect(selected.snapshot).toEqual(snapshot);
+    expect(selected.connection).toEqual(connection());
+    expect(selected.preset).toEqual(preset);
+    expect(selected.presetDigest).toBe(await sandboxPresetDigest(preset));
+    expect(selected.helperDigest).toBe(guestHelperSha256());
+    await expect(fixtureStore.authorizeFixture({ ...scope, releaseId: "different-release" }))
+      .rejects.toThrow("release is unavailable");
+    published = false;
+    await expect(fixtureStore.authorizeFixture(scope)).rejects.toThrow("image is unpublished");
+  });
+
   test("missing evidence fails closed and a host probe plus all live cases can be persisted", async () => {
     expect(await store.load(scope)).toBeNull();
     const saved = await store.recordVerified(scope);
