@@ -3547,11 +3547,24 @@ arbiters and only two.
 
 ## W18b — six pre-existing backend pool failures (branch `wp/w18b-pool-fixes`)
 
-Base `integ/w00` `94fb95b6a`. Receipts: `/tmp/factory-platform-evidence/w18b/`.
+Base `integ/w00` `94fb95b6a`. Receipts: `/tmp/factory-platform-evidence/w18b/`. Gates: `tasks/factory/w18b-GATES.md`.
 
 - [x] Reproduce each failure alone at base and record the assertion and the cause.
-- [ ] Project root: the SDK walk accepts only a real git marker (a `.git` directory with `HEAD`, or a `.git` file naming `gitdir:`); every example copy routes through the SDK; tests pin a stray empty `.git` above the start.
-- [ ] pi_session: remove the expired migration bridge and its calendar literal; the legacy cookie is always purged, never promoted; tests and docs follow.
-- [ ] Launcher readiness: the runner probe reuses `inspectProductionRunner` and waits inside the launcher's one readiness budget, not a separate one-second deadline; a test pins a slow runner inspect.
-- [ ] The five files alone, the full backend pool, typecheck, lint, both boundary checks, gate-integrity, both coverage gates.
-- [ ] Gate file `tasks/factory/w18b-GATES.md`, report, review paragraph.
+- [x] Project root: the SDK walk accepts only a real git marker (a `.git` directory with `HEAD`, or a `.git` file naming `gitdir:`); every example copy routes through the SDK; tests pin a stray empty `.git` above the start.
+- [x] pi_session: remove the expired migration bridge and its calendar literal; the legacy cookie is always purged, never promoted; tests and docs follow.
+- [x] Launcher readiness: the runner probe reuses `inspectProductionRunner` and waits inside the launcher's one readiness budget, not a separate one-second deadline; a test pins a slow runner inspect.
+- [x] The five files alone, the full backend pool, typecheck, lint, both boundary checks, gate-integrity, both coverage gates.
+- [x] Gate file `tasks/factory/w18b-GATES.md`, report, review paragraph.
+
+**Review.** The six failures had three causes, and W15's labels were wrong for two of them. First,
+three tests reported `/tmp` because every `.git` walk accepted any `.git` entry, and this host has an
+empty `/tmp/.git` that git itself rejects. The SDK walk now accepts only a real repository marker, the
+five example copies route through it, and the standalone ai-kit CLI asks git. The same cause also
+failed the SDK and ai-kit legs, which are fixed too. Second, the pi_session tests failed because their
+regexes matched indentation that a hook refactor changed. The 2026-06-01 literal was still a live
+product defect, so the expired bridge is retired: no date in code decides what the hook accepts.
+Third, the "Unix socket path limit" failure was a one-second readiness probe that timed out under pool
+load; the socket paths were already short. Each cause is pinned by a test that fails on the unfixed
+code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
+Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
+`inspectProductionRunner` keeps a fixed 5-second default for verification commands.
