@@ -99,9 +99,9 @@ export interface HostIncusLiveWitness {
   createFixture(scope: IncusQualificationScope, preset: SandboxPreset,
     operationId: string, dropFirstReply: boolean): Promise<LiveFixtureHandle>;
   inspectFixture(handle: LiveFixtureHandle): Promise<LiveFixtureInspection>;
-  observeEnforcement(handle: LiveFixtureHandle): Promise<LiveEnforcementFacts>;
+  observeEnforcement(handle: LiveFixtureHandle, unrelated: LiveFixtureHandle): Promise<LiveEnforcementFacts>;
   /** Attempts over-limit guest loads and measures containment plus neighbor/host health. */
-  exerciseLimits(handle: LiveFixtureHandle): Promise<LiveLimitLoadFact[]>;
+  exerciseLimits(handle: LiveFixtureHandle, unrelated: LiveFixtureHandle): Promise<LiveLimitLoadFact[]>;
   setPower(handle: LiveFixtureHandle, state: "running" | "stopped"): Promise<void>;
   run(handle: LiveFixtureHandle, argv: readonly string[], timeoutMs: number): Promise<LiveCommandResult>;
   writeFile(handle: LiveFixtureHandle, path: string, bytes: Uint8Array): Promise<void>;
@@ -272,8 +272,16 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
       assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
       await witness.setPower(primary, "running");
       assertInspection(await witness.inspectFixture(primary), primary, preset, "running");
-      assertEnforcement(await witness.observeEnforcement(primary), preset);
-      assertLoadFacts(await witness.exerciseLimits(primary), preset);
+      unrelated = await witness.createFixture(scope, preset, unrelatedId, false);
+      requireFact(stableId(unrelated.sandboxId) && unrelated.sandboxId !== primary.sandboxId,
+        "unrelated fixture was adopted");
+      assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
+      await witness.setPower(unrelated, "running");
+      assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "running");
+      assertEnforcement(await witness.observeEnforcement(primary, unrelated), preset);
+      assertLoadFacts(await witness.exerciseLimits(primary, unrelated), preset);
+      await witness.setPower(unrelated, "stopped");
+      assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
 
       const marker = `ezh-${fixtureToken}`;
       assertCommand(await witness.run(primary, ["sh", "-c", "printf %s \"$1\"", "sh", marker], 30_000), marker);
@@ -286,10 +294,6 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
           "run", "--rm", "proof"], 120_000), "ezh-compose-ok");
       }
 
-      unrelated = await witness.createFixture(scope, preset, unrelatedId, false);
-      requireFact(stableId(unrelated.sandboxId) && unrelated.sandboxId !== primary.sandboxId,
-        "unrelated fixture was adopted");
-      assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
       await witness.setPower(primary, "stopped");
       assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
       const restart = await witness.restartController();

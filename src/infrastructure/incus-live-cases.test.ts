@@ -72,7 +72,7 @@ test("no host authority or published image cannot produce live cases", async () 
 test("a controlled load gap prevents SP04 and still cleans up the fixture", async () => {
   const value = witness({ exerciseLimits: async () => [witness().loadFacts[0]!] });
   await expect(createIncusLiveCaseRunner({ witness: value.value })(scope, preset)).rejects.toThrow("controlled limit loads");
-  expect(value.destroyed).toHaveLength(1);
+  expect(value.destroyed).toHaveLength(2);
 });
 
 test("a failed replay after the first create cleans the primary fixture", async () => {
@@ -93,11 +93,11 @@ test("missing Compose artifact cannot be called a real Compose pass", async () =
     profile: preset.profile, imageDigest: preset.imageDigest, helperDigest: GUEST_HELPER_SHA256 }) });
   const compose = { ...preset, requirements: { ...preset.requirements, nestedCompose: true } };
   await expect(createIncusLiveCaseRunner({ witness: value.value })(scope, compose)).rejects.toThrow("Compose fixture image");
-  expect(value.destroyed).toHaveLength(1);
+  expect(value.destroyed).toHaveLength(2);
   const moving = witness({ observe: value.value.observe });
   await expect(createIncusLiveCaseRunner({ witness: moving.value,
     composeFixtureImageRef: "docker.io/library/busybox:latest" })(scope, compose)).rejects.toThrow("Compose fixture image");
-  expect(moving.destroyed).toHaveLength(1);
+  expect(moving.destroyed).toHaveLength(2);
 });
 
 test("host or neighbor impact prevents SP04", async () => {
@@ -105,7 +105,28 @@ test("host or neighbor impact prevents SP04", async () => {
   facts[0]!.neighborHealthy = false;
   const value = witness({ exerciseLimits: async () => facts });
   await expect(createIncusLiveCaseRunner({ witness: value.value })(scope, preset)).rejects.toThrow("affected a neighbor");
-  expect(value.destroyed).toHaveLength(1);
+  expect(value.destroyed).toHaveLength(2);
+});
+
+test("isolation and load probes receive a distinct running neighbor", async () => {
+  const value = witness();
+  const calls: string[] = [];
+  value.value.observeEnforcement = async (primary, unrelated) => {
+    expect(primary.sandboxId).not.toBe(unrelated.sandboxId);
+    expect(value.states.get(primary.sandboxId)).toBe("running");
+    expect(value.states.get(unrelated.sandboxId)).toBe("running");
+    calls.push("enforcement");
+    return witness().value.observeEnforcement(primary, unrelated);
+  };
+  value.value.exerciseLimits = async (primary, unrelated) => {
+    expect(primary.sandboxId).not.toBe(unrelated.sandboxId);
+    expect(value.states.get(unrelated.sandboxId)).toBe("running");
+    calls.push("load");
+    return value.loadFacts;
+  };
+  await createIncusLiveCaseRunner({ witness: value.value })(scope, preset);
+  expect(calls).toEqual(["enforcement", "load"]);
+  expect([...value.states.values()]).toEqual(["absent", "absent", "absent"]);
 });
 
 test("failed cleanup recovery or cleanup itself denies SP06", async () => {
