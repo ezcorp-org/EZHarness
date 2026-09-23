@@ -898,3 +898,15 @@ uses explicit portable empty-variable syntax and preserves its literal rebuild c
 tests pass 132 tests and 315 assertions. The repaired full backend pool passes 26,273 tests across
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
+
+## PR #315 keyless credential review — 2026-09-23
+
+- [x] Read PR intent, changed files, review state, and failed CI log.
+- [x] Reproduce the failing quality gate and inspect the real HTTP behavior.
+- [x] Refactor the extension LLM mediator so changed functions meet the quality gate.
+- [x] Run focused tests and relevant local checks, then commit and push to the PR head if safe.
+- [ ] Recheck hosted CI and record a final review below.
+
+Plan review: Keep the token suppression rule and the audited credential boundary intact. Extract cohesive stages from the existing extension LLM handler, preserve its error codes and audit behavior, and test the same request path before and after the change.
+
+Local review: The PR wire test proves that the raw keyless placeholder reaches a local server as a bearer, while both repaired pi-ai paths send no Authorization header and real keys remain intact. The hosted quality log reports CRAP 50 for `handlePiLlmComplete` at 98% coverage. Extracting grant validation, quota reservation, and successful-response recording reduces source complexity to 24, 8, 8, and 15 respectively. The extension handler suite passes 19/19; keyless wire and credential-boundary suites pass 12/12; pinned-Bun typecheck passes; lint checks 4,686 files. The full local coverage test pool passes 27,200 tests with zero failures, including 595 Vitest files / 7,482 tests. Its wrapper exits 1 before LCOV merge because the direct invocation lacks the browser-coverage receipts that `scripts/ci-local.sh` supplies. Hosted CI must confirm patch coverage and the merged CRAP gate.

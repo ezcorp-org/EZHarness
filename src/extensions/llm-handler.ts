@@ -128,51 +128,12 @@ export interface LlmHandlerContext {
   completeFn?: PiCompleteFn;
 }
 
-// ── Main entrypoint ─────────────────────────────────────────────
-
-export async function handlePiLlmComplete(
+async function checkProviderAndModelGrant(
   req: JsonRpcRequest,
-  ctx: LlmHandlerContext,
-  rpcMeta?: Record<string, unknown>,
-): Promise<JsonRpcResponse> {
-  const startedAt = Date.now();
-  const handlerCtx = deriveHandlerContext(rpcMeta, ctx.registeredTool);
-  const params = (req.params ?? {}) as unknown as LlmCompleteParams;
-
-  const grantedLlm = ctx.granted.llm;
-  if (!grantedLlm) {
-    return {
-      jsonrpc: "2.0",
-      id: req.id,
-      error: {
-        code: -32101,
-        message: "ctx.llm permission not granted to this extension",
-      },
-    };
-  }
-
-  // ── getBudget() short-circuit ────────────────────────────────
-  if (params.op === "budget") {
-    const quota = ctx.quota ?? getLlmQuota();
-    await quota.hydrate(handlerCtx.actorExtensionId);
-    const snapshot = quota.budget(handlerCtx.actorExtensionId, {
-      maxCallsPerHour: grantedLlm.maxCallsPerHour,
-      maxCallsPerDay: grantedLlm.maxCallsPerDay,
-      ...(grantedLlm.maxTokensPerDay !== undefined ? { maxTokensPerDay: grantedLlm.maxTokensPerDay } : {}),
-      ...(grantedLlm.maxCostCentsPerDay !== undefined ? { maxCostCentsPerDay: grantedLlm.maxCostCentsPerDay } : {}),
-    });
-    return { jsonrpc: "2.0", id: req.id, result: snapshot };
-  }
-
-  // ── Streaming stub (locked decision: deferred to v1.4) ──────
-  if (params.op === "stream") {
-    return {
-      jsonrpc: "2.0",
-      id: req.id,
-      error: { code: -32601, message: "ctx.llm.stream() is not implemented (deferred to v1.4)" },
-    };
-  }
-
+  params: LlmCompleteParams,
+  grantedLlm: NonNullable<ExtensionPermissions["llm"]>,
+  handlerCtx: ReturnType<typeof deriveHandlerContext>,
+): Promise<JsonRpcResponse | undefined> {
   // ── Provider gate ────────────────────────────────────────────
   if (typeof params.provider !== "string" || !grantedLlm.providers.includes(params.provider)) {
     const attempts = recordProviderNotGrantedAttempt(handlerCtx.actorExtensionId);
@@ -245,48 +206,62 @@ export async function handlePiLlmComplete(
     }
   }
 
-  // ── Quota gate ───────────────────────────────────────────────
-  const quota = ctx.quota ?? getLlmQuota();
-  // Hydrate today's persisted counters from `extension_llm_usage` on
-  // first call after a process restart. Cheap when already populated
-  // (early-return inside hydrate); critical for restart-resilience.
-  await quota.hydrate(handlerCtx.actorExtensionId);
-  // Always have a concrete token estimate for the quota counter.
-  const reqMaxTokens: number =
-    clampInt(params.maxTokens, 1, grantedLlm.maxTokensPerCall ?? 4096)
-    ?? Math.min(4096, grantedLlm.maxTokensPerCall ?? 4096);
-  const consumeResult = quota.consume(
-    handlerCtx.actorExtensionId,
-    {
-      maxCallsPerHour: grantedLlm.maxCallsPerHour,
-      maxCallsPerDay: grantedLlm.maxCallsPerDay,
-      ...(grantedLlm.maxTokensPerDay !== undefined ? { maxTokensPerDay: grantedLlm.maxTokensPerDay } : {}),
-      ...(grantedLlm.maxCostCentsPerDay !== undefined ? { maxCostCentsPerDay: grantedLlm.maxCostCentsPerDay } : {}),
-    },
-    { tokens: reqMaxTokens },
-  );
-  if (!consumeResult.ok) {
-    await recordCapabilityCall({
-      ctx: handlerCtx,
-      capability: "llm",
-      action: "complete",
-      durationMs: Date.now() - startedAt,
-      success: false,
-      errorCode: "LLM_QUOTA_EXCEEDED",
-      errorMessage: consumeResult.reason ?? "quota",
-      provider: params.provider,
-      model: params.model,
-    });
+  return undefined;
+}
+
+// ── Main entrypoint ─────────────────────────────────────────────
+
+export async function handlePiLlmComplete(
+  req: JsonRpcRequest,
+  ctx: LlmHandlerContext,
+  rpcMeta?: Record<string, unknown>,
+): Promise<JsonRpcResponse> {
+  const startedAt = Date.now();
+  const handlerCtx = deriveHandlerContext(rpcMeta, ctx.registeredTool);
+  const params = (req.params ?? {}) as unknown as LlmCompleteParams;
+
+  const grantedLlm = ctx.granted.llm;
+  if (!grantedLlm) {
     return {
       jsonrpc: "2.0",
       id: req.id,
       error: {
-        code: -32103,
-        message: `Quota exceeded: ${consumeResult.reason}`,
-        data: { reason: consumeResult.reason, retryAfterMs: consumeResult.retryAfterMs },
+        code: -32101,
+        message: "ctx.llm permission not granted to this extension",
       },
     };
   }
+
+  // ── getBudget() short-circuit ────────────────────────────────
+  if (params.op === "budget") {
+    const quota = ctx.quota ?? getLlmQuota();
+    await quota.hydrate(handlerCtx.actorExtensionId);
+    const snapshot = quota.budget(handlerCtx.actorExtensionId, {
+      maxCallsPerHour: grantedLlm.maxCallsPerHour,
+      maxCallsPerDay: grantedLlm.maxCallsPerDay,
+      ...(grantedLlm.maxTokensPerDay !== undefined ? { maxTokensPerDay: grantedLlm.maxTokensPerDay } : {}),
+      ...(grantedLlm.maxCostCentsPerDay !== undefined ? { maxCostCentsPerDay: grantedLlm.maxCostCentsPerDay } : {}),
+    });
+    return { jsonrpc: "2.0", id: req.id, result: snapshot };
+  }
+
+  // ── Streaming stub (locked decision: deferred to v1.4) ──────
+  if (params.op === "stream") {
+    return {
+      jsonrpc: "2.0",
+      id: req.id,
+      error: { code: -32601, message: "ctx.llm.stream() is not implemented (deferred to v1.4)" },
+    };
+  }
+
+  const grantError = await checkProviderAndModelGrant(req, params, grantedLlm, handlerCtx);
+  if (grantError) return grantError;
+
+  // ── Quota gate ───────────────────────────────────────────────
+  const quota = ctx.quota ?? getLlmQuota();
+  const reservation = await reserveLlmTokens(req, params, grantedLlm, handlerCtx, quota, startedAt);
+  if (reservation.error) return reservation.error;
+  const reqMaxTokens = reservation.maxTokens;
 
   // ── Resolve provider model + credential (HOST-SIDE ONLY) ─────
   let cred: { type: string; token: string };
@@ -362,6 +337,74 @@ export async function handlePiLlmComplete(
     };
   }
 
+  return recordLlmSuccess(req, params, handlerCtx, resolved, upstream, quota, reqMaxTokens, startedAt);
+}
+
+async function reserveLlmTokens(
+  req: JsonRpcRequest,
+  params: LlmCompleteParams,
+  grantedLlm: NonNullable<ExtensionPermissions["llm"]>,
+  handlerCtx: ReturnType<typeof deriveHandlerContext>,
+  quota: LlmQuota,
+  startedAt: number,
+): Promise<{ maxTokens: number; error?: JsonRpcResponse }> {
+  // Hydrate today's persisted counters from `extension_llm_usage` on
+  // first call after a process restart. Cheap when already populated
+  // (early-return inside hydrate); critical for restart-resilience.
+  await quota.hydrate(handlerCtx.actorExtensionId);
+  // Always have a concrete token estimate for the quota counter.
+  const reqMaxTokens: number =
+    clampInt(params.maxTokens, 1, grantedLlm.maxTokensPerCall ?? 4096)
+    ?? Math.min(4096, grantedLlm.maxTokensPerCall ?? 4096);
+  const consumeResult = quota.consume(
+    handlerCtx.actorExtensionId,
+    {
+      maxCallsPerHour: grantedLlm.maxCallsPerHour,
+      maxCallsPerDay: grantedLlm.maxCallsPerDay,
+      ...(grantedLlm.maxTokensPerDay !== undefined ? { maxTokensPerDay: grantedLlm.maxTokensPerDay } : {}),
+      ...(grantedLlm.maxCostCentsPerDay !== undefined ? { maxCostCentsPerDay: grantedLlm.maxCostCentsPerDay } : {}),
+    },
+    { tokens: reqMaxTokens },
+  );
+  if (!consumeResult.ok) {
+    await recordCapabilityCall({
+      ctx: handlerCtx,
+      capability: "llm",
+      action: "complete",
+      durationMs: Date.now() - startedAt,
+      success: false,
+      errorCode: "LLM_QUOTA_EXCEEDED",
+      errorMessage: consumeResult.reason ?? "quota",
+      provider: params.provider,
+      model: params.model,
+    });
+    return {
+      maxTokens: reqMaxTokens,
+      error: {
+        jsonrpc: "2.0",
+        id: req.id,
+        error: {
+          code: -32103,
+          message: `Quota exceeded: ${consumeResult.reason}`,
+          data: { reason: consumeResult.reason, retryAfterMs: consumeResult.retryAfterMs },
+        },
+      },
+    };
+  }
+
+  return { maxTokens: reqMaxTokens };
+}
+
+async function recordLlmSuccess(
+  req: JsonRpcRequest,
+  params: LlmCompleteParams,
+  handlerCtx: ReturnType<typeof deriveHandlerContext>,
+  resolved: { provider: string; model: string; piModel: unknown },
+  upstream: Awaited<ReturnType<PiCompleteFn>>,
+  quota: LlmQuota,
+  reqMaxTokens: number,
+  startedAt: number,
+): Promise<JsonRpcResponse> {
   // ── Build result + record audit ─────────────────────────────
   const text = (upstream.content ?? [])
     .filter((c) => c?.type === "text")
