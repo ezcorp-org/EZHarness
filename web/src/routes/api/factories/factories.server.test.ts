@@ -13,6 +13,7 @@ import { FactoryReleaseError } from "$server/factory/releases";
 import { FactoryAssuranceError } from "$server/factory/assurance";
 import { FactoryAssuranceCommandError } from "$server/factory/assurance-commands";
 import { FactoryRunControlError } from "$server/factory/run-controls";
+import { FactoryTrustedValidatorError } from "$server/factory/validator-materials";
 
 const state = vi.hoisted(() => ({ enabled: true, application: null as unknown }));
 
@@ -548,6 +549,13 @@ describe("factory release and assurance routes", () => {
     for (const [code, status] of [["factory_assurance_not_found", 404], ["factory_assurance_stale", 412], ["factory_assurance_invalid", 400], ["factory_assurance_claim_failed", 422], ["factory_assurance_corrupt", 500]] as const) {
       releaseOperations.putContract.mockRejectedValueOnce(new FactoryAssuranceError(code));
       expect((await releaseContractRoute.PUT(event("PUT", `/api/factories/projects/${projectId}/release/contracts/contract-1`, { params: { projectId, contractId: "contract-1" }, body: contractBody, revision: 0, key: `assurance-${code}` }))).status).toBe(status);
+    }
+    // A contract whose validator lock names no registered, published, protected material is a typed refusal (W09d O4).
+    for (const [code, status] of [["factory_validator_material_missing", 422], ["factory_validator_material_unpublished", 422], ["factory_validator_material_unprotected", 422], ["factory_validator_material_stale", 412], ["factory_validator_contract_untrusted", 422], ["factory_validator_material_invalid", 400], ["factory_validator_invalid", 400], ["factory_validator_scope", 403], ["factory_validator_material_conflict", 409], ["factory_validator_material_corrupt", 500]] as const) {
+      releaseOperations.putContract.mockRejectedValueOnce(new FactoryTrustedValidatorError(code));
+      const refused = await releaseContractRoute.PUT(event("PUT", `/api/factories/projects/${projectId}/release/contracts/contract-1`, { params: { projectId, contractId: "contract-1" }, body: contractBody, revision: 0, key: `validator-${code}` }));
+      expect([code, refused.status]).toEqual([code, status]);
+      expect(((await refused.json()) as { error: { code: string; retryable: boolean } }).error).toMatchObject({ code, retryable: status >= 500 });
     }
     for (const [code, status] of [["factory_release_absence_unproved", 422], ["factory_release_reconciliation_invalid", 400], ["factory_release_corrupt", 500]] as const) {
       releaseOperations.reconcile.mockRejectedValueOnce(new FactoryReleaseError(code));
