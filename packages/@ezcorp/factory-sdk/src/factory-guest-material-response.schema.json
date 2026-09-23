@@ -25,7 +25,7 @@
       "type": "object"
     },
     "FactoryGuestMaterialRefusal": {
-      "description": "Why a staging frame was refused. A refusal is never a quiet substitution.\n\n`stale_epoch` covers the whole liveness fence the journal enforces in one statement — run epoch, execution epoch, cancellation epoch, reservation generation, grant revision, and admitted status — because the journal refuses them together and reading them apart would need authority this adapter does not hold.",
+      "description": "Why a staging frame was refused. A refusal is never a quiet substitution.\n\n`unknown_attempt`: no such attempt was admitted in this scope. `stale_epoch`: the attempt exists and its liveness fence moved — run epoch, execution epoch, cancellation epoch, reservation generation, grant revision, or a status that no longer admits effects. The journal checks them together, so the code does not say which one moved. Stop; the attempt is superseded. `unavailable`: a fault in the product's database or object store, not a decision about this attempt. Frames are idempotent, so resending the same frame is safe.",
       "enum": [
         "invalid_request",
         "unknown_attempt",
