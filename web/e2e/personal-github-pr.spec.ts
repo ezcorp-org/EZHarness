@@ -84,16 +84,18 @@ test("a no-change run explains why a PR cannot be prepared @evidence", async ({ 
 });
 
 test("a review link from another conversation cannot replace this chat's diff @evidence", async ({ page, mockApi }, testInfo) => {
-	let reviewReads = 0;
 	await mockApi({ projects: [project], conversations: [conversation], messages, routes: {
-		"/api/github/personal-prs/proposals/proposal-1": () => {
-			reviewReads++;
-			return { state: "ready", proposalId: "proposal-1", digest: "a".repeat(64),
-				reviewPath: `/project/${project.id}/chat/another-conversation?review=proposal-1` };
-		},
+		"/api/github/personal-prs/proposals/proposal-1": () => ({
+			state: "ready", proposalId: "proposal-1", digest: "a".repeat(64),
+			reviewPath: `/project/${project.id}/chat/another-conversation?review=proposal-1`,
+		}),
 	} });
+	const proposalResponse = page.waitForResponse((response) => new URL(response.url()).pathname === "/api/github/personal-prs/proposals/proposal-1");
 	await page.goto(`/project/${project.id}/chat/${conversation.id}?review=proposal-1`);
-	await expect.poll(() => reviewReads).toBe(1);
+	const response = await proposalResponse;
+	expect(response.ok()).toBe(true);
+	await response.finished();
+	await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))));
 	await page.getByTestId("diff-panel-btn").click();
 	await expect(page.getByTestId("diff-review-toolbar")).toBeVisible();
 	await expect(page.getByTestId("personal-pr-review")).toHaveCount(0);
