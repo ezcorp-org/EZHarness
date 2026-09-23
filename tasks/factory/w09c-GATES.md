@@ -169,6 +169,40 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       removed its copy (head `d1a0f31e0`).
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/receipts/final-sweep.json`
 
+- [ ] G12: The final real-application passes after W09d (2026-09-23).
+      CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 9000 bash /tmp/factory-platform-evidence/w09c/final/repro/run-three.sh`
+      from the proof worktree `75495b8cb`, the merge of `wp/w09c-profiles`
+      `34b2ed825` and `wp/w01g-staging` `b6fee475a`. The harness is W09d's,
+      with the release leg added.
+      MEASURED (round 2, fresh databases): the guest completes and seals its
+      members. The declared validator runs and acceptance is `accepted`. `PUT
+      release/contracts` answers 200 through the real route. `requestRelease`
+      prepares the operation at `tenant-01`, `releases/pass-*`, cost 1000.
+      The undeclared-destination control PASSES: `factory_s3_profile_invalid`
+      at prepare, and no operation.
+      NOT MET: in every proof pass the archive step then fails with
+      `factory_archive_member_unavailable`. The operation never becomes
+      `archive_ready`, the approval is refused with
+      `factory_release_not_claimable`, and the run fails. The revoked-policy
+      control cannot run for the same reason. Cause:
+      `factoryArchiveMemberPlan` (W04a) reads every member under the candidate
+      attempt's one scope, and a real validator's evidence is sealed under the
+      validator attempt. Reported to the coordinator as an interface conflict.
+      Round 1 stopped earlier at `factory_forbidden`, because the harness had
+      not granted `factory.release`. That is fixed.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09c/final/three-passes.json`,
+      `/tmp/factory-platform-evidence/w09c/final/logs/round-1/`
+- [x] G13: The sweep at the merge head `34b2ed825`.
+      Non-lock steps (typecheck, lint, boundaries, gate integrity, focused
+      suites, new-file and patch coverage) all exit 0 on a clean tree. The
+      Temporal suite passes 27/0 through its own `node --test` harness. The
+      PostgreSQL and S3 producers pass: lifecycle-s3 72/0, lifecycle 72/0,
+      private-service 5/0, boot 1/0, s3-publication 18/0. The one dirty file
+      was this gate file. No object remains under the case's prefixes.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09c/receipts/final-sweep.json`,
+      `/tmp/factory-platform-evidence/w09c/logs/temporal-replay-final.log`,
+      `/tmp/factory-platform-evidence/w09c/receipts/postgres-producers-34b2ed825.json`
+
 ## Rulings and disclosures
 
 - **`readReleaseCommandInTransaction` in `src/factory/protected-command-effects.ts`.**
@@ -213,7 +247,12 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
    `/tmp/factory-platform-evidence/w09c/e2e/repro/` already consents over
    HTTP, waits for the role to publish, and reads the manifest back once an
    operation exists.
-2. **A failed Release node emits a `cancel-node`.** By coordinator ruling
+2. **A failed Release node emits a `cancel-node`.** W09d's fix e99533e4a
+   fails an effect node in place on `command-failed`. A `node-failed` for a
+   Release node still takes the task path, and the pinning test still holds
+   after the merge.
+3. **The archive member scope (G12).** Waiting for a coordinator ruling.
+4. **A failed Release node emits a `cancel-node` (original note).** By coordinator ruling
    2026-09-23 this is on the kernel backlog (W06 and W13 area) for W18's final
    gate. The pinning test stays as written.
 
