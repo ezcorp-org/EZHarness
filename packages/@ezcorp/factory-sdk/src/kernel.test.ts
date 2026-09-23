@@ -205,6 +205,42 @@ describe("factory kernel", () => {
     expect(() => advanceKernel(graph, state, event("long", { kind: "command-failed", commandId: acceptance.id, error: "x".repeat(4097) }))).toThrow(FactoryKernelError);
   });
 
+  test("a failed release effect fails the run at once: the release's attempt is the effect, so nothing is left to stop", () => {
+    const graph = compiled([
+      { id: "candidate", kind: "task", runner, outputPorts: { candidate: { type: "string" } } },
+      { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: referenceCodeV1.acceptance.id, candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, outputPorts: { acceptedCandidate: { type: "string" } } },
+      { id: "release", kind: "release", dependsOn: ["accept"], adapter: runner, acceptedCandidate: { kind: "ref", root: "node", name: "accept", path: ["acceptedCandidate"] }, destination: { kind: "literal", value: { target: "t" } }, effects: ["publish"], outputPorts: { receipt: { type: "object", additionalProperties: true } } },
+    ], {});
+    let state = advanceKernel(graph, createKernelState(graph, "run-release-failed", {}, 0), event("start", { kind: "start" })).nextState;
+    const admission = state.nodes.candidate!.attempts.at(-1)!;
+    const admitted = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "candidate", commandId: admission.commandId, candidateGeneration: 0, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    const done = advanceKernel(graph, admitted.nextState, event("done", { kind: "node-result", nodeId: "candidate", commandId: dispatch.id, candidateGeneration: 0, attempt: 1, output: { candidate: "tree" } }));
+    const acceptance = done.commands.find((command) => command.kind === "request-acceptance")!;
+    const accepted = advanceKernel(graph, done.nextState, event("accepted", { kind: "node-result", nodeId: "accept", commandId: acceptance.id, candidateGeneration: 0, attempt: 1, output: { acceptedCandidate: "tree" } }));
+    const release = accepted.commands.find((command) => command.kind === "request-release")!;
+    state = accepted.nextState;
+    const reason = `FACTORY_COMMAND_FAILED: request-release ${release.id}: factory gateway returned HTTP 500`;
+    const failed = advanceKernel(graph, state, event("failed", { kind: "command-failed", commandId: release.id, error: reason }));
+    expect(failed.commands.some((command) => command.kind === "cancel-node")).toBe(false);
+    expect(failed.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error: reason })]);
+    expect(failed.nextState.status).toBe("failed");
+    expect(failed.nextState.nodes.release).toMatchObject({ status: "failed", error: reason });
+  });
+
+  test("a failed dispatch still stops its task, because a lost response may hide a launch that committed", () => {
+    const graph = compiled([{ id: "only", kind: "task", runner }], {});
+    let state = advanceKernel(graph, createKernelState(graph, "run-dispatch-failed", {}, 0), event("start", { kind: "start" })).nextState;
+    const admission = state.nodes.only!.attempts.at(-1)!;
+    const admitted = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: 0, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    state = admitted.nextState;
+    const failed = advanceKernel(graph, state, event("failed", { kind: "command-failed", commandId: dispatch.id, error: "FACTORY_COMMAND_FAILED: dispatch-node" }));
+    expect(failed.commands.filter((command) => command.kind === "cancel-node").map((command) => command.nodeId)).toEqual(["only"]);
+    expect(failed.nextState.status).toBe("stopping");
+    expect(failed.nextState.stopReason).toBe("FACTORY_COMMAND_FAILED: dispatch-node");
+  });
+
   test("cancelling a map stops admitted items and never opens a blocked index", () => {
     const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
     const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one", "two", "three"] }, itemSchema: { type: "string" as const }, body, mode: "all" as const, maxItems: 3, maxConcurrency: 1 };

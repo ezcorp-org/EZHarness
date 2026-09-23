@@ -178,6 +178,20 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
   }
   if (event.kind === "command-failed") {
     if (!event.error || event.error.length > 4096) throw new FactoryKernelError("a failed command requires a bounded typed reason");
+    // An acceptance or release node's attempt IS its effect command, so when that command failed
+    // there is nothing physical to stop, and a cancel-node for it could never resolve and would hold
+    // the run in `stopping` forever. That node fails here. Every other kind keeps the ordinary stop:
+    // a task's dispatch can fail on a lost response after its launch committed, and only a cancel
+    // proves such an attempt stopped.
+    for (const [nodeId, runtime] of Object.entries(next.nodes)) {
+      const kind = nodeFor(factory, nodeId)?.kind;
+      if (kind !== "acceptance" && kind !== "release") continue;
+      if (!runtime.attempts.some((attempt) => attempt.commandId === event.commandId && !attempt.stopped)) continue;
+      next = withNode(next, nodeId, {
+        ...runtime, status: "failed", error: event.error, timer: undefined,
+        attempts: runtime.attempts.map((attempt) => attempt.commandId === event.commandId ? { ...attempt, stopped: true } : attempt),
+      });
+    }
     next = beginStopping(factory, next, event.error, commands, false);
     return finish(factory, next, commands);
   }
