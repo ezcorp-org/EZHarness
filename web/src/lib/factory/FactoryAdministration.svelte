@@ -348,6 +348,8 @@
 	.purge-copy { margin: 0; padding: 12px 14px 0; color: var(--color-text-secondary); font-size: 12px; line-height: 1.5; }
 	.preconditions { width: calc(100% - 28px); margin: 12px 14px 0; border-collapse: collapse; font-size: 12px; }
 	.preconditions caption { padding-bottom: 6px; color: var(--color-text-muted); font-size: 10px; text-align: left; text-transform: uppercase; letter-spacing: .06em; }
+	/* An identifier is shown exactly as it must be typed below, never in capitals. */
+	.preconditions caption code { text-transform: none; letter-spacing: 0; }
 	.preconditions th { border-bottom: 1px solid var(--color-border); padding: 5px 6px; color: var(--color-text-muted); font-size: 10px; text-align: left; }
 	.preconditions td { border-bottom: 1px solid var(--color-border); padding: 6px; }
 	.preconditions tr[data-satisfied="false"] td:last-child { color: var(--color-amber-500); font-weight: 700; }
