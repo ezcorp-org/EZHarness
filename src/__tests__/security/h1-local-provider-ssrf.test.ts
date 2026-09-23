@@ -466,12 +466,14 @@ for (const probe of probes) {
       }
     });
 
-    test("an alias the engine mapped to the cloud metadata address is refused", async () => {
-      _setHostsFileReaderForTests(async () => "169.254.169.254 host.docker.internal\n");
-      const { res } = await postAs("http://host.docker.internal:11434");
-      expect(res.status).toBe(400);
-      expect(probe.getCalls().length).toBe(0);
-    });
+    for (const address of ["169.254.169.254", "::ffff:169.254.169.254", "::ffff:a9fe:a9fe", "fd00:ec2::254"]) {
+      test(`an alias mapped to metadata ${address} is refused`, async () => {
+        _setHostsFileReaderForTests(async () => `${address} host.docker.internal\n`);
+        const { res } = await postAs("http://host.docker.internal:11434");
+        expect(res.status).toBe(400);
+        expect(probe.getCalls().length).toBe(0);
+      });
+    }
 
     test("a compose service name in the hosts file is NOT an alias (exact names only)", async () => {
       _setHostsFileReaderForTests(async () => "10.89.0.5 ollama\n");
@@ -874,4 +876,3 @@ describe("isEngineProvidedHostAlias", () => {
     expect(await isEngineProvidedHostAlias("host.docker.internal")).toBe(false);
   });
 });
-

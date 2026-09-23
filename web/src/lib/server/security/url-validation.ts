@@ -223,13 +223,13 @@ const CONTAINER_HOST_ALIASES = new Set(["host.containers.internal", "host.docker
 
 /** Cloud instance-metadata endpoints. Never reachable through the alias carve-out. */
 const METADATA_IPV4 = "169.254.169.254";
-const METADATA_IPV6 = expandIPv6("fd00:ec2::254");
+const METADATA_IPV6 = ["fd00:ec2::254", `::ffff:${METADATA_IPV4}`].map((address) => expandIPv6(address)!);
 
 function isMetadataAddress(address: string): boolean {
 	if (address === METADATA_IPV4) return true;
 	if (isIP(address) !== 6) return false;
 	const expanded = expandIPv6(address);
-	return expanded !== null && METADATA_IPV6 !== null && expanded.every((part, i) => part === METADATA_IPV6[i]);
+	return expanded !== null && METADATA_IPV6.some((metadata) => expanded.every((part, i) => part === metadata[i]));
 }
 
 let readHostsFile = (): Promise<string> => readFile("/etc/hosts", "utf8");
