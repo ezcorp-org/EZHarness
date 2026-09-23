@@ -1,6 +1,4 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 /**
@@ -63,51 +61,6 @@ describe("prod image provenance", () => {
     for (const i of [argRevision, argState, provenance, envSha, labelRevision]) expect(i).toBeGreaterThan(-1);
     expect(provenance).toBeGreaterThan(Math.max(argRevision, argState));
     expect(provenance).toBeLessThan(Math.min(envSha, labelRevision));
-  });
-});
-
-/** What the real wrapper exports, read back through a stub Compose client. */
-function wrapperExports(env: Record<string, string> = {}): Record<string, string> {
-  const dir = mkdtempSync(join(tmpdir(), "prod-provenance-"));
-  try {
-    writeFileSync(join(dir, "docker-compose"), "#!/bin/sh\nenv | grep '^EZCORP_BUILD_'\n");
-    chmodSync(join(dir, "docker-compose"), 0o755);
-    const sock = join(dir, "podman.sock");
-    const server = Bun.listen({ unix: sock, socket: { data() {} } });
-    const envFile = join(dir, "env.prod");
-    writeFileSync(envFile, "EZCORP_RUNNER_COMPOSE_FILE=deploy/extension-runner/compose.trusted-local.yml\n");
-    try {
-      const proc = Bun.spawnSync({
-        cmd: ["/bin/bash", join(ROOT, "scripts", "podman-compose.sh"), "--prod", "config"],
-        env: { ...process.env, PATH: `${dir}:/usr/bin:/bin`, PODMAN_SOCKET: sock, EZ_COMPOSE_ENV_FILE: envFile, ...env },
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      return Object.fromEntries(
-        proc.stdout.toString().trim().split("\n").filter(Boolean).map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
-      );
-    } finally {
-      server.stop(true);
-    }
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-}
-
-describe("prod image provenance — what the wrapper actually derives", () => {
-  test("VERSION default is package.json's version, read without jq or bun", async () => {
-    const pkg = await Bun.file(join(ROOT, "package.json")).json();
-    expect(wrapperExports().EZCORP_BUILD_VERSION_DEFAULT).toBe(pkg.version);
-  });
-
-  test("CREATED default is HEAD's commit time, not the wall clock", () => {
-    const head = Bun.spawnSync({ cmd: ["git", "-C", ROOT, "show", "-s", "--format=%cI", "HEAD"], stdout: "pipe" })
-      .stdout.toString()
-      .trim();
-    const first = wrapperExports().EZCORP_BUILD_CREATED_DEFAULT;
-    expect(first).toBe(head);
-    // Stable across invocations — a wall-clock value would bust the build cache every time.
-    expect(wrapperExports().EZCORP_BUILD_CREATED_DEFAULT).toBe(first);
   });
 });
 

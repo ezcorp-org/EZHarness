@@ -53,6 +53,15 @@ test("initial values override shared defaults and invalid stored numbers do not 
   expect(ui.getByLabelText(/query/)).toHaveValue("Shared");
 });
 
+test("an equivalent default refresh keeps text entered before Add", async () => {
+  const ui = mount({ sharedValues: { "search.query": "Default" } });
+  await fireEvent.input(ui.getByLabelText(/query/), { target: { value: "Operator input" } });
+  await ui.rerender({ sharedValues: { "search.query": "Default" } });
+  expect(ui.getByLabelText(/query/)).toHaveValue("Operator input");
+  await fireEvent.submit(ui.container.querySelector("form")!);
+  expect(ui.onconfirm).toHaveBeenCalledWith({ query: "Operator input", enabled: false });
+});
+
 test("formatted array tags remain arrays and string tags become text", async () => {
   const formatted: Tool = {
     name: "tags", description: "Tag records", inputSchema: { type: "object", properties: {

@@ -24,7 +24,8 @@ function dirty(reason: string): never {
 
 const argv = process.argv.slice(2);
 const revisionOnly = argv[0] === "--revision";
-if (revisionOnly) argv.shift();
+const createdOnly = argv[0] === "--created";
+if (revisionOnly || createdOnly) argv.shift();
 const defaultRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(argv[0] ?? defaultRoot);
 
@@ -143,8 +144,8 @@ function blobHash(bytes: Uint8Array, algorithm: "sha1" | "sha256"): string {
 try {
   if (gitText(["rev-parse", "--is-inside-work-tree"]) !== "true") finish("unknown");
   const revision = gitText(["rev-parse", "--verify", "HEAD"]);
-  if (revisionOnly) {
-    process.stdout.write(`${revision}\n`);
+  if (revisionOnly || createdOnly) {
+    process.stdout.write(`${createdOnly ? gitText(["show", "-s", "--format=%cI", revision]) : revision}\n`);
     process.exit(0);
   }
 

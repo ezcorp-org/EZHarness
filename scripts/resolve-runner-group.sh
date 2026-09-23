@@ -38,9 +38,24 @@ if ! command -v podman >/dev/null 2>&1; then
   exit 1
 fi
 
-if ! gid_map="$(podman unshare cat /proc/self/gid_map)"; then
+if ! gid_map="$(podman unshare cat /proc/self/gid_map 2>&1)"; then
+  # Keep Podman's own diagnostic visible while using it to identify remote clients.
+  if [ -n "$gid_map" ]; then printf '%s\n' "$gid_map" >&2; fi
   echo "error: could not read the rootless Podman gid map." >&2
-  echo "  Run this as the user that starts the development stack." >&2
+  # macOS (and any `podman --remote` setup) talks to Podman through a VM or
+  # socket; `podman unshare` needs a LOCAL rootless Podman and refuses with
+  # "cannot use command ... with the remote podman client". That is not a
+  # wrong-user problem, so do not say it is.
+  case "$gid_map" in
+    *"remote podman client"*)
+      echo "  This Podman is a remote client (e.g. macOS podman machine), which" >&2
+      echo "  cannot map host groups. The dev stack needs a Linux host; on macOS" >&2
+      echo "  use the prod stack instead: bun run podman --prod up -d" >&2
+      ;;
+    *)
+      echo "  Run this as the user that starts the development stack." >&2
+      ;;
+  esac
   exit 1
 fi
 

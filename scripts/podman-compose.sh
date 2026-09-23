@@ -278,15 +278,15 @@ export EZCORP_BUILD_SOURCE_STATE_DEFAULT
 
 # The prod image also stamps a version and a creation time. VERSION comes from
 # package.json — the same value release-image.yml builds with — read with sed
-# so this needs neither jq nor bun. CREATED is the COMMIT time, not the wall
+# so reading the version needs neither jq nor bun. CREATED is the COMMIT time, not the wall
 # clock, matching scripts/lib/build-archived-image.sh: a wall-clock value
 # would change on every invocation, and since the Dockerfile materializes the
 # build args in a layer (so Podman cannot serve stale metadata from cache),
 # every rebuild would then re-run the whole runtime stage for nothing. Both
 # degrade to `unknown` rather than failing, like the commit above.
-EZCORP_BUILD_VERSION_DEFAULT="$(sed -n 's/^  "version": "\([^"]*\)",\{0,1\}$/\1/p' "$REPO_ROOT/package.json" 2>/dev/null | head -1)"
+EZCORP_BUILD_VERSION_DEFAULT="$(sed -n 's/^  "version": "\([^"]*\)",\{0,1\}$/\1/p' "$REPO_ROOT/package.json" 2>/dev/null | head -1 || true)"
 export EZCORP_BUILD_VERSION_DEFAULT="${EZCORP_BUILD_VERSION_DEFAULT:-unknown}"
-EZCORP_BUILD_CREATED_DEFAULT="$(git -C "$REPO_ROOT" show -s --format=%cI HEAD 2>/dev/null || true)"
+EZCORP_BUILD_CREATED_DEFAULT="$(bash "$REPO_ROOT/scripts/resolve-dev-image-source-state.sh" --created "$REPO_ROOT")"
 export EZCORP_BUILD_CREATED_DEFAULT="${EZCORP_BUILD_CREATED_DEFAULT:-unknown}"
 
 exec "${COMPOSE_CMD[@]}" "${ENV_FILE_ARGS[@]}" "$@"

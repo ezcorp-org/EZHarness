@@ -998,6 +998,14 @@ while [ "$readiness_timed_out" = 0 ]; do
     rm -f "$ready_probe_tmp"
     ready_probe_tmp=""
     ok "ready: $body"
+    # A rebuild leaves the previous ~4.5 GB image dangling and nothing else
+    # removes it; enough re-runs fill the machine disk. Only superseded,
+    # untagged images carrying this project's label are touched, and only
+    # after the new one is serving. A failure here is reported, not fatal.
+    say "reclaiming superseded images"
+    if ! bash "$REPO_ROOT/scripts/prune-images.sh"; then
+      todo "could not prune superseded images — run: bun run podman:prune"
+    fi
     printf '\nOpen %s and create the admin account.\n' "$admin_url"
     exit 0
   fi
