@@ -291,10 +291,14 @@ export async function handlePiLlmComplete(
   // ── Resolve provider model + credential (HOST-SIDE ONLY) ─────
   let cred: { type: string; token: string };
   let resolved: { provider: string; model: string; piModel: unknown };
+  let authCallOptions: typeof import("../providers/credentials").authCallOptions;
   try {
     const resolveModel = ctx.resolveModelFn ?? (await import("../providers/router")).resolveModel;
     resolved = await resolveModel(params.provider, params.model);
     const getCredential = ctx.getCredentialFn ?? (await import("../providers/credentials")).getCredential;
+    // Kept separate from the line above on purpose: get-credential-boundary
+    // recognises this file as the audited mediator by that exact import form.
+    authCallOptions = (await import("../providers/credentials")).authCallOptions;
     cred = await getCredential(resolved.provider, handlerCtx.conversationId ?? undefined);
   } catch (err) {
     quota.adjustTokens(handlerCtx.actorExtensionId, -reqMaxTokens);
@@ -331,7 +335,7 @@ export async function handlePiLlmComplete(
         })),
       },
       {
-        apiKey: cred.token,
+        ...authCallOptions(cred.token),
         ...(reqMaxTokens !== undefined ? { maxTokens: reqMaxTokens } : {}),
         ...(params.temperature !== undefined ? { temperature: params.temperature } : {}),
         ...(grantedLlm.maxTimeoutMs !== undefined ? { timeoutMs: clampInt(params.timeoutMs, 1000, grantedLlm.maxTimeoutMs) } : {}),
