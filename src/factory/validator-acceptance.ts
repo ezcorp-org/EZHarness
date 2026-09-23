@@ -276,7 +276,7 @@ export class FactoryValidatorAcceptance {
 
   /** One schedule: read its attempt if it exists, otherwise reserve and try to admit. */
   private async settle(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, schedule: FactoryProtectedValidatorSchedule): Promise<FactoryValidatorAcceptanceState> {
-    const { database, queue, dispatch, scheduler } = this.options;
+    const { database, queue, scheduler } = this.options;
     // The delivery row only: the stored request is readable through the journal
     // while the attempt is live, and a completed attempt is exactly the one
     // this has to read.
