@@ -60,11 +60,21 @@ services:
       IDLE_TIMEOUT: "0"
       SEARXNG_BASE_URL: "${SEARXNG_BASE_URL:-http://searxng:8080}"
     volumes:
-      - "${EZCORP_DATA_ROOT}/data:/app/data"
+      # `:z` on every USER-DATA bind: on an SELinux-enforcing host (Fedora,
+      # RHEL, CentOS Stream, Rocky, Alma, CoreOS) a container cannot write a
+      # home directory it has not relabeled, and without it the app
+      # crash-loops on `EACCES: mkdir '/app/data/ezcorp'` — measured on Fedora
+      # CoreOS: 430 restarts, never ready. `z` (shared), not `Z` (private):
+      # these trees are the user's, not one container's. A no-op without
+      # SELinux, and verified harmless on macOS podman-machine virtiofs mounts.
+      # The searxng config below is deliberately NOT relabeled: in a package it
+      # lives under /usr (usr_t, already container-readable), and relabeling
+      # would rewrite labels on files the package manager owns.
+      - "${EZCORP_DATA_ROOT}/data:/app/data:z"
       - ext-data:/app/.ezcorp
-      - "${EZCORP_DATA_ROOT}/extensions:/app/.ezcorp/extensions"
-      - "${EZCORP_DATA_ROOT}/extension-data:/app/.ezcorp/extension-data"
-      - "${EZCORP_DATA_ROOT}/projects:/app/web/.ezcorp/projects"
+      - "${EZCORP_DATA_ROOT}/extensions:/app/.ezcorp/extensions:z"
+      - "${EZCORP_DATA_ROOT}/extension-data:/app/.ezcorp/extension-data:z"
+      - "${EZCORP_DATA_ROOT}/projects:/app/web/.ezcorp/projects:z"
     healthcheck:
       test: ["CMD", "bun", "-e", "const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)"]
       interval: 30s
