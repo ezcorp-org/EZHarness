@@ -498,8 +498,6 @@ describe("factory Temporal workflow", () => {
       await handle.signal("factoryInbox", envelope);
       const result = await handle.result();
       assert.equal(result.status, "completed");
-      assert.equal(seen.acceptance.length, 1);
-      assert.deepEqual(seen.stops, []);
       const state: KernelState = await handle.query("factoryState");
       assert.equal(state.nodes.accept?.status, "succeeded");
       assert.deepEqual(state.nodes.accept?.output, { acceptedCandidate: "tree-0" });
@@ -507,6 +505,9 @@ describe("factory Temporal workflow", () => {
       const history = await handle.fetchHistory();
       await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
     });
+    // After the worker is done: the effect ran once, and nothing tried to stop the virtual node.
+    assert.equal(seen.acceptance.length, 1);
+    assert.deepEqual(seen.stops, []);
   });
 
   it("fails an acceptance node on a typed rejection from its inbox without stopping an attempt it never had", async () => {
@@ -526,13 +527,15 @@ describe("factory Temporal workflow", () => {
       await handle.signal("factoryInbox", { sequence: 1, eventId: rejection.id, eventHash: eventHash(rejection), event: rejection });
       const result = await handle.result();
       assert.equal(result.status, "failed");
-      assert.deepEqual(seen.stops, []);
       const state: KernelState = await handle.query("factoryState");
       assert.equal(state.nodes.accept?.status, "failed");
       assert.equal(state.nodes.accept?.error, "ACCEPTANCE_BOUND_EXHAUSTED");
       const history = await handle.fetchHistory();
       await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
     });
+    // After the worker is done: one acceptance effect, and no cancel-node for a node with no attempt.
+    assert.equal(seen.acceptance.length, 1);
+    assert.deepEqual(seen.stops, []);
   });
 
   it("advances independent successors while another branch is blocked", async () => {
