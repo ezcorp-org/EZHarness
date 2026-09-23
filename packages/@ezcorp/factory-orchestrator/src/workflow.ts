@@ -2,7 +2,7 @@ import type { JsonValue } from "@ezcorp/factory-sdk";
 import { factoryChildRunId } from "@ezcorp/factory-sdk/transport-types";
 import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import type { KernelCommand, KernelEvent, KernelFactoryPlan, KernelState } from "@ezcorp/factory-sdk/kernel-types";
-import { advanceKernel, assertKernelContinuationState, createKernelState, createPartitionKernelState } from "@ezcorp/factory-sdk/kernel";
+import { advanceKernel, assertKernelContinuationState, createKernelState, createPartitionKernelState, factoryCommandFailedEvent } from "@ezcorp/factory-sdk/kernel";
 import {
   condition,
   ActivityCancellationType,
@@ -69,15 +69,15 @@ function isTerminal(command: KernelCommand): command is TerminalCommand {
 }
 
 /**
- * The kernel event for an effect command the orchestrator could not execute.
+ * Why an activity failed, as specific as Temporal kept it.
  *
- * Its reason names the failure class, the command kind, and the command, so the projected run error
- * says which effect stopped it. The activity's message is appended bounded; the gateway itself
- * answers an opaque error for an unclassified refusal, so the product's log carries the named cause.
+ * Temporal wraps the activity's own error in an `ActivityFailure` whose message is only
+ * "Activity task failed"; the cause carries the message the activity threw.
  */
-function commandFailedEvent(command: { readonly id: string; readonly kind: string }, error: unknown, atMs: number): Extract<KernelEvent, { kind: "command-failed" }> {
-  const detail = (error instanceof Error ? error.message : String(error)).slice(0, 512);
-  return { kind: "command-failed", id: `${command.id}:command-failed`, atMs, commandId: command.id, error: `FACTORY_COMMAND_FAILED: ${command.kind} ${command.id}: ${detail}` };
+function activityFailureDetail(error: unknown): string {
+  const cause = (error as { readonly cause?: unknown } | null | undefined)?.cause;
+  const source = cause instanceof Error ? cause : error;
+  return source instanceof Error ? source.message : String(source);
 }
 
 function workflowFailure(error: unknown, type: string): ApplicationFailure {
@@ -281,7 +281,7 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
         // No patch marker: a workflow whose effect failed under the old code
         // threw and closed at that point, so no live history can replay into
         // this branch with the old outcome.
-        const failed = commandFailedEvent(command, error, Date.now());
+        const failed = factoryCommandFailedEvent(command, activityFailureDetail(error), Date.now());
         if (!knownIds.has(failed.id)) { knownIds.add(failed.id); inbox.push(failed); }
       })
       .finally(() => { activeScopes.delete(command.id); });

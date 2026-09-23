@@ -34,11 +34,18 @@ own; admission, binding, evidence, and the verdict stay W05's.
   `decideAcceptance` (the unchanged `requestAcceptance` with a hook) and
   delivers the event through `FactoryInbox` in the same transaction as the
   receipt. A validator attempt that fails (`delivered` with no terminal,
-  `cancelled`, `dead_letter`) is answered with the typed rejection
+  `cancelled`, `dead_letter`) is answered with the typed failure
   `factory_validator_attempt_failed`; an unknown outcome with
-  `factory_validator_attempt_uncertain` (both `failureKind:
-  acceptance_rejected`, the one failure the kernel can apply to a virtual
-  node). With no validator composed, `request-acceptance` refuses at once:
+  `factory_validator_attempt_uncertain`. Coordinator ruling 2026-09-23 (round 3,
+  F2): such a validator judged nothing, so this is NOT a rejection. The event
+  carries `failureKind: execution`; the kernel fails the virtual acceptance
+  node in place with the typed reason, starts no repair round, and the reason
+  is the projected run error (only a strict FAIL report is
+  `acceptance_rejected`). Every claim is visited on every pass (F3): a
+  completed claim settles its own reservation even when another claim failed,
+  the typed failure waits until every claim is terminal, and each failed
+  claim's reservation is held uncertain in the event's transaction, so the
+  envelope closes only after reconciliation settles them. With no validator composed, `request-acceptance` refuses at once:
   `factory_validator_none_declared`, or `factory_validator_unavailable` with
   the composition's reason.
 - `runtime-workers.ts`: roles `validator-material-registration` and
@@ -74,6 +81,28 @@ own; admission, binding, evidence, and the verdict stay W05's.
     named; the owners inherit it.
   - `readPrivatePath` in `private-files.ts`, byte-identical to W01g's helper of
     the same name so the two branches add one reader, not two.
+  - `factoryCommandFailedEvent` in the kernel (`packages/@ezcorp/factory-sdk/src/kernel.ts`;
+    owner Sol controls), one builder for the `command-failed` event, used by the
+    orchestrator workflow (owner W09) and by `factoryNamedRefusalEffect` in
+    `private-service-composition.ts`. A refused effect now answers the event
+    itself with the refusal's name (for example
+    `FACTORY_COMMAND_FAILED: request-release <command>: factory_protected_effect_untrusted`),
+    and the workflow takes an activity's detail from its cause, not Temporal's
+    "Activity task failed" wrapper (F4). The outcome is unchanged: an effect
+    runs once and any failure of it already failed the run. Coordinator ruling
+    2026-09-23 (round 3, F4): approved for W09d; the owners inherit it.
+  - `src/__tests__/helpers/factory-run-lifecycle-suite.ts` (owner W06): W09d
+    adds test cases only (about 240 lines: the composed validator acceptance
+    fixture, registration, the role end to end, the typed validator failure with
+    the envelope held until reconciliation, `recordCurrentCandidate`, and the
+    candidate re-derivation with an injected clock). No existing case changes.
+    Coordinator ruling 2026-09-23 (round 3, F5): approved for W09d; W06
+    inherits it.
+  - `src/factory/plain-values.ts` (new, F7): the one `isPlainRecord` guard and
+    the one `factoryErrorCode` reader, used by `startup-config.ts`,
+    `validator-declaration.ts`, `validator-composition.ts`, and
+    `validator-acceptance.ts` in place of their private copies. Older copies
+    in files this package does not own are left to their owners.
 - Harness finding, recorded: the validator's runner reference (the package plus
   its configuration digest) is a separate package reference. It must be bound,
   trusted, and prepared for the project like any runner; otherwise the

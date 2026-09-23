@@ -12,7 +12,7 @@ import { createFactoryWorker } from "../src/worker.ts";
 import { Context } from "@temporalio/activity";
 import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
-import { advanceKernel, createKernelState } from "@ezcorp/factory-sdk/kernel";
+import { advanceKernel, createKernelState, factoryCommandFailedEvent } from "@ezcorp/factory-sdk/kernel";
 import type { KernelState } from "@ezcorp/factory-sdk/kernel-types";
 import { factoryWorkflowId, type FactoryWorkflowResult } from "../src/contracts.ts";
 import { deliverFactoryCommand, reconcileFactoryCommand } from "../src/dispatcher.ts";
@@ -510,33 +510,43 @@ describe("factory Temporal workflow", () => {
     assert.deepEqual(seen.stops, []);
   });
 
-  it("fails an acceptance node on a typed rejection from its inbox without stopping an attempt it never had", async () => {
-    const startedAtMs = Math.trunc(await environment.currentTimeMs());
-    const factory = acceptanceFactory("acceptance-unsettled", 0);
-    let observed = () => undefined;
-    const requested = new Promise<void>(resolve => { observed = resolve; });
-    const seen = { acceptance: [], stops: [] };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities: inboxAcceptanceActivities(factory, seen, () => observed()) });
-    const workflowId = `tenant/acceptance-unsettled-${process.pid}`;
-    await worker.runUntil(async () => {
-      const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: "acceptance-unsettled", startedAtMs })] });
-      await requested;
-      await waitForAcceptanceWaiting(handle);
-      const command = seen.acceptance[0] as { id: string; nodeId: string; candidateGeneration: number };
-      const rejection = { kind: "node-failed", id: `protected-acceptance-unsettled:${command.id}`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, error: "factory_validator_attempt_failed", failureKind: "acceptance_rejected" };
-      await handle.signal("factoryInbox", { sequence: 1, eventId: rejection.id, eventHash: eventHash(rejection), event: rejection });
-      const result = await handle.result();
-      assert.equal(result.status, "failed");
-      const state: KernelState = await handle.query("factoryState");
-      assert.equal(state.nodes.accept?.status, "failed");
-      assert.equal(state.nodes.accept?.error, "ACCEPTANCE_BOUND_EXHAUSTED");
-      const history = await handle.fetchHistory();
-      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+  // F2: a validator that crashed, timed out, or ended uncertain judged nothing. Its typed failure
+  // fails the virtual acceptance node in place, starts no repair round even when repairs remain,
+  // and its reason, not ACCEPTANCE_BOUND_EXHAUSTED, is what the run projects.
+  for (const maxRepairs of [0, 2]) {
+    it(`fails an acceptance node on a typed validator failure from its inbox, with no repair round and the typed reason (maxRepairs ${maxRepairs})`, async () => {
+      const startedAtMs = Math.trunc(await environment.currentTimeMs());
+      const name = `acceptance-unsettled-${maxRepairs}`;
+      const factory = acceptanceFactory(name, maxRepairs);
+      let observed = () => undefined;
+      const requested = new Promise<void>(resolve => { observed = resolve; });
+      const seen = { acceptance: [], stops: [] };
+      const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities: inboxAcceptanceActivities(factory, seen, () => observed()) });
+      const workflowId = `tenant/${name}-${process.pid}`;
+      await worker.runUntil(async () => {
+        const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: name, startedAtMs })] });
+        await requested;
+        await waitForAcceptanceWaiting(handle);
+        const command = seen.acceptance[0] as { id: string; nodeId: string; candidateGeneration: number };
+        const failure = { kind: "node-failed", id: `protected-acceptance-unsettled:${command.id}`, atMs: startedAtMs + 1, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, error: "factory_validator_attempt_failed", failureKind: "execution" };
+        await handle.signal("factoryInbox", { sequence: 1, eventId: failure.id, eventHash: eventHash(failure), event: failure });
+        const result = await handle.result();
+        assert.equal(result.status, "failed");
+        assert.equal(result.error, "factory_validator_attempt_failed");
+        const state: KernelState = await handle.query("factoryState");
+        assert.equal(state.nodes.accept?.status, "failed");
+        assert.equal(state.nodes.accept?.error, "factory_validator_attempt_failed");
+        // No repair round: the candidate was never re-dispatched.
+        assert.equal(state.nodes.accept?.candidateGeneration, 0);
+        assert.equal(state.nodes.candidate?.candidateGeneration, 0);
+        const history = await handle.fetchHistory();
+        await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+      });
+      // After the worker is done: one acceptance effect, and no cancel-node for a node with no attempt.
+      assert.equal(seen.acceptance.length, 1);
+      assert.deepEqual(seen.stops, []);
     });
-    // After the worker is done: one acceptance effect, and no cancel-node for a node with no attempt.
-    assert.equal(seen.acceptance.length, 1);
-    assert.deepEqual(seen.stops, []);
-  });
+  }
 
   // O5: a refused effect used to throw the workflow away and leave the product run "running". It is
   // now a recorded kernel event, so the run fails through its own transitions with a typed reason.
@@ -562,7 +572,8 @@ describe("factory Temporal workflow", () => {
       // The workflow ends normally with a failed result: nothing is thrown away.
       const result = await handle.result();
       assert.equal(result.status, "failed");
-      assert.match(result.error ?? "", /^FACTORY_COMMAND_FAILED: request-acceptance \S+:request-acceptance:\d+: /);
+      // The detail is the activity's own message, not Temporal's "Activity task failed" wrapper.
+      assert.match(result.error ?? "", /^FACTORY_COMMAND_FAILED: request-acceptance \S+:request-acceptance:\d+: factory gateway returned HTTP 500$/);
       const state: KernelState = await handle.query("factoryState");
       assert.equal(state.status, "failed");
       assert.equal(state.nodes.accept?.status, "failed");
@@ -574,6 +585,36 @@ describe("factory Temporal workflow", () => {
     // The failure is a recorded transition, which is what the product projects.
     assert.ok(recorded.includes(`${commandId}:command-failed`));
     assert.equal(effects, 1);
+  });
+
+  // F4: the product answers a named refusal as the command-failed event itself, so the refusal's
+  // name, not only a transport message, is the run's projected reason.
+  it("projects the refusal's name when the product answers an effect with its named command-failed event", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const factory = acceptanceFactory("acceptance-effect-named", 0);
+    const recorded: string[] = [];
+    const activities = {
+      ...inboxAcceptanceActivities(factory, { acceptance: [], stops: [] }, () => undefined),
+      recordTransition: async (record) => { recorded.push(record.eventId); },
+    };
+    const acceptanceActivity = activities.executeCommand;
+    activities.executeCommand = async (input) => input.command.kind === "request-acceptance"
+      ? factoryCommandFailedEvent(input.command, "factory_protected_effect_untrusted", Date.now())
+      : acceptanceActivity(input);
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const workflowId = `tenant/acceptance-effect-named-${process.pid}`;
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: "acceptance-effect-named", startedAtMs })] });
+      const result = await handle.result();
+      assert.equal(result.status, "failed");
+      assert.match(result.error ?? "", /^FACTORY_COMMAND_FAILED: request-acceptance \S+:request-acceptance:\d+: factory_protected_effect_untrusted$/);
+      const state: KernelState = await handle.query("factoryState");
+      assert.equal(state.nodes.accept?.status, "failed");
+      assert.equal(state.nodes.accept?.error, result.error);
+      const history = await handle.fetchHistory();
+      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+    });
+    assert.equal(recorded.filter(id => id.endsWith(":command-failed")).length, 1);
   });
 
   it("advances independent successors while another branch is blocked", async () => {

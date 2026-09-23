@@ -34,6 +34,7 @@ import { releaseRows as rows } from "../db/queries/extension-releases";
 import type { FactoryApplication } from "./application";
 import type { FactoryBudgetAmount } from "./budgets";
 import type { FactoryInstallationStores } from "./installation-stores";
+import { factoryErrorCode } from "./plain-values";
 import { FactoryProtectedCommandEffects } from "./protected-command-effects";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryRoleDriver } from "./runtime-seams";
@@ -61,11 +62,6 @@ export class FactoryValidatorCompositionError extends Error {
   }
 }
 
-function errorCode(error: unknown): string | undefined {
-  const value = (error as { code?: unknown } | null | undefined)?.code;
-  return typeof value === "string" ? value : undefined;
-}
-
 /**
  * The gateway, built from the declared runtimes, with the failing one named.
  *
@@ -85,7 +81,7 @@ export function factoryTrustedValidatorsFromDeclaration(
     // Every runtime valid alone and the set still refused means two of them
     // pin the same runner, which is a property of the set rather than of one.
     throw new FactoryValidatorCompositionError("factory_validator_runtime_rejected",
-      `${failing?.name ?? declared.map(entry => entry.name).join(",")}: ${errorCode(error) ?? (error as Error).message}`);
+      `${failing?.name ?? declared.map(entry => entry.name).join(",")}: ${factoryErrorCode(error) ?? (error as Error).message}`);
   }
 }
 
@@ -150,7 +146,7 @@ export function factoryValidatorAwareSettlement(
       await validators.readBoundAttemptInTransaction(transaction, reference.projectId, reference.commandId);
       return true;
     } catch (error) {
-      if (errorCode(error) === "factory_validator_assignment_missing") return false;
+      if (factoryErrorCode(error) === "factory_validator_assignment_missing") return false;
       throw error;
     }
   };
@@ -237,7 +233,7 @@ export class FactoryValidatorMaterialRegistration {
       this.visited.add(key);
       return true;
     } catch (error) {
-      const code = errorCode(error);
+      const code = factoryErrorCode(error);
       if (code?.startsWith("factory_validator_")) this.visited.add(key);
       if (code === "factory_validator_material_unprotected") return false;
       this.report(`validator-materials:${code ?? "failed"}:${key}`, error);

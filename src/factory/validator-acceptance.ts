@@ -40,6 +40,7 @@ import type { FactoryBudgets } from "./budgets";
 import type { FactoryExecutionJournal } from "./executions";
 import type { FactoryCommandAuthority } from "./command-authority";
 import type { FactoryInbox } from "./inbox";
+import { factoryErrorCode } from "./plain-values";
 import { classifyFactoryAcceptanceFailure, type FactoryProtectedCommandEffects } from "./protected-command-effects";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryRoleDriver } from "./runtime-seams";
@@ -107,19 +108,26 @@ export interface FactoryValidatorAcceptanceOptions {
 }
 
 /** Where one acceptance command stands after a pass. */
+/** A validator attempt that will never produce a terminal fact, its reservation, and whether its outcome is unknown. */
+export interface FactoryValidatorUnsettledAttempt {
+  readonly attemptId: string;
+  readonly reservationId: string;
+  readonly uncertain: boolean;
+}
+
 export interface FactoryValidatorAcceptanceState {
   /** Every claim's validator attempt has a completed terminal fact. */
   readonly ready: boolean;
   /** This pass reserved or admitted something new. */
   readonly progressed: boolean;
-  /** A validator attempt that will never produce a terminal fact, its reservation, and whether its outcome is unknown. */
-  readonly unsettled?: { readonly attemptId: string; readonly reservationId: string; readonly uncertain: boolean };
+  /** Every claim's attempt is terminal: completed, or in `unsettled`. Nothing is still in flight. */
+  readonly terminal: boolean;
+  /** Every claim whose attempt will never produce a terminal fact. Empty when none. */
+  readonly unsettled: readonly FactoryValidatorUnsettledAttempt[];
 }
 
-function code(error: unknown): string | undefined {
-  const value = (error as { code?: unknown } | null | undefined)?.code;
-  return typeof value === "string" ? value : undefined;
-}
+/** One schedule's state after one pass. */
+type ScheduleState = { readonly kind: "completed" } | { readonly kind: "waiting"; readonly progressed: boolean } | { readonly kind: "unsettled"; readonly attempt: FactoryValidatorUnsettledAttempt };
 
 export class FactoryValidatorAcceptance {
   private readonly limit: number;
@@ -144,19 +152,26 @@ export class FactoryValidatorAcceptance {
     return null;
   };
 
-  /** Move one acceptance command as far as it can go without deciding it. */
+  /**
+   * Move one acceptance command as far as it can go without deciding it.
+   *
+   * Every schedule is visited on every pass, so one claim whose validator failed
+   * does not strand the others: each completed attempt still settles its own
+   * reservation, and each live one still runs to its terminal.
+   */
   async advance(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<FactoryValidatorAcceptanceState> {
     await this.options.effects.recordCurrentCandidate(service, reference);
     const schedules = await this.options.database.transaction(transaction => this.options.scheduler.planInTransaction(transaction, service, reference));
-    let ready = true;
-    let progressed = false;
-    for (const schedule of schedules) {
-      const state = await this.settle(service, reference, schedule);
-      if (state.unsettled) return state;
-      ready = ready && state.ready;
-      progressed = progressed || state.progressed;
-    }
-    return { ready, progressed };
+    const states: ScheduleState[] = [];
+    for (const schedule of schedules) states.push(await this.settle(service, reference, schedule));
+    const unsettled = states.flatMap(state => state.kind === "unsettled" ? [state.attempt] : []);
+    const terminal = states.every(state => state.kind !== "waiting");
+    return {
+      ready: terminal && unsettled.length === 0,
+      progressed: states.some(state => state.kind === "waiting" && state.progressed),
+      terminal,
+      unsettled,
+    };
   }
 
   /**
@@ -169,18 +184,17 @@ export class FactoryValidatorAcceptance {
    * stops seeing it once its event exists.
    *
    * A validator attempt that will never produce a terminal fact is answered
-   * with the typed rejection, named for what happened, rather than a wait that
-   * could only end at the deadline. An acceptance node is virtual, so the
-   * rejection is the one failure the kernel can apply to it without trying to
-   * stop an attempt that never existed.
+   * with a typed failure, named for what happened, rather than a wait that
+   * could only end at the deadline. It waits until every other claim is
+   * terminal too, so no reservation is left behind a delivered decision.
    */
   async deliver(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<boolean> {
     const state = await this.advance(service, reference);
-    if (state.unsettled) {
-      await this.rejectUnsettled(service, reference, state.unsettled);
+    if (!state.terminal) return state.progressed;
+    if (state.unsettled.length > 0) {
+      await this.failUnsettled(service, reference, state.unsettled);
       return true;
     }
-    if (!state.ready) return state.progressed;
     await this.options.effects.decideAcceptance(service, reference, (transaction, event) => this.options.inbox.enqueueInTransaction(transaction, this.inboxKey(reference), event));
     return true;
   }
@@ -190,21 +204,28 @@ export class FactoryValidatorAcceptance {
   }
 
   /**
-   * The typed rejection for a validator that failed or ended uncertain, bound to the current command.
+   * The typed failure for validators that failed or ended uncertain, bound to the current command.
    *
-   * The attempt produced no measured usage this role can charge, so its reservation is not settled
-   * with a number nobody measured: it is held uncertain under the same typed reason, in the same
-   * transaction as the event, and the usage-reconciliation role resolves it from a trusted receipt.
+   * A crashed, timed-out, or uncertain validator judged nothing, so this is NOT a rejection: the
+   * event carries the `execution` kind, the kernel fails the virtual acceptance node in place with
+   * the typed reason, and no repair round starts for a candidate nobody found wrong. The reason is
+   * `factory_validator_attempt_uncertain` when any outcome is unknown, else `factory_validator_attempt_failed`.
+   *
+   * These attempts produced no measured usage this role can charge, so their reservations are not
+   * settled with a number nobody measured: each is held uncertain under the same typed reason, in the
+   * same transaction as the event, and the usage-reconciliation role resolves it from a trusted receipt.
    */
-  private async rejectUnsettled(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, unsettled: NonNullable<FactoryValidatorAcceptanceState["unsettled"]>): Promise<void> {
+  private async failUnsettled(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, unsettled: readonly FactoryValidatorUnsettledAttempt[]): Promise<void> {
+    const reason = unsettled.some(attempt => attempt.uncertain) ? "factory_validator_attempt_uncertain" : "factory_validator_attempt_failed";
     await this.options.database.transaction(transaction => this.options.authority.withCurrentAcceptanceInTransaction(transaction, service, reference, async (tx, context) => {
-      const reason = unsettled.uncertain ? "factory_validator_attempt_uncertain" : "factory_validator_attempt_failed";
-      await this.options.budgets.markUncertainInTransaction(tx, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: unsettled.reservationId }, reason);
+      for (const attempt of unsettled) {
+        await this.options.budgets.markUncertainInTransaction(tx, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: attempt.reservationId }, reason);
+      }
       const event: KernelEvent = {
         kind: "node-failed", id: `protected-acceptance-unsettled:${context.command.id}`, atMs: context.commandState.nowMs,
         nodeId: context.command.nodeId, commandId: context.command.id, candidateGeneration: context.command.candidateGeneration, attempt: context.attempt.attempt,
         error: reason,
-        failureKind: "acceptance_rejected",
+        failureKind: "execution",
       };
       await this.options.inbox.enqueueInTransaction(tx, this.inboxKey(reference), event);
     }));
@@ -220,7 +241,7 @@ export class FactoryValidatorAcceptance {
           try {
             worked = await this.deliver(this.options.service, reference) || worked;
           } catch (error) {
-            const found = code(error);
+            const found = factoryErrorCode(error);
             if (found !== undefined && (NOT_YET_CODES.has(found) || SUPERSEDED_CODES.has(found))) continue;
             // The acceptance classes name what an operator does next: an
             // infrastructure fault retries on its own, a trust or corruption
@@ -275,7 +296,7 @@ export class FactoryValidatorAcceptance {
   }
 
   /** One schedule: read its attempt if it exists, otherwise reserve and try to admit. */
-  private async settle(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, schedule: FactoryProtectedValidatorSchedule): Promise<FactoryValidatorAcceptanceState> {
+  private async settle(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, schedule: FactoryProtectedValidatorSchedule): Promise<ScheduleState> {
     const { database, queue, scheduler } = this.options;
     // The delivery row only: the stored request is readable through the journal
     // while the attempt is live, and a completed attempt is exactly the one
@@ -283,18 +304,18 @@ export class FactoryValidatorAcceptance {
     const delivery = await database.transaction(transaction => queue.readInTransaction(transaction, reference.projectId, schedule.attemptId));
     if (delivery !== null) {
       const settled = await database.transaction(transaction => this.settleReservation(transaction, service, reference, schedule.attemptId, delivery));
-      if (settled) return { ready: true, progressed: false };
+      if (settled) return { kind: "completed" };
       if (FAILED_STATES.has(delivery.state) || UNCERTAIN_STATES.has(delivery.state)) {
-        return { ready: false, progressed: false, unsettled: { attemptId: schedule.attemptId, reservationId: schedule.reservationId, uncertain: UNCERTAIN_STATES.has(delivery.state) } };
+        return { kind: "unsettled", attempt: { attemptId: schedule.attemptId, reservationId: schedule.reservationId, uncertain: UNCERTAIN_STATES.has(delivery.state) } };
       }
-      return { ready: false, progressed: false };
+      return { kind: "waiting", progressed: false };
     }
     const reserved = await database.transaction(transaction => scheduler.reserveInTransaction(transaction, service, reference, schedule));
     try {
       await database.transaction(transaction => scheduler.admitInTransaction(transaction, service, reference, schedule));
-      return { ready: false, progressed: true };
+      return { kind: "waiting", progressed: true };
     } catch (error) {
-      if (code(error) === "factory_compute_admission_not_admitted") return { ready: false, progressed: reserved.created };
+      if (factoryErrorCode(error) === "factory_compute_admission_not_admitted") return { kind: "waiting", progressed: reserved.created };
       throw error;
     }
   }

@@ -27,6 +27,7 @@
 import type { FactoryModelPin, ResourceBounds, RunnerReference } from "@ezcorp/factory-sdk";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { digestBytes } from "../extensions/v4/blobs";
+import { isPlainRecord } from "./plain-values";
 import { readPrivatePath } from "./private-files";
 import type { FactoryStartupConfig, FactoryStartupValidatorRuntime } from "./startup-config";
 import type { FactoryTrustedValidatorRuntime } from "./validator-materials";
@@ -68,17 +69,13 @@ interface ValidatorMaterialFile {
 
 const MATERIAL_KEYS = ["schemaVersion", "kind", "runner", "resources", "brokerAudience", "environmentDigest", "configurationDigest", "maxEvidenceAgeMs"];
 
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function materialShape(value: unknown): value is ValidatorMaterialFile {
-  if (!record(value)) return false;
+  if (!isPlainRecord(value)) return false;
   const keys = Object.keys(value);
   const expected = Object.hasOwn(value, "model") ? [...MATERIAL_KEYS, "model"] : MATERIAL_KEYS;
   return keys.length === expected.length && expected.every((key) => keys.includes(key))
     && value.schemaVersion === FACTORY_VALIDATOR_RUNTIME_SCHEMA
-    && record(value.runner) && record(value.resources) && (value.model === undefined || record(value.model));
+    && isPlainRecord(value.runner) && isPlainRecord(value.resources) && (value.model === undefined || isPlainRecord(value.model));
 }
 
 /** Read one declared runtime's file, prove it is the declared bytes, and describe it. */

@@ -1500,6 +1500,21 @@ export function nodeFor(factory: KernelFactoryPlan, nodeId: string): FactoryNode
   return locateNode(factory, nodeId)?.node;
 }
 
+/** The longest detail a `command-failed` reason carries after its prefix. */
+export const FACTORY_COMMAND_FAILED_DETAIL_LIMIT = 512;
+
+/**
+ * The kernel event for an effect command that could not be executed.
+ *
+ * One builder, so the orchestrator (a thrown activity) and the product (a refusal it can name)
+ * write the same event: the same id, so either one deduplicates the other, and the same reason,
+ * `FACTORY_COMMAND_FAILED: <kind> <command id>: <detail>`, so the projected run error says which
+ * effect stopped the run and why.
+ */
+export function factoryCommandFailedEvent(command: { readonly id: string; readonly kind: string }, detail: string, atMs: number): Extract<KernelEvent, { kind: "command-failed" }> {
+  return { kind: "command-failed", id: `${command.id}:command-failed`, atMs, commandId: command.id, error: `FACTORY_COMMAND_FAILED: ${command.kind} ${command.id}: ${detail.slice(0, FACTORY_COMMAND_FAILED_DETAIL_LIMIT)}` };
+}
+
 /** Recomputes protected acceptance/release inputs from the current kernel state. */
 export function currentEffectCommandMatches(factory: KernelFactoryPlan, state: KernelState, command: Extract<KernelCommand, { kind: "request-acceptance" | "request-release" }>): boolean {
   const node = nodeFor(factory, command.nodeId);

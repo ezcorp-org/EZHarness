@@ -16,6 +16,7 @@
  * credential value, matching `parseFactoryOrchestratorProcessConfig`.
  */
 import { resolve } from "node:path";
+import { isPlainRecord } from "./plain-values";
 import { readPrivatePath } from "./private-files";
 
 export const FACTORY_STARTUP_CONFIG_SCHEMA = "factory.startup.v1";
@@ -370,14 +371,10 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "workers.maxErrorDelayMs", kind: "interval", optional: true },
 ]);
 
-function record(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function read(root: Record<string, unknown>, field: string): { readonly present: boolean; readonly value: unknown } {
   let current: unknown = root;
   for (const segment of field.split(".")) {
-    if (!record(current) || !Object.hasOwn(current, segment)) return { present: false, value: undefined };
+    if (!isPlainRecord(current) || !Object.hasOwn(current, segment)) return { present: false, value: undefined };
     current = current[segment];
   }
   return { present: current !== undefined, value: current };
@@ -417,7 +414,7 @@ function httpsUrl(value: unknown): boolean {
 
 /** A signing key map: one key id to one file, at least one entry. */
 function wellFormedKeyPaths(value: unknown): boolean {
-  if (!record(value)) return false;
+  if (!isPlainRecord(value)) return false;
   const entries = Object.entries(value);
   return entries.length >= 1 && entries.length <= 32
     && entries.every(([kid, path]) => wellFormed("identity", kid) && wellFormed("path", path));
@@ -429,13 +426,13 @@ const RUNNER_KEYS = ["package", "manifestName", "version", "digest", "export"] a
 
 /** A pinned runner reference: exactly these keys, each a bounded string, the digest a sha256. */
 function wellFormedRunner(runner: unknown, keys: readonly string[] = RUNNER_KEYS): runner is Record<string, string> {
-  return record(runner) && exactKeys(runner, keys)
+  return isPlainRecord(runner) && exactKeys(runner, keys)
     && keys.every((key) => typeof runner[key] === "string" && (runner[key] as string).length > 0 && (runner[key] as string).length <= 512)
     && SHA256_DIGEST.test(runner.digest as string);
 }
 
 function wellFormedRunnerProfile(value: unknown): boolean {
-  if (!record(value) || !exactKeys(value, ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
+  if (!isPlainRecord(value) || !exactKeys(value, ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
   if (!wellFormedRunner(value.runner)) return false;
   if (!wellFormed("identity", value.resourceClass)) return false;
   if (!Array.isArray(value.allowedCapabilities) || value.allowedCapabilities.length > 64
@@ -492,7 +489,7 @@ function wellFormedRepository(value: unknown): boolean {
  * against half a declaration.
  */
 function wellFormedReleaseDestination(value: unknown): boolean {
-  if (!record(value) || !wellFormed("identity", value.name)) return false;
+  if (!isPlainRecord(value) || !wellFormed("identity", value.name)) return false;
   if (value.kind === "s3") {
     const required = ["name", "kind", "endpoint", "bucket", "account", "credentialsPath"];
     if (!exactKeys(value, required) && !exactKeys(value, [...required, "prefix"])) return false;
@@ -508,10 +505,10 @@ function wellFormedReleaseDestination(value: unknown): boolean {
 
 /** One adapter reference, its action, its destination, and its cost. */
 function wellFormedReleaseProfile(value: unknown): boolean {
-  if (!record(value) || !exactKeys(value, ["adapter", "action", "destination", "estimatedSpendMicros"])) return false;
+  if (!isPlainRecord(value) || !exactKeys(value, ["adapter", "action", "destination", "estimatedSpendMicros"])) return false;
   const adapter = value.adapter;
   const adapterKeys = ["package", "manifestName", "version", "digest", "export"];
-  if (!record(adapter) || !exactKeys(adapter, adapterKeys)
+  if (!isPlainRecord(adapter) || !exactKeys(adapter, adapterKeys)
     || adapterKeys.some((key) => typeof adapter[key] !== "string" || (adapter[key] as string).length === 0 || (adapter[key] as string).length > 512)
     || !/^sha256:[a-f0-9]{64}$/.test(adapter.digest as string)) return false;
   // A micro-denominated release cost is bounded well above a runner budget and
@@ -523,16 +520,16 @@ function wellFormedReleaseProfile(value: unknown): boolean {
 
 /** A task's pool vector, its memory, and the budget it may spend. */
 function wellFormedResourceProfile(value: unknown): boolean {
-  if (!record(value) || !exactKeys(value, ["resources", "memoryBytes", "budget"])) return false;
+  if (!isPlainRecord(value) || !exactKeys(value, ["resources", "memoryBytes", "budget"])) return false;
   const resources = value.resources;
-  if (!record(resources) || Object.keys(resources).length === 0
+  if (!isPlainRecord(resources) || Object.keys(resources).length === 0
     || Object.entries(resources).some(([name, amount]) => !wellFormed("identity", name) || !Number.isSafeInteger(amount) || (amount as number) < 0 || (amount as number) > 1_000_000)) return false;
   if (!Number.isSafeInteger(value.memoryBytes) || (value.memoryBytes as number) < 1) return false;
   const budget = value.budget;
   // `costMicros` is decimal TEXT rather than a number: a micro-denominated cost
   // can exceed a safe integer, and the budget ledger stores it as text for
   // exactly that reason.
-  return record(budget) && exactKeys(budget, ["costMicros", "tokens", "computeMs"])
+  return isPlainRecord(budget) && exactKeys(budget, ["costMicros", "tokens", "computeMs"])
     && typeof budget.costMicros === "string" && /^[0-9]{1,30}$/.test(budget.costMicros)
     && Number.isSafeInteger(budget.tokens) && (budget.tokens as number) >= 0
     && Number.isSafeInteger(budget.computeMs) && (budget.computeMs as number) >= 0;
@@ -547,9 +544,9 @@ function wellFormedResourceProfile(value: unknown): boolean {
  * the first claim instead of here.
  */
 function wellFormedValidatorRuntime(value: unknown): boolean {
-  if (!record(value) || !exactKeys(value, ["name", "kind", "runner", "materialPath", "materialDigest"])) return false;
+  if (!isPlainRecord(value) || !exactKeys(value, ["name", "kind", "runner", "materialPath", "materialDigest"])) return false;
   const runner = value.runner;
-  const keys = record(runner) && Object.hasOwn(runner, "model") ? [...RUNNER_KEYS, "configurationDigest", "model"] : [...RUNNER_KEYS, "configurationDigest"];
+  const keys = isPlainRecord(runner) && Object.hasOwn(runner, "model") ? [...RUNNER_KEYS, "configurationDigest", "model"] : [...RUNNER_KEYS, "configurationDigest"];
   return wellFormed("identity", value.name)
     && (FACTORY_VALIDATOR_RUNTIME_KINDS as readonly unknown[]).includes(value.kind)
     && wellFormedRunner(runner, keys) && SHA256_DIGEST.test(runner.configurationDigest!)
@@ -566,7 +563,7 @@ const KNOWN_FIELDS: ReadonlySet<string> = new Set([
 
 /** One adapter reference as a comparable string, for the duplicate scan. */
 function canonicalAdapter(value: unknown): string {
-  if (!record(value)) return JSON.stringify(value);
+  if (!isPlainRecord(value)) return JSON.stringify(value);
   return JSON.stringify(Object.keys(value).sort().map((key) => [key, value[key]]));
 }
 
@@ -577,7 +574,7 @@ function exactKeys(value: Record<string, unknown>, keys: readonly string[]): boo
 }
 
 function leaves(value: unknown, prefix = ""): string[] {
-  if (!record(value)) return [prefix];
+  if (!isPlainRecord(value)) return [prefix];
   const found: string[] = [];
   for (const [key, nested] of Object.entries(value)) {
     const field = prefix === "" ? key : `${prefix}.${key}`;
@@ -589,7 +586,7 @@ function leaves(value: unknown, prefix = ""): string[] {
     // by shape below instead.
     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths"
       || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes") { found.push(field); continue; }
-    found.push(...(record(nested) ? leaves(nested, field) : [field]));
+    found.push(...(isPlainRecord(nested) ? leaves(nested, field) : [field]));
   }
   return found;
 }
@@ -602,7 +599,7 @@ function leaves(value: unknown, prefix = ""): string[] {
  * operator thought they had configured.
  */
 export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig {
-  if (!record(value)) throw new FactoryStartupConfigError(["schemaVersion"], []);
+  if (!isPlainRecord(value)) throw new FactoryStartupConfigError(["schemaVersion"], []);
   const missing: string[] = [];
   const invalid: string[] = [];
   if (value.schemaVersion !== FACTORY_STARTUP_CONFIG_SCHEMA) invalid.push("schemaVersion");
@@ -641,7 +638,7 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
     const entries = hostStopKeys.value;
     if (!Array.isArray(entries) || entries.length === 0) invalid.push("hostStopKeys");
     else for (const [index, entry] of entries.entries()) {
-      if (!record(entry) || !exactKeys(entry, ["hostId", "hostKeyId", "publicKeyPath"])
+      if (!isPlainRecord(entry) || !exactKeys(entry, ["hostId", "hostKeyId", "publicKeyPath"])
         || !wellFormed("identity", entry.hostId) || !wellFormed("identity", entry.hostKeyId) || !wellFormed("path", entry.publicKeyPath)) {
         invalid.push(`hostStopKeys[${index}]`);
       }
@@ -667,7 +664,7 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
   const runners = read(value, "runnerProfiles");
   if (runners.present) {
     const section = runners.value;
-    if (!record(section) || !exactKeys(section, ["brokerAudience", "profiles"]) || !wellFormed("identity", section.brokerAudience)
+    if (!isPlainRecord(section) || !exactKeys(section, ["brokerAudience", "profiles"]) || !wellFormed("identity", section.brokerAudience)
       || !Array.isArray(section.profiles) || section.profiles.length === 0 || section.profiles.length > 64) {
       invalid.push("runnerProfiles");
     } else {
@@ -746,7 +743,7 @@ export function parseFactoryStartupConfig(value: unknown): FactoryStartupConfig 
 function invalidValidatorRuntimes(value: Record<string, unknown>): string[] {
   const root = read(value, "validators");
   // A non-record section is already named by the unknown-field scan.
-  if (!root.present || !record(root.value)) return [];
+  if (!root.present || !isPlainRecord(root.value)) return [];
   const runtimes = read(value, "validators.runtimes").value;
   if (!Array.isArray(runtimes) || runtimes.length === 0 || runtimes.length > 64) return ["validators.runtimes"];
   const invalid = runtimes.flatMap((entry, index) => wellFormedValidatorRuntime(entry) ? [] : [`validators.runtimes[${index}]`]);

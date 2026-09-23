@@ -19,8 +19,11 @@ import {
   FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS,
   composeFactoryPrivateService,
   factoryCancelNodeEffect,
+  factoryNamedRefusalEffect,
   factoryRunnerProfiles,
 } from "./private-service-composition";
+import type { FactoryPrivateCommandHandler } from "./private-commands";
+import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 
 const tenantId = "tenant-private";
 const subject = "factory-private";
@@ -36,6 +39,33 @@ const SERVICE: TrustedFactoryServiceIdentity = { subject, tenantId };
 const REFERENCE: TrustedFactoryCommandReference = { tenantId, projectId: "project-1", logicalRunId: "run-1", interpreterId: "root", commandId: "cancel-1" };
 
 const STOPPED_EVENT = { kind: "attempt-stopped", id: "event-1", atMs: 1, attemptId: "attempt-1" } as unknown as FactoryTaskStopReceipt["event"];
+
+describe("factoryNamedRefusalEffect", () => {
+  const EVENT = { kind: "node-result", id: "event-2", atMs: 1 } as unknown as KernelEvent;
+
+  test("returns the handler's own answer unchanged", async () => {
+    expect(await factoryNamedRefusalEffect("request-release", async () => EVENT)(SERVICE, REFERENCE)).toBe(EVENT);
+    expect(await factoryNamedRefusalEffect("request-release", async () => null)(SERVICE, REFERENCE)).toBeNull();
+  });
+
+  test("answers a named factory refusal as the command-failed event that carries the name", async () => {
+    const refused = Object.assign(new Error("untrusted"), { code: "factory_protected_effect_untrusted" });
+    const before = Date.now();
+    const event = await factoryNamedRefusalEffect("request-release", async () => { throw refused; })(SERVICE, REFERENCE);
+    expect(event).toMatchObject({
+      kind: "command-failed", id: "cancel-1:command-failed", commandId: "cancel-1",
+      error: "FACTORY_COMMAND_FAILED: request-release cancel-1: factory_protected_effect_untrusted",
+    });
+    expect((event as { atMs: number }).atMs).toBeGreaterThanOrEqual(before);
+  });
+
+  test("still throws an error it cannot name, so a fault stays a fault", async () => {
+    const boom = new Error("boom");
+    await expect(factoryNamedRefusalEffect("request-release", async () => { throw boom; })(SERVICE, REFERENCE)).rejects.toBe(boom);
+    const foreign = Object.assign(new Error("reset"), { code: "ECONNRESET" });
+    await expect(factoryNamedRefusalEffect("request-release", async () => { throw foreign; })(SERVICE, REFERENCE)).rejects.toBe(foreign);
+  });
+});
 
 describe("factoryCancelNodeEffect", () => {
   test("returns the attempt-stopped event only once a host confirmed the stop", async () => {
@@ -198,19 +228,21 @@ describe("composeFactoryPrivateService", () => {
 
   test("the request-acceptance effect is the installation's validator handler when one is composed, and W05's otherwise", async () => {
     const commands = await import("./private-commands");
-    const seen: unknown[] = [];
-    const spy = spyOn(commands, "FactoryPrivateCommands").mockImplementation(((options: { effects: Record<string, unknown> }) => { seen.push(options.effects["request-acceptance"]); return {} as never; }) as never);
+    const seen: FactoryPrivateCommandHandler[] = [];
+    const spy = spyOn(commands, "FactoryPrivateCommands").mockImplementation(((options: { effects: Record<string, FactoryPrivateCommandHandler> }) => { seen.push(options.effects["request-acceptance"]!); return {} as never; }) as never);
     try {
       const { config } = await material();
       const db = database();
       const composed = stores(db);
-      const acceptance = async () => null;
+      const decided = { kind: "node-result", id: "decided", atMs: 1 } as unknown as KernelEvent;
+      const acceptance = async () => decided;
       listeners.push(await composeFactoryPrivateService({ database: db, config, application: composed.application, stores: composed.stores, transitions: composed.transitions, releases, assurance, stops, acceptance }));
       listeners.push(await composeFactoryPrivateService({ database: db, config: { ...config, privateService: { ...config.privateService, port: 0 } }, application: composed.application, stores: composed.stores, transitions: composed.transitions, releases, assurance, stops }));
-      expect(seen[0]).toBe(acceptance);
-      // Without one, the command runs W05's effect directly, as it always did.
+      // Every effect is wrapped so its named refusal reaches the run; the wrapper runs the composed handler.
+      expect(await seen[0]!(SERVICE, REFERENCE)).toBe(decided);
+      // Without one, the command runs W05's effect, as it always did.
       expect(typeof seen[1]).toBe("function");
-      expect(seen[1]).not.toBe(acceptance);
+      expect(seen[1]).not.toBe(seen[0]);
     } finally {
       spy.mockRestore();
     }

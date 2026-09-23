@@ -98,14 +98,15 @@ describe("the request-acceptance command", () => {
 
 describe("advance", () => {
   test("a candidate with no missing claim is ready", async () => {
-    expect(await harness().acceptance.advance(service, reference)).toEqual({ ready: true, progressed: false });
+    expect(await harness().acceptance.advance(service, reference)).toEqual({ ready: true, progressed: false, terminal: true, unsettled: [] });
   });
 
   test("an admitted schedule is progress, and a reservation not yet admitted is progress only when it was new", async () => {
-    expect(await harness({ schedules: [schedule("a")] }).acceptance.advance(service, reference)).toEqual({ ready: false, progressed: true });
+    const waiting = { ready: false, terminal: false, unsettled: [] };
+    expect(await harness({ schedules: [schedule("a")] }).acceptance.advance(service, reference)).toEqual({ ...waiting, progressed: true });
     const notYet = async () => { throw new Coded("factory_compute_admission_not_admitted"); };
-    expect(await harness({ schedules: [schedule("a")], admit: notYet, reserveCreated: true }).acceptance.advance(service, reference)).toEqual({ ready: false, progressed: true });
-    expect(await harness({ schedules: [schedule("a")], admit: notYet, reserveCreated: false }).acceptance.advance(service, reference)).toEqual({ ready: false, progressed: false });
+    expect(await harness({ schedules: [schedule("a")], admit: notYet, reserveCreated: true }).acceptance.advance(service, reference)).toEqual({ ...waiting, progressed: true });
+    expect(await harness({ schedules: [schedule("a")], admit: notYet, reserveCreated: false }).acceptance.advance(service, reference)).toEqual({ ...waiting, progressed: false });
   });
 
   test("an admission failure that is not a wait is raised", async () => {
@@ -115,19 +116,24 @@ describe("advance", () => {
 
   test("a stored attempt is read, never re-reserved: terminal is ready, in flight waits", async () => {
     const both = harness({ schedules: [schedule("done"), schedule("running")], stored: { done: "delivered", running: "leased" }, terminal: ["done"] });
-    expect(await both.acceptance.advance(service, reference)).toEqual({ ready: false, progressed: false });
+    expect(await both.acceptance.advance(service, reference)).toEqual({ ready: false, progressed: false, terminal: false, unsettled: [] });
     // The completed attempt's reservation is settled with its measured usage and terminal fact.
     expect(both.calls).toEqual(["candidate", "plan", "terminal:done", "settle:reservation-done:5/3/7:sha256:e", "terminal:running"]);
     const all = harness({ schedules: [schedule("done")], stored: { done: "delivered" }, terminal: ["done"] });
-    expect(await all.acceptance.advance(service, reference)).toEqual({ ready: true, progressed: false });
+    expect(await all.acceptance.advance(service, reference)).toEqual({ ready: true, progressed: false, terminal: true, unsettled: [] });
   });
 
   test("an attempt that will never produce a terminal fact is unsettled, and uncertain only when its outcome is unknown", async () => {
     for (const [state, uncertain] of [["delivered", false], ["cancelled", false], ["dead_letter", false], ["outcome_unknown", true]] as const) {
-      const { acceptance } = harness({ schedules: [schedule("gone"), schedule("later")], stored: { gone: state } });
-      // The first unsettled schedule answers for the command; later schedules are not touched.
-      expect(await acceptance.advance(service, reference)).toEqual({ ready: false, progressed: false, unsettled: { attemptId: "gone", reservationId: "reservation-gone", uncertain } });
+      const { acceptance } = harness({ schedules: [schedule("gone")], stored: { gone: state } });
+      expect(await acceptance.advance(service, reference)).toEqual({ ready: false, progressed: false, terminal: true, unsettled: [{ attemptId: "gone", reservationId: "reservation-gone", uncertain }] });
     }
+  });
+
+  test("one unsettled claim does not strand the others: every claim is visited, and a completed one still settles", async () => {
+    const { acceptance, calls } = harness({ schedules: [schedule("gone"), schedule("done"), schedule("new")], stored: { gone: "dead_letter", done: "delivered" }, terminal: ["done"] });
+    expect(await acceptance.advance(service, reference)).toEqual({ ready: false, progressed: true, terminal: false, unsettled: [{ attemptId: "gone", reservationId: "reservation-gone", uncertain: false }] });
+    expect(calls).toEqual(["candidate", "plan", "terminal:gone", "terminal:done", "settle:reservation-done:5/3/7:sha256:e", "reserve:new", "admit:new"]);
   });
 });
 
@@ -139,7 +145,7 @@ describe("deliver", () => {
     expect(enqueued).toEqual([{ transaction: "tx", key: { projectId: "project-1", runId: "run-1", interpreterId: "interpreter-1" }, event: acceptanceEvent }]);
   });
 
-  test("a failed or uncertain validator is answered with the typed rejection, never a wait", async () => {
+  test("a failed or uncertain validator is answered with a typed failure, never a rejection and never a wait", async () => {
     for (const [state, error] of [["dead_letter", "factory_validator_attempt_failed"], ["outcome_unknown", "factory_validator_attempt_uncertain"]] as const) {
       const { acceptance, calls, enqueued } = harness({ schedules: [schedule("gone")], stored: { gone: state } });
       expect(await acceptance.deliver(service, reference)).toBe(true);
@@ -150,9 +156,28 @@ describe("deliver", () => {
       expect(calls.some(call => call.startsWith("settle:"))).toBe(false);
       expect(enqueued).toEqual([{ transaction: "tx", key: { projectId: "project-1", runId: "run-1", interpreterId: "interpreter-1" }, event: {
         kind: "node-failed", id: `protected-acceptance-unsettled:${reference.commandId}`, atMs: 7, nodeId: "accept", commandId: reference.commandId,
-        candidateGeneration: 0, attempt: 1, error, failureKind: "acceptance_rejected",
+        candidateGeneration: 0, attempt: 1, error, failureKind: "execution",
       } }]);
     }
+  });
+
+  test("with two claims, the failure waits for the other claim's terminal, then settles it and holds only the failed one", async () => {
+    const live = harness({ schedules: [schedule("gone"), schedule("running")], stored: { gone: "dead_letter", running: "leased" } });
+    expect(await live.acceptance.deliver(service, reference)).toBe(false);
+    expect(live.enqueued).toEqual([]);
+    expect(live.calls.some(call => call.startsWith("uncertain:"))).toBe(false);
+
+    const done = harness({ schedules: [schedule("gone"), schedule("running")], stored: { gone: "dead_letter", running: "delivered" }, terminal: ["running"] });
+    expect(await done.acceptance.deliver(service, reference)).toBe(true);
+    expect(done.calls).toEqual(["candidate", "plan", "terminal:gone", "terminal:running", "settle:reservation-running:5/3/7:sha256:e", "authority", "uncertain:reservation-gone:factory_validator_attempt_failed"]);
+    expect(done.enqueued).toHaveLength(1);
+  });
+
+  test("every unsettled claim is held, and an unknown outcome among them names the failure uncertain", async () => {
+    const { acceptance, calls, enqueued } = harness({ schedules: [schedule("gone"), schedule("lost")], stored: { gone: "dead_letter", lost: "outcome_unknown" } });
+    expect(await acceptance.deliver(service, reference)).toBe(true);
+    expect(calls.filter(call => call.startsWith("uncertain:"))).toEqual(["uncertain:reservation-gone:factory_validator_attempt_uncertain", "uncertain:reservation-lost:factory_validator_attempt_uncertain"]);
+    expect(enqueued).toMatchObject([{ event: { error: "factory_validator_attempt_uncertain", failureKind: "execution" } }]);
   });
 
   test("a command that is not ready is never decided", async () => {

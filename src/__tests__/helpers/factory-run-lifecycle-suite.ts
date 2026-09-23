@@ -901,8 +901,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
   test("the validator-scheduling role waits for, admits, runs, and delivers a protected acceptance exactly once", async () => {
     const { compose, composed, computeRole, validatorReservation, dispatcher, decisionEvents, reported, acceptanceReference, acceptanceCommand, completed, material, service, signal, guestRuns } = await composedValidatorAcceptance(true);
     // A foreign tenant or another run can never be targeted through the command.
-    await expect(composed.acceptance.command(service, { ...acceptanceReference, tenantId: "foreign-tenant" })).rejects.toThrow();
-    await expect(composed.acceptance.command(service, { ...acceptanceReference, logicalRunId: "another-run" })).rejects.toThrow();
+    await expect(composed.acceptance.command(service, { ...acceptanceReference, tenantId: "foreign-tenant" })).rejects.toMatchObject({ code: "factory_protected_effect_scope" });
+    await expect(composed.acceptance.command(service, { ...acceptanceReference, logicalRunId: "another-run" })).rejects.toMatchObject({ code: "factory_transition_command_not_found" });
     // The command answers null instead of throwing for evidence that cannot exist yet, and has already
     // reserved the missing validator: the kernel keeps waiting under its own deadline.
     expect(await composed.acceptance.command(service, acceptanceReference)).toBeNull();
@@ -1041,7 +1041,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await materialRows()).toEqual([registered!]);
   });
 
-  test("a validator attempt that will never complete is answered with the typed rejection, once", async () => {
+  test("a validator attempt that will never complete is answered with a typed failure, not a rejection, once", async () => {
     const { compose, composed, computeRole, validatorReservation, decisionEvents, reported, acceptanceReference, acceptanceCommand, completed, service, signal } = await composedValidatorAcceptance(true);
     expect(await composed.acceptance.command(service, acceptanceReference)).toBeNull();
     const [held] = await validatorReservation();
@@ -1052,9 +1052,16 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await composed.roles.scheduling.step(signal)).toBe(true);
     expect(await decisionEvents()).toEqual([`protected-acceptance-unsettled:${acceptanceCommand.id}`]);
     const [event] = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND event_id=${`protected-acceptance-unsettled:${acceptanceCommand.id}`}`));
-    expect(JSON.parse(event!.payload)).toMatchObject({ kind: "node-failed", nodeId: acceptanceCommand.nodeId, commandId: acceptanceCommand.id, error: "factory_validator_attempt_failed", failureKind: "acceptance_rejected" });
+    expect(JSON.parse(event!.payload)).toMatchObject({ kind: "node-failed", nodeId: acceptanceCommand.nodeId, commandId: acceptanceCommand.id, error: "factory_validator_attempt_failed", failureKind: "execution" });
     // No usage was measured, so the hold is held uncertain under the typed reason, never settled with a guess.
-    expect(rows(await fixture.db.execute(sql`SELECT state,uncertainty FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId} AND origin_kind='protected-validator'`))).toEqual([{ state: "uncertain", uncertainty: "factory_validator_attempt_failed" }]);
+    const holds = rows<{ state: string; uncertainty: string; reservation_id: string; envelope_id: string }>(await fixture.db.execute(sql`SELECT state,uncertainty,reservation_id,envelope_id FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId} AND origin_kind='protected-validator'`));
+    expect(holds.map(({ state, uncertainty }) => ({ state, uncertainty }))).toEqual([{ state: "uncertain", uncertainty: "factory_validator_attempt_failed" }]);
+    // The envelope cannot close while that hold is unresolved, and closes once a trusted receipt settles it.
+    const envelope = { projectId, runId: completed.task.run.runId, envelopeId: holds[0]!.envelope_id };
+    await expect(lifecycle.budgets.closeEnvelope(envelope)).rejects.toMatchObject({ code: "factory_budget_pending" });
+    await lifecycle.budgets.settle({ projectId, runId: completed.task.run.runId, reservationId: holds[0]!.reservation_id }, { costMicros: "0", tokens: 0, computeMs: 0 }, `sha256:${"c".repeat(64)}`);
+    await lifecycle.budgets.closeEnvelope(envelope);
+    expect(await lifecycle.budgets.inspect(envelope)).toMatchObject({ state: "closed", allocated: { costMicros: "0", tokens: "0", computeMs: "0" } });
     // No decision receipt is invented for a verdict nobody issued, and a restarted role adds nothing.
     expect(rows(await fixture.db.execute(sql`SELECT command_id FROM factory_protected_command_effects WHERE tenant_id=${tenantId} AND command_id=${acceptanceCommand.id}`))).toEqual([]);
     expect(await compose().roles.scheduling.step(signal)).toBe(false);
@@ -1072,8 +1079,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       tenant_id: tenantId, project_id: projectId, run_id: completed.task.run.runId, node_instance_id: completed.task.dispatch.nodeId,
       candidate_digest: completed.result.output.digest, attempt_id: completed.authority.attemptId,
     }]);
-    await expect(effects.recordCurrentCandidate(service, { ...acceptanceReference, tenantId: "foreign-tenant" })).rejects.toMatchObject({ code: expect.stringMatching(/^factory_/) });
-    await expect(effects.recordCurrentCandidate({ ...service, tenantId: "foreign-tenant" }, acceptanceReference)).rejects.toMatchObject({ code: expect.stringMatching(/^factory_/) });
+    await expect(effects.recordCurrentCandidate(service, { ...acceptanceReference, tenantId: "foreign-tenant" })).rejects.toMatchObject({ code: "factory_protected_effect_scope" });
+    await expect(effects.recordCurrentCandidate({ ...service, tenantId: "foreign-tenant" }, acceptanceReference)).rejects.toMatchObject({ code: "factory_command_forbidden" });
     // The candidate's own dispatch command is not an acceptance command, so it is stale for this purpose.
     await expect(effects.recordCurrentCandidate(service, completed.task.dispatchReference)).rejects.toMatchObject({ code: expect.stringMatching(/^factory_command_/) });
   });

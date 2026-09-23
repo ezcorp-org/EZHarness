@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { compileFactory } from "./compiler";
-import { FactoryKernelError, advanceKernel, createKernelState } from "./kernel";
+import { FACTORY_COMMAND_FAILED_DETAIL_LIMIT, FactoryKernelError, advanceKernel, createKernelState, factoryCommandFailedEvent } from "./kernel";
 import { referenceCodeV1 } from "./references.js";
 import { FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "./types";
 import type { CompiledFactory, FactoryDefinition, FactoryNode, JsonValue } from "./types";
@@ -203,6 +203,34 @@ describe("factory kernel", () => {
     expect(failed.nextState.nodes.accept?.status).toBe("failed");
     expect(() => advanceKernel(graph, state, event("empty", { kind: "command-failed", commandId: acceptance.id, error: "" }))).toThrow(FactoryKernelError);
     expect(() => advanceKernel(graph, state, event("long", { kind: "command-failed", commandId: acceptance.id, error: "x".repeat(4097) }))).toThrow(FactoryKernelError);
+  });
+
+  test("a validator that crashed or ended uncertain fails the acceptance node in place with its typed reason, and starts no repair", () => {
+    for (const maxRepairs of [0, 2]) {
+      const graph = compiled([
+        { id: "candidate", kind: "task", runner, outputPorts: { candidate: { type: "string" } } },
+        { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: referenceCodeV1.acceptance.id, candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, maxRepairs, outputPorts: { acceptedCandidate: { type: "string" } } },
+      ], {});
+      const state = advanceKernel(graph, createKernelState(graph, `run-validator-crashed-${maxRepairs}`, {}, 0), event("start", { kind: "start" })).nextState;
+      const admission = state.nodes.candidate!.attempts.at(-1)!;
+      const admitted = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "candidate", commandId: admission.commandId, candidateGeneration: 0, granted: true }));
+      const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+      const done = advanceKernel(graph, admitted.nextState, event("done", { kind: "node-result", nodeId: "candidate", commandId: dispatch.id, candidateGeneration: 0, attempt: 1, output: { candidate: "tree" } }));
+      const acceptance = done.commands.find((command) => command.kind === "request-acceptance")!;
+      const failed = advanceKernel(graph, done.nextState, event("crashed", { kind: "node-failed", nodeId: "accept", commandId: acceptance.id, candidateGeneration: 0, attempt: 1, error: "factory_validator_attempt_failed", failureKind: "execution" }));
+      // No repair round: nothing re-dispatches the candidate, and nothing stops a virtual attempt.
+      expect(failed.commands.some((command) => command.kind === "request-admission" || command.kind === "dispatch-node" || command.kind === "cancel-node")).toBe(false);
+      expect(failed.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error: "factory_validator_attempt_failed" })]);
+      expect(failed.nextState.nodes.accept).toMatchObject({ status: "failed", error: "factory_validator_attempt_failed", candidateGeneration: 0 });
+      expect(failed.nextState.stopReason).toBe("factory_validator_attempt_failed");
+    }
+  });
+
+  test("the command-failed builder names the kind, the command, and a bounded detail, with one id per command", () => {
+    const built = factoryCommandFailedEvent({ id: "run:release:request-release:7", kind: "request-release" }, "factory_protected_effect_untrusted", 9);
+    expect(built).toEqual({ kind: "command-failed", id: "run:release:request-release:7:command-failed", atMs: 9, commandId: "run:release:request-release:7", error: "FACTORY_COMMAND_FAILED: request-release run:release:request-release:7: factory_protected_effect_untrusted" });
+    const long = factoryCommandFailedEvent({ id: "c", kind: "k" }, "x".repeat(FACTORY_COMMAND_FAILED_DETAIL_LIMIT + 10), 1);
+    expect(long.error).toBe(`FACTORY_COMMAND_FAILED: k c: ${"x".repeat(FACTORY_COMMAND_FAILED_DETAIL_LIMIT)}`);
   });
 
   test("a failed release effect fails the run at once: the release's attempt is the effect, so nothing is left to stop", () => {
