@@ -1347,6 +1347,8 @@ Live image review on 2026-09-23: The approved cleanup removed only unused faulty
 
 Code review after the image stage: The clean local backend suite passed 26,822 tests across 1,731 files. The exact web Vitest shard 3 passed 2,419 tests across 199 files after its feature-route fixture gained the required user-project purpose and a system-project denial case. Hosted CI on `187929abe` exposed that fixture gap and a launcher cancellation race. The launcher now uses elapsed-time shutdown bounds and force stops a runner that does not exit; the integrated focused suite passed 6/6, and the isolated Sol CI-style residual suite passed 184/184. Final hosted CI on the combined cancellation fix is still required before the code gate can be closed.
 
+Hosted CI on `7b3c69f0b` passed the web shard and residual suite but found one uncovered line in the real `IncusQualificationStore.authorizeFixture` method. The added real-store test covers the pinned release, connection, preset, and helper digest path, plus changed-release and unpublished-image denials; focused LCOV now hits line 203. The 100% threshold is unchanged. Re-run hosted CI on the integrated test commit before closing the code gate.
+
 ## Incus M1 offline feature flow fixture
 
 - [x] Review production seams and existing focused tests.
