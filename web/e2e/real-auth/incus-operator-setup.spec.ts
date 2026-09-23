@@ -85,3 +85,28 @@ test("a blocked plan stays read-only and fits a phone viewport", async ({ page }
   expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(391);
   await captureEvidence(page, testInfo, "incus-operator-blocked-mobile", { fullPage: true });
 });
+
+test("an inventory failure explains why approved providers cannot be shown", async ({ page }) => {
+  await page.route("**/api/infrastructure/incus/setup**", route =>
+    route.fulfill({ status: 503, json: { message: "The Incus host inventory is unavailable." } }));
+
+  await page.goto("/extensions/incus-setup");
+  await expect(page.getByRole("status")).toHaveText("The Incus host inventory is unavailable.");
+  await expect(page.getByRole("button", { name: "Inspect and make plan" })).toHaveCount(0);
+});
+
+test("a failed plan request keeps the operator on the setup page with the host error", async ({ page }) => {
+  await page.route("**/api/infrastructure/incus/setup**", route => {
+    if (route.request().method() === "POST") {
+      return route.fulfill({ status: 409, json: { message: "The pinned SSH host cannot be reached." } });
+    }
+    return route.fulfill({ json: route.request().url().includes("installationId=") ? { setup: null } :
+      { installations: [{ id: "incus-installation", releaseId: "release-1", generation: 2 }] } });
+  });
+
+  await page.goto("/extensions/incus-setup");
+  await page.getByRole("button", { name: "Inspect and make plan" }).click();
+  await expect(page.getByRole("status")).toHaveText("The pinned SSH host cannot be reached.");
+  await expect(page.getByRole("button", { name: "Inspect and make plan" })).toBeEnabled();
+  await expect(page.getByRole("heading", { name: "Server result" })).toHaveCount(0);
+});
