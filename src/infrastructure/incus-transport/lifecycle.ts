@@ -136,148 +136,191 @@ function acceptedOperationId(reply: { envelope: Record<string, unknown> }, kind:
   return id && /^[a-f0-9-]{36}$/.test(id) ? `incus-${kind}-${id}` : fallback;
 }
 
+type LifecycleContext = {
+  session: Session;
+  command: IncusTransportRequest;
+  project: string;
+  collection: string;
+  instancePath: string;
+  input: Record<string, unknown>;
+  policy: ReturnType<typeof sourceConfig>;
+};
+
+async function inspectInstance({ session, command, instancePath }: LifecycleContext) {
+  const found = metadata(await session.request("GET", instancePath), true);
+  if (!found) throw new IncusTransportError("not_found", "Incus instance not found");
+  return { ok: true, sandbox: inspection(object(found), command) };
+}
+
+async function listInstances({ session, command, project, input }: LifecycleContext) {
+  if (!Number.isSafeInteger(input.limit) || (input.limit as number) < 1 || (input.limit as number) > 100) invalid("Invalid Incus list limit");
+  const cursor = input.cursor === undefined ? undefined : object(input.cursor);
+  if (cursor && (cursor.connectionId !== command.connectionId || typeof cursor.afterSandboxId !== "string" || !ID.test(cursor.afterSandboxId))) invalid("Invalid Incus list cursor");
+  const reply = metadata(await session.request("GET", `/1.0/instances?recursion=1&project=${project}`));
+  if (!Array.isArray(reply)) throw new IncusTransportError("unavailable", "Invalid Incus instance list");
+  const values = (reply as unknown as Array<Record<string, unknown>>).filter(item => typeof item.name === "string" && item.name.startsWith("ezh-"));
+  const sandboxes = values.flatMap(item => {
+    try {
+      const config = object(item.config);
+      const sandboxId = config["user.ezharness.sandbox_id"];
+      if (config["user.ezharness.connection_id"] !== command.connectionId || typeof sandboxId !== "string" || !ID.test(sandboxId)) return [];
+      const scoped = { ...command, tags: { ...command.tags, sandboxId }, sandboxName: resourceName(command.connectionId, sandboxId) };
+      return [inspection(item, scoped)];
+    } catch { return []; }
+  }).sort((a, b) => a.sandboxId.localeCompare(b.sandboxId));
+  const start = cursor ? sandboxes.findIndex(item => item.sandboxId > (cursor.afterSandboxId as string)) : 0;
+  const page = sandboxes.slice(start < 0 ? sandboxes.length : start, (start < 0 ? sandboxes.length : start) + (input.limit as number));
+  const last = page.at(-1);
+  return { ok: true, sandboxes: page, ...(last && sandboxes.some(item => item.sandboxId > last.sandboxId) ? { nextCursor: { connectionId: command.connectionId, afterSandboxId: last.sandboxId } } : {}) };
+}
+
+async function inspectSyntheticOperation({ session, command, instancePath }: LifecycleContext, id: string) {
+  const match = /^ezh-(create|setPower|destroy)-([a-f0-9]{32})-([a-f0-9]{32})$/.exec(id);
+  if (!match || `ezh-${match[2]}` !== command.sandboxName) denied("Incus operation escaped sandbox scope");
+  const found = metadata(await session.request("GET", instancePath), true);
+  const instance = found ? object(found) : null;
+  if (instance) instanceIdentity(instance, command);
+  const config = instance ? object(instance.config) : null;
+  const desired = config?.["user.ezharness.desired_state"];
+  const observed = instance?.status === "Running" ? "running" : instance?.status === "Stopped" ? "stopped" : "unknown";
+  const proven = config?.["user.ezharness.operation_id"] === id && desired === observed && (match[1] === "create" || match[1] === "setPower");
+  return { ok: true, operation: { operationId: id, kind: match[1], sandboxId: command.tags.sandboxId, state: proven ? "succeeded" : "outcome_unknown", desiredState: match[1] === "destroy" ? "absent" : desired === "running" ? "running" : "stopped", observedState: observed, resourceId: instance ? command.sandboxName : null, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: proven ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
+}
+
+async function verifyCompletedOperation(
+  { session, command, instancePath, policy }: LifecycleContext,
+  kind: string,
+  status: unknown,
+) {
+  let state = status === "Success" ? "succeeded" : status === "Failure" ? "failed" : "running";
+  let observedState: "running" | "stopped" | "absent" | "unknown" = "unknown";
+  let desiredState: "running" | "stopped" | "absent" = kind === "destroy" ? "absent" : "stopped";
+  if (state === "succeeded") {
+    const found = metadata(await session.request("GET", instancePath), true);
+    if (kind === "destroy") {
+      // A successful, resource-scoped delete plus a fresh absence is proof.
+      if (!found) observedState = "absent";
+      else { instanceIdentity(object(found), command); state = "outcome_unknown"; }
+    } else if (found) {
+      const instance = object(found);
+      instanceIdentity(instance, command);
+      const config = object(instance.config);
+      const observed = instance.status === "Running" ? "running" : instance.status === "Stopped" ? "stopped" : null;
+      const desired = config["user.ezharness.desired_state"];
+      if (config["user.ezharness.profile"] === policy.profile && config["user.ezharness.preset_id"] === policy.presetId
+        && Array.isArray(instance.profiles) && instance.profiles.includes(policy.incusProfile)
+        && (kind !== "create" || config["user.ezharness.create_key"])
+        && (desired === "running" || desired === "stopped") && observed === desired) {
+        observedState = observed;
+        desiredState = desired;
+      } else state = "outcome_unknown";
+    } else state = "outcome_unknown";
+  }
+  return { state, observedState, desiredState };
+}
+
+async function inspectIncusOperation(context: LifecycleContext, id: string) {
+  const { session, command, project } = context;
+  const operationMatch = /^incus-(create|setPower|destroy)-([a-f0-9-]{36})$/.exec(id);
+  if (!operationMatch) invalid("Invalid Incus operation identity");
+  const reply = object(metadata(await session.request("GET", `/1.0/operations/${operationMatch[2]}?project=${project}`)));
+  const resources = object(reply.resources);
+  const instances = resources.instances;
+  if (!Array.isArray(instances) || !instances.some(item => typeof item === "string" && new URL(item, "https://incus.invalid").pathname === `/1.0/instances/${command.sandboxName}`)) denied("Incus operation escaped sandbox scope");
+  const { state, observedState, desiredState } = await verifyCompletedOperation(context, operationMatch[1]!, reply.status);
+  return { ok: true, operation: { operationId: id, kind: operationMatch[1], sandboxId: command.tags.sandboxId, state, desiredState, observedState, resourceId: command.sandboxName, startedAt: String(reply.created_at ?? new Date().toISOString()), finishedAt: state === "succeeded" || state === "failed" || state === "outcome_unknown" ? String(reply.updated_at ?? new Date().toISOString()) : null, error: state === "outcome_unknown" ? { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } : state === "failed" ? { code: "INTERNAL", message: "Incus operation failed", retryable: false } : null } };
+}
+
+async function inspectLifecycleOperation(context: LifecycleContext) {
+  const { input } = context;
+  if (typeof input.operationId !== "string" || !ID.test(input.operationId)) invalid("Invalid Incus operation identity");
+  const id = input.operationId;
+  return id.startsWith("ezh-") ? inspectSyntheticOperation(context, id) : inspectIncusOperation(context, id);
+}
+
+async function createInstance({ session, command, project, collection, input, policy }: LifecycleContext, existing: Record<string, unknown> | null, stableId: string) {
+  const kind = "create";
+  if (existing) {
+    const config = object(existing.config);
+    if (config["user.ezharness.create_key"] !== command.idempotency!.key) throw new IncusTransportError("already_exists", "Incus sandbox already exists");
+    return receipt("create", command, stableId);
+  }
+  if (input.profile !== policy.profile || input.presetId !== policy.presetId
+    || input.presetDigest !== policy.presetDigest
+    || input.effectiveSettingsDigest !== policy.effectiveSettingsDigest
+    || (input.desiredState !== "running" && input.desiredState !== "stopped")) invalid("Invalid Incus creation intent");
+  const profile = object(metadata(await session.request("GET", `/1.0/profiles/${policy.incusProfile}?project=${project}`)));
+  if (profile.name !== policy.incusProfile) denied("Incus profile identity changed");
+  const devices = object(profile.devices);
+  const root = object(devices.root);
+  if (root.type !== "disk" || root.path !== "/" || typeof root.pool !== "string" || !NAME.test(root.pool) || root.source !== undefined) denied("Incus root disk profile is unsafe");
+  const body = { name: command.sandboxName, type: "container", source: { type: "image", fingerprint: policy.imageFingerprint }, profiles: [policy.incusProfile],
+    devices: { root: { type: "disk", path: "/", pool: root.pool, size: String(policy.limits.diskBytes) } },
+    start: input.desiredState === "running", config: {
+    "user.ezharness.managed_by": managedBy, "user.ezharness.connection_id": command.connectionId, "user.ezharness.sandbox_id": command.tags.sandboxId,
+    "user.ezharness.create_key": command.idempotency!.key, "user.ezharness.profile": policy.profile, "user.ezharness.preset_id": input.presetId,
+    "user.ezharness.generation": "1", "user.ezharness.operation_id": stableId, "user.ezharness.desired_state": input.desiredState,
+    "limits.memory": String(policy.limits.memoryBytes), "limits.cpu": String(Math.ceil(policy.limits.cpuMillis / 1000)), "limits.processes": String(policy.limits.pids),
+  } };
+  try { const reply = await session.request("POST", collection, body); metadata(reply); return receipt("create", command, acceptedOperationId(reply, kind, stableId)); }
+  catch (error) { throw uncertain(error, stableId); }
+}
+
+async function mutateInstance({ session, command, project, instancePath, input }: LifecycleContext, kind: "setPower" | "destroy", currentReply: Awaited<ReturnType<Session["request"]>>, existing: Record<string, unknown> | null, stableId: string) {
+  if (!existing) {
+    if (kind === "destroy") return receipt("destroy", command, stableId);
+    throw new IncusTransportError("not_found", "Incus sandbox not found");
+  }
+  const current = inspection(existing, command);
+  if (!Number.isSafeInteger(input.expectedGeneration) || (input.expectedGeneration !== current.generation && !(input.expectedGeneration === current.generation - 1 && object(existing.config)["user.ezharness.operation_id"] === stableId))) throw new IncusTransportError("revision_conflict", "Incus sandbox generation changed");
+  const previousIntent = object(existing.config)["user.ezharness.operation_id"] === stableId;
+  if (previousIntent) {
+    if (kind === "setPower" && current.observedState === input.desiredState) return receipt("setPower", command, stableId);
+    throw new IncusTransportError("unavailable", "Incus operation is still unresolved", { effect: "unknown", operationId: stableId });
+  }
+  if (kind === "setPower") {
+    if (input.desiredState !== "running" && input.desiredState !== "stopped") invalid("Invalid Incus power state");
+  } else if (current.observedState !== "stopped") throw new IncusTransportError("revision_conflict", "Incus sandbox must be stopped before destroy");
+  if (!currentReply.etag) denied("Incus instance ETag is required for mutation");
+  try { metadata(await session.request("PATCH", instancePath, { config: { "user.ezharness.generation": String(current.generation + 1), "user.ezharness.operation_id": stableId, "user.ezharness.desired_state": kind === "setPower" ? input.desiredState : "destroyed" } }, currentReply.etag)); }
+  catch (error) { throw uncertain(error, stableId); }
+  if (kind === "setPower") {
+    if (current.observedState === input.desiredState) return receipt("setPower", command, stableId);
+    try { const reply = await session.request("PUT", `/1.0/instances/${command.sandboxName}/state?project=${project}`, { action: input.desiredState === "running" ? "start" : "stop", timeout: 30 }); metadata(reply); return receipt("setPower", command, acceptedOperationId(reply, kind, stableId)); }
+    catch (error) { throw uncertain(error, stableId); }
+  }
+  try { const reply = await session.request("DELETE", instancePath); metadata(reply); return receipt("destroy", command, acceptedOperationId(reply, kind, stableId)); }
+  catch (error) { throw uncertain(error, stableId); }
+}
+
+async function requestLifecycleAction(session: Session, command: IncusTransportRequest, scope: HostConnectionScope) {
+  const project = encodeURIComponent(session.connection.project);
+  const collection = `/1.0/instances?project=${project}`;
+  const instancePath = `/1.0/instances/${command.sandboxName}?project=${project}`;
+  const input = payload(command);
+  const policy = sourceConfig(scope);
+  const context: LifecycleContext = { session, command, project, collection, instancePath, input, policy };
+  if (command.action === "instance.inspect") return inspectInstance(context);
+  if (command.action === "instance.list") return listInstances(context);
+  if (command.action === "operation.inspect") return inspectLifecycleOperation(context);
+  const kind = command.action === "instance.create" ? "create" : command.action === "instance.setPower" ? "setPower" : "destroy";
+  const stableId = operationId(kind, command);
+  const currentReply = await session.request("GET", instancePath);
+  const found = metadata(currentReply, true);
+  const existing = found ? object(found) : null;
+  if (existing) instanceIdentity(existing, command);
+  if (kind === "create") return createInstance(context, existing, stableId);
+  return mutateInstance(context, kind, currentReply, existing, stableId);
+}
+
 /** Host-owned lifecycle actions against one pinned Incus project and reviewed policy. */
 export class HostIncusLifecycleTransport implements IncusTransport {
   constructor(private readonly connections: HostConnectionResolver, private readonly scope: HostConnectionScope, private readonly http: PinnedFetch = verifiedHttpsRequest) {}
 
   async request(command: Readonly<IncusTransportRequest>): Promise<unknown> {
     if (!["instance.create", "instance.inspect", "instance.list", "instance.setPower", "instance.destroy", "operation.inspect"].includes(command.action)) throw new IncusTransportError("unsupported", "Incus lifecycle action is unavailable");
-    return withSession(this.connections, this.scope, this.http, command, async (session) => {
-      const project = encodeURIComponent(session.connection.project);
-      const collection = `/1.0/instances?project=${project}`;
-      const instancePath = `/1.0/instances/${command.sandboxName}?project=${project}`;
-      const input = payload(command);
-      const policy = sourceConfig(this.scope);
-      if (command.action === "instance.inspect") {
-        const found = metadata(await session.request("GET", instancePath), true);
-        if (!found) throw new IncusTransportError("not_found", "Incus instance not found");
-        return { ok: true, sandbox: inspection(object(found), command) };
-      }
-      if (command.action === "instance.list") {
-        if (!Number.isSafeInteger(input.limit) || (input.limit as number) < 1 || (input.limit as number) > 100) invalid("Invalid Incus list limit");
-        const cursor = input.cursor === undefined ? undefined : object(input.cursor);
-        if (cursor && (cursor.connectionId !== command.connectionId || typeof cursor.afterSandboxId !== "string" || !ID.test(cursor.afterSandboxId))) invalid("Invalid Incus list cursor");
-        const reply = metadata(await session.request("GET", `/1.0/instances?recursion=1&project=${project}`));
-        if (!Array.isArray(reply)) throw new IncusTransportError("unavailable", "Invalid Incus instance list");
-        const values = (reply as unknown as Array<Record<string, unknown>>).filter(item => typeof item.name === "string" && item.name.startsWith("ezh-"));
-        const sandboxes = values.flatMap(item => {
-          try {
-            const config = object(item.config);
-            const sandboxId = config["user.ezharness.sandbox_id"];
-            if (config["user.ezharness.connection_id"] !== command.connectionId || typeof sandboxId !== "string" || !ID.test(sandboxId)) return [];
-            const scoped = { ...command, tags: { ...command.tags, sandboxId }, sandboxName: resourceName(command.connectionId, sandboxId) };
-            return [inspection(item, scoped)];
-          } catch { return []; }
-        }).sort((a, b) => a.sandboxId.localeCompare(b.sandboxId));
-        const start = cursor ? sandboxes.findIndex(item => item.sandboxId > (cursor.afterSandboxId as string)) : 0;
-        const page = sandboxes.slice(start < 0 ? sandboxes.length : start, (start < 0 ? sandboxes.length : start) + (input.limit as number));
-        const last = page.at(-1);
-        return { ok: true, sandboxes: page, ...(last && sandboxes.some(item => item.sandboxId > last.sandboxId) ? { nextCursor: { connectionId: command.connectionId, afterSandboxId: last.sandboxId } } : {}) };
-      }
-      if (command.action === "operation.inspect") {
-        if (typeof input.operationId !== "string" || !ID.test(input.operationId)) invalid("Invalid Incus operation identity");
-        const id = input.operationId;
-        if (id.startsWith("ezh-")) {
-          const match = /^ezh-(create|setPower|destroy)-([a-f0-9]{32})-([a-f0-9]{32})$/.exec(id);
-          if (!match || `ezh-${match[2]}` !== command.sandboxName) denied("Incus operation escaped sandbox scope");
-          const found = metadata(await session.request("GET", instancePath), true);
-          const instance = found ? object(found) : null;
-          if (instance) instanceIdentity(instance, command);
-          const config = instance ? object(instance.config) : null;
-          const desired = config?.["user.ezharness.desired_state"];
-          const observed = instance?.status === "Running" ? "running" : instance?.status === "Stopped" ? "stopped" : "unknown";
-          const proven = config?.["user.ezharness.operation_id"] === id && desired === observed && (match[1] === "create" || match[1] === "setPower");
-          return { ok: true, operation: { operationId: id, kind: match[1], sandboxId: command.tags.sandboxId, state: proven ? "succeeded" : "outcome_unknown", desiredState: match[1] === "destroy" ? "absent" : desired === "running" ? "running" : "stopped", observedState: observed, resourceId: instance ? command.sandboxName : null, startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), error: proven ? null : { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } } };
-        }
-        const operationMatch = /^incus-(create|setPower|destroy)-([a-f0-9-]{36})$/.exec(id);
-        if (!operationMatch) invalid("Invalid Incus operation identity");
-        const reply = object(metadata(await session.request("GET", `/1.0/operations/${operationMatch[2]}?project=${project}`)));
-        const resources = object(reply.resources);
-        const instances = resources.instances;
-        if (!Array.isArray(instances) || !instances.some(item => typeof item === "string" && new URL(item, "https://incus.invalid").pathname === `/1.0/instances/${command.sandboxName}`)) denied("Incus operation escaped sandbox scope");
-        let state = reply.status === "Success" ? "succeeded" : reply.status === "Failure" ? "failed" : "running";
-        let observedState: "running" | "stopped" | "absent" | "unknown" = "unknown";
-        let desiredState: "running" | "stopped" | "absent" = operationMatch[1] === "destroy" ? "absent" : "stopped";
-        if (state === "succeeded") {
-          const found = metadata(await session.request("GET", instancePath), true);
-          if (operationMatch[1] === "destroy") {
-            // A successful, resource-scoped delete plus a fresh absence is proof.
-            if (!found) observedState = "absent";
-            else { instanceIdentity(object(found), command); state = "outcome_unknown"; }
-          } else if (found) {
-            const instance = object(found);
-            instanceIdentity(instance, command);
-            const config = object(instance.config);
-            const observed = instance.status === "Running" ? "running" : instance.status === "Stopped" ? "stopped" : null;
-            const desired = config["user.ezharness.desired_state"];
-            if (config["user.ezharness.profile"] === policy.profile && config["user.ezharness.preset_id"] === policy.presetId
-              && Array.isArray(instance.profiles) && instance.profiles.includes(policy.incusProfile)
-              && (operationMatch[1] !== "create" || config["user.ezharness.create_key"])
-              && (desired === "running" || desired === "stopped") && observed === desired) {
-              observedState = observed;
-              desiredState = desired;
-            } else state = "outcome_unknown";
-          } else state = "outcome_unknown";
-        }
-        return { ok: true, operation: { operationId: id, kind: operationMatch[1], sandboxId: command.tags.sandboxId, state, desiredState, observedState, resourceId: command.sandboxName, startedAt: String(reply.created_at ?? new Date().toISOString()), finishedAt: state === "succeeded" || state === "failed" || state === "outcome_unknown" ? String(reply.updated_at ?? new Date().toISOString()) : null, error: state === "outcome_unknown" ? { code: "OUTCOME_UNKNOWN", message: "Incus mutation outcome is unknown", retryable: false, operationId: id } : state === "failed" ? { code: "INTERNAL", message: "Incus operation failed", retryable: false } : null } };
-      }
-      const kind = command.action === "instance.create" ? "create" : command.action === "instance.setPower" ? "setPower" : "destroy";
-      const stableId = operationId(kind, command);
-      const currentReply = await session.request("GET", instancePath);
-      const found = metadata(currentReply, true);
-      const existing = found ? object(found) : null;
-      if (existing) instanceIdentity(existing, command);
-      if (kind === "create") {
-        if (existing) {
-          const config = object(existing.config);
-          if (config["user.ezharness.create_key"] !== command.idempotency!.key) throw new IncusTransportError("already_exists", "Incus sandbox already exists");
-          return receipt("create", command, stableId);
-        }
-        if (input.profile !== policy.profile || input.presetId !== policy.presetId
-          || input.presetDigest !== policy.presetDigest
-          || input.effectiveSettingsDigest !== policy.effectiveSettingsDigest
-          || (input.desiredState !== "running" && input.desiredState !== "stopped")) invalid("Invalid Incus creation intent");
-        const profile = object(metadata(await session.request("GET", `/1.0/profiles/${policy.incusProfile}?project=${project}`)));
-        if (profile.name !== policy.incusProfile) denied("Incus profile identity changed");
-        const devices = object(profile.devices);
-        const root = object(devices.root);
-        if (root.type !== "disk" || root.path !== "/" || typeof root.pool !== "string" || !NAME.test(root.pool) || root.source !== undefined) denied("Incus root disk profile is unsafe");
-        const body = { name: command.sandboxName, type: "container", source: { type: "image", fingerprint: policy.imageFingerprint }, profiles: [policy.incusProfile],
-          devices: { root: { type: "disk", path: "/", pool: root.pool, size: String(policy.limits.diskBytes) } },
-          start: input.desiredState === "running", config: {
-          "user.ezharness.managed_by": managedBy, "user.ezharness.connection_id": command.connectionId, "user.ezharness.sandbox_id": command.tags.sandboxId,
-          "user.ezharness.create_key": command.idempotency!.key, "user.ezharness.profile": policy.profile, "user.ezharness.preset_id": input.presetId,
-          "user.ezharness.generation": "1", "user.ezharness.operation_id": stableId, "user.ezharness.desired_state": input.desiredState,
-          "limits.memory": String(policy.limits.memoryBytes), "limits.cpu": String(Math.ceil(policy.limits.cpuMillis / 1000)), "limits.processes": String(policy.limits.pids),
-        } };
-        try { const reply = await session.request("POST", collection, body); metadata(reply); return receipt("create", command, acceptedOperationId(reply, kind, stableId)); }
-        catch (error) { throw uncertain(error, stableId); }
-      }
-      if (!existing) {
-        if (kind === "destroy") return receipt("destroy", command, stableId);
-        throw new IncusTransportError("not_found", "Incus sandbox not found");
-      }
-      const current = inspection(existing, command);
-      if (!Number.isSafeInteger(input.expectedGeneration) || (input.expectedGeneration !== current.generation && !(input.expectedGeneration === current.generation - 1 && object(existing.config)["user.ezharness.operation_id"] === stableId))) throw new IncusTransportError("revision_conflict", "Incus sandbox generation changed");
-      const previousIntent = object(existing.config)["user.ezharness.operation_id"] === stableId;
-      if (previousIntent) {
-        if (kind === "setPower" && current.observedState === input.desiredState) return receipt("setPower", command, stableId);
-        throw new IncusTransportError("unavailable", "Incus operation is still unresolved", { effect: "unknown", operationId: stableId });
-      }
-      if (kind === "setPower") {
-        if (input.desiredState !== "running" && input.desiredState !== "stopped") invalid("Invalid Incus power state");
-      } else if (current.observedState !== "stopped") throw new IncusTransportError("revision_conflict", "Incus sandbox must be stopped before destroy");
-      if (!currentReply.etag) denied("Incus instance ETag is required for mutation");
-      try { metadata(await session.request("PATCH", instancePath, { config: { "user.ezharness.generation": String(current.generation + 1), "user.ezharness.operation_id": stableId, "user.ezharness.desired_state": kind === "setPower" ? input.desiredState : "destroyed" } }, currentReply.etag)); }
-      catch (error) { throw uncertain(error, stableId); }
-      if (kind === "setPower") {
-        if (current.observedState === input.desiredState) return receipt("setPower", command, stableId);
-        try { const reply = await session.request("PUT", `/1.0/instances/${command.sandboxName}/state?project=${project}`, { action: input.desiredState === "running" ? "start" : "stop", timeout: 30 }); metadata(reply); return receipt("setPower", command, acceptedOperationId(reply, kind, stableId)); }
-        catch (error) { throw uncertain(error, stableId); }
-      }
-      try { const reply = await session.request("DELETE", instancePath); metadata(reply); return receipt("destroy", command, acceptedOperationId(reply, kind, stableId)); }
-      catch (error) { throw uncertain(error, stableId); }
-    });
+    return withSession(this.connections, this.scope, this.http, command,
+      session => requestLifecycleAction(session, command, this.scope));
   }
 }
 

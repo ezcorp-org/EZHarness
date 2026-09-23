@@ -2,7 +2,7 @@ import { createHash, X509Certificate } from "node:crypto";
 import { ContractError, canonicalJson, sandboxPresetDigest, validateSandboxProviderMethodValue, type JsonValue, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import { eq } from "drizzle-orm";
 import { getDb, type Database } from "../db/connection";
-import { sandboxBindings, sandboxReservations } from "../db/schema";
+import { sandboxBindings, sandboxReservations, type SandboxBinding } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { HostIncusProbeTransport, type HostConnectionResolver } from "./incus-transport/transport";
 import { HostIncusLifecycleTransport } from "./incus-transport/lifecycle";
@@ -71,6 +71,76 @@ function fingerprint(pem: string): string {
   catch { throw new ContractError("INVALID_PROVIDER_CONFIG", "Incus server identity is invalid"); }
 }
 
+type ActionBinding = SandboxBinding & {
+  connectionRevision: number;
+  profile: string;
+  presetId: string;
+  presetDigest: string;
+  effectiveSettingsDigest: string;
+  resourceKey: string;
+};
+
+function assertActionBinding(
+  binding: SandboxBinding | undefined,
+  snapshot: ActiveExtensionRelease,
+  operation: SandboxProtocolOperation,
+  input: Record<string, unknown>,
+): ActionBinding {
+  if (!binding || binding.tombstonedAt && operation !== "lifecycle.destroy" && operation !== "lifecycle.inspectOperation"
+    || binding.providerInstallationId !== snapshot.installation.id || binding.providerReleaseId !== snapshot.release.id
+    || !binding.connectionRevision || !binding.profile || !binding.presetId || !binding.presetDigest
+    || !binding.effectiveSettingsDigest || !binding.resourceKey
+    || input.connectionId !== binding.connectionId || input.providerId !== "incus"
+    || input.sandboxId !== binding.id) {
+    throw new ContractError("CAPABILITY_DENIED", "Incus sandbox binding is unavailable");
+  }
+  if ((operation.startsWith("files.") || operation.startsWith("processes."))
+    && (binding.desiredState !== "RUNNING" || binding.observedState !== "RUNNING")) {
+    throw new ContractError("CAPABILITY_DENIED", "Incus workspace is not running");
+  }
+  return binding as ActionBinding;
+}
+
+async function approvedActionPreset(snapshot: ActiveExtensionRelease, binding: SandboxBinding, operation: SandboxProtocolOperation) {
+  const contribution = snapshot.release.manifest.sandboxProviders?.find(provider => provider.kind === "sandbox" && provider.id === "incus");
+  const preset = contribution?.presets.find(candidate => candidate.id === binding.presetId && candidate.profile === binding.profile);
+  if (!preset || await sandboxPresetDigest(preset) !== binding.presetDigest
+    || !snapshot.release.manifest.methods?.some(method => method.name === incusMethodName(operation))) {
+    throw new ContractError("RELEASE_CHANGED", "Incus preset or method changed");
+  }
+  if (preset.imageDigest === "0".repeat(64)) {
+    throw new ContractError("CAPABILITY_UNAVAILABLE", "Reviewed Incus guest image is not published");
+  }
+  return preset;
+}
+
+async function assertCreateAdmission(db: Database, binding: SandboxBinding, preset: Awaited<ReturnType<typeof approvedActionPreset>>, operation: SandboxProtocolOperation, input: Record<string, unknown>): Promise<void> {
+  if (operation === "lifecycle.create") {
+    if (input.profile !== binding.profile || input.presetId !== binding.presetId
+      || input.presetDigest !== binding.presetDigest || input.effectiveSettingsDigest !== binding.effectiveSettingsDigest) {
+      throw new ContractError("CAPABILITY_DENIED", "Incus create request changed its approved preset");
+    }
+    const [reservation] = await db.select().from(sandboxReservations)
+      .where(eq(sandboxReservations.bindingId, binding.id)).limit(1);
+    if (!reservation || reservation.generation !== binding.generation || reservation.computeState !== "RESERVED"
+      || reservation.connectionId !== binding.connectionId || reservation.providerInstallationId !== binding.providerInstallationId
+      || reservation.memoryBytes !== preset.limits.memoryBytes || reservation.cpuMillicores !== preset.limits.cpuMillis
+      || reservation.pids !== preset.limits.pids || reservation.diskBytes !== preset.limits.diskBytes) {
+      throw new ContractError("CAPABILITY_DENIED", "Incus sandbox resource admission is unavailable");
+    }
+  }
+}
+
+function approvedGuestHelper(operation: SandboxProtocolOperation, base: PreparedIncusProbe, preset: Awaited<ReturnType<typeof approvedActionPreset>>): string | undefined {
+  const guestOperation = operation.startsWith("files.") || operation.startsWith("processes.");
+  const helperSha256 = guestOperation ? guestHelperSha256() : undefined;
+  if (guestOperation && (base.config.helperVersion !== GUEST_HELPER_VERSION
+    || base.config.guestUser !== "sandbox" || !helperSha256 || !preset.helperDigests.includes(helperSha256))) {
+    throw new ContractError("RELEASE_CHANGED", "Approved Incus guest image or helper is unavailable");
+  }
+  return helperSha256;
+}
+
 /** Only ReleaseProcess calls this broker. No generic extension capability exposes it. */
 export class ProviderRpcBroker {
   private readonly dispatchedMutations = new WeakMap<PreparedIncusAction, Promise<JsonValue>>();
@@ -110,68 +180,31 @@ export class ProviderRpcBroker {
     const input = validateSandboxProviderMethodValue(operation, "input", inputValue) as Record<string, unknown>;
     const [binding] = await this.database.select().from(sandboxBindings)
       .where(eq(sandboxBindings.id, bindingId)).limit(1);
-    if (!binding || binding.tombstonedAt && operation !== "lifecycle.destroy" && operation !== "lifecycle.inspectOperation"
-      || binding.providerInstallationId !== snapshot.installation.id || binding.providerReleaseId !== snapshot.release.id
-      || !binding.connectionRevision || !binding.profile || !binding.presetId || !binding.presetDigest
-      || !binding.effectiveSettingsDigest || !binding.resourceKey
-      || input.connectionId !== binding.connectionId || input.providerId !== "incus"
-      || input.sandboxId !== binding.id) {
-      throw new ContractError("CAPABILITY_DENIED", "Incus sandbox binding is unavailable");
-    }
-    if ((operation.startsWith("files.") || operation.startsWith("processes."))
-      && (binding.desiredState !== "RUNNING" || binding.observedState !== "RUNNING")) {
-      throw new ContractError("CAPABILITY_DENIED", "Incus workspace is not running");
-    }
-    const base = await this.prepare(snapshot, binding.connectionId);
-    if (base.revision !== binding.connectionRevision) {
+    const approvedBinding = assertActionBinding(binding, snapshot, operation, input);
+    const base = await this.prepare(snapshot, approvedBinding.connectionId);
+    if (base.revision !== approvedBinding.connectionRevision) {
       throw new ContractError("RELEASE_CHANGED", "Incus connection revision changed");
     }
-    const contribution = snapshot.release.manifest.sandboxProviders?.find(provider => provider.kind === "sandbox" && provider.id === "incus");
-    const preset = contribution?.presets.find(candidate => candidate.id === binding.presetId && candidate.profile === binding.profile);
-    if (!preset || await sandboxPresetDigest(preset) !== binding.presetDigest
-      || !snapshot.release.manifest.methods?.some(method => method.name === incusMethodName(operation))) {
-      throw new ContractError("RELEASE_CHANGED", "Incus preset or method changed");
-    }
-    if (preset.imageDigest === "0".repeat(64)) {
-      throw new ContractError("CAPABILITY_UNAVAILABLE", "Reviewed Incus guest image is not published");
-    }
-    if (operation === "lifecycle.create") {
-      if (input.profile !== binding.profile || input.presetId !== binding.presetId
-        || input.presetDigest !== binding.presetDigest || input.effectiveSettingsDigest !== binding.effectiveSettingsDigest) {
-        throw new ContractError("CAPABILITY_DENIED", "Incus create request changed its approved preset");
-      }
-      const [reservation] = await this.database.select().from(sandboxReservations)
-        .where(eq(sandboxReservations.bindingId, binding.id)).limit(1);
-      if (!reservation || reservation.generation !== binding.generation || reservation.computeState !== "RESERVED"
-        || reservation.connectionId !== binding.connectionId || reservation.providerInstallationId !== binding.providerInstallationId
-        || reservation.memoryBytes !== preset.limits.memoryBytes || reservation.cpuMillicores !== preset.limits.cpuMillis
-        || reservation.pids !== preset.limits.pids || reservation.diskBytes !== preset.limits.diskBytes) {
-        throw new ContractError("CAPABILITY_DENIED", "Incus sandbox resource admission is unavailable");
-      }
-    }
+    const preset = await approvedActionPreset(snapshot, approvedBinding, operation);
+    await assertCreateAdmission(this.database, approvedBinding, preset, operation, input);
     const expectedCommand = createIncusTransportCommand(operation, input, base.config);
-    const guestOperation = operation.startsWith("files.") || operation.startsWith("processes.");
-    const helperSha256 = guestOperation ? guestHelperSha256() : undefined;
-    if (guestOperation && (base.config.helperVersion !== GUEST_HELPER_VERSION
-      || base.config.guestUser !== "sandbox" || !helperSha256 || !preset.helperDigests.includes(helperSha256))) {
-      throw new ContractError("RELEASE_CHANGED", "Approved Incus guest image or helper is unavailable");
-    }
+    const helperSha256 = approvedGuestHelper(operation, base, preset);
     return Object.freeze({
       ...base,
       operation,
       method: incusMethodName(operation),
       bindingId,
-      projectId: binding.projectId,
-      bindingGeneration: binding.generation,
-      resourceKey: binding.resourceKey,
+      projectId: approvedBinding.projectId,
+      bindingGeneration: approvedBinding.generation,
+      resourceKey: approvedBinding.resourceKey,
       expectedCommand,
       ...(helperSha256 ? { approvedGuest: Object.freeze({ user: "sandbox", uid: 1000, gid: 1000, helperSha256 }) } : {}),
       approvedPreset: Object.freeze({
-        profile: binding.profile,
+        profile: approvedBinding.profile,
         incusProfile: base.config.profile,
-        presetId: binding.presetId,
-        presetDigest: binding.presetDigest,
-        effectiveSettingsDigest: binding.effectiveSettingsDigest,
+        presetId: approvedBinding.presetId,
+        presetDigest: approvedBinding.presetDigest,
+        effectiveSettingsDigest: approvedBinding.effectiveSettingsDigest,
         imageFingerprint: preset.imageDigest,
         limits: Object.freeze({
           memoryBytes: preset.limits.memoryBytes,

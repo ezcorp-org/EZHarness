@@ -269,15 +269,7 @@ function metadata(envelope: Record<string, unknown>): Record<string, unknown> {
   return object(envelope.metadata);
 }
 
-/** A host-only read probe. Unsupported actions cannot resolve credentials or issue HTTP. */
-export class HostIncusProbeTransport implements IncusTransport {
-  constructor(
-    private readonly connections: HostConnectionResolver,
-    private readonly scope: HostConnectionScope,
-    private readonly http: PinnedFetch = verifiedHttpsRequest,
-  ) {}
-
-  async request(command: Readonly<IncusTransportRequest>): Promise<IncusProbeResult> {
+function assertProbeCommand(command: Readonly<IncusTransportRequest>): void {
     if (command.action !== "probe") {
       throw new IncusTransportError("unsupported", "Incus transport action is unavailable");
     }
@@ -296,6 +288,18 @@ export class HostIncusProbeTransport implements IncusTransport {
       || command.pins.profile === "default") {
       throw new IncusTransportError("invalid", "Invalid Incus probe pins");
     }
+}
+
+/** A host-only read probe. Unsupported actions cannot resolve credentials or issue HTTP. */
+export class HostIncusProbeTransport implements IncusTransport {
+  constructor(
+    private readonly connections: HostConnectionResolver,
+    private readonly scope: HostConnectionScope,
+    private readonly http: PinnedFetch = verifiedHttpsRequest,
+  ) {}
+
+  async request(command: Readonly<IncusTransportRequest>): Promise<IncusProbeResult> {
+    assertProbeCommand(command);
     const controller = new AbortController();
     const onAbort = () => controller.abort();
     this.scope.signal?.addEventListener("abort", onAbort, { once: true });
