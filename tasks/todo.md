@@ -3553,16 +3553,29 @@ Base `260855e57` (W09b and W13 merged). Evidence: `/tmp/factory-platform-evidenc
 `release-declaration.ts` and the profile composition in `installation-startup.ts` (W09c); the guest
 broker, guest SDK, and runner result path (W01g).
 
-- [ ] Mutation baseline for `web/src/lib/factory/*` and `web/src/lib/graph/layout.ts`; kill survivors with assertions; record before/after.
-- [ ] Run inspection read model: nested runs, attempts, blockers, costs, artifacts, acceptance reasons, releases (new `src/factory/run-inspection.ts`, one scoped read, bounded pages).
-- [ ] Snapshot plus contiguous SSE cursor: signed cursor, duplicate/gap handling, 410 on expiry, authority recheck per batch, revocation closes the stream, bounded pages; client state machine with visible lag/disconnect.
-- [ ] Package admin routes over W02's `FactoryPackageTrusts`: list, install (bind + publish), quarantine, revoke, affected-run preview; human session plus tenant administrator; audited queued result.
-- [ ] Grant administration panel over the existing grant routes (admin scope plus administrator role).
-- [ ] Administrator purge request: human administrator session, preconditions evaluated, audit that will be lost recorded; no destructive action (W19).
-- [ ] Artifact downloads and previews: scoped short-lived ticket, `nosniff` plus attachment, escaped text, no executable SVG/HTML at the origin.
-- [ ] Console UI: run inspector, live stream states, repair/replan, approvals and uncertain release (existing components), packages, grants, purge.
-- [ ] JSON/YAML/SDK/editor digest parity for every construct; unknown versions read-only and exportable; save/publish race; repeated idempotency keys.
-- [ ] Two provisioned installations with overlapping IDs: users, restricted API keys, service principals over every list/search/read/download/event/mutation path; expiry, revocation, transactional audit failure; read-sharing grants expose only named bytes.
-- [ ] `factory-services` lane: Playwright config, real-stack boot, specs through the real authenticated application; register lanes, route manifest, evidence surfaces.
-- [ ] Inspect real captures at 1440 and 390 pixels, long labels, large maps, light/dark, keyboard-only, reduced motion; fix defects and console errors.
-- [ ] Final sweep per common.md plus web check, web Vitest pool, factory Playwright lanes, mutation after; report.
+- [x] Mutation baseline for `web/src/lib/factory/*` and `web/src/lib/graph/layout.ts`; kill survivors with assertions; record before/after.
+- [x] Run inspection read model: nested runs, attempts, blockers, costs, artifacts, acceptance reasons, releases (new `src/factory/run-inspection.ts`, one scoped read, bounded pages).
+- [x] Snapshot plus contiguous SSE cursor: signed cursor, duplicate/gap handling, 410 on expiry, authority recheck per batch, revocation closes the stream, bounded pages; client state machine with visible lag/disconnect.
+- [x] Package admin routes over W02's `FactoryPackageTrusts`: list, install (bind + publish), quarantine, revoke, affected-run preview; human session plus tenant administrator; audited queued result.
+- [x] Grant administration panel over the existing grant routes (admin scope plus administrator role).
+- [x] Administrator purge request: human administrator session, preconditions evaluated, audit that will be lost recorded; no destructive action (W19).
+- [x] Artifact downloads and previews: scoped short-lived ticket, `nosniff` plus attachment, escaped text, no executable SVG/HTML at the origin.
+- [x] Console UI: run inspector, live stream states, repair/replan, approvals and uncertain release (existing components), packages, grants, purge.
+- [x] JSON/YAML/SDK/editor digest parity for every construct; unknown versions read-only and exportable; save/publish race; repeated idempotency keys.
+- [x] Two installations with overlapping IDs (service level, two isolated databases; not two HTTP servers): users, restricted API keys, service principals over every list/search/read/download/event/mutation path; expiry, revocation, transactional audit failure; read-sharing grants expose only named bytes.
+- [x] `factory-services` lane: Playwright config, real-stack boot, specs through the real authenticated application; register lanes, route manifest, evidence surfaces.
+- [x] Inspect real captures at 1440 and 390 pixels, long labels, large maps, light/dark, keyboard-only, reduced motion; fix defects and console errors.
+- [x] Final sweep per common.md plus web check, web Vitest pool, factory Playwright lanes, mutation after; report.
+
+Review (W14): the console is proven through the real authenticated application. The seven
+`factory-services` journeys pass on the real stack at `74ce48d06`: trust grant, bind and trust a
+built guest, publish, a save racing a publish plus idempotency replay, a run started from the
+version list and watched to its terminal status, the scoped API, and a quarantine preview plus
+purge request. Real captures found four defects that mocks had hidden, and all four are fixed:
+a stale "queued" row next to a failed run, a "not yet" acceptance note on a finished run,
+cramped 390 px run cards, and a spaced-out purge count. Mutation on the console library rose
+from 79.74% to 93.30%. The lane needs the Temporal CLI dev server, because the Java test server
+cannot report task-queue pollers; CI now asks for `FACTORY_TEMPORAL_CLI`. Open: package
+preparation has no product route, quarantine fences nothing live (W02), purge preconditions
+exclude W15/W16, and two installations are proven at the service level only. Gate file:
+`tasks/factory/w14-GATES.md`.
