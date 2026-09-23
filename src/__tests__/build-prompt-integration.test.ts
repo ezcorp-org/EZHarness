@@ -172,6 +172,16 @@ describe("buildPromptInput — file mention", () => {
 
 // ─── 4. Attachment-only ───────────────────────────────────────────
 
+test("attachment prompt refuses a missing workspace target before reading bytes", async () => {
+  const attachment: StagedAttachment = {
+    id: "unbound-attachment", filename: "private.png", mimeType: "image/png",
+    storagePath: "/host/private.png",
+  };
+  await expect(buildPromptInputWithTarget("describe this", {
+    provider: "anthropic", model: "claude-sonnet-4-5", attachments: [attachment],
+  })).rejects.toThrow("Attachment prompt construction requires an explicit workspace target");
+});
+
 describe("buildPromptInput — image attachment", () => {
   test("image attachment on a vision model produces a native ImageContent", async () => {
     mockExtensionMimes = [];
