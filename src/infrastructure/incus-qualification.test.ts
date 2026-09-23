@@ -173,3 +173,30 @@ describe("host Incus qualification store", () => {
     }
   });
 });
+
+test("default qualification path reads the host image receipt before any probe", async () => {
+  const queries: string[] = [];
+  const emptyDb = { execute: async (query: { toQuery?: () => { sql: string } }) => {
+    queries.push(String(query));
+    return [];
+  } };
+  let liveCaseCalls = 0;
+  const defaults = new IncusQualificationStore({ db: emptyDb,
+    activeRelease: async () => snapshot, connectionRevision: async () => revision,
+    resolveConnection: async () => connection(),
+    runLiveCases: async () => { liveCaseCalls++; return cases(); }, now: () => now });
+  await expect(defaults.recordVerified(scope)).rejects.toThrow("image is unpublished");
+  expect(queries).toHaveLength(1);
+  expect(liveCaseCalls).toBe(0);
+});
+
+test("default host probe requires a persisted host connection before live cases", async () => {
+  const unavailableDb = { execute: async () => [] };
+  let liveCaseCalls = 0;
+  const defaults = new IncusQualificationStore({ db: unavailableDb,
+    activeRelease: async () => snapshot, connectionRevision: async () => revision,
+    resolveConnection: async () => connection(), imageReceipt: async () => imageReceipt(),
+    runLiveCases: async () => { liveCaseCalls++; return cases(); }, now: () => now });
+  await expect(defaults.recordVerified(scope)).rejects.toThrow();
+  expect(liveCaseCalls).toBe(0);
+});

@@ -231,3 +231,50 @@ test("provider probe requires verified setup and a failed probe does not change 
     expect(JSON.stringify(success)).not.toContain("secret-private-key-canary");
   } finally { await value.close(); }
 }, 30_000);
+
+test("client identity rejects unsafe connection identifiers before invoking OpenSSL", async () => {
+  for (const id of ["", "../escape", "has space", "x".repeat(129)]) {
+    await expect(issueIncusClientIdentity(id)).rejects.toThrow("Invalid Incus connection identity");
+  }
+});
+
+test("client identity reports unavailable and failed OpenSSL without exposing command output", async () => {
+  const originalPath = process.env.PATH;
+  const directory = await mkdtemp(join(tmpdir(), "incus-openssl-failure-"));
+  try {
+    process.env.PATH = directory;
+    await expect(issueIncusClientIdentity("missing-openssl"))
+      .rejects.toThrow("OpenSSL is required on the EZHarness engine host");
+    await Bun.write(join(directory, "openssl"), "#!/bin/sh\nexit 2\n");
+    const { chmod } = await import("node:fs/promises");
+    await chmod(join(directory, "openssl"), 0o755);
+    await expect(issueIncusClientIdentity("failed-openssl"))
+      .rejects.toThrow("Incus client identity generation failed");
+  } finally {
+    process.env.PATH = originalPath;
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("client identity rejects a certificate paired with another private key", async () => {
+  const originalPath = process.env.PATH;
+  const directory = await mkdtemp(join(tmpdir(), "incus-openssl-mismatch-"));
+  const otherKey = join(directory, "other.key");
+  try {
+    const { execFileSync } = await import("node:child_process");
+    execFileSync("/run/current-system/sw/bin/openssl", ["genpkey", "-algorithm", "EC", "-pkeyopt",
+      "ec_paramgen_curve:P-256", "-out", otherKey]);
+    await Bun.write(join(directory, "openssl"),
+      "#!/bin/sh\nkey=\nprevious=\nfor arg in \"$@\"; do\n  if [ \"$previous\" = -keyout ]; then key=\"$arg\"; fi\n  previous=\"$arg\"\ndone\n/run/current-system/sw/bin/openssl \"$@\" || exit 1\n/run/current-system/sw/bin/cp \"$INCUS_MISMATCH_KEY\" \"$key\"\n");
+    const { chmod } = await import("node:fs/promises");
+    await chmod(join(directory, "openssl"), 0o755);
+    process.env.INCUS_MISMATCH_KEY = otherKey;
+    process.env.PATH = directory;
+    await expect(issueIncusClientIdentity("mismatched-certificate"))
+      .rejects.toThrow("Incus client certificate and key do not match");
+  } finally {
+    process.env.PATH = originalPath;
+    delete process.env.INCUS_MISMATCH_KEY;
+    await rm(directory, { recursive: true, force: true });
+  }
+});

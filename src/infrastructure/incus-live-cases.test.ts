@@ -110,3 +110,11 @@ test("the runner emits cases only after ordered host observations and cleanup", 
   expect(result.cases.every(item => item.status === "passed")).toBe(true);
   expect(value.destroyed).toHaveLength(2);
 });
+
+test("persistent workspace bytes must survive the controller restart", async () => {
+  const value = witness({ readFile: async () => new TextEncoder().encode("wrong retained marker") });
+  const persistent = { ...preset, storage: { ...preset.storage, workspace: "persistent" as const } };
+  await expect(createIncusLiveCaseRunner({ witness: value.value })(scope, persistent))
+    .rejects.toThrow("retained workspace changed after restart");
+  expect(value.destroyed).toHaveLength(2);
+});
