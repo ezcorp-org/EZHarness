@@ -10,21 +10,22 @@ import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-c
 import { digestObject } from "../v4/blobs";
 import { sandboxPresetQualificationReleaseDigest } from "../v4/sandbox-preset-qualification";
 import { sandboxExtensionManifest } from "../../__tests__/helpers/sandbox-preset";
+import { incusManifest } from "../../../extensions/incus-sandbox/manifest";
+import type { PreparedIncusAction, PreparedIncusProbe, ProviderRpcBroker } from "../../infrastructure/provider-rpc-broker";
 
 async function qualifySandboxRuntime(snapshot: ActiveExtensionRelease): Promise<void> {
   const release = snapshot.release;
   delete release.verification;
   const { id: _baseId, createdAt: _baseCreatedAt, releaseDigest: _baseDigest, ...releaseInput } = release;
   release.releaseDigest = digestObject(releaseInput);
-  const preset = release.manifest.sandboxProviders![0]!.presets[0]!;
   const verification: CandidateVerificationReport = {
     catalog: "verified", smoke: "not_declared", capabilities: [],
-    sandboxPresetQualifications: [{
-      producer: "host", providerId: "incus", presetId: preset.id, profile: preset.profile,
+    sandboxPresetQualifications: await Promise.all(release.manifest.sandboxProviders![0]!.presets.map(async preset => ({
+      producer: "host" as const, providerId: "incus", presetId: preset.id, profile: preset.profile,
       releaseDigest: sandboxPresetQualificationReleaseDigest(release), presetDigest: await sandboxPresetDigest(preset),
       verifiedAt: new Date(Date.now() - 60_000).toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString(),
-      cases: CANDIDATE_SANDBOX_QUALIFICATION_CASES.map(caseId => ({ caseId, status: "passed" })),
-    }],
+      cases: CANDIDATE_SANDBOX_QUALIFICATION_CASES.map(caseId => ({ caseId, status: "passed" as const })),
+    }))),
   };
   release.verification = verification;
   const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...storedInput } = release;
@@ -50,6 +51,56 @@ test("runtime resolution denies unqualified sandbox releases before worker start
     process.kill();
     releaseCallProvenance(token);
   }
+});
+
+test("host-owned Incus calls reject cancellation and missing broker before provider work", async () => {
+  const fixture = harness();
+  const input = { providerId: "incus", connectionId: "connection" };
+  try {
+    await expect(fixture.process.callIncusProbe(input, "connection", { signal: AbortSignal.abort() })).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(fixture.process.callIncusSandboxOperation("binding", "lifecycle.inspect", input, { signal: AbortSignal.abort() })).rejects.toMatchObject({ code: "CANCELLED" });
+    await expect(fixture.process.callIncusProbe(input, "connection")).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
+    await expect(fixture.process.callIncusSandboxOperation("binding", "lifecycle.inspect", input)).rejects.toMatchObject({ code: "CAPABILITY_UNAVAILABLE" });
+    expect(fixture.starts).toHaveLength(0);
+  } finally { fixture.cleanup(); }
+});
+
+test("host-owned Incus calls bind broker preparation to the active release and reject a stale scope", async () => {
+  const fixture = releaseRuntimeFixture("incus-installation", incusManifest);
+  await qualifySandboxRuntime(fixture.snapshot);
+  const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding" };
+  const prepared: string[] = [];
+  const staleScope = {
+    installationId: fixture.snapshot.installation.id,
+    releaseId: "retired-release",
+    releaseDigest: fixture.snapshot.release.releaseDigest,
+    generation: fixture.snapshot.installation.generation,
+  };
+  const broker = {
+    prepare: async (snapshot: ActiveExtensionRelease, connectionId: string): Promise<PreparedIncusProbe> => {
+      expect(snapshot).toBe(fixture.snapshot);
+      expect(connectionId).toBe(input.connectionId);
+      prepared.push("probe");
+      return staleScope as PreparedIncusProbe;
+    },
+    prepareAction: async (snapshot: ActiveExtensionRelease, bindingId: string, operation: string, actionInput: unknown): Promise<PreparedIncusAction> => {
+      expect(snapshot).toBe(fixture.snapshot);
+      expect([bindingId, operation, actionInput]).toEqual(["binding", "lifecycle.inspect", input]);
+      prepared.push("action");
+      return { ...staleScope, method: "incus/lifecycle/inspect" } as PreparedIncusAction;
+    },
+  } as ProviderRpcBroker;
+  const process = new ReleaseProcess(fixture.snapshot.installation.id, {
+    runner: async () => fixture.runner,
+    resolve: async () => fixture.snapshot,
+    providerRpcBroker: broker,
+  });
+  try {
+    await expect(process.callIncusProbe(input, input.connectionId)).rejects.toMatchObject({ code: "RELEASE_CHANGED" });
+    await expect(process.callIncusSandboxOperation("binding", "lifecycle.inspect", input)).rejects.toMatchObject({ code: "RELEASE_CHANGED" });
+    expect(prepared).toEqual(["probe", "action"]);
+    expect(fixture.calls).toHaveLength(0);
+  } finally { process.kill(); }
 });
 
 test("reverse dispatch reinstalls the captured host guard instead of transport ambient context", async () => {
