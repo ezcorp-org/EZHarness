@@ -903,11 +903,14 @@ jobs:
           '
       - name: Sandbox suites
         run: |
-          bun test \
+          set -e
+          for suite in \
             ./src/__tests__/sandbox-capability-probe.test.ts \
             ./src/__tests__/sandbox-landlock-ffi.test.ts \
             ./src/__tests__/sandbox-landlock-shim-integration.test.ts \
-            ./src/__tests__/sandbox-landlock-apply-coverage.test.ts
+            ./src/__tests__/sandbox-landlock-apply-coverage.test.ts; do
+            bun test --timeout 30000 "$suite"
+          done
 
   # The pass/fail files that the coverage shards do NOT run: the *integration*
   # variants excluded from the coverage set, plus route-contract.test.ts (the

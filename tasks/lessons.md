@@ -9,6 +9,8 @@
 
 ## Validation discipline
 
+- A new CI job that selects several backend Bun test files must run each file in a separate Bun process. The root pool requires process isolation because cross-file mocks can contaminate or deadlock a combined run; an explicit multi-file command is not an exception.
+
 - Select gpt-5.6-sol explicitly with fresh bounded briefs when the user requests a Sol team. Use distinct ownership and worktrees.
 - Match each new team to the model requested for that task; a previous Sol request does not override a later Terra request.
 - Read exact lifecycle and CI commands before selecting tests. A passing subset does not prove a full lane.

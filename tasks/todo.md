@@ -903,8 +903,13 @@ integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git d
 - [x] Read PR scope, history, review state, and current CI.
 - [x] Review the arm64 job and sandbox suite for real coverage and gate safety.
 - [x] Reproduce the PR-owned gate gap; make and verify a focused repair.
+- [x] Run each arm64 sandbox file in its own Bun process; verify the exact job lane.
 - [ ] Recheck current CI, document findings, and hand off merge status.
 
 Plan review: PR #314 is stacked on #309. Review its final CI commit against its parent and keep #309's product changes with their own review. The arm64 job passed on GitHub. Inspect the three failed jobs to separate runner or base failures from PR-owned failures before changing code.
 
 Review: The live GitHub arm64 job passed 48 tests, with one expected conditional skip. Its deny and allow child containment tests both executed. The applied branch protection requires `Backend tests`, but does not require `Sandbox (arm64)` and no required check depended on it. Add that result to the required backend aggregator so a regression blocks merge. The three failed checks on the original run came from a production candidate runner's `actions/checkout` TLS CA error and its dependent jobs; no PR source executed there. Actionlint and `git diff --check` pass after the aggregator edit. PR #309 remains open and needs its own review; PR #314 needs CODEOWNERS approval.
+
+Follow-up plan: The job's one `bun test` invocation with four files violates the root testing rule and can share `mock.module()` state. Keep its Landlock guard, run the same four files one at a time with Bun's 30-second per-test budget, check the exact loop, and commit locally. Hold the push until #309 merges and the base is updated.
+
+Follow-up review: The workflow now loops over the same four files, runs each in its own `bun test --timeout 30000` process, and uses `set -e` for fail-fast. Extracting and running the exact YAML step on the Linux host passed 33 + 11 + 3 + 1 tests with one expected skip and zero failures. Actionlint and `git diff --check` passed. This local run is on x86_64; the previous hosted arm64 job passed before the process-isolation edit. Commit locally and hold push as requested.
