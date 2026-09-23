@@ -1350,3 +1350,14 @@ The real server has Incus 6.0.6 and no image in its default project. `docs/valid
 ### Review
 
 Pinned Bun 1.3.14: focused test 1 pass, 0 fail; `bun run typecheck` and `bun run lint` pass. The fixture injects a method caller and guest invoke because the default path uses process-global DB and release runtime. It does not exercise live Incus or the full ReleaseProcess/ProviderRpcBroker/HTTP transport chain.
+
+## Incus milestone complexity gate — 2026-09-23
+
+- [x] Refactor the 20 touched functions reported by hosted CRAP on `5a42ae8a6` below the existing maximum score of 30; preserve behavior and the current coverage thresholds.
+- [x] Keep each refactor in an isolated Sol worktree with disjoint file ownership; add focused behavior tests only where extraction changes an observable boundary.
+- [ ] Run the touched-function CRAP check against measured coverage, patch and new-file coverage, focused tests, typecheck, lint, build, and the full backend suite.
+- [ ] Push one integrated head and require hosted CI to pass before closing the code milestone.
+
+Plan review: The hosted line-coverage, new-file, and patch gates passed on `5a42ae8a6`; the next gate reported 20 changed functions above score 30 in 15 files. The violations are fully covered or nearly so, so splitting large decision blocks is the direct fix. The Sol worktrees own extension contracts and runner, infrastructure control and transport, runtime workspace and admission, and route or agent-effect flows respectively. The root agent will integrate and verify. Do not weaken the maximum, hide touched files, or replace behavior tests with metric-only assertions.
+
+Review in progress: four isolated Sol worktrees supplied the refactors and focused receipts, integrated through `b23ef4a86`. The combined measured preview passes the unchanged CRAP maximum (no touched function above 30), all 1,721 enforced-file thresholds, all 54 new-source thresholds, and patch coverage for 103 changed executable files. Additional behavior tests cover the spawn rate-limit and autonomous-cycle branches and release provenance guard ordering. Combined typecheck, lint, build, and gate integrity pass. The full backend pool and hosted CI on the integrated head remain open; the preview combines prior hosted evidence with current-source focused LCOV and is not a hosted verdict. Live server qualification remains a separate release gate.
