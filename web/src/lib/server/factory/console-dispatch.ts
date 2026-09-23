@@ -1,16 +1,12 @@
 /**
  * The live console's request kinds (C09, W14), answered through the shared
  * factory route boundary: `handleFactoryApi` authenticates, validates, and
- * encodes; this dispatcher runs the console service; the error families below
- * give each console refusal its status. Registered once, from the server hooks.
+ * encodes; this dispatcher runs the console service; the route kit's error
+ * table gives each console refusal its status. Registered once, from the server hooks.
  */
 import type { FactoryApplication } from "$server/factory/application";
-import { FactoryArtifactAccessError } from "$server/factory/artifact-access";
-import { FactoryArtifactError } from "$server/factory/artifacts";
-import { FactoryConsoleError } from "$server/factory/console-tokens";
 import type { FactoryPrincipal } from "$server/factory/grants";
-import { FactoryPackagePreparationError } from "$server/factory/package-preparation";
-import { answer, registerFactoryDispatcher, registerFactoryErrorFamily, type ErrorFamily } from "./route-kit";
+import { registerFactoryDispatcher } from "./route-kit";
 import { FACTORY_API_RESPONSE_SCHEMA_VERSION as VERSION, type FactoryApiRequest, type FactoryApiResponse } from "@ezcorp/factory-sdk";
 
 /** The download path a ticket is valid for; the ticket itself binds the caller and the bytes. */
@@ -54,54 +50,11 @@ export async function dispatchFactoryConsoleRequest(application: FactoryApplicat
   }
 }
 
-const ARTIFACT_ANSWERS = [
-  // An unshared or mismatched read is "unavailable" in the service and a plain 404 here, so it never tells a share apart from nothing.
-  answer(404, "Artifact not found.", "factory_artifact_not_found", "factory_artifact_grant_not_found", "factory_artifact_unavailable"),
-  answer(403, "A human session is required to share an artifact.", "factory_human_required"),
-  answer(409, "A different share already uses this identity.", "factory_artifact_conflict", "factory_artifact_grant_conflict"),
-  answer(400, "The artifact request is invalid.", "factory_artifact_digest_invalid", "factory_artifact_identity_invalid", "factory_artifact_reference_invalid", "factory_artifact_size_invalid", "factory_artifact_json_invalid", "factory_artifact_grant_invalid"),
-];
-
-/** Every console refusal, by class. An unnamed code is a retryable storage failure, or rethrown. */
-export const FACTORY_CONSOLE_ERROR_FAMILIES: readonly ErrorFamily[] = [
-  {
-    type: FactoryConsoleError,
-    storage: null,
-    answers: [
-      answer(400, "The event cursor is not valid for this run.", "factory_cursor_invalid"),
-      answer(410, "The event cursor expired. Take a new snapshot.", "factory_cursor_expired"),
-      answer(400, "The page request is invalid.", "factory_page_invalid"),
-      answer(404, "Runner package not found.", "factory_package_not_found"),
-      answer(403, "A tenant administrator is required.", "factory_package_admin_required"),
-      answer(400, "The confirmation must name this tenant exactly.", "factory_purge_confirmation"),
-      answer(404, "Artifact not found.", "factory_artifact_not_found"),
-      answer(403, "The artifact ticket is not valid for this request.", "factory_ticket_invalid"),
-      answer(410, "The artifact ticket expired.", "factory_ticket_expired"),
-      answer(400, "Name a published version or a validator lock digest, not both.", "factory_material_query_invalid"),
-      answer(404, "No validator material is registered for this version or lock.", "factory_material_not_found"),
-    ],
-  },
-  {
-    type: FactoryPackagePreparationError,
-    storage: "Package storage is unavailable.",
-    answers: [
-      answer(412, "The package trust revision is stale or the transition is not allowed.", "factory_package_trust_conflict"),
-      answer(403, "A human tenant administrator session is required.", "factory_package_human_required"),
-      answer(400, "The package request is invalid.", "factory_package_trust_invalid", "factory_package_reference_invalid", "factory_package_manifest_name_invalid"),
-      answer(404, "The installed package release was not found.", "factory_package_release_unavailable", "factory_package_binding_missing"),
-      answer(409, "A different package is already bound to this reference.", "factory_package_binding_conflict"),
-    ],
-  },
-  { type: FactoryArtifactError, storage: "Artifact storage is unavailable.", answers: ARTIFACT_ANSWERS },
-  { type: FactoryArtifactAccessError, storage: "Artifact storage is unavailable.", answers: ARTIFACT_ANSWERS },
-];
-
 let registered = false;
 
-/** Registers the console dispatcher and its error families once per process. */
+/** Registers the console dispatcher once per process. Its refusals map through the route kit's one error table. */
 export function registerFactoryConsole(): void {
   if (registered) return;
   registered = true;
   registerFactoryDispatcher(dispatchFactoryConsoleRequest);
-  for (const family of FACTORY_CONSOLE_ERROR_FAMILIES) registerFactoryErrorFamily(family);
 }

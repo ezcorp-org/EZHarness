@@ -11,14 +11,11 @@ import type { FactoryReleaseApplication } from "$server/factory/release-applicat
 import { signFactoryServiceToken } from "$server/auth/factory-service-token";
 import { getJwtSecret } from "$server/auth/jwt";
 import { readBoundedJson } from "$lib/server/security/bounded-json";
-import { FactoryTrustedValidatorError } from "$server/factory/validator-materials";
 import {
-  answer,
   dispatchRegisteredFactoryRequest,
   factoryErrorResponse,
   factoryResponse,
   mappedFactoryError,
-  registerFactoryErrorFamily,
   resolveFactoryPrincipal,
   type FactoryRouteScope,
 } from "$lib/server/factory/route-kit";
@@ -81,20 +78,6 @@ const MUTATION_KINDS = new Set([
   "artifact.share",
   "artifact.unshare",
 ]);
-
-// A release contract names a validator lock; a lock without registered,
-// published, protected material is a typed refusal, not an opaque 500 (W09d O4).
-registerFactoryErrorFamily({
-  type: FactoryTrustedValidatorError,
-  storage: "Trusted validator storage is unavailable.",
-  answers: [
-    answer(422, "The validator lock does not name registered, published, protected material.", "factory_validator_material_missing", "factory_validator_material_unpublished", "factory_validator_material_unprotected", "factory_validator_contract_untrusted"),
-    answer(412, "The validator material is stale.", "factory_validator_material_stale"),
-    answer(409, "Different validator material already uses this identity.", "factory_validator_material_conflict"),
-    answer(403, "Trusted validator authority is required.", "factory_validator_scope"),
-    answer(400, "The validator material request is invalid.", "factory_validator_invalid", "factory_validator_material_invalid"),
-  ],
-});
 
 export function readFactoryJson(request: Request): Promise<unknown> {
   return readBoundedJson(request, FACTORY_LIMITS.maxDefinitionBytes + 65_536);

@@ -71,7 +71,18 @@ describe("the factory error family extension point", () => {
     remove();
   });
 
-  test("a class a built-in family owns cannot be registered twice", () => {
-    expect(() => registerFactoryErrorFamily({ type: FactoryGrantError, storage: null, answers: [] })).toThrow("A built-in factory error family already owns this class.");
+  test("a family that repeats, extends, or is extended by another family's class is refused by name", () => {
+    expect(() => registerFactoryErrorFamily({ type: FactoryGrantError, storage: null, answers: [] })).toThrow("The factory error family for FactoryGrantError overlaps the one for FactoryGrantError.");
+    class GrantSubclassError extends FactoryGrantError {}
+    expect(() => registerFactoryErrorFamily({ type: GrantSubclassError, storage: null, answers: [] })).toThrow("The factory error family for GrantSubclassError overlaps the one for FactoryGrantError.");
+    const remove = registerFactoryErrorFamily({ type: ConsoleProbeError, storage: null, answers: [] });
+    expect(() => registerFactoryErrorFamily({ type: ConsoleProbeError, storage: null, answers: [] })).toThrow("The factory error family for ConsoleProbeError overlaps the one for ConsoleProbeError.");
+    class ProbeSubclassError extends ConsoleProbeError {}
+    expect(() => registerFactoryErrorFamily({ type: ProbeSubclassError, storage: null, answers: [] })).toThrow("overlaps the one for ConsoleProbeError");
+    remove();
+    // A superclass of a registered family's class is refused too.
+    const removeSub = registerFactoryErrorFamily({ type: ProbeSubclassError, storage: null, answers: [] });
+    expect(() => registerFactoryErrorFamily({ type: ConsoleProbeError, storage: null, answers: [] })).toThrow("The factory error family for ConsoleProbeError overlaps the one for ProbeSubclassError.");
+    removeSub();
   });
 });
