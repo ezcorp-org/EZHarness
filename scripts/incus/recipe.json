@@ -98,7 +98,8 @@
       "eth0": {
         "type": "nic",
         "name": "eth0",
-        "network": "ezharness0"
+        "network": "ezharness0",
+        "security.port_isolation": "true"
       },
       "root": {
         "type": "disk",

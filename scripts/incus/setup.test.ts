@@ -7,7 +7,7 @@ import { INCUS_PROVIDER_ID, incusManifest } from "../../extensions/incus-sandbox
 import checkedInRecipe from "./recipe.json";
 import imageBuildTemplate from "./recipe.template.json";
 import { digest, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
-import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult } from "./apply";
+import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult, inspectStep } from "./apply";
 import { inspectIncus, verifyKnownHostPin } from "./inspect";
 import { createImageBootstrapPlan, createSetupPlan, validateRecipe, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
@@ -32,7 +32,7 @@ function recipe(overrides: Partial<IncusSetupRecipe> = {}): IncusSetupRecipe {
       "limits.containers": "4", "limits.cpu": "8", "limits.disk.pool.pool": "80GiB", "limits.memory": "32GiB", "limits.networks": "0", "limits.processes": "4096", "limits.virtual-machines": "0",
       restricted: "true", "restricted.containers.nesting": "allow", "restricted.devices.nic": "managed", "restricted.images.servers": "images.linuxcontainers.org", "restricted.networks.access": "bridge", "restricted.storage-pools.access": "pool",
     } },
-    profile: { name: "compose", description: "Bounded", config: { "limits.cpu": "2", "limits.memory": "8GiB", "limits.memory.enforce": "hard", "limits.processes": "1024", "security.idmap.isolated": "true", "security.nesting": "true", "security.privileged": "false" }, devices: { eth0: { type: "nic", name: "eth0", network: "bridge" }, root: { type: "disk", path: "/", pool: "pool", size: "16GiB" } } },
+    profile: { name: "compose", description: "Bounded", config: { "limits.cpu": "2", "limits.memory": "8GiB", "limits.memory.enforce": "hard", "limits.processes": "1024", "security.idmap.isolated": "true", "security.nesting": "true", "security.privileged": "false" }, devices: { eth0: { type: "nic", name: "eth0", network: "bridge", "security.port_isolation": "true" }, root: { type: "disk", path: "/", pool: "pool", size: "16GiB" } } },
     server: { httpsAddress: "100.81.181.39:8443" },
     providerClient: { name: "engine", certificateFingerprint: "b".repeat(64), certificatePem: pem, projects: ["project"], restricted: true },
     ...overrides,
@@ -603,6 +603,31 @@ describe("Incus setup planning", () => {
     expect(createSetupPlan({ ...withClient, expected: { ...reviewed.expected, incusVersion: "6.1.0" } }, current, presets).blockedReasons)
       .toContain("incus_version_mismatch");
     expect(createSetupPlan(imageBuildTemplate as IncusSetupRecipe, current, presets).blockedReasons).toContain("guest_image_artifact_unpinned");
+  });
+
+  test("every feature NIC requires isolated bridge ports in recipe, plan, and profile readback", async () => {
+    const reviewed = checkedInRecipe as IncusSetupRecipe;
+    const nic = reviewed.profile.devices.eth0!;
+    expect(nic["security.port_isolation"]).toBe("true");
+    expect((imageBuildTemplate as IncusSetupRecipe).profile.devices.eth0!["security.port_isolation"]).toBe("true");
+    const changedNic = (value: Record<string, string>) => ({ ...reviewed, profile: { ...reviewed.profile,
+      devices: { ...reviewed.profile.devices, eth0: value } } });
+    const { "security.port_isolation": _isolation, ...withoutIsolation } = nic;
+    expect(() => validateRecipe(changedNic(withoutIsolation))).toThrow("eth0 device must define every supported setting");
+    expect(() => validateRecipe(changedNic({ ...nic, "security.port_isolation": "false" }))).toThrow("port isolation");
+    const approvedProfile = { ...reviewed.profile, project: reviewed.project.name };
+    const current = bootstrapInventory({ profiles: [approvedProfile] });
+    expect(createSetupPlan(reviewed, current).blockedReasons).not.toContain("profile_drift");
+    for (const weakNic of [withoutIsolation, { ...nic, "security.port_isolation": "false" }]) {
+      const drifted = { ...approvedProfile, devices: { ...approvedProfile.devices, eth0: weakNic } };
+      expect(createSetupPlan(reviewed, bootstrapInventory({ profiles: [drifted] })).blockedReasons).toContain("profile_drift");
+    }
+    const deviceStep = createSetupPlan(reviewed, bootstrapInventory()).steps.find(step => step.id === "profile-device-eth0")!;
+    expect(deviceStep.apply.argv).toContain("security.port_isolation=true");
+    expect(deviceStep.inspect.argv).toContain("security.port_isolation");
+    expect(await inspectStep(deviceStep, async () => result(0, "true\n"))).toBe("match");
+    expect(await inspectStep(deviceStep, async () => result(0, "false\n"))).toBe("drift");
+    expect(await inspectStep(deviceStep, async () => result(0, ""))).toBe("absent");
   });
 
   test("is deterministic for reordered equivalent inventory and changes on meaningful input", () => {

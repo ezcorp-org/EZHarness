@@ -147,9 +147,11 @@ export function validateRecipe(recipe: IncusSetupRecipe): void {
   if (Object.keys(recipe.profile.devices).length !== 2) throw new Error("profile must define eth0 and root only");
   const eth0 = recipe.profile.devices.eth0; const root = recipe.profile.devices.root;
   assertRecord(eth0, "eth0 device"); assertRecord(root, "root device");
-  assertExactStringMap(eth0, ["type", "name", "network"], "eth0 device");
+  assertExactStringMap(eth0, ["type", "name", "network", "security.port_isolation"], "eth0 device");
   assertExactStringMap(root, ["type", "path", "pool", "size"], "root device");
-  if (canonicalJson(eth0) !== canonicalJson({ type: "nic", name: "eth0", network: recipe.network.name })) throw new Error("eth0 must use the managed setup network");
+  if (canonicalJson(eth0) !== canonicalJson({ type: "nic", name: "eth0", network: recipe.network.name, "security.port_isolation": "true" })) {
+    throw new Error("eth0 must use the managed setup network with port isolation");
+  }
   if (canonicalJson(root) !== canonicalJson({ type: "disk", path: "/", pool: recipe.storage.name, size: recipe.storage.defaultVolumeSize })) throw new Error("root must use the bounded setup storage pool");
   const cidr = recipe.network.config["ipv4.address"];
   if (!cidr || !cidrRange(cidr) || recipe.network.config["ipv4.nat"] !== "true" || recipe.network.config["ipv6.address"] !== "none" || recipe.network.config["dns.mode"] !== "managed") throw new Error("network must pin an IPv4 CIDR, NAT, managed DNS and disabled IPv6");
@@ -257,7 +259,7 @@ export function createSetupPlan(recipe: IncusSetupRecipe, inventory: IncusInvent
     step("restricted-project", "project", `Create restricted project ${recipe.project.name}`, ["incus", "query", `/1.0/projects/${recipe.project.name}`], desiredProject, ["incus", "project", "create", recipe.project.name, `--description=${recipe.project.description}`, ...configArgs(recipe.project.config)]),
     step("compose-profile", "profile", `Create bounded profile ${recipe.profile.name}`, ["incus", "query", `/1.0/profiles/${recipe.profile.name}?project=${recipe.project.name}`], { name: recipe.profile.name }, ["incus", "profile", "create", recipe.profile.name, "--description", recipe.profile.description, "--project", recipe.project.name]),
     ...sortedEntries(recipe.profile.config).map(([key, value]) => step(`profile-config-${key.replaceAll(".", "-")}`, "profile", `Set ${key} on ${recipe.profile.name}`, ["incus", "profile", "get", recipe.profile.name, key, "--project", recipe.project.name], value, ["incus", "profile", "set", recipe.profile.name, `${key}=${value}`, "--project", recipe.project.name], undefined, true)),
-    ...Object.entries(recipe.profile.devices).sort(([left], [right]) => left.localeCompare(right)).map(([deviceName, device]) => step(`profile-device-${deviceName}`, "profile", `Add ${deviceName} to ${recipe.profile.name}`, ["incus", "profile", "device", "get", recipe.profile.name, deviceName, "type", "--project", recipe.project.name], device.type, ["incus", "profile", "device", "add", recipe.profile.name, deviceName, device.type!, ...keyValueArgs(Object.fromEntries(Object.entries(device).filter(([key]) => key !== "type"))), "--project", recipe.project.name])),
+    ...Object.entries(recipe.profile.devices).sort(([left], [right]) => left.localeCompare(right)).map(([deviceName, device]) => step(`profile-device-${deviceName}`, "profile", `Add ${deviceName} to ${recipe.profile.name}`, ["incus", "profile", "device", "get", recipe.profile.name, deviceName, deviceName === "eth0" ? "security.port_isolation" : "type", "--project", recipe.project.name], deviceName === "eth0" ? "true" : device.type, ["incus", "profile", "device", "add", recipe.profile.name, deviceName, device.type!, ...keyValueArgs(Object.fromEntries(Object.entries(device).filter(([key]) => key !== "type"))), "--project", recipe.project.name], undefined, deviceName === "eth0")),
     step("https-listener", "server", `Bind Incus HTTPS to ${recipe.server.httpsAddress}`, ["incus", "config", "get", "core.https_address"], recipe.server.httpsAddress, ["incus", "config", "set", `core.https_address=${recipe.server.httpsAddress}`], undefined, true),
   ];
   if (!recipe.providerClient) blocked.push("provider_client_certificate_missing");

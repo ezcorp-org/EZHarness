@@ -137,6 +137,7 @@ test("a saved review binds the approved release and never exposes the private ke
     const setup = await value.service.plan(value.snapshot.installation.id, "admin");
     expect(setup.state).toBe("planned");
     expect(setup.plan.status).toBe("ready");
+    expect(setup.plan.steps.find(step => step.id === "profile-device-eth0")?.apply.argv).toContain("security.port_isolation=true");
     expect(JSON.stringify(setup)).not.toContain("secret-private-key-canary");
     expect(JSON.stringify(await value.service.latest(value.snapshot.installation.id))).not.toContain("secret-private-key-canary");
     await expect(value.service.apply(setup.id, "a".repeat(64), "admin")).rejects.toThrow("exact ready plan digest");
