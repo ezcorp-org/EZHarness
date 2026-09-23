@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { BellRing, Check, CircleAlert, CircleCheck, RefreshCw, X } from "lucide-svelte";
-	import type { FactoryReleaseNotificationResource } from "@ezcorp/factory-sdk/types";
+	import type { FactoryReleaseNotificationResource, FactoryReleaseReconciliationBody } from "@ezcorp/factory-sdk/types";
 	import { FactoryApiClient, type FactoryReleaseNotificationApi } from "./client";
 
 	let { projectId, api = new FactoryApiClient() }: { projectId: string; api?: FactoryReleaseNotificationApi } = $props();
@@ -9,7 +9,57 @@
 	let loading = $state(false);
 	let deciding = $state("");
 	let errorMessage = $state("");
+	let statusMessage = $state("");
+	let reconciling = $state<string | null>(null);
+	let reconcileForm = $state({ action: "keep_uncertain" as FactoryReleaseReconciliationBody["action"], reason: "", evidence: "{}", receipt: "" });
 	let requestVersion = 0;
+
+	/** An uncertain release shares its variant with a settled one; the kind is narrowed where it is used. */
+	type UncertainRelease = Extract<FactoryReleaseNotificationResource, { kind: "release_uncertain" | "release_settled" }>;
+	const RECONCILE_ACTIONS: readonly { readonly value: FactoryReleaseReconciliationBody["action"]; readonly label: string }[] = [
+		{ value: "keep_uncertain", label: "Keep uncertain (record what was checked)" },
+		{ value: "confirm_no_effect", label: "Confirm the provider has no effect" },
+		{ value: "attach_receipt", label: "Attach the provider receipt" },
+	];
+
+	function openReconcile(item: UncertainRelease): void {
+		reconciling = item.notificationId;
+		reconcileForm = { action: "keep_uncertain", reason: "", evidence: "{}", receipt: "" };
+		errorMessage = "";
+	}
+
+	function parseJson(text: string, label: string): unknown {
+		try { return JSON.parse(text); } catch { throw new Error(`${label} is not valid JSON.`); }
+	}
+
+	/** Records a human reconciliation at the operation's exact dispatch generation. The server checks the evidence. */
+	async function reconcile(item: UncertainRelease): Promise<void> {
+		errorMessage = "";
+		statusMessage = "";
+		let body: FactoryReleaseReconciliationBody;
+		try {
+			const receipt = reconcileForm.action === "attach_receipt" ? parseJson(reconcileForm.receipt, "The receipt") : undefined;
+			body = {
+				action: reconcileForm.action, reason: reconcileForm.reason.trim(),
+				providerEvidence: parseJson(reconcileForm.evidence, "The provider evidence") as FactoryReleaseReconciliationBody["providerEvidence"],
+				...(receipt === undefined ? {} : { receipt: receipt as FactoryReleaseReconciliationBody["receipt"] }),
+			};
+		} catch (error) {
+			errorMessage = (error as Error).message;
+			return;
+		}
+		deciding = item.operationId;
+		try {
+			const operation = await api.reconcileRelease(projectId, item.operationId, item.dispatchGeneration, body);
+			statusMessage = `Reconciliation recorded. Release ${operation.operationId} is now in the ${operation.state} state.`;
+			reconciling = null;
+			await load();
+		} catch (error) {
+			errorMessage = error instanceof Error ? error.message : "The reconciliation failed.";
+		} finally {
+			deciding = "";
+		}
+	}
 
 	$effect(() => {
 		const currentProject = projectId;
@@ -81,6 +131,7 @@
 	</header>
 
 	{#if errorMessage}<div class="inbox-error" role="alert">{errorMessage}</div>{/if}
+	{#if statusMessage}<div class="inbox-status" role="status">{statusMessage}</div>{/if}
 	{#if loading && items.length === 0}
 		<p class="empty" aria-live="polite">Checking current release authority…</p>
 	{:else if items.length === 0}
@@ -116,6 +167,22 @@
 								<button class="approve" disabled={deciding === item.approvalId} onclick={() => decideCommand(item, choice)}>{choice}</button>
 							{/each}
 						</div>
+					{:else if item.kind === "release_uncertain" && reconciling !== item.notificationId}
+						<div class="decision-actions">
+							<button class="approve" onclick={() => openReconcile(item)}>Reconcile</button>
+						</div>
+					{/if}
+					{#if item.kind === "release_uncertain" && reconciling === item.notificationId}
+						<form class="reconcile" aria-label={`Reconcile ${item.operationId}`} onsubmit={event => { event.preventDefault(); void reconcile(item); }}>
+							<label>Outcome<select bind:value={reconcileForm.action}>{#each RECONCILE_ACTIONS as option}<option value={option.value}>{option.label}</option>{/each}</select></label>
+							<label>Reason<textarea bind:value={reconcileForm.reason} rows="2" required maxlength="4096"></textarea></label>
+							<label>Provider evidence (JSON)<textarea class="json" bind:value={reconcileForm.evidence} rows="3" required></textarea></label>
+							{#if reconcileForm.action === "attach_receipt"}<label>Provider receipt (JSON)<textarea class="json" bind:value={reconcileForm.receipt} rows="3" required></textarea></label>{/if}
+							<div class="decision-actions">
+								<button type="button" class="deny" onclick={() => { reconciling = null; }}>Cancel</button>
+								<button type="submit" class="approve" disabled={deciding === item.operationId || !reconcileForm.reason.trim()}>Record reconciliation at generation {item.dispatchGeneration}</button>
+							</div>
+						</form>
 					{/if}
 				</article>
 			{/each}
@@ -134,14 +201,14 @@
 	.refresh { display: grid; width: 32px; height: 32px; place-items: center; border: 1px solid var(--color-border); border-radius: 3px; background: var(--color-surface-elevated); color: var(--color-text-secondary); }
 	.refresh:focus-visible, button:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 	.refresh:disabled, button:disabled { opacity: .5; }
-	.items { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; padding: 0 28px 14px; }
+	.items { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; gap: 8px; padding: 0 28px 14px; }
 	article { display: grid; min-width: 0; grid-template-columns: auto minmax(0, 1fr); gap: 10px; border: 1px solid var(--color-border); border-left: 3px solid var(--color-accent); border-radius: 3px; background: var(--color-surface-elevated); padding: 11px; }
 	article.uncertain { border-left-color: var(--color-amber-500); }
 	article.settled { border-left-color: var(--color-green-500); }
 	.kind-icon { color: var(--color-accent); }
 	.uncertain .kind-icon { color: var(--color-amber-600); }
 	.settled .kind-icon { color: var(--color-green-600); }
-	.copy { display: grid; min-width: 0; gap: 3px; }
+	.copy { display: grid; min-width: 0; align-content: start; gap: 3px; }
 	.copy strong { font-size: 12px; }
 	.copy code { overflow: hidden; color: var(--color-text-muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 	.copy small { color: var(--color-text-secondary); font-size: 10px; line-height: 1.4; }
@@ -151,6 +218,12 @@
 	.approve { border: 1px solid var(--color-accent); background: var(--color-accent); color: white; }
 	.empty, .inbox-error { margin: 0; padding: 0 28px 14px; color: var(--color-text-muted); font-size: 11px; }
 	.inbox-error { color: var(--color-red-700); }
+	.inbox-status { margin: 0 28px 10px; color: var(--color-green-700); font-size: 12px; }
+	.reconcile { display: grid; grid-column: 1 / -1; gap: 8px; border-top: 1px solid var(--color-border); padding-top: 8px; }
+	.reconcile label { display: grid; gap: 3px; color: var(--color-text-muted); font-size: 9px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+	.reconcile select, .reconcile textarea { box-sizing: border-box; width: 100%; border: 1px solid var(--color-border-strong); border-radius: 3px; background: var(--color-surface); padding: 5px 7px; color: var(--color-text-primary); font: inherit; font-size: 11px; letter-spacing: normal; text-transform: none; }
+	.reconcile textarea.json { font-family: var(--font-mono); font-size: 10px; }
+	.reconcile .decision-actions button { white-space: normal; text-align: left; }
 	.load-more { margin: 0 28px 14px; border: 1px solid var(--color-border-strong); background: var(--color-surface-elevated); color: var(--color-text-secondary); }
 	.spin { animation: spin .8s linear infinite; }
 	@keyframes spin { to { transform: rotate(360deg); } }

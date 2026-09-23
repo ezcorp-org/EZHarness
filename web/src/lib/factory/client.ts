@@ -431,7 +431,7 @@ export type FactoryReleaseAuthorityApi = Pick<FactoryApiClient,
 	"requestReleaseApproval" | "decideReleaseApproval" | "listReleaseNotifications" | "putReleasePolicy" | "deleteReleasePolicy" | "reconcileRelease"
 >;
 
-export type FactoryReleaseNotificationApi = Pick<FactoryApiClient, "listReleaseNotifications" | "decideReleaseApproval" | "decideCommandApproval">;
+export type FactoryReleaseNotificationApi = Pick<FactoryApiClient, "listReleaseNotifications" | "decideReleaseApproval" | "decideCommandApproval" | "reconcileRelease">;
 
 export type FactoryRunControlApi = Pick<FactoryApiClient, "listRuns" | "getRun" | "controlRun">;
 
