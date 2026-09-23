@@ -116,6 +116,7 @@ export interface IncusSetupPlan {
 export interface IncusImageBootstrapPlan extends IncusSetupPlan {
   purpose: "image_bootstrap";
   baselineFingerprint: string;
+  targetPresence: { storage: boolean; network: boolean };
 }
 
 export type StepObservation = "absent" | "match" | "drift";

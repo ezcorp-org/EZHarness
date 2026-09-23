@@ -299,6 +299,10 @@ export function createImageBootstrapPlan(recipe: IncusSetupRecipe, inventory: In
     recipeDigest: setup.recipeDigest, inventoryFingerprint: setup.inventoryFingerprint,
     status: blockedReasons.length ? "blocked" as const : "ready" as const, blockedReasons, steps,
     purpose: "image_bootstrap" as const, baselineFingerprint: bootstrapBaselineFingerprint(recipe, inventory),
+    targetPresence: {
+      storage: inventory.storagePools.some(pool => pool.name === recipe.storage.name),
+      network: inventory.networks.some(network => network.name === recipe.network.name && network.project === recipe.network.project),
+    },
   };
   return { ...payload, planDigest: digest(payload) };
 }

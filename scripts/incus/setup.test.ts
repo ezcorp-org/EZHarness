@@ -115,7 +115,7 @@ describe("Incus image bootstrap", () => {
     expect(rejected.blockedReasons).toContain("bootstrap_preflight_drift");
   });
 
-  test("dry run, exact approval, readback, and replay reconcile a partial success", async () => {
+  test("dry run, exact approval, and readback stop adoption on replay", async () => {
     const reviewed = checkedInRecipe as IncusSetupRecipe;
     const approved = createImageBootstrapPlan(reviewed, bootstrapInventory());
     const present = new Map<string, unknown>();
@@ -144,8 +144,59 @@ describe("Incus image bootstrap", () => {
       routes: [...original.routes, "10.173.0.0/24"], routeBindings: [{ destination: "10.173.0.0/24", device: reviewed.network.name }],
     });
     const replay = await applyImageBootstrapPlan(approved, runner, { execute: true, approvedPlanDigest: approved.planDigest, preflightPlan: createImageBootstrapPlan(reviewed, current) });
-    expect(replay.steps.map(step => step.action)).toEqual(["skipped", "skipped"]);
+    expect(replay.state).toBe("blocked");
+    expect(replay.blockedReasons).toContain("bootstrap_target_ownership_changed");
     expect(effects).toBe(2);
+    const partial = { ...current, networks: [], routes: original.routes, routeBindings: [] };
+    const partialReplay = await applyImageBootstrapPlan(approved, runner, { execute: true, approvedPlanDigest: approved.planDigest, preflightPlan: createImageBootstrapPlan(reviewed, partial) });
+    expect(partialReplay.state).toBe("blocked");
+    expect(partialReplay.blockedReasons).toContain("bootstrap_target_ownership_changed");
+    expect(effects).toBe(2);
+  });
+
+  test("preserves reviewed existing targets and catches a target appearing after preflight", async () => {
+    const reviewed = checkedInRecipe as IncusSetupRecipe;
+    const absent = createImageBootstrapPlan(reviewed, bootstrapInventory());
+    let effects = 0;
+    const lateArrival = await applyImageBootstrapPlan(absent, async argv => {
+      if (argv.includes("create")) effects++;
+      return result(0, JSON.stringify(absent.steps[0]!.inspect.expected));
+    }, { execute: true, approvedPlanDigest: absent.planDigest, preflightPlan: absent });
+    expect(lateArrival.state).toBe("review_required");
+    expect(effects).toBe(0);
+    let storageInspections = 0;
+    const lateBridge = await applyImageBootstrapPlan(absent, async argv => {
+      const step = absent.steps.find(item => item.inspect.argv.join("\0") === argv.join("\0"));
+      if (step?.id === "storage-pool") return storageInspections++ === 0 ? result(1, "", "not found") : result(0, JSON.stringify(step.inspect.expected));
+      if (step?.id === "managed-network") return result(0, JSON.stringify(step.inspect.expected));
+      if (argv.join("\0") === absent.steps[0]!.apply.argv.join("\0")) {
+        effects++;
+        return result(0);
+      }
+      throw new Error("unexpected command");
+    }, { execute: true, approvedPlanDigest: absent.planDigest, preflightPlan: absent });
+    expect(lateBridge.state).toBe("review_required");
+    expect(effects).toBe(1);
+    effects = 0;
+
+    const original = bootstrapInventory();
+    const existing = bootstrapInventory({
+      host: { ...original.host, rootFreeBytes: original.host.rootFreeBytes - reviewed.storage.sizeBytes },
+      storagePools: [{ ...(absent.steps[0]!.inspect.expected as IncusInventory["storagePools"][number]), description: "", status: "Created" }],
+      networks: [{ ...(absent.steps[1]!.inspect.expected as IncusInventory["networks"][number]), description: "", status: "Created" }],
+      routes: [...original.routes, "10.173.0.0/24"], routeBindings: [{ destination: "10.173.0.0/24", device: reviewed.network.name }],
+    });
+    const approvedExisting = createImageBootstrapPlan(reviewed, existing);
+    expect(approvedExisting.status).toBe("ready");
+    const skipped = await applyImageBootstrapPlan(approvedExisting, async argv => {
+      if (argv.includes("create")) { effects++; throw new Error("unexpected effect"); }
+      const step = approvedExisting.steps.find(item => item.inspect.argv.join("\0") === argv.join("\0"));
+      if (!step) throw new Error("unexpected inspection");
+      return result(0, JSON.stringify(step.inspect.expected));
+    }, { execute: true, approvedPlanDigest: approvedExisting.planDigest, preflightPlan: createImageBootstrapPlan(reviewed, existing) });
+    expect(skipped.state).toBe("applied");
+    expect(skipped.steps.map(step => step.action)).toEqual(["skipped", "skipped"]);
+    expect(effects).toBe(0);
   });
 
   test("uncertain effect stops and requires fresh reconciliation", async () => {

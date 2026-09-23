@@ -39,10 +39,16 @@ export async function applyImageBootstrapPlan(plan: IncusImageBootstrapPlan, run
   if (plan.baselineFingerprint !== options.preflightPlan.baselineFingerprint || digest(plan.steps) !== digest(options.preflightPlan.steps)) {
     return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: !options.execute, state: "blocked", blockedReasons: ["bootstrap_preflight_drift"], steps: [] };
   }
-  return applyPlan(plan, runner, options);
+  if (digest(plan.targetPresence) !== digest(options.preflightPlan.targetPresence)) {
+    return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: !options.execute, state: "blocked", blockedReasons: ["bootstrap_target_ownership_changed"], steps: [] };
+  }
+  return applyPlan(plan, runner, {
+    ...options,
+    expectedBefore: { "storage-pool": plan.targetPresence.storage ? "match" : "absent", "managed-network": plan.targetPresence.network ? "match" : "absent" },
+  });
 }
 
-async function applyPlan(plan: IncusSetupPlan, runner: RemoteRunner, options: { execute?: boolean; approvedPlanDigest?: string; preflightPlan?: IncusSetupPlan } = {}): Promise<ApplyReceipt> {
+async function applyPlan(plan: IncusSetupPlan, runner: RemoteRunner, options: { execute?: boolean; approvedPlanDigest?: string; preflightPlan?: IncusSetupPlan; expectedBefore?: Record<string, StepObservation> } = {}): Promise<ApplyReceipt> {
   assertSetupPlanDigest(plan);
   if (options.preflightPlan) {
     assertSetupPlanDigest(options.preflightPlan);
@@ -54,6 +60,10 @@ async function applyPlan(plan: IncusSetupPlan, runner: RemoteRunner, options: { 
   const receipts: ApplyReceipt["steps"] = [];
   for (const step of plan.steps) {
     const before = await inspectStep(step, runner);
+    if (options.expectedBefore?.[step.id] !== undefined && before !== options.expectedBefore[step.id]) {
+      receipts.push({ id: step.id, before, action: "stopped", outcome: "review_required" });
+      return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: !options.execute, state: "review_required", steps: receipts };
+    }
     if (before === "match") { receipts.push({ id: step.id, before, action: "skipped", outcome: "succeeded" }); continue; }
     if (before === "drift") { receipts.push({ id: step.id, before, action: "stopped", outcome: "review_required" }); return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: !options.execute, state: "review_required", steps: receipts }; }
     if (!options.execute) { receipts.push({ id: step.id, before, action: "planned", outcome: "succeeded" }); continue; }

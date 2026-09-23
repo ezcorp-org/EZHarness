@@ -29,7 +29,7 @@ The 1.2.0 checked-in recipe has a closed `guestImage` declaration. Its image fin
 
 ### Image prebuild bootstrap
 
-The image builder needs the recipe pool and managed bridge before the guest image exists. This separate plan contains only those two create steps. It uses the same closed recipe and the inspected inventory. It does not remove the image or client certificate requirements from full setup. The bootstrap apply inspects the host again, checks the approved recipe, host, pin, route, and resource baseline, and reads each created resource back. A changed baseline or uncertain effect stops the run for review. Keep the approved plan file and digest for replay after an interrupted run.
+The image builder needs the recipe pool and managed bridge before the guest image exists. This separate plan contains only those two create steps. It uses the same closed recipe and the inspected inventory. It does not remove the image or client certificate requirements from full setup. The bootstrap apply inspects the host again, checks the approved recipe, host, pin, route, resource baseline, and whether each target existed when the plan was approved. It reads each created resource back. A changed baseline, newly present target, or uncertain effect stops the run for review. Keep the approved plan file and digest as an audit record after an interrupted run.
 
 Use the pinned Bun and a private connection file. Review the plan and its `planDigest` before the execute command. These commands do not run any remote write unless the final `--execute` command is run:
 
@@ -41,7 +41,7 @@ Use the pinned Bun and a private connection file. Review the plan and its `planD
 /home/dev/.bun/bin/bun scripts/incus/cli.ts bootstrap-verify --recipe scripts/incus/recipe.json --plan private-bootstrap-plan.json --connection private-connection.json
 ```
 
-If an effect has an unknown outcome, inspect and reconcile the exact pool and bridge before retrying the same approved plan. A new image input or unrelated server change needs a new inventory and reviewed bootstrap plan. The image build and full setup remain separate approval steps.
+If an effect has an unknown outcome, inspect and reconcile the exact pool and bridge. If either target appeared after approval, make a new inventory and obtain a new reviewed bootstrap plan before any further apply. A new image input or unrelated server change also needs a new inventory and reviewed plan. The image build and full setup remain separate approval steps.
 
 `inspect` first checks that the connection fingerprint matches the actual `known_hosts` entry, then reads a fixed inventory over SSH with at most four concurrent sessions. `plan` is pure over the closed recipe and that inventory. `apply` refreshes the read-only preflight and prints a dry-run receipt unless `--execute` and the exact approved plan digest are both present. `verify` reinspects the server and fails until every approved postcondition matches.
 

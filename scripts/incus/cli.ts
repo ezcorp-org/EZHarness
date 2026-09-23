@@ -78,7 +78,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
     assertSetupPlanDigest(bootstrap);
     const current = createImageBootstrapPlan(recipe, inventory);
     const failures = [
-      ...(bootstrap.purpose !== "image_bootstrap" || bootstrap.status !== "ready" || bootstrap.recipeDigest !== current.recipeDigest || bootstrap.baselineFingerprint !== current.baselineFingerprint || digest(bootstrap.steps) !== digest(current.steps) ? ["bootstrap_plan_drift"] : []),
+      ...(bootstrap.purpose !== "image_bootstrap" || bootstrap.status !== "ready" || typeof bootstrap.targetPresence?.storage !== "boolean" || typeof bootstrap.targetPresence?.network !== "boolean" || bootstrap.recipeDigest !== current.recipeDigest || bootstrap.baselineFingerprint !== current.baselineFingerprint || digest(bootstrap.steps) !== digest(current.steps) ? ["bootstrap_plan_drift"] : []),
       ...current.blockedReasons,
       ...current.steps.filter(step => step.resource === "storage" ? !inventory.storagePools.some(pool => isSubset(step.inspect.expected, pool)) : !inventory.networks.some(network => isSubset(step.inspect.expected, network))).map(step => `unverified:${step.id}`),
     ];
