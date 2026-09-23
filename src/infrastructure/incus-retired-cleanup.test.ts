@@ -25,7 +25,7 @@ async function fixture() {
   const db = drizzle(client, { schema });
   await addExtensionReleases(db);
   await addProviderConnections(db);
-  await client.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  await client.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT 'user', icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   await addSandboxController(db);
   await db.insert(schema.projects).values({ id: "project", name: "project", path: "/project" });
   const installation = { id: "installation", ownerId: "owner", scope: "global", activeReleaseId: "release",

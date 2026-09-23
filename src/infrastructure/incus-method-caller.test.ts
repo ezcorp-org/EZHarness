@@ -50,7 +50,7 @@ async function fixture(kind: "CREATE" | "START" | "STOP" | "DESTROY" = "CREATE")
   const client = new PGlite();
   databases.push(client);
   await client.waitReady;
-  await client.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  await client.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT 'user', icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   database = drizzle(client, { schema });
   await addSandboxController(database);
   await database.insert(schema.projects).values({ id: "project", name: "project", path: "/project" });

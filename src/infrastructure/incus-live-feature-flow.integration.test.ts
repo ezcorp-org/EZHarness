@@ -8,6 +8,7 @@ import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import { up as addExtensionReleases } from "../db/migrations/add-extension-releases";
 import { up as addProviderConnections } from "../db/migrations/add-provider-connections";
+import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
 import * as schema from "../db/schema";
 import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { SandboxController } from "../sandboxes/controller";
@@ -30,6 +31,7 @@ async function fixture() {
   await addExtensionReleases(db);
   await addProviderConnections(db);
   await addSandboxController(db);
+  await addQualificationFixtures(db);
   await db.insert(schema.projects).values({ id: "project", name: "project", path: "/work/host-canary" });
   const runtime = releaseRuntimeFixture("installation", incusManifest);
   const snapshot = runtime.snapshot;

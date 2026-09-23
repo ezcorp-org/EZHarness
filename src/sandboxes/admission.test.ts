@@ -33,6 +33,7 @@ async function setup(projectIds: string[]) {
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
+    purpose TEXT NOT NULL DEFAULT 'user',
     icon TEXT,
     variables JSONB NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
