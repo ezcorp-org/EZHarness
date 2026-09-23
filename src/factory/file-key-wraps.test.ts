@@ -25,7 +25,7 @@ describe("the private key-wrap file", () => {
     const store = await readFactoryKeyWrapFile(await wrapFile("kms.json", wraps), installationId, "arn:aws:kms:eu-west-1:111122223333:key/tenant");
     expect((await store.load(installationId)).map(row => row.masterKeyId)).toEqual(["arn:aws:kms:eu-west-1:111122223333:key/tenant"]);
     expect((await InstallationDataKey.loadExisting(installationId, store, kms)).wrapVersion).toBe(created.wrapVersion);
-    await expect(store.save()).rejects.toMatchObject({ code: "factory_key_unsafe" });
+    await expect(store.save((await store.load(installationId))[0]!)).rejects.toMatchObject({ code: "factory_key_unsafe" });
     await expect(store.load("another-installation")).rejects.toMatchObject({ code: "factory_key_invalid" });
     // A wrapping key id is still one token: whitespace or an empty id is refused.
     expect(() => parseFactoryKeyWrapFile({}, installationId, "key with space")).toThrow();
