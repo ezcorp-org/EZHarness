@@ -875,6 +875,40 @@ jobs:
           CRITICAL_ONLY: "1"
         run: bash scripts/test.sh
 
+  # The Landlock sandbox on arm64. Every other job runs on x86_64, which is
+  # how the sandbox suites sat red on arm64 unnoticed: the FFI issued the
+  # x86_64 prctl number (157, which is setsid on aarch64), so the fail-closed
+  # jail aborted every spawn — `landlock: prctl(no_new_privs) failed errno=22`.
+  # arm64 is also where Apple Silicon users run the stack (in a podman VM).
+  sandbox-arm64:
+    name: Sandbox (arm64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      # The containment suite is `describe.if(LANDLOCK_OK)`: on a runner
+      # without Landlock it SKIPS, and this job would go green having tested
+      # nothing. Refuse that before running it.
+      - name: Require a real arm64 host with Landlock
+        run: |
+          [ "$(uname -m)" = aarch64 ] || { echo "::error::expected aarch64, got $(uname -m)"; exit 1; }
+          # SC2016: the single-quoted `${abi}` is a JS template for bun, not shell.
+          # shellcheck disable=SC2016
+          bun -e '
+            import { probeLandlockAbi } from "./src/extensions/sandbox/capability-probe.ts";
+            const abi = probeLandlockAbi() ?? 0;
+            console.log(`Landlock ABI: ${abi}`);
+            if (abi < 1) { console.error("::error::no Landlock on this runner — the containment suite would skip"); process.exit(1); }
+          '
+      - name: Sandbox suites
+        run: |
+          bun test \
+            ./src/__tests__/sandbox-capability-probe.test.ts \
+            ./src/__tests__/sandbox-landlock-ffi.test.ts \
+            ./src/__tests__/sandbox-landlock-shim-integration.test.ts \
+            ./src/__tests__/sandbox-landlock-apply-coverage.test.ts
+
   # The pass/fail files that the coverage shards do NOT run: the *integration*
   # variants excluded from the coverage set, plus route-contract.test.ts (the
   # remote-control governance meta-test). Keeps the union of gated pass/fail
