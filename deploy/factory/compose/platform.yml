@@ -96,6 +96,9 @@ services:
     depends_on:
       factory-temporal: { condition: service_started }
       factory-temporal-authorizer: { condition: service_started }
+    # The image's entrypoint drops to uid 101 unless ENVOY_UID is 0. Root in a
+    # rootless container is the host user, who owns the mounted key and config.
+    environment: { ENVOY_UID: "0" }
     command: ["envoy", "-c", "/factory/factory-temporal-gateway.yaml"]
     ports: ["127.0.0.1:${EZCORP_FACTORY_TEMPORAL_PORT:?}:7233"]
     volumes:

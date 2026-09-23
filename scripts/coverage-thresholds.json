@@ -341,6 +341,7 @@
   "src/db/migrations/add-factory-records.ts": 100,
   "src/delivery-queue/durable-delivery-queue.ts": 100,
   "scripts/check-factory-boundaries.ts": 100,
+  "scripts/check-factory-deployment-locks.ts": 100,
   "scripts/check-factory-runners.ts": 100,
   "scripts/check-required-checks.ts": 100,
   "src/extensions/v4/**": 100,

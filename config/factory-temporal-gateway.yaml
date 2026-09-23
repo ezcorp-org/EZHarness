@@ -39,7 +39,7 @@ static_resources:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.ext_authz.v3.ExtAuthz
                       http_service:
                         server_uri: { uri: http://factory-temporal-authorizer:17445/authorize, cluster: authorizer, timeout: 2s }
-                        authorization_request: { allowed_headers: { patterns: [{ exact: authorization }, { exact: x-forwarded-client-cert }] } }
+                      allowed_headers: { patterns: [{ exact: authorization }, { exact: x-forwarded-client-cert }] }
                   - name: envoy.filters.http.router
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.router.v3.Router
@@ -59,7 +59,10 @@ static_resources:
     - name: temporal
       type: STRICT_DNS
       connect_timeout: 2s
-      http2_protocol_options: {}
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config: { http2_protocol_options: {} }
       load_assignment:
         cluster_name: temporal
         endpoints: [{ lb_endpoints: [{ endpoint: { address: { socket_address: { address: factory-temporal, port_value: 7233 } } } }] }]

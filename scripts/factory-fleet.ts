@@ -3,12 +3,12 @@
  * The operator's entry to one factory fleet on the self-hosted Compose profile.
  *
  *   bun scripts/factory-fleet.ts <fleet.json> platform
- *   bun scripts/factory-fleet.ts <fleet.json> provision <tenant>... [--through <step>]
+ *   bun scripts/factory-fleet.ts <fleet.json> provision <tenant>... [--through <step>] [--admin-email <email>]
  *   bun scripts/factory-fleet.ts <fleet.json> observe <tenant>...
  *   bun scripts/factory-fleet.ts <fleet.json> rotate <tenant> <step>
  *   bun scripts/factory-fleet.ts <fleet.json> teardown <tenant> --reason <text>
- *   bun scripts/factory-fleet.ts <fleet.json> purge <tenant> --approved-by <ref> --reason <text>
- *   bun scripts/factory-fleet.ts <fleet.json> upgrade register|wave|retire ...
+ *   bun scripts/factory-fleet.ts <fleet.json> purge <tenant> --approval <approval ID> --reason <text>
+ *   bun scripts/factory-fleet.ts <fleet.json> upgrade register|wave|abandon|retire ...
  *   bun scripts/factory-fleet.ts <fleet.json> status [tenant]
  *
  * The commands live in src/factory/provisioning/fleet-cli.ts. This file only

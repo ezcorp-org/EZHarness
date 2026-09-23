@@ -15,7 +15,7 @@
 # other workload receives that socket.
 #
 # Every base image is pinned by digest. `docs/factory-deployment.md` names the
-# lock, and `scripts/check-factory-deployment-locks.ts` refuses a tag without one.
+# lock, and `scripts/check-factory-deployment-locks.ts` (run in CI) refuses an image without one.
 ARG BUN_IMAGE=docker.io/oven/bun:1.3.14@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834
 ARG BUN_RUNTIME_IMAGE=docker.io/oven/bun:1.3.14-slim@sha256:621f249399228db47cf34611ee662585e77e015250ed29d5d0932b2d3282f0b0
 ARG NODE_IMAGE=docker.io/library/node:24.14.1-bookworm-slim@sha256:e484ae3f1e3c378021c967fd42254f343c302a9263e412280eac32bf5bca7008
@@ -39,6 +39,11 @@ RUN bun run --cwd packages/@ezcorp/sdk build \
 RUN cd web && bun run build
 # Nothing in the runtime needs the test trees or the coverage tooling.
 RUN rm -rf web/.svelte-kit/output/client/_app/immutable/*.map coverage .git
+# Every service runs as the host user's uid (keep-id), which owns no file in the
+# image. A build context exported under a private umask arrives 0600/0700, so
+# the tree is made world-readable (and directories traversable) here; nothing
+# in it is a secret, and nothing in it is writable by the services.
+RUN chmod -R a+rX,go-w /app
 
 FROM ${BUN_RUNTIME_IMAGE}
 ARG REVISION=unknown

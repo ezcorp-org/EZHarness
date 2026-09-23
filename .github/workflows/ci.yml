@@ -70,6 +70,8 @@ jobs:
         run: bun run --cwd packages/@ezcorp/factory-sdk build
       - name: Enforce deterministic validation and C13 reuse
         run: bun scripts/check-factory-boundaries.ts
+      - name: Every factory deployment image is pinned by digest
+        run: bun scripts/check-factory-deployment-locks.ts
       # `src/*.schema.json` is generated only (interface freeze, section 12).
       # Nothing regenerates it during the SDK build, so before this step a hand
       # edit to a wire schema shipped green. The gate regenerates, byte-compares,
