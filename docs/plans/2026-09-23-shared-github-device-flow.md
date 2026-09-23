@@ -44,14 +44,20 @@ Show cancel, expiry, denied access, network failure, reconnect, and polling back
 - [ ] Sol web author: session-only routes, Settings device flow, account recovery, desktop/mobile evidence and tests.
 - [x] Sol Worker author: stateless public service, configuration, generated types, local Worker proof, deployment instructions.
 - [x] Coordinator: shared contract, route registry, coverage wiring, deployment/env docs, integration.
-- [ ] Separate Sol review team: cross-user/session/install isolation, refresh/cancel races, no central credential handling, user flow, Worker data handling.
-- [ ] Resolve all review findings; run complete local checks without weakening gates.
+- [x] Separate Sol review team: cross-user/session/install isolation, refresh/cancel races, no central credential handling, user flow, Worker data handling.
+- [x] Resolve independent review findings: restore ownership, local expiry, provider claim lifetime, consumed-code recovery, and visible errors during authorization.
 - [x] Live GitHub device-flow and refresh proof after the operator supplies the public App configuration. No substitute CLI token proof.
-- [ ] Worker deployment after an exact Cloudflare target is available and authorized; local build and runtime proof do not imply a live deployment.
+- [x] Worker deployment after an exact Cloudflare target is available and authorized; local build and runtime proof do not imply a live deployment.
+
+### Final verification gate
+
+Before merge, run typecheck, lint, backend and web tests, coverage producers, all five required browser lanes on one clean commit and mapped build, and the route, boundary, evidence, coverage, and gate-integrity checks. Preserve the gates. Keep execution results in `tasks/todo.md` and local `.cache/github-device-*` receipts so recording results does not change the source revision being tested.
+
+### Live verification
+
+Live proof: the operator approved a code created by the real local broker. GitHub connected as `EZArchy`; repository access to `ezcorp-org/factory-platform-publication-tests` and direct refresh without a client secret passed. The local connection was then removed. The Worker was deployed as `ezcorp-github-app-directory-production`, version `8a390eba-9178-40cb-aea4-e248cc00474b`. Public DNS and HTTPS checks passed. The live Cloudflare API confirms only three public bindings, no storage or secret bindings, and disabled observability, logs, traces, and Logpush.
 
 ## Sources checked 2026-09-23
-
-Live proof: the operator approved a code created by the real local broker. GitHub connected as `EZArchy`; repository access to `ezcorp-org/factory-platform-publication-tests` and direct refresh without a client secret passed. The local connection was then removed. The Worker was deployed as `ezcorp-github-app-directory-production`, version `8a390eba-9178-40cb-aea4-e248cc00474b`; public DNS/HTTPS verification remains separate from deployment success.
 
 - https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-a-user-access-token-for-a-github-app
 - https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/refreshing-user-access-tokens

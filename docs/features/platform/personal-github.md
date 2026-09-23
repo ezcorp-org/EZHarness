@@ -20,7 +20,7 @@ do not need to configure them separately on each installation.
 
 | GitHub App field | Setting |
 | --- | --- |
-| Homepage URL | `https://github-auth.ezcorp.org` after Worker deployment; use `https://github.com/ezcorp-org` before deployment |
+| Homepage URL | `https://github-auth.ezcorp.org` |
 | Callback URL | Empty |
 | Expire user authorization tokens | Enabled |
 | Request user authorization during installation | Disabled |
@@ -131,5 +131,5 @@ refresh, or selected repository controls.
 - `web/src/routes/(app)/settings/github/`: connection settings
 - `web/src/routes/api/github/`: authenticated user endpoints
 - `src/integrations/github-app-directory/`: public Worker request handler
-- `worker/github-connect/`: public Worker configuration and deployment instructions
+- `services/github-connect/`: public Worker configuration and deployment instructions
 - [Shared App implementation plan](../../plans/2026-09-23-shared-github-device-flow.md)

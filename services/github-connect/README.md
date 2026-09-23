@@ -21,7 +21,17 @@ bun run dev
 
 For a local HTTP smoke test, `bun run dev` uses the public `production` bindings. Request `/`, `/style.css`, `/.well-known/ezcorp-github.json`, and `/health`. Use `bun run dev -- --var APP_SLUG:` to verify that missing configuration returns 503. GET and HEAD are the only accepted methods; query strings and credential headers return 400; all other methods return 405. No request body is read.
 
-`bun run types` regenerates `worker-configuration.d.ts` from Wrangler config. This package has its own lockfile. `bun run build` creates a dry-run bundle under ignored `dist/`; it does not deploy. Only the named `production` environment has public App bindings and the custom domain `github-auth.ezcorp.org`; `workers.dev` and preview URLs are off. A future approved deployment must target `--env production`, after verifying that the Cloudflare account controls the domain.
+`bun run types` regenerates `worker-configuration.d.ts` from Wrangler config. This package has its own lockfile. `bun run build` creates a dry-run bundle under ignored `dist/`; it does not deploy. Only the named `production` environment has public App bindings and the custom domain `github-auth.ezcorp.org`; `workers.dev` and preview URLs are off.
+
+## Deployment
+
+The service is deployed at <https://github-auth.ezcorp.org> as `ezcorp-github-app-directory-production`. For an authorized update, confirm the selected Cloudflare account owns `ezcorp.org`, then run from this directory:
+
+```sh
+bunx wrangler deploy --env production
+```
+
+After deployment, check the public routes and the active version's bindings and observability settings. Only `APP_ID`, `APP_CLIENT_ID`, and `APP_SLUG` should be present; all are public. No Worker secret is required.
 
 ## Data handling
 
