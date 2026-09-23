@@ -17,7 +17,7 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join, delimiter } from "node:path";
-import { SYSCALLS_BY_ARCH, syscallsFor } from "../extensions/sandbox/landlock-ffi";
+import { SYSCALLS_BY_ARCH, syscallNumber, syscallsFor } from "../extensions/sandbox/landlock-ffi";
 import {
   findBwrap,
   selectTier,
@@ -303,7 +303,10 @@ describe("SYSCALLS_BY_ARCH — the verified syscall table", () => {
   test("an arch without a table resolves to null, never to a borrowed row", () => {
     for (const arch of ["ia32", "ppc64", "riscv64", "", "__proto__", "constructor"]) {
       expect(syscallsFor(arch)).toBeNull();
+      expect(() => syscallNumber("prctl", arch)).toThrow(`unsupported architecture ${arch}`);
     }
+    expect(syscallNumber("prctl", "x64")).toBe(157n);
+    expect(syscallNumber("prctl", "arm64")).toBe(167n);
   });
 
   test("selectTier grants Landlock exactly to the arches that have a table", () => {

@@ -59,14 +59,12 @@ export function syscallsFor(arch: string): SyscallTable | null {
     : null;
 }
 
-// Resolved for the running process. An arch with no table never reaches the
-// FFI — `selectTier()` has already chosen `advisory` — so the x86_64 fallback
-// below only keeps these constants well-typed; it is never issued there.
-const SYSCALLS = syscallsFor(process.arch) ?? SYSCALLS_BY_ARCH.x64;
-export const SYS_landlock_create_ruleset = SYSCALLS.landlock_create_ruleset;
-export const SYS_landlock_add_rule = SYSCALLS.landlock_add_rule;
-export const SYS_landlock_restrict_self = SYSCALLS.landlock_restrict_self;
-export const SYS_prctl = SYSCALLS.prctl;
+/** Resolve a verified syscall number; never issue a borrowed architecture's number. */
+export function syscallNumber(name: keyof SyscallTable, architecture: string = process.arch): bigint {
+  const table = syscallsFor(architecture);
+  if (!table) throw new Error(`landlock: unsupported architecture ${architecture}`);
+  return table[name];
+}
 
 /** prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0). */
 export const PR_SET_NO_NEW_PRIVS = 38n;
@@ -261,7 +259,7 @@ export function errno(): number {
  */
 export function landlockAbiVersion(): number {
   const r = libc().symbols.syscall(
-    SYS_landlock_create_ruleset,
+    syscallNumber("landlock_create_ruleset"),
     0n, // attr = NULL
     0n, // size = 0
     LANDLOCK_CREATE_RULESET_VERSION,
@@ -275,7 +273,7 @@ export function landlockAbiVersion(): number {
 /** prctl(PR_SET_NO_NEW_PRIVS, 1). Required before restrict_self. */
 export function setNoNewPrivs(): number {
   const r = libc().symbols.syscall(
-    SYS_prctl,
+    syscallNumber("prctl"),
     PR_SET_NO_NEW_PRIVS,
     1n,
     0n,
@@ -294,7 +292,7 @@ export function createRuleset(handledAccessFs: bigint): number {
   const attr = new BigUint64Array(1);
   attr[0] = handledAccessFs;
   const r = libc().symbols.syscall(
-    SYS_landlock_create_ruleset,
+    syscallNumber("landlock_create_ruleset"),
     BigInt(ptr(attr)),
     8n, // sizeof(struct landlock_ruleset_attr) for ABI v1
     0n, // flags
@@ -333,7 +331,7 @@ export function addPathBeneathRule(
     // `flags` arg is mandatory — omitting it makes the kernel read garbage
     // and return EINVAL.
     const r = libc().symbols.syscall(
-      SYS_landlock_add_rule,
+      syscallNumber("landlock_add_rule"),
       BigInt(rulesetFd),
       LANDLOCK_RULE_PATH_BENEATH,
       BigInt(ptr(buf)),
@@ -349,7 +347,7 @@ export function addPathBeneathRule(
 /** landlock_restrict_self(ruleset_fd, 0). Returns 0 on success, -1 on error. */
 export function restrictSelf(rulesetFd: number): number {
   const r = libc().symbols.syscall(
-    SYS_landlock_restrict_self,
+    syscallNumber("landlock_restrict_self"),
     BigInt(rulesetFd),
     0n, // flags
     0n,
