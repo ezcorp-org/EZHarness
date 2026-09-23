@@ -51,6 +51,7 @@
   "web/src/routes/api/infrastructure/incus/features/+server.ts": 100,
   "web/src/routes/api/infrastructure/incus/qualification/+server.ts": 100,
   "web/src/routes/api/infrastructure/incus/probe-fixtures/+server.ts": 100,
+  "web/src/routes/api/infrastructure/incus/smoke/+server.ts": 100,
   "web/src/routes/api/infrastructure/incus/setup/+server.ts": 100,
   "src/infrastructure/incus-retired-cleanup.ts": 100,
   "src/extensions/runner-mode.ts": 100,

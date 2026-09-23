@@ -776,6 +776,7 @@ describe("registry ⇄ filesystem parity", () => {
       "POST /api/infrastructure/incus/probe-fixtures",
       "POST /api/infrastructure/incus/qualification",
       "POST /api/infrastructure/incus/setup",
+      "POST /api/infrastructure/incus/smoke",
       "POST /api/marketplace/:id/install",
       "POST /api/mcp-servers",
       "POST /api/mcp-servers/:id/refresh",
