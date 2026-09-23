@@ -157,7 +157,7 @@ export class FactoryDatabaseStep implements FactoryProvisioningDriver {
     // operator's to lock down and is deliberately not asserted here. With one
     // pair there is no other database of this step's to test against.
     const [product, pool] = this.pairs(installation);
-    if (product && pool && await this.canLogin(product!.role, (await this.credential(installation, product!)).password, pool!.database) || await this.canLogin(pool!.role, (await this.credential(installation, pool!)).password, product!.database)) {
+    if (product && pool && (await this.canLogin(product.role, (await this.credential(installation, product)).password, pool.database) || await this.canLogin(pool.role, (await this.credential(installation, pool)).password, product.database))) {
       throw new FactoryProvisioningError("database_not_isolated", "An installation credential reaches a database it does not own.");
     }
   }
