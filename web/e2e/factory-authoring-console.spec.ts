@@ -154,6 +154,8 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 			return respond(envelope({ kind: "draft.validation", valid: false, diagnostics: [{ code: "output-unbound", message: "Bind the catalog output before publication.", path: ["graph", "outputs"], ...(options.diagnosticsWithoutNode ? {} : { nodeId: "publish-the-normalized-catalog-for-downstream-consumers" }) }] }));
 		}
 		if (options.futureDraft && url.pathname.endsWith("/export") && method === "GET") {
+			const rejection = reject("export");
+			if (rejection) return rejection;
 			return respond(envelope({ kind: "draft.export", format: url.searchParams.get("format") ?? "json", source: JSON.stringify({ schemaVersion: "factory.v9", id: factoryId, futureExecutionField: { mode: "new" } }, null, 2) }));
 		}
 		if (options.futureDraft && url.pathname.endsWith("/" + encodeURIComponent(factoryId)) && method === "GET") {
@@ -449,7 +451,13 @@ test.describe("factory authoring console", () => {
 		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
 		const mocked = await routeFactoryApi(page, { futureDraft: true });
 		await page.goto("/factories");
-		await page.getByTestId("factory-console").getByRole("button", { name: new RegExp(factoryId) }).click();
+		const console_ = page.getByTestId("factory-console");
+		// When even the export is refused, the refusal shows and nothing opens for editing.
+		mocked.failNext("export");
+		await console_.getByRole("button", { name: new RegExp(factoryId) }).click();
+		await expect(console_.getByRole("alert")).toContainText("export unavailable");
+		await expect(page.getByLabel("Stored definition source")).toHaveCount(0);
+		await console_.getByRole("button", { name: new RegExp(factoryId) }).click();
 		await expect(page.getByRole("heading", { name: factoryId })).toBeVisible();
 		await expect(page.getByRole("note")).toContainText("cannot edit");
 		await expect(page.getByLabel("Stored definition source")).toHaveValue(/"factory.v9"/);
