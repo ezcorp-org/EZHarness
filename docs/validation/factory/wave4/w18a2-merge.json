@@ -1,0 +1,661 @@
+{
+ "package": "w18a2",
+ "branch": "wp/w18a2-quality",
+ "head": "2cf47397787e9bdfd84a7bea935bf702dae90cf6",
+ "validatedSource": "c2ef2fac3 (2cf473977 adds a docs-only merge of integ/w00 6055bffc6)",
+ "validatorVerdict": "ACCEPT (w18a2-validator), three low findings, two info notes",
+ "mergeSha": "8949b300b",
+ "parents": [
+  "39a7189e04b05648cc76e920fe4ebaf26decb301",
+  "2cf47397787e9bdfd84a7bea935bf702dae90cf6"
+ ],
+ "conflicts": {
+  "tasks/todo.md": "union",
+  "tasks/lessons.md": "union, plus the coordinator lesson line (verify live state before answering)",
+  "src/factory/startup-config.ts": "4 hunks: W18a2's split into StartupCheck steps kept; W09d's changes carried into it (record -> isPlainRecord on 3 lines; invalidValidatorRuntimes as a final checkValidatorRuntimes step, same error order); startup-config.test.ts 39 pass, typecheck 0; the conflicted file is kept as w18a2-merge-startup-config-conflict.ts.txt"
+ },
+ "checks": [
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-23T15:16:13Z",
+   "end": "2026-09-23T15:17:08Z",
+   "command": "bun run typecheck",
+   "logSha256": "3e92cf60ee0d6bb6715199031fa8e310b44fbe2d683cadf142fe0e55aba70a43"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-23T15:17:08Z",
+   "end": "2026-09-23T15:17:10Z",
+   "command": "bun run lint",
+   "logSha256": "dc84a82985c654b2caafb1689e1c095838b388ef0497a1c2e1b3ba73e8edbf12"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-23T15:17:10Z",
+   "end": "2026-09-23T15:17:12Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "63add7a863aa3b2ba64a75ea31ee136ee4368793ec8d9d3ae54cd0ebfa8d5d5e"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-23T15:17:12Z",
+   "end": "2026-09-23T15:17:13Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "4a54b015ee7c1df7aa9b3edc63135f7e79d568001c34ae0511a37ca98722340f"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-23T15:17:13Z",
+   "end": "2026-09-23T15:17:18Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "2ca9a459f131591c5bd20897c483599e89a3aa80068ed8b795bb803a4c39b61a"
+  },
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-23T15:17:18Z",
+   "end": "2026-09-23T15:17:19Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "counts": {
+    "pass": 15,
+    "fail": 0
+   },
+   "logSha256": "38e0f25d4a91f9a09df69b1d12f45c0c851a6c756b54cee55a62d2d20b5c717e"
+  },
+  {
+   "name": "web-check",
+   "exitCode": 0,
+   "start": "2026-09-23T15:17:19Z",
+   "end": "2026-09-23T15:17:28Z",
+   "command": "bash -c cd web && bun run check",
+   "logSha256": "9ffcf34561714c0a22e9b8c8d4cc1c37d93ff939bce0cec0dce16310409a9505"
+  },
+  {
+   "name": "focused-src-db-migrations-add-factory-task-stops",
+   "exitCode": 0,
+   "start": "2026-09-23T15:17:50Z",
+   "end": "2026-09-23T15:17:53Z",
+   "command": "bun test --timeout 120000 ./src/db/migrations/add-factory-task-stops.test.ts",
+   "counts": {
+    "pass": 2,
+    "fail": 0
+   },
+   "logSha256": "217772af76c176e42ffd013380627d9fb7d15168b0e8d243930288def3c3e240"
+  },
+  {
+   "name": "focused-src-factory-attempt-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T15:17:53Z",
+   "end": "2026-09-23T15:17:58Z",
+   "command": "bun test --timeout 120000 ./src/factory/attempt-composition.test.ts",
+   "counts": {
+    "pass": 14,
+    "fail": 0
+   },
+   "logSha256": "1e1719cf70e5c5d2add10b4e0b4e3f667a653bc8e6bac05b0c54fbaed6a9a633"
+  },
+  {
+   "name": "focused-src-factory-dispatch-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T15:17:58Z",
+   "end": "2026-09-23T15:17:59Z",
+   "command": "bun test --timeout 120000 ./src/factory/dispatch-composition.test.ts",
+   "counts": {
+    "pass": 32,
+    "fail": 0
+   },
+   "logSha256": "dbca9ae5c24bd64cb69140f7e2b0b0c961f0e6f3036cb63e7f58b50c92569fee"
+  },
+  {
+   "name": "focused-src-factory-encryption",
+   "exitCode": 0,
+   "start": "2026-09-23T15:17:59Z",
+   "end": "2026-09-23T15:18:00Z",
+   "command": "bun test --timeout 120000 ./src/factory/encryption.test.ts",
+   "counts": {
+    "pass": 9,
+    "fail": 0
+   },
+   "logSha256": "63da18854bfcf4f96812b0197b06fa03dd306a55c83f8d4b35e3fa7be608ce35"
+  },
+  {
+   "name": "focused-src-factory-host-stop-transport.integration",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:00Z",
+   "end": "2026-09-23T15:18:01Z",
+   "command": "bun test --timeout 120000 ./src/factory/host-stop-transport.integration.test.ts",
+   "counts": {
+    "pass": 2,
+    "fail": 0
+   },
+   "logSha256": "0ff2644fd1efc78a3f8525954c4821b3a12b5544b44c75f5c6e5fe8353d2724e"
+  },
+  {
+   "name": "focused-src-factory-installation-startup",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:01Z",
+   "end": "2026-09-23T15:18:08Z",
+   "command": "bun test --timeout 120000 ./src/factory/installation-startup.test.ts",
+   "counts": {
+    "pass": 49,
+    "fail": 0
+   },
+   "logSha256": "8534a56c28b248648a425f9131600a03e8d313172cc0f40a6978b6b80f8f823a"
+  },
+  {
+   "name": "focused-src-factory-pool-process",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:08Z",
+   "end": "2026-09-23T15:18:13Z",
+   "command": "bun test --timeout 120000 ./src/factory/pool/process.test.ts",
+   "counts": {
+    "pass": 8,
+    "fail": 0
+   },
+   "logSha256": "510217cface3c811c3877c77e0cc285b710dc92f8cf6d03c8738957e939e775f"
+  },
+  {
+   "name": "focused-src-factory-private-files",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:13Z",
+   "end": "2026-09-23T15:18:14Z",
+   "command": "bun test --timeout 120000 ./src/factory/private-files.test.ts",
+   "counts": {
+    "pass": 18,
+    "fail": 0
+   },
+   "logSha256": "39d28341299db91519391f9ce70dfd2f871fea31496676beb14e4dcf62706f53"
+  },
+  {
+   "name": "focused-src-factory-private-service-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:14Z",
+   "end": "2026-09-23T15:18:17Z",
+   "command": "bun test --timeout 120000 ./src/factory/private-service-composition.test.ts",
+   "counts": {
+    "pass": 19,
+    "fail": 0
+   },
+   "logSha256": "492d421bc994517833aadb6dd5e151418603bb70e0673859d0d9e3a197bfc82e"
+  },
+  {
+   "name": "focused-src-factory-release-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:17Z",
+   "end": "2026-09-23T15:18:18Z",
+   "command": "bun test --timeout 120000 ./src/factory/release-composition.test.ts",
+   "counts": {
+    "pass": 17,
+    "fail": 0
+   },
+   "logSha256": "4101d6ece7684501ed89f2eca906fdff9c8ca2193656364e2a3cffccfbe2146a"
+  },
+  {
+   "name": "focused-src-factory-release-declaration",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:18Z",
+   "end": "2026-09-23T15:18:19Z",
+   "command": "bun test --timeout 120000 ./src/factory/release-declaration.test.ts",
+   "counts": {
+    "pass": 11,
+    "fail": 0
+   },
+   "logSha256": "1472f1c51c44423755453c3d7780b8e4071e2dfe45bac2d3e6da6099a556f070"
+  },
+  {
+   "name": "focused-src-factory-runtime-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:19Z",
+   "end": "2026-09-23T15:18:20Z",
+   "command": "bun test --timeout 120000 ./src/factory/runtime-composition.test.ts",
+   "counts": {
+    "pass": 31,
+    "fail": 0
+   },
+   "logSha256": "072e89680f73c72f038a7ff1c9baf1f42c2600e377ca33a3c3686ae224dc2261"
+  },
+  {
+   "name": "focused-src-factory-startup-config",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:20Z",
+   "end": "2026-09-23T15:18:21Z",
+   "command": "bun test --timeout 120000 ./src/factory/startup-config.test.ts",
+   "counts": {
+    "pass": 39,
+    "fail": 0
+   },
+   "logSha256": "ade16b6e82a502fa743e13ba60e51a98b4bd09e6e33d1157407991b9a3d0d20b"
+  },
+  {
+   "name": "focused-src-factory-validator-declaration",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:21Z",
+   "end": "2026-09-23T15:18:21Z",
+   "command": "bun test --timeout 120000 ./src/factory/validator-declaration.test.ts",
+   "counts": {
+    "pass": 7,
+    "fail": 0
+   },
+   "logSha256": "91fcd5d41c72a2193807c39d66e13b8f486a65de77b624e2ac02010530cca81c"
+  },
+  {
+   "name": "focused-src-__tests__-db-connection-raw-query",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:21Z",
+   "end": "2026-09-23T15:18:23Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/db-connection-raw-query.test.ts",
+   "counts": {
+    "pass": 13,
+    "fail": 0
+   },
+   "logSha256": "03c913093595cd53c02e940dd2dc92574e9b90dcf69943d6ba3aa6c830203f74"
+  },
+  {
+   "name": "focused-src-__tests__-db-connection-real-init",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:23Z",
+   "end": "2026-09-23T15:18:27Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/db-connection-real-init.test.ts",
+   "counts": {
+    "pass": 7,
+    "fail": 0
+   },
+   "logSha256": "0252c378c8a3a24a23af5433775716e039fdaeba5de1fdc689aaf81c70e129fc"
+  },
+  {
+   "name": "focused-src-__tests__-db-connection",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:27Z",
+   "end": "2026-09-23T15:18:28Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/db-connection.test.ts",
+   "counts": {
+    "pass": 15,
+    "fail": 0
+   },
+   "logSha256": "124273ce59e536340c758c53e2c99dfcff424987bdc66023cc0985298850c567"
+  },
+  {
+   "name": "focused-src-__tests__-db-mask-dirs",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:28Z",
+   "end": "2026-09-23T15:18:29Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/db-mask-dirs.test.ts",
+   "counts": {
+    "pass": 2,
+    "fail": 0
+   },
+   "logSha256": "a26a371c92e7d159034384b4022bbb35c515c74e7bd704254b866cecdc8c63b0"
+  },
+  {
+   "name": "focused-src-__tests__-db-migration-pg-trgm",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:29Z",
+   "end": "2026-09-23T15:18:31Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/db-migration-pg-trgm.test.ts",
+   "counts": {
+    "pass": 5,
+    "fail": 0
+   },
+   "logSha256": "dbf65d6cbd5b23158c7cf0a32373c0f26e98ede81f43f9459abfad911796f0d4"
+  },
+  {
+   "name": "focused-src-__tests__-db-queries-marketplace-trgm",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:31Z",
+   "end": "2026-09-23T15:18:32Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/db-queries-marketplace-trgm.test.ts",
+   "counts": {
+    "pass": 6,
+    "fail": 0
+   },
+   "logSha256": "735861ab8875e5b310c4d898f4f11eeaebaa5e916df53d82a5c519339c1580b9"
+  },
+  {
+   "name": "focused-src-__tests__-factory-private-service",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:32Z",
+   "end": "2026-09-23T15:18:38Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/factory-private-service.test.ts",
+   "counts": {
+    "pass": 5,
+    "fail": 0
+   },
+   "logSha256": "0d3eb309053a13eb92319713dd7f2e4bb04603e2246ce9a30097019a29f2d36c"
+  },
+  {
+   "name": "focused-src-__tests__-factory-task-stops",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:38Z",
+   "end": "2026-09-23T15:18:46Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/factory-task-stops.test.ts",
+   "counts": {
+    "pass": 18,
+    "fail": 0
+   },
+   "logSha256": "d923173969e19ecf896118d4c9035215c01081aeae06a0a7118ab2c7047aa04f"
+  },
+  {
+   "name": "focused-src-__tests__-scope-enforcement",
+   "exitCode": 0,
+   "start": "2026-09-23T15:18:46Z",
+   "end": "2026-09-23T15:18:47Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/scope-enforcement.test.ts",
+   "counts": {
+    "pass": 7,
+    "fail": 0
+   },
+   "logSha256": "cc74e5771904099930743bb488b173135e424ed67342dff3a203a7a6f495048d"
+  }
+ ],
+ "runnerPasses": [
+  {
+   "prefix": "w18a2merge",
+   "legs": [
+    {
+     "name": "sdk-build",
+     "exitCode": 0
+    },
+    {
+     "name": "transport-build",
+     "exitCode": 0
+    },
+    {
+     "name": "sdk-tests",
+     "exitCode": 0
+    },
+    {
+     "name": "focused",
+     "exitCode": 1
+    },
+    {
+     "name": "web-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "web-bun-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "postgres",
+     "exitCode": 0
+    },
+    {
+     "name": "types",
+     "exitCode": 0
+    },
+    {
+     "name": "lint",
+     "exitCode": 0
+    },
+    {
+     "name": "gate-integrity",
+     "exitCode": 0
+    },
+    {
+     "name": "boundaries",
+     "exitCode": 0
+    },
+    {
+     "name": "orchestrator-build",
+     "exitCode": 0
+    }
+   ]
+  },
+  {
+   "prefix": "w18a2merge2",
+   "legs": [
+    {
+     "name": "sdk-build",
+     "exitCode": 0
+    },
+    {
+     "name": "transport-build",
+     "exitCode": 0
+    },
+    {
+     "name": "focused",
+     "exitCode": 0
+    },
+    {
+     "name": "types",
+     "exitCode": 0
+    },
+    {
+     "name": "lint",
+     "exitCode": 0
+    },
+    {
+     "name": "gate-integrity",
+     "exitCode": 0
+    },
+    {
+     "name": "boundaries",
+     "exitCode": 0
+    },
+    {
+     "name": "orchestrator-build",
+     "exitCode": 0
+    },
+    {
+     "name": "node-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "pool-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "compute-coverage",
+     "exitCode": 1
+    },
+    {
+     "name": "provisioning-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "python-coverage",
+     "exitCode": 0
+    },
+    {
+     "name": "podman-podman",
+     "exitCode": 0
+    },
+    {
+     "name": "podman-attempt-runtime",
+     "exitCode": 0
+    },
+    {
+     "name": "podman-supervisor",
+     "exitCode": 0
+    },
+    {
+     "name": "podman-package-preparation",
+     "exitCode": 0
+    }
+   ]
+  },
+  {
+   "prefix": "w18a2merge3",
+   "legs": [
+    {
+     "name": "sdk-build",
+     "exitCode": 0
+    },
+    {
+     "name": "transport-build",
+     "exitCode": 0
+    },
+    {
+     "name": "types",
+     "exitCode": 0
+    },
+    {
+     "name": "lint",
+     "exitCode": 0
+    },
+    {
+     "name": "gate-integrity",
+     "exitCode": 0
+    },
+    {
+     "name": "boundaries",
+     "exitCode": 0
+    },
+    {
+     "name": "compute-coverage",
+     "exitCode": 0
+    }
+   ]
+  }
+ ],
+ "runnerNotes": [
+  "pass 1 (w18a2merge): focused 1 fail = pre-existing supervisor-process flake (also 1 in 5 at the base without the merge); the outer timeout 9000 counted the ~1.6 h lock wait and killed the run (exit 124) in the node leg",
+  "pass 2 (w18a2merge2, --reuse-from w18a2merge): focused 0 fail; compute-coverage 2 fail in tests/postgres/factory-compute-admissions.test.ts (dispatchNext returned another reservation); the suite alone passed 2/2 under the lock",
+  "pass 3 (w18a2merge3, --reuse-from w18a2merge2,w18a2merge): compute-coverage 0; every producer green across the three passes at the same staged tree (HEAD 39a7189e0 + MERGE_HEAD 2cf473977)"
+ ],
+ "coverageProducers": [
+  {
+   "producer": "sdk",
+   "input": "/tmp/factory-platform-evidence/w18a2merge-sdk-coverage/lcov.info",
+   "reused": true
+  },
+  {
+   "producer": "product",
+   "input": "/tmp/factory-platform-evidence/w18a2merge2-product-coverage/lcov.info",
+   "reused": true
+  },
+  {
+   "producer": "postgres",
+   "input": "/tmp/factory-platform-evidence/w18a2merge-postgres-coverage/lcov.info",
+   "reused": true
+  },
+  {
+   "producer": "node",
+   "input": "/tmp/factory-platform-evidence/w18a2merge2-node-coverage/lcov.info",
+   "reused": true
+  },
+  {
+   "producer": "pool",
+   "input": "/tmp/factory-platform-evidence/w18a2merge2-pool-coverage/lcov.info",
+   "reused": true
+  },
+  {
+   "producer": "compute",
+   "input": "/tmp/factory-platform-evidence/w18a2merge3-compute-coverage/lcov.info",
+   "reused": false
+  },
+  {
+   "producer": "provisioning",
+   "input": "/tmp/factory-platform-evidence/w18a2merge2-provisioning-coverage/lcov.info",
+   "reused": true
+  },
+  {
+   "producer": "python",
+   "input": "/tmp/factory-platform-evidence/w18a2merge2-python-coverage/lcov.info",
+   "reused": true
+  },
+  {
+   "producer": "web-vitest",
+   "input": "/tmp/factory-platform-evidence/w18a2merge-web-coverage/lcov.info",
+   "reused": true
+  },
+  {
+   "producer": "web-bun",
+   "input": "/tmp/factory-platform-evidence/w18a2merge-web-bun-coverage/lcov.info",
+   "reused": true
+  }
+ ],
+ "gates": {
+  "runnerLcov": {
+   "merge": 0,
+   "new-file c6ac529d2": 0,
+   "patch c6ac529d2": 1,
+   "new-file bd6fd9714": 1,
+   "patch bd6fd9714": 1,
+   "global-floor": 1,
+   "crap-changed origin/main": 1
+  },
+  "fullestLcov": {
+   "inputs": "runner pass 3 inputs + openapi, encryption, db-connection-real-init, db-corruption-catch.unit, private-files, scope-enforcement (the staged merge hid W18a2 tests from --auto-extra-base)",
+   "newFile c6ac529d2": 0,
+   "patch c6ac529d2": "1: pdf-extract, extension-control, context-summarize, extensions preview page server, auth/me (all origin/main)",
+   "crapChanged origin/main": "1: initPglite 76.4 (cc 20, cov 48%); the worker reported 0 and it is not reproduced; recorded, not blocking"
+  },
+  "crapChangedRunnerLcov": "2: initPglite 420.0 (cov 0%), loadExisting 32.2 (cov 10%)",
+  "globalFloor": "74.86% vs 90 (recorded)"
+ },
+ "heavyBatch": {
+  "steps": [
+   {
+    "name": "supervisor-process",
+    "start": "2026-09-23T17:48:56Z",
+    "end": "2026-09-23T17:48:58Z",
+    "exitCode": 0
+   },
+   {
+    "name": "supervisor-process.podman.integration",
+    "start": "2026-09-23T17:48:58Z",
+    "end": "2026-09-23T17:49:02Z",
+    "exitCode": 0
+   },
+   {
+    "name": "sandbox-stop",
+    "start": "2026-09-23T17:49:02Z",
+    "end": "2026-09-23T17:49:02Z",
+    "exitCode": 0
+   },
+   {
+    "name": "sandbox-stop.podman.integration",
+    "start": "2026-09-23T17:49:02Z",
+    "end": "2026-09-23T17:49:10Z",
+    "exitCode": 0
+   },
+   {
+    "name": "real-server-pass",
+    "start": "2026-09-23T17:49:10Z",
+    "end": "2026-09-23T17:50:40Z",
+    "exitCode": 0
+   }
+  ],
+  "realServerPass": {
+   "outcome": "passed",
+   "exitCode": 0,
+   "recordFresh": true,
+   "readyStatus": 200,
+   "rolesRunningCount": 9,
+   "rolesHeld": [
+    {
+     "role": "notification-send",
+     "workPackage": "W17",
+     "reason": "a notification is not delivered until a sender confirms it left this host"
+    },
+    {
+     "role": "validator-material-registration",
+     "workPackage": "W09d",
+     "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+    },
+    {
+     "role": "validator-scheduling",
+     "workPackage": "W09d",
+     "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+    }
+   ],
+   "orchestrationLifecycle": "ready",
+   "recordSha256": "f1390e7a5b9fd1025a04d89492ff0b660bea89a366dddabacfbc50cd73ab5a73"
+  }
+ },
+ "runnerChanges": [
+  "log names: a ref with '/' is spelled in full with '_' (39a7189e0)",
+  "ALWAYS_EXTRA += ./src/__tests__/openapi.test.ts (leg gap: src/openapi.ts had no lcov)"
+ ],
+ "incidents": [
+  "commit-with-postgres.sh pipes hook output through grep | head -6; with 5 staged PG suites git commit died on SIGPIPE (commit exit 1, nothing committed); committed with w00/bin/commit-with-postgres-logged.sh (full hook log, 5 suites 0 fail)",
+  "stray-file check after the w09d sweep mistake: no untracked or modified file; nothing changed around 14:33"
+ ],
+ "standingSteps": "df 169G at start, 143G at resume; touch 138678 and 139481 entries, 0 errors; inputs present"
+}

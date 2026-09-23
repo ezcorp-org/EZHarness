@@ -1,0 +1,151 @@
+{
+ "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+ "producers": [
+  {
+   "producer": "sdk",
+   "input": "/tmp/factory-platform-evidence/w18a2merge-sdk-coverage/lcov.info",
+   "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "reused": true,
+   "sourceIdenticalTo": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "paths": [
+    "packages/@ezcorp/factory-sdk"
+   ]
+  },
+  {
+   "producer": "product",
+   "input": "/tmp/factory-platform-evidence/w18a2merge2-product-coverage/lcov.info",
+   "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "reused": true,
+   "sourceIdenticalTo": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "paths": [
+    "src",
+    "packages",
+    "scripts"
+   ]
+  },
+  {
+   "producer": "postgres",
+   "input": "/tmp/factory-platform-evidence/w18a2merge-postgres-coverage/lcov.info",
+   "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "reused": true,
+   "sourceIdenticalTo": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "paths": [
+    "src",
+    "tests",
+    "packages"
+   ]
+  },
+  {
+   "producer": "node",
+   "input": "/tmp/factory-platform-evidence/w18a2merge2-node-coverage/lcov.info",
+   "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "reused": true,
+   "sourceIdenticalTo": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "paths": [
+    "packages/@ezcorp/factory-orchestrator",
+    "src/factory"
+   ]
+  },
+  {
+   "producer": "pool",
+   "input": "/tmp/factory-platform-evidence/w18a2merge2-pool-coverage/lcov.info",
+   "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "reused": true,
+   "sourceIdenticalTo": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "paths": [
+    "src/factory/pool",
+    "src/factory",
+    "tests/postgres"
+   ]
+  },
+  {
+   "producer": "compute",
+   "input": "/tmp/factory-platform-evidence/w18a2merge3-compute-coverage/lcov.info",
+   "head": "39a7189e04b05648cc76e920fe4ebaf26decb301"
+  },
+  {
+   "producer": "provisioning",
+   "input": "/tmp/factory-platform-evidence/w18a2merge2-provisioning-coverage/lcov.info",
+   "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "reused": true,
+   "sourceIdenticalTo": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "paths": [
+    "src/factory/provisioning",
+    "src/factory",
+    "tests/postgres"
+   ]
+  },
+  {
+   "producer": "python",
+   "input": "/tmp/factory-platform-evidence/w18a2merge2-python-coverage/lcov.info",
+   "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "reused": true,
+   "sourceIdenticalTo": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "paths": [
+    "src/factory/runner/python"
+   ]
+  },
+  {
+   "producer": "web-vitest",
+   "input": "/tmp/factory-platform-evidence/w18a2merge-web-coverage/lcov.info",
+   "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "reused": true,
+   "sourceIdenticalTo": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "paths": [
+    "web/src"
+   ],
+   "rerooted": true
+  },
+  {
+   "producer": "web-bun",
+   "input": "/tmp/factory-platform-evidence/w18a2merge-web-bun-coverage/lcov.info",
+   "head": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "reused": true,
+   "sourceIdenticalTo": "39a7189e04b05648cc76e920fe4ebaf26decb301",
+   "paths": [
+    "web/src",
+    "src",
+    "packages"
+   ],
+   "rerooted": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "merge",
+   "exitCode": 0
+  },
+  {
+   "name": "new-file",
+   "base": "c6ac529d2",
+   "exitCode": 0
+  },
+  {
+   "name": "patch",
+   "base": "c6ac529d2",
+   "exitCode": 1
+  },
+  {
+   "name": "new-file",
+   "base": "bd6fd9714",
+   "exitCode": 1
+  },
+  {
+   "name": "patch",
+   "base": "bd6fd9714",
+   "exitCode": 1
+  },
+  {
+   "name": "global-floor",
+   "base": null,
+   "exitCode": 1,
+   "blocking": false
+  },
+  {
+   "name": "crap-changed",
+   "base": "origin/main",
+   "exitCode": 1,
+   "blocking": false
+  }
+ ]
+}

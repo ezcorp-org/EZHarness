@@ -1,0 +1,13 @@
+focused files: 293 auto-added: 240
+{"name": "sdk-build", "exitCode": 0, "start": "2026-09-23T12:55:27", "end": "2026-09-23T12:55:27"}
+{"name": "transport-build", "exitCode": 0, "start": "2026-09-23T12:55:27", "end": "2026-09-23T12:55:27"}
+{"name": "sdk-tests", "exitCode": 0, "start": "2026-09-23T12:55:27", "end": "2026-09-23T12:55:51"}
+{"name": "focused", "exitCode": 1, "start": "2026-09-23T12:55:51", "end": "2026-09-23T13:15:42"}
+{"name": "web-coverage", "exitCode": 0, "start": "2026-09-23T13:15:42", "end": "2026-09-23T13:23:44"}
+{"name": "web-bun-coverage", "exitCode": 0, "start": "2026-09-23T13:23:44", "end": "2026-09-23T13:23:45"}
+{"name": "postgres", "exitCode": 0, "start": "2026-09-23T13:23:45", "end": "2026-09-23T13:45:34"}
+{"name": "types", "exitCode": 0, "start": "2026-09-23T13:45:34", "end": "2026-09-23T13:46:29"}
+{"name": "lint", "exitCode": 0, "start": "2026-09-23T13:46:29", "end": "2026-09-23T13:46:31"}
+{"name": "gate-integrity", "exitCode": 0, "start": "2026-09-23T13:46:31", "end": "2026-09-23T13:46:34"}
+{"name": "boundaries", "exitCode": 0, "start": "2026-09-23T13:46:34", "end": "2026-09-23T13:46:35"}
+{"name": "orchestrator-build", "exitCode": 0, "start": "2026-09-23T13:46:35", "end": "2026-09-23T13:46:35"}
