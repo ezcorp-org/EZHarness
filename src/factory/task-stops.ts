@@ -219,6 +219,42 @@ function parseStopJson<Value>(value: string | null): Value | undefined {
   catch { throw new FactoryTaskStopError("factory_task_stop_corrupt"); }
 }
 
+/** The sealed request a stop row stores. Every column the row repeats must equal the request, and the request must name this reference. */
+function sealedStopRequest(row: StopRow, reference: TrustedFactoryCommandReference): FactoryTaskStopRequest {
+  const request = parseStopJson<FactoryTaskStopRequest>(row.request_json)!;
+  if (row.request_digest !== stopHash(request) || canonicalJson(request) !== row.request_json || canonicalJson(request.cancelReference) !== canonicalJson(reference)
+    || request.attemptId !== row.attempt_id || request.reservationId !== row.reservation_id || request.source !== row.source
+    || (request.attemptReference?.commandId ?? null) !== row.attempt_command_id
+    || factoryAttemptWorkerId(request.attemptId) !== request.workerId) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+  stopCount(Number(row.accepted_at_ms)); stopCount(request.holderGeneration, 1); stopCount(request.allocationGeneration, 1);
+  return request;
+}
+
+interface SealedStopEvents {
+  readonly uncertain?: StopEvent;
+  readonly physical?: FactoryPhysicalStopReceipt;
+  readonly stopped?: StopEvent;
+}
+
+/** The stored events and receipt of a stop row. Each is present exactly when its digest is, matches that digest, and fits the row state. */
+function sealedStopEvents(row: StopRow): SealedStopEvents {
+  const uncertain = parseStopJson<StopEvent>(row.uncertain_event_json);
+  const physical = parseStopJson<FactoryPhysicalStopReceipt>(row.stop_receipt_json);
+  const stopped = parseStopJson<StopEvent>(row.stopped_event_json);
+  if ((uncertain === undefined) !== (row.uncertain_event_digest === null) || uncertain && row.uncertain_event_digest !== stopHash(uncertain)
+    || (physical === undefined) !== (row.stop_receipt_digest === null) || physical && row.stop_receipt_digest !== physical.receiptDigest
+    || (stopped === undefined) !== (row.stopped_event_digest === null) || stopped && row.stopped_event_digest !== stopHash(stopped)
+    || row.state === "accepted" && (uncertain || physical || stopped) || row.state === "stopped" && (!physical || !stopped)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+  return { uncertain, physical, stopped };
+}
+
+/** The receipt a sealed row already answers with: the stopped proof, the uncertain event, or none yet. */
+function sealedStopReceipt(state: FactoryTaskStopState, { uncertain, physical, stopped }: SealedStopEvents): FactoryTaskStopReceipt | undefined {
+  return state === "stopped"
+    ? Object.freeze({ state: "stopped" as const, event: Object.freeze(stopped!), stopReceipt: Object.freeze(physical!) })
+    : state === "uncertain" && uncertain ? Object.freeze({ state: "uncertain" as const, event: Object.freeze(uncertain) }) : undefined;
+}
+
 /**
  * Coordinates product cancellation with a signed, physical host stop.
  *
@@ -479,19 +515,29 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
   }
 
   private async readSealed(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, lock: boolean): Promise<SealedStop | undefined> {
+    await this.assertStopScope(transaction, service, reference);
+    const row = await this.readRow(transaction, reference, lock);
+    if (!row) return undefined;
+    const request = sealedStopRequest(row, reference);
+    const liveAuthority = await this.readLiveAuthority(transaction, service, reference, request);
+    const events = sealedStopEvents(row);
+    const sealed: SealedStop = { request: Object.freeze(request), liveAuthority, acceptedAtMs: Number(row.accepted_at_ms) };
+    this.assertSealedEvents(sealed, events);
+    const receipt = sealedStopReceipt(row.state, events);
+    return { ...sealed, ...(receipt ? { receipt } : {}) };
+  }
+
+  /** The caller is this installation's service, and the reference names a run of this tenant, now locked. */
+  private async assertStopScope(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<void> {
     this.authority.assertService(service);
     assertFactoryIdentity(...Object.values(reference));
     if (reference.tenantId !== this.authority.tenantId || !await lockFactoryScope(transaction, reference.tenantId, reference.projectId)) throw new FactoryTaskStopError("factory_task_stop_scope");
     const run = rows(await transaction.execute(sql`SELECT run_id FROM factory_runs WHERE tenant_id=${reference.tenantId} AND project_id=${reference.projectId} AND run_id=${reference.logicalRunId} FOR UPDATE`))[0];
     if (!run) throw new FactoryTaskStopError("factory_task_stop_scope");
-    const row = await this.readRow(transaction, reference, lock);
-    if (!row) return undefined;
-    const request = parseStopJson<FactoryTaskStopRequest>(row.request_json)!;
-    if (row.request_digest !== stopHash(request) || canonicalJson(request) !== row.request_json || canonicalJson(request.cancelReference) !== canonicalJson(reference)
-      || request.attemptId !== row.attempt_id || request.reservationId !== row.reservation_id || request.source !== row.source
-      || (request.attemptReference?.commandId ?? null) !== row.attempt_command_id
-      || factoryAttemptWorkerId(request.attemptId) !== request.workerId) throw new FactoryTaskStopError("factory_task_stop_corrupt");
-    stopCount(Number(row.accepted_at_ms)); stopCount(request.holderGeneration, 1); stopCount(request.allocationGeneration, 1);
+  }
+
+  /** Rebuilds the stop authority from the journal, the verified outcome, and the launch record, each of which must agree with the sealed request. */
+  private async readLiveAuthority(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, request: FactoryTaskStopRequest): Promise<FactoryLiveStopAuthority> {
     const authority = await this.journal.readAuthorityInTransaction(transaction, { tenantId: reference.tenantId, projectId: reference.projectId, runId: reference.logicalRunId, attemptId: request.attemptId });
     if (!authority) throw new FactoryTaskStopError("factory_task_stop_corrupt");
     const outcome = request.attemptReference ? await this.outcomes.readVerifiedInTransaction(transaction, service, request.attemptReference) : undefined;
@@ -507,15 +553,13 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
       ...(outcome ? { terminalOutcome: outcome } : {}),
     });
     if (terminalStopReason(outcome?.result ?? launch.terminalResult) !== request.reason) throw new FactoryTaskStopError("factory_task_stop_corrupt");
-    const uncertain = parseStopJson<StopEvent>(row.uncertain_event_json);
-    const physical = parseStopJson<FactoryPhysicalStopReceipt>(row.stop_receipt_json);
-    const stopped = parseStopJson<StopEvent>(row.stopped_event_json);
-    if ((uncertain === undefined) !== (row.uncertain_event_digest === null) || uncertain && row.uncertain_event_digest !== stopHash(uncertain)
-      || (physical === undefined) !== (row.stop_receipt_digest === null) || physical && row.stop_receipt_digest !== physical.receiptDigest
-      || (stopped === undefined) !== (row.stopped_event_digest === null) || stopped && row.stopped_event_digest !== stopHash(stopped)
-      || row.state === "accepted" && (uncertain || physical || stopped) || row.state === "stopped" && (!physical || !stopped)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
-    const acceptedAtMs = Number(row.accepted_at_ms);
-    const sealed: SealedStop = { request: Object.freeze(request), liveAuthority, acceptedAtMs };
+    return liveAuthority;
+  }
+
+  /** Each stored event is the one this stop would emit, at or after its acceptance; a stored receipt is a valid host proof. */
+  private assertSealedEvents(sealed: SealedStop, { uncertain, physical, stopped }: SealedStopEvents): void {
+    const { request, liveAuthority, acceptedAtMs } = sealed;
+    const authority = liveAuthority.authority;
     if (uncertain) {
       stopCount(uncertain.atMs);
       if (uncertain.atMs < acceptedAtMs || canonicalJson(uncertain) !== canonicalJson(stopEventFor(request, authority, uncertain.atMs, "stop-uncertain", true))) throw new FactoryTaskStopError("factory_task_stop_corrupt");
@@ -526,10 +570,6 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
       const measured = terminalStopUsage(liveAuthority)?.kind === "measured";
       if (stopped.atMs < acceptedAtMs || canonicalJson(stopped) !== canonicalJson(stopEventFor(request, authority, stopped.atMs, "stopped", !measured))) throw new FactoryTaskStopError("factory_task_stop_corrupt");
     }
-    const receipt = row.state === "stopped"
-      ? Object.freeze({ state: "stopped" as const, event: Object.freeze(stopped!), stopReceipt: Object.freeze(physical!) })
-      : row.state === "uncertain" && uncertain ? Object.freeze({ state: "uncertain" as const, event: Object.freeze(uncertain) }) : undefined;
-    return { ...sealed, ...(receipt ? { receipt } : {}) };
   }
 
   private async readRow(transaction: MigrationDb, reference: TrustedFactoryCommandReference, lock = true): Promise<StopRow | undefined> {

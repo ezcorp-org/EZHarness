@@ -170,8 +170,10 @@ describe("scope enforcement coverage", () => {
     }
 
     expect(missing).toEqual([]);
-    const factoryGate = await Bun.file(`${apiDir}/factories/_shared.ts`).text();
+    // The factory gate lives in the route kit that `_shared.ts` delegates to.
+    const factoryGate = await Bun.file(join(import.meta.dir, "../../web/src/lib/server/factory/route-kit.ts")).text();
     expect(factoryGate).toContain("requireScope(event.locals, options.scope)");
     expect(factoryGate).toContain("requireSessionAuth(event.locals)");
+    expect(await Bun.file(`${apiDir}/factories/_shared.ts`).text()).toContain("resolveFactoryPrincipal(event, options)");
   });
 });

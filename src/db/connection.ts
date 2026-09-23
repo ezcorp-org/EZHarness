@@ -432,7 +432,7 @@ async function initPglite(): Promise<void> {
   }
 
   clearMarker();
-  setDatabaseReadiness();
+  setReadiness({ state: "ready" });
 }
 
 /**
@@ -812,6 +812,13 @@ async function repairDoubleEncodedJsonb(sqlTag: typeof import("drizzle-orm")["sq
   }
 }
 
+/**
+ * Readiness after the external PostgreSQL driver opens. A factory install
+ * stays `booting` until its services are probed. The embedded PGlite path
+ * sets `ready` directly: `init()` refuses a factory boot without
+ * `DATABASE_URL` before any driver opens, so PGlite never runs with the
+ * factory flag on.
+ */
 function setDatabaseReadiness(): void {
   setReadiness(factoryBootConfig.enabled ? { state: "booting", reason: "factory-services-pending" } : { state: "ready" });
 }
