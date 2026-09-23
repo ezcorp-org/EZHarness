@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`findProjectRoot`** (`@ezcorp/sdk/runtime`) now stops only at a real git
+  repository marker: a `.git` directory that holds `HEAD`, or a `.git` file
+  that names its `gitdir:`. A stray empty `.git` directory (for example one
+  left in a shared `/tmp`) no longer anchors the project root, which matches
+  what `git rev-parse` reports.
+
 ### Added
 
+- **`resolveProjectRoot(from?)`** (`@ezcorp/sdk/runtime`) — `findProjectRoot`
+  that returns `from` when no repository encloses it or host `node:fs` is
+  unavailable. Example extensions and their install scripts use it instead of
+  their own `.git` walks.
 - **`Workflows.runFor(params)`** (`@ezcorp/sdk/runtime`) — fire a workflow
   your extension does NOT ship, as the principal a human already consented
   to (C3 delegated execution). Sent on the `ezcorp/workflows-delegated`

@@ -1,0 +1,8 @@
+# flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bun run test
+# start 2026-09-23T05:14:01Z
+$ bash scripts/test.sh
+
+================================
+  28094 pass | 0 fail | 1895 files
+================================
+# end 2026-09-23T06:09:30Z exit 0

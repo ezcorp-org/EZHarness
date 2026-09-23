@@ -17,6 +17,7 @@
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { markGitRepository } from "@ezcorp/sdk/test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getChannel, JsonRpcError } from "@ezcorp/sdk/runtime";
@@ -121,7 +122,7 @@ beforeEach(() => {
   // findProjectRoot walks up looking for `.git` — synthesize one in
   // the tmp dir so it stops here. Without this, the helper might
   // resolve into the actual repo and pollute it.
-  mkdirSync(join(tmpRoot, ".git"));
+  markGitRepository(tmpRoot);
   prevCwd = process.cwd();
   process.chdir(tmpRoot);
   _internals.pendingBriefAnswers.clear();

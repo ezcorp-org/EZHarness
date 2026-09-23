@@ -3564,3 +3564,27 @@ Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/fact
 ### Review
 
 The package composes W05's validator pieces from a startup declaration, and the coordinator's rulings closed the gaps the real application exposed. The base reproduction showed no material, no contract route, and an acceptance command refusing `factory_assurance_not_found`. At the final code the started application registers the material, admits the validator through the pool, runs it in Podman through the one attempt dispatcher, records a strict PASS, decides `accepted`, and delivers the event in the decision's transaction. It then settles the validator's reservation, and when the release effect refuses (no profile yet, W09c) the run ends `failed` with a projected typed reason instead of hanging in `running`. Three passes did that on fresh databases, both controls refused by name, and the orchestrator's Temporal leg passes 84 of 84. Two defects only real timing showed are fixed at their roots with tests: the candidate re-derivation that required a live lease, and a failed effect on an acceptance or release node that left a cancel nothing could answer. Open, each with its owner: the public lock read and the contract route's opaque 500 (W14), and the release operations supplier and profiles (W09c).
+
+## W18b — six pre-existing backend pool failures (branch `wp/w18b-pool-fixes`)
+
+Base `integ/w00` `94fb95b6a`. Receipts: `/tmp/factory-platform-evidence/w18b/`. Gates: `tasks/factory/w18b-GATES.md`.
+
+- [x] Reproduce each failure alone at base and record the assertion and the cause.
+- [x] Project root: the SDK walk accepts only a real git marker (a `.git` directory with `HEAD`, or a `.git` file naming `gitdir:`); every example copy routes through the SDK; tests pin a stray empty `.git` above the start.
+- [x] pi_session: remove the expired migration bridge and its calendar literal; the legacy cookie is always purged, never promoted; tests and docs follow.
+- [x] Launcher readiness: the runner probe reuses `inspectProductionRunner` and waits inside the launcher's readiness budget (one constant, `readiness_seconds=120`, used for the socket wait, the probe, and the health wait), not a separate one-second deadline; a test pins a slow runner inspect.
+- [x] The five files alone, the full backend pool, typecheck, lint, both boundary checks, gate-integrity, both coverage gates.
+- [x] Gate file `tasks/factory/w18b-GATES.md`, report, review paragraph.
+
+**Review.** The six failures had three causes, and W15's labels were wrong for two of them. First,
+three tests reported `/tmp` because every `.git` walk accepted any `.git` entry, and this host has an
+empty `/tmp/.git` that git itself rejects. The SDK walk now accepts only a real repository marker, the
+five example copies route through it, and the standalone ai-kit CLI asks git. The same cause also
+failed the SDK and ai-kit legs, which are fixed too. Second, the pi_session tests failed because their
+regexes matched indentation that a hook refactor changed. The 2026-06-01 literal was still a live
+product defect, so the expired bridge is retired: no date in code decides what the hook accepts.
+Third, the "Unix socket path limit" failure was a one-second readiness probe that timed out under pool
+load; the socket paths were already short. Each cause is pinned by a test that fails on the unfixed
+code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
+Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
+`inspectProductionRunner` keeps a fixed 5-second default for verification commands.
