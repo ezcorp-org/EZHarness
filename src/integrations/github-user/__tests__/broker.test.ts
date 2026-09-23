@@ -104,6 +104,24 @@ describe("personal GitHub credential broker", () => {
     expect((await getConnectionStatus({ userId: a })).status).toBe("disconnected");
   });
 
+  test("revoking the local session during OAuth exchange cannot install credentials", async () => {
+    const a = await userId("revoked-session@github-user.test");
+    await seedSession("revoked-session", a);
+    let release!: () => void;
+    let exchanging!: () => void;
+    const entered = new Promise<void>((resolve) => { exchanging = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    setGithubFetch(async () => { exchanging(); await gate; });
+    const { authorizeUrl } = await startAuthorization({ userId: a, sessionId: "revoked-session" });
+    const state = new URL(authorizeUrl).searchParams.get("state")!;
+    const completing = completeAuthorization({ userId: a, sessionId: "revoked-session", state, code: "first" });
+    await entered;
+    await getTestDb().delete(sessions).where(eq(sessions.id, "revoked-session"));
+    release();
+    await expect(completing).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
+    expect((await getConnectionStatus({ userId: a })).status).toBe("disconnected");
+  });
+
   test("invalid GitHub identity is refused and corrupt ciphertext cannot block local disconnect", async () => {
     const a = await userId("invalid@github-user.test");
     await seedSession("invalid-session", a);
@@ -220,13 +238,29 @@ describe("personal GitHub credential broker", () => {
     const [claim] = await getTestDb().select().from(githubUserEffectClaims).where(eq(githubUserEffectClaims.operationId, "maybe"));
     expect(claim.state).toBe("unknown");
     const binding = await getConnectionBinding({ userId: a });
-    expect(await withUserTokenReadOnly({ userId: a, repositoryId: 42, expectedGeneration: binding.generation }, async (token) => token)).toBe("access-one");
+    expect(await withUserTokenReadOnly({ userId: a, repositoryId: 42, expectedAccountId: binding.githubAccountId }, async (token) => token)).toBe("access-one");
     expect((await getTestDb().select().from(githubUserEffectClaims)).length).toBe(1);
     let repeated = false;
     await expect(withUserToken({ userId: a, repositoryId: 42, operationId: "maybe", kind: "import" }, async () => { repeated = true; })).rejects.toThrow();
     expect(repeated).toBe(false);
     await disconnect({ userId: a });
-    await expect(withUserTokenReadOnly({ userId: a, repositoryId: 42, expectedGeneration: binding.generation }, async () => "bad")).rejects.toThrow();
+    await expect(withUserTokenReadOnly({ userId: a, repositoryId: 42, expectedAccountId: binding.githubAccountId }, async () => "bad")).rejects.toThrow();
+  });
+
+  test("read-only reconciliation can use a reconnected matching account", async () => {
+    const a = await userId("reconcile-after-reconnect@github-user.test");
+    await connect(a);
+    const original = await getConnectionBinding({ userId: a });
+    await disconnect({ userId: a });
+    await connect(a, "reconnected-session", "second");
+    expect(await withUserTokenReadOnly({ userId: a, repositoryId: 42, expectedAccountId: original.githubAccountId }, async token => token)).toBe("access-two");
+    await expect(withUserToken({ userId: a, repositoryId: 42, operationId: "old-generation", kind: "publish", expectedGeneration: original.generation, authorizeDispatch: async () => {} }, async () => "bad")).rejects.toMatchObject({ code: "STALE_CONNECTION" });
+    await disconnect({ userId: a });
+    setGithubFetch(undefined, { accountId: 72 });
+    await connect(a, "other-account-session", "second");
+    let read = false;
+    await expect(withUserTokenReadOnly({ userId: a, repositoryId: 42, expectedAccountId: original.githubAccountId }, async () => { read = true; })).rejects.toMatchObject({ code: "STALE_CONNECTION" });
+    expect(read).toBe(false);
   });
 
   test("disconnect and reconnect fence later requests of a claimed publication", async () => {

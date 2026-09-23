@@ -25,8 +25,9 @@ async function lockAuthority(tx: DbTransaction, userId: string): Promise<{ gener
   return row;
 }
 
-async function requireLiveSession(tx: DbTransaction, userId: string, sessionId: string): Promise<void> {
-  const [session] = await tx.select({ userId: sessions.userId, expiresAt: sessions.expiresAt }).from(sessions).where(eq(sessions.id, sessionId));
+async function requireLiveSession(tx: DbTransaction, userId: string, sessionId: string, lock = false): Promise<void> {
+  const query = tx.select({ userId: sessions.userId, expiresAt: sessions.expiresAt }).from(sessions).where(eq(sessions.id, sessionId));
+  const [session] = await (lock ? query.for("update") : query);
   if (!session || session.userId !== userId || session.expiresAt <= new Date()) throw new GithubUserError("SESSION_EXPIRED", "Sign in again to connect GitHub");
 }
 
@@ -101,6 +102,7 @@ export async function completeAuthorization({ userId, sessionId, state, code }: 
   }
   try {
     const previousToken = await getDb().transaction(async (tx: DbTransaction) => {
+      await requireLiveSession(tx, userId, sessionId, true);
       const authority = await lockAuthority(tx, userId);
       if (authority.generation !== attempt.expectedGeneration) throw new GithubUserError("STALE_CALLBACK", "GitHub authorization is stale");
       const [old] = await tx.select().from(githubUserConnections).where(eq(githubUserConnections.userId, userId));
@@ -211,11 +213,11 @@ export async function pollDeviceAuthorization({ userId, sessionId, attemptId }: 
     }
   }
   const result = await getDb().transaction(async (tx: DbTransaction) => {
+    const [session] = await tx.select({ userId: sessions.userId, expiresAt: sessions.expiresAt }).from(sessions).where(eq(sessions.id, sessionId)).for("update");
     const authority = await lockAuthority(tx, userId);
     const [attempt] = await tx.select().from(githubUserDeviceAttempts).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
     if (!attempt || attempt.userId !== userId || attempt.sessionDigest !== digest(sessionId)) throw unavailableAttempt();
     if (attempt.status !== "pending" || attempt.pollClaimToken !== claimed.claimToken) return { status: "cancelled" as const };
-    const [session] = await tx.select({ userId: sessions.userId, expiresAt: sessions.expiresAt }).from(sessions).where(eq(sessions.id, sessionId));
     if (!session || session.userId !== userId || session.expiresAt <= new Date() || attempt.expiresAt <= new Date() || authority.generation !== attempt.expectedGeneration) {
       const status = attempt.expiresAt <= new Date() ? "expired" : "cancelled";
       await tx.update(githubUserDeviceAttempts).set({ status, pollClaimToken: null, pollClaimExpiresAt: null }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
@@ -382,17 +384,17 @@ export async function checkRepository({ userId, repositoryId }: { userId: string
 
 /** Host-only read path for an uncertain, already-dispatched operation. No new write claim. */
 export async function withUserTokenReadOnly<T>(
-  input: { userId: string; repositoryId: number; expectedGeneration: number },
+  input: { userId: string; repositoryId: number; expectedAccountId: number },
   effect: (token: string) => Promise<T>,
 ): Promise<T> {
-  if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0) throw new GithubUserError("INVALID_REPOSITORY", "Invalid repository");
+  if (!Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0 || !Number.isSafeInteger(input.expectedAccountId) || input.expectedAccountId <= 0) throw new GithubUserError("INVALID_REPOSITORY", "Invalid repository or account");
   const current = await currentToken(input.userId);
   const repository = await checkRepositoryWithToken(current.token, input.repositoryId, getGithubUserConfig().appId, "read");
   if (repository.status !== "ready") throw new GithubUserError("REPOSITORY_ACCESS", "GitHub repository access is unavailable");
   await getDb().transaction(async (tx: DbTransaction) => {
     const authority = await lockAuthority(tx, input.userId);
     const [connection] = await tx.select().from(githubUserConnections).where(eq(githubUserConnections.userId, input.userId));
-    if (authority.generation !== input.expectedGeneration || current.generation !== authority.generation || connection?.connectionId !== current.connectionId || connection.state !== "connected") throw new GithubUserError("STALE_CONNECTION", "GitHub connection changed");
+    if (current.generation !== authority.generation || connection?.connectionId !== current.connectionId || connection.state !== "connected" || connection.githubAccountId !== input.expectedAccountId) throw new GithubUserError("STALE_CONNECTION", "GitHub connection changed");
   });
   return effect(current.token);
 }

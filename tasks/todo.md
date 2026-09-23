@@ -898,3 +898,17 @@ uses explicit portable empty-variable syntax and preserves its literal rebuild c
 tests pass 132 tests and 315 assertions. The repaired full backend pool passes 26,273 tests across
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
+
+## Review PR #308 — 2026-09-23
+
+- [x] Read PR history, description, review findings, failing CI, and linked design.
+- [x] Reproduce OAuth session-revocation and read-only PR recovery gaps in focused tests.
+- [x] Fix both gaps, including row-locked final session validation.
+- [x] Run broker, device-flow, and PR-service suites; typecheck and lint.
+- [x] Run launcher integration suite locally under CI settings.
+- [ ] Push fix commit and inspect new hosted CI.
+- [ ] Record final review and blockers.
+
+Plan review: Keep this work on the PR #308 branch and change only the credential broker, PR recovery call, and focused tests. Do not weaken the launcher test while its hosted failure remains unexplained.
+
+Review: The two source findings failed before the fix and pass after it. Focused broker, device, and PR-service suites pass 31 tests and 222 assertions. Full typecheck and lint over 4,740 files pass. The launcher integration suite passes 4 tests and 43 assertions locally with CI environment flags. Hosted residual integration failed twice at its 20-second watchdog on the old head; a fresh run on the repair commit is pending. Human non-author and CODEOWNERS review remain required.

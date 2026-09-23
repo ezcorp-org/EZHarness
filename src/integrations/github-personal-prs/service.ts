@@ -233,7 +233,7 @@ async function reconcileProposal(userId: string, row: Row): Promise<PersonalPrVi
   if (!row.commit_sha) throw new PersonalPrError("conflict", "Publication outcome is uncertain. Check GitHub before another attempt");
   let published: PublishedPr | null;
   try {
-    published = await withUserTokenReadOnly({ userId, repositoryId: Number(row.repository_id), expectedGeneration: Number(row.connection_generation) }, token =>
+    published = await withUserTokenReadOnly({ userId, repositoryId: Number(row.repository_id), expectedAccountId: Number(row.github_account_id) }, token =>
       reconcileFrozenDraft({ token, repositoryId: Number(row.repository_id), repositoryName: String(row.repository_name), baseRef: String(row.base_ref), branch: String(row.branch), commitSha: String(row.commit_sha) }, githubApiRequest));
   } catch (error) {
     if (error instanceof GithubUserError && error.code === "GITHUB_404") throw new PersonalPrError("conflict", "Publication outcome is uncertain. Check GitHub before another attempt");
