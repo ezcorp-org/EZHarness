@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createSession, type ExtensionContext, type ProviderCredentialInput } from "@ezcorp/sdk/v4";
 import { parseInfisicalConnectionConfig } from "./config";
 import { createHostInfisicalTransport } from "./host-transport";
-import { createInfisicalExtension } from "./index";
+import { createHostInfisicalExtension, createInfisicalExtension } from "./index";
 import { InfisicalStaticSecretProvider, type InfisicalLifetimeMetadata } from "./provider";
 import {
   InfisicalProviderError,
@@ -266,6 +266,84 @@ describe("Infisical static-secret provider", () => {
     await expect(unavailable.request(request)).rejects.toMatchObject({ code: "unavailable" });
     const malformed = createHostInfisicalTransport({ call: async () => ({ status: "200", body: canary }) });
     await expect(malformed.request(request)).rejects.toMatchObject({ code: "invalid_response" });
+    for (const response of [null, [], { status: 200, body: "{}", headers: [] }, { status: 200, body: "{}", headers: { count: 1 } }]) {
+      const invalid = createHostInfisicalTransport({ call: async () => response });
+      await expect(invalid.request(request)).rejects.toMatchObject({ code: "invalid_response" });
+    }
+    const noHeaders = createHostInfisicalTransport({ call: async () => ({ status: 204, body: "" }) });
+    expect(await noHeaders.request(request)).toEqual({ status: 204, body: "" });
+  });
+
+  test("reuses authentication for one connection and replaces it when the pins change", async () => {
+    let current = config();
+    const transport = new QueueTransport([
+      login(), secret(), secret(), login(), secret({ secretKey: "ROTATED_KEY" }),
+    ]);
+    const extension = createInfisicalExtension(async () => ({ config: current, transport }));
+    const context = {
+      invocation: {
+        invocationId: "cache-test", workerId: "worker", releaseId: "release",
+        principalId: "owner", scopeId: "project", token: "token", deadline: Date.now() + 10_000,
+      },
+      signal: new AbortController().signal,
+      call: async () => null,
+    } satisfies ExtensionContext;
+    expect(await extension.resolveProviderCredential!(input(), context)).toBe(canary);
+    expect(await extension.resolveProviderCredential!(input(), context)).toBe(canary);
+    expect(transport.requests.map(request => request.method)).toEqual(["POST", "GET", "GET"]);
+    current = parseInfisicalConnectionConfig({
+      ...configValue(),
+      credentials: [{ ...configValue().credentials[0]!, secretName: "ROTATED_KEY" }],
+    });
+    expect(await extension.resolveProviderCredential!(input(), context)).toBe(canary);
+    expect(transport.requests.map(request => request.method)).toEqual(["POST", "GET", "GET", "POST", "GET"]);
+  });
+
+  test("bounds cached provider connections", async () => {
+    let connectionId = "connection-0";
+    const transport: InfisicalHttpTransport = {
+      request: async request => request.method === "POST" ? login() : secret(),
+    };
+    const extension = createInfisicalExtension(async () => ({
+      config: parseInfisicalConnectionConfig({ ...configValue(), connectionId }),
+      transport,
+    }));
+    const context = {
+      invocation: {
+        invocationId: "limit-test", workerId: "worker", releaseId: "release",
+        principalId: "owner", scopeId: "project", token: "token", deadline: Date.now() + 10_000,
+      },
+      signal: new AbortController().signal,
+      call: async () => null,
+    } satisfies ExtensionContext;
+    for (let index = 0; index < 32; index++) {
+      connectionId = `connection-${index}`;
+      expect(await extension.resolveProviderCredential!(input({ connectionId }), context)).toBe(canary);
+    }
+    connectionId = "connection-32";
+    await expect(extension.resolveProviderCredential!(input({ connectionId }), context)).rejects.toThrow(
+      "Infisical provider connection limit reached",
+    );
+  });
+
+  test("resolves a credential through the host backed extension", async () => {
+    const calls: Array<{ name: string; args: { body: InfisicalHttpRequest } }> = [];
+    const context = {
+      invocation: {
+        invocationId: "host-test", workerId: "worker", releaseId: "release",
+        principalId: "owner", scopeId: "project", token: "token", deadline: Date.now() + 10_000,
+        metadata: { providerConfig: configValue() },
+      },
+      signal: new AbortController().signal,
+      call: async (name: string, args: { body: InfisicalHttpRequest }) => {
+        calls.push({ name, args });
+        return args.body.method === "POST" ? login() : secret();
+      },
+    } as ExtensionContext;
+    const extension = createHostInfisicalExtension();
+    expect(await extension.resolveProviderCredential!(input(), context)).toBe(canary);
+    expect(calls.map(call => call.name)).toEqual(["ezcorp/api.request", "ezcorp/api.request"]);
+    expect(calls.map(call => call.args.body.method)).toEqual(["POST", "GET"]);
   });
 
   test("the v4 definition exposes the provider only on the classified credential handler", async () => {

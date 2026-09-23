@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ExtensionContext } from "@ezcorp/sdk/v4";
 import {
   SANDBOX_PROVIDER_OPERATIONS,
   canonicalJson,
@@ -7,7 +8,7 @@ import {
   validateManifest,
 } from "@ezcorp/extension-contract";
 import { INCUS_CONNECTION_CONFIG_SCHEMA, parseIncusConnectionConfig } from "./config";
-import { createIncusExtension } from "./index";
+import { createIncusExtension, resolveHostIncusInvocationRuntime } from "./index";
 import { INCUS_METHOD_GROUP, incusManifest, incusMethodName } from "./manifest";
 
 const validConfig = {
@@ -121,5 +122,27 @@ describe("Incus extension manifest", () => {
       protocolMajor: 1,
     });
     expect(runtimeResolutions).toBe(0);
+    expect(await extension.dispatch("incus/lifecycle/inspect", {
+      providerId: "incus",
+      connectionId: validConfig.connectionId,
+      sandboxId: "sandbox-1",
+      rpcDeadlineMs: Date.now() + 4_000,
+    }, context)).toMatchObject({ ok: false });
+    expect(runtimeResolutions).toBe(1);
+  });
+
+  test("requires invocation connection pins before creating host transport", () => {
+    const context = {
+      invocation: { metadata: {} },
+      call: async () => { throw new Error("host call must not run"); },
+    } as unknown as ExtensionContext;
+    expect(() => resolveHostIncusInvocationRuntime(context)).toThrow(
+      "Incus connection configuration is unavailable",
+    );
+    const configuredContext = {
+      ...context,
+      invocation: { ...context.invocation, metadata: { providerConfig: validConfig } },
+    } as ExtensionContext;
+    expect(resolveHostIncusInvocationRuntime(configuredContext).config).toEqual(validConfig);
   });
 });
