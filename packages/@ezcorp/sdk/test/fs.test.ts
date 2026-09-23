@@ -45,21 +45,17 @@ describe("findProjectRoot", () => {
   });
 
   test("throws when no .git ancestor exists up to filesystem root", () => {
-    // Sanity: if the system /.git exists this assumption is invalid.
-    // Walk the workDir's chain to confirm no ancestor has .git.
-    let cur = workDir;
-    while (true) {
-      if (existsSync(join(cur, ".git"))) {
-        throw new Error(
-          `precondition violated: ${join(cur, ".git")} exists — this test assumes no .git in tmpdir ancestry`,
-        );
-      }
-      const parent = dirname(cur);
-      if (parent === cur) break;
-      cur = parent;
+    // A shared host can have /tmp/.git. Hide Git markers for this walk only.
+    const fs = require("node:fs") as typeof import("node:fs");
+    const exists = fs.existsSync;
+    const stub = spyOn(fs, "existsSync").mockImplementation(path =>
+      String(path).endsWith("/.git") ? false : exists(path),
+    );
+    try {
+      expect(() => findProjectRoot(workDir)).toThrow(/no \.git ancestor found/);
+    } finally {
+      stub.mockRestore();
     }
-
-    expect(() => findProjectRoot(workDir)).toThrow(/no \.git ancestor found/);
   });
 
   test("uses process.cwd() when called with no argument", () => {

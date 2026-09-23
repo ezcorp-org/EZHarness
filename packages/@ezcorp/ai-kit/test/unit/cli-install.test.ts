@@ -1,4 +1,4 @@
-import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, spyOn } from "bun:test";
 import * as nodePath from "node:path";
 import * as nodeFs from "node:fs";
 import * as nodeOs from "node:os";
@@ -272,11 +272,16 @@ describe("install ezcorp", () => {
 
   test("throws when no git root found and no projectPath given", async () => {
     const isolated = makeTmpDir(); // no .git
+    const exists = nodeFs.existsSync;
+    const stub = spyOn(nodeFs, "existsSync").mockImplementation(path =>
+      String(path).endsWith("/.git") ? false : exists(path),
+    );
     try {
       await expect(
         install("ezcorp", { home, cwd: isolated, dryRun: false }),
       ).rejects.toThrow("Could not find a project root");
     } finally {
+      stub.mockRestore();
       rmTmpDir(isolated);
     }
   });
