@@ -223,11 +223,14 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
 
   async controlFacts(scope: IncusQualificationScope, preset: SandboxPreset): ReturnType<HostIncusLiveWitness["controlFacts"]> {
     if (!this.controlProbe) deny("operator-owned production admission, inventory, and distinct canary probes are unavailable");
-    const { context } = await this.context(scope, preset);
+    const { context, helperDigest } = await this.context(scope, preset);
     const provider = (await this.qualifications.authorizeFixture(scope)).snapshot.release.manifest
       .sandboxProviders?.find(item => item.id === "incus" && item.kind === "sandbox");
     if (!provider) deny("reviewed provider declaration is unavailable");
-    const observed = (await this.backend.image(context)).observation;
+    const backend = await this.backend.image(context);
+    if (backend.imageDigest !== preset.imageDigest || backend.helperDigest !== helperDigest
+      || backend.profile !== preset.profile) deny("backend artifact changed during control probe");
+    const observed = backend.observation;
     const request = { profile: preset.profile, presetId: preset.id, observation: observed };
     const baseline = await resolveSandboxPreset(provider, request);
     const repeated = await resolveSandboxPreset(provider, request);
