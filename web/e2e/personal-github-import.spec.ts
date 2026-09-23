@@ -42,12 +42,18 @@ test("imports a selected repository into a private sandbox before opening chat @
 });
 
 test("a connected account can enable its first repository @evidence", async ({ page, mockApi }, testInfo) => {
+	let checks = 0;
+	let enabled = false;
 	await mockApi({ projects: [makeProject({ id: "source-project", name: "Source project" })] });
 	await page.route("**/api/github/connection", (route) => route.fulfill({ json: {
 		status: "connected", configured: true, authMode: "device", account: { id: 123, login: "owner" },
 		installUrl: "https://github.com/apps/ezcorp-github-auth/installations/new",
 	} }));
-	await page.route("**/api/github/repositories", (route) => route.fulfill({ json: { repositories: [] } }));
+	await page.route("**/api/github/repositories", (route) => {
+		checks++;
+		if (checks === 2) return route.fulfill({ status: 503, json: { error: "Repository check unavailable" } });
+		return route.fulfill({ json: { repositories: enabled ? [{ id: 42, fullName: "owner/private", defaultBranch: "main", private: true, accessStatus: "ready" }] : [] } });
+	});
 	await page.goto("/project/source-project/settings");
 	await page.getByRole("button", { name: "Import a GitHub repository into a private sandbox" }).click();
 	const importer = page.getByTestId("github-sandbox-import");
@@ -56,5 +62,15 @@ test("a connected account can enable its first repository @evidence", async ({ p
 	await captureEvidence(page, testInfo, "personal-github-first-repository", { fullPage: true });
 	await page.goto("/settings/github");
 	await expect(page.getByRole("link", { name: "Enable repositories on GitHub" })).toHaveAttribute("href", "https://github.com/apps/ezcorp-github-auth/installations/new");
-	await expect(page.getByRole("button", { name: "Recheck repositories" })).toBeVisible();
+	await page.getByRole("button", { name: "Recheck repositories" }).click();
+	await expect(page.getByRole("alert")).toHaveText("Repository check unavailable");
+	await page.getByRole("button", { name: "Recheck repositories" }).click();
+	await expect(page.getByText("No enabled repositories yet.")).toBeVisible();
+	enabled = true;
+	await page.getByRole("button", { name: "Recheck repositories" }).click();
+	await expect(page.getByText("1 enabled repository available.")).toBeVisible();
+	await page.goto("/project/source-project/settings");
+	await page.getByRole("button", { name: "Import a GitHub repository into a private sandbox" }).click();
+	await expect(page.getByTestId("github-sandbox-import").getByRole("option", { name: "owner/private" })).toHaveCount(1);
+	expect(checks).toBe(5);
 });

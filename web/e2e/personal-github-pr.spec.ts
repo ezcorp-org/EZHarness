@@ -83,6 +83,23 @@ test("a no-change run explains why a PR cannot be prepared @evidence", async ({ 
 	await captureEvidence(page, testInfo, "personal-pr-no-changes");
 });
 
+test("a review link from another conversation cannot replace this chat's diff @evidence", async ({ page, mockApi }, testInfo) => {
+	let reviewReads = 0;
+	await mockApi({ projects: [project], conversations: [conversation], messages, routes: {
+		"/api/github/personal-prs/proposals/proposal-1": () => {
+			reviewReads++;
+			return { state: "ready", proposalId: "proposal-1", digest: "a".repeat(64),
+				reviewPath: `/project/${project.id}/chat/another-conversation?review=proposal-1` };
+		},
+	} });
+	await page.goto(`/project/${project.id}/chat/${conversation.id}?review=proposal-1`);
+	await expect.poll(() => reviewReads).toBe(1);
+	await page.getByTestId("diff-panel-btn").click();
+	await expect(page.getByTestId("diff-review-toolbar")).toBeVisible();
+	await expect(page.getByTestId("personal-pr-review")).toHaveCount(0);
+	await captureEvidence(page, testInfo, "personal-pr-foreign-chat-review-link");
+});
+
 test("owner checks an uncertain GitHub result after reload @evidence", async ({ page, mockApi }, testInfo) => {
 	let state: "failed" | "created" = "failed";
 	let checks = 0;
