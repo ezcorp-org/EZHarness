@@ -237,10 +237,18 @@ describe("factoryGatewayProbeTarget", () => {
     return { target, stop: () => server.stop(true) };
   }
 
-  test("any HTTP answer from the listener, an error status included, proves it live", async () => {
+  test("the route-less 404 of a live gateway, or a success, proves it live", async () => {
     for (const status of [200, 404]) {
       const { target, stop } = await listener(status);
       try { expect(await target.health(new AbortController().signal)).toBe(true); }
+      finally { stop(); }
+    }
+  });
+
+  test("a failing gateway's 503, or any status other than the route-less 404, reports it down", async () => {
+    for (const status of [503, 500, 401, 403]) {
+      const { target, stop } = await listener(status);
+      try { expect({ status, live: await target.health(new AbortController().signal) }).toEqual({ status, live: false }); }
       finally { stop(); }
     }
   });

@@ -165,7 +165,7 @@ export function factoryStorageProbeTarget(blobs: BlobStore): FactoryStorageProbe
   };
 }
 
-/** The gateway is live when its own listener terminates TLS and answers. */
+/** The gateway is live when its own listener terminates TLS and answers its route-less 404. */
 export function factoryGatewayProbeTarget(config: FactoryStartupConfig): FactoryRuntimeDependencies["gateway"] {
   return {
     async health(signal) {
@@ -180,14 +180,15 @@ export function factoryGatewayProbeTarget(config: FactoryStartupConfig): Factory
         },
         requestTimeoutMs: 5_000,
       });
-      // Any HTTP answer proves the listener is bound and terminating TLS with
-      // this installation's material. A refused connection or a failed
+      // The execution gateway serves no health route, so a live gateway answers
+      // this path 404 after terminating TLS with this installation's material.
+      // Only that route-less 404 (or a success, should a route appear) proves
+      // it live: a 5xx is a gateway failing, and any other status is not the
+      // listener this probe expects. A refused connection or a failed
       // handshake throws, and the probe reports the transport's own code.
-      // The transport raises any non-2xx answer as GatewayStatusError; that is
-      // still an HTTP answer from this installation's listener.
       try { return (await transport.request("GET", "/internal/factory/v1/health", undefined, 64 * 1024, signal)).statusCode > 0; }
       catch (error) {
-        if (error instanceof GatewayStatusError) return true;
+        if (error instanceof GatewayStatusError) return error.response.statusCode === 404;
         throw error;
       }
     },
