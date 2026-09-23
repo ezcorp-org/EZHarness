@@ -62,7 +62,7 @@ describe("GET /api/quickstart", () => {
     expect(res.status).toBe(401);
   });
 
-  test("returns all steps false when nothing exists", async () => {
+  test("with nothing configured, keyless chat is ready but provider setup is incomplete", async () => {
     const event = createMockEvent({
       url: "http://localhost/api/quickstart",
       user: testUser,
@@ -70,8 +70,10 @@ describe("GET /api/quickstart", () => {
     const res = await GET(event);
     expect(res.status).toBe(200);
     const data = await jsonFromResponse(res);
+    // The keyless Kilo tier answers anonymously, without completing setup.
     expect(data.steps).toEqual({
       provider: false,
+      usableProvider: true,
       chat: false,
       extension: false,
       agent: false,

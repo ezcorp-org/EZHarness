@@ -5,11 +5,11 @@
 
 	// `/api/settings` deny-lists `provider:apiKey:*` and `provider:oauth:*`,
 	// so `store.settings` never carries provider creds — we have to ask the
-	// server. `/api/quickstart` returns a flat boolean per onboarding step
-	// and is gated only by `requireAuth`, so it works for non-admin users.
+	// server. `/api/quickstart` returns both credential setup and chat readiness
+	// and is available to non-admin users.
 	// `null` while loading so we don't flash the warning before the answer.
 	let role = $state<string | null>(null);
-	let hasProvider = $derived(store.quickstartSteps?.provider ?? null);
+	let canChat = $derived(store.quickstartSteps?.usableProvider ?? store.quickstartSteps?.provider ?? null);
 	let access = $derived(providerAccess(role ?? undefined));
 
 	onMount(async () => {
@@ -29,7 +29,7 @@
 	});
 </script>
 
-{#if hasProvider === false}
+{#if canChat === false}
 	<div
 		class="mx-4 mt-4 rounded-md border border-[var(--color-warning,#f59e0b)]/50 bg-[var(--color-warning,#f59e0b)]/10 p-4 text-sm"
 		role="status"
