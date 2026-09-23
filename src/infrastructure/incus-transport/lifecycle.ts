@@ -260,6 +260,7 @@ async function createInstance({ session, command, project, collection, input, po
     "user.ezharness.managed_by": managedBy, "user.ezharness.connection_id": command.connectionId, "user.ezharness.sandbox_id": command.tags.sandboxId,
     "user.ezharness.create_key": command.idempotency!.key, "user.ezharness.profile": policy.profile, "user.ezharness.preset_id": input.presetId,
     "user.ezharness.generation": "1", "user.ezharness.operation_id": stableId, "user.ezharness.desired_state": input.desiredState,
+    // Incus counts limits.cpu toward the project budget; only the time-form allowance enforces a hard CPU ceiling.
     "limits.memory": String(policy.limits.memoryBytes), "limits.cpu": String(Math.ceil(policy.limits.cpuMillis / 1000)),
     "limits.cpu.allowance": `${policy.limits.cpuMillis}ms/1000ms`, "limits.processes": String(policy.limits.pids),
   } };
