@@ -3559,19 +3559,35 @@ Base: `260855e57` (W09b merged). Assumptions are stated in the gate file.
 - [x] P7 Step 7 and bootstrap: first-admin invitation gates first-run setup; explicit bootstrap consent writes trust grants and the bootstrap record with a transactional audit entry.
 - [x] P8 Fault every step; recover or tear down only owned resources; credential rotation and revocation; rerun idempotence.
 - [x] P9 Operator-only control plane and tenant directory (routing, membership, resource references only; no tenant route, no product authority).
-- [ ] P10 Compose self-hosted profile (pinned images, secrets by file, health checks, bounded resources, loopback-only networking) and Kubernetes hosted manifests (validated; kind/k3d smoke only if tools exist).
+- [x] P10 Compose self-hosted profile (pinned images, secrets by file, health checks, bounded resources, loopback-only networking) and Kubernetes hosted manifests (validated; kind/k3d smoke only if tools exist).
 - [x] P11 Supervisors outside harnesses: ONE shared host systemd unit per fleet (Compose profile, coordinator ruling 2026-09-22) and a privileged DaemonSet (Kubernetes); only they hold runtime access and host identity; separation tested in both profiles.
 - [x] P12 Fleet upgrades: canary first, C12 order, old build retention, failure-stopped waves, reverse-order additive rollback; teardown keeps the release archive; human-admin purge after active and uncertain work closes.
 - [x] P13 GPU host profile registration in a new file; production GPU criteria stay a named readiness row.
-- [ ] P14 Ten local installations through the Compose profile on rootless Podman with distinct identities and credentials.
+- [x] P14 Ten local installations through the Compose profile on rootless Podman with distinct identities and credentials.
 - [x] P15 Operator documentation: prerequisites, image and runtime locks, secret references, recovery, drain, upgrades, rollback, CPU-only availability.
-- [ ] P16 Sweep per common.md after `git merge --no-edit integ/w00`.
+- [x] P16 Sweep per common.md after `git merge --no-edit integ/w00`.
 - [x] P17 Review-1 fixes (H1-H4, M1-M9, L1-L11), the static live-path review's defects, W15's namespace settings and restore scope, and no fleet role residue on the cluster.
 - [x] P18 Shared pool and supervisor per the ruling: readiness keyed on the service's own identity (product side) and the fleet host (provisioner side).
 
 ### Review
 
-(pending)
+W16 lands the C12 provisioner in seven owned steps and four phases. The fleet
+host runs one pool and one host supervisor that every installation shares
+(coordinator ruling 2026-09-22): readiness keys on the shared service's own
+identity, and tenant scoping stays in the pool's certificate map. Around them
+are the Compose profile on rootless Podman, the Kubernetes manifests, fleet
+upgrades, session-issued purge approval, and operator documentation. Live
+evidence on this host, at head db8acda26 in one heavy-lock hold: ten
+installations, one shared pool and supervisor, 36 of 36 self-hosted checks;
+23 of 23 lifecycle checks (rotation, canary waves with walk-back and additive
+rollback, teardown, purge); the Kubernetes manifests schema-valid and admitted
+by a local kind cluster (labelled, not a hosted pass); and the common.md sweep
+all green. The live runs found and fixed real defects the unit tests could not
+see: Bun's JSON and array binding, a precedence bug, a gateway probe that
+treated 404 as down, unbounded product database pools, unreadable image files
+under a private umask, Envoy's user, the unconfigured extensions, and daemons
+failing on the read-only root. Open: W15's `temporalHttp` field lands with
+W15's merge, and the pool config's `installationId` field waits for W18a-2.
 
 ## W09d — compose validators into the installation (branch `wp/w09d-validators`)
 
