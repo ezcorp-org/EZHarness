@@ -20,9 +20,9 @@ async function setupRepoActivitySession(denyProjectGit = false) {
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = () => {
     if (cleanupPromise) return cleanupPromise;
-    if (activeSessionCleanup === cleanup) activeSessionCleanup = undefined;
     expired = true;
-    cleanupPromise = (async () => { try { await ownedSession?.close(); } finally { await rm(root, { recursive: true, force: true }); } })();
+    cleanupPromise = (async () => { try { await ownedSession?.close(); } finally { await rm(root, { recursive: true, force: true }); } })()
+      .finally(() => { if (activeSessionCleanup === cleanup) activeSessionCleanup = undefined; });
     return cleanupPromise;
   };
   activeSessionCleanup = cleanup;

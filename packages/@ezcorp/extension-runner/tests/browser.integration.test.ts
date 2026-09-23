@@ -19,9 +19,9 @@ async function withBrowserRunner(check: (build: (input: typeof files) => ReturnT
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = () => {
     if (cleanupPromise) return cleanupPromise;
-    if (activeCleanup === cleanup) activeCleanup = undefined;
     expired = true;
-    cleanupPromise = (async () => { try { await runner?.close(); } finally { await rm(root, { recursive: true, force: true }); } })();
+    cleanupPromise = (async () => { try { await runner?.close(); } finally { await rm(root, { recursive: true, force: true }); } })()
+      .finally(() => { if (activeCleanup === cleanup) activeCleanup = undefined; });
     return cleanupPromise;
   };
   activeCleanup = cleanup;

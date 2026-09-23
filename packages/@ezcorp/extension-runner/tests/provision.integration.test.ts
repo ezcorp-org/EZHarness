@@ -81,13 +81,12 @@ test("production runner entrypoint starts with a long inherited TMPDIR and build
   let cleanupPromise: Promise<void> | undefined;
   const cleanup = () => {
     if (cleanupPromise) return cleanupPromise;
-    if (activeEntrypointCleanup === cleanup) activeEntrypointCleanup = undefined;
     cleanupPromise = (async () => {
       child.kill("SIGTERM");
       await child.exited;
       await diagnostics;
       await rm(directory, { recursive: true, force: true });
-    })();
+    })().finally(() => { if (activeEntrypointCleanup === cleanup) activeEntrypointCleanup = undefined; });
     return cleanupPromise;
   };
   activeEntrypointCleanup = cleanup;
