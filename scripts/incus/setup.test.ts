@@ -357,14 +357,22 @@ esac
 
     const published = "a".repeat(64);
     const aliasCounter = join(directory, "alias-count");
+    const publishMarker = join(directory, "published-marker");
     const hygieneScript = join(directory, "hygiene-script");
     await writeFile(incus, `#!/bin/sh
 case "$1" in
   image)
-    count=$(cat "$EZH_ALIAS_COUNT")
-    count=$((count + 1))
-    printf '%s\\n' "$count" > "$EZH_ALIAS_COUNT"
-    if [ "$EZH_SECOND_ALIAS" = yes ] && [ "$count" -eq 2 ]; then printf '[{"name":"%s"}]\\n' "$EZH_ALIAS"; else printf '[]\\n'; fi;;
+    if [ "$2" = alias ]; then
+      count=$(cat "$EZH_ALIAS_COUNT")
+      count=$((count + 1))
+      printf '%s\\n' "$count" > "$EZH_ALIAS_COUNT"
+      if [ "$EZH_SECOND_ALIAS" = yes ] && [ "$count" -eq 2 ]; then printf '[{"name":"%s"}]\\n' "$EZH_ALIAS"; else printf '[]\\n'; fi
+    elif [ "$2" = list ]; then
+      if [ ! -f "$EZH_PUBLISH_MARKER" ]; then printf '[]\\n'
+      elif [ "$EZH_QUERY_MODE" = no_new ]; then printf '[]\\n'
+      elif [ "$EZH_QUERY_MODE" = ambiguous ]; then printf '[{"fingerprint":"%s"},{"fingerprint":"%s"}]\\n' "$EZH_PUBLISHED" "$EZH_WRONG_TARGET"
+      else printf '[{"fingerprint":"%s"}]\\n' "$EZH_PUBLISHED"; fi
+    fi;;
   launch|file|delete) exit 0;;
   stop) printf 'stop\\n' >> "$EZH_BUILD_CAPTURE"; exit 0;;
   exec)
@@ -381,29 +389,42 @@ case "$1" in
     esac;;
   publish)
     printf 'publish %s\\n' "$*" >> "$EZH_BUILD_CAPTURE"
-    printf 'Instance published with fingerprint: %s\\n' "$EZH_PUBLISHED";;
+    touch "$EZH_PUBLISH_MARKER"
+    printf 'Instance published with fingerprint: %s\\n' "$EZH_PUBLISHED" >&2;;
   query)
-    case "$2" in
+    endpoint=
+    for argument in "$@"; do endpoint=$argument; done
+    if [ "$2" = -X ]; then
+      printf 'retention %s\\n' "$*" >> "$EZH_BUILD_CAPTURE"
+      [ "$EZH_QUERY_MODE" != retention_fails ]; exit $?
+    fi
+    case "$endpoint" in
       /1.0/images/aliases/*)
+        if [ "$EZH_QUERY_MODE" = alias_changed ] && grep -q '^retention ' "$EZH_BUILD_CAPTURE"; then
+          printf '{"description":"","name":"%s","target":"%s","type":"container"}\\n' "$EZH_ALIAS" "$EZH_WRONG_TARGET"
+          exit 0
+        fi
         case "$EZH_QUERY_MODE" in
           missing) printf '{"description":"","name":"%s","type":"container"}\\n' "$EZH_ALIAS";;
           wrong) printf '{"description":"","name":"%s","target":"%s","type":"container"}\\n' "$EZH_ALIAS" "$EZH_WRONG_TARGET";;
           *) printf '{"description":"","name":"%s","target":"%s","type":"container"}\\n' "$EZH_ALIAS" "$EZH_PUBLISHED";;
         esac;;
       *)
-        if [ "$EZH_QUERY_MODE" = expiring ]; then expiry=2026-10-23T00:00:00Z; else expiry=0001-01-01T00:00:00Z; fi
-        printf '{"fingerprint":"%s","expires_at":"%s"}\\n' "$EZH_PUBLISHED" "$expiry";;
+        if [ "$EZH_QUERY_MODE" = expiring ] || ! grep -q '^retention ' "$EZH_BUILD_CAPTURE"; then expiry=2026-10-23T00:00:00Z
+        else expiry=2099-12-31T00:00:00Z; fi
+        printf '{"fingerprint":"%s","expires_at":"%s","public":false,"auto_update":false,"properties":{"os":"Debian"},"profiles":["default"]}\\n' "$EZH_PUBLISHED" "$expiry";;
     esac;;
 esac
 `);
     const publishRun = async (mode: string, secondAlias = false, dockerReady = true, hygieneReady = true) => {
-      await Promise.all([writeFile(aliasCounter, "0\n"), writeFile(capture, "")]);
+      await Promise.all([writeFile(aliasCounter, "0\n"), writeFile(capture, ""), rm(publishMarker, { force: true })]);
       const runResult = Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args],
         { env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}`, EZH_IPV4: "yes", EZH_DNS: "yes",
           EZH_APT_ROOT: aptRoot, EZH_BUILD_CAPTURE: capture, EZH_ALIAS_COUNT: aliasCounter, EZH_ALIAS: pins.alias,
           EZH_SECOND_ALIAS: secondAlias ? "yes" : "no", EZH_DOCKER_READY: dockerReady ? "yes" : "no",
           EZH_HYGIENE_READY: hygieneReady ? "yes" : "no", EZH_HYGIENE_SCRIPT: hygieneScript,
-          EZH_PUBLISHED: published, EZH_WRONG_TARGET: "b".repeat(64), EZH_QUERY_MODE: mode } });
+          EZH_PUBLISHED: published, EZH_WRONG_TARGET: "b".repeat(64), EZH_QUERY_MODE: mode,
+          EZH_PUBLISH_MARKER: publishMarker } });
       return { runResult, calls: await readFile(capture, "utf8") };
     };
     const directAlias = await publishRun("direct");
@@ -423,16 +444,32 @@ esac
     expect(cleanup).toContain("rm -rf -- /var/lib/docker /var/lib/containerd");
     expect(cleanup).toContain(": > /etc/machine-id");
     expect(cleanup).toContain("ln -s /etc/machine-id /var/lib/dbus/machine-id");
-    expect(directAlias.calls).toContain("--expire 0001-01-01T00:00:00Z");
+    expect(directAlias.calls).toContain("--expire 2099-12-31T00:00:00Z");
+    expect(directAlias.calls).toContain('retention query -X PUT -d {"public":false,"auto_update":false,"properties":{"os":"Debian"},"profiles":["default"],"expires_at":"2099-12-31T00:00:00Z"}');
+    expect(directAlias.calls.indexOf("publish")).toBeLessThan(directAlias.calls.indexOf("retention query"));
     const wrongTarget = await publishRun("wrong");
     expect(wrongTarget.runResult.exitCode).not.toBe(0);
     expect(wrongTarget.runResult.stderr.toString()).toContain("alias target differs from the published fingerprint");
+    expect(wrongTarget.calls).not.toContain("retention query");
     const missingTarget = await publishRun("missing");
     expect(missingTarget.runResult.exitCode).not.toBe(0);
     expect(missingTarget.runResult.stderr.toString()).toContain("alias has no exact fingerprint target");
     const expiring = await publishRun("expiring");
     expect(expiring.runResult.exitCode).not.toBe(0);
-    expect(expiring.runResult.stderr.toString()).toContain("non-expiring retention readback differs");
+    expect(expiring.runResult.stderr.toString()).toContain("durable retention readback differs");
+    const noNew = await publishRun("no_new");
+    expect(noNew.runResult.exitCode).not.toBe(0);
+    expect(noNew.runResult.stderr.toString()).toContain("exactly one new fingerprint");
+    expect(noNew.calls).not.toContain("retention query");
+    const ambiguous = await publishRun("ambiguous");
+    expect(ambiguous.runResult.exitCode).not.toBe(0);
+    expect(ambiguous.runResult.stderr.toString()).toContain("exactly one new fingerprint");
+    expect(ambiguous.calls).not.toContain("retention query");
+    const retentionFails = await publishRun("retention_fails");
+    expect(retentionFails.runResult.exitCode).not.toBe(0);
+    const aliasChanged = await publishRun("alias_changed");
+    expect(aliasChanged.runResult.exitCode).not.toBe(0);
+    expect(aliasChanged.runResult.stderr.toString()).toContain("alias changed during retention update");
     const appearedAlias = await publishRun("direct", true);
     expect(appearedAlias.runResult.exitCode).not.toBe(0);
     expect(appearedAlias.runResult.stderr.toString()).toContain("image alias already exists");

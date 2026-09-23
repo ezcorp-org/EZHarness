@@ -78,6 +78,19 @@ print("present" if any(row["name"] == sys.argv[1] for row in rows) else "absent"
     return 1
   fi
 }
+image_fingerprints() {
+  incus image list --project default --format json | python3 -c '
+import json, re, sys
+rows = json.load(sys.stdin)
+if not isinstance(rows, list) or any(not isinstance(row, dict) or not isinstance(row.get("fingerprint"), str)
+                                    or not re.fullmatch(r"[a-f0-9]{64}", row["fingerprint"]) for row in rows):
+    sys.exit("image inventory has an invalid fingerprint")
+fingerprints = [row["fingerprint"] for row in rows]
+if len(fingerprints) != len(set(fingerprints)):
+    sys.exit("image inventory has duplicate fingerprints")
+print("\n".join(sorted(fingerprints)))
+'
+}
 assert_alias_absent
 
 incus launch "$base_fingerprint" "$name" --project default --storage "$storage_pool" --network "$network_name" \
@@ -194,14 +207,19 @@ incus exec "$name" --project default -- sh -eu -c '
 '
 incus stop "$name" --project default
 assert_alias_absent
-publish_output=$(incus publish "$name" --project default --alias "$alias" --expire 0001-01-01T00:00:00Z)
-published_fingerprint=$(printf '%s\n' "$publish_output" | python3 -c '
-import re, sys
-matches = re.findall(r"(?m)^Instance published with fingerprint: ([a-f0-9]{64})$", sys.stdin.read())
-if len(matches) != 1:
-    sys.exit("published image fingerprint is missing or ambiguous")
-print(matches[0])
-')
+images_before=$(image_fingerprints)
+incus publish "$name" --project default --alias "$alias" --expire 2099-12-31T00:00:00Z
+images_after=$(image_fingerprints)
+published_fingerprint=$(python3 - "$images_before" "$images_after" <<'PY'
+import sys
+before = set(filter(None, sys.argv[1].splitlines()))
+after = set(filter(None, sys.argv[2].splitlines()))
+new = after - before
+if len(new) != 1 or before - after:
+    sys.exit("published image inventory does not have exactly one new fingerprint; review server state")
+print(next(iter(new)))
+PY
+)
 alias_target=$(incus query "/1.0/images/aliases/$alias?project=default" | python3 -c '
 import json, re, sys
 alias = json.load(sys.stdin)
@@ -216,10 +234,38 @@ if [ "$alias_target" != "$published_fingerprint" ]; then
   echo 'published image alias target differs from the published fingerprint; review server state' >&2
   exit 1
 fi
+image_before=$(incus query "/1.0/images/$published_fingerprint?project=default")
+retention_payload=$(printf '%s\n' "$image_before" | python3 -c '
+import json, sys
+image = json.load(sys.stdin)
+if not isinstance(image, dict) or image.get("fingerprint") != sys.argv[1]:
+    sys.exit("published image fingerprint readback differs; review server state")
+if not isinstance(image.get("public"), bool) or not isinstance(image.get("auto_update"), bool) or not isinstance(image.get("properties"), dict):
+    sys.exit("published image writable metadata is incomplete; review server state")
+profiles = image.get("profiles", ["default"])
+if not isinstance(profiles, list) or any(not isinstance(profile, str) for profile in profiles):
+    sys.exit("published image profiles are invalid; review server state")
+payload = {key: image[key] for key in ("public", "auto_update", "properties")}
+payload["profiles"] = profiles
+# Incus 6.0 ignores zero time in image PUT and ignores expires_at in image PATCH.
+payload["expires_at"] = "2099-12-31T00:00:00Z"
+print(json.dumps(payload, separators=(",", ":")))
+' "$published_fingerprint")
+incus query -X PUT -d "$retention_payload" "/1.0/images/$published_fingerprint?project=default" >/dev/null
 incus query "/1.0/images/$published_fingerprint?project=default" | python3 -c '
 import json, sys
 image = json.load(sys.stdin)
-if not isinstance(image, dict) or image.get("fingerprint") != sys.argv[1] or image.get("expires_at") != "0001-01-01T00:00:00Z":
-    sys.exit("published image fingerprint or non-expiring retention readback differs; review server state")
-' "$published_fingerprint"
-printf '%s\n' "$alias_target"
+original = json.loads(sys.argv[2])
+if not isinstance(image, dict) or image.get("fingerprint") != sys.argv[1] or image.get("expires_at") != "2099-12-31T00:00:00Z":
+    sys.exit("published image fingerprint or durable retention readback differs; review server state")
+if any(image.get(key) != original.get(key) for key in ("public", "auto_update", "properties")) or image.get("profiles", ["default"]) != original.get("profiles", ["default"]):
+    sys.exit("published image metadata changed during retention update; review server state")
+' "$published_fingerprint" "$image_before"
+final_alias_target=$(incus query "/1.0/images/aliases/$alias?project=default" | python3 -c '
+import json, sys
+alias = json.load(sys.stdin)
+if not isinstance(alias, dict) or alias.get("name") != sys.argv[1] or alias.get("target") != sys.argv[2]:
+    sys.exit("published image alias changed during retention update; review server state")
+print(alias["target"])
+' "$alias" "$published_fingerprint")
+printf '%s\n' "$final_alias_target"
