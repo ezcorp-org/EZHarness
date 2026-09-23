@@ -16,7 +16,10 @@
  *   2. the first-run administrator setup and two projects, over real HTTP;
  *   3. the v4 installation record of the guest release (the v4 install step);
  *   4. the package PREPARATION, once the console has bound and trusted the
- *      package, because no product route or role prepares a package yet.
+ *      package, because no product route or role prepares a package yet;
+ *   5. on a journey's request, one draft's stored source rewritten as a newer
+ *      server would write it (schema version `factory.v9`): no server of this
+ *      version can produce one, and the console must still show and export it.
  *
  * Inputs: FACTORY_TEST_POSTGRES_URL, EZCORP_FACTORY_STORAGE_SECRETS_DIR, and
  * FACTORY_TEMPORAL_CLI (all required), FACTORY_SERVICES_PORT (4191),
@@ -36,7 +39,7 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
 import { buildFactoryGuest } from "./guest";
 import { freePort, httpSession, reachable, StackProcesses, waitFor } from "./processes";
-import { FACTORY_SERVICES_STATE_PATH, type FactoryServicesState } from "./state";
+import { FACTORY_SERVICES_CURSOR_TTL_MS, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_STATE_PATH, type FactoryServicesState } from "./state";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = join(HERE, "..", "..", "..");
@@ -317,6 +320,8 @@ const web = processes.start("web", BUN, ["build/index.js"], {
 		// The installation declares the interpreter its reference lock pins.
 		EZCORP_FACTORY_INTERPRETER_COMPATIBILITY: "factory-kernel.v1",
 		EZCORP_PERM_SWEEP_INTERVAL_MS: "30000",
+		// Short enough that the lane observes an expired cursor answer 410.
+		EZCORP_FACTORY_CONSOLE_CURSOR_TTL_MS: String(FACTORY_SERVICES_CURSOR_TTL_MS),
 		EZCORP_SECRETS_DIR: secrets, EZCORP_PROJECT_ROOT: join(root, "project"),
 		DATABASE_URL: productUrl.toString(),
 		EZCORP_JWT_SECRET: randomBytes(24).toString("hex"), EZCORP_ENCRYPTION_SECRET: randomBytes(24).toString("hex"),
@@ -398,6 +403,7 @@ const state: { -readonly [K in keyof FactoryServicesState]: FactoryServicesState
 };
 await writeFile(FACTORY_SERVICES_STATE_PATH, JSON.stringify(state, null, 2), { mode: 0o600 });
 await rm(STOP_FILE, { force: true });
+await rm(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, { force: true });
 console.log(`[factory-services] held at ${baseURL}; logs in ${logs}`);
 
 // ── Hold, and prepare the package once the console has trusted it ─────
@@ -406,8 +412,25 @@ const { FactoryGrants } = await import(join(REPO, "src/factory/grants.ts"));
 const { FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog } = await import(join(REPO, "src/factory/package-preparation.ts"));
 const { PodmanRunner, buildLimits } = await import(join(REPO, "packages/@ezcorp/extension-runner/src/index.ts"));
 const { provisionToolchain } = await import(join(REPO, "packages/@ezcorp/extension-runner/src/provision.ts"));
+const { canonicalJson } = await import(join(REPO, "node_modules/@ezcorp/extension-contract/src/index.ts"));
+const { digestObject } = await import(join(REPO, "src/extensions/v4/blobs.ts"));
 const heldUntil = Date.now() + HOLD_MS;
+
+/** Rewrites one draft's stored source as a newer server would, keeping its digest consistent. */
+async function writeFutureDraft(factoryId: string): Promise<void> {
+	const [row] = await productSql.unsafe(`SELECT source_json FROM factory_drafts WHERE tenant_id = $1 AND project_id = $2 AND factory_id = $3`, [TENANT, projectId, factoryId]) as Array<{ source_json: string }>;
+	if (!row) throw new Error(`no draft ${factoryId} to rewrite`);
+	const future = { ...JSON.parse(row.source_json), schemaVersion: "factory.v9", futureExecutionField: { mode: "new" } };
+	await productSql.unsafe(`UPDATE factory_drafts SET source_json = $1, source_digest = $2 WHERE tenant_id = $3 AND project_id = $4 AND factory_id = $5`, [canonicalJson(future), digestObject(future), TENANT, projectId, factoryId]);
+	state.futureDraftId = factoryId;
+	await writeFile(FACTORY_SERVICES_STATE_PATH, JSON.stringify(state, null, 2), { mode: 0o600 });
+	await rm(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, { force: true });
+	console.log(`[factory-services] draft ${factoryId} rewritten as schema factory.v9`);
+}
 while (!stopping && Date.now() < heldUntil && !await Bun.file(STOP_FILE).exists()) {
+	if (state.futureDraftId === undefined && await Bun.file(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH).exists()) {
+		await writeFutureDraft((await readFile(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, "utf8")).trim());
+	}
 	if (!state.prepared) {
 		const trust = await productSql.unsafe(
 			`SELECT r.state FROM factory_runner_package_trust_current c JOIN factory_runner_package_trust_revisions r ON r.tenant_id = c.tenant_id AND r.project_id = c.project_id AND r.reference_digest = c.reference_digest AND r.revision = c.revision WHERE c.tenant_id = $1 AND c.project_id = $2 AND c.package_digest = $3`,

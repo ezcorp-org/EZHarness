@@ -24,10 +24,19 @@ export interface FactoryServicesState {
 		readonly releaseId: string;
 	};
 	readonly prepared: boolean;
+	/** Set once the stack has rewritten the draft a journey asked for. */
+	readonly futureDraftId?: string;
 }
 
 export const FACTORY_SERVICES_STATE_PATH = process.env.FACTORY_SERVICES_STATE
 	?? join(dirname(fileURLToPath(import.meta.url)), "..", ".factory-services-state.json");
+/**
+ * A journey writes a draft's factory id to this file to ask the stack to rewrite
+ * that draft's stored source as a newer server would (schema version `factory.v9`).
+ */
+export const FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH = `${FACTORY_SERVICES_STATE_PATH}.future-draft-request`;
+/** The event cursor lifetime the stack gives the application, so the lane can observe a 410. */
+export const FACTORY_SERVICES_CURSOR_TTL_MS = 60_000;
 export const FACTORY_SERVICES_AUTH_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", ".factory-services-auth.json");
 
 export function readFactoryServicesState(): FactoryServicesState {
