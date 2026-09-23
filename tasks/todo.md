@@ -3570,7 +3570,8 @@ Branch `wp/w01g-staging` from `integ/w00` at `850ffaa54`. Gate file:
       on a clean tree (`proof-1.json` to `proof-3.json`, `negative-control.json`).
 - [x] The host mounts the route from `services.guestBroker` in its own configuration document
       (`994deebe8`); the proof-only commit and the file-beside-the-key client are gone.
-- [ ] The product runtime mounts the route itself (G14, the coordinator's composition root).
+- [x] The product runtime binds the route itself from `guestBroker` in its startup document
+      (G14, delegated by the coordinator); the harness only observes.
 - [x] Final sweep on a clean tree after `git merge integ/w00`.
 
 ### Review
@@ -3612,3 +3613,9 @@ declared client that read a file beside the host key is removed, and the SDK now
 modules. The three passes ran from this worktree, with the section written into W09b's unedited
 harness document by a pass-through bun wrapper. The product half, the listener in the product
 runtime, is still bound by the harness process and stays open as G14 for the coordinator.
+
+Round 3 (2026-09-22). The coordinator delegated the product mount. The startup document has an
+optional `guestBroker` section, and `installation-startup.ts` binds the route in its own W01g
+region beside the private service. Readiness carries `guestBroker` as bound, unconfigured, or
+unavailable with a code. The three passes ran with the web server binding the route and the
+harness only observing.

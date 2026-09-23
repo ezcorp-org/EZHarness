@@ -138,12 +138,19 @@ sweep receipts are from the final head. `report.txt` names each one.
   binds; the three G7 receipts show `guestBrokerHost.configuredIn = services.guestBroker`
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/coverage-runner.json`, `proof-1.json`
 
-## Open, and why
+### The product mount (round 3, delegated by the coordinator)
 
-- [ ] G14: The product runtime mounts the guest-broker route itself.
-  The route handler, the material adapter and the candidate-output writer are product code under
-  proof. The listener that binds them belongs to the product composition root
-  (`src/factory/application.ts`, `src/factory/boot.ts`), which the interface freeze gives to the
-  coordinator (W09). This branch does not touch it. The proof binds the same handler from the
-  harness process against the real product database, and every receipt says so in
-  `guestBrokerListener.composedBy`. The recommended shape is in the report.
+- [x] G14: The product runtime binds the guest-broker route from `guestBroker` in its startup
+  document, readiness reports it, and a host without `services.guestBroker` refuses a staging
+  frame by name.
+  CHECK: `bun test --timeout 120000 ./src/factory/startup-config.test.ts ./src/factory/installation-startup.test.ts ./src/factory/runner/guest-broker-transport.integration.test.ts ./src/factory/runner/supervisor-process.test.ts`; the G7 passes
+  EXPECT: exit 0; the section is all parts or none, needs `hostLaunch.attemptTokenSecretPath`, and
+  refuses a bad `allowedPeers`; a composed route takes a two-chunk upload from a configured host,
+  refuses a token signed with another secret, and reads `unconfigured` or `unavailable` with a
+  code otherwise; a host with no section answers `factory_host_broker_unavailable` naming
+  `services.guestBroker`; in each of the three passes `/api/ready` carries
+  `guestBroker: { state: "bound" }` and `guestBrokerObserver.boundBy` names the web server
+  EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/coverage-runner.json`, `proof-1.json` to `proof-3.json`
+
+Round 3 receipts (2026-09-22/23): the passes, the negative control, the coverage legs and the
+Podman suites ran at `23965e397` on a clean tree; the static sweep at the final head.
