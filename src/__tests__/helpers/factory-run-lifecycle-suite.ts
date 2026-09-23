@@ -6,6 +6,7 @@ import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import { sql } from "drizzle-orm";
 import { referenceCodeV1, validateFactoryApiResponse, createKernelState, createPartitionKernelState, advanceKernel, factoryRunnerRequestDigest, FACTORY_LAZY_INPUT_SCHEMA_VERSION, type FactoryDefinition, type FactoryRunnerRequest, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
+import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import type { BlobStore } from "../../extensions/v4/types";
 import { digestBytes, digestObject } from "../../extensions/v4/blobs";
@@ -63,6 +64,7 @@ import type { S3ClientLike } from "../../factory/release-adapters";
 import { composeFactoryReleaseDestinations } from "../../factory/release-declaration";
 import { FactoryDestinationReservations, FactoryStoreSenderFence } from "../../factory/release-destinations";
 import { factoryReleaseOutcomeDriver } from "../../factory/dispatch-composition";
+import { FactoryReleaseOutcomeDelivery, factoryReleaseOutcomeEventId } from "../../factory/release-outcome-delivery";
 import { FactoryMemoryS3Store } from "./factory-s3-memory-store";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 
@@ -812,11 +814,24 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     });
     if (composed === undefined) throw new Error("a declared destination must compose");
     const effects = new FactoryProtectedCommandEffects(fixture.db, tenantId, world.completed.task.authority, world.completed.completions, world.releaseAuthority, world.assurance, releases, composed.profiles);
-    const { releaseReference } = await acceptedRelease(world);
+    const { releaseReference, acceptedAdvanced } = await acceptedRelease(world);
     const reports: Array<{ role: string; code: unknown; reason: unknown }> = [];
-    const driver = factoryReleaseOutcomeDriver(fixture.db, releases, lifecycle, async () => [projectId], composed.providers, (role, error) => {
+    const report = (role: string, error: unknown) => {
       reports.push({ role, code: (error as { code?: unknown }).code, reason: (error as { reason?: unknown }).reason });
+    };
+    // The installation's shape: one protected-effects instance answers the command and is the
+    // reader the delivery asks which command a settled operation answers.
+    const delivery = new FactoryReleaseOutcomeDelivery({
+      database: fixture.db, tenantId, service: world.completed.task.service, effects, authority: world.completed.task.authority, inbox: new FactoryInbox(fixture.db, tenantId, () => now),
     });
+    const driverFor = (resolver: typeof composed.providers, delivered?: FactoryReleaseOutcomeDelivery) =>
+      factoryReleaseOutcomeDriver(fixture.db, releases, lifecycle, async () => [projectId], resolver, report, undefined, delivered);
+    const driver = driverFor(composed.providers, delivery);
+    /** The same role in a process that crashed after settlement and before its delivery. */
+    const settlingOnly = driverFor(composed.providers);
+    /** Inbox events this run holds for one operation's outcome. */
+    const outcomeEvents = async (operationId: string) => rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${world.completed.task.run.runId} AND event_id=${factoryReleaseOutcomeEventId(operationId)}`))
+      .map(row => JSON.parse(row.payload) as KernelEvent);
     const operationRows = async () => rows<{ operation_id: string; state: string; destination_provider: string; destination_account: string; destination_object: string; estimated_spend_micros: number | string; action: string }>(await fixture.db.execute(sql`SELECT operation_id,state,destination_provider,destination_account,destination_object,estimated_spend_micros,action FROM factory_release_operations WHERE tenant_id=${tenantId} AND project_id=${projectId} AND run_id=${world.completed.task.run.runId}`))
       .map(row => ({ ...row, estimated_spend_micros: Number(row.estimated_spend_micros) }));
     const read = async (key: string): Promise<Uint8Array | null> => {
@@ -833,7 +848,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       await new FactoryRunTransitionProjector(fixture.db, tenantId, world.completed.task.transitions, lifecycle).project(runKey(world.completed.task.run.runId));
       for (;;) if (await releases.deliverNextNotification(projectId) === null) break;
     };
-    return { ...world, store, object, published, releases, composed, effects, releaseReference, driver, reports, operationRows, read, declaredAccount, consentExpiry, reportsFor, finish, service: world.completed.task.service };
+    return { ...world, store, object, published, releases, composed, effects, releaseReference, driver, reports, operationRows, read, declaredAccount, consentExpiry, reportsFor, finish, delivery, driverFor, settlingOnly, outcomeEvents, acceptedAdvanced, service: world.completed.task.service };
   }
 
   test("a declared S3 destination and profile prepare, claim, and publish the attempt's sealed members", async () => {
@@ -872,6 +887,99 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     // A replayed command neither resolves again nor opens a second operation.
     expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
     expect((await world.operationRows()).map(row => row.operation_id)).toEqual([operation.operationId]);
+
+    // Delivered back to the run in the same pass: one node-result for the release command, whose
+    // output is the receipt, and the kernel completes the Release node and the run on it.
+    const [event] = await world.outcomeEvents(operation.operationId);
+    expect(await world.outcomeEvents(operation.operationId)).toHaveLength(1);
+    expect(event).toMatchObject({ kind: "node-result", nodeId: "release", commandId: world.releaseReference.commandId, output: { receipt: settled.receipt } });
+    const completedRun = advanceKernel(world.completed.task.compiled, world.acceptedAdvanced.nextState, event!);
+    expect(completedRun.nextState.nodes.release?.status).toBe("succeeded");
+    expect(completedRun.commands.map(command => command.kind)).toContain("complete-run");
+    // The event is applied once: the kernel ignores the same id a second time.
+    expect(advanceKernel(world.completed.task.compiled, completedRun.nextState, event!)).toEqual({ nextState: completedRun.nextState, commands: [] });
+    // Another pass, and a direct redelivery, write nothing new.
+    await world.driver.step(new AbortController().signal);
+    expect(await world.delivery.deliver(projectId, operation.operationId)).toEqual(event!);
+    expect(await world.outcomeEvents(operation.operationId)).toHaveLength(1);
+    expect(await world.delivery.undelivered()).toEqual([]);
+    await world.finish();
+  });
+
+  test("a settlement that crashed before its delivery is delivered once on the next pass, even when raced", async () => {
+    const world = await declaredS3Release();
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    const [prepared] = await world.operationRows();
+    const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
+    const approval = await world.releases.requestApproval(principal, projectId, operation.operationId, world.consentExpiry(operation), operation.dispatchGeneration, `crash-approval-${sequence}`);
+    await world.assurance.decideApproval(principal, projectId, approval.approvalId, approval.contextDigest, true, `crash-decision-${sequence}`);
+
+    // The process that settled it died before delivering: settled, and owed.
+    expect(await world.settlingOnly.step(new AbortController().signal)).toBe(true);
+    expect((await world.releases.inspect(projectId, operation.operationId))!.state).toBe("succeeded");
+    expect(await world.outcomeEvents(operation.operationId)).toEqual([]);
+    expect(await world.delivery.undelivered()).toContainEqual({ projectId, operationId: operation.operationId });
+
+    // Two workers find it at once; the inbox keeps one event, and both answer with it.
+    const [first, second] = await Promise.all([world.delivery.deliver(projectId, operation.operationId), world.delivery.deliver(projectId, operation.operationId)]);
+    expect(first).toEqual(second);
+    expect(await world.outcomeEvents(operation.operationId)).toEqual([first!]);
+    // The next pass owes nothing for it.
+    await world.driver.step(new AbortController().signal);
+    expect(await world.outcomeEvents(operation.operationId)).toHaveLength(1);
+    expect(await world.delivery.undelivered()).not.toContainEqual({ projectId, operationId: operation.operationId });
+    await world.finish();
+  });
+
+  test("an uncertain release enqueues nothing and stays visible; a failed one fails the Release node by name", async () => {
+    const world = await declaredS3Release();
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    const [prepared] = await world.operationRows();
+    const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
+    const approval = await world.releases.requestApproval(principal, projectId, operation.operationId, world.consentExpiry(operation), operation.dispatchGeneration, `uncertain-approval-${sequence}`);
+    await world.assurance.decideApproval(principal, projectId, approval.approvalId, approval.contextDigest, true, `uncertain-decision-${sequence}`);
+    // A provider whose answer is lost after the send: the operation is uncertain, not failed.
+    const lost = world.driverFor({ async resolve() { return { async publish() { throw new Error("the response was lost after the send"); } } as never; } }, world.delivery);
+    await lost.step(new AbortController().signal);
+    expect((await world.releases.inspect(projectId, operation.operationId))!.state).toBe("uncertain");
+    expect(await world.delivery.deliver(projectId, operation.operationId)).toBeNull();
+    expect(await world.outcomeEvents(operation.operationId)).toEqual([]);
+    expect(await world.delivery.undelivered()).not.toContainEqual({ projectId, operationId: operation.operationId });
+
+    // A settled failure answers the run with the operation's own outcome code.
+    await fixture.db.execute(sql`UPDATE factory_release_operations SET state='failed',outcome_code='destination_refused' WHERE tenant_id=${tenantId} AND project_id=${projectId} AND operation_id=${operation.operationId}`);
+    const failed = await world.delivery.deliver(projectId, operation.operationId);
+    expect(failed).toMatchObject({ kind: "node-failed", nodeId: "release", commandId: world.releaseReference.commandId, error: "destination_refused", failureKind: "execution" });
+    // Measured kernel behaviour, recorded rather than changed here: a failed Release node is stopped
+    // like a task, so the kernel answers with a `cancel-node` for a node that has no physical
+    // attempt. W05 found the same shape for acceptance; the kernel is W06's (see the gate file).
+    const failedRun = advanceKernel(world.completed.task.compiled, world.acceptedAdvanced.nextState, failed!);
+    expect(failedRun.nextState.nodes.release?.status).toBe("stopping");
+    expect(failedRun.nextState.nodes.release?.error).toBe("destination_refused");
+    expect(failedRun.commands).toContainEqual(expect.objectContaining({ kind: "cancel-node", nodeId: "release" }));
+    expect(await world.outcomeEvents(operation.operationId)).toEqual([failed!]);
+    await world.finish();
+  });
+
+  test("a delivery can never reach another tenant, and a doctored receipt names no command", async () => {
+    const world = await declaredS3Release();
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    const [prepared] = await world.operationRows();
+    const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
+    await fixture.db.execute(sql`UPDATE factory_release_operations SET state='succeeded',receipt_json=${JSON.stringify({ forged: true })} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND operation_id=${operation.operationId}`);
+
+    // Another tenant's delivery sees no such operation and owes nothing.
+    const foreign = new FactoryReleaseOutcomeDelivery({ database: fixture.db, tenantId: "foreign-tenant", service: { tenantId: "foreign-tenant", subject: "orchestration" }, effects: world.effects, authority: world.completed.task.authority, inbox: new FactoryInbox(fixture.db, "foreign-tenant") });
+    await expect(foreign.deliver(projectId, operation.operationId)).rejects.toMatchObject({ code: "factory_release_outcome_missing" });
+    expect(await foreign.undelivered()).toEqual([]);
+    expect(() => new FactoryReleaseOutcomeDelivery({ database: fixture.db, tenantId, service: { tenantId: "foreign-tenant", subject: "orchestration" }, effects: world.effects, authority: world.completed.task.authority, inbox: new FactoryInbox(fixture.db, tenantId) })).toThrow("factory_release_outcome_invalid");
+    await expect(fixture.db.transaction(transaction => world.effects.readReleaseCommandInTransaction(transaction, { ...operation, tenantId: "foreign-tenant" }))).rejects.toMatchObject({ code: "factory_protected_effect_scope" });
+
+    // A request digest the operation does not carry names no command.
+    expect(await fixture.db.transaction(transaction => world.effects.readReleaseCommandInTransaction(transaction, { ...operation, requestDigest: `sha256:${"0".repeat(64)}` }))).toBeUndefined();
+    // A doctored protected receipt is corrupt, never a command.
+    await fixture.db.execute(sql`UPDATE factory_protected_command_effects SET receipt_digest=${`sha256:${"0".repeat(64)}`} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND command_id=${world.releaseReference.commandId}`);
+    await expect(fixture.db.transaction(transaction => world.effects.readReleaseCommandInTransaction(transaction, operation))).rejects.toMatchObject({ code: "factory_protected_effect_corrupt" });
     await world.finish();
   });
 

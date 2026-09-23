@@ -51,6 +51,8 @@ import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-c
 import { factoryInstallationStores, type FactoryInstallationStores } from "./installation-stores";
 import { composeFactoryAttemptDispatch, factoryPackageReadiness, type FactoryHostPhysicalStopper } from "./attempt-composition";
 import { composeFactorySettlement, factoryReleaseOutcomeDriver } from "./dispatch-composition";
+import { FactoryProtectedCommandEffects } from "./protected-command-effects";
+import { FactoryReleaseOutcomeDelivery } from "./release-outcome-delivery";
 import { composeFactoryReleaseDestinations, type FactoryComposedReleaseDestinations } from "./release-declaration";
 import type { FactoryReleaseProviderResolver } from "./release-application";
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
@@ -602,6 +604,7 @@ async function installationCollaborators(
   // The caller's resolver wins, so a host that holds a provider this document
   // cannot describe is not overruled by it; otherwise the declared one serves.
   const resolver = releaseProviders ?? release?.destinations?.providers;
+  const outcomes = composeReleaseOutcomeDelivery(config, host, stores, application, release, service);
   const releaseOutcome = release === undefined || resolver === undefined ? undefined
     : factoryReleaseOutcomeDriver(
       host.database,
@@ -610,9 +613,11 @@ async function installationCollaborators(
       () => factoryTenantProjectIds(host.database, factoryTenantProjects(config.tenantId)),
       resolver,
       host.report,
+      undefined,
+      outcomes?.delivery,
     );
 
-  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops);
+  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, outcomes?.effects);
 
   return {
     workers: {
@@ -634,6 +639,36 @@ async function installationCollaborators(
 }
 
 /**
+ * The protected effects, built once, and the delivery that reads through them.
+ *
+ * The private service answers `request-release` with this instance, and
+ * `release-outcome` reads the verified command behind a settled operation
+ * through the same one, so the command that prepared an operation and the
+ * command its outcome answers cannot come from two different readers. Absent
+ * with the release store or the task completions, exactly as the private
+ * service is. Every input is the installation's own and already validated:
+ * the startup document refuses a duplicate adapter and a malformed action, and
+ * every store here shares one tenant, so the constructors have nothing left to
+ * refuse.
+ */
+function composeReleaseOutcomeDelivery(
+  config: FactoryStartupConfig,
+  host: Pick<FactoryInstallationHost, "database">,
+  stores: FactoryInstallationStores,
+  application: FactoryApplication,
+  release: { readonly releases: FactoryReleases; readonly assurance: FactoryAssurance; readonly destinations?: FactoryComposedReleaseDestinations } | undefined,
+  service: TrustedFactoryServiceIdentity,
+): { readonly effects: FactoryProtectedCommandEffects; readonly delivery: FactoryReleaseOutcomeDelivery } | undefined {
+  if (release === undefined || stores.completions === undefined) return undefined;
+  const effects = new FactoryProtectedCommandEffects(
+    host.database, config.tenantId, stores.authority, stores.completions, application.releaseAuthority,
+    release.assurance, release.releases, release.destinations?.profiles ?? [],
+  );
+  const delivery = new FactoryReleaseOutcomeDelivery({ database: host.database, tenantId: config.tenantId, service, effects, authority: stores.authority, inbox: stores.inbox });
+  return Object.freeze({ effects, delivery });
+}
+
+/**
  * The private worker API, when this installation is configured to be commanded.
  *
  * It is the one listener the product process binds. A failure to compose is
@@ -650,6 +685,7 @@ async function composePrivateService(
   application: FactoryApplication,
   release: { readonly releases: FactoryReleases; readonly assurance: FactoryAssurance; readonly destinations?: FactoryComposedReleaseDestinations } | undefined,
   stops: FactoryTaskStops | undefined,
+  protectedEffects?: FactoryProtectedCommandEffects,
 ): Promise<FactoryStartedListener | undefined> {
   if (config.privateService.tokens === undefined) return undefined;
   try {
@@ -663,6 +699,7 @@ async function composePrivateService(
       ...(release === undefined ? {} : { releases: release.releases, assurance: release.assurance }),
       ...(release?.destinations === undefined ? {} : { releaseProfiles: release.destinations.profiles }),
       ...(stops === undefined ? {} : { stops }),
+      ...(protectedEffects === undefined ? {} : { protectedEffects }),
       report: host.report,
     });
   } catch (error) {

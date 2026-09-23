@@ -117,23 +117,75 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/e2e/three-passes.json`,
       `/tmp/factory-platform-evidence/w09c/e2e/proof-{1,2,3}.json`
 
+- [x] G8: A settled release is delivered back to its run exactly once.
+      CHECK: `bun test --timeout 30000 ./src/factory/release-outcome-delivery.test.ts ./src/factory/dispatch-composition.test.ts` and the lifecycle suite (G2, G3).
+      EXPECT: `succeeded` becomes one `node-result` for the release command
+      whose output is `{ receipt }`, and the kernel completes the Release node
+      and the run on it. A second pass and a direct redelivery write nothing
+      new. After a crash between settlement and delivery, the next pass
+      delivers once, and two racing deliveries return the same one event.
+      `uncertain` enqueues nothing and is not owed. `failed` becomes
+      `node-failed` with the operation's outcome code and failure kind
+      `execution`. A foreign tenant finds no operation
+      (`factory_release_outcome_missing`). A doctored protected receipt is
+      `factory_protected_effect_corrupt`. A settled operation that no verified
+      receipt names is `factory_release_outcome_command_missing`. A receipt the
+      node's port refuses is `factory_release_outcome_invalid`.
+      EVIDENCE: filled at the final sweep.
+- [x] G9: The orchestrator workflow completes the Release node on that event, once.
+      CHECK: `node --test --experimental-strip-types --test-name-pattern="Release node once" test/temporal-replay.test.ts` in `packages/@ezcorp/factory-orchestrator`, under the heavy lock.
+      EXPECT: `request-release` answers `null`, and the node waits. The
+      outcome event completes it with the receipt. The same envelope signalled
+      twice, and the same event at a later sequence, apply once: one attempt,
+      the event id applied once, and one `request-release` command. The run
+      completes with the receipt as output, and the history replays.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09c/logs/temporal-release-outcome.log`
+
+## Rulings and disclosures
+
+- **`readReleaseCommandInTransaction` in `src/factory/protected-command-effects.ts`.**
+  Coordinator ruling 2026-09-22: approved for W09c; W05 inherits it. It is the
+  one method this package adds to that file. It is read-only, and it returns
+  the verified reference of the `request-release` receipt in the operation's
+  own run whose operation id and request digest match.
+- **"The same transaction that records the settlement."** Settlement is
+  written inside `FactoryReleases` (W07), and that file has no hook for this.
+  So delivery runs in its own transaction right after settlement. That
+  transaction re-reads the settled row under a share lock, re-derives the
+  command as current, and writes the inbox event. The requirement behind the
+  ruling is exactly-once delivery that survives a crash between settlement and
+  enqueue. That is met by a deterministic event id and time, the inbox's own
+  idempotency on that id and hash, and a scan of settled operations whose event
+  is missing. G8 proves each part. Writing the event inside W07's settlement
+  transaction would need a hook in `releases.ts`, which is not approved.
+- **One protected-effects instance.** `installation-startup.ts` builds
+  `FactoryProtectedCommandEffects` once in the release region. It hands that
+  instance to the private service and to the delivery.
+  `composeFactoryPrivateService` builds its own only when none is supplied.
+- **Where the public release application is wired.** W09d composes
+  `createReleaseOperations` and the contract route. Per the coordinator's
+  correction, this branch does not compose it. After W09d merges, the declared
+  profiles and the providers from `composeFactoryReleaseDestinations` plug into
+  that composition. This branch carries none of W09d's commits.
+- **Measured kernel behaviour, not changed.** A `node-failed` for a Release
+  node takes the task path in `applyFailure`. The node goes to `stopping` and
+  the kernel issues a `cancel-node` for a node with no physical attempt. W05
+  recorded the same shape for acceptance. The kernel is W06's. The lifecycle
+  case pins today's behaviour so a fix changes one assertion.
+
 ## Open
 
-1. **Acceptance is not composed in the started application.** The coordinator
-   opened W09d for it. `installation-startup.ts` builds `FactoryTrustedValidators`
-   with no runtime. Nothing in production registers validator material or
-   composes `FactoryProtectedValidatorScheduler`. The compiler requires a
-   release node to depend on an acceptance node. So no run in the real
-   application can reach `requestRelease`. The e2e harness records where each
-   pass stops.
-2. **A settled release is not delivered back to orchestration.** When
-   `requestRelease` replays a stored release receipt it returns `null`, and the
-   workflow then waits for an inbox event. Settlement enqueues only the human
-   notification `release_settled`. This is plan W09 bullet "Deliver every
-   durable completion/rejection/release result back to orchestration", still
-   unchecked. It needs a verified read of the command behind an operation,
-   which only `protected-command-effects.ts` (W05) can give. This was reported
-   to the coordinator with a proposed shape.
+1. **The "published through the real started application" pass is blocked
+   upstream on W09d.** A composition proof round after W09d lands will close
+   it. `installation-startup.ts` builds `FactoryTrustedValidators` with no
+   runtime, nothing registers validator material, and nothing composes the
+   validator scheduler. So every pass stops at `request-acceptance` with
+   `factory_release_trust_missing` (G7). The harness under
+   `/tmp/factory-platform-evidence/w09c/e2e/repro/` already consents over
+   HTTP, waits for the role to publish, and reads the manifest back once an
+   operation exists.
+2. **A failed Release node emits a `cancel-node`.** This is W06's kernel; see
+   the disclosure above.
 
 ## Interface notes
 

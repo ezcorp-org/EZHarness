@@ -177,6 +177,14 @@ export interface FactoryPrivateServiceCompositionOptions {
    * adapter no profile names.
    */
   readonly releaseProfiles?: Iterable<FactoryReleaseCommandProfile>;
+  /**
+   * The installation's one protected-effects instance, when it built one.
+   *
+   * `release-outcome` reads the verified command behind a settled operation
+   * through the same instance that answers `request-release`. Absent, this
+   * service builds its own from the same collaborators.
+   */
+  readonly protectedEffects?: FactoryProtectedCommandEffects;
   /** The host's reporter, so a refusal this service could not classify is readable. */
   readonly report?: (role: string, error: unknown) => void;
 }
@@ -204,7 +212,7 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
 
   const releases = options.releases;
   const access = new FactoryArtifactAccess(database, config.tenantId, application.grants, application.artifacts);
-  const protectedEffects = new FactoryProtectedCommandEffects(
+  const protectedEffects = options.protectedEffects ?? new FactoryProtectedCommandEffects(
     database, config.tenantId, stores.authority,
     // `FactoryTaskCompletions` is only absent when the pool client is, and the
     // guard above already refused that case.
