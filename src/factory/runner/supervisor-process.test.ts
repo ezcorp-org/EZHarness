@@ -596,8 +596,16 @@ describe("the host services this supervisor publishes", () => {
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
       createRunnerProbe: () => ({ probe: async () => {}, instance: () => runner, close: async () => {} }),
       startServices: async () => { started += 1; return { stop: () => { stopped += 1; } }; },
-      createReadiness: () => ({ write: async (update) => { published.push({ lifecycle: update.lifecycle, hostServicesReady: update.facts.hostServicesReady! }); return { ...update } as never; } }),
-    }, 5));
+      // Stop on the fact under test, not on a heartbeat count: the observer does
+      // real file I/O and the publisher does not, so a count shared by both
+      // loops can run out before the observer has bound anything. Three ready
+      // records span several heartbeats of the bound listener.
+      createReadiness: () => ({ write: async (update) => {
+        published.push({ lifecycle: update.lifecycle, hostServicesReady: update.facts.hostServicesReady! });
+        if (published.filter((entry) => entry.lifecycle === "ready" && entry.hostServicesReady).length === 3) abortController?.abort();
+        return { ...update } as never;
+      } }),
+    }, 1_000));
 
     // Bound ONCE across several heartbeats: rebinding each beat would drop live
     // connections, and the listener is released before the process says stopped.
@@ -623,8 +631,13 @@ describe("the host services this supervisor publishes", () => {
         if (attempts === 1) throw new Error("address in use");
         return { stop: () => {} };
       },
-      createReadiness: () => ({ write: async (update) => { published.push(`${update.lifecycle}:${update.errorCode ?? ""}`); return { ...update } as never; } }),
-    }, 6));
+      // Stop once the retried bind is published ready (see the test above).
+      createReadiness: () => ({ write: async (update) => {
+        published.push(`${update.lifecycle}:${update.errorCode ?? ""}`);
+        if (update.lifecycle === "ready") abortController?.abort();
+        return { ...update } as never;
+      } }),
+    }, 1_000));
 
     expect(attempts).toBeGreaterThan(1);
     expect(published.some((entry) => entry === "degraded:host_services_unavailable")).toBe(true);
