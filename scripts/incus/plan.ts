@@ -13,7 +13,7 @@ const PROJECT_CONFIG_KEYS = [
   "features.images", "features.networks", "features.networks.zones", "features.profiles", "features.storage.buckets", "features.storage.volumes",
   "limits.containers", "limits.cpu", "limits.disk.pool.<pool>", "limits.memory", "limits.networks", "limits.processes", "limits.virtual-machines",
   "restricted", "restricted.containers.nesting", "restricted.devices.nic", "restricted.images.servers", "restricted.networks.access",
-  "restricted.storage-pools.access", "restricted.virtual-machines.nesting",
+  "restricted.storage-pools.access",
 ] as const;
 const PROFILE_CONFIG_KEYS = ["limits.cpu", "limits.memory", "limits.memory.enforce", "limits.processes", "security.idmap.isolated", "security.nesting", "security.privileged"] as const;
 
@@ -148,7 +148,7 @@ export function validateRecipe(recipe: IncusSetupRecipe): void {
   const cidr = recipe.network.config["ipv4.address"];
   if (!cidr || !cidrRange(cidr) || recipe.network.config["ipv4.nat"] !== "true" || recipe.network.config["ipv6.address"] !== "none" || recipe.network.config["dns.mode"] !== "managed") throw new Error("network must pin an IPv4 CIDR, NAT, managed DNS and disabled IPv6");
   const project = recipe.project.config;
-  if (project.restricted !== "true" || project["features.networks"] !== "false" || project["features.profiles"] !== "true" || project["limits.virtual-machines"] !== "0" || project["restricted.devices.nic"] !== "managed" || project["restricted.networks.access"] !== recipe.network.name || project["restricted.storage-pools.access"] !== recipe.storage.name || project["restricted.virtual-machines.nesting"] !== "block") throw new Error("project must retain the closed restriction policy");
+  if (project.restricted !== "true" || project["features.networks"] !== "false" || project["features.profiles"] !== "true" || project["limits.virtual-machines"] !== "0" || project["restricted.devices.nic"] !== "managed" || project["restricted.networks.access"] !== recipe.network.name || project["restricted.storage-pools.access"] !== recipe.storage.name) throw new Error("project must retain the closed restriction policy");
   boundedPositiveInteger(project["limits.containers"]!, 4, "container limit"); boundedPositiveInteger(project["limits.cpu"]!, 12, "project CPU limit"); boundedPositiveInteger(project["limits.processes"]!, 4096, "project process limit");
   if (binarySizeBytes(project["limits.memory"]!) > 32 * 1024 ** 3 || binarySizeBytes(project[`limits.disk.pool.${recipe.storage.name}`]!) > recipe.storage.sizeBytes) throw new Error("project memory or disk limit exceeds the supported bound");
   const profile = recipe.profile.config;

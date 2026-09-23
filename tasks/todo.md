@@ -1,5 +1,18 @@
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
+## Live Incus operator Apply recovery — 2026-09-23
+
+- [x] Reconcile the first exact Apply receipt and server inventory before any retry.
+- [x] Reproduce the project-create failure with the exact reviewed command and identify the unsupported Incus 6.0.6 key.
+- [x] Remove the unsupported setting without weakening the container-only project policy; add an Incus 6.0.6 compatibility test.
+- [x] Run focused tests, typecheck, lint, and a fresh read-only operator Plan against the isolated app.
+- [x] Publish a revised review packet with the new digest and exact pending server writes.
+- [ ] After approval of that new digest, Apply, probe, and run the EZHarness feature sandbox lifecycle.
+
+Review: Apply for digest `4faf8f2e0fb2b1242892df75fdbbb0e79ca205aec77fe6d55b049eefa2293fca` stopped at `restricted-project` with exit 1. The two existing resources matched and were skipped. A fresh read-only project list contained only `default`; repeating the exact approved project-create command returned `Invalid project configuration key "restricted.virtual-machines.nesting"`. The server reports Incus 6.0.6 and does not advertise `projects_restricted_virtual_machines_nesting`. No EZHarness feature sandbox has been created yet.
+
+Review after repair: The template still sets `limits.virtual-machines=0`, and it requires the server extensions for image-server restriction and per-pool disk quota. The new checked-in test passes. Pinned Bun 1.3.14: 23 Incus setup tests passed; lint, all typecheck sections, and the production build passed. The previous PR head had 50 successful hosted checks; the repair needs its own CI run after push. A fresh isolated-app Plan `adc0a93ba4a18122ca98ad50f387b06954819b7af8d2ca5f2dfcd039e7a6fb5b` is ready with no blocked reasons. Its read-only dry run skips the pool and bridge, and plans 13 absent steps. The new digest has not been applied; the EZHarness feature lifecycle remains untested.
+
 Branch: `feat/trusted-local-runner` (worktree `worktrees/trusted-local`, from `main` @ 2588c9f19).
 Decision record: `docs/decisions/2026-09-12-extension-runner-install-burden.md` (Finding 3 + Proposal).
 

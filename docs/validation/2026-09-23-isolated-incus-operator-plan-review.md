@@ -1,6 +1,6 @@
 # Isolated EZHarness → Incus operator Plan review
 
-Date: 2026-09-23. This is a review of a saved Plan. **No full operator Apply has run.** The live feature-sandbox acceptance test is still open.
+Date: 2026-09-23. This is the historical review of the first saved Plan. Its approved Apply stopped at project creation. **Do not approve or retry this digest.** See the [revised Plan review](2026-09-23-isolated-incus-operator-revised-plan-review.md). The live feature-sandbox acceptance test is still open.
 
 The test app runs on AMD at `http://127.0.0.1:4301` with its own embedded database under `/tmp/ezh-incus-isolated-app.QMhk6Qhv/db`. The existing EZHarness app and database were not changed. The test app built and activated the Incus extension through the v4 runner, candidate checks, and local admin review.
 
@@ -38,4 +38,4 @@ The other 13 steps were absent and are planned in this order:
 
 Apply re-inspects every step. Matching resources are skipped; drift stops the run. It reads each written resource back. A timeout or uncertain response stops for reconciliation rather than repeating the command. The isolated app must remain available with its database and encryption keys for this saved setup ID. If the server, recipe, release, or plan changes, make a new Plan and review its new digest.
 
-After approved Apply, verify the project, profile, listener, and trust restriction; then use EZHarness to probe the provider and run a real create → edit → Compose → test → reconnect → destroy feature flow. The current dry run does not prove that sandbox workflow works.
+The approved Apply for this digest skipped the two matching resources and stopped at `restricted-project` with exit code 1. A read-only server inventory then showed only the `default` project. Repeating the exact approved project-create command returned `Invalid project configuration key "restricted.virtual-machines.nesting"`. Incus 6.0.6 does not advertise the API extension for that key. The revised review packet records the corrected recipe and new plan.

@@ -29,8 +29,10 @@
       "instance_nic_bridged_port_isolation",
       "operation_wait",
       "projects_limits_disk",
+      "projects_limits_disk_pool",
       "projects_limits_instances",
       "projects_networks_restricted_access",
+      "projects_restricted_image_servers",
       "projects_restrictions",
       "restrict_dev_incus",
       "server_supported_storage_drivers"
@@ -77,8 +79,7 @@
       "restricted.devices.nic": "managed",
       "restricted.images.servers": "images.linuxcontainers.org",
       "restricted.networks.access": "ezharness0",
-      "restricted.storage-pools.access": "ezharness-btrfs",
-      "restricted.virtual-machines.nesting": "block"
+      "restricted.storage-pools.access": "ezharness-btrfs"
     }
   },
   "profile": {

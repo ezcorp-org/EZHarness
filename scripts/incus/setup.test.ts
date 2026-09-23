@@ -29,7 +29,7 @@ function recipe(overrides: Partial<IncusSetupRecipe> = {}): IncusSetupRecipe {
     project: { name: "project", description: "Owned", config: {
       "features.images": "false", "features.networks": "false", "features.networks.zones": "false", "features.profiles": "true", "features.storage.buckets": "false", "features.storage.volumes": "true",
       "limits.containers": "4", "limits.cpu": "8", "limits.disk.pool.pool": "80GiB", "limits.memory": "32GiB", "limits.networks": "0", "limits.processes": "4096", "limits.virtual-machines": "0",
-      restricted: "true", "restricted.containers.nesting": "allow", "restricted.devices.nic": "managed", "restricted.images.servers": "images.linuxcontainers.org", "restricted.networks.access": "bridge", "restricted.storage-pools.access": "pool", "restricted.virtual-machines.nesting": "block",
+      restricted: "true", "restricted.containers.nesting": "allow", "restricted.devices.nic": "managed", "restricted.images.servers": "images.linuxcontainers.org", "restricted.networks.access": "bridge", "restricted.storage-pools.access": "pool",
     } },
     profile: { name: "compose", description: "Bounded", config: { "limits.cpu": "2", "limits.memory": "8GiB", "limits.memory.enforce": "hard", "limits.processes": "1024", "security.idmap.isolated": "true", "security.nesting": "true", "security.privileged": "false" }, devices: { eth0: { type: "nic", name: "eth0", network: "bridge" }, root: { type: "disk", path: "/", pool: "pool", size: "16GiB" } } },
     server: { httpsAddress: "100.81.181.39:8443" },
@@ -536,6 +536,21 @@ test("inspection uses a fixed bounded read-only snapshot and drops unneeded serv
 });
 
 describe("Incus setup planning", () => {
+  test("container-only template requires only features available on the pinned Incus 6.0 server", () => {
+    const reviewed = checkedInRecipe as IncusSetupRecipe;
+    expect(reviewed.expected.incusVersion).toBe("6.0.6");
+    expect(reviewed.project.config["limits.virtual-machines"]).toBe("0");
+    expect(reviewed.project.config).not.toHaveProperty("restricted.virtual-machines.nesting");
+    expect(reviewed.expected.requiredApiExtensions).toContain("projects_restricted_image_servers");
+    expect(reviewed.expected.requiredApiExtensions).toContain("projects_limits_disk_pool");
+    expect(() => validateRecipe(reviewed)).not.toThrow();
+    const missingImageRestriction = createSetupPlan(reviewed, inventory({ server: {
+      ...inventory().server,
+      apiExtensions: reviewed.expected.requiredApiExtensions.filter(extension => extension !== "projects_restricted_image_servers"),
+    } }));
+    expect(missingImageRestriction.blockedReasons).toContain("missing_api_extension:projects_restricted_image_servers");
+  });
+
   test("checked-in recipe matches advertised presets while legacy LVM/16 GiB does not", () => {
     const advertised = incusManifest.sandboxProviders?.find(provider => provider.id === INCUS_PROVIDER_ID)?.presets ?? [];
     expect(advertised.length).toBeGreaterThan(0);
