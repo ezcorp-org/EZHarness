@@ -4,7 +4,7 @@ import { requireAdminSession } from "$server/auth/middleware";
 import { getDb } from "$server/db/connection";
 import { getExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
 import { getReleaseRuntime, resolveActiveRelease } from "$server/extensions/release-process";
-import { IncusOperatorSetupService, bootstrapFromEnvironment } from "$server/infrastructure/incus-operator/service";
+import { IncusOperatorSetupService, bootstrapFromEnvironment, loadReviewedIncusRecipe } from "$server/infrastructure/incus-operator/service";
 import { ProviderConnectionStore } from "$server/infrastructure/provider-connections/store";
 import { releaseRows } from "$server/db/queries/extension-releases";
 import type { RequestHandler } from "./$types";
@@ -14,15 +14,18 @@ const identifier = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 async function service(): Promise<IncusOperatorSetupService | Response> {
   const bootstrap = bootstrapFromEnvironment();
   if (!bootstrap) return json({ code: "bootstrap_not_configured", message: "Set the host-owned Incus SSH target, key, known_hosts pin, and HTTPS endpoint." }, { status: 503 });
+  const recipePath = process.env.EZCORP_INCUS_SETUP_RECIPE_FILE;
+  if (!recipePath) return json({ code: "recipe_not_configured", message: "Set the host-owned reviewed Incus recipe file." }, { status: 503 });
+  const recipe = loadReviewedIncusRecipe(recipePath);
   await getExtensionLifecycle();
   const database = getDb();
-  return new IncusOperatorSetupService({ database, connections: new ProviderConnectionStore(database), bootstrap,
+  return new IncusOperatorSetupService({ database, connections: new ProviderConnectionStore(database), bootstrap, recipe,
     activeRelease: installationId => resolveActiveRelease(installationId, getReleaseRuntime()) });
 }
 
 function safeError(error: unknown): Response {
   const message = error instanceof Error ? error.message : "Incus setup failed";
-  const known = /^(The (active approved release|provider release|exact ready plan|setup is already|setup outcome)|Incus (setup was not found|setup endpoint|did not report|server certificate|provider|client identity)|Host-owned SSH|SSH (connection|host is not pinned|known_hosts)|OpenSSL is required|Verify the reviewed|Provider release|Provider connection|setup plan digest mismatch)/.test(message);
+  const known = /^(The (active approved release|provider release|exact ready plan|setup is already|setup outcome)|Incus (setup was not found|setup endpoint|did not report|server certificate|provider|client identity)|Reviewed Incus recipe|Host-owned SSH|SSH (connection|host is not pinned|known_hosts)|OpenSSL is required|Verify the reviewed|Provider release|Provider connection|setup plan digest mismatch)/.test(message);
   return json({ code: "setup_failed", message: known ? message : "Incus setup failed. Check host logs and inspect the saved plan." }, { status: 409 });
 }
 

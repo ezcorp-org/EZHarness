@@ -1,5 +1,7 @@
 import { randomUUID, X509Certificate } from "node:crypto";
+import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { isIP } from "node:net";
+import { isAbsolute } from "node:path";
 import { sql } from "drizzle-orm";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import recipeTemplate from "../../../scripts/incus/recipe.json";
@@ -7,7 +9,7 @@ import { applySetupPlan } from "../../../scripts/incus/apply";
 import { inspectIncus, sshRunner, type RemoteRunner } from "../../../scripts/incus/inspect";
 import type { ApplyReceipt, IncusConnection, IncusSetupPlan, IncusSetupRecipe } from "../../../scripts/incus/model";
 import { assertSetupPlanDigest, digest } from "../../../scripts/incus/model";
-import { createSetupPlan, verifySetupPlan } from "../../../scripts/incus/plan";
+import { createSetupPlan, validateRecipe, verifySetupPlan } from "../../../scripts/incus/plan";
 import { releaseRows, type ReleaseDatabase } from "../../db/queries/extension-releases";
 import { ReleaseProcess, type ActiveExtensionRelease } from "../../extensions/release-process";
 import type { ProviderConnectionStore } from "../provider-connections/store";
@@ -102,6 +104,33 @@ export function bootstrapFromEnvironment(env: NodeJS.ProcessEnv = process.env): 
     throw new Error("Incus setup endpoint must be a bare HTTPS origin");
   }
   return { ssh: { sshTarget: target!, sshIdentityFile: identity!, sshKnownHostsFile: knownHosts!, sshHostKeySha256: hostKey! }, endpoint: url.origin };
+}
+
+/** The engine reads one operator-owned recipe; its saved plan pins the exact bytes used for Apply. */
+export function loadReviewedIncusRecipe(path: string): IncusSetupRecipe {
+  if (!isAbsolute(path)) throw new Error("Reviewed Incus recipe path must be absolute");
+  let fd: number;
+  try { fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW); }
+  catch { throw new Error("Reviewed Incus recipe cannot be opened"); }
+  try {
+    const status = fstatSync(fd);
+    const uid = process.getuid?.();
+    if (!status.isFile() || status.size < 1 || status.size > 64 * 1024 || (status.mode & 0o022) !== 0 ||
+      uid !== undefined && status.uid !== uid && status.uid !== 0) {
+      throw new Error("Reviewed Incus recipe must be a bounded, operator-owned, non-writable file");
+    }
+    let parsed: unknown;
+    try { parsed = JSON.parse(readFileSync(fd, "utf8")); }
+    catch { throw new Error("Reviewed Incus recipe is not valid JSON"); }
+    const recipe = parsed as IncusSetupRecipe;
+    validateRecipe(recipe);
+    const image = recipe.guestImage;
+    if (!image?.fingerprint || !image.sourceFingerprint || !image.pythonPackageVersion ||
+      !image.dockerArchiveSha256 || !image.composeSha256 || recipe.providerClient) {
+      throw new Error("Reviewed Incus recipe must pin the image and leave client identity to the engine");
+    }
+    return recipe;
+  } finally { closeSync(fd); }
 }
 
 /** One saved review controls one exact release, connection, recipe, and plan. */

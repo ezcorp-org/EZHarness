@@ -6,6 +6,7 @@ import { digestObject } from "./v4/blobs";
 import { proveSandboxLocalFallbackDenied } from "../runtime/workspaces/host-routing-proof";
 import { createIncusExtension, resolveHostIncusInvocationRuntime } from "../../extensions/incus-sandbox/index";
 import { incusManifest } from "../../extensions/incus-sandbox/manifest";
+import { incusCandidateFixture, INCUS_CANDIDATE_CONNECTION, INCUS_CANDIDATE_RPC } from "./incus-candidate-fixture";
 
 const release = {
   id: "release", artifactDigest: "a".repeat(64),
@@ -254,12 +255,11 @@ test("production candidate verification runs provider assertions and returns hos
   ] });
 });
 
-test("real Incus entrypoint stays blocked at candidate preflight without approved connection metadata", async () => {
-  const candidate = realIncusCandidateRelease();
+function realIncusRunner(attack = false) {
   const extension = createIncusExtension(resolveHostIncusInvocationRuntime);
   const dispatched: string[] = [];
   let hostCalls = 0;
-  const runner = { async start(start: StartRequest) { return {
+  const runner = { async start(start: StartRequest, reverseRpc: ReverseRpc) { return {
     workerId: start.workerId,
     onNotification: () => () => {},
     close: async () => {},
@@ -267,18 +267,47 @@ test("real Incus entrypoint stays blocked at candidate preflight without approve
       if (method === "extension/discover") return extension.manifest;
       const exchange = payload as { method: string; input: unknown };
       dispatched.push(exchange.method);
+      if (attack && exchange.method === "incus/preflight") {
+        await reverseRpc(INCUS_CANDIDATE_RPC, { context: start.context,
+          input: { command: { action: "instance.create" } } }).catch(() => {});
+      }
       return extension.dispatch(exchange.method, exchange.input, {
         invocation: start.context,
         signal: new AbortController().signal,
-        call: async () => { hostCalls++; throw new Error("candidate host effects are denied"); },
+        call: async (name, input) => { hostCalls++; return reverseRpc(name, { context: start.context, input }); },
       });
     },
   }; } } as unknown as Runner;
-  await expect(verifyExtensionCandidate(runner, candidate, undefined, undefined, {
+  return { runner, dispatched, hostCalls: () => hostCalls };
+}
+
+test("real Incus entrypoint uses only the host-owned synthetic candidate probe", async () => {
+  const candidate = realIncusCandidateRelease();
+  const { runner, dispatched, hostCalls } = realIncusRunner();
+  const report = await verifyExtensionCandidate(runner, candidate, undefined, undefined, {
     proveWorkspaceRouting: proveSandboxLocalFallbackDenied,
-  })).rejects.toMatchObject({ code: "sandbox_conformance_failed" });
-  expect(dispatched).toEqual(["incus/describe", "incus/preflight"]);
-  expect(hostCalls).toBe(0);
+  });
+  expect(report.sandboxPresetQualifications).toHaveLength(2);
+  expect(dispatched).toEqual(["incus/describe", "incus/preflight", "incus/preflight", "incus/preflight", "incus/preflight"]);
+  expect(hostCalls()).toBe(4);
+});
+
+test("a caught candidate Incus write attempt still blocks release verification", async () => {
+  const { runner } = realIncusRunner(true);
+  await expect(verifyExtensionCandidate(runner, realIncusCandidateRelease(), undefined, undefined, {
+    proveWorkspaceRouting: proveSandboxLocalFallbackDenied,
+  })).rejects.toMatchObject({ code: "candidate_capability_blocked" });
+});
+
+test("candidate Incus fixture rejects any write or forged invocation", () => {
+  const fixture = incusCandidateFixture(realIncusCandidateRelease())!;
+  const context = { ...invocation(), metadata: { providerConfig: fixture.config } };
+  const command = { action: "instance.create", connectionId: INCUS_CANDIDATE_CONNECTION,
+    pins: fixture.config, tags: { managedBy: "ezharness-incus-sandbox", connectionId: INCUS_CANDIDATE_CONNECTION }, payload: {} };
+  expect(INCUS_CANDIDATE_RPC).toBe("ezcorp/provider.incus.transport");
+  expect(() => fixture.respond({ context, input: { command } }, context)).toThrow("Only the bounded Incus candidate probe");
+  expect(() => fixture.respond({ context: { ...context, token: "forged" }, input: { command } }, context)).toThrow("Only the bounded Incus candidate probe");
+  expect(incusCandidateFixture(release)).toBeNull();
 });
 
 test("provider conformance methods cannot inherit smoke-test host capabilities", async () => {

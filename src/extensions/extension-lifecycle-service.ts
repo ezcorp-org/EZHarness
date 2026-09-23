@@ -17,6 +17,7 @@ import { hasExactReleaseGrants } from "./bundled-drift-reapprove";
 import { createLifecycleRecoveryScheduler } from "./lifecycle-recovery-scheduler";
 import { assertSandboxPresetReleaseQualification } from "./v4/sandbox-preset-qualification";
 import { runSandboxCandidateConformance, type SandboxConformanceDependencies } from "./v4/sandbox-conformance";
+import { INCUS_CANDIDATE_RPC, incusCandidateFixture } from "./incus-candidate-fixture";
 
 const log = extensionLogger("author", "lifecycle");
 
@@ -78,11 +79,19 @@ export async function verifyExtensionCandidate(
 ): Promise<CandidateVerificationReport> {
   const workerId = randomUUID();
   const scopeId = `verification:${randomUUID()}`;
-  const context = { invocationId: randomUUID(), workerId, releaseId: release.id, principalId: "extension-verification", scopeId, token: randomUUID(), deadline: Date.now() + executionLimits.timeoutMs, metadata: { ezConversationId: scopeId } };
+  const incusFixture = incusCandidateFixture(release);
+  const context = { invocationId: randomUUID(), workerId, releaseId: release.id, principalId: "extension-verification", scopeId, token: randomUUID(), deadline: Date.now() + executionLimits.timeoutMs,
+    metadata: { ezConversationId: scopeId, ...(incusFixture ? { providerConfig: incusFixture.config } : {}) } };
   const broker = await createCandidateVerificationBroker(release, context, fixtures);
+  let fixtureDenied = false;
+  const candidateRpc: ReverseRpc = async (method, raw) => {
+    if (method !== INCUS_CANDIDATE_RPC || !incusFixture) return broker.reverseRpc(method, raw);
+    try { return incusFixture.respond(raw, context); }
+    catch (error) { fixtureDenied = true; throw error; }
+  };
   let worker: RunnerExecution | undefined;
   try {
-    worker = await runner.start({ workerId, artifactDigest: release.artifactDigest, context, limits: executionLimits }, reverseRpc ?? broker.reverseRpc);
+    worker = await runner.start({ workerId, artifactDigest: release.artifactDigest, context, limits: executionLimits }, reverseRpc ?? candidateRpc);
     const discovered = validateManifest(await worker.request("extension/discover", {}));
     if (canonicalJson(discovered) !== canonicalJson(release.manifest)) throw new LifecycleError("runtime_catalog_mismatch", "Runtime metadata changed after verification.");
     const sandboxPresetQualifications = discovered.sandboxProviders === undefined ? undefined : await runSandboxCandidateConformance(release, {
@@ -109,7 +118,7 @@ export async function verifyExtensionCandidate(
       capabilities: broker.coverage(),
       ...(sandboxPresetQualifications === undefined ? {} : { sandboxPresetQualifications }),
     };
-    if (report.capabilities.some((entry) => entry.state === "denied")) throw Object.assign(new LifecycleError("candidate_capability_blocked", "Candidate attempted a denied capability; supply an isolated fixture or fix its declaration."), { verification: report });
+    if (fixtureDenied || report.capabilities.some((entry) => entry.state === "denied")) throw Object.assign(new LifecycleError("candidate_capability_blocked", "Candidate attempted a denied capability; supply an isolated fixture or fix its declaration."), { verification: report });
     return report;
   } catch (error) {
     if (error && typeof error === "object") Object.assign(error, { capabilities: broker.coverage() });

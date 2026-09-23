@@ -10,9 +10,5 @@
     "build": "bun build ./extension.ts --target=bun --outdir=/tmp/ez-infisical-build",
     "typecheck": "bun x tsc --noEmit -p tsconfig.json",
     "lint": "bun x biome check ."
-  },
-  "dependencies": {
-    "@ezcorp/extension-contract": "workspace:*",
-    "@ezcorp/sdk": "workspace:*"
   }
 }

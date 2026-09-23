@@ -202,6 +202,7 @@
   "src/extensions/bundled-bootstrap.ts": 100,
   "src/extensions/bundled-drift-reapprove.ts": 100,
   "src/extensions/candidate-verification-broker.ts": 100,
+  "src/extensions/incus-candidate-fixture.ts": 100,
   "src/extensions/cli-control.ts": 100,
   "src/extensions/credential-broker.ts": 100,
   "src/extensions/provider-secret-transport.ts": 100,

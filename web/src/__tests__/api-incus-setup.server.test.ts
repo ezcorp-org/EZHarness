@@ -3,6 +3,9 @@ import { beforeEach, expect, test, vi } from "vitest";
 const calls: string[] = [];
 const activeReleaseCalls: Promise<unknown>[] = [];
 let hasBootstrap = true;
+let recipeFailure: Error | null = null;
+const recipePaths: string[] = [];
+const serviceRecipes: unknown[] = [];
 let failure: unknown = null;
 let queryCount = 0;
 vi.mock("$server/auth/middleware", () => ({
@@ -12,8 +15,10 @@ vi.mock("$server/auth/middleware", () => ({
 }));
 vi.mock("$server/infrastructure/incus-operator/service", () => ({
 	bootstrapFromEnvironment: () => hasBootstrap ? { host: "pinned" } : null,
+	loadReviewedIncusRecipe: (path: string) => { recipePaths.push(path); if (recipeFailure) throw recipeFailure; return { id: "reviewed" }; },
 	IncusOperatorSetupService: class {
-		constructor(options: { activeRelease: (installationId: string) => Promise<unknown> }) {
+		constructor(options: { activeRelease: (installationId: string) => Promise<unknown>; recipe: unknown }) {
+			serviceRecipes.push(options.recipe);
 			activeReleaseCalls.push(options.activeRelease("provider"));
 		}
 		async latest(id: string) { calls.push(`latest:${id}`); if (failure) throw failure; return { id }; }
@@ -50,7 +55,11 @@ function postEvent(body: unknown, locals: Record<string, unknown> = admin): Para
 	}) } as unknown as Parameters<typeof POST>[0];
 }
 
-beforeEach(() => { calls.length = 0; activeReleaseCalls.length = 0; hasBootstrap = true; failure = null; queryCount = 0; });
+beforeEach(() => {
+	calls.length = 0; activeReleaseCalls.length = 0; recipePaths.length = 0; serviceRecipes.length = 0;
+	hasBootstrap = true; recipeFailure = null; failure = null; queryCount = 0;
+	process.env.EZCORP_INCUS_SETUP_RECIPE_FILE = "/host/reviewed-recipe.json";
+});
 
 test("setup requires an administrator session before reading host configuration", async () => {
 	expect((await GET(getEvent("", {}))).status).toBe(401);
@@ -76,6 +85,20 @@ test("setup reports missing host bootstrap without loading a release", async () 
 	expect(await (await GET(getEvent("?installationId=provider"))).json()).toMatchObject({ code: "bootstrap_not_configured" });
 	expect(await (await POST(postEvent({ action: "plan", installationId: "provider" }))).json()).toMatchObject({ code: "bootstrap_not_configured" });
 	expect(calls).toEqual([]);
+});
+
+test("setup requires a host-owned recipe and passes it to the operator service", async () => {
+	delete process.env.EZCORP_INCUS_SETUP_RECIPE_FILE;
+	expect(await (await GET(getEvent("?installationId=provider"))).json()).toMatchObject({ code: "recipe_not_configured" });
+	expect(calls).toEqual([]);
+	process.env.EZCORP_INCUS_SETUP_RECIPE_FILE = "/host/reviewed-recipe.json";
+	expect((await POST(postEvent({ action: "plan", installationId: "provider" }))).status).toBe(200);
+	expect(recipePaths).toEqual(["/host/reviewed-recipe.json"]);
+	expect(serviceRecipes).toEqual([{ id: "reviewed" }]);
+	recipeFailure = new Error("Reviewed Incus recipe must pin the image");
+	expect(await (await POST(postEvent({ action: "plan", installationId: "provider" }))).json()).toMatchObject({
+		code: "setup_failed", message: "Reviewed Incus recipe must pin the image",
+	});
 });
 
 test("lists active Incus releases and prior inactive setups", async () => {

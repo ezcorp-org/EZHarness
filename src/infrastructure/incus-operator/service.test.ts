@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createHash, createPublicKey, X509Certificate } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { chmodSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,7 +15,7 @@ import { up as addProviderConnections } from "../../db/migrations/add-provider-c
 import { up as addIncusOperatorSetups } from "../../db/migrations/add-incus-operator-setups";
 import { releaseRuntimeFixture } from "../../__tests__/helpers/release-runtime";
 import { ProviderConnectionStore } from "../provider-connections/store";
-import { IncusOperatorSetupService, bootstrapFromEnvironment } from "./service";
+import { IncusOperatorSetupService, bootstrapFromEnvironment, loadReviewedIncusRecipe } from "./service";
 import { issueIncusClientIdentity } from "./identity";
 
 const certificatePem = readFileSync(new URL("../incus-transport/test-server.pem", import.meta.url), "utf8");
@@ -94,6 +94,32 @@ test("host setup requires only host-owned bootstrap fields", () => {
     EZCORP_INCUS_SETUP_SSH_KNOWN_HOSTS_FILE: bootstrap.ssh.sshKnownHostsFile,
     EZCORP_INCUS_SETUP_SSH_HOST_KEY_SHA256: bootstrap.ssh.sshHostKeySha256,
     EZCORP_INCUS_SETUP_ENDPOINT: "http://sandbox-server:8443" })).toThrow();
+});
+
+test("host-owned setup recipe must pin the image and cannot be swapped through a link", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "incus-reviewed-recipe-"));
+  const path = join(directory, "recipe.json");
+  try {
+    writeFileSync(path, JSON.stringify(recipe), { mode: 0o600 });
+    expect(loadReviewedIncusRecipe(path).guestImage?.fingerprint).toBe(guestImage.fingerprint);
+    expect(() => loadReviewedIncusRecipe("relative/recipe.json")).toThrow("absolute");
+    expect(() => loadReviewedIncusRecipe(join(directory, "missing.json"))).toThrow("cannot be opened");
+    const link = join(directory, "linked.json");
+    symlinkSync(path, link);
+    expect(() => loadReviewedIncusRecipe(link)).toThrow("cannot be opened");
+    chmodSync(path, 0o666);
+    expect(() => loadReviewedIncusRecipe(path)).toThrow("operator-owned");
+    chmodSync(path, 0o600);
+    writeFileSync(path, "not json");
+    expect(() => loadReviewedIncusRecipe(path)).toThrow("not valid JSON");
+    writeFileSync(path, JSON.stringify(checkedInRecipe));
+    expect(() => loadReviewedIncusRecipe(path)).toThrow("must pin the image");
+    const supplied = await issueIncusClientIdentity("injected");
+    writeFileSync(path, JSON.stringify({ ...recipe, providerClient: { name: "engine",
+      certificateFingerprint: supplied.fingerprint, certificatePem: supplied.certificatePem,
+      projects: [recipe.project.name], restricted: true } }));
+    expect(() => loadReviewedIncusRecipe(path)).toThrow("leave client identity to the engine");
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 test("issued client certificate and private key form one scoped identity", async () => {

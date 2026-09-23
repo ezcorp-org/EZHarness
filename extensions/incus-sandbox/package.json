@@ -7,9 +7,5 @@
   "main": "./extension.ts",
   "scripts": {
     "test": "bun test"
-  },
-  "dependencies": {
-    "@ezcorp/extension-contract": "workspace:*",
-    "@ezcorp/sdk": "workspace:*"
   }
 }
