@@ -74,8 +74,13 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 2400 bash /tmp/factory-platform-evidence/w09c/repro/postgres-producers.sh`
       EXPECT: `factory-run-lifecycle-s3` 63/0, `factory-run-lifecycle` 63/0,
       `factory-private-service` 5/0, `factory-boot` 1/0, and
-      `factory-s3-publication` 18/0, all at `874b5f7d6` with a clean tree.
-      EVIDENCE: `/tmp/factory-platform-evidence/w09c/receipts/postgres-producers.json`
+      `factory-s3-publication` 18/0. First run at `874b5f7d6` with a clean tree.
+      Rerun at the final head `9f09db074`, where the one dirty file was this gate
+      file. After the rerun, no object remains under the case's prefix
+      (`ordinary/factory-lifecycle-published/`).
+      EVIDENCE: `/tmp/factory-platform-evidence/w09c/receipts/postgres-producers-874b5f7d6.json`,
+      `/tmp/factory-platform-evidence/w09c/receipts/postgres-producers.json`,
+      `/tmp/factory-platform-evidence/w09c/logs/cleanup-lifecycle-published.log`
 - [x] G4: Negative controls. An undeclared destination is refused at prepare.
       A revoked approval authority fails the claim by name.
       CHECK: the G2 and G3 suites, cases "a release node naming an account
@@ -97,9 +102,20 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       EXPECT: exit 0 each, and zero lint diagnostics.
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/receipts/final-sweep.json`
 - [ ] G7: A PUBLISHED release end to end through the real started application.
-      CHECK: `bash /tmp/factory-platform-evidence/w09c/e2e/repro/run-three.sh`
-      EXPECT: not met. See "Open" below.
-      EVIDENCE: `/tmp/factory-platform-evidence/w09c/e2e/`
+      CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bash /tmp/factory-platform-evidence/w09c/e2e/repro/run-three.sh`
+      EXPECT (met): three fresh product databases. In each, the run is accepted
+      over public HTTP and the W01g staging guest COMPLETES. It seals
+      `part-0.csv`, `part-1.csv`, and `candidate.json` under its own operation
+      and returns an S3 accepted publication. The kernel issues
+      `request-acceptance`, and `release-outcome` runs from the declared
+      destination.
+      NOT MET: the acceptance command is refused with
+      `FactoryReleaseAuthorityError: factory_release_trust_missing` in all
+      three passes. So no release operation is prepared, and nothing is claimed
+      or published. The proof worktree is `adc489aa2`, the merge of
+      `wp/w09c-profiles` `9f09db074` and `wp/w01g-staging` `70638290b`.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09c/e2e/three-passes.json`,
+      `/tmp/factory-platform-evidence/w09c/e2e/proof-{1,2,3}.json`
 
 ## Open
 
