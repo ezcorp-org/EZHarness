@@ -16,8 +16,7 @@
  *      other extensions' injections.
  */
 
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { parse } from "node:path";
+import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { ExtensionRegistry, buildAllowedEnv } from "../extensions/registry";
 import type { ExtensionManifestV2 } from "../extensions/types";
 
@@ -133,18 +132,20 @@ describe("buildAllowedEnv — injectedEnv gating", () => {
 
 describe("buildAllowedEnv — EZCORP_PROJECT_ROOT resolution", () => {
   test("swallows findProjectRoot failure when run outside a git tree", () => {
-    // findProjectRoot() walks up from process.cwd() and throws when it hits
-    // the filesystem root with no `.git` ancestor. buildAllowedEnv catches
-    // that so a spawn outside a git tree doesn't crash — it just leaves
-    // EZCORP_PROJECT_ROOT unset. Use the filesystem root because /tmp may
-    // contain a .git directory in a shared test environment.
+    // The host may have /tmp/.git, so simulate a tree with no Git ancestor.
     const cwd = process.cwd();
+    const fs = require("node:fs") as typeof import("node:fs");
+    const exists = fs.existsSync;
+    const stub = spyOn(fs, "existsSync").mockImplementation(path =>
+      String(path).endsWith("/.git") ? false : exists(path),
+    );
     try {
-      process.chdir(parse(cwd).root);
+      process.chdir("/tmp");
       const out = buildAllowedEnv(makeManifest(), { grantedAt: {} }, "ext-nogit");
       expect(out.EZCORP_PROJECT_ROOT).toBeUndefined();
     } finally {
       process.chdir(cwd);
+      stub.mockRestore();
     }
   });
 

@@ -10,7 +10,7 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, parse } from "node:path";
+import { join } from "node:path";
 import { getChannel } from "@ezcorp/sdk/runtime";
 import { spyOn } from "bun:test";
 import { findProjectRoot, handoffsDir, defaultProjectSlug } from "./project";
@@ -61,10 +61,19 @@ describe("findProjectRoot", () => {
   });
 
   test("returns the starting dir when no .git exists up to the filesystem root", () => {
-    // A path directly below the filesystem root avoids any `.git` that
-    // another test or process has placed in the system temp directory.
-    const lonely = join(parse(process.cwd()).root, "cd-nogit-does-not-exist");
-    expect(findProjectRoot(lonely)).toBe(lonely);
+    const lonely = mkdtempSync(join(tmpdir(), "cd-nogit-"));
+    const fs = require("node:fs") as typeof import("node:fs");
+    const exists = fs.existsSync;
+    const stub = spyOn(fs, "existsSync").mockImplementation(path =>
+      String(path).endsWith("/.git") ? false : exists(path),
+    );
+    try {
+      // The host may have /tmp/.git; simulate a tree with no Git ancestor.
+      expect(findProjectRoot(lonely)).toBe(lonely);
+    } finally {
+      stub.mockRestore();
+      rmSync(lonely, { recursive: true, force: true });
+    }
   });
 
   test("defaultProjectSlug is the basename of the resolved root", () => {

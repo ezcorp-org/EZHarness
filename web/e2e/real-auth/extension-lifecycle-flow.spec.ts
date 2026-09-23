@@ -729,6 +729,10 @@ test("reloads an observed pending browser build, shows diagnostics, repairs sour
     const wired = await request.post(`/api/conversations/${conversationId}/extensions`, { data: { names: [name] } });
     expect(wired.status(), await wired.text()).toBe(200);
     await navigateWithRuntimeEventTeardown(page, browserObserver, `/project/${projectId}/chat/${conversationId}`);
+    await selectExtensionMention(page, name);
+    const invocationForm = page.locator("form").filter({ has: page.locator("#field-text") });
+    await expect(invocationForm).toBeVisible();
+    await captureEvidence(page, testInfo, "extension-tool-form-before-invocation", { fullPage: true });
     await invokeExtensionToolFromComposer(page, name, { text: retainedOutput });
     await expectInlineToolOutput(page, `Recovery v1: ${retainedOutput}`);
 

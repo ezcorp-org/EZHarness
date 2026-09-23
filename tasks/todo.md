@@ -1312,11 +1312,11 @@ Review: pending.
 
 ## Merge current main into pluggable infrastructure — 2026-09-22
 
-- [ ] Preserve all current work in a branch commit.
-- [ ] Fetch and merge the latest `origin/main`.
-- [ ] Resolve each conflict and inspect the resulting diff.
-- [ ] Report the merge receipt and remaining verification to the parent agent.
+- [x] Preserve all current work in a branch commit.
+- [x] Fetch and merge the latest `origin/main`.
+- [x] Resolve each conflict and inspect the resulting diff.
+- [x] Report the merge receipt and remaining verification to the parent agent.
 
 Plan review: Preserve the Incus live slice first. Keep the feature's behavior and the incoming main changes. The parent agent owns post-merge verification and push.
 
-Review: pending.
+Review: The incoming three no-Git-ancestor tests use filesystem stubs that avoid host layout dependence; all three targeted files pass. Regenerated `manifest.lock.json` from the resolved source tree. The parent agent will run post-merge gates before push.
