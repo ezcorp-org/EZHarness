@@ -349,7 +349,6 @@ export const factorySupervisorProductionDependencies: FactorySupervisorProcessDe
   startServices: startFactoryConfiguredHostServices,
   now: Date.now,
   createReadiness: (config) => createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({
-    installationId: config.installationId,
     hostId: config.hostId,
     readinessFilePath: config.readinessFilePath,
     ...(config.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: config.readinessHeartbeatMs }),

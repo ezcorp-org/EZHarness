@@ -37,7 +37,7 @@ async function fixture(overrides: Record<string, unknown> = {}) {
 class ProcessDatabase {
   readonly resources = new Map<string, number>();
   readonly hosts = new Set<string>();
-  identity: { installation_id: string; pool_id: string } | undefined;
+  identity: { pool_id: string } | undefined;
   databaseChecks = 0;
   closed = false;
   failCheckAfter = Number.POSITIVE_INFINITY;
@@ -47,8 +47,8 @@ class ProcessDatabase {
   async begin<Result>(work: (database: ProcessDatabase) => Promise<Result>): Promise<Result> { return work(this); }
   async unsafe(query: string, params: readonly unknown[] = []): Promise<unknown> {
     if (query.includes("current_database")) { this.databaseChecks++; if (this.databaseChecks > this.failCheckAfter) throw new Error("secret database error"); if (this.invalidRows) return {}; const value = [{ database: "pool_db", role: "pool_role" }]; return this.resultRowsObject ? { rows: value } : value; }
-    if (query.startsWith("INSERT INTO factory_pool_identity")) { this.identity ??= { installation_id: String(params[0]), pool_id: String(params[1]) }; return []; }
-    if (query.startsWith("SELECT installation_id")) return this.identity ? [this.identity] : [];
+    if (query.startsWith("INSERT INTO factory_pool_identity")) { this.identity ??= { pool_id: String(params[0]) }; return []; }
+    if (query.startsWith("SELECT pool_id FROM factory_pool_identity")) return this.identity ? [this.identity] : [];
     if (query === "SELECT resource_class FROM factory_pool_resources ORDER BY resource_class") return [...this.resources.keys()].map(resource_class => ({ resource_class }));
     if (query === "SELECT host_id FROM factory_pool_hosts ORDER BY host_id") return [...this.hosts].map(host_id => ({ host_id }));
     if (query.includes("FROM factory_pool_resources WHERE resource_class = $1 FOR UPDATE")) { const total = this.resources.get(String(params[0])); return total === undefined ? [] : [{ resource_class: params[0], total_units: total, allocated_units: 0 }]; }
@@ -65,7 +65,7 @@ function dependencies(database: ProcessDatabase, controller: AbortController, up
   if (options.heartbeatError) database.failCheckAfter = 1;
   return {
     connect: () => database,
-    readiness: () => ({ async write(update) { updates.push(update); return { schemaVersion: "factory.pool-readiness.v1", installationId: "i", poolId: "p", observedAtMs: 1, ...update }; } }),
+    readiness: () => ({ async write(update) { updates.push(update); return { schemaVersion: "factory.pool-readiness.v2", poolId: "p", observedAtMs: 1, ...update }; } }),
     start: async input => { expect(input).toMatchObject({ hostname: "127.0.0.1", port: 8443 }); if (options.startError) throw new Error("secret listener error"); if (options.heartbeatSuccess) setTimeout(() => controller.abort(), 1_010); else if (!options.heartbeatError) controller.abort(); return { url: "https://127.0.0.1:8443", stop() { if (options.stopError) throw new Error("secret listener close failure"); updates.push({ lifecycle: "stopped", databaseReady: false, schemaReady: false, listenerReady: false }); } }; },
     ...(options.heartbeatSuccess ? {} : { wait: async (_milliseconds: number, signal: AbortSignal) => { if (!signal.aborted && !options.heartbeatError) controller.abort(); } }),
   };
@@ -141,7 +141,8 @@ describe("factory pool process lifecycle", () => {
     const { paths } = await fixture({ resources: { capacities: { cpu: 4, memory: 8 }, gpuHosts: ["gpu-a"] }, identities: { tenants: { "tenant-a": { tenantId: "tenant-a", tokenSubject: "tenant-a" } }, supervisors: { supervisor: { supervisorId: "supervisor-a", tokenSubject: "supervisor", hostIds: ["gpu-a"] } } } });
     const database = new ProcessDatabase(); const controller = new AbortController(); const updates: FactoryPoolReadinessUpdate[] = [];
     await runConfiguredFactoryPoolProcess(paths.config, controller.signal, dependencies(database, controller, updates));
-    expect(database.identity).toEqual({ installation_id: "installation-a", pool_id: "pool-a" });
+    // The pool database is bound to the pool alone: one pool serves every installation on its host.
+    expect(database.identity).toEqual({ pool_id: "pool-a" });
     expect(Object.fromEntries(database.resources)).toEqual({ cpu: 4, memory: 8, "gpu-host": 1 });
     expect([...database.hosts]).toEqual(["gpu-a"]);
     expect(database.closed).toBe(true);
@@ -186,7 +187,7 @@ describe("factory pool process lifecycle", () => {
     const credentialController = new AbortController(); const credentialUpdates: FactoryPoolReadinessUpdate[] = [];
     await expect(runConfiguredFactoryPoolProcess(badCredential.paths.config, credentialController.signal, dependencies(new ProcessDatabase(), credentialController, credentialUpdates))).rejects.toThrow("configuration_unavailable");
 
-    const wrongPool = await fixture(); const wrongPoolDatabase = new ProcessDatabase(); wrongPoolDatabase.identity = { installation_id: "other", pool_id: "other" };
+    const wrongPool = await fixture(); const wrongPoolDatabase = new ProcessDatabase(); wrongPoolDatabase.identity = { pool_id: "other" };
     const wrongPoolController = new AbortController(); const wrongPoolUpdates: FactoryPoolReadinessUpdate[] = [];
     await expect(runConfiguredFactoryPoolProcess(wrongPool.paths.config, wrongPoolController.signal, dependencies(wrongPoolDatabase, wrongPoolController, wrongPoolUpdates))).rejects.toThrow("database_unavailable");
 

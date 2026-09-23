@@ -114,10 +114,10 @@ async function writeReadyRecords(root: string): Promise<void> {
   const path = join(root, "orchestration.json");
   await writeFile(path, JSON.stringify(orchestration), { mode: 0o600 });
   await chmod(path, 0o600);
-  await createFactoryPoolReadinessWriter({ installationId: "installation-01", poolId: "pool-01", readinessFilePath: join(root, "pool.json"), readinessHeartbeatMs: 5_000 })
+  await createFactoryPoolReadinessWriter({ poolId: "pool-01", readinessFilePath: join(root, "pool.json"), readinessHeartbeatMs: 5_000 })
     .write({ lifecycle: "ready", databaseReady: true, schemaReady: true, listenerReady: true });
   await createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({
-    installationId: "installation-01", hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 5_000,
+    hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 5_000,
   })).write({ lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } });
 }
 

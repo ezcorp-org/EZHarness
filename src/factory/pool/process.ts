@@ -165,10 +165,17 @@ async function verifyDatabase(database: PoolDatabase, config: FactoryPoolProcess
 async function bindPoolIdentity(database: PoolDatabase, config: FactoryPoolProcessConfig): Promise<void> {
   await database.begin(async transaction => {
     await transaction.unsafe("SELECT pg_advisory_xact_lock(hashtext('factory-pool-process-identity-v1'))");
-    await transaction.unsafe("CREATE TABLE IF NOT EXISTS factory_pool_identity(singleton boolean PRIMARY KEY DEFAULT TRUE CHECK(singleton), installation_id text NOT NULL, pool_id text NOT NULL)");
-    await transaction.unsafe("INSERT INTO factory_pool_identity(singleton,installation_id,pool_id) VALUES(TRUE,$1,$2) ON CONFLICT(singleton) DO NOTHING", [config.installationId, config.poolId]);
-    const identity = rows<{ installation_id: string; pool_id: string }>(await transaction.unsafe("SELECT installation_id,pool_id FROM factory_pool_identity WHERE singleton=TRUE FOR UPDATE"))[0];
-    if (!identity || identity.installation_id !== config.installationId || identity.pool_id !== config.poolId) throw new Error("factory pool database identity is invalid");
+    // One pool serves every installation on its host (C12): the database is bound
+    // to the pool's own id and no installation. A table in the earlier singleton
+    // shape (singleton, installation_id, pool_id) is upgraded in place, keeping
+    // its pool_id, so a pool database that served another pool is still refused.
+    await transaction.unsafe("CREATE TABLE IF NOT EXISTS factory_pool_identity(pool_id text PRIMARY KEY)");
+    await transaction.unsafe("ALTER TABLE factory_pool_identity DROP COLUMN IF EXISTS installation_id");
+    await transaction.unsafe("ALTER TABLE factory_pool_identity DROP COLUMN IF EXISTS singleton");
+    await transaction.unsafe("DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'factory_pool_identity'::regclass AND contype = 'p') THEN ALTER TABLE factory_pool_identity ADD PRIMARY KEY (pool_id); END IF; END $$");
+    await transaction.unsafe("INSERT INTO factory_pool_identity(pool_id) SELECT $1 WHERE NOT EXISTS (SELECT 1 FROM factory_pool_identity)", [config.poolId]);
+    const identity = rows<{ pool_id: string }>(await transaction.unsafe("SELECT pool_id FROM factory_pool_identity FOR UPDATE"));
+    if (identity.length !== 1 || identity[0]!.pool_id !== config.poolId) throw new Error("factory pool database identity is invalid");
   });
 }
 

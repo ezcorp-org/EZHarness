@@ -26,6 +26,19 @@ test("binds requests, reads, lease actions, and cancel generation to the authent
   await expect(service.request(tenantOne, { ...request("scope-denied"), grantScope: "tenant-01:other" })).rejects.toThrow("scope");
 });
 
+test("one shared pool keeps tenants apart: tenant two can neither reserve under tenant one's grant nor act on its lease", async () => {
+  await service.request(tenantOne, request("shared-pool-lease"));
+  await expect(service.request(tenantTwo, request("shared-pool-foreign-scope"))).rejects.toThrow("scope");
+  await expect(service.status(tenantTwo, "shared-pool-lease")).rejects.toThrow("not owned");
+  const lease = (await client`SELECT allocation_token, allocation_generation FROM factory_pool_requests WHERE reservation_id = 'shared-pool-lease'`)[0] as { allocation_token: string; allocation_generation: number };
+  const action = { reservationId: "shared-pool-lease", grantRevision: 1, allocationGeneration: lease.allocation_generation, allocationToken: lease.allocation_token };
+  await expect(service.acknowledgeStart(tenantTwo, action)).rejects.toThrow("not owned");
+  await expect(service.renew(tenantTwo, action)).rejects.toThrow("not owned");
+  await expect(service.cancel(tenantTwo, "shared-pool-lease", lease.allocation_generation)).rejects.toThrow("not owned");
+  expect((await client`SELECT count(*)::int AS n FROM factory_pool_requests WHERE reservation_id = 'shared-pool-foreign-scope'`)[0]).toEqual({ n: 0 });
+  expect((await service.cancel(tenantOne, "shared-pool-lease", lease.allocation_generation)).state).toBe("revoking");
+});
+
 test("snapshots request fields before the grant insert yields", async () => {
   const expected = request("caller-mutation");
   const input = { ...expected, resources: { ...expected.resources } };

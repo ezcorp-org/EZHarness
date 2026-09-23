@@ -3,6 +3,7 @@ import { chmod, mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { FACTORY_REQUIRED_SERVICES } from "./boot";
 import { createFactoryPoolReadinessWriter } from "./pool/readiness";
+import { createFactoryServiceReadinessWriter, factorySupervisorReadinessOptions } from "./service-readiness";
 import {
   availableFactoryServices,
   factoryGatewayProbe,
@@ -12,6 +13,7 @@ import {
   factorySandboxProbe,
   factoryStorageProbe,
   factorySupervisorProbe,
+  factorySupervisorReadinessProbe,
   FactoryServiceProbeError,
   probeFactoryServices,
   unavailableFactoryServices,
@@ -178,12 +180,46 @@ describe("the orchestration and pool probes read live readiness", () => {
   test("the pool probe passes on a fresh ready record and fails on a foreign pool", async () => {
     const root = await privateRoot();
     const scope = identity(root);
-    const writer = createFactoryPoolReadinessWriter({ installationId: scope.installationId, poolId: scope.poolId, readinessFilePath: scope.poolReadinessFilePath, readinessHeartbeatMs: 5_000 });
+    const writer = createFactoryPoolReadinessWriter({ poolId: scope.poolId, readinessFilePath: scope.poolReadinessFilePath, readinessHeartbeatMs: 5_000 });
     await writer.write({ lifecycle: "ready", databaseReady: true, schemaReady: true, listenerReady: true });
     expect((await probeFactoryServices([factoryPoolProbe(scope)], open))[0]).toMatchObject({ available: true });
 
     const foreign = await probeFactoryServices([factoryPoolProbe({ ...scope, poolId: "pool-02" })], open);
-    expect(foreign[0]).toEqual({ service: "pool-admission", available: false, detail: "factory_pool_unavailable" });
+    expect(foreign[0]).toEqual({ service: "pool-admission", available: false, detail: "factory_pool_foreign" });
+  });
+});
+
+describe("a pool and a supervisor shared by two installations (C12, coordinator ruling 2026-09-22)", () => {
+  const facts = { hostKeyReady: true, runnerReady: true, hostServicesReady: true };
+
+  async function sharedHost(root: string) {
+    const pool = createFactoryPoolReadinessWriter({ poolId: "pool.host-a", readinessFilePath: join(root, "pool.json"), readinessHeartbeatMs: 5_000 });
+    await pool.write({ lifecycle: "ready", databaseReady: true, schemaReady: true, listenerReady: true });
+    const supervisor = createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({ hostId: "host-a", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 5_000 }));
+    return supervisor.write({ lifecycle: "ready", facts });
+  }
+  const installation = (root: string, installationId: string, tenantId: string): FactoryProbeIdentity => ({ ...identity(root), installationId, tenantId, poolId: "pool.host-a", hostId: "host-a" });
+
+  test("both installations reach ready on one pool record and one supervisor record, which name no installation", async () => {
+    const root = await privateRoot();
+    const record = await sharedHost(root);
+    expect(record).toEqual({ schemaVersion: "factory.supervisor-readiness.v1", service: "host-supervisor", instanceId: "host-a", lifecycle: "ready", observedAtMs: record.observedAtMs, facts });
+    for (const scope of [installation(root, "installation-01", "tenant-01"), installation(root, "installation-02", "tenant-02")]) {
+      expect(await probeFactoryServices([factoryPoolProbe(scope), factorySupervisorReadinessProbe(scope)], open)).toEqual([
+        { service: "pool-admission", available: true, detail: "ready" },
+        { service: "host-supervisor", available: true, detail: "ready" },
+      ]);
+    }
+  });
+
+  test("an installation that names another pool or another host is refused by name", async () => {
+    const root = await privateRoot();
+    await sharedHost(root);
+    const misrouted = { ...installation(root, "installation-03", "tenant-03"), poolId: "pool.host-b", hostId: "host-b" };
+    expect(await probeFactoryServices([factoryPoolProbe(misrouted), factorySupervisorReadinessProbe(misrouted)], open)).toEqual([
+      { service: "pool-admission", available: false, detail: "factory_pool_foreign" },
+      { service: "host-supervisor", available: false, detail: "host-supervisor" },
+    ]);
   });
 });
 

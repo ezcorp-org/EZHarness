@@ -225,7 +225,7 @@ describe("runConfiguredFactorySupervisor", () => {
     await writeHostKey(root);
     const path = await writeConfig(root);
     abortController = new AbortController();
-    const scope = factorySupervisorReadinessOptions({ installationId: "installation-01", hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 1_000 });
+    const scope = factorySupervisorReadinessOptions({ hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 1_000 });
 
     let observed: unknown;
     let probes = 0;
@@ -511,7 +511,9 @@ describe("factorySupervisorProductionDependencies", () => {
     const root = await privateRoot();
     const writer = factorySupervisorProductionDependencies.createReadiness(parseFactorySupervisorProcessConfig(config(root)));
     const published = await writer.write({ lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } });
-    expect(published).toMatchObject({ service: "host-supervisor", installationId: "installation-01", instanceId: "host-01" });
+    // The supervisor serves every installation on its host: its record names the host and no installation.
+    expect(published).toMatchObject({ service: "host-supervisor", instanceId: "host-01" });
+    expect(Object.keys(published)).not.toContain("installationId");
 
     const noHeartbeat = factorySupervisorProductionDependencies.createReadiness(parseFactorySupervisorProcessConfig(config(root, { readinessHeartbeatMs: undefined })));
     expect(await noHeartbeat.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false , hostServicesReady: false } })).toMatchObject({ lifecycle: "starting" });

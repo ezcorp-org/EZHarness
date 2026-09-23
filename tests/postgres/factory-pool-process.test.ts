@@ -64,7 +64,7 @@ async function start(path = configPath) {
 }
 
 async function waitReady(child: ReturnType<typeof start> extends Promise<infer P> ? P : never): Promise<void> {
-  const options = { installationId: "installation-process", poolId: "pool-process", readinessFilePath: config.readinessFilePath as string, readinessHeartbeatMs: 1_000 };
+  const options = { poolId: "pool-process", readinessFilePath: config.readinessFilePath as string, readinessHeartbeatMs: 1_000 };
   const deadline = Date.now() + 15_000;
   while (Date.now() < deadline) {
     if (await Promise.race([child.exited.then(() => true), Bun.sleep(25).then(() => false)])) throw new Error(`pool process exited before readiness: ${await new Response(child.stderr).text()}`);
@@ -110,4 +110,39 @@ test("restart rejects a resource removal and bad private certificate without bin
   await writeFile(malformedPath, JSON.stringify({ ...config, unexpected: true }), { mode: 0o600 });
   const malformed = await start(malformedPath); expect(await malformed.exited).toBe(1);
   expect(await new Response(malformed.stderr).text()).not.toContain("databaseUrl");
+});
+
+test("the pool identity row is keyed by pool id: an old singleton row is upgraded in place, a rerun is idempotent, and a database of another pool is refused", async () => {
+  const other = await setupFactoryPoolPostgres();
+  try {
+    // The earlier shape bound the pool database to one installation.
+    await other.client.unsafe("CREATE TABLE factory_pool_identity(singleton boolean PRIMARY KEY DEFAULT TRUE CHECK(singleton), installation_id text NOT NULL, pool_id text NOT NULL)");
+    await other.client.unsafe("INSERT INTO factory_pool_identity(singleton,installation_id,pool_id) VALUES(TRUE,'installation-old','pool-process')");
+    const otherUrl = new URL(other.databaseUrl);
+    await writeFile(join(root, "other-database.json"), JSON.stringify({ databaseUrl: other.databaseUrl }), { mode: 0o600 });
+    const upgradedPath = join(root, "upgraded.json");
+    const upgraded = { ...config, port: freePort(), readinessFilePath: join(root, "upgraded-readiness.json"), database: { credentialsPath: join(root, "other-database.json"), expectedDatabase: decodeURIComponent(otherUrl.pathname.slice(1)), expectedRole: decodeURIComponent(otherUrl.username) } };
+    await writeFile(upgradedPath, JSON.stringify(upgraded), { mode: 0o600 });
+    for (let run = 0; run < 2; run += 1) {
+      const child = await start(upgradedPath);
+      const deadline = Date.now() + 15_000;
+      let ready = false;
+      while (!ready && Date.now() < deadline) {
+        ready = await readFactoryPoolReadiness({ poolId: "pool-process", readinessFilePath: upgraded.readinessFilePath, readinessHeartbeatMs: 1_000 }).then(() => true, () => false);
+        if (!ready) await Bun.sleep(50);
+      }
+      expect(ready).toBe(true);
+      child.kill("SIGTERM"); expect(await child.exited).toBe(0);
+      await rm(upgraded.readinessFilePath, { force: true });
+    }
+    expect((await other.client.unsafe("SELECT column_name FROM information_schema.columns WHERE table_name = 'factory_pool_identity' ORDER BY column_name")).map((row: { column_name: string }) => row.column_name)).toEqual(["pool_id"]);
+    expect([...await other.client.unsafe("SELECT pool_id FROM factory_pool_identity")]).toEqual([{ pool_id: "pool-process" }]);
+    expect((await other.client.unsafe("SELECT count(*)::int AS n FROM pg_constraint WHERE conrelid = 'factory_pool_identity'::regclass AND contype = 'p'"))[0]).toEqual({ n: 1 });
+
+    // The same database named by another pool is refused before it binds.
+    const foreignPath = join(root, "foreign-pool.json");
+    await writeFile(foreignPath, JSON.stringify({ ...upgraded, poolId: "pool-other", port: freePort() }), { mode: 0o600 });
+    const foreign = await start(foreignPath); expect(await foreign.exited).toBe(1);
+    expect(JSON.parse(await readFile(upgraded.readinessFilePath, "utf8"))).toMatchObject({ poolId: "pool-other", lifecycle: "degraded" });
+  } finally { await other.close(); }
 });
