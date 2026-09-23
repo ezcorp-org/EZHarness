@@ -110,6 +110,10 @@ export class HostIncusLiveReadback {
       const profile = object(metadata(await session.request("GET",
         `/1.0/profiles/${encodeURIComponent(context.recipe.profile.name)}?project=${project}`)));
       assert(profile.name === context.recipe.profile.name, "backend profile changed");
+      const profileNic = object(object(profile.devices).eth0);
+      assert(profileNic.type === "nic" && profileNic.name === "eth0"
+        && profileNic.network === context.recipe.network.name
+        && profileNic["security.port_isolation"] === "true", "backend feature NIC isolation changed");
       const observation: SandboxCompatibilityObservation = { backendApi: "incus.v1",
         backendVersion: environment.server_version as string, architecture,
         storageDriver: pool.driver as string, isolation: "container",
@@ -162,14 +166,15 @@ export class HostIncusLiveReadback {
         && pids <= context.preset.limits.pids && diskBytes <= context.preset.limits.diskBytes,
       "backend fixture limits changed");
       const nic = object(object(instance.expanded_devices).eth0);
+      assert(nic.type === "nic" && nic.network === context.recipe.network.name
+        && nic["security.port_isolation"] === "true", "backend fixture NIC isolation changed");
       return { state: instance.status === "Running" ? "running" : "stopped",
         imageDigest: context.preset.imageDigest, profile: context.preset.profile,
         memoryBytes, cpuMillis, pids, diskBytes, storageDriver: pool.driver as string,
         restrictedProject: projectRow.name === context.connection.project && projectConfig.restricted === "true",
         unprivileged: expanded["security.privileged"] === "false"
           && expanded["security.idmap.isolated"] === "true",
-        privateNetwork: projectConfig["restricted.networks.access"] === context.recipe.network.name
-          && nic.network === context.recipe.network.name && nic.type === "nic" };
+        privateNetwork: projectConfig["restricted.networks.access"] === context.recipe.network.name };
     });
   }
 }

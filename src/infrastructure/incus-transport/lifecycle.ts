@@ -254,6 +254,11 @@ async function createInstance({ session, command, project, collection, input, po
   const devices = object(profile.devices);
   const root = object(devices.root);
   if (root.type !== "disk" || root.path !== "/" || typeof root.pool !== "string" || !NAME.test(root.pool) || root.source !== undefined) denied("Incus root disk profile is unsafe");
+  const nic = object(devices.eth0);
+  if (nic.type !== "nic" || nic.name !== "eth0" || typeof nic.network !== "string"
+    || !NAME.test(nic.network) || nic["security.port_isolation"] !== "true") {
+    denied("Incus feature NIC profile is not isolated");
+  }
   const body = { name: command.sandboxName, type: "container", source: { type: "image", fingerprint: policy.imageFingerprint }, profiles: [policy.incusProfile],
     devices: { root: { type: "disk", path: "/", pool: root.pool, size: String(policy.limits.diskBytes) } },
     start: input.desiredState === "running", config: {

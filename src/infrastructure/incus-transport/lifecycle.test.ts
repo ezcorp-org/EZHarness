@@ -35,6 +35,8 @@ const command: IncusTransportRequest = { action: "instance.create", connectionId
   payload: { profile: "linux-exec.v1", presetId: "incus-linux-exec-v1", presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64), desiredState: "running" } };
 const connection = { endpoint: "https://127.0.0.1:8443", serverCertificatePem, project: "sandbox", clientCertificatePem: read("client-cert.pem"), privateKeyPem: read("client-key.pem") };
 const reply = (metadata: unknown, status = 200) => Response.json({ type: status === 202 ? "async" : "sync", status_code: status, metadata }, { status });
+const safeProfile = { name: "ezharness", devices: { eth0: { type: "nic", name: "eth0", network: "ezharness0", "security.port_isolation": "true" },
+  root: { type: "disk", path: "/", pool: "ezharness" } } };
 
 test("wrong project, stale scope, and missing approved policy deny before HTTP", async () => {
   let calls = 0;
@@ -56,7 +58,7 @@ test("create takes image, profile and limits only from the host-approved policy"
   const fetcher = async (url: string, init: RequestInit) => {
     routes.push(`${init.method} ${new URL(url).pathname}${new URL(url).search}`);
     if (init.method === "GET") return new URL(url).pathname.includes("/profiles/")
-      ? reply({ name: "ezharness", devices: { root: { type: "disk", path: "/", pool: "ezharness" } } }) : reply({}, 404);
+      ? reply(safeProfile) : reply({}, 404);
     created = JSON.parse(String(init.body)) as Record<string, unknown>;
     return reply({ id: "operation-a" }, 202);
   };
@@ -72,11 +74,24 @@ test("create takes image, profile and limits only from the host-approved policy"
   expect(created!.devices).toEqual({ root: { type: "disk", path: "/", pool: "ezharness", size: "21474836480" } });
 });
 
+test("create refuses a feature NIC without backend port isolation before allocation", async () => {
+  let writes = 0;
+  const fetcher = async (url: string, init: RequestInit) => {
+    if (init.method !== "GET") { writes++; return reply({ id: "unexpected" }, 202); }
+    if (new URL(url).pathname.includes("/profiles/")) return reply({ ...safeProfile,
+      devices: { ...safeProfile.devices, eth0: { ...safeProfile.devices.eth0, "security.port_isolation": "false" } } });
+    return reply({}, 404);
+  };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  await expect(transport.request(command)).rejects.toMatchObject({ kind: "permission", effect: "none" });
+  expect(writes).toBe(0);
+});
+
 test("lost mutation response stays unknown with a stable operation identity", async () => {
   let writes = 0;
   const fetcher = async (url: string, init: RequestInit) => {
     if (init.method === "GET") return new URL(url).pathname.includes("/profiles/")
-      ? reply({ name: "ezharness", devices: { root: { type: "disk", path: "/", pool: "ezharness" } } }) : reply({}, 404);
+      ? reply(safeProfile) : reply({}, 404);
     writes++;
     throw new Error("response lost");
   };
@@ -91,7 +106,7 @@ test("readback settles a matching create and rejects another sandbox operation",
   let created: Record<string, unknown> | undefined;
   const fetcher = async (url: string, init: RequestInit) => {
     if (init.method === "GET") return new URL(url).pathname.includes("/profiles/")
-      ? reply({ name: "ezharness", devices: { root: { type: "disk", path: "/", pool: "ezharness" } } })
+      ? reply(safeProfile)
       : created ? reply({ ...created, status: "Running" }) : reply({}, 404);
     created = JSON.parse(String(init.body)) as Record<string, unknown>;
     throw new Error("lost create response");
@@ -209,7 +224,7 @@ test("mutation timeout reports unknown with the same readback identity", async (
   let posts = 0;
   const fetcher = async (url: string, init: RequestInit) => {
     if (init.method === "GET") return new URL(url).pathname.includes("/profiles/")
-      ? reply({ name: "ezharness", devices: { root: { type: "disk", path: "/", pool: "ezharness" } } }) : reply({}, 404);
+      ? reply(safeProfile) : reply({}, 404);
     posts++;
     return new Promise<Response>(() => undefined);
   };
@@ -226,7 +241,7 @@ test("real TLS socket writes a create only after peer and client authentication"
     requests.push(`${request.method} ${request.url}`);
     response.setHeader("content-type", "application/json");
     if (request.method === "GET" && request.url?.includes("/profiles/")) {
-      response.end(JSON.stringify({ type: "sync", status_code: 200, metadata: { name: "ezharness", devices: { root: { type: "disk", path: "/", pool: "ezharness" } } } }));
+      response.end(JSON.stringify({ type: "sync", status_code: 200, metadata: safeProfile }));
     } else if (request.method === "GET") {
       response.statusCode = 404;
       response.end(JSON.stringify({ type: "error", status_code: 404, metadata: {} }));

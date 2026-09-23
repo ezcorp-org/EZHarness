@@ -27,7 +27,8 @@ async function context(): Promise<LiveReadbackContext> {
     preset, presetDigest: await sandboxPresetDigest(preset), effectiveSettingsDigest: "a".repeat(64), recipe };
 }
 
-function backend(instance?: Record<string, unknown>, imageFingerprint = recipe.guestImage!.fingerprint) {
+function backend(instance?: Record<string, unknown>, imageFingerprint = recipe.guestImage!.fingerprint,
+  profileDevices: unknown = recipe.profile.devices) {
   const paths: string[] = [];
   const fetcher = async (url: string, init: RequestInit) => {
     expect(init.method).toBe("GET");
@@ -39,7 +40,7 @@ function backend(instance?: Record<string, unknown>, imageFingerprint = recipe.g
       kernel_architecture: "x86_64", server_version: "6.0.6" } });
     if (path.startsWith("/1.0/storage-pools/")) return envelope({ name: recipe.storage.name,
       driver: recipe.storage.driver });
-    if (path.startsWith("/1.0/profiles/")) return envelope({ name: recipe.profile.name });
+    if (path.startsWith("/1.0/profiles/")) return envelope({ name: recipe.profile.name, devices: profileDevices });
     if (path.startsWith("/1.0/projects/")) return envelope({ name: recipe.project.name,
       config: recipe.project.config });
     if (path.startsWith("/1.0/instances/")) return instance ? envelope(instance) : envelope({}, 404);
@@ -59,7 +60,7 @@ function instanceRecord(image = recipe.guestImage!.fingerprint) {
       "limits.cpu.allowance": `${preset.limits.cpuMillis}ms/1000ms`,
       "limits.processes": String(preset.limits.pids) },
     expanded_config: { "security.privileged": "false", "security.idmap.isolated": "true" },
-    expanded_devices: { eth0: { type: "nic", network: recipe.network.name } },
+    expanded_devices: { eth0: { type: "nic", network: recipe.network.name, "security.port_isolation": "true" } },
     devices: { root: { type: "disk", path: "/", pool: recipe.storage.name,
       size: String(preset.limits.diskBytes) } } };
 }
@@ -83,6 +84,9 @@ test("wrong project, forged image, and altered limits deny readback", async () =
   await expect(wrongProject.image(selected)).rejects.toThrow("project pin");
   await expect(backend(undefined, "f".repeat(64)).value.image(selected))
     .rejects.toThrow("backend image fingerprint");
+  await expect(backend(undefined, selected.preset.imageDigest, { eth0: {
+    ...recipe.profile.devices.eth0, "security.port_isolation": "false" } }).value.image(selected))
+    .rejects.toThrow("feature NIC isolation changed");
   await expect(backend(instanceRecord("f".repeat(64))).value.instance(selected, sandboxId))
     .rejects.toThrow("fixture identity or image changed");
   const overLimit = instanceRecord();
@@ -97,6 +101,10 @@ test("wrong project, forged image, and altered limits deny readback", async () =
   relaxedHardLimit.config["limits.cpu.allowance"] = "3000ms/1000ms";
   await expect(backend(relaxedHardLimit).value.instance(selected, sandboxId))
     .rejects.toThrow("hard CPU allowance changed");
+  const unisolatedNic = instanceRecord();
+  (unisolatedNic.expanded_devices.eth0 as Record<string, string>)["security.port_isolation"] = "false";
+  await expect(backend(unisolatedNic).value.instance(selected, sandboxId))
+    .rejects.toThrow("fixture NIC isolation changed");
 });
 
 test("fractional CPU reservation reads the hard allowance, not rounded CPU placement", async () => {
