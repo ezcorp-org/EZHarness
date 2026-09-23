@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INCUS_PROVIDER_ID, incusManifest } from "../../extensions/incus-sandbox/manifest";
@@ -98,6 +98,10 @@ test("guest image builder refuses unpinned, mismatched, and changed inputs befor
     expect(run().stderr.toString()).toContain("reviewed recipe pins");
 
     await writeFile(recipePath, JSON.stringify({ guestImage: pins }));
+    expect(run().stderr.toString()).toContain("build storage or network does not match the reviewed recipe");
+
+    await writeFile(recipePath, JSON.stringify({ guestImage: pins,
+      storage: checkedInRecipe.storage, network: checkedInRecipe.network }));
     args[1] = "c".repeat(64);
     expect(run().stderr.toString()).toContain("reviewed recipe pins");
     args[1] = pins.sourceFingerprint;
@@ -111,6 +115,21 @@ test("guest image builder refuses unpinned, mismatched, and changed inputs befor
     const guarded = Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args],
       { env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}` } });
     expect(guarded.stderr.toString()).toContain("image alias already exists");
+
+    const launchCapture = join(directory, "launch-args");
+    await writeFile(incus, `#!/bin/sh
+if [ "$1" = image ]; then printf '[]\\n'; exit 0; fi
+if [ "$1" = launch ]; then printf '%s\\n' "$@" > "$EZH_LAUNCH_CAPTURE"; exit 37; fi
+exit 0
+`);
+    const launched = Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args],
+      { env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}`, EZH_LAUNCH_CAPTURE: launchCapture } });
+    expect(launched.exitCode).toBe(37);
+    const launchArgs = (await readFile(launchCapture, "utf8")).trim().split("\n");
+    expect(launchArgs).toContain("--storage");
+    expect(launchArgs[launchArgs.indexOf("--storage") + 1]).toBe(checkedInRecipe.storage.name);
+    expect(launchArgs).toContain("--network");
+    expect(launchArgs[launchArgs.indexOf("--network") + 1]).toBe(checkedInRecipe.network.name);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
