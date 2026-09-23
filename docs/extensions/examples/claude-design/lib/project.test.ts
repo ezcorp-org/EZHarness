@@ -62,11 +62,16 @@ describe("findProjectRoot", () => {
 
   test("returns the starting dir when no .git exists up to the filesystem root", () => {
     const lonely = mkdtempSync(join(tmpdir(), "cd-nogit-"));
+    const fs = require("node:fs") as typeof import("node:fs");
+    const exists = fs.existsSync;
+    const stub = spyOn(fs, "existsSync").mockImplementation(path =>
+      String(path).endsWith("/.git") ? false : exists(path),
+    );
     try {
-      // Ascends to `/` without finding `.git` → `parent === dir` → returns
-      // the original `from`.
+      // The host may have /tmp/.git; simulate a tree with no Git ancestor.
       expect(findProjectRoot(lonely)).toBe(lonely);
     } finally {
+      stub.mockRestore();
       rmSync(lonely, { recursive: true, force: true });
     }
   });
