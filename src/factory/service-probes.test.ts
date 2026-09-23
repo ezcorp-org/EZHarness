@@ -177,7 +177,7 @@ describe("the orchestration and pool probes read live readiness", () => {
     expect(results[2]!.available).toBe(false);
   });
 
-  test("the pool probe passes on a fresh ready record and fails on a foreign pool", async () => {
+  test("the pool probe passes on a fresh ready record and fails closed on a foreign pool", async () => {
     const root = await privateRoot();
     const scope = identity(root);
     const writer = createFactoryPoolReadinessWriter({ poolId: scope.poolId, readinessFilePath: scope.poolReadinessFilePath, readinessHeartbeatMs: 5_000 });
@@ -185,7 +185,7 @@ describe("the orchestration and pool probes read live readiness", () => {
     expect((await probeFactoryServices([factoryPoolProbe(scope)], open))[0]).toMatchObject({ available: true });
 
     const foreign = await probeFactoryServices([factoryPoolProbe({ ...scope, poolId: "pool-02" })], open);
-    expect(foreign[0]).toEqual({ service: "pool-admission", available: false, detail: "factory_pool_foreign" });
+    expect(foreign[0]).toEqual({ service: "pool-admission", available: false, detail: "factory_pool_unavailable" });
   });
 });
 
@@ -212,12 +212,12 @@ describe("a pool and a supervisor shared by two installations (C12, coordinator 
     }
   });
 
-  test("an installation that names another pool or another host is refused by name", async () => {
+  test("an installation that names another pool or another host is refused, indistinguishably from a pool or host that is down", async () => {
     const root = await privateRoot();
     await sharedHost(root);
     const misrouted = { ...installation(root, "installation-03", "tenant-03"), poolId: "pool.host-b", hostId: "host-b" };
     expect(await probeFactoryServices([factoryPoolProbe(misrouted), factorySupervisorReadinessProbe(misrouted)], open)).toEqual([
-      { service: "pool-admission", available: false, detail: "factory_pool_foreign" },
+      { service: "pool-admission", available: false, detail: "factory_pool_unavailable" },
       { service: "host-supervisor", available: false, detail: "host-supervisor" },
     ]);
   });

@@ -39,7 +39,7 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 
 | File | Freeze owner | Change |
 | --- | --- | --- |
-| `src/factory/pool/readiness.ts` | Not in the section 16 table; last changed by the coordinator's composition work (W09) | Record `factory.pool-readiness.v2` names `poolId` only; a foreign pool is `factory_pool_foreign` |
+| `src/factory/pool/readiness.ts` | Not in the section 16 table; last changed by the coordinator's composition work (W09) | Record `factory.pool-readiness.v2` names `poolId` only; a foreign pool fails closed with the one `factory_pool_unavailable` error and is reported only to the operator-side log |
 | `src/factory/service-readiness.ts` | Not in the section 16 table; coordinator (W09) | `installationId` optional; a shared service's record carries none |
 | `src/factory/service-probes.ts` | Not in the section 16 table; coordinator (W09) | Pool and supervisor probes match on `poolId` and `hostId` only |
 | `src/factory/runner/supervisor-process.ts` | Not in the section 16 table; Terra runtime (W01) | Readiness writer no longer passes the installation |

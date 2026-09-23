@@ -33,9 +33,10 @@ export type FactoryPoolReadinessUpdate = Pick<FactoryPoolReadiness, "lifecycle" 
 export interface FactoryPoolReadinessWriter { write(update: FactoryPoolReadinessUpdate): Promise<FactoryPoolReadiness> }
 
 export class FactoryPoolReadinessError extends Error {
-  /** `factory_pool_foreign`: a live, ready record for a different pool than the one this installation names. */
-  constructor(readonly code: "factory_pool_unavailable" | "factory_pool_foreign" = "factory_pool_unavailable") {
-    super(code === "factory_pool_foreign" ? "Factory pool readiness names a different pool." : "Factory pool has no verified live readiness state.");
+  /** One error for every refusal, as service readiness has: a caller never learns why. */
+  readonly code = "factory_pool_unavailable";
+  constructor() {
+    super("Factory pool has no verified live readiness state.");
     this.name = "FactoryPoolReadinessError";
   }
 }
@@ -77,12 +78,13 @@ export function createFactoryPoolReadinessWriter(options: FactoryPoolReadinessOp
 }
 
 /**
- * Reads only a fresh ready record for the exact pool identity. A live record
- * for another pool is refused by its own name, so a misrouted installation is
- * told it looks at the wrong pool rather than that the pool is down.
+ * Reads only a fresh ready record for the exact pool identity, and fails
+ * closed with the one indistinguishable error otherwise. A live record for
+ * another pool is the one case worth an operator's attention (a misrouted
+ * installation), so it is reported to the operator-side log — never to the
+ * caller, whose error stays the same as for a pool that is down.
  */
-export async function readFactoryPoolReadiness(options: FactoryPoolReadinessOptions, clock: () => number = Date.now): Promise<FactoryPoolReadiness> {
-  let foreign = false;
+export async function readFactoryPoolReadiness(options: FactoryPoolReadinessOptions, clock: () => number = Date.now, report: (message: string) => void = (message) => console.warn(message)): Promise<FactoryPoolReadiness> {
   try {
     const expected = optionsSnapshot(options);
     const directory = await privateDirectory(dirname(expected.readinessFilePath));
@@ -92,8 +94,10 @@ export async function readFactoryPoolReadiness(options: FactoryPoolReadinessOpti
     const state = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as FactoryPoolReadiness;
     const now = clock();
     if (!validState(state) || state.lifecycle !== "ready" || !Number.isSafeInteger(now) || now < state.observedAtMs || now - state.observedAtMs > expected.readinessHeartbeatMs * 3) throw new FactoryPoolReadinessError();
-    foreign = state.poolId !== expected.poolId;
-    if (foreign) throw new FactoryPoolReadinessError("factory_pool_foreign");
+    if (state.poolId !== expected.poolId) {
+      report(`[factory-pool-readiness] the record at ${expected.readinessFilePath} names pool ${state.poolId}; this installation names ${expected.poolId}`);
+      throw new FactoryPoolReadinessError();
+    }
     return state;
-  } catch { throw new FactoryPoolReadinessError(foreign ? "factory_pool_foreign" : "factory_pool_unavailable"); }
+  } catch { throw new FactoryPoolReadinessError(); }
 }

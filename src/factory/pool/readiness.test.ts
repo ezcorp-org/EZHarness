@@ -17,11 +17,14 @@ describe("factory pool readiness", () => {
     expect(await readFactoryPoolReadiness(options, () => 12_999)).toEqual(ready);
     expect(JSON.parse(await readFile(options.readinessFilePath, "utf8"))).toEqual(ready);
     expect(ready).toEqual({ schemaVersion: "factory.pool-readiness.v2", poolId: "pool-a", observedAtMs: 10_000, lifecycle: "ready", databaseReady: true, schemaReady: true, listenerReady: true });
-    const foreign = await readFactoryPoolReadiness({ ...options, poolId: "pool-b" }, () => 12_999).catch((error: unknown) => error);
+    // A foreign pool fails closed exactly as a stale one does; only the operator-side report tells them apart.
+    const reported: string[] = [];
+    const foreign = await readFactoryPoolReadiness({ ...options, poolId: "pool-b" }, () => 12_999, (message) => reported.push(message)).catch((error: unknown) => error);
+    const stale = await readFactoryPoolReadiness(options, () => 13_001, (message) => reported.push(message)).catch((error: unknown) => error);
     expect(foreign).toBeInstanceOf(FactoryPoolReadinessError);
-    expect((foreign as FactoryPoolReadinessError).code).toBe("factory_pool_foreign");
-    expect((foreign as Error).message).toBe("Factory pool readiness names a different pool.");
-    await expect(readFactoryPoolReadiness(options, () => 13_001)).rejects.toBeInstanceOf(FactoryPoolReadinessError);
+    expect([(foreign as FactoryPoolReadinessError).code, (foreign as Error).message]).toEqual([(stale as FactoryPoolReadinessError).code, (stale as Error).message]);
+    expect((foreign as FactoryPoolReadinessError).code).toBe("factory_pool_unavailable");
+    expect(reported).toEqual([`[factory-pool-readiness] the record at ${options.readinessFilePath} names pool pool-a; this installation names pool-b`]);
     await expect(readFactoryPoolReadiness(options, () => 9_999)).rejects.toBeInstanceOf(FactoryPoolReadinessError);
   });
 
