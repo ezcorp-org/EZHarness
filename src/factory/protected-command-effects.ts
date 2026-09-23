@@ -240,20 +240,50 @@ export class FactoryProtectedCommandEffects {
    * reach the bounded repair path. Every other failure class still throws, so infrastructure faults
    * retry within their bounds and corruption or trust faults stop.
    */
-  requestAcceptance = async (serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference): Promise<AcceptanceEvent | RejectionEvent> => {
+  requestAcceptance = (serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference): Promise<AcceptanceEvent | RejectionEvent> =>
+    this.decideAcceptance(serviceValue, referenceValue);
+
+  /**
+   * The same decision as `requestAcceptance`, with its event handed to `deliver` inside the very
+   * transaction that writes (or re-reads) the durable receipt.
+   *
+   * A caller that delivers the event itself — the validator-scheduling role, through the durable
+   * inbox — can then never commit a decision without its event or an event without its decision.
+   * Without `deliver` this is `requestAcceptance` exactly.
+   */
+  decideAcceptance = async (serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference, deliver?: (transaction: MigrationDb, event: AcceptanceEvent | RejectionEvent) => Promise<unknown>): Promise<AcceptanceEvent | RejectionEvent> => {
     const { service, reference } = this.capture(serviceValue, referenceValue);
+    const decided = async <Receipt extends AcceptanceReceipt | FactoryRejectionReceipt>(transaction: MigrationDb, receipt: Receipt): Promise<Receipt> => {
+      if (deliver) await deliver(transaction, snapshot(receipt.event));
+      return receipt;
+    };
     let receipt: AcceptanceReceipt | FactoryRejectionReceipt;
     try {
       receipt = await this.database.transaction(async transaction => {
         const cached = await this.readReceipt(transaction, reference, "request-acceptance");
-        if (cached) return cached as AcceptanceReceipt | FactoryRejectionReceipt;
-        return this.authority.withCurrentAcceptanceInTransaction(transaction, service, reference, (tx, context) => this.accept(tx, service, reference, context));
+        if (cached) return decided(transaction, cached as AcceptanceReceipt | FactoryRejectionReceipt);
+        return this.authority.withCurrentAcceptanceInTransaction(transaction, service, reference, async (tx, context) => decided(tx, await this.accept(tx, service, reference, context)));
       });
     } catch (error) {
       if (classifyFactoryAcceptanceFailure(error) !== "semantic" || !(error instanceof FactoryAssuranceClaimError)) throw error;
-      receipt = await this.database.transaction(transaction => this.authority.withCurrentAcceptanceInTransaction(transaction, service, reference, (tx, context) => this.reject(tx, service, reference, context, error)));
+      receipt = await this.database.transaction(transaction => this.authority.withCurrentAcceptanceInTransaction(transaction, service, reference, async (tx, context) => decided(tx, await this.reject(tx, service, reference, context, error))));
     }
     return snapshot(receipt.event);
+  };
+
+  /**
+   * Commits the exact stopped task behind this acceptance command as the current candidate.
+   *
+   * The same re-derivation `requestAcceptance` runs first, in its own committed transaction. A
+   * protected validator can only be planned against a committed candidate, and the acceptance
+   * transaction rolls that write back while the validator's evidence is still missing, so without
+   * this no validator could ever be scheduled. Idempotent: a candidate already current returns
+   * unchanged, and acceptance later re-derives and finds it.
+   */
+  recordCurrentCandidate = async (serviceValue: TrustedFactoryServiceIdentity, referenceValue: TrustedFactoryCommandReference): Promise<FactoryProtectedTaskSource> => {
+    const { service, reference } = this.capture(serviceValue, referenceValue);
+    return this.database.transaction(transaction => this.authority.withCurrentAcceptanceInTransaction(transaction, service, reference,
+      (tx, context) => this.resolveCurrentCandidate(tx, service, reference, context)));
   };
 
   /**

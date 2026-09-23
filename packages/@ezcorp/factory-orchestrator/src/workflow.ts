@@ -2,7 +2,7 @@ import type { JsonValue } from "@ezcorp/factory-sdk";
 import { factoryChildRunId } from "@ezcorp/factory-sdk/transport-types";
 import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import type { KernelCommand, KernelEvent, KernelFactoryPlan, KernelState } from "@ezcorp/factory-sdk/kernel-types";
-import { advanceKernel, assertKernelContinuationState, createKernelState, createPartitionKernelState } from "@ezcorp/factory-sdk/kernel";
+import { advanceKernel, assertKernelContinuationState, createKernelState, createPartitionKernelState, factoryCommandFailedEvent } from "@ezcorp/factory-sdk/kernel";
 import {
   condition,
   ActivityCancellationType,
@@ -66,6 +66,18 @@ type ExecutableCommand = Exclude<KernelCommand, TerminalCommand | TimerCommand>;
 
 function isTerminal(command: KernelCommand): command is TerminalCommand {
   return command.kind === "complete-run" || command.kind === "complete-partition" || command.kind === "fail-run" || command.kind === "cancel-run";
+}
+
+/**
+ * Why an activity failed, as specific as Temporal kept it.
+ *
+ * Temporal wraps the activity's own error in an `ActivityFailure` whose message is only
+ * "Activity task failed"; the cause carries the message the activity threw.
+ */
+function activityFailureDetail(error: unknown): string {
+  const cause = (error as { readonly cause?: unknown } | null | undefined)?.cause;
+  const source = cause instanceof Error ? cause : error;
+  return source instanceof Error ? source.message : String(source);
 }
 
 function workflowFailure(error: unknown, type: string): ApplicationFailure {
@@ -261,7 +273,17 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
       .then((result) => {
         if (result && !knownIds.has(result.id)) { knownIds.add(result.id); inbox.push(result); }
       })
-      .catch((error) => { workflowError = workflowFailure(error, "FACTORY_COMMAND_FAILED"); })
+      .catch((error) => {
+        // A command the gateway refused used to throw the whole workflow away,
+        // leaving the product run `running` forever: nothing projects a failed
+        // workflow. The failure now becomes a recorded kernel event, so the run
+        // stops and fails with a typed reason through its own transitions.
+        // No patch marker: a workflow whose effect failed under the old code
+        // threw and closed at that point, so no live history can replay into
+        // this branch with the old outcome.
+        const failed = factoryCommandFailedEvent(command, activityFailureDetail(error), Date.now());
+        if (!knownIds.has(failed.id)) { knownIds.add(failed.id); inbox.push(failed); }
+      })
       .finally(() => { activeScopes.delete(command.id); });
   };
 
