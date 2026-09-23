@@ -33,8 +33,8 @@
       "directory": "docs/extensions/examples/claude-design",
       "entrypoint": "extension.ts",
       "files": 27,
-      "bytes": 603245,
-      "sourceDigest": "92849711dea305e788d15a00bb0adc664e70285fb38559625c1fdf165dc8817b"
+      "bytes": 603470,
+      "sourceDigest": "dc9c8bc8595b82d5a2f43cb56f7629751d8af7a5bc7164c35629fb4d29a80664"
     },
     "code-quality": {
       "directory": "docs/extensions/examples/code-quality",
@@ -117,8 +117,8 @@
       "directory": "docs/extensions/examples/graded-card-scanner",
       "entrypoint": "extension.ts",
       "files": 60,
-      "bytes": 312016,
-      "sourceDigest": "32ebee27f599924a27d187d965c59be2d1fd6f9445eb4c55d7029b6092300526"
+      "bytes": 312238,
+      "sourceDigest": "5b074901d12a98f7cee57b0ec5db8c43f085f681cebab3b5268397c43ff38550"
     },
     "harness-smoke-test": {
       "directory": "docs/extensions/examples/harness-smoke-test",
@@ -355,8 +355,8 @@
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
       "files": 53,
-      "bytes": 398201,
-      "sourceDigest": "5b4a050639fb2ae850f8bae5df5a44581e2f4c415810dab20a148cf177fc6070"
+      "bytes": 398412,
+      "sourceDigest": "76109b7bcaae9aecfc74035aebfb28a84db571b36073aec0106ea90dc3a07cb0"
     }
   }
 }
