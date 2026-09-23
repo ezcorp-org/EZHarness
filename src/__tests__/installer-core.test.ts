@@ -700,6 +700,31 @@ describe("compose.installer.yml — the contracts it must honor", () => {
     expect(ollamaBlock).toContain('profiles: ["suggest"]');
   });
 
+  test("relabels every user-data bind for SELinux, and nothing the package owns", async () => {
+    // Without `:z` an SELinux-enforcing host (Fedora, RHEL, CoreOS, ...) cannot
+    // let the container write the user's data dir, and the app crash-loops on
+    // EACCES — measured on Fedora CoreOS at 430 restarts. The rule is derived
+    // from the binds themselves: every source under EZCORP_DATA_ROOT is the
+    // user's and must be relabeled; anything else (the searxng config, which a
+    // package installs under /usr) must NOT be, or compose would rewrite labels
+    // on files the package manager owns.
+    type Svc = { volumes?: unknown[] };
+    // Built, not written, so no string literal contains a template-like `${`.
+    const interpolated = `$${"{"}`;
+    const dataRoot = `${interpolated}EZCORP_DATA_ROOT}`;
+    const compose = Bun.YAML.parse(await Bun.file(COMPOSE_INSTALLER).text()) as { services: Record<string, Svc> };
+    const binds = Object.values(compose.services)
+      .flatMap((svc) => svc.volumes ?? [])
+      .filter((v): v is string => typeof v === "string" && v.startsWith(interpolated));
+    const userData = binds.filter((v) => v.startsWith(dataRoot));
+    const other = binds.filter((v) => !v.startsWith(dataRoot));
+
+    expect(userData.length).toBeGreaterThanOrEqual(4);
+    for (const bind of userData) expect(bind, bind).toMatch(/:z$/);
+    expect(other.length).toBeGreaterThan(0);
+    for (const bind of other) expect(bind, bind).not.toMatch(/:[zZ](,|$)/);
+  });
+
   test("pins the data and secrets paths into the mounted volume", async () => {
     const text = await Bun.file(COMPOSE_INSTALLER).text();
     // Left unset, getSecretsDir() falls back to process.cwd() — /app inside
