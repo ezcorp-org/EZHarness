@@ -153,23 +153,36 @@ async function removeFixture(fixture: LaunchFixture): Promise<void> {
 
 const cancellationObservationMs = 10_000;
 const sleep = (ms: number) => new Promise<void>((resolveSleep) => setTimeout(resolveSleep, ms));
-const stopStalledLauncher = (child: ReturnType<typeof Bun.spawn>) => setTimeout(() => child.kill("SIGTERM"), 20_000);
+function stopStalledLauncher(child: ReturnType<typeof Bun.spawn>) {
+  let fired = false;
+  const timer = setTimeout(() => {
+    fired = true;
+    child.kill("SIGTERM");
+  }, 20_000);
+  return { clear: () => clearTimeout(timer), fired: () => fired };
+}
 
 async function readReadyFile(path: string, child: ReturnType<typeof Bun.spawn>): Promise<string> {
   let wake = () => {};
+  let watchError: Error | undefined;
   const changes = watch(dirname(path), () => wake());
+  changes.on("error", (error: Error) => {
+    watchError = error;
+    wake();
+  });
   void child.exited.then(() => wake());
   try {
     for (;;) {
       if (child.exitCode !== null) throw new Error(`Launcher exited before ${path} was ready`);
+      if (watchError) throw watchError;
       // Watch before the first read so a write cannot fall between inspection and subscription.
       // The producer creates the file before it writes its content.
       const change = new Promise<void>((resolveChange) => { wake = resolveChange; });
       try {
         const value = (await readFile(path, "utf8")).trim();
         if (value) return value;
-      } catch {
-        // The producer has not created the path yet.
+      } catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
       }
       await change;
     }
@@ -291,7 +304,7 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
   const verifierDescendantPidFile = join(fixture.directory, "verifier-descendant.pid");
   const runnerPidFile = join(fixture.directory, "runner.pid");
   let child: ReturnType<typeof Bun.spawn> | undefined;
-  let deadline: ReturnType<typeof setTimeout> | undefined;
+  let watchdog: ReturnType<typeof stopStalledLauncher> | undefined;
   const owned: Array<{ pid: number; identity: ProcessIdentity }> = [];
   try {
     await writeFile(fixture.setsidRelease, "release");
@@ -306,7 +319,7 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
       VERIFIER_READY_FILE: verifierReady,
     }, true);
     child = launched;
-    deadline = stopStalledLauncher(launched);
+    watchdog = stopStalledLauncher(launched);
     const launcherIdentity = await processIdentity(launched.pid);
     expect(launcherIdentity).toBeDefined();
     owned.push({ pid: launched.pid, identity: launcherIdentity! });
@@ -343,8 +356,8 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
     expect(await hasIdentity(verifierDescendantPid, verifierDescendantIdentity!)).toBe(true);
     expect(await hasIdentity(runnerPid, runnerIdentity!)).toBe(true);
 
-    if (deadline) clearTimeout(deadline);
-    deadline = undefined;
+    watchdog.clear();
+    expect(watchdog.fired(), "launcher watchdog fired before verifier cancellation").toBe(false);
     child.kill("SIGTERM");
     const [launcherExit, stdoutResult, stderrResult] = await Promise.all([
       settlesWithin(child.exited, cancellationObservationMs),
@@ -374,7 +387,7 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
       verifierDescendantAlive: false,
     });
   } finally {
-    if (deadline) clearTimeout(deadline);
+    watchdog?.clear();
     await finishOwnedLauncher(child, owned);
     await removeFixture(fixture);
   }
@@ -383,12 +396,12 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
 test("launcher cancellation before verifier group readiness reaps its owned starter", async () => {
   const fixture = await makeFixture();
   let child: ReturnType<typeof Bun.spawn> | undefined;
-  let deadline: ReturnType<typeof setTimeout> | undefined;
+  let watchdog: ReturnType<typeof stopStalledLauncher> | undefined;
   const owned: Array<{ pid: number; identity: ProcessIdentity }> = [];
   try {
     const launched = launch(fixture, ["bun", "-e", 'throw new Error("verifier must not start before its group is ready");'], {}, true);
     child = launched;
-    deadline = stopStalledLauncher(launched);
+    watchdog = stopStalledLauncher(launched);
     const launcherIdentity = await processIdentity(launched.pid);
     expect(launcherIdentity).toBeDefined();
     owned.push({ pid: launched.pid, identity: launcherIdentity! });
@@ -401,8 +414,8 @@ test("launcher cancellation before verifier group readiness reaps its owned star
     owned.push({ pid: starterPid, identity: starterIdentity! });
     expect(await hasIdentity(starterPid, starterIdentity!)).toBe(true);
 
-    if (deadline) clearTimeout(deadline);
-    deadline = undefined;
+    watchdog.clear();
+    expect(watchdog.fired(), "launcher watchdog fired before starter cancellation").toBe(false);
     child.kill("SIGTERM");
     const [launcherExit, stdoutResult, stderrResult] = await Promise.all([
       settlesWithin(child.exited, cancellationObservationMs),
@@ -430,7 +443,7 @@ test("launcher cancellation before verifier group readiness reaps its owned star
       stdoutDrained: true,
     });
   } finally {
-    if (deadline) clearTimeout(deadline);
+    watchdog?.clear();
     await finishOwnedLauncher(child, owned);
     await removeFixture(fixture);
   }
