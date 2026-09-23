@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { spawn } from "node:child_process";
 import { FramedExecution } from "@ezcorp/extension-runner";
 import { mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
-import { makeFsRpcHandler } from "@ezcorp/sdk/test";
+import { makeFsRpcHandler, markGitRepository } from "@ezcorp/sdk/test";
 import { CATEGORIES } from "../../../../docs/extensions/examples/auto-note/lib/types";
 import { closeTestDb, mockDbConnection, setupTestDb } from "../../../__tests__/helpers/test-pglite";
 import { domainEventSourceFixture } from "../../../__tests__/helpers/domain-event-source";
@@ -131,7 +131,7 @@ describe("E2E: real subprocess + JSON-RPC", () => {
 
   beforeEach(() => {
     rmSync(E2E_DIR, { recursive: true, force: true });
-    mkdirSync(join(E2E_DIR, ".git"), { recursive: true }); // so findProjectRoot anchors here
+    markGitRepository(E2E_DIR); // so findProjectRoot anchors here
   });
 
   test("close waits for the owned subprocess and its streams to close", async () => {

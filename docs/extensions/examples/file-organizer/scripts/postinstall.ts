@@ -6,19 +6,10 @@
 // existing user state (config.json, quarantine, the override example).
 
 import { mkdirSync, existsSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
+import { resolveProjectRoot } from "@ezcorp/sdk/runtime";
 
-function findProjectRoot(from: string = process.cwd()): string {
-  let dir = from;
-  while (true) {
-    if (existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return from;
-    dir = parent;
-  }
-}
-
-const root = findProjectRoot();
+const root = resolveProjectRoot();
 const dataDir = join(root, ".ezcorp", "extension-data", "file-organizer");
 const trashDir = join(dataDir, ".trash");
 // A default, ready-to-mount host watch root. The README explains the

@@ -17,6 +17,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ExtensionRegistry, buildAllowedEnv } from "../extensions/registry";
 import type { ExtensionManifestV2 } from "../extensions/types";
 
@@ -133,16 +136,22 @@ describe("buildAllowedEnv — injectedEnv gating", () => {
 describe("buildAllowedEnv — EZCORP_PROJECT_ROOT resolution", () => {
   test("swallows findProjectRoot failure when run outside a git tree", () => {
     // findProjectRoot() walks up from process.cwd() and throws when it hits
-    // the filesystem root with no `.git` ancestor. buildAllowedEnv catches
-    // that so a spawn outside a git tree doesn't crash — it just leaves
-    // EZCORP_PROJECT_ROOT unset. Force the throw by chdir'ing to /tmp.
+    // the filesystem root with no repository ancestor. buildAllowedEnv
+    // catches that so a spawn outside a git tree doesn't crash — it just
+    // leaves EZCORP_PROJECT_ROOT unset. A stray empty `.git` above the cwd
+    // is not a repository (the host once carried an empty `/tmp/.git`, which
+    // made this test report `/tmp`), so plant one in the test's own tree.
     const cwd = process.cwd();
+    const outside = mkdtempSync(join(tmpdir(), "ext-nogit-"));
+    mkdirSync(join(outside, ".git"));
+    mkdirSync(join(outside, "child"));
     try {
-      process.chdir("/tmp");
+      process.chdir(join(outside, "child"));
       const out = buildAllowedEnv(makeManifest(), { grantedAt: {} }, "ext-nogit");
       expect(out.EZCORP_PROJECT_ROOT).toBeUndefined();
     } finally {
       process.chdir(cwd);
+      rmSync(outside, { recursive: true, force: true });
     }
   });
 

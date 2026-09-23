@@ -6,12 +6,12 @@
 // host-mediated reverse-RPC). Raw `node:fs` is poisoned by the
 // sandbox-preload at module-load. The `.git` walk in production
 // reads `EZCORP_PROJECT_ROOT` injected by the host at spawn time
-// (`src/extensions/registry.ts:108`). Test/CLI contexts fall back to a
-// lazy `require("node:fs")` walk — the require throws inside the
-// sandbox but is swallowed; outside, it works as before.
+// (`src/extensions/registry.ts`). Test/CLI contexts fall back to the
+// SDK's `resolveProjectRoot` walk, which returns the starting directory
+// inside the sandbox or outside any git repository.
 
-import { fsMkdir, getToolContext } from "@ezcorp/sdk/runtime";
-import { basename, dirname, join } from "node:path";
+import { fsMkdir, getToolContext, resolveProjectRoot } from "@ezcorp/sdk/runtime";
+import { basename, join } from "node:path";
 
 const EXT_NAME = "claude-design";
 
@@ -20,23 +20,9 @@ export function findProjectRoot(from: string = process.cwd()): string {
   const fromEnv = getToolContext()?.projectRoot ?? process.env.EZCORP_PROJECT_ROOT;
   if (fromEnv && fromEnv.length > 0) return fromEnv;
 
-  // (2) Lazy fs walk — only reached in test / CLI contexts where the
-  // sandbox-preload poison isn't active. A static `import {existsSync}
-  // from "fs"` would fire at module-load time even for the production
-  // path (1) above — so we require it on demand.
-  let fs: typeof import("node:fs");
-  try {
-    fs = require("node:fs") as typeof import("node:fs");
-  } catch {
-    return from;
-  }
-  let dir = from;
-  while (true) {
-    if (fs.existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return from;
-    dir = parent;
-  }
+  // (2) The SDK's lazy git walk — only reached in test / CLI contexts. It
+  // returns `from` when no repository encloses it or `node:fs` is poisoned.
+  return resolveProjectRoot(from);
 }
 
 export async function dataDir(root: string = findProjectRoot()): Promise<string> {
