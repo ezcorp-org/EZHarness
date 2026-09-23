@@ -66,6 +66,9 @@ import { FactoryDestinationReservations, FactoryStoreSenderFence } from "../../f
 import { factoryReleaseOutcomeDriver } from "../../factory/dispatch-composition";
 import { FactoryReleaseOutcomeDelivery, factoryReleaseOutcomeEventId } from "../../factory/release-outcome-delivery";
 import { FactoryMemoryS3Store } from "./factory-s3-memory-store";
+import { FaultInjectingArchive, MemoryFactoryReleaseArchive } from "./factory-archive-fixtures";
+import { FactoryArchiveWriter, factoryArchiveFailureDomain } from "../../factory/archive-writer";
+import { FactoryPublicationOutputReader } from "../../factory/release-publication-set";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 
 /**
@@ -796,9 +799,20 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const credentialsPath = join(root, "publication.json");
     await writeFile(credentialsPath, JSON.stringify({ identities: [{ name: tenantId, credentials: [{ accessKey: store.credentials.accessKeyId, secretKey: store.credentials.secretAccessKey }] }] }), { mode: 0o600 });
 
-    const releases = new FactoryReleases(fixture.db, tenantId, grants, world.assurance, world.releaseAuthority, world.releaseAuthority,
-      new FactoryDestinationReservations({ database: fixture.db, tenantId }), memoryReleaseArchive(), new FactoryStoreSenderFence({ database: fixture.db, tenantId }), Date.now);
+    // The installation's archive writer, not a stand-in: it reads every member through the scoped
+    // reader, and a validator's report, which is its attempt's terminal output, through the output
+    // reader, each under the location the provenance proves.
     const artifacts = new FactoryArtifacts(fixture.db, objectStore, tenantId);
+    const scopedReader = new FactoryScopedMaterials({ database: fixture.db, artifacts, blobs: objectStore });
+    const provenance = new FactoryS3PublicationProvenance({ database: fixture.db, tenantId });
+    const archiveStore = new FaultInjectingArchive(new MemoryFactoryReleaseArchive());
+    const archiveWriter = new FactoryArchiveWriter({
+      archive: archiveStore, inventory: archiveStore, reader: scopedReader, publicationSet: provenance.publicationSet(),
+      outputs: new FactoryPublicationOutputReader({ database: fixture.db, tenantId, artifacts }),
+      failureDomain: factoryArchiveFailureDomain({ productEndpoint: "http://127.0.0.1:18333", archiveEndpoint: "http://127.0.0.1:18334", productCredentialSet: "ordinary.json", archiveCredentialSet: "archive.json" }),
+    });
+    const releases = new FactoryReleases(fixture.db, tenantId, grants, world.assurance, world.releaseAuthority, world.releaseAuthority,
+      new FactoryDestinationReservations({ database: fixture.db, tenantId }), archiveWriter, new FactoryStoreSenderFence({ database: fixture.db, tenantId }), Date.now);
     const composed = await composeFactoryReleaseDestinations({
       release: {
         destinations: [{ name: "publication", kind: "s3", endpoint: store.endpoint, bucket: store.bucket, account: declaredAccount, prefix: store.prefix, credentialsPath }],
@@ -806,8 +820,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       },
     }, {
       database: fixture.db, tenantId, releases,
-      reader: new FactoryScopedMaterials({ database: fixture.db, artifacts, blobs: objectStore }),
-      attempts: new FactoryS3PublicationProvenance({ database: fixture.db, tenantId }),
+      reader: scopedReader,
+      attempts: provenance,
       materials: new FactoryVerifiedAttemptMaterials({ database: fixture.db, blobs: objectStore, journal: world.completed.task.journal }),
       // Only the in-memory store needs handing over; a real one is reached through the declared credentials.
       ...(fixture.publication === undefined ? { s3Client: store.client } : {}),
@@ -848,7 +862,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       await new FactoryRunTransitionProjector(fixture.db, tenantId, world.completed.task.transitions, lifecycle).project(runKey(world.completed.task.run.runId));
       for (;;) if (await releases.deliverNextNotification(projectId) === null) break;
     };
-    return { ...world, store, object, published, releases, composed, effects, releaseReference, driver, reports, operationRows, read, declaredAccount, consentExpiry, reportsFor, finish, delivery, driverFor, settlingOnly, outcomeEvents, acceptedAdvanced, service: world.completed.task.service };
+    return { ...world, store, object, published, releases, composed, effects, releaseReference, driver, reports, operationRows, read, declaredAccount, consentExpiry, reportsFor, finish, archiveWriter, provenance, delivery, driverFor, settlingOnly, outcomeEvents, acceptedAdvanced, service: world.completed.task.service };
   }
 
   test("a declared S3 destination and profile prepare, claim, and publish the attempt's sealed members", async () => {
@@ -874,6 +888,13 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(settled).toMatchObject({ state: "succeeded", outcomeCode: "confirmed" });
 
     // The exact sealed bytes, under the declared prefix, and a manifest that names them.
+    // The recovery archive holds the validator's report under the validator attempt that produced
+    // it, read as that attempt's terminal output: never under the candidate's material scope.
+    const archived = await world.archiveWriter.readManifest(settled.materialArchive!, settled.materialDigest);
+    const evidence = archived.members.filter(member => member.role === "evidence");
+    expect(evidence).toHaveLength(1);
+    expect(evidence[0]).toMatchObject({ source: "attempt-output", scope: { attemptId: world.validatorAdmission.attemptId, runId: world.completed.task.run.runId } });
+    expect(archived.members.find(member => member.role === "candidate")?.scope.attemptId).toBe(world.completed.authority.attemptId);
     const receipt = settled.receipt as FactoryS3ManifestReceipt;
     publishedObjects.push(...receipt.files.map(file => ({ key: file.key, versionId: file.versionId })), { key: receipt.manifestKey, versionId: receipt.version });
     expect(receipt.manifestKey).toBe(`${world.store.prefix}/${world.object}/${FACTORY_S3_MANIFEST_NAME}`);
@@ -984,6 +1005,22 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     // A doctored protected receipt is corrupt, never a command.
     await fixture.db.execute(sql`UPDATE factory_protected_command_effects SET receipt_digest=${`sha256:${"0".repeat(64)}`} WHERE tenant_id=${tenantId} AND project_id=${projectId} AND command_id=${world.releaseReference.commandId}`);
     await expect(fixture.db.transaction(transaction => world.effects.readReleaseCommandInTransaction(transaction, operation))).rejects.toMatchObject({ code: "factory_protected_effect_corrupt" });
+    await world.finish();
+  });
+
+  test("an evidence member from an unrelated attempt, or with no sealing record, is refused by name", async () => {
+    const world = await declaredS3Release();
+    expect(await world.effects.requestRelease(world.service, world.releaseReference)).toBeNull();
+    const [prepared] = await world.operationRows();
+    const operation = (await world.releases.inspect(projectId, prepared!.operation_id))!;
+    const sources = (evidence: unknown) => world.provenance.sourcesFor(tenantId, operation.operationId, { ...operation.material, evidence: [{ artifact: evidence }] } as never);
+    // The candidate task's own terminal output is an attempt output no validator assignment binds.
+    await expect(sources(world.completed.result.output)).rejects.toMatchObject({ code: "factory_archive_member_unbound" });
+    // An artifact with no sealing record anywhere is never read under the candidate's scope.
+    await expect(sources({ artifactId: "factory-artifact-never-sealed", digest: `sha256:${"9".repeat(64)}`, encodedBytes: 1 })).rejects.toMatchObject({ code: "factory_archive_member_scope_missing" });
+    // The pinned evidence itself resolves to the validator attempt that sealed it.
+    const pinned = await world.provenance.sourcesFor(tenantId, operation.operationId, operation.material);
+    expect(pinned.evidence).toEqual([expect.objectContaining({ source: "attempt-output", scope: expect.objectContaining({ attemptId: world.validatorAdmission.attemptId }) })]);
     await world.finish();
   });
 

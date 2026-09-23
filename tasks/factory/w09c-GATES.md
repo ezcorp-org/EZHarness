@@ -203,6 +203,73 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       `/tmp/factory-platform-evidence/w09c/logs/temporal-replay-final.log`,
       `/tmp/factory-platform-evidence/w09c/receipts/postgres-producers-34b2ed825.json`
 
+- [x] G14: Every archive member is read under the scope that sealed it (coordinator ruling 2026-09-23).
+      CHECK: `bun test --timeout 30000 ./src/factory/archive-member-scope.test.ts` and
+      `bun test --timeout 120000 ./src/__tests__/factory-run-lifecycle.test.ts`.
+      EXPECT: 5/0 and 73/0. In the lifecycle release world, the installation's
+      real `FactoryArchiveWriter` replaced the memory stand-in. The archived
+      evidence member is the validator's report, read as that attempt's
+      terminal output under the validator attempt. The candidate member stays
+      under the candidate attempt. Evidence that the candidate task's own
+      output supplies, with no validator assignment, gives
+      `factory_archive_member_unbound`. An artifact with no sealing record
+      gives `factory_archive_member_scope_missing`. With no output reader, an
+      attempt-output member gives `factory_archive_member_unavailable`. The
+      output reader refuses a terminal that names other bytes, a material
+      scope, and another tenant.
+      RED WITHOUT THE FIX: with the resolver's locations turned off, four
+      lifecycle cases fail with `factory_archive_member_unavailable`, which is
+      the production failure.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09c/logs/lifecycle-scope.log`,
+      `/tmp/factory-platform-evidence/w09c/logs/lifecycle-scope-without-fix.log`
+      W04a's own suites run unchanged and green: archive-writer 12/0,
+      archive-writer.integration 10/0, release-s3-publication 18/0 and 18/0,
+      release-composition 17/0.
+
+## Authority model for the final passes (answered from the contract)
+
+1. **Project creation does not confer `factory.release` or `factory.approve`.**
+   Contract C01, `docs/plans/2026-09-12-composable-factory-platform-contracts.md`
+   line 33: "Creating a new project grants its owner author/publish/run/operate
+   rights, but no automatic release policy". The C01 table (lines 28 and 30)
+   names `factory.approve` and `factory.release` as their own project grants,
+   and line 31 gives grant management to the tenant administrator. So an
+   explicit grant through `PUT .../grants/user/{id}/{action}` is the
+   operator's path, not a harness workaround. The measured default grants
+   match: author, operate, publish, run, and trust.
+2. **One identity may request a release and approve it.** The contract has no
+   separation-of-duties rule for release approval. C01 line 28 requires a
+   project `factory.approve` grant and an actual human session. C04 line 120
+   makes an approval durable, human-only, single-use, digest-bound, and
+   generation-bound. C01 line 33 says of this human control: "This is human
+   control, not a promise of two-person review." So the harness grants both
+   actions to the one administrator, and no refusal of that is expected or
+   tested.
+
+## Interface-freeze disclosures (W09c)
+
+- **W04a, `src/factory/archive-writer.ts`: additive, by coordinator ruling
+  2026-09-23.** The reason: a real validator's evidence is its attempt's
+  terminal output, sealed under the validator attempt, so the one candidate
+  scope could not read it. Added: `FactoryArchiveMemberPlan.source?`,
+  `FactoryArchiveMemberSources.evidence?`, `FactoryArchiveEvidenceLocation`,
+  `FactoryArchiveAttemptOutputReader`, `FactoryArchiveWriterOptions.outputs?`,
+  `FACTORY_ARCHIVE_ATTEMPT_OUTPUT_OPERATION`, the export
+  `factoryArchiveEvidenceArtifacts` (previously the private
+  `evidenceArtifacts`), and the error codes
+  `factory_archive_member_scope_missing` and `factory_archive_member_unbound`.
+  A resolver that returns no `evidence` keeps W04a's plan exactly.
+- **Shared W07/W08, `src/factory/release-publication-set.ts`: additive.**
+  `sourcesFor` now derives each evidence member's location from
+  `factory_artifact_materials` or `factory_execution_terminals`, and admits
+  it only when the sealing attempt is the verified candidate attempt (for
+  materials) or a validator assigned to this candidate in
+  `factory_validator_assignments`. The new `FactoryPublicationOutputReader`
+  reads an attempt output only when that attempt's terminal row names exactly
+  the artifact.
+- **`src/factory/release-composition.ts`:** `outputs` is passed through
+  `composeFactoryArchiveWriter`. `installation-startup.ts` supplies it.
+
 ## Rulings and disclosures
 
 - **`readReleaseCommandInTransaction` in `src/factory/protected-command-effects.ts`.**

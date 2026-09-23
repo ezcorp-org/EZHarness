@@ -39,6 +39,7 @@ import { composeFactoryArchiveWriter, loadFactoryStorageCredentials } from "./re
 import { FactoryDestinationReservations, FactoryStoreSenderFence } from "./release-destinations";
 import { factoryReleaseFenceReader } from "./release-fence";
 import { FactoryS3PublicationProvenance, FactoryVerifiedAttemptMaterials } from "./release-s3-scope";
+import { FactoryPublicationOutputReader } from "./release-publication-set";
 import { FactoryReleases } from "./releases";
 import { FactoryNotificationDelivery } from "./notification-delivery";
 import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime } from "./validator-materials";
@@ -359,6 +360,9 @@ async function installationReleases(
       ordinary: config.storage.ordinary,
       archive: config.storage.archive,
       reader,
+      // A validator's report is its attempt's terminal output, not a sealed
+      // material, so the archive reads it through its own proved path.
+      outputs: new FactoryPublicationOutputReader({ database, tenantId: config.tenantId, artifacts }),
       resolveMembers: (tenantId, operationId, material, signal) => provenance.sourcesFor(tenantId, operationId, material, signal),
       archiveCredentials: await loadFactoryStorageCredentials(config.storage.archive, config.tenantId),
     });
