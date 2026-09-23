@@ -1,21 +1,25 @@
 import { json } from "@sveltejs/kit";
 import { requireAdminSession } from "$server/auth/middleware";
-import { IncusQualificationFixtureService, type IncusQualificationScope } from "$server/infrastructure/incus-qualification";
+import { IncusHostLiveWitness, incusHostLiveWitnessReady } from "$server/infrastructure/incus-host-live-witness";
+import { createIncusLiveCaseRunner } from "$server/infrastructure/incus-live-cases";
+import { IncusQualificationFixtureService, IncusQualificationStore,
+  type IncusQualificationScope } from "$server/infrastructure/incus-qualification";
 import type { RequestHandler } from "./$types";
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
-type Action = "create" | "status" | "destroy" | "start" | "stop";
+type Action = "create" | "status" | "destroy" | "start" | "stop" | "qualify";
 const fields = ["action", "installationId", "releaseId", "connectionId", "presetId", "operationId"];
 
 function parse(value: unknown): { action: Action; scope: IncusQualificationScope; operationId: string; powerOperationId?: string } | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const input = value as Record<string, unknown>;
   if (input.action !== "create" && input.action !== "status" && input.action !== "destroy"
-    && input.action !== "start" && input.action !== "stop") return null;
+    && input.action !== "start" && input.action !== "stop" && input.action !== "qualify") return null;
   const power = input.action === "start" || input.action === "stop";
-  const expected = power ? [...fields, "powerOperationId"] : fields;
+  const expected = input.action === "qualify" ? fields.filter(field => field !== "operationId")
+    : power ? [...fields, "powerOperationId"] : fields;
   if (Object.keys(input).sort().join(",") !== [...expected].sort().join(",")) return null;
-  for (const field of fields.slice(1)) if (typeof input[field] !== "string" || !identifier.test(input[field])) return null;
+  for (const field of expected.slice(1)) if (typeof input[field] !== "string" || !identifier.test(input[field])) return null;
   if (power && (typeof input.powerOperationId !== "string" || !identifier.test(input.powerOperationId))) return null;
   return { action: input.action, operationId: input.operationId as string,
     powerOperationId: power ? input.powerOperationId as string : undefined,
@@ -41,6 +45,21 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   const input = parse(await request.json().catch(() => null));
   if (!input) return json({ code: "invalid_input", message: "Provide exact qualification scope and operation ID." }, { status: 400 });
   try {
+    if (input.action === "qualify") {
+      if (!incusHostLiveWitnessReady()) {
+        return json({ code: "qualification_unavailable",
+          message: "The host live qualification witness is incomplete." }, { status: 503 });
+      }
+      const witness = new IncusHostLiveWitness();
+      const runLiveCases = createIncusLiveCaseRunner({ witness,
+        composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF });
+      const qualification = await new IncusQualificationStore({ runLiveCases }).recordVerified(input.scope);
+      return json({ qualification: { providerId: qualification.providerId,
+        connectionId: qualification.connectionId, presetId: qualification.presetId,
+        releaseDigest: qualification.releaseDigest, verifiedAt: qualification.verifiedAt,
+        validUntil: qualification.validUntil,
+        cases: qualification.cases.map(item => ({ caseId: item.caseId, status: item.status })) } });
+    }
     const service = new IncusQualificationFixtureService();
     if (input.action === "status") return json(await service.status(input.scope, input.operationId));
     const operation = input.action === "create" ? await service.create(input.scope, input.operationId)

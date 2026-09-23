@@ -2,9 +2,31 @@ import { expect, mock, test } from "bun:test";
 
 const calls: string[] = [];
 let fail = false;
+let witnessReady = false;
+mock.module("$server/infrastructure/incus-host-live-witness", () => ({
+  incusHostLiveWitnessReady: () => witnessReady,
+  IncusHostLiveWitness: class { constructor() { calls.push("witness.construct"); } },
+}));
+mock.module("$server/infrastructure/incus-live-cases", () => ({
+  createIncusLiveCaseRunner: (options: { witness: unknown; composeFixtureImageRef?: string }) => {
+    calls.push(`runner.construct:${Boolean(options.witness)}:${options.composeFixtureImageRef ?? "missing"}`);
+    return async () => { calls.push("runner.execute"); throw new Error("mock runner must not certify a live case"); };
+  },
+}));
 const operation = { id: "controller-operation", kind: "CREATE", state: "SUCCEEDED", generation: 1,
   providerOperationId: "provider-operation", errorCode: null, requestPayload: { privateKeyPem: "secret" } };
-mock.module("$server/infrastructure/incus-qualification", () => ({ IncusQualificationFixtureService: class {
+mock.module("$server/infrastructure/incus-qualification", () => ({
+  IncusQualificationStore: class {
+    constructor(private readonly deps: { runLiveCases: (scope: unknown, preset: unknown) => Promise<unknown> }) {
+      calls.push("store.construct");
+    }
+    async recordVerified(scope: { connectionId: string }) {
+      calls.push(`recordVerified:${scope.connectionId}`);
+      await this.deps.runLiveCases(scope, {});
+      throw new Error("mock store must not certify a live case");
+    }
+  },
+  IncusQualificationFixtureService: class {
   async create(scope: { connectionId: string }, id: string) {
     calls.push(`create:${scope.connectionId}:${id}`);
     if (fail) throw new Error("connection credentials secret");
@@ -58,12 +80,35 @@ test("fixture actions reject forged scope, extra authority, and invalid IDs befo
     { ...scope, action: "create", operationId: "../other" },
     { ...scope, action: "create", releaseId: "" },
     { ...scope, action: "qualify" },
+    { ...scope, action: "qualify", qualification: { forged: true } },
     { ...scope, action: "status", projectId: "other-project" },
     { ...scope, action: "destroy", connectionId: undefined },
     { ...scope, action: "start" },
     { ...scope, action: "stop", powerOperationId: "../other" },
   ]) expect((await POST(event(admin, body))).status).toBe(400);
   expect(calls).toEqual([]);
+});
+
+test("qualify rejects incomplete host witness before store or provider activity", async () => {
+  calls.length = 0;
+  witnessReady = false;
+  const { operationId: _operationId, ...exactScope } = scope;
+  const response = await POST(event(admin, { ...exactScope, action: "qualify" }));
+  expect(response.status).toBe(503);
+  expect(await response.json()).toMatchObject({ code: "qualification_unavailable" });
+  expect(calls).toEqual([]);
+});
+
+test("qualify wires the real witness runner into recordVerified when readiness opens", async () => {
+  calls.length = 0;
+  witnessReady = true;
+  const { operationId: _operationId, ...exactScope } = scope;
+  try {
+    const response = await POST(event(admin, { ...exactScope, action: "qualify" }));
+    expect(response.status).toBe(409);
+    expect(calls).toEqual(["witness.construct", "runner.construct:true:missing",
+      "store.construct", "recordVerified:connection", "runner.execute"]);
+  } finally { witnessReady = false; }
 });
 
 test("operator actions pass the exact scope and return only safe durable state", async () => {
