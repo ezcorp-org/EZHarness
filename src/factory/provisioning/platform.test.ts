@@ -13,6 +13,7 @@ import {
   factoryPlatformProject,
   factoryPodmanIngressReloader,
   startFactoryPlatform,
+  waitForFactoryPlatform,
   type FactoryPlatformSettings,
 } from "./platform";
 import { FactoryProvisioningError } from "./steps";
@@ -297,5 +298,45 @@ describe("factoryPodmanIngressReloader", () => {
     const error = await factoryRejection(factoryPodmanIngressReloader("fleet-a", execute).reload());
     expect(error.code).toBe("ingress_reload_failed");
     expect(error.message).toBe("The ingress did not reload: no such container");
+  });
+});
+
+describe("waitForFactoryPlatform", () => {
+  test("returns the attempt on which the platform first served, sleeping between attempts", async () => {
+    const answers: (boolean | Error)[] = [new Error("connect ECONNREFUSED"), false, true];
+    const slept: number[] = [];
+    const attempt = await waitForFactoryPlatform(async () => { const next = answers.shift()!; if (next instanceof Error) throw next; return next; }, { attempts: 5, intervalMs: 7, sleep: async (ms) => { slept.push(ms); } });
+    expect(attempt).toBe(3);
+    expect(slept).toEqual([7, 7]);
+  });
+
+  test("a platform that never serves fails by name with the last reason, after the last attempt without a trailing sleep", async () => {
+    const slept: number[] = [];
+    const thrown = await factoryRejection(waitForFactoryPlatform(async () => { throw new Error("Failed to connect before the deadline"); }, { attempts: 3, intervalMs: 1, sleep: async (ms) => { slept.push(ms); } }));
+    expect(thrown).toBeInstanceOf(FactoryProvisioningError);
+    expect((thrown as FactoryProvisioningError).code).toBe("platform_not_ready");
+    expect(thrown.message).toBe("The platform did not serve within 3 attempts: Failed to connect before the deadline");
+    expect(slept).toEqual([1, 1]);
+    const notServing = await factoryRejection(waitForFactoryPlatform(async () => false, { attempts: 1 }));
+    expect(notServing.message).toBe("The platform did not serve within 1 attempts: not serving");
+    const thrownValue = await factoryRejection(waitForFactoryPlatform(async () => { throw "plain"; }, { attempts: 1 }));
+    expect(thrownValue.message).toBe("The platform did not serve within 1 attempts: plain");
+  });
+
+  test("the default sleep really waits between attempts", async () => {
+    let calls = 0;
+    const started = Date.now();
+    expect(await waitForFactoryPlatform(async () => (calls += 1) === 2, { intervalMs: 20 })).toBe(2);
+    expect(Date.now() - started).toBeGreaterThanOrEqual(15);
+  });
+
+  test("startFactoryPlatform waits for the platform to serve when asked", async () => {
+    const paths = factoryPlatformPaths(operatorRoot);
+    const { execute } = fakeExecutor([{ code: 0, stdout: "", stderr: "" }, { code: 0, stdout: "", stderr: "" }]);
+    let asked = 0;
+    await startFactoryPlatform(settings, paths, { argv: ["docker", "compose"], env: {} }, execute, async () => (asked += 1) === 2, { attempts: 3, sleep: async () => undefined });
+    expect(asked).toBe(2);
+    const refused = await factoryRejection(startFactoryPlatform(settings, paths, { argv: ["docker", "compose"], env: {} }, execute, async () => false, { attempts: 2, sleep: async () => undefined }));
+    expect((refused as FactoryProvisioningError).code).toBe("platform_not_ready");
   });
 });

@@ -133,7 +133,12 @@ export function factoryPlatformEnvironment(settings: FactoryPlatformSettings, pa
 }
 
 /** Render the platform's env file and bring its services up. Idempotent. */
-export async function startFactoryPlatform(settings: FactoryPlatformSettings, paths: FactoryPlatformPaths, compose: FactoryComposeCommand, execute: FactoryCommandExecutor): Promise<void> {
+/**
+ * Start the platform and, when `serves` is given, return only once it serves
+ * end to end (`waitForFactoryPlatform`), so the first provisioning step does
+ * not race the Temporal server's schema setup.
+ */
+export async function startFactoryPlatform(settings: FactoryPlatformSettings, paths: FactoryPlatformPaths, compose: FactoryComposeCommand, execute: FactoryCommandExecutor, serves?: () => Promise<boolean>, wait?: Parameters<typeof waitForFactoryPlatform>[1]): Promise<void> {
   await replaceFactoryPrivateFile(factoryPrivatePath(paths.ingress.root, "nginx.conf"), factoryIngressMainConfig());
   const conf = await openFactoryPrivateDirectory(resolve(paths.ingress.root, "conf"));
   try { await ensureFactoryPrivateFile(conf, "ezcorp-factory.conf", () => `server {\n  listen ${settings.ingressAddress}:${settings.ingressPort} ssl default_server;\n  ssl_reject_handshake on;\n}\n`); }
@@ -143,6 +148,7 @@ export async function startFactoryPlatform(settings: FactoryPlatformSettings, pa
   await replaceFactoryPrivateFile(envPath, `${Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n")}\n`);
   const result = await execute([...compose.argv, "--project-name", factoryPlatformProject(settings.fleetId), "--file", resolve(settings.repositoryRoot, "deploy/factory/compose/platform.yml"), "--env-file", envPath, "up", "--detach", "--remove-orphans"], { env: compose.env });
   if (result.code !== 0) throw new FactoryProvisioningError("platform_compose_failed", `platform compose up failed: ${result.stderr.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`);
+  if (serves) await waitForFactoryPlatform(serves, wait);
 }
 
 /** The running ingress reloads onto the rendered config; a bad config is refused by `nginx -t` first. */
@@ -156,4 +162,21 @@ export function factoryPodmanIngressReloader(fleetId: string, execute: FactoryCo
       if (reload.code !== 0) throw new FactoryProvisioningError("ingress_reload_failed", `The ingress did not reload: ${reload.stderr.trim()}`);
     },
   };
+}
+
+/**
+ * Wait until the platform serves, not merely listens: the gateway opens its
+ * port before the Temporal server behind it has created its schema. `serves`
+ * answers true once a request succeeds end to end. Any failure until the
+ * deadline is a "not yet"; the deadline itself is a named failure.
+ */
+export async function waitForFactoryPlatform(serves: () => Promise<boolean>, options: { readonly attempts?: number; readonly intervalMs?: number; readonly sleep?: (ms: number) => Promise<void> } = {}): Promise<number> {
+  const attempts = options.attempts ?? 150, intervalMs = options.intervalMs ?? 2_000, sleep = options.sleep ?? ((ms: number) => Bun.sleep(ms));
+  let last = "no answer";
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try { if (await serves()) return attempt; last = "not serving"; }
+    catch (error) { last = error instanceof Error ? error.message : String(error); }
+    if (attempt < attempts) await sleep(intervalMs);
+  }
+  throw new FactoryProvisioningError("platform_not_ready", `The platform did not serve within ${attempts} attempts: ${last.slice(0, 200)}`);
 }

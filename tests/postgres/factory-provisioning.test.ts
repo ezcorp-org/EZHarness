@@ -759,6 +759,8 @@ describe("fleet composition", () => {
       expect((await fleet.provisioner.ledger.directory()).some((entry) => entry.fleetId === fleetId)).toBe(true);
       expect(fleet.deploymentSettings.network.publicOrigin({ hostname: "tenant-01.x" } as FactoryInstallationContext)).toBe("https://tenant-01.x:32005");
       expect(fleet.platform.temporal.revocationsPath.startsWith(operator)).toBe(true);
+      // No platform runs for this fleet, so the serving check is a failure, never a false "serves".
+      expect(await fleet.platformServes().then((served) => (served ? "served" : "not serving"), () => "unreachable")).toBe("unreachable");
     } finally { await fleet.close(); }
   });
 });

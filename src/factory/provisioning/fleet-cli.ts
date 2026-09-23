@@ -155,7 +155,7 @@ export async function runFactoryFleetMain(argv: readonly string[], compose: Fact
         return { census: factoryDatabaseCensus(adminUrl), approvals: factoryDatabasePurgeApprovals(adminUrl) };
       },
       observer: async () => factoryIngressBootstrapObserver(factoryHttpsIngressProbe(settings.ingress.address, settings.ingress.port, `${new TextDecoder().decode(await readFactoryPrivatePath(composed.platform.ingress.caCertificatePath)).trim()}\n`)),
-      startPlatform: () => startFactoryPlatform({ fleetId: settings.fleetId, operatorRoot: settings.roots.operator, repositoryRoot: settings.release.directory, temporalPort: settings.temporal.port, ingressAddress: settings.ingress.address, ingressPort: settings.ingress.port }, composed.platform, compose, factorySpawnExecutor),
+      startPlatform: () => startFactoryPlatform({ fleetId: settings.fleetId, operatorRoot: settings.roots.operator, repositoryRoot: settings.release.directory, temporalPort: settings.temporal.port, ingressAddress: settings.ingress.address, ingressPort: settings.ingress.port }, composed.platform, compose, factorySpawnExecutor, () => composed.platformServes()),
     }));
   } catch (error) { io.fail({ error: errorView(error) }); }
   finally { await fleet?.close(); }

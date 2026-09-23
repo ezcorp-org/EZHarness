@@ -148,6 +148,8 @@ export interface FactoryComposedFleet {
   readonly deployment: FactoryDeploymentStep;
   readonly ingress: FactoryIngressStep;
   readonly deploymentSettings: FactoryDeploymentSettings;
+  /** Whether Temporal serves through the gateway: the control identity can describe the system namespace. */
+  platformServes(): Promise<boolean>;
   close(): Promise<void>;
 }
 
@@ -170,9 +172,10 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
     foreignBucket: (installation) => installation.tenantId === "tenant-01" ? "tenant-02" : "tenant-01",
   });
   const endpoint = { address: `127.0.0.1:${settings.temporal.port}`, serverName: settings.temporal.serverName, caCertificatePath: platform.temporal.caCertificatePath };
+  const temporalAdmin = factoryTemporalNamespaceAdmin(endpoint, platform.temporal, platform.temporal);
   const temporal = new FactoryTemporalStep({
     authority: platform.temporal,
-    admin: factoryTemporalNamespaceAdmin(endpoint, platform.temporal, platform.temporal),
+    admin: temporalAdmin,
     access: factoryTemporalAccessProbe(endpoint),
     certificates: factoryTemporalCertificateIssuer(),
   });
@@ -227,7 +230,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   await upgrades.setup();
   await upgrades.register(factoryFleetDefaultBuild(settings));
   const fleetUpgrades = upgrades;
-  return Object.freeze({ provisioner: composed, upgrades: fleetUpgrades, platform, settings, database, deployment, ingress, deploymentSettings, close: async () => { await composed.close(); await database.close(); await upgradeSql.close(); } });
+  return Object.freeze({ provisioner: composed, upgrades: fleetUpgrades, platform, settings, database, deployment, ingress, deploymentSettings, platformServes: async () => (await temporalAdmin.owner("temporal-system")) !== undefined, close: async () => { await composed.close(); await database.close(); await upgradeSql.close(); } });
 }
 
 export { factoryPlatformPaths };
