@@ -898,3 +898,13 @@ uses explicit portable empty-variable syntax and preserves its literal rebuild c
 tests pass 132 tests and 315 assertions. The repaired full backend pool passes 26,273 tests across
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
+## PR #314 review — 2026-09-23
+
+- [x] Read PR scope, history, review state, and current CI.
+- [x] Review the arm64 job and sandbox suite for real coverage and gate safety.
+- [x] Reproduce the PR-owned gate gap; make and verify a focused repair.
+- [ ] Recheck current CI, document findings, and hand off merge status.
+
+Plan review: PR #314 is stacked on #309. Review its final CI commit against its parent and keep #309's product changes with their own review. The arm64 job passed on GitHub. Inspect the three failed jobs to separate runner or base failures from PR-owned failures before changing code.
+
+Review: The live GitHub arm64 job passed 48 tests, with one expected conditional skip. Its deny and allow child containment tests both executed. The applied branch protection requires `Backend tests`, but does not require `Sandbox (arm64)` and no required check depended on it. Add that result to the required backend aggregator so a regression blocks merge. The three failed checks on the original run came from a production candidate runner's `actions/checkout` TLS CA error and its dependent jobs; no PR source executed there. Actionlint and `git diff --check` pass after the aggregator edit. PR #309 remains open and needs its own review; PR #314 needs CODEOWNERS approval.

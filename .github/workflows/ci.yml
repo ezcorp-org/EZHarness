@@ -931,10 +931,11 @@ jobs:
           RESIDUAL_ONLY: "1"
         run: bash scripts/test.sh
 
-  # Required check (branch protection): green iff every backend shard + the
-  # residual set succeeded. The shards run the backend suite under --coverage
-  # and gate pass/fail on P-membership with an isolated plain retry sweep for
-  # instrumentation flakes (see scripts/test-coverage.sh host-shard mode);
+  # Required check (branch protection): green iff every backend shard, the
+  # residual set, and the arm64 sandbox lane succeeded. The shards run the
+  # backend suite under --coverage and gate pass/fail on P-membership with
+  # an isolated plain retry sweep for instrumentation flakes (see
+  # scripts/test-coverage.sh host-shard mode);
   # non-P files stay coverage-only, enforced by the Per-file coverage gate's
   # thresholds. The docs/extensions/examples suites used to be the canonical
   # non-P case — they are now IN P (178 files), so this check is where a red
@@ -949,7 +950,7 @@ jobs:
     name: Backend tests
     runs-on: ubuntu-latest
     timeout-minutes: 3
-    needs: [cov-shard, residual-tests, external-postgres, setup-podman-bash32]
+    needs: [cov-shard, residual-tests, external-postgres, setup-podman-bash32, sandbox-arm64]
     if: always()
     steps:
       - name: Aggregate shard results
@@ -958,14 +959,16 @@ jobs:
           echo "residual-tests:  ${{ needs.residual-tests.result }}"
           echo "external-postgres: ${{ needs.external-postgres.result }}"
           echo "setup-podman-bash32: ${{ needs.setup-podman-bash32.result }}"
+          echo "sandbox-arm64: ${{ needs.sandbox-arm64.result }}"
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.residual-tests.result }}" != "success" ] || \
              [ "${{ needs.external-postgres.result }}" != "success" ] || \
-             [ "${{ needs.setup-podman-bash32.result }}" != "success" ]; then
-            echo "::error::A backend shard failed — a pass/fail-set (P) test failure that survived the isolated retry, or an infrastructure failure. See the failing shard's log."
+             [ "${{ needs.setup-podman-bash32.result }}" != "success" ] || \
+             [ "${{ needs.sandbox-arm64.result }}" != "success" ]; then
+            echo "::error::A backend or arm64 sandbox lane failed. See the failing job's log."
             exit 1
           fi
-          echo "All backend shards succeeded."
+          echo "All backend and arm64 sandbox lanes succeeded."
 
   # Required check (branch protection): merges every shard + extras lcov and
   # enforces scripts/coverage-thresholds.json + the diff-scoped new-file/patch
