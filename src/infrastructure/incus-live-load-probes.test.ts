@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
-import { exerciseIncusControlledLoads, type IncusLoadHealth,
+import { exerciseIncusControlledLoads, INCUS_LOAD_GUEST_SCRIPT, type IncusLoadHealth,
   type IncusHighLoadBudget, type IncusLoadProbeDependencies } from "./incus-live-load-probes";
 
 const primary = { sandboxId: "primary", operationId: "primary-create" };
@@ -19,7 +22,7 @@ const health: IncusLoadHealth = {
 function probe(overrides: Partial<IncusLoadProbeDependencies> = {}) {
   const calls: string[] = [];
   const deps: IncusLoadProbeDependencies = {
-    runGuest: async (handle, argv, timeoutMs) => {
+    startGuestLoad: async (handle, argv, timeoutMs) => {
       expect(handle).toEqual(primary);
       expect(argv.slice(0, 2)).toEqual(["python3", "-c"]);
       expect(timeoutMs).toBe(10_000);
@@ -34,15 +37,17 @@ function probe(overrides: Partial<IncusLoadProbeDependencies> = {}) {
       const attempted = Number(argv[4]);
       const observedLimit = resource === "memory" ? small.limits.memoryBytes
         : resource === "pids" ? small.limits.pids : small.limits.cpuMillis;
-      return { exitCode: 0, stderr: "", stdout: JSON.stringify({
+      const result = { exitCode: 0, stderr: "", stdout: JSON.stringify({
         attempted, observedLimit: resource === "disk" ? 0 : observedLimit,
         peak: resource === "disk" ? 28 : 1, limitEvents: resource === "disk" ? 0 : 1,
         childExit: resource === "memory" ? -9 : resource === "disk" ? 28 : 0,
         cleanupComplete: true,
       }) };
+      return { wait: async () => result, cancel: async () => {} };
     },
     sampleHealth: async () => health,
     readRootQuota: async handle => ({ sandboxId: handle.sandboxId, bytes: small.limits.diskBytes }),
+    verifyCleanup: async () => ({ filesAbsent: true, processesAbsent: true }),
     ...overrides,
   };
   return { calls, run: () => exerciseIncusControlledLoads(primary, small, deps) };
@@ -63,9 +68,10 @@ test("returns raw measured load, host, and neighbor evidence for each resource",
 test("published preset is refused before any resource load", async () => {
   let calls = 0;
   const deps: IncusLoadProbeDependencies = {
-    runGuest: async () => { calls++; throw new Error("must not load"); },
+    startGuestLoad: async () => { calls++; throw new Error("must not load"); },
     sampleHealth: async () => { calls++; return health; },
     readRootQuota: async () => { calls++; throw new Error("must not read"); },
+    verifyCleanup: async () => { calls++; throw new Error("must not verify"); },
   };
   await expect(exerciseIncusControlledLoads(primary, INCUS_PRESETS[0]!, deps))
     .rejects.toThrow("operator approval");
@@ -80,16 +86,19 @@ test("missing independent neighbor and host pressure stop the probe", async () =
     { ...health, hostMemoryPressurePercent: 21 },
   ]) {
     await expect(probe({ sampleHealth: async () => bad,
-      runGuest: async () => { guestCalls++; throw new Error("must not run"); } }).run())
+      startGuestLoad: async () => { guestCalls++; throw new Error("must not run"); } }).run())
       .rejects.toThrow("baseline is unhealthy");
   }
   expect(guestCalls).toBe(0);
 });
 
 test("guest load cannot pass from configured limit without a measured hit", async () => {
-  const example = probe({ runGuest: async (_handle, argv) => ({ exitCode: 0, stderr: "",
-    stdout: JSON.stringify({ attempted: Number(argv[4]), observedLimit: small.limits.cpuMillis,
-      peak: 1, limitEvents: 0, childExit: 0, cleanupComplete: true }) }) });
+  const example = probe({ startGuestLoad: async (_handle, argv) => ({
+    wait: async () => ({ exitCode: 0, stderr: "",
+      stdout: JSON.stringify({ attempted: Number(argv[4]), observedLimit: small.limits.cpuMillis,
+        peak: 1, limitEvents: 0, childExit: 0, cleanupComplete: true }) }),
+    cancel: async () => {},
+  }) });
   await expect(example.run()).rejects.toThrow("cpu containment was not observed");
 });
 
@@ -122,17 +131,18 @@ async function highProbe(overrides: Partial<IncusLoadProbeDependencies> = {},
   const highHealth = { ...health, hostAvailableBytes: 48 * 1024 ** 3,
     hostDiskFreeBytes: 80 * 1024 ** 3 };
   const deps: IncusLoadProbeDependencies = {
-    runGuest: async (_handle, argv, timeoutMs) => {
+    startGuestLoad: async (_handle, argv, timeoutMs) => {
       const resource = argv[3]!;
       calls.push(resource);
       expect(timeoutMs).toBe(120_000);
       expect(argv[5]).toBe("115");
-      return { exitCode: 0, stderr: "", stdout: JSON.stringify({ attempted: Number(argv[4]),
+      const result = { exitCode: 0, stderr: "", stdout: JSON.stringify({ attempted: Number(argv[4]),
         observedLimit: resource === "disk" ? 0 : limits[resource as keyof typeof limits],
         peak: resource === "disk" ? 28 : 1,
         limitEvents: resource === "disk" ? 0 : 1,
         childExit: resource === "memory" ? -9 : resource === "disk" ? 28 : 0,
         cleanupComplete: true }) };
+      return { wait: async () => result, cancel: async () => {} };
     },
     sampleHealth: async () => highHealth,
     readRootQuota: async () => ({ sandboxId: primary.sandboxId, bytes: limits.disk }),
@@ -187,3 +197,114 @@ test("exact reviewed high-load budget passes bounded fake transport and raw read
   expect(result.readouts[3]?.metric).toBe("disk.enospc");
   expect(result.samples).toHaveLength(9);
 });
+
+test("a timed-out disk load removes its private test file", () => {
+  const root = mkdtempSync(join(tmpdir(), "ezh-load-timeout-"));
+  try {
+    const script = INCUS_LOAD_GUEST_SCRIPT.replaceAll("/workspace", root)
+      .replace("finally:\n    for child in children:", "    time.sleep(3)\nfinally:\n    for child in children:");
+    const result = Bun.spawnSync({ cmd: ["python3", "-c", script, "disk", "1048576", "1"],
+      stdout: "pipe", stderr: "pipe" });
+    expect(result.exitCode).not.toBe(0);
+    expect(readdirSync(root)).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("EDQUOT is a measured disk containment event with cleanup", () => {
+  const root = mkdtempSync(join(tmpdir(), "ezh-load-edquot-"));
+  try {
+    const script = INCUS_LOAD_GUEST_SCRIPT.replaceAll("/workspace", root)
+      .replace("stream.write(b'x' * min(1048576, target - stream.tell()))",
+        "(_ for _ in ()).throw(OSError(errno.EDQUOT, 'quota'))");
+    const result = Bun.spawnSync({ cmd: ["python3", "-c", script, "disk", "1048576", "8"],
+      stdout: "pipe", stderr: "pipe" });
+    expect(result.exitCode).toBe(0);
+    const raw = JSON.parse(result.stdout.toString());
+    expect(raw.childExit).toBe(28);
+    expect(raw.cleanupComplete).toBe(true);
+    expect(readdirSync(root)).toEqual([]);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("an unhealthy neighbor cancels the in-flight guest load promptly", async () => {
+  let finish!: (value: { exitCode: number; stdout: string; stderr: string }) => void;
+  let cancelled = false;
+  let sample = 0;
+  const deps = {
+    startGuestLoad: async () => ({
+      wait: async () => new Promise<{ exitCode: number; stdout: string; stderr: string }>(resolve => {
+        finish = resolve;
+      }),
+      cancel: async () => { cancelled = true; finish({ exitCode: 1, stdout: "", stderr: "" }); },
+    }),
+    sampleHealth: async () => ++sample === 1 ? health : { ...health, neighborHeartbeat: false },
+    readRootQuota: async () => ({ sandboxId: primary.sandboxId, bytes: small.limits.diskBytes }),
+    verifyCleanup: async () => ({ filesAbsent: true, processesAbsent: true }),
+  };
+  const run = exerciseIncusControlledLoads(primary, small, deps);
+  const observed = run.catch(error => error);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 450));
+    expect(cancelled).toBe(true);
+  } finally {
+    if (!cancelled) finish({ exitCode: 1, stdout: "", stderr: "" });
+    expect(String(await observed)).toContain("affected host or neighbor health");
+  }
+});
+
+test("a failed health sample still cancels and checks cleanup", async () => {
+  let finish!: (value: { exitCode: number; stdout: string; stderr: string }) => void;
+  let cancelled = 0;
+  let cleanup = 0;
+  let samples = 0;
+  const deps: IncusLoadProbeDependencies = {
+    startGuestLoad: async () => ({
+      wait: async () => new Promise(resolve => { finish = resolve; }),
+      cancel: async () => { cancelled++; finish({ exitCode: 1, stdout: "", stderr: "" }); },
+    }),
+    sampleHealth: async () => { if (++samples === 1) return health; throw new Error("Xeon sample failed"); },
+    readRootQuota: async () => ({ sandboxId: primary.sandboxId, bytes: small.limits.diskBytes }),
+    verifyCleanup: async () => { cleanup++; return { filesAbsent: false, processesAbsent: false }; },
+  };
+  await expect(exerciseIncusControlledLoads(primary, small, deps)).rejects.toThrow("load and cleanup failed");
+  expect(cancelled).toBe(1);
+  expect(cleanup).toBe(1);
+});
+
+test("failed cancellation is reported and cleanup is still checked", async () => {
+  let cleanup = 0;
+  let samples = 0;
+  const deps: IncusLoadProbeDependencies = {
+    startGuestLoad: async () => ({
+      wait: async () => new Promise(() => {}),
+      cancel: async () => { throw new Error("cancel channel lost"); },
+    }),
+    sampleHealth: async () => ++samples === 1 ? health : { ...health, neighborHeartbeat: false },
+    readRootQuota: async () => ({ sandboxId: primary.sandboxId, bytes: small.limits.diskBytes }),
+    verifyCleanup: async () => { cleanup++; return { filesAbsent: true, processesAbsent: true }; },
+  };
+  await expect(exerciseIncusControlledLoads(primary, small, deps))
+    .rejects.toThrow("load and cancellation failed");
+  expect(cleanup).toBe(1);
+});
+
+test("a guest that ignores its own deadline is canceled by the host", async () => {
+  let finish!: (value: { exitCode: number; stdout: string; stderr: string }) => void;
+  let cancelled = 0;
+  const deps: IncusLoadProbeDependencies = {
+    startGuestLoad: async () => ({
+      wait: async () => new Promise(resolve => { finish = resolve; }),
+      cancel: async () => { cancelled++; finish({ exitCode: 1, stdout: "", stderr: "" }); },
+    }),
+    sampleHealth: async () => health,
+    readRootQuota: async () => ({ sandboxId: primary.sandboxId, bytes: small.limits.diskBytes }),
+    verifyCleanup: async () => ({ filesAbsent: true, processesAbsent: true }),
+  };
+  await expect(exerciseIncusControlledLoads(primary, small, deps))
+    .rejects.toThrow("guest process exceeded its deadline");
+  expect(cancelled).toBe(1);
+}, 20_000);

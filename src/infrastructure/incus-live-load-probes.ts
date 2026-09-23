@@ -38,14 +38,17 @@ export interface IncusLoadHealth {
 }
 
 export interface IncusLoadProbeDependencies {
-  /** This must use the protected exact-fixture guest transport. */
-  runGuest: (handle: LiveFixtureHandle, argv: readonly string[], timeoutMs: number) => Promise<LiveCommandResult>;
+  /** Start a durable exact-fixture guest process and return its cancellable handle. */
+  startGuestLoad: (handle: LiveFixtureHandle, argv: readonly string[], timeoutMs: number) => Promise<{
+    wait: () => Promise<LiveCommandResult>;
+    cancel: () => Promise<void>;
+  }>;
   /** Read Xeon metrics and a different EZHarness-owned fixture over protected paths. */
   sampleHealth: (handle: LiveFixtureHandle) => Promise<IncusLoadHealth>;
   /** Read the exact fixture root-volume quota through pinned Incus GET. */
   readRootQuota: (handle: LiveFixtureHandle) => Promise<{ sandboxId: string; bytes: number }>;
-  /** Independent post-load guest readback, required for high-load approval. */
-  verifyCleanup?: (handle: LiveFixtureHandle, resource: Resource) => Promise<{
+  /** Independent post-load guest readback, required for every load. */
+  verifyCleanup: (handle: LiveFixtureHandle, resource: Resource) => Promise<{
     filesAbsent: boolean; processesAbsent: boolean }>;
   /** Host-only operator approval lookup. Never pass an agent-supplied approval. */
   resolveApprovedBudget?: (binding: IncusLoadBudgetBinding) => Promise<IncusHighLoadBudget | null>;
@@ -119,7 +122,7 @@ function healthy(sample: IncusLoadHealth, baseline: IncusLoadHealth, primary: Li
  * and test files. The parent script reads cgroup events after the child exits.
  * No shell, host path, or provider token is accepted from a caller.
  */
-const GUEST_SCRIPT = String.raw`import json, os, pathlib, signal, subprocess, sys, time
+export const INCUS_LOAD_GUEST_SCRIPT = String.raw`import json, os, pathlib, signal, subprocess, sys, time
 kind, target_text, timeout_text = sys.argv[1:]
 target = int(target_text)
 timeout = int(timeout_text)
@@ -156,7 +159,7 @@ try:
             for _ in range((target + 1048575)//1048576):
                 try: stream.write(b'x' * min(1048576, target - stream.tell()))
                 except OSError as error:
-                    if error.errno != errno.ENOSPC: raise
+                    if error.errno not in (errno.ENOSPC, errno.EDQUOT): raise
                     sys.exit(28)
 finally:
     for child in children:
@@ -171,9 +174,14 @@ child = subprocess.Popen([sys.executable, '-c', script, kind, str(target)],
 try:
     child.wait(timeout=timeout)
 except subprocess.TimeoutExpired:
-    try: os.killpg(child.pid, signal.SIGKILL)
+    try: os.killpg(child.pid, signal.SIGTERM)
     except ProcessLookupError: pass
-    child.wait(timeout=2)
+    try: child.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        try: os.killpg(child.pid, signal.SIGKILL)
+        except ProcessLookupError: pass
+        child.wait(timeout=2)
+    pathlib.Path('/workspace/.ezh-qualification-load-' + str(child.pid)).unlink(missing_ok=True)
     raise
 if kind == 'cpu':
     quota, period = map(int, read('cpu.max').split())
@@ -224,6 +232,67 @@ function approvedBudget(value: IncusHighLoadBudget | null, expected: IncusLoadBu
     && value.maxAttempted[resource] <= HIGH_CAPS[resource]);
 }
 
+async function bounded<T>(promise: Promise<T>, milliseconds: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([promise, new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(() => reject(new Error(message)), milliseconds);
+    })]);
+  } finally { if (timer) clearTimeout(timer); }
+}
+
+async function monitoredLoad(primary: LiveFixtureHandle, resource: Resource, target: number,
+  timeoutMs: number, high: boolean, baseline: IncusLoadHealth, deps: IncusLoadProbeDependencies,
+  samples: IncusLoadProbeResult["samples"]): Promise<LiveCommandResult> {
+  const childTimeout = high ? Math.floor((timeoutMs - 5_000) / 1_000) : 8;
+  const job = await deps.startGuestLoad(primary, ["python3", "-c", INCUS_LOAD_GUEST_SCRIPT,
+    resource, String(target), String(childTimeout)], timeoutMs);
+  requireProbe(job && typeof job.wait === "function" && typeof job.cancel === "function",
+    `${resource} cancellable guest process is unavailable`);
+  let settled = false;
+  const outcome = Promise.resolve().then(() => job.wait())
+    .then(value => ({ value, error: null }), error => ({ value: null, error }))
+    .finally(() => { settled = true; });
+  const deadline = Date.now() + timeoutMs + 1_000;
+  let first = true;
+  let failure: unknown;
+  let result: LiveCommandResult | null = null;
+  try {
+    while (true) {
+      await new Promise(resolve => setTimeout(resolve, first ? 250 : 1_000));
+      first = false;
+      const sample = await bounded(deps.sampleHealth(primary), 3_000,
+        `${resource} host or neighbor sample timed out`);
+      samples.push({ resource, phase: "during", health: sample });
+      requireProbe(healthy(sample, baseline, primary), `${resource} affected host or neighbor health`);
+      if (settled) break;
+      requireProbe(Date.now() < deadline, `${resource} guest process exceeded its deadline`);
+    }
+    const completed = await outcome;
+    if (completed.error) throw completed.error;
+    result = completed.value;
+  } catch (error) {
+    failure = error;
+    try {
+      await bounded(job.cancel(), 3_000, `${resource} cancellation timed out`);
+      await bounded(outcome, 3_000, `${resource} did not stop after cancellation`);
+    } catch (cancelError) {
+      failure = new AggregateError([error, cancelError], `${resource} load and cancellation failed`);
+    }
+  }
+  try {
+    const cleanup = await bounded(deps.verifyCleanup(primary, resource), 3_000,
+      `${resource} cleanup readback timed out`);
+    requireProbe(cleanup.filesAbsent && cleanup.processesAbsent, `${resource} cleanup readback failed`);
+  } catch (cleanupError) {
+    failure = failure
+      ? new AggregateError([failure, cleanupError], `${resource} load and cleanup failed`) : cleanupError;
+  }
+  if (failure) throw failure;
+  requireProbe(result, `${resource} guest result is unavailable`);
+  return result;
+}
+
 /** Executes bounded loads. Every fact must be measured, with an independent neighbor. */
 export async function exerciseIncusControlledLoads(
   primary: LiveFixtureHandle, preset: SandboxPreset, deps: IncusLoadProbeDependencies,
@@ -263,28 +332,8 @@ export async function exerciseIncusControlledLoads(
   const facts: LiveLimitLoadFact[] = [];
   for (const resource of ORDER) {
     const target = attempted[resource];
-    // Sample throughout a long load. Wait for the guest command even if a
-    // sample fails, so the caller cannot abandon a still-running process.
-    let finished = false;
-    const commandPromise = deps.runGuest(primary, ["python3", "-c", GUEST_SCRIPT,
-      resource, String(target), String(high ? Math.floor((deadlineMs - 5_000) / 1_000) : 8)], deadlineMs)
-      .finally(() => { finished = true; });
-    const monitorPromise = (async () => {
-      let first = true;
-      while (true) {
-        await new Promise(resolve => setTimeout(resolve, first ? 250 : 1_000));
-        first = false;
-        const sample = await deps.sampleHealth(primary);
-        samples.push({ resource, phase: "during", health: sample });
-        if (!healthy(sample, baseline, primary)) return false;
-        if (finished) return true;
-      }
-    })();
-    const [command, monitor] = await Promise.allSettled([commandPromise, monitorPromise]);
-    requireProbe(command.status === "fulfilled" && monitor.status === "fulfilled",
-      `${resource} guest load or in-flight health sample failed`);
-    requireProbe(monitor.value === true, `${resource} affected host or neighbor health`);
-    const result = command.value;
+    const result = await monitoredLoad(primary, resource, target, deadlineMs, high,
+      baseline, deps, samples);
     requireProbe(result.stdout.length <= 4096 && result.stderr.length <= 4096
       && result.exitCode === 0, `${resource} guest probe failed`);
     let parsed: Record<string, unknown>;
@@ -308,9 +357,6 @@ export async function exerciseIncusControlledLoads(
       : resource === "cpu" || resource === "pids" ? cgroupHit && childExit === 0
         : childExit === 28, `${resource} containment was not observed`);
     if (high) {
-      const cleanup = await deps.verifyCleanup!(primary, resource);
-      requireProbe(cleanup.filesAbsent && cleanup.processesAbsent,
-        `${resource} cleanup readback failed`);
       requireProbe(followup.hostAvailableBytes >= HIGH_RAM_MARGIN
         && followup.hostDiskFreeBytes >= HIGH_DISK_MARGIN
         && followup.hostAvailablePids >= HIGH_PID_MARGIN,
