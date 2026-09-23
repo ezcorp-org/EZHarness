@@ -296,7 +296,8 @@ export function composeFactoryValidators(options: FactoryValidatorCompositionOpt
   const effects = new FactoryProtectedCommandEffects(database, config.tenantId, stores.authority, completions, application.releaseAuthority, options.assurance, options.releases, []);
   const acceptance = new FactoryValidatorAcceptance({
     database, tenantId: config.tenantId, service: options.service, authority: stores.authority,
-    scheduler, dispatch, queue: stores.queue, effects, inbox: stores.inbox, report: options.report,
+    scheduler, dispatch, queue: stores.queue, budgets: stores.budgets, journal: stores.journal, artifacts: application.artifacts,
+    effects, inbox: stores.inbox, report: options.report,
   });
   const registration = new FactoryValidatorMaterialRegistration(database, config.tenantId, application.definitions, validators, options.report);
   return Object.freeze({

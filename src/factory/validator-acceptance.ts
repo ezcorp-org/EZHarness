@@ -32,9 +32,12 @@
  */
 import { sql } from "drizzle-orm";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
-import type { TransactionalDb } from "../db/migrations/types";
+import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
-import type { FactoryAttemptQueue } from "./attempt-queue";
+import { factoryAttemptAuthority, type FactoryAttemptDelivery, type FactoryAttemptQueue } from "./attempt-queue";
+import type { FactoryArtifacts } from "./artifacts";
+import type { FactoryBudgets } from "./budgets";
+import type { FactoryExecutionJournal } from "./executions";
 import type { FactoryCommandAuthority } from "./command-authority";
 import type { FactoryInbox } from "./inbox";
 import { classifyFactoryAcceptanceFailure, type FactoryProtectedCommandEffects } from "./protected-command-effects";
@@ -92,6 +95,11 @@ export interface FactoryValidatorAcceptanceOptions {
   readonly scheduler: Pick<FactoryProtectedValidatorScheduler, "planInTransaction" | "reserveInTransaction" | "admitInTransaction">;
   readonly dispatch: Pick<FactoryValidatorAttemptDispatch, "readInTransaction">;
   readonly queue: Pick<FactoryAttemptQueue, "readInTransaction">;
+  /** The reservation lifecycle under C05: settled on a completed terminal, held uncertain otherwise. */
+  readonly budgets: Pick<FactoryBudgets, "settleInTransaction" | "markUncertainInTransaction">;
+  /** Reads the completed terminal's measured usage, which the settlement charges. */
+  readonly journal: Pick<FactoryExecutionJournal, "readCompletedTerminalInTransaction">;
+  readonly artifacts: FactoryArtifacts;
   readonly effects: Pick<FactoryProtectedCommandEffects, "recordCurrentCandidate" | "decideAcceptance">;
   readonly inbox: Pick<FactoryInbox, "enqueueInTransaction">;
   readonly report: (role: string, error: unknown) => void;
@@ -104,8 +112,8 @@ export interface FactoryValidatorAcceptanceState {
   readonly ready: boolean;
   /** This pass reserved or admitted something new. */
   readonly progressed: boolean;
-  /** A validator attempt that will never produce a terminal fact, and whether its outcome is unknown. */
-  readonly unsettled?: { readonly attemptId: string; readonly uncertain: boolean };
+  /** A validator attempt that will never produce a terminal fact, its reservation, and whether its outcome is unknown. */
+  readonly unsettled?: { readonly attemptId: string; readonly reservationId: string; readonly uncertain: boolean };
 }
 
 function code(error: unknown): string | undefined {
@@ -181,13 +189,21 @@ export class FactoryValidatorAcceptance {
     return { projectId: reference.projectId, runId: reference.logicalRunId, interpreterId: reference.interpreterId };
   }
 
-  /** The typed rejection for a validator that failed or ended uncertain, bound to the current command. */
+  /**
+   * The typed rejection for a validator that failed or ended uncertain, bound to the current command.
+   *
+   * The attempt produced no measured usage this role can charge, so its reservation is not settled
+   * with a number nobody measured: it is held uncertain under the same typed reason, in the same
+   * transaction as the event, and the usage-reconciliation role resolves it from a trusted receipt.
+   */
   private async rejectUnsettled(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, unsettled: NonNullable<FactoryValidatorAcceptanceState["unsettled"]>): Promise<void> {
     await this.options.database.transaction(transaction => this.options.authority.withCurrentAcceptanceInTransaction(transaction, service, reference, async (tx, context) => {
+      const reason = unsettled.uncertain ? "factory_validator_attempt_uncertain" : "factory_validator_attempt_failed";
+      await this.options.budgets.markUncertainInTransaction(tx, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: unsettled.reservationId }, reason);
       const event: KernelEvent = {
         kind: "node-failed", id: `protected-acceptance-unsettled:${context.command.id}`, atMs: context.commandState.nowMs,
         nodeId: context.command.nodeId, commandId: context.command.id, candidateGeneration: context.command.candidateGeneration, attempt: context.attempt.attempt,
-        error: unsettled.uncertain ? "factory_validator_attempt_uncertain" : "factory_validator_attempt_failed",
+        error: reason,
         failureKind: "acceptance_rejected",
       };
       await this.options.inbox.enqueueInTransaction(tx, this.inboxKey(reference), event);
@@ -241,6 +257,23 @@ export class FactoryValidatorAcceptance {
     return found.map(row => Object.freeze({ tenantId: this.options.tenantId, projectId: row.project_id, logicalRunId: row.run_id, interpreterId: row.interpreter_id, commandId: row.command_id }));
   }
 
+  /**
+   * Settle a validator's reservation once its attempt has a completed terminal, in the read's own transaction.
+   *
+   * The charge is the terminal result's measured usage and the receipt is its terminal fact, exactly
+   * what `FactoryTaskCompletions` settles a task reservation with. `settleInTransaction` is idempotent
+   * on the same usage and receipt, so every later pass and a restarted role settle nothing twice.
+   * Answers whether the terminal exists.
+   */
+  private async settleReservation(transaction: MigrationDb, service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, attemptId: string, delivery: FactoryAttemptDelivery): Promise<boolean> {
+    const receipt = await this.options.dispatch.readInTransaction(transaction, service, { ...reference, commandId: attemptId });
+    if (receipt === undefined) return false;
+    const { result } = await this.options.journal.readCompletedTerminalInTransaction(transaction, factoryAttemptAuthority(delivery.reference), this.options.artifacts);
+    await this.options.budgets.settleInTransaction(transaction, { projectId: reference.projectId, runId: reference.logicalRunId, reservationId: receipt.reservationId },
+      { costMicros: result.usage.costMicros, tokens: result.usage.inputTokens + result.usage.outputTokens, computeMs: result.usage.computeMs }, receipt.terminal.terminalFactDigest);
+    return true;
+  }
+
   /** One schedule: read its attempt if it exists, otherwise reserve and try to admit. */
   private async settle(service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference, schedule: FactoryProtectedValidatorSchedule): Promise<FactoryValidatorAcceptanceState> {
     const { database, queue, dispatch, scheduler } = this.options;
@@ -249,10 +282,10 @@ export class FactoryValidatorAcceptance {
     // this has to read.
     const delivery = await database.transaction(transaction => queue.readInTransaction(transaction, reference.projectId, schedule.attemptId));
     if (delivery !== null) {
-      const terminal = await database.transaction(transaction => dispatch.readInTransaction(transaction, service, { ...reference, commandId: schedule.attemptId }));
-      if (terminal !== undefined) return { ready: true, progressed: false };
+      const settled = await database.transaction(transaction => this.settleReservation(transaction, service, reference, schedule.attemptId, delivery));
+      if (settled) return { ready: true, progressed: false };
       if (FAILED_STATES.has(delivery.state) || UNCERTAIN_STATES.has(delivery.state)) {
-        return { ready: false, progressed: false, unsettled: { attemptId: schedule.attemptId, uncertain: UNCERTAIN_STATES.has(delivery.state) } };
+        return { ready: false, progressed: false, unsettled: { attemptId: schedule.attemptId, reservationId: schedule.reservationId, uncertain: UNCERTAIN_STATES.has(delivery.state) } };
       }
       return { ready: false, progressed: false };
     }

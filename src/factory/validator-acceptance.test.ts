@@ -52,11 +52,17 @@ function harness(overrides: {
       reserveInTransaction: async (_tx, _service, _reference, value) => { calls.push(`reserve:${value.attemptId}`); return { created: overrides.reserveCreated ?? true }; },
       admitInTransaction: async (_tx, _service, _reference, value) => { calls.push(`admit:${value.attemptId}`); return (overrides.admit ?? (async () => ({})))(value.attemptId) as never; },
     },
-    dispatch: { readInTransaction: async (_tx, _service, value) => { calls.push(`terminal:${value.commandId}`); return (overrides.terminal ?? []).includes(value.commandId) ? {} as never : undefined; } },
+    dispatch: { readInTransaction: async (_tx, _service, value) => { calls.push(`terminal:${value.commandId}`); return (overrides.terminal ?? []).includes(value.commandId) ? { reservationId: `reservation-${value.commandId}`, terminal: { terminalFactDigest: `sha256:${"e".repeat(64)}` } } as never : undefined; } },
+    budgets: {
+      settleInTransaction: async (_tx, key, actual, receipt) => { calls.push(`settle:${key.reservationId}:${actual.costMicros}/${actual.tokens}/${actual.computeMs}:${receipt.slice(0, 8)}`); },
+      markUncertainInTransaction: async (_tx, key, reason) => { calls.push(`uncertain:${key.reservationId}:${reason}`); },
+    },
+    journal: { readCompletedTerminalInTransaction: async () => ({ result: { usage: { kind: "measured", costMicros: "5", inputTokens: 1, outputTokens: 2, computeMs: 7 } } }) as never },
+    artifacts: {} as never,
     queue: {
       readInTransaction: async (_tx, _project, attemptId) => {
         const state = overrides.stored?.[attemptId];
-        return state === undefined || state === null ? null : { state } as never;
+        return state === undefined || state === null ? null : { state, reference: { attemptId, tenantId, projectId: "project-1", runId: "run-1", nodeInstanceId: "validator", candidateGeneration: 0, attemptNumber: 1, grantRevision: 1, reservationGeneration: 1, executionEpoch: 1, cancellationEpoch: 0, requestDigest: "a".repeat(64), deadlineAtMs: 10, reservationId: `reservation-${attemptId}` } } as never;
       },
     },
     effects: {
@@ -110,7 +116,8 @@ describe("advance", () => {
   test("a stored attempt is read, never re-reserved: terminal is ready, in flight waits", async () => {
     const both = harness({ schedules: [schedule("done"), schedule("running")], stored: { done: "delivered", running: "leased" }, terminal: ["done"] });
     expect(await both.acceptance.advance(service, reference)).toEqual({ ready: false, progressed: false });
-    expect(both.calls).toEqual(["candidate", "plan", "terminal:done", "terminal:running"]);
+    // The completed attempt's reservation is settled with its measured usage and terminal fact.
+    expect(both.calls).toEqual(["candidate", "plan", "terminal:done", "settle:reservation-done:5/3/7:sha256:e", "terminal:running"]);
     const all = harness({ schedules: [schedule("done")], stored: { done: "delivered" }, terminal: ["done"] });
     expect(await all.acceptance.advance(service, reference)).toEqual({ ready: true, progressed: false });
   });
@@ -119,7 +126,7 @@ describe("advance", () => {
     for (const [state, uncertain] of [["delivered", false], ["cancelled", false], ["dead_letter", false], ["outcome_unknown", true]] as const) {
       const { acceptance } = harness({ schedules: [schedule("gone"), schedule("later")], stored: { gone: state } });
       // The first unsettled schedule answers for the command; later schedules are not touched.
-      expect(await acceptance.advance(service, reference)).toEqual({ ready: false, progressed: false, unsettled: { attemptId: "gone", uncertain } });
+      expect(await acceptance.advance(service, reference)).toEqual({ ready: false, progressed: false, unsettled: { attemptId: "gone", reservationId: "reservation-gone", uncertain } });
     }
   });
 });
@@ -138,6 +145,9 @@ describe("deliver", () => {
       expect(await acceptance.deliver(service, reference)).toBe(true);
       expect(calls).not.toContain("decide");
       expect(calls).toContain("authority");
+      // No usage was measured, so the hold is marked uncertain under the same name, never settled.
+      expect(calls).toContain(`uncertain:reservation-gone:${error}`);
+      expect(calls.some(call => call.startsWith("settle:"))).toBe(false);
       expect(enqueued).toEqual([{ transaction: "tx", key: { projectId: "project-1", runId: "run-1", interpreterId: "interpreter-1" }, event: {
         kind: "node-failed", id: `protected-acceptance-unsettled:${reference.commandId}`, atMs: 7, nodeId: "accept", commandId: reference.commandId,
         candidateGeneration: 0, attempt: 1, error, failureKind: "acceptance_rejected",

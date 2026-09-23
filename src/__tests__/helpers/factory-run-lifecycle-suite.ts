@@ -936,10 +936,15 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await decisionEvents()).toEqual([`protected-acceptance:${acceptanceCommand.id}`]);
     expect(rows(await fixture.db.execute(sql`SELECT decision FROM factory_protected_command_effects WHERE tenant_id=${tenantId} AND command_id=${acceptanceCommand.id}`))).toEqual([{ decision: "accepted" }]);
     expect(rows(await fixture.db.execute(sql`SELECT validator_id,verdict FROM factory_validator_results WHERE tenant_id=${tenantId} AND validator_attempt_id=${attempts[0]!.attempt_id}`))).toEqual([{ validator_id: material.mandatoryClaims[0]!.validatorId, verdict: "PASS" }]);
+    // The validator's reservation settled exactly once, on its terminal fact, and a restart settles nothing twice.
+    const settledRows = async () => rows<{ state: string; receipt_digest: string | null }>(await fixture.db.execute(sql`SELECT state,receipt_digest FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId} AND origin_kind='protected-validator'`));
+    const terminalFact = rows<{ terminal_fact_digest: string }>(await fixture.db.execute(sql`SELECT terminal_fact_digest FROM factory_execution_terminals WHERE attempt_id=${attempts[0]!.attempt_id}`))[0]!.terminal_fact_digest;
+    expect(await settledRows()).toEqual([{ state: "settled", receipt_digest: terminalFact }]);
     // Delivered once: the scan no longer sees it, a restarted role writes no second event, and the dispatcher has nothing left.
     expect(await composed.roles.scheduling.step(signal)).toBe(false);
     expect(await compose().roles.scheduling.step(signal)).toBe(false);
     expect(await decisionEvents()).toEqual([`protected-acceptance:${acceptanceCommand.id}`]);
+    expect(await settledRows()).toEqual([{ state: "settled", receipt_digest: terminalFact }]);
     expect(await dispatcher.dispatchOne()).toMatchObject({ kind: "idle" });
     // The scan is tenant-wide, so other runs in this suite are visited too; none of this run's passes failed.
     expect(reported.filter(entry => entry.role.includes(completed.task.run.runId))).toEqual([]);
@@ -1048,6 +1053,8 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(await decisionEvents()).toEqual([`protected-acceptance-unsettled:${acceptanceCommand.id}`]);
     const [event] = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND event_id=${`protected-acceptance-unsettled:${acceptanceCommand.id}`}`));
     expect(JSON.parse(event!.payload)).toMatchObject({ kind: "node-failed", nodeId: acceptanceCommand.nodeId, commandId: acceptanceCommand.id, error: "factory_validator_attempt_failed", failureKind: "acceptance_rejected" });
+    // No usage was measured, so the hold is held uncertain under the typed reason, never settled with a guess.
+    expect(rows(await fixture.db.execute(sql`SELECT state,uncertainty FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND run_id=${completed.task.run.runId} AND origin_kind='protected-validator'`))).toEqual([{ state: "uncertain", uncertainty: "factory_validator_attempt_failed" }]);
     // No decision receipt is invented for a verdict nobody issued, and a restarted role adds nothing.
     expect(rows(await fixture.db.execute(sql`SELECT command_id FROM factory_protected_command_effects WHERE tenant_id=${tenantId} AND command_id=${acceptanceCommand.id}`))).toEqual([]);
     expect(await compose().roles.scheduling.step(signal)).toBe(false);
