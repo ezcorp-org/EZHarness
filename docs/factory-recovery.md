@@ -123,7 +123,15 @@ workflow has no history length there; a closed one has.
 The installation data key never changes. Rotation adds a wrap under the
 current key and keeps every earlier wrap. No encrypted object is rewritten.
 The startup document's `keyManagement` section selects the wrapper. Absent, the
-operator master key in `keys` is used. Three wrappers exist:
+operator master key in `keys` is used. The orchestration process's `codec`
+section carries the same `keyManagement`, so its payload codec opens the data
+key through the same service; one unit (`composeFactoryDataKeyWrapper` in
+`key-management.ts`) selects it for both processes. The wrap file must be made
+under the selected service: a wrap made under another service is refused as
+`factory_key_invalid`, and a service that cannot open the wrap is refused as
+`factory_key_missing` with the service's error as its cause. Every sealed
+checkpoint manifest names the selected service in `keys.service`. Three
+wrappers exist:
 
 - The operator master-key file (`readOperatorMasterKey`), for self-hosted use.
 - `FactoryCloudKmsWrapper`, for hosted use with a cloud KMS client that has the

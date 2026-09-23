@@ -10,6 +10,7 @@ import {
 import type { GatewayTransportOptions } from "../../packages/@ezcorp/factory-transport/src/index.ts";
 import type { TemporalPayloadCodec as PayloadCodec } from "./encryption.ts";
 import { loadFactoryTemporalPayloadCodec, type FactoryTemporalPayloadCodecFileConfig } from "./file-key-wraps.ts";
+import { wellFormedFactoryKeyManagement } from "./key-management.ts";
 import { createFactoryOrchestrationReadinessWriter } from "./orchestration-readiness-writer.ts";
 import { privateDirectory, readPrivateBounded } from "./private-files.ts";
 
@@ -86,8 +87,11 @@ export function parseFactoryOrchestratorProcessConfig(value: unknown): FactoryOr
     || !exact(gateway.tls, ["caPath", "certificatePath", "privateKeyPath", "serviceTokenPath"])
     || Object.values(gateway.tls).some((item) => !text(item))) throw new Error("factory orchestrator config is invalid");
 
+  // `keyManagement` selects the service that opens the data key, exactly as the
+  // startup document's section does; absent, the operator master key file.
   const codec = value.codec;
-  if (!record(codec) || !exact(codec, ["wrappedKeyFilePath", "masterKeyFilePath", "masterKeyId", "grantableRoots"])
+  if (!record(codec) || !optionalKeys(codec, ["wrappedKeyFilePath", "masterKeyFilePath", "masterKeyId", "grantableRoots"], ["keyManagement"])
+    || (codec.keyManagement !== undefined && !wellFormedFactoryKeyManagement(codec.keyManagement))
     || !text(codec.wrappedKeyFilePath) || !text(codec.masterKeyFilePath) || !text(codec.masterKeyId)
     || !Array.isArray(codec.grantableRoots) || codec.grantableRoots.length < 1 || codec.grantableRoots.length > 32
     || codec.grantableRoots.some((item) => !text(item))) throw new Error("factory orchestrator config is invalid");

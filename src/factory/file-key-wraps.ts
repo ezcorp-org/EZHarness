@@ -1,4 +1,5 @@
-import { EncryptedRecordCodec, FactoryEncryptionError, FactoryTemporalPayloadCodec, InstallationDataKey, StaticMasterKeyProvider, readOperatorMasterKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "./encryption.ts";
+import { EncryptedRecordCodec, FactoryEncryptionError, FactoryTemporalPayloadCodec, InstallationDataKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "./encryption.ts";
+import { composeFactoryDataKeyWrapper, wellFormedFactoryKeyManagement, type FactoryKeyCompositionDependencies, type FactoryKeyManagement, type FactoryOperatorKeyReference } from "./key-management.ts";
 import { readPrivateFileBounded } from "./private-files.ts";
 
 const KEY_WRAP_SCHEMA_VERSION = "factory.key-wraps.v1";
@@ -21,14 +22,20 @@ export interface FactoryKeyWrapFile {
   }[];
 }
 
-/** Secrets supplied to the standalone Node Temporal process. No database, S3, or raw data key is exposed. */
-export interface FactoryTemporalPayloadCodecFileConfig {
+/**
+ * The references that open an installation's data key: its private wrap file,
+ * the operator key file, and the key service the installation selected (the
+ * operator key when none is). No secret value, only paths and ids.
+ */
+export interface FactoryDataKeyFileReferences extends FactoryOperatorKeyReference {
   readonly installationId: string;
-  readonly tenantId: string;
   readonly wrappedKeyFilePath: string;
-  readonly masterKeyFilePath: string;
-  readonly masterKeyId: string;
-  readonly grantableRoots: readonly string[];
+  readonly keyManagement?: FactoryKeyManagement;
+}
+
+/** Secrets supplied to the standalone Node Temporal process. No database, S3, or raw data key is exposed. */
+export interface FactoryTemporalPayloadCodecFileConfig extends FactoryDataKeyFileReferences {
+  readonly tenantId: string;
 }
 
 function keyInvalid(): never { throw new FactoryEncryptionError("factory_key_invalid"); }
@@ -96,13 +103,26 @@ class ReadonlyFileKeyWrapStore implements InstallationKeyWrapStore {
  * Builds the worker codec from pre-provisioned private files. This intentionally
  * reads no database, has no S3 credentials, creates no key, and cannot rotate.
  */
-export async function loadFactoryTemporalPayloadCodec(config: FactoryTemporalPayloadCodecFileConfig): Promise<FactoryTemporalPayloadCodec> {
+export async function loadFactoryTemporalPayloadCodec(config: FactoryTemporalPayloadCodecFileConfig, dependencies?: FactoryKeyCompositionDependencies): Promise<FactoryTemporalPayloadCodec> {
   if (!validIdentifier(config.installationId) || !validIdentifier(config.tenantId) || !validIdentifier(config.masterKeyId)
     || !Array.isArray(config.grantableRoots) || config.grantableRoots.some(root => typeof root !== "string" || root.length === 0)
     || typeof config.wrappedKeyFilePath !== "string" || config.wrappedKeyFilePath.length === 0
     || typeof config.masterKeyFilePath !== "string" || config.masterKeyFilePath.length === 0) keyInvalid();
-  const wraps = await readFactoryKeyWrapFile(config.wrappedKeyFilePath, config.installationId, config.masterKeyId);
-  const master = await readOperatorMasterKey(config.masterKeyFilePath, config.masterKeyId, config.grantableRoots);
-  const key = await InstallationDataKey.loadExisting(config.installationId, wraps, new StaticMasterKeyProvider(master));
+  const key = await loadFactoryDataKeyFromFiles(config, dependencies);
   return new FactoryTemporalPayloadCodec(new EncryptedRecordCodec(key, "history"), config.tenantId);
+}
+
+/**
+ * Opens the installation data key from its private wrap file through the
+ * selected key service. The one loader for every process: the orchestrator's
+ * payload codec and the restore's key check. Every refusal is a typed
+ * `FactoryEncryptionError`: a wrap file made under another service is
+ * `factory_key_invalid`, and a service that cannot open the wrap is
+ * `factory_key_missing` with the service's own error as its cause.
+ */
+export async function loadFactoryDataKeyFromFiles(references: FactoryDataKeyFileReferences, dependencies?: FactoryKeyCompositionDependencies): Promise<InstallationDataKey> {
+  if (references.keyManagement !== undefined && !wellFormedFactoryKeyManagement(references.keyManagement)) keyInvalid();
+  const wrapper = await composeFactoryDataKeyWrapper(references, references.keyManagement, dependencies);
+  const wraps = await readFactoryKeyWrapFile(references.wrappedKeyFilePath, references.installationId, await wrapper.currentKeyId());
+  return InstallationDataKey.loadExisting(references.installationId, wraps, wrapper);
 }

@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-import { FACTORY_RETENTION_PERIOD_MS } from "../../db/migrations/add-factory-recovery";
+import { FACTORY_RETENTION_PERIOD_MS, FACTORY_RETENTION_SUBJECT_KINDS, up as upFactoryRecovery } from "../../db/migrations/add-factory-recovery";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
 import { digestBytes } from "../../extensions/v4/blobs";
@@ -76,6 +76,22 @@ export function factoryRetentionConformance(label: string, createFixture: () => 
       retention = new FactoryRetention({ database: fixture.db, tenantId, installationId, archive, releaseArchive: fixture.releaseArchive, eraser: fixture.eraser, now });
     });
     afterAll(async () => { await fixture?.close(); });
+
+    // Runs first, so every enrollment below runs on a table the migration upgraded in place.
+    test("a table created before the subject kinds grew accepts every kind once the migration reruns", async () => {
+      const oldKinds = ["run_audit", "candidate_artifact", "key_wrap", "release"];
+      // The table exactly as round 1 created it: the four-kind constraint.
+      await fixture.db.execute(sql.raw(`ALTER TABLE factory_retention_records DROP CONSTRAINT factory_retention_records_kind_check`));
+      await fixture.db.execute(sql.raw(`ALTER TABLE factory_retention_records ADD CONSTRAINT factory_retention_records_kind_check CHECK (subject_kind IN (${oldKinds.map(kind => `'${kind}'`).join(",")}))`));
+      const insert = (kind: string) => fixture.db.execute(sql`INSERT INTO factory_retention_records (tenant_id, subject_kind, subject_id, retention_class, anchored_at_ms, retain_until_ms)
+        VALUES (${tenantId}, ${kind}, 'shape-probe', 'release', 0, ${FACTORY_RETENTION_PERIOD_MS.release})`);
+      const refused = await insert("receipt").then(() => null, (error: unknown) => `${(error as Error).message} ${String((error as { cause?: Error }).cause?.message)}`);
+      expect(refused).toContain("factory_retention_records_kind_check");
+      await upFactoryRecovery(fixture.db as never);
+      for (const kind of FACTORY_RETENTION_SUBJECT_KINDS) await insert(kind);
+      expect(rows(await fixture.db.execute(sql`SELECT subject_kind FROM factory_retention_records WHERE subject_id = 'shape-probe'`))).toHaveLength(FACTORY_RETENTION_SUBJECT_KINDS.length);
+      await fixture.db.execute(sql`DELETE FROM factory_retention_records WHERE subject_id = 'shape-probe'`);
+    });
 
     test("only terminal subjects enroll, each once, with its class period from its anchor", async () => {
       await terminalRun("run-done", "succeeded", 3);

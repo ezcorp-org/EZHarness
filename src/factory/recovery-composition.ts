@@ -153,7 +153,7 @@ export async function composeFactoryRecoveryRoles(input: FactoryRecoveryComposit
       tls: { caPath: config.pool.tls.caPath, certificatePath: config.pool.tls.certificatePath, privateKeyPath: config.pool.tls.privateKeyPath, serviceTokenPath: config.pool.serviceTokenPath },
     })))();
     const temporal = await factoryTemporalPositionsFromConfig(config);
-    const coordinator = new FactoryCheckpointCoordinator({ database, tenantId: config.tenantId, installationId: config.installationId, archive, pool: factoryPoolCheckpointClientSource(client), slots: factoryPoolCheckpointClientSlots(client), temporal });
+    const coordinator = new FactoryCheckpointCoordinator({ database, tenantId: config.tenantId, installationId: config.installationId, archive, pool: factoryPoolCheckpointClientSource(client), slots: factoryPoolCheckpointClientSlots(client), temporal, keyService: config.keyManagement?.kind ?? "operator-master-key" });
     roles.checkpoint = factoryCheckpointStep(coordinator, report);
   } catch (error) { report("checkpoint-barrier", error); }
   return roles;

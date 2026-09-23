@@ -189,8 +189,18 @@ const CREDENTIAL_PACKAGES = [
   "bun",              // Bun.sql, Bun.file — the Node process uses none of it
 ] as const;
 
+/**
+ * The key service is not a product store. C02 puts the tenant payload codec in
+ * the Node process, and C06 lets an installation open that codec's data key
+ * through a cloud KMS instead of the operator key file (W15b R1). The KMS
+ * client reaches the key service only: it holds no object-store, database, or
+ * provider credential, so it is the one `@aws-sdk/` client this closure may link.
+ */
+const KEY_SERVICE_PACKAGES = ["@aws-sdk/client-kms"] as const;
+
 function credentialPackages(closure: Closure): string[] {
   return [...closure.bare.keys()]
+    .filter((specifier) => !(KEY_SERVICE_PACKAGES as readonly string[]).includes(specifier))
     .filter((specifier) => CREDENTIAL_PACKAGES.some((name) => specifier === name || specifier.startsWith(name)))
     .sort();
 }
@@ -227,6 +237,13 @@ describe("C02.1 the Node orchestration process holds no product credential", () 
     const closure = runtimeClosure(NODE_ORCHESTRATION_ROOTS);
     expect(closure.files).toContain("src/factory/file-key-wraps.ts");
     expect(closure.files).toContain("src/factory/encryption.ts");
+    // The key service it opens that key through, and nothing else from the AWS SDK.
+    expect(closure.files).toContain("src/factory/key-management.ts");
+    expect([...closure.bare.keys()].filter((specifier) => specifier.startsWith("@aws-sdk/")).sort()).toEqual([...KEY_SERVICE_PACKAGES]);
+  });
+
+  test("the key-service exemption is exact: the object-store client is still a credential", () => {
+    expect(credentialPackages(runtimeClosure(["src/extensions/v4/blobs.ts"])).some((name) => name.startsWith("@aws-sdk/client-s3"))).toBe(true);
   });
 });
 

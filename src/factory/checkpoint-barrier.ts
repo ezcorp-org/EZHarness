@@ -8,6 +8,7 @@ import { digestBytes } from "../extensions/v4/blobs";
 import { assertFactoryIdentity } from "./records";
 import { parseFactoryArchiveReference, readFactoryRecoveryJson, writeFactoryRecoveryJson, type FactoryRecoveryArchive } from "./recovery-archive";
 import type { FactoryArchiveObject } from "./releases";
+import type { FactoryKeyManagement } from "./key-management";
 
 /**
  * C06's per-tenant compatible checkpoint barrier (W15).
@@ -180,7 +181,11 @@ export interface FactoryCheckpointManifest {
    * process's private file, the three wrap fields are null and the restore,
    * which holds the operator's keys, proves the data key opens from there.
    */
-  readonly keys: { readonly installationId: string; readonly wrapVersion: number | null; readonly masterKeyId: string | null; readonly wrappedDigest: string | null };
+  /**
+   * The data-key wrap the checkpoint needs, and the key service the installation
+   * opens it through (`service`, absent when the process was not told).
+   */
+  readonly keys: { readonly installationId: string; readonly wrapVersion: number | null; readonly masterKeyId: string | null; readonly wrappedDigest: string | null; readonly service?: FactoryKeyManagement["kind"] };
 }
 
 export interface FactoryCheckpointSeal {
@@ -206,6 +211,8 @@ export interface FactoryCheckpointOptions {
   readonly archive: FactoryRecoveryArchive;
   readonly pool?: FactoryCheckpointPoolSource;
   readonly temporal?: FactoryCheckpointTemporalSource;
+  /** The key service the installation selected, recorded in every manifest. */
+  readonly keyService?: FactoryKeyManagement["kind"];
   /** The cluster-wide slot a barrier holds while it runs. Production always passes the pool's. */
   readonly slots?: FactoryCheckpointSlotSource;
   /** Only ever lowers the contract maximum, so a test can drive the abort path; never raises it. */
@@ -458,7 +465,7 @@ export class FactoryCheckpointCoordinator {
         previousCheckpointId: previous, executionEpoch: epoch, startedAtMs,
         product: { lsn, schemaDigest, state, liveRuns: live, objects: objectsReference },
         fenced, pool, temporal,
-        keys: wrap,
+        keys: this.options.keyService === undefined ? wrap : { ...wrap, service: this.options.keyService },
       };
       const manifestReference = await guarded(() => writeFactoryRecoveryJson(archive, this.tenantId, "checkpoint", checkpointId, manifest));
       const durationMs = Math.round(this.monotonic() - started);
