@@ -43,6 +43,8 @@ Use the pinned Bun and a private connection file. Review the plan and its `planD
 
 If an effect has an unknown outcome, inspect and reconcile the exact pool and bridge. If either target appeared after approval, make a new inventory and obtain a new reviewed bootstrap plan before any further apply. A new image input or unrelated server change also needs a new inventory and reviewed plan. The image build and full setup remain separate approval steps.
 
+After bridge creation, verification accepts its pinned gateway address and the subnet, gateway, and broadcast routes only when each route is bound to the reviewed bridge. Other address or route changes still fail the baseline check. This verification rule does not allow an absent target to appear during apply preflight; that ownership check remains separate.
+
 `inspect` first checks that the connection fingerprint matches the actual `known_hosts` entry, then reads a fixed inventory over SSH with at most four concurrent sessions. `plan` is pure over the closed recipe and that inventory. `apply` refreshes the read-only preflight and prints a dry-run receipt unless `--execute` and the exact approved plan digest are both present. `verify` reinspects the server and fails until every approved postcondition matches.
 
 Use the repository's pinned Bun:

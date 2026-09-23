@@ -8,7 +8,7 @@ import checkedInRecipe from "./recipe.json";
 import { digest, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
 import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult } from "./apply";
 import { inspectIncus, verifyKnownHostPin } from "./inspect";
-import { createImageBootstrapPlan, createSetupPlan, validateRecipe, verifySetupPlan } from "./plan";
+import { createImageBootstrapPlan, createSetupPlan, validateRecipe, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
 
 const pem = "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n";
@@ -197,6 +197,35 @@ describe("Incus image bootstrap", () => {
     expect(skipped.state).toBe("applied");
     expect(skipped.steps.map(step => step.action)).toEqual(["skipped", "skipped"]);
     expect(effects).toBe(0);
+  });
+
+  test("verifies completed apply with only the bridge gateway and its three owned routes normalized", async () => {
+    const reviewed = checkedInRecipe as IncusSetupRecipe;
+    const before = bootstrapInventory();
+    const approved = createImageBootstrapPlan(reviewed, before);
+    const observed = new Set<string>();
+    const receipt = await applyImageBootstrapPlan(approved, async argv => {
+      const step = approved.steps.find(item => item.inspect.argv.join("\0") === argv.join("\0"));
+      if (step) return observed.has(step.id) ? result(0, JSON.stringify(step.inspect.expected)) : result(1, "", "not found");
+      const effect = approved.steps.find(item => item.apply.argv.join("\0") === argv.join("\0"));
+      if (!effect) throw new Error("unexpected command");
+      observed.add(effect.id);
+      return result(0);
+    }, { execute: true, approvedPlanDigest: approved.planDigest, preflightPlan: approved });
+    expect(receipt.state).toBe("applied");
+    const bridgeRoutes = ["10.173.0.0/24", "10.173.0.1", "10.173.0.255"];
+    const after = bootstrapInventory({
+      host: { ...before.host, rootFreeBytes: before.host.rootFreeBytes - reviewed.storage.sizeBytes,
+        addresses: [...before.host.addresses, "10.173.0.1"] },
+      storagePools: [{ ...(approved.steps[0]!.inspect.expected as IncusInventory["storagePools"][number]), description: "", status: "Created" }],
+      networks: [{ ...(approved.steps[1]!.inspect.expected as IncusInventory["networks"][number]), description: "", status: "Created" }],
+      routes: [...before.routes, ...bridgeRoutes],
+      routeBindings: bridgeRoutes.map(destination => ({ destination, device: reviewed.network.name })),
+    });
+    expect(verifyImageBootstrapPlan(approved, reviewed, after)).toEqual([]);
+    expect(verifyImageBootstrapPlan(approved, reviewed, { ...after, routes: [...after.routes, "10.173.0.2"],
+      routeBindings: [...after.routeBindings!, { destination: "10.173.0.2", device: reviewed.network.name }] })).toContain("bootstrap_plan_drift");
+    expect(verifyImageBootstrapPlan(approved, reviewed, { ...after, host: { ...after.host, addresses: [...after.host.addresses, "10.173.0.2"] } })).toContain("bootstrap_plan_drift");
   });
 
   test("uncertain effect stops and requires fresh reconciliation", async () => {

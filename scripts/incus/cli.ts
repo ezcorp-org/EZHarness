@@ -2,10 +2,10 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import type { IncusConnection, IncusImageBootstrapPlan, IncusInventory, IncusSetupPlan, IncusSetupRecipe } from "./model";
-import { assertSetupPlanDigest, digest, isSubset } from "./model";
+import { assertSetupPlanDigest } from "./model";
 import { applyImageBootstrapPlan, applySetupPlan } from "./apply";
 import { inspectIncus, sshRunner } from "./inspect";
-import { createImageBootstrapPlan, createSetupPlan, verifySetupPlan } from "./plan";
+import { createImageBootstrapPlan, createSetupPlan, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
 
 type Options = Record<string, string | boolean>;
 
@@ -76,12 +76,7 @@ async function main(argv = process.argv.slice(2)): Promise<void> {
   if (command === "bootstrap-verify") {
     const bootstrap = plan as IncusImageBootstrapPlan;
     assertSetupPlanDigest(bootstrap);
-    const current = createImageBootstrapPlan(recipe, inventory);
-    const failures = [
-      ...(bootstrap.purpose !== "image_bootstrap" || bootstrap.status !== "ready" || typeof bootstrap.targetPresence?.storage !== "boolean" || typeof bootstrap.targetPresence?.network !== "boolean" || bootstrap.recipeDigest !== current.recipeDigest || bootstrap.baselineFingerprint !== current.baselineFingerprint || digest(bootstrap.steps) !== digest(current.steps) ? ["bootstrap_plan_drift"] : []),
-      ...current.blockedReasons,
-      ...current.steps.filter(step => step.resource === "storage" ? !inventory.storagePools.some(pool => isSubset(step.inspect.expected, pool)) : !inventory.networks.some(network => isSubset(step.inspect.expected, network))).map(step => `unverified:${step.id}`),
-    ];
+    const failures = verifyImageBootstrapPlan(bootstrap, recipe, inventory);
     await save(typeof options.out === "string" ? options.out : undefined, { schemaVersion: 1, planDigest: bootstrap.planDigest, inventory, failures, ready: failures.length === 0 });
     if (failures.length) process.exitCode = 1;
     return;

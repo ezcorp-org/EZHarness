@@ -273,20 +273,36 @@ function bootstrapBaselineFingerprint(recipe: IncusSetupRecipe, inventory: Incus
   const desiredRoute = recipe.network.config["ipv4.address"]!;
   const targetNetwork = inventory.networks.find(network => network.name === recipe.network.name && network.project === recipe.network.project);
   const matchingNetwork = targetNetwork && isSubset({ type: "bridge", managed: true, config: recipe.network.config }, targetNetwork);
+  const [gateway, prefix] = desiredRoute.split("/");
+  const [networkAddress, broadcastAddress] = cidrRange(desiredRoute)!;
+  const toIpv4 = (value: number): string => [24, 16, 8, 0].map(shift => (value >>> shift) & 255).join(".");
+  const bridgeRoutes = new Set([`${toIpv4(networkAddress)}/${prefix}`, gateway!, toIpv4(broadcastAddress)]);
   const ownedRoute = (route: string): boolean => {
-    if (!matchingNetwork || cidrRange(route)?.join(":") !== cidrRange(desiredRoute)?.join(":")) return false;
+    if (!matchingNetwork || !bridgeRoutes.has(route)) return false;
     const bindings = inventory.routeBindings?.filter(binding => binding.destination === route) ?? [];
     return bindings.length > 0 && bindings.every(binding => binding.device === recipe.network.name);
   };
   const stable = {
     ...inventory,
-    host: { ...inventory.host, rootFreeBytes: 0 },
+    host: { ...inventory.host, rootFreeBytes: 0,
+      addresses: inventory.host.addresses.filter(address => !(address === gateway && ownedRoute(gateway!))) },
     storagePools: inventory.storagePools.filter(pool => pool.name !== recipe.storage.name),
     networks: inventory.networks.filter(network => !(network.name === recipe.network.name && network.project === recipe.network.project)),
     routes: inventory.routes.filter(route => !ownedRoute(route)),
     routeBindings: (inventory.routeBindings ?? []).filter(binding => !ownedRoute(binding.destination)),
   };
   return inventoryFingerprint(stable);
+}
+
+export function verifyImageBootstrapPlan(plan: IncusImageBootstrapPlan, recipe: IncusSetupRecipe, inventory: IncusInventory, presets?: readonly SandboxPreset[]): string[] {
+  assertSetupPlanDigest(plan);
+  const current = createImageBootstrapPlan(recipe, inventory, presets);
+  const failures = [
+    ...(plan.purpose !== "image_bootstrap" || plan.status !== "ready" || typeof plan.targetPresence?.storage !== "boolean" || typeof plan.targetPresence?.network !== "boolean" || plan.recipeDigest !== current.recipeDigest || plan.baselineFingerprint !== current.baselineFingerprint || digest(plan.steps) !== digest(current.steps) ? ["bootstrap_plan_drift"] : []),
+    ...current.blockedReasons,
+    ...current.steps.filter(step => step.resource === "storage" ? !inventory.storagePools.some(pool => isSubset(step.inspect.expected, pool)) : !inventory.networks.some(network => isSubset(step.inspect.expected, network))).map(step => `unverified:${step.id}`),
+  ];
+  return [...new Set(failures)].sort();
 }
 
 export function createImageBootstrapPlan(recipe: IncusSetupRecipe, inventory: IncusInventory, presets?: readonly SandboxPreset[]): IncusImageBootstrapPlan {
