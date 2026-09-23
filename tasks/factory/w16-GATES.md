@@ -130,7 +130,7 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
 | `hosted-supervisor-address` | The startup document names the host services at 127.0.0.1; the hosted pool and DaemonSet are at cluster and node addresses |
 | `hosted-ingress-snippet` | ingress-nginx 1.9+ disables the `configuration-snippet` annotation that sets the installation header |
 | `hosted-host-identity-shared` | The Kubernetes supervisor DaemonSet holds one fleet-wide host identity (as the Compose fleet host now does too) |
-| `gpu-profile-lease-consumer` | The pool validates GPU host profiles at start, but no lease path calls `factoryHeldAllocationDevices` to authorize devices from them |
+| `gpu-profile-lease-consumer` | Disclosed structural gap, owner W02; W02d builds it after W16 lands (coordinator ruling). The pool validates GPU declarations but does not yet authorize devices from them: `factoryHeldAllocationDevices` in `runner/attempt-wire.ts` has no production caller |
 | `orchestrator-build-id-versioning` | The orchestrator does not implement Temporal worker build-ID versioning; builds are retained at the image and release level |
 | Production GPU, eight rows | `FACTORY_PRODUCTION_GPU_CRITERIA`, all unmet with the verdicts in `docs/factory-local-gpu.md` |
 
@@ -140,10 +140,11 @@ Coordinator ruling 2026-09-22: approved for W16; the owner's package inherits it
   installation of its fleet, and its identity row keys by `pool_id`.
 - The pool loads `resources.gpuProfilesPath` with `loadFactoryGpuHostProfiles`
   before its listener binds; a missing, unknown-host, or unproven declaration
-  keeps it degraded as `gpu_profiles_unavailable`. Named gap
-  `gpu-profile-lease-consumer`: no lease path consumes the loaded registry,
-  because `factoryHeldAllocationDevices` (runner/attempt-wire.ts, W02) has no
-  production caller.
+  keeps it degraded as `gpu_profiles_unavailable`. Disclosed structural gap
+  `gpu-profile-lease-consumer`, owner W02: the pool validates GPU declarations
+  but does not yet authorize devices from them, because
+  `factoryHeldAllocationDevices` (runner/attempt-wire.ts) has no production
+  caller. W16 does not build the consumer; W02d takes it after W16 lands.
 
 ## Waiting on W15's merge
 
