@@ -466,6 +466,18 @@ for (const probe of probes) {
       }
     });
 
+    test("a trailing-dot URL cannot borrow trust from an undotted hosts entry", async () => {
+      _setHostsFileReaderForTests(async () => GATEWAY_HOSTS);
+      dnsTable.set("host.docker.internal.", [{ address: "169.254.169.254", family: 4 }]);
+      try {
+        const { res } = await postAs("http://host.docker.internal.:11434");
+        expect(res.status).toBe(400);
+        expect(probe.getCalls().length).toBe(0);
+      } finally {
+        dnsTable.delete("host.docker.internal.");
+      }
+    });
+
     for (const address of ["169.254.169.254", "::ffff:169.254.169.254", "::ffff:a9fe:a9fe", "fd00:ec2::254"]) {
       test(`an alias mapped to metadata ${address} is refused`, async () => {
         _setHostsFileReaderForTests(async () => `${address} host.docker.internal\n`);
@@ -817,9 +829,10 @@ describe("hostsFileAddresses — /etc/hosts parsing", () => {
     "",
   ].join("\n");
 
-  test("matches an exact name, case-insensitively, with a trailing root dot", () => {
+  test("matches an exact name case-insensitively without treating a root dot as equivalent", () => {
     expect(hostsFileAddresses(HOSTS, "host.docker.internal")).toEqual(["192.168.127.254"]);
-    expect(hostsFileAddresses(HOSTS, "host.containers.internal.")).toEqual(["192.168.127.254"]);
+    expect(hostsFileAddresses(HOSTS, "host.containers.internal.")).toEqual([]);
+    expect(hostsFileAddresses("192.168.127.254 host.docker.internal.\n", "host.docker.internal")).toEqual([]);
   });
 
   test("ignores comments and never matches a suffix or a superstring", () => {

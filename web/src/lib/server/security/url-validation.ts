@@ -200,8 +200,8 @@ export function loopbackProvidersBlocked(
 /**
  * Host-gateway names a container engine may write into a container's
  * `/etc/hosts` so it can reach services on its host. Exact names only —
- * matched case-insensitively, with a trailing root dot tolerated, never as a
- * suffix.
+ * matched case-insensitively, never as a suffix. A trailing root dot is a
+ * different hosts-file token and must not inherit an undotted entry's trust.
  *
  * Which engines actually write them there, as measured (not assumed):
  *   • Podman 6.1.2 (macOS `podman machine`): writes BOTH names. Covered.
@@ -240,7 +240,7 @@ export function _setHostsFileReaderForTests(reader: (() => Promise<string>) | nu
 }
 
 function canonicalHost(hostname: string): string {
-	return hostname.toLowerCase().replace(/\.$/, "");
+	return hostname.toLowerCase();
 }
 
 /** Every address a hosts-file text maps `hostname` to (exact name match). */
