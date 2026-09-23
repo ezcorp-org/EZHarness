@@ -10,18 +10,21 @@ const config = { schemaVersion: 1, entrypoint: "app/app.js", html: "app/index.ht
 const files = { ...source(), "ezcorp.browser.json": JSON.stringify(config), "app/app.js": "import {label} from './label.js'; document.body.dataset.label=label;", "app/label.js": "export const label='offline bundled';", "app/index.html": '<main>Canvas</main><script src="./old.js"></script><link rel="stylesheet" href="./style.css">', "app/style.css": "body{color:rgb(1,2,3)}" };
 
 let activeCleanup: (() => Promise<void>) | undefined;
-async function cleanupBrowserRunner() {
-  const cleanup = activeCleanup;
-  activeCleanup = undefined;
-  await cleanup?.();
-}
-afterEach(cleanupBrowserRunner);
+afterEach(async () => { await activeCleanup?.(); });
 
 async function withBrowserRunner(check: (build: (input: typeof files) => ReturnType<PodmanRunner["build"]>, runner: PodmanRunner) => Promise<void>) {
   const root = await mkdtemp(join(tmpdir(), "ez-browser-build-"));
   let runner: PodmanRunner | undefined;
   let expired = false;
-  activeCleanup = async () => { expired = true; try { await runner?.close(); } finally { await rm(root, { recursive: true, force: true }); } };
+  let cleanupPromise: Promise<void> | undefined;
+  const cleanup = () => {
+    if (cleanupPromise) return cleanupPromise;
+    if (activeCleanup === cleanup) activeCleanup = undefined;
+    expired = true;
+    cleanupPromise = (async () => { try { await runner?.close(); } finally { await rm(root, { recursive: true, force: true }); } })();
+    return cleanupPromise;
+  };
+  activeCleanup = cleanup;
   try {
     const toolchain = await provision();
     if (expired) throw new Error("Browser runner fixture was closed during provision");
@@ -29,7 +32,7 @@ async function withBrowserRunner(check: (build: (input: typeof files) => ReturnT
     runner = currentRunner;
     const build = (input: typeof files) => currentRunner.build({ operationId: randomUUID(), files: input, sourceDigest: filesDigest(input), entrypoint: "extension.ts", limits: buildLimits });
     await check(build, currentRunner);
-  } finally { await cleanupBrowserRunner(); }
+  } finally { await cleanup(); }
 }
 
 test("rootless browser build seals an offline bundle", async () => {

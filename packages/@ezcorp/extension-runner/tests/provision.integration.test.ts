@@ -8,12 +8,7 @@ import { source } from "./helpers";
 import { workspaceText } from "@ezcorp/extension-contract";
 
 let activeEntrypointCleanup: (() => Promise<void>) | undefined;
-async function cleanupEntrypoint() {
-  const cleanup = activeEntrypointCleanup;
-  activeEntrypointCleanup = undefined;
-  await cleanup?.();
-}
-afterEach(cleanupEntrypoint);
+afterEach(async () => { await activeEntrypointCleanup?.(); });
 
 async function createRunnerRootWithLongInheritedTmp(): Promise<string> {
   const inheritedTmp = process.env.TMPDIR;
@@ -83,12 +78,19 @@ test("production runner entrypoint starts with a long inherited TMPDIR and build
     stdout: "pipe", stderr: "pipe",
   });
   const diagnostics = new Response(child.stderr).text();
-  activeEntrypointCleanup = async () => {
-    child.kill("SIGTERM");
-    await child.exited;
-    await diagnostics;
-    await rm(directory, { recursive: true, force: true });
+  let cleanupPromise: Promise<void> | undefined;
+  const cleanup = () => {
+    if (cleanupPromise) return cleanupPromise;
+    if (activeEntrypointCleanup === cleanup) activeEntrypointCleanup = undefined;
+    cleanupPromise = (async () => {
+      child.kill("SIGTERM");
+      await child.exited;
+      await diagnostics;
+      await rm(directory, { recursive: true, force: true });
+    })();
+    return cleanupPromise;
   };
+  activeEntrypointCleanup = cleanup;
   try {
     while (!(await stat(socketPath).catch(error => {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
@@ -105,5 +107,5 @@ test("production runner entrypoint starts with a long inherited TMPDIR and build
     expect(result.diagnostics).toEqual([]);
     expect(result.state).toBe("succeeded");
     expect(result.evidence.tests.some(entry => entry.name === "typecheck" && entry.passed)).toBe(true);
-  } finally { await cleanupEntrypoint(); }
+  } finally { await cleanup(); }
 }, 60_000);

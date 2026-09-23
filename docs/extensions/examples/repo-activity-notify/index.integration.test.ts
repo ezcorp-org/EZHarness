@@ -8,27 +8,26 @@ import { closeTestDb, mockDbConnection, setupTestDb } from "../../../../src/__te
 
 mockDbConnection();
 let release: Awaited<ReturnType<typeof buildFirstPartyRelease>> | undefined;
-let activeSession: { close(): Promise<void> } | undefined;
-let activeRoot: string | undefined;
-let sessionExpired = false;
-async function cleanupRepoSession() {
-  sessionExpired = true;
-  const session = activeSession;
-  const root = activeRoot;
-  activeSession = undefined;
-  activeRoot = undefined;
-  try { await session?.close(); } finally { if (root) await rm(root, { recursive: true, force: true }); }
-}
-afterEach(cleanupRepoSession);
+let activeSessionCleanup: (() => Promise<void>) | undefined;
+afterEach(async () => { await activeSessionCleanup?.(); });
 afterAll(async () => { await release?.close(); await closeTestDb(); });
 
 async function setupRepoActivitySession(denyProjectGit = false) {
   await setupTestDb();
-  sessionExpired = false;
   const root = await mkdtemp(join(tmpdir(), "repo-release-project-"));
-  activeRoot = root;
+  let ownedSession: { close(): Promise<void> } | undefined;
+  let expired = false;
+  let cleanupPromise: Promise<void> | undefined;
+  const cleanup = () => {
+    if (cleanupPromise) return cleanupPromise;
+    if (activeSessionCleanup === cleanup) activeSessionCleanup = undefined;
+    expired = true;
+    cleanupPromise = (async () => { try { await ownedSession?.close(); } finally { await rm(root, { recursive: true, force: true }); } })();
+    return cleanupPromise;
+  };
+  activeSessionCleanup = cleanup;
   release ??= await buildFirstPartyRelease("repo-activity-notify");
-  if (sessionExpired) throw new Error("Repo activity fixture was closed during release build");
+  if (expired) throw new Error("Repo activity fixture was closed during release build");
   const appends: Record<string, unknown>[] = [];
   let denyGit = denyProjectGit;
   const session = await release.session({
@@ -45,14 +44,14 @@ async function setupRepoActivitySession(denyProjectGit = false) {
       if (request.method === "ezcorp/invoke" && request.params?.tool === "runtime.conversations.getMessages") return { jsonrpc: "2.0", id: request.id, result: { messages: [{ id: "seed-msg", role: "user", content: "watch the repo" }], projectId: "project" } };
     },
   });
-  if (sessionExpired) { await session.close(); throw new Error("Repo activity fixture was closed during session setup"); }
-  activeSession = session;
+  if (expired) { await session.close(); throw new Error("Repo activity fixture was closed during session setup"); }
+  ownedSession = session;
   await seedFirstPartyGit(root);
   return {
     appends,
     session,
     allowProjectGit() { denyGit = false; },
-    close: cleanupRepoSession,
+    close: cleanup,
   };
 }
 
