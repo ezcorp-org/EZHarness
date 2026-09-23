@@ -25,8 +25,8 @@ test("every unmeasured host probe denies instead of reporting a passing fact", a
   const preset = INCUS_PRESETS[0]!;
   for (const call of [
     () => witness.controlFacts(scope, preset),
-    () => witness.observeEnforcement(handle),
-    () => witness.exerciseLimits(handle),
+    () => witness.observeEnforcement(handle, { sandboxId: "other", operationId: "other-operation" }),
+    () => witness.exerciseLimits(handle, { sandboxId: "other", operationId: "other-operation" }),
     () => witness.restartController(),
     () => witness.exerciseFailedCleanupRecovery(handle, handle),
   ]) await expect(call()).rejects.toThrow("Incus live witness unavailable");
@@ -166,6 +166,78 @@ test("inspection rejects a backend state that disagrees with the durable fixture
   authorized = false;
   await candidate.destroyFixture(handle);
   await expect(candidate.setPower(handle, "running")).rejects.toThrow("fixture binding changed");
+});
+
+test("resource enforcement binds guest cgroups and network checks to two running fixtures", async () => {
+  const preset = INCUS_PRESETS[0]!;
+  const presetDigest = await sandboxPresetDigest(preset);
+  const other = { sandboxId: "neighbor-binding", operationId: "neighbor-operation" };
+  const fixture = (value: typeof handle) => ({ ...scope, operationId: value.operationId,
+    bindingId: value.sandboxId, projectId: "project", connectionRevision: 1,
+    presetDigest, effectiveSettingsDigest: "b".repeat(64) });
+  const binding = (value: typeof handle) => ({ id: value.sandboxId, projectId: "project",
+    resourceKey: value.sandboxId, providerInstallationId: scope.installationId,
+    providerReleaseId: scope.releaseId, connectionId: scope.connectionId,
+    connectionRevision: 1, presetId: preset.id, presetDigest,
+    effectiveSettingsDigest: "b".repeat(64), tombstonedAt: null,
+    observedState: "RUNNING", desiredState: "RUNNING" });
+  let fixtureReads = 0;
+  let bindingReads = 0;
+  let targetId = other.sandboxId;
+  const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({
+    limit: async () => table === incusQualificationFixtures
+      ? [fixture([handle, other][fixtureReads++]!)] : [binding([handle, other][bindingReads++]!)],
+  }) }) }) } as unknown as Database;
+  const selected = { snapshot: { release: { releaseDigest: "a".repeat(64) } },
+    connection: { id: scope.connectionId, endpoint: "https://100.81.181.39:8443",
+      revision: 1, configuration: { profile: "compose", guestUser: "sandbox" } },
+    preset, presetDigest, effectiveSettingsDigest: "b".repeat(64) };
+  const setup = { state: "verified", providerReleaseId: scope.releaseId,
+    providerReleaseDigest: selected.snapshot.release.releaseDigest,
+    connectionId: scope.connectionId, connectionRevision: 1, recipe: recipe as IncusSetupRecipe };
+  const calls: string[] = [];
+  const candidate = new IncusHostLiveWitness({ db,
+    qualifications: { authorizeFixture: async () => selected } as unknown as IncusQualificationStore,
+    fixtures: {} as IncusQualificationFixtureService,
+    readSetup: async () => setup,
+    backend: { image: async () => { throw new Error("unused"); },
+      instance: async (_context, sandboxId) => {
+        calls.push(`backend:${sandboxId}`);
+        return { state: "running", privateNetwork: true, diskBytes: preset.limits.diskBytes };
+      } },
+    resourceNetwork: {
+      neighborTarget: async (_context, value) => {
+        calls.push(`target:${value.sandboxId}`);
+        return { sandboxId: targetId, address: "10.173.0.22", port: 8080 };
+      },
+      hostCanConnect: async target => {
+        calls.push(`host:${target.address}:${target.port}`);
+        return true;
+      },
+    },
+  });
+  candidate.run = async (value, argv) => {
+    expect(value).toEqual(handle);
+    expect(argv.slice(3)).toEqual(["100.81.181.39", "8443", "10.173.0.22", "8080"]);
+    calls.push(`guest:${value.sandboxId}`);
+    return { exitCode: 0, stdout: JSON.stringify({ memory: String(preset.limits.memoryBytes),
+      cpu: `${preset.limits.cpuMillis * 100} 100000`, pids: String(preset.limits.pids),
+      uidMap: "0 100000 65536\n", managementBlocked: true, otherSandboxBlocked: true }), stderr: "" };
+  };
+  expect(await candidate.observeEnforcement(handle, other)).toMatchObject({
+    memoryMaxBytes: preset.limits.memoryBytes, cpuQuotaMillis: preset.limits.cpuMillis,
+    pidsMax: preset.limits.pids, rootQuotaBytes: preset.limits.diskBytes,
+    privateNetworkProbeBlocked: true,
+  });
+  expect(calls).toEqual([`backend:${handle.sandboxId}`, `backend:${other.sandboxId}`,
+    `target:${other.sandboxId}`, "host:100.81.181.39:8443", "host:10.173.0.22:8080",
+    `guest:${handle.sandboxId}`]);
+  await expect(candidate.observeEnforcement(handle, handle)).rejects.toThrow("two distinct fixtures");
+  fixtureReads = 0;
+  bindingReads = 0;
+  targetId = "forged-neighbor";
+  await expect(candidate.observeEnforcement(handle, other)).rejects.toThrow("neighbor network identity changed");
+  expect(calls.filter(value => value.startsWith("guest:"))).toHaveLength(1);
 });
 
 test("discarded create reply must replay the same durable fixture operation", async () => {

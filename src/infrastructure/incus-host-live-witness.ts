@@ -11,6 +11,7 @@ import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import { IncusQualificationFixtureService, IncusQualificationStore, type IncusImageReceipt,
   type IncusQualificationScope } from "./incus-qualification";
 import type { HostIncusLiveWitness, LiveFixtureHandle, LiveFixtureInspection } from "./incus-live-cases";
+import { observeIncusResourceEnforcement, type IncusNetworkTarget } from "./incus-live-resource-probes";
 import { HostIncusLiveReadback, type LiveReadbackContext } from "./incus-transport/live-readback";
 import { ProviderConnectionStore, type ProviderConnectionCredentials,
   type ProviderConnectionScope } from "./provider-connections/store";
@@ -72,6 +73,15 @@ export interface IncusHostLiveWitnessDependencies {
     }>;
     attempt(kind: ControlDenial, scope: IncusQualificationScope, preset: SandboxPreset): Promise<string>;
   };
+  /** Host-owned source of a running, distinct sandbox service and independent
+   * host reachability checks. The default is absent until real inventory and
+   * control-target ownership can be verified. */
+  resourceNetwork?: {
+    neighborTarget(context: LiveReadbackContext, neighbor: LiveFixtureHandle): Promise<IncusNetworkTarget & {
+      sandboxId: string;
+    }>;
+    hostCanConnect(target: IncusNetworkTarget): Promise<boolean>;
+  };
   now?: () => number;
 }
 
@@ -108,6 +118,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   private readonly readSetup: NonNullable<IncusHostLiveWitnessDependencies["readSetup"]>;
   private readonly backend: NonNullable<IncusHostLiveWitnessDependencies["backend"]>;
   private readonly controlProbe: IncusHostLiveWitnessDependencies["controlProbe"];
+  private readonly resourceNetwork: IncusHostLiveWitnessDependencies["resourceNetwork"];
   private readonly now: () => number;
 
   constructor(deps: IncusHostLiveWitnessDependencies = {}) {
@@ -121,6 +132,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     this.readSetup = deps.readSetup ?? (id => readSetup(this.db, id));
     this.backend = deps.backend ?? new HostIncusLiveReadback(new ProviderConnectionStore(this.db));
     this.controlProbe = deps.controlProbe;
+    this.resourceNetwork = deps.resourceNetwork;
     this.now = deps.now ?? Date.now;
   }
 
@@ -362,11 +374,45 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       unprivileged: observed.unprivileged, bootId };
   }
 
-  async observeEnforcement(_handle: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["observeEnforcement"]> {
-    return deny("guest cgroup, network, and Incus disk quota readback is not implemented");
+  async observeEnforcement(handle: LiveFixtureHandle,
+    neighbor: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["observeEnforcement"]> {
+    if (!this.resourceNetwork) deny("host-owned sandbox network control targets are unavailable");
+    if (handle.sandboxId === neighbor.sandboxId || handle.operationId === neighbor.operationId) {
+      deny("resource probe needs two distinct fixtures");
+    }
+    const [primaryOwned, neighborOwned] = await Promise.all([
+      this.owned(handle, true), this.owned(neighbor, true),
+    ]);
+    if (primaryOwned.scope.installationId !== neighborOwned.scope.installationId
+      || primaryOwned.scope.releaseId !== neighborOwned.scope.releaseId
+      || primaryOwned.scope.connectionId !== neighborOwned.scope.connectionId
+      || primaryOwned.scope.presetId !== neighborOwned.scope.presetId) {
+      deny("resource probe fixtures have different reviewed scopes");
+    }
+    const { context } = await this.context(primaryOwned.scope, primaryOwned.selected.preset);
+    const [primary, adjacent, neighborTarget] = await Promise.all([
+      this.backend.instance(context, handle.sandboxId),
+      this.backend.instance(context, neighbor.sandboxId),
+      this.resourceNetwork.neighborTarget(context, neighbor),
+    ]);
+    if (primary.state !== "running" || adjacent.state !== "running"
+      || primary.privateNetwork !== true || adjacent.privateNetwork !== true
+      || primary.diskBytes === undefined || neighborTarget.sandboxId !== neighbor.sandboxId) {
+      deny("running fixture, root quota, or neighbor network identity changed");
+    }
+    const endpoint = new URL(primaryOwned.selected.connection.endpoint);
+    const management = { address: endpoint.hostname.replace(/^\[|\]$/g, ""),
+      port: Number(endpoint.port || 443) };
+    return observeIncusResourceEnforcement(handle, primaryOwned.selected.preset,
+      { management, otherSandbox: neighborTarget }, {
+        runGuest: (fixture, argv, timeoutMs) => this.run(fixture, argv, timeoutMs),
+        readRootQuota: async () => ({ sandboxId: handle.sandboxId, bytes: primary.diskBytes! }),
+        hostCanConnect: target => this.resourceNetwork!.hostCanConnect(target),
+      });
   }
 
-  async exerciseLimits(_handle: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["exerciseLimits"]> {
+  async exerciseLimits(_handle: LiveFixtureHandle,
+    _neighbor: LiveFixtureHandle): ReturnType<HostIncusLiveWitness["exerciseLimits"]> {
     return deny("controlled limit and neighbor load probes are not implemented");
   }
 

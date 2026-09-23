@@ -7,12 +7,12 @@ const preset = INCUS_PRESETS[0]!;
 const handle = { sandboxId: "qual-fixture", operationId: "qual-operation" };
 const targets: IncusResourceProbeTargets = {
   management: { address: "100.81.181.39", port: 8443 },
-  otherProject: { address: "10.173.1.10", port: 8080 },
+  otherSandbox: { address: "10.173.1.10", port: 8080 },
 };
 const guest = {
   memory: String(preset.limits.memoryBytes), cpu: `${preset.limits.cpuMillis * 100} 100000`,
   pids: String(preset.limits.pids), uidMap: "0 100000 65536\n",
-  managementBlocked: true, otherProjectBlocked: true,
+  managementBlocked: true, otherSandboxBlocked: true,
 };
 
 function probe(overrides: Partial<IncusResourceProbeDependencies> = {}, readout = guest) {
@@ -52,15 +52,15 @@ test("rejects absent CPU quota, over-limit controls, and a host-root UID map", a
 
 test("does not treat an unreachable control target as isolation evidence", async () => {
   let guestCalls = 0;
-  const example = probe({ hostCanConnect: async target => target.address !== targets.otherProject.address,
+  const example = probe({ hostCanConnect: async target => target.address !== targets.otherSandbox.address,
     runGuest: async () => { guestCalls++; throw new Error("must not run"); } });
-  await expect(example.run()).rejects.toThrow("otherProject control target");
+  await expect(example.run()).rejects.toThrow("otherSandbox control target");
   expect(guestCalls).toBe(0);
 });
 
 test("rejects network access, quota identity drift, and malformed guest output", async () => {
   await expect(probe({}, { ...guest, managementBlocked: false }).run()).rejects.toThrow("forbidden network");
-  await expect(probe({}, { ...guest, otherProjectBlocked: false }).run()).rejects.toThrow("forbidden network");
+  await expect(probe({}, { ...guest, otherSandboxBlocked: false }).run()).rejects.toThrow("forbidden network");
   await expect(probe({ readRootQuota: async () => ({ sandboxId: "other", bytes: 100 }) }).run())
     .rejects.toThrow("exact fixture root quota");
   await expect(probe({ runGuest: async () => ({ exitCode: 0, stdout: "not JSON", stderr: "" }) }).run())
@@ -75,11 +75,11 @@ test("requires distinct IP-literal destinations before any host probe", async ()
     readRootQuota: async () => { throw new Error("must not read"); },
   };
   await expect(observeIncusResourceEnforcement(handle, preset,
-    { management: targets.management, otherProject: { address: "incus.example", port: 8080 } },
+    { management: targets.management, otherSandbox: { address: "incus.example", port: 8080 } },
     dependencies))
     .rejects.toThrow("IP-literal targets");
   await expect(observeIncusResourceEnforcement(handle, preset,
-    { management: targets.management, otherProject: targets.management }, dependencies))
+    { management: targets.management, otherSandbox: targets.management }, dependencies))
     .rejects.toThrow("distinct IP-literal targets");
   expect(hostCalls).toBe(0);
 });
@@ -94,7 +94,7 @@ test("rejects loopback and unspecified IPv6 spellings before any host probe", as
   for (const address of ["::ffff:127.0.0.1", "0:0:0:0:0:0:0:1", "0:0:0:0:0:0:0:0",
     "::ffff:0.0.0.0", "127.12.0.1", "0.1.2.3"]) {
     await expect(observeIncusResourceEnforcement(handle, preset,
-      { ...targets, otherProject: { address, port: 8080 } }, dependencies))
+      { ...targets, otherSandbox: { address, port: 8080 } }, dependencies))
       .rejects.toThrow("IP-literal targets");
   }
   expect(hostCalls).toBe(0);
@@ -109,7 +109,7 @@ test("treats IPv4-mapped and plain IPv4 spellings as the same destination", asyn
   };
   await expect(observeIncusResourceEnforcement(handle, preset,
     { management: { address: "10.173.1.10", port: 8080 },
-      otherProject: { address: "::ffff:10.173.1.10", port: 8080 } }, dependencies))
+      otherSandbox: { address: "::ffff:10.173.1.10", port: 8080 } }, dependencies))
     .rejects.toThrow("distinct IP-literal targets");
   expect(hostCalls).toBe(0);
 });
@@ -125,11 +125,11 @@ test("accepts distinct non-loopback IPv6 control targets and compares expanded f
   };
   await expect(observeIncusResourceEnforcement(handle, preset,
     { management: { address: "fd00::1", port: 8443 },
-      otherProject: { address: "fd00::2", port: 8080 } }, dependencies)).resolves.toMatchObject({
+      otherSandbox: { address: "fd00::2", port: 8080 } }, dependencies)).resolves.toMatchObject({
     privateNetworkProbeBlocked: true,
   });
   await expect(observeIncusResourceEnforcement(handle, preset,
     { management: { address: "fd00::1", port: 8443 },
-      otherProject: { address: "fd00:0:0:0:0:0:0:1", port: 8443 } }, dependencies))
+      otherSandbox: { address: "fd00:0:0:0:0:0:0:1", port: 8443 } }, dependencies))
     .rejects.toThrow("distinct IP-literal targets");
 });

@@ -19,7 +19,7 @@ export interface IncusResourceProbeDependencies {
 
 export interface IncusResourceProbeTargets {
   management: IncusNetworkTarget;
-  otherProject: IncusNetworkTarget;
+  otherSandbox: IncusNetworkTarget;
 }
 
 const GUEST_SCRIPT = `import json, pathlib, socket, sys
@@ -36,7 +36,7 @@ def blocked(address, port):
 print(json.dumps({'memory': read('memory.max'), 'cpu': read('cpu.max'),
     'pids': read('pids.max'), 'uidMap': pathlib.Path('/proc/self/uid_map').read_text(encoding='ascii'),
     'managementBlocked': blocked(sys.argv[1], sys.argv[2]),
-    'otherProjectBlocked': blocked(sys.argv[3], sys.argv[4])}))`;
+    'otherSandboxBlocked': blocked(sys.argv[3], sys.argv[4])}))`;
 
 function requireProbe(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`Incus resource probe unavailable: ${message}`);
@@ -100,17 +100,17 @@ export async function observeIncusResourceEnforcement(
   dependencies: IncusResourceProbeDependencies,
 ): Promise<LiveEnforcementFacts> {
   const managementAddress = canonicalAddress(targets.management?.address);
-  const otherAddress = canonicalAddress(targets.otherProject?.address);
+  const otherAddress = canonicalAddress(targets.otherSandbox?.address);
   requireProbe(managementAddress && otherAddress
-    && validPort(targets.management.port) && validPort(targets.otherProject.port)
-    && (managementAddress !== otherAddress || targets.management.port !== targets.otherProject.port),
+    && validPort(targets.management.port) && validPort(targets.otherSandbox.port)
+    && (managementAddress !== otherAddress || targets.management.port !== targets.otherSandbox.port),
   "distinct IP-literal targets are required");
   for (const [name, target] of Object.entries(targets)) {
     requireProbe(await dependencies.hostCanConnect(target), `${name} control target is not reachable from the host`);
   }
   const result = await dependencies.runGuest(handle, ["python3", "-c", GUEST_SCRIPT,
     targets.management.address, String(targets.management.port),
-    targets.otherProject.address, String(targets.otherProject.port)], 30_000);
+    targets.otherSandbox.address, String(targets.otherSandbox.port)], 30_000);
   requireProbe(result.exitCode === 0 && result.stderr.length === 0 && result.stdout.length <= 4096,
     "guest control readout failed or exceeded its bound");
   let raw: Record<string, unknown>;
@@ -126,7 +126,7 @@ export async function observeIncusResourceEnforcement(
   requireProbe(memoryMaxBytes <= preset.limits.memoryBytes && quotaMillis <= preset.limits.cpuMillis
     && pidsMax <= preset.limits.pids && root.bytes <= preset.limits.diskBytes,
   "observed controls exceed the reviewed preset");
-  requireProbe(raw.managementBlocked === true && raw.otherProjectBlocked === true,
+  requireProbe(raw.managementBlocked === true && raw.otherSandboxBlocked === true,
     "guest reached a forbidden network target");
   requireProbe(isolatedUidMap(raw.uidMap), "guest UID map is not isolated from host root");
   return { memoryMaxBytes, cpuQuotaMillis: quotaMillis, pidsMax,
