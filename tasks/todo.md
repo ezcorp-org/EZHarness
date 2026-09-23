@@ -3597,3 +3597,16 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+
+## W03e — settle a stopped attempt that has no usage operations (branch `wp/w03e-usage-settle`)
+
+Base `integ/w00` `39a7189e0`. Receipts: `/tmp/factory-platform-evidence/w03e/`. Gates: `tasks/factory/w03e-GATES.md`.
+
+- [ ] Reproduce on the real application with W02c's harness: a stopped attempt with no operations stays `cancelling` (fence stop and operator cancel).
+- [x] Root fix: a signed stop of an attempt whose journal is empty settles a typed `no-operations` zero in the stop transaction, with one `usage-settled` event and a settled budget; any journaled operation keeps the uncertain-hold path.
+- [x] A certain stop after a durable `stop-uncertain` event carries `uncertain: false`, so the kernel folds it.
+- [x] Migration `add-factory-usage-no-operations` (source, `stop_receipt_digest`, exact-shape CHECKs), schema mirror, restart case, threshold.
+- [x] Tests: success with a kernel fold to `cancelled`, journaled operation stays uncertain, concurrent stops, lost receipt, crash and restart, stale epoch, cross-tenant denial, corrupt certainty; each fails on the unfixed store.
+- [ ] Real-application proof: run A (fence) and run O (operator cancel) reach a settled terminal, three passes.
+- [ ] Sweep after `git merge --no-edit integ/w00`: typecheck, lint, boundaries, gate integrity, PostgreSQL producers, backend pool, both coverage gates.
+- [ ] Gate file, report, review paragraph.
