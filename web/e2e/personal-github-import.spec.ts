@@ -34,10 +34,17 @@ test("imports a selected repository into a private sandbox before opening chat @
 	await importer.getByLabel("Base branch").fill("release/1.x");
 	await importer.getByLabel("Sandbox provider").selectOption(provider.installationId);
 	await page.setViewportSize({ width: 390, height: 844 });
+	await importer.evaluate((element) => element.scrollIntoView({ block: "center" }));
+	await expect(importer.getByLabel("Base branch")).toBeInViewport();
+	await expect(importer.getByRole("button", { name: "Create private sandbox & import" })).toBeInViewport();
 	await captureEvidence(page, testInfo, "personal-github-import-mobile", { fullPage: true });
 	await importer.getByRole("button", { name: "Create private sandbox & import" }).click();
 	await expect(page).toHaveURL(/\/project\/private-project\/settings/);
-	await expect(page.getByTestId("project-sandbox-panel").getByRole("link", { name: "Open chat" })).toHaveAttribute("href", "/project/private-project/chat/owner-conversation");
+	const readyPanel = page.getByTestId("project-sandbox-panel");
+	const openChat = readyPanel.getByRole("link", { name: "Open chat" });
+	await expect(openChat).toHaveAttribute("href", "/project/private-project/chat/owner-conversation");
+	await readyPanel.evaluate((element) => element.scrollIntoView({ block: "center" }));
+	await expect(openChat).toBeInViewport();
 	await captureEvidence(page, testInfo, "personal-github-import-ready", { fullPage: true });
 });
 
@@ -58,7 +65,10 @@ test("a connected account can enable its first repository @evidence", async ({ p
 	await page.getByRole("button", { name: "Import a GitHub repository into a private sandbox" }).click();
 	const importer = page.getByTestId("github-sandbox-import");
 	await expect(importer.getByText("No enabled repositories are available.")).toBeVisible();
-	await expect(importer.getByRole("link", { name: "Enable repositories on GitHub" })).toHaveAttribute("href", "https://github.com/apps/ezcorp-github-auth/installations/new");
+	const enableRepositories = importer.getByRole("link", { name: "Enable repositories on GitHub" });
+	await expect(enableRepositories).toHaveAttribute("href", "https://github.com/apps/ezcorp-github-auth/installations/new");
+	await importer.evaluate((element) => element.scrollIntoView({ block: "center" }));
+	await expect(enableRepositories).toBeInViewport();
 	await captureEvidence(page, testInfo, "personal-github-first-repository", { fullPage: true });
 	await page.goto("/settings/github");
 	await expect(page.getByRole("link", { name: "Enable repositories on GitHub" })).toHaveAttribute("href", "https://github.com/apps/ezcorp-github-auth/installations/new");
@@ -68,7 +78,11 @@ test("a connected account can enable its first repository @evidence", async ({ p
 	await expect(page.getByText("No enabled repositories yet.")).toBeVisible();
 	enabled = true;
 	await page.getByRole("button", { name: "Recheck repositories" }).click();
-	await expect(page.getByText("1 enabled repository available.")).toBeVisible();
+	const enabledCount = page.getByText("1 enabled repository available.");
+	await expect(enabledCount).toBeVisible();
+	await page.getByRole("button", { name: "Recheck repositories" }).evaluate((element) => element.scrollIntoView({ block: "center" }));
+	await expect(enabledCount).toBeInViewport();
+	await captureEvidence(page, testInfo, "personal-github-repositories-rechecked");
 	await page.goto("/project/source-project/settings");
 	await page.getByRole("button", { name: "Import a GitHub repository into a private sandbox" }).click();
 	await expect(page.getByTestId("github-sandbox-import").getByRole("option", { name: "owner/private" })).toHaveCount(1);
