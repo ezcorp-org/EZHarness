@@ -6,6 +6,8 @@ Latest continuation: The user approved revised digest `adc0a93ba4a18122ca98ad50f
 
 Current release step: candidate lifetime fix `62344b49d`, pinned image and setup preflight `2579ef294`, and an isolated-app release `0.1.1` (`dcde361cc4fe348743c1aafc5272ac5104b025046b1c96273e58dc0b8d6e8bdd`) are built. The release is verified and has pending human approval `0c634e40-9a21-4d2c-9e03-a0d79dc349b7`. The exact review packet is `docs/validation/2026-09-23-isolated-incus-release-0.1.1-review.md`. Approval and activation must precede a **new** server plan and exact-digest review. Full typecheck, lint, and production build passed on the current worktree; the real server lifecycle remains untested.
 
+SP04 finding: the host lifecycle set only `limits.cpu`, which Incus documents as CPU placement rather than a hard usage ceiling. The lifecycle now also sets a time-form `limits.cpu.allowance` from approved millicores (`2000ms/1000ms` for 2000 millicores). The focused lifecycle suite (11 tests), Biome, and full typecheck pass. The real guest must still show the expected `cpu.max` and survive controlled load before SP04 can pass. Source: https://linuxcontainers.org/incus/docs/main/reference/instance_options/ .
+
 - [x] Reconcile the first exact Apply receipt and server inventory before any retry.
 - [x] Reproduce the project-create failure with the exact reviewed command and identify the unsupported Incus 6.0.6 key.
 - [x] Remove the unsupported setting without weakening the container-only project policy; add an Incus 6.0.6 compatibility test.

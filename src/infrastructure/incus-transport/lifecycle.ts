@@ -260,7 +260,8 @@ async function createInstance({ session, command, project, collection, input, po
     "user.ezharness.managed_by": managedBy, "user.ezharness.connection_id": command.connectionId, "user.ezharness.sandbox_id": command.tags.sandboxId,
     "user.ezharness.create_key": command.idempotency!.key, "user.ezharness.profile": policy.profile, "user.ezharness.preset_id": input.presetId,
     "user.ezharness.generation": "1", "user.ezharness.operation_id": stableId, "user.ezharness.desired_state": input.desiredState,
-    "limits.memory": String(policy.limits.memoryBytes), "limits.cpu": String(Math.ceil(policy.limits.cpuMillis / 1000)), "limits.processes": String(policy.limits.pids),
+    "limits.memory": String(policy.limits.memoryBytes), "limits.cpu": String(Math.ceil(policy.limits.cpuMillis / 1000)),
+    "limits.cpu.allowance": `${policy.limits.cpuMillis}ms/1000ms`, "limits.processes": String(policy.limits.pids),
   } };
   try { const reply = await session.request("POST", collection, body); metadata(reply); return receipt("create", command, acceptedOperationId(reply, kind, stableId)); }
   catch (error) { throw uncertain(error, stableId); }

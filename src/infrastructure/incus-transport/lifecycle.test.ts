@@ -67,6 +67,8 @@ test("create takes image, profile and limits only from the host-approved policy"
   expect(created?.source).toEqual({ type: "image", fingerprint: "c".repeat(64) });
   expect(created?.profiles).toEqual(["ezharness"]);
   expect((created!.config as Record<string, unknown>)["limits.memory"]).toBe("4294967296");
+  expect((created!.config as Record<string, unknown>)["limits.cpu"]).toBe("2");
+  expect((created!.config as Record<string, unknown>)["limits.cpu.allowance"]).toBe("2000ms/1000ms");
   expect(created!.devices).toEqual({ root: { type: "disk", path: "/", pool: "ezharness", size: "21474836480" } });
 });
 
