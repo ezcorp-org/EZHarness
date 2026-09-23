@@ -1335,3 +1335,15 @@ Review: The incoming three no-Git-ancestor tests use filesystem stubs that avoid
 Plan review: Four isolated worktrees split the coverage, retained-guest cleanup, guest-image readiness, and production-path fixture work. The root agent owns integration, live read-only inventory, the combined tests, PR updates, and the milestone verdict. A fake provider or a passing local test does not satisfy the live guest gate. Do not loosen CI or make an unreviewed SSH server change to pass a fixture.
 
 Review: pending.
+
+## Incus M1 offline feature flow fixture
+
+- [x] Review production seams and existing focused tests.
+- [x] Add one PGlite lifecycle and workspace integration fixture with deterministic provider replies.
+- [x] Assert release and connection pin denials, no host path fallback, stop/reconnect, and destroy receipt.
+- [x] Run focused Bun test, typecheck, and lint; record results.
+- [x] Commit fixture branch and report remaining seams.
+
+### Review
+
+Pinned Bun 1.3.14: focused test 1 pass, 0 fail; `bun run typecheck` and `bun run lint` pass. The fixture injects a method caller and guest invoke because the default path uses process-global DB and release runtime. It does not exercise live Incus or the full ReleaseProcess/ProviderRpcBroker/HTTP transport chain.
