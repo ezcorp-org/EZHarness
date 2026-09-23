@@ -226,6 +226,12 @@ ENV
 
 env_get() { [ -f "$ENV_FILE" ] && sed -n "s/^$1=//p" "$ENV_FILE" | head -1; }
 
+edit_env() {
+  # Callers must stop on failure; errexit does not cover the left side of &&.
+  sed -i.bak "$1" "$ENV_FILE" || return 1
+  rm -f "$ENV_FILE.bak"
+}
+
 # The core connects to a provisioned isolated runner. It cannot provision a
 # host service or silently change the security mode on the user's behalf.
 ensure_runner_config() {
@@ -449,7 +455,8 @@ cmd_update() {
     die "could not download the update. EZCorp was restarted unchanged."
   fi
 
-  sed -i.bak "s|^EZCORP_IMAGE=.*|EZCORP_IMAGE=$target|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+  edit_env "s|^EZCORP_IMAGE=.*|EZCORP_IMAGE=$target|" \
+    || die "could not save the update image. EZCorp remains stopped. Your pre-update backup is at $snapshot."
   if quiet compose up -d && wait_ready; then
     write_state
     rm -rf "$snapshot"
@@ -457,9 +464,10 @@ cmd_update() {
   else
     say "The update did not come up cleanly. Rolling back to $current..."
     quiet compose stop || die "could not stop the failed update. No data was restored or removed. Your pre-update backup is at $snapshot. Stop the containers before recovery."
+    edit_env "s|^EZCORP_IMAGE=.*|EZCORP_IMAGE=$current|" \
+      || die "could not save the rollback image. EZCorp remains stopped. Neither data copy was removed; your pre-update backup is at $snapshot."
     rm -rf "$DATA_ROOT/data" && mv "$snapshot" "$DATA_ROOT/data" \
       || die "could not restore the backup at $snapshot. EZCorp remains stopped."
-    sed -i.bak "s|^EZCORP_IMAGE=.*|EZCORP_IMAGE=$current|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
     quiet compose up -d && wait_ready \
       || die "restored the data and image $current, but EZCorp could not restart. Run 'ezcorp status'."
     die "rolled back to $current. Your data was restored from the backup taken before the update."
@@ -479,10 +487,11 @@ cmd_suggestions() {
       say "Done."
       ;;
     off)
-      rm -f "$CONFIG_DIR/.suggestions-on"
       # The URL must go too: with the profile off there is no such host, and a
       # set URL means the composer dials a dead address on every keystroke.
-      sed -i.bak '/^EZCORP_SUGGEST_OLLAMA_URL=/d' "$ENV_FILE" 2>/dev/null && rm -f "$ENV_FILE.bak"
+      edit_env '/^EZCORP_SUGGEST_OLLAMA_URL=/d' \
+        || die "could not save the suggestion setting. No containers were changed."
+      rm -f "$CONFIG_DIR/.suggestions-on"
       quiet compose up -d app || die "could not apply the suggestion setting to EZCorp. Run 'ezcorp start'."
       quiet compose --profile suggest stop ollama ollama-init || die "could not stop the suggestion model. Run 'ezcorp status'."
       say "Local suggestions off."

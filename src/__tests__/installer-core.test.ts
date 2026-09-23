@@ -40,6 +40,8 @@ import { join } from "node:path";
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const SCRIPT = join(REPO_ROOT, "deploy", "installer", "ezcorp");
 const COMPOSE_INSTALLER = join(REPO_ROOT, "deploy", "installer", "compose.installer.yml");
+const REAL_SED = Bun.which("sed") ?? "";
+if (!REAL_SED) throw new Error("Installer CLI tests require sed");
 
 const SANDBOX = mkdtempSync(join(tmpdir(), "ezcorp-installer-"));
 const BIN = join(SANDBOX, "bin");
@@ -106,6 +108,17 @@ stub("xdg-open", ['echo "open $*" >> "$EZCORP_TEST_LOG"', "exit 0"].join("\n"));
 stub("docker", ['echo "docker $*" >> "$EZCORP_TEST_LOG"', "exit 0"].join("\n"));
 stub("id", `echo "\${EZCORP_TEST_UID:-1000}"`);
 stub("uname", `echo "\${EZCORP_TEST_OS:-Linux}"`);
+stub(
+  "sed",
+  [
+    'if [ "$1" = -i.bak ]; then',
+    '  count=$(cat "$EZCORP_CONFIG_DIR/env-edit-count" 2>/dev/null || echo 0)',
+    '  count=$((count + 1)); echo "$count" > "$EZCORP_CONFIG_DIR/env-edit-count"',
+    `  [ "$count" = "\${EZCORP_TEST_FAIL_ENV_EDIT:-0}" ] && exit 1`,
+    "fi",
+    'exec "$EZCORP_TEST_REAL_SED" "$@"',
+  ].join("\n"),
+);
 
 afterAll(() => {
   rmSync(SANDBOX, { recursive: true, force: true });
@@ -151,6 +164,7 @@ function run(args: string[], extraEnv: Record<string, string | undefined> = {}, 
       EZCORP_CONTAINER_ENGINE: "podman",
       EZCORP_IMAGE: "ezcorp:test",
       EZCORP_TEST_LOG: logPath,
+      EZCORP_TEST_REAL_SED: REAL_SED,
       EZCORP_READY_TIMEOUT: "30",
       EZ_RUNNER_SOCKET_DIR: runnerDir,
       EZ_RUNNER_TOKEN_FILE: runnerToken,
@@ -425,6 +439,32 @@ describe("installer lifecycle failures", () => {
     expect(envFile()).toContain("EZCORP_IMAGE=ghcr.io/ezcorp-org/ezcorp:next");
     expect(readFileSync(join(dataRoot, "data", "sentinel"), "utf8")).toBe("original");
     expect(readdirSync(dataRoot).filter((name) => name.startsWith("pre-update-"))).toEqual([]);
+  });
+
+  test.each([1, 2])("image configuration write %i failure keeps both copies and stops before restart", (failedWrite) => {
+    expect(run(["install"]).exitCode).toBe(0);
+    writeFileSync(join(dataRoot, "data", "sentinel"), "original");
+    const result = run(["update", "next"], { EZCORP_TEST_FAIL_ENV_EDIT: String(failedWrite), EZCORP_TEST_MUTATE_UPDATE: "1" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not save");
+    expect(result.stdout).not.toContain("Updated to");
+    expect(result.log.split("\n").filter((line) => line.startsWith("compose ") && line.includes("up -d"))).toHaveLength(failedWrite - 1);
+    const snapshots = readdirSync(dataRoot).filter((name) => name.startsWith("pre-update-"));
+    expect(snapshots).toHaveLength(1);
+    expect(readFileSync(join(dataRoot, snapshots[0]!, "sentinel"), "utf8")).toBe("original");
+    expect(result.stderr).toContain(join(dataRoot, snapshots[0]!));
+    expect(readFileSync(join(dataRoot, "data", "sentinel"), "utf8")).toBe(failedWrite === 1 ? "original" : "migrated\n");
+  });
+
+  test("failed suggestion URL removal keeps the opt-in and makes no container changes", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    expect(run(["suggestions", "on"]).exitCode).toBe(0);
+    const result = run(["suggestions", "off"], { EZCORP_TEST_FAIL_ENV_EDIT: "1" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not save");
+    expect(result.log).not.toContain("compose ");
+    expect(existsSync(join(configDir, ".suggestions-on"))).toBe(true);
+    expect(envFile()).toContain("EZCORP_SUGGEST_OLLAMA_URL=http://ollama:11434");
   });
 
   test.each(["install", "start", "open"])("%s shows recovery details without opening a browser", (command) => {
