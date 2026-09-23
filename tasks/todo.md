@@ -4,10 +4,11 @@
 - [x] Fix OAuth session revocation and refresh recovery; integrate focused tests.
 - [x] Add migration upgrade, idempotency, and foreign-key tests.
 - [x] Fix real filesystem import and publication recovery; remove repeated identity and limits.
-- [ ] Fix GitHub setup, base selection, empty-change feedback, and diff drawer state.
+- [x] Fix GitHub setup, base selection, empty-change feedback, and diff drawer state.
 - [x] Diagnose and fix hosted launcher cancellation failure.
-- [ ] Review combined changes and pass full local checks, coverage, build, and browser lanes.
-- [ ] Update PR #308 and check hosted CI.
+
+Final verification and PR check results are tracked in `tasks/pr308-fix-plan.md`.
+Keep the source commit fixed while collecting browser coverage receipts.
 
 Review findings and detailed execution notes: `tasks/pr308-review.md` and `tasks/pr308-fix-plan.md`.
 Work is isolated on `fix/pr308-review-findings` and four Sol agent worktrees.
