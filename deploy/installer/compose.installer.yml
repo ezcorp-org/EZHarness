@@ -24,8 +24,8 @@ services:
     # Same startup check as the server stack. The extension runner wiring is
     # NOT here: it lives in exactly one of two overlays the installer layers
     # by the mode recorded in .env — compose.isolated.yml (the default, a
-    # provisioned host runner) or compose.trusted-local.yml (chosen by the
-    # user, typed, at install time). The entrypoint probes the runner only in
+    # provisioned host runner) or compose.trusted-local.yml (selected after
+    # terminal confirmation). The entrypoint probes the runner only in
     # isolated mode, so it is correct under both.
     entrypoint: ["/bin/sh", "/app/deploy/extension-runner/app-entrypoint.sh"]
     command: ["bun", "run", "web/build/index.js"]

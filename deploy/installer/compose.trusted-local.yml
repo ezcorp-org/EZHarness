@@ -1,9 +1,9 @@
 # trusted-local extension runner — extensions run UNSANDBOXED, inside the app.
 #
 # Layered only when .env records EZCORP_INSTALL_RUNNER_MODE=trusted-local, which
-# `ezcorp install` writes only after the user has read what this omits and
-# typed their consent (see consent_trusted_local in ./ezcorp). It is never a
-# fallback: a missing or broken isolated runner stays a hard error.
+# `ezcorp install` or `ezcorp runner-mode trusted-local` writes after terminal
+# confirmation (see consent_trusted_local in ./ezcorp). It is never an automatic
+# fallback from a missing or broken isolated runner.
 #
 # This is decision C in docs/decisions/2026-09-12-extension-runner-install-burden.md:
 # none of the seven sandbox controls apply and an extension has the app's full

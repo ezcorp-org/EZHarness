@@ -12,6 +12,7 @@ ezcorp start | stop         start or stop it (stop leaves the container VM up)
 ezcorp open                 open it in the browser
 ezcorp status               engine, VM, version, URL, readiness, subuid room
 ezcorp update [version]     back up, pull, recreate, verify, roll back on failure
+ezcorp runner-mode MODE     change extension runner mode without deleting data
 ezcorp suggestions on|off   local suggestion model (~1 GB download, 4 GB RAM)
 ezcorp uninstall [--purge]  remove it (--purge also deletes your data)
 ```
@@ -24,18 +25,18 @@ ezcorp uninstall [--purge]  remove it (--purge also deletes your data)
 | `compose.installer.yml` | pull-only stack, absolute host paths, suggestion sidecars behind a profile |
 | `compose.machine.yml` | rootless-Podman overlay (`keep-id`), layered whenever podman runs rootless |
 | `compose.isolated.yml` | isolated extension runner connection — layered in `isolated` mode (the default) |
-| `compose.trusted-local.yml` | unsandboxed extensions — layered only in `trusted-local` mode, which the user typed consent for |
+| `compose.trusted-local.yml` | unsandboxed extensions — layered only after terminal confirmation selects `trusted-local` |
 
 ## Extension runner modes
 
 The app will not start without an extension runner, so every install records
-one of two modes in `.env` (`EZCORP_INSTALL_RUNNER_MODE`) and keeps it; the
-installer never changes an install's mode.
+one of two modes in `.env` (`EZCORP_INSTALL_RUNNER_MODE`). The mode changes only
+when the operator runs `ezcorp runner-mode isolated|trusted-local`.
 
 | Mode | When | What extensions get |
 |---|---|---|
 | `isolated` (default) | the three `EZ_RUNNER_*` variables below are set | the full sandbox: a separate host service, seven controls |
-| `trusted-local` | **none** of them is set, and the user typed `I understand` at a terminal | none of the seven controls — the app's full reach |
+| `trusted-local` | no runner settings on first install, or an explicit mode change; `I understand` is entered through a terminal | none of the seven controls — the app's full reach |
 
 `trusted-local` is decision C in
 [the install-burden record](../../docs/decisions/2026-09-12-extension-runner-install-burden.md).
@@ -43,18 +44,28 @@ It exists because the isolated runner is eight root-only Linux steps, which a
 one-click install cannot ask of a non-technical user. The installer offers it
 under three rules, each tested in `src/__tests__/installer-core.test.ts`:
 
-- **Only a person can choose it.** The explanation is printed and the answer
-  must be typed at a real terminal. There is no flag or environment variable
-  that selects it: the app's acknowledgement is a sentence so it cannot be
-  switched on by copying a line, and an installer flag would be exactly that.
-  From a pipe or a script, install refuses and explains both options.
-- **It is never a fallback.** If *any* runner variable is set, the user is
-  configuring isolation, and a missing or invalid one stays a hard error.
+- **A terminal prompt is required.** The explanation is printed and the answer
+  must arrive through a terminal. Ordinary piped input cannot select this mode.
+  A script can create a pseudo-terminal, so the prompt is a deliberate pause,
+  not proof that a person typed the answer. The installer has no flag or
+  environment variable that bypasses the prompt. The app still checks the
+  exact acknowledgement sentence and requires per-release approval.
+- **It is never an automatic fallback.** On first install, if *any* runner
+  variable is set, the installer treats a missing or invalid setting as an
+  error. An operator can later choose `runner-mode trusted-local` explicitly.
 - **Nothing downstream changes.** Each extension build and release still needs
   its own explicit approval in the app, and the app shows a standing warning
   banner in this mode.
 
-`ezcorp status` reports the mode. To change it, reinstall (your data is kept).
+`ezcorp status` reports the mode. To change from isolated to trusted-local, run
+`ezcorp runner-mode trusted-local` at a terminal and confirm again. To change
+back, provision the isolated runner, export all three `EZ_RUNNER_*` settings
+below, then run `ezcorp runner-mode isolated`. The command stops the stack,
+saves the existing `.env`, starts the new mode, and restores the old mode if
+startup fails. It keeps your data and encryption keys. A mode change makes
+existing extension approvals stale, so approve each release again in the app.
+If a trusted-local acknowledgement is missing, the same terminal command
+restores it after confirmation.
 
 ## Prerequisites
 
@@ -91,7 +102,7 @@ included in this core's validated configurations. This is an installer limit,
 not a restriction on the application's other deployment methods.
 
 Linux lifecycle commands also require `flock` (util-linux), `getent` and `realpath`.
-Install, start, stop, update, suggestions and uninstall share one per-user lock
+Install, start, stop, update, runner-mode, suggestions and uninstall share one per-user lock
 under `.ezcorp-installer-lock` in the account home returned by `getent passwd`.
 The location does not depend on `HOME`, `XDG_RUNTIME_DIR` or `TMPDIR`, so login
 shells and background jobs use the same lock. An unavailable or ambiguous
@@ -149,6 +160,10 @@ Manual end-to-end against a locally built image, after runner provisioning:
 EZCORP_CONFIG_DIR=/tmp/ez/config EZCORP_DATA_ROOT=/tmp/ez/data \
   EZCORP_IMAGE=ezcorp:local deploy/installer/ezcorp install
 ```
+
+For a trusted-local smoke check, unset all three `EZ_RUNNER_*` variables and
+run the same command at a terminal. Read the warning and type `I understand`.
+Confirm `ezcorp status` reports `trusted-local`, then stop and start it once.
 
 ## Not here yet
 
