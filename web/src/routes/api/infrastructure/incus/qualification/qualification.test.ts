@@ -3,6 +3,7 @@ import { expect, mock, test } from "bun:test";
 const calls: string[] = [];
 let fail = false;
 let witnessReady = false;
+let verifiedStoreResult = false;
 mock.module("$server/infrastructure/incus-host-live-witness", () => ({
   incusHostLiveWitnessReady: () => witnessReady,
   IncusHostLiveWitness: class { constructor() { calls.push("witness.construct"); } },
@@ -10,7 +11,11 @@ mock.module("$server/infrastructure/incus-host-live-witness", () => ({
 mock.module("$server/infrastructure/incus-live-cases", () => ({
   createIncusLiveCaseRunner: (options: { witness: unknown; composeFixtureImageRef?: string }) => {
     calls.push(`runner.construct:${Boolean(options.witness)}:${options.composeFixtureImageRef ?? "missing"}`);
-    return async () => { calls.push("runner.execute"); throw new Error("mock runner must not certify a live case"); };
+    return async () => {
+      calls.push("runner.execute");
+      if (verifiedStoreResult) return { cases: [{ caseId: "SP01", status: "passed" }] };
+      throw new Error("mock runner must not certify a live case");
+    };
   },
 }));
 const operation = { id: "controller-operation", kind: "CREATE", state: "SUCCEEDED", generation: 1,
@@ -23,6 +28,9 @@ mock.module("$server/infrastructure/incus-qualification", () => ({
     async recordVerified(scope: { connectionId: string }) {
       calls.push(`recordVerified:${scope.connectionId}`);
       await this.deps.runLiveCases(scope, {});
+      if (verifiedStoreResult) return { providerId: "incus", connectionId: scope.connectionId,
+        presetId: "preset", releaseDigest: "a".repeat(64), verifiedAt: "2026-09-23T00:00:00Z",
+        validUntil: "2026-09-24T00:00:00Z", cases: [{ caseId: "SP01", status: "passed" }] };
       throw new Error("mock store must not certify a live case");
     }
   },
@@ -109,6 +117,31 @@ test("qualify wires the real witness runner into recordVerified when readiness o
     expect(calls).toEqual(["witness.construct", "runner.construct:true:missing",
       "store.construct", "recordVerified:connection", "runner.execute"]);
   } finally { witnessReady = false; }
+});
+
+test("qualify returns only store-owned verification metadata", async () => {
+  calls.length = 0;
+  witnessReady = true;
+  verifiedStoreResult = true;
+  const { operationId: _operationId, ...exactScope } = scope;
+  try {
+    const response = await POST(event(admin, { ...exactScope, action: "qualify" }));
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ qualification: { providerId: "incus", connectionId: "connection",
+      presetId: "preset", releaseDigest: "a".repeat(64), verifiedAt: "2026-09-23T00:00:00Z",
+      validUntil: "2026-09-24T00:00:00Z", cases: [{ caseId: "SP01", status: "passed" }] } });
+    expect(calls).toEqual(["witness.construct", "runner.construct:true:missing", "store.construct",
+      "recordVerified:connection", "runner.execute"]);
+  } finally { witnessReady = false; verifiedStoreResult = false; }
+});
+
+test("malformed JSON is rejected before fixture or provider activity", async () => {
+  calls.length = 0;
+  const base = event(admin, null);
+  const invalid = { ...base, request: new Request(base.request.url, { method: "POST",
+    headers: { origin: "http://localhost", "content-type": "application/json" }, body: "{" }) };
+  expect((await POST(invalid)).status).toBe(400);
+  expect(calls).toEqual([]);
 });
 
 test("operator actions pass the exact scope and return only safe durable state", async () => {
