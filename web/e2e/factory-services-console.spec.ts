@@ -426,7 +426,8 @@ test("a run waiting on an approval streams live; a revoked reader's stream close
 	expect(started.status(), await started.text()).toBe(202);
 	const waitingRun = (await started.json() as { receipt: { resourceId: string } }).receipt.resourceId;
 	const inspection = `${project()}/runs/${waitingRun}/inspection`;
-	await expect.poll(async () => (await (await page.request.get(inspection)).json() as { resource: { run: { status: string } } }).resource.run.status, { timeout: 120_000, intervals: [1_000] }).toBe("waiting");
+	// The run stays live while its approval node waits; the approval shows as a blocker.
+	await expect.poll(async () => (await (await page.request.get(inspection)).json() as { resource: { blockers: Array<{ kind: string }> } }).resource.blockers.map(item => item.kind), { timeout: 120_000, intervals: [1_000] }).toContain("approval");
 
 	// The console shows the live run and what it waits on.
 	await page.goto(`/factories?view=runs&run=${encodeURIComponent(waitingRun)}`);
@@ -473,7 +474,7 @@ test("a run waiting on an approval streams live; a revoked reader's stream close
 	await captureEvidence(page, testInfo, "factory-services-approval-inbox");
 	await request.getByRole("button", { name: "approve" }).click();
 	await expect(request).toHaveCount(0);
-	await expect.poll(async () => (await (await page.request.get(inspection)).json() as { resource: { run: { status: string } } }).resource.run.status, { timeout: 180_000, intervals: [1_000] }).not.toBe("waiting");
+	await expect.poll(async () => (await (await page.request.get(inspection)).json() as { resource: { blockers: Array<{ kind: string }> } }).resource.blockers.map(item => item.kind), { timeout: 180_000, intervals: [1_000] }).not.toContain("approval");
 });
 
 test("grant expiry and revocation take effect on the next request, and a download ticket rechecks them", async ({ page, playwright }) => {
