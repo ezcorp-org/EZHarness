@@ -130,6 +130,11 @@ export async function readOperatorMasterKey(path: string, id: string, grantableR
   }
 }
 
+/** This installation's wraps, newest first. A wrap stored for another installation is never a candidate. */
+function ownWrapsNewestFirst(installationId: string, wraps: readonly InstallationKeyWrap[]): InstallationKeyWrap[] {
+  return wraps.filter(candidate => candidate.installationId === installationId).sort((a, b) => b.wrapVersion - a.wrapVersion);
+}
+
 export class InstallationDataKey {
   readonly installationId: string;
   private readonly value: Uint8Array;
@@ -141,9 +146,8 @@ export class InstallationDataKey {
     requireId(installationId);
     const resolveExisting = async (existing: readonly InstallationKeyWrap[]): Promise<InstallationDataKey | undefined> => {
       for (const candidate of existing) {
-        const master = await masters.get(candidate.masterKeyId);
-        if (!master) continue;
-        try { return new InstallationDataKey(installationId, decryptBytes(candidate.wrappedDataKey, master.bytes, wrapBinding(installationId, candidate.wrapVersion, candidate.masterKeyId)), candidate.wrapVersion); } catch { /* try retained wrapping versions */ }
+        const opened = await InstallationDataKey.openWrap(installationId, candidate, masters);
+        if (opened) return opened;
       }
       return undefined;
     };
@@ -164,13 +168,17 @@ export class InstallationDataKey {
     requireId(installationId);
     const existing = await wraps.load(installationId);
     if (existing.length === 0) throw new FactoryEncryptionError("factory_key_missing");
-    for (const candidate of [...existing].sort((a, b) => b.wrapVersion - a.wrapVersion)) {
-      if (candidate.installationId !== installationId) continue;
-      const master = await masters.get(candidate.masterKeyId);
-      if (!master) continue;
-      try { return new InstallationDataKey(installationId, decryptBytes(candidate.wrappedDataKey, master.bytes, wrapBinding(installationId, candidate.wrapVersion, candidate.masterKeyId)), candidate.wrapVersion); } catch { /* retained wraps may use other masters */ }
+    for (const candidate of ownWrapsNewestFirst(installationId, existing)) {
+      const opened = await InstallationDataKey.openWrap(installationId, candidate, masters);
+      if (opened) return opened;
     }
     throw new FactoryEncryptionError("factory_key_missing");
+  }
+  /** Opens one wrap with the master it names, or answers `undefined` when that master is absent or cannot open it: retained wraps may use other masters. */
+  private static async openWrap(installationId: string, candidate: InstallationKeyWrap, masters: MasterKeyProvider): Promise<InstallationDataKey | undefined> {
+    const master = await masters.get(candidate.masterKeyId);
+    if (!master) return undefined;
+    try { return new InstallationDataKey(installationId, decryptBytes(candidate.wrappedDataKey, master.bytes, wrapBinding(installationId, candidate.wrapVersion, candidate.masterKeyId)), candidate.wrapVersion); } catch { return undefined; }
   }
   async rotate(wraps: InstallationKeyWrapStore, masters: MasterKeyProvider): Promise<InstallationDataKey> {
     const master = await masters.current(); key(master.bytes);
