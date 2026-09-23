@@ -3601,12 +3601,24 @@ tombstones, and a signing surface are not built.
 
 ### W15 round 2 (validator ACCEPT-WITH-FIXES at 0fe67b822)
 
-- [ ] H1 freshness fails closed: no policy row means enforce at 900 s; a held `checkpoint-barrier` role makes readiness `degraded`. Tests for both.
-- [ ] H2 an archived release intent that cannot be read or matched is a tenant-blocking finding. PostgreSQL test.
-- [ ] H3 the startup document names the Temporal HTTP endpoint; the barrier records positions in every checkpoint; a tenant restore with no reader blocks as `temporal_unverified`. Full-stack manifest shows `captured: true`.
-- [ ] M1 the pool service enforces at most sixteen barriers in flight across installations (checkpoint slots); the production barrier takes a slot or defers. PostgreSQL test and 100-tenant proof through slots.
-- [ ] M2 enroll debug_log, accepted_evidence, approval, and receipt with their periods; tests.
-- [ ] M3 production callers: key wrapper selected by the startup document (operator master key file, cloud KMS, transit KMS); restore reachable through a private operator command; tests through the installation composition.
-- [ ] L1 disclose the pool ledger and release-adapter extractions with the coordinator ruling. M4 correct the pool-failure attribution.
-- [ ] Low: L2 one archive S3 client construction; L5 keep the unwrap cause; L6 name the incompatible-schema branch in a test; L4 write the one-tenant-per-database rule at the gate.
-- [ ] Sweep after `git merge --no-edit integ/w00`; private legs before the private container is removed; remove `w15-private-postgres` and note it in report.txt.
+- [x] H1 freshness fails closed: no policy row means enforce at 900 s; a held `checkpoint-barrier` role makes readiness `degraded`. Tests for both.
+- [x] H2 an archived release intent that cannot be read or matched is a tenant-blocking finding. PostgreSQL test.
+- [x] H3 the startup document names the Temporal HTTP endpoint; the barrier records positions in every checkpoint; a tenant restore with no reader blocks as `temporal_unverified`. Full-stack manifest shows `captured: true`.
+- [x] M1 the pool service enforces at most sixteen barriers in flight across installations (checkpoint slots); the production barrier takes a slot or defers. PostgreSQL test and 100-tenant proof through slots.
+- [x] M2 enroll debug_log, accepted_evidence, approval, and receipt with their periods; tests.
+- [x] M3 production callers: key wrapper selected by the startup document (operator master key file, cloud KMS, transit KMS); restore reachable through a private operator command; tests through the installation composition.
+- [x] L1 disclose the pool ledger and release-adapter extractions with the coordinator ruling. M4 correct the pool-failure attribution.
+- [x] Low: L2 one archive S3 client construction; L5 keep the unwrap cause; L6 name the incompatible-schema branch in a test; L4 write the one-tenant-per-database rule at the gate.
+- [x] Sweep after `git merge --no-edit integ/w00`; private legs before the private container is removed; remove `w15-private-postgres` and note it in report.txt.
+
+Review (W15 round 2, source head `34f282f8a`): every validator finding is fixed and its gate
+passes. Freshness fails closed, and a held barrier role never reports ready. An unreadable
+release intent or receipt blocks the tenant. Every checkpoint records Temporal positions, and a
+restore without them blocks. The pool enforces sixteen barrier slots across tenants: 100 tenants
+started at once sealed in 1232 ms with at most 16 in flight. Evidence, approvals, and receipts
+enroll for 365 days. The startup document selects the key wrapper, and an operator command
+reaches restore through the installation's own composition. The run found three more tests that
+had relied on open claims, and a pool router that the new routes had pushed past the CRAP
+threshold; all are fixed. A broad `pkill` during the run escaped the lock and may have left one
+temporary database on the shared PostgreSQL that cannot be attributed (see lessons). Open: W16
+deployment items, W14 signing surface, real KMS and Temporal archival, C09 purge, a debug-log store.
