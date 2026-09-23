@@ -761,6 +761,23 @@ describe("fleet composition", () => {
       expect(fleet.platform.temporal.revocationsPath.startsWith(operator)).toBe(true);
       // No platform runs for this fleet, so the serving check is a failure, never a false "serves".
       expect(await fleet.platformServes().then((served) => (served ? "served" : "not serving"), () => "unreachable")).toBe("unreachable");
+      // The upgrade ledger finds each installation's context through the provisioner's ledger.
+      const { factoryFleetDefaultBuild } = await import("../../src/factory/provisioning/fleet");
+      const build = factoryFleetDefaultBuild(settings).buildId;
+      await fleet.provisioner.ledger.record({ tenantId: "tenant-97", fleetId, installationId: randomUUID(), hostname: `tenant-97.${fleetId}.factory.test`, administratorEmail: "admin@tenant-97.example.test", invitationId: randomUUID(), ...names("tenant-97"), rolePlan: randomUUID(), databasePlan: randomUUID() });
+      await fleet.upgrades.adopt("tenant-97", build);
+      const counted: string[] = [];
+      await fleet.upgrades.retire({ count: async (installation) => { counted.push(`${installation.tenantId}:${installation.fleetId}`); return { active: 0, uncertain: 0 }; } });
+      expect(counted).toContain(`tenant-97:${fleetId}`);
+      await fleet.upgrades.adopt("tenant-96", build);
+      const control = new SQL(controlUrl, { max: 1 });
+      try {
+        expect((await factoryRejection(fleet.upgrades.retire({ count: async () => ({ active: 0, uncertain: 0 }) })) as FactoryProvisioningError).code).toBe("provisioning_unknown_tenant");
+      } finally {
+        // Remove the orphan build row so no later retire meets it.
+        await control`DELETE FROM factory_installation_builds WHERE tenant_id = ${"tenant-96"}`;
+        await control.close();
+      }
     } finally { await fleet.close(); }
   });
 });
