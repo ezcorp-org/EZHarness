@@ -2,6 +2,7 @@ import { expect, mock, test } from "bun:test";
 import { projects, sandboxBindings, sandboxOperations } from "../../../../../../../src/db/schema";
 
 const calls: string[] = [];
+const project = { id: "project-a", purpose: "user" as "user" | "incus-qualification" };
 const binding = { id: "binding-a", projectId: "project-a", connectionId: "connection-a", desiredState: "RUNNING", observedState: "UNKNOWN" };
 const operation = { id: "operation-a", bindingId: "binding-a", kind: "CREATE", state: "DISPATCHING", generation: 1,
   providerOperationId: null, errorCode: null, createdAt: new Date("2026-09-22T12:00:00Z"), updatedAt: new Date("2026-09-22T12:00:00Z") };
@@ -12,7 +13,7 @@ const database = {
       from(table: unknown) { source = table; return query; },
       where() { return query; },
       orderBy() { return query; },
-      limit: async () => source === projects ? [{ id: "project-a" }]
+      limit: async () => source === projects ? [project]
         : source === sandboxBindings ? [binding]
         : source === sandboxOperations ? [operation] : [],
     };
@@ -118,4 +119,17 @@ test("status and reconciliation expose only operator state", async () => {
   const reconciled = await POST(event(admin, { action: "reconcile", limit: 5 }));
   expect(reconciled.status).toBe(200);
   expect(calls).toEqual(["reconcile:5"]);
+});
+
+test("feature status does not expose a qualification fixture as a user project", async () => {
+  calls.length = 0;
+  project.purpose = "incus-qualification";
+  try {
+    const response = await POST(event(admin, { action: "status", projectId: "project-a", bindingId: "binding-a" }));
+    expect(response.status).toBe(404);
+    expect(await response.json()).toMatchObject({ code: "not_found" });
+    expect(calls).toEqual([]);
+  } finally {
+    project.purpose = "user";
+  }
 });

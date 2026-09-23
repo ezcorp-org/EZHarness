@@ -46,8 +46,10 @@ function parse(value: unknown): Record<string, unknown> | null {
 async function authorizeProject(locals: Parameters<typeof checkProjectRole>[0], projectId: string): Promise<Response | null> {
   const role = await checkProjectRole(locals, projectId, "member");
   if (role instanceof Response) return role;
-  const [project] = await getDb().select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).limit(1);
-  return project?.id === projectId ? null : json({ code: "not_found", message: "Project was not found." }, { status: 404 });
+  const [project] = await getDb().select({ id: projects.id, purpose: projects.purpose })
+    .from(projects).where(eq(projects.id, projectId)).limit(1);
+  return project?.id === projectId && project.purpose === "user"
+    ? null : json({ code: "not_found", message: "Project was not found." }, { status: 404 });
 }
 
 async function scopedBinding(bindingId: string, projectId: string): Promise<typeof sandboxBindings.$inferSelect | Response> {
