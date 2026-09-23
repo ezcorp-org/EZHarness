@@ -30,18 +30,31 @@ describe("public GitHub App directory Worker", () => {
     expect(home.status).toBe(200);
     expect(home.headers.get("content-type")).toBe("text/html; charset=utf-8");
     expect(home.headers.get("content-security-policy")).toContain("default-src 'none'");
+    expect(home.headers.get("content-security-policy")).toContain("style-src 'self'");
     expect(home.headers.get("x-frame-options")).toBe("DENY");
     expect(home.headers.get("referrer-policy")).toBe("no-referrer");
     expect(home.headers.has("set-cookie")).toBe(false);
-    expect(html).toContain("<main>");
+    expect(html).toContain('<main class="shell">');
+    expect(html).toContain('href="/style.css"');
+    expect(html).toContain('class="hero"');
+    expect(html).toContain('class="steps"');
     expect(html).toContain("https://github.com/login/device");
     expect(html).toContain("https://github.com/apps/ezcorp-github-auth");
     expect(html).not.toContain("<script");
+    expect(html).not.toContain("<style");
+    const style = request("/style.css");
+    const css = await style.text();
+    expect(style.status).toBe(200);
+    expect(style.headers.get("content-type")).toBe("text/css; charset=utf-8");
+    expect(css).toContain("@media(max-width:540px)");
+    expect(css).toContain("prefers-reduced-motion");
+    expect(css).not.toContain("@import");
+    expect(css).not.toContain("url(");
     expect(await request("/health").text()).toBe("ok");
   });
 
   test("HEAD returns each route's status and headers with no body", async () => {
-    for (const path of ["/", "/.well-known/ezcorp-github.json", "/health", "/missing"]) {
+    for (const path of ["/", "/style.css", "/.well-known/ezcorp-github.json", "/health", "/missing"]) {
       const get = request(path);
       const head = request(path, "HEAD");
       expect(head.status).toBe(get.status);
@@ -83,7 +96,7 @@ describe("public GitHub App directory Worker", () => {
       { ...validEnv, APP_CLIENT_ID: "secret" },
     ];
     for (const env of invalid) {
-      for (const path of ["/", "/health", "/.well-known/ezcorp-github.json"]) {
+      for (const path of ["/", "/style.css", "/health", "/.well-known/ezcorp-github.json"]) {
         const result = request(path, "GET", undefined, env);
         expect(result.status).toBe(503);
         expect(await result.text()).toBe("Service Unavailable");
