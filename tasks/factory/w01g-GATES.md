@@ -100,7 +100,7 @@ sweep receipts are from the final head. `report.txt` names each one.
 
 ### The real-server proof
 
-- [ ] G7: A real sandboxed guest stages one output and the run reaches terminal COMPLETED, three
+- [x] G7: A real sandboxed guest stages one output and the run reaches terminal COMPLETED, three
   consecutive passes on fresh product databases.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bash /tmp/factory-platform-evidence/w01g/repro/run-three.sh`
   EXPECT: each pass ends `statusTimeline` … `succeeded`; the durable terminal result is
@@ -108,7 +108,7 @@ sweep receipts are from the final head. `report.txt` names each one.
   the guest staged
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/proof-1.json`, `proof-2.json`, `proof-3.json`
 
-- [ ] G8: The harness records its own failures rather than crashing, and a guest that stages
+- [x] G8: The harness records its own failures rather than crashing, and a guest that stages
   nothing still ends `failed`.
   CHECK: `W01G_GUEST=cancelled … bash /tmp/factory-platform-evidence/w01g/repro/one-run.sh`
   EXPECT: the negative control writes a record whose run ends `failed` with a `cancelled` terminal
@@ -128,12 +128,12 @@ sweep receipts are from the final head. `report.txt` names each one.
   EXPECT: all exit 0, and schema regeneration produces no drift
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [ ] G11: The PostgreSQL producers this package touches are green against the real engine.
+- [x] G11: The PostgreSQL producers this package touches are green against the real engine.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 2400 …` over `tests/postgres/factory-guest-material-broker.test.ts` and `tests/postgres/factory-artifact-materials.test.ts`
   EXPECT: exit 0
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [ ] G12: The Podman suites are green under `flock --close`.
+- [x] G12: The Podman suites are green under `flock --close`.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 3600 bun test --timeout 900000 ./src/factory/runner/python-guest.integration.test.ts …`
   EXPECT: exit 0
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
@@ -177,7 +177,10 @@ Podman suites ran at `23965e397` on a clean tree; the static sweep at the final 
 - F3: the route binds the host to the attempt's lease and verifies its bearer token. Commit
   `12a1ad076`.
 - F5: recorded in G6, per the coordinator's ruling.
-- OPEN: G7, G8, G11 and G12 need their receipts at the round-4 head. The shared ordinary object
+- CLOSED at `a805171a5` (0 dirty): G7 and G8 (three passes and the control, host bound by lease
+  and bearer token), G11 (`coverage-postgres`, now also `tests/postgres/factory-executions.test.ts`),
+  and G12 (the three Podman suites). Before that store repair, G7, G8, G11 and G12 needed their
+  receipts at the round-4 head. The shared ordinary object
   store refused writes from 08:32 on 2026-09-23 because the host disk is full.
   `receipts/store-unwritable-r4.json` records it, and the failed runs are kept in
   `repro/history/*-r4-store-unwritable.json`. The coordinator owns the repair.
