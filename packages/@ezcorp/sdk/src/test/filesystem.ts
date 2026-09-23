@@ -280,3 +280,14 @@ export function gitInDirectory(cwd: string, args: string[]): { exitCode: number;
 export function outsideAnyGitRepository(dir: string): boolean {
   return gitInDirectory(dir, ["rev-parse", "--git-dir"]).exitCode !== 0;
 }
+
+/** Run `fn` with `dir` as the working directory, restoring the previous one afterwards. */
+export async function runInDirectory<T>(dir: string, fn: () => Promise<T>): Promise<T> {
+  const previous = process.cwd();
+  process.chdir(dir);
+  try {
+    return await fn();
+  } finally {
+    process.chdir(previous);
+  }
+}

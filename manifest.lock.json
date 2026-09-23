@@ -11,9 +11,9 @@
     "auto-note": {
       "directory": "docs/extensions/examples/auto-note",
       "entrypoint": "extension.ts",
-      "files": 11,
-      "bytes": 134472,
-      "sourceDigest": "d8b6bd774c0fd6f6cc84febc8892c3ec83b47c69f04153dee5ecb1d9b391db22"
+      "files": 12,
+      "bytes": 136200,
+      "sourceDigest": "f52d0d0549d5640899c67f04df9a30404c9e6fad9eb8cd0a6deb8ae0eb99f4bc"
     },
     "cash-recovery-agent": {
       "directory": "docs/extensions/examples/cash-recovery-agent",
@@ -32,9 +32,9 @@
     "claude-design": {
       "directory": "docs/extensions/examples/claude-design",
       "entrypoint": "extension.ts",
-      "files": 27,
-      "bytes": 603086,
-      "sourceDigest": "40c631167131950af50f7bf25ef9bac96d806f0e383f117d907485296ea2b7ef"
+      "files": 28,
+      "bytes": 604960,
+      "sourceDigest": "db39b459db9dd880c3bff8af6d7fd2df527a28051c23806f89042c9701f6a08d"
     },
     "code-quality": {
       "directory": "docs/extensions/examples/code-quality",
@@ -88,9 +88,9 @@
     "file-organizer": {
       "directory": "docs/extensions/examples/file-organizer",
       "entrypoint": "extension.ts",
-      "files": 25,
-      "bytes": 203678,
-      "sourceDigest": "3b57e5c4490fb00c07076742f8e06e1d68d111f403d487d7bcb953bbba201519"
+      "files": 26,
+      "bytes": 205533,
+      "sourceDigest": "31b8d5a5eea0aa048b68a9a5f1c7b2d6a041b604f66a477f3ed2c57e7e33ff23"
     },
     "file-refactor": {
       "directory": "docs/extensions/examples/file-refactor",
