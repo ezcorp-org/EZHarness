@@ -19,7 +19,6 @@ import {
   FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS,
   composeFactoryPrivateService,
   factoryCancelNodeEffect,
-  factoryNamedRefusalEffect,
   factoryRunnerProfiles,
 } from "./private-service-composition";
 import type { FactoryPrivateCommandHandler } from "./private-commands";
@@ -39,33 +38,6 @@ const SERVICE: TrustedFactoryServiceIdentity = { subject, tenantId };
 const REFERENCE: TrustedFactoryCommandReference = { tenantId, projectId: "project-1", logicalRunId: "run-1", interpreterId: "root", commandId: "cancel-1" };
 
 const STOPPED_EVENT = { kind: "attempt-stopped", id: "event-1", atMs: 1, attemptId: "attempt-1" } as unknown as FactoryTaskStopReceipt["event"];
-
-describe("factoryNamedRefusalEffect", () => {
-  const EVENT = { kind: "node-result", id: "event-2", atMs: 1 } as unknown as KernelEvent;
-
-  test("returns the handler's own answer unchanged", async () => {
-    expect(await factoryNamedRefusalEffect("request-release", async () => EVENT)(SERVICE, REFERENCE)).toBe(EVENT);
-    expect(await factoryNamedRefusalEffect("request-release", async () => null)(SERVICE, REFERENCE)).toBeNull();
-  });
-
-  test("answers a named factory refusal as the command-failed event that carries the name", async () => {
-    const refused = Object.assign(new Error("untrusted"), { code: "factory_protected_effect_untrusted" });
-    const before = Date.now();
-    const event = await factoryNamedRefusalEffect("request-release", async () => { throw refused; })(SERVICE, REFERENCE);
-    expect(event).toMatchObject({
-      kind: "command-failed", id: "cancel-1:command-failed", commandId: "cancel-1",
-      error: "FACTORY_COMMAND_FAILED: request-release cancel-1: factory_protected_effect_untrusted",
-    });
-    expect((event as { atMs: number }).atMs).toBeGreaterThanOrEqual(before);
-  });
-
-  test("still throws an error it cannot name, so a fault stays a fault", async () => {
-    const boom = new Error("boom");
-    await expect(factoryNamedRefusalEffect("request-release", async () => { throw boom; })(SERVICE, REFERENCE)).rejects.toBe(boom);
-    const foreign = Object.assign(new Error("reset"), { code: "ECONNRESET" });
-    await expect(factoryNamedRefusalEffect("request-release", async () => { throw foreign; })(SERVICE, REFERENCE)).rejects.toBe(foreign);
-  });
-});
 
 describe("factoryCancelNodeEffect", () => {
   test("returns the attempt-stopped event only once a host confirmed the stop", async () => {
@@ -353,6 +325,71 @@ describe("the private service's request timeout", () => {
     const { FACTORY_PRIVATE_MAX_ENVELOPE_BYTES } = await import("./private-https");
     expect(FACTORY_PRIVATE_MAX_ENVELOPE_BYTES).toBeGreaterThan(0);
     expect(FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS).toBeLessThanOrEqual(60_000);
+  });
+});
+
+describe("the executions route", () => {
+  /** A real router over stub stores, behind the real private service, with `admit` supplied per test. */
+  async function executions(admit: () => Promise<unknown>) {
+    const { startFactoryPrivateService } = await import("./private-service");
+    const { FactoryPrivateCommands } = await import("./private-commands");
+    const { nodeHttpsRequest, signedServiceToken } = await import("../__tests__/helpers/factory-certificates");
+    const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const certs = await certificates(directories, "tenant-a");
+    const reported: Array<{ method: string; path: string; error: unknown }> = [];
+    const service = { tenantId, subject: "tenant-a" };
+    const commandId = "run-1:work:dispatch-node:4";
+    const unused = async () => { throw new Error("unused"); };
+    const commands = new FactoryPrivateCommands({
+      service,
+      authority: { tenantId, assertService() {} } as never,
+      transitions: { async loadStoredCommand() { return { kind: "dispatch-node", id: commandId } as never; } },
+      tasks: { request: unused as never },
+      execution: { admit: admit as never },
+      inputs: { execute: unused as never },
+      children: { resolve: unused as never },
+      approvals: { tenantId, execute: unused as never },
+      effects: { "cancel-node": unused, "request-acceptance": unused, "request-release": unused, "invalidate-partition": unused, "notify-partition": unused },
+    });
+    const listener = startFactoryPrivateService({
+      tenantId, certificateIdentity: "tenant-a",
+      hostname: "127.0.0.1", port: 0,
+      tls: { ca: certs.ca, cert: certs.serverCert, key: certs.serverKey },
+      tokens: async () => ({ issuer: "https://factory.example.test", audience: "factory-private-service", publicKeys: { test: keys.publicKey.export({ type: "spki", format: "pem" }).toString() } }),
+      queue: {} as never,
+      artifacts: {} as never,
+      commands,
+      report: (context) => { reported.push(context); },
+    });
+    listeners.push(listener);
+    const token = signedServiceToken(keys.privateKey, {
+      sub: "tenant-a", iss: "https://factory.example.test", aud: "factory-private-service",
+      exp: Math.floor(Date.now() / 1_000) + 60, scope: ["factory:orchestrate"],
+    });
+    const body = { tenantId, projectId: "project-1", logicalRunId: "run-1", interpreterId: "root", command: { kind: "dispatch-node", id: commandId } };
+    const response = await nodeHttpsRequest(`${listener.url}/internal/factory/v1/executions/${encodeURIComponent(commandId)}`, certs, { method: "PUT", body, token });
+    return { response, reported, commandId };
+  }
+
+  test("a named refusal of dispatch-node is answered as the command-failed event that carries its name", async () => {
+    const { FactoryPackageBlockedError } = await import("./package-preparation");
+    const { response, reported, commandId } = await executions(async () => { throw new FactoryPackageBlockedError("factory_package_quarantined", 3, 1); });
+    expect(response.status).toBe(200);
+    expect(JSON.parse(response.body.toString())).toMatchObject({
+      kind: "command-failed", id: `${commandId}:command-failed`, commandId,
+      error: `FACTORY_COMMAND_FAILED: dispatch-node ${commandId}: factory_package_quarantined`,
+    });
+    // A refusal the run carries is not an operator fault.
+    expect(reported).toEqual([]);
+  });
+
+  test("an error that is not a named refusal stays an opaque 500 that leaks nothing", async () => {
+    const internal = Object.assign(new Error("connect ECONNREFUSED 10.0.0.7:5432 as factory_admin"), { code: "ECONNREFUSED" });
+    const { response, reported } = await executions(async () => { throw internal; });
+    expect(response.status).toBe(500);
+    expect(response.body.toString()).toBe(JSON.stringify({ error: "request_failed" }));
+    expect(response.body.toString()).not.toContain("ECONNREFUSED");
+    expect(reported).toEqual([{ method: "PUT", path: expect.stringContaining("/internal/factory/v1/executions/"), error: internal }]);
   });
 });
 

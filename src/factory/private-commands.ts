@@ -1,8 +1,9 @@
-import type { KernelEvent } from "@ezcorp/factory-sdk";
+import { factoryCommandFailedEvent, type KernelEvent } from "@ezcorp/factory-sdk";
 import type { FactoryAssuranceCommands } from "./assurance-commands";
 import type { FactoryChildRuns } from "./child-runs";
 import type { FactoryCommandAuthority } from "./command-authority";
 import type { FactoryLazyCommands } from "./lazy-commands";
+import { factoryErrorCode } from "./plain-values";
 import type { FactoryPrivateServiceCommands } from "./private-service";
 import { assertFactoryIdentity } from "./records";
 import type { FactoryTaskAdmission } from "./task-admission";
@@ -13,6 +14,33 @@ import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } fr
 const effectKinds = ["cancel-node", "request-acceptance", "request-release", "invalidate-partition", "notify-partition"] as const;
 type EffectKind = typeof effectKinds[number];
 export type FactoryPrivateCommandHandler = (service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference) => Promise<KernelEvent | null>;
+
+/**
+ * A command whose named refusal reaches the run's projected error.
+ *
+ * The private service answers a refusal it does not classify with an opaque
+ * `request_failed`, so the orchestrator could only record "Activity task
+ * failed" and an operator could not see which rule stopped the run. A refusal
+ * that names itself with a `factory_` code is answered here instead, as the
+ * same `command-failed` event the orchestrator would have built, carrying the
+ * name. The outcome is unchanged: every command runs once, and any failure of
+ * it already fails the run. Every other error still throws, so a fault this
+ * service cannot name stays an opaque fault.
+ *
+ * It wraps the two routes the orchestrator executes through: the executions
+ * route (`dispatch-node`, `cancel-node`) and the effects.
+ */
+export function factoryNamedRefusal(kind: string, handler: FactoryPrivateCommandHandler): FactoryPrivateCommandHandler {
+  return async (service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<KernelEvent | null> => {
+    try {
+      return await handler(service, reference);
+    } catch (error) {
+      const code = factoryErrorCode(error);
+      if (code === undefined || !code.startsWith("factory_")) throw error;
+      return factoryCommandFailedEvent({ id: reference.commandId, kind }, code, Date.now());
+    }
+  };
+}
 
 export interface FactoryPrivateCommandStores {
   readonly service: TrustedFactoryServiceIdentity;
@@ -57,10 +85,10 @@ export class FactoryPrivateCommands implements FactoryPrivateServiceCommands {
     const approval = stores.approvals.execute.bind(stores.approvals);
     this.handlers = new Map<string, FactoryPrivateCommandHandler>([
       ["request-admission", async (service, reference) => { await request(service, reference); return null; }],
-      ["dispatch-node", async (service, reference) => { await admit(service, reference); return null; }],
+      ["dispatch-node", factoryNamedRefusal("dispatch-node", async (service, reference) => { await admit(service, reference); return null; })],
       ["read-input-value", input], ["read-input-page", input],
       ["request-approval", (_service, reference) => approval(reference)],
-      ...effectKinds.map(kind => [kind, stores.effects[kind].bind(stores.effects)] as const),
+      ...effectKinds.map(kind => [kind, factoryNamedRefusal(kind, stores.effects[kind].bind(stores.effects))] as const),
     ]);
   }
 

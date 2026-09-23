@@ -31,7 +31,6 @@
  * route gets from reloading its signing pair per signature.
  */
 import { basename, dirname, resolve as resolvePath } from "node:path";
-import { factoryCommandFailedEvent } from "@ezcorp/factory-sdk";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryApplication } from "./application";
@@ -44,8 +43,7 @@ import { FactoryInstallationCommandOutbox } from "./outbox";
 import { FactoryLazyCommands } from "./lazy-commands";
 import { FactoryLazyInputReader } from "./lazy-input";
 import { FactoryPartitionCommands } from "./partition-commands";
-import { factoryErrorCode } from "./plain-values";
-import { FactoryPrivateCommands, type FactoryPrivateCommandHandler, type FactoryPrivateCommandStores } from "./private-commands";
+import { FactoryPrivateCommands, type FactoryPrivateCommandHandler } from "./private-commands";
 import { privateDirectory, readPrivateBounded } from "./private-files";
 import { startFactoryPrivateService } from "./private-service";
 import { FactoryProtectedCommandEffects, type FactoryReleaseCommandProfile } from "./protected-command-effects";
@@ -119,30 +117,6 @@ export function factoryCancelNodeEffect(stops: Pick<FactoryTaskStops, "stop">): 
   return async (service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<KernelEvent | null> => {
     const receipt = await stops.stop(service, reference);
     return receipt.state === "stopped" ? receipt.event : null;
-  };
-}
-
-/**
- * An effect whose named refusal reaches the run's projected error.
- *
- * The private service answers a refusal it does not classify with an opaque
- * `request_failed`, so the orchestrator could only record "Activity task
- * failed" and an operator could not see which rule stopped the run. A refusal
- * that names itself with a `factory_` code is answered here instead, as the
- * same `command-failed` event the orchestrator would have built, carrying the
- * name. The outcome is unchanged: an effect runs once, and any failure of it
- * already fails the run. Every other error still throws, so a fault this
- * service cannot name stays a fault.
- */
-export function factoryNamedRefusalEffect(kind: string, handler: FactoryPrivateCommandHandler): FactoryPrivateCommandHandler {
-  return async (service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<KernelEvent | null> => {
-    try {
-      return await handler(service, reference);
-    } catch (error) {
-      const code = factoryErrorCode(error);
-      if (code === undefined || !code.startsWith("factory_")) throw error;
-      return factoryCommandFailedEvent({ id: reference.commandId, kind }, code, Date.now());
-    }
   };
 }
 
@@ -264,13 +238,13 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     inputs: new FactoryLazyCommands(stores.authority, new FactoryLazyInputReader(database, config.tenantId, application.artifacts, access, application.grants)),
     children: stores.children,
     approvals: new FactoryAssuranceCommands(database, config.tenantId, application.grants, stores.authority, stores.inbox, releases, service),
-    effects: Object.fromEntries(Object.entries({
+    effects: {
       "cancel-node": factoryCancelNodeEffect(options.stops),
       "request-acceptance": options.acceptance ?? protectedEffects.requestAcceptance,
       "request-release": protectedEffects.requestRelease,
       "invalidate-partition": partitions.execute.bind(partitions),
       "notify-partition": partitions.execute.bind(partitions),
-    }).map(([kind, handler]) => [kind, factoryNamedRefusalEffect(kind, handler)])) as FactoryPrivateCommandStores["effects"],
+    },
   });
 
   const [ca, cert, key] = await Promise.all([
