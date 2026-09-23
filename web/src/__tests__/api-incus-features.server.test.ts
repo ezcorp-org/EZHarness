@@ -5,6 +5,7 @@ const calls: string[] = [];
 let qualified = false;
 let failWith: unknown = null;
 let projectExists = true;
+let projectPurpose = "user";
 let bindingExists = true;
 let operationExists = true;
 const binding = { id: "binding-a", projectId: "project-a" };
@@ -16,7 +17,7 @@ const database = {
 			from(table: unknown) { source = table; return query; },
 			where() { return query; },
 			orderBy() { return query; },
-			limit: async () => source === projects ? (projectExists ? [{ id: "project-a" }] : [])
+			limit: async () => source === projects ? (projectExists ? [{ id: "project-a", purpose: projectPurpose }] : [])
 				: source === sandboxBindings ? (bindingExists ? [binding] : [])
 				: source === sandboxOperations ? (operationExists ? [operation] : []) : [],
 		};
@@ -67,7 +68,7 @@ function event(body: unknown, locals: Record<string, unknown> = admin, origin: s
 }
 const mutation = { projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a", idempotencyKey: "key-a" };
 
-beforeEach(() => { calls.length = 0; qualified = false; failWith = null; projectExists = true; bindingExists = true; operationExists = true; });
+beforeEach(() => { calls.length = 0; qualified = false; failWith = null; projectExists = true; projectPurpose = "user"; bindingExists = true; operationExists = true; });
 
 test("denies non-admin, cross-origin, and non-JSON requests before effects", async () => {
 	expect((await POST(event({ action: "reconcile" }, {}))).status).toBe(401);
@@ -97,6 +98,20 @@ test("requires project membership, a real project, and a matching binding", asyn
 	bindingExists = true;
 	expect((await POST(event({ action: "create", ...mutation, projectId: "other" }))).status).toBe(404);
 	expect(calls.filter(call => call.startsWith("create:"))).toEqual([]);
+});
+
+test("system qualification projects cannot use the user feature route", async () => {
+	projectPurpose = "incus-qualification";
+	for (const body of [
+		{ action: "prepare", projectId: "project-a", installationId: "install-a", connectionId: "connection-a", presetId: "preset-a" },
+		{ action: "status", projectId: "project-a", bindingId: "binding-a" },
+		{ action: "create", ...mutation },
+	]) {
+		const response = await POST(event(body));
+		expect(response.status).toBe(404);
+		expect(await response.json()).toMatchObject({ code: "not_found" });
+	}
+	expect(calls).toEqual(["role:member", "role:member", "role:member"]);
 });
 
 test("prepare needs host qualification and returns the prepared binding", async () => {
