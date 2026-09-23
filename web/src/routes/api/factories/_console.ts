@@ -10,6 +10,7 @@ import { getFactoryApplication } from "$server/factory/application";
 import type { FactoryConsoleServices } from "$server/factory/console";
 import type { FactoryPrincipal } from "$server/factory/grants";
 import type { FactoryRunEventBatch } from "$server/factory/run-events";
+import { logger } from "$server/logger";
 import { factoryErrorResponse, mappedFactoryError, resolveFactoryPrincipal } from "$lib/server/factory/route-kit";
 import { FACTORY_STREAM_EVENT_NAMES } from "$lib/runtime-event-names";
 import { FACTORY_API_REQUEST_SCHEMA_VERSION, validateFactoryApiRequest, type FactoryApiRequest } from "@ezcorp/factory-sdk";
@@ -45,7 +46,14 @@ export async function handleFactoryConsoleRaw<Kind extends ReadRequest["kind"]>(
 /** Why a stream stopped after a refusal mid-stream, by the status the refusal maps to. */
 function streamClosedReason(error: unknown): string {
   let status: number;
-  try { status = mappedFactoryError(error).status; } catch { return "unavailable"; }
+  try {
+    status = mappedFactoryError(error).status;
+  } catch {
+    // Not a factory refusal: the client only learns "unavailable", so the cause goes to the log.
+    logger.error("factory run event stream failed", { error: error instanceof Error ? `${error.name}: ${error.message}` : String(error) });
+    return "unavailable";
+  }
+  if (status >= 500) logger.warn("factory run event stream closed on a service failure", { status });
   return status === 403 ? "revoked" : status === 410 ? "expired" : status === 404 ? "not-found" : "unavailable";
 }
 

@@ -10,6 +10,7 @@ import { FactoryArtifactError } from "$server/factory/artifacts";
 import { FactoryArtifactAccessError } from "$server/factory/artifact-access";
 import type { FactoryRunEventBatch } from "$server/factory/run-events";
 import { FACTORY_STREAM_EVENT_NAMES } from "$lib/runtime-event-names";
+import { logger } from "$server/logger";
 
 const state = vi.hoisted(() => ({ enabled: true, application: null as unknown }));
 vi.mock("$server/factory/boot", async importOriginal => ({ ...(await importOriginal<typeof import("$server/factory/boot")>()), factoryBootConfig: { get enabled() { return state.enabled; }, installationId: "test-installation" } }));
@@ -343,13 +344,21 @@ describe("the run event stream body", () => {
   });
 
   test("a mid-stream refusal names why, and a disconnect ends silently", async () => {
+    const errorLog = vi.spyOn(logger, "error").mockImplementation(() => undefined);
+    const warnLog = vi.spyOn(logger, "warn").mockImplementation(() => undefined);
     for (const [error, reason] of [
       [new FactoryGrantError("factory_forbidden"), "revoked"], [new FactoryConsoleError("factory_cursor_expired"), "expired"],
       [new FactoryRunLifecycleError("factory_run_not_found"), "not-found"], [new FactoryRunLifecycleError("factory_run_corrupt"), "unavailable"],
+      [new Error("socket reset"), "unavailable"],
     ] as const) {
       const body = kit.factoryRunEventStream(batch(1), { read: async () => { throw error; }, signal: new AbortController().signal, pollMs: 1, sleep: async () => undefined });
       expect(await read(body)).toContain(`data: {"reason":"${reason}"}`);
     }
+    // A failure the client only sees as "unavailable" is logged with its cause.
+    expect(errorLog).toHaveBeenCalledWith("factory run event stream failed", { error: "Error: socket reset" });
+    expect(warnLog).toHaveBeenCalledWith("factory run event stream closed on a service failure", { status: 500 });
+    errorLog.mockRestore();
+    warnLog.mockRestore();
     const controller = new AbortController();
     const body = kit.factoryRunEventStream(batch(1), { read: vi.fn(), signal: controller.signal, pollMs: 1, sleep: async () => { controller.abort(); } });
     const text = await read(body);
