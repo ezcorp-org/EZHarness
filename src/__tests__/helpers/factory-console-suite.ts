@@ -303,6 +303,24 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
     });
   });
 
+  async function withAuditFailure(actions: readonly string[], work: () => Promise<void>): Promise<void> {
+    const list = actions.map(action => `'${action}'`).join(",");
+    await a.fixture.db.execute(sql.raw(`CREATE FUNCTION w14_reject_console_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action IN (${list}) THEN RAISE EXCEPTION 'console audit unavailable'; END IF; RETURN NEW; END $$`));
+    await a.fixture.db.execute(sql`CREATE TRIGGER w14_reject_console_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION w14_reject_console_audit()`);
+    try { await work(); } finally {
+      await a.fixture.db.execute(sql`DROP TRIGGER w14_reject_console_audit ON audit_log`);
+      await a.fixture.db.execute(sql`DROP FUNCTION w14_reject_console_audit()`);
+    }
+  }
+  /** Rejects because of the injected audit failure, named somewhere on the error's cause chain. */
+  async function expectAuditDown(work: Promise<unknown>): Promise<void> {
+    const failure = await work.then(() => null, (error: unknown) => error);
+    const chain: string[] = [];
+    for (let current = failure as { message?: string; cause?: unknown } | null | undefined; current; current = current.cause as typeof current) chain.push(String(current.message ?? current));
+    expect(chain.join(" | ")).toContain("console audit unavailable");
+  }
+  const count = async (query: ReturnType<typeof sql>) => Number(rows<{ n: string | number }>(await a.fixture.db.execute(query))[0]!.n);
+
   describe("tenant purge request", () => {
     test("only a human tenant administrator may ask, and open work refuses it with named preconditions", async () => {
       await expect(a.console.purge.preview(MEMBER, a.tenantId)).rejects.toMatchObject({ code: "factory_forbidden" });
@@ -359,6 +377,11 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
       const packagedVersion = await a.application.definitions.publish(OWNER, { projectId: PROJECT, factoryId: packaged.id }, 1, "packaged-publish");
       const packagedRun = (await a.application.runs.start(OWNER, { projectId: PROJECT, factoryId: packaged.id }, { factoryVersion: packagedVersion.version, definitionDigest: packagedVersion.definitionDigest, grantRevision: 1, parameters: {} }, 0, "packaged-start")).run.runId;
       expect((await a.console.packages.impact(OWNER, PROJECT, bound.referenceId, "quarantine")).runs).toEqual([{ runId: packagedRun, factoryId: "console-packaged", status: "queued", liveAttempts: 0 }]);
+      // A trust transition whose audit write fails leaves the package untrusted and records no receipt.
+      const receipts = await count(sql`SELECT COUNT(*) AS n FROM factory_mutation_receipts`);
+      await withAuditFailure(["factory.package.trust.published"], () => expectAuditDown(a.console.packages.transition(OWNER, PROJECT, bound.referenceId, "publish", 0, "trust-audit-down")));
+      expect((await a.console.packages.read(OWNER, PROJECT, bound.referenceId)).revision).toBe(0);
+      expect(await count(sql`SELECT COUNT(*) AS n FROM factory_mutation_receipts`)).toBe(receipts);
       const active = await a.console.packages.transition(OWNER, PROJECT, bound.referenceId, "publish", 0, "trust-publish");
       expect(active).toMatchObject({ revision: 1, state: "active" });
       await expect(a.console.packages.transition(OWNER, PROJECT, bound.referenceId, "quarantine", 0, "trust-zero")).rejects.toMatchObject({ code: "factory_package_trust_invalid" });
@@ -385,6 +408,68 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
       await expect(a.console.packages.read(OWNER, PROJECT, "not-hex")).rejects.toMatchObject({ code: "factory_package_not_found" });
       await expect(a.console.packages.list(OWNER, PROJECT, { cursor: "bad" })).rejects.toMatchObject({ code: "factory_package_not_found" });
       await expect(a.console.packages.list(OWNER, PROJECT, { limit: 0 })).rejects.toMatchObject({ code: "factory_page_invalid" });
+    });
+  });
+
+  describe("round 2: rechecks, audit failure, and non-transfer", () => {
+    /** A fresh artifact of the run: a share, once revoked, cannot be granted again for the same bytes and target. */
+    const stage = (generation: number, text: string) => a.fixture.db.transaction(transaction => a.application.artifacts.stageCandidateOutputInTransaction(transaction, { tenantId: a.tenantId, projectId: PROJECT, logicalRunId: a.runId, interpreterId: "root" }, "work", generation, new TextEncoder().encode(text)));
+
+    test("a failed audit write rolls back a purge request and a share, and leaves no receipt", async () => {
+      const before = {
+        purges: await count(sql`SELECT COUNT(*) AS n FROM audit_log WHERE action='factory.tenant.purge.requested'`),
+        shares: await count(sql`SELECT COUNT(*) AS n FROM factory_artifact_read_grants WHERE tenant_id=${a.tenantId}`),
+        receipts: await count(sql`SELECT COUNT(*) AS n FROM factory_mutation_receipts`),
+      };
+      await withAuditFailure(["factory.tenant.purge.requested", "factory.artifact.read.granted"], async () => {
+        await expectAuditDown(a.console.purge.request(OWNER, a.tenantId, { reason: "audit down", confirmTenantId: a.tenantId }, "purge-audit-down"));
+        await expectAuditDown(a.console.tickets.share(OWNER, key(), (await stage(10, "audit down")).artifactId, { targetProjectId: OTHER_PROJECT, mediaType: "text/plain" }, "share-audit-down"));
+      });
+      expect(await count(sql`SELECT COUNT(*) AS n FROM audit_log WHERE action='factory.tenant.purge.requested'`)).toBe(before.purges);
+      expect(await count(sql`SELECT COUNT(*) AS n FROM factory_artifact_read_grants WHERE tenant_id=${a.tenantId}`)).toBe(before.shares);
+      expect(await count(sql`SELECT COUNT(*) AS n FROM factory_mutation_receipts`)).toBe(before.receipts);
+    });
+
+    test("a download and a cached reply recheck current authority; neither is served from the past", async () => {
+      // MEMBER can read the project, so it gets a ticket; losing membership closes the download.
+      const ticket = await a.console.tickets.issue(MEMBER, key(), a.artifactId, "/download");
+      const token = new URL(ticket.url, "http://x").searchParams.get("ticket")!;
+      expect((await a.console.tickets.download(MEMBER, key(), a.artifactId, token)).artifactId).toBe(a.artifactId);
+      await a.fixture.db.execute(sql`DELETE FROM project_members WHERE id='console-member-member'`);
+      try {
+        await expect(a.console.tickets.download(MEMBER, key(), a.artifactId, token)).rejects.toMatchObject({ code: "factory_forbidden" });
+      } finally {
+        await a.fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('console-member-member', ${PROJECT}, ${MEMBER.id}, 'viewer')`);
+      }
+      // A share recorded under OWNER's key is not replayed to MEMBER, who lacks the authority to share.
+      const cached = await stage(11, "cached share");
+      const body = { targetProjectId: OTHER_PROJECT, mediaType: "text/plain" };
+      await a.console.tickets.share(OWNER, key(), cached.artifactId, body, "share-cached");
+      await expect(a.console.tickets.share(MEMBER, key(), cached.artifactId, body, "share-cached")).rejects.toMatchObject({ code: "factory_forbidden" });
+      await expect(a.console.tickets.unshare(MEMBER, key(), cached.artifactId, OTHER_PROJECT, "unshare-cached")).rejects.toMatchObject({ code: "factory_forbidden" });
+      await a.console.tickets.unshare(OWNER, key(), cached.artifactId, OTHER_PROJECT, "unshare-cached");
+      await expect(a.console.tickets.unshare({ ...OWNER, authentication: "api-key" }, key(), cached.artifactId, OTHER_PROJECT, "unshare-cached")).rejects.toMatchObject({ code: "factory_human_required" });
+    });
+
+    test("a read-sharing grant carries no release authority and no other access to the source", async () => {
+      await a.fixture.db.execute(sql`INSERT INTO project_members(id,project_id,user_id,role) VALUES ('console-outsider-other', ${OTHER_PROJECT}, ${OUTSIDER.id}, 'viewer')`);
+      try {
+        const shared = await stage(12, "shared only");
+        await a.console.tickets.share(OWNER, key(), shared.artifactId, { targetProjectId: OTHER_PROJECT, mediaType: "text/plain" }, "share-non-transfer");
+        const query = { digest: shared.digest, encodedBytes: shared.encodedBytes, mediaType: "text/plain" };
+        // The target reader gets exactly the shared bytes...
+        expect(new TextDecoder().decode((await a.console.tickets.readShared(OUTSIDER, OTHER_PROJECT, shared.artifactId, query)).bytes)).toBe("shared only");
+        // ...and nothing that acts on the source: no inspection, ticket, onward share, or release authority.
+        await expect(a.console.inspections.inspect(OUTSIDER, key())).rejects.toMatchObject({ code: "factory_forbidden" });
+        await expect(a.console.tickets.issue(OUTSIDER, key(), shared.artifactId, "/download")).rejects.toMatchObject({ code: "factory_forbidden" });
+        await expect(a.console.tickets.share(OUTSIDER, key(), shared.artifactId, { targetProjectId: OTHER_PROJECT, mediaType: "text/plain" }, "share-onward")).rejects.toMatchObject({ code: "factory_forbidden" });
+        await expect(a.application.grants.authorize(OUTSIDER, PROJECT, "factory.release")).rejects.toMatchObject({ code: "factory_forbidden" });
+        await expect(a.application.grants.authorize(OUTSIDER, OTHER_PROJECT, "factory.release")).rejects.toMatchObject({ code: "factory_forbidden" });
+        await expect(a.application.releaseAuthority.publishTrust(OUTSIDER, { projectId: PROJECT, expectedRevision: 0, packageLock: packageReference, validatorTrustDigest: sha("validator-trust") } as never, "release-non-transfer")).rejects.toThrow();
+        await a.console.tickets.unshare(OWNER, key(), shared.artifactId, OTHER_PROJECT, "unshare-non-transfer");
+      } finally {
+        await a.fixture.db.execute(sql`DELETE FROM project_members WHERE id='console-outsider-other'`);
+      }
     });
   });
 }
