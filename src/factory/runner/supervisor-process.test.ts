@@ -619,8 +619,18 @@ describe("the host services this supervisor publishes", () => {
         if (attempts === 1) throw new Error("address in use");
         return { stop: () => {} };
       },
-      createReadiness: () => ({ write: async (update) => { published.push(`${update.lifecycle}:${update.errorCode ?? ""}`); return { ...update } as never; } }),
-    }, 6));
+      // The observer and the publisher share the heartbeat wait, so a count of
+      // waits says nothing about which loop has run: stop on the publication the
+      // test is about instead — `ready` after the degradation it recovers from.
+      createReadiness: () => ({
+        write: async (update) => {
+          published.push(`${update.lifecycle}:${update.errorCode ?? ""}`);
+          if (update.lifecycle === "ready" && published.includes("degraded:host_services_unavailable")) abortController?.abort();
+          return { ...update } as never;
+        },
+      }),
+      // A fail-safe only: code that never recovers ends here and fails the assertions below instead of hanging.
+    }, 1_000));
 
     expect(attempts).toBeGreaterThan(1);
     expect(published.some((entry) => entry === "degraded:host_services_unavailable")).toBe(true);
