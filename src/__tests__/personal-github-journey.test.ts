@@ -8,7 +8,7 @@ import type { LocalSandboxDriver, SandboxController } from "../runtime/sandbox/c
 
 mockDbConnection();
 const { configureSandboxController } = await import("../runtime/sandbox/controller");
-const { startAuthorization, completeAuthorization } = await import("../integrations/github-user/broker");
+const { startAuthorization, completeAuthorization, startDeviceAuthorization, pollDeviceAuthorization, checkRepository } = await import("../integrations/github-user/broker");
 const { importApprovedRepository, getPersonalPrForRun, preparePersonalPr, confirmPersonalPr, getPersonalPrForReviewId } = await import("../integrations/github-personal-prs/service");
 
 const originalFetch = globalThis.fetch;
@@ -22,13 +22,40 @@ const oldBlob = blobSha(oldBytes);
 const reply = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
 let publishedBranch = "";
 let publishedPrs = 0;
+let devicePolls = 0;
+let deviceRefreshes = 0;
 
-function githubTransport(): void {
+function githubTransport(mode: "oauth" | "device"): void {
   globalThis.fetch = Object.assign(async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
     const url = new URL(String(input));
+    const requestedHost = new Headers(init?.headers).get("host");
+    if (requestedHost !== "github.com" && requestedHost !== "api.github.com") throw new Error(`Unexpected credential destination: ${requestedHost}`);
     const path = `${url.pathname}${url.search}`;
     const method = init?.method ?? "GET";
-    if (path === "/login/oauth/access_token") return reply({ access_token: "user-access", refresh_token: "user-refresh", expires_in: 28800, refresh_token_expires_in: 15897600 });
+    if (path === "/login/device/code" && mode === "device") {
+      const fields = new URLSearchParams(String(init?.body));
+      expect(fields.get("client_id")).toBe("client");
+      expect(fields.has("client_secret")).toBe(false);
+      return reply({ device_code: "device-code-12345678901234567890", user_code: "ABCD-EFGH", verification_uri: "https://github.com/login/device", expires_in: 900, interval: 5 });
+    }
+    if (path === "/login/oauth/access_token") {
+      const fields = new URLSearchParams(String(init?.body));
+      if (mode === "device") {
+        expect(fields.has("client_secret")).toBe(false);
+        if (fields.get("grant_type") === "urn:ietf:params:oauth:grant-type:device_code") {
+          devicePolls++;
+          expect(fields.get("device_code")).toBe("device-code-12345678901234567890");
+          return reply({ access_token: "user-access", refresh_token: "user-refresh", expires_in: 28800, refresh_token_expires_in: 15897600 });
+        }
+        if (fields.get("grant_type") === "refresh_token") {
+          deviceRefreshes++;
+          expect(fields.get("refresh_token")).toBe("user-refresh");
+          return reply({ access_token: "refreshed-access", refresh_token: "refreshed-refresh", expires_in: 28800, refresh_token_expires_in: 15897600 });
+        }
+        throw new Error(`Unexpected device token grant: ${fields.get("grant_type")}`);
+      }
+      return reply({ access_token: "user-access", refresh_token: "user-refresh", expires_in: 28800, refresh_token_expires_in: 15897600 });
+    }
     const body = init?.body ? JSON.parse(String(init.body)) as Record<string, any> : {};
     if (path === "/user") return reply({ id: 71, login: "owner" });
     if (path.startsWith("/user/installations?")) return reply({ total_count: 1, installations: [{ id: 50, app_id: 123, permissions: { contents: "write", pull_requests: "write" } }] });
@@ -99,21 +126,56 @@ async function controllerFixture(ownerId: string): Promise<{ controller: Sandbox
   return { controller, restart, files, installationId };
 }
 
-test("owner imports, reviews a completed private run, publishes once, and excludes another member", async () => {
+async function exerciseJourney(mode: "oauth" | "device") {
   await setupTestDb();
-  githubTransport();
+  publishedBranch = "";
+  publishedPrs = 0;
+  devicePolls = 0;
+  deviceRefreshes = 0;
+  githubTransport(mode);
   process.env.EZ_GITHUB_INSTANCE_ID = "journey-instance";
   process.env.EZ_GITHUB_APP_ID = "123";
   process.env.EZ_GITHUB_APP_SLUG = "journey-app";
   process.env.EZ_GITHUB_APP_CLIENT_ID = "client";
-  process.env.EZ_GITHUB_APP_CLIENT_SECRET = "secret";
-  process.env.EZ_GITHUB_APP_CALLBACK_URL = "https://app.example/api/github/callback";
+  process.env.EZ_GITHUB_AUTH_MODE = mode;
+  if (mode === "oauth") {
+    process.env.EZ_GITHUB_APP_CLIENT_SECRET = "secret";
+    process.env.EZ_GITHUB_APP_CALLBACK_URL = "https://app.example/api/github/callback";
+  } else {
+    delete process.env.EZ_GITHUB_APP_CLIENT_SECRET;
+    delete process.env.EZ_GITHUB_APP_CALLBACK_URL;
+  }
   const db = getTestDb();
   const ownerId = crypto.randomUUID(); const otherId = crypto.randomUUID(); const sessionId = crypto.randomUUID();
   await db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${ownerId},'journey-owner@example.test','hash','Owner','member'),(${otherId},'journey-other@example.test','hash','Other','admin')`);
   await db.execute(sql`INSERT INTO sessions(id,user_id,token_hash,expires_at) VALUES (${sessionId},${ownerId},${crypto.randomUUID()},NOW()+INTERVAL '1 hour')`);
-  const { authorizeUrl } = await startAuthorization({ userId: ownerId, sessionId });
-  await completeAuthorization({ userId: ownerId, sessionId, state: new URL(authorizeUrl).searchParams.get("state")!, code: "code" });
+  if (mode === "oauth") {
+    const { authorizeUrl } = await startAuthorization({ userId: ownerId, sessionId });
+    await completeAuthorization({ userId: ownerId, sessionId, state: new URL(authorizeUrl).searchParams.get("state")!, code: "code" });
+  } else {
+    const attempt = await startDeviceAuthorization({ userId: ownerId, sessionId });
+    expect(attempt).toMatchObject({ userCode: "ABCD-EFGH", verificationUri: "https://github.com/login/device", intervalSeconds: 5 });
+    expect(JSON.stringify(attempt)).not.toContain("device-code-12345678901234567890");
+    const [stored] = (await db.execute(sql`SELECT device_ciphertext FROM github_user_device_attempts WHERE attempt_id=${attempt.attemptId}`)).rows as Array<{ device_ciphertext: string }>;
+    expect(stored.device_ciphertext).not.toContain("device-code-12345678901234567890");
+    await expect(pollDeviceAuthorization({ userId: otherId, sessionId, attemptId: attempt.attemptId })).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
+    const otherSessionId = crypto.randomUUID();
+    await db.execute(sql`INSERT INTO sessions(id,user_id,token_hash,expires_at) VALUES (${otherSessionId},${otherId},${crypto.randomUUID()},NOW()+INTERVAL '1 hour')`);
+    await expect(pollDeviceAuthorization({ userId: otherId, sessionId: otherSessionId, attemptId: attempt.attemptId })).rejects.toMatchObject({ code: "DEVICE_ATTEMPT_UNAVAILABLE" });
+    await expect(pollDeviceAuthorization({ userId: ownerId, sessionId: otherSessionId, attemptId: attempt.attemptId })).rejects.toMatchObject({ code: "SESSION_EXPIRED" });
+    expect((await pollDeviceAuthorization({ userId: ownerId, sessionId, attemptId: attempt.attemptId })).status).toBe("pending");
+    expect(devicePolls).toBe(0);
+    await db.execute(sql`UPDATE github_user_device_attempts SET next_poll_at=NOW()-INTERVAL '1 second' WHERE attempt_id=${attempt.attemptId}`);
+    expect((await pollDeviceAuthorization({ userId: ownerId, sessionId, attemptId: attempt.attemptId })).status).toBe("connected");
+    expect(devicePolls).toBe(1);
+    const [connection] = (await db.execute(sql`SELECT auth_flow,access_ciphertext,refresh_ciphertext FROM github_user_connections WHERE user_id=${ownerId}`)).rows as Array<{ auth_flow: string; access_ciphertext: string; refresh_ciphertext: string }>;
+    expect(connection.auth_flow).toBe("device");
+    expect(connection.access_ciphertext).not.toContain("user-access");
+    expect(connection.refresh_ciphertext).not.toContain("user-refresh");
+    await db.execute(sql`UPDATE github_user_connections SET access_expires_at=NOW()-INTERVAL '1 second' WHERE user_id=${ownerId}`);
+    expect((await checkRepository({ userId: ownerId, repositoryId: 42 })).status).toBe("ready");
+    expect(deviceRefreshes).toBe(1);
+  }
   const { controller, restart, files, installationId } = await controllerFixture(ownerId);
   const created = await controller.createSandboxProject(ownerId, { name: "Journey", idempotencyKey: "create", providerInstallationId: installationId, providerId: "local", config: {}, limits, privateOwnerOnly: true, privateInitializing: true });
   const imported = await importApprovedRepository(ownerId, { projectId: created.projectId, repositoryId: 42, baseRef: "main", idempotencyKey: "import" });
@@ -142,6 +204,9 @@ test("owner imports, reviews a completed private run, publishes once, and exclud
   const claims = (await db.execute(sql`SELECT kind,state FROM github_user_effect_claims WHERE user_id=${ownerId} ORDER BY kind`)) as { rows: Array<{ kind: string; state: string }> };
   expect(claims.rows).toEqual([{ kind: "import", state: "completed" }, { kind: "publish", state: "completed" }]);
   expect(publishedPrs).toBe(1);
-});
+}
+
+test("OAuth owner imports, reviews, publishes once, and excludes another member", () => exerciseJourney("oauth"));
+test("device owner connects without a secret, refreshes locally, imports, reviews and publishes once", () => exerciseJourney("device"));
 
 afterAll(async () => { globalThis.fetch = originalFetch; await closeTestDb(); });
