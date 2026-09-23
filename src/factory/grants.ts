@@ -4,6 +4,7 @@ import { releaseRows as rows } from "../db/queries/extension-releases";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestObject } from "../extensions/v4/blobs";
 import { FactoryRecords, assertFactoryIdentity } from "./records";
+import { decodeFactoryKeyset, encodeFactoryKeyset } from "./keyset-cursor";
 import { FactoryMutations } from "./mutations";
 import type { FactoryServiceTokenIdentity } from "../auth/factory-service-token";
 import { assertFactoryServiceCredentialInTransaction } from "./service-credentials";
@@ -233,20 +234,13 @@ export class FactoryGrants {
   }
 
   private encodeCursor(record: Pick<FactoryGrantRecord, "principalKind" | "principalId" | "action">): string {
-    return Buffer.from(JSON.stringify([record.principalKind, record.principalId, record.action]), "utf8").toString("base64url");
+    return encodeFactoryKeyset([record.principalKind, record.principalId, record.action]);
   }
 
   private decodeCursor(cursor: string | undefined): { kind: FactoryPrincipal["kind"]; id: string; action: FactoryAction } | null {
     if (cursor === undefined) return null;
-    if (cursor.length < 1 || cursor.length > 2_048) throw new FactoryGrantError("factory_page_invalid");
-    try {
-      const parsed = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
-      if (!Array.isArray(parsed) || parsed.length !== 3 || (parsed[0] !== "user" && parsed[0] !== "service") || typeof parsed[1] !== "string" || !parsed[1] || !FACTORY_ACTIONS.includes(parsed[2])) throw new Error("invalid");
-      const canonical = Buffer.from(JSON.stringify(parsed), "utf8").toString("base64url");
-      if (canonical !== cursor) throw new Error("invalid");
-      return { kind: parsed[0], id: parsed[1], action: parsed[2] };
-    } catch {
-      throw new FactoryGrantError("factory_page_invalid");
-    }
+    const parsed = decodeFactoryKeyset(cursor, 3);
+    if (parsed === null || (parsed[0] !== "user" && parsed[0] !== "service") || typeof parsed[1] !== "string" || !parsed[1] || !FACTORY_ACTIONS.includes(parsed[2] as FactoryAction)) throw new FactoryGrantError("factory_page_invalid");
+    return { kind: parsed[0], id: parsed[1], action: parsed[2] as FactoryAction };
   }
 }

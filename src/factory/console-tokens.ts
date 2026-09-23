@@ -29,6 +29,14 @@ const TOKEN_PATTERN = /^[A-Za-z0-9_-]{1,1400}\.[A-Za-z0-9_-]{43}$/;
  * Signs short JSON claims for one named purpose. The purpose is bound into the
  * MAC, so a token minted for one use (an event cursor) never verifies as
  * another (an artifact ticket).
+ *
+ * Why not the installation JWT helpers (`signInstallationToken`, used by the
+ * attempt and service tokens): those take expiry from wall-clock seconds and
+ * enforce their own claim allow-lists. A cursor or ticket expires in
+ * milliseconds against the console service's injected clock, which is what
+ * makes the 410 and ticket-expiry answers deterministic under test, and it is
+ * verified on every stream poll. The key is tenant-salted HKDF over the same
+ * installation secret, so it adds no new secret to provision.
  */
 export class FactoryConsoleSigner {
   constructor(private readonly key: Uint8Array) {

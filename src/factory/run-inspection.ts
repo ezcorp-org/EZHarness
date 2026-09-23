@@ -11,6 +11,7 @@ import { FactoryConsoleError, type FactoryEventCursors } from "./console-tokens"
 import type { FactoryGrants, FactoryPrincipal } from "./grants";
 import { assertFactoryIdentity, encodeFactoryPayload, type FactoryRunKey } from "./records";
 import { FactoryRunLifecycleError, type FactoryRunLifecycle } from "./run-lifecycle";
+import { decodeFactoryKeyset, encodeFactoryKeyset } from "./keyset-cursor";
 import { FACTORY_RUN_STATUS_CONSUMER_ID } from "./run-transition-projector";
 import { FactoryTrustedValidatorError, readFactoryValidatorMaterialInTransaction, type FactoryValidatorMaterialSelector } from "./validator-materials";
 
@@ -30,22 +31,17 @@ function count(value: unknown): number {
 }
 function optional<T>(value: T | null | undefined): T | undefined { return value === null || value === undefined ? undefined : value; }
 
-/** An opaque keyset position. It carries only the ordering columns of the last row served. */
-function encodeKeyset(values: Keyset): string { return Buffer.from(JSON.stringify(values)).toString("base64url"); }
-function parseKeyset(cursor: string): unknown {
-  try { return JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")) as unknown; } catch { return null; }
-}
 /** A malformed position is refused, never partially honoured. */
 function decodeKeyset(cursor: string | undefined, arity: number): Keyset | null {
   if (cursor === undefined) return null;
-  const parsed = parseKeyset(cursor);
-  if (Array.isArray(parsed) && parsed.length === arity && parsed.every(item => typeof item === "string" || Number.isSafeInteger(item))) return parsed as Keyset;
-  throw new FactoryConsoleError("factory_page_invalid");
+  const parsed = decodeFactoryKeyset(cursor, arity);
+  if (parsed === null) throw new FactoryConsoleError("factory_page_invalid");
+  return parsed as Keyset;
 }
 
 function page<T>(items: readonly T[], limit: number, position: (item: T) => Keyset): FactoryApiPage<T> {
   const served = items.slice(0, limit);
-  return items.length > limit ? { items: served, nextCursor: encodeKeyset(position(served.at(-1)!)) } : { items: served };
+  return items.length > limit ? { items: served, nextCursor: encodeFactoryKeyset(position(served.at(-1)!)) } : { items: served };
 }
 
 function micros(value: unknown): bigint {
