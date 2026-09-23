@@ -657,5 +657,14 @@
   "commit-with-postgres.sh pipes hook output through grep | head -6; with 5 staged PG suites git commit died on SIGPIPE (commit exit 1, nothing committed); committed with w00/bin/commit-with-postgres-logged.sh (full hook log, 5 suites 0 fail)",
   "stray-file check after the w09d sweep mistake: no untracked or modified file; nothing changed around 14:33"
  ],
- "standingSteps": "df 169G at start, 143G at resume; touch 138678 and 139481 entries, 0 errors; inputs present"
+ "standingSteps": "df 169G at start, 143G at resume; touch 138678 and 139481 entries, 0 errors; inputs present",
+ "computeAdmissionsFailure": {
+  "failedLeg": "w18a2merge2 compute-coverage, 2026-09-23T20:22:10Z-20:22:28Z, tests/postgres/factory-compute-admissions.test.ts: 2 fail (dispatchNext returned another reservation than the test enlisted)",
+  "isolation": "per run: beforeAll creates its own product database (factory_proof_<uuid>, helpers/factory-test-database.ts) and its own pool database (factory_pool_<uuid>, helpers/factory-pool-database.ts) on the proof PostgreSQL and drops both afterwards; the fixed tenant id \"compute-http-tenant\" lives only inside those databases. No table is shared with another job.",
+  "otherJobsDuringLeg": "none found. The integrator held the heavy lock for the whole leg (runner pass 2). No other agent wrote a file under /tmp/factory-platform-evidence in 20:21:10Z-20:23:30Z (weak evidence: a later write would hide an earlier one). The proof PostgreSQL log for 20:21:30Z-20:23:00Z shows only immediate checkpoints (CREATE/DROP DATABASE) and one check-constraint error at 20:21:57Z from the pool leg's own negative case; it names no other client.",
+  "reproducesAlone": "no: 3 of 3 pass alone (22:37Z under the lock; 23:17Z and 23:17:53Z outside the lock, same URL construction as the runner); runner pass 3 compute-coverage exit 0",
+  "reading": "not shared-state interference and not a regression reproduced on staging; cause not established. The case depends on scheduling order (the file says so) and the host load average was about 20-26 that evening."
+ },
+ "supervisorProcessFlake": "pre-existing (fails at the base without the merge); owned by W16; fixed on wp/w16-provisioning at 88ee09433 (the fixture now aborts on \"ready\" after degradation, with a 1,000-wait fail-safe; W16: old fixture 75 of 240 red at 12-way load, new 0 of 240); lands with the W16 merge",
+ "crapFollowUp": "recorded, not blocking; W18a-3 (w18a2-quality) takes initPglite coverage and loadExisting complexity from integ/w00 at 8949b300b"
 }
