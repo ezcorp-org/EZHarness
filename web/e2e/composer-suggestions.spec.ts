@@ -184,7 +184,10 @@ test.describe("Composer suggestions", () => {
 		const form = page.locator("form");
 		await expect(form).toContainText("analyzer");
 		await expect(form).toContainText("scan");
-		await expect(form.locator("#field-target")).toBeVisible();
+		const target = form.locator("#field-target");
+		await expect(target).toBeVisible();
+		await target.fill("src");
+		await expect(target).toHaveValue("src");
 
 		await captureEvidence(page, testInfo, "composer-suggestion-chip-param-form");
 	});
