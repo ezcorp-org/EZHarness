@@ -64,6 +64,34 @@ if incus image alias list --project default --format json | python3 -c 'import j
 fi
 
 incus launch "$base_fingerprint" "$name" --project default --storage "$storage_pool" --network "$network_name"
+if ! timeout 75s incus exec "$name" --project default -- sh -eu -c '
+  bridge=$1
+  set --
+  for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+    if [ -f "$source" ]; then set -- "$@" "$source"; fi
+  done
+  if [ "$#" -eq 0 ]; then echo "guest has no APT source files; inspect its package sources before building" >&2; exit 1; fi
+  apt_uri=$(awk '\''$1 == "URIs:" { print $2; exit } $1 == "deb" { for (i = 2; i <= NF; i++) if ($i ~ /^https?:\/\//) { print $i; exit } }'\'' "$@")
+  case "$apt_uri" in
+    http://*|https://*) apt_host=${apt_uri#*://}; apt_host=${apt_host%%/*}; apt_host=${apt_host##*@}; apt_host=${apt_host%%:*} ;;
+    *) echo "guest has no configured HTTP APT mirror; inspect its package sources before building" >&2; exit 1 ;;
+  esac
+  if [ -z "$apt_host" ]; then echo "guest APT mirror host is empty; inspect its package sources before building" >&2; exit 1; fi
+  has_ipv4() { ip -4 -o addr show dev eth0 scope global 2>/dev/null | grep --line-buffered -Eq " inet [0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+/"; }
+  attempt=1
+  while [ "$attempt" -le 12 ]; do
+    if has_ipv4 && timeout 3s getent ahostsv4 "$apt_host" >/dev/null; then exit 0; fi
+    if [ "$attempt" -eq 12 ]; then break; fi
+    sleep 2
+    attempt=$((attempt + 1))
+  done
+  if ! has_ipv4; then echo "guest has no global IPv4 on eth0; check DHCP and host firewall rules for reviewed bridge $bridge" >&2; exit 1; fi
+  echo "guest DNS cannot resolve configured APT mirror $apt_host; check DNS and host firewall rules for reviewed bridge $bridge" >&2
+  exit 1
+' sh "$network_name"; then
+  echo "guest network is not ready on reviewed bridge $network_name; image build stopped before APT" >&2
+  exit 1
+fi
 incus file push "$helper_file" "$name/root/ezh-helper.py" --project default
 incus file push "$docker_tar" "$name/root/ezh-docker.tgz" --project default
 incus file push "$compose_binary" "$name/root/ezh-compose" --project default

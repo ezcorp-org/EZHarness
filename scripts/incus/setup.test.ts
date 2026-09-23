@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INCUS_PROVIDER_ID, incusManifest } from "../../extensions/incus-sandbox/manifest";
@@ -317,6 +317,39 @@ exit 0
     expect(launchArgs[launchArgs.indexOf("--storage") + 1]).toBe(checkedInRecipe.storage.name);
     expect(launchArgs).toContain("--network");
     expect(launchArgs[launchArgs.indexOf("--network") + 1]).toBe(checkedInRecipe.network.name);
+
+    const capture = join(directory, "build-calls");
+    await writeFile(incus, `#!/bin/sh
+case "$1" in
+  image) printf '[]\\n';;
+  launch|file|delete) exit 0;;
+  exec)
+    shift
+    while [ "$1" != -- ]; do shift; done
+    shift
+    if [ "$1" = env ]; then printf '%s\\n' "$*" >> "$EZH_BUILD_CAPTURE"; exit 39; fi
+    guest_script=$(printf '%s\\n' "$4" | sed "s#/etc/apt#$EZH_APT_ROOT#g")
+    sh -eu -c "$guest_script" sh "$6";;
+esac
+`);
+    const aptRoot = join(directory, "apt");
+    await mkdir(join(aptRoot, "sources.list.d"), { recursive: true });
+    await writeFile(join(aptRoot, "sources.list.d", "debian.sources"), "Types: deb\nURIs: http://mirror.example/debian\nSuites: stable\nComponents: main\n");
+    await writeFile(join(directory, "ip"), "#!/bin/sh\nif [ \"$EZH_IPV4\" = yes ]; then printf '2: eth0 inet 10.173.0.2/24 scope global eth0\\n'; fi\n");
+    await writeFile(join(directory, "getent"), "#!/bin/sh\n[ \"$EZH_DNS\" = yes ]\n");
+    await writeFile(join(directory, "sleep"), "#!/bin/sh\nexit 0\n");
+    await Promise.all(["ip", "getent", "sleep"].map(file => chmod(join(directory, file), 0o755)));
+    const networkRun = (ipv4: string, dns: string) => Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args],
+      { env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}`, EZH_IPV4: ipv4, EZH_DNS: dns, EZH_BUILD_CAPTURE: capture, EZH_APT_ROOT: aptRoot } });
+    const noIpv4 = networkRun("no", "yes");
+    expect(noIpv4.stderr.toString()).toContain(`no global IPv4 on eth0; check DHCP and host firewall rules for reviewed bridge ${checkedInRecipe.network.name}`);
+    expect(noIpv4.stderr.toString()).toContain("image build stopped before APT");
+    const noDns = networkRun("yes", "no");
+    expect(noDns.stderr.toString()).toContain(`DNS cannot resolve configured APT mirror mirror.example; check DNS and host firewall rules for reviewed bridge ${checkedInRecipe.network.name}`);
+    expect(await Bun.file(capture).exists()).toBe(false);
+    const ready = networkRun("yes", "yes");
+    expect(ready.exitCode).toBe(39);
+    expect(await readFile(capture, "utf8")).toContain("apt-get update");
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
