@@ -352,7 +352,9 @@ export async function startFactoryRuntime(
         factory: {
           tenantId: config.tenantId,
           running: workerSet.workers.names(),
-          held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage })),
+          // The reason travels too: "held" alone cannot tell an operator whether
+          // to declare something, repair something, or wait for a package.
+          held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage, reason: worker.reason })),
           ...(dependencies.providerReadiness === undefined ? {} : { providerReadiness: dependencies.providerReadiness }),
           ...(dependencies.guestBrokerReadiness === undefined ? {} : { guestBroker: dependencies.guestBrokerReadiness }),
         },

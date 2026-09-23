@@ -1,0 +1,19 @@
+Coordinator state at the weekly usage limit, 2026-09-23 15:10 UTC (agents resume after 2026-09-25 21:00 America/New_York)
+
+STAGING: integ/w00 at ceb995563 with the W09d merge IN PROGRESS in .worktrees/w00-integration (MERGE_HEAD d41f16a1d, 34 staged files, no conflicts reported). The integrator was waiting for the heavy lock to run the merge checks (C13 inventory, 21 focused suites, 7 PostgreSQL producers, orchestrator leg, 4 Podman suites, one real-server pass) before committing. On resume the integrator continues that task; nothing else may touch staging until the merge commits or is aborted.
+FEAT: 94fb95b6a (last green combined run wave4e).
+
+BRANCH HEADS AND NEXT STEP
+- wp/w09d-validators d41f16a1d: ACCEPT (w09d-validator-check); merge in progress as above. After it lands: message w09c-profiles to merge integ/w00, flip its pinned cancel-node assertion, run the final three published-release passes, report; then validate W09c (Opus) and merge.
+- wp/w01g-staging b6fee475a: round 4 (F1 error classes, F2 assertions, F3 host-attempt binding; F5 ruled as recorded stage-2c item) in progress; passes were queued. On resume: finish passes and sweep, report head; w01g-validator re-checks; merge.
+- wp/w09c-profiles 7c6c786c3: waiting for the W09d-merged message (delivery and release application composed; harness ready for W15's fields).
+- wp/w14-console 19d324530: rebuilt without W15 (d6f143ccb) plus round-2 work in progress (static-review fixes H1, M1, M2, L4, L5, L7, DRY; proof-map gaps 1 to 13; the validator's four extra items). w18b-validator holds for the round-2 head, with a prepared clone under /tmp/factory-platform-evidence/w14-validation/. Restore-signing surface waits for W15's merge.
+- wp/w15-retention ef958511b: round 2 done; post-merge sweep at ef958511b was running (coverage gates passed; static gates next). On resume: finish the sweep, refresh receipts, report; w15-validator re-checks H1 to H3, M1 to M3, L1, M4; merge; then message W14 (restore signing) and W16 (temporalHttp, archive credentials, pool slot routes in startup documents).
+- wp/w16-provisioning 616268ca4: live attempt 12 on the shared pool/supervisor model was running (two installations reached invitation_issued in run 11); four static-review defects were sent (vector extension as admin, projects/home dirs, candidate rebuild, teardown of credential files). On resume: finish the live hold, report; validate (Opus); merge.
+- wp/w18a2-quality 2cf473977 (source c2ef2fac3): w18a2-validator had all light checks green and six Podman suites green; the full pool leg was queued; report draft written. On resume: finish the pool leg, send the verdict; merge.
+- wp/w02c-quarantine 1d06a7394: fence built with a real-PostgreSQL suite registered; second-version passes pending (a run launched after the quarantine lift). On resume: finish passes and sweep, report; validate; merge.
+
+AFTER THIS BATCH: combined run wave4f on staging (integrator brief), fast-forward feat; then W17 (brief w17.md) from the new head; the kernel backlog (failed Release node cancel-node), test-hygiene backlog, the W02/W14 package-preparation route, FACTORY_TEMPORAL_CLI on the hosted runner; W18 final gate, W19 campaign, W20 audit.
+
+HOST: disk 133 GB free at 15:10 UTC (was 206 GB after the prune; agents' runs consume fast); the integrator stops under 100 GB. The daily tmpfiles clean removes /tmp entries older than ten days; timestamps under /tmp/factory-platform-evidence and /tmp/factory-tools were refreshed 2026-09-23 08:24 UTC; the durable fix (tmpfiles exclusion) is the user's. Package worktrees resolve under /home/dev/work/EZCorp/EZHarness/.worktrees/.
+MODEL NOTE: every subagent is spawned with the Agent tool's `opus` option (the latest Opus it offers; no separate 5.5 option exists there); none uses Fable.

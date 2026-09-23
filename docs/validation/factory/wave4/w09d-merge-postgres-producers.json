@@ -1,0 +1,42 @@
+{
+  "receipt": "postgres-producers",
+  "producingCommit": "ceb995563bbce6e1c3f53f2755ca2b9239831f88",
+  "allPassed": true,
+  "files": [
+    {
+      "file": "./tests/postgres/factory-run-lifecycle.test.ts",
+      "exitCode": "0",
+      "counts": "66 pass  0 fail"
+    },
+    {
+      "file": "./tests/postgres/factory-run-lifecycle-s3.test.ts",
+      "exitCode": "0",
+      "counts": "66 pass  0 fail"
+    },
+    {
+      "file": "./tests/postgres/factory-validator-materials.test.ts",
+      "exitCode": "0",
+      "counts": "9 pass  0 fail"
+    },
+    {
+      "file": "./tests/postgres/factory-validator-multiclaim.test.ts",
+      "exitCode": "0",
+      "counts": "3 pass  0 fail"
+    },
+    {
+      "file": "./tests/postgres/factory-boot.test.ts",
+      "exitCode": "0",
+      "counts": "1 pass  0 fail"
+    },
+    {
+      "file": "./tests/postgres/factory-schema.test.ts",
+      "exitCode": "0",
+      "counts": "2 pass  0 fail"
+    },
+    {
+      "file": "./tests/postgres/factory-private-service.test.ts",
+      "exitCode": "0",
+      "counts": "5 pass  0 fail"
+    }
+  ]
+}

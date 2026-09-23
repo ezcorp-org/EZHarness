@@ -41,7 +41,11 @@ import { factoryReleaseFenceReader } from "./release-fence";
 import { FactoryS3PublicationProvenance } from "./release-s3-scope";
 import { FactoryReleases } from "./releases";
 import { FactoryNotificationDelivery } from "./notification-delivery";
-import { FactoryTrustedValidators } from "./validator-materials";
+import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime } from "./validator-materials";
+import { loadFactoryValidatorRuntimes } from "./validator-declaration";
+import { composeFactoryValidators, factoryTrustedValidatorsFromDeclaration, type FactoryComposedValidators } from "./validator-composition";
+import { factoryValidatorAcceptanceRefusal } from "./validator-acceptance";
+import type { FactoryPrivateCommandHandler } from "./private-commands";
 import { factoryTenantProjectIds, factoryTenantProjects } from "./tenant-projects";
 import { FactoryRecords } from "./records";
 import { createFactoryProviderBroker, factoryProviderReadiness, factoryProviderReadinessRecord, type FactoryProviderPin } from "../providers/factory-broker";
@@ -289,13 +293,13 @@ export function factoryChildSettlementDriver(
  * why each is the production one, not a stand-in:
  *
  * - `FactoryTrustedValidators` satisfies BOTH of assurance's validator seams —
- *   the gateway and the current-candidate resolver — so it is constructed once
- *   and passed twice rather than duplicated.
- * - The runtimes iterable is empty because a trusted validator runtime is a
- *   pinned deployment fact and the startup document declares none. An empty set
- *   is not a weakened check: `resolveValidatorInTransaction` then finds no
- *   runtime and refuses, which is the correct answer for an installation that
- *   has pinned none.
+ *   the gateway and the current-candidate resolver — so it is passed twice
+ *   rather than duplicated. It is built by `installationTrustedValidators` from
+ *   the document's `validators` declaration, and the same instance serves the
+ *   scheduler and the attempt settlement, so every judgement reads one runtime
+ *   set. An installation that declares none gets a gateway with none, and
+ *   `resolveValidatorInTransaction` refuses, which is the correct answer for an
+ *   installation that has pinned no judge.
  * - The release fence reader is the composition-owned one, which is where the
  *   freeze puts it.
  * - The archive writer's publication set comes from `FactoryS3PublicationProvenance`,
@@ -309,6 +313,12 @@ export function factoryChildSettlementDriver(
  * hold by name, which is visible in the readiness report, instead of taking the
  * whole installation down with them.
  */
+interface FactoryInstallationRelease {
+  readonly releases: FactoryReleases;
+  readonly assurance: FactoryAssurance;
+  readonly destinations?: FactoryComposedReleaseDestinations;
+}
+
 async function installationReleases(
   config: FactoryStartupConfig,
   database: TransactionalDb,
@@ -316,9 +326,9 @@ async function installationReleases(
   artifacts: FactoryArtifacts,
   stores: Pick<FactoryApplication, "grants" | "runs" | "journal" | "releaseAuthority">,
   report: (role: string, error: unknown) => void,
-): Promise<{ readonly releases: FactoryReleases; readonly assurance: FactoryAssurance; readonly destinations?: FactoryComposedReleaseDestinations } | undefined> {
+  validators: FactoryTrustedValidators,
+): Promise<FactoryInstallationRelease | undefined> {
   try {
-    const validators = new FactoryTrustedValidators(database, config.tenantId, stores.runs, stores.journal, artifacts, stores.releaseAuthority, []);
     const assurance = new FactoryAssurance(database, config.tenantId, stores.grants, validators, factoryReleaseFenceReader(stores.runs), validators);
     const provenance = new FactoryS3PublicationProvenance({ database, tenantId: config.tenantId });
     const reader = new FactoryScopedMaterials({ database, artifacts, blobs });
@@ -423,6 +433,91 @@ export async function composeFactoryProviderBroker(
   return Object.freeze({ readiness: record, broker: createFactoryProviderBroker({ pin, ...options }) });
 }
 
+/** The validator gateway, and why its roles hold when they do. */
+export interface FactoryInstallationValidators {
+  readonly validators: FactoryTrustedValidators;
+  /** The declared runtime names, empty when none composed. */
+  readonly declared: readonly string[];
+  /** Present when a declaration exists and could not be composed. */
+  readonly held?: string;
+}
+
+/**
+ * The trusted validator gateway, from the document's `validators` declaration.
+ *
+ * A declaration that does not load is reported under `validator-declaration`
+ * by name — missing, shared, tampered, or describing another runner — and the
+ * gateway is built with NO runtime, never with the ones that did load: a
+ * partially trusted set would judge some claims and refuse others for a reason
+ * the operator did not state. The factory still serves runs; acceptance holds,
+ * and readiness names why.
+ */
+export async function installationTrustedValidators(
+  config: FactoryStartupConfig,
+  database: TransactionalDb,
+  stores: Pick<FactoryApplication, "runs" | "journal" | "artifacts" | "releaseAuthority">,
+  report: (role: string, error: unknown) => void,
+): Promise<FactoryInstallationValidators> {
+  const build = (runtimes: Iterable<FactoryTrustedValidatorRuntime>) =>
+    new FactoryTrustedValidators(database, config.tenantId, stores.runs, stores.journal, stores.artifacts, stores.releaseAuthority, runtimes);
+  try {
+    const declared = await loadFactoryValidatorRuntimes(config);
+    if (declared === undefined) return Object.freeze({ validators: build([]), declared: [] });
+    return Object.freeze({ validators: factoryTrustedValidatorsFromDeclaration(build, declared), declared: declared.map((entry) => entry.name) });
+  } catch (error) {
+    report("validator-declaration", error);
+    return Object.freeze({
+      validators: build([]),
+      declared: [],
+      held: `the validator declaration did not compose (${(error as { code?: string }).code ?? "failed"}); the exact cause is reported under the validator-declaration role`,
+    });
+  }
+}
+
+/**
+ * The validator roles, when every collaborator they share with the task path exists.
+ *
+ * Each absence is a named hold rather than a role that runs and refuses: the
+ * release store supplies the assurance a verdict is written through, the pool
+ * supplies the compute ledger a validator is admitted through, and the runner
+ * profiles supply the allocation it is admitted with.
+ */
+async function installationValidatorRoles(
+  config: FactoryStartupConfig,
+  host: FactoryInstallationHost,
+  stores: FactoryInstallationStores,
+  application: FactoryApplication,
+  release: FactoryInstallationRelease | undefined,
+  gateway: FactoryInstallationValidators,
+  signal: AbortSignal,
+): Promise<{ readonly composed?: FactoryComposedValidators; readonly held?: string }> {
+  if (gateway.held !== undefined) return { held: gateway.held };
+  if (gateway.declared.length === 0) return {};
+  if (release === undefined) return { held: "a protected claim is judged through the release store's assurance, which did not compose; the exact cause is reported under the release-store role" };
+  if (stores.compute === undefined || stores.completions === undefined || stores.outcomes === undefined) {
+    return { held: "a validator is admitted through the compute ledger and settled beside the task path, and neither exists without the pool admission client" };
+  }
+  try {
+    const { factoryRunnerProfiles } = await import("./private-service-composition");
+    const composed = composeFactoryValidators({
+      database: host.database, config, application, stores,
+      service: { subject: config.privateService.certificateIdentity, tenantId: config.tenantId },
+      validators: gateway.validators,
+      allocations: factoryRunnerProfiles(config).admission,
+      assurance: release.assurance, releases: release.releases,
+      report: host.report,
+    });
+    // One whole pass before admission opens, so a version whose material
+    // refuses — an undeclared validator, a runtime changed under a registered
+    // lock — is named at startup rather than at its first acceptance.
+    await composed.registration.registerAll(signal);
+    return { composed };
+  } catch (error) {
+    host.report("validator-composition", error);
+    return { held: `the validator roles did not compose (${(error as { code?: string }).code ?? "failed"}); the exact cause is reported under the validator-composition role` };
+  }
+}
+
 export interface FactoryInstallationStartup {
   readonly runtime: FactoryRuntime;
   /** The pinned model broker, when one is configured AND ready. */
@@ -472,7 +567,7 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
   const provider = await composeFactoryProviderBroker(config.modelProvider, options.providerReadiness ?? {});
   if (provider !== undefined && provider.broker === undefined) host.report("model-provider", new Error(`factory_provider_not_ready: ${JSON.stringify(provider.readiness.failures)}`));
   const composed = supplied.workers === undefined
-    ? await installationCollaborators(config, host, blobs, transitions, options.releaseProviders)
+    ? await installationCollaborators(config, host, blobs, transitions, options.signal, options.releaseProviders)
     : undefined;
   const storage = supplied.storage ?? factoryStorageProbeTarget(blobs);
   const gateway = supplied.gateway ?? factoryGatewayProbeTarget(config);
@@ -529,6 +624,7 @@ async function installationCollaborators(
   host: FactoryInstallationHost,
   blobs: BlobStore,
   transitions: FactoryTransitionArtifacts,
+  signal: AbortSignal,
   releaseProviders?: FactoryReleaseProviderResolver,
 ): Promise<{
   readonly workers: FactoryRuntimeDependencies["workers"];
@@ -589,14 +685,20 @@ async function installationCollaborators(
     host.report("host-stop-client", error);
     stopper = undefined;
   }
-  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application.grants, pool, stopper);
-  const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
+  // The validator gateway first, because the release store's assurance judges
+  // through it and the attempt dispatcher settles validator attempts through
+  // the same instance.
+  const gateway = await installationTrustedValidators(config, host.database, application, host.report);
 
   // The release store, and the two roles it feeds. `notification-inbox-delivery`
   // composes from the store alone. `release-outcome` composes from the store,
   // this tenant's projects and the run lifecycle — and from a destination this
   // process cannot name, so it holds unless the deployment supplies one.
-  const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report);
+  const release = await installationReleases(config, host.database, blobs, application.artifacts, application, host.report, gateway.validators);
+  const validation = await installationValidatorRoles(config, host, stores, application, release, gateway, signal);
+
+  const attempts = await composeAttemptDispatch(config, host, blobs, stores, application.grants, pool, stopper, validation.composed?.settlement);
+  const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
   // The caller's resolver wins, so a host that holds a provider this document
@@ -612,7 +714,12 @@ async function installationCollaborators(
       host.report,
     );
 
-  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops);
+  // With no validator composed, acceptance refuses by name at once: nothing
+  // would ever produce its evidence, so a wait could only end at the deadline.
+  const acceptance = validation.composed?.acceptance.command ?? factoryValidatorAcceptanceRefusal(
+    validation.held === undefined ? "factory_validator_none_declared" : "factory_validator_unavailable",
+    validation.held ?? "the startup document declares no validator runtime under validators.runtimes");
+  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance);
 
   // ── W01g: the guest-broker route ────────────────────────────────────
   // The runner host forwards a guest's staging frames here, because this is
@@ -628,6 +735,8 @@ async function installationCollaborators(
       ...(stores.compute === undefined ? {} : { compute: stores.compute }),
       ...(attempts === undefined ? {} : { attempts }),
       ...(notificationInbox === undefined ? {} : { notificationInbox }),
+      ...(validation.composed === undefined ? {} : { validators: validation.composed.roles }),
+      ...(validation.held === undefined ? {} : { validatorsHeld: validation.held }),
     },
     seams: {
       childSettlement: factoryChildSettlementDriver(host.database, stores.children, service, host.report),
@@ -660,8 +769,9 @@ async function composePrivateService(
   stores: FactoryInstallationStores,
   transitions: FactoryTransitionArtifacts,
   application: FactoryApplication,
-  release: { readonly releases: FactoryReleases; readonly assurance: FactoryAssurance; readonly destinations?: FactoryComposedReleaseDestinations } | undefined,
+  release: FactoryInstallationRelease | undefined,
   stops: FactoryTaskStops | undefined,
+  acceptance?: FactoryPrivateCommandHandler,
 ): Promise<FactoryStartedListener | undefined> {
   if (config.privateService.tokens === undefined) return undefined;
   try {
@@ -675,6 +785,7 @@ async function composePrivateService(
       ...(release === undefined ? {} : { releases: release.releases, assurance: release.assurance }),
       ...(release?.destinations === undefined ? {} : { releaseProfiles: release.destinations.profiles }),
       ...(stops === undefined ? {} : { stops }),
+      ...(acceptance === undefined ? {} : { acceptance }),
       report: host.report,
     });
   } catch (error) {
@@ -700,6 +811,7 @@ async function composeAttemptDispatch(
   grants: FactoryApplication["grants"],
   pool: PoolAdmissionClient | undefined,
   stopper: FactoryHostStopClient | undefined,
+  settlement?: FactoryComposedValidators["settlement"],
 ): Promise<FactoryRuntimeWorkerCollaborators["attempts"]> {
   const hostLaunch = config.hostLaunch;
   if (hostLaunch === undefined || pool === undefined || stopper === undefined
@@ -710,8 +822,11 @@ async function composeAttemptDispatch(
       config: { ...config, hostLaunch },
       service: { subject: config.privateService.certificateIdentity, tenantId: config.tenantId },
       queue: stores.queue,
-      completions: stores.completions,
-      outcomes: stores.outcomes,
+      // With validators composed, the one dispatcher settles a validator
+      // attempt through W05's validator settlement and every other attempt
+      // through the task path, routed by the durable assignment.
+      completions: settlement?.completions ?? stores.completions,
+      outcomes: settlement?.outcomes ?? stores.outcomes,
       admissions: stores.compute,
       readiness: factoryPackageReadiness(host.database, config.tenantId, grants, blobs),
       pool,

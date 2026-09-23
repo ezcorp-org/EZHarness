@@ -3620,6 +3620,35 @@ region beside the private service. Readiness carries `guestBroker` as bound, unc
 unavailable with a code. The three passes ran with the web server binding the route and the
 harness only observing.
 
+## W09d — compose validators into the installation (branch `wp/w09d-validators`)
+
+Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/factory-platform-evidence/w09d/`. Gates: `tasks/factory/w09d-GATES.md`. Report: `/tmp/factory-platform-evidence/w09d/report.txt`.
+
+- [x] Reproduce at the base: a run whose graph carries an acceptance node reaches no validator attempt (`reproduction.json`).
+- [x] Startup document `validators.runtimes[]` by reference; every refusal named; nothing declared holds both roles with a reason readiness shows.
+- [x] `FactoryTrustedValidators` from the declaration, shared by assurance, the scheduler, and the validator settlement.
+- [x] Material registration once per published version per process; idempotent across restarts; a changed runtime refuses by name.
+- [x] `validator-scheduling` role over W05's scheduler; the one attempt dispatcher settles validator attempts, routed by the durable assignment.
+- [x] Rulings: `recordCurrentCandidate` and `decideAcceptance` (decision and inbox event in one transaction); typed rejection for a failed or uncertain validator; immediate named refusal when nothing is composed; the release-authority candidate fix with injected-clock tests; the release operations supplier left to W09c.
+- [x] O1: the validator reservation is settled on its terminal (idempotent), or held uncertain under the typed reason.
+- [x] O5: a refused effect fails the run through a recorded `command-failed` kernel event and a projected `fail-run`.
+- [x] Orchestrator side on the Temporal test server (84 of 84 in the package's node leg).
+- [x] Proof: three passes and two controls on fresh databases, from this branch plus wp/w01g-staging only.
+- [x] Tests per common.md; coverage of new files and changed lines; PostgreSQL producers; gate file.
+- [x] Round 3 (validator ACCEPT-WITH-FIXES at `d1a0f31e0`):
+  - [x] F1: the REQUIRED_SHARED_IMPORTS row for `validator-declaration.ts`; the C13 inventory test passes.
+  - [x] F2: a crashed, timed-out, or uncertain validator is a typed `execution` failure, not a rejection: no repair round, and the typed reason is the projected run error (kernel, unit, and Temporal tests at maxRepairs 0 and 2).
+  - [x] F3: every claim is visited on every pass; the failure waits until every claim is terminal and holds each failed claim uncertain; the envelope closes only after reconciliation (two-claim unit tests, PostgreSQL envelope test).
+  - [x] F4: one `factoryCommandFailedEvent` builder; a named refusal of an effect answers it with the name; the workflow takes the activity's cause message (unit and Temporal tests).
+  - [x] F5: the lifecycle-suite additions disclosed with the ruling sentence.
+  - [x] F6: foreign-tenant, foreign-run, and foreign-service refusals asserted by name.
+  - [x] F7: `plain-values.ts` holds the one record guard and the one error-code reader.
+  - [x] Heavy legs and three passes at the final code; the judge requires the named refusal in the projected reason.
+
+### Review
+
+The package composes W05's validator pieces from a startup declaration, and the coordinator's rulings closed the gaps the real application exposed. The base reproduction showed no material, no contract route, and an acceptance command refusing `factory_assurance_not_found`. At the final code the started application registers the material, admits the validator through the pool, runs it in Podman through the one attempt dispatcher, records a strict PASS, decides `accepted`, and delivers the event in the decision's transaction. It then settles the validator's reservation, and when the release effect refuses (no profile yet, W09c) the run ends `failed` with a projected typed reason instead of hanging in `running`. Three passes did that on fresh databases, both controls refused by name, and the orchestrator's Temporal leg passes 84 of 84. Two defects only real timing showed are fixed at their roots with tests: the candidate re-derivation that required a live lease, and a failed effect on an acceptance or release node that left a cancel nothing could answer. Open, each with its owner: the public lock read and the contract route's opaque 500 (W14), and the release operations supplier and profiles (W09c). Round 3 changed three behaviors. A crashed or uncertain validator now fails the acceptance node with its typed reason and starts no repair round, because it judged nothing. Every claim is settled or held on every pass, so one failed claim cannot strand another claim's reservation. A refused effect now projects the refusal's name, for example `factory_protected_effect_untrusted`, instead of "Activity task failed". Three passes and both controls confirm the named reasons on the started application at `ceada04f5`.
+
 ## W18b — six pre-existing backend pool failures (branch `wp/w18b-pool-fixes`)
 
 Base `integ/w00` `94fb95b6a`. Receipts: `/tmp/factory-platform-evidence/w18b/`. Gates: `tasks/factory/w18b-GATES.md`.
