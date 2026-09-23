@@ -161,6 +161,50 @@ describe("factory kernel", () => {
     expect(stopped.nextState.unresolvedUncertainNodeIds).toEqual(["only"]);
   });
 
+  test("a failed effect command stops the run and fails it with the typed reason, never a cancel", () => {
+    const graph = compiled([{ id: "only", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "only" } });
+    let state = advanceKernel(graph, createKernelState(graph, "run-command-failed", {}, 0), event("start", { kind: "start" })).nextState;
+    const admission = state.nodes.only!.attempts.at(-1)!;
+    state = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: admission.candidateGeneration, granted: true })).nextState;
+    const only = dispatchedAttempt(state, "only");
+    const reason = "FACTORY_COMMAND_FAILED: request-release run:release:request-release:7: factory gateway returned HTTP 500";
+    const failing = advanceKernel(graph, state, event("failed", { kind: "command-failed", commandId: "run:release:request-release:7", error: reason }));
+    // The physical attempt is stopped first, exactly as a run deadline stops it.
+    expect(failing.nextState.status).toBe("stopping");
+    expect(failing.nextState.stopKind).toBe("failed");
+    expect(failing.nextState.stopReason).toBe(reason);
+    expect(failing.commands.map((command) => command.kind)).toEqual(["cancel-node"]);
+    const stopped = advanceKernel(graph, failing.nextState, event("stopped", { kind: "attempt-stopped", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt }));
+    expect(stopped.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error: reason })]);
+    expect(stopped.commands.some((command) => command.kind === "cancel-run")).toBe(false);
+    // Redelivering the same event changes nothing.
+    expect(advanceKernel(graph, stopped.nextState, event("failed", { kind: "command-failed", commandId: "run:release:request-release:7", error: reason })).commands).toEqual([]);
+  });
+
+  test("a failed acceptance effect with no physical work left fails the run at once, and needs a bounded reason", () => {
+    // The shape the started application hit: the candidate is done, and the acceptance node — the
+    // one virtual node — waits on its effect when that effect's command fails.
+    const graph = compiled([
+      { id: "candidate", kind: "task", runner, outputPorts: { candidate: { type: "string" } } },
+      { id: "accept", kind: "acceptance", dependsOn: ["candidate"], contract: referenceCodeV1.acceptance.id, candidate: { kind: "ref", root: "node", name: "candidate", path: ["candidate"] }, evidence: { kind: "literal", value: [] }, outputPorts: { acceptedCandidate: { type: "string" } } },
+    ], {});
+    let state = advanceKernel(graph, createKernelState(graph, "run-command-failed-idle", {}, 0), event("start", { kind: "start" })).nextState;
+    const admission = state.nodes.candidate!.attempts.at(-1)!;
+    const admitted = advanceKernel(graph, state, event("admit", { kind: "admission-result", nodeId: "candidate", commandId: admission.commandId, candidateGeneration: 0, granted: true }));
+    const dispatch = admitted.commands.find((command) => command.kind === "dispatch-node")!;
+    const done = advanceKernel(graph, admitted.nextState, event("done", { kind: "node-result", nodeId: "candidate", commandId: dispatch.id, candidateGeneration: 0, attempt: 1, output: { candidate: "tree" } }));
+    const acceptance = done.commands.find((command) => command.kind === "request-acceptance")!;
+    state = done.nextState;
+    const reason = `FACTORY_COMMAND_FAILED: request-acceptance ${acceptance.id}: factory gateway returned HTTP 500`;
+    const failed = advanceKernel(graph, state, event("failed", { kind: "command-failed", commandId: acceptance.id, error: reason }));
+    expect(failed.commands.filter((command) => command.kind === "fail-run")).toEqual([expect.objectContaining({ kind: "fail-run", error: reason })]);
+    expect(failed.commands.some((command) => command.kind === "cancel-node")).toBe(false);
+    expect(failed.nextState.status).toBe("failed");
+    expect(failed.nextState.nodes.accept?.status).toBe("failed");
+    expect(() => advanceKernel(graph, state, event("empty", { kind: "command-failed", commandId: acceptance.id, error: "" }))).toThrow(FactoryKernelError);
+    expect(() => advanceKernel(graph, state, event("long", { kind: "command-failed", commandId: acceptance.id, error: "x".repeat(4097) }))).toThrow(FactoryKernelError);
+  });
+
   test("cancelling a map stops admitted items and never opens a blocked index", () => {
     const body = { nodes: [{ id: "item", kind: "task" as const, runner }], outputs: {} };
     const map = { id: "map", kind: "map" as const, collection: { kind: "literal" as const, value: ["one", "two", "three"] }, itemSchema: { type: "string" as const }, body, mode: "all" as const, maxItems: 3, maxConcurrency: 1 };

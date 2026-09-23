@@ -17,6 +17,7 @@ import {
   setHandler,
   sleep,
   isCancellation,
+  patched,
 } from "@temporalio/workflow";
 import {
   CONTINUE_AFTER_EVENTS,
@@ -66,6 +67,21 @@ type ExecutableCommand = Exclude<KernelCommand, TerminalCommand | TimerCommand>;
 
 function isTerminal(command: KernelCommand): command is TerminalCommand {
   return command.kind === "complete-run" || command.kind === "complete-partition" || command.kind === "fail-run" || command.kind === "cancel-run";
+}
+
+/** The Temporal patch marking the command-failed delivery; histories before it replay the old throw. */
+const FACTORY_COMMAND_FAILED_PATCH = "factory-command-failed-event";
+
+/**
+ * The kernel event for an effect command the orchestrator could not execute.
+ *
+ * Its reason names the failure class, the command kind, and the command, so the projected run error
+ * says which effect stopped it. The activity's message is appended bounded; the gateway itself
+ * answers an opaque error for an unclassified refusal, so the product's log carries the named cause.
+ */
+function commandFailedEvent(command: { readonly id: string; readonly kind: string }, error: unknown, atMs: number): Extract<KernelEvent, { kind: "command-failed" }> {
+  const detail = (error instanceof Error ? error.message : String(error)).slice(0, 512);
+  return { kind: "command-failed", id: `${command.id}:command-failed`, atMs, commandId: command.id, error: `FACTORY_COMMAND_FAILED: ${command.kind} ${command.id}: ${detail}` };
 }
 
 function workflowFailure(error: unknown, type: string): ApplicationFailure {
@@ -261,7 +277,16 @@ export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<Fact
       .then((result) => {
         if (result && !knownIds.has(result.id)) { knownIds.add(result.id); inbox.push(result); }
       })
-      .catch((error) => { workflowError = workflowFailure(error, "FACTORY_COMMAND_FAILED"); })
+      .catch((error) => {
+        // A command the gateway refused used to throw the whole workflow away,
+        // leaving the product run `running` forever: nothing projects a failed
+        // workflow. The failure now becomes a recorded kernel event, so the run
+        // stops and fails with a typed reason through its own transitions.
+        // Patched, so a history recorded before this change replays unchanged.
+        if (!patched(FACTORY_COMMAND_FAILED_PATCH)) { workflowError = workflowFailure(error, "FACTORY_COMMAND_FAILED"); return; }
+        const failed = commandFailedEvent(command, error, Date.now());
+        if (!knownIds.has(failed.id)) { knownIds.add(failed.id); inbox.push(failed); }
+      })
       .finally(() => { activeScopes.delete(command.id); });
   };
 

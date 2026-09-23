@@ -538,6 +538,43 @@ describe("factory Temporal workflow", () => {
     assert.deepEqual(seen.stops, []);
   });
 
+  // O5: a refused effect used to throw the workflow away and leave the product run "running". It is
+  // now a recorded kernel event, so the run fails through its own transitions with a typed reason.
+  it("fails the run with a typed reason, through a recorded transition, when an effect command fails", async () => {
+    const startedAtMs = Math.trunc(await environment.currentTimeMs());
+    const factory = acceptanceFactory("acceptance-effect-failed", 0);
+    const recorded: string[] = [];
+    let effects = 0;
+    const activities = {
+      ...inboxAcceptanceActivities(factory, { acceptance: [], stops: [] }, () => undefined),
+      recordTransition: async (record) => { recorded.push(record.eventId); },
+    };
+    const acceptanceActivity = activities.executeCommand;
+    activities.executeCommand = async (input) => {
+      if (input.command.kind === "request-acceptance") { effects += 1; throw new Error("factory gateway returned HTTP 500"); }
+      return acceptanceActivity(input);
+    };
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const workflowId = `tenant/acceptance-effect-failed-${process.pid}`;
+    let commandId = "";
+    await worker.runUntil(async () => {
+      const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: "acceptance-effect-failed", startedAtMs })] });
+      // The workflow ends normally with a failed result: nothing is thrown away.
+      const result = await handle.result();
+      assert.equal(result.status, "failed");
+      assert.match(result.error ?? "", /^FACTORY_COMMAND_FAILED: request-acceptance \S+:request-acceptance:\d+: /);
+      const state: KernelState = await handle.query("factoryState");
+      assert.equal(state.status, "failed");
+      assert.equal(state.nodes.accept?.status, "failed");
+      commandId = (result.error ?? "").split(" ")[2] ?? "";
+      const history = await handle.fetchHistory();
+      await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
+    });
+    // The failure is a recorded transition, which is what the product projects.
+    assert.ok(recorded.includes(`${commandId}:command-failed`));
+    assert.equal(effects, 1);
+  });
+
   it("advances independent successors while another branch is blocked", async () => {
     const startedAtMs = Math.trunc(await environment.currentTimeMs());
     const parallelFactory = compiled([

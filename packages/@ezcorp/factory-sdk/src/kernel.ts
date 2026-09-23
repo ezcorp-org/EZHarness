@@ -115,7 +115,7 @@ function applyStart(factory: KernelFactoryPlan, state: KernelState, commands: Ke
  * answered by `advanceKernel` itself before the table is reached, so naming
  * them here would add a branch no run can take.
  */
-type DispatchedEvent = Exclude<KernelEvent, { readonly kind: "usage-settled" | "cancel" }>;
+type DispatchedEvent = Exclude<KernelEvent, { readonly kind: "usage-settled" | "cancel" | "command-failed" }>;
 
 /**
  * Dispatch one event to the single reducer that owns its kind.
@@ -174,6 +174,11 @@ export function advanceKernel(factory: KernelFactoryPlan, state: KernelState, ev
 
   if (event.kind === "cancel") {
     next = beginStopping(factory, next, event.reason, commands, true);
+    return finish(factory, next, commands);
+  }
+  if (event.kind === "command-failed") {
+    if (!event.error || event.error.length > 4096) throw new FactoryKernelError("a failed command requires a bounded typed reason");
+    next = beginStopping(factory, next, event.error, commands, false);
     return finish(factory, next, commands);
   }
   if (event.kind === "timer-expired" && event.nodeId === undefined) {
