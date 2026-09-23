@@ -490,6 +490,9 @@
 	let loadGeneration = $state(0);
 	let resumedRun = $state(false);
 	let userScrolledUp = $state(false);
+	function syncJumpVisibility(el: HTMLElement) {
+		userScrolledUp = bottomSlack(el) > 2;
+	}
 	// Synchronous follow-the-bottom intent for the stick-to-bottom gate.
 	// Tracked from real scroll events (see the persist `onScroll` below) and
 	// set directly on send / jump / open-to-bottom. Distinct from
@@ -1673,9 +1676,13 @@
 		}
 
 		if (container && sentinel) {
+			const el = container;
 			observer = new IntersectionObserver(
-				([entry]) => {
-					userScrolledUp = !entry!.isIntersecting;
+				() => {
+					// A queued entry can describe the layout before the stick
+					// observer re-pinned the thread. Read the current scroll
+					// position so the jump button matches what the user sees.
+					syncJumpVisibility(el);
 				},
 				{ root: container, threshold: 0.1 },
 			);
@@ -1706,7 +1713,6 @@
 			// observer because the button was not inside the observed wrapper.
 			// If you add a real-height child to the container, observe it here.
 			if (typeof ResizeObserver !== "undefined") {
-				const el = container;
 				let rafPending = false;
 				stickObserver = new ResizeObserver(() => {
 					if (
@@ -1786,6 +1792,7 @@
 				stuck,
 			});
 			previousScrollTop = scrollTop;
+			syncJumpVisibility(el);
 			const anchor = computeAnchor(el);
 			const partial: Parameters<typeof updateCachedScrollState>[1] = {
 				scrollTop: el.scrollTop,

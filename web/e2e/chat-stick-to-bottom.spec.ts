@@ -334,6 +334,22 @@ test.describe("chat stick-to-bottom", () => {
 		// button mounted. It now lives in a zero-height sticky dock, so its
 		// presence cannot move the scroll extent at all.
 		await installFakeTransports(page);
+		// Deliver an old bottom-sentinel observation after the view is pinned.
+		// The callback must read current geometry, not the queued entry.
+		await page.addInitScript(() => {
+			const NativeObserver = window.IntersectionObserver;
+			window.IntersectionObserver = class extends NativeObserver {
+				constructor(callback: IntersectionObserverCallback, options?: IntersectionObserverInit) {
+					super(callback, options);
+					if (options?.threshold === 0.1) {
+						(window as any).__deliverStaleBottomEntry = () => callback(
+							[{ isIntersecting: false } as IntersectionObserverEntry],
+							this,
+						);
+					}
+				}
+			};
+		});
 		await setupApiMocks(page, {
 			projects: [proj],
 			conversations: [convA, convB],
@@ -356,6 +372,13 @@ test.describe("chat stick-to-bottom", () => {
 		});
 		await expect(page.getByText("AFTER_RESUME line 40")).toBeVisible();
 		await expect.poll(() => isAtBottom(page)).toBe(true);
+		await expect(jump).toBeHidden();
+		await page.evaluate(() => {
+			if (typeof (window as any).__deliverStaleBottomEntry !== "function") {
+				throw new Error("bottom observer was not installed");
+			}
+			(window as any).__deliverStaleBottomEntry();
+		});
 		await expect(jump).toBeHidden();
 		const pinned = await readContainerMetrics(page);
 		expect(await isAtBottom(page)).toBe(true);
