@@ -262,19 +262,27 @@ test("client identity rejects a certificate paired with another private key", as
   const otherKey = join(directory, "other.key");
   try {
     const { execFileSync } = await import("node:child_process");
-    execFileSync("/run/current-system/sw/bin/openssl", ["genpkey", "-algorithm", "EC", "-pkeyopt",
+    const realOpenSsl = Bun.which("openssl");
+    const realCopy = Bun.which("cp");
+    expect(realOpenSsl).not.toBeNull();
+    expect(realCopy).not.toBeNull();
+    execFileSync(realOpenSsl!, ["genpkey", "-algorithm", "EC", "-pkeyopt",
       "ec_paramgen_curve:P-256", "-out", otherKey]);
     await Bun.write(join(directory, "openssl"),
-      "#!/bin/sh\nkey=\nprevious=\nfor arg in \"$@\"; do\n  if [ \"$previous\" = -keyout ]; then key=\"$arg\"; fi\n  previous=\"$arg\"\ndone\n/run/current-system/sw/bin/openssl \"$@\" || exit 1\n/run/current-system/sw/bin/cp \"$INCUS_MISMATCH_KEY\" \"$key\"\n");
+      "#!/bin/sh\nkey=\nprevious=\nfor arg in \"$@\"; do\n  if [ \"$previous\" = -keyout ]; then key=\"$arg\"; fi\n  previous=\"$arg\"\ndone\n\"$INCUS_REAL_OPENSSL\" \"$@\" || exit 1\n\"$INCUS_REAL_CP\" \"$INCUS_MISMATCH_KEY\" \"$key\"\n");
     const { chmod } = await import("node:fs/promises");
     await chmod(join(directory, "openssl"), 0o755);
     process.env.INCUS_MISMATCH_KEY = otherKey;
+    process.env.INCUS_REAL_OPENSSL = realOpenSsl!;
+    process.env.INCUS_REAL_CP = realCopy!;
     process.env.PATH = directory;
     await expect(issueIncusClientIdentity("mismatched-certificate"))
       .rejects.toThrow("Incus client certificate and key do not match");
   } finally {
     process.env.PATH = originalPath;
     delete process.env.INCUS_MISMATCH_KEY;
+    delete process.env.INCUS_REAL_OPENSSL;
+    delete process.env.INCUS_REAL_CP;
     await rm(directory, { recursive: true, force: true });
   }
 });
