@@ -150,7 +150,12 @@ export class HostIncusLiveReadback {
         && pool.driver === context.recipe.storage.driver,
       "backend fixture identity or image changed");
       const memoryBytes = integer(config["limits.memory"], "memory limit");
-      const cpuMillis = integer(config["limits.cpu"], "CPU limit") * 1000;
+      const cpuPlacement = integer(config["limits.cpu"], "CPU placement");
+      const cpuAllowance = config["limits.cpu.allowance"];
+      assert(cpuPlacement === Math.ceil(context.preset.limits.cpuMillis / 1000)
+        && cpuAllowance === `${context.preset.limits.cpuMillis}ms/1000ms`,
+      "backend fixture hard CPU allowance changed");
+      const cpuMillis = context.preset.limits.cpuMillis;
       const pids = integer(config["limits.processes"], "PID limit");
       const diskBytes = integer(root.size, "root quota");
       assert(memoryBytes <= context.preset.limits.memoryBytes && cpuMillis <= context.preset.limits.cpuMillis

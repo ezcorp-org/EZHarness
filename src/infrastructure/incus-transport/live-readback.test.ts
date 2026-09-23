@@ -56,6 +56,7 @@ function instanceRecord(image = recipe.guestImage!.fingerprint) {
       "user.ezharness.profile": preset.profile, "user.ezharness.preset_id": preset.id,
       "volatile.base_image": image, "limits.memory": String(preset.limits.memoryBytes),
       "limits.cpu": String(preset.limits.cpuMillis / 1000),
+      "limits.cpu.allowance": `${preset.limits.cpuMillis}ms/1000ms`,
       "limits.processes": String(preset.limits.pids) },
     expanded_config: { "security.privileged": "false", "security.idmap.isolated": "true" },
     expanded_devices: { eth0: { type: "nic", network: recipe.network.name } },
@@ -88,4 +89,23 @@ test("wrong project, forged image, and altered limits deny readback", async () =
   overLimit.config["limits.memory"] = String(selected.preset.limits.memoryBytes + 1);
   await expect(backend(overLimit).value.instance(selected, sandboxId))
     .rejects.toThrow("fixture limits changed");
+  const missingHardLimit = instanceRecord();
+  delete (missingHardLimit.config as Record<string, string>)["limits.cpu.allowance"];
+  await expect(backend(missingHardLimit).value.instance(selected, sandboxId))
+    .rejects.toThrow("hard CPU allowance changed");
+  const relaxedHardLimit = instanceRecord();
+  relaxedHardLimit.config["limits.cpu.allowance"] = "3000ms/1000ms";
+  await expect(backend(relaxedHardLimit).value.instance(selected, sandboxId))
+    .rejects.toThrow("hard CPU allowance changed");
+});
+
+test("fractional CPU reservation reads the hard allowance, not rounded CPU placement", async () => {
+  const selected = await context();
+  selected.preset = { ...selected.preset,
+    limits: { ...selected.preset.limits, cpuMillis: 1500 } };
+  const instance = instanceRecord();
+  instance.config["limits.cpu"] = "2";
+  instance.config["limits.cpu.allowance"] = "1500ms/1000ms";
+  const observed = await backend(instance).value.instance(selected, sandboxId);
+  expect(observed.cpuMillis).toBe(1500);
 });
