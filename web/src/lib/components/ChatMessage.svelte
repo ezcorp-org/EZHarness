@@ -42,6 +42,10 @@
 		failedModel: string;
 		suggestion: { provider: string; model: string; tier: string } | null;
 		message: string;
+		/** Set when the failure was a brief rate limit, not an outage. */
+		reason?: "rate_limited";
+		/** The company actually serving the model behind a gateway (e.g. "Poolside"). */
+		upstreamProvider?: string;
 	}
 
 	let {
@@ -829,9 +833,40 @@
 			{#if isStreaming && !displayContent && !(contentBlocks && contentBlocks.length > 0) && !(toolCalls && toolCalls.length > 0)}
 				<SkeletonLoader statusText={`${streamingStatus && streamingStatus !== 'memory_unavailable' ? streamingStatus : 'Thinking...'}${streamingStartedAt ? ` (${elapsedText})` : ''}`} />
 			{:else if isError && !isStreaming}
-				<div class="rounded-md border border-red-800 bg-red-900/30 p-3">
-					{#if providerError}
-						<p class="text-sm text-red-300">
+				<!-- Tinted translucent surface + theme text tokens, the pattern the
+				     memory-unavailable warning uses, so the card reads in BOTH themes.
+				     The previous fixed dark-only palette measured 1.1:1 contrast in
+				     light mode (WCAG AA needs 4.5:1). A rate limit is transient, so it
+				     is amber like that warning. -->
+				<div
+					class="rounded-md border p-3 {providerError?.reason === 'rate_limited'
+						? 'border-amber-500/50 bg-amber-500/10'
+						: 'border-red-500/50 bg-red-500/10'}"
+				>
+					{#if providerError?.reason === "rate_limited"}
+						<!-- A rate limit is brief and belongs to one model, usually imposed by
+						     the company serving it behind the gateway. Saying "all providers are
+						     unavailable" here sent people hunting for an outage that did not exist. -->
+						<div data-testid="provider-rate-limited">
+							<p class="text-sm text-[var(--color-text-primary)]">
+								{providerError.upstreamProvider ??
+									providerError.failedProvider.charAt(0).toUpperCase() + providerError.failedProvider.slice(1)}
+								is rate-limiting <span class="font-mono">{providerError.failedModel}</span> right now.
+							</p>
+							<p class="mt-1 text-xs text-[var(--color-text-secondary)]">
+								This is usually brief. Retry in a moment, or choose another model.
+							</p>
+							{#if onretry}
+								<button
+									onclick={onretry}
+									class="mt-2 rounded-md bg-red-700 px-3 py-1 text-xs text-white hover:bg-red-600"
+								>
+									Retry
+								</button>
+							{/if}
+						</div>
+					{:else if providerError}
+						<p class="text-sm text-[var(--color-text-primary)]">
 							{providerError.failedProvider.charAt(0).toUpperCase() + providerError.failedProvider.slice(1)} is unavailable right now.
 						</p>
 						{#if providerError.suggestion && onfallback}
@@ -842,7 +877,7 @@
 								Try with {providerError.suggestion.provider} ({providerError.suggestion.model})?
 							</button>
 						{:else if !providerError.suggestion}
-							<p class="mt-1 text-xs text-red-400">All providers are currently unavailable. Please try again later.</p>
+							<p class="mt-1 text-xs text-[var(--color-text-secondary)]">All providers are currently unavailable. Please try again later.</p>
 						{/if}
 						{#if onretry}
 							<button
@@ -853,7 +888,7 @@
 							</button>
 						{/if}
 					{:else}
-						<p class="text-sm text-red-300">{message.content}</p>
+						<p class="text-sm text-[var(--color-text-primary)]">{message.content}</p>
 						{#if onretry}
 							<button
 								onclick={onretry}

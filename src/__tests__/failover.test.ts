@@ -8,7 +8,7 @@
  * REAL (not mocked) so "failure recorded → breaker opens after threshold" is
  * proven end-to-end.
  */
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, mock, spyOn } from "bun:test";
 import type { Agent } from "@earendil-works/pi-agent-core";
 import {
   runWithFailover,
@@ -19,6 +19,8 @@ import {
   type RunWithFailoverParams,
 } from "../runtime/stream-chat/failover";
 import { ProviderUnavailableError } from "../providers/router";
+import { describeProviderFailure } from "../runtime/stream-chat/provider-error-classifier";
+import { KILO_FREE_AUTO_MODEL, kiloModelFallbackFor } from "../runtime/routing/kilo-catalog";
 import { getCircuitBreaker, resetAllCircuitBreakers } from "../providers/circuit-breaker";
 import { EventBus } from "../runtime/events";
 import type { StreamChatContext } from "../runtime/stream-chat/context";
@@ -685,5 +687,111 @@ describe("runWithFailover — unsubAgentActivity detach", () => {
     bus.emit("agent:status", {});
     bus.emit("agent:complete", {});
     expect(fired).toBe(3);
+  });
+});
+
+// ── model-level fallback (a rate-limited FREE Kilo model) ───────────────
+//
+// The error text is the real one, captured from a live install: Poolside
+// rate-limiting its free model behind Kilo. The seam is wired to the REAL
+// rule (kiloModelFallbackFor), exactly as executor.ts wires it, so these
+// tests exercise the production decision, not a stand-in.
+const REAL_POOLSIDE_429 =
+  '429: {"message":"Provider returned error","code":429,"metadata":{"raw":"{\\"error\\":\\"Rate limit exceeded\\"}\\n","provider_name":"Poolside","is_byok":true,"limit_source":"upstream_provider_account"}}';
+const POOLSIDE = "poolside/laguna-s-2.1:free";
+
+const realModelFallback: NonNullable<RunWithFailoverParams["suggestModelFallback"]> = (failed, errorMessage) => {
+  const model = kiloModelFallbackFor(failed.provider, failed.model, describeProviderFailure(errorMessage).reason);
+  return model ? { provider: failed.provider, model, tier: "balanced" } : null;
+};
+
+describe("runWithFailover — model-level fallback before blaming the provider", () => {
+  test("a rate-limited free model retries on kilo-auto/free, and Kilo's breaker is never charged", async () => {
+    const built: string[] = [];
+    let crossProviderLookups = 0;
+    const breaker = getCircuitBreaker("kilo");
+    const charged = spyOn(breaker, "recordFailure");
+
+    await runWithFailover(
+      baseParams(makeCtx(), makeHost(), {
+        initial: makeAttempt("kilo", POOLSIDE),
+        buildAgent: (r) => {
+          const model = (r as unknown as { resolved: { model: string } }).resolved.model;
+          built.push(model);
+          return makeAgent(model === POOLSIDE ? REAL_POOLSIDE_429 : undefined);
+        },
+        suggestFallback: async () => {
+          crossProviderLookups++;
+          return null;
+        },
+        suggestModelFallback: realModelFallback,
+      }),
+    );
+
+    // Same-model retry first (unchanged behavior), THEN the free router.
+    expect(built).toEqual([...Array(1 + SAME_PROVIDER_RETRIES).fill(POOLSIDE), KILO_FREE_AUTO_MODEL]);
+    // A limit on one model is not a failure of Kilo.
+    expect(charged).not.toHaveBeenCalled();
+    expect(breaker.isOpen()).toBe(false);
+    // Never needed to look elsewhere.
+    expect(crossProviderLookups).toBe(0);
+    charged.mockRestore();
+  });
+
+  test("if the fallback model is limited too, it gives up once — with the rate limit and the upstream named", async () => {
+    const built: string[] = [];
+    let error: unknown;
+    try {
+      await runWithFailover(
+        baseParams(makeCtx(), makeHost(), {
+          initial: makeAttempt("kilo", POOLSIDE),
+          buildAgent: (r) => {
+            built.push((r as unknown as { resolved: { model: string } }).resolved.model);
+            return makeAgent(REAL_POOLSIDE_429);
+          },
+          suggestModelFallback: realModelFallback,
+        }),
+      );
+    } catch (e) {
+      error = e;
+    }
+    expect(error).toBeInstanceOf(ProviderUnavailableError);
+    const err = error as ProviderUnavailableError;
+    expect(err.detail).toEqual({ reason: "rate_limited", upstreamProvider: "Poolside" });
+    // The free router was tried exactly once: no model-level loop.
+    expect(built.filter((m) => m === KILO_FREE_AUTO_MODEL)).toHaveLength(1 + SAME_PROVIDER_RETRIES);
+  });
+
+  test("without the seam, the old behavior holds — but the error still says what happened", async () => {
+    const charged = spyOn(getCircuitBreaker("kilo"), "recordFailure");
+    let error: unknown;
+    try {
+      await runWithFailover(
+        baseParams(makeCtx(), makeHost(), {
+          initial: makeAttempt("kilo", POOLSIDE),
+          buildAgent: () => makeAgent(REAL_POOLSIDE_429),
+        }),
+      );
+    } catch (e) {
+      error = e;
+    }
+    expect(charged).toHaveBeenCalledTimes(1);
+    expect((error as ProviderUnavailableError).detail.reason).toBe("rate_limited");
+    charged.mockRestore();
+  });
+
+  test("a non-rate-limit failure never switches models", async () => {
+    const built: string[] = [];
+    await runWithFailover(
+      baseParams(makeCtx(), makeHost(), {
+        initial: makeAttempt("kilo", POOLSIDE),
+        buildAgent: (r) => {
+          built.push((r as unknown as { resolved: { model: string } }).resolved.model);
+          return makeAgent("503 Service Unavailable: upstream overloaded");
+        },
+        suggestModelFallback: realModelFallback,
+      }),
+    ).catch(() => {});
+    expect(built).not.toContain(KILO_FREE_AUTO_MODEL);
   });
 });
