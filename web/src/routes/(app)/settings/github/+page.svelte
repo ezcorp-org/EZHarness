@@ -9,6 +9,7 @@
 		configured: boolean;
 		authMode?: "device" | "oauth" | null;
 		account?: { id: number; login: string };
+		installUrl?: string;
 	};
 	type DeviceAttempt = { attemptId: string; userCode: string; expiresAt: string; intervalSeconds: number; nextPollAt?: string };
 	type DevicePoll = { status: "pending" | "slow_down" | "connected" | "expired" | "denied" | "cancelled"; nextPollAt?: string; returnReviewId?: string };
@@ -29,6 +30,8 @@
 	let confirmDisconnect = $state(false);
 	let approvalRequested = $state(false);
 	let checkingRepository = $state(false);
+	let checkingRepositories = $state(false);
+	let repositoryCount = $state<number | null>(null);
 	let deviceAttempt = $state<DeviceAttempt | null>(null);
 	let pendingRestore = $state<DeviceAttempt | null>(null);
 	let deviceStatus = $state<"idle" | "pending" | "slow_down" | "network_error" | "connected" | "expired" | "denied" | "cancelled">("idle");
@@ -257,6 +260,17 @@
 		} finally { checkingRepository = false; }
 	}
 
+	async function recheckRepositories() {
+		checkingRepositories = true;
+		error = "";
+		try {
+			const result = await readJson(await fetch("/api/github/repositories")) as { repositories?: unknown[] };
+			repositoryCount = result.repositories?.length ?? 0;
+		} catch (cause) {
+			error = cause instanceof Error ? cause.message : "Could not check repositories";
+		} finally { checkingRepositories = false; }
+	}
+
 	onMount(() => {
 		mounted = true;
 		void (async () => {
@@ -345,12 +359,19 @@
 					<p class="font-medium text-[var(--color-text-primary)]">{connection.account?.login ?? "GitHub account"}</p>
 					<p class="text-sm text-[var(--color-text-secondary)]" role="status">{connection.status === "connected" ? "Connected" : "Reconnect required. Draft pull requests are paused."}</p>
 				</div>
-				<div class="flex flex-wrap gap-2">
+						<div class="flex flex-wrap gap-2">
 						<button class="rounded-md border border-[var(--color-border)] px-3 py-2 text-sm text-[var(--color-text-primary)] hover:bg-[var(--color-surface-tertiary)] disabled:opacity-50" disabled={busy} onclick={connect}>Reconnect</button>
 					<button class="rounded-md border border-red-500/30 px-3 py-2 text-sm text-red-700 hover:bg-red-500/10 dark:text-red-300 disabled:opacity-50" disabled={busy} onclick={() => confirmDisconnect = true}>Disconnect</button>
-				</div>
-			</div>
-			{#if confirmDisconnect}
+						</div>
+					</div>
+					{#if connection.status === "connected"}
+						<div class="mt-4 flex flex-wrap items-center gap-3 text-sm">
+							{#if trustedGithubUrl(connection.installUrl)}<a class="text-[var(--color-accent)] underline" href={trustedGithubUrl(connection.installUrl) ?? undefined} target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Enable repositories on GitHub</a>{/if}
+							<button class="text-[var(--color-accent)] underline disabled:opacity-50" disabled={checkingRepositories} onclick={recheckRepositories}>{checkingRepositories ? "Checking repositories…" : "Recheck repositories"}</button>
+							{#if repositoryCount !== null}<span role="status" class="text-[var(--color-text-secondary)]">{repositoryCount === 0 ? "No enabled repositories yet." : `${repositoryCount} enabled ${repositoryCount === 1 ? "repository" : "repositories"} available.`}</span>{/if}
+						</div>
+					{/if}
+					{#if confirmDisconnect}
 				<div class="mt-4 rounded-md border border-red-500/30 bg-red-500/10 p-4">
 						<p class="text-sm text-[var(--color-text-primary)]">Disconnect your GitHub account here? Pending draft pull requests will stop until you reconnect. To revoke this App on GitHub, manage its authorization in your GitHub settings; that can also affect your other EZCorp installations.</p>
 					<div class="mt-3 flex gap-2">

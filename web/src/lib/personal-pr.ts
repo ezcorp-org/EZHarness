@@ -26,6 +26,10 @@ export type PersonalPrView = {
 	reviewPath?: string;
 };
 
+export function fileCountLabel(count: number): string {
+	return `${count} ${count === 1 ? "file" : "files"}`;
+}
+
 export function personalPrReason(blockReason: string | undefined): string {
 	switch (blockReason) {
 		case "review_not_prepared": return "";

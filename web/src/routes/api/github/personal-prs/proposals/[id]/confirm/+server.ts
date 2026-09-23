@@ -11,6 +11,7 @@ const schema = z.strictObject({
 	title: z.string().trim().min(1).max(256),
 	body: z.string().max(16_384),
 	idempotencyKey: z.string().uuid(),
+	retryPreCommit: z.boolean().optional(),
 });
 
 export const POST: RequestHandler = async ({ locals, params, request }) => {

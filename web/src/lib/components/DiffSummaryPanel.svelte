@@ -46,7 +46,7 @@
 	import ReviewFileCard from "./review/ReviewFileCard.svelte";
 	import ReviewFileTree from "./review/ReviewFileTree.svelte";
 	import type { PersonalPrView } from "$lib/personal-pr.js";
-	import { personalPrReason, trustedGithubPrUrl } from "$lib/personal-pr.js";
+	import { fileCountLabel, personalPrReason, trustedGithubPrUrl } from "$lib/personal-pr.js";
 
 	let {
 		messages = [],
@@ -93,7 +93,7 @@
 			const response = await fetch(`/api/github/personal-prs/proposals/${encodeURIComponent(personalPr.proposalId)}/confirm`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ expectedDigest: personalPr.digest, title: prTitle, body: prBody, idempotencyKey: confirmationKey }),
+				body: JSON.stringify({ expectedDigest: personalPr.digest, title: prTitle, body: prBody, idempotencyKey: confirmationKey, ...(recoveryAction === "retry_pre_ref" ? { retryPreCommit: true } : {}) }),
 			});
 			const updated = await response.json();
 			if (!response.ok) throw new Error(updated.error ?? (recoveryAction === "check_github" ? "Could not check GitHub result" : "Could not create draft PR"));
@@ -243,7 +243,7 @@
 		{#if personalPr}
 			<section class="min-h-0 flex-1 overflow-y-auto bg-[var(--color-surface-secondary)] p-4" data-testid="personal-pr-review">
 				<div class="flex items-start justify-between gap-4"><h3 class="text-base font-semibold text-[var(--color-text-primary)]">This run’s draft PR</h3><button class="text-sm text-[var(--color-text-secondary)]" aria-label="Close PR review" onclick={onclose}>Close</button></div>
-				<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{personalPr.repository?.fullName ?? "Repository"} · base {personalPr.repository?.baseRef ?? "unknown"} · {personalPr.files?.length ?? 0} files</p>
+				<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{personalPr.repository?.fullName ?? "Repository"} · base {personalPr.repository?.baseRef ?? "unknown"} · {fileCountLabel(personalPr.files?.length ?? 0)}</p>
 				<p class="mt-2 text-xs text-[var(--color-text-muted)]">The file list below is the saved run snapshot used for the PR.</p>
 					{#if personalPr.files?.length}
 						<ul class="mt-3 max-h-32 overflow-y-auto rounded-md border border-[var(--color-border)] p-2 text-xs text-[var(--color-text-secondary)]">
@@ -276,8 +276,8 @@
 						<div class="mt-3 flex flex-wrap items-center gap-3"><button class="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50" disabled={prBusy || !!prError || !prTitle.trim() || !personalPr.digest || !exactFilesAvailable} onclick={() => confirmPersonalPr()}>Create draft PR</button><span class="text-xs text-[var(--color-text-muted)]">Nothing pushed until you confirm.</span></div>
 				{:else if personalPr.recoveryAction === "check_github"}
 					<div class="mt-3 space-y-2"><p class="text-sm text-[var(--color-text-secondary)]" role="status">The GitHub result is uncertain. Check the result before taking another action.</p><button class="rounded-md border border-[var(--color-border)] px-3 py-2 text-sm font-medium text-[var(--color-accent)] disabled:opacity-50" disabled={prBusy || !personalPr.digest || !personalPr.proposalId} onclick={() => confirmPersonalPr("check_github")}>Check GitHub result</button></div>
-				{:else if personalPr.state === "failed" && personalPr.recoveryAction === "retry_pre_ref"}
-					<div class="mt-3 space-y-2"><p class="text-sm text-[var(--color-text-secondary)]" role="status">No GitHub commit was sent. You can start a new attempt from this saved review.</p><button class="rounded-md border border-[var(--color-border)] px-3 py-2 text-sm font-medium text-[var(--color-accent)] disabled:opacity-50" disabled={prBusy || !personalPr.digest || !personalPr.proposalId} onclick={() => confirmPersonalPr("retry_pre_ref")}>Retry draft PR publication</button></div>
+				{:else if personalPr.recoveryAction === "retry_pre_ref"}
+					<div class="mt-3 space-y-2"><p class="text-sm text-[var(--color-text-secondary)]" role="status">Publication stopped before creating a branch or pull request. You can retry from this saved review.</p><button class="rounded-md border border-[var(--color-border)] px-3 py-2 text-sm font-medium text-[var(--color-accent)] disabled:opacity-50" disabled={prBusy || !personalPr.digest || !personalPr.proposalId} onclick={() => confirmPersonalPr("retry_pre_ref")}>Retry draft PR publication</button></div>
 				{:else if personalPr.recoveryAction === "reimport"}
 					<p class="mt-3 text-sm text-[var(--color-text-secondary)]" role="status">The repository base changed. Start a new private sandbox import before preparing another PR.</p>
 				{:else if personalPr.state === "created" && trustedGithubPrUrl(personalPr.prUrl)}

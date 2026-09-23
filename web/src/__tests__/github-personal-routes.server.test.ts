@@ -248,6 +248,10 @@ describe("personal pull request routes", () => {
 		const confirmed = await call(confirm.POST, `/api/github/personal-prs/proposals/${uuid}/confirm`, "POST", JSON.stringify({ expectedDigest: digest, title: " Draft ", body: "Body", idempotencyKey: uuid }), undefined, { id: uuid });
 		expect(confirmed.headers.get("cache-control")).toBe("no-store");
 		expect(mocks.confirm).toHaveBeenCalledWith(user.id, { proposalId: uuid, expectedDigest: digest, title: "Draft", body: "Body", idempotencyKey: uuid });
+		const retryBody = { expectedDigest: digest, title: "Draft", body: "Body", idempotencyKey: uuid, retryPreCommit: true };
+		expect((await call(confirm.POST, `/api/github/personal-prs/proposals/${uuid}/confirm`, "POST", JSON.stringify(retryBody), undefined, { id: uuid })).status).toBe(200);
+		expect(mocks.confirm).toHaveBeenLastCalledWith(user.id, { proposalId: uuid, ...retryBody });
+		expect((await call(confirm.POST, `/api/github/personal-prs/proposals/${uuid}/confirm`, "POST", JSON.stringify({ ...retryBody, retryPreCommit: "true" }), undefined, { id: uuid })).status).toBe(400);
 	});
 
 	test("import requires an approved repository shape and a session owner", async () => {

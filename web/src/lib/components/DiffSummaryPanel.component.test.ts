@@ -139,6 +139,7 @@ test("reconciles an uncertain failed publication through confirm without offerin
 	await waitFor(() => expect(onpersonalprupdate).toHaveBeenCalledWith(expect.objectContaining({ state: "created" })));
 	expect(fetch).toHaveBeenCalledWith("/api/github/personal-prs/proposals/proposal-1/confirm", expect.objectContaining({ method: "POST" }));
 	expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ expectedDigest: failed.digest, title: failed.title, body: failed.body });
+	expect(JSON.parse(fetch.mock.calls[0]![1].body)).not.toHaveProperty("retryPreCommit");
 });
 
 test.each([
@@ -173,11 +174,26 @@ test("explicitly retries only a failed pre-ref attempt from the frozen review", 
 	vi.stubGlobal("fetch", fetch);
 	const onpersonalprupdate = vi.fn();
 	const view = renderPanel({ personalPr: failed, onpersonalprupdate });
-	expect(view.getByText(/No GitHub commit was sent/)).toBeVisible();
+	expect(view.getByText(/Publication stopped before creating a branch or pull request/)).toBeVisible();
 	expect(view.queryByRole("button", { name: "Check GitHub result" })).not.toBeInTheDocument();
 	await fireEvent.click(view.getByRole("button", { name: "Retry draft PR publication" }));
 	await waitFor(() => expect(onpersonalprupdate).toHaveBeenCalledWith(expect.objectContaining({ state: "created" })));
 	expect(fetch).toHaveBeenCalledWith("/api/github/personal-prs/proposals/proposal-1/confirm", expect.objectContaining({ method: "POST" }));
+	expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ retryPreCommit: true });
+});
+
+test("an expired creating proposal needs an explicit pre-commit retry", async () => {
+	const creating = {
+		state: "creating", recoveryAction: "retry_pre_ref", proposalId: "proposal-1", digest: "a".repeat(64),
+		files: [{ path: "src/file.ts", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-before\n+after", binary: false }],
+		title: "Fix file", body: "Tested", checks: [],
+	} as const;
+	const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ...creating, state: "created" }), { headers: { "content-type": "application/json" } }));
+	vi.stubGlobal("fetch", fetch);
+	const view = renderPanel({ personalPr: creating });
+	expect(view.queryByRole("button", { name: "Check GitHub result" })).not.toBeInTheDocument();
+	await fireEvent.click(view.getByRole("button", { name: "Retry draft PR publication" }));
+	expect(JSON.parse(fetch.mock.calls[0]![1].body)).toMatchObject({ retryPreCommit: true });
 });
 
 test("checks stored status after an uncertain confirmation and reports check errors", async () => {

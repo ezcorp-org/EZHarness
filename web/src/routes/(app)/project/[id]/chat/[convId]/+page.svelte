@@ -65,6 +65,10 @@
 	let diffPanelOpen = $state(false);
 	let personalPrReview = $state<PersonalPrView | null>(null);
 	let personalPrRefreshKey = $state(0);
+	function toggleDiffPanel() {
+		if (!diffPanelOpen) personalPrReview = null;
+		diffPanelOpen = !diffPanelOpen;
+	}
 	function openPersonalPrReview(review: PersonalPrView) {
 		personalPrReview = review;
 		diffPanelOpen = true;
@@ -75,11 +79,13 @@
 	}
 	$effect(() => {
 		const reviewId = page.url.searchParams.get("review");
-		if (!reviewId) return;
+		const expectedPath = `/project/${projectId}/chat/${convId}?review=${reviewId}`;
+		if (!reviewId) { personalPrReview = null; return; }
+		personalPrReview = null;
 		const controller = new AbortController();
 		fetch(`/api/github/personal-prs/proposals/${encodeURIComponent(reviewId)}`, { signal: controller.signal })
 			.then((response) => response.ok ? response.json() as Promise<PersonalPrView> : null)
-			.then((review) => { if (!controller.signal.aborted && review) { personalPrReview = review; diffPanelOpen = true; } })
+			.then((review) => { if (!controller.signal.aborted && review?.reviewPath === expectedPath) { personalPrReview = review; diffPanelOpen = true; } })
 			.catch(() => {});
 		return () => controller.abort();
 	});
@@ -343,7 +349,7 @@
 				topics={chrome.topics}
 				onmobilemenu={() => (mobileConvListOpen = true)}
 				ontoolstoggle={(next) => (toolsOpen = next)}
-				ondifftoggle={() => (diffPanelOpen = !diffPanelOpen)}
+				ondifftoggle={toggleDiffPanel}
 				onobstoggle={() => (obsOpen = !obsOpen)}
 				ongraphtoggle={() => (graphOpen = !graphOpen)}
 				onselecttoggle={chrome.toggleSelectMode}
@@ -389,7 +395,7 @@
 				messages={chrome.messages}
 				toolCalls={chrome.diffPanelToolCalls}
 				open={diffPanelOpen}
-				onclose={() => (diffPanelOpen = false)}
+					onclose={() => { diffPanelOpen = false; personalPrReview = null; }}
 				streaming={chrome.isStreaming}
 				conversationId={convId}
 				personalPr={personalPrReview}

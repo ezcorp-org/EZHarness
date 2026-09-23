@@ -31,11 +31,14 @@ test("creates an owner-only sandbox and imports only an approved repository", as
 	await fireEvent.change(view.getByLabelText("Repository"), { target: { value: "43" } });
 	expect(view.getByRole("button", { name: "Create private sandbox & import" })).toBeDisabled();
 	await fireEvent.change(view.getByLabelText("Repository"), { target: { value: "42" } });
+	await waitFor(() => expect(view.getByLabelText("Base branch")).toHaveValue("main"));
+	await fireEvent.input(view.getByLabelText("Base branch"), { target: { value: "release/1.x" } });
 	await fireEvent.change(view.getByLabelText("Sandbox provider"), { target: { value: "00000000-0000-4000-8000-000000000001" } });
 	await fireEvent.click(view.getByRole("button", { name: "Create private sandbox & import" }));
 	await waitFor(() => expect(goto).toHaveBeenCalledWith("/project/new-sandbox/settings"));
 	expect(fetch).toHaveBeenCalledWith("/api/github/sandboxes", expect.objectContaining({ method: "POST" }));
 	expect(fetch).toHaveBeenCalledWith("/api/github/personal-prs/sandboxes/new-sandbox/import", expect.objectContaining({ body: expect.stringContaining('"repositoryId":42') }));
+	expect(fetch).toHaveBeenCalledWith("/api/github/personal-prs/sandboxes/new-sandbox/import", expect.objectContaining({ body: expect.stringContaining('"baseRef":"release/1.x"') }));
 });
 
 test("pending private sandbox imports without creating a second project", async () => {
@@ -73,9 +76,10 @@ test.each([
 });
 
 test("explains when no approved repositories can be imported", async () => {
-	vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(response(url === "/api/github/connection" ? { status: "connected", configured: true } : { repositories: [] }))));
+	vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(response(url === "/api/github/connection" ? { status: "connected", configured: true, installUrl: "https://github.com/apps/ezcorp-github-auth/installations/new" } : { repositories: [] }))));
 	const view = render(GithubSandboxImport, { projectId: "source" });
 	await waitFor(() => expect(view.getByText(/No enabled repositories are available/)).toBeVisible());
+	expect(view.getByRole("link", { name: "Enable repositories on GitHub" })).toHaveAttribute("href", "https://github.com/apps/ezcorp-github-auth/installations/new");
 });
 
 test("keeps an admitted private sandbox visible when import fails", async () => {

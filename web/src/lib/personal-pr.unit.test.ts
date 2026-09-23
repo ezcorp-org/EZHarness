@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { personalPrReason, trustedGithubPrUrl, trustedGithubUrl } from "./personal-pr";
+import { fileCountLabel, personalPrReason, trustedGithubPrUrl, trustedGithubUrl } from "./personal-pr";
+
+test("labels a single file with the singular noun", () => {
+	expect(fileCountLabel(0)).toBe("0 files");
+	expect(fileCountLabel(1)).toBe("1 file");
+	expect(fileCountLabel(2)).toBe("2 files");
+});
 
 test.each([
 	[undefined, ""],

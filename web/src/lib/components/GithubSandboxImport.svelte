@@ -1,10 +1,11 @@
 <script lang="ts">
 	import { goto } from "$app/navigation";
 	import { refreshProjects } from "$lib/stores.svelte.js";
+	import { trustedGithubUrl } from "$lib/personal-pr.js";
 
 	type Provider = { installationId: string; providerId: string; label: string; ready: boolean; reason?: string };
 	type Repository = { id: number; fullName: string; defaultBranch: string; private: boolean; accessStatus: "ready" | "insufficient_user_permission" };
-	type Connection = { status: "disconnected" | "connected" | "reconnect_required"; configured: boolean };
+	type Connection = { status: "disconnected" | "connected" | "reconnect_required"; configured: boolean; installUrl?: string };
 
 	let { projectId, providers = [], pendingPrivate = false, onimported }: {
 		projectId: string;
@@ -16,6 +17,7 @@
 	let connection = $state<Connection | null>(null);
 	let repositories = $state<Repository[]>([]);
 	let repositoryId = $state(0);
+	let baseRef = $state("");
 	let providerId = $state("");
 	let busy = $state(false);
 	let error = $state("");
@@ -46,10 +48,12 @@
 	});
 
 	let selectedRepository = $derived(repositories.find((repository) => repository.id === repositoryId));
+	$effect(() => { baseRef = selectedRepository?.defaultBranch ?? ""; });
+	let validBaseRef = $derived(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(baseRef) && !baseRef.includes("..") && !baseRef.includes("//") && !baseRef.endsWith("/") && !baseRef.endsWith(".lock"));
 	let selectedProvider = $derived(providers.find((provider) => provider.installationId === providerId));
 
 	async function importRepository() {
-		if (!selectedRepository || selectedRepository.accessStatus !== "ready" || busy) return;
+		if (!selectedRepository || selectedRepository.accessStatus !== "ready" || !validBaseRef || busy) return;
 		if (!pendingPrivate && !selectedProvider?.ready) return;
 		busy = true;
 		error = "";
@@ -73,7 +77,7 @@
 			const importResponse = await fetch(`/api/github/personal-prs/sandboxes/${encodeURIComponent(targetId)}/import`, {
 				method: "POST",
 				headers: { "content-type": "application/json" },
-				body: JSON.stringify({ repositoryId: selectedRepository.id, baseRef: selectedRepository.defaultBranch, idempotencyKey: importKey }),
+				body: JSON.stringify({ repositoryId: selectedRepository.id, baseRef, idempotencyKey: importKey }),
 			});
 			const imported = await importResponse.json();
 			if (!importResponse.ok) throw new Error(imported.error ?? "Could not import repository");
@@ -97,12 +101,14 @@
 	{:else}
 		{#if repositories.length}
 			<div class="mt-3 grid gap-3 sm:grid-cols-2">
-				<div><label for="github-import-repository" class="block text-xs font-medium text-[var(--color-text-secondary)]">Repository</label><select id="github-import-repository" bind:value={repositoryId} disabled={busy || createSubmitted || importSubmitted || !!newProjectId} class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"><option value={0}>Select a repository</option>{#each repositories as repository}<option value={repository.id}>{repository.fullName}{repository.accessStatus === "ready" ? "" : " · no write access"}</option>{/each}</select></div>
+					<div><label for="github-import-repository" class="block text-xs font-medium text-[var(--color-text-secondary)]">Repository</label><select id="github-import-repository" bind:value={repositoryId} disabled={busy || createSubmitted || importSubmitted || !!newProjectId} class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"><option value={0}>Select a repository</option>{#each repositories as repository}<option value={repository.id}>{repository.fullName}{repository.accessStatus === "ready" ? "" : " · no write access"}</option>{/each}</select></div>
+					<div><label for="github-import-base" class="block text-xs font-medium text-[var(--color-text-secondary)]">Base branch</label><input id="github-import-base" type="text" bind:value={baseRef} disabled={busy || createSubmitted || importSubmitted || !!newProjectId || !selectedRepository} maxlength="200" placeholder="Select a repository first" aria-invalid={!!baseRef && !validBaseRef} class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]" /></div>
 				{#if !pendingPrivate}<div><label for="github-import-provider" class="block text-xs font-medium text-[var(--color-text-secondary)]">Sandbox provider</label><select id="github-import-provider" bind:value={providerId} disabled={busy || createSubmitted || !!newProjectId} class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"><option value="">Select a provider</option>{#each providers as provider}<option value={provider.installationId} disabled={!provider.ready}>{provider.label}</option>{/each}</select></div>{/if}
 			</div>
 			{#if selectedRepository?.accessStatus === "insufficient_user_permission"}<p class="mt-2 text-sm text-amber-700 dark:text-amber-300" role="status">Your GitHub account needs write access to this repository.</p>{/if}
-			<button class="mt-3 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50" disabled={busy || selectedRepository?.accessStatus !== "ready" || !pendingPrivate && !selectedProvider?.ready} onclick={importRepository}>{busy ? "Importing repository…" : pendingPrivate ? "Import into this sandbox" : "Create private sandbox & import"}</button>
-		{:else}<p class="mt-3 text-sm text-[var(--color-text-secondary)]">No enabled repositories are available. Enable a repository or request organization approval on GitHub.</p>{/if}
+				<button class="mt-3 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50" disabled={busy || !validBaseRef || selectedRepository?.accessStatus !== "ready" || !pendingPrivate && !selectedProvider?.ready} onclick={importRepository}>{busy ? "Importing repository…" : pendingPrivate ? "Import into this sandbox" : "Create private sandbox & import"}</button>
+			{:else}<p class="mt-3 text-sm text-[var(--color-text-secondary)]">No enabled repositories are available. Enable a repository or request organization approval on GitHub.</p>{/if}
+			{#if trustedGithubUrl(connection.installUrl)}<a class="mt-3 block text-sm text-[var(--color-accent)] underline" href={trustedGithubUrl(connection.installUrl) ?? undefined} target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Enable repositories on GitHub</a>{/if}
 		<a class="mt-3 block text-xs text-[var(--color-accent)] underline" href="/settings/github">Manage GitHub connection</a>
 	{/if}
 	{#if newProjectId && error}<a class="mt-3 block text-sm text-[var(--color-accent)] underline" href={`/project/${newProjectId}/settings`}>Open the private sandbox</a>{/if}

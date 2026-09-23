@@ -68,6 +68,16 @@ describe("PersonalPrCard", () => {
 		await waitFor(() => expect(view.queryByTestId("personal-pr-card")).not.toBeInTheDocument());
 	});
 
+	test("explains a no-change result after the owner prepares a review", async () => {
+		vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(response({ state: "working", blockReason: "review_not_prepared" })).mockResolvedValueOnce(response({ state: "no_changes" })));
+		const view = render(PersonalPrCard, { runId: "run-1", onreview: vi.fn() });
+		await waitFor(() => expect(view.getByRole("button", { name: "Prepare PR review" })).toBeVisible());
+		await fireEvent.click(view.getByRole("button", { name: "Prepare PR review" }));
+		await waitFor(() => expect(view.getByText("No file changes to review")).toBeVisible());
+		expect(view.getByText("Make a change in this sandbox, then complete another run.")).toBeVisible();
+		expect(view.queryByRole("button", { name: "Create draft PR" })).not.toBeInTheDocument();
+	});
+
 	test("blocks an unsafe provider link in created state", async () => {
 		vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response({ ...ready, state: "created", prUrl: "https://github.com.evil.test/owner/repo/pull/1" })));
 		const view = render(PersonalPrCard, { runId: "run-3", onreview: vi.fn() });

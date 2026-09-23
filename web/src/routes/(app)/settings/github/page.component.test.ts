@@ -18,6 +18,22 @@ const deviceAttempt = {
 	verificationUri: "https://github.com/login/device", expiresAt: new Date(Date.now() + 600_000).toISOString(), intervalSeconds: 1,
 };
 
+test("shows the App installation link and rechecks selected repository access", async () => {
+	let available = false;
+	const fetch = vi.fn((url: string) => Promise.resolve(response(url === "/api/github/connection"
+		? { status: "connected", configured: true, authMode: "device", account: { id: 123, login: "owner" }, installUrl: "https://github.com/apps/ezcorp-github-auth/installations/new" }
+		: url === "/api/github/repositories" ? { repositories: available ? [{ id: 42 }] : [] }
+		: { status: "repository_not_enabled", repository: { id: 42, fullName: "owner/private" } })));
+	vi.stubGlobal("fetch", fetch);
+	const view = render(GithubSettingsPage);
+	await waitFor(() => expect(view.getByRole("link", { name: "Enable repositories on GitHub" })).toHaveAttribute("href", "https://github.com/apps/ezcorp-github-auth/installations/new"));
+	await fireEvent.click(view.getByRole("button", { name: "Recheck repositories" }));
+	await waitFor(() => expect(view.getByText("No enabled repositories yet.")).toBeVisible());
+	available = true;
+	await fireEvent.click(view.getByRole("button", { name: "Recheck repositories" }));
+	await waitFor(() => expect(view.getByText("1 enabled repository available.")).toBeVisible());
+});
+
 test("device mode shows only the local code and fixed GitHub verification link", async () => {
 	const fetch = vi.fn((url: string) => Promise.resolve(response(url === "/api/github/connection"
 		? { status: "disconnected", configured: true, authMode: "device" }

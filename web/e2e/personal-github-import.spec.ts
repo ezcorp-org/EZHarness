@@ -20,7 +20,7 @@ test("imports a selected repository into a private sandbox before opening chat @
 		return route.fulfill({ status: 201, json: { project: target } });
 	});
 	await page.route("**/api/github/personal-prs/sandboxes/private-project/import", (route) => {
-		expect(route.request().postDataJSON()).toMatchObject({ repositoryId: 42, baseRef: "main" });
+		expect(route.request().postDataJSON()).toMatchObject({ repositoryId: 42, baseRef: "release/1.x" });
 		ready = true;
 		return route.fulfill({ json: { state: "ready" } });
 	});
@@ -30,6 +30,8 @@ test("imports a selected repository into a private sandbox before opening chat @
 	await page.getByRole("button", { name: "Import a GitHub repository into a private sandbox" }).click();
 	const importer = page.getByTestId("github-sandbox-import");
 	await importer.getByLabel("Repository", { exact: true }).selectOption("42");
+	await expect(importer.getByLabel("Base branch")).toHaveValue("main");
+	await importer.getByLabel("Base branch").fill("release/1.x");
 	await importer.getByLabel("Sandbox provider").selectOption(provider.installationId);
 	await page.setViewportSize({ width: 390, height: 844 });
 	await captureEvidence(page, testInfo, "personal-github-import-mobile", { fullPage: true });
@@ -37,4 +39,22 @@ test("imports a selected repository into a private sandbox before opening chat @
 	await expect(page).toHaveURL(/\/project\/private-project\/settings/);
 	await expect(page.getByTestId("project-sandbox-panel").getByRole("link", { name: "Open chat" })).toHaveAttribute("href", "/project/private-project/chat/owner-conversation");
 	await captureEvidence(page, testInfo, "personal-github-import-ready", { fullPage: true });
+});
+
+test("a connected account can enable its first repository @evidence", async ({ page, mockApi }, testInfo) => {
+	await mockApi({ projects: [makeProject({ id: "source-project", name: "Source project" })] });
+	await page.route("**/api/github/connection", (route) => route.fulfill({ json: {
+		status: "connected", configured: true, authMode: "device", account: { id: 123, login: "owner" },
+		installUrl: "https://github.com/apps/ezcorp-github-auth/installations/new",
+	} }));
+	await page.route("**/api/github/repositories", (route) => route.fulfill({ json: { repositories: [] } }));
+	await page.goto("/project/source-project/settings");
+	await page.getByRole("button", { name: "Import a GitHub repository into a private sandbox" }).click();
+	const importer = page.getByTestId("github-sandbox-import");
+	await expect(importer.getByText("No enabled repositories are available.")).toBeVisible();
+	await expect(importer.getByRole("link", { name: "Enable repositories on GitHub" })).toHaveAttribute("href", "https://github.com/apps/ezcorp-github-auth/installations/new");
+	await captureEvidence(page, testInfo, "personal-github-first-repository", { fullPage: true });
+	await page.goto("/settings/github");
+	await expect(page.getByRole("link", { name: "Enable repositories on GitHub" })).toHaveAttribute("href", "https://github.com/apps/ezcorp-github-auth/installations/new");
+	await expect(page.getByRole("button", { name: "Recheck repositories" })).toBeVisible();
 });

@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { PersonalPrView } from "$lib/personal-pr.js";
-	import { personalPrReason, trustedGithubPrUrl } from "$lib/personal-pr.js";
+	import { fileCountLabel, personalPrReason, trustedGithubPrUrl } from "$lib/personal-pr.js";
 
 	let { runId, onreview, refreshKey = 0 }: {
 		runId: string | null;
@@ -11,6 +11,7 @@
 	let view = $state<PersonalPrView | null>(null);
 	let busy = $state(false);
 	let error = $state("");
+	let preparedNoChanges = $state(false);
 	let canPrepare = $derived(view?.state === "working" && view.blockReason === "review_not_prepared");
 	let title = $derived.by(() => {
 		switch (view?.state) {
@@ -21,6 +22,7 @@
 			case "blocked": return "PR review blocked";
 			case "stale": return "PR review expired";
 			case "failed": return "Draft PR creation failed";
+			case "no_changes": return "No file changes to review";
 			default: return "Pull request";
 		}
 	});
@@ -37,6 +39,7 @@
 		void refreshKey;
 		view = null;
 		error = "";
+		preparedNoChanges = false;
 		if (!id) return;
 		const controller = new AbortController();
 		fetch(`/api/github/personal-prs/runs/${encodeURIComponent(id)}`, { signal: controller.signal })
@@ -63,6 +66,7 @@
 			const result = await response.json();
 			if (!response.ok) throw new Error(result.error ?? "Could not prepare pull request");
 			view = result as PersonalPrView;
+			preparedNoChanges = view.state === "no_changes";
 			if (view.state === "ready" || view.state === "reviewing") onreview(view);
 		} catch (cause) {
 			error = cause instanceof Error ? cause.message : "Could not prepare pull request";
@@ -72,12 +76,12 @@
 	}
 </script>
 
-{#if view && view.state !== "no_changes"}
+{#if view && (view.state !== "no_changes" || preparedNoChanges)}
 	<section class="mx-4 my-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-4 sm:mx-12" data-testid="personal-pr-card" aria-label="Pull request">
 		<div class="flex flex-wrap items-start justify-between gap-3">
 			<div>
 				<h3 class="font-semibold text-[var(--color-text-primary)]">{title}</h3>
-				<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{view.repository?.fullName ?? "Your private sandbox"}{view.files?.length ? ` · ${view.files.length} files` : ""}{view.state === "ready" || view.state === "reviewing" ? ` · ${view.checks?.length ? view.checks.every((check) => check.result === "passed") ? "checks passed" : "check warning" : "No verified checks recorded"}` : ""}</p>
+					<p class="mt-1 text-sm text-[var(--color-text-secondary)]">{view.repository?.fullName ?? "Your private sandbox"}{view.files?.length ? ` · ${fileCountLabel(view.files.length)}` : ""}{view.state === "ready" || view.state === "reviewing" ? ` · ${view.checks?.length ? view.checks.every((check) => check.result === "passed") ? "checks passed" : "check warning" : "No verified checks recorded"}` : ""}</p>
 			</div>
 			{#if canPrepare}
 				<button class="rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50" disabled={busy} onclick={review}>{busy ? "Preparing review…" : "Prepare PR review"}</button>
@@ -92,7 +96,8 @@
 			{/if}
 		</div>
 		{#if view.state === "ready" || view.state === "reviewing"}<p class="mt-2 text-xs text-[var(--color-text-muted)]">Nothing pushed yet.</p>{/if}
-		{#if reason}<p class="mt-2 text-sm text-[var(--color-text-secondary)]" role="status">{reason}</p>{/if}
+			{#if view.state === "no_changes"}<p class="mt-2 text-sm text-[var(--color-text-secondary)]" role="status">Make a change in this sandbox, then complete another run.</p>{/if}
+			{#if reason}<p class="mt-2 text-sm text-[var(--color-text-secondary)]" role="status">{reason}</p>{/if}
 		{#if view.state === "stale"}<p class="mt-2 text-sm text-red-700 dark:text-red-300" role="status">This draft needs a new review before GitHub can be updated.</p>{/if}
 		{#if error}<p class="mt-2 text-sm text-red-700 dark:text-red-300" role="alert">{error}</p>{/if}
 	</section>
