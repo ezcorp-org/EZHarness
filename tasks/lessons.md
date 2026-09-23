@@ -1488,3 +1488,9 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - W15: A test that seeds `factory_installation` directly and then claims an effect needs the
   explicit freshness opt-out (`openFactoryEffectClaimsForTest`). Find such tests with a grep over
   every lane, including Podman lanes, before changing a gate default.
+## 2026-09-22 — W18b pool fixes
+
+- A failure label copied from a test name is a hypothesis, not a cause. W15 recorded the launcher failure as a Unix socket path limit because the test is named for it; the real error was a `TimeoutError` from a one-second readiness probe. Run the failing file under the pool's concurrency (six copies at once reproduced it 1 in 24) and read the error before naming a cause.
+- A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
+- A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
+- A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.

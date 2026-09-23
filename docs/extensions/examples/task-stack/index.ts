@@ -7,7 +7,7 @@
 // every IO through the `ezcorp/fs.*` reverse-RPC.
 
 import type { JsonRpcRequest, JsonRpcResponse, ToolCallResult } from "@ezcorp/sdk";
-import { getToolContext } from "@ezcorp/sdk/runtime";
+import { getToolContext, resolveProjectRoot as resolveGitProjectRoot } from "@ezcorp/sdk/runtime";
 import {
   fsRead,
   fsWrite,
@@ -50,9 +50,8 @@ interface Store {
 
 // --- Project root detection ---
 //
-// Test-facing helper preserving the original silent-fallback semantics
-// (the SDK's `findProjectRoot` throws when no `.git` ancestor is found;
-// this wrapper swallows that and returns `from`, which several tests rely on).
+// Never throws: with no host hint and no enclosing git repository it
+// returns `from`, which several tests rely on.
 //
 // Resolution order:
 //   1. `EZCORP_PROJECT_ROOT` env var, set by the host at spawn time
@@ -60,38 +59,18 @@ interface Store {
 //      production path — under the Phase 3 sandbox-preload, `node:fs` is
 //      poisoned at module-load, so the extension can't walk for `.git`
 //      itself. The host does the walk once and injects the answer.
-//   2. Lazy `require("node:fs")` `.git` walk for unit tests + ad-hoc CLI
-//      runs where no sandbox is active. Mirrors `loadFsSync()` in
-//      `packages/@ezcorp/sdk/src/runtime/fs.ts` — keeping the require
-//      lazy means the import doesn't trip the poison even when the SDK
-//      module loads inside a sandboxed subprocess.
+//   2. The SDK's `resolveProjectRoot` git walk for unit tests + ad-hoc CLI
+//      runs. It loads `node:fs` lazily and returns `from` inside the
+//      sandbox, so the import never trips the poison.
 
-/** Walk up from `from` to locate a `.git` directory. Falls back to `from` when none is found. */
+/** The host-injected project root, else the nearest git repository root above `from`, else `from`. */
 export function resolveProjectRoot(from: string = process.cwd()): string {
   // (1) Host-injected — production fast path.
   const fromEnv = getToolContext()?.projectRoot ?? process.env.EZCORP_PROJECT_ROOT;
   if (fromEnv && fromEnv.length > 0) return fromEnv;
 
-  // (2) Lazy fs walk — only reached in test / CLI contexts where the
-  // sandbox-preload poison isn't active. A static `import {existsSync}
-  // from "fs"` would fire at module-load time, even for code paths that
-  // never need the walk — so we require it on demand.
-  let fs: typeof import("node:fs");
-  try {
-    fs = require("node:fs") as typeof import("node:fs");
-  } catch {
-    // fs unavailable (subprocess sandbox) and no env hint — return
-    // `from` so callers don't crash; STORE_PATH-dependent code paths
-    // will surface their own error when they actually need IO.
-    return from;
-  }
-  let dir = from;
-  while (true) {
-    if (fs.existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return from; // reached filesystem root
-    dir = parent;
-  }
+  // (2) The SDK walk — only reached in test / CLI contexts.
+  return resolveGitProjectRoot(from);
 }
 
 // --- Store path ---

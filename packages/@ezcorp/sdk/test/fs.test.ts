@@ -4,7 +4,7 @@
 // for everything else (project rule: no node:fs/promises).
 
 import { afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -13,9 +13,11 @@ import {
   atomicWrite,
   findProjectRoot,
   getExtensionDataDir,
+  resolveProjectRoot,
   loadJSON,
   saveJSON,
 } from "../src/runtime/fs";
+import { markGitRepository, outsideAnyGitRepository } from "../src/test/filesystem";
 
 // ── Temp-dir scaffolding ───────────────────────────────────────────
 
@@ -33,41 +35,71 @@ afterEach(() => {
 
 describe("findProjectRoot", () => {
   test("returns dir containing .git when called from that dir", () => {
-    mkdirSync(join(workDir, ".git"));
+    markGitRepository(workDir);
     expect(findProjectRoot(workDir)).toBe(workDir);
   });
 
   test("walks up from a nested dir until it finds .git", () => {
-    mkdirSync(join(workDir, ".git"));
+    markGitRepository(workDir);
     const nested = join(workDir, "sub", "deep");
     mkdirSync(nested, { recursive: true });
     expect(findProjectRoot(nested)).toBe(workDir);
   });
 
-  test("throws when no .git ancestor exists up to filesystem root", () => {
-    // Sanity: if the system /.git exists this assumption is invalid.
-    // Walk the workDir's chain to confirm no ancestor has .git.
-    let cur = workDir;
-    while (true) {
-      if (existsSync(join(cur, ".git"))) {
-        throw new Error(
-          `precondition violated: ${join(cur, ".git")} exists — this test assumes no .git in tmpdir ancestry`,
-        );
-      }
-      const parent = dirname(cur);
-      if (parent === cur) break;
-      cur = parent;
-    }
+  test("accepts a .git file that names its gitdir (a worktree or submodule)", () => {
+    writeFileSync(join(workDir, ".git"), "gitdir: /elsewhere/.git/worktrees/w\n");
+    const nested = join(workDir, "sub");
+    mkdirSync(nested);
+    expect(findProjectRoot(nested)).toBe(workDir);
+  });
 
+  test("ignores a stray empty .git directory and a .git file without gitdir, as git does", () => {
+    // The host once carried an empty `/tmp/.git`, and every walk from a temp
+    // directory anchored there. Plant both non-repository forms inside the
+    // test's own tree so the case holds whatever the host's /tmp contains.
+    mkdirSync(join(workDir, ".git"));
+    const inner = join(workDir, "inner");
+    mkdirSync(inner);
+    writeFileSync(join(inner, ".git"), "not a gitdir pointer\n");
+    const start = join(inner, "deep");
+    mkdirSync(start);
+    expect(outsideAnyGitRepository(start)).toBe(true);
+    expect(() => findProjectRoot(start)).toThrow(/no \.git ancestor found/);
+  });
+
+  test("throws when no .git ancestor exists up to filesystem root", () => {
+    expect(outsideAnyGitRepository(workDir), "precondition: the temp dir must be outside every git repository").toBe(true);
     expect(() => findProjectRoot(workDir)).toThrow(/no \.git ancestor found/);
   });
 
   test("uses process.cwd() when called with no argument", () => {
-    // The repo this test runs in has a .git, so the default-arg branch
+    // The checkout this test runs in is a git repository (a `.git`
+    // directory, or a `.git` file in a worktree), so the default-arg branch
     // resolves successfully.
     const root = findProjectRoot();
     expect(typeof root).toBe("string");
     expect(existsSync(join(root, ".git"))).toBe(true);
+  });
+});
+
+describe("resolveProjectRoot", () => {
+  test("returns the repository root when one encloses the start", () => {
+    markGitRepository(workDir);
+    const nested = join(workDir, "a");
+    mkdirSync(nested);
+    expect(resolveProjectRoot(nested)).toBe(workDir);
+  });
+
+  test("returns the start itself when no repository encloses it", () => {
+    mkdirSync(join(workDir, ".git"));
+    const start = join(workDir, "a");
+    mkdirSync(start);
+    expect(outsideAnyGitRepository(start), "precondition: the temp dir must be outside every git repository").toBe(true);
+    expect(resolveProjectRoot(start)).toBe(start);
+  });
+
+  test("uses process.cwd() when called with no argument", () => {
+    expect(resolveProjectRoot()).toBe(findProjectRoot());
   });
 });
 
@@ -99,7 +131,7 @@ describe("getExtensionDataDir", () => {
     // Give `workDir` its own `.git` and run from there so the default branch
     // roots at the temp dir; restore cwd unconditionally.
     const prevCwd = process.cwd();
-    mkdirSync(join(workDir, ".git"));
+    markGitRepository(workDir);
     process.chdir(workDir);
     // Re-read cwd after chdir so the assertion matches the realpath-resolved
     // root (tmpdir may be a symlink on some platforms).

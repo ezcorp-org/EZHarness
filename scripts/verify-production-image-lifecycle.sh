@@ -50,6 +50,9 @@ verification_group_file="$run_root/verification-group.pid"
 verification_active=0
 command_exit=1
 compose_started=0
+# One readiness budget, in seconds, for every wait below: the runner socket,
+# the runner's first authenticated answer, and app health.
+readiness_seconds=120
 
 verification_group_pid() {
   local group_pid=""
@@ -187,22 +190,26 @@ export EZ_PRODUCTION_PORT="$port" EZ_PRODUCTION_APP_CONTAINER="$container"
 } > "$receipt_dir/provenance.txt"
 
 bash scripts/start-extension-runner-e2e.sh > "$receipt_dir/runner.log" 2>&1 & runner_pid=$!
-for _ in $(seq 1 120); do
+for _ in $(seq 1 "$readiness_seconds"); do
   if [[ -S "$EZ_EXTENSION_RUNNER_SOCKET" && -s "$EZ_EXTENSION_RUNNER_TOKEN_FILE" ]]; then break; fi
   kill -0 "$runner_pid" 2>/dev/null || { cat "$receipt_dir/runner.log" >&2; exit 1; }
   sleep 1
 done
 [[ -S "$EZ_EXTENSION_RUNNER_SOCKET" && -s "$EZ_EXTENSION_RUNNER_TOKEN_FILE" ]]
-bun -e '
-const token=(await Bun.file(process.env.EZ_EXTENSION_RUNNER_TOKEN_FILE).text()).trim();
-const response=await fetch("http://localhost/v4/inspect", { unix: process.env.EZ_EXTENSION_RUNNER_SOCKET, method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ id: "launcher-readiness" }), signal: AbortSignal.timeout(1000) });
-if (!response.ok || (await response.json()).state !== "unknown") throw new Error("Runner readiness rejected");
+# The runner answers `inspect` only after a Podman query, whose latency follows
+# host load, so a healthy runner can take longer than a second. Wait for that
+# answer within the same readiness budget; a refusal, a wrong answer, or a
+# runner that exits still fails at once.
+EZ_RUNNER_READINESS_MS=$((readiness_seconds * 1000)) bun -e '
+const { inspectProductionRunner } = await import("./scripts/lib/production-lifecycle-client.ts");
+const inspection = await inspectProductionRunner("launcher-readiness", Number(process.env.EZ_RUNNER_READINESS_MS));
+if (inspection.state !== "unknown") throw new Error("Runner readiness rejected");
 '
 
 compose_started=1
 "${COMPOSE[@]}" -p "$project" -f "$compose" up -d
 origin="http://127.0.0.1:$port"
-for _ in $(seq 1 120); do
+for _ in $(seq 1 "$readiness_seconds"); do
   curl -fsS "$origin/api/health" >/dev/null 2>&1 && break
   sleep 1
 done

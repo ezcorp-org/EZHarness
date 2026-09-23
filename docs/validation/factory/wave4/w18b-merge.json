@@ -1,0 +1,347 @@
+{
+ "package": "w18b",
+ "branch": "wp/w18b-pool-fixes",
+ "head": "7498cdf115febe6205d864b6ecb40c90f6c1ffec",
+ "validatedHead": "672b3282e",
+ "deltaSinceValidated": "git diff --stat 672b3282e..7498cdf11: src/__tests__/security/m4-hooks-cors-pi-session.test.ts, tasks/factory/w18b-GATES.md, tasks/todo.md (no product source)",
+ "validatorVerdict": "ACCEPT-WITH-FIXES (w18b-validator); F1 positive control applied at 7498cdf11",
+ "mergeSha": "07ff8d7c5",
+ "parents": [
+  "6055bffc6e438f890e3b7d5e6a503504e42a0cbd",
+  "7498cdf115febe6205d864b6ecb40c90f6c1ffec"
+ ],
+ "conflicts": "none",
+ "rebuilt": [
+  {
+   "package": "@ezcorp/sdk",
+   "command": "bun run --cwd packages/@ezcorp/sdk build",
+   "exitCode": 0
+  }
+ ],
+ "notes": [
+  "src/__tests__/task-stack-sdk-integration.test.ts runs 0 pass 5 skip: its describe.skip predates this branch, which only replaces the .git fixture",
+  "the first web Vitest attempt passed the file list as one argument (zsh) and found no files, exit 1; the log is kept as web-vitest-security-argv-error.log; the rerun is the receipt",
+  "no new executable file, so no coverage-thresholds.json key"
+ ],
+ "checks": [
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-23T05:11:06Z",
+   "end": "2026-09-23T05:11:46Z",
+   "command": "bun run typecheck",
+   "logSha256": "f3c97d1d295a8b158dca065f5b3099146eb62830e85c3f060ad7c4fee67d64ff",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/typecheck.log"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-23T05:11:46Z",
+   "end": "2026-09-23T05:11:47Z",
+   "command": "bun run lint",
+   "logSha256": "c1080527b3296b184ead3c911db87d717784e5fdc4b7446758cf0ae235baf832",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/lint.log"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-23T05:11:47Z",
+   "end": "2026-09-23T05:11:49Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "246929005f804e46e1542be775e82aa61269d77a3306a4c89762665cdc652fcb",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/gate-integrity.log"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-23T05:11:49Z",
+   "end": "2026-09-23T05:11:50Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "74acc74acf1b44541ed5270bb49179d14caf557b972f1fe741045a51d61c243b",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/boundaries.log"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-23T05:11:50Z",
+   "end": "2026-09-23T05:11:54Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "ec41fe31c5a67019a0d4249eab4605ace4ccfec5383cd68382f5ebe8897db485",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/schema-drift.log"
+  },
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-23T05:11:54Z",
+   "end": "2026-09-23T05:11:54Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "counts": {
+    "pass": 15,
+    "fail": 0
+   },
+   "logSha256": "b87a505729638f6c2fd8495cb2c6387bec07a90a2eea7aa14994f638ac5a9305",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/registration.log"
+  },
+  {
+   "name": "web-check",
+   "exitCode": 0,
+   "start": "2026-09-23T05:11:54Z",
+   "end": "2026-09-23T05:12:01Z",
+   "command": "bash -c cd web && bun run check",
+   "logSha256": "902916241f3b7c29585b19c6464676b0bb19cbe60b26348b2d29ab38180dbf59",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/web-check.log"
+  },
+  {
+   "name": "formerly-failing-1-project",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:16Z",
+   "end": "2026-09-23T05:12:17Z",
+   "command": "bun test --timeout 30000 ./docs/extensions/examples/claude-design/lib/project.test.ts",
+   "counts": {
+    "pass": 5,
+    "fail": 0
+   },
+   "logSha256": "9d42feda3085847153df460667789b0dbf1bab78f76a2121ccaf6f5110f477c5",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/formerly-failing-1-project.log"
+  },
+  {
+   "name": "formerly-failing-2-postinstall",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:17Z",
+   "end": "2026-09-23T05:12:17Z",
+   "command": "bun test --timeout 30000 ./docs/extensions/examples/graded-card-scanner/postinstall.test.ts",
+   "counts": {
+    "pass": 4,
+    "fail": 0
+   },
+   "logSha256": "ed1c437d59ed174be1f8e172d72ea6d2a062e28694cea07bc58ab2b2dd7670fe",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/formerly-failing-2-postinstall.log"
+  },
+  {
+   "name": "formerly-failing-3-build-allowed-env-injection",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:17Z",
+   "end": "2026-09-23T05:12:18Z",
+   "command": "bun test --timeout 30000 ./src/__tests__/build-allowed-env-injection.test.ts",
+   "counts": {
+    "pass": 29,
+    "fail": 0
+   },
+   "logSha256": "05b2d88149df0890ac768d07dbb9a887ecca29b2517d617ae9cb817e7e8f5da8",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/formerly-failing-3-build-allowed-env-injection.log"
+  },
+  {
+   "name": "formerly-failing-4-m4-hooks-cors-pi-session",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:18Z",
+   "end": "2026-09-23T05:12:18Z",
+   "command": "bun test --timeout 30000 ./src/__tests__/security/m4-hooks-cors-pi-session.test.ts",
+   "counts": {
+    "pass": 16,
+    "fail": 0
+   },
+   "logSha256": "fca9043f88c3ca7ab2df49e3f6a678b8a66e0ad45dbe62f4b6cddc836aa1aa12",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/formerly-failing-4-m4-hooks-cors-pi-session.log"
+  },
+  {
+   "name": "formerly-failing-5-production-image-lifecycle-launch.integration",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:18Z",
+   "end": "2026-09-23T05:12:35Z",
+   "command": "bun test --timeout 30000 ./src/__tests__/production-image-lifecycle-launch.integration.test.ts",
+   "counts": {
+    "pass": 5,
+    "fail": 0
+   },
+   "logSha256": "f41b23836e76fbc58f2356f0e9ec50b63b5dcd0a3eb47f39be0d67521252ab44",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/formerly-failing-5-production-image-lifecycle-launch.integration.log"
+  },
+  {
+   "name": "changed-docs_extensions_examples_auto-note_index",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:35Z",
+   "end": "2026-09-23T05:12:36Z",
+   "command": "bun test --timeout 30000 ./docs/extensions/examples/auto-note/index.test.ts",
+   "counts": {
+    "pass": 119,
+    "fail": 0
+   },
+   "logSha256": "56d9a51fcd16bd0395b2a576234023eeab4849dafbcf5512fed9570296957d9e",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/changed-docs_extensions_examples_auto-note_index.log"
+  },
+  {
+   "name": "changed-docs_extensions_examples_auto-note_scripts_postinstall",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:36Z",
+   "end": "2026-09-23T05:12:37Z",
+   "command": "bun test --timeout 30000 ./docs/extensions/examples/auto-note/scripts/postinstall.test.ts",
+   "counts": {
+    "pass": 1,
+    "fail": 0
+   },
+   "logSha256": "1ba2c2d3ac7e07d26361024c41bae67586e914d706ecc4a3920ac46cb780f9a1",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/changed-docs_extensions_examples_auto-note_scripts_postinstall.log"
+  },
+  {
+   "name": "changed-docs_extensions_examples_claude-design_index.coverage",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:37Z",
+   "end": "2026-09-23T05:12:38Z",
+   "command": "bun test --timeout 30000 ./docs/extensions/examples/claude-design/index.coverage.test.ts",
+   "counts": {
+    "pass": 47,
+    "fail": 0
+   },
+   "logSha256": "258c5cb238737aad1e38b30219782c9cc636adb689ba420c0195a987e2aff35e",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/changed-docs_extensions_examples_claude-design_index.coverage.log"
+  },
+  {
+   "name": "changed-docs_extensions_examples_claude-design_index",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:38Z",
+   "end": "2026-09-23T05:12:39Z",
+   "command": "bun test --timeout 30000 ./docs/extensions/examples/claude-design/index.test.ts",
+   "counts": {
+    "pass": 83,
+    "fail": 0
+   },
+   "logSha256": "9dafba016fea2aed73278f4f2334b21737b0652f00d05b64da49a51f194ce2fd",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/changed-docs_extensions_examples_claude-design_index.log"
+  },
+  {
+   "name": "changed-docs_extensions_examples_claude-design_scripts_postinstall",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:39Z",
+   "end": "2026-09-23T05:12:40Z",
+   "command": "bun test --timeout 30000 ./docs/extensions/examples/claude-design/scripts/postinstall.test.ts",
+   "counts": {
+    "pass": 1,
+    "fail": 0
+   },
+   "logSha256": "629b8affced26ac79b0d0b77c433af599a83e2b8434be153db6821ca84e0038f",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/changed-docs_extensions_examples_claude-design_scripts_postinstall.log"
+  },
+  {
+   "name": "changed-docs_extensions_examples_file-organizer_scripts_postinstall",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:40Z",
+   "end": "2026-09-23T05:12:41Z",
+   "command": "bun test --timeout 30000 ./docs/extensions/examples/file-organizer/scripts/postinstall.test.ts",
+   "counts": {
+    "pass": 1,
+    "fail": 0
+   },
+   "logSha256": "6f81b33d5326337c862463a30f9dfb473cc4e360dda5a6ccaaa015dc9f700bcc",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/changed-docs_extensions_examples_file-organizer_scripts_postinstall.log"
+  },
+  {
+   "name": "changed-docs_extensions_examples_task-stack_e2e-server-pipeline",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:41Z",
+   "end": "2026-09-23T05:12:43Z",
+   "command": "bun test --timeout 30000 ./docs/extensions/examples/task-stack/e2e-server-pipeline.test.ts",
+   "counts": {
+    "pass": 7,
+    "fail": 0
+   },
+   "logSha256": "7a78f5281a60e26a4baf39f1510226cfc85c34c3e3b95094c369d843d3520244",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/changed-docs_extensions_examples_task-stack_e2e-server-pipeline.log"
+  },
+  {
+   "name": "changed-docs_extensions_examples_task-stack_index",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:43Z",
+   "end": "2026-09-23T05:12:44Z",
+   "command": "bun test --timeout 30000 ./docs/extensions/examples/task-stack/index.test.ts",
+   "counts": {
+    "pass": 66,
+    "fail": 0
+   },
+   "logSha256": "d263eb4c917cd48a86404a03a51f6fad1ea89f063b1b242915926008c7c07890",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/changed-docs_extensions_examples_task-stack_index.log"
+  },
+  {
+   "name": "changed-src___tests___task-stack-sdk-integration",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:44Z",
+   "end": "2026-09-23T05:12:45Z",
+   "command": "bun test --timeout 30000 ./src/__tests__/task-stack-sdk-integration.test.ts",
+   "counts": {
+    "pass": 0,
+    "skip": 5,
+    "fail": 0
+   },
+   "logSha256": "1213734a02dc6d0400c69af05c64cd3b713066755352961bf3f69c91b4e4556f",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/changed-src___tests___task-stack-sdk-integration.log"
+  },
+  {
+   "name": "changed-src_extensions_first-party-integration_auto-note_legacy-subprocess.integration",
+   "exitCode": 0,
+   "start": "2026-09-23T05:12:45Z",
+   "end": "2026-09-23T05:13:00Z",
+   "command": "bun test --timeout 30000 ./src/extensions/first-party-integration/auto-note/legacy-subprocess.integration.test.ts",
+   "counts": {
+    "pass": 14,
+    "fail": 0
+   },
+   "logSha256": "31e734554ec19d2e1b2f89465605e155f220beb251e7d735c61e6203e063749e",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/changed-src_extensions_first-party-integration_auto-note_legacy-subprocess.integration.log"
+  },
+  {
+   "name": "sdk-suite",
+   "exitCode": 0,
+   "start": "2026-09-23T05:13:13Z",
+   "end": "2026-09-23T05:13:20Z",
+   "command": "bun run --cwd packages/@ezcorp/sdk test",
+   "counts": {
+    "pass": 1022,
+    "skip": 1,
+    "fail": 0
+   },
+   "logSha256": "9e0dbe6eb91cc5cbc6af8edddea3a0cdf4762b6109c8405b62af3ead70981a86",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/sdk-suite.log"
+  },
+  {
+   "name": "ai-kit-suite",
+   "exitCode": 0,
+   "start": "2026-09-23T05:13:20Z",
+   "end": "2026-09-23T05:13:23Z",
+   "command": "bun run --cwd packages/@ezcorp/ai-kit test",
+   "counts": {
+    "pass": 224,
+    "skip": 27,
+    "fail": 0
+   },
+   "logSha256": "b0b3e9db9ca2dfd7b6b65cfb78f246e0dc127844b79ab1ae147a2493a39fb8e6",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/ai-kit-suite.log"
+  },
+  {
+   "name": "web-vitest-security",
+   "exitCode": 0,
+   "start": "2026-09-23T05:13:39Z",
+   "end": "2026-09-23T05:13:46Z",
+   "command": "bunx vitest run src/__tests__/api-auth-invite-token.server.test.ts src/__tests__/api-auth-invite.server.test.ts src/__tests__/api-auth-login.server.test.ts src/__tests__/api-auth-logout.server.test.ts src/__tests__/api-auth-me.server.test.ts src/__tests__/api-auth-oauth-callback.server.test.ts src/__tests__/api-auth-oauth.server.test.ts src/__tests__/api-auth-reset-password-token.server.test.ts src/__tests__/api-auth-reset-password.server.test.ts src/__tests__/api-auth-setup.server.test.ts src/__tests__/hooks-server-dev-indicator.server.test.ts src/__tests__/hooks-server-failed-bearer-ratelimit.server.test.ts src/__tests__/hooks-server-gate-initiator.server.test.ts src/__tests__/hooks-server-get-client-ip.server.test.ts src/__tests__/hooks-server-invite-public-path.server.test.ts src/__tests__/hooks-server-legacy-cookie-and-failsafes.server.test.ts src/__tests__/hooks-server-onboarding-redirect.server.test.ts src/__tests__/hooks-server-return-to.server.test.ts src/__tests__/hooks-server-route-allowlist.server.test.ts src/__tests__/hooks-server-session-refresh-e2e.server.test.ts src/__tests__/hooks-server-session-refresh.server.test.ts src/__tests__/hooks-server-setup-redirect.server.test.ts src/__tests__/security-web-active-run-idor.server.test.ts src/__tests__/security-web-conversations-parent-idor.server.test.ts src/__tests__/security-web-invite-claim-order.server.test.ts src/__tests__/security-web-tool-call-output-idor.server.test.ts",
+   "counts": {
+    "pass": 224,
+    "fail": 0,
+    "files": 26
+   },
+   "logSha256": "39bef18a19811a983d304e59d64fc6b5e57967f0a3dd7d74e3b32914bcadab33",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/web-vitest-security.log"
+  },
+  {
+   "name": "backend-pool",
+   "exitCode": 0,
+   "start": "2026-09-23T05:14:01Z",
+   "end": "2026-09-23T06:09:30Z",
+   "command": "flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bun run test",
+   "counts": {
+    "pass": 28094,
+    "fail": 0,
+    "files": 1895
+   },
+   "logSha256": "03b086df2a30ed7f2b9d4104ae860e56b4f108b9ded7ed54a0e8ac84514d7f1a",
+   "log": "/tmp/factory-platform-evidence/w00/w18b-merge/backend-pool.log"
+  }
+ ]
+}

@@ -31,7 +31,7 @@ import {
 // Phase 3 fs hardening: the vault now routes IO through host-mediated
 // `fs*` reverse-RPC. In-process tests have no host, so we stub the channel
 // against real disk under TMP_DIR (see the shared `_harness` helper).
-import { installFsChannelStub } from "@ezcorp/sdk/test";
+import { installFsChannelStub, markGitRepository } from "@ezcorp/sdk/test";
 
 // ── Test helpers ────────────────────────────────────────────────
 
@@ -1481,7 +1481,7 @@ describe("manifest", () => {
 describe("postinstall", () => {
   test("creates vault directory structure", async () => {
     const testDir = join(TMP_DIR, "postinstall-test");
-    mkdirSync(join(testDir, ".git"), { recursive: true }); // fake git root
+    markGitRepository(testDir); // fake git root
 
     // Run postinstall script in the test dir
     const proc = Bun.spawn(["bun", join(import.meta.dir, "scripts/postinstall.ts")], {
