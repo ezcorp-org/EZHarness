@@ -566,7 +566,8 @@ describe("factory Temporal workflow", () => {
       const state: KernelState = await handle.query("factoryState");
       assert.equal(state.status, "failed");
       assert.equal(state.nodes.accept?.status, "failed");
-      commandId = (result.error ?? "").split(" ")[2] ?? "";
+      // The reason is "FACTORY_COMMAND_FAILED: <kind> <command id>: <detail>".
+      commandId = ((result.error ?? "").split(" ")[2] ?? "").replace(/:$/, "");
       const history = await handle.fetchHistory();
       await Worker.runReplayHistory({ workflowBundle: bundle }, JSON.parse(historyToJSON(history)), workflowId);
     });
