@@ -53,8 +53,8 @@ import { composeFactoryAttemptDispatch, factoryPackageReadiness, type FactoryHos
 import { composeFactorySettlement, factoryReleaseOutcomeDriver } from "./dispatch-composition";
 import { FactoryProtectedCommandEffects } from "./protected-command-effects";
 import { FactoryReleaseOutcomeDelivery } from "./release-outcome-delivery";
-import { composeFactoryReleaseDestinations, type FactoryComposedReleaseDestinations } from "./release-declaration";
-import type { FactoryReleaseProviderResolver } from "./release-application";
+import { composeFactoryReleaseDestinations, FactoryReleaseDestinationError, type FactoryComposedReleaseDestinations } from "./release-declaration";
+import { FactoryReleaseApplication, type FactoryReleaseProviderResolver } from "./release-application";
 import { startFactoryRuntime, type FactoryRuntime, type FactoryRuntimeDependencies } from "./runtime-composition";
 import type { FactoryStorageProbeTarget } from "./service-probes";
 import { factoryPageDriver, type FactoryItemDisposition } from "./role-drivers";
@@ -282,6 +282,33 @@ export function factoryChildSettlementDriver(
   });
 }
 
+/** The release store, its assurance, and what the document declares for it. */
+export type FactoryInstallationRelease = Readonly<{ releases: FactoryReleases; assurance: FactoryAssurance; destinations?: FactoryComposedReleaseDestinations }>;
+
+/**
+ * The public release surface, over the one assurance and store the effects use.
+ *
+ * `PUT .../release/contracts/{id}` is where a human approves a contract, and it
+ * answered `factory_release_application_unavailable` because nothing supplied
+ * this. Built over the same assurance and release store the protected effects
+ * judge and prepare through, an approval written here is the one acceptance
+ * reads. An installation that declares no destination still gets the contract,
+ * approval, policy and inspection routes; the one step that needs a provider,
+ * a reconciliation, refuses by name.
+ */
+export function factoryReleaseOperations(
+  tenantId: string,
+  release: Pick<FactoryInstallationRelease, "releases" | "assurance">,
+  resolver: FactoryReleaseProviderResolver | undefined,
+): NonNullable<FactoryApplicationOptions["createReleaseOperations"]> {
+  const providers: FactoryReleaseProviderResolver = resolver ?? {
+    resolve(operation) {
+      throw new FactoryReleaseDestinationError("factory_release_destination_unknown", operation.destination.account, "this installation declares no release destination");
+    },
+  };
+  return (context) => new FactoryReleaseApplication(tenantId, context.grants, release.assurance, release.releases, providers);
+}
+
 /**
  * The release store, composed from the startup document alone.
  *
@@ -317,7 +344,7 @@ async function installationReleases(
   artifacts: FactoryArtifacts,
   stores: Pick<FactoryApplication, "grants" | "runs" | "journal" | "releaseAuthority">,
   report: (role: string, error: unknown) => void,
-): Promise<{ readonly releases: FactoryReleases; readonly assurance: FactoryAssurance; readonly destinations?: FactoryComposedReleaseDestinations } | undefined> {
+): Promise<FactoryInstallationRelease | undefined> {
   try {
     const validators = new FactoryTrustedValidators(database, config.tenantId, stores.runs, stores.journal, artifacts, stores.releaseAuthority, []);
     const assurance = new FactoryAssurance(database, config.tenantId, stores.grants, validators, factoryReleaseFenceReader(stores.runs), validators);
@@ -487,6 +514,8 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
       blobs,
       runOptions: host.runOptions,
       availableResourceClasses: host.availableResourceClasses,
+      // The public release routes, over the release store composed above.
+      ...composed?.application,
     },
     // The private worker API, and only that. The pool, the supervisor, and the
     // Node orchestrator each bind their own in their own process; this one binds
@@ -537,6 +566,7 @@ async function installationCollaborators(
   readonly workers: FactoryRuntimeDependencies["workers"];
   readonly seams: FactoryRuntimeDependencies["seams"];
   readonly listeners: readonly FactoryStartedListener[];
+  readonly application: Pick<FactoryApplicationOptions, "createReleaseOperations">;
 }> {
   const { createFactoryApplication } = await import("./application");
   // A throwaway application only to reach the lifecycle the roles read. The
@@ -635,6 +665,7 @@ async function installationCollaborators(
       }),
     },
     listeners: privateService === undefined ? [] : [privateService],
+    application: release === undefined ? {} : { createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver) },
   };
 }
 
@@ -656,7 +687,7 @@ function composeReleaseOutcomeDelivery(
   host: Pick<FactoryInstallationHost, "database">,
   stores: FactoryInstallationStores,
   application: FactoryApplication,
-  release: { readonly releases: FactoryReleases; readonly assurance: FactoryAssurance; readonly destinations?: FactoryComposedReleaseDestinations } | undefined,
+  release: FactoryInstallationRelease | undefined,
   service: TrustedFactoryServiceIdentity,
 ): { readonly effects: FactoryProtectedCommandEffects; readonly delivery: FactoryReleaseOutcomeDelivery } | undefined {
   if (release === undefined || stores.completions === undefined) return undefined;
@@ -683,7 +714,7 @@ async function composePrivateService(
   stores: FactoryInstallationStores,
   transitions: FactoryTransitionArtifacts,
   application: FactoryApplication,
-  release: { readonly releases: FactoryReleases; readonly assurance: FactoryAssurance; readonly destinations?: FactoryComposedReleaseDestinations } | undefined,
+  release: FactoryInstallationRelease | undefined,
   stops: FactoryTaskStops | undefined,
   protectedEffects?: FactoryProtectedCommandEffects,
 ): Promise<FactoryStartedListener | undefined> {

@@ -152,6 +152,23 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/logs/cleanup-lifecycle-published-2.log`.
       The fix is proved on PGlite (66/0). The real-store rerun is queued, see the report.
 
+- [x] G11: The public release application is composed in the release region.
+      CHECK: `bun test --timeout 60000 ./src/factory/installation-startup.test.ts`
+      EXPECT: 46 pass / 0 fail. When a document declares a destination, the
+      configured application, which is the one `PUT .../release/contracts/{id}`
+      reaches, carries a `FactoryReleaseApplication` built over the same
+      release store and assurance as the protected effects. When the store
+      composes with no destination, the routes still exist, and a
+      reconciliation refuses with `factory_release_destination_unknown`. When
+      the store does not compose, there are no routes, and the route answers
+      `factory_release_application_unavailable`. The route's own dispatch to
+      `putContract` is covered by `web/src/routes/api/factories/factories.server.test.ts`.
+      The contract route answering 200 through the real started application
+      is proved by the final three passes after W09d merges.
+      Ownership: by coordinator ruling this composition is W09c's. W09d
+      removed its copy (head `d1a0f31e0`).
+      EVIDENCE: `/tmp/factory-platform-evidence/w09c/receipts/final-sweep.json`
+
 ## Rulings and disclosures
 
 - **`readReleaseCommandInTransaction` in `src/factory/protected-command-effects.ts`.**
