@@ -1452,3 +1452,12 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
 - A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
 - A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.
+
+## 2026-09-23 — W02c package quarantine fence
+
+- Do not edit a shell script while a queued job will run it. Bash reads a script as it runs, so an edit made while an earlier leg was running broke the sweep with "unexpected EOF". Copy a driver before queueing it, or change it only between runs.
+- A proof harness must keep every child process log. My runner deleted `process-*.log` after moving only a few of them, and the one failure that mattered was in the gateway stub's log. Move them all, by glob.
+- Run a proof from a detached worktree at a fixed commit, never from the worktree you are editing. The harness imports repository sources at run time, so an edit made while a job waits in the lock queue changes what the job measures.
+- A race test that passes on PGlite can still hide a branch, because PGlite serializes the two transactions. My quarantine and launch race always let the quarantine win on PGlite. On real PostgreSQL the launch won, and it failed on an unprepared package the test had never needed.
+- A 500 from the object store can be a full host disk. When S3 PutObject returned InternalError while List worked, `df -h /` showed 100% used. Probe with a key of your own, delete it afterwards, and report the store to the coordinator. Do not repair it.
+- `/tmp` inputs older than ten days are removed by the daily systemd-tmpfiles clean at 03:55 local. When `postgres.env` or the pinned Bun disappears, check the tmpfiles journal before debugging.
