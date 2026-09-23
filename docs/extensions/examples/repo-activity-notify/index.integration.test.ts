@@ -1,18 +1,34 @@
 // @ezcorp-host-integration
-import { afterAll, expect, test } from "bun:test";
-import { access, mkdtemp, readFile, rm } from "node:fs/promises";
+import { afterAll, afterEach, expect, test } from "bun:test";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildFirstPartyRelease, seedFirstPartyGit } from "../../../../src/__tests__/helpers/first-party-release";
 import { closeTestDb, mockDbConnection, setupTestDb } from "../../../../src/__tests__/helpers/test-pglite";
 
 mockDbConnection();
-afterAll(closeTestDb);
+let release: Awaited<ReturnType<typeof buildFirstPartyRelease>> | undefined;
+let activeSession: { close(): Promise<void> } | undefined;
+let activeRoot: string | undefined;
+let sessionExpired = false;
+async function cleanupRepoSession() {
+  sessionExpired = true;
+  const session = activeSession;
+  const root = activeRoot;
+  activeSession = undefined;
+  activeRoot = undefined;
+  try { await session?.close(); } finally { if (root) await rm(root, { recursive: true, force: true }); }
+}
+afterEach(cleanupRepoSession);
+afterAll(async () => { await release?.close(); await closeTestDb(); });
 
 async function setupRepoActivitySession(denyProjectGit = false) {
   await setupTestDb();
+  sessionExpired = false;
   const root = await mkdtemp(join(tmpdir(), "repo-release-project-"));
-  const release = await buildFirstPartyRelease("repo-activity-notify");
+  activeRoot = root;
+  release ??= await buildFirstPartyRelease("repo-activity-notify");
+  if (sessionExpired) throw new Error("Repo activity fixture was closed during release build");
   const appends: Record<string, unknown>[] = [];
   let denyGit = denyProjectGit;
   const session = await release.session({
@@ -29,14 +45,54 @@ async function setupRepoActivitySession(denyProjectGit = false) {
       if (request.method === "ezcorp/invoke" && request.params?.tool === "runtime.conversations.getMessages") return { jsonrpc: "2.0", id: request.id, result: { messages: [{ id: "seed-msg", role: "user", content: "watch the repo" }], projectId: "project" } };
     },
   });
+  if (sessionExpired) { await session.close(); throw new Error("Repo activity fixture was closed during session setup"); }
+  activeSession = session;
   await seedFirstPartyGit(root);
   return {
     appends,
     session,
     allowProjectGit() { denyGit = false; },
-    async close() { await session.close(); await release.close(); await rm(root, { recursive: true, force: true }); },
+    close: cleanupRepoSession,
   };
 }
+
+test("Git seed does not change the repository that invoked a hook", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "repo-seed-hook-"));
+  const host = join(directory, "host");
+  const seeded = join(directory, "seeded");
+  const cleanEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
+  const git = async (...args: string[]) => {
+    const child = Bun.spawn(["git", ...args], { env: cleanEnv, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    if (code !== 0) throw new Error(stderr);
+    return stdout.trim();
+  };
+  const inherited = Object.fromEntries(Object.entries(process.env).filter(([name]) => name.startsWith("GIT_")));
+  try {
+    await mkdir(host);
+    await git("init", "-q", host);
+    await git("-C", host, "config", "user.email", "host@example.test");
+    await git("-C", host, "config", "user.name", "Host");
+    await writeFile(join(host, "README.md"), "host\n");
+    await git("-C", host, "add", "README.md");
+    await git("-C", host, "commit", "-q", "-m", "host commit");
+    const config = await readFile(join(host, ".git", "config"));
+    const index = await readFile(join(host, ".git", "index"));
+    const refs = await git("-C", host, "show-ref", "--head");
+    process.env.GIT_DIR = join(host, ".git");
+    process.env.GIT_WORK_TREE = host;
+    process.env.GIT_INDEX_FILE = join(host, ".git", "index");
+    await seedFirstPartyGit(seeded);
+    expect(await git("-C", seeded, "rev-parse", "--show-toplevel")).toBe(seeded);
+    expect(await readFile(join(host, ".git", "config"))).toEqual(config);
+    expect(await readFile(join(host, ".git", "index"))).toEqual(index);
+    expect(await git("-C", host, "show-ref", "--head")).toBe(refs);
+  } finally {
+    for (const name of Object.keys(process.env)) if (name.startsWith("GIT_")) delete process.env[name];
+    Object.assign(process.env, inherited);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
 
 test("isolated git check appends and persists once, then declines the unchanged commit", async () => {
   const fixture = await setupRepoActivitySession();

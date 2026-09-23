@@ -1,4 +1,4 @@
-import { expect, spyOn, test } from "bun:test";
+import { afterEach, expect, spyOn, test } from "bun:test";
 import { mkdir, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { provisionToolchain } from "../src/provision";
@@ -6,6 +6,14 @@ import { RunnerClient } from "../src/client";
 import { buildLimits, filesDigest } from "../src";
 import { source } from "./helpers";
 import { workspaceText } from "@ezcorp/extension-contract";
+
+let activeEntrypointCleanup: (() => Promise<void>) | undefined;
+async function cleanupEntrypoint() {
+  const cleanup = activeEntrypointCleanup;
+  activeEntrypointCleanup = undefined;
+  await cleanup?.();
+}
+afterEach(cleanupEntrypoint);
 
 async function createRunnerRootWithLongInheritedTmp(): Promise<string> {
   const inheritedTmp = process.env.TMPDIR;
@@ -75,11 +83,18 @@ test("production runner entrypoint starts with a long inherited TMPDIR and build
     stdout: "pipe", stderr: "pipe",
   });
   const diagnostics = new Response(child.stderr).text();
+  activeEntrypointCleanup = async () => {
+    child.kill("SIGTERM");
+    await child.exited;
+    await diagnostics;
+    await rm(directory, { recursive: true, force: true });
+  };
   try {
-    const deadline = Date.now() + 15_000;
-    while (!(await stat(socketPath).catch(() => null))?.isSocket()) {
+    while (!(await stat(socketPath).catch(error => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
+      throw error;
+    }))?.isSocket()) {
       if (child.exitCode !== null) throw new Error(`Runner startup failed: ${await diagnostics}`);
-      if (Date.now() > deadline) throw new Error("Runner startup deadline exceeded");
       await Bun.sleep(20);
     }
     const client = new RunnerClient({ socketPath, token: (await readFile(tokenFile, "utf8")).trim() });
@@ -90,10 +105,5 @@ test("production runner entrypoint starts with a long inherited TMPDIR and build
     expect(result.diagnostics).toEqual([]);
     expect(result.state).toBe("succeeded");
     expect(result.evidence.tests.some(entry => entry.name === "typecheck" && entry.passed)).toBe(true);
-  } finally {
-    child.kill("SIGTERM");
-    await child.exited;
-    await diagnostics;
-    await rm(directory, { recursive: true, force: true });
-  }
+  } finally { await cleanupEntrypoint(); }
 }, 60_000);

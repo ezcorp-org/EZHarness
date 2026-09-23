@@ -28,10 +28,13 @@ import type { ResolveHost } from "../../search/egress";
 export async function seedFirstPartyGit(directory: string): Promise<void> {
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, "README.md"), "# probe\n");
+  // Hooks export repository-local GIT_* paths. A fixture repository must never
+  // inherit them: even `git init` can then rewrite the caller's real config.
+  const gitEnv = { ...Object.fromEntries(Object.entries(globalThis.process.env).filter(([name]) => !name.startsWith("GIT_"))), GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" };
   for (const args of [["init", "-q"], ["config", "user.email", "probe@example.test"], ["config", "user.name", "Probe"], ["add", "README.md"], ["commit", "-q", "-m", "feat: seed the probe repo"]]) {
-    const process = Bun.spawn(["git", "-C", directory, ...args], { stdout: "pipe", stderr: "pipe", env: { ...globalThis.process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } });
+    const process = Bun.spawn(["git", "-C", directory, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv });
     const stderr = await new Response(process.stderr).text();
-    if (await process.exited !== 0) throw new Error(stderr);
+    if (await process.exited !== 0) throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
   }
 }
 
