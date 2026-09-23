@@ -52,6 +52,7 @@ import type { FactoryStartedListener } from "./runtime-composition";
 import type { FactoryInstallationStores } from "./installation-stores";
 import type { FactoryStartupConfig, FactoryStartupRunnerProfile } from "./startup-config";
 import { FactoryNativeRunnerPolicy, type FactoryNativeRunnerProfile } from "./native-runner-policy";
+import { FactoryPackageTrusts } from "./package-preparation";
 import { FactoryTaskAdmission, type FactoryTaskResourceProfile } from "./task-admission";
 import { FactoryTaskExecutionAdmission } from "./task-execution-admission";
 import { FACTORY_PHYSICAL_STOP_TIMEOUT_MS, type FactoryTaskStops } from "./task-stops";
@@ -223,7 +224,7 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     tasks: new FactoryTaskAdmission(database, stores.authority, stores.budgets, profiles.admission, stores.compute),
     execution: new FactoryTaskExecutionAdmission(
       stores.authority, stores.compute, stores.journal, stores.queue,
-      new FactoryNativeRunnerPolicy(config.tenantId, application.grants, profiles.runners, profiles.brokerAudience),
+      new FactoryNativeRunnerPolicy(config.tenantId, application.grants, profiles.runners, profiles.brokerAudience, new FactoryPackageTrusts(database, config.tenantId, application.grants)),
     ),
     inputs: new FactoryLazyCommands(stores.authority, new FactoryLazyInputReader(database, config.tenantId, application.artifacts, access, application.grants)),
     children: stores.children,
