@@ -1,6 +1,6 @@
 # Incus image transfer and first-write review packet — 2026-09-23
 
-This packet records the image portion of the [server apply plan](2026-09-23-incus-server-apply-plan.md) for `dev@sandbox-server.taile1c5b0.ts.net`. The private stage and seven verified input files now exist on the server, the exact Debian base image has been imported, and the digest-approved bootstrap created the recipe pool and bridge. Its apply receipt passed. The first `bootstrap-verify` returned `bootstrap_plan_drift`; after source fix `5d5006763`, an integrated read-only verification passed. The first guest build then failed because the guest had no IPv4 address and could not resolve Debian package hosts. Its temporary guest was cleaned; no guest image was published. A NixOS firewall bridge-name change is proposed below for separate review. The checked-in recipe still has null source, runtime, and published-image pins. The revised builder from source commit `a07761cad` uses explicit storage and network flags. The provider client certificate and full setup plan digest do not exist yet.
+This packet records the image portion of the [server apply plan](2026-09-23-incus-server-apply-plan.md) for `dev@sandbox-server.taile1c5b0.ts.net`. The private stage, exact Debian base, and digest-approved pool and bridge are present. Bootstrap verification passed after source fix `5d5006763`. The first guest build failed on DHCP/DNS; the reviewed NixOS bridge firewall correction then passed `test`, a disposable-guest network check, and persistent `switch`. The second build published fingerprint `a511230c76d043ede950b65df26e4f8a427c6da8273364bd5d47910f97ab2a72` but exited on an alias-readback error. That published image lacks packages needed for Docker startup and is not qualified. Cleanup and a replacement build require separate review. The checked-in recipe still has null source, runtime, and published-image pins; the provider client certificate and full setup plan digest do not exist yet.
 
 ## Read-only evidence before the first write
 
@@ -20,11 +20,11 @@ This is a point-in-time observation. Repeat the inventory immediately before the
 
 After a fresh inspection at `2026-09-23T18:02:43Z`, the approved staging subset created `/home/dev/ezh-incus-image-20260923` with mode `0700`, transferred the base metadata/root, Docker archive, Compose binary, helper, and candidate recipe, and rehashed all six files on the server. Each server hash matches its row below. The six transferred files total 229,888,339 bytes. The revised builder was **not** transferred.
 
-The exact split base was imported in the default project. Independent read-only SSH after import found fingerprint `7ccaa583b060cfec673f96fa9acd52d153a35a8090d68be4cd946280f4b61907` with alias `ezh-base-20260923`; `incus image info` reports a private x86_64 container, Debian Bookworm default build `20260923_05:24`, with auto-update disabled. After the approved bootstrap apply, independent read-only SSH found the `ezharness-btrfs` Btrfs pool in `Created` state with `size=100GiB` and `volume.size=20GiB`, and the managed `ezharness0` bridge in `Created` state with the exact recipe DNS/NAT/CIDR config. There are no instances. No full setup apply occurred.
+The exact split base was imported in the default project. Independent read-only SSH after import found fingerprint `7ccaa583b060cfec673f96fa9acd52d153a35a8090d68be4cd946280f4b61907` with alias `ezh-base-20260923`; `incus image info` reports a private x86_64 container, Debian Bookworm default build `20260923_05:24`, with auto-update disabled. After the approved bootstrap apply, independent read-only SSH found the `ezharness-btrfs` Btrfs pool in `Created` state with `size=100GiB` and `volume.size=20GiB`, and the managed `ezharness0` bridge in `Created` state with the exact recipe DNS/NAT/CIDR config. The second build added one unqualified guest image in the default project. Current read-only Incus inspection shows no instances. No full setup apply occurred.
 
 ## Exact local files for review
 
-The split base and runtime files are present under `/tmp/ezh-incus-image-inputs-20260923`. Their hashes were measured again in this pass. The base's metadata bytes followed by root bytes hash to `7ccaa583b060cfec673f96fa9acd52d153a35a8090d68be4cd946280f4b61907`, matching the remote Debian 12 amd64 default build `20260923_05:24` recorded in the [candidate input record](2026-09-23-incus-image-inputs.md). All seven proposed files, including the pending revised builder, total 229,893,575 bytes.
+The split base and runtime files are present under `/tmp/ezh-incus-image-inputs-20260923`. Their hashes were measured again in this pass. The base's metadata bytes followed by root bytes hash to `7ccaa583b060cfec673f96fa9acd52d153a35a8090d68be4cd946280f4b61907`, matching the remote Debian 12 amd64 default build `20260923_05:24` recorded in the [candidate input record](2026-09-23-incus-image-inputs.md). The seven-file table below records the first staged builder revision and totals 229,893,575 bytes; a later builder revision is recorded below.
 
 | Transfer name | Source | Bytes | SHA-256 |
 | --- | --- | ---: | --- |
@@ -36,7 +36,7 @@ The split base and runtime files are present under `/tmp/ezh-incus-image-inputs-
 | `build-guest-image.sh` — transferred after bootstrap verification | `/tmp/ezh-incus-image-inputs-20260923/build-guest-image.sh`, copied byte-for-byte from commit `a07761cad` | 5,236 | `716e5d7bd23d76c2a0a0dd40dba13d762a5fcde05aa2775c538ad6b10a7b448d` |
 | `candidate-recipe.json` | `/tmp/ezh-incus-image-inputs-20260923/candidate-recipe.json` | 3,450 | `e9ce73a3da2fd81aa6662168fe83aff607fdfa2b813951f4e9ed186ee76fde42` |
 
-The candidate recipe is a local copy of `scripts/incus/recipe.json`. Only `guestImage.sourceFingerprint`, `pythonPackageVersion`, `dockerArchiveSha256`, and `composeSha256` were set to the table values and Python `3.11.2-1+b1`. `guestImage.fingerprint` remains null. The revised builder checks these exact pins, alias `ezharness-guest-0-1-0`, storage pool `ezharness-btrfs`, and default-project bridge `ezharness0`. The local Docker archive passes `tar -tzf`; its `docker` and `dockerd` report 29.8.1, and the Compose binary reports v5.5.1. The downloaded Bookworm package index still hashes to `9e0b5aabb2465b3d2e7a7fe27f9913846277833f7a2826e7767acccff5b588c5`. The actual `apt-get update` and exact Python install in the guest remain untested.
+The candidate recipe is a local copy of `scripts/incus/recipe.json`. Only `guestImage.sourceFingerprint`, `pythonPackageVersion`, `dockerArchiveSha256`, and `composeSha256` were set to the table values and Python `3.11.2-1+b1`. `guestImage.fingerprint` remains null. The builder checks these exact pins, alias `ezharness-guest-0-1-0`, storage pool `ezharness-btrfs`, and default-project bridge `ezharness0`. The local Docker archive passes `tar -tzf`; its `docker` and `dockerd` report 29.8.1, and the Compose binary reports v5.5.1. The downloaded Bookworm package index hashes to `9e0b5aabb2465b3d2e7a7fe27f9913846277833f7a2826e7767acccff5b588c5`. The second live build later completed `apt-get update` and installed exact Python; its other failures are recorded below.
 
 ## Build dependency found before any write
 
@@ -135,7 +135,7 @@ ssh -F /dev/null -i /home/dev/.ssh/id_ed25519_personal \
   'sha256sum /home/dev/ezh-incus-image-20260923/build-guest-image.sh'
 ```
 
-## Failed first guest build and proposed host correction
+## First guest build failure and host correction
 
 The first run of the approved builder exited `100`; local log `/tmp/ezh-incus-guest-build-20260923.log` records `Temporary failure resolving 'deb.debian.org'` during `apt-get update` and the exact Python install. The builder launched its temporary guest and pushed the three inputs before this failure. A separate live diagnostic guest reached running systemd but, after eight seconds, `eth0` had only a link-local IPv6 address, no IPv4 address, and zero received packets. Both temporary guests were cleaned. Read-only Incus inspection found no instances and only the imported Debian base image; alias `ezharness-guest-0-1-0` was not published.
 
@@ -147,11 +147,11 @@ The host-side evidence points to a DHCP/DNS firewall mismatch. At NixOS source H
            my.devContainer.enable = true;
 ```
 
-The proposed source change is now committed in an isolated server-side Nix worktree at `/tmp/ezh-nixos-bridge-review-20260923` as `f143071eb533d90788d16caa386e6641242cdac9`. It starts from host source HEAD `71be0630893b82be3084b1014774668db9110520` and changes only that one `flake.nix` line; `git diff --check` passed and the worktree is clean. Read-only Nix evaluation gave `my.incus.bridgeName = ezharness0` and an interface firewall allowance of TCP 53 and UDP 53/67. Offline `nix build --no-link` succeeded, producing `/nix/store/spkx13gcwryacv7fd7sx3mrw1q351mg8-nixos-system-sandbox-server-26.05.20260430.15f4ee4`. The **active** nft input rules still permit those ports only on `incusbr0`. No host activation or disposable-guest retest has occurred.
+The one-line source change was committed in an isolated server-side Nix worktree at `/tmp/ezh-nixos-bridge-review-20260923` as `f143071eb533d90788d16caa386e6641242cdac9`. It started from host source HEAD `71be0630893b82be3084b1014774668db9110520` and changed only `flake.nix`; `git diff --check` passed. Nix evaluation gave `my.incus.bridgeName = ezharness0` and an interface firewall allowance of TCP 53 and UDP 53/67. Offline `nix build --no-link` succeeded, producing `/nix/store/spkx13gcwryacv7fd7sx3mrw1q351mg8-nixos-system-sandbox-server-26.05.20260430.15f4ee4`.
 
-The canonical `/home/dev/work/nixos` checkout has unrelated local edits. Integrate only reviewed commit `f143071e` into the intended canonical host source revision, preserving those edits. Check the resulting source and `nix eval --raw /home/dev/work/nixos#nixosConfigurations.sandbox-server.config.my.incus.bridgeName` before activation. The next proposed live command is `sudo nixos-rebuild test --flake /home/dev/work/nixos#sandbox-server`; **this is a separate, unapproved server mutation**. Read back nft input permits for `ezharness0`, then prove DHCP and DNS in a disposable guest. After that proof, `sudo nixos-rebuild switch --flake /home/dev/work/nixos#sandbox-server` is a separate persistent host change. Neither command has run.
+The canonical NixOS `main` then cherry-picked that one-line change as `f7c716c6c808f5d4490aca230e1f4e52c228980f`; unrelated `tasks/` edits remained untouched. The approved `sudo nixos-rebuild test --flake /home/dev/work/nixos#sandbox-server` exited 0. A disposable base guest received `10.173.0.178/24` on `ezharness0` and resolved the Debian mirror, then was deleted. The separately approved `sudo nixos-rebuild switch --flake /home/dev/work/nixos#sandbox-server` exited 0. Read-only `/run/current-system` resolves to the built store path above, and live nft input now permits TCP 53 and UDP 53/67 only on `ezharness0` for the Incus bridge. No diagnostic guest remains.
 
-Source commit `edd2072d3` adds a bounded guest-network readiness check before APT. Its exact `build-guest-image.sh` bytes were copied to `/tmp/ezh-incus-image-inputs-20260923/build-guest-image-next.sh` (6,964 bytes, mode `0755`); SHA-256 is `4c99b8b464e29899b5df07aec9dfc5588adcaa3a7bfee640b1cdf1fc4f2d7d5f`, and `bash -n` passed. This version is **not on the server**. After reviewed `nixos-rebuild test`, a passing disposable-guest DHCP/DNS proof, and the separately reviewed persistent `switch`, transfer it to the existing private server stage as `build-guest-image.sh`, replacing the previous hash `716e5d7bd23d76c2a0a0dd40dba13d762a5fcde05aa2775c538ad6b10a7b448d`. Verify the new server hash before rerunning the exact builder command in the [apply plan](2026-09-23-incus-server-apply-plan.md). Do not infer a published guest fingerprint from either source digest.
+Source commit `edd2072d3` added a bounded guest-network readiness check before APT. Its exact `build-guest-image.sh` bytes were copied to `/tmp/ezh-incus-image-inputs-20260923/build-guest-image-next.sh` (6,964 bytes, mode `0755`); SHA-256 is `4c99b8b464e29899b5df07aec9dfc5588adcaa3a7bfee640b1cdf1fc4f2d7d5f`, and `bash -n` passed. That version was approved, transferred to the existing private server stage as `build-guest-image.sh`, and independently verified at the same server-side hash. It replaced the previous hash `716e5d7bd23d76c2a0a0dd40dba13d762a5fcde05aa2775c538ad6b10a7b448d`. The command below records the completed transfer; do not replay it.
 
 ```sh
 scp -O -F /dev/null -i /home/dev/.ssh/id_ed25519_personal \
@@ -168,6 +168,39 @@ ssh -F /dev/null -i /home/dev/.ssh/id_ed25519_personal \
   'sha256sum /home/dev/ezh-incus-image-20260923/build-guest-image.sh'
 ```
 
+## Second build published an unqualified image
+
+The second builder run, logged at `/tmp/ezh-incus-guest-build-20260923-retry.log`, installed the pinned Python package, Docker static archive, Compose binary, and helper and published image fingerprint `a511230c76d043ede950b65df26e4f8a427c6da8273364bd5d47910f97ab2a72` with alias `ezharness-guest-0-1-0`. It then exited 1: its final readback expected `metadata.target`, while this Incus 6.0.6 `incus query /1.0/images/aliases/ezharness-guest-0-1-0?project=default` returns a direct object with `target`. The log ends in `KeyError: 'metadata'`. The temporary build guest was removed; the published image and alias remain.
+
+A disposable canary of that published image returned helper `hello` with `ok: true`, helper version `0.1.0`, Python `3.11.2`, and Compose v5.5.1. Docker did not start: its journal reported `failed to create NAT chain DOCKER: iptables not found`. In a separate disposable guest, installing exact Debian packages `iptables=1.8.9-2` and `nftables=1.0.6-2+deb12u2` and restarting Docker made its service active and reported Docker server 29.8.1. Both canary guests were deleted. These repairs were **not** applied to the published image, so it is not a qualified guest artifact.
+
+Two disposable guests from this image also had the same SHA-256 for `/etc/machine-id`: `9e7d6b830e2f9f578bd8c4af6dfa9d92dc4604d17358912df7afed71c3b7f227`. Both were deleted. This confirms a cloned machine identity in the published image; it needs a build-time cleanup and a two-guest uniqueness proof before qualification. [Incus image-creation guidance](https://linuxcontainers.org/incus/docs/main/howto/images_create/) calls for removing instance-specific data, including dbus/systemd machine IDs, before publishing.
+
+Independent read-only Incus inspection found no instances, the approved base image unchanged, and the unqualified image at the fingerprint above with only alias `ezharness-guest-0-1-0`. Both images currently expire `2026-10-23`; [Incus documents image expiry](https://linuxcontainers.org/incus/docs/main/image-handling/) as a removal condition. The replacement image must have no expiry and pass expiry readback. The checked-in and staged candidate recipes still have `guestImage.fingerprint: null`; do not pin the unqualified fingerprint. Its alias blocks the builder's next publish. After a fresh read-only inventory confirms the same fingerprint, alias target, and no instances, the **proposed destructive cleanup** is:
+
+```sh
+incus image info a511230c76d043ede950b65df26e4f8a427c6da8273364bd5d47910f97ab2a72 --project default
+incus query '/1.0/images/aliases/ezharness-guest-0-1-0?project=default'
+incus list --all-projects --format json
+incus image delete a511230c76d043ede950b65df26e4f8a427c6da8273364bd5d47910f97ab2a72 --project default
+incus image list --project default --format json
+```
+
+The delete command has **not** run. Review and approve that exact fingerprint and cleanup separately; stop if the precheck has changed. After deletion, require the alias to be absent and the approved base fingerprint `7ccaa583b060cfec673f96fa9acd52d153a35a8090d68be4cd946280f4b61907` to remain.
+
+Replacement builder source commit `91fb13898` is staged locally as `/tmp/ezh-incus-image-inputs-20260923/build-guest-image-final.sh` (10,849 bytes, mode `0755`, SHA-256 `94492fa4b8be8fc16fa84460de26ffd8ca51e99a870fad0149a6c884bcfe93a0`); `bash -n` passed. It pins Debian `iptables=1.8.9-2` and `nftables=1.0.6-2+deb12u2`, launches with nesting and an isolated unprivileged ID map, checks Docker readiness, clears machine ID and per-instance Docker state before publishing, publishes with zero expiry, and reads back the direct alias target, fingerprint, and zero expiry. This revision is **not on the server**. After reviewed cleanup, the proposed transfer to the existing private stage and hash readback are:
+
+```sh
+scp -O -F /dev/null -i /home/dev/.ssh/id_ed25519_personal \
+  /tmp/ezh-incus-image-inputs-20260923/build-guest-image-final.sh \
+  dev@sandbox-server.taile1c5b0.ts.net:/home/dev/ezh-incus-image-20260923/build-guest-image.sh
+ssh -F /dev/null -i /home/dev/.ssh/id_ed25519_personal \
+  dev@sandbox-server.taile1c5b0.ts.net \
+  'sha256sum /home/dev/ezh-incus-image-20260923/build-guest-image.sh'
+```
+
+Require the server hash to equal `94492fa4b8be8fc16fa84460de26ffd8ca51e99a870fad0149a6c884bcfe93a0` before running the pinned build command in the [apply plan](2026-09-23-incus-server-apply-plan.md). The next published fingerprint is unknown. After publishing, independently check exact alias target and zero expiry, then qualify helper, Docker, machine-ID uniqueness across two disposable guests, and nested Compose. Keep `guestImage.fingerprint` null until these checks pass.
+
 ## Open gates
 
-The reviewed-image gate is **not complete**. The base image is imported; the bootstrap pool and bridge have a passing apply receipt and verification; and the previous builder remains on the server at its verified hash. The first build failed on guest networking. The one-line host correction is built and committed offline, but host activation, DHCP/DNS guest proof, new builder transfer, successful image build, published fingerprint, helper check inside a live guest, and nested Compose qualification remain open. The full setup plan is blocked. After a guest image is published, review its fingerprint and a fresh engine-generated full setup plan digest before any full setup apply. Live guest qualification remains separate.
+The reviewed-image gate is **not complete**. The base image, pool, bridge, and persistent host firewall are present and verified. The current published guest image is unqualified because Docker cannot start, two clones share one machine ID, and the builder exited 1. Exact cleanup, transfer of the reviewed replacement builder, a successful image build, helper and Docker checks, two-guest identity uniqueness, and nested Compose qualification remain open. The full setup plan is blocked. Only after a qualified image is published should its fingerprint and a fresh engine-generated full setup plan digest be reviewed before any full setup apply. Live guest qualification remains separate.
