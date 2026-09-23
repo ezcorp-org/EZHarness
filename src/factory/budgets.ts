@@ -250,6 +250,23 @@ export class FactoryBudgets {
     await this.audit(transaction, key, "settled", key.reservationId, { actual: totals(used), receiptDigest, exceededReservation });
   }
 
+  /**
+   * Settles a reservation whose stopped attempt journaled no operation.
+   *
+   * No provider was called, so zero cost and zero tokens are facts. Compute is
+   * different: the process ran until the signed stop and reported nothing, so
+   * its compute is charged at the reserved bound. An unmeasured dimension is
+   * never settled below what the attempt may have used.
+   */
+  async settleWithoutOperationsInTransaction(transaction: MigrationDb, value: FactoryBudgetReservationKey, receiptDigest: string): Promise<FactoryBudgetAmount> {
+    const key = { ...value };
+    await this.lockRun(transaction, key);
+    const reserved = decode((await this.reservation(transaction, key))!.amount);
+    const actual = Object.freeze({ costMicros: "0", tokens: 0, computeMs: Number(reserved.computeMs) });
+    await this.settleInTransaction(transaction, key, actual, receiptDigest);
+    return actual;
+  }
+
   async closeEnvelope(key: FactoryBudgetKey): Promise<void> {
     const captured = { ...key };
     await this.database.transaction(transaction => this.closeEnvelopeInTransaction(transaction, captured));

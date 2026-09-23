@@ -10,6 +10,7 @@ import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryArtifacts } from "../../factory/artifacts";
 import { createFactoryArtifactActivities } from "../../factory/artifact-activities";
 import { FactoryAttemptQueue } from "../../factory/attempt-queue";
+import type { FactoryBudgets } from "../../factory/budgets";
 import { FactoryCommandAuthority } from "../../factory/command-authority";
 import { FactoryComputeAdmissions } from "../../factory/compute-admissions";
 import { FactoryDefinitionArtifacts } from "../../factory/definition-artifacts";
@@ -233,6 +234,13 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
   const reservationState = async (reservationId: string) => rows<{ state: string; actual: string | null }>(await fixture.db.execute(sql`SELECT state,actual FROM factory_budget_reservations WHERE reservation_id=${reservationId}`))[0];
   const executionStatus = async (attemptId: string) => rows<{ status: string }>(await fixture.db.execute(sql`SELECT status FROM factory_executions WHERE attempt_id=${attemptId}`))[0]?.status;
   const inboxKinds = async (runId: string) => rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${runId} ORDER BY sequence`)).map(row => (JSON.parse(row.payload) as KernelEvent).kind);
+  /** Folds every stop and usage event the stop enqueued through the real kernel, from the cancelled state. */
+  async function foldedStatus(attempt: Attempt, cancelledState: ReturnType<typeof advanceKernel>): Promise<string> {
+    const events = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${attempt.run.runId} ORDER BY sequence`))
+      .map(row => JSON.parse(row.payload) as KernelEvent).filter(event => event.kind === "usage-settled" || event.kind === "attempt-stopped");
+    return events.reduce((state, event) => advanceKernel(attempt.compiled, state.nextState, event), cancelledState).nextState.status;
+  }
+  const settlementOf = (settlements: FactoryUsageSettlements, attempt: Attempt) => fixture.db.transaction(transaction => settlements.readLatestInTransaction(transaction, { projectId, runId: attempt.run.runId, reservationId: attempt.reservationId }));
   const stopRow = async (runId: string) => rows<{ state: string; source: string; attempt_command_id: string | null }>(await fixture.db.execute(sql`SELECT state,source,attempt_command_id FROM factory_task_stops WHERE run_id=${runId}`))[0];
 
   beforeAll(async () => {
@@ -275,24 +283,53 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(await executionStatus(attempt.attemptId)).toBe("stopped");
   });
 
-  test("stops a still-running attempt from its sealed launch, with no outcome to fabricate", async () => {
+  test("stops a still-running attempt from its sealed launch, and an empty journal settles a typed zero", async () => {
     const attempt = await launchedAttempt();
-    const { reference } = await cancelled(attempt);
+    const { reference, advanced } = await cancelled(attempt);
     expect(rows(await fixture.db.execute(sql`SELECT command_id FROM factory_task_outcomes WHERE run_id=${attempt.run.runId}`))).toEqual([]);
     const calls = { count: 0 };
-    const { stops } = harness(attempt, stopper(async request => signed(request), calls), acknowledger());
+    const { stops, settlements } = harness(attempt, stopper(async request => signed(request), calls), acknowledger());
     const receipt = await stops.stop(service, reference);
     expect(receipt.state).toBe("stopped");
-    expect(receipt.event).toMatchObject({ kind: "attempt-stopped", commandId: attempt.attemptId, uncertain: true });
     expect(receipt.stopReceipt).toMatchObject({ processGroupAbsent: true, hostId, reason: "cancelled", workerId: receipt.stopReceipt!.workerId });
     expect(await stopRow(attempt.run.runId)).toEqual({ state: "stopped", source: "sealed-launch", attempt_command_id: null });
     expect(await executionStatus(attempt.attemptId)).toBe("stopped");
-    // No terminal result exists, so the hold is retained rather than settled.
-    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain", actual: null });
-    expect(await inboxKinds(attempt.run.runId)).toEqual(["admission-result", "cancel", "attempt-stopped"]);
-    // A replay is the same sealed fact and never calls the host twice.
+    // The attempt journaled no operation, so no provider was ever charged: the
+    // stop is certain and settles a typed zero proven by its signed receipt.
+    expect(receipt.event).toMatchObject({ kind: "attempt-stopped", commandId: attempt.attemptId });
+    expect(receipt.event.uncertain).toBeUndefined();
+    const settlement = await settlementOf(settlements, attempt);
+    expect(settlement).toMatchObject({ revision: 1, source: "no-operations", knownCostMicros: "0", stopReceiptDigest: receipt.stopReceipt!.receiptDigest, attemptId: attempt.attemptId });
+    expect(settlement!.unknownCostMicros).toBeUndefined();
+    expect(settlement!.event).toMatchObject({ kind: "usage-settled", revision: 1, knownCostMicros: "0" });
+    // Cost and tokens are facts; unmeasured compute is charged at its reserved bound.
+    const reservation = await reservationState(attempt.reservationId);
+    expect(reservation?.state).toBe("settled");
+    expect(JSON.parse(reservation!.actual!)).toEqual({ costMicros: "0", tokens: "0", computeMs: String(profile.budget.computeMs) });
+    expect(await inboxKinds(attempt.run.runId)).toEqual(["admission-result", "cancel", "usage-settled", "attempt-stopped"]);
+    // Folded through the real kernel, the operator's cancel reaches its terminal.
+    expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
+    // A replay is the same sealed fact, never calls the host twice, and never settles twice.
     expect(await stops.stop(service, reference)).toEqual(receipt);
     expect(calls.count).toBe(1);
+    expect(await inboxKinds(attempt.run.runId)).toEqual(["admission-result", "cancel", "usage-settled", "attempt-stopped"]);
+  });
+
+  test("any journaled operation keeps the hold uncertain: only an empty journal proves a zero", async () => {
+    // A prepared operation may already have reached its provider (the crash
+    // window between commit and dispatch), so its cost is genuinely unknown.
+    const attempt = await launchedAttempt();
+    const authority = await sealedAuthority(attempt);
+    await attempt.journal.prepare(authority, { operationId: `${attempt.run.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:0`, operationIndex: 0, kind: "model", requestDigest: "a".repeat(64) });
+    const { reference, advanced } = await cancelled(attempt);
+    const { stops, settlements } = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const receipt = await stops.stop(service, reference);
+    expect(receipt.state).toBe("stopped");
+    expect(receipt.event).toMatchObject({ kind: "attempt-stopped", uncertain: true });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain", actual: null });
+    expect(await settlementOf(settlements, attempt)).toBeUndefined();
+    expect(await inboxKinds(attempt.run.runId)).toEqual(["admission-result", "cancel", "attempt-stopped"]);
+    expect(await foldedStatus(attempt, advanced)).toBe("stopping");
   });
 
   test("settles a measured cost once and emits one usage-settled event", async () => {
@@ -325,7 +362,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
 
   test("a bounded stop timeout leaves durable uncertainty and a later receipt settles the same operation", async () => {
     const attempt = await launchedAttempt();
-    const { reference } = await cancelled(attempt);
+    const { reference, advanced } = await cancelled(attempt);
     let request: FactoryTaskStopRequest | undefined;
     const slow = { async stop(value: FactoryTaskStopRequest, signal: AbortSignal) { request = value; return new Promise<FactoryPhysicalStopReceipt>((_resolve, reject) => { signal.addEventListener("abort", () => reject(new Error("host stop aborted"))); }); } };
     let acknowledgements = 0;
@@ -344,7 +381,13 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(settled.state).toBe("stopped");
     expect(acknowledgements).toBe(1);
     expect(await executionStatus(attempt.attemptId)).toBe("stopped");
-    expect(await inboxKinds(attempt.run.runId)).toEqual(["admission-result", "cancel", "attempt-stopped", "attempt-stopped"]);
+    // The late receipt settles the typed zero, and its stop event clears the
+    // uncertainty the timeout left, which the kernel only folds when told so.
+    expect(settled.event).toMatchObject({ kind: "attempt-stopped", uncertain: false });
+    expect(await settlementOf(late.settlements, attempt)).toMatchObject({ revision: 1, source: "no-operations", knownCostMicros: "0" });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
+    expect(await inboxKinds(attempt.run.runId)).toEqual(["admission-result", "cancel", "attempt-stopped", "usage-settled", "attempt-stopped"]);
+    expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
     expect(await late.stops.confirm(service, reference, signed(request!))).toEqual(settled);
   });
 
@@ -715,5 +758,94 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     for (const result of results) expect(result.status === "fulfilled" ? result.value : result.reason).toEqual(first);
     expect(rows(await fixture.db.execute(sql`SELECT cancel_command_id FROM factory_task_stops WHERE run_id=${attempt.run.runId}`))).toHaveLength(1);
     expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "attempt-stopped")).toHaveLength(1);
+  });
+
+  test("concurrent stops of an attempt with no operations commit one typed zero and one usage event", async () => {
+    const attempt = await launchedAttempt();
+    const { reference, advanced } = await cancelled(attempt);
+    const racers = [0, 1, 2].map(() => harness(attempt, stopper(async request => signed(request)), acknowledger()));
+    const results = await Promise.allSettled(racers.map(racer => racer.stops.stop(service, reference)));
+    const stopped = results.flatMap(result => result.status === "fulfilled" && result.value.state === "stopped" ? [result.value] : []);
+    expect(stopped.length).toBeGreaterThan(0);
+    for (const receipt of stopped) expect(receipt).toEqual(stopped[0]!);
+    // A racer that lost the row may have recorded uncertainty first; a retry converges on the one settled stop.
+    expect(await racers[0]!.stops.stop(service, reference)).toEqual(stopped[0]!);
+    expect(rows(await fixture.db.execute(sql`SELECT revision, source FROM factory_usage_settlements WHERE run_id=${attempt.run.runId}`))).toEqual([{ revision: 1, source: "no-operations" }]);
+    expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "usage-settled")).toHaveLength(1);
+    expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
+  });
+
+  test("a lost settlement transaction after the pool released settles the typed zero once on restart", async () => {
+    const attempt = await launchedAttempt();
+    const { reference, advanced } = await cancelled(attempt);
+    const base = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    let failures = 1;
+    const brittle = Object.create(lifecycle.budgets, { settleWithoutOperationsInTransaction: { value: async (...args: Parameters<FactoryBudgets["settleWithoutOperationsInTransaction"]>) => {
+      if (failures-- > 0) throw new Error("product settlement transaction lost");
+      return lifecycle.budgets.settleWithoutOperationsInTransaction(...args);
+    } } }) as FactoryBudgets;
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
+    const interrupted = new FactoryTaskStops(fixture.db, attempt.authority, attempt.admissions, attempt.journal, outcomes, attempt.queue, brittle, inbox, base.settlements, stopper(async request => signed(request)), acknowledger(), [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], () => now, 20_000);
+    // Nothing the product owns may be settled by the failed transaction.
+    expect((await interrupted.stop(service, reference)).state).toBe("uncertain");
+    expect(await settlementOf(base.settlements, attempt)).toBeUndefined();
+    expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "usage-settled")).toHaveLength(0);
+    // A fresh process (a restarted stop worker) settles it exactly once.
+    const restarted = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    expect((await restarted.stops.stop(service, reference)).event).toMatchObject({ kind: "attempt-stopped", uncertain: false });
+    expect(await restarted.stops.stop(service, reference)).toMatchObject({ state: "stopped" });
+    expect(rows(await fixture.db.execute(sql`SELECT revision, source FROM factory_usage_settlements WHERE run_id=${attempt.run.runId}`))).toEqual([{ revision: 1, source: "no-operations" }]);
+    expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "usage-settled")).toHaveLength(1);
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
+    expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
+  });
+
+  test("a stale execution epoch settles nothing until the sealed epoch is current again", async () => {
+    const attempt = await launchedAttempt();
+    const { reference } = await cancelled(attempt);
+    const { stops, settlements } = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const current = rows<{ execution_epoch: number | string }>(await fixture.db.execute(sql`SELECT execution_epoch FROM factory_runs WHERE run_id=${attempt.run.runId}`))[0]!.execution_epoch;
+    await fixture.db.execute(sql`UPDATE factory_runs SET execution_epoch=${Number(current) + 1} WHERE run_id=${attempt.run.runId}`);
+    try {
+      await stops.stop(service, reference).catch(error => error);
+      expect(await settlementOf(settlements, attempt)).toBeUndefined();
+      expect((await reservationState(attempt.reservationId))?.state).not.toBe("settled");
+      expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "usage-settled")).toHaveLength(0);
+    } finally {
+      await fixture.db.execute(sql`UPDATE factory_runs SET execution_epoch=${Number(current)} WHERE run_id=${attempt.run.runId}`);
+    }
+    expect((await stops.stop(service, reference)).state).toBe("stopped");
+    expect(await settlementOf(settlements, attempt)).toMatchObject({ source: "no-operations", knownCostMicros: "0" });
+  });
+
+  test("another tenant can neither settle nor read a typed zero it does not own", async () => {
+    const attempt = await launchedAttempt();
+    const { reference } = await cancelled(attempt);
+    const { stops, settlements } = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const receipt = await stops.stop(service, reference);
+    const foreign = new FactoryUsageSettlements(fixture.db, "foreign-tenant", new FactoryInbox(fixture.db, "foreign-tenant", () => now), () => now);
+    const authority = await sealedAuthority(attempt);
+    const scope = { projectId, runId: attempt.run.runId, interpreterId: "root", reservationId: attempt.reservationId, authority };
+    await expect(fixture.db.transaction(transaction => foreign.recordInTransaction(transaction, scope, { source: "no-operations", knownCostMicros: "0", stopReceiptDigest: receipt.stopReceipt!.receiptDigest }))).rejects.toMatchObject({ code: "factory_usage_settlement_scope" });
+    expect(await fixture.db.transaction(transaction => foreign.readLatestInTransaction(transaction, { projectId, runId: attempt.run.runId, reservationId: attempt.reservationId }))).toBeUndefined();
+    expect(await settlementOf(settlements, attempt)).toMatchObject({ revision: 1, source: "no-operations" });
+  });
+
+  test("a stored certain stop whose typed zero has gone missing is refused as corrupt", async () => {
+    const attempt = await launchedAttempt();
+    const { reference } = await cancelled(attempt);
+    const { stops } = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const receipt = await stops.stop(service, reference);
+    // The stop's certainty is re-derived from the settlement it sealed, so a
+    // certain stop event with no no-operations zero behind it is not replayed.
+    const saved = rows<Record<string, unknown>>(await fixture.db.execute(sql`SELECT * FROM factory_usage_settlements WHERE run_id=${attempt.run.runId}`))[0]!;
+    await fixture.db.execute(sql`DELETE FROM factory_usage_settlements WHERE run_id=${attempt.run.runId}`);
+    try {
+      await expect(stops.stop(service, reference)).rejects.toMatchObject({ code: "factory_task_stop_corrupt" });
+    } finally {
+      await fixture.db.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${saved.tenant_id as string},${saved.project_id as string},${saved.run_id as string},${saved.reservation_id as string},${Number(saved.revision)},${saved.attempt_id as string},${saved.source as string},${saved.known_cost_micros as string},${null},${null},${saved.stop_receipt_digest as string},${Number(saved.settled_at_ms)},${saved.settlement_digest as string},${saved.event_json as string},${saved.event_digest as string})`);
+    }
+    expect(await stops.stop(service, reference)).toEqual(receipt);
   });
 }
