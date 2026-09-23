@@ -1,4 +1,4 @@
-Current pluggable infrastructure work: [gates/pluggable-root.md](gates/pluggable-root.md). Prior project records follow unchanged.
+Current Incus PR #303 closure: [gates/incus-live-pr303.md](gates/incus-live-pr303.md). Prior project records follow unchanged.
 
 # Gates: Extension v4 implementation and PR
 

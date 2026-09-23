@@ -2,6 +2,10 @@
 
 ## Live Incus operator Apply recovery — 2026-09-23
 
+Latest continuation: The user approved revised digest `adc0a93ba4a18122ca98ad50f387b06954819b7af8d2ca5f2dfcd039e7a6fb5b`. Its first isolated-app Apply returned HTTP 409 before the plan claim; the setup remains `planned`, and read-only server inventory still contains only `default`. A temporary local diagnostic identified `Sandbox qualification is stale or has an invalid validity interval`: the candidate check from the active release expired after one hour and `resolveActiveRelease()` rechecks it at every call. The diagnostic was removed. Further pre-apply inspection found the active release's preset image digest is all zeros. Live qualification rejects that release, and the setup Plan failed to compare the preset with the reviewed guest image. Do not retry the old approved Apply: pin the real image in a new release, add fail-closed setup preflight, create a new plan, and review its new digest before server writes. A Sol worker owns each code repair. The server remains unchanged.
+
+Current release step: candidate lifetime fix `62344b49d`, pinned image and setup preflight `2579ef294`, and an isolated-app release `0.1.1` (`dcde361cc4fe348743c1aafc5272ac5104b025046b1c96273e58dc0b8d6e8bdd`) are built. The release is verified and has pending human approval `0c634e40-9a21-4d2c-9e03-a0d79dc349b7`. The exact review packet is `docs/validation/2026-09-23-isolated-incus-release-0.1.1-review.md`. Approval and activation must precede a **new** server plan and exact-digest review. Full typecheck, lint, and production build passed on the current worktree; the real server lifecycle remains untested.
+
 - [x] Reconcile the first exact Apply receipt and server inventory before any retry.
 - [x] Reproduce the project-create failure with the exact reviewed command and identify the unsupported Incus 6.0.6 key.
 - [x] Remove the unsupported setting without weakening the container-only project policy; add an Incus 6.0.6 compatibility test.
