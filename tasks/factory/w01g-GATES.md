@@ -58,10 +58,14 @@ sweep receipts are from the final head. `report.txt` names each one.
   codes.
   CHECK: `bun test --timeout 60000 ./src/factory/runner/guest-material-broker.integration.test.ts`
   EXPECT: the suite's table test derives the code list from `artifact-materials.ts` source and
-  finds no unmapped code; `deadline_expired`, `stale_epoch`, `oversize`, `digest_mismatch`,
-  `chunk_out_of_order`, `sealed`, `unknown_attempt`, `unknown_material`,
-  `output_not_canonical_json`, `conflict`, `operation_full`, `invalid_request` each have a case
-  EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
+  finds no unmapped code (exhaustive mapping, not reachability). Each refusal a guest can receive
+  is then asserted by name in a real case: `deadline_expired`, `stale_epoch` (a moved fence),
+  `oversize`, `digest_mismatch`, `chunk_out_of_order`, `sealed`, `unknown_material`,
+  `output_not_canonical_json`, `invalid_request`, `conflict` (a begin that contradicts its own
+  plan), `operation_full` (the 257th material in one operation), `unknown_attempt` (a
+  never-admitted attempt, and an unknown run, against the real journal; round 4), and
+  `unavailable` (an object-store fault, which then succeeds on resend; round 4)
+  EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/coverage-runner.json`
 
 ### The host adapter
 
@@ -79,17 +83,24 @@ sweep receipts are from the final head. `report.txt` names each one.
   database is touched
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [x] G6: The completed result is validated, recorded and projected, and `NativeFactoryArtifacts`
-  has a production implementation over the same two writers.
-  CHECK: `grep -rn "runNativeFactoryRunner\|NativeFactoryArtifacts" --include='*.ts' src/ | grep -v test`; `bun test --timeout 60000 ./src/factory/runner/guest-material-broker.integration.test.ts ./src/factory/runner/native.integration.test.ts`
-  EXPECT: `createNativeFactoryArtifacts` is the production implementation (the seam is implemented,
-  not removed: `runNativeFactoryRunner` is C02's Bun native entrypoint and the seam now has one
-  answer on both sides); the candidate digest equals `sha256:${resultDigest}` by derivation
-  EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
+- [x] G6: The completed result is validated, recorded and projected through the broker path, and
+  the native entrypoint is implemented but NOT composed (coordinator ruling, round 4).
+  CHECK: `grep -rln "createNativeFactoryArtifacts\|runNativeFactoryRunner\|executeFactoryAttempt" src web packages | grep -v test`; `bun test --timeout 60000 ./src/factory/runner/guest-material-broker.integration.test.ts ./src/factory/runner/native.integration.test.ts`
+  EXPECT: the grep lists only `src/factory/runner/native.ts` and `src/runtime/executor.ts`, the
+  definition of `executeFactoryAttempt`. `createNativeFactoryArtifacts`, `runNativeFactoryRunner`
+  and `executeFactoryAttempt` have no production caller. The entrypoint stays: contract C02
+  (contracts line 71) and plan section 5 (line 156) name it as the thing to extend. Removing it
+  needs the maintainer-only gate label, because gate-integrity refuses a deleted test file and a
+  removed threshold key. As written it reads the journal and writes artifacts through the product
+  database, so composing it in the product process would break the no-host-process rule. A C02
+  native runner inside the runner image needs a guest-side journal read and a runner-image main.
+  That is a stage-2c item owned by W01, due before W18's final gate. The candidate digest equals
+  `sha256:${resultDigest}` by derivation.
+  EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/coverage-runner.json`
 
 ### The real-server proof
 
-- [x] G7: A real sandboxed guest stages one output and the run reaches terminal COMPLETED, three
+- [ ] G7: A real sandboxed guest stages one output and the run reaches terminal COMPLETED, three
   consecutive passes on fresh product databases.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bash /tmp/factory-platform-evidence/w01g/repro/run-three.sh`
   EXPECT: each pass ends `statusTimeline` … `succeeded`; the durable terminal result is
@@ -97,7 +108,7 @@ sweep receipts are from the final head. `report.txt` names each one.
   the guest staged
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/proof-1.json`, `proof-2.json`, `proof-3.json`
 
-- [x] G8: The harness records its own failures rather than crashing, and a guest that stages
+- [ ] G8: The harness records its own failures rather than crashing, and a guest that stages
   nothing still ends `failed`.
   CHECK: `W01G_GUEST=cancelled … bash /tmp/factory-platform-evidence/w01g/repro/one-run.sh`
   EXPECT: the negative control writes a record whose run ends `failed` with a `cancelled` terminal
@@ -117,12 +128,12 @@ sweep receipts are from the final head. `report.txt` names each one.
   EXPECT: all exit 0, and schema regeneration produces no drift
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [x] G11: The PostgreSQL producers this package touches are green against the real engine.
+- [ ] G11: The PostgreSQL producers this package touches are green against the real engine.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 2400 …` over `tests/postgres/factory-guest-material-broker.test.ts` and `tests/postgres/factory-artifact-materials.test.ts`
   EXPECT: exit 0
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
 
-- [x] G12: The Podman suites are green under `flock --close`.
+- [ ] G12: The Podman suites are green under `flock --close`.
   CHECK: `flock --close /tmp/ezcorp-validation-heavy.lock timeout 3600 bun test --timeout 900000 ./src/factory/runner/python-guest.integration.test.ts …`
   EXPECT: exit 0
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/`
@@ -147,10 +158,26 @@ sweep receipts are from the final head. `report.txt` names each one.
   EXPECT: exit 0; the section is all parts or none, needs `hostLaunch.attemptTokenSecretPath`, and
   refuses a bad `allowedPeers`; a composed route takes a two-chunk upload from a configured host,
   refuses a token signed with another secret, and reads `unconfigured` or `unavailable` with a
-  code otherwise; a host with no section answers `factory_host_broker_unavailable` naming
+  code otherwise; the route verifies the host's bearer token (subject = peer identity, scope
+  `factory:guest-broker`) and refuses `forbidden_host` unless the attempt's launch record names
+  the host the peer runs as (round 4); a host with no section answers `factory_host_broker_unavailable` naming
   `services.guestBroker`; in each of the three passes `/api/ready` carries
   `guestBroker: { state: "bound" }` and `guestBrokerObserver.boundBy` names the web server
   EVIDENCE: `/tmp/factory-platform-evidence/w01g/receipts/coverage-runner.json`, `proof-1.json` to `proof-3.json`
 
 Round 3 receipts (2026-09-22/23): the passes, the negative control, the coverage legs and the
 Podman suites ran at `23965e397` on a clean tree; the static sweep at the final head.
+
+## Round 4 (validator ACCEPT-WITH-FIXES at f00605f72)
+
+- F1: the journal's liveness fence throws `FactoryAttemptLivenessError`; the broker maps an
+  unknown attempt to `unknown_attempt`, a moved fence to `stale_epoch`, and an untyped store fault
+  to `unavailable`. Commit `82162aff4`.
+- F2: G3 now names a real case for every refusal (above).
+- F3: the route binds the host to the attempt's lease and verifies its bearer token. Commit
+  `12a1ad076`.
+- F5: recorded in G6, per the coordinator's ruling.
+- OPEN: G7, G8, G11 and G12 need their receipts at the round-4 head. The shared ordinary object
+  store refused writes from 08:32 on 2026-09-23 because the host disk is full.
+  `receipts/store-unwritable-r4.json` records it, and the failed runs are kept in
+  `repro/history/*-r4-store-unwritable.json`. The coordinator owns the repair.

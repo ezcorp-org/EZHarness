@@ -1457,3 +1457,7 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A "hard expiry" date in code is a scheduled behaviour change with no deploy. Once the date passes, retire the dead branch rather than keep a clock comparison that only looks alive. Source-regex gates that match indentation broke silently on a refactor; pin the behaviour on the real handler instead.
 - A project-root walk must accept only a real repository marker. `existsSync(".git")` also matched a stray empty `/tmp/.git`, which git itself rejects. Ask "what does git say?" and plant the stray marker inside the test's own tree so the case holds whatever the host's /tmp contains.
 - A git hook exports `GIT_DIR` and `GIT_INDEX_FILE`. Any `git` a test or tool spawns from inside a hook acts on the hook's repository, so `rev-parse` reports "inside a repository" everywhere and `git init <dir>` targets the wrong place. Drop the caller's `GIT_*` variables when git must discover from a directory.
+
+## 2026-09-23 — W01g round 4
+- A summary built from receipt files can report an old pass as a new one. When a run fails before it writes its record, the summary must not read the previous record. Check `producingCommit` and `startedAt` on every receipt before quoting it.
+- When the AWS SDK fails with "DOMParser is not defined / Deserialization error", read the object store's log before blaming the bundle. The SDK parses XML only for an S3 error body, and here the real error was a full host disk that made the store's volumes read-only.
