@@ -3568,3 +3568,18 @@ load; the socket paths were already short. Each cause is pinned by a test that f
 code. At `2d33f46d7` the full backend pool reports 0 fail, and every static and coverage gate passes.
 Two findings are left open outside scope: the ai-kit installer ignores its postinstall exit code, and
 `inspectProductionRunner` keeps a fixed 5-second default for verification commands.
+
+## W02c — the package quarantine fence (branch `wp/w02c-quarantine`)
+
+Base `integ/w00` `578692e8a`. Receipts: `/tmp/factory-platform-evidence/w02c/`. Gates: `tasks/factory/w02c-GATES.md`.
+
+- [ ] Reproduce at base in the real application (W09b's stack, a guest that waits): quarantine mid-attempt, then start a second run.
+- [ ] Typed refusal: `factory_package_quarantined` / `factory_package_revoked` carry the trust revision that set the state and the installation generation it was decided against.
+- [ ] Admission fence: the production runner policy reads current trust before it admits an attempt.
+- [ ] Preflight and launch fences: the existing readiness reads refuse with the typed error (dispatcher claim, preflight, runtime open).
+- [ ] Live work: a production `FactoryPackageQuarantineFence` cancels every run with a live attempt on the package, with the typed reason, through the ordinary kernel cancel and so through W03's stop path; one shared in-transaction cancel for operator and fence.
+- [ ] Affected-run record: a sealed table written in the quarantine transaction, idempotent; a scoped reader for W14 and a preview that uses the same query.
+- [ ] Fail closed: quarantine and revoke refuse by name when no fence is composed.
+- [ ] Lift: a later publish re-admits new attempts only; stopped runs stay cancelled with their reason.
+- [ ] Tests: success, concurrent quarantine and launch (one winner), lost response, crash and restart mid-stop, stale generation, cross-tenant denial, corruption; migration PGlite test, restart suite, PostgreSQL parity.
+- [ ] Real-server proof, three passes; gate file; review; sweep.
