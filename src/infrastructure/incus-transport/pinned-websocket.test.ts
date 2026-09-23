@@ -92,8 +92,10 @@ test("wrong TLS leaf sends no WebSocket upgrade bytes", async () => {
 
 test("certificate fixture removes its temporary files after OpenSSL failure", () => {
   let directory: string | undefined;
-  expect(() => makeTestCertificates((_command, _args, options) => {
-    directory = String(options.cwd);
+  expect(() => makeTestCertificates((_command: string, ...args: unknown[]) => {
+    const cwd = (args[1] as { cwd?: unknown } | undefined)?.cwd;
+    if (typeof cwd !== "string") throw new Error("Missing certificate directory");
+    directory = cwd;
     writeFileSync(join(directory, "partial.pem"), "partial certificate");
     throw new Error("OpenSSL unavailable");
   }))
