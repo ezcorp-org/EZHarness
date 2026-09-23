@@ -21,8 +21,12 @@ name: ezcorp
 services:
   app:
     image: "${EZCORP_IMAGE}"
-    # Same startup check as the server stack; the core requires an existing
-    # isolated runner and never selects trusted-local as a fallback.
+    # Same startup check as the server stack. The extension runner wiring is
+    # NOT here: it lives in exactly one of two overlays the installer layers
+    # by the mode recorded in .env — compose.isolated.yml (the default, a
+    # provisioned host runner) or compose.trusted-local.yml (chosen by the
+    # user, typed, at install time). The entrypoint probes the runner only in
+    # isolated mode, so it is correct under both.
     entrypoint: ["/bin/sh", "/app/deploy/extension-runner/app-entrypoint.sh"]
     command: ["bun", "run", "web/build/index.js"]
     cap_add:
@@ -38,8 +42,6 @@ services:
       - .env
     environment:
       BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
-      EZCORP_EXTENSION_RUNNER_SOCKET: /run/ez-extension-runner/runner.sock
-      EZCORP_EXTENSION_RUNNER_TOKEN_FILE: /run/secrets/extension-runner-token
       EZCORP_PORT: "3000"
       ORIGIN: "${EZCORP_PUBLIC_URL}"
       EZCORP_PUBLIC_URL: "${EZCORP_PUBLIC_URL}"
@@ -57,26 +59,22 @@ services:
       EZCORP_INSTALL_CHANNEL: installer
       IDLE_TIMEOUT: "0"
       SEARXNG_BASE_URL: "${SEARXNG_BASE_URL:-http://searxng:8080}"
-    group_add:
-      - "${EZ_RUNNER_GROUP}"
     volumes:
-      - type: bind
-        source: ${EZ_RUNNER_SOCKET_DIR}
-        target: /run/ez-extension-runner
-        read_only: true
-        bind:
-          create_host_path: false
-      - type: bind
-        source: ${EZ_RUNNER_TOKEN_FILE}
-        target: /run/secrets/extension-runner-token
-        read_only: true
-        bind:
-          create_host_path: false
-      - "${EZCORP_DATA_ROOT}/data:/app/data"
+      # `:z` on every USER-DATA bind: on an SELinux-enforcing host (Fedora,
+      # RHEL, CentOS Stream, Rocky, Alma, CoreOS) a container cannot write a
+      # home directory it has not relabeled, and without it the app
+      # crash-loops on `EACCES: mkdir '/app/data/ezcorp'` — measured on Fedora
+      # CoreOS: 430 restarts, never ready. `z` (shared), not `Z` (private):
+      # these trees are the user's, not one container's. A no-op without
+      # SELinux, and verified harmless on macOS podman-machine virtiofs mounts.
+      # The searxng config below is deliberately NOT relabeled: in a package it
+      # lives under /usr (usr_t, already container-readable), and relabeling
+      # would rewrite labels on files the package manager owns.
+      - "${EZCORP_DATA_ROOT}/data:/app/data:z"
       - ext-data:/app/.ezcorp
-      - "${EZCORP_DATA_ROOT}/extensions:/app/.ezcorp/extensions"
-      - "${EZCORP_DATA_ROOT}/extension-data:/app/.ezcorp/extension-data"
-      - "${EZCORP_DATA_ROOT}/projects:/app/web/.ezcorp/projects"
+      - "${EZCORP_DATA_ROOT}/extensions:/app/.ezcorp/extensions:z"
+      - "${EZCORP_DATA_ROOT}/extension-data:/app/.ezcorp/extension-data:z"
+      - "${EZCORP_DATA_ROOT}/projects:/app/web/.ezcorp/projects:z"
     healthcheck:
       test: ["CMD", "bun", "-e", "const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)"]
       interval: 30s

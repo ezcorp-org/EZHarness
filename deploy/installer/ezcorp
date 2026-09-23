@@ -53,6 +53,14 @@ ENV_FILE="$CONFIG_DIR/.env"
 STATE_FILE="$CONFIG_DIR/config.json"
 COMPOSE_INSTALLER="$HERE/compose.installer.yml"
 COMPOSE_MACHINE="$HERE/compose.machine.yml"
+COMPOSE_ISOLATED="$HERE/compose.isolated.yml"
+COMPOSE_TRUSTED_LOCAL="$HERE/compose.trusted-local.yml"
+# The app's own acknowledgement sentence (src/extensions/runner-mode.ts). It is
+# written to .env only after the user types their consent — see
+# consent_trusted_local — never from a flag, an environment variable or a
+# default.
+UNSANDBOXED_ACK="I-understand-extensions-run-with-the-apps-full-powers"
+RUNNER_MODE=""
 # Packaged layout puts the config beside the script; the repo keeps it one
 # level up in deploy/. Support both rather than duplicating the file.
 if [ -d "$HERE/searxng" ]; then
@@ -132,7 +140,13 @@ compose_cmd() {
   # of `depends_on: condition: service_healthy`, which in THIS compose file is
   # confined to the opt-in suggest profile — so when it is off, podman's own
   # compose is perfectly adequate and one less thing to require.
-  if command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"
+  # A compose binary shipped beside this script wins. The Linux packages
+  # vendor one because a stock Linux with only podman has NO compose provider
+  # — verified on Fedora CoreOS: neither docker-compose nor podman-compose is
+  # present, so `podman compose` has nothing to delegate to — and distro
+  # compose packages range from absent to the long-dead Python v1.
+  if [ -x "$HERE/docker-compose" ]; then echo "$HERE/docker-compose"
+  elif command -v docker-compose >/dev/null 2>&1; then echo "docker-compose"
   elif docker compose version >/dev/null 2>&1; then echo "docker compose"
   elif [ "$ENGINE" = "podman" ]; then echo "podman compose"
   else die "no compose implementation found (tried docker-compose, docker compose, podman compose)"
@@ -144,6 +158,10 @@ compose() {
   local environment=()
   local socket
   engine_is_rootless_podman && files+=(-f "$COMPOSE_MACHINE")
+  case "$(runner_mode)" in
+    trusted-local) files+=(-f "$COMPOSE_TRUSTED_LOCAL") ;;
+    *)             files+=(-f "$COMPOSE_ISOLATED") ;;
+  esac
   [ "$(suggestions_state)" = "on" ] && files+=(--profile suggest)
   if [ "$ENGINE" = "podman" ]; then
     socket="$(podman_socket)" || return 1
@@ -254,10 +272,18 @@ EZCORP_ENCRYPTION_SALT=$(rand_b64 16)
 EZCORP_JWT_SECRET=$(rand_b64 32)
 SEARXNG_SECRET=$(openssl rand -hex 32)
 EZCORP_UPDATE_REPO=$UPDATE_REPO
+EZCORP_INSTALL_RUNNER_MODE=$(runner_mode)
+ENV
+  if [ "$(runner_mode)" = trusted-local ]; then
+    # Written only because consent_trusted_local returned: the user typed it.
+    printf 'EZCORP_EXTENSIONS_UNSANDBOXED_ACK=%s\n' "$UNSANDBOXED_ACK" >> "$ENV_FILE"
+  else
+    cat >> "$ENV_FILE" <<ENV
 EZ_RUNNER_SOCKET_DIR=$EZ_RUNNER_SOCKET_DIR
 EZ_RUNNER_TOKEN_FILE=$EZ_RUNNER_TOKEN_FILE
 EZ_RUNNER_GROUP=$EZ_RUNNER_GROUP
 ENV
+  fi
   chmod 600 "$ENV_FILE"
 }
 
@@ -269,9 +295,75 @@ edit_env() {
   rm -f "$ENV_FILE.bak"
 }
 
+# Which extension runner this install uses. Recorded in .env at install time
+# and never changed by the installer afterwards. An install from before modes
+# existed has no record and is isolated, which is all it could have been.
+runner_mode() {
+  if [ -n "$RUNNER_MODE" ]; then printf '%s' "$RUNNER_MODE"; return; fi
+  local recorded; recorded="$(env_get EZCORP_INSTALL_RUNNER_MODE 2>/dev/null || true)"
+  printf '%s' "${recorded:-isolated}"
+}
+
+# Decision C (docs/decisions/2026-09-12-extension-runner-install-burden.md),
+# offered ONLY when no isolated runner is configured at all and ONLY to a
+# person at a terminal. Three things it deliberately does not do:
+#   - accept a flag or env var in place of the typed answer: the app's
+#     acknowledgement is a sentence precisely so it cannot be switched on by
+#     copying a line, and an installer flag would be exactly that line;
+#   - fall back to it: a partially configured or broken isolated runner stays
+#     a hard error (ensure_runner_config), never an invitation to downgrade;
+#   - weaken the per-release approval: each extension build and release still
+#     needs its own explicit acknowledgement inside the app.
+consent_trusted_local() {
+  if [ ! -t 0 ]; then
+    die "no isolated extension runner is configured, and choosing to run extensions
+  without one needs you at a terminal. Either:
+    - provision the isolated runner and set EZ_RUNNER_SOCKET_DIR,
+      EZ_RUNNER_TOKEN_FILE and EZ_RUNNER_GROUP (deploy/extension-runner/README.md), or
+    - run 'ezcorp install' in a terminal and choose trusted-local mode there."
+  fi
+  say ""
+  say "EZCorp's extensions normally run in an isolated runner: a separate,"
+  say "locked-down service that needs administrator setup on a Linux host."
+  say "None is set up on this machine."
+  say ""
+  say "You can instead run extensions INSIDE EZCorp, without that isolation."
+  say "An extension would then have everything EZCorp has: your conversations,"
+  say "your saved API keys, every user's data, and your network. It could use"
+  say "unlimited CPU, memory and disk. None of the seven sandbox controls apply."
+  say ""
+  say "EZCorp will still ask you to approve each extension before it builds and"
+  say "before it runs, and will show a warning banner while this mode is on."
+  say "Choose this only on a computer you alone use, for extensions you trust."
+  say ""
+  say "Everything else in EZCorp works the same either way."
+  say ""
+  printf 'Type I understand to continue, or anything else to stop: '
+  local answer=""
+  read -r answer || true
+  [ "$answer" = "I understand" ] || die "not confirmed — nothing was installed."
+  RUNNER_MODE=trusted-local
+}
+
 # The core connects to a provisioned isolated runner. It cannot provision a
-# host service or silently change the security mode on the user's behalf.
+# host service, and it never changes the security mode on the user's behalf:
+# the only way into trusted-local is consent_trusted_local, typed by a person.
 ensure_runner_config() {
+  if [ "$(runner_mode)" = trusted-local ]; then
+    [ "$(env_get EZCORP_EXTENSIONS_UNSANDBOXED_ACK)" = "$UNSANDBOXED_ACK" ] \
+      || die "this install records trusted-local mode but not its acknowledgement.
+  Reinstall to choose a mode again; your data is kept."
+    return 0
+  fi
+  # Consent is offered only when NOTHING about an isolated runner is set — by
+  # env or by a previous install. One or two of the three means someone is
+  # configuring isolation and made a mistake, and that stays an error below.
+  if [ ! -f "$ENV_FILE" ] && [ -z "${EZ_RUNNER_SOCKET_DIR+x}" ] \
+     && [ -z "${EZ_RUNNER_TOKEN_FILE+x}" ] && [ -z "${EZ_RUNNER_GROUP+x}" ]; then
+    consent_trusted_local
+    return 0
+  fi
+  RUNNER_MODE=isolated
   local key value
   for key in EZ_RUNNER_SOCKET_DIR EZ_RUNNER_TOKEN_FILE EZ_RUNNER_GROUP; do
     value="${!key-}"
@@ -402,6 +494,13 @@ cmd_install() {
   open_browser
 }
 
+# What the desktop entry runs: set up on first use, start every time after.
+# One entry point, so the launcher never needs to know which state it is in.
+# First use at a terminal is also where the trusted-local consent is asked.
+cmd_launch() {
+  if [ -f "$ENV_FILE" ]; then cmd_start "$@"; else cmd_install "$@"; fi
+}
+
 cmd_start() {
   [ -f "$ENV_FILE" ] || die "EZCorp is not set up yet. Run 'ezcorp install'."
   ensure_runtime
@@ -440,6 +539,10 @@ cmd_status() {
     say "url:         $(app_url)"
     say "data:        $DATA_ROOT"
     say "suggestions: $(suggestions_state)"
+    case "$(runner_mode)" in
+      trusted-local) say "extensions:  trusted-local — NOT sandboxed; each release needs your approval" ;;
+      *)             say "extensions:  isolated runner" ;;
+    esac
   else
     say "not set up   run 'ezcorp install'"
     return 0
@@ -581,6 +684,7 @@ cmd_uninstall() {
 dispatch() {
   case "${1:-}" in
     install)     shift; cmd_install "$@" ;;
+    launch)      shift; cmd_launch "$@" ;;
     start)       shift; cmd_start "$@" ;;
     stop)        shift; cmd_stop "$@" ;;
     status)      shift; cmd_status "$@" ;;
@@ -592,6 +696,7 @@ dispatch() {
       say "EZCorp — a self-hosted AI platform that runs on your own machine."
       say ""
       say "  ezcorp install              set up and start EZCorp"
+      say "  ezcorp launch               set up if needed, otherwise start"
       say "  ezcorp start | stop         start or stop it"
       say "  ezcorp open                 open it in your browser"
       say "  ezcorp status               check on it"
@@ -605,7 +710,7 @@ dispatch() {
 
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
   case "${1:-}" in
-    install|start|stop|update|suggestions|uninstall) with_lifecycle_lock "$@" ;;
+    install|launch|start|stop|update|suggestions|uninstall) with_lifecycle_lock "$@" ;;
     *) dispatch "$@" ;;
   esac
 fi

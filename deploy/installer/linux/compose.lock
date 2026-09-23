@@ -1,0 +1,11 @@
+# Docker Compose vendored into the Linux packages, pinned by version and by
+# the SHA-256 published in that release's checksums.txt. build-packages.sh
+# refuses to package a binary that does not match.
+#
+# Why vendored at all: a stock Linux with only podman has NO compose provider
+# (verified on Fedora CoreOS: neither docker-compose nor podman-compose), and
+# distro compose packages range from absent to the long-dead Python v1. This
+# is the version every installer test in the repo was run against.
+COMPOSE_VERSION=v5.5.1
+COMPOSE_SHA256_x86_64=db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576
+COMPOSE_SHA256_aarch64=732e3a84c1a0f67256ce80bc2598a24546b10ca05f9faa97efceb1171ece2ef7

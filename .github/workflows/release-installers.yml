@@ -1,0 +1,81 @@
+name: release-installers
+
+# Attach the Linux installer packages (.deb/.rpm, amd64+arm64) to the GitHub
+# Release that release-image.yml creates. Runs AFTER it, not alongside it:
+# `gh release upload` needs the Release to exist, and a package whose image
+# failed to publish would install a version nobody can pull.
+#
+# The packages carry the installer, not the app. Each pins the image tag equal
+# to its own version (deploy/installer/linux/build-packages.sh), so package
+# 1.4.0 installs ghcr.io/<owner>/ezcorp:1.4.0.
+on:
+  workflow_run:
+    workflows: [release-image]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing app-vX.Y.Z tag whose Release should get packages"
+        required: true
+
+permissions:
+  contents: write # upload assets to the Release
+
+jobs:
+  linux-packages:
+    # release-image also runs on manual dispatch against a branch; only a
+    # successful run for an app-v* tag produced a Release to attach to.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       startsWith(github.event.workflow_run.head_branch, 'app-v'))
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    env:
+      NFPM_VERSION: "2.47.0"
+      NFPM_SHA256: "0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783"
+    steps:
+      - name: Resolve the release tag
+        id: tag
+        env:
+          DISPATCH_TAG: ${{ inputs.tag }}
+          RUN_TAG: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          tag="${DISPATCH_TAG:-$RUN_TAG}"
+          [[ "$tag" =~ ^app-v([0-9]+\.[0-9]+\.[0-9]+)$ ]] \
+            || { echo "::error::'$tag' is not an app-vX.Y.Z tag"; exit 1; }
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=${BASH_REMATCH[1]}" >> "$GITHUB_OUTPUT"
+
+      # Build from the tagged tree, never from whatever main is now.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ steps.tag.outputs.tag }}
+
+      - name: Install nfpm (pinned, checksum-verified)
+        run: |
+          archive="nfpm_${NFPM_VERSION}_Linux_x86_64.tar.gz"
+          curl -fsSL --proto '=https' --tlsv1.2 -o "$archive" \
+            "https://github.com/goreleaser/nfpm/releases/download/v${NFPM_VERSION}/${archive}"
+          echo "${NFPM_SHA256}  ${archive}" | sha256sum -c -
+          tar -xzf "$archive" nfpm
+          sudo install -m 0755 nfpm /usr/local/bin/nfpm
+          nfpm --version
+
+      # The repo declares no contact address and a package must not invent
+      # one; the maintainer string is a repository variable an owner sets.
+      - name: Build packages
+        env:
+          EZCORP_PKG_MAINTAINER: ${{ vars.EZCORP_PKG_MAINTAINER }}
+        run: |
+          [ -n "$EZCORP_PKG_MAINTAINER" ] \
+            || { echo "::error::set the EZCORP_PKG_MAINTAINER repository variable (\"Name <email>\")"; exit 1; }
+          bash deploy/installer/linux/build-packages.sh \
+            "${{ matrix.arch }}" "${{ steps.tag.outputs.version }}" dist
+
+      - name: Upload to the Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ steps.tag.outputs.tag }}" dist/* --clobber
