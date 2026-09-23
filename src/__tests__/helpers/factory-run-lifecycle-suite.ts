@@ -916,7 +916,10 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
 
     // The process that settled it died before delivering: settled, and owed.
     expect(await world.settlingOnly.step(new AbortController().signal)).toBe(true);
-    expect((await world.releases.inspect(projectId, operation.operationId))!.state).toBe("succeeded");
+    const crashed = (await world.releases.inspect(projectId, operation.operationId))!;
+    expect(crashed.state).toBe("succeeded");
+    const crashedReceipt = crashed.receipt as FactoryS3ManifestReceipt;
+    publishedObjects.push(...crashedReceipt.files.map(file => ({ key: file.key, versionId: file.versionId })), { key: crashedReceipt.manifestKey, versionId: crashedReceipt.version });
     expect(await world.outcomeEvents(operation.operationId)).toEqual([]);
     expect(await world.delivery.undelivered()).toContainEqual({ projectId, operationId: operation.operationId });
 

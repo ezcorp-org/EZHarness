@@ -131,7 +131,11 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       `factory_protected_effect_corrupt`. A settled operation that no verified
       receipt names is `factory_release_outcome_command_missing`. A receipt the
       node's port refuses is `factory_release_outcome_invalid`.
-      EVIDENCE: filled at the final sweep.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09c/receipts/focused-suites.json`
+      (release-outcome-delivery 5/0, dispatch-composition 35/0, lifecycle 66/0
+      at `35691ee1e`), `/tmp/factory-platform-evidence/w09c/receipts/postgres-producers-35691ee1e.json`
+      (real PostgreSQL and S3: lifecycle-s3 66/0, lifecycle 66/0, private-service 5/0,
+      boot 1/0, s3-publication 18/0, clean tree).
 - [x] G9: The orchestrator workflow completes the Release node on that event, once.
       CHECK: `node --test --experimental-strip-types --test-name-pattern="Release node once" test/temporal-replay.test.ts` in `packages/@ezcorp/factory-orchestrator`, under the heavy lock.
       EXPECT: `request-release` answers `null`, and the node waits. The
@@ -140,6 +144,13 @@ refuses with `factory_protected_effect_untrusted` before any operation exists.
       the event id applied once, and one `request-release` command. The run
       completes with the receipt as output, and the history replays.
       EVIDENCE: `/tmp/factory-platform-evidence/w09c/logs/temporal-release-outcome.log`
+      (1 pass / 0 fail at `35691ee1e`, exit 0, 2026-09-22T23:22:11-04:00).
+- [x] G10: The publishing cases leave nothing in the shared store.
+      The `35691ee1e` real-store run left three objects from the crash case,
+      which did not record what it published. That case now records them, and
+      `cleanup-lifecycle-published.ts` removed exactly those three.
+      EVIDENCE: `/tmp/factory-platform-evidence/w09c/logs/cleanup-lifecycle-published-2.log`.
+      The fix is proved on PGlite (66/0). The real-store rerun is queued, see the report.
 
 ## Rulings and disclosures
 
