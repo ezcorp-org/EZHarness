@@ -5,19 +5,26 @@ import { sandboxPresetDigest, validateSandboxProviderMethodExchange,
 import { getDb, type Database } from "../db/connection";
 import { incusQualificationFixtures, sandboxBindings } from "../db/schema";
 import { releaseRows } from "../db/queries/extension-releases";
-import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease } from "../extensions/release-process";
+import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease,
+  type ActiveExtensionRelease } from "../extensions/release-process";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import { IncusQualificationFixtureService, IncusQualificationStore, type IncusImageReceipt,
   type IncusQualificationScope } from "./incus-qualification";
 import type { HostIncusLiveWitness, LiveFixtureHandle, LiveFixtureInspection } from "./incus-live-cases";
 import { HostIncusLiveReadback, type LiveReadbackContext } from "./incus-transport/live-readback";
-import { ProviderConnectionStore } from "./provider-connections/store";
+import { ProviderConnectionStore, type ProviderConnectionCredentials,
+  type ProviderConnectionScope } from "./provider-connections/store";
 
 const MAX_FILE_BYTES = 64 * 1024;
 const POLL_MS = 100;
 const guestOperations = new Set<SandboxProtocolOperation>([
   "files.stat", "files.readRange", "files.writeAtomic", "processes.start", "processes.inspect", "processes.readOutput",
 ]);
+
+/** Operator qualification must stay closed until every SP witness method is real. */
+export function incusHostLiveWitnessReady(): boolean {
+  return false;
+}
 
 function deny(reason: string): never {
   throw new Error(`Incus live witness unavailable: ${reason}`);
@@ -43,6 +50,8 @@ export interface IncusHostLiveWitnessDependencies {
   /** Replace only with a test seam that performs the same protected release call. */
   invokeGuest?: (installationId: string, bindingId: string, operation: SandboxProtocolOperation,
     input: Record<string, unknown>) => Promise<unknown>;
+  activeRelease?: (installationId: string) => Promise<ActiveExtensionRelease>;
+  resolveConnection?: (scope: ProviderConnectionScope) => Promise<ProviderConnectionCredentials>;
   readSetup?: (installationId: string) => Promise<IncusImageReceipt | null>;
   backend?: Pick<HostIncusLiveReadback, "image" | "instance">;
   now?: () => number;
@@ -76,6 +85,8 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   private readonly qualifications: IncusQualificationStore;
   private readonly fixtures: IncusQualificationFixtureService;
   private readonly invokeGuest: NonNullable<IncusHostLiveWitnessDependencies["invokeGuest"]>;
+  private readonly activeRelease: NonNullable<IncusHostLiveWitnessDependencies["activeRelease"]>;
+  private readonly resolveConnection: NonNullable<IncusHostLiveWitnessDependencies["resolveConnection"]>;
   private readonly readSetup: NonNullable<IncusHostLiveWitnessDependencies["readSetup"]>;
   private readonly backend: NonNullable<IncusHostLiveWitnessDependencies["backend"]>;
   private readonly now: () => number;
@@ -86,6 +97,8 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     this.fixtures = deps.fixtures ?? new IncusQualificationFixtureService({ db: this.db,
       qualifications: this.qualifications });
     this.invokeGuest = deps.invokeGuest ?? invokeRelease;
+    this.activeRelease = deps.activeRelease ?? (id => resolveActiveRelease(id, getReleaseRuntime()));
+    this.resolveConnection = deps.resolveConnection ?? (scope => new ProviderConnectionStore(this.db).resolveForHost(scope));
     this.readSetup = deps.readSetup ?? (id => readSetup(this.db, id));
     this.backend = deps.backend ?? new HostIncusLiveReadback(new ProviderConnectionStore(this.db));
     this.now = deps.now ?? Date.now;
@@ -117,10 +130,10 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     payload: Record<string, unknown>): Promise<Record<string, unknown>> {
     if (!guestOperations.has(operation)) deny("guest operation is not approved for a witness");
     const { fixture, binding } = await this.owned(handle, true);
-    const active = await resolveActiveRelease(fixture.installationId, getReleaseRuntime());
+    const active = await this.activeRelease(fixture.installationId);
     if (active.installation.id !== fixture.installationId || active.release.id !== fixture.releaseId
       || active.installation.activeReleaseId !== fixture.releaseId) deny("active release changed");
-    const connection = await new ProviderConnectionStore(this.db).resolveForHost({
+    const connection = await this.resolveConnection({
       connectionId: fixture.connectionId, providerInstallationId: fixture.installationId,
       providerReleaseId: fixture.releaseId, revision: fixture.connectionRevision,
     });
@@ -130,8 +143,12 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     const input: Record<string, unknown> = { ...payload, providerId: "incus", connectionId: fixture.connectionId,
       sandboxId: fixture.bindingId, rpcDeadlineMs: now + 30_000 };
     if (operation === "processes.start") {
+      const requestedDeadline = Number(payload.processDeadlineMs);
+      if (!Number.isSafeInteger(requestedDeadline) || requestedDeadline <= now
+        || requestedDeadline > now + 120_000) deny("guest process deadline changed");
       input.user = connection.configuration.guestUser;
-      input.processDeadlineMs = Math.min(now + 120_000, Number(payload.processDeadlineMs));
+      input.rpcDeadlineMs = Math.min(now + 30_000, requestedDeadline);
+      input.processDeadlineMs = requestedDeadline;
     }
     if (operation === "files.writeAtomic" || operation === "processes.start") {
       const identity = `qual-guest-${createHash("sha256").update(JSON.stringify([
@@ -304,7 +321,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     if (!argv.length || argv.some(arg => typeof arg !== "string") || !Number.isSafeInteger(timeoutMs)
       || timeoutMs < 1 || timeoutMs > 120_000) deny("invalid guest process request");
     const deadline = this.now() + timeoutMs;
-    const start = await this.guest(handle, "processes.start", { argv: [...argv], cwd: "/workspace",
+    const start = await this.guest(handle, "processes.start", { argv: [...argv], cwd: ".",
       env: [], processDeadlineMs: deadline });
     if (typeof start.processId !== "string" || typeof start.bootId !== "string") deny("guest process identity missing");
     let offset = 0;

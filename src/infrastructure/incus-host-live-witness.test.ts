@@ -5,8 +5,10 @@ import recipe from "../../scripts/incus/recipe.json";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import type { Database } from "../db/connection";
 import { incusQualificationFixtures } from "../db/schema";
-import { IncusHostLiveWitness } from "./incus-host-live-witness";
+import type { ActiveExtensionRelease } from "../extensions/release-process";
+import { IncusHostLiveWitness, incusHostLiveWitnessReady } from "./incus-host-live-witness";
 import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
+import type { ProviderConnectionCredentials } from "./provider-connections/store";
 
 const scope = { installationId: "installation", releaseId: "release", connectionId: "connection",
   presetId: INCUS_PRESETS[0]!.id };
@@ -14,6 +16,10 @@ const handle = { sandboxId: "fixture-binding", operationId: "fixture-operation" 
 const witness = new IncusHostLiveWitness({ db: {} as Database,
   qualifications: {} as IncusQualificationStore,
   fixtures: {} as IncusQualificationFixtureService });
+
+test("production qualification remains closed while SP probes are incomplete", () => {
+  expect(incusHostLiveWitnessReady()).toBe(false);
+});
 
 test("every unmeasured host probe denies instead of reporting a passing fact", async () => {
   const preset = INCUS_PRESETS[0]!;
@@ -112,4 +118,59 @@ test("guest paths and process requests deny unsafe inputs before any fixture eff
     .rejects.toThrow("file exceeds one verified guest write");
   await expect(witness.run(handle, [], 1000)).rejects.toThrow("invalid guest process request");
   await expect(witness.run(handle, ["true"], 120_001)).rejects.toThrow("invalid guest process request");
+});
+
+test("fixture guest file and process calls use the exact running release and connection", async () => {
+  const preset = INCUS_PRESETS[0]!;
+  const presetDigest = await sandboxPresetDigest(preset);
+  const fixture = { ...scope, operationId: handle.operationId, bindingId: handle.sandboxId,
+    projectId: "project", connectionRevision: 1, presetDigest,
+    effectiveSettingsDigest: "b".repeat(64) };
+  const binding = { id: handle.sandboxId, projectId: fixture.projectId, resourceKey: handle.sandboxId,
+    providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+    connectionId: scope.connectionId, connectionRevision: 1, presetId: preset.id, presetDigest,
+    effectiveSettingsDigest: fixture.effectiveSettingsDigest, tombstonedAt: null,
+    desiredState: "RUNNING", observedState: "RUNNING", generation: 1 };
+  const db = { select: () => ({ from: (table: unknown) => ({ where: () => ({
+    limit: async () => table === incusQualificationFixtures ? [fixture] : [binding],
+  }) }) }) } as unknown as Database;
+  const selected = { connection: { revision: 1 }, preset, presetDigest,
+    effectiveSettingsDigest: fixture.effectiveSettingsDigest };
+  const calls: Array<{ operation: string; input: Record<string, unknown> }> = [];
+  const candidate = new IncusHostLiveWitness({ db,
+    qualifications: { authorizeFixture: async () => selected } as unknown as IncusQualificationStore,
+    fixtures: {} as IncusQualificationFixtureService,
+    activeRelease: async () => ({ installation: { id: scope.installationId,
+      activeReleaseId: scope.releaseId }, release: { id: scope.releaseId } }) as ActiveExtensionRelease,
+    resolveConnection: async () => ({ id: scope.connectionId, revision: 1, revokedAt: null,
+      configuration: { kind: "incus", guestUser: "sandbox" } }) as ProviderConnectionCredentials,
+    invokeGuest: async (_installation, _binding, operation, input) => {
+      calls.push({ operation, input });
+      if (operation === "files.writeAtomic") return { ok: true, path: input.path, revision: "r1", sizeBytes: 2 };
+      if (operation === "files.stat") return { ok: true, file: { path: input.path, kind: "file",
+        revision: "r1", sizeBytes: 2, executable: false } };
+      if (operation === "files.readRange") return { ok: true, path: input.path, revision: "r1",
+        offsetBytes: 0, dataBase64: "b2s=", byteLength: 2, eof: true };
+      if (operation === "processes.start") return { ok: true, processId: "process-1", bootId: "boot-1",
+        startedAt: "2026-09-23T12:00:00.000Z" };
+      if (operation === "processes.readOutput") return { ok: true,
+        chunks: [{ stream: "stdout", offsetBytes: 0, dataBase64: "b2s=", byteLength: 2 }],
+        nextCursor: { sandboxId: handle.sandboxId, processId: "process-1", bootId: "boot-1", offsetBytes: 2 },
+        eof: true };
+      if (operation === "processes.inspect") return { ok: true,
+        process: { processId: "process-1", sandboxId: handle.sandboxId, bootId: "boot-1",
+          state: "succeeded", startedAt: "2026-09-23T12:00:00.000Z",
+          finishedAt: "2026-09-23T12:00:01.000Z", exitCode: 0, signal: null } };
+      throw new Error("unexpected operation");
+    },
+  });
+  await candidate.writeFile(handle, "marker", new TextEncoder().encode("ok"));
+  expect(new TextDecoder().decode(await candidate.readFile(handle, "marker"))).toBe("ok");
+  expect(await candidate.run(handle, ["printf", "ok"], 30_000)).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
+  expect(calls.map(call => call.operation)).toEqual(["files.writeAtomic", "files.stat", "files.readRange",
+    "processes.start", "processes.readOutput", "processes.inspect"]);
+  expect(calls.every(call => call.input.sandboxId === handle.sandboxId && call.input.connectionId === scope.connectionId))
+    .toBe(true);
+  binding.observedState = "STOPPED";
+  await expect(candidate.readFile(handle, "marker")).rejects.toThrow("not running");
 });
