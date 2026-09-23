@@ -8,6 +8,8 @@ Current release step: candidate lifetime fix `62344b49d`, pinned image and setup
 
 SP04 finding: the host lifecycle set only `limits.cpu`, which Incus documents as CPU placement rather than a hard usage ceiling. The lifecycle now also sets a time-form `limits.cpu.allowance` from approved millicores (`2000ms/1000ms` for 2000 millicores). The focused lifecycle suite (11 tests), Biome, and full typecheck pass. The real guest must still show the expected `cpu.max` and survive controlled load before SP04 can pass. Source: https://linuxcontainers.org/incus/docs/main/reference/instance_options/ .
 
+CI follow-up: the first pushed head failed `Residual integration tests` because the new qualification route was not in `src/api-registry.ts`. The exact `route-contract.test.ts` failure named `POST /api/infrastructure/incus/qualification`. Commit `d0b24035f` registers it with session scope and updates the sorted session-only route test; both route-contract and session-scope suites now pass (41 tests). This fix still needs a push and hosted rerun. The five new production source files are now explicit 100% coverage keys; focused resource, recovery, readback, qualification-route, and witness runs each report 100% line/function coverage, but the merged repository gate is still pending.
+
 - [x] Reconcile the first exact Apply receipt and server inventory before any retry.
 - [x] Reproduce the project-create failure with the exact reviewed command and identify the unsupported Incus 6.0.6 key.
 - [x] Remove the unsupported setting without weakening the container-only project policy; add an Incus 6.0.6 compatibility test.

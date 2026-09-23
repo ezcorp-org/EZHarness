@@ -22,6 +22,8 @@
   "src/infrastructure/incus-guest/protocol.ts": 100,
   "src/infrastructure/incus-host-live-witness.ts": 100,
   "src/infrastructure/incus-live-cases.ts": 100,
+  "src/infrastructure/incus-live-control-probes.ts": 100,
+  "src/infrastructure/incus-live-load-probes.ts": 100,
   "src/infrastructure/incus-live-recovery-probes.ts": 100,
   "src/infrastructure/incus-live-resource-probes.ts": 100,
   "src/infrastructure/incus-method-caller.ts": 100,
