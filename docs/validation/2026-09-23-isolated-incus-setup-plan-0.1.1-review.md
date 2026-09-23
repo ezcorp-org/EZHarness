@@ -8,6 +8,8 @@ The isolated EZHarness app approved and activated the reviewed Incus provider re
 | Plan digest | `b3e3a491775f8679e35b4606f67cd1ca6043e0d28ff40d911dbc9d99e313bd4d` |
 | Provider installation | `00bcc640-c430-4c9a-8d97-e35835b8bcf8` |
 | Provider release | `02ce233e-ccbf-4b19-a93f-4e6ee63a926a` |
+| Provider connection | `f5aa7967-7d8d-488d-863b-81ace63fdb6d`, revision `1` |
+| Scoped client certificate fingerprint | `1aa7ee45a559cb8c1a44499e5b76c3108b297549ee3e5c186ad25049df3bd71c` |
 | Server | `dev@sandbox-server.taile1c5b0.ts.net` (SSH host key `SHA256:a3VHX02pT5agIluq6K12E9oCuTg09ErbQ5wK9Vvk8Co`) |
 | Guest image | `57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c` |
 
