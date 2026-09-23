@@ -10,7 +10,7 @@
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import { getChannel } from "@ezcorp/sdk/runtime";
 import { spyOn } from "bun:test";
 import { findProjectRoot, handoffsDir, defaultProjectSlug } from "./project";
@@ -61,14 +61,10 @@ describe("findProjectRoot", () => {
   });
 
   test("returns the starting dir when no .git exists up to the filesystem root", () => {
-    const lonely = mkdtempSync(join(tmpdir(), "cd-nogit-"));
-    try {
-      // Ascends to `/` without finding `.git` → `parent === dir` → returns
-      // the original `from`.
-      expect(findProjectRoot(lonely)).toBe(lonely);
-    } finally {
-      rmSync(lonely, { recursive: true, force: true });
-    }
+    // A path directly below the filesystem root avoids any `.git` that
+    // another test or process has placed in the system temp directory.
+    const lonely = join(parse(process.cwd()).root, "cd-nogit-does-not-exist");
+    expect(findProjectRoot(lonely)).toBe(lonely);
   });
 
   test("defaultProjectSlug is the basename of the resolved root", () => {

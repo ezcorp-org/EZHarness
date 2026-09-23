@@ -5,8 +5,12 @@
  * This mirrors the extension-data convention documented in AGENTS.md.
  */
 
-import { resolve, join, extname } from "node:path";
+import { resolve, join, extname, sep } from "node:path";
 import { rm, mkdir } from "node:fs/promises";
+import {
+  sandboxCapabilityUnavailable,
+  type WorkspaceTarget,
+} from "../../runtime/workspaces/target";
 
 interface WrittenAttachment {
   storagePath: string;
@@ -36,15 +40,31 @@ function extFromMime(mimeType: string, filename: string): string {
 }
 
 export async function writeAttachment(opts: {
-  projectRoot: string;
+  workspaceTarget: WorkspaceTarget;
   conversationId: string;
   messageId: string;
   filename: string;
   mimeType: string;
   bytes: Uint8Array;
 }): Promise<WrittenAttachment> {
+  if (opts.workspaceTarget.kind === "sandbox") {
+    const capability = opts.workspaceTarget.backend?.attachments;
+    if (!capability) throw sandboxCapabilityUnavailable("attachment write");
+    const written = await capability.write({
+      binding: opts.workspaceTarget.binding,
+      conversationId: opts.conversationId,
+      messageId: opts.messageId,
+      filename: opts.filename,
+      mimeType: opts.mimeType,
+      bytes: opts.bytes,
+    });
+    if (!written.storageKey || written.sizeBytes !== opts.bytes.byteLength) {
+      throw new Error("Sandbox attachment backend returned an invalid write receipt");
+    }
+    return { storagePath: written.storageKey, sizeBytes: written.sizeBytes };
+  }
   const dir = join(
-    attachmentsRoot(opts.projectRoot),
+    attachmentsRoot(opts.workspaceTarget.root),
     sanitizeSegment(opts.conversationId),
     sanitizeSegment(opts.messageId),
   );
@@ -55,18 +75,41 @@ export async function writeAttachment(opts: {
   return { storagePath, sizeBytes: opts.bytes.byteLength };
 }
 
-export async function readAttachmentBytes(storagePath: string): Promise<Uint8Array> {
+export async function readAttachmentBytes(
+  workspaceTarget: WorkspaceTarget,
+  storagePath: string,
+): Promise<Uint8Array> {
+  if (workspaceTarget.kind === "sandbox") {
+    const capability = workspaceTarget.backend?.attachments;
+    if (!capability) throw sandboxCapabilityUnavailable("attachment read");
+    return capability.read({ binding: workspaceTarget.binding, storageKey: storagePath });
+  }
+  const root = attachmentsRoot(workspaceTarget.root);
+  const resolvedPath = resolve(storagePath);
+  if (resolvedPath !== root && !resolvedPath.startsWith(root + sep)) {
+    throw new Error("Attachment path is outside the selected local workspace");
+  }
   const buf = await Bun.file(storagePath).arrayBuffer();
   return new Uint8Array(buf);
 }
 
 export async function deleteForMessage(opts: {
-  projectRoot: string;
+  workspaceTarget: WorkspaceTarget;
   conversationId: string;
   messageId: string;
 }): Promise<void> {
+  if (opts.workspaceTarget.kind === "sandbox") {
+    const capability = opts.workspaceTarget.backend?.attachments;
+    if (!capability) throw sandboxCapabilityUnavailable("attachment delete");
+    await capability.delete({
+      binding: opts.workspaceTarget.binding,
+      conversationId: opts.conversationId,
+      messageId: opts.messageId,
+    });
+    return;
+  }
   const dir = join(
-    attachmentsRoot(opts.projectRoot),
+    attachmentsRoot(opts.workspaceTarget.root),
     sanitizeSegment(opts.conversationId),
     sanitizeSegment(opts.messageId),
   );
@@ -74,9 +117,18 @@ export async function deleteForMessage(opts: {
 }
 
 export async function deleteForConversation(opts: {
-  projectRoot: string;
+  workspaceTarget: WorkspaceTarget;
   conversationId: string;
 }): Promise<void> {
-  const dir = join(attachmentsRoot(opts.projectRoot), sanitizeSegment(opts.conversationId));
+  if (opts.workspaceTarget.kind === "sandbox") {
+    const capability = opts.workspaceTarget.backend?.attachments;
+    if (!capability) throw sandboxCapabilityUnavailable("attachment delete");
+    await capability.delete({
+      binding: opts.workspaceTarget.binding,
+      conversationId: opts.conversationId,
+    });
+    return;
+  }
+  const dir = join(attachmentsRoot(opts.workspaceTarget.root), sanitizeSegment(opts.conversationId));
   await rm(dir, { recursive: true, force: true });
 }

@@ -9,13 +9,14 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-	buildUserContent,
+	buildUserContent as buildUserContentWithTarget,
 	type StagedAttachment,
 	ATTACHMENT_HANDLE_SCHEME,
 } from "../chat/attachments/content-builder";
-import { buildAttachmentHandleResolver, toResolvableAttachments } from "../chat/attachments/handle-resolver";
+import { buildAttachmentHandleResolver as buildAttachmentHandleResolverWithTarget, toResolvableAttachments } from "../chat/attachments/handle-resolver";
 import { writeAttachment } from "../chat/attachments/storage";
 import { getCapabilities } from "../providers/model-capabilities";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 
 const PNG_A = new TextEncoder().encode("PNG-A-BYTES");
 const PNG_B = new TextEncoder().encode("PNG-B-BYTES");
@@ -23,15 +24,23 @@ const PNG_B = new TextEncoder().encode("PNG-B-BYTES");
 let root: string;
 let pngAPath: string;
 let pngBPath: string;
+const buildUserContent = (
+	text: Parameters<typeof buildUserContentWithTarget>[0],
+	attachments: Parameters<typeof buildUserContentWithTarget>[1],
+	caps: Parameters<typeof buildUserContentWithTarget>[2],
+) => buildUserContentWithTarget(text, attachments, caps, localWorkspaceTarget(root));
+const buildAttachmentHandleResolver = (
+	attachments: Parameters<typeof buildAttachmentHandleResolverWithTarget>[0],
+) => buildAttachmentHandleResolverWithTarget(attachments, localWorkspaceTarget(root));
 
 beforeAll(async () => {
 	root = await mkdtemp(join(tmpdir(), "ezcorp-rt-"));
 	pngAPath = (await writeAttachment({
-		projectRoot: root, conversationId: "c", messageId: "m",
+		workspaceTarget: localWorkspaceTarget(root), conversationId: "c", messageId: "m",
 		filename: "cow.png", mimeType: "image/png", bytes: PNG_A,
 	})).storagePath;
 	pngBPath = (await writeAttachment({
-		projectRoot: root, conversationId: "c", messageId: "m",
+		workspaceTarget: localWorkspaceTarget(root), conversationId: "c", messageId: "m",
 		filename: "man.png", mimeType: "image/png", bytes: PNG_B,
 	})).storagePath;
 });

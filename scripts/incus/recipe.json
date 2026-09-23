@@ -1,0 +1,101 @@
+{
+  "schemaVersion": 1,
+  "id": "incus-xeon-compose",
+  "version": "1.1.0",
+  "expected": {
+    "hostname": "sandbox-server",
+    "architecture": "x86_64",
+    "incusVersion": "6.0.6",
+    "serverCertificateFingerprint": "c8d6afdbaa6b1dc094f9b8b8dcc949861aca21c98b1d736cee981a8cb107a7d1",
+    "sshHostKeySha256": "SHA256:a3VHX02pT5agIluq6K12E9oCuTg09ErbQ5wK9Vvk8Co",
+    "firewall": "nftables",
+    "minimumRootFreeBytes": 182536110080,
+    "requiredApiExtensions": [
+      "certificate_project",
+      "disk_state_quota",
+      "etag",
+      "instance_nic_bridged_port_isolation",
+      "operation_wait",
+      "projects_limits_disk",
+      "projects_limits_instances",
+      "projects_networks_restricted_access",
+      "projects_restrictions",
+      "restrict_dev_incus",
+      "server_supported_storage_drivers"
+    ]
+  },
+  "storage": {
+    "name": "ezharness-btrfs",
+    "driver": "btrfs",
+    "size": "100GiB",
+    "sizeBytes": 107374182400,
+    "defaultVolumeSize": "20GiB"
+  },
+  "network": {
+    "name": "ezharness0",
+    "project": "default",
+    "type": "bridge",
+    "config": {
+      "dns.domain": "sandbox.internal",
+      "dns.mode": "managed",
+      "ipv4.address": "10.173.0.1/24",
+      "ipv4.nat": "true",
+      "ipv6.address": "none"
+    }
+  },
+  "project": {
+    "name": "ezharness",
+    "description": "EZHarness owned sandbox workloads",
+    "config": {
+      "features.images": "false",
+      "features.networks": "false",
+      "features.networks.zones": "false",
+      "features.profiles": "true",
+      "features.storage.buckets": "false",
+      "features.storage.volumes": "true",
+      "limits.containers": "4",
+      "limits.cpu": "8",
+      "limits.disk.pool.ezharness-btrfs": "80GiB",
+      "limits.memory": "32GiB",
+      "limits.networks": "0",
+      "limits.processes": "4096",
+      "limits.virtual-machines": "0",
+      "restricted": "true",
+      "restricted.containers.nesting": "allow",
+      "restricted.devices.nic": "managed",
+      "restricted.images.servers": "images.linuxcontainers.org",
+      "restricted.networks.access": "ezharness0",
+      "restricted.storage-pools.access": "ezharness-btrfs",
+      "restricted.virtual-machines.nesting": "block"
+    }
+  },
+  "profile": {
+    "name": "compose",
+    "description": "Bounded unprivileged nested Compose workload",
+    "config": {
+      "limits.cpu": "2",
+      "limits.memory": "8GiB",
+      "limits.memory.enforce": "hard",
+      "limits.processes": "1024",
+      "security.idmap.isolated": "true",
+      "security.nesting": "true",
+      "security.privileged": "false"
+    },
+    "devices": {
+      "eth0": {
+        "type": "nic",
+        "name": "eth0",
+        "network": "ezharness0"
+      },
+      "root": {
+        "type": "disk",
+        "path": "/",
+        "pool": "ezharness-btrfs",
+        "size": "20GiB"
+      }
+    }
+  },
+  "server": {
+    "httpsAddress": "100.81.181.39:8443"
+  }
+}

@@ -1,0 +1,529 @@
+{
+  "schemaVersion": 1,
+  "setupId": "incus-xeon-compose:1.0.0:c8d6afdbaa6b1dc0",
+  "recipeId": "incus-xeon-compose",
+  "recipeVersion": "1.0.0",
+  "recipeDigest": "5b82647a77bc75129df66fc08eac47c70fc52e23c3ee2c6e0e30921ef3928719",
+  "inventoryFingerprint": "75a813d97037d6b7b8a06037e6ea50c33d827d9feb6f6b1b6419bb61b5b39703",
+  "status": "blocked",
+  "blockedReasons": [
+    "provider_client_certificate_missing"
+  ],
+  "steps": [
+    {
+      "id": "storage-pool",
+      "resource": "storage",
+      "description": "Create ezharness-lvm as a bounded LVM thin pool",
+      "inspect": {
+        "argv": [
+          "incus",
+          "query",
+          "/1.0/storage-pools/ezharness-lvm"
+        ],
+        "expected": {
+          "name": "ezharness-lvm",
+          "driver": "lvm",
+          "config": {
+            "size": "100GiB",
+            "lvm.use_thinpool": "true",
+            "volume.size": "16GiB"
+          }
+        },
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "storage",
+          "create",
+          "ezharness-lvm",
+          "lvm",
+          "lvm.use_thinpool=true",
+          "size=100GiB",
+          "volume.size=16GiB"
+        ]
+      }
+    },
+    {
+      "id": "managed-network",
+      "resource": "network",
+      "description": "Create the pinned 10.173.0.1/24 managed bridge",
+      "inspect": {
+        "argv": [
+          "incus",
+          "query",
+          "/1.0/networks/ezharness0?project=default"
+        ],
+        "expected": {
+          "name": "ezharness0",
+          "project": "default",
+          "type": "bridge",
+          "managed": true,
+          "config": {
+            "dns.domain": "sandbox.internal",
+            "dns.mode": "managed",
+            "ipv4.address": "10.173.0.1/24",
+            "ipv4.nat": "true",
+            "ipv6.address": "none"
+          }
+        },
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "network",
+          "create",
+          "ezharness0",
+          "--project=default",
+          "--type=bridge",
+          "dns.domain=sandbox.internal",
+          "dns.mode=managed",
+          "ipv4.address=10.173.0.1/24",
+          "ipv4.nat=true",
+          "ipv6.address=none"
+        ]
+      }
+    },
+    {
+      "id": "restricted-project",
+      "resource": "project",
+      "description": "Create restricted project ezharness",
+      "inspect": {
+        "argv": [
+          "incus",
+          "query",
+          "/1.0/projects/ezharness"
+        ],
+        "expected": {
+          "name": "ezharness",
+          "description": "EZHarness owned sandbox workloads",
+          "config": {
+            "features.images": "false",
+            "features.networks": "false",
+            "features.networks.zones": "false",
+            "features.profiles": "true",
+            "features.storage.buckets": "false",
+            "features.storage.volumes": "true",
+            "limits.containers": "4",
+            "limits.cpu": "8",
+            "limits.disk.pool.ezharness-lvm": "80GiB",
+            "limits.memory": "32GiB",
+            "limits.networks": "0",
+            "limits.processes": "4096",
+            "limits.virtual-machines": "0",
+            "restricted": "true",
+            "restricted.containers.nesting": "allow",
+            "restricted.devices.nic": "managed",
+            "restricted.images.servers": "images.linuxcontainers.org",
+            "restricted.networks.access": "ezharness0",
+            "restricted.storage-pools.access": "ezharness-lvm",
+            "restricted.virtual-machines.nesting": "block"
+          }
+        },
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "project",
+          "create",
+          "ezharness",
+          "--description=EZHarness owned sandbox workloads",
+          "--config",
+          "features.images=false",
+          "--config",
+          "features.networks=false",
+          "--config",
+          "features.networks.zones=false",
+          "--config",
+          "features.profiles=true",
+          "--config",
+          "features.storage.buckets=false",
+          "--config",
+          "features.storage.volumes=true",
+          "--config",
+          "limits.containers=4",
+          "--config",
+          "limits.cpu=8",
+          "--config",
+          "limits.disk.pool.ezharness-lvm=80GiB",
+          "--config",
+          "limits.memory=32GiB",
+          "--config",
+          "limits.networks=0",
+          "--config",
+          "limits.processes=4096",
+          "--config",
+          "limits.virtual-machines=0",
+          "--config",
+          "restricted=true",
+          "--config",
+          "restricted.containers.nesting=allow",
+          "--config",
+          "restricted.devices.nic=managed",
+          "--config",
+          "restricted.images.servers=images.linuxcontainers.org",
+          "--config",
+          "restricted.networks.access=ezharness0",
+          "--config",
+          "restricted.storage-pools.access=ezharness-lvm",
+          "--config",
+          "restricted.virtual-machines.nesting=block"
+        ]
+      }
+    },
+    {
+      "id": "compose-profile",
+      "resource": "profile",
+      "description": "Create bounded profile compose",
+      "inspect": {
+        "argv": [
+          "incus",
+          "query",
+          "/1.0/profiles/compose?project=ezharness"
+        ],
+        "expected": {
+          "name": "compose"
+        },
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "profile",
+          "create",
+          "compose",
+          "--project",
+          "ezharness"
+        ]
+      }
+    },
+    {
+      "id": "profile-config-limits-cpu",
+      "resource": "profile",
+      "description": "Set limits.cpu on compose",
+      "inspect": {
+        "argv": [
+          "incus",
+          "profile",
+          "get",
+          "compose",
+          "limits.cpu",
+          "--project",
+          "ezharness"
+        ],
+        "expected": "2",
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "profile",
+          "set",
+          "compose",
+          "limits.cpu=2",
+          "--project",
+          "ezharness"
+        ]
+      }
+    },
+    {
+      "id": "profile-config-limits-memory",
+      "resource": "profile",
+      "description": "Set limits.memory on compose",
+      "inspect": {
+        "argv": [
+          "incus",
+          "profile",
+          "get",
+          "compose",
+          "limits.memory",
+          "--project",
+          "ezharness"
+        ],
+        "expected": "8GiB",
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "profile",
+          "set",
+          "compose",
+          "limits.memory=8GiB",
+          "--project",
+          "ezharness"
+        ]
+      }
+    },
+    {
+      "id": "profile-config-limits-memory-enforce",
+      "resource": "profile",
+      "description": "Set limits.memory.enforce on compose",
+      "inspect": {
+        "argv": [
+          "incus",
+          "profile",
+          "get",
+          "compose",
+          "limits.memory.enforce",
+          "--project",
+          "ezharness"
+        ],
+        "expected": "hard",
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "profile",
+          "set",
+          "compose",
+          "limits.memory.enforce=hard",
+          "--project",
+          "ezharness"
+        ]
+      }
+    },
+    {
+      "id": "profile-config-limits-processes",
+      "resource": "profile",
+      "description": "Set limits.processes on compose",
+      "inspect": {
+        "argv": [
+          "incus",
+          "profile",
+          "get",
+          "compose",
+          "limits.processes",
+          "--project",
+          "ezharness"
+        ],
+        "expected": "1024",
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "profile",
+          "set",
+          "compose",
+          "limits.processes=1024",
+          "--project",
+          "ezharness"
+        ]
+      }
+    },
+    {
+      "id": "profile-config-security-idmap-isolated",
+      "resource": "profile",
+      "description": "Set security.idmap.isolated on compose",
+      "inspect": {
+        "argv": [
+          "incus",
+          "profile",
+          "get",
+          "compose",
+          "security.idmap.isolated",
+          "--project",
+          "ezharness"
+        ],
+        "expected": "true",
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "profile",
+          "set",
+          "compose",
+          "security.idmap.isolated=true",
+          "--project",
+          "ezharness"
+        ]
+      }
+    },
+    {
+      "id": "profile-config-security-nesting",
+      "resource": "profile",
+      "description": "Set security.nesting on compose",
+      "inspect": {
+        "argv": [
+          "incus",
+          "profile",
+          "get",
+          "compose",
+          "security.nesting",
+          "--project",
+          "ezharness"
+        ],
+        "expected": "true",
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "profile",
+          "set",
+          "compose",
+          "security.nesting=true",
+          "--project",
+          "ezharness"
+        ]
+      }
+    },
+    {
+      "id": "profile-config-security-privileged",
+      "resource": "profile",
+      "description": "Set security.privileged on compose",
+      "inspect": {
+        "argv": [
+          "incus",
+          "profile",
+          "get",
+          "compose",
+          "security.privileged",
+          "--project",
+          "ezharness"
+        ],
+        "expected": "false",
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "profile",
+          "set",
+          "compose",
+          "security.privileged=false",
+          "--project",
+          "ezharness"
+        ]
+      }
+    },
+    {
+      "id": "profile-device-eth0",
+      "resource": "profile",
+      "description": "Add eth0 to compose",
+      "inspect": {
+        "argv": [
+          "incus",
+          "profile",
+          "device",
+          "get",
+          "compose",
+          "eth0",
+          "type",
+          "--project",
+          "ezharness"
+        ],
+        "expected": "nic",
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "profile",
+          "device",
+          "add",
+          "compose",
+          "eth0",
+          "nic",
+          "name=eth0",
+          "network=ezharness0",
+          "--project",
+          "ezharness"
+        ]
+      }
+    },
+    {
+      "id": "profile-device-root",
+      "resource": "profile",
+      "description": "Add root to compose",
+      "inspect": {
+        "argv": [
+          "incus",
+          "profile",
+          "device",
+          "get",
+          "compose",
+          "root",
+          "type",
+          "--project",
+          "ezharness"
+        ],
+        "expected": "disk",
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "profile",
+          "device",
+          "add",
+          "compose",
+          "root",
+          "disk",
+          "path=/",
+          "pool=ezharness-lvm",
+          "size=16GiB",
+          "--project",
+          "ezharness"
+        ]
+      }
+    },
+    {
+      "id": "https-listener",
+      "resource": "server",
+      "description": "Bind Incus HTTPS to 100.81.181.39:8443",
+      "inspect": {
+        "argv": [
+          "incus",
+          "config",
+          "get",
+          "core.https_address"
+        ],
+        "expected": "100.81.181.39:8443",
+        "notFoundExitCodes": [
+          1
+        ]
+      },
+      "apply": {
+        "argv": [
+          "incus",
+          "config",
+          "set",
+          "core.https_address=100.81.181.39:8443"
+        ]
+      }
+    }
+  ],
+  "planDigest": "78d30ee7fa3a76566037bfa307eb4c97efe1155ddbd85662444ea674434f963f"
+}

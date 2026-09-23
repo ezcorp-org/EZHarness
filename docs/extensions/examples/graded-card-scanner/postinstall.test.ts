@@ -3,7 +3,7 @@
 import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, parse } from "node:path";
 import { findProjectRoot, installApp, main } from "./scripts/postinstall";
 
 function makeTmp(): string {
@@ -24,13 +24,10 @@ describe("findProjectRoot", () => {
   });
 
   test("falls back to the starting dir when no .git exists above", () => {
-    const dir = makeTmp();
-    try {
-      // tmpdir ancestry has no .git — the walk exhausts and returns `from`.
-      expect(findProjectRoot(dir)).toBe(dir);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    // Use a path directly below the filesystem root. The system temp
+    // directory can itself contain `.git` in a shared test environment.
+    const dir = join(parse(process.cwd()).root, "gcs-nogit-does-not-exist");
+    expect(findProjectRoot(dir)).toBe(dir);
   });
 });
 

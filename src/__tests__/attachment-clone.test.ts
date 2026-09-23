@@ -26,6 +26,7 @@ const { cloneAttachmentsForFork } = await import("../chat/attachments/clone");
 const { writeAttachment, readAttachmentBytes } = await import("../chat/attachments/storage");
 const { listAttachmentsForMessage } = await import("../db/queries/attachments");
 const { projects, conversations, messages, messageAttachments } = await import("../db/schema");
+const { localWorkspaceTarget } = await import("../runtime/workspaces/target");
 
 const PROJECT_ID = "proj-clone";
 const CONV_ID = "conv-clone";
@@ -40,7 +41,7 @@ async function insertSourceAttachment(opts: {
   bytes: Uint8Array;
 }) {
   const written = await writeAttachment({
-    projectRoot: TMP,
+    workspaceTarget: localWorkspaceTarget(TMP),
     conversationId: CONV_ID,
     messageId: SRC_MSG,
     filename: opts.filename,
@@ -100,7 +101,7 @@ describe("cloneAttachmentsForFork", () => {
     });
 
     const result = await cloneAttachmentsForFork({
-      projectRoot: TMP,
+      workspaceTarget: localWorkspaceTarget(TMP),
       conversationId: CONV_ID,
       sourceMessageId: SRC_MSG,
       targetMessageId: TGT_MSG,
@@ -131,7 +132,7 @@ describe("cloneAttachmentsForFork", () => {
 
     // Bytes copied faithfully; the source file is left untouched.
     expect(existsSync(src.storagePath)).toBe(true);
-    const copied = await readAttachmentBytes(result.staged[0]!.storagePath);
+    const copied = await readAttachmentBytes(localWorkspaceTarget(TMP), result.staged[0]!.storagePath);
     expect(Array.from(copied)).toEqual(Array.from(bytes));
   });
 
@@ -140,7 +141,7 @@ describe("cloneAttachmentsForFork", () => {
     await insertSourceAttachment({ filename: "notes.txt", mimeType: "text/plain", kind: "text", bytes: new Uint8Array([2, 2]) });
 
     const result = await cloneAttachmentsForFork({
-      projectRoot: TMP,
+      workspaceTarget: localWorkspaceTarget(TMP),
       conversationId: CONV_ID,
       sourceMessageId: SRC_MSG,
       targetMessageId: TGT_MSG,
@@ -156,7 +157,7 @@ describe("cloneAttachmentsForFork", () => {
 
   test("returns an empty, no-op result when the source has no attachments", async () => {
     const result = await cloneAttachmentsForFork({
-      projectRoot: TMP,
+      workspaceTarget: localWorkspaceTarget(TMP),
       conversationId: CONV_ID,
       sourceMessageId: SRC_MSG,
       targetMessageId: TGT_MSG,

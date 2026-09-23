@@ -34,6 +34,9 @@ import { createPreviewSession } from "../../db/queries/preview-sessions";
 import { mintOneTimeCode } from "./preview-token";
 import { getPreviewNetns } from "./preview-netns";
 import type { PreviewDetectedEvent } from "./preview-port-watcher";
+import { getConversation } from "../../db/queries/conversations";
+import { getProject } from "../../db/queries/projects";
+import { resolveLocalProjectTarget } from "../workspaces/project-target";
 
 const log = logger.child("preview.consent");
 
@@ -149,6 +152,14 @@ export async function exposeDetectedPort(event: PreviewDetectedEvent): Promise<{
   if (!Number.isInteger(port) || port <= 0) {
     throw new Error(`exposeDetectedPort: invalid port ${port}`);
   }
+  const conversation = await getConversation(conversationId);
+  if (!conversation || conversation.userId !== userId) {
+    throw new Error("exposeDetectedPort: conversation is not owned by the requester");
+  }
+  const project = await getProject(conversation.projectId);
+  if (!project?.path) {
+    throw new Error("exposeDetectedPort: project workspace is unavailable");
+  }
   // The conversation's netns id (if allocated) pins the dynamic preview to
   // the right namespace. Null is acceptable — Phase 3 wires the live
   // passthrough; the registry row + access gate are valid today.
@@ -159,6 +170,7 @@ export async function exposeDetectedPort(event: PreviewDetectedEvent): Promise<{
     kind: "dynamic",
     targetPort: port,
     netnsId: netns?.netnsId ?? null,
+    workspaceTarget: await resolveLocalProjectTarget(project, "preview open"),
   });
   const code = mintOneTimeCode({ previewId: row.id, userId });
   return { previewId: row.id, code, subdomainLabel: row.id };

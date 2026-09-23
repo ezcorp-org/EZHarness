@@ -17,6 +17,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { parse } from "node:path";
 import { ExtensionRegistry, buildAllowedEnv } from "../extensions/registry";
 import type { ExtensionManifestV2 } from "../extensions/types";
 
@@ -135,10 +136,11 @@ describe("buildAllowedEnv — EZCORP_PROJECT_ROOT resolution", () => {
     // findProjectRoot() walks up from process.cwd() and throws when it hits
     // the filesystem root with no `.git` ancestor. buildAllowedEnv catches
     // that so a spawn outside a git tree doesn't crash — it just leaves
-    // EZCORP_PROJECT_ROOT unset. Force the throw by chdir'ing to /tmp.
+    // EZCORP_PROJECT_ROOT unset. Use the filesystem root because /tmp may
+    // contain a .git directory in a shared test environment.
     const cwd = process.cwd();
     try {
-      process.chdir("/tmp");
+      process.chdir(parse(cwd).root);
       const out = buildAllowedEnv(makeManifest(), { grantedAt: {} }, "ext-nogit");
       expect(out.EZCORP_PROJECT_ROOT).toBeUndefined();
     } finally {

@@ -1,6 +1,7 @@
 import { listExtensions } from "$server/db/queries/extensions";
 import { redactExtensionSecrets } from "$server/extensions/mcp-secret-redaction";
 import { withListFlagsAll } from "$server/extensions/list-flags";
+import { isInteractiveSession } from "$server/auth/middleware";
 import type { PageServerLoad } from "./$types";
 
 /**
@@ -17,7 +18,7 @@ import type { PageServerLoad } from "./$types";
  * `/api/extensions/*` and re-fetches the merged list — the SSR data is a
  * progressive-enhancement starting point, not a write barrier.
  */
-export const load: PageServerLoad = async () => {
+export const load: PageServerLoad = async ({ locals }) => {
   // Soft-fail to empty arrays if the DB is unavailable — the existing
   // client-side `loadExtensions()` (kept for post-mutation refresh)
   // re-fetches via `GET /api/extensions` on mount and surfaces a toast
@@ -34,10 +35,11 @@ export const load: PageServerLoad = async () => {
     // user, so it needs the same scrub `GET /api/extensions` applies — the
     // client re-fetch already got it and the first paint did not.
     return {
+      canSetUpIncus: locals.user?.role === "admin" && isInteractiveSession(locals),
       bundledExtensions: withListFlagsAll(bundledExtensions.map(redactExtensionSecrets)),
       installedExtensions: withListFlagsAll(installedExtensions.map(redactExtensionSecrets)),
     };
   } catch {
-    return { bundledExtensions: [], installedExtensions: [] };
+    return { canSetUpIncus: locals.user?.role === "admin" && isInteractiveSession(locals), bundledExtensions: [], installedExtensions: [] };
   }
 };

@@ -898,3 +898,398 @@ uses explicit portable empty-variable syntax and preserves its literal rebuild c
 tests pass 132 tests and 315 assertions. The repaired full backend pool passes 26,273 tests across
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
+
+## Mandatory sandbox preset tests — 2026-09-21
+
+- [x] Define preset tests required for every new sandbox integration and advertised profile.
+- [x] Add the requirement to shared fixtures, the author guide and release gates.
+- [x] Verify requirement coverage and document links; keep implementation checks open.
+
+Plan review: make this a mandatory acceptance requirement in the existing implementation plan. No provider code or tests exist yet for this feature; do not report a documentation update as a passing integration test.
+
+Review: added mandatory SP01–SP08 in section 12 of the implementation plan, covering preset validation, compatibility, deterministic settings, real workloads/limits, no unsafe fallback, recovery/cleanup, drift and actual release enforcement. C06, V04, Q07 and the final release checklist now require the suite for every new sandbox integration and advertised combination. Missing, failed, skipped or stale required evidence blocks Ready/workload selection. All eight requirements and gate references validate; the 70 implementation tasks remain open. No production tests were added or claimed to pass in this documentation-only change.
+
+## Mandatory sandbox preset enforcement — 2026-09-22
+
+- [x] Add closed preset declarations and static/live qualification records to the shared v4 contract.
+- [x] Reject incomplete presets, unsafe override ranges and missing, failed, stale or mismatched evidence.
+- [x] Enforce static qualification at build, approval, activation, reconciliation, publication and runtime resolution.
+- [x] Preserve manifests that do not declare sandbox providers.
+- [x] Verify the implementation with isolated tests, schema generation, typecheck, lint, coverage and an independent Sol review.
+
+Plan review: this implements the contract and fail-closed release boundary for C06. The production candidate verifier intentionally rejects sandbox provider releases with `sandbox_qualification_unavailable` until the shared conformance runner can produce the six static cases. The separate Ready assertion requires live SP01–SP08, but no connection subsystem or live SP04/SP06 evidence exists yet.
+
+Review: the shared contract now defines closed presets plus static and live evidence. Host checks fail closed at build, approval, activation, reconciliation, publication and runtime resolution. Independent review found and closed three correctness gaps and one repeated-fixture issue. Pinned Bun 1.3.14 checks pass for the contract, schema, typecheck, lint, candidate verifier, lifecycle, publication and runtime suites; the new host gate has 35/35 line and 7/7 function coverage. The full repository lane reached 25,804 passes and three unrelated workspace-hygiene failures: a stale AI Kit source lock, two files outside the lint script's explicit paths, and generated Stryker credential fixtures. No live provider or SP04/SP06 qualification is claimed.
+
+## Reliable provider setup design — 2026-09-21
+
+- [x] Review existing setup decisions and official Incus concurrency/operation/identity documentation.
+- [x] Specify how server changes, recovery and verification work through the supplied SSH connection.
+- [x] Define reusable setup support for reviewed integrations and a tested compatibility policy.
+- [x] Validate the updated plan and record implementation limits.
+- [x] Make zero-inference setup and repeatable planning explicit requirements.
+- [x] Add checks for model-call denial, plan replay, pinned inputs and deterministic recovery decisions.
+
+Plan review: extend the existing plan and task assignments. This is a design change; no live server configuration is authorized by this question.
+
+Review: section 12 of `docs/plans/2026-09-20-pluggable-infrastructure-tasks.md` defines fixed reviewed setup code, a saved inspect/plan/review/apply/verify job, per-step receipts and readback, safe retry/repair, restricted runtime identity and an optional shared setup method group. It limits support claims to live-qualified combinations and maps failure testing to existing tasks. Official Incus API concurrency/operation and certificate-scope documentation was checked. All 70 task IDs remain unique and defined; local links and fences pass. This is a design update only; no live configuration or implementation was performed.
+
+Determinism follow-up: section 12 now prohibits model inference throughout setup and repair. It defines pure planning from explicit snapshots, pinned recipes, saved approved steps, fixed failure decisions and safe restart reconciliation. Secure key generation remains random. Proposed tests assert zero model calls and host denial of a model-calling provider. Document checks pass; these are requirements, not implemented tests or server changes.
+
+## Simple Incus setup in EZHarness — 2026-09-21
+
+- [x] Check the current plan and Incus's documented unattended setup support.
+- [x] Define a short user flow using the supplied SSH connection and existing approval system.
+- [x] Add the setup behavior and acceptance checks to the existing implementation plan.
+
+Plan review: design the product flow, not change the live server. Extend C04, H01–H05, I01 and U01 instead of adding a second installer or approval system.
+
+Review: section 11 of `docs/plans/2026-09-20-pluggable-infrastructure-tasks.md` defines Add server → SSH → review budget/changes → setup/test → Ready. It reuses the existing 70 tasks and approval lifecycle, checks access from the deployed engine, separates temporary bootstrap authority from normal provider credentials, and blocks Ready on missing controls or failed cleanup. Official Incus preseed support and rollback limits were checked. Document references/fences/task IDs pass. No implementation or server changes were made.
+
+## Validate existing Herder sandbox Incus — 2026-09-21
+
+- [x] Find the configured sandbox host.
+- [x] Confirm read-only SSH access with the AMD personal identity after the user installed its public key.
+- [x] Check host capacity and initial Incus state; Incus was absent before the user installed it.
+- [x] Recheck after installation: Incus client/server 6.0.6, active service and dev operator access pass.
+- [ ] Configure and qualify storage, managed networking, restricted project/profile, resource limits and scoped provider connection; currently empty/unconfigured.
+- [x] Record verified results and the remaining live qualification checks.
+
+Plan review: inspect the existing deployment without restarting services, changing settings or modifying current guests. This validates installed infrastructure; it does not mark the planned EZHarness integration complete.
+
+Review: SSH and the new Incus 6.0.6 installation now pass. The service is active and dev has operator access. The host is NixOS 26.05 with a Xeon W-2135; earlier inventory measured 62.3 GiB RAM and 199.6 GiB free root storage. Incus has no storage pools, managed networks, guests, cached images, HTTPS listener or trusted remote clients. Only the default project and an empty default profile exist. Host checks were read-only. Installation is verified; sandbox configuration and live qualification remain open. Report: `docs/plans/2026-09-21-sandbox-server-validation.md`.
+
+# Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
+
+Branch: `feat/trusted-local-runner` (worktree `worktrees/trusted-local`, from `main` @ 2588c9f19).
+Decision record: `docs/decisions/2026-09-12-extension-runner-install-burden.md` (Finding 3 + Proposal).
+
+Contract: `TrustedLocalRunner` (built, tested, never wired) enforces per-(phase, digest) admin
+approval with approver + expiry + acknowledged omitted controls, then audits. This work only
+supplies the ignition: a fail-closed two-key operator gate, the approval store, the two human
+acknowledgement points (Build, Approve exact release), and the loud signals (boot log, banner,
+health). No bypass of `authorize()`. `runnerProfile` flips to `trusted-local-v4` so every existing
+approval goes stale and must be re-approved under the new terms (free, via `checkApproval`).
+
+## Backend — all implemented; see Review for verification
+
+- [x] `packages/@ezcorp/extension-runner/src/trusted-local.ts`: export `trustedLocalImage(bunDigest)`
+      (single definition of the `localhost/trusted-local@sha256:` format) and use it in the ctor.
+- [ ] `src/extensions/runner-mode.ts` (new): `getExtensionRunnerMode()` — `isolated` | `trusted-local`;
+      fail-closed on `EZCORP_EXTENSION_RUNNER` unknown value, on `trusted-local` without
+      `EZCORP_EXTENSIONS_UNSANDBOXED_ACK` === exact sentence, and on `trusted-local` + isolated
+      socket vars both set. `TRUSTED_LOCAL_PROFILE = "trusted-local-v4"`, `trustedLocalBunDigest()`
+      memoized sha256 of `process.execPath`.
+- [ ] `src/db/migrations/add-extension-trusted-local-approvals.ts` (new) + `src/db/migrate.ts` call +
+      `src/db/schema.ts` table: `extension_trusted_local_approvals (installation_id FK cascade,
+      phase, digest, approved_by, expires_at, omitted_controls JSON text, created_at)`
+      PK `(installation_id, phase, digest)`, index `(phase, digest)`.
+- [ ] `src/db/queries/extension-trusted-local-approvals.ts` (new): `recordTrustedLocalApproval`,
+      `findTrustedLocalApproval(phase, digest)` (live rows only), `revokeTrustedLocalApprovals`
+      (by installation, optionally by digest). TTL 180 days.
+- [ ] `src/extensions/trusted-local-runner.ts` (new): `createTrustedLocalRunner(): Runner` — lazy
+      async init (bunDigest, `provisionToolchain` with explicit sdkEntrypoint, `initialize()`),
+      `approvalFor` → query module, `audit` → `insertAuditEntry`. Root
+      `<projectRoot>/.ezcorp/extension-trusted-local`.
+- [ ] `src/extensions/runner-connection.ts`: select by mode; return type `Runner`.
+- [ ] `src/extensions/v4/types.ts`: optional `LifecycleDependencies.trustedLocal`
+      `{ recordApproval(phase, digest, installationId, actor); revoke(installationId, digest?) }`.
+- [ ] `src/extensions/v4/lifecycle.ts`: `build()` takes `acknowledgeUnsandboxed?`; when
+      `trustedLocal` set → require it (`unsandboxed_acknowledgement_required`) and record
+      `(build, sourceDigest)`. `approve()` takes options `{ acknowledgeUnsandboxed? }`; on
+      approve when `trustedLocal` set → require it and record `(execute, artifactDigest)`.
+      `revokeApproval()` and `stop()` → revoke rows.
+- [ ] `src/extensions/extension-lifecycle-service.ts`: profile/image/dependency by mode.
+- [ ] `src/extensions/extension-control.ts`: `extensions_build` schema + handler pass
+      `acknowledgeUnsandboxed` (additionalProperties:false makes this mandatory).
+- [ ] `web/src/routes/api/extensions/releases/[installationId]/approve/+server.ts`: accept
+      optional boolean `acknowledgeUnsandboxed`.
+- [x] `src/env-validation.ts`: call `getExtensionRunnerMode()` (boot fails closed on misconfig) and
+      log error-level when trusted-local. (`context.ts` untouched — it already calls `validateEnv()`
+      and has no logger of its own.)
+- [ ] `src/health.ts`: detail gains `extensions: { runner: mode }`.
+- [ ] `web/src/routes/api/auth/me/+server.ts`: add `extensionRunner: mode` (session-authenticated,
+      no anonymous leak — the app shell already fetches this).
+
+## Web
+
+- [ ] `web/src/routes/(app)/extensions/author/+page.server.ts`: expose `extensionRunnerMode`.
+- [ ] `web/src/routes/(app)/extensions/author/+page.svelte`: Build — unsandboxed note listing the
+      seven omitted controls + required checkbox → `acknowledgeUnsandboxed: true`. Approval card —
+      when `approval.runnerProfile === "trusted-local-v4"`, note + second required checkbox →
+      approve body `acknowledgeUnsandboxed: true`. Header copy reflects the mode.
+- [ ] `web/src/lib/components/UnsandboxedExtensionsBanner.svelte` (+ `.helpers.ts`, bun-tested):
+      persistent, non-dismissable, mounted in `(app)/+layout.svelte` from the `/api/auth/me` fetch.
+
+## Tests / gates
+
+- [ ] `src/extensions/runner-mode.test.ts` — every fail-closed branch + both valid modes.
+- [ ] `src/extensions/runner-connection.test.ts` — trusted-local selection returns a Runner that is
+      not a `RunnerClient`; isolated path unchanged.
+- [ ] `src/__tests__/extension-trusted-local-approvals.test.ts` — record/find/expiry/revoke (PGlite).
+- [ ] `src/__tests__/lifecycle-trusted-local-ack.test.ts` — build/approve require ack when the
+      dependency is set; record + revoke hooks called with exact digests; no-op when unset.
+- [ ] Integration: `src/__tests__/trusted-local-runner-in-process.integration.test.ts` — the REAL
+      `TrustedLocalRunner` through `createTrustedLocalRunner()` against PGlite approvals: build
+      refused without row, allowed with row, execute likewise, audit rows written.
+- [ ] `web/src/lib/components/UnsandboxedExtensionsBanner.helpers.test.ts`.
+- [ ] e2e (real tier, own lane): `web/e2e/extension-author-trusted-local.spec.ts` `@evidence` —
+      preview started by new `scripts/start-trusted-local-preview.sh`; workspace → build (ack) →
+      approve (ack) → activate → banner visible → `captureEvidence`. Config
+      `web/playwright.trusted-local.config.ts`. CI lane wiring is a CODEOWNERS change — note in PR.
+- [ ] `scripts/coverage-thresholds.json` keys for every new source file (100).
+- [ ] `docs/extensions/security.md` + `deploy/extension-runner/README.md`: document the mode.
+- [ ] `bun run typecheck && bun run lint`; targeted suites; full pool vs. baseline (box is flaky).
+
+## Review
+
+**What the production-build lane found that source-mode tests could not** (all fixed, all now
+covered by that lane — `web/playwright.trusted-local.config.ts`):
+
+1. `seccomp.json` resolved via `import.meta.url` into `web/build/server/` — passed explicitly.
+2. The trusted toolchain resolved from the bundle's location: `web/node_modules` (TypeScript 6, no
+   `@types/bun`) instead of the pinned root closure — `provisionToolchain` gained `toolchainRoot`;
+   also a correctness fix for "only from the installed trusted release".
+3. Candidate verification (`verifyExtensionCandidate` → `runner.start`) is an `execute` of an artifact
+   that has no release approval yet — refused by the runner. Fixed by deriving a fifteen-minute
+   execute window from the build acknowledgement (`recordTrustedLocalVerificationApproval`), recorded
+   in `runBuild` before verification. The build note on the author page names the verification run.
+
+**Layering correction on the way:** `runner-connection.ts` must stay free of `db/` imports (a static
+path into `db/connection` joins the repo's known import cycle and the server bundle then defers
+module evaluation). The DB-backed hooks are built by `trusted-local-hooks.ts` and injected by the
+lifecycle service (`configureTrustedLocalRunner`), which already loads `db/` lazily.
+
+**Diagnostics closed:** the lifecycle's generic `operation_failed` branch now logs the unclassified
+error with stack (it used to point at host diagnostics that did not exist); `trusted_approval_required`
+is mapped to a legible operation diagnostic; the host's `approvalFor` warns with phase + digest when no
+live acknowledgement exists.
+
+**Behaviour to know:** in trusted-local mode the bundled first-party extensions are NOT auto-built at
+boot — each build needs a human acknowledgement (twelve `Bundled source staging requires attention`
+lines per boot; consistent with "bundled status does not imply trust"). The CLI's offline verify
+cannot build in this mode (no acknowledgement to record) and says so.
+
+**Box note:** one lane attempt (rerun 8) never started — Bun 1.3.9 segfaulted during the SvelteKit
+build (`panic(main thread): Segmentation fault … a bug in Bun`), the same panic class the backend pool
+showed on unmodified `main` earlier the same evening. Re-run after the pool finished.
+
+**Merge with `main` (PR #269 conflicts):** eleven commits landed on `main` after the branch point;
+nine files conflicted, all "both sides added". Resolved as the union in every case — #262's
+`isExtensionRunnerConfigured()` beside the async-capable lazy wrapper (it now answers true in
+trusted-local mode, without socket settings), #260/#265's named heading and installation rows beside
+the unsandboxed acknowledgement UI, both JSON manifests merged, and the e2e fixture's shared
+`BuildDeadline` kept positional with `extra` moved last (two of `main`'s callers pass the deadline
+third). Re-verified: typecheck, lint, svelte-check, runner-connection 7/7 (incl. #262's probe),
+bundled-v4-bootstrap 59/59, e2e-lanes 21/21, visual-evidence 7/7, vitest author-page/server-load/
+routes 58/58, and the trusted-local production-build lane.
+
+**CI round on PR #269 (two Opus agents in isolated worktrees):**
+- Web shards 2/3: two pre-existing vitest files asserted the approve route's old four-argument
+  `lifecycle.approve` call; now assert the exact fifth argument `{ acknowledgeUnsandboxed: undefined }`
+  (`51e524124`).
+- Coverage shard 0: a genuine regression of this PR. Keying the provisioning memo on
+  `toolchainRoot` rebuilt the identical SDK bundle once per root, and a second `Bun.build()` in one
+  `bun test` process trips a Bun file-descriptor reuse defect (`EISDIR` on regular files under the
+  isolated `node_modules/.bun` store; reproduced standalone; `main`'s shard 0 is green). Fixed by
+  caching the SDK bundle per entrypoint and the toolchain per root, sequentially; the new test counts
+  real builds with a call-through spy (`78629cbf3`). CI-equivalent shard 0 run: 1902 pass / 0 fail.
+- Also merged `main`'s #268 (repairs the #267 quality gates the first run used) — `3d94146e6`.
+- Note for future agent runs: the harness cut both agent worktrees from `main`, not from the PR
+  branch; both agents had to re-base onto the PR head themselves (`git switch -c`, since
+  `git reset --hard` is blocked for them). Cherry-picked their commits onto the PR branch.
+
+**CI round 2 — Per-file coverage gate** (`extension-lifecycle-service.ts` 99.02%, `runner-mode.ts`
+90.63%, `trusted-local-runner.ts` 42.42%): the proof for all three lived in `*integration*` suites,
+which the residual job runs WITHOUT coverage. Duplicated the proof outside it:
+- `src/__tests__/trusted-local-runner-wiring.test.ts` — the host wiring with the runner PACKAGE
+  stubbed: every option handed to the runner, the two hooks, unconfigured refusal, forget-on-failure,
+  memoisation, and the SDK-entry override.
+- `src/__tests__/extension-lifecycle-service-trusted-local.test.ts` — the SERVICE in trusted-local
+  mode on real PGlite with the runner MODULE stubbed: hooks installed once and real (audit row +
+  store), build refused without / recorded with the acknowledgement, `runBuild` records the
+  fifteen-minute verification grant (shorter than the build row, same omitted controls), disable
+  revokes.
+- `trustedLocalBunDigest()` lost its catch-reset: the binary does not change while the process runs,
+  so the memo now holds the failure too (three fewer lines to prove, and a clearer contract).
+- **Bun coverage trap, measured:** bun keeps ONE lcov record per source path and the module copy
+  loaded LAST owns it. A `?fresh=<uuid>` copy per test therefore reports any line only an earlier
+  copy executed as a miss (8 missed lines with copies, 0 without, same assertions). The wiring test
+  walks the module lifecycle in file order on the canonical instance instead.
+
+**CI round 3 — Coverage shard 7:** `mock-cleanup-coverage.test.ts` (meta-test) flagged the service
+test's `mock.module("../extensions/trusted-local-runner")` as unsnapshotted. Added the path to
+`MODULE_PATHS` in `src/__tests__/helpers/mock-cleanup.ts` (cheap import graph, no db/daemon) so
+`restoreModuleMocks()` can undo the stub. Every other check in that run was green; production
+proofs were still pending.
+
+**Verification results (final):**
+- `bun run typecheck` ✓ (0 errors) · `bun run lint` ✓ (8 pre-existing infos, none in touched files).
+- Unit/integration (one process per file): runner-mode 11/11 · runner-connection 6/6 ·
+  trusted-local approvals 13/13 · lifecycle acknowledgement 12/12 · env-validation 14/14 ·
+  health 9/9 · e2e-lanes 21/21 · hydration gate 6/6 · migrate idempotency 6/6 ·
+  visual-evidence covers 7/7 (after adding the manifest entry) · runner package trusted-local 1/1 ·
+  **real in-process runner integration 3/3**.
+- Vitest: banner (component + unit) 7/7 · author page 7/7 · control/approve routes 9/9.
+- Playwright: `extension-author-trusted-local.spec.ts` under the **trusted-local production build:
+  1/1** (rerun 10; reruns 8–9 were killed by the box, not by code) and under the ordinary
+  **isolated** real-auth server: 1/1.
+- Full pool `PARALLEL=3`: 25590 pass / 12 fail in 9 files — eight green when run alone (box load;
+  baseline `main` failed 14 in 8 files the same evening, disjoint sets), one real: the
+  evidence-covers manifest, fixed above.
+## Pluggable infrastructure wave 1 review — 2026-09-22
+
+- [x] Provider and sandbox preset contracts are strict and fail closed.
+- [x] Candidate conformance executes SP01, SP02, SP03, SP05, SP07, and SP08.
+- [x] Core workspace tools deny local fallback for sandbox targets.
+- [x] Incus inspection, planning, dry-run, reconciliation, and verification are deterministic.
+- [x] Focused suite: 106 pass, 0 fail, 572 assertions across 10 files.
+- [x] Repository suite: 25,847 pass, 0 fail across 1,653 files.
+- [x] Typecheck, lint, production build, and `git diff --check` pass with Bun 1.3.14.
+- [ ] Live Incus apply and guest workflow qualification require the pinned provider client certificate.
+
+## Pluggable infrastructure wave 2 — sensitive provider results
+
+- [x] Define a separate, bounded runner protocol envelope for sensitive provider results.
+- [x] Keep the sensitive service/client route distinct from ordinary runner requests.
+- [x] Restrict host consumption to a credential-broker-owned capability.
+- [x] Add the fixed SDK provider handler and keep it out of tools, ordinary methods, and discovery.
+- [x] Prove malformed, oversized, timeout, crash, stdout, stderr, and unauthorized failures do not leak canaries.
+- [x] Prove ordinary runner methods and the encrypted static secret store still pass.
+- [x] Record exact verification evidence in `gates/pluggable-wave2-secrets.md`.
+
+### Review
+
+Implemented a fixed `provider/credentials.resolve` lane with a separate raw-byte service route and an SDK sensitive envelope. The provider handler stays out of discovery, tools, and ordinary methods. The broker retains only opaque handles and re-resolves credentials without a plaintext cache. Failure paths return fixed errors and redact malformed, oversized, timeout, crash, stdout, stderr, unauthorized, and runner-error canaries.
+
+Verification used Bun 1.3.14. The classified path passed 26 tests with 100 assertions. Existing runner and encrypted static-store compatibility passed 45 tests with 160 assertions. The complete SDK suite passed 1020 tests, skipped 1, and failed 0. The three new transport source files have 100% line and function coverage. Root typecheck, root lint, and `git diff --check` passed. All seven gates in `gates/pluggable-wave2-secrets.md` are met.
+
+## Durable sandbox controller foundation — 2026-09-22
+
+- [x] Add idempotent PGlite/PostgreSQL migration and Drizzle schema for sandbox bindings, operations, generations, and cleanup tombstones.
+- [x] Add a narrow provider dispatch interface and a durable controller that journals before dispatch.
+- [x] Reject scoped idempotency payload conflicts and stale generation dispatches.
+- [x] Preserve unknown outcomes and reconcile them by provider inspection without blind redispatch.
+- [x] Bound restart reconciliation and keep cleanup tombstones until provider absence is observed.
+- [x] Prove migration/reopen, lost-response, stale-generation, reconciliation-limit, and tombstone behavior with focused tests.
+- [x] Run Bun 1.3.14 focused tests, typecheck, lint, and diff checks; record exact results in the wave 2 gate.
+
+Plan review: the foundation will use existing raw-SQL migration and Drizzle schema conventions. The controller owns durable state transitions and receives a minimal provider interface with `dispatch` and `inspectOperation`. No live Incus or host transport is in this scope. Existing local projects remain unchanged because bindings are additive and project rows are neither rewritten nor required to gain a binding.
+
+Review: the additive binding and operation records now persist desired and observed state, generations, immutable scoped receipts, uncertain outcomes and cleanup tombstones. Dispatch is claimed durably before the injected provider is called. Restart reconciliation dispatches only untouched journals, inspects uncertain effects, fences stale observations and limits each batch. Pinned Bun 1.3.14 passes 7 focused PGlite tests with 36 assertions, all four typecheck lanes, repository lint, focused Biome and whitespace checks. Live Incus dispatch remains outside this controller foundation.
+
+## Wave 2 workspace-routing independent review — 2026-09-22
+
+- [x] Trace production target propagation for turns, assignments, child/code agents, workflows, Git/PR, project MCP, and durable proposals.
+- [x] Check target authenticity, sandbox fail-closed behavior, local compatibility, and serialization/rehydration boundaries against W01–W04.
+- [x] Run the focused workspace suite with Bun 1.3.14 and run repository typecheck.
+- [x] Fix only confirmed workspace-scope defects and add regression tests.
+- [x] Record findings, verification, and remaining inventory without claiming preview, attachment, or live-backend support.
+
+Plan review: audit the current uncommitted workspace-routing implementation against the checked inventory and Wave 2 gate. Concurrent contract, controller, and secret files remain outside this review. Any code change requires a production-path defect and a regression test.
+
+Review: fixed two confirmed workspace defects. Assignment reverse RPC now carries the explicit host target, so a caller-supplied parent run ID cannot select another run's target. Durable proposal observation now compares the caller target with the stored reference and authorizes the stored scope. The pinned Bun 1.3.14 workspace suite passes 214 tests with 789 assertions. All four typecheck lanes pass. Focused Biome and whitespace checks pass. Preview transport, attachment placement, live controller-to-runtime target construction, and durable workflow or assignment rehydration remain inventoried work.
+
+## Wave 3 sandbox admission slice — 2026-09-22
+
+- [x] Add explicit host and project allocatable capacity with safety margins for memory, CPU, PIDs, disk and execution slots.
+- [x] Add durable per-binding reservations and lifecycle state that distinguishes active compute from retained disk.
+- [x] Atomically reserve before create/start and return deterministic admitted, queued or rejected receipts without provider dispatch on denial.
+- [x] Release compute only after a confirmed stop, retain ambiguous capacity, and persist destroy cleanup intent until absence is confirmed.
+- [x] Fence concurrent admissions and stop/start races with database locks, generation checks and idempotent request receipts.
+- [x] Prove quotas, concurrency, integer bounds, idempotency, stop/start behavior, reopen and local-project preservation on PGlite and PostgreSQL-safe SQL.
+- [x] Run pinned Bun 1.3.14 focused tests, full typecheck, lint and diff checks; record evidence in `gates/pluggable-wave3-admission.md`.
+
+Plan review: extend the existing controller schema and transaction model. A provider-connection capacity row is the serialization point for host admissions. Project capacity is explicit and mandatory before admission. Reservation rows record requested amounts, active compute and retained disk separately. This slice supplies durable accounting and decisions ahead of provider dispatch; it does not claim backend enforcement, live capacity reconciliation or completion of B01/B03.
+
+Review: the additive admission schema now stores explicit host capacity and safety margins, project quotas, per-binding reservations and immutable request receipts. Host-row locks serialize admissions before `ADMITTED` is returned. Confirmed stop releases compute only; disk remains charged until confirmed absence. Unknown stop/cleanup outcomes retain capacity, and a released reservation cannot return to running without a fresh START admission. Pinned Bun 1.3.14 passes 18 focused PGlite/PostgreSQL tests with 94 assertions, all four typecheck lanes, full repository lint, focused Biome and complete-worktree diff checks. Live backend enforcement, external-usage reconciliation and the remaining B01/B03 models and qualification stay open.
+## Pluggable infrastructure Wave 3 — preview and attachments — 2026-09-22
+
+- [x] Extend `WorkspaceTarget` with explicit attachment and preview capabilities plus generation-bound identity.
+- [x] Route attachment write/read/delete/clone and rehydration through the selected target; deny sandbox host fallback.
+- [x] Bind preview open/serve/close to the persisted target identity; deny host files, loopback, and forged targets for sandbox rows.
+- [x] Add AMD canary, forged-target, expiry, authorization, and local-regression tests.
+- [x] Run focused Bun 1.3.14 tests, typecheck, lint, and diff checks.
+- [x] Update the routing inventory and write `gates/pluggable-wave3-preview-attachments.md` with remaining live work.
+
+Plan review: preserve the current local behavior. The current sandbox backend does not expose safe attachment or preview transport, so this slice adds narrow capability interfaces and production denial paths. It does not claim remote transfer or proxy behavior until a provider implements those capabilities.
+
+Review: host-selected attachment and preview requests carry the full sandbox binding. Sandbox rows deny local disk, loopback, and WebSocket fallback when no live capability is injected. Provider preview requests strip cookies, credentials, and internal headers while preserving the POST body; the pinned Bun empty-header reproduction passes. Production attachment download, message submission, and conversation deletion deny a durably bound project before host access or database mutation. A local preview stops serving when its project receives a sandbox binding. The pinned Bun 1.3.14 focused suite passes 177 tests with 1027 assertions; all four typecheck lanes, repository lint, and diff checks pass. A live provider attachment transport, HTTP/WebSocket preview relay, and durable target rehydration remain open.
+
+Follow-up review: the combined lane found direct history calls silently dropping prior image attachments and upload route tests missing the new target selector. History now resolves a missing target from the persisted conversation project through the sandbox-binding guard. The upload route returns 503 on selector denial before storage or a DB row, and its test fixture models both local and bound projects. Pinned Bun passes 14 live-history parity tests, 22 extension-upload tests, 201 routing/image tests, and 2 project-target integration tests. Typecheck, lint, and diff checks pass.
+
+## Wave 3 admission independent review — 2026-09-22
+
+- [x] Audit integer bounds and overflow-safe capacity math.
+- [x] Audit host/project scoping, lock order, simultaneous admission, and queue determinism.
+- [x] Audit idempotency, lifecycle races, generation fencing, and unknown allocation handling.
+- [x] Audit PGlite/PostgreSQL migration, reopen, reapply, and local-project preservation.
+- [x] Add regression tests and fix only reproduced admission-scope defects.
+- [x] Run the pinned Bun 1.3.14 focused suite, typecheck, and focused static checks.
+
+Plan review: treat the current gate as a claim to challenge. Keep Incus enforcement, Infisical, previews, attachments, and other agents' files out of this review. Report B01/B03 and live resource enforcement as open.
+
+Review: fixed four admission defects. A late same-generation stop observation can no longer release compute after START clears the stop intent. An absence observation cannot release retained disk without cleanup intent. Admission generations are rejected above PostgreSQL's integer limit at the API boundary. Initial host-capacity configuration now materializes and locks its serialization row before it reads usage. The pinned focused suite passes 22 tests with 104 assertions on PGlite and real PostgreSQL. All four root typecheck lanes, focused Biome and whitespace checks pass. Queue policy, dispatch, external usage reconciliation, live enforcement, and the remaining B01/B03 records and qualification remain open.
+
+## Astra final integration review — 2026-09-22
+
+- [x] Review security and correctness at real module boundaries, including provider qualification, sensitive events, controller ordering, and durable workspace selection.
+- [x] Reproduce confirmed defects through production paths and repair them with failing regressions first.
+- [x] Run focused cross-package tests and the pinned Bun production build.
+- [x] Independently rerun the final workspace and broker canaries after source freeze.
+- [x] Run the full repository test suite on the final worktree state, then record its exact result and remaining live gates.
+
+Plan review: source stays in the isolated `feat/pluggable-infrastructure-v1` worktree. Astra supplies independent findings; Sol workers own narrow repairs. The review distinguishes offline behavior from real provider installation and live qualification.
+
+Review: Astra independently reran eight final workspace and broker files: 43 tests, 279 assertions, zero failures. Real PGlite and host-file/Git canaries confirm no local fallback in the reviewed entrypoints. Astra also rejected two unrealistic null-project test mocks and approved their schema-valid repairs. The final pinned Bun repository suite passes 26,021 tests across 1,670 files with zero failures; root typecheck, lint, build, source-lock check, and diff check pass. Live provider transport, candidate configuration, server setup, and feature qualification remain open. Findings and evidence are recorded in `docs/validation/2026-09-22-astra-pluggable-review.md`.
+
+## Live infrastructure preflight — 2026-09-22
+
+- [x] Recheck SSH, Incus version, current pools, networks, projects, and guests on the named server.
+- [x] Run the deterministic real-server inspect, plan, dry-run, and verify commands without changing server state.
+- [x] Probe both provider host routes through the production host API validator.
+- [x] Record exact passed, blocked, and unrun gates in `docs/validation/2026-09-22-live-infrastructure-preflight.md`.
+- [ ] After H04 connections and transport exist, create a host-owned provider identity, review the resulting setup plan, provision the restricted server resources, and run the live feature fixture.
+
+Plan review: the current recipe needs a provider certificate that the engine cannot yet create or store, and both protected provider routes are absent. Keep the server unchanged while these host-owned boundaries are missing; a generic Incus smoke guest would not validate EZHarness execution.
+
+Review: read-only SSH and Incus inspection pass. The real setup plan is blocked by `provider_client_certificate_missing`; dry-run dispatches no steps and verify is not ready. The Incus and Infisical host API calls both return `api_route_denied`. No guest, Compose, restart, or secret-provider live result is claimed.
+
+## Host integration before server configuration — 2026-09-22
+
+- [x] Compare the real Incus setup recipe with the provider's advertised preset and map the host execution path.
+- [x] Make setup preflight reject recipe/preset incompatibility with a cross-package regression.
+- [x] Add host-owned provider connection records and encrypted revision-bound mTLS identity storage; host-side identity issuance and review UX remain separate tasks.
+- [x] Add a provider-only, release-bound read-only Incus probe; keep it out of the ordinary extension host API.
+- [ ] Implement and qualify the remaining Incus lifecycle, file, process, and endpoint transport actions.
+- [x] Add an authorized operator setup entrypoint that creates reviewed connections and calls the probe.
+- [ ] Qualify live mTLS, guest helper controls, and Compose on the selected server.
+- [ ] Add production dispatch from durable sandbox bindings to the exact active provider release.
+- [ ] Supply approved connection configuration during live candidate qualification; retain offline fixture isolation.
+- [ ] After these boundaries pass, generate a fresh server plan, review its exact digest, then configure and qualify the Xeon.
+
+Plan review: Incus documentation requires a restricted project-scoped client certificate for confined remote access. The current generic host API is user-delegated, so the provider transport needs a distinct host-owned broker. The checked-in recipe currently uses LVM and a 16 GiB root disk while the advertised preset requires ZFS/Btrfs and 20 GiB; applying it now would not qualify the advertised profile.
+
+Review: the setup planner blocks the checked-in LVM/16 GiB recipe against both advertised presets. The cross-package regression failed before the fix and passes after it. The provider connection store has PGlite reopen and PostgreSQL migration/reconnect coverage. A release-bound Incus probe uses host-owned mTLS identity and rejects mutations before I/O. Real loopback mTLS tests caught and closed a pre-request peer-pin flaw; cancellation, chunked/oversized responses, and the real Incus 6.0.6 response shape have regression coverage. Astra's final review found no immediate defect in this slice. The pinned Bun repository suite passes 26,055 tests across 1,675 files with zero failures; typecheck, lint, build, source-lock, and diff checks pass. No production operator setup caller or live guest qualification exists yet. No server settings changed. Details: `docs/validation/2026-09-22-host-integration-review.md`.
+
+## Incus operator setup flow — 2026-09-22
+
+- [x] Trace existing admin session, extension review, setup planner, provider connection, and probe seams; define the v1 operator states and host-owned bootstrap identity boundary.
+- [x] Add a host-owned setup service that creates a scoped client identity, stores a reviewed connection, and performs a read-only release-bound probe without accepting arbitrary host paths or private keys from the browser.
+- [x] Add admin-only API routes for setup discovery, plan/review, apply, probe, and status, with exact plan digest, release generation, and connection revision checks.
+- [x] Add an operator screen in the existing extension UI with clear setup steps, blocked reasons, and safe retry/status behavior.
+- [x] Add route/service tests for approved setup, denied users, stale plans, uncertain SSH outcomes, restart recovery, and no private-key leakage; run typecheck, lint, build, and relevant repository tests.
+- [x] Record what remains for live server provisioning and full sandbox qualification.
+
+Plan review: the user selected reviewed SSH server setup as part of v1. Use the approved Incus extension release and host-owned bootstrap credentials. Browser input selects an approved provider installation; it cannot choose a local SSH key path, upload a TLS private key, or mark a blocked recipe ready. Server-changing apply uses the exact reviewed plan digest. The pinned first-server recipe now uses compatible Btrfs/20 GiB settings.
+
+Review: The operator flow is implemented in the isolated worktree. A fresh read-only inspection of the real sandbox server produced a ready 15-step plan with the compatible Btrfs/20 GiB recipe. The hardened SSH command also passed read-only inspection. No server settings changed. Focused tests, route contract tests, browser E2E, typecheck, lint, script compilation, and production build pass; the full repository suite passed 26,065 tests across 1,676 files with zero failures. An older plan cannot apply after a newer one is saved, and the database permits one active SSH apply per installation. Detailed evidence is in `docs/validation/2026-09-22-incus-operator-flow.md`. Live SSH apply, provider probe, and guest workload qualification remain separate release gates.
+## Submit pluggable infrastructure PR — 2026-09-22
+
+- [x] Check for an existing PR and compare this branch with current `origin/main`.
+- [ ] Audit the staged scope and complete the repository PR template.
+- [ ] Run required local gates and record any unrun live-provider gates.
+- [ ] Commit and push the isolated worktree branch.
+- [ ] Open a draft PR, then record its URL and CI state.
+
+Plan review: no PR exists for `feat/pluggable-infrastructure-v1`. This worktree contains the shared provider contracts, controller, adapters, workspace routing, and Incus operator setup from prior turns. Submit them together as a draft because live provider and guest qualification are still open. Do not claim production readiness in the PR.

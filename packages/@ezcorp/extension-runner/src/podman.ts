@@ -5,7 +5,7 @@ import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { BuildResult, InvocationContext, ResourceLimits, Runner, RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
 import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerError, sha256, validateFiles } from "./core";
-import { FramedExecution, type ReverseRpc } from "./protocol";
+import { bindSensitiveRequestContext, FramedExecution, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
 
@@ -293,7 +293,7 @@ export class PodmanRunner implements Runner {
         if (["workerId", "releaseId", "principalId", "scopeId"].some(key => context[key as keyof InvocationContext] !== input.context[key as keyof InvocationContext]) || context.deadline <= Date.now() || context.deadline > Date.now() + limits.timeoutMs || contexts.has(context.invocationId)) throw new RunnerError("invalid_context", "Invocation identity, deadline or active ID is invalid");
         contexts.set(context.invocationId, context);
         return () => { contexts.delete(context.invocationId); };
-      });
+      }, bindSensitiveRequestContext(input.context, limits.timeoutMs));
       this.executions.set(input.workerId, execution);
       const cleanupFailed = () => {
         const current = this.operations.get(input.workerId);

@@ -17,7 +17,10 @@ import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getAttachment } from "$server/db/queries/attachments";
 import { getConversation } from "$server/db/queries/conversations";
+import { getProject } from "$server/db/queries/projects";
 import { insertAuditEntry } from "$server/db/queries/audit-log";
+import { readAttachmentBytes } from "$server/chat/attachments/storage";
+import { resolveLocalProjectTarget } from "$server/runtime/workspaces/project-target";
 import type { RequestHandler } from "./$types";
 
 function notFound(): Response {
@@ -50,6 +53,14 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 	const conv = await getConversation(row.conversationId);
 	if (!conv) return notFound();
 	if (conv.userId !== user.id && user.role !== "admin") return notFound();
+	const project = await getProject(conv.projectId);
+	if (!project?.path) return notFound();
+	let target: Awaited<ReturnType<typeof resolveLocalProjectTarget>>;
+	try {
+		target = await resolveLocalProjectTarget(project, "attachment read");
+	} catch {
+		return notFound();
+	}
 
 	// Admins reading another user's attachment is a privileged read — log it
 	// so owners can audit cross-user access. Owner self-reads and the 404
@@ -65,19 +76,23 @@ export const GET: RequestHandler = async ({ params, url, locals }) => {
 		} catch { /* swallow */ }
 	}
 
-	const file = Bun.file(row.storagePath);
-	if (!(await file.exists())) return notFound();
+	let bytes: Uint8Array;
+	try {
+		bytes = await readAttachmentBytes(target, row.storagePath);
+	} catch {
+		return notFound();
+	}
 
 	const forceDownload = url.searchParams.get("download") === "1";
 	const disposition = forceDownload
 		? `attachment; filename="${dispositionFilename(row.filename)}"`
 		: "inline";
 
-	return new Response(file.stream() as unknown as ReadableStream, {
+	return new Response(bytes as unknown as BodyInit, {
 		status: 200,
 		headers: {
 			"Content-Type": row.mimeType || "application/octet-stream",
-			"Content-Length": String(row.sizeBytes),
+			"Content-Length": String(bytes.byteLength),
 			"Content-Disposition": disposition,
 			"Cache-Control": "private, max-age=31536000, immutable",
 		},

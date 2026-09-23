@@ -1949,6 +1949,7 @@ export async function migrate(db: MigrateDb): Promise<void> {
       id TEXT PRIMARY KEY,
       user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       conversation_id TEXT REFERENCES conversations(id) ON DELETE SET NULL,
+      workspace_target JSONB NOT NULL DEFAULT '{"kind":"local"}'::jsonb,
       netns_id TEXT,
       kind TEXT NOT NULL,
       target_port INTEGER,
@@ -1960,6 +1961,7 @@ export async function migrate(db: MigrateDb): Promise<void> {
       revoked_at TIMESTAMP WITH TIME ZONE
     )
   `);
+  await db.execute(sql`ALTER TABLE preview_sessions ADD COLUMN IF NOT EXISTS workspace_target JSONB NOT NULL DEFAULT '{"kind":"local"}'::jsonb`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_preview_sessions_user ON preview_sessions(user_id)`);
   await db.execute(sql`CREATE INDEX IF NOT EXISTS idx_preview_sessions_conversation ON preview_sessions(conversation_id)`);
 
@@ -3007,6 +3009,10 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await upMcpWorkspaceCredentials(db);
   const { up: addExtensionReleases } = await import("./migrations/add-extension-releases");
   await addExtensionReleases(db);
+  const { up: addProviderConnections } = await import("./migrations/add-provider-connections");
+  await addProviderConnections(db);
+  const { up: addIncusOperatorSetups } = await import("./migrations/add-incus-operator-setups");
+  await addIncusOperatorSetups(db);
   const { up: addExtensionEventReceipts } = await import("./migrations/add-extension-event-receipts");
   await addExtensionEventReceipts(db);
   const { up: addExtensionProjectAuthority } = await import("./migrations/add-extension-project-authority");
@@ -3029,6 +3035,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addSandboxControl(db);
   const { up: addWorkflowDelegationRelease } = await import("./migrations/add-workflow-delegation-release");
   await addWorkflowDelegationRelease(db);
+  const { up: addSandboxController } = await import("./migrations/add-sandbox-controller");
+  await addSandboxController(db);
   const { extensionControlTools } = await import("../extensions/extension-control");
   for (const tool of extensionControlTools) {
     await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);

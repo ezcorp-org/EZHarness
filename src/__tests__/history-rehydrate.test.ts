@@ -27,13 +27,14 @@ mock.module("../db/queries/settings", () => {
 
 mockDbConnection();
 
-import { loadPastAttachments, rehydrateUserMessageContent } from "../chat/attachments/history-rehydrate";
+import { loadPastAttachments, rehydrateUserMessageContent as rehydrateUserMessageContentWithTarget } from "../chat/attachments/history-rehydrate";
 import { writeAttachment } from "../chat/attachments/storage";
 import { createProject } from "../db/queries/projects";
 import { createConversation, createMessage } from "../db/queries/conversations";
 import { insertAttachment } from "../db/queries/attachments";
 import { getCapabilities } from "../providers/model-capabilities";
 import { ATTACHMENT_HANDLE_SCHEME } from "../chat/attachments/content-builder";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 
 const PNG_A = new TextEncoder().encode("PNG-A");
 const PNG_B = new TextEncoder().encode("PNG-B");
@@ -46,6 +47,11 @@ let msgWithTwoImgsId: string;
 let msgNoAttId: string;
 let attAId: string;
 let attBId: string;
+const rehydrateUserMessageContent = (
+  text: Parameters<typeof rehydrateUserMessageContentWithTarget>[0],
+  attachments: Parameters<typeof rehydrateUserMessageContentWithTarget>[1],
+  caps: Parameters<typeof rehydrateUserMessageContentWithTarget>[2],
+) => rehydrateUserMessageContentWithTarget(text, attachments, caps, localWorkspaceTarget(tmpRoot));
 
 beforeAll(async () => {
   await setupTestDb();
@@ -58,7 +64,7 @@ beforeAll(async () => {
   const msg1 = await createMessage(convId, { role: "user", content: "look at this" });
   msgWithImgId = msg1.id;
   const w1 = await writeAttachment({
-    projectRoot: tmpRoot, conversationId: convId, messageId: msg1.id,
+    workspaceTarget: localWorkspaceTarget(tmpRoot), conversationId: convId, messageId: msg1.id,
     filename: "cow.png", mimeType: "image/png", bytes: PNG_A,
   });
   const rowA = await insertAttachment({
@@ -76,7 +82,7 @@ beforeAll(async () => {
   const msg3 = await createMessage(convId, { role: "user", content: "compare", parentMessageId: msg2.id });
   msgWithTwoImgsId = msg3.id;
   const w3a = await writeAttachment({
-    projectRoot: tmpRoot, conversationId: convId, messageId: msg3.id,
+    workspaceTarget: localWorkspaceTarget(tmpRoot), conversationId: convId, messageId: msg3.id,
     filename: "man.png", mimeType: "image/png", bytes: PNG_B,
   });
   await insertAttachment({
@@ -85,7 +91,7 @@ beforeAll(async () => {
     sizeBytes: w3a.sizeBytes, storagePath: w3a.storagePath, kind: "image",
   });
   const w3b = await writeAttachment({
-    projectRoot: tmpRoot, conversationId: convId, messageId: msg3.id,
+    workspaceTarget: localWorkspaceTarget(tmpRoot), conversationId: convId, messageId: msg3.id,
     filename: "cow2.png", mimeType: "image/png", bytes: PNG_A,
   });
   const rowB = await insertAttachment({

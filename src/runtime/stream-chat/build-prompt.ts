@@ -19,6 +19,7 @@ export interface BuildPromptOptions {
   provider?: string;
   model?: string;
   attachments?: import("../../chat/attachments/content-builder").StagedAttachment[];
+  workspaceTarget?: import("../workspaces/target").WorkspaceTarget;
   commandResolver?: import("../mention-wiring").CommandResolver;
 }
 
@@ -251,7 +252,10 @@ export async function buildPromptInput(
       } catch { /* non-fatal: fall through with no extension overlay */ }
     }
     const caps = getCapabilitiesWithExtensions(options.provider, options.model, extensionMimes);
-    const built = await buildUserContent(text, options.attachments, caps);
+    if (!options.workspaceTarget) {
+      throw new Error("Attachment prompt construction requires an explicit workspace target");
+    }
+    const built = await buildUserContent(text, options.attachments, caps, options.workspaceTarget);
     if (Array.isArray(built)) {
       const textBits: string[] = [];
       for (const part of built) {

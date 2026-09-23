@@ -62,6 +62,7 @@ import { rpcError, rpcResult } from "./json-rpc";
 import { intersectPermissions } from "./capability-types";
 import type { ExtensionRegistry } from "./registry";
 import type { PermissionEngine } from "./permission-engine";
+import type { WorkspaceTarget } from "../runtime/workspaces/target";
 
 const MAX_OPS_PER_SECOND = 50;
 const consumeTokens = createRateLimiter(MAX_OPS_PER_SECOND);
@@ -102,6 +103,8 @@ export interface SpawnAssignmentContext {
   parentProvider?: string;
   /** Current spawn depth — 0 for a top-level conversation. */
   spawnDepth: number;
+  /** Host-selected target captured by the per-turn ToolExecutor. */
+  workspaceTarget?: WorkspaceTarget;
   /**
    * Phase 4: registry handle so the handler can read each shared
    * extension's installed grants + manifest to compute the child's
@@ -454,6 +457,7 @@ export async function handleSpawnAssignmentRpc(
       snapshot,
       projectId: ctx.projectId,
       ...(callerWorkingDir ? { workingDir: callerWorkingDir } : {}),
+      ...(ctx.workspaceTarget ? { workspaceTarget: ctx.workspaceTarget } : {}),
       agentConfig: {
         id: agentConfig.id,
         name: agentConfig.name,

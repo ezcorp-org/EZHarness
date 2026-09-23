@@ -5,9 +5,10 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 import type { BuildRequest, Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
 import { validateResourceLimits, validateInvocationContext } from "@ezcorp/extension-contract";
 import { identifier, processSpawn, RunnerError, validateFiles, safeHostError } from "./core";
+import { MAX_SENSITIVE_RESULT_BYTES, requestSensitiveProviderResult, SENSITIVE_PROVIDER_METHOD, sensitiveChannelError } from "./protocol";
 
 type Event = { id?: string; method: string; params: unknown };
-interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void }
+interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; sensitive: boolean; ordinaryRequests: number; wake?: () => void }
 export interface RunnerServiceOptions { socketPath: string; token: string; runner: Runner; allowedUid: number; python?: string }
 
 export async function startRunnerService(options: RunnerServiceOptions): Promise<{ close(): Promise<void> }> {
@@ -37,6 +38,16 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
     response.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(json) });
     response.end(json);
   };
+  const sendSensitive = async (response: ServerResponse, value: Uint8Array | null): Promise<void> => {
+    if (value === null) { response.writeHead(204); response.end(); return; }
+    if (value.byteLength === 0 || value.byteLength > MAX_SENSITIVE_RESULT_BYTES) { value.fill(0); throw new RunnerError("sensitive_limit", "Sensitive provider response exceeded policy"); }
+    response.writeHead(200, { "content-type": "application/octet-stream", "content-length": value.byteLength, "cache-control": "no-store" });
+    await new Promise<void>((resolve, reject) => {
+      const clear = () => value.fill(0);
+      response.once("error", error => { clear(); reject(error); });
+      response.end(value, () => { clear(); resolve(); });
+    });
+  };
   async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const authorization = Buffer.from(request.headers.authorization ?? "");
     const expected = Buffer.from(`Bearer ${options.token}`);
@@ -64,6 +75,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
         starting++;
         const execution = await options.runner.start(data as StartRequest, (method, params) => new Promise((resolve, reject) => {
           const session = sessions.get(data.workerId);
+          if (session?.sensitive) { reject(sensitiveChannelError()); return; }
           if (!session || pending.size >= 32 || events.length >= 32) { reject(new RunnerError("host_unavailable", "Host reverse RPC unavailable")); return; }
           const id = randomUUID();
           const timer = setTimeout(() => { pending.delete(id); reject(new RunnerError("host_timeout", "Host reverse RPC timed out")); }, Math.max(1, Math.min(60_000, data.context.deadline - Date.now())));
@@ -72,9 +84,10 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
           session.wake?.();
         })).finally(() => { starting--; });
         const timer = setTimeout(() => { void closeSession(data.workerId); }, Math.max(1, Math.min(data.limits.timeoutMs, data.context.deadline - Date.now())));
-        const session: Session = { execution, pending, events, timer };
+        const session: Session = { execution, pending, events, timer, sensitive: false, ordinaryRequests: 0 };
         sessions.set(data.workerId, session);
         execution.onNotification((method, params) => {
+          if (session.sensitive) return;
           if (events.length >= 32) { void closeSession(data.workerId); return; }
           events.push({ method, params });
           session.wake?.();
@@ -85,7 +98,25 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       case "/v4/request": {
         const session = sessions.get(identifier(data.workerId));
         if (!session || typeof data.method !== "string" || data.method.length > 128) throw new RunnerError("unknown_worker", "Worker is unavailable");
-        send(response, 200, { result: await session.execution.request(data.method, data.params) });
+        if (data.method === SENSITIVE_PROVIDER_METHOD) throw new RunnerError("sensitive_method", "Sensitive provider methods require the credential broker");
+        if (session.sensitive) throw sensitiveChannelError();
+        session.ordinaryRequests++;
+        try { send(response, 200, { result: await session.execution.request(data.method, data.params) }); }
+        finally { session.ordinaryRequests--; }
+        return;
+      }
+      case "/v4/sensitive-request": {
+        const session = sessions.get(identifier(data.workerId));
+        if (!session) throw new RunnerError("unknown_worker", "Worker is unavailable");
+        if (session.ordinaryRequests > 0 || session.pending.size > 0) throw new RunnerError("sensitive_busy", "Sensitive provider requests require idle ordinary channels");
+        session.sensitive = true;
+        session.events.length = 0;
+        session.wake?.();
+        try {
+          await sendSensitive(response, await requestSensitiveProviderResult(session.execution, data.params));
+        } catch {
+          throw new RunnerError("sensitive_failed", "Sensitive provider request failed");
+        }
         return;
       }
       case "/v4/events": {
@@ -97,7 +128,7 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
           session.wake = finish;
           response.once("close", finish);
         });
-        send(response, 200, { events: session.events.splice(0) });
+        send(response, 200, { events: session.sensitive ? [] : session.events.splice(0) });
         return;
       }
       case "/v4/reply": {

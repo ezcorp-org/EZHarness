@@ -29,6 +29,7 @@ import type { PendingPermissionInfo } from "./stream-chat/host";
 import { withPermissionGate, type PermissionWrapDeps } from "./tools/permission-wrap";
 import { createRunWorkflowTool, RUN_WORKFLOW_TOOL_NAME } from "./tools/run-workflow";
 import { logger } from "../logger";
+import type { WorkspaceTarget } from "./workspaces/target";
 
 const log = logger.child("workflow-tools-host");
 
@@ -45,6 +46,7 @@ export interface WireRunWorkflowForTurnParams {
   userId: string;
   /** Derived server-side from the conversation, for the same reason. */
   projectId?: string;
+  workspaceTarget?: WorkspaceTarget;
   /** The executor's live pending-permission map. Forwarded so a workflow
    *  step's consent card is visible to the run watchdog as a legitimate
    *  user-wait instead of a hung tool. */
@@ -72,6 +74,7 @@ export function wireRunWorkflowForTurn(params: WireRunWorkflowForTurnParams): vo
     conversationId,
     userId,
     projectId,
+    workspaceTarget,
     pendingPermissions,
   } = params;
 
@@ -81,6 +84,7 @@ export function wireRunWorkflowForTurn(params: WireRunWorkflowForTurnParams): vo
     userId,
     conversationId,
     ...(projectId ? { projectId } : {}),
+    ...(workspaceTarget ? { workspaceTarget } : {}),
     ...(pendingPermissions
       ? {
           pendingPermissions: {

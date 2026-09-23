@@ -28,6 +28,8 @@ Handlers receive validated input and `ctx`. Use `ctx.signal` for cancellation an
 
 Declare other runtime handlers in `manifest.methods` and provide their implementations in `methods`. Their input and output schemas are validated too. All registered tools and methods must appear in discovery metadata.
 
+Infrastructure providers can define `providerCredentials(input, ctx)` for the host credential broker. The SDK accepts this handler only through the fixed classified `provider/credentials.resolve` request and writes its value in the bounded sensitive envelope. The method cannot be declared as a tool or ordinary method, does not appear in discovery, and rejects an unclassified request. Return a credential string or `null`; do not log it or include it in an error.
+
 `defineRuntimeManifest` and `createRuntimeExtension({manifest, register})` retain existing SDK tool/page/event registration vocabulary. They install a channel that uses invocation-scoped context, without starting the legacy stdin loop. Tool results use `TOOL_RESULT_SCHEMA` by default. Host effects are forbidden during registration and discovery. Register all handlers before serving. Import registration modules inside `register` if they access the channel at module load time. Runtime helper notifications are also host calls and require an active invocation.
 
 The SDK owns framing, concurrent dispatch, errors, and cancellation. Do not write to stdout or add a second stdin reader. Use stderr for bounded logs. The runner owns hard resource limits and process termination; abort signals alone cannot stop CPU-bound code.

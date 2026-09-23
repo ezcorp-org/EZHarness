@@ -2,8 +2,15 @@ import { and, eq, lt, gt, desc } from "drizzle-orm";
 import { resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import { getDb } from "../connection";
-import { previewSessions } from "../schema";
+import { conversations, previewSessions, sandboxBindings } from "../schema";
 import type { PreviewSession } from "../schema";
+import {
+  sameSandboxWorkspaceBinding,
+  sandboxCapabilityUnavailable,
+  workspaceTargetReference,
+  type WorkspaceTarget,
+  type WorkspaceTargetReference,
+} from "../../runtime/workspaces/target";
 
 export type { PreviewSession };
 
@@ -131,20 +138,31 @@ export async function createPreviewSession(data: {
   /** Test/host override for the project root the sites-root guard derives
    *  `.ezcorp/sites/` from. Defaults to env/cwd. */
   projectRoot?: string;
+  /** Host-selected route. A request body can never supply this value. */
+  workspaceTarget: WorkspaceTarget;
 }): Promise<PreviewSession> {
   if (!data.userId) throw new Error("userId is required");
   if (!data.conversationId) throw new Error("conversationId is required");
-  if (data.kind === "static" && !data.staticPath) {
+  if (data.kind === "static" && data.workspaceTarget.kind === "local" && !data.staticPath) {
     throw new Error("staticPath is required for a static preview");
   }
   if (data.kind === "dynamic" && (data.targetPort == null || data.targetPort <= 0)) {
     throw new Error("a positive targetPort is required for a dynamic preview");
   }
+  if (data.workspaceTarget.kind === "sandbox" && !data.workspaceTarget.backend?.previews) {
+    throw sandboxCapabilityUnavailable("preview open");
+  }
   // Mint the id first so the static containment check can pin to the
   // per-id sites subdir (`.ezcorp/sites/<id>/`).
   const id = generatePreviewId();
   if (data.kind === "static") {
-    assertUnderSitesRoot(data.staticPath!, data.projectRoot);
+    if (data.workspaceTarget.kind === "sandbox") {
+      if (data.staticPath) {
+        throw new Error("Sandbox static previews cannot register an AMD host path");
+      }
+    } else {
+      assertUnderSitesRoot(data.staticPath!, data.workspaceTarget.root);
+    }
   }
   const now = new Date();
   const expiresAt = new Date(now.getTime() + (data.ttlMs ?? TWENTY_FOUR_HOURS_MS));
@@ -154,6 +172,7 @@ export async function createPreviewSession(data: {
       id,
       userId: data.userId,
       conversationId: data.conversationId,
+      workspaceTarget: workspaceTargetReference(data.workspaceTarget),
       kind: data.kind,
       staticPath: data.staticPath ?? null,
       targetPort: data.targetPort ?? null,
@@ -163,7 +182,34 @@ export async function createPreviewSession(data: {
       expiresAt,
     })
     .returning();
-  return rows[0]!;
+  const row = rows[0]!;
+  if (data.workspaceTarget.kind === "sandbox") {
+    const capability = data.workspaceTarget.backend?.previews;
+    if (!capability) throw sandboxCapabilityUnavailable("preview open");
+    try {
+      await capability.open({
+        binding: data.workspaceTarget.binding,
+        previewId: id,
+        userId: data.userId,
+        conversationId: data.conversationId,
+        targetPort: data.targetPort ?? null,
+        expiresAt,
+      });
+    } catch (error) {
+      await getDb().update(previewSessions)
+        .set({ status: "revoked", revokedAt: new Date() })
+        .where(eq(previewSessions.id, id));
+      throw error;
+    }
+  }
+  return row;
+}
+
+function isSandboxReference(
+  reference: WorkspaceTargetReference,
+): reference is Extract<WorkspaceTargetReference, { kind: "sandbox" }> {
+  return reference?.kind === "sandbox" && reference.binding !== null
+    && typeof reference.binding === "object";
 }
 
 /**
@@ -206,6 +252,19 @@ export async function getServablePreview(
   if (row.status !== "active") return undefined;
   if (row.revokedAt !== null) return undefined;
   if (row.expiresAt.getTime() <= now.getTime()) return undefined;
+  if (row.workspaceTarget.kind === "local") {
+    const conversationId = row.conversationId;
+    if (!conversationId) return undefined;
+    // A preview minted while the project was local must stop serving AMD
+    // files as soon as that project receives a durable sandbox binding.
+    const bound = await getDb()
+      .select({ id: sandboxBindings.id })
+      .from(sandboxBindings)
+      .innerJoin(conversations, eq(conversations.projectId, sandboxBindings.projectId))
+      .where(eq(conversations.id, conversationId))
+      .limit(1);
+    if (bound.length > 0) return undefined;
+  }
   return row;
 }
 
@@ -256,11 +315,28 @@ export async function revokePreview(
   id: string,
   userId: string,
   now: Date = new Date(),
+  workspaceTarget?: WorkspaceTarget,
 ): Promise<PreviewSession | undefined> {
   if (!id || !userId || !isValidPreviewId(id)) return undefined;
   const existing = await getPreviewByIdRaw(id);
   if (!existing || existing.userId !== userId) return undefined;
   if (existing.status === "revoked") return existing;
+  if (isSandboxReference(existing.workspaceTarget)) {
+    if (
+      workspaceTarget?.kind !== "sandbox"
+      || !sameSandboxWorkspaceBinding(existing.workspaceTarget.binding, workspaceTarget.binding)
+    ) {
+      throw sandboxCapabilityUnavailable("preview close");
+    }
+    const capability = workspaceTarget.backend?.previews;
+    if (!capability) throw sandboxCapabilityUnavailable("preview close");
+    await capability.close({
+      binding: workspaceTarget.binding,
+      previewId: existing.id,
+      userId,
+      targetPort: existing.targetPort,
+    });
+  }
   const rows = await getDb()
     .update(previewSessions)
     .set({ status: "revoked", revokedAt: now })
@@ -311,6 +387,18 @@ export async function reapPreviewIdsForConversation(
   now: Date = new Date(),
 ): Promise<string[]> {
   if (!conversationId) return [];
+  const active = await getDb()
+    .select({ workspaceTarget: previewSessions.workspaceTarget })
+    .from(previewSessions)
+    .where(and(
+      eq(previewSessions.conversationId, conversationId),
+      eq(previewSessions.status, "active"),
+    ));
+  if (active.some((row: { workspaceTarget: WorkspaceTargetReference }) =>
+    isSandboxReference(row.workspaceTarget)
+  )) {
+    throw sandboxCapabilityUnavailable("preview close");
+  }
   const rows = await getDb()
     .update(previewSessions)
     .set({ status: "revoked", revokedAt: now })

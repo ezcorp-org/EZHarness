@@ -29,6 +29,7 @@ import { createStubPermissionEngine } from "../../__tests__/helpers/permission-e
 import { conversations, projects, users, extensions, messages, extensionStorage } from "../../db/schema";
 import type { ExtensionRegistry } from "../registry";
 import type { ExtensionManifestV2, ToolCallResult } from "../types";
+import { sandboxWorkspaceTarget } from "../../runtime/workspaces/target";
 
 const EXT_ID = "project-root-meta-ext";
 const TOOL = "open_tool";
@@ -158,6 +159,23 @@ describe("ToolExecutor · conversation project-root → _meta.ezProjectRoot (B5)
     expect(captured.calls).toBe(1);
     expect(captured.options?.signal).toBe(controller.signal);
     expect(captured.meta?.ezConversationId).toBe(projectConvId);
+  });
+
+  test("sandbox project MCP cannot start a host client when placement is unavailable", async () => {
+    const captured: CapturedCall = {};
+    const executor = new ToolExecutor(makeRegistry(captured, { mcp: true }), createStubPermissionEngine());
+    executor.setCurrentUserId(userId);
+    executor.setWorkspaceTarget(sandboxWorkspaceTarget({
+      projectId: "project", workspaceId: "workspace", connectionId: "connection",
+      providerId: "incus", generation: 7, presetId: "small", releaseDigest: "a".repeat(64),
+      presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64),
+    }, null));
+
+    const result = await executor.executeToolCall(TOOL, {}, projectConvId, null);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0]?.text).toContain("Local workspace fallback was denied");
+    expect(captured.calls ?? 0).toBe(0);
   });
 
   test("pre-aborted calls do not enter tool lookup or dispatch", async () => {

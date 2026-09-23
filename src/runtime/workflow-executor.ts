@@ -76,6 +76,9 @@ import {
   parkWorkflowApproval,
 } from "../db/queries/workflow-approvals";
 import { logger } from "../logger";
+import type { WorkspaceTarget } from "./workspaces/target";
+import { resolveProjectWorkspaceTarget } from "./workspaces/project-target";
+import { getProject } from "../db/queries/projects";
 
 const log = logger.child("workflow");
 
@@ -325,6 +328,8 @@ export function nestedRunKey(
  */
 export interface WorkflowRunOptions {
   invocationGuard?: InvocationGuard;
+  /** Exact host-selected workspace route for all nested and agent steps. */
+  workspaceTarget?: WorkspaceTarget;
   /**
    * The REAL chat conversation this run belongs to. Set ⇒ INTERACTIVE: no
    * non-interactive scope is registered, so a sensitive step's permission
@@ -481,7 +486,7 @@ export class WorkflowExecutor {
     // `callTimeoutMs` ceiling — the "stuck chat" defect the gate exists to
     // prevent.
     this.toolRunnerFactory =
-      opts?.toolRunnerFactory ?? ((pending) => createWorkflowToolRunner(this.bus, pending));
+      opts?.toolRunnerFactory ?? ((pending, target) => createWorkflowToolRunner(this.bus, pending, target));
     if (opts?.stepSubstitute) this.stepSubstitute = opts.stepSubstitute;
     if (opts?.workflowResolver) this.workflowResolver = opts.workflowResolver;
   }
@@ -824,6 +829,12 @@ export class WorkflowExecutor {
       parentResolver?: HostWorkflowParentResolver;
     },
   ): Promise<WorkflowRun> {
+    let workspaceTarget = opts?.workspaceTarget;
+    if (projectId && !isPureWorkflowExecutor(this)) {
+      const project = await getProject(projectId);
+      if (!project) throw new Error("Project workspace is unavailable for workflow run");
+      workspaceTarget = await resolveProjectWorkspaceTarget(project, "workflow run", workspaceTarget);
+    }
     const workflowRun: WorkflowRun = {
       id: opts?.runId ?? crypto.randomUUID(),
       workflowName: workflow.name,
@@ -956,6 +967,7 @@ export class WorkflowExecutor {
       // caller (REST, CLI, extension, schedule) takes.
       conversationId: opts?.conversationId,
       pendingPermissions: opts?.pendingPermissions,
+      workspaceTarget,
     });
   }
 
@@ -1188,6 +1200,16 @@ export class WorkflowExecutor {
     if (!await workflowReleaseCanExecute(entry, row, undefined, parentResolver)) {
       return refuseTransient("not-resumable", "Workflow release authority is no longer available");
     }
+    let workspaceTarget: WorkspaceTarget | undefined;
+    if (row.projectId) {
+      const project = await getProject(row.projectId);
+      if (!project) return refuseTransient("workspace-unavailable", "Project workspace is unavailable for workflow resume");
+      try {
+        workspaceTarget = await resolveProjectWorkspaceTarget(project, "workflow resume");
+      } catch (error) {
+        return refuseTransient("workspace-unavailable", String(error));
+      }
+    }
     return this.executeFrom({
       workflow,
       input: row.input ?? {},
@@ -1211,6 +1233,7 @@ export class WorkflowExecutor {
       // Same argument, C3's ceiling: taken from the row so a resumed run
       // is bounded by the same delegation the first process was.
       delegationId: row.delegationId ?? null,
+      workspaceTarget,
     });
   }
 
@@ -1264,6 +1287,7 @@ export class WorkflowExecutor {
     conversationId?: string;
     /** Interactive only — see {@link WorkflowRunOptions.pendingPermissions}. */
     pendingPermissions?: PendingPermissionGate;
+    workspaceTarget?: WorkspaceTarget;
   }): Promise<WorkflowRun> {
     const { workflow, input, workflowRun, projectId, userId, signal } = ctx;
     const invocationGuard: InvocationGuard | undefined = !isPureWorkflowExecutor(this) && (ctx.releaseEntry.source === "extension" || ctx.invocationGuard || ctx.releasePrincipal.parentRunId || ctx.releasePrincipal.delegationId) ? async database => {
@@ -1346,7 +1370,7 @@ export class WorkflowExecutor {
     let toolRunner: WorkflowToolRunner | undefined;
     const getToolRunner = (): WorkflowToolRunner => {
       if (!toolRunner) {
-        toolRunner = this.toolRunnerFactory(ctx.pendingPermissions);
+        toolRunner = this.toolRunnerFactory(ctx.pendingPermissions, ctx.workspaceTarget);
         if (userId) toolRunner.setCurrentUserId(userId);
         // Pin the scope key as the executor's current conversation up
         // front. `handlePiInvoke` resolves a nested call's conversation
@@ -1649,7 +1673,7 @@ export class WorkflowExecutor {
               effectiveModelOverride(step, workflow),
               workflowRun.id,
               inputSink,
-              { skippedSteps, depth: ctx.depth, signal, invocationGuard, serviceInvocation: toolCtx.serviceInvocation, parentResolver: ctx.parentResolver, releasePrincipal: ctx.releasePrincipal, requireManagedFactoryAgent: workflow.source === "extension" && workflow.name.startsWith("ez-factory:") },
+              { skippedSteps, depth: ctx.depth, signal, invocationGuard, serviceInvocation: toolCtx.serviceInvocation, parentResolver: ctx.parentResolver, releasePrincipal: ctx.releasePrincipal, workspaceTarget: ctx.workspaceTarget, requireManagedFactoryAgent: workflow.source === "extension" && workflow.name.startsWith("ez-factory:") },
             );
             stepResults.set(step.name, result);
             stepRun.status = "success";
@@ -2076,7 +2100,9 @@ export class WorkflowExecutor {
       inputSink,
       flow.skippedSteps,
       flow.requireManagedFactoryAgent,
-      flow.signal || flow.invocationGuard || flow.serviceInvocation ? { signal: flow.signal, invocationGuard: flow.invocationGuard, serviceInvocation: flow.serviceInvocation } : undefined,
+      flow.signal || flow.invocationGuard || flow.serviceInvocation || flow.workspaceTarget
+        ? { signal: flow.signal, invocationGuard: flow.invocationGuard, serviceInvocation: flow.serviceInvocation, workspaceTarget: flow.workspaceTarget }
+        : undefined,
     );
   }
 
@@ -2173,7 +2199,7 @@ export class WorkflowExecutor {
       // The parent's signal, so a cancel cascades into the child rather
       // than leaving an orphan run the sweep has to clean up later.
       opts.flow.signal,
-      { parentRunId: this.persist ? opts.parentRunId : undefined, idempotencyKey, depth, parentResolver: opts.flow.parentResolver, invocationGuard: opts.flow.invocationGuard, ...(opts.flow.releasePrincipal?.runAsKind === "service" || opts.flow.releasePrincipal?.runAsKind === "user" ? { delegationId: opts.flow.releasePrincipal.delegationId ?? undefined, runAsKind: opts.flow.releasePrincipal.runAsKind, runAs: opts.flow.releasePrincipal.runAs } : {}) },
+      { parentRunId: this.persist ? opts.parentRunId : undefined, idempotencyKey, depth, parentResolver: opts.flow.parentResolver, invocationGuard: opts.flow.invocationGuard, ...(opts.flow.workspaceTarget ? { workspaceTarget: opts.flow.workspaceTarget } : {}), ...(opts.flow.releasePrincipal?.runAsKind === "service" || opts.flow.releasePrincipal?.runAsKind === "user" ? { delegationId: opts.flow.releasePrincipal.delegationId ?? undefined, runAsKind: opts.flow.releasePrincipal.runAsKind, runAs: opts.flow.releasePrincipal.runAs } : {}) },
     );
     return nestedOutcome(step, name, child.status, child.result ?? null);
   }
@@ -2397,7 +2423,9 @@ export class WorkflowExecutor {
           resolveModelOverride(modelBinding, refCtx, step.name),
           inputSink,
           flow.requireManagedFactoryAgent,
-          flow.signal || flow.invocationGuard || flow.serviceInvocation ? { signal: flow.signal, invocationGuard: flow.invocationGuard, serviceInvocation: flow.serviceInvocation } : undefined,
+          flow.signal || flow.invocationGuard || flow.serviceInvocation || flow.workspaceTarget
+            ? { signal: flow.signal, invocationGuard: flow.invocationGuard, serviceInvocation: flow.serviceInvocation, workspaceTarget: flow.workspaceTarget }
+            : undefined,
         );
         // Written BEFORE the failure check, so a loop that dies on
         // iteration 3 still records that iterations 1 and 2 happened and
@@ -2521,6 +2549,7 @@ interface FlowContext {
   /** The run's abort signal, inherited by a nested child run so a cancel
    *  cascades rather than orphaning it. */
   signal: AbortSignal | undefined;
+  workspaceTarget?: WorkspaceTarget;
 }
 
 /**

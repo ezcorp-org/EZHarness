@@ -376,3 +376,15 @@
 - A summary reporter must be told which gates ran. Absence of a report is a failure, never an omission; there is no safe default for the expected set.
 - A PR in conflict with its base gets no pull_request workflow runs at all; GitHub cannot build the merge ref. When checks are silently absent, check `mergeable` before suspecting the workflow. Merge or rebase, then reinstall dependencies before the pre-push typecheck when the base moved a lockfile.
 - Budget a hosted-runner job against the 360-minute cap with a measured rate, not a guess. When one job cannot finish, shard the work and merge with an exact-count check so a missing slice fails instead of shrinking the denominator.
+
+- When a storage API starts requiring an explicit workspace target, run direct-call history and route suites as well as the new routing tests. Resolve missing targets from the conversation's persisted project through the binding guard; do not silently drop attachments or derive a local root from cwd. In mocked route tests, mock the target selector and assert bound-project denial before any write.
+
+- Before stating that a requested agent model is unavailable, check the current collaboration model list. If the list changes, use the exact requested model for replacement agents and preserve each unfinished task's file ownership and state.
+
+- When several executable paths and version outputs appear together, label each path in the command output. Never infer which unlabeled version belongs to which binary.
+
+- Start substantial multiagent feature work in a dedicated Git worktree before any agent edits. A shared filesystem lets agents collaborate inside that worktree; it is not a reason to mix feature changes with the user's active checkout. Verify every agent's working directory in its task brief.
+
+## 2026-09-22 — Setup code versus Harness integration
+
+- When describing infrastructure setup, trace the complete product path from UI/API through host-owned connection and transport to the server. A deterministic CLI and an offline provider adapter do not mean EZHarness can configure or use the server. State exactly which parts are wired and which remain standalone.

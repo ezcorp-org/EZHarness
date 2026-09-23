@@ -22,6 +22,7 @@ import type {
   GithubProposalStatus,
   GithubStatusOption,
 } from "../integrations/github-projects/types";
+import type { WorkspaceTargetReference } from "../runtime/workspaces/target";
 
 export const projects = pgTable("projects", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -45,6 +46,177 @@ export const projectWorkspaceBindings = pgTable("project_workspace_bindings", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("idx_project_workspace_bindings_state").on(table.state)]);
+export type SandboxDesiredState = "ABSENT" | "STOPPED" | "RUNNING";
+/** Host-only provider identity. The FK to release installations is in the migration. */
+export const providerConnections = pgTable("provider_connections", {
+  id: text("id").primaryKey(),
+  revision: integer("revision").notNull(),
+  providerInstallationId: text("provider_installation_id").notNull(),
+  providerReleaseId: text("provider_release_id").notNull(),
+  endpoint: text("endpoint").notNull(),
+  serverCertificatePem: text("server_certificate_pem").notNull(),
+  project: text("project").notNull(),
+  configuration: jsonb("configuration").$type<Record<string, unknown>>(),
+  clientCertificatePem: text("client_certificate_pem").notNull(),
+  privateKeyCiphertext: text("private_key_ciphertext").notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("idx_provider_connections_installation").on(table.providerInstallationId, table.providerReleaseId)]);
+
+export type SandboxObservedState = "UNKNOWN" | "ABSENT" | "STOPPED" | "RUNNING" | "ERROR";
+export type SandboxOperationKind = "CREATE" | "START" | "STOP" | "DESTROY";
+export type SandboxOperationState =
+  | "JOURNALED"
+  | "DISPATCHING"
+  | "PROVIDER_PENDING"
+  | "SUCCEEDED"
+  | "FAILED"
+  | "OUTCOME_UNKNOWN";
+
+/** Host-owned binding. A project without this additive row remains local. */
+export const sandboxBindings = pgTable("sandbox_bindings", {
+  id: text("id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }).unique(),
+  providerInstallationId: text("provider_installation_id").notNull(),
+  providerReleaseId: text("provider_release_id").notNull(),
+  connectionId: text("connection_id").notNull(),
+  resourceKey: text("resource_key"),
+  desiredState: text("desired_state").notNull().$type<SandboxDesiredState>(),
+  observedState: text("observed_state").notNull().$type<SandboxObservedState>(),
+  generation: integer("generation").notNull().default(1),
+  currentOperationId: text("current_operation_id"),
+  tombstonedAt: timestamp("tombstoned_at", { withTimezone: true }),
+  cleanupConfirmedAt: timestamp("cleanup_confirmed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_sandbox_bindings_provider_resource")
+    .on(table.providerInstallationId, table.connectionId, table.resourceKey)
+    .where(sql`${table.resourceKey} IS NOT NULL`),
+  index("idx_sandbox_bindings_cleanup").on(table.tombstonedAt)
+    .where(sql`${table.tombstonedAt} IS NOT NULL AND ${table.cleanupConfirmedAt} IS NULL`),
+]);
+
+/** An immutable effect request plus its durable provider outcome. */
+export const sandboxOperations = pgTable("provider_sandbox_operations", {
+  id: text("id").primaryKey(),
+  bindingId: text("binding_id").notNull().references(() => sandboxBindings.id, { onDelete: "restrict" }),
+  kind: text("kind").notNull().$type<SandboxOperationKind>(),
+  generation: integer("generation").notNull(),
+  idempotencyScope: text("idempotency_scope").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  requestPayload: jsonb("request_payload").notNull().$type<Record<string, unknown>>(),
+  state: text("state").notNull().$type<SandboxOperationState>(),
+  providerOperationId: text("provider_operation_id"),
+  errorCode: text("error_code"),
+  errorMessage: text("error_message"),
+  reconcileOrder: bigint("reconcile_order", { mode: "bigint" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_provider_sandbox_operations_idempotency")
+    .on(table.bindingId, table.idempotencyScope, table.idempotencyKey),
+  index("idx_provider_sandbox_operations_reconcile").on(table.state, table.createdAt),
+  index("idx_provider_sandbox_operations_reconcile_order").on(table.state, table.reconcileOrder),
+]);
+
+export type SandboxBinding = typeof sandboxBindings.$inferSelect;
+export type NewSandboxBinding = typeof sandboxBindings.$inferInsert;
+export type SandboxOperation = typeof sandboxOperations.$inferSelect;
+export type NewSandboxOperation = typeof sandboxOperations.$inferInsert;
+
+export type SandboxReservationComputeState = "RESERVED" | "RELEASE_REQUESTED" | "RELEASED";
+export type SandboxReservationDiskState = "RESERVED" | "RELEASE_REQUESTED" | "RELEASED";
+export type SandboxAdmissionKind = "CREATE" | "START";
+export type SandboxAdmissionState = "ADMITTED" | "QUEUED" | "REJECTED";
+
+/** Explicit host budget. Safety margins are unavailable to admission. */
+export const sandboxHostCapacities = pgTable("sandbox_host_capacities", {
+  providerInstallationId: text("provider_installation_id").notNull(),
+  connectionId: text("connection_id").notNull(),
+  allocatableMemoryBytes: bigint("allocatable_memory_bytes", { mode: "number" }).notNull(),
+  allocatableCpuMillicores: bigint("allocatable_cpu_millicores", { mode: "number" }).notNull(),
+  allocatablePids: bigint("allocatable_pids", { mode: "number" }).notNull(),
+  allocatableDiskBytes: bigint("allocatable_disk_bytes", { mode: "number" }).notNull(),
+  allocatableExecutionSlots: bigint("allocatable_execution_slots", { mode: "number" }).notNull(),
+  safetyMemoryBytes: bigint("safety_memory_bytes", { mode: "number" }).notNull(),
+  safetyCpuMillicores: bigint("safety_cpu_millicores", { mode: "number" }).notNull(),
+  safetyPids: bigint("safety_pids", { mode: "number" }).notNull(),
+  safetyDiskBytes: bigint("safety_disk_bytes", { mode: "number" }).notNull(),
+  safetyExecutionSlots: bigint("safety_execution_slots", { mode: "number" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.providerInstallationId, table.connectionId] }),
+]);
+
+/** Project ceiling on one explicit provider connection. */
+export const sandboxProjectQuotas = pgTable("sandbox_project_quotas", {
+  projectId: text("project_id").primaryKey().references(() => projects.id, { onDelete: "cascade" }),
+  providerInstallationId: text("provider_installation_id").notNull(),
+  connectionId: text("connection_id").notNull(),
+  memoryBytes: bigint("memory_bytes", { mode: "number" }).notNull(),
+  cpuMillicores: bigint("cpu_millicores", { mode: "number" }).notNull(),
+  pids: bigint("pids", { mode: "number" }).notNull(),
+  diskBytes: bigint("disk_bytes", { mode: "number" }).notNull(),
+  executionSlots: bigint("execution_slots", { mode: "number" }).notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/** Durable allocation. Stopped sandboxes release compute while retaining disk. */
+export const sandboxReservations = pgTable("sandbox_reservations", {
+  bindingId: text("binding_id").primaryKey().references(() => sandboxBindings.id, { onDelete: "restrict" }),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "restrict" }),
+  providerInstallationId: text("provider_installation_id").notNull(),
+  connectionId: text("connection_id").notNull(),
+  generation: integer("generation").notNull(),
+  memoryBytes: bigint("memory_bytes", { mode: "number" }).notNull(),
+  cpuMillicores: bigint("cpu_millicores", { mode: "number" }).notNull(),
+  pids: bigint("pids", { mode: "number" }).notNull(),
+  diskBytes: bigint("disk_bytes", { mode: "number" }).notNull(),
+  executionSlots: bigint("execution_slots", { mode: "number" }).notNull(),
+  computeState: text("compute_state").notNull().$type<SandboxReservationComputeState>(),
+  diskState: text("disk_state").notNull().$type<SandboxReservationDiskState>(),
+  stopIntentId: text("stop_intent_id"),
+  cleanupIntentId: text("cleanup_intent_id"),
+  stopRequestedAt: timestamp("stop_requested_at", { withTimezone: true }),
+  cleanupRequestedAt: timestamp("cleanup_requested_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("idx_sandbox_reservations_host").on(table.providerInstallationId, table.connectionId),
+  index("idx_sandbox_reservations_project").on(table.projectId),
+]);
+
+/** Immutable idempotency receipt for a capacity decision. */
+export const sandboxAdmissionRequests = pgTable("sandbox_admission_requests", {
+  id: text("id").primaryKey(),
+  bindingId: text("binding_id").notNull().references(() => sandboxBindings.id, { onDelete: "restrict" }),
+  generation: integer("generation").notNull(),
+  kind: text("kind").notNull().$type<SandboxAdmissionKind>(),
+  idempotencyScope: text("idempotency_scope").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  payloadHash: text("payload_hash").notNull(),
+  memoryBytes: bigint("memory_bytes", { mode: "number" }).notNull(),
+  cpuMillicores: bigint("cpu_millicores", { mode: "number" }).notNull(),
+  pids: bigint("pids", { mode: "number" }).notNull(),
+  diskBytes: bigint("disk_bytes", { mode: "number" }).notNull(),
+  executionSlots: bigint("execution_slots", { mode: "number" }).notNull(),
+  state: text("state").notNull().$type<SandboxAdmissionState>(),
+  reason: text("reason"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  uniqueIndex("idx_sandbox_admission_idempotency")
+    .on(table.bindingId, table.idempotencyScope, table.idempotencyKey),
+  index("idx_sandbox_admission_queue").on(table.state, table.createdAt),
+]);
+
+export type SandboxHostCapacity = typeof sandboxHostCapacities.$inferSelect;
+export type SandboxProjectQuota = typeof sandboxProjectQuotas.$inferSelect;
+export type SandboxReservation = typeof sandboxReservations.$inferSelect;
+export type SandboxAdmissionRequest = typeof sandboxAdmissionRequests.$inferSelect;
 
 /**
  * WHO a project belongs to. The platform's project-membership model.
@@ -2492,6 +2664,10 @@ export const previewSessions = pgTable("preview_sessions", {
   id: text("id").primaryKey(),
   userId: text("user_id").references(() => users.id, { onDelete: "set null" }),
   conversationId: text("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+  /** Immutable host-selected route. Sandbox rows carry the complete
+   * provider/release/generation identity and never derive it from a URL. */
+  workspaceTarget: jsonb("workspace_target").notNull().$type<WorkspaceTargetReference>()
+    .default({ kind: "local" }),
   /** The per-conversation network namespace id this preview's dynamic
    *  server lives in (Phase 3). NULL for static previews. */
   netnsId: text("netns_id"),

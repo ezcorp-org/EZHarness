@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "planDigest": "78d30ee7fa3a76566037bfa307eb4c97efe1155ddbd85662444ea674434f963f",
+  "dryRun": true,
+  "state": "blocked",
+  "blockedReasons": [
+    "provider_client_certificate_missing"
+  ],
+  "steps": []
+}

@@ -17,6 +17,7 @@ import {
   previewSitesRoot,
   revokePreview,
 } from "$server/db/queries/preview-sessions";
+import { localWorkspaceTarget } from "$server/runtime/workspaces/target";
 import { createProject } from "$server/db/queries/projects";
 import { isTestSurfaceEnabled } from "$server/test-surface";
 import { mintOneTimeCode } from "$server/runtime/preview/preview-token";
@@ -42,6 +43,7 @@ export const POST: RequestHandler = async ({ locals }) => {
     conversationId: conversation.id,
     kind: "static",
     staticPath,
+    workspaceTarget: localWorkspaceTarget(process.env.EZCORP_PROJECT_ROOT ?? process.cwd()),
   });
   return json({
     previewId: preview.id,

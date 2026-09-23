@@ -34,6 +34,7 @@
 
 import { logger } from "../logger";
 import { isServiceInvocation, type ServiceInvocation } from "./service-invocation";
+import type { WorkspaceTarget } from "../runtime/workspaces/target";
 
 const log = logger.child("ext.call-provenance");
 
@@ -48,6 +49,8 @@ export interface CallProvenance {
   conversationId: string | null;
   projectId?: string;
   projectBindingId?: string;
+  /** In-process backend handle selected by the host for this exact call. */
+  workspaceTarget?: WorkspaceTarget;
   runId: string | null;
   parentCallId: string | null;
   /** Host-owned — sourced from the registered-tool record, NOT the

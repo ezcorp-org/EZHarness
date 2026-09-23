@@ -1,12 +1,56 @@
 import { describe, expect, test } from "bun:test";
-import { ReleaseProcess, configureReleaseRuntime, getReleaseRuntime, releaseBinding } from "../release-process";
-import { sha256 } from "@ezcorp/extension-contract";
+import { ReleaseProcess, configureReleaseRuntime, getReleaseRuntime, releaseBinding, resolveActiveRelease } from "../release-process";
+import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, sha256, type CandidateVerificationReport } from "@ezcorp/extension-contract";
 import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../release-process";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import type { InvocationContext, ReverseRpc, Runner, StartRequest } from "@ezcorp/extension-contract";
 import { spyOn } from "bun:test";
 import { releaseRuntimeFixture } from "../../__tests__/helpers/release-runtime";
 import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
+import { digestObject } from "../v4/blobs";
+import { sandboxPresetQualificationReleaseDigest } from "../v4/sandbox-preset-qualification";
+import { sandboxExtensionManifest } from "../../__tests__/helpers/sandbox-preset";
+
+async function qualifySandboxRuntime(snapshot: ActiveExtensionRelease): Promise<void> {
+  const release = snapshot.release;
+  delete release.verification;
+  const { id: _baseId, createdAt: _baseCreatedAt, releaseDigest: _baseDigest, ...releaseInput } = release;
+  release.releaseDigest = digestObject(releaseInput);
+  const preset = release.manifest.sandboxProviders![0]!.presets[0]!;
+  const verification: CandidateVerificationReport = {
+    catalog: "verified", smoke: "not_declared", capabilities: [],
+    sandboxPresetQualifications: [{
+      producer: "host", providerId: "incus", presetId: preset.id, profile: preset.profile,
+      releaseDigest: sandboxPresetQualificationReleaseDigest(release), presetDigest: await sandboxPresetDigest(preset),
+      verifiedAt: new Date(Date.now() - 60_000).toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString(),
+      cases: CANDIDATE_SANDBOX_QUALIFICATION_CASES.map(caseId => ({ caseId, status: "passed" })),
+    }],
+  };
+  release.verification = verification;
+  const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...storedInput } = release;
+  release.releaseDigest = digestObject(storedInput);
+}
+
+test("runtime resolution denies unqualified sandbox releases before worker startup", async () => {
+  const fixture = releaseRuntimeFixture("sandbox-installation", sandboxExtensionManifest());
+  await qualifySandboxRuntime(fixture.snapshot);
+  const runtime: ReleaseRuntimeDependencies = { runner: async () => fixture.runner, resolve: async () => fixture.snapshot };
+  await expect(resolveActiveRelease(fixture.snapshot.installation.id, runtime)).resolves.toBe(fixture.snapshot);
+
+  const verification: CandidateVerificationReport = { catalog: "verified", smoke: "not_declared", capabilities: [] };
+  fixture.snapshot.release.verification = verification;
+  const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...storedInput } = fixture.snapshot.release;
+  fixture.snapshot.release.releaseDigest = digestObject(storedInput);
+  const process = new ReleaseProcess(fixture.snapshot.installation.id, runtime);
+  const token = registerCallProvenance({ actorExtensionId: fixture.snapshot.installation.id, onBehalfOf: "alice", conversationId: "conversation", ownerless: false, runId: null, parentCallId: null, kind: "tool" });
+  try {
+    await expect(process.callTool("read", {}, { ezCallId: token })).rejects.toMatchObject({ code: "INVALID_QUALIFICATION" });
+    expect(fixture.calls).toHaveLength(0);
+  } finally {
+    process.kill();
+    releaseCallProvenance(token);
+  }
+});
 
 test("reverse dispatch reinstalls the captured host guard instead of transport ambient context", async () => {
   const fixture = harness();

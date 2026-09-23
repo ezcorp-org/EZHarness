@@ -30,6 +30,7 @@ import type { StagedAttachment } from "$server/chat/attachments/content-builder"
 import type { AttachmentSummary } from "$server/db/queries/conversations";
 import { buildCommandResolver } from "$lib/server/command-resolver";
 import type { RequestHandler } from "./$types";
+import { resolveLocalProjectTarget } from "$server/runtime/workspaces/project-target";
 
 const log = logger.child("api.messages");
 
@@ -209,6 +210,18 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     return errorJson(403, policyDenial.message, { field: policyDenial.field });
   }
 
+  // Select the durable project route before writing a message or starting a
+  // stream. A sandbox binding cannot fall through to the AMD project path.
+  const streamProject = await getProject(conv.projectId);
+  let streamWorkspaceTarget: Awaited<ReturnType<typeof resolveLocalProjectTarget>> | undefined;
+  if (streamProject) {
+    try {
+      streamWorkspaceTarget = await resolveLocalProjectTarget(streamProject, "conversation workspace");
+    } catch {
+      return errorJson(503, "Sandbox workspace is unavailable");
+    }
+  }
+
   const goalHost = getGoalHost();
   if (goalHost) {
     try {
@@ -295,10 +308,10 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       return errorJson(400, `Too many files (max ${caps.maxFilesPerMessage})`, { code: "TOO_MANY_FILES" });
     }
 
-    const project = await getProject(conv.projectId);
-    if (!project?.path) {
+    if (!streamProject?.path || !streamWorkspaceTarget) {
       return errorJson(500, "Project path not resolvable for attachment storage");
     }
+    const attachmentTarget = streamWorkspaceTarget;
 
     // Pre-validate all files before writing anything to disk or DB. A single
     // bad file rejects the whole batch — no partial state.
@@ -328,7 +341,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
         const kind = classifyMimeWithCaps(caps, v.canonicalMime);
         if (!kind) throw new Error(`Unclassifiable MIME ${v.canonicalMime} after validation`);
         const written = await writeAttachment({
-          projectRoot: project.path,
+          workspaceTarget: attachmentTarget,
           conversationId,
           messageId: userMessage.id,
           filename: v.file.name,
@@ -360,7 +373,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
       }
     } catch (err) {
       // Best-effort rollback: remove disk files + attachment rows for this msg.
-      await deleteForMessage({ projectRoot: project.path, conversationId, messageId: userMessage.id }).catch(() => {});
+      await deleteForMessage({ workspaceTarget: attachmentTarget, conversationId, messageId: userMessage.id }).catch(() => {});
       await attachmentsDb.deleteAttachmentsForMessage(userMessage.id).catch(() => {});
       return errorJson(500, "Failed to persist attachments", { detail: String(err) });
     }
@@ -377,10 +390,9 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     // rather than failing the turn.
     if (editInheritSourceId) {
       try {
-        const project = await getProject(conv.projectId);
-        if (project?.path) {
+        if (streamProject?.path && streamWorkspaceTarget) {
           const cloned = await cloneAttachmentsForFork({
-            projectRoot: project.path,
+            workspaceTarget: streamWorkspaceTarget,
             conversationId,
             sourceMessageId: editInheritSourceId,
             targetMessageId: userMessage.id,
@@ -561,7 +573,6 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
   const executor = getExecutor();
   const runId = crypto.randomUUID();
-
   log.debug("streamChat starting", {
     content: body.content.slice(0, 120),
     attachments: stagedAttachments.length,
@@ -571,6 +582,9 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
   const streamPromise = executor.streamChat(conversationId, body.content, {
     projectId: conv.projectId,
+    ...(streamWorkspaceTarget
+      ? { workspaceTarget: streamWorkspaceTarget }
+      : {}),
     provider,
     model,
     runId,

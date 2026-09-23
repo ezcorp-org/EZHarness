@@ -13,8 +13,20 @@ import { resolveReverseRpcMeta } from "./tool-executor/provenance";
 import type { RpcHandlerDeps } from "./tool-executor/rpc-handlers";
 import type { JsonRpcRequest, JsonRpcResponse } from "./types";
 import { LifecycleError, type LifecycleActor } from "./v4/types";
+import {
+  workspaceTargetReference,
+  type WorkspaceTargetReference,
+} from "../runtime/workspaces/target";
+import { resolveProjectWorkspaceTarget } from "../runtime/workspaces/project-target";
 
-interface ProjectScope { installationId: string; ownerId: string; projectId: string; bindingId: string }
+interface ProjectScope {
+  installationId: string;
+  ownerId: string;
+  projectId: string;
+  bindingId: string;
+  /** Durable route identity. A sandbox proposal cannot later drift local. */
+  workspaceTarget?: WorkspaceTargetReference;
+}
 interface ProjectAuthority { repository: string; selfProject: boolean; writePaths: string[] }
 interface ProjectEffect { proposalId: string }
 interface PullRequestSnapshot { head: string; base: string; nodeId: string; state: string; mergeable: string; draft: boolean; files: string[]; digest: string }
@@ -26,6 +38,18 @@ interface ProjectPullRequestDependencies {
   authorize(scope: ProjectScope, effect?: ProjectEffect): Promise<ProjectAuthority>;
   request(scope: ProjectScope, path: string, method?: string, body?: unknown): Promise<unknown>;
   now?: () => number;
+}
+
+function sameWorkspaceTargetReference(
+  stored: WorkspaceTargetReference | undefined,
+  current: WorkspaceTargetReference | undefined,
+): boolean {
+  const storedKind = stored?.kind ?? "local";
+  const currentKind = current?.kind ?? "local";
+  if (storedKind !== currentKind) return false;
+  if (stored?.kind !== "sandbox") return true;
+  return current?.kind === "sandbox"
+    && canonicalJson(stored.binding) === canonicalJson(current.binding);
 }
 
 export class ProjectPullRequests {
@@ -97,8 +121,13 @@ export class ProjectPullRequests {
   }
   async observe(scope: ProjectScope, id: string, action: "finalize" | "close") {
     const record = await this.stored(id);
-    if (["installationId", "ownerId", "projectId", "bindingId"].some(key => record.proposal[key as keyof ProjectScope] !== scope[key as keyof ProjectScope])) throw new LifecycleError("not_found", "Project proposal not found.");
-    await this.dependencies.authorize(scope);
+    if (
+      ["installationId", "ownerId", "projectId", "bindingId"].some(
+        key => record.proposal[key as keyof ProjectScope] !== scope[key as keyof ProjectScope],
+      )
+      || !sameWorkspaceTargetReference(record.proposal.workspaceTarget, scope.workspaceTarget)
+    ) throw new LifecycleError("not_found", "Project proposal not found.");
+    await this.dependencies.authorize(record.proposal);
     if (record.state === "completed" && record.proposal.decision !== action) throw new LifecycleError("decision_mismatch", "The human selected a different project action.");
     return { state: record.state === "proposed" || record.state === "executing" ? "pending" : record.state, action: record.proposal.decision, result: record.proposal.result };
   }
@@ -154,6 +183,13 @@ export function getProjectPullRequests(deps: Pick<RpcHandlerDeps, "engine"> = { 
     const binding = await getExtensionProjectBinding(scope.installationId);
     if (!binding || binding.id !== scope.bindingId || binding.projectId !== scope.projectId || binding.ownerId !== scope.ownerId) throw new LifecycleError("binding_required", "Approve a current project binding before using GitHub operations.");
     const { project } = await authorizeProjectOperation(deps, scope.installationId, scope.ownerId, null, effect ? "project.pullRequest.write" : "project.pullRequest", [{ kind: "shell" }, { kind: "network", value: "api.github.com" }], scope.projectId, scope.bindingId, effect?.proposalId);
+    await resolveProjectWorkspaceTarget(project, "project pull request review");
+    if (scope.workspaceTarget?.kind === "sandbox") {
+      throw new LifecycleError(
+        "sandbox_workspace_unavailable",
+        "Sandbox pull request review routing is unavailable. Local workspace fallback was denied.",
+      );
+    }
     const origin = await readProjectGit(project.path!, "origin");
     if (typeof origin !== "string") throw new LifecycleError("github_origin_required", "The bound project requires an exact GitHub origin.");
     const { getProjectRoot } = await import("./project-root");
@@ -179,7 +215,15 @@ export async function handleProjectPullRequestReview(deps: RpcHandlerDeps, exten
   try {
     const binding = await getExtensionProjectBinding(extensionId);
     if (!binding || binding.ownerId !== resolved.onBehalfOf || resolved.prov.projectId && (resolved.prov.projectId !== binding.projectId || resolved.prov.projectBindingId !== binding.id)) throw new LifecycleError("binding_required", "A human must bind this release to a project before GitHub review.");
-    const scope = { installationId: extensionId, ownerId: resolved.onBehalfOf, projectId: binding.projectId, bindingId: binding.id };
+    const scope = {
+      installationId: extensionId,
+      ownerId: resolved.onBehalfOf,
+      projectId: binding.projectId,
+      bindingId: binding.id,
+      ...(resolved.prov.workspaceTarget
+        ? { workspaceTarget: workspaceTargetReference(resolved.prov.workspaceTarget) }
+        : {}),
+    };
     const input = request.params as Record<string, unknown>;
     const service = getProjectPullRequests(deps);
     let result: unknown;

@@ -1,6 +1,11 @@
 import { resolve, sep } from "node:path";
 import { realpath, stat } from "node:fs/promises";
 import { isValidPreviewId } from "../../db/queries/preview-sessions";
+import {
+  sameSandboxWorkspaceBinding,
+  type WorkspaceTarget,
+  type WorkspaceTargetReference,
+} from "../workspaces/target";
 
 // `BodyInit` is an ambient undici/DOM global that does not resolve under CI's
 // frozen install (tsconfig lib is ESNext-only). Derive the body type from the
@@ -228,6 +233,8 @@ export interface PreviewRegistryRow {
   kind: "static" | "dynamic";
   staticPath: string | null;
   targetPort: number | null;
+  expiresAt?: Date;
+  workspaceTarget?: WorkspaceTargetReference;
 }
 
 export interface PreviewTokenClaims {
@@ -260,6 +267,11 @@ export interface HandlePreviewRequestDeps {
    *  process-wide quota singleton. Omitted ⇒ no rate limiting (static-only
    *  callers / tests that don't exercise it). */
   checkRate?: (previewId: string) => boolean;
+  /** Resolve a persisted sandbox identity to its live backend. The identity
+   * must match exactly; request data cannot select a backend. */
+  resolveWorkspaceTarget?: (
+    reference: Extract<WorkspaceTargetReference, { kind: "sandbox" }>,
+  ) => WorkspaceTarget | undefined;
 }
 
 /**
@@ -342,6 +354,7 @@ export const HOP_BY_HOP_HEADERS: readonly string[] = [
 export function sanitizeInboundHeaders(incoming: Headers): Headers {
   const out = new Headers(incoming);
   const strip = [
+    "host",
     "cookie",
     "authorization",
     "proxy-authorization",
@@ -358,7 +371,9 @@ export function sanitizeInboundHeaders(incoming: Headers): Headers {
   // Drop ANY internal EZCorp header (prefix match — can't enumerate them all).
   for (const key of [...out.keys()]) {
     const k = key.toLowerCase();
-    if (k.startsWith("x-ezcorp-") || k.startsWith("x-ez-")) out.delete(key);
+    if (k.startsWith("x-ezcorp-") || k.startsWith("x-ez-") || k.startsWith("x-forwarded-")) {
+      out.delete(key);
+    }
   }
   return out;
 }
@@ -462,6 +477,51 @@ export async function handlePreviewRequest(
 
   const row = await deps.getServable(previewId, claims.userId);
   if (!row || row.userId !== claims.userId) return notFound();
+
+  if (row.workspaceTarget?.kind === "sandbox") {
+    const target = deps.resolveWorkspaceTarget?.(row.workspaceTarget);
+    if (
+      target?.kind !== "sandbox"
+      || !sameSandboxWorkspaceBinding(row.workspaceTarget.binding, target.binding)
+      || !target.backend?.previews
+      || !(row.expiresAt instanceof Date)
+      || row.expiresAt.getTime() <= Date.now()
+    ) {
+      return badGateway();
+    }
+    if (row.kind === "dynamic") {
+      if (!Number.isInteger(row.targetPort) || (row.targetPort ?? 0) <= 0) return notFound();
+      if (deps.checkRate && !deps.checkRate(previewId)) return tooManyRequests();
+    }
+    if (!opts.request) return badGateway();
+    try {
+      // Preview access has already been checked. Build from the URL rather
+      // than from the original Request: Bun 1.3.14 can retain original
+      // headers when a replacement Headers object is empty.
+      const hasBody = opts.request.method !== "GET" && opts.request.method !== "HEAD";
+      const requestInit: RequestInit & { duplex?: "half" } = {
+        method: opts.request.method,
+        headers: sanitizeInboundHeaders(opts.request.headers),
+        body: hasBody ? opts.request.body : undefined,
+        signal: opts.request.signal,
+        // Bun/undici needs half duplex when forwarding a streaming body.
+        duplex: hasBody ? "half" : undefined,
+      };
+      const providerRequest = new Request(opts.request.url, requestInit);
+      const response = await target.backend.previews.serve({
+        binding: target.binding,
+        previewId,
+        userId: claims.userId,
+        targetPort: row.targetPort,
+        requestPath,
+        request: providerRequest,
+        expiresAt: row.expiresAt,
+      });
+      return sanitizeUpstreamResponse(response);
+    } catch {
+      return badGateway();
+    }
+  }
 
   // Best-effort liveness bump.
   if (deps.touch) void deps.touch(previewId, claims.userId);

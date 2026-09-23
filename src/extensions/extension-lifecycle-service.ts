@@ -15,6 +15,8 @@ import { createCandidateVerificationBroker, type CandidateFixtures } from "./can
 import { auditReleaseBlobStorage, boundedReleaseBlobAuditSample, getFiles, type ReleaseBlobDigests } from "./v4/blobs";
 import { hasExactReleaseGrants } from "./bundled-drift-reapprove";
 import { createLifecycleRecoveryScheduler } from "./lifecycle-recovery-scheduler";
+import { assertSandboxPresetReleaseQualification } from "./v4/sandbox-preset-qualification";
+import { runSandboxCandidateConformance, type SandboxConformanceDependencies } from "./v4/sandbox-conformance";
 
 const log = extensionLogger("author", "lifecycle");
 
@@ -67,7 +69,13 @@ export function createLifecycleAuthorization(lookup: LifecyclePolicyLookup): Pic
   };
 }
 
-export async function verifyExtensionCandidate(runner: Runner, release: ReleaseRecord, reverseRpc?: ReverseRpc, fixtures?: CandidateFixtures): Promise<CandidateVerificationReport> {
+export async function verifyExtensionCandidate(
+  runner: Runner,
+  release: ReleaseRecord,
+  reverseRpc?: ReverseRpc,
+  fixtures?: CandidateFixtures,
+  sandboxConformance?: Omit<SandboxConformanceDependencies, "invoke">,
+): Promise<CandidateVerificationReport> {
   const workerId = randomUUID();
   const scopeId = `verification:${randomUUID()}`;
   const context = { invocationId: randomUUID(), workerId, releaseId: release.id, principalId: "extension-verification", scopeId, token: randomUUID(), deadline: Date.now() + executionLimits.timeoutMs, metadata: { ezConversationId: scopeId } };
@@ -77,6 +85,10 @@ export async function verifyExtensionCandidate(runner: Runner, release: ReleaseR
     worker = await runner.start({ workerId, artifactDigest: release.artifactDigest, context, limits: executionLimits }, reverseRpc ?? broker.reverseRpc);
     const discovered = validateManifest(await worker.request("extension/discover", {}));
     if (canonicalJson(discovered) !== canonicalJson(release.manifest)) throw new LifecycleError("runtime_catalog_mismatch", "Runtime metadata changed after verification.");
+    const sandboxPresetQualifications = discovered.sandboxProviders === undefined ? undefined : await runSandboxCandidateConformance(release, {
+      ...sandboxConformance,
+      invoke: (method, input) => worker!.request("extension/dispatch", { method, input, context }),
+    });
     if (discovered.smokeTest) {
       const smoke = discovered.smokeTest;
       const tool = discovered.tools?.find((candidate) => candidate.name === smoke.tool);
@@ -91,7 +103,12 @@ export async function verifyExtensionCandidate(runner: Runner, release: ReleaseR
       if (expected?.textIncludes !== undefined && !text.includes(expected.textIncludes)) throw new LifecycleError("smoke_assertion_failed", "Smoke test output did not match the expected text.");
       if (expected?.isError !== undefined && (output?.isError === true) !== expected.isError) throw new LifecycleError("smoke_assertion_failed", "Smoke test error status did not match the expected status.");
     }
-    const report: CandidateVerificationReport = { catalog: "verified", smoke: discovered.smokeTest ? "passed" : "not_declared", capabilities: broker.coverage() };
+    const report: CandidateVerificationReport = {
+      catalog: "verified",
+      smoke: discovered.smokeTest ? "passed" : "not_declared",
+      capabilities: broker.coverage(),
+      ...(sandboxPresetQualifications === undefined ? {} : { sandboxPresetQualifications }),
+    };
     if (report.capabilities.some((entry) => entry.state === "denied")) throw Object.assign(new LifecycleError("candidate_capability_blocked", "Candidate attempted a denied capability; supply an isolated fixture or fix its declaration."), { verification: report });
     return report;
   } catch (error) {
@@ -152,8 +169,11 @@ async function initialize(): Promise<LifecycleServices> {
   const migrations = new ExtensionDataMigrations(getDb(), (input) => runStorageMigration(runner, input));
   const deliveries = new ExtensionDeliveryQueue(getDb());
   const { configureReleaseRuntime } = await import("./release-process");
+  const { ProviderConnectionStore } = await import("../infrastructure/provider-connections/store");
+  const { ProviderRpcBroker } = await import("../infrastructure/provider-rpc-broker");
   configureReleaseRuntime({
     runner: async () => runner,
+    providerRpcBroker: new ProviderRpcBroker(new ProviderConnectionStore(getDb())),
     dispatchNotification: async (extensionId, method, params) => {
       const { enqueueExtensionNotification } = await import("./delivery-runtime");
       await enqueueExtensionNotification(extensionId, method, params ?? {});
@@ -185,7 +205,12 @@ async function initialize(): Promise<LifecycleServices> {
       revokeApprovals: async (installationId: string, digest?: string) => { await revokeTrustedLocalApprovals(installationId, digest); },
     } } : {}),
     ...authorization,
-    verifyCandidate: (release) => verifyExtensionCandidate(runner, release),
+    verifyCandidate: (release) => verifyExtensionCandidate(runner, release, undefined, undefined, {
+      proveWorkspaceRouting: async (binding) => {
+        const { proveSandboxLocalFallbackDenied } = await import("../runtime/workspaces/host-routing-proof");
+        return proveSandboxLocalFallbackDenied(binding);
+      },
+    }),
     prepareActivation: (installation, previous, release, operation) => migrations.prepare(installation, previous, release, operation),
     abortActivation: (installationId, operation) => migrations.abort(installationId, operation.id, operation.lease?.fence),
     publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest, "artifact") : undefined); },
@@ -232,6 +257,7 @@ export async function publishExtensionGeneration(installation: InstallationRecor
     const rows = releaseRows<{ payload: string }>(result);
     const current: InstallationRecord | undefined = rows[0] ? JSON.parse(rows[0].payload) : undefined;
     if (!current || current.generation !== installation.generation || current.activeReleaseId !== installation.activeReleaseId || current.enabled !== installation.enabled) throw new LifecycleError("generation_superseded", "A newer activation replaced this catalog update.");
+    if (release && installation.enabled) await assertSandboxPresetReleaseQualification(release);
     if (release && installation.enabled && (release.id !== current.activeReleaseId || release.installationId !== current.id || !hasExactReleaseGrants(release.manifest, current.grants))) throw new LifecycleError("grant_mismatch", "Publication requires the exact approved release permission set.");
     if (!release || !installation.enabled) {
       await transaction.update(extensions).set(serializeJsonbFields({ enabled: false, disabledByUser: true, grantedPermissions: {}, updatedAt: new Date() })).where(eq(extensions.id, installation.id));

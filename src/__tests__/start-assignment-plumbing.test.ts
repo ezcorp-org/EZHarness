@@ -86,6 +86,7 @@ const { buildSchemaInstruction } = await import("../runtime/structured-output");
 
 import type { AgentExecutor } from "../runtime/executor";
 import type { EventBus as EventBusType } from "../runtime/events";
+import type { WorkspaceTarget } from "../runtime/workspaces/target";
 import type { AgentEvents, TeamMemberOverrides, TeamToolScope } from "../types";
 import type {
   TaskAssignment,
@@ -105,7 +106,7 @@ type ChildRegistration = { parentRunId: string; childRunId: string };
 
 type RunModeRegistration = { runId: string; mode: { autonomous: boolean; schema: boolean } };
 
-function makeMockExecutor(): {
+function makeMockExecutor(workspaceTarget?: WorkspaceTarget): {
   executor: AgentExecutor;
   calls: StreamChatCall[];
   childRegistrations: ChildRegistration[];
@@ -150,7 +151,12 @@ function makeMockExecutor(): {
     },
   );
   return {
-    executor: { streamChat, registerChildRun, registerRunMode } as unknown as AgentExecutor,
+    executor: {
+      streamChat,
+      registerChildRun,
+      registerRunMode,
+      getWorkspaceTarget: () => workspaceTarget,
+    } as unknown as AgentExecutor,
     calls,
     childRegistrations,
     runModeRegistrations,
@@ -852,6 +858,77 @@ describe("startAssignment lifecycle — run:cancel + streamPromise.catch", () =>
 // cycle), not once outside — auto-continue mints fresh run ids.
 
 describe("startAssignment — parentRunId child registration", () => {
+  test("forwards the exact parent workspace target to every child turn", async () => {
+    const workspaceTarget = {
+      kind: "sandbox",
+      binding: {
+        projectId: "proj-1",
+        workspaceId: "workspace-1",
+        connectionId: "connection-1",
+        providerId: "incus",
+        generation: 7,
+        presetId: "small",
+        releaseDigest: "a".repeat(64),
+        presetDigest: "b".repeat(64),
+        effectiveSettingsDigest: "c".repeat(64),
+      },
+      backend: null,
+    } as const satisfies WorkspaceTarget;
+    const { executor, calls } = makeMockExecutor(workspaceTarget);
+
+    await startAssignment(baseOpts({
+      executor,
+      parentRunId: "parent-workspace-run",
+      reuseSubConversationId: "sub-workspace",
+    }));
+
+    expect(calls[0]?.options.workspaceTarget).toBe(workspaceTarget);
+  });
+
+  test("a forged parent run id cannot replace the explicit host workspace target", async () => {
+    const forgedParentTarget = {
+      kind: "sandbox",
+      binding: {
+        projectId: "other-project",
+        workspaceId: "forged-workspace",
+        connectionId: "forged-connection",
+        providerId: "incus",
+        generation: 8,
+        presetId: "small",
+        releaseDigest: "d".repeat(64),
+        presetDigest: "e".repeat(64),
+        effectiveSettingsDigest: "f".repeat(64),
+      },
+      backend: null,
+    } as const satisfies WorkspaceTarget;
+    const hostTarget = {
+      kind: "sandbox",
+      binding: {
+        projectId: "proj-test",
+        workspaceId: "host-workspace",
+        connectionId: "host-connection",
+        providerId: "incus",
+        generation: 9,
+        presetId: "small",
+        releaseDigest: "a".repeat(64),
+        presetDigest: "b".repeat(64),
+        effectiveSettingsDigest: "c".repeat(64),
+      },
+      backend: null,
+    } as const satisfies WorkspaceTarget;
+    const { executor, calls } = makeMockExecutor(forgedParentTarget);
+
+    await startAssignment(baseOpts({
+      executor,
+      parentRunId: "attacker-selected-run",
+      workspaceTarget: hostTarget,
+      reuseSubConversationId: "sub-host-workspace",
+    }));
+
+    expect(calls[0]?.options.workspaceTarget).toBe(hostTarget);
+    expect(calls[0]?.options.workspaceTarget).not.toBe(forgedParentTarget);
+  });
+
   test("registers the initial run under the parent before streaming", async () => {
     const { executor, calls, childRegistrations } = makeMockExecutor();
     const opts = baseOpts({
