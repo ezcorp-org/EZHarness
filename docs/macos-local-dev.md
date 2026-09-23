@@ -176,7 +176,9 @@ sources there, not on the Mac.
 6. **The service**: install `deploy/extension-runner/extension-runner.service`
    as ezrunner's user unit with `WorkingDirectory=/home/ezrunner/app`,
    `ExecStart=/home/ezrunner/.bun/bin/bun …`, `~/.bun/bin` on its `PATH`, and
-   `Environment=XDG_RUNTIME_DIR=/run/user/2000`. Its `runner.env`:
+   `Environment=XDG_RUNTIME_DIR=/run/user/2000`. Save the unit as
+   `~/.config/systemd/user/extension-runner.service` and its environment as
+   `~/.config/ezharness/runner.env` (both paths are in ezrunner's home):
    ```
    EZ_EXTENSION_RUNNER_SOCKET=/run/ez-extension-runner/runner.sock
    EZ_EXTENSION_RUNNER_TOKEN_FILE=/etc/ezharness/extension-runner-token
@@ -185,6 +187,13 @@ sources there, not on the Mac.
    ```
    `EZ_EXTENSION_APP_UID` is **1000**: rootful Docker does no uid remapping,
    so the peer the gateway sees is the app's own uid.
+   Then, as ezrunner with `XDG_RUNTIME_DIR=/run/user/2000`, load and start the
+   service, and enable it for later VM boots:
+   ```sh
+   systemctl --user daemon-reload
+   systemctl --user enable --now extension-runner.service
+   systemctl --user status extension-runner.service
+   ```
 7. **Verify before touching the app**, as ezrunner in `~/app`:
    `bash scripts/setup-extension-runner-ci.sh --probe` must print
    `Extension runner kernel controls verified`.
