@@ -16,7 +16,7 @@ afterEach(async () => { await rm(root, { recursive: true, force: true }); });
 
 describe("image references", () => {
   test("a Dockerfile yields its ARG image defaults and literal FROM images, not FROM variables", () => {
-    const text = [`ARG BUN_IMAGE=docker.io/oven/bun:1@${DIGEST}`, "ARG OTHER=1", "FROM ${BUN_IMAGE} AS builder", "FROM docker.io/library/debian:12", "RUN true"].join("\n");
+    const text = [`ARG BUN_IMAGE=docker.io/oven/bun:1@${DIGEST}`, "ARG OTHER=1", `FROM \${BUN_IMAGE} AS builder`, "FROM docker.io/library/debian:12", "RUN true"].join("\n");
     expect(dockerfileImages("Dockerfile", text)).toEqual([
       { file: "Dockerfile", line: 1, reference: `docker.io/oven/bun:1@${DIGEST}` },
       { file: "Dockerfile", line: 4, reference: "docker.io/library/debian:12" },
@@ -24,13 +24,13 @@ describe("image references", () => {
   });
 
   test("a Compose template yields every image, unquoted", () => {
-    const text = ["services:", "  a:", `    image: docker.io/x@${DIGEST}`, "  b:", '    image: "${EZCORP_FACTORY_POOL_IMAGE:?}"', "    command: [image]", "  c:", "    image: 'nginx:latest' # comment"].join("\n");
-    expect(composeImages("t.yml", text).map((entry) => [entry.line, entry.reference])).toEqual([[3, `docker.io/x@${DIGEST}`], [5, "${EZCORP_FACTORY_POOL_IMAGE:?}"], [8, "nginx:latest"]]);
+    const text = ["services:", "  a:", `    image: docker.io/x@${DIGEST}`, "  b:", `    image: "\${EZCORP_FACTORY_POOL_IMAGE:?}"`, "    command: [image]", "  c:", "    image: 'nginx:latest' # comment"].join("\n");
+    expect(composeImages("t.yml", text).map((entry) => [entry.line, entry.reference])).toEqual([[3, `docker.io/x@${DIGEST}`], [5, `\${EZCORP_FACTORY_POOL_IMAGE:?}`], [8, "nginx:latest"]]);
   });
 
   test("only a digest pin or a provisioner-rendered installation image passes", () => {
-    const refs = ["docker.io/x@" + DIGEST, "${EZCORP_FACTORY_POOL_IMAGE:?}", "nginx:latest", "docker.io/x@sha256:short", "${OTHER_IMAGE}"].map((reference, line) => ({ file: "f", line, reference }));
-    expect(unpinnedFactoryImages(refs).map((entry) => entry.reference)).toEqual(["nginx:latest", "docker.io/x@sha256:short", "${OTHER_IMAGE}"]);
+    const refs = ["docker.io/x@" + DIGEST, `\${EZCORP_FACTORY_POOL_IMAGE:?}`, "nginx:latest", "docker.io/x@sha256:short", `\${OTHER_IMAGE}`].map((reference, line) => ({ file: "f", line, reference }));
+    expect(unpinnedFactoryImages(refs).map((entry) => entry.reference)).toEqual(["nginx:latest", "docker.io/x@sha256:short", `\${OTHER_IMAGE}`]);
   });
 });
 
