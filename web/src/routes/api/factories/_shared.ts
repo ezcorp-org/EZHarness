@@ -71,6 +71,12 @@ const MUTATION_KINDS = new Set([
   "release.policy.put",
   "release.policy.delete",
   "release.reconcile",
+  // The live console's mutations (W14), answered by the registered console dispatcher.
+  "package.install",
+  "package.trust",
+  "purge.request",
+  "artifact.share",
+  "artifact.unshare",
 ]);
 
 export function readFactoryJson(request: Request): Promise<unknown> {
