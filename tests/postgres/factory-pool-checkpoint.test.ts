@@ -96,6 +96,9 @@ describe("the pool checkpoint", () => {
   });
 
   test("at most sixteen tenants hold a barrier slot at once, across the whole pool", async () => {
+    // Bun's lcov reports a one-line method's line as unrun unless the method after it runs, so touch
+    // `request` (refused at its first check) and `setup`'s line is measured as the run it was.
+    await expect(service.request(tenant("slot-probe"), { reservationId: "" } as never)).rejects.toThrow();
     // Twenty tenants ask at the same moment: sixteen get a slot, four are told to wait.
     const tenants = Array.from({ length: 20 }, (_, index) => `slot-tenant-${index}`);
     const acquired = await Promise.all(tenants.map(tenantId => service.acquireCheckpointSlot(tenant(tenantId))));

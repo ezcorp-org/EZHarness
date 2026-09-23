@@ -24,6 +24,7 @@ import { factoryArchiveRoot, factoryArchiveSegment, S3FactoryReleaseArchive, wri
 import { createFactoryReleaseWorld, digest, type FactoryReleaseWorld } from "../../src/__tests__/helpers/factory-release-world";
 import { FactoryRecoveryDatabases, FactorySigningSupervisor, launchFactoryAttempt, type FactoryOpenDatabase } from "./helpers/factory-recovery-databases";
 import { factoryRecoveryStorage } from "./helpers/factory-recovery-storage";
+import { composeFactoryInstallationRestore } from "../../src/factory/installation-startup";
 import { runFactoryRestoreCommand } from "../../src/factory/restore-command";
 import { FACTORY_STARTUP_CONFIG_SCHEMA } from "../../src/factory/startup-config";
 
@@ -106,8 +107,8 @@ async function restoredCopy(label: string, from = backup): Promise<FactoryOpenDa
   return databases.open(await databases.copy(from, label));
 }
 
-function finding(report: FactoryRestoreReport, kind: string, subjectId: string) {
-  return report.findings.find(item => item.subjectKind === kind && item.subjectId === subjectId);
+function finding(report: FactoryRestoreReport, kind: string, subjectId: string, reason?: string) {
+  return report.findings.find(item => item.subjectKind === kind && item.subjectId === subjectId && (reason === undefined || item.reason === reason));
 }
 
 beforeAll(async () => {
@@ -304,7 +305,7 @@ describe("restore into a new execution epoch", () => {
       await restored.db.execute(sql`UPDATE factory_audit_batches SET payload = '{"step":"tampered"}' WHERE tenant_id = ${tenantId} AND run_id = 'run-audit' AND source_sequence = 2`);
       const restore = restoreFor(restored.db);
       const report = await restore.begin({ restoreId: "restore-audit", mode: "tenant" });
-      expect(finding(report, "run", canonicalJson([projectId, "run-audit"]))).toMatchObject({ disposition: "blocked", reason: "audit_unrecoverable", detail: { code: "factory_audit_corrupt" } });
+      expect(finding(report, "run", canonicalJson([projectId, "run-audit"]), "audit_unrecoverable")).toMatchObject({ disposition: "blocked", detail: { code: "factory_audit_corrupt" } });
       expect(report.blockedRuns).toEqual([canonicalJson([projectId, "run-audit"])]);
       expect(report.blockedChecks).toEqual([]);
       await restore.sign("restore-audit", admin, factoryRestoreReportDigest(report));
@@ -416,7 +417,13 @@ describe("restore into a new execution epoch", () => {
   test("a release identity whose archived intent or receipt cannot be read blocks the tenant instead of vanishing", async () => {
     // Its own archive sub-prefix, so the corrupt objects touch no other restore in this suite.
     const options = { ...storage.archiveOptions, prefix: `${storage.archiveOptions.prefix}/unreadable` };
-    const archive = { archive: new S3FactoryRecoveryArchive(options), releaseArchive: new S3FactoryReleaseArchive(options) };
+    // The checkpoint objects stay in the suite's archive; only the release catalog comes from the sub-prefix.
+    const unreadable = { archive: new S3FactoryRecoveryArchive(options), releaseArchive: new S3FactoryReleaseArchive(options) };
+    const root = `${factoryArchiveRoot(options.prefix)}/`;
+    const archive = {
+      archive: Object.assign(Object.create(storage.archive) as typeof storage.archive, { operations: (tenant: string, signal?: AbortSignal) => unreadable.archive.operations(tenant, signal) }),
+      releaseArchive: { read: (reference: Parameters<typeof storage.releaseArchive.read>[0]) => (reference.key.startsWith(root) ? unreadable.releaseArchive : storage.releaseArchive).read(reference) } as typeof storage.releaseArchive,
+    };
     const operation = (operationId: string, kind: string) => `${factoryArchiveRoot(options.prefix)}/${factoryArchiveSegment(tenantId)}/${factoryArchiveSegment(operationId)}/${kind}`;
     const text = (value: string) => new TextEncoder().encode(value);
     // A corrupt intent, a receipt with no intent at all, and a readable intent whose only receipt is corrupt.
@@ -454,8 +461,8 @@ describe("restore into a new execution epoch", () => {
         gateway: { hostname: "127.0.0.1", port: 8443, tls }, privateService: { hostname: "127.0.0.1", port: 8444, certificateIdentity: "factory-private", tls },
         pool: { baseUrl: "https://127.0.0.1:1", serviceTokenPath: join(directory, "absent-token"), tls },
         storage: {
-          ordinary: storageEntry("ordinary", storage.ordinaryEndpoint, storage.ordinaryPrefix, await credentials("ordinary.json", storage.ordinaryCredentials)),
-          archive: storageEntry("archive", storage.archiveOptions.endpoint, storage.archiveOptions.prefix, await credentials("archive.json", storage.archiveOptions.credentials)),
+          ordinary: storageEntry("ordinary", storage.ordinaryEndpoint, "ordinary", await credentials("ordinary.json", storage.ordinaryCredentials)),
+          archive: storageEntry("archive", storage.archiveOptions.endpoint, "archive", await credentials("archive.json", storage.archiveOptions.credentials)),
         },
         keys: {
           masterKeyFilePath: await file("master.key", master.bytes), masterKeyId: master.id, grantableRoots: ["/srv/project"],
@@ -465,7 +472,12 @@ describe("restore into a new execution epoch", () => {
       }));
       const fencePath = await file("fence.json", JSON.stringify({ restoreId: "restore-command", ingress: "old ingress route withdrawn", credentials: "old service credentials revoked" }));
       const lines: string[] = [];
-      const io = { env: {}, out: (line: string) => lines.push(line), database: async () => ({ db: restored.db, close: async () => {} }) };
+      // The startup document allows a one-segment prefix; the shared test store grants this process only its
+      // `ordinary/<run>` and `archive/<run>` prefixes. The real composition runs with those two substituted.
+      const compose: typeof composeFactoryInstallationRestore = input => composeFactoryInstallationRestore({ ...input, config: { ...input.config, storage: {
+        ordinary: { ...input.config.storage.ordinary, prefix: storage.ordinaryPrefix }, archive: { ...input.config.storage.archive, prefix: storage.archiveOptions.prefix },
+      } } });
+      const io = { env: {}, out: (line: string) => lines.push(line), database: async () => ({ db: restored.db, close: async () => {} }), compose };
       // The pool and the host transport are unreachable here, so their checks block; everything else verifies.
       expect(await runFactoryRestoreCommand(["begin", "--restore-id", "restore-command", "--fence", fencePath, "--config", config], io)).toBe(2);
       const begun = JSON.parse(lines.at(-1)!) as { reportDigest: string; blockedChecks: string[]; uncomposed: string[] };
