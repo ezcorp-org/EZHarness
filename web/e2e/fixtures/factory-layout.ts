@@ -26,6 +26,13 @@ export async function factoryLayoutOverflow(page: Page): Promise<string[]> {
 			if (box.width === 0 || box.height === 0 || box.right <= limit + 1 || inScroller(element)) continue;
 			out.push(`${element.tagName.toLowerCase()} "${(element.textContent ?? "").trim().slice(0, 40)}" ends at ${Math.round(box.right)}px`);
 		}
+		// Every view tab shows its whole label inside the viewport, so no view hides behind a scroll with no cue.
+		for (const tab of root.querySelectorAll('[role="tab"]')) {
+			const box = tab.getBoundingClientRect();
+			const label = (tab.textContent ?? "").trim();
+			if (box.left < -1 || box.right > limit + 1) out.push(`tab "${label}" is outside the viewport`);
+			if (tab.scrollWidth > tab.clientWidth + 1) out.push(`tab "${label}" is clipped`);
+		}
 		return out;
 	});
 	return overflow > 0 ? [`the page scrolls sideways by ${overflow}px`, ...clipped] : clipped;

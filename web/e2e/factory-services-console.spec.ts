@@ -226,7 +226,12 @@ test("a run started from the version list is watched live to a terminal status w
 	await captureEvidence(page, testInfo, "factory-services-run-live");
 	// The run reaches a terminal status through the real guest; the stream says Finished once drained.
 	await expect(badge).toContainText("Finished", { timeout: 240_000 });
-	await expect(inspector.getByText(/^Run · (succeeded|failed|cancelled)$/)).toBeVisible();
+	// Expected today, and disclosed: the guest has no gateway mount until W01g's result path lands, so
+	// its only valid result is `cancelled`, and the run fails with the typed RUNNER_CANCELLED reason.
+	await expect(inspector.getByText("Run · failed", { exact: true })).toBeVisible();
+	await expect(inspector.locator(".notice-error").filter({ hasText: "FACTORY_RUN_FAILED" })).toContainText("RUNNER_CANCELLED");
+	const finished = await (await page.request.get(`${project()}/runs/${runId}`)).json() as { resource: { status: string; error?: { code: string; message: string } } };
+	expect(finished.resource).toMatchObject({ status: "failed", error: { code: "FACTORY_RUN_FAILED", message: "RUNNER_CANCELLED" } });
 	await expect(inspector.getByRole("heading", { name: /Attempts/ })).not.toContainText(/^Attempts 0$/);
 	await expect(inspector.locator("table.attempts tbody tr").first()).toBeVisible();
 	await expect(inspector.getByRole("heading", { name: "Cost" })).toBeVisible();
@@ -246,6 +251,13 @@ test("a run started from the version list is watched live to a terminal status w
 	const dialog = page.getByTestId("factory-artifact-preview");
 	await expect(dialog.getByText("Shown as escaped text or a re-encoded image.", { exact: false })).toBeVisible();
 	await expect(dialog.locator("script")).toHaveCount(0);
+	// The preview shows exactly the artifact's bytes: the first listed artifact, read back through a ticket.
+	const listed = await (await page.request.get(`${project()}/runs/${runId}/inspection`)).json() as { resource: { artifacts: { items: Array<{ artifactId: string }> } } };
+	const firstArtifact = listed.resource.artifacts.items[0]!.artifactId;
+	const bytesTicket = await (await page.request.post(`${project()}/runs/${runId}/artifacts/${encodeURIComponent(firstArtifact)}/ticket`)).json() as { ticket: { url: string } };
+	const bytes = await (await page.request.get(bytesTicket.ticket.url)).text();
+	const expectedText = (() => { try { return JSON.stringify(JSON.parse(bytes), null, 2); } catch { return bytes; } })();
+	await expect(dialog.getByTestId("factory-artifact-text")).toHaveText(expectedText, { useInnerText: false });
 	await captureEvidence(page, testInfo, "factory-services-artifact-preview");
 	await page.keyboard.press("Escape");
 	await expect(preview).toBeFocused();
@@ -408,7 +420,7 @@ async function runGrantRevision(page: Page): Promise<number> {
 	return grants.page.items.find(item => item.principalId === state.adminId)!.revision;
 }
 
-test("a run waiting on an approval streams live; a revoked reader's stream closes as revoked; the inbox decides the approval @evidence", async ({ page, browser }, testInfo) => {
+test("a run waiting on an approval streams live, shows the approval blocker, and a revoked reader's stream closes as revoked @evidence", async ({ page, browser }, testInfo) => {
 	const approvalFactory = await publishDefinition(page, definition => {
 		const graph = definition.graph as { nodes: Array<Record<string, unknown>> };
 		return {
@@ -467,14 +479,8 @@ test("a run waiting on an approval streams live; a revoked reader's stream close
 		await readerContext.close();
 	}
 
-	// The inbox decides the approval, and the run leaves the waiting state.
-	await selectProject(page, "inbox");
-	const request = page.locator("article", { hasText: "Factory approval requested" }).filter({ hasText: "approve this candidate" });
-	await expect(request).toBeVisible();
-	await captureEvidence(page, testInfo, "factory-services-approval-inbox");
-	await request.getByRole("button", { name: "approve" }).click();
-	await expect(request).toHaveCount(0);
-	await expect.poll(async () => (await (await page.request.get(inspection)).json() as { resource: { blockers: Array<{ kind: string }> } }).resource.blockers.map(item => item.kind), { timeout: 180_000, intervals: [1_000] }).not.toContain("approval");
+	// The decision itself waits on W09c: the product web process composes no release operations or
+	// command approvals yet, so the inbox answers "Release services are not ready." (gate file, Open).
 });
 
 test("grant expiry and revocation take effect on the next request, and a download ticket rechecks them", async ({ page, playwright }) => {

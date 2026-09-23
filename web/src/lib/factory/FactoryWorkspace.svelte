@@ -129,8 +129,13 @@
 	@media (max-width: 700px) {
 		.factory-masthead { align-items: stretch; flex-direction: column; gap: 16px; padding: 20px 16px; }
 		.project-control { min-width: 0; }
-		.tab-rail { padding: 0 8px; }
-		.tab-rail button { padding: 0 11px; }
+		/* Every view stays visible: the four tabs share the width instead of scrolling one out of sight. */
+		.tab-rail { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow-x: visible; gap: 0; padding: 0 4px; }
+		.tab-rail button { min-width: 0; justify-content: center; gap: 4px; padding: 0 2px; font-size: 12px; }
+	}
+	@media (max-width: 480px) {
+		/* The words carry the meaning; at this width the icons would push them out of their column. */
+		.tab-rail button :global(svg) { display: none; }
 	}
 	@media (prefers-reduced-motion: reduce) {
 		* { scroll-behavior: auto !important; transition-duration: 0s !important; animation-duration: 0s !important; }
