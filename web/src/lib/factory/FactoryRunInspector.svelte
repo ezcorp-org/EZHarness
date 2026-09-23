@@ -563,7 +563,10 @@
 		.run-list { border-right: 0; border-bottom: 1px solid var(--color-border); }
 		.runs { display: flex; max-height: none; overflow-x: auto; }
 		.runs li { flex: 0 0 min(320px, 86%); }
+		/* The next card peeks in to show the strip scrolls; a lone run has nothing to peek at. */
+		.runs li:only-child { flex-basis: 100%; }
 		.run-row { border-right: 1px solid var(--color-border); }
+		.runs li:only-child .run-row { border-right: 0; }
 	}
 	@media (max-width: 700px) {
 		.detail-heading { padding: 14px; }
