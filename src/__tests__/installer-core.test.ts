@@ -40,6 +40,8 @@ import { join } from "node:path";
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const SCRIPT = join(REPO_ROOT, "deploy", "installer", "ezcorp");
 const COMPOSE_INSTALLER = join(REPO_ROOT, "deploy", "installer", "compose.installer.yml");
+const COMPOSE_ISOLATED = join(REPO_ROOT, "deploy", "installer", "compose.isolated.yml");
+const COMPOSE_TRUSTED_LOCAL = join(REPO_ROOT, "deploy", "installer", "compose.trusted-local.yml");
 const REAL_SED = Bun.which("sed") ?? "";
 if (!REAL_SED) throw new Error("Installer CLI tests require sed");
 const REAL_OPENSSL = Bun.which("openssl") ?? "";
@@ -83,6 +85,7 @@ stub(
     `    [ "$count" = "\${EZCORP_TEST_FAIL_STOP_NUMBER:-0}" ] && exit 1 ;;`,
     '  *" up -d "*)',
     `    [ "\${EZCORP_TEST_FAIL_UP:-0}" = 1 ] && exit 1`,
+    `    [ "\${EZCORP_TEST_FAIL_UP_MODE:-}" = "$(sed -n 's/^EZCORP_INSTALL_RUNNER_MODE=//p' "$EZCORP_CONFIG_DIR/.env")" ] && exit 1`,
     `    if [ "\${EZCORP_TEST_MUTATE_UPDATE:-0}" = 1 ] && ! grep -q "^EZCORP_IMAGE=ezcorp:test$" "$EZCORP_CONFIG_DIR/.env"; then`,
     '      echo migrated > "$EZCORP_DATA_ROOT/data/sentinel"',
     '    fi ;;',
@@ -708,13 +711,18 @@ describe("compose.installer.yml — the contracts it must honor", () => {
     expect(text).toContain("EZCORP_SECRETS_DIR: /app/data");
   });
 
+  // The isolated wiring moved from compose.installer.yml into its own overlay
+  // when trusted-local became a choice, so the two modes cannot both be wired
+  // at once. This is the same contract as before, pointed at where it now
+  // lives: the startup check stays in the base (it is mode-aware), and the
+  // connection stays byte-for-byte equal to production's compose.runner.yml.
   test("keeps the isolated runner connection and startup check used by production", async () => {
-    const compose = Bun.YAML.parse(await Bun.file(COMPOSE_INSTALLER).text()) as {
-      services: { app: { entrypoint: string[]; environment: Record<string, string>; group_add: string[]; volumes: unknown[] } };
-    };
-    const runner = Bun.YAML.parse(await Bun.file(join(REPO_ROOT, "deploy/extension-runner/compose.runner.yml")).text()) as typeof compose;
-    const base = Bun.YAML.parse(await Bun.file(join(REPO_ROOT, "deploy/extension-runner/compose.app.yml")).text()) as typeof compose;
-    expect(compose.services.app.entrypoint).toEqual(base.services.app.entrypoint);
+    type AppService = { services: { app: { entrypoint: string[]; environment: Record<string, string>; group_add: string[]; volumes: unknown[] } } };
+    const baseFile = Bun.YAML.parse(await Bun.file(COMPOSE_INSTALLER).text()) as AppService;
+    const compose = Bun.YAML.parse(await Bun.file(COMPOSE_ISOLATED).text()) as AppService;
+    const runner = Bun.YAML.parse(await Bun.file(join(REPO_ROOT, "deploy/extension-runner/compose.runner.yml")).text()) as AppService;
+    const base = Bun.YAML.parse(await Bun.file(join(REPO_ROOT, "deploy/extension-runner/compose.app.yml")).text()) as AppService;
+    expect(baseFile.services.app.entrypoint).toEqual(base.services.app.entrypoint);
     for (const [key, value] of Object.entries(runner.services.app.environment)) {
       expect(compose.services.app.environment[key]).toBe(value);
     }
@@ -724,5 +732,278 @@ describe("compose.installer.yml — the contracts it must honor", () => {
       { type: "bind", source: `\${EZ_RUNNER_SOCKET_DIR}`, target: "/run/ez-extension-runner", read_only: true, bind: { create_host_path: false } },
       { type: "bind", source: `\${EZ_RUNNER_TOKEN_FILE}`, target: "/run/secrets/extension-runner-token", read_only: true, bind: { create_host_path: false } },
     ]);
+  });
+});
+
+// ── trusted-local: decision C, explicit terminal consent, never a fallback ──
+//
+// A normal pipe cannot answer the prompt. These tests use util-linux `script`
+// to allocate a pseudo-terminal, which also proves that terminal presence is
+// not proof of a person. Per-release approval remains the execution guard.
+
+/** No isolated runner configured at all — the only state that may offer consent. */
+const NO_RUNNER = { EZ_RUNNER_SOCKET_DIR: undefined, EZ_RUNNER_TOKEN_FILE: undefined, EZ_RUNNER_GROUP: undefined };
+
+function runTty(args: string[], answer: string, extraEnv: Record<string, string | undefined> = {}): { exitCode: number; output: string; log: string } {
+  const logPath = join(caseDir, "invocations.log");
+  writeFileSync(logPath, "");
+  const quoted = ["bash", SCRIPT, ...args].map((part) => `'${part.replaceAll("'", "'\\''")}'`).join(" ");
+  const proc = Bun.spawnSync({
+    // -e: exit with the child's status. -q: no banner. /dev/null: no typescript file.
+    cmd: ["script", "-q", "-e", "-c", quoted, "/dev/null"],
+    env: cliEnv(extraEnv),
+    stdin: new TextEncoder().encode(`${answer}\n`),
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  return {
+    exitCode: proc.exitCode,
+    output: proc.stdout.toString() + proc.stderr.toString(),
+    log: existsSync(logPath) ? readFileSync(logPath, "utf8") : "",
+  };
+}
+
+function installTrustedLocal(): void {
+  expect(runTty(["install"], "I understand", NO_RUNNER).exitCode).toBe(0);
+}
+
+describe("trusted-local — explicit terminal consent and mode changes", () => {
+  test("an explicit mode change preserves an existing install and its secrets", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    const before = envFile();
+    writeFileSync(join(dataRoot, "data", "sentinel"), "keep me");
+
+    const changed = runTty(["runner-mode", "trusted-local"], "I understand");
+    expect(changed.exitCode).toBe(0);
+    expect(changed.output).toContain("Type I understand");
+    const composeCalls = changed.log.split("\n").filter((line) => line.startsWith("compose "));
+    expect(composeCalls.find((line) => line.includes(" stop"))).toContain("compose.isolated.yml");
+    expect(composeCalls.find((line) => line.includes(" up -d"))).toContain("compose.trusted-local.yml");
+    expect(envFile()).toContain("EZCORP_INSTALL_RUNNER_MODE=trusted-local");
+    expect(envFile()).not.toMatch(/^EZ_RUNNER_/m);
+    expect(statSync(join(configDir, ".env")).mode & 0o777).toBe(0o600);
+    expect(envFile().match(/^EZCORP_ENCRYPTION_SECRET=.*$/m)?.[0]).toBe(
+      before.match(/^EZCORP_ENCRYPTION_SECRET=.*$/m)?.[0],
+    );
+    expect(readFileSync(join(dataRoot, "data", "sentinel"), "utf8")).toBe("keep me");
+    expect(run(["status"], NO_RUNNER).stdout).toContain("extensions:  trusted-local");
+  });
+
+  test("switches back to isolated mode only with complete runner settings", () => {
+    installTrustedLocal();
+    const before = envFile();
+    const changed = run(["runner-mode", "isolated"]);
+
+    expect(changed.exitCode).toBe(0);
+    const composeCalls = changed.log.split("\n").filter((line) => line.startsWith("compose "));
+    expect(composeCalls.find((line) => line.includes(" stop"))).toContain("compose.trusted-local.yml");
+    expect(composeCalls.find((line) => line.includes(" up -d"))).toContain("compose.isolated.yml");
+    expect(envFile()).toContain("EZCORP_INSTALL_RUNNER_MODE=isolated");
+    expect(envFile()).toContain(`EZ_RUNNER_SOCKET_DIR=${runnerDir}`);
+    expect(envFile()).not.toContain("EZCORP_EXTENSIONS_UNSANDBOXED_ACK");
+    expect(envFile().match(/^EZCORP_ENCRYPTION_SECRET=.*$/m)?.[0]).toBe(
+      before.match(/^EZCORP_ENCRYPTION_SECRET=.*$/m)?.[0],
+    );
+    expect(run(["status"]).stdout).toContain("extensions:  isolated runner");
+  });
+
+  test("recovers a lost acknowledgement without replacing the install", () => {
+    installTrustedLocal();
+    const originalSecret = envFile().match(/^EZCORP_ENCRYPTION_SECRET=.*$/m)?.[0];
+    writeFileSync(join(configDir, ".env"), envFile().replace(/^EZCORP_EXTENSIONS_UNSANDBOXED_ACK=.*\n/m, ""));
+    expect(run(["start"], NO_RUNNER).exitCode).not.toBe(0);
+
+    const fromPipe = run(["runner-mode", "trusted-local"], NO_RUNNER, "I understand\n");
+    expect(fromPipe.exitCode).not.toBe(0);
+    expect(fromPipe.stderr).toContain("terminal");
+
+    const repaired = runTty(["runner-mode", "trusted-local"], "I understand", NO_RUNNER);
+    expect(repaired.exitCode).toBe(0);
+    expect(envFile()).toContain("EZCORP_EXTENSIONS_UNSANDBOXED_ACK=I-understand-extensions-run-with-the-apps-full-powers");
+    expect(envFile().match(/^EZCORP_ENCRYPTION_SECRET=.*$/m)?.[0]).toBe(originalSecret);
+    expect(run(["start"], NO_RUNNER).exitCode).toBe(0);
+  });
+
+  test("refused consent leaves the current mode running", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    const before = envFile();
+    const refused = runTty(["runner-mode", "trusted-local"], "no", NO_RUNNER);
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.log).not.toContain("compose stop");
+    expect(envFile()).toBe(before);
+  });
+
+  test("partial isolation settings cannot switch a trusted-local install", () => {
+    installTrustedLocal();
+    const trustedEnv = envFile();
+    const partial = run(["runner-mode", "isolated"], { ...NO_RUNNER, EZ_RUNNER_SOCKET_DIR: runnerDir });
+    expect(partial.exitCode).not.toBe(0);
+    expect(partial.stderr).toContain("EZ_RUNNER_TOKEN_FILE is required");
+    expect(partial.log).not.toContain("compose stop");
+    expect(envFile()).toBe(trustedEnv);
+  });
+
+  test("a failed new-mode start restores the prior mode and all saved settings", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    const before = envFile();
+    const changed = runTty(["runner-mode", "trusted-local"], "I understand", {
+      ...NO_RUNNER,
+      EZCORP_TEST_FAIL_UP_MODE: "trusted-local",
+    });
+
+    expect(changed.exitCode).not.toBe(0);
+    expect(changed.output).toContain("isolated mode was restored");
+    expect(changed.log).toContain("compose.trusted-local.yml");
+    expect(changed.log.split("\n").filter((line) => line.startsWith("compose ") && line.includes("up -d"))).toHaveLength(2);
+    expect(envFile()).toBe(before);
+    expect(readdirSync(configDir).filter((name) => name.startsWith(".env.runner-"))).toHaveLength(0);
+  });
+
+  test("a failed return to isolation restores trusted-local and its acknowledgement", () => {
+    installTrustedLocal();
+    const before = envFile();
+    const changed = run(["runner-mode", "isolated"], { EZCORP_TEST_FAIL_UP_MODE: "isolated" });
+
+    expect(changed.exitCode).not.toBe(0);
+    expect(changed.stderr).toContain("trusted-local mode was restored");
+    expect(envFile()).toBe(before);
+    expect(envFile()).toContain("EZCORP_EXTENSIONS_UNSANDBOXED_ACK=");
+    expect(envFile()).not.toMatch(/^EZ_RUNNER_/m);
+    expect(run(["start"], NO_RUNNER).exitCode).toBe(0);
+  });
+
+  test("a failed stop leaves the old mode and its config untouched", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    const before = envFile();
+    const changed = runTty(["runner-mode", "trusted-local"], "I understand", {
+      ...NO_RUNNER,
+      EZCORP_TEST_FAIL_STOP_NUMBER: "1",
+    });
+
+    expect(changed.exitCode).not.toBe(0);
+    expect(changed.output).toContain("could not stop EZCorp");
+    expect(changed.log).not.toContain("up -d");
+    expect(envFile()).toBe(before);
+  });
+
+  test("without a terminal it refuses, names both ways forward, and creates nothing", () => {
+    const result = run(["install"], NO_RUNNER, "I understand\n");
+    expect(result.exitCode).not.toBe(0);
+    // Piping the answer in must not work — that is the point of the check.
+    expect(result.stderr).toContain("terminal");
+    expect(result.stderr).toContain("deploy/extension-runner/README.md");
+    expect(existsSync(join(configDir, ".env"))).toBe(false);
+    expect(existsSync(dataRoot)).toBe(false);
+    expect(result.log).not.toContain("compose ");
+  });
+
+  // Every non-empty proper subset of the three runner variables. Checking only
+  // one of them let a mutation that dropped the other two checks survive, so
+  // each is exercised as the lone survivor and as the lone gap.
+  const RUNNER_VALUES = (): Record<string, string> => ({
+    EZ_RUNNER_SOCKET_DIR: runnerDir,
+    EZ_RUNNER_TOKEN_FILE: runnerToken,
+    EZ_RUNNER_GROUP: "1",
+  });
+  const PARTIALS: string[][] = [
+    ["EZ_RUNNER_SOCKET_DIR"],
+    ["EZ_RUNNER_TOKEN_FILE"],
+    ["EZ_RUNNER_GROUP"],
+    ["EZ_RUNNER_SOCKET_DIR", "EZ_RUNNER_TOKEN_FILE"],
+    ["EZ_RUNNER_SOCKET_DIR", "EZ_RUNNER_GROUP"],
+    ["EZ_RUNNER_TOKEN_FILE", "EZ_RUNNER_GROUP"],
+  ];
+  test.each(PARTIALS)("a half-configured isolated runner (%s…) is an error, never an invitation to downgrade", (...present) => {
+    // Someone setting up isolation who made a mistake must not be walked into
+    // the unsandboxed mode — even at a terminal, even typing the answer.
+    const values = RUNNER_VALUES();
+    const env: Record<string, string | undefined> = { ...NO_RUNNER };
+    for (const key of present) env[key] = values[key];
+    const result = runTty(["install"], "I understand", env);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.output).not.toContain("Type I understand");
+    expect(existsSync(join(configDir, ".env"))).toBe(false);
+    expect(result.log).not.toContain("compose ");
+  });
+
+  test("any other answer stops the install with nothing written", () => {
+    for (const answer of ["yes", "i understand", "I understand.", ""]) {
+      const result = runTty(["install"], answer, NO_RUNNER);
+      expect(result.exitCode, answer).not.toBe(0);
+      expect(existsSync(join(configDir, ".env")), answer).toBe(false);
+      expect(result.log, answer).not.toContain("compose ");
+    }
+  });
+
+  test("the typed answer records the mode, the app's sentence, and no runner paths", () => {
+    const result = runTty(["install"], "I understand", NO_RUNNER);
+    expect(result.exitCode).toBe(0);
+    // The explanation is shown before the question, not after.
+    expect(result.output.indexOf("None of the seven sandbox controls apply")).toBeLessThan(
+      result.output.indexOf("Type I understand"),
+    );
+    const env = envFile();
+    expect(env).toContain("EZCORP_INSTALL_RUNNER_MODE=trusted-local");
+    expect(env).toContain("EZCORP_EXTENSIONS_UNSANDBOXED_ACK=I-understand-extensions-run-with-the-apps-full-powers");
+    // The app refuses to boot with trusted-local and an isolated socket both set.
+    expect(env).not.toMatch(/^EZ_RUNNER_/m);
+    expect(result.log).toContain("compose.trusted-local.yml");
+    expect(result.log).not.toContain("compose.isolated.yml");
+  });
+
+  test("later starts keep the recorded mode and need no runner or terminal", () => {
+    installTrustedLocal();
+    const result = run(["start"], NO_RUNNER);
+    expect(result.exitCode).toBe(0);
+    expect(result.log).toContain("compose.trusted-local.yml");
+    expect(result.log).not.toContain("compose.isolated.yml");
+  });
+
+  test("a recorded mode without its acknowledgement refuses to start", () => {
+    installTrustedLocal();
+    writeFileSync(join(configDir, ".env"), envFile().replace(/^EZCORP_EXTENSIONS_UNSANDBOXED_ACK=.*\n/m, ""));
+    const result = run(["start"], NO_RUNNER);
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("acknowledgement");
+    expect(result.log).not.toContain("up -d");
+  });
+
+  test("an isolated install layers the isolated overlay and never the unsandboxed one", () => {
+    const result = run(["install"]);
+    expect(result.exitCode).toBe(0);
+    expect(envFile()).toContain("EZCORP_INSTALL_RUNNER_MODE=isolated");
+    expect(envFile()).not.toContain("EZCORP_EXTENSIONS_UNSANDBOXED_ACK");
+    expect(result.log).toContain("compose.isolated.yml");
+    expect(result.log).not.toContain("compose.trusted-local.yml");
+  });
+});
+
+describe("compose.trusted-local.yml — held to the app and to production", () => {
+  test("the installer writes exactly the sentence the app checks for", async () => {
+    const script = await Bun.file(SCRIPT).text();
+    const { UNSANDBOXED_ACK_SENTENCE } = await import("../extensions/runner-mode");
+    expect(script).toContain(`UNSANDBOXED_ACK="${UNSANDBOXED_ACK_SENTENCE}"`);
+  });
+
+  test("mirrors production's trusted-local connection", async () => {
+    type AppService = { services: { app: { user?: string; environment: Record<string, string> } } };
+    const installer = Bun.YAML.parse(await Bun.file(COMPOSE_TRUSTED_LOCAL).text()) as AppService;
+    const production = Bun.YAML.parse(
+      await Bun.file(join(REPO_ROOT, "deploy/extension-runner/compose.trusted-local.yml")).text(),
+    ) as AppService;
+    expect(installer.services.app.user).toBe(production.services.app.user);
+    expect(installer.services.app.environment.EZCORP_EXTENSION_RUNNER).toBe(
+      production.services.app.environment.EZCORP_EXTENSION_RUNNER,
+    );
+    expect(Object.keys(installer.services.app.environment).sort()).toEqual(
+      Object.keys(production.services.app.environment).sort(),
+    );
+  });
+
+  test("carries no isolated-runner wiring, which the app refuses alongside it", async () => {
+    const text = await Bun.file(COMPOSE_TRUSTED_LOCAL).text();
+    const yaml = text.split("\n").filter((line) => !line.trimStart().startsWith("#")).join("\n");
+    expect(yaml).not.toContain("EZ_RUNNER_");
+    expect(yaml).not.toContain("EZCORP_EXTENSION_RUNNER_SOCKET");
   });
 });
