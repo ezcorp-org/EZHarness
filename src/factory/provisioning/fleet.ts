@@ -244,12 +244,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   });
   const composed = provisioner;
   await composed.setup();
-  upgrades = new FactoryFleetUpgrades(upgradeSql, new FactoryComposeUpgradeTarget((installation) => deployment.bundle(installation), composeTarget, fleetHost), async (tenantId) => {
-    const record = await composed.ledger.installation(tenantId);
-    if (!record) throw new FactoryProvisioningError("provisioning_unknown_tenant", `No installation is recorded for ${tenantId}.`);
-    const { raw: _raw, phase: _phase, planLimits: _limits, membershipRefs: _refs, ...context } = record;
-    return context;
-  });
+  upgrades = new FactoryFleetUpgrades(upgradeSql, new FactoryComposeUpgradeTarget((installation) => deployment.bundle(installation), composeTarget, fleetHost), (tenantId) => composed.installation(tenantId));
   await upgrades.setup();
   await upgrades.register(factoryFleetDefaultBuild(settings));
   const fleetUpgrades = upgrades;

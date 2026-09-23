@@ -151,9 +151,20 @@ export class LocalFactoryProvisioner {
     });
   }
 
-  private async summary(tenantId: string): Promise<LocalInstallation> {
+  /** The recorded installation, or the named refusal for a tenant nothing was recorded for. */
+  private async recorded(tenantId: string): Promise<FactoryInstallationRecord> {
     const record = await this.ledger.installation(tenantId);
     if (!record) throw new FactoryProvisioningError("provisioning_unknown_tenant", `No installation is recorded for ${tenantId}.`);
+    return record;
+  }
+
+  /** One installation's context, as every driver sees it. */
+  async installation(tenantId: string): Promise<FactoryInstallationContext> {
+    return this.context(await this.recorded(tenantId));
+  }
+
+  private async summary(tenantId: string): Promise<LocalInstallation> {
+    const record = await this.recorded(tenantId);
     const steps = await this.ledger.steps(tenantId);
     return Object.freeze({
       tenantId: record.tenantId, installationId: record.installationId, hostname: record.hostname, phase: record.phase,
@@ -257,8 +268,7 @@ export class LocalFactoryProvisioner {
    */
   async observeBootstrap(tenantId: string, observer: FactoryBootstrapObserver, who?: FactoryOperationActor): Promise<LocalInstallation> {
     return this.ledger.locked(tenantId, async () => {
-      const record = await this.ledger.installation(tenantId);
-      if (!record) throw new FactoryProvisioningError("provisioning_unknown_tenant", `No installation is recorded for ${tenantId}.`);
+      const record = await this.recorded(tenantId);
       if (record.phase === "bootstrap_complete") return this.summary(tenantId);
       if (record.phase !== "invitation_issued") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Bootstrap cannot be observed while ${tenantId} is ${record.phase}.`);
       await this.attribute(tenantId, "observe", who);
@@ -323,8 +333,7 @@ export class LocalFactoryProvisioner {
    */
   async teardown(tenantId: string, input: { readonly reason: string } & FactoryOperationActor): Promise<FactoryTeardownOutcome> {
     return this.ledger.locked(tenantId, async () => {
-      const record = await this.ledger.installation(tenantId);
-      if (!record) throw new FactoryProvisioningError("provisioning_unknown_tenant", `No installation is recorded for ${tenantId}.`);
+      const record = await this.recorded(tenantId);
       if (record.phase === "torn_down" || record.phase === "purged") return { installation: await this.summary(tenantId), residues: [] };
       await this.attribute(tenantId, "teardown", input);
       await this.ledger.setPhase(tenantId, "tearing_down", { reason: input.reason.slice(0, 256) });

@@ -851,15 +851,8 @@ describe("fleet composition", () => {
       const counted: string[] = [];
       await fleet.upgrades.retire({ count: async (installation) => { counted.push(`${installation.tenantId}:${installation.fleetId}`); return { active: 0, uncertain: 0 }; } });
       expect(counted).toContain(`tenant-97:${fleetId}`);
-      await fleet.upgrades.adopt("tenant-96", build);
-      const control = new SQL(controlUrl, { max: 1 });
-      try {
-        expect((await factoryRejection(fleet.upgrades.retire({ count: async () => ({ active: 0, uncertain: 0 }) })) as FactoryProvisioningError).code).toBe("provisioning_unknown_tenant");
-      } finally {
-        // Remove the orphan build row so no later retire meets it.
-        await control`DELETE FROM factory_installation_builds WHERE tenant_id = ${"tenant-96"}`;
-        await control.close();
-      }
+      // A tenant with no record has no context: the fleet's lookup is the provisioner's own, with its named refusal.
+      expect((await factoryRejection(fleet.provisioner.installation("tenant-96")) as FactoryProvisioningError).code).toBe("provisioning_unknown_tenant");
     } finally { await fleet.close(); }
   });
 });

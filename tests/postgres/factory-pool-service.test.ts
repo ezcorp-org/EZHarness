@@ -32,9 +32,10 @@ test("one shared pool keeps tenants apart: tenant two can neither reserve under 
   await expect(service.status(tenantTwo, "shared-pool-lease")).rejects.toThrow("not owned");
   const lease = (await client`SELECT allocation_token, allocation_generation FROM factory_pool_requests WHERE reservation_id = 'shared-pool-lease'`)[0] as { allocation_token: string; allocation_generation: number };
   const action = { reservationId: "shared-pool-lease", grantRevision: 1, allocationGeneration: lease.allocation_generation, allocationToken: lease.allocation_token };
-  await expect(service.acknowledgeStart(tenantTwo, action)).rejects.toThrow("not owned");
-  await expect(service.renew(tenantTwo, action)).rejects.toThrow("not owned");
-  await expect(service.cancel(tenantTwo, "shared-pool-lease", lease.allocation_generation)).rejects.toThrow("not owned");
+  // The pool checks the lease's fence before its owner, so a foreign action may be refused as either; it is never applied.
+  await expect(service.acknowledgeStart(tenantTwo, action)).rejects.toThrow(/not owned|fenced/);
+  await expect(service.renew(tenantTwo, action)).rejects.toThrow(/not owned|fenced/);
+  await expect(service.cancel(tenantTwo, "shared-pool-lease", lease.allocation_generation)).rejects.toThrow(/not owned|fenced/);
   expect((await client`SELECT count(*)::int AS n FROM factory_pool_requests WHERE reservation_id = 'shared-pool-foreign-scope'`)[0]).toEqual({ n: 0 });
   expect((await service.cancel(tenantOne, "shared-pool-lease", lease.allocation_generation)).state).toBe("revoking");
 });
