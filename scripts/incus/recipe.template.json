@@ -4,15 +4,15 @@
   "version": "1.2.0",
   "guestImage": {
     "alias": "ezharness-guest-0-1-0",
-    "fingerprint": "57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c",
-    "sourceFingerprint": "7ccaa583b060cfec673f96fa9acd52d153a35a8090d68be4cd946280f4b61907",
+    "fingerprint": null,
+    "sourceFingerprint": null,
     "helperSha256": "804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75",
     "user": "sandbox",
     "uid": 1000,
     "gid": 1000,
-    "pythonPackageVersion": "3.11.2-1+b1",
-    "dockerArchiveSha256": "d8db66739d2e28d4933786d73e918d9be643a67fbd835db1bf740d650a259e70",
-    "composeSha256": "db1889184726840f75c4f9c001048430d4f25b3be3cb084d3ddd762bc0aed576"
+    "pythonPackageVersion": null,
+    "dockerArchiveSha256": null,
+    "composeSha256": null
   },
   "expected": {
     "hostname": "sandbox-server",

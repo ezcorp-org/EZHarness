@@ -57,6 +57,12 @@ function presetCompatibilityReasons(recipe: IncusSetupRecipe, presets: readonly 
   const rootBytes = binarySizeBytes(rootSize);
   const reasons: string[] = [];
   for (const preset of presets) {
+    if (recipe.guestImage?.fingerprint && preset.imageDigest !== recipe.guestImage.fingerprint) {
+      reasons.push(`preset_image_digest_mismatch:${preset.id}`);
+    }
+    if (recipe.guestImage && canonicalJson(preset.helperDigests) !== canonicalJson([recipe.guestImage.helperSha256])) {
+      reasons.push(`preset_helper_digest_mismatch:${preset.id}`);
+    }
     if (!preset.requirements.storageDrivers.includes(recipe.storage.driver)) {
       reasons.push(`preset_storage_driver_incompatible:${preset.id}:${recipe.storage.driver}:requires_${[...preset.requirements.storageDrivers].sort().join("_or_")}`);
     }
@@ -307,7 +313,8 @@ export function verifyImageBootstrapPlan(plan: IncusImageBootstrapPlan, recipe: 
 
 export function createImageBootstrapPlan(recipe: IncusSetupRecipe, inventory: IncusInventory, presets?: readonly SandboxPreset[]): IncusImageBootstrapPlan {
   const setup = createSetupPlan(recipe, inventory, presets);
-  const blockedReasons = setup.blockedReasons.filter(reason => !IMAGE_BOOTSTRAP_PREREQUISITES.has(reason));
+  const blockedReasons = setup.blockedReasons.filter(reason => !IMAGE_BOOTSTRAP_PREREQUISITES.has(reason) &&
+    !reason.startsWith("preset_image_digest_mismatch:") && !reason.startsWith("preset_helper_digest_mismatch:"));
   const steps = setup.steps.filter(step => step.resource === "storage" || step.resource === "network");
   if (steps.length !== 2 || steps[0]?.id !== "storage-pool" || steps[1]?.id !== "managed-network") throw new Error("bootstrap resource scope changed");
   const payload = {

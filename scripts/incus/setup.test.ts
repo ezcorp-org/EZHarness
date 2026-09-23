@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { INCUS_PROVIDER_ID, incusManifest } from "../../extensions/incus-sandbox/manifest";
 import checkedInRecipe from "./recipe.json";
+import imageBuildTemplate from "./recipe.template.json";
 import { digest, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
 import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult } from "./apply";
 import { inspectIncus, verifyKnownHostPin } from "./inspect";
@@ -81,7 +82,7 @@ describe("Incus image bootstrap", () => {
     expect(bootstrap.steps.map(step => step.resource)).toEqual(["storage", "network"]);
     expect(createImageBootstrapPlan(reviewed, { ...current, routes: [...current.routes].reverse() }).planDigest).toBe(bootstrap.planDigest);
     expect(createSetupPlan(reviewed, current).status).toBe("blocked");
-    expect(createSetupPlan(reviewed, current).blockedReasons).toContain("guest_image_artifact_unpinned");
+    expect(createSetupPlan(reviewed, current).blockedReasons).toContain("guest_image_missing_or_drifted");
     expect(createSetupPlan(reviewed, current).blockedReasons).toContain("provider_client_certificate_missing");
     await expect(applySetupPlan(bootstrap, async () => result(1))).rejects.toThrow("image bootstrap plan");
   });
@@ -557,7 +558,7 @@ describe("Incus setup planning", () => {
     const compatibleInventory = inventory({ server: { ...inventory().server, storageDrivers: [{ name: "btrfs", version: "6", remote: false }] } });
     const compatible = createSetupPlan(checkedInRecipe as IncusSetupRecipe, compatibleInventory);
     expect(compatible.blockedReasons.some(reason => reason.startsWith("preset_"))).toBe(false);
-    expect(compatible.blockedReasons).toContain("guest_image_artifact_unpinned");
+    expect(compatible.blockedReasons).toContain("guest_image_missing_or_drifted");
     const plan = createSetupPlan(recipe(), inventory());
     expect(plan.status).toBe("blocked");
     for (const preset of advertised) {
@@ -577,6 +578,31 @@ describe("Incus setup planning", () => {
     expect(present.blockedReasons).not.toContain("guest_image_missing_or_drifted");
     const aliasDrift = createSetupPlan(recipe({ guestImage: image }), inventory({ images: [{ fingerprint: image.fingerprint, aliases: ["other"] }] }));
     expect(aliasDrift.blockedReasons).toContain("guest_image_missing_or_drifted");
+  });
+
+  test("reviewed recipe and active release require the same published image and helper", () => {
+    const reviewed = checkedInRecipe as IncusSetupRecipe;
+    const presets = incusManifest.sandboxProviders!.find(provider => provider.id === INCUS_PROVIDER_ID)!.presets;
+    const fingerprint = "57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c";
+    expect(reviewed.guestImage?.fingerprint).toBe(fingerprint);
+    expect(presets.every(preset => preset.imageDigest === fingerprint &&
+      JSON.stringify(preset.helperDigests) === JSON.stringify([reviewed.guestImage!.helperSha256]))).toBe(true);
+    const withClient = { ...reviewed, providerClient: { name: "engine", certificateFingerprint: "b".repeat(64),
+      certificatePem: pem, projects: [reviewed.project.name], restricted: true as const } };
+    const current = bootstrapInventory({ images: [{ fingerprint, aliases: [reviewed.guestImage!.alias] }] });
+    expect(createSetupPlan(withClient, current, presets).status).toBe("ready");
+    expect(createSetupPlan(withClient, bootstrapInventory(), presets).blockedReasons).toContain("guest_image_missing_or_drifted");
+    expect(createSetupPlan(withClient, current, presets.map(preset => ({ ...preset, imageDigest: "0".repeat(64) }))).blockedReasons)
+      .toContain(`preset_image_digest_mismatch:${presets[0]!.id}`);
+    expect(createSetupPlan(withClient, current, presets.map(preset => ({ ...preset, imageDigest: "a".repeat(64) }))).blockedReasons)
+      .toContain(`preset_image_digest_mismatch:${presets[0]!.id}`);
+    expect(createSetupPlan(withClient, current, presets.map(preset => ({ ...preset, helperDigests: ["a".repeat(64)] }))).blockedReasons)
+      .toContain(`preset_helper_digest_mismatch:${presets[0]!.id}`);
+    expect(createSetupPlan({ ...withClient, guestImage: { ...reviewed.guestImage!, fingerprint: "a".repeat(64) } }, current, presets).blockedReasons)
+      .toContain(`preset_image_digest_mismatch:${presets[0]!.id}`);
+    expect(createSetupPlan({ ...withClient, expected: { ...reviewed.expected, incusVersion: "6.1.0" } }, current, presets).blockedReasons)
+      .toContain("incus_version_mismatch");
+    expect(createSetupPlan(imageBuildTemplate as IncusSetupRecipe, current, presets).blockedReasons).toContain("guest_image_artifact_unpinned");
   });
 
   test("is deterministic for reordered equivalent inventory and changes on meaningful input", () => {

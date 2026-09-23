@@ -66,8 +66,7 @@ export function incusMethodName(operation: SandboxProtocolOperation): string {
 }
 
 const commonPreset: Omit<SandboxPreset, "id" | "profile" | "recipeDigest" | "storage"> = {
-  // Fail closed until the reviewed image builder publishes a real fingerprint.
-  imageDigest: "0".repeat(64),
+  imageDigest: "57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c",
   helperDigests: ["804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75"],
   network: { mode: "private", outbound: "restricted" },
   limits: {
@@ -114,7 +113,7 @@ export const INCUS_PRESETS: SandboxPreset[] = [
 export const incusManifest: ExtensionManifestV4 = validateManifest({
   schemaVersion: 4,
   name: "incus-sandbox",
-  version: "0.1.0",
+  version: "0.1.1",
   description: "Incus sandbox provider over the host-owned protected transport.",
   author: { name: "EZCorp" },
   entrypoint: "./extension.ts",

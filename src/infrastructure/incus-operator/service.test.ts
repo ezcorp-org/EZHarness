@@ -8,6 +8,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { incusManifest } from "../../../extensions/incus-sandbox/manifest";
 import checkedInRecipe from "../../../scripts/incus/recipe.json";
+import imageBuildTemplate from "../../../scripts/incus/recipe.template.json";
 import type { RemoteRunner } from "../../../scripts/incus/inspect";
 import type { IncusInventory, IncusSetupRecipe } from "../../../scripts/incus/model";
 import { up as addExtensionReleases } from "../../db/migrations/add-extension-releases";
@@ -23,8 +24,7 @@ const certificateFingerprint = createHash("sha256").update(new X509Certificate(c
 const clientPem = "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n";
 const bootstrap = { ssh: { sshTarget: "dev@sandbox-server", sshIdentityFile: "/host/key", sshKnownHostsFile: "/host/known_hosts",
   sshHostKeySha256: `SHA256:${"A".repeat(43)}` }, endpoint: "https://incus.example:8443" };
-const guestImage = { ...checkedInRecipe.guestImage, fingerprint: "a".repeat(64), sourceFingerprint: "b".repeat(64),
-  pythonPackageVersion: "1.0.0", dockerArchiveSha256: "c".repeat(64), composeSha256: "d".repeat(64) };
+const guestImage = checkedInRecipe.guestImage;
 const recipe: IncusSetupRecipe = {
   ...checkedInRecipe, expected: { ...checkedInRecipe.expected, serverCertificateFingerprint: certificateFingerprint,
     sshHostKeySha256: bootstrap.ssh.sshHostKeySha256 },
@@ -112,7 +112,7 @@ test("host-owned setup recipe must pin the image and cannot be swapped through a
     chmodSync(path, 0o600);
     writeFileSync(path, "not json");
     expect(() => loadReviewedIncusRecipe(path)).toThrow("not valid JSON");
-    writeFileSync(path, JSON.stringify(checkedInRecipe));
+    writeFileSync(path, JSON.stringify(imageBuildTemplate));
     expect(() => loadReviewedIncusRecipe(path)).toThrow("must pin the image");
     const supplied = await issueIncusClientIdentity("injected");
     writeFileSync(path, JSON.stringify({ ...recipe, providerClient: { name: "engine",
@@ -263,6 +263,19 @@ test("client identity rejects unsafe connection identifiers before invoking Open
     await expect(issueIncusClientIdentity(id)).rejects.toThrow("Invalid Incus connection identity");
   }
 });
+
+test("operator plan rejects a released preset with an unreviewed image before SSH effects", async () => {
+  const value = await fixture();
+  try {
+    const preset = value.snapshot.release.manifest.sandboxProviders?.find(provider => provider.id === "incus")?.presets[0];
+    expect(preset).toBeDefined();
+    preset!.imageDigest = "0".repeat(64);
+    const setup = await value.service.plan(value.snapshot.installation.id, "admin");
+    expect(setup.state).toBe("blocked");
+    expect(setup.plan.blockedReasons).toContain(`preset_image_digest_mismatch:${preset!.id}`);
+    expect(value.calls).toHaveLength(0);
+  } finally { await value.close(); }
+}, 30_000);
 
 test("client identity reports unavailable and failed OpenSSL without exposing command output", async () => {
   const originalPath = process.env.PATH;

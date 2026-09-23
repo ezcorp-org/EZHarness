@@ -4,6 +4,7 @@ import {
   SANDBOX_PROVIDER_OPERATIONS,
   canonicalJson,
   compileValueSchema,
+  sandboxPresetDigest,
   sandboxProviderMethodSchemas,
   validateManifest,
 } from "@ezcorp/extension-contract";
@@ -21,6 +22,19 @@ const validConfig = {
 };
 
 describe("Incus extension manifest", () => {
+  test("release 0.1.1 binds the reviewed image and helper in each preset digest", async () => {
+    const presets = incusManifest.sandboxProviders![0]!.presets;
+    const image = "57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c";
+    const helper = "804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75";
+    expect(incusManifest.version).toBe("0.1.1");
+    for (const preset of presets) {
+      expect(preset.imageDigest).toBe(image);
+      expect(preset.helperDigests).toEqual([helper]);
+      expect(await sandboxPresetDigest({ ...preset, imageDigest: "0".repeat(64) })).not.toBe(await sandboxPresetDigest(preset));
+      expect(await sandboxPresetDigest({ ...preset, helperDigests: ["a".repeat(64)] })).not.toBe(await sandboxPresetDigest(preset));
+    }
+  });
+
   test("declares exactly the frozen 19 provider methods with canonical schemas", () => {
     expect(incusManifest.methods).toHaveLength(19);
     expect(INCUS_METHOD_GROUP.methods).toEqual({
