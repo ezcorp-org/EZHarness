@@ -8,6 +8,8 @@
  * way. Every identifier is derived from `label`, so two suites in one bun
  * process never collide on a unique index.
  */
+import { createHash, type KeyObject } from "node:crypto";
+import { canonicalJson } from "@ezcorp/extension-contract";
 import { advanceKernel, createKernelState, FACTORY_LAZY_INPUT_SCHEMA_VERSION, referenceCodeV1, type FactoryDefinition, type FactoryRunnerRequest, type FactoryRunStartBody, type JsonValue, type KernelEvent } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
 import type { TransactionalDb } from "../../db/migrations/types";
@@ -27,12 +29,16 @@ import { FactoryInbox } from "../../factory/inbox";
 import { FactoryNativeRunnerPolicy, type FactoryPackageAdmissionFence } from "../../factory/native-runner-policy";
 import { FactoryCommandOutbox } from "../../factory/outbox";
 import type { PoolAdmissionClient } from "../../factory/pool/client";
+import type { PoolLeaseStatus } from "../../factory/pool/ledger";
 import { FactoryRecords } from "../../factory/records";
 import { FactoryRunLifecycle } from "../../factory/run-lifecycle";
 import { FactoryRunTransitionProjector } from "../../factory/run-transition-projector";
-import { FactoryDatabaseAttemptLaunchStore, type FactoryAttemptLease } from "../../factory/runner/attempt-runtime";
+import { FactoryDatabaseAttemptLaunchStore, signFactoryPhysicalStopReceipt, type FactoryAttemptLease, type FactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "../../factory/runner/attempt-runtime";
 import { FactoryTaskAdmission, type FactoryTaskResourceProfile } from "../../factory/task-admission";
 import { FactoryTaskExecutionAdmission } from "../../factory/task-execution-admission";
+import { FactoryTaskOutcomes } from "../../factory/task-outcomes";
+import { FactoryTaskStops, type FactoryPhysicalStopper, type FactoryPoolStopAcknowledger, type FactoryStopHostKey, type FactoryTaskStopRequest } from "../../factory/task-stops";
+import { FactoryUsageSettlements } from "../../factory/usage-settlement";
 import { FactoryTransitionArtifacts } from "../../factory/transition-artifacts";
 import { persistTransition } from "../../../packages/@ezcorp/factory-orchestrator/src/transition-pages";
 
@@ -47,6 +53,15 @@ export interface FactoryLiveAttemptWorldOptions {
   readonly now: number;
   readonly profile: FactoryTaskResourceProfile;
   readonly service: { readonly tenantId: string; readonly subject: string };
+  /** The host's signing key pair. Its key id is `<label>-host-key-1`. */
+  readonly hostKeys: { readonly privateKey: KeyObject; readonly publicKey: KeyObject };
+}
+
+/** W03's stop store over one attempt's own collaborators. */
+export interface FactoryStopHarness {
+  readonly stops: FactoryTaskStops;
+  readonly settlements: FactoryUsageSettlements;
+  readonly journal: FactoryExecutionJournal;
 }
 
 /** A run whose first transition is committed and whose compute admission is requested. */
@@ -103,6 +118,12 @@ export interface FactoryLiveAttemptWorld {
   commitCancel(attempt: FactoryDispatchableRun): Promise<{ reference: FactoryDispatchableRun["dispatchReference"]; advanced: ReturnType<typeof advanceKernel>; event: KernelEvent }>;
   /** Cancels the run as its operator and commits the transition that carries the live `cancel-node` command. */
   cancelled(attempt: FactoryDispatchableRun): Promise<{ reference: FactoryDispatchableRun["dispatchReference"]; advanced: ReturnType<typeof advanceKernel> }>;
+  /** A physical stop receipt signed by the host key, exactly as the supervisor signs one. */
+  signedStop(request: FactoryTaskStopRequest, overrides?: Partial<FactoryPhysicalStopReceipt>, key?: KeyObject, keyId?: string): FactoryPhysicalStopReceipt;
+  /** A trusted pool that settles exactly the generations and host it is shown. */
+  settlingPool(overrides?: Partial<PoolLeaseStatus>, onCall?: () => void): FactoryPoolStopAcknowledger;
+  countingStopper(sign: (request: FactoryTaskStopRequest) => Promise<FactoryPhysicalStopReceipt>, calls?: { count: number }): FactoryPhysicalStopper;
+  stopHarness(attempt: FactoryDispatchableRun, physical: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger, keys?: readonly FactoryStopHostKey[], timeoutMs?: number): FactoryStopHarness;
 }
 
 export async function createFactoryLiveAttemptWorld(fixture: { readonly db: TransactionalDb; readonly blobs?: BlobStore }, options: FactoryLiveAttemptWorldOptions): Promise<FactoryLiveAttemptWorld> {
@@ -214,5 +235,34 @@ export async function createFactoryLiveAttemptWorld(fixture: { readonly db: Tran
     return { reference, advanced };
   }
 
-  return { grants, definitions, lifecycle, body, objectStore, runKey, startRun, dispatchable, admitAttempt, launchedAttempt, commitCancel, cancelled };
+  const hostKeyId = `${label}-host-key-1`;
+  function signedStop(request: FactoryTaskStopRequest, overrides: Partial<FactoryPhysicalStopReceipt> = {}, key: KeyObject = options.hostKeys.privateKey, keyId = hostKeyId): FactoryPhysicalStopReceipt {
+    const unsigned: FactoryUnsignedPhysicalStopReceipt = {
+      schemaVersion: "factory.physical-stop.v1", attemptId: request.attemptId, reservationId: request.reservationId,
+      workerId: request.workerId, holderGeneration: request.holderGeneration, allocationGeneration: request.allocationGeneration,
+      processGroupAbsent: true, stoppedAtMs: now, reason: request.reason, hostId: request.hostId, ...overrides,
+    };
+    const signature = signFactoryPhysicalStopReceipt(unsigned, keyId, key);
+    return Object.freeze({ ...unsigned, ...signature, receiptDigest: `sha256:${createHash("sha256").update(canonicalJson(unsigned)).digest("hex")}` });
+  }
+  function settlingPool(overrides: Partial<PoolLeaseStatus> = {}, onCall?: () => void): FactoryPoolStopAcknowledger {
+    return {
+      async confirmStopped(input) {
+        onCall?.();
+        return { reservationId: input.reservationId, tenantId, state: "settled", allocationGeneration: 1, holderGeneration: input.holderGeneration, effects: 0, resources: { cpu: 1 }, hostId: input.hostId, ...overrides } satisfies PoolLeaseStatus;
+      },
+    };
+  }
+  function countingStopper(sign: (request: FactoryTaskStopRequest) => Promise<FactoryPhysicalStopReceipt>, calls?: { count: number }): FactoryPhysicalStopper {
+    return { async stop(request) { if (calls) calls.count++; return sign(request); } };
+  }
+  function stopHarness(attempt: FactoryDispatchableRun, physical: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger, keys: readonly FactoryStopHostKey[] = [{ hostId, hostKeyId, publicKey: options.hostKeys.publicKey }], timeoutMs = 20_000): FactoryStopHarness {
+    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
+    const settlements = new FactoryUsageSettlements(fixture.db, tenantId, inbox, () => now);
+    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
+    const stops = new FactoryTaskStops(fixture.db, attempt.authority, attempt.admissions, attempt.journal, outcomes, attempt.queue, lifecycle.budgets, inbox, settlements, physical, pool, keys, () => now, timeoutMs);
+    return { stops, settlements, journal: attempt.journal };
+  }
+
+  return { grants, definitions, lifecycle, body, objectStore, runKey, startRun, dispatchable, admitAttempt, launchedAttempt, commitCancel, cancelled, signedStop, settlingPool, countingStopper, stopHarness };
 }

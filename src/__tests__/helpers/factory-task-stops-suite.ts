@@ -1,7 +1,6 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { createHash, generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync } from "node:crypto";
 import { sql } from "drizzle-orm";
-import { canonicalJson } from "@ezcorp/extension-contract";
 import { advanceKernel, type FactoryRunnerResult, type KernelEvent } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
@@ -14,7 +13,7 @@ import { FactoryInbox } from "../../factory/inbox";
 import type { PoolAdmissionClient } from "../../factory/pool/client";
 import type { PoolLeaseStatus } from "../../factory/pool/ledger";
 import type { FactoryRunLifecycle } from "../../factory/run-lifecycle";
-import { signFactoryPhysicalStopReceipt, type FactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "../../factory/runner/attempt-runtime";
+import type { FactoryPhysicalStopReceipt, } from "../../factory/runner/attempt-runtime";
 import { FactoryTaskAdmission, type FactoryTaskResourceProfile } from "../../factory/task-admission";
 import { FactoryTaskOutcomes } from "../../factory/task-outcomes";
 import { FactoryTaskStops, FactoryTaskStopError, FACTORY_STOP_SCAN_MAX_LIMIT, type FactoryPhysicalStopper, type FactoryPoolStopAcknowledger, type FactoryStopHostKey, type FactoryTaskStopRequest } from "../../factory/task-stops";
@@ -43,43 +42,10 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
   const profile: FactoryTaskResourceProfile = { resources: { cpu: 1 }, memoryBytes: 128, budget: { costMicros: "5", tokens: 6, computeMs: 7 } };
   const runKey = (runId: string) => ({ projectId, runId });
 
-  function signed(request: FactoryTaskStopRequest, overrides: Partial<FactoryPhysicalStopReceipt> = {}, key = hostKeys.privateKey, keyId = "stop-host-key-1"): FactoryPhysicalStopReceipt {
-    const unsigned: FactoryUnsignedPhysicalStopReceipt = {
-      schemaVersion: "factory.physical-stop.v1", attemptId: request.attemptId, reservationId: request.reservationId,
-      workerId: request.workerId, holderGeneration: request.holderGeneration, allocationGeneration: request.allocationGeneration,
-      processGroupAbsent: true, stoppedAtMs: now, reason: request.reason, hostId: request.hostId, ...overrides,
-    };
-    const signature = signFactoryPhysicalStopReceipt(unsigned, keyId, key);
-    return Object.freeze({ ...unsigned, ...signature, receiptDigest: `sha256:${createHash("sha256").update(canonicalJson(unsigned)).digest("hex")}` });
-  }
-
-  /** A trusted pool that settles exactly the generations and host it is shown. */
-  function acknowledger(overrides: Partial<PoolLeaseStatus> = {}, onCall?: () => void): FactoryPoolStopAcknowledger {
-    return {
-      async confirmStopped(input) {
-        onCall?.();
-        return { reservationId: input.reservationId, tenantId, state: "settled", allocationGeneration: 1, holderGeneration: input.holderGeneration, effects: 0, resources: { cpu: 1 }, hostId: input.hostId, ...overrides } satisfies PoolLeaseStatus;
-      },
-    };
-  }
-
-  function stopper(sign: (request: FactoryTaskStopRequest) => Promise<FactoryPhysicalStopReceipt>, calls?: { count: number }): FactoryPhysicalStopper {
-    return { async stop(request) { if (calls) calls.count++; return sign(request); } };
-  }
-
-  interface StopHarness {
-    readonly stops: FactoryTaskStops;
-    readonly settlements: FactoryUsageSettlements;
-    readonly journal: FactoryExecutionJournal;
-  }
-
-  function harness(attempt: Attempt, physical: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger, keys: readonly FactoryStopHostKey[] = [{ hostId, hostKeyId: "stop-host-key-1", publicKey: hostKeys.publicKey }], timeoutMs = 20_000): StopHarness {
-    const inbox = new FactoryInbox(fixture.db, tenantId, () => now);
-    const settlements = new FactoryUsageSettlements(fixture.db, tenantId, inbox, () => now);
-    const outcomes = new FactoryTaskOutcomes(fixture.db, attempt.authority, attempt.admissions, attempt.journal, attempt.queue, lifecycle.budgets, inbox, () => now);
-    const stops = new FactoryTaskStops(fixture.db, attempt.authority, attempt.admissions, attempt.journal, outcomes, attempt.queue, lifecycle.budgets, inbox, settlements, physical, pool, keys, () => now, timeoutMs);
-    return { stops, settlements, journal: attempt.journal };
-  }
+  const signed = (request: FactoryTaskStopRequest, overrides: Partial<FactoryPhysicalStopReceipt> = {}, key = hostKeys.privateKey, keyId = "stop-host-key-1") => world.signedStop(request, overrides, key, keyId);
+  const acknowledger = (overrides: Partial<PoolLeaseStatus> = {}, onCall?: () => void) => world.settlingPool(overrides, onCall);
+  const stopper = (sign: (request: FactoryTaskStopRequest) => Promise<FactoryPhysicalStopReceipt>, calls?: { count: number }) => world.countingStopper(sign, calls);
+  const harness = (attempt: Attempt, physical: FactoryPhysicalStopper, pool: FactoryPoolStopAcknowledger, keys?: readonly FactoryStopHostKey[], timeoutMs?: number) => world.stopHarness(attempt, physical, pool, keys, timeoutMs);
 
   type Attempt = FactoryLiveAttempt;
 
@@ -139,7 +105,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
 
   beforeAll(async () => {
     fixture = await create();
-    world = await createFactoryLiveAttemptWorld(fixture, { label: "stop", tenantId, projectId, principal, factoryId: key.factoryId, hostId, now, profile, service });
+    world = await createFactoryLiveAttemptWorld(fixture, { label: "stop", tenantId, projectId, principal, factoryId: key.factoryId, hostId, now, profile, service, hostKeys });
     lifecycle = world.lifecycle;
   });
   afterAll(async () => { await fixture?.close(); });
