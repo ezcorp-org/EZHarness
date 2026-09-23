@@ -317,7 +317,7 @@ describe("restore into a new execution epoch", () => {
     try {
       await gapped.db.execute(sql`DELETE FROM factory_audit_batches WHERE tenant_id = ${tenantId} AND run_id = 'run-audit' AND source_sequence = 2`);
       const report = await restoreFor(gapped.db).begin({ restoreId: "restore-gap", mode: "tenant" });
-      expect(finding(report, "run", canonicalJson([projectId, "run-audit"]))).toMatchObject({ disposition: "blocked", reason: "audit_unrecoverable" });
+      expect(finding(report, "run", canonicalJson([projectId, "run-audit"]), "audit_unrecoverable")).toMatchObject({ disposition: "blocked", reason: "audit_unrecoverable" });
     } finally { await gapped.close(); }
   }, 120_000);
 
@@ -366,7 +366,7 @@ describe("restore into a new execution epoch", () => {
     const tenantCopy = await restoredCopy("temporal-tenant");
     try {
       const report = await restoreFor(tenantCopy.db, { temporal: live }).begin({ restoreId: "restore-temporal-tenant", mode: "tenant", checkpoint: { seal: (await latestFactoryCheckpoint(storage.archive, tenantId))!.seal, manifest: captured } });
-      expect(finding(report, "run", canonicalJson([projectId, "run-audit"]))).toMatchObject({ disposition: "blocked", reason: "temporal_ahead_of_product" });
+      expect(finding(report, "run", canonicalJson([projectId, "run-audit"]), "temporal_ahead_of_product")).toMatchObject({ disposition: "blocked", reason: "temporal_ahead_of_product" });
     } finally { await tenantCopy.close(); }
     const noneCopy = await restoredCopy("temporal-cluster-none");
     try {
@@ -408,8 +408,8 @@ describe("restore into a new execution epoch", () => {
       // Every tenant entered its epoch before the first verification read a position.
       expect(opened[0]).toBe("restore-cluster-b");
       for (const report of reports) {
-        expect(finding(report, "run", canonicalJson([projectId, "run-audit"]))).toMatchObject({ disposition: "blocked", reason: "temporal_position_mismatch" });
-        expect(finding(report, "run", canonicalJson([projectId, "run-pre"]))).toMatchObject({ disposition: "verified", reason: "temporal_position_consistent" });
+        expect(finding(report, "run", canonicalJson([projectId, "run-audit"]), "temporal_position_mismatch")).toMatchObject({ disposition: "blocked", reason: "temporal_position_mismatch" });
+        expect(finding(report, "run", canonicalJson([projectId, "run-pre"]), "temporal_position_consistent")).toMatchObject({ disposition: "verified", reason: "temporal_position_consistent" });
       }
     } finally { await clusterCopy.close(); await secondCopy.close(); }
   }, 120_000);
@@ -438,7 +438,7 @@ describe("restore into a new execution epoch", () => {
       expect(finding(report, "check", "release-intent:op-corrupt")).toMatchObject({ disposition: "blocked", reason: "release_intent_unreadable", detail: { operationId: "op-corrupt", objects: 1, unreadable: 1 } });
       expect(finding(report, "check", "release-intent:op-orphan")).toMatchObject({ disposition: "blocked", reason: "release_intent_missing", detail: { objects: 0, unreadable: 0 } });
       expect(finding(report, "release", canonicalJson([projectId, "op-receipt"]))).toMatchObject({ disposition: "blocked", reason: "release_receipt_unreadable" });
-      expect(finding(report, "run", canonicalJson([projectId, "run-audit"]))).toMatchObject({ disposition: "blocked" });
+      expect(finding(report, "run", canonicalJson([projectId, "run-audit"]), "release_unreconciled")).toMatchObject({ disposition: "blocked" });
       // Every listed identity is counted, and none is silently dropped.
       expect(report.releaseIdentities).toEqual({ archived: 3, recovered: 0, blocked: 3 });
       await expect(restore.sign("restore-unreadable", admin, factoryRestoreReportDigest(report))).rejects.toMatchObject({ code: "factory_restore_blocked" });
