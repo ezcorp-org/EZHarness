@@ -1,0 +1,29 @@
+W09d report, round 3 (validator ACCEPT-WITH-FIXES at d1a0f31e0)
+Branch wp/w09d-validators. Final head d41f16a1d (integ/w00 ceb995563 merged; its new commits change only CI and docs).
+Product code under test: 8f9f8913a. Proof commit: ceada04f5 = 8f9f8913a + wp/w01g-staging f00605f72. No proof-only product commit.
+
+Fixes
+- F1: scripts/check-factory-boundaries.ts has the REQUIRED_SHARED_IMPORTS row for validator-declaration.ts -> v4/blobs. The C13 inventory test passes (13 of 13).
+- F2 (ruling): a crashed, timed-out, or uncertain validator is a typed failure with failureKind "execution", not acceptance_rejected. The kernel already fails a virtual acceptance node in place for such a failure, so no kernel change was needed. No repair round starts, and the typed reason is the projected run error. Tests: kernel unit (maxRepairs 0 and 2), Temporal (maxRepairs 0 and 2, with replay), and the lifecycle suite.
+- F3: advance() visits every claim on every pass. A completed claim settles its reservation even when another claim failed. The typed failure waits until every claim is terminal, then holds each failed claim uncertain in the event's transaction. Tests: two-claim unit tests. The PGlite and PostgreSQL lifecycle suites show the envelope refuses factory_budget_pending while the hold is uncertain and closes after it settles.
+- F4: factoryCommandFailedEvent in the kernel is the one builder for the event. factoryNamedRefusalEffect in private-service-composition.ts wraps every effect. A thrown factory_ refusal becomes that event with the code, and any other error still throws. The outcome does not change, because an effect runs once and any failure already failed the run. The workflow takes the activity's cause message, not "Activity task failed". On the started application the projected reasons are now:
+    proof-1..3: FACTORY_COMMAND_FAILED: request-release <cmd>: factory_protected_effect_untrusted
+    undeclared: FACTORY_COMMAND_FAILED: request-acceptance <cmd>: factory_validator_material_missing
+    tampered:   FACTORY_COMMAND_FAILED: request-acceptance <cmd>: factory_validator_unavailable
+  The judge now requires the name (W09D_REQUIRE_NAMED_REFUSAL=1). It would fail the round-4 receipts (attempts/round4-e99533e4a).
+- F5: the gate file discloses the lifecycle-suite additions (owner W06, test cases only): "Coordinator ruling 2026-09-23 (round 3, F5): approved for W09d; W06 inherits it."
+- F6: the foreign cases assert names: factory_protected_effect_scope (foreign tenant reference), factory_transition_command_not_found (another run), and factory_command_forbidden (foreign service).
+- F7: src/factory/plain-values.ts holds isPlainRecord and factoryErrorCode. startup-config.ts, validator-declaration.ts, validator-composition.ts, and validator-acceptance.ts use them. Older copies in files W09d does not own stay with their owners.
+
+Evidence (all at 8f9f8913a or ceada04f5)
+- Focused suites: 21 files pass (receipts/focused-suites.json).
+- PostgreSQL producers: 7 files pass. The lifecycle suite has 66 tests on PostgreSQL and 66 on S3 (receipts/postgres-producers.json).
+- Orchestrator node leg with Temporal: 86 of 86 pass, and the four new or changed cases replay (logs/orchestrator-leg.log).
+- Proof: three passes and two controls pass the judge with the projected-failure and named-refusal checks (judged.json). Each pass ran the validator in Podman, recorded a strict PASS, decided accepted, and settled the reservation.
+- Coverage: the new-file and patch gates pass over the merged focused, orchestrator, and PostgreSQL legs (receipts/coverage-gates.json).
+- Static: typecheck, lint, boundaries, gate-integrity, and PostgreSQL suite registration all exit 0 (receipts/*.json). Lint, gate-integrity, and boundaries were rechecked at d41f16a1d.
+
+Incidents during the round, recorded
+- The worktrees moved to /home/dev/work/EZCorp/EZHarness/.worktrees/. postgres.env and the Temporal test server were missing until 04:24. The first heavy run failed on that, and I did not repair any shared service. I updated the harness paths. I rebuilt the stale Python virtual environments in my worktree, because their shebangs pointed at the old path.
+
+Open, with owners (unchanged): O2 and O4 to W14. O3 (release profiles and createReleaseOperations) to W09c.
