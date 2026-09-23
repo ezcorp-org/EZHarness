@@ -317,21 +317,6 @@ function uniqueViolation(error: unknown): boolean {
   return false;
 }
 
-const fixtureLocks = new Map<string, Promise<void>>();
-
-async function withFixtureLock<T>(operationId: string, action: () => Promise<T>): Promise<T> {
-  const previous = fixtureLocks.get(operationId);
-  let release = () => {};
-  const current = new Promise<void>(resolve => { release = resolve; });
-  fixtureLocks.set(operationId, current);
-  if (previous) await previous;
-  try { return await action(); }
-  finally {
-    release();
-    if (fixtureLocks.get(operationId) === current) fixtureLocks.delete(operationId);
-  }
-}
-
 /** Dedicated host fixture path. It creates no user workspace binding and does
  * not relax IncusFeatureService's live-qualification requirement. */
 export class IncusQualificationFixtureService {
@@ -341,6 +326,7 @@ export class IncusQualificationFixtureService {
   private readonly controller: SandboxController;
   private readonly inspect: NonNullable<IncusFeatureServiceDependencies["inspect"]>;
   private readonly now: () => number;
+  private readonly fixtureLocks = new Map<string, Promise<void>>();
 
   constructor(deps: IncusQualificationFixtureDependencies = {}) {
     this.db = deps.db ?? getDb();
@@ -368,11 +354,24 @@ export class IncusQualificationFixtureService {
     }
   }
 
+  private async withFixtureLock<T>(operationId: string, action: () => Promise<T>): Promise<T> {
+    const previous = this.fixtureLocks.get(operationId);
+    let release = () => {};
+    const current = new Promise<void>(resolve => { release = resolve; });
+    this.fixtureLocks.set(operationId, current);
+    if (previous) await previous;
+    try { return await action(); }
+    finally {
+      release();
+      if (this.fixtureLocks.get(operationId) === current) this.fixtureLocks.delete(operationId);
+    }
+  }
+
   async create(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
     if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(operationId)) {
       throw new Error("Invalid Incus qualification fixture operation ID");
     }
-    return withFixtureLock(operationId, () => this.createLocked(scope, operationId));
+    return this.withFixtureLock(operationId, () => this.createLocked(scope, operationId));
   }
 
   private async createLocked(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
@@ -444,7 +443,7 @@ export class IncusQualificationFixtureService {
   /** Recover an old failed pre-admission attempt. Any durable effect or
    * reservation keeps the fixture for normal controller reconciliation. */
   async cancelNeverAdmitted(scope: IncusQualificationScope, operationId: string): Promise<boolean> {
-    return withFixtureLock(operationId, () => this.cancelNeverAdmittedLocked(scope, operationId));
+    return this.withFixtureLock(operationId, () => this.cancelNeverAdmittedLocked(scope, operationId));
   }
 
   private async cancelNeverAdmittedLocked(scope: IncusQualificationScope, operationId: string): Promise<boolean> {
@@ -456,6 +455,8 @@ export class IncusQualificationFixtureService {
         || fixture.connectionId !== scope.connectionId || fixture.presetId !== scope.presetId) {
         throw new Error("Incus qualification fixture operation changed scope");
       }
+      // Admission locks this same binding row before it can persist a reservation.
+      // The row lock is the cross-process fence for this recovery path.
       const [binding] = await tx.select().from(sandboxBindings)
         .where(eq(sandboxBindings.id, fixture.bindingId)).limit(1).for("update");
       const [project] = await tx.select().from(projects)

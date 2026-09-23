@@ -147,6 +147,17 @@ test("concurrent create calls with one operation identity replay one fixture", a
   expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);
 });
 
+test("two service instances replay one fixture after concurrent create", async () => {
+  const { service, db, admission, qualifications, controller, dispatches } = await setup();
+  const otherService = new IncusQualificationFixtureService({ db, admission, qualifications, controller });
+  const [first, replay] = await Promise.all([
+    service.create(scope, "fixture-two-services"), otherService.create(scope, "fixture-two-services"),
+  ]);
+  expect(replay.id).toBe(first.id);
+  expect(dispatches).toHaveLength(1);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);
+});
+
 test("destroy uses the inspected provider generation after guest power changes", async () => {
   const { service, dispatches } = await setup(true, false, 7);
   await service.create(scope, "fixture-power-generation");
@@ -195,6 +206,80 @@ test("recovery cannot delete an admitted fixture or race an active create", asyn
   expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);
   await expect(service.cancelNeverAdmitted(scope, "fixture-cancel-race"))
     .rejects.toThrow("may have a provider effect");
+});
+
+test("a second service can cancel before admission without allowing a provider effect", async () => {
+  const { db, admission, qualifications, controller, dispatches } = await setup();
+  let entered!: () => void;
+  let resume!: () => void;
+  const atAdmission = new Promise<void>(resolve => { entered = resolve; });
+  const continueAdmission = new Promise<void>(resolve => { resume = resolve; });
+  const delayedAdmission = new SandboxAdmissionStore(db);
+  const requestAdmission = delayedAdmission.requestAdmission.bind(delayedAdmission);
+  delayedAdmission.requestAdmission = async input => {
+    entered();
+    await continueAdmission;
+    return requestAdmission(input);
+  };
+  const creatingService = new IncusQualificationFixtureService({ db, admission: delayedAdmission,
+    qualifications, controller });
+  const recoveringService = new IncusQualificationFixtureService({ db, admission,
+    qualifications, controller });
+  const creation = creatingService.create(scope, "fixture-cross-process-cancel");
+  await atAdmission;
+  let cancelledBeforeResume = false;
+  try {
+    cancelledBeforeResume = await Promise.race([
+      recoveringService.cancelNeverAdmitted(scope, "fixture-cross-process-cancel"),
+      new Promise<false>(resolve => setTimeout(() => resolve(false), 1_000)),
+    ]);
+  } finally {
+    resume();
+  }
+  await expect(creation).rejects.toThrow("does not exist");
+  expect(cancelledBeforeResume).toBe(true);
+  expect(dispatches).toEqual([]);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toEqual([]);
+  expect(await db.select().from(schema.sandboxBindings)).toEqual([]);
+  expect(await db.select().from(schema.projects)).toEqual([]);
+});
+
+test("a second service cannot cancel after admission commits but before create dispatches", async () => {
+  const { db, admission, qualifications, controller, dispatches } = await setup();
+  let entered!: () => void;
+  let resume!: () => void;
+  const afterAdmission = new Promise<void>(resolve => { entered = resolve; });
+  const continueCreate = new Promise<void>(resolve => { resume = resolve; });
+  const delayedAdmission = new SandboxAdmissionStore(db);
+  const requestAdmission = delayedAdmission.requestAdmission.bind(delayedAdmission);
+  delayedAdmission.requestAdmission = async input => {
+    const result = await requestAdmission(input);
+    entered();
+    await continueCreate;
+    return result;
+  };
+  const creatingService = new IncusQualificationFixtureService({ db, admission: delayedAdmission,
+    qualifications, controller });
+  const recoveringService = new IncusQualificationFixtureService({ db, admission,
+    qualifications, controller });
+  const creation = creatingService.create(scope, "fixture-cross-process-admitted");
+  await afterAdmission;
+  let cancellationError: unknown;
+  try {
+    cancellationError = await Promise.race([
+      recoveringService.cancelNeverAdmitted(scope, "fixture-cross-process-admitted")
+        .then(() => null, error => error),
+      new Promise<Error>(resolve => setTimeout(() => resolve(new Error("cancellation blocked")), 1_000)),
+    ]);
+  } finally {
+    resume();
+  }
+  expect(cancellationError).toBeInstanceOf(Error);
+  expect((cancellationError as Error).message).toContain("may have a provider effect");
+  expect((await creation).state).toBe("SUCCEEDED");
+  expect(dispatches).toHaveLength(1);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);
+  expect(await db.select().from(schema.sandboxReservations)).toHaveLength(1);
 });
 
 test("a lost admission reply retains possible provider effects for recovery", async () => {
