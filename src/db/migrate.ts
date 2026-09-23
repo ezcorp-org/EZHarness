@@ -3029,6 +3029,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addSandboxControl(db);
   const { up: addGithubUserConnections } = await import("./migrations/add-github-user-connections");
   await addGithubUserConnections(db);
+  const { up: addGithubUserDeviceAttempts } = await import("./migrations/add-github-user-device-attempts");
+  await addGithubUserDeviceAttempts(db);
   const { up: addGithubPersonalPrs } = await import("./migrations/add-github-personal-prs");
   await addGithubPersonalPrs(db);
   const { up: addWorkflowDelegationRelease } = await import("./migrations/add-workflow-delegation-release");

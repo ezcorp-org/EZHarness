@@ -13,6 +13,7 @@ const oldEnv = {
   instanceId: process.env.EZ_GITHUB_INSTANCE_ID, appId: process.env.EZ_GITHUB_APP_ID, slug: process.env.EZ_GITHUB_APP_SLUG,
   clientId: process.env.EZ_GITHUB_APP_CLIENT_ID, secret: process.env.EZ_GITHUB_APP_CLIENT_SECRET,
   callback: process.env.EZ_GITHUB_APP_CALLBACK_URL,
+  mode: process.env.EZ_GITHUB_AUTH_MODE,
 };
 const reply = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { "content-type": "application/json" } });
 const userId = async (email: string) => (await createUser({ email, name: email, passwordHash: "hash" })).id;
@@ -52,11 +53,12 @@ describe("personal GitHub credential broker", () => {
     process.env.EZ_GITHUB_APP_CLIENT_ID = "client";
     process.env.EZ_GITHUB_APP_CLIENT_SECRET = "secret";
     process.env.EZ_GITHUB_APP_CALLBACK_URL = "https://app.example/api/github/callback";
+    process.env.EZ_GITHUB_AUTH_MODE = "oauth";
     setGithubFetch();
   });
   afterAll(async () => {
     globalThis.fetch = oldFetch;
-    for (const [key, value] of Object.entries({ EZ_GITHUB_INSTANCE_ID: oldEnv.instanceId, EZ_GITHUB_APP_ID: oldEnv.appId, EZ_GITHUB_APP_SLUG: oldEnv.slug, EZ_GITHUB_APP_CLIENT_ID: oldEnv.clientId, EZ_GITHUB_APP_CLIENT_SECRET: oldEnv.secret, EZ_GITHUB_APP_CALLBACK_URL: oldEnv.callback })) {
+    for (const [key, value] of Object.entries({ EZ_GITHUB_INSTANCE_ID: oldEnv.instanceId, EZ_GITHUB_APP_ID: oldEnv.appId, EZ_GITHUB_APP_SLUG: oldEnv.slug, EZ_GITHUB_APP_CLIENT_ID: oldEnv.clientId, EZ_GITHUB_APP_CLIENT_SECRET: oldEnv.secret, EZ_GITHUB_APP_CALLBACK_URL: oldEnv.callback, EZ_GITHUB_AUTH_MODE: oldEnv.mode })) {
       if (value === undefined) delete process.env[key]; else process.env[key] = value;
     }
     await closeTestDb();

@@ -2934,6 +2934,7 @@ export const githubUserConnections = pgTable("github_user_connections", {
   githubAccountId: bigint("github_account_id", { mode: "number" }).notNull(),
   githubLogin: text("github_login").notNull(),
   appId: bigint("app_id", { mode: "number" }).notNull(),
+  authFlow: text("auth_flow").notNull().$type<"oauth" | "device">().default("oauth"),
   accessCiphertext: text("access_ciphertext").notNull(),
   refreshCiphertext: text("refresh_ciphertext").notNull(),
   accessExpiresAt: timestamp("access_expires_at", { withTimezone: true }).notNull(),
@@ -2955,6 +2956,24 @@ export const githubUserOAuthAttempts = pgTable("github_user_oauth_attempts", {
   consumedAt: timestamp("consumed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [index("idx_github_user_oauth_user").on(table.userId, table.expiresAt)]);
+
+export const githubUserDeviceAttempts = pgTable("github_user_device_attempts", {
+  attemptId: text("attempt_id").primaryKey(),
+  userId: text("user_id").notNull().references(() => githubUserAuthorities.userId, { onDelete: "cascade" }),
+  sessionDigest: text("session_digest").notNull(),
+  expectedGeneration: integer("expected_generation").notNull(),
+  appId: bigint("app_id", { mode: "number" }).notNull(),
+  clientId: text("client_id").notNull(),
+  deviceCiphertext: text("device_ciphertext").notNull(),
+  returnReviewId: text("return_review_id"),
+  status: text("status").notNull().$type<"pending" | "connected" | "expired" | "denied" | "cancelled">().default("pending"),
+  intervalSeconds: integer("interval_seconds").notNull(),
+  nextPollAt: timestamp("next_poll_at", { withTimezone: true }).notNull(),
+  pollClaimToken: text("poll_claim_token"),
+  pollClaimExpiresAt: timestamp("poll_claim_expires_at", { withTimezone: true }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [index("idx_github_user_device_user").on(table.userId, table.expiresAt)]);
 
 export const githubUserEffectClaims = pgTable("github_user_effect_claims", {
   operationId: text("operation_id").primaryKey(),

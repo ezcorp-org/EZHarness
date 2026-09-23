@@ -1,14 +1,15 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { getDb, type DbTransaction } from "../../db/connection";
-import { githubUserAuthorities, githubUserConnections, githubUserEffectClaims, githubUserOAuthAttempts, sessions } from "../../db/schema";
+import { githubUserAuthorities, githubUserConnections, githubUserDeviceAttempts, githubUserEffectClaims, githubUserOAuthAttempts, sessions } from "../../db/schema";
 import { decryptWithAad, encryptWithAad } from "../../providers/encryption";
-import { getGithubUserConfig, isGithubUserConfigured } from "./config";
-import { exchangeCode, githubApi, GithubUserError, refreshPair, revokeToken, type GithubTokenPair } from "./transport";
+import { getGithubOAuthConfig, getGithubUserConfig, isGithubUserConfigured } from "./config";
+import { beginDeviceCode, exchangeCode, exchangeDeviceCode, githubApi, GithubUserError, refreshDevicePair, refreshPair, revokeToken, type GithubTokenPair } from "./transport";
 
 const digest = (value: string) => createHash("sha256").update(value).digest("hex");
 const aad = (userId: string, accountId: number, appId: number, kind: "access" | "refresh") => `github-user:v1:${getGithubUserConfig().instanceId}:${userId}:${accountId}:${appId}:${kind}`;
 const oauthAad = (userId: string, stateDigest: string) => `github-user-oauth:${getGithubUserConfig().instanceId}:${userId}:${stateDigest}`;
+const deviceAad = (userId: string, attemptId: string) => `github-user-device:${getGithubUserConfig().instanceId}:${userId}:${attemptId}`;
 const expires = (seconds: number) => new Date(Date.now() + seconds * 1000);
 const tokenCipher = (pair: GithubTokenPair, userId: string, accountId: number, appId: number) => ({
   accessCiphertext: encryptWithAad(pair.access_token, aad(userId, accountId, appId, "access")),
@@ -29,12 +30,13 @@ async function requireLiveSession(tx: DbTransaction, userId: string, sessionId: 
   if (!session || session.userId !== userId || session.expiresAt <= new Date()) throw new GithubUserError("SESSION_EXPIRED", "Sign in again to connect GitHub");
 }
 
-export type ConnectionStatus = { configured: boolean; status: "disconnected" | "connected" | "reconnect_required"; account?: { id: number; login: string } };
+export type ConnectionStatus = { configured: boolean; authMode: "device" | "oauth" | null; status: "disconnected" | "connected" | "reconnect_required"; account?: { id: number; login: string } };
 export async function getConnectionStatus({ userId }: { userId: string }): Promise<ConnectionStatus> {
   const configured = isGithubUserConfigured();
+  const authMode = configured ? getGithubUserConfig().mode : null;
   const [row] = await getDb().select().from(githubUserConnections).where(eq(githubUserConnections.userId, userId));
-  if (!row) return { configured, status: "disconnected" };
-  return { configured, status: row.state, account: { id: row.githubAccountId, login: row.githubLogin } };
+  if (!row) return { configured, authMode, status: "disconnected" };
+  return { configured, authMode, status: row.state, account: { id: row.githubAccountId, login: row.githubLogin } };
 }
 
 /** Host-only immutable identity to bind a new proposal before review. */
@@ -48,7 +50,7 @@ export async function getConnectionBinding({ userId }: { userId: string }): Prom
 }
 
 export async function startAuthorization({ userId, sessionId, returnReviewId }: { userId: string; sessionId: string; returnReviewId?: string }): Promise<{ authorizeUrl: string }> {
-  const config = getGithubUserConfig();
+  const config = getGithubOAuthConfig();
   if (returnReviewId && !/^[A-Za-z0-9_-]{1,128}$/.test(returnReviewId)) throw new GithubUserError("INVALID_RETURN", "Invalid review reference");
   const state = randomBytes(32).toString("base64url");
   const verifier = randomBytes(32).toString("base64url");
@@ -72,7 +74,7 @@ export async function startAuthorization({ userId, sessionId, returnReviewId }: 
 }
 
 export async function completeAuthorization({ userId, sessionId, state, code }: { userId: string; sessionId: string; state: string; code: string }): Promise<{ returnReviewId?: string; account: { id: number; login: string } }> {
-  const config = getGithubUserConfig();
+  const config = getGithubOAuthConfig();
   if (!state || !code || state.length > 256 || code.length > 2048) throw new GithubUserError("INVALID_CALLBACK", "Invalid GitHub callback");
   const stateDigest = digest(state);
   const attempt = await getDb().transaction(async (tx: DbTransaction) => {
@@ -106,8 +108,9 @@ export async function completeAuthorization({ userId, sessionId, state, code }: 
       await tx.update(githubUserAuthorities).set({ generation, updatedAt: new Date() }).where(eq(githubUserAuthorities.userId, userId));
       const token = tokenCipher(pair, userId, account.id, config.appId);
       const connectionId = crypto.randomUUID();
-      await tx.insert(githubUserConnections).values({ userId, connectionId, githubAccountId: account.id, githubLogin: account.login, appId: config.appId, ...token })
-        .onConflictDoUpdate({ target: githubUserConnections.userId, set: { connectionId, githubAccountId: account.id, githubLogin: account.login, appId: config.appId, ...token, tokenRevision: 0, state: "connected", updatedAt: new Date() } });
+      if (old && old.githubAccountId !== account.id) throw new GithubUserError("ACCOUNT_MISMATCH", "Disconnect the existing GitHub account before connecting another");
+      await tx.insert(githubUserConnections).values({ userId, connectionId, githubAccountId: account.id, githubLogin: account.login, appId: config.appId, authFlow: "oauth", ...token })
+        .onConflictDoUpdate({ target: githubUserConnections.userId, set: { connectionId, githubAccountId: account.id, githubLogin: account.login, appId: config.appId, authFlow: "oauth", ...token, tokenRevision: 0, state: "connected", updatedAt: new Date() } });
       return old ? decryptWithAad(old.accessCiphertext, aad(userId, old.githubAccountId, old.appId, "access")) : null;
     });
     if (previousToken && previousToken !== pair.access_token) await revokeToken(config, previousToken).catch(() => undefined);
@@ -118,18 +121,138 @@ export async function completeAuthorization({ userId, sessionId, state, code }: 
   return { account, ...(attempt.returnReviewId ? { returnReviewId: attempt.returnReviewId } : {}) };
 }
 
+type DeviceInput = { userId: string; sessionId: string; attemptId: string };
+export type DevicePollResult = { status: "pending" | "slow_down"; nextPollAt: string } | { status: "connected"; returnReviewId?: string } | { status: "expired" | "denied" | "cancelled" };
+const unavailableAttempt = () => new GithubUserError("DEVICE_ATTEMPT_UNAVAILABLE", "GitHub device authorization is unavailable");
+
+/** GitHub receives only the public client ID. The device secret stays encrypted locally. */
+export async function startDeviceAuthorization({ userId, sessionId, returnReviewId }: { userId: string; sessionId: string; returnReviewId?: string }): Promise<{ attemptId: string; userCode: string; verificationUri: string; expiresAt: string; intervalSeconds: number }> {
+  const config = getGithubUserConfig();
+  if (config.mode !== "device") throw new GithubUserError("DEVICE_DISABLED", "GitHub device authorization is disabled");
+  if (returnReviewId && !/^[A-Za-z0-9_-]{1,128}$/.test(returnReviewId)) throw new GithubUserError("INVALID_RETURN", "Invalid review reference");
+  await getDb().transaction((tx: DbTransaction) => requireLiveSession(tx, userId, sessionId));
+  const code = await beginDeviceCode(config);
+  const attemptId = crypto.randomUUID();
+  const expiresAt = expires(code.expiresIn);
+  await getDb().transaction(async (tx: DbTransaction) => {
+    await requireLiveSession(tx, userId, sessionId);
+    const authority = await lockAuthority(tx, userId);
+    await tx.update(githubUserDeviceAttempts).set({ status: "cancelled", pollClaimToken: null, pollClaimExpiresAt: null })
+      .where(and(eq(githubUserDeviceAttempts.userId, userId), eq(githubUserDeviceAttempts.status, "pending")));
+    await tx.insert(githubUserDeviceAttempts).values({
+      attemptId, userId, sessionDigest: digest(sessionId), expectedGeneration: authority.generation,
+      appId: config.appId, clientId: config.clientId,
+      deviceCiphertext: encryptWithAad(code.deviceCode, deviceAad(userId, attemptId)),
+      returnReviewId: returnReviewId ?? null, intervalSeconds: code.interval,
+      nextPollAt: expires(code.interval), expiresAt,
+    });
+  });
+  return { attemptId, userCode: code.userCode, verificationUri: code.verificationUri, expiresAt: expiresAt.toISOString(), intervalSeconds: code.interval };
+}
+
+/** A local cancel commits before any in-flight GitHub response can install tokens. */
+export async function cancelDeviceAuthorization({ userId, sessionId, attemptId }: DeviceInput): Promise<{ status: "cancelled" }> {
+  if (!/^[0-9a-f-]{36}$/.test(attemptId)) throw unavailableAttempt();
+  await getDb().transaction(async (tx: DbTransaction) => {
+    await requireLiveSession(tx, userId, sessionId);
+    await lockAuthority(tx, userId);
+    const [attempt] = await tx.select().from(githubUserDeviceAttempts).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+    if (!attempt || attempt.userId !== userId || attempt.sessionDigest !== digest(sessionId)) throw unavailableAttempt();
+    if (attempt.status === "connected") throw unavailableAttempt();
+    await tx.update(githubUserDeviceAttempts).set({ status: "cancelled", pollClaimToken: null, pollClaimExpiresAt: null })
+      .where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+  });
+  return { status: "cancelled" };
+}
+
+/** Reserve the provider interval in the DB, then release its lock before HTTP. */
+export async function pollDeviceAuthorization({ userId, sessionId, attemptId }: DeviceInput): Promise<DevicePollResult> {
+  if (!/^[0-9a-f-]{36}$/.test(attemptId)) throw unavailableAttempt();
+  const config = getGithubUserConfig();
+  if (config.mode !== "device") throw new GithubUserError("DEVICE_DISABLED", "GitHub device authorization is disabled");
+  const claimed = await getDb().transaction(async (tx: DbTransaction) => {
+    await requireLiveSession(tx, userId, sessionId);
+    const authority = await lockAuthority(tx, userId);
+    const [attempt] = await tx.select().from(githubUserDeviceAttempts).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+    if (!attempt || attempt.userId !== userId || attempt.sessionDigest !== digest(sessionId)) throw unavailableAttempt();
+    if (attempt.status !== "pending") return { result: { status: attempt.status, ...(attempt.status === "connected" && attempt.returnReviewId ? { returnReviewId: attempt.returnReviewId } : {}) } as DevicePollResult };
+    const now = new Date();
+    if (attempt.expiresAt <= now) {
+      await tx.update(githubUserDeviceAttempts).set({ status: "expired", pollClaimToken: null, pollClaimExpiresAt: null }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+      return { result: { status: "expired" as const } };
+    }
+    if (attempt.expectedGeneration !== authority.generation || attempt.appId !== config.appId || attempt.clientId !== config.clientId) {
+      await tx.update(githubUserDeviceAttempts).set({ status: "cancelled", pollClaimToken: null, pollClaimExpiresAt: null }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+      return { result: { status: "cancelled" as const } };
+    }
+    const next = Math.max(attempt.nextPollAt.getTime(), attempt.pollClaimExpiresAt?.getTime() ?? 0);
+    if (next > now.getTime()) return { result: { status: "pending" as const, nextPollAt: new Date(next).toISOString() } };
+    const claimToken = crypto.randomUUID();
+    const nextPollAt = new Date(now.getTime() + attempt.intervalSeconds * 1000);
+    await tx.update(githubUserDeviceAttempts).set({ pollClaimToken: claimToken, pollClaimExpiresAt: new Date(now.getTime() + 30_000), nextPollAt }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+    return { attempt, claimToken };
+  });
+  if ("result" in claimed) return claimed.result;
+  const deviceCode = decryptWithAad(claimed.attempt.deviceCiphertext, deviceAad(userId, attemptId));
+  const response = await exchangeDeviceCode(config, deviceCode);
+  const approvedPair = response.status === "connected" ? response.pair : undefined;
+  let account: { id: number; login: string } | undefined;
+  if (approvedPair) {
+    const user = await githubApi<{ id: number; login: string }>(approvedPair.access_token, "/user");
+    if (!Number.isSafeInteger(user.id) || user.id <= 0 || typeof user.login !== "string" || !user.login) throw new GithubUserError("INVALID_ACCOUNT", "Invalid GitHub account");
+    account = { id: user.id, login: user.login };
+  }
+  const result = await getDb().transaction(async (tx: DbTransaction) => {
+    const authority = await lockAuthority(tx, userId);
+    const [attempt] = await tx.select().from(githubUserDeviceAttempts).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+    if (!attempt || attempt.userId !== userId || attempt.sessionDigest !== digest(sessionId)) throw unavailableAttempt();
+    if (attempt.status !== "pending" || attempt.pollClaimToken !== claimed.claimToken) return { status: "cancelled" as const };
+    const [session] = await tx.select({ userId: sessions.userId, expiresAt: sessions.expiresAt }).from(sessions).where(eq(sessions.id, sessionId));
+    if (!session || session.userId !== userId || session.expiresAt <= new Date() || attempt.expiresAt <= new Date() || authority.generation !== attempt.expectedGeneration) {
+      const status = attempt.expiresAt <= new Date() ? "expired" : "cancelled";
+      await tx.update(githubUserDeviceAttempts).set({ status, pollClaimToken: null, pollClaimExpiresAt: null }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+      return { status } as DevicePollResult;
+    }
+    if (response.status === "pending" || response.status === "slow_down") {
+      const intervalSeconds = response.status === "slow_down" ? Math.max(attempt.intervalSeconds + 5, response.interval ?? 0) : attempt.intervalSeconds;
+      const nextPollAt = expires(intervalSeconds);
+      await tx.update(githubUserDeviceAttempts).set({ intervalSeconds, nextPollAt, pollClaimToken: null, pollClaimExpiresAt: null }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+      return { status: response.status, nextPollAt: nextPollAt.toISOString() };
+    }
+    if (response.status === "expired" || response.status === "denied") {
+      await tx.update(githubUserDeviceAttempts).set({ status: response.status, pollClaimToken: null, pollClaimExpiresAt: null }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+      return { status: response.status };
+    }
+    const [old] = await tx.select().from(githubUserConnections).where(eq(githubUserConnections.userId, userId));
+    if (old && old.githubAccountId !== account!.id) {
+      await tx.update(githubUserDeviceAttempts).set({ status: "denied", pollClaimToken: null, pollClaimExpiresAt: null }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+      return { status: "denied" as const };
+    }
+    if (!approvedPair || !account) throw new GithubUserError("DEVICE_EXCHANGE_FAILED", "GitHub device authorization is unavailable");
+    const token = tokenCipher(approvedPair, userId, account.id, config.appId);
+    const connectionId = crypto.randomUUID();
+    await tx.update(githubUserAuthorities).set({ generation: authority.generation + 1, updatedAt: new Date() }).where(eq(githubUserAuthorities.userId, userId));
+    await tx.insert(githubUserConnections).values({ userId, connectionId, githubAccountId: account!.id, githubLogin: account!.login, appId: config.appId, authFlow: "device", ...token })
+      .onConflictDoUpdate({ target: githubUserConnections.userId, set: { connectionId, githubAccountId: account!.id, githubLogin: account!.login, appId: config.appId, authFlow: "device", ...token, tokenRevision: 0, state: "connected", updatedAt: new Date() } });
+    await tx.update(githubUserDeviceAttempts).set({ status: "connected", pollClaimToken: null, pollClaimExpiresAt: null }).where(eq(githubUserDeviceAttempts.attemptId, attemptId));
+    return { status: "connected" as const, ...(attempt.returnReviewId ? { returnReviewId: attempt.returnReviewId } : {}) };
+  });
+  return result;
+}
+
 export async function disconnect({ userId }: { userId: string }): Promise<{ status: "disconnected" }> {
   const oldToken = await getDb().transaction(async (tx: DbTransaction) => {
     const authority = await lockAuthority(tx, userId);
     const [old] = await tx.select().from(githubUserConnections).where(eq(githubUserConnections.userId, userId));
     await tx.update(githubUserAuthorities).set({ generation: authority.generation + 1, updatedAt: new Date() }).where(eq(githubUserAuthorities.userId, userId));
     await tx.delete(githubUserConnections).where(eq(githubUserConnections.userId, userId));
-    if (!old) return null;
+    await tx.update(githubUserDeviceAttempts).set({ status: "cancelled", pollClaimToken: null, pollClaimExpiresAt: null }).where(and(eq(githubUserDeviceAttempts.userId, userId), eq(githubUserDeviceAttempts.status, "pending")));
+    if (old?.authFlow !== "oauth") return null;
     try { return decryptWithAad(old.accessCiphertext, aad(userId, old.githubAccountId, old.appId, "access")); }
     catch { return null; }
   });
   if (oldToken) {
-    try { await revokeToken(getGithubUserConfig(), oldToken); } catch { /* local authority is already revoked */ }
+    try { await revokeToken(getGithubOAuthConfig(), oldToken); } catch { /* local authority is already revoked */ }
   }
   return { status: "disconnected" };
 }
@@ -160,7 +283,7 @@ async function currentToken(userId: string): Promise<{ token: string; connection
       const config = getGithubUserConfig();
       if (config.appId !== fresh.appId) throw new GithubUserError("RECONNECT_REQUIRED", "Connect GitHub again");
       const previous = decryptWithAad(fresh.refreshCiphertext, aad(userId, fresh.githubAccountId, fresh.appId, "refresh"));
-      const pair = await refreshPair(config, previous);
+      const pair = fresh.authFlow === "device" ? await refreshDevicePair(config, previous) : await refreshPair(getGithubOAuthConfig(), previous);
       const token = tokenCipher(pair, userId, fresh.githubAccountId, fresh.appId);
       await tx.update(githubUserConnections).set({ ...token, tokenRevision: fresh.tokenRevision + 1, updatedAt: new Date() })
         .where(and(eq(githubUserConnections.userId, userId), eq(githubUserConnections.connectionId, fresh.connectionId), eq(githubUserConnections.tokenRevision, fresh.tokenRevision)));
