@@ -6,9 +6,9 @@ import { join } from "node:path";
 import { INCUS_PROVIDER_ID, incusManifest } from "../../extensions/incus-sandbox/manifest";
 import checkedInRecipe from "./recipe.json";
 import { digest, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
-import { applySetupPlan, classifyApplyResult } from "./apply";
+import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult } from "./apply";
 import { inspectIncus, verifyKnownHostPin } from "./inspect";
-import { createSetupPlan, validateRecipe, verifySetupPlan } from "./plan";
+import { createImageBootstrapPlan, createSetupPlan, validateRecipe, verifySetupPlan } from "./plan";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
 
 const pem = "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n";
@@ -58,6 +58,113 @@ function syntheticReadyPlan(): IncusSetupPlan {
   const payload = { ...planned, status: "ready" as const, blockedReasons: [] };
   return { ...payload, planDigest: digest(payload) };
 }
+
+function bootstrapInventory(overrides: Partial<IncusInventory> = {}): IncusInventory {
+  const reviewed = checkedInRecipe as IncusSetupRecipe;
+  const base = inventory();
+  return inventory({
+    connection: { ...base.connection, sshHostKeySha256: reviewed.expected.sshHostKeySha256 },
+    host: { ...base.host, hostname: reviewed.expected.hostname, rootFreeBytes: reviewed.expected.minimumRootFreeBytes + 1024 ** 3 },
+    server: { ...base.server, certificateFingerprint: reviewed.expected.serverCertificateFingerprint,
+      storageDrivers: [{ name: reviewed.storage.driver, version: "6", remote: false }], apiExtensions: reviewed.expected.requiredApiExtensions },
+    ...overrides,
+  });
+}
+
+describe("Incus image bootstrap", () => {
+  test("plans only the pinned pool and bridge while full setup stays blocked", async () => {
+    const reviewed = checkedInRecipe as IncusSetupRecipe;
+    const current = bootstrapInventory();
+    const bootstrap = createImageBootstrapPlan(reviewed, current);
+    expect(bootstrap.status).toBe("ready");
+    expect(bootstrap.steps.map(step => step.id)).toEqual(["storage-pool", "managed-network"]);
+    expect(bootstrap.steps.map(step => step.resource)).toEqual(["storage", "network"]);
+    expect(createImageBootstrapPlan(reviewed, { ...current, routes: [...current.routes].reverse() }).planDigest).toBe(bootstrap.planDigest);
+    expect(createSetupPlan(reviewed, current).status).toBe("blocked");
+    expect(createSetupPlan(reviewed, current).blockedReasons).toContain("guest_image_artifact_unpinned");
+    expect(createSetupPlan(reviewed, current).blockedReasons).toContain("provider_client_certificate_missing");
+    await expect(applySetupPlan(bootstrap, async () => result(1))).rejects.toThrow("image bootstrap plan");
+  });
+
+  test("blocks host, pin, route, resource, and approved baseline drift before effects", async () => {
+    const reviewed = checkedInRecipe as IncusSetupRecipe;
+    const current = bootstrapInventory();
+    const approved = createImageBootstrapPlan(reviewed, current);
+    const variants = [
+      bootstrapInventory({ connection: { ...current.connection, sshTarget: "other@host" } }),
+      bootstrapInventory({ server: { ...current.server, certificateFingerprint: "f".repeat(64) } }),
+      bootstrapInventory({ host: { ...current.host, rootFreeBytes: 1 } }),
+      bootstrapInventory({ routes: [...current.routes, "10.173.0.0/24"] }),
+      bootstrapInventory({ storagePools: [{ name: reviewed.storage.name, driver: "dir", description: "foreign", config: {}, status: "Created" }] }),
+      bootstrapInventory({ networks: [{ name: reviewed.network.name, project: "default", type: "bridge", managed: true, description: "", config: { "ipv4.address": "10.9.0.1/24" }, status: "Created" }] }),
+    ];
+    for (const changed of variants) {
+      let effects = 0;
+      const receipt = await applyImageBootstrapPlan(approved, async argv => { if (argv.includes("create")) effects++; return result(1); },
+        { execute: true, approvedPlanDigest: approved.planDigest, preflightPlan: createImageBootstrapPlan(reviewed, changed) });
+      expect(receipt.state).toBe("blocked");
+      expect(effects).toBe(0);
+    }
+    const changedSteps = [{ ...approved.steps[0]!, apply: { argv: ["incus", "storage", "delete", reviewed.storage.name] } }, approved.steps[1]!];
+    const { planDigest: _oldDigest, ...payload } = approved;
+    const changedPayload = { ...payload, steps: changedSteps };
+    const forged = { ...changedPayload, planDigest: digest(changedPayload) };
+    const rejected = await applyImageBootstrapPlan(forged, async () => { throw new Error("must not run"); },
+      { execute: true, approvedPlanDigest: forged.planDigest, preflightPlan: createImageBootstrapPlan(reviewed, current) });
+    expect(rejected.state).toBe("blocked");
+    expect(rejected.blockedReasons).toContain("bootstrap_preflight_drift");
+  });
+
+  test("dry run, exact approval, readback, and replay reconcile a partial success", async () => {
+    const reviewed = checkedInRecipe as IncusSetupRecipe;
+    const approved = createImageBootstrapPlan(reviewed, bootstrapInventory());
+    const present = new Map<string, unknown>();
+    let effects = 0;
+    const runner = async (argv: readonly string[]) => {
+      const step = approved.steps.find(item => item.inspect.argv.join("\0") === argv.join("\0"));
+      if (step) return present.has(step.id) ? result(0, JSON.stringify(present.get(step.id))) : result(1, "", "not found");
+      const effect = approved.steps.find(item => item.apply.argv.join("\0") === argv.join("\0"));
+      if (!effect) throw new Error("unapproved command");
+      effects++;
+      present.set(effect.id, effect.inspect.expected);
+      return result(0);
+    };
+    const dry = await applyImageBootstrapPlan(approved, runner, { preflightPlan: approved });
+    expect(dry.state).toBe("dry_run");
+    expect(effects).toBe(0);
+    await expect(applyImageBootstrapPlan(approved, runner, { execute: true, approvedPlanDigest: "wrong", preflightPlan: approved })).rejects.toThrow("exact approved plan digest");
+    const first = await applyImageBootstrapPlan(approved, runner, { execute: true, approvedPlanDigest: approved.planDigest, preflightPlan: approved });
+    expect(first.state).toBe("applied");
+    expect(effects).toBe(2);
+    const original = bootstrapInventory();
+    const current = bootstrapInventory({
+      host: { ...original.host, rootFreeBytes: original.host.rootFreeBytes - reviewed.storage.sizeBytes },
+      storagePools: [{ ...(present.get("storage-pool") as IncusInventory["storagePools"][number]), description: "", status: "Created" }],
+      networks: [{ ...(present.get("managed-network") as IncusInventory["networks"][number]), description: "", status: "Created" }],
+      routes: [...original.routes, "10.173.0.0/24"], routeBindings: [{ destination: "10.173.0.0/24", device: reviewed.network.name }],
+    });
+    const replay = await applyImageBootstrapPlan(approved, runner, { execute: true, approvedPlanDigest: approved.planDigest, preflightPlan: createImageBootstrapPlan(reviewed, current) });
+    expect(replay.steps.map(step => step.action)).toEqual(["skipped", "skipped"]);
+    expect(effects).toBe(2);
+  });
+
+  test("uncertain effect stops and requires fresh reconciliation", async () => {
+    const approved = createImageBootstrapPlan(checkedInRecipe as IncusSetupRecipe, bootstrapInventory());
+    let effects = 0;
+    const receipt = await applyImageBootstrapPlan(approved, async argv => {
+      if (argv.includes("create")) { effects++; return { exitCode: 255, stdout: "", stderr: "connection closed", timedOut: true }; }
+      return result(1, "", "not found");
+    }, { execute: true, approvedPlanDigest: approved.planDigest, preflightPlan: approved });
+    expect(receipt.state).toBe("reconcile_required");
+    expect(effects).toBe(1);
+    const thrown = await applyImageBootstrapPlan(approved, async argv => {
+      if (argv.includes("create")) throw new Error("SSH process disappeared");
+      return result(1, "", "not found");
+    }, { execute: true, approvedPlanDigest: approved.planDigest, preflightPlan: approved });
+    expect(thrown.state).toBe("reconcile_required");
+    expect(thrown.steps[0]?.outcome).toBe("reconcile");
+  });
+});
 
 test("connection metadata must match the actual known-hosts key", async () => {
   const directory = await mkdtemp(join(tmpdir(), "incus-known-host-"));

@@ -1,5 +1,5 @@
-import type { ApplyReceipt, CommandResult, IncusSetupPlan, OutcomeClass, SetupStep, StepObservation } from "./model";
-import { SETUP_SCHEMA_VERSION, assertSetupPlanDigest, isSubset } from "./model";
+import type { ApplyReceipt, CommandResult, IncusImageBootstrapPlan, IncusSetupPlan, OutcomeClass, SetupStep, StepObservation } from "./model";
+import { SETUP_SCHEMA_VERSION, assertSetupPlanDigest, digest, isSubset } from "./model";
 import type { RemoteRunner } from "./inspect";
 
 function parseObserved(step: SetupStep, result: CommandResult): StepObservation {
@@ -28,6 +28,21 @@ export async function inspectStep(step: SetupStep, runner: RemoteRunner): Promis
 }
 
 export async function applySetupPlan(plan: IncusSetupPlan, runner: RemoteRunner, options: { execute?: boolean; approvedPlanDigest?: string; preflightPlan?: IncusSetupPlan } = {}): Promise<ApplyReceipt> {
+  if ("purpose" in plan) throw new Error("image bootstrap plan requires its own apply command");
+  return applyPlan(plan, runner, options);
+}
+
+export async function applyImageBootstrapPlan(plan: IncusImageBootstrapPlan, runner: RemoteRunner, options: { execute?: boolean; approvedPlanDigest?: string; preflightPlan: IncusImageBootstrapPlan }): Promise<ApplyReceipt> {
+  if (plan.purpose !== "image_bootstrap" || options.preflightPlan.purpose !== "image_bootstrap") throw new Error("image bootstrap purpose is required");
+  assertSetupPlanDigest(plan);
+  assertSetupPlanDigest(options.preflightPlan);
+  if (plan.baselineFingerprint !== options.preflightPlan.baselineFingerprint || digest(plan.steps) !== digest(options.preflightPlan.steps)) {
+    return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: !options.execute, state: "blocked", blockedReasons: ["bootstrap_preflight_drift"], steps: [] };
+  }
+  return applyPlan(plan, runner, options);
+}
+
+async function applyPlan(plan: IncusSetupPlan, runner: RemoteRunner, options: { execute?: boolean; approvedPlanDigest?: string; preflightPlan?: IncusSetupPlan } = {}): Promise<ApplyReceipt> {
   assertSetupPlanDigest(plan);
   if (options.preflightPlan) {
     assertSetupPlanDigest(options.preflightPlan);
@@ -42,13 +57,23 @@ export async function applySetupPlan(plan: IncusSetupPlan, runner: RemoteRunner,
     if (before === "match") { receipts.push({ id: step.id, before, action: "skipped", outcome: "succeeded" }); continue; }
     if (before === "drift") { receipts.push({ id: step.id, before, action: "stopped", outcome: "review_required" }); return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: !options.execute, state: "review_required", steps: receipts }; }
     if (!options.execute) { receipts.push({ id: step.id, before, action: "planned", outcome: "succeeded" }); continue; }
-    const result = await runner(step.apply.argv, step.apply.stdin);
+    let result: CommandResult;
+    try { result = await runner(step.apply.argv, step.apply.stdin); }
+    catch {
+      receipts.push({ id: step.id, before, action: "stopped", outcome: "reconcile" });
+      return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: false, state: "reconcile_required", steps: receipts };
+    }
     const outcome = classifyApplyResult(result);
     if (outcome !== "succeeded") {
       receipts.push({ id: step.id, before, action: "stopped", outcome, exitCode: result.exitCode });
       return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: false, state: outcome === "review_required" ? "review_required" : "reconcile_required", steps: receipts };
     }
-    const after = await inspectStep(step, runner);
+    let after: StepObservation;
+    try { after = await inspectStep(step, runner); }
+    catch {
+      receipts.push({ id: step.id, before, action: "stopped", outcome: "reconcile", exitCode: result.exitCode });
+      return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: false, state: "reconcile_required", steps: receipts };
+    }
     if (after !== "match") {
       receipts.push({ id: step.id, before, action: "stopped", outcome: "reconcile", exitCode: result.exitCode });
       return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: false, state: "reconcile_required", steps: receipts };

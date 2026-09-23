@@ -113,6 +113,11 @@ export interface IncusSetupPlan {
   planDigest: string;
 }
 
+export interface IncusImageBootstrapPlan extends IncusSetupPlan {
+  purpose: "image_bootstrap";
+  baselineFingerprint: string;
+}
+
 export type StepObservation = "absent" | "match" | "drift";
 export type OutcomeClass = "succeeded" | "reconcile" | "retryable" | "review_required";
 export interface CommandResult { exitCode: number; stdout: string; stderr: string; timedOut?: boolean }

@@ -2,7 +2,7 @@ import { isIP } from "node:net";
 import { canonicalJson, type SandboxPreset } from "@ezcorp/extension-contract";
 import { INCUS_PROVIDER_ID, incusManifest } from "../../extensions/incus-sandbox/manifest";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
-import type { IncusInventory, IncusSetupPlan, IncusSetupRecipe, SetupStep } from "./model";
+import type { IncusImageBootstrapPlan, IncusInventory, IncusSetupPlan, IncusSetupRecipe, SetupStep } from "./model";
 import { SETUP_SCHEMA_VERSION, assertExactKeys, assertRecord, assertSafeName, assertSetupPlanDigest, assertSha256, digest, inventoryFingerprint, isSubset } from "./model";
 
 const VERSION = /^\d+\.\d+\.\d+$/;
@@ -262,6 +262,44 @@ export function createSetupPlan(recipe: IncusSetupRecipe, inventory: IncusInvent
   }
   const recipeDigest = digest(recipe);
   const payload = { schemaVersion: SETUP_SCHEMA_VERSION, setupId: `${recipe.id}:${recipe.version}:${inventory.server.certificateFingerprint.slice(0, 16)}`, recipeId: recipe.id, recipeVersion: recipe.version, recipeDigest, inventoryFingerprint: inventoryFingerprint(inventory), status: blocked.length ? "blocked" as const : "ready" as const, blockedReasons: [...new Set(blocked)].sort(), steps };
+  return { ...payload, planDigest: digest(payload) };
+}
+
+const IMAGE_BOOTSTRAP_PREREQUISITES = new Set([
+  "guest_image_missing_from_recipe", "guest_image_artifact_unpinned", "guest_image_missing_or_drifted", "provider_client_certificate_missing",
+]);
+
+function bootstrapBaselineFingerprint(recipe: IncusSetupRecipe, inventory: IncusInventory): string {
+  const desiredRoute = recipe.network.config["ipv4.address"]!;
+  const targetNetwork = inventory.networks.find(network => network.name === recipe.network.name && network.project === recipe.network.project);
+  const matchingNetwork = targetNetwork && isSubset({ type: "bridge", managed: true, config: recipe.network.config }, targetNetwork);
+  const ownedRoute = (route: string): boolean => {
+    if (!matchingNetwork || cidrRange(route)?.join(":") !== cidrRange(desiredRoute)?.join(":")) return false;
+    const bindings = inventory.routeBindings?.filter(binding => binding.destination === route) ?? [];
+    return bindings.length > 0 && bindings.every(binding => binding.device === recipe.network.name);
+  };
+  const stable = {
+    ...inventory,
+    host: { ...inventory.host, rootFreeBytes: 0 },
+    storagePools: inventory.storagePools.filter(pool => pool.name !== recipe.storage.name),
+    networks: inventory.networks.filter(network => !(network.name === recipe.network.name && network.project === recipe.network.project)),
+    routes: inventory.routes.filter(route => !ownedRoute(route)),
+    routeBindings: (inventory.routeBindings ?? []).filter(binding => !ownedRoute(binding.destination)),
+  };
+  return inventoryFingerprint(stable);
+}
+
+export function createImageBootstrapPlan(recipe: IncusSetupRecipe, inventory: IncusInventory, presets?: readonly SandboxPreset[]): IncusImageBootstrapPlan {
+  const setup = createSetupPlan(recipe, inventory, presets);
+  const blockedReasons = setup.blockedReasons.filter(reason => !IMAGE_BOOTSTRAP_PREREQUISITES.has(reason));
+  const steps = setup.steps.filter(step => step.resource === "storage" || step.resource === "network");
+  if (steps.length !== 2 || steps[0]?.id !== "storage-pool" || steps[1]?.id !== "managed-network") throw new Error("bootstrap resource scope changed");
+  const payload = {
+    schemaVersion: SETUP_SCHEMA_VERSION, setupId: setup.setupId, recipeId: setup.recipeId, recipeVersion: setup.recipeVersion,
+    recipeDigest: setup.recipeDigest, inventoryFingerprint: setup.inventoryFingerprint,
+    status: blockedReasons.length ? "blocked" as const : "ready" as const, blockedReasons, steps,
+    purpose: "image_bootstrap" as const, baselineFingerprint: bootstrapBaselineFingerprint(recipe, inventory),
+  };
   return { ...payload, planDigest: digest(payload) };
 }
 
