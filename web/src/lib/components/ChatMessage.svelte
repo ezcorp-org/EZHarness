@@ -859,7 +859,7 @@
 							{#if onretry}
 								<button
 									onclick={onretry}
-									class="mt-2 rounded-md bg-red-700 px-3 py-1 text-xs text-white hover:bg-red-600"
+									class="mt-2 rounded-md bg-amber-700 px-3 py-1 text-xs text-white hover:bg-amber-600"
 								>
 									Retry
 								</button>

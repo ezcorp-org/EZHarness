@@ -270,7 +270,9 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
     // The MODEL is exhausted — but the provider may not be. Try another model
     // on the same provider first, without charging the provider's breaker:
     // a limit on one model says nothing about the provider's other models.
-    const modelFallback = params.suggestModelFallback?.(current, lastErrorMessage) ?? null;
+    const modelFallback = attempt + 1 < maxAttempts
+      ? params.suggestModelFallback?.(current, lastErrorMessage) ?? null
+      : null;
     const modelKey = modelFallback ? `${modelFallback.provider}/${modelFallback.model}` : "";
     if (modelFallback && modelFallback.provider === current.provider && !attemptedModels.has(modelKey)) {
       attemptedModels.add(modelKey);
@@ -287,6 +289,7 @@ export async function runWithFailover(params: RunWithFailoverParams): Promise<vo
     // straight here (account-limit / failover-only) → feed the breaker (exactly
     // ONE failure per provider per turn) and try a fallback.
     getCircuitBreaker(current.provider, credentialScope).recordFailure();
+    if (attempt + 1 >= maxAttempts) break;
     log.info("provider failure before first token — attempting failover", {
       failedProvider: current.provider,
       failedModel: current.model,

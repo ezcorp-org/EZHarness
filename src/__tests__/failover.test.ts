@@ -337,10 +337,9 @@ describe("runWithFailover", () => {
     await expect(promise).rejects.toBeInstanceOf(ProviderUnavailableError);
     const err = await promise.catch((e) => e);
     // Built p1 then p2 (2 provider attempts, each with its one
-    // same-provider retry), then gave up before building p3 — intra-provider
-    // retries do NOT consume the cross-provider attempt budget.
+    // same-provider retry), then gave up. Do not blame the untried p3.
     expect(built).toEqual(["p1", "p1", "p2", "p2"]);
-    expect(err.failedProvider).toBe("p3");
+    expect(err.failedProvider).toBe("p2");
     expect(err.suggestion).toBeNull();
   });
 
@@ -706,6 +705,36 @@ const realModelFallback: NonNullable<RunWithFailoverParams["suggestModelFallback
 };
 
 describe("runWithFailover — model-level fallback before blaming the provider", () => {
+  test("the attempt cap reports the model actually tried", async () => {
+    const built: string[] = [];
+    let modelFallbackLookups = 0;
+    let providerFallbackLookups = 0;
+    const promise = runWithFailover(
+      baseParams(makeCtx(), makeHost(), {
+        maxAttempts: 1,
+        initial: makeAttempt("kilo", POOLSIDE),
+        buildAgent: (r) => {
+          built.push((r as unknown as { resolved: { model: string } }).resolved.model);
+          return makeAgent(REAL_POOLSIDE_429);
+        },
+        suggestModelFallback: (failed, errorMessage) => {
+          modelFallbackLookups++;
+          return realModelFallback(failed, errorMessage);
+        },
+        suggestFallback: async () => {
+          providerFallbackLookups++;
+          return null;
+        },
+      }),
+    );
+    const error = (await promise.catch((cause) => cause)) as ProviderUnavailableError;
+    expect(error).toBeInstanceOf(ProviderUnavailableError);
+    expect(error.failedModel).toBe(POOLSIDE);
+    expect(built).toEqual([POOLSIDE, POOLSIDE]);
+    expect(modelFallbackLookups).toBe(0);
+    expect(providerFallbackLookups).toBe(0);
+  });
+
   test("a rate-limited free model retries on kilo-auto/free, and Kilo's breaker is never charged", async () => {
     const built: string[] = [];
     let crossProviderLookups = 0;
