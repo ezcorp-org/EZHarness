@@ -132,6 +132,23 @@ test("durable guard denial prevents worker startup despite child metadata claimi
   } finally { fixture.cleanup(); }
 });
 
+test("call provenance guard runs after the host guard and can deny worker startup", async () => {
+  const fixture = harness();
+  const checks: string[] = [];
+  const token = registerCallProvenance({
+    actorExtensionId: "installation", onBehalfOf: "alice", conversationId: "conversation",
+    ownerless: false, runId: null, parentCallId: null, kind: "tool",
+    invocationGuard: async () => { checks.push("provenance"); throw new Error("token no longer active"); },
+  });
+  try {
+    await expect(fixture.process.callTool("read", {}, { ezCallId: token }, {
+      invocationGuard: async () => { checks.push("host"); },
+    })).rejects.toThrow("token no longer active");
+    expect(checks).toEqual(["host", "host", "provenance"]);
+    expect(fixture.starts).toHaveLength(0);
+  } finally { releaseCallProvenance(token); fixture.cleanup(); }
+});
+
 test("durable guard is rechecked after runner resolution before any worker starts", async () => {
   const fixture = harness();
   const runtime = releaseRuntimeFixture("installation", fixture.snapshot().release.manifest);
