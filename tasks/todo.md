@@ -1324,6 +1324,8 @@ Review: The incoming three no-Git-ancestor tests use filesystem stubs that avoid
 
 ## Incus first live guest milestone — 2026-09-23
 
+Current continuation plan and evidence gates: `tasks/incus-live-next/PLAN.md` and `tasks/incus-live-next/GATES.md`. The reviewed server image stage is complete. Full operator setup still requires a provider client identity, reviewed recipe pins, and a new ready plan digest before Apply.
+
 - [x] Repair PR #303's per-file coverage failure in `release-process.ts` with behavior-based tests; preserve the 100% threshold.
 - [x] Define and implement host-authorized cleanup for stopped retained guests when their provider release is disabled or retired; prove the release cannot start new effects.
 - [x] Complete the pinned guest-image build and setup path, or record the exact unavailable artifact/server prerequisite without marking it ready.
@@ -1340,6 +1342,8 @@ Review in progress. Isolated Sol worktrees supplied the release-process coverage
 The real server has Incus 6.0.6 and no image in its default project. `docs/validation/2026-09-23-incus-image-inputs.md` records verified candidate base, Docker, Compose, and helper digests. `docs/validation/2026-09-23-incus-server-apply-plan.md` gives the exact reviewed import/build and digest-gated setup sequence. The recipe still has no published image fingerprint, and no image was imported or built. The production live-case witness is not installed. No SSH mutation or real guest lifecycle was run. Retired-release cleanup is restricted to stopped guests; handling a running guest needs a separate reviewed stop policy. The live feature, image, and independent-provider gates remain open.
 
 Code validation on `68ee9cdb9`: pinned Bun 1.3.14 passed 26,799 backend tests across 1,730 files with zero failures; typecheck, lint, build, Svelte check, gate integrity, and the unchanged coverage and touched-function complexity gates passed. PR #303 reported 50 successful hosted checks and no failures. This validates the code milestone, not the unrun live Incus guest or independent-provider release gates.
+
+Live image review on 2026-09-23: The approved cleanup removed only unused faulty fingerprint `a511230c76d043ede950b65df26e4f8a427c6da8273364bd5d47910f97ab2a72` after fresh instance and alias checks. The replacement build published fingerprint `57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c` as `ezharness-guest-0-1-0`. Two disposable guests passed Docker, helper, and distinct machine-ID checks; the pinned Compose fixture served HTTP at the recipe's 8 GiB, 2 CPU, and 1,024 PID limits. The builder exited 1 while parsing Incus's publish message, so the source parser and image retention code were corrected afterward. A reviewed metadata edit set the published image expiry to `2099-12-31T00:00:00Z`. Fresh read-only server inspection confirms the faulty image absent, replacement fingerprint and alias present, and zero instances. The full setup plan remains blocked on a provider client certificate; no full setup Apply or engine-to-guest feature lifecycle has run. Evidence: `docs/validation/2026-09-23-incus-server-prewrite-review.md` and `docs/validation/2026-09-23-incus-server-apply-plan.md`.
 
 ## Incus M1 offline feature flow fixture
 
