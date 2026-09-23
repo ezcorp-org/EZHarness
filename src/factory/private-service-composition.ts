@@ -31,6 +31,7 @@
  * route gets from reloading its signing pair per signature.
  */
 import { basename, dirname, resolve as resolvePath } from "node:path";
+import { factoryCommandFailedEvent } from "@ezcorp/factory-sdk";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryApplication } from "./application";
@@ -43,7 +44,8 @@ import { FactoryInstallationCommandOutbox } from "./outbox";
 import { FactoryLazyCommands } from "./lazy-commands";
 import { FactoryLazyInputReader } from "./lazy-input";
 import { FactoryPartitionCommands } from "./partition-commands";
-import { FactoryPrivateCommands, type FactoryPrivateCommandHandler } from "./private-commands";
+import { factoryErrorCode } from "./plain-values";
+import { FactoryPrivateCommands, type FactoryPrivateCommandHandler, type FactoryPrivateCommandStores } from "./private-commands";
 import { privateDirectory, readPrivateBounded } from "./private-files";
 import { startFactoryPrivateService } from "./private-service";
 import { FactoryProtectedCommandEffects, type FactoryReleaseCommandProfile } from "./protected-command-effects";
@@ -120,6 +122,30 @@ export function factoryCancelNodeEffect(stops: Pick<FactoryTaskStops, "stop">): 
 }
 
 /**
+ * An effect whose named refusal reaches the run's projected error.
+ *
+ * The private service answers a refusal it does not classify with an opaque
+ * `request_failed`, so the orchestrator could only record "Activity task
+ * failed" and an operator could not see which rule stopped the run. A refusal
+ * that names itself with a `factory_` code is answered here instead, as the
+ * same `command-failed` event the orchestrator would have built, carrying the
+ * name. The outcome is unchanged: an effect runs once, and any failure of it
+ * already fails the run. Every other error still throws, so a fault this
+ * service cannot name stays a fault.
+ */
+export function factoryNamedRefusalEffect(kind: string, handler: FactoryPrivateCommandHandler): FactoryPrivateCommandHandler {
+  return async (service: TrustedFactoryServiceIdentity, reference: TrustedFactoryCommandReference): Promise<KernelEvent | null> => {
+    try {
+      return await handler(service, reference);
+    } catch (error) {
+      const code = factoryErrorCode(error);
+      if (code === undefined || !code.startsWith("factory_")) throw error;
+      return factoryCommandFailedEvent({ id: reference.commandId, kind }, code, Date.now());
+    }
+  };
+}
+
+/**
  * The declared runner profiles, in the two shapes the two collaborators take.
  *
  * One declaration, read twice: `FactoryTaskAdmission` wants a map from resource
@@ -187,6 +213,15 @@ export interface FactoryPrivateServiceCompositionOptions {
   readonly protectedEffects?: FactoryProtectedCommandEffects;
   /** The host's reporter, so a refusal this service could not classify is readable. */
   readonly report?: (role: string, error: unknown) => void;
+  /**
+   * The `request-acceptance` effect, when this installation schedules validators.
+   *
+   * Absent, the command runs W05's `requestAcceptance` directly, which refuses
+   * by name when no validator evidence exists. Present, it is the handler that
+   * schedules the missing validators and lets the kernel wait while the
+   * `validator-scheduling` role delivers the decision (`validator-acceptance.ts`).
+   */
+  readonly acceptance?: FactoryPrivateCommandHandler;
 }
 
 /**
@@ -234,13 +269,13 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     inputs: new FactoryLazyCommands(stores.authority, new FactoryLazyInputReader(database, config.tenantId, application.artifacts, access, application.grants)),
     children: stores.children,
     approvals: new FactoryAssuranceCommands(database, config.tenantId, application.grants, stores.authority, stores.inbox, releases, service),
-    effects: {
+    effects: Object.fromEntries(Object.entries({
       "cancel-node": factoryCancelNodeEffect(options.stops),
-      "request-acceptance": protectedEffects.requestAcceptance,
+      "request-acceptance": options.acceptance ?? protectedEffects.requestAcceptance,
       "request-release": protectedEffects.requestRelease,
       "invalidate-partition": partitions.execute.bind(partitions),
       "notify-partition": partitions.execute.bind(partitions),
-    },
+    }).map(([kind, handler]) => [kind, factoryNamedRefusalEffect(kind, handler)])) as FactoryPrivateCommandStores["effects"],
   });
 
   const [ca, cert, key] = await Promise.all([

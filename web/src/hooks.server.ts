@@ -189,10 +189,8 @@ function getCorsHeaders(request: Request): Record<string, string> {
   return headers;
 }
 
-// sec-M4: hard expiry for the legacy pi_session → ezcorp_session migration path.
-// After this date we stop honoring the old cookie entirely.
-const PI_SESSION_MIGRATION_EXPIRES_AT = Date.parse("2026-06-01T00:00:00Z");
-let piSessionMigrationWarned = false;
+// sec-M4: the legacy pi_session cookie is retired (see retireLegacySessionCookie).
+let piSessionRetirementWarned = false;
 
 // Sliding-session refresh: re-issue the JWT (and bump the DB row's expiresAt)
 // once the current token is older than refreshAfterSeconds. The new token
@@ -610,28 +608,21 @@ function isLoopbackTestSurface(event: RequestEvent, url: URL): boolean {
 }
 
 /**
- * Migration bridge: accept old pi_session cookie and migrate.
+ * Retire a legacy `pi_session` cookie: never authenticate with it, purge it.
  *
- * sec-M4: disabled after PI_SESSION_MIGRATION_EXPIRES_AT to prevent an
- * unbounded window in which stolen legacy cookies can be auto-promoted.
+ * sec-M4: the migration bridge that promoted a legacy cookie to the current
+ * one closed for good on 2026-06-01 and is removed. It used to compare the
+ * wall clock with a date in code, which silently changed what the server
+ * accepts on that date. A legacy cookie is never promoted, so a stolen one is
+ * worth nothing; purging it makes the client stop presenting it.
  */
-function migrateLegacySessionCookie(event: RequestEvent): string | undefined {
-  const legacyToken = event.cookies.get("pi_session");
-  if (!legacyToken) return undefined;
-  if (Date.now() > PI_SESSION_MIGRATION_EXPIRES_AT) {
-    if (!piSessionMigrationWarned) {
-      log.warn("pi_session migration window closed - ignoring legacy cookie; clients must re-authenticate");
-      piSessionMigrationWarned = true;
-    }
-    // Purge the stale cookie so the client stops presenting it.
-    event.cookies.set("pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
-    return undefined;
+function retireLegacySessionCookie(event: RequestEvent): void {
+  if (!event.cookies.get("pi_session")) return;
+  if (!piSessionRetirementWarned) {
+    log.warn("pi_session is retired - ignoring legacy cookie; clients must re-authenticate");
+    piSessionRetirementWarned = true;
   }
-  // Delete old cookie
   event.cookies.set("pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 });
-  // Set new cookie
-  setSessionCookie(event.cookies, legacyToken);
-  return legacyToken;
 }
 
 /**
@@ -840,8 +831,8 @@ async function authenticateSessionCookie(event: RequestEvent, url: URL, sessionT
 async function enforceRequestAuth(event: RequestEvent, url: URL, socketAddress: string | undefined, resolveBounded: BoundedResolve): Promise<Response | undefined> {
   if (isLoopbackTestSurface(event, url)) return resolveBounded(event);
 
-  let sessionToken = event.cookies.get(getSessionCookieName());
-  if (!sessionToken) sessionToken = migrateLegacySessionCookie(event);
+  const sessionToken = event.cookies.get(getSessionCookieName());
+  if (!sessionToken) retireLegacySessionCookie(event);
 
   if (!sessionToken) return await authenticateWithoutSession(event, url, socketAddress, resolveBounded);
   return await authenticateSessionCookie(event, url, sessionToken, resolveBounded);

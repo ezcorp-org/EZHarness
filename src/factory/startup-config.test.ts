@@ -441,3 +441,56 @@ describe("where a release may publish", () => {
     expect(reject(valid({ release: { ...release, extra: 1 } })).invalid).toContain("release.extra");
   });
 });
+
+describe("the trusted validator runtimes this installation judges claims on", () => {
+  const runner = { package: "@ezcorp/validator", manifestName: "validator", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run", configurationDigest: `sha256:${"c".repeat(64)}` };
+  const runtime = { name: "claim-runtime", kind: "podman-guest" as const, runner, materialPath: "/secrets/validator.json", materialDigest: `sha256:${"d".repeat(64)}` };
+
+  test("accepts a declared runtime, one pinning a model, and an absent section", () => {
+    expect(parseFactoryStartupConfig(valid({ validators: { runtimes: [runtime] } })).validators?.runtimes).toEqual([runtime]);
+    const pinned = { ...runtime, name: "model-runtime", runner: { ...runner, export: "judge", model: "model-1" } };
+    expect(parseFactoryStartupConfig(valid({ validators: { runtimes: [runtime, pinned] } })).validators?.runtimes).toHaveLength(2);
+    expect(parseFactoryStartupConfig(valid()).validators).toBeUndefined();
+  });
+
+  test("a present section declares at least one runtime and at most sixty-four", () => {
+    expect(reject(valid({ validators: {} })).invalid).toContain("validators.runtimes");
+    expect(reject(valid({ validators: { runtimes: [] } })).invalid).toContain("validators.runtimes");
+    expect(reject(valid({ validators: { runtimes: "runtime" } })).invalid).toContain("validators.runtimes");
+    const many = Array.from({ length: 65 }, (_, index) => ({ ...runtime, name: `runtime-${index}`, runner: { ...runner, export: `run-${index}` } }));
+    expect(reject(valid({ validators: { runtimes: many } })).invalid).toContain("validators.runtimes");
+  });
+
+  test("names the exact runtime that is malformed, by index", () => {
+    const { configurationDigest: _unpinned, ...unpinnedRunner } = runner;
+    const broken = [
+      { ...runtime, kind: "native" },
+      { ...runtime, name: "has space" },
+      { ...runtime, runner: unpinnedRunner },
+      { ...runtime, runner: { ...runner, configurationDigest: "sha256:short" } },
+      { ...runtime, runner: { ...runner, digest: "sha256:short" } },
+      { ...runtime, runner: { ...runner, extra: "field" } },
+      { ...runtime, runner: { ...runner, version: "" } },
+      { ...runtime, runner: "runner" },
+      { ...runtime, materialPath: "" },
+      { ...runtime, materialDigest: "digest" },
+      { ...runtime, materialDigest: 7 },
+      { ...runtime, extra: true },
+      "runtime",
+    ];
+    for (const entry of broken) {
+      expect(reject(valid({ validators: { runtimes: [runtime, entry] } })).invalid).toContain("validators.runtimes[1]");
+    }
+  });
+
+  test("a name or a runner declared twice would make which material governs depend on order", () => {
+    expect(reject(valid({ validators: { runtimes: [runtime, { ...runtime, runner: { ...runner, export: "other" } }] } })).invalid).toContain("validators.runtimes");
+    expect(reject(valid({ validators: { runtimes: [runtime, { ...runtime, name: "second" }] } })).invalid).toContain("validators.runtimes");
+  });
+
+  test("an unknown field, or a section that is not an object, is named rather than ignored", () => {
+    expect(reject(valid({ validators: { runtimes: [runtime], extra: 1 } })).invalid).toContain("validators.extra");
+    const scalar = reject(valid({ validators: true }));
+    expect(scalar.invalid).toEqual(["validators"]);
+  });
+});

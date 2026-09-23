@@ -9,6 +9,7 @@
 
 import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { markGitRepository } from "@ezcorp/sdk/test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { getChannel } from "@ezcorp/sdk/runtime";
@@ -49,7 +50,7 @@ describe("findProjectRoot", () => {
 
   test("walks UP from a nested dir to the nearest ancestor that has a .git", () => {
     const repo = mkdtempSync(join(tmpdir(), "cd-proj-"));
-    mkdirSync(join(repo, ".git"));
+    markGitRepository(repo);
     const nested = join(repo, "a", "b", "c");
     mkdirSync(nested, { recursive: true });
     try {
@@ -60,12 +61,17 @@ describe("findProjectRoot", () => {
     }
   });
 
-  test("returns the starting dir when no .git exists up to the filesystem root", () => {
+  test("returns the starting dir when no git repository encloses it, ignoring a stray empty .git", () => {
     const lonely = mkdtempSync(join(tmpdir(), "cd-nogit-"));
+    // A bare `.git` directory is not a repository. The host once carried an
+    // empty `/tmp/.git`; plant one in the test's own tree so the case holds
+    // whatever the host's /tmp contains.
+    mkdirSync(join(lonely, ".git"));
+    const start = join(lonely, "child");
+    mkdirSync(start);
     try {
-      // Ascends to `/` without finding `.git` → `parent === dir` → returns
-      // the original `from`.
-      expect(findProjectRoot(lonely)).toBe(lonely);
+      // Ascends to `/` without finding a repository → returns `from`.
+      expect(findProjectRoot(start)).toBe(start);
     } finally {
       rmSync(lonely, { recursive: true, force: true });
     }

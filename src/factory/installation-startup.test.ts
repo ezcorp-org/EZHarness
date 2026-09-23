@@ -986,6 +986,89 @@ describe("the roles this installation assembles", () => {
     expect(reason).toBeDefined();
     expect(startup.runtime.report().workers.map((worker) => worker.name)).not.toContain("release-outcome");
   });
+  describe("the declared validators", () => {
+    const runner = { package: "@ezcorp/validator", manifestName: "validator", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run", configurationDigest: `sha256:${"c".repeat(64)}` };
+    const runnerProfiles = { brokerAudience: "factory-gateway", profiles: [{ runner: { ...runner, export: "task" } as Record<string, string>, resourceClass: "cpu", allocation: { resources: { cpu: 1 }, memoryBytes: 64, budget: { costMicros: "3", tokens: 2, computeMs: 4 } }, allowedCapabilities: [] }] };
+    delete (runnerProfiles.profiles[0]!.runner as Record<string, string>).configurationDigest;
+
+    /** Write one runtime material file and the declaration naming it by its digest. */
+    async function validators(root: string, overrides: Record<string, unknown> = {}, declaredDigestOf?: string): Promise<Record<string, unknown>> {
+      const bytes = JSON.stringify({
+        schemaVersion: "factory.validator-runtime.v1", kind: "podman-guest", runner, resources: { resourceClass: "cpu", memoryBytes: 64, maxComputeMs: 4 },
+        brokerAudience: "factory-gateway", environmentDigest: `sha256:${"e".repeat(64)}`, configurationDigest: runner.configurationDigest, maxEvidenceAgeMs: 60_000, ...overrides,
+      });
+      const path = join(root, "secrets", "validator.json");
+      await writeFile(path, bytes, { mode: 0o600 });
+      await chmod(path, 0o600);
+      const { createHash } = await import("node:crypto");
+      const digest = `sha256:${createHash("sha256").update(declaredDigestOf ?? bytes).digest("hex")}`;
+      return { validators: { runtimes: [{ name: "claim-runtime", kind: "podman-guest", runner, materialPath: path, materialDigest: digest }] } };
+    }
+
+    /** The binding read-back for every query, and an empty page for the version scan. */
+    function scanningDatabase(): TransactionalDb {
+      const execute = async (query: { queryChunks?: unknown[] }) => JSON.stringify(query.queryChunks ?? []).includes("FROM factory_versions") ? [] : [{ tenant_id: "tenant-01" }];
+      return { execute, async transaction<Result>(work: (transaction: { execute: typeof execute }) => Promise<Result>): Promise<Result> { return work({ execute }); } } as unknown as TransactionalDb;
+    }
+
+    const heldReasons = (startup: Awaited<ReturnType<typeof start>>) => startup.runtime.report().heldWorkers
+      .filter((worker) => worker.role.startsWith("validator-")).map((worker) => worker.reason);
+
+    test("nothing declared holds both roles and says acceptance cannot pass", async () => {
+      const root = await privateRoot();
+      await writeReadyRecords(root);
+      const startup = await start(root, { ...await transport(root), storage: await readableStorage(root) });
+      expect(heldReasons(startup)).toEqual(Array(2).fill(expect.stringContaining("no acceptance can pass")));
+    });
+
+    test("an exact declaration composes the gateway and runs both roles over the shared stores", async () => {
+      const root = await privateRoot();
+      await writeReadyRecords(root);
+      const startup = await start(root, { ...await transport(root), storage: await readableStorage(root), runnerProfiles, ...await validators(root) }, { host: host({ database: scanningDatabase() }) });
+      const running = startup.runtime.report().workers.map((worker) => worker.name);
+      expect(running).toEqual(expect.arrayContaining(["validator-material-registration", "validator-scheduling", "attempt-dispatch"]));
+      expect(heldReasons(startup)).toEqual([]);
+    });
+
+    test("a tampered material refuses at startup by name, and both roles hold with that reason", async () => {
+      const before = reported.length;
+      const root = await privateRoot();
+      await writeReadyRecords(root);
+      const startup = await start(root, { ...await transport(root), storage: await readableStorage(root), runnerProfiles, ...await validators(root, {}, "the bytes the operator declared") });
+      const failures = reported.slice(before).filter((entry) => entry.role === "validator-declaration");
+      expect(failures.map((entry) => (entry.error as { code?: string }).code)).toEqual(["factory_validator_declaration_digest_mismatch"]);
+      expect(heldReasons(startup)).toEqual(Array(2).fill(expect.stringContaining("factory_validator_declaration_digest_mismatch")));
+    });
+
+    test("a runtime W05 refuses is named by the runtime that failed", async () => {
+      const before = reported.length;
+      const root = await privateRoot();
+      await writeReadyRecords(root);
+      const startup = await start(root, { ...await transport(root), storage: await readableStorage(root), runnerProfiles, ...await validators(root, { maxEvidenceAgeMs: 86_400_001 }) });
+      const failure = reported.slice(before).find((entry) => entry.role === "validator-declaration");
+      expect(String((failure!.error as Error).message)).toBe("factory_validator_runtime_rejected: claim-runtime: factory_validator_runtime_invalid");
+      expect(heldReasons(startup)).toEqual(Array(2).fill(expect.stringContaining("factory_validator_runtime_rejected")));
+    });
+
+    test("each collaborator the roles share with the task path holds them by name when it is absent", async () => {
+      const noStore = await privateRoot();
+      await writeReadyRecords(noStore);
+      const withoutStore = await start(noStore, { ...await transport(noStore), runnerProfiles, ...await validators(noStore) });
+      expect(heldReasons(withoutStore)).toEqual(Array(2).fill(expect.stringContaining("release-store role")));
+
+      const noPool = await privateRoot();
+      await writeReadyRecords(noPool);
+      const withoutPool = await start(noPool, { storage: await readableStorage(noPool), runnerProfiles, ...await validators(noPool) });
+      expect(heldReasons(withoutPool)).toEqual(Array(2).fill(expect.stringContaining("pool admission client")));
+
+      const before = reported.length;
+      const noProfiles = await privateRoot();
+      await writeReadyRecords(noProfiles);
+      const withoutProfiles = await start(noProfiles, { ...await transport(noProfiles), storage: await readableStorage(noProfiles), ...await validators(noProfiles) });
+      expect(heldReasons(withoutProfiles)).toEqual(Array(2).fill(expect.stringContaining("factory_private_service_profiles_missing")));
+      expect(reported.slice(before).map((entry) => entry.role)).toContain("validator-composition");
+    });
+  });
 });
 
 describe("factoryReleaseOperations", () => {
