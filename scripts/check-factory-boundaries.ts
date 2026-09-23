@@ -157,6 +157,7 @@ export const REQUIRED_SHARED_IMPORTS: readonly RequiredImport[] = [
   { factoryPath: "src/factory/transition-artifacts.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/usage-settlement.ts", sharedModule: "src/extensions/v4/blobs.ts" },
   { factoryPath: "src/factory/validator-materials.ts", sharedModule: "src/extensions/v4/blobs.ts" },
+  { factoryPath: "src/factory/validator-declaration.ts", sharedModule: "src/extensions/v4/blobs.ts" },
 ];
 
 function parse(input: SourceInput): ts.SourceFile {
