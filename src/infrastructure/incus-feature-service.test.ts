@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
+import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
 import * as schema from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { SandboxAdmissionStore } from "../sandboxes/admission";
@@ -22,6 +23,7 @@ async function fixture() {
   await pglite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   const db = drizzle(pglite, { schema });
   await addSandboxController(db);
+  await addQualificationFixtures(db);
   await db.insert(schema.projects).values({ id: "project", name: "project", path: "/work/project" });
   const preset = INCUS_PRESETS[0]!;
   const presetDigest = await sandboxPresetDigest(preset);

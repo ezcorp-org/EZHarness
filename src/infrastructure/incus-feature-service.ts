@@ -7,7 +7,7 @@ import {
   type SandboxPreset,
 } from "@ezcorp/extension-contract";
 import { getDb, type Database } from "../db/connection";
-import { sandboxBindings, sandboxOperations, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
+import { incusQualificationFixtures, projects, sandboxBindings, sandboxOperations, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
 import { assertSandboxPresetReady } from "../extensions/v4/sandbox-preset-qualification";
 import { SandboxAdmissionStore, type SandboxResourceVector } from "../sandboxes/admission";
@@ -151,6 +151,9 @@ export class IncusFeatureService {
   }
 
   async prepare(input: PrepareIncusFeatureInput): Promise<SandboxBinding> {
+    const [project] = await this.db.select({ purpose: projects.purpose }).from(projects)
+      .where(eq(projects.id, input.projectId)).limit(1);
+    if (project?.purpose !== "user") throw new Error("Incus feature project is unavailable");
     const [existing] = await this.db.select().from(sandboxBindings)
       .where(eq(sandboxBindings.projectId, input.projectId)).limit(1);
     const approved = await this.approved(input, existing);
@@ -171,6 +174,12 @@ export class IncusFeatureService {
       effectiveSettingsDigest: approved.effectiveSettingsDigest,
       desiredState: "STOPPED", observedState: "UNKNOWN",
     });
+  }
+
+  private async assertUserBinding(id: string): Promise<void> {
+    const [fixture] = await this.db.select({ operationId: incusQualificationFixtures.operationId })
+      .from(incusQualificationFixtures).where(eq(incusQualificationFixtures.bindingId, id)).limit(1);
+    if (fixture) throw new Error("Incus feature binding is unavailable");
   }
 
   private async readyBinding(id: string, requireQualification = true): Promise<{ binding: SandboxBinding; preset: SandboxPreset }> {
@@ -211,6 +220,7 @@ export class IncusFeatureService {
   }
 
   async create(request: IncusFeatureRequest): Promise<IncusFeatureEffect> {
+    await this.assertUserBinding(request.bindingId);
     const replay = await this.existing(request, "CREATE");
     if (replay) return { state: "DISPATCHED", operation: replay };
     const { binding, preset } = await this.readyBinding(request.bindingId);
@@ -226,6 +236,7 @@ export class IncusFeatureService {
   }
 
   async start(request: IncusFeatureRequest): Promise<IncusFeatureEffect> {
+    await this.assertUserBinding(request.bindingId);
     const replay = await this.existing(request, "START");
     if (replay) return { state: "DISPATCHED", operation: replay };
     const { binding, preset } = await this.readyBinding(request.bindingId);
@@ -239,6 +250,7 @@ export class IncusFeatureService {
   }
 
   async stop(request: IncusFeatureRequest): Promise<SandboxOperation> {
+    await this.assertUserBinding(request.bindingId);
     const replay = await this.existing(request, "STOP");
     if (replay) return replay;
     const { binding } = await this.readyBinding(request.bindingId, false);
@@ -251,6 +263,7 @@ export class IncusFeatureService {
   }
 
   async destroy(request: IncusFeatureRequest): Promise<SandboxOperation> {
+    await this.assertUserBinding(request.bindingId);
     const replay = await this.existing(request, "DESTROY");
     if (replay) return replay;
     const { binding } = await this.readyBinding(request.bindingId, false);
@@ -264,6 +277,7 @@ export class IncusFeatureService {
 
   /** Explicit host cleanup of a stopped guest after its approved release retires. */
   async destroyRetired(request: IncusFeatureRequest): Promise<SandboxOperation> {
+    await this.assertUserBinding(request.bindingId);
     const replay = await this.existing(request, "DESTROY");
     if (replay) return replay;
     const binding = await this.controller.getBinding(request.bindingId);

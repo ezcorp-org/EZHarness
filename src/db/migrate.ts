@@ -73,6 +73,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
+  await db.execute(sql`ALTER TABLE projects ADD COLUMN IF NOT EXISTS purpose TEXT NOT NULL DEFAULT 'user'
+    CHECK (purpose IN ('user', 'incus-qualification'))`);
 
   await db.execute(sql`
     CREATE TABLE IF NOT EXISTS settings (
@@ -2136,6 +2138,7 @@ export async function migrate(db: MigrateDb): Promise<void> {
     FROM projects p
     CROSS JOIN (SELECT id FROM users WHERE role = 'admin' ORDER BY created_at LIMIT 1) a
     WHERE NOT EXISTS (SELECT 1 FROM project_members m WHERE m.project_id = p.id)
+      AND p.purpose = 'user'
     ON CONFLICT DO NOTHING
   `);
 
@@ -3039,6 +3042,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addWorkflowDelegationRelease(db);
   const { up: addSandboxController } = await import("./migrations/add-sandbox-controller");
   await addSandboxController(db);
+  const { up: addIncusQualificationFixtures } = await import("./migrations/add-incus-qualification-fixtures");
+  await addIncusQualificationFixtures(db);
   const { extensionControlTools } = await import("../extensions/extension-control");
   for (const tool of extensionControlTools) {
     await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);

@@ -15,6 +15,7 @@
   "extensions/infisical-secrets/transport.ts": 100,
   "src/db/migrations/add-incus-operator-setups.ts": 100,
   "src/db/migrations/add-incus-qualification.ts": 100,
+  "src/db/migrations/add-incus-qualification-fixtures.ts": 100,
   "src/db/migrations/add-provider-connections.ts": 100,
   "src/db/migrations/add-sandbox-controller.ts": 100,
   "src/infrastructure/incus-feature-service.ts": 100,

@@ -28,11 +28,13 @@ export const projects = pgTable("projects", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
   name: text("name").notNull(),
   path: text("path").notNull(),
+  purpose: text("purpose").notNull().$type<"user" | "incus-qualification">().default("user"),
   icon: text("icon"),
   variables: jsonb("variables").notNull().$type<Record<string, unknown>>().default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
 
 /** A project uses its local checkout when it has no row. Sandbox rows hold
  * only an opaque provider binding; a host path in this row would be a routing
@@ -106,6 +108,21 @@ export const sandboxBindings = pgTable("sandbox_bindings", {
   index("idx_sandbox_bindings_cleanup").on(table.tombstonedAt)
     .where(sql`${table.tombstonedAt} IS NOT NULL AND ${table.cleanupConfirmedAt} IS NULL`),
 ]);
+
+/** Host-only fixture ownership. No project membership or workspace binding is created. */
+export const incusQualificationFixtures = pgTable("incus_qualification_fixtures", {
+  operationId: text("operation_id").primaryKey(),
+  projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "restrict" }).unique(),
+  bindingId: text("binding_id").notNull().references(() => sandboxBindings.id, { onDelete: "restrict" }).unique(),
+  installationId: text("installation_id").notNull(),
+  releaseId: text("release_id").notNull(),
+  connectionId: text("connection_id").notNull(),
+  connectionRevision: integer("connection_revision").notNull(),
+  presetId: text("preset_id").notNull(),
+  presetDigest: text("preset_digest").notNull(),
+  effectiveSettingsDigest: text("effective_settings_digest").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 /** An immutable effect request plus its durable provider outcome. */
 export const sandboxOperations = pgTable("provider_sandbox_operations", {
