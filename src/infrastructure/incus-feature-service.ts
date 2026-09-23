@@ -50,7 +50,7 @@ export type IncusFeatureEffect =
   | { state: "QUEUED" | "REJECTED"; reason: string | null; operation: null }
   | { state: "DISPATCHED"; operation: SandboxOperation };
 
-async function inspectRelease(installationId: string, bindingId: string, input: Record<string, unknown>): Promise<unknown> {
+export async function inspectRelease(installationId: string, bindingId: string, input: Record<string, unknown>): Promise<unknown> {
   const process = new ReleaseProcess(installationId);
   try {
     const response = await process.callIncusSandboxOperation(bindingId, "lifecycle.inspect", input);
@@ -59,6 +59,23 @@ async function inspectRelease(installationId: string, bindingId: string, input: 
     process.kill();
     await process.whenCallsSettled();
   }
+}
+
+export async function readIncusProviderGeneration(binding: SandboxBinding,
+  inspect: NonNullable<IncusFeatureServiceDependencies["inspect"]>, now: () => number,
+  requiredState?: "running" | "stopped"): Promise<number> {
+  const input = { providerId: "incus", connectionId: binding.connectionId,
+    sandboxId: binding.id, rpcDeadlineMs: now() + 30_000 };
+  const result = validateSandboxProviderMethodExchange("lifecycle.inspect", input,
+    await inspect(binding.providerInstallationId, binding.id, input)).result as Record<string, unknown>;
+  if (result.ok !== true) throw new Error("Incus sandbox state is unavailable");
+  const sandbox = result.sandbox as { generation: number; observedState: string };
+  if (!Number.isSafeInteger(sandbox.generation) || sandbox.generation < 1
+    || !["running", "stopped"].includes(sandbox.observedState)
+    || requiredState && sandbox.observedState !== requiredState) {
+    throw new Error("Incus sandbox generation is unavailable");
+  }
+  return sandbox.generation;
 }
 
 function resources(preset: SandboxPreset): SandboxResourceVector {
@@ -205,18 +222,7 @@ export class IncusFeatureService {
   }
 
   private async providerGeneration(binding: SandboxBinding, requiredState?: "running" | "stopped"): Promise<number> {
-    const input = { providerId: "incus", connectionId: binding.connectionId,
-      sandboxId: binding.id, rpcDeadlineMs: this.now() + 30_000 };
-    const result = validateSandboxProviderMethodExchange("lifecycle.inspect", input,
-      await this.inspect(binding.providerInstallationId, binding.id, input)).result as Record<string, unknown>;
-    if (result.ok !== true) throw new Error("Incus sandbox state is unavailable");
-    const sandbox = result.sandbox as { generation: number; observedState: string };
-    if (!Number.isSafeInteger(sandbox.generation) || sandbox.generation < 1
-      || !["running", "stopped"].includes(sandbox.observedState)
-      || requiredState && sandbox.observedState !== requiredState) {
-      throw new Error("Incus sandbox generation is unavailable");
-    }
-    return sandbox.generation;
+    return readIncusProviderGeneration(binding, this.inspect, this.now, requiredState);
   }
 
   async create(request: IncusFeatureRequest): Promise<IncusFeatureEffect> {

@@ -7,9 +7,9 @@ import {
   type SandboxCompatibilityObservation,
   type SandboxPreset,
 } from "@ezcorp/extension-contract";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { getDb, type Database, type DbTransaction } from "../db/connection";
-import { incusQualificationFixtures, projects, sandboxBindings, type SandboxOperation } from "../db/schema";
+import { incusQualificationFixtures, projects, sandboxBindings, sandboxOperations, type SandboxOperation } from "../db/schema";
 import { releaseRows } from "../db/queries/extension-releases";
 import { getReleaseRuntime, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
 import { digest } from "../../scripts/incus/model";
@@ -20,6 +20,7 @@ import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { SandboxController } from "../sandboxes/controller";
 import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { IncusMethodCaller } from "./incus-method-caller";
+import { inspectRelease, readIncusProviderGeneration, type IncusFeatureServiceDependencies } from "./incus-feature-service";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
 import type { IncusProbeResult, IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
 
@@ -300,6 +301,18 @@ export interface IncusQualificationFixtureDependencies {
   qualifications?: IncusQualificationStore;
   admission?: SandboxAdmissionStore;
   controller?: SandboxController;
+  inspect?: IncusFeatureServiceDependencies["inspect"];
+  now?: () => number;
+}
+
+function uniqueViolation(error: unknown): boolean {
+  let current = error;
+  for (let depth = 0; depth < 4; depth++) {
+    if (!current || typeof current !== "object") return false;
+    if ("code" in current && current.code === "23505") return true;
+    current = "cause" in current ? current.cause : null;
+  }
+  return false;
 }
 
 /** Dedicated host fixture path. It creates no user workspace binding and does
@@ -309,6 +322,8 @@ export class IncusQualificationFixtureService {
   private readonly qualifications: IncusQualificationStore;
   private readonly admission: SandboxAdmissionStore;
   private readonly controller: SandboxController;
+  private readonly inspect: NonNullable<IncusFeatureServiceDependencies["inspect"]>;
+  private readonly now: () => number;
 
   constructor(deps: IncusQualificationFixtureDependencies = {}) {
     this.db = deps.db ?? getDb();
@@ -316,6 +331,8 @@ export class IncusQualificationFixtureService {
     this.admission = deps.admission ?? new SandboxAdmissionStore(this.db);
     this.controller = deps.controller ?? new SandboxController(this.db,
       new IncusSandboxProviderDispatcher(new IncusMethodCaller()));
+    this.inspect = deps.inspect ?? inspectRelease;
+    this.now = deps.now ?? Date.now;
   }
 
   private async fixture(operationId: string) {
@@ -344,22 +361,28 @@ export class IncusQualificationFixtureService {
     const bindingId = `incus-qual-binding-${identity}`;
     let row = await this.fixture(operationId);
     if (!row) {
-      await this.db.transaction(async (tx: DbTransaction) => {
-        await tx.insert(projects).values({ id: projectId, name: projectId, purpose: "incus-qualification",
-          path: `/__incus_qualification__/${identity}` });
-        await tx.insert(sandboxBindings).values({ id: bindingId, projectId,
-          providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
-          connectionId: scope.connectionId, connectionRevision: selected.connection.revision,
-          resourceKey: bindingId, profile: selected.preset.profile, presetId: scope.presetId,
-          presetDigest: selected.presetDigest, effectiveSettingsDigest: selected.effectiveSettingsDigest,
-          desiredState: "STOPPED", observedState: "UNKNOWN" });
-        await tx.insert(incusQualificationFixtures).values({ operationId, projectId, bindingId,
-          installationId: scope.installationId, releaseId: scope.releaseId,
-          connectionId: scope.connectionId, connectionRevision: selected.connection.revision,
-          presetId: scope.presetId, presetDigest: selected.presetDigest,
-          effectiveSettingsDigest: selected.effectiveSettingsDigest });
-      });
-      row = await this.fixture(operationId);
+      try {
+        await this.db.transaction(async (tx: DbTransaction) => {
+          await tx.insert(projects).values({ id: projectId, name: projectId, purpose: "incus-qualification",
+            path: `/__incus_qualification__/${identity}` });
+          await tx.insert(sandboxBindings).values({ id: bindingId, projectId,
+            providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+            connectionId: scope.connectionId, connectionRevision: selected.connection.revision,
+            resourceKey: bindingId, profile: selected.preset.profile, presetId: scope.presetId,
+            presetDigest: selected.presetDigest, effectiveSettingsDigest: selected.effectiveSettingsDigest,
+            desiredState: "STOPPED", observedState: "UNKNOWN" });
+          await tx.insert(incusQualificationFixtures).values({ operationId, projectId, bindingId,
+            installationId: scope.installationId, releaseId: scope.releaseId,
+            connectionId: scope.connectionId, connectionRevision: selected.connection.revision,
+            presetId: scope.presetId, presetDigest: selected.presetDigest,
+            effectiveSettingsDigest: selected.effectiveSettingsDigest });
+        });
+      } catch (error) {
+        if (!uniqueViolation(error)) throw error;
+        row = await this.fixture(operationId);
+        if (!row) throw error;
+      }
+      row ??= await this.fixture(operationId);
     }
     if (!row || row.projectId !== projectId || row.bindingId !== bindingId) {
       throw new Error("Incus qualification fixture identity changed");
@@ -406,10 +429,19 @@ export class IncusQualificationFixtureService {
     }
     const request = { bindingId: row.bindingId, generation: binding.generation,
       idempotencyScope: "incus-qualification", idempotencyKey: `${operationId}:destroy` };
+    const [replay] = await this.db.select().from(sandboxOperations).where(and(
+      eq(sandboxOperations.bindingId, row.bindingId),
+      eq(sandboxOperations.idempotencyScope, request.idempotencyScope),
+      eq(sandboxOperations.idempotencyKey, request.idempotencyKey))).limit(1);
+    if (replay) {
+      if (replay.kind !== "DESTROY") throw new Error("Incus qualification fixture cleanup identity changed");
+      return replay;
+    }
+    const expectedGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now);
     await this.admission.markCleanupIntent(row.bindingId, binding.generation,
       `incus-qualification-destroy-${operationId}`);
     const operation = await this.controller.requestAndDispatch({ ...request, kind: "DESTROY",
-      payload: { expectedGeneration: binding.generation } });
+      payload: { expectedGeneration } });
     if (operation.state === "SUCCEEDED" && (await this.controller.getBinding(row.bindingId))?.observedState === "ABSENT") {
       await this.admission.recordObservedState(row.bindingId, binding.generation, "ABSENT",
         `incus-qualification-destroy-${operationId}`);

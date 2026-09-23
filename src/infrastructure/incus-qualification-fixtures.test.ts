@@ -17,7 +17,8 @@ const opened: PGlite[] = [];
 const scope: IncusQualificationScope = { installationId: "installation", releaseId: "release",
   connectionId: "connection", presetId: INCUS_PRESETS[0]!.id };
 
-async function setup(configureHost = true, pendingCreate = false) {
+async function setup(configureHost = true, pendingCreate = false, providerGeneration = 1,
+  inspectError: Error | null = null) {
   const client = new PGlite();
   opened.push(client);
   await client.waitReady;
@@ -48,7 +49,14 @@ async function setup(configureHost = true, pendingCreate = false) {
       pids: 2 * preset.limits.pids, diskBytes: 2 * preset.limits.diskBytes, executionSlots: 2 },
     safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 },
   });
-  const service = new IncusQualificationFixtureService({ db, qualifications, admission, controller });
+  const service = new IncusQualificationFixtureService({ db, qualifications, admission, controller,
+    inspect: async (_installationId, _bindingId, input) => {
+      if (inspectError) throw inspectError;
+      return { ok: true, sandbox: { sandboxId: input.sandboxId,
+      profile: preset.profile,
+      presetId: preset.id, desiredState: "stopped", observedState: "stopped",
+      generation: providerGeneration, bootId: null, observedAt: new Date().toISOString() } };
+    } });
   return { db, service, dispatches, controller, admission, presetDigest, effectiveSettingsDigest };
 }
 
@@ -122,4 +130,39 @@ test("destroy refuses a binding whose pinned provider scope changed", async () =
   await expect(service.destroy(scope, "fixture-tampered"))
     .rejects.toThrow("fixture binding changed");
   expect(dispatches).toHaveLength(1);
+});
+
+test("concurrent create calls with one operation identity replay one fixture", async () => {
+  const { service, db, dispatches } = await setup();
+  const [first, replay] = await Promise.all([
+    service.create(scope, "fixture-concurrent"), service.create(scope, "fixture-concurrent"),
+  ]);
+  expect(replay.id).toBe(first.id);
+  expect(dispatches).toHaveLength(1);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);
+});
+
+test("destroy uses the inspected provider generation after guest power changes", async () => {
+  const { service, dispatches } = await setup(true, false, 7);
+  await service.create(scope, "fixture-power-generation");
+  const destroyed = await service.destroy(scope, "fixture-power-generation");
+  expect(destroyed.state).toBe("SUCCEEDED");
+  expect(dispatches[1]?.generation).toBe(1);
+  expect(dispatches[1]?.payload).toEqual({ expectedGeneration: 7 });
+});
+
+test("non-unique database errors are not treated as concurrent create replay", async () => {
+  const { service, db, dispatches } = await setup();
+  const databaseFailure = Object.assign(new Error("storage unavailable"), { code: "XX000" });
+  Object.defineProperty(db, "transaction", { value: async () => { throw databaseFailure; } });
+  await expect(service.create(scope, "fixture-db-error")).rejects.toBe(databaseFailure);
+  expect(dispatches).toEqual([]);
+});
+
+test("destroy denies cleanup when provider generation cannot be read", async () => {
+  const { service, dispatches } = await setup(true, false, 1, new Error("provider readback unavailable"));
+  await service.create(scope, "fixture-no-readback");
+  await expect(service.destroy(scope, "fixture-no-readback"))
+    .rejects.toThrow("provider readback unavailable");
+  expect(dispatches.map(item => item.kind)).toEqual(["CREATE"]);
 });
