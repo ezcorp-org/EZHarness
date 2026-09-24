@@ -1583,3 +1583,12 @@ Review: PR #303 now includes merge commit `c0b8a7a28` against `origin/main` at `
 Plan review: PGlite has one live process owner. The supervisor will keep an in-memory fixture snapshot made in the safe gap between app processes. At receipt time the verifier will read Incus using a root-owned pin and build the canonical after observation from that snapshot and the supervisor's new process identity.
 
 Review: The sample `false` verifier blocks signing in a real supervisor process. The verifier's snapshot phase checks the exact durable stopped fixture while PGlite has no app owner. Its verify phase opens a private operator connection file without following a leaf symlink, reads the pinned Incus instance over mTLS, and computes the after digest without receiving the app claim. A local mTLS fixture proves success and rejects changed scope, process identity, backend state, file permissions, and project purpose. Three focused Bun suites, four Python process tests, Incus script typecheck, Biome, and diff check pass. No live Incus endpoint was used; the sample stays closed.
+
+## Incus durable continuation (2026-09-24)
+- [x] Reproduce one-stack qualification gap with a process-level checkpoint and runner test.
+- [x] Add an explicit begin/resume runner seam using saved checkpoint identity and fresh durable/Incus readback.
+- [x] Add production host witness adapters for supervisor restart and receipt.
+- [x] Verify focused tests, typecheck, lint, build; commit owned paths.
+
+### Review
+The new runner can hand off after a stopped fixture checkpoint and resume in a replacement process. Startup must select the single pending run and call resume. Receipt exchange now waits for the independent verifier within the checkpoint deadline. The host readiness gate remains false until a live server completes every SP case and cleanup. Focused tests, lint, typecheck, and build passed locally; actual Incus and supervisor deployment remain root integration work.

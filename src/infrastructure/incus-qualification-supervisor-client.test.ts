@@ -4,6 +4,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { requestIncusSupervisorReceipt, requestIncusSupervisorRestart,
+  supervisorReceiptTimeoutMs,
   type SupervisorRestartRequest } from "./incus-qualification-supervisor-client";
 import type { SignedRestartHandoff } from "./incus-qualification-checkpoint";
 
@@ -38,6 +39,7 @@ const restart: SupervisorRestartRequest = {
   fixtureOperationId: "fixture", bindingId: "binding", generation: 3,
   connectionRevision: 2, lastOperationId: "operation", beforeDigest: "a".repeat(64),
 };
+const receiptDeadline = () => Date.now() + 30_000;
 
 test("client sends exact restart and receipt frames", async () => {
   const restartSocket = await server(input => {
@@ -54,7 +56,7 @@ test("client sends exact restart and receipt frames", async () => {
       afterDigest: "b".repeat(64) });
     return `${JSON.stringify({ receipt })}\n`;
   });
-  expect(await requestIncusSupervisorReceipt(receiptSocket, "run", "nonce", "b".repeat(64)))
+  expect(await requestIncusSupervisorReceipt(receiptSocket, "run", "nonce", "b".repeat(64), receiptDeadline()))
     .toEqual(receipt);
 });
 
@@ -65,7 +67,7 @@ test("client fails closed on missing, denied, malformed, and closed responses", 
   const refused = await server('{"accepted":false}\n');
   await expect(requestIncusSupervisorRestart(refused, restart)).rejects.toThrow("refused restart");
   const denied = await server('{"error":"unauthorized control peer"}\n');
-  await expect(requestIncusSupervisorReceipt(denied, "run", "nonce", "b".repeat(64)))
+  await expect(requestIncusSupervisorReceipt(denied, "run", "nonce", "b".repeat(64), receiptDeadline()))
     .rejects.toThrow("unauthorized control peer");
   const malformed = await server('invalid\n');
   await expect(requestIncusSupervisorRestart(malformed, restart)).rejects.toThrow("response is invalid");
@@ -74,8 +76,20 @@ test("client fails closed on missing, denied, malformed, and closed responses", 
   const empty = await server("");
   await expect(requestIncusSupervisorRestart(empty, restart)).rejects.toThrow("closed the response");
   const badReceipt = await server('{"receipt":{}}\n');
-  await expect(requestIncusSupervisorReceipt(badReceipt, "run", "nonce", "b".repeat(64)))
+  await expect(requestIncusSupervisorReceipt(badReceipt, "run", "nonce", "b".repeat(64), receiptDeadline()))
     .rejects.toThrow("receipt is invalid");
   const hanging = await server(() => null);
   await expect(requestIncusSupervisorRestart(hanging, restart)).rejects.toThrow("timed out");
 }, 10_000);
+
+test("receipt rejects an expired checkpoint before connecting", async () => {
+  const path = await server(() => { throw new Error("expired receipt reached supervisor"); });
+  await expect(requestIncusSupervisorReceipt(path, "run", "nonce", "b".repeat(64), Date.now() - 1))
+    .rejects.toThrow("deadline expired");
+});
+
+test("receipt wait covers the independent verifier but never exceeds its checkpoint", () => {
+  expect(supervisorReceiptTimeoutMs(50_000, 30_000)).toBe(20_000);
+  expect(supervisorReceiptTimeoutMs(31_500, 30_000)).toBe(1_500);
+  expect(() => supervisorReceiptTimeoutMs(30_000, 30_000)).toThrow("deadline expired");
+});

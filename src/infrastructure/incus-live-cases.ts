@@ -122,12 +122,26 @@ export interface IncusLiveRunnerOptions {
   now?: () => number;
 }
 
+/** The process that claims a run must construct a new witness and database connection. */
+export interface DurableIncusLiveWitness extends HostIncusLiveWitness {
+  findFixture(scope: IncusQualificationScope, operationId: string): Promise<LiveFixtureHandle>;
+  beginRestart(scope: IncusQualificationScope, preset: SandboxPreset, handle: LiveFixtureHandle,
+    runId: string, nonce: string, deadlineMs: number): Promise<void>;
+  claimRestart(scope: IncusQualificationScope, preset: SandboxPreset,
+    runId: string, nonce: string): Promise<LiveFixtureHandle>;
+}
+
 function requireFact(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`Incus live qualification failed: ${message}`);
 }
 
 function stableId(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(value);
+}
+
+function validDurableRun(runId: string, nonce: string): boolean {
+  return stableId(runId) && stableId(nonce)
+    && ["primary", "unrelated", "recovery"].every(kind => stableId(`qual-${kind}-${runId}`));
 }
 
 function sha(value: unknown): value is string {
@@ -263,7 +277,7 @@ async function createLiveFixtures(witness: HostIncusLiveWitness, scope: IncusQua
   assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
 }
 
-async function exerciseGuestAndRestart(witness: HostIncusLiveWitness, preset: SandboxPreset,
+async function prepareGuestForRestart(witness: HostIncusLiveWitness, preset: SandboxPreset,
   primary: LiveFixtureHandle, token: string, composeFixtureImageRef?: string): Promise<void> {
   const marker = `ezh-${token}`;
   assertCommand(await witness.run(primary, ["sh", "-c", "printf %s \"$1\"", "sh", marker], 30_000), marker);
@@ -278,10 +292,12 @@ async function exerciseGuestAndRestart(witness: HostIncusLiveWitness, preset: Sa
 
   await witness.setPower(primary, "stopped");
   assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
-  const restart = await witness.restartController(primary);
-  requireFact(stableId(restart.beforeProcessId) && stableId(restart.afterProcessId)
-    && restart.beforeProcessId !== restart.afterProcessId,
-  "controller did not restart and reconnect");
+}
+
+async function finishGuestAfterRestart(witness: HostIncusLiveWitness, preset: SandboxPreset,
+  primary: LiveFixtureHandle, token: string): Promise<void> {
+  const marker = `ezh-${token}`;
+  assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
   await witness.setPower(primary, "running");
   assertInspection(await witness.inspectFixture(primary), primary, preset, "running");
   if (preset.storage.workspace === "persistent") {
@@ -289,6 +305,16 @@ async function exerciseGuestAndRestart(witness: HostIncusLiveWitness, preset: Sa
       "retained workspace changed after restart");
   }
   await witness.setPower(primary, "stopped");
+}
+
+async function exerciseGuestAndRestart(witness: HostIncusLiveWitness, preset: SandboxPreset,
+  primary: LiveFixtureHandle, token: string, composeFixtureImageRef?: string): Promise<void> {
+  await prepareGuestForRestart(witness, preset, primary, token, composeFixtureImageRef);
+  const restart = await witness.restartController(primary);
+  requireFact(stableId(restart.beforeProcessId) && stableId(restart.afterProcessId)
+    && restart.beforeProcessId !== restart.afterProcessId,
+  "controller did not restart and reconnect");
+  await finishGuestAfterRestart(witness, preset, primary, token);
 }
 
 async function destroyAndRecoverFixtures(witness: HostIncusLiveWitness, scope: IncusQualificationScope,
@@ -328,6 +354,86 @@ async function cleanupLiveFixtures(witness: HostIncusLiveWitness, state: Fixture
   return cleanupErrors;
 }
 
+async function observeLiveStart(witness: HostIncusLiveWitness, scope: IncusQualificationScope,
+  preset: SandboxPreset) {
+  requireFact(scope.presetId === preset.id && stableId(scope.connectionId) && stableId(scope.releaseId),
+    "qualification scope changed");
+  const presetDigest = await sandboxPresetDigest(preset);
+  requireFact(sha(presetDigest) && sha(preset.imageDigest) && preset.imageDigest !== "0".repeat(64)
+    && preset.helperDigests.includes(GUEST_HELPER_SHA256),
+    "reviewed preset or helper is unavailable");
+  const observed = await witness.observe(scope, preset);
+  requireFact(observed.profile === preset.profile && observed.imageDigest === preset.imageDigest
+    && observed.helperDigest === GUEST_HELPER_SHA256 && compatible(preset, observed.observation),
+    "backend or artifact observation is incompatible");
+  assertControls(await witness.controlFacts(scope, preset));
+  return observed;
+}
+
+function caseEvidence(observed: Awaited<ReturnType<HostIncusLiveWitness["observe"]>>,
+  now: () => number): IncusLiveCaseEvidence {
+  const verifiedAt = new Date(now()).toISOString();
+  const validUntil = new Date(now() + 60 * 60 * 1000).toISOString();
+  return { observation: observed.observation, observedProfile: observed.profile,
+    observedImageDigest: observed.imageDigest, observedHelperDigest: observed.helperDigest,
+    verifiedAt, validUntil, cases: CASE_IDS.map(caseId => ({ caseId, status: "passed" as const })) };
+}
+
+/** Start one run. The supervisor terminates this process after accepting the saved checkpoint. */
+export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions & { witness: DurableIncusLiveWitness },
+  scope: IncusQualificationScope, preset: SandboxPreset,
+  run: { runId: string; nonce: string; deadlineMs: number }): Promise<{ runId: string; state: "AWAITING_RESTART" }> {
+  const { witness } = options;
+  requireFact(validDurableRun(run.runId, run.nonce), "run identity is invalid");
+  await observeLiveStart(witness, scope, preset);
+  const state: FixtureRunState = { primary: null, unrelated: null, recovery: null,
+    primaryDestroyed: false, unrelatedDestroyed: false, recoveryDestroyed: false };
+  let failure: unknown;
+  try {
+    await createLiveFixtures(witness, scope, preset, run.runId, state);
+    requireFact(state.primary, "primary fixture was not created");
+    await prepareGuestForRestart(witness, preset, state.primary, run.runId, options.composeFixtureImageRef);
+    await witness.beginRestart(scope, preset, state.primary, run.runId, run.nonce, run.deadlineMs);
+    return { runId: run.runId, state: "AWAITING_RESTART" };
+  } catch (error) {
+    failure = error;
+  }
+  const errors = await cleanupLiveFixtures(witness, state);
+  if (errors.length) throw new AggregateError([failure, ...errors], "Incus live fixture cleanup is unverified");
+  throw failure;
+}
+
+/** Called only in the replacement app process, with a fresh witness and database connection. */
+export async function resumeDurableIncusLiveCases(options: IncusLiveRunnerOptions & { witness: DurableIncusLiveWitness },
+  scope: IncusQualificationScope, preset: SandboxPreset,
+  run: { runId: string; nonce: string }): Promise<IncusLiveCaseEvidence> {
+  const { witness } = options;
+  requireFact(validDurableRun(run.runId, run.nonce), "run identity is invalid");
+  const primary = await witness.claimRestart(scope, preset, run.runId, run.nonce);
+  requireFact(primary.operationId === `qual-primary-${run.runId}`, "claimed primary fixture changed");
+  const state: FixtureRunState = { primary, unrelated: null, recovery: null,
+    primaryDestroyed: false, unrelatedDestroyed: false, recoveryDestroyed: false };
+  let failure: unknown;
+  let observed: Awaited<ReturnType<HostIncusLiveWitness["observe"]>> | undefined;
+  try {
+    const unrelated = await witness.findFixture(scope, `qual-unrelated-${run.runId}`);
+    requireFact(unrelated.sandboxId !== primary.sandboxId, "unrelated fixture was adopted");
+    state.unrelated = unrelated;
+    observed = await observeLiveStart(witness, scope, preset);
+    assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
+    await finishGuestAfterRestart(witness, preset, primary, run.runId);
+    await destroyAndRecoverFixtures(witness, scope, preset, run.runId, state);
+  } catch (error) {
+    failure = error;
+  }
+  const cleanupErrors = await cleanupLiveFixtures(witness, state);
+  if (cleanupErrors.length) throw new AggregateError([...(failure ? [failure] : []), ...cleanupErrors],
+    "Incus live fixture cleanup is unverified");
+  if (failure) throw failure;
+  requireFact(observed, "live observation is unavailable");
+  return caseEvidence(observed, options.now ?? Date.now);
+}
+
 /** Produces SP01–SP08 only from ordered host actions and concrete observations.
  * The factory is intentionally not installed by startup while no published
  * image and controller qualification authority exist. */
@@ -337,17 +443,7 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
   const { witness } = options;
   const now = options.now ?? Date.now;
   return async (scope, preset) => {
-    requireFact(scope.presetId === preset.id && stableId(scope.connectionId) && stableId(scope.releaseId),
-      "qualification scope changed");
-    const presetDigest = await sandboxPresetDigest(preset);
-    requireFact(sha(presetDigest) && sha(preset.imageDigest) && preset.imageDigest !== "0".repeat(64)
-      && preset.helperDigests.includes(GUEST_HELPER_SHA256),
-      "reviewed preset or helper is unavailable");
-    const observed = await witness.observe(scope, preset);
-    requireFact(observed.profile === preset.profile && observed.imageDigest === preset.imageDigest
-      && observed.helperDigest === GUEST_HELPER_SHA256 && compatible(preset, observed.observation),
-    "backend or artifact observation is incompatible");
-    assertControls(await witness.controlFacts(scope, preset));
+    const observed = await observeLiveStart(witness, scope, preset);
 
     const fixtureToken = randomUUID();
     // The witness must reconcile or clean a create that throws before it can
@@ -370,15 +466,6 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
       "Incus live fixture cleanup is unverified");
     if (failure) throw failure;
 
-    const verifiedAt = new Date(now()).toISOString();
-    const validUntil = new Date(now() + 60 * 60 * 1000).toISOString();
-    return {
-      observation: observed.observation,
-      observedProfile: observed.profile,
-      observedImageDigest: observed.imageDigest,
-      observedHelperDigest: observed.helperDigest,
-      verifiedAt, validUntil,
-      cases: CASE_IDS.map(caseId => ({ caseId, status: "passed" as const })),
-    };
+    return caseEvidence(observed, now);
   };
 }

@@ -18,12 +18,13 @@ export interface SupervisorRestartRequest {
   beforeDigest: string;
 }
 
-async function exchange(socketPath: string, message: unknown): Promise<unknown> {
+async function exchange(socketPath: string, message: unknown, timeoutMs = 5000): Promise<unknown> {
   if (!socketPath.startsWith("/") || !socketPath.length) throw new Error("Incus supervisor socket is unavailable");
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) throw new Error("Incus supervisor deadline expired");
   return await new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
     let received = "";
-    const timeout = setTimeout(() => socket.destroy(new Error("Incus supervisor timed out")), 5000);
+    const timeout = setTimeout(() => socket.destroy(new Error("Incus supervisor timed out")), timeoutMs);
     const finish = (error?: Error, value?: unknown) => {
       clearTimeout(timeout);
       socket.destroy();
@@ -53,11 +54,20 @@ export async function requestIncusSupervisorRestart(socketPath: string,
   if (response.accepted !== true) throw new Error("Incus supervisor refused restart");
 }
 
+export function supervisorReceiptTimeoutMs(deadlineMs: number, nowMs: number): number {
+  const remainingMs = deadlineMs - nowMs;
+  if (!Number.isSafeInteger(deadlineMs) || !Number.isSafeInteger(nowMs) || remainingMs <= 0) {
+    throw new Error("Incus supervisor deadline expired");
+  }
+  return Math.min(remainingMs, 20_000);
+}
+
 export async function requestIncusSupervisorReceipt(socketPath: string, runId: string,
-  nonce: string, afterDigest: string): Promise<SignedRestartHandoff> {
+  nonce: string, afterDigest: string, deadlineMs: number): Promise<SignedRestartHandoff> {
+  const timeoutMs = supervisorReceiptTimeoutMs(deadlineMs, Date.now());
   const response = await exchange(socketPath, {
     version: 1, action: "receipt", runId, nonce, afterDigest,
-  }) as { receipt?: SignedRestartHandoff };
+  }, timeoutMs) as { receipt?: SignedRestartHandoff };
   if (!response.receipt?.payload || typeof response.receipt.signature !== "string") {
     throw new Error("Incus supervisor receipt is invalid");
   }

@@ -193,6 +193,36 @@ test("a user project binding cannot create a qualification restart checkpoint", 
   await client.close();
 });
 
+test("startup selects one unexpired handoff, fails expired work, and rejects ambiguity", async () => {
+  const { client, db } = await database();
+  const now = Date.now();
+  const store = new IncusQualificationCheckpointStore(db, undefined, () => now);
+  const before = observation(processIdentityKey(currentProcessIdentity()));
+  const runId = `run-${randomUUID()}`;
+  await store.begin({ runId, nonce: `nonce-${randomUUID()}`, deadlineMs: now + 60_000,
+    scope, handle, before });
+  expect((await store.pending())?.runId).toBe(runId);
+  const expired = new IncusQualificationCheckpointStore(db, undefined, () => now + 60_001);
+  expect(await expired.pending()).toBeNull();
+  expect((await store.get(runId))?.state).toBe("FAILED");
+
+  const second = `run-${randomUUID()}`;
+  await client.exec(`INSERT INTO incus_qualification_fixtures
+    SELECT 'fixture-2', project_id, binding_id, installation_id, release_id,
+      connection_id, connection_revision, preset_id FROM incus_qualification_fixtures
+      WHERE operation_id = 'fixture'`);
+  await store.begin({ runId: `run-${randomUUID()}`, nonce: `nonce-${randomUUID()}`,
+    deadlineMs: now + 60_000, scope, handle, before });
+  await client.query(`INSERT INTO incus_qualification_runs
+    (run_id, fixture_operation_id, scope, binding_id, generation, connection_revision,
+      last_operation_id, nonce, deadline_at, before_observation, before_digest, old_process_identity)
+    SELECT $1, 'fixture-2', scope, binding_id, generation, connection_revision,
+      last_operation_id, $2, deadline_at, before_observation, before_digest, old_process_identity
+    FROM incus_qualification_runs WHERE state = 'AWAITING_RESTART' LIMIT 1`, [second, `nonce-${randomUUID()}`]);
+  await expect(store.pending()).rejects.toThrow("Multiple Incus restart checkpoints");
+  await client.close();
+});
+
 test("a changed binding or unpinned guest cannot create a restart checkpoint", async () => {
   const { client, db } = await database();
   try {

@@ -205,8 +205,10 @@ export class IncusQualificationStore {
     return this.current(scope);
   }
 
-  async recordVerified(scope: IncusQualificationScope): Promise<LiveSandboxPresetQualification> {
-    if (!this.deps.runLiveCases) throw new Error("Live Incus qualification runner is unavailable");
+  /** Evidence from a claimed durable run is verified again against this process's release and backend probe. */
+  async recordVerified(scope: IncusQualificationScope,
+    resumedEvidence?: IncusLiveCaseEvidence): Promise<LiveSandboxPresetQualification> {
+    if (!resumedEvidence && !this.deps.runLiveCases) throw new Error("Live Incus qualification runner is unavailable");
     const selected = await this.current(scope);
     const probe = await this.probe(scope, selected.connection, selected.preset,
       selected.presetDigest, selected.effectiveSettingsDigest);
@@ -217,7 +219,7 @@ export class IncusQualificationStore {
       || !selected.preset.requirements.architectures.includes(probe.architecture)) {
       throw new Error("Live Incus backend probe is incompatible");
     }
-    const cases = await this.deps.runLiveCases(scope, selected.preset);
+    const cases = resumedEvidence ?? await this.deps.runLiveCases!(scope, selected.preset);
     const afterCases = await this.current(scope);
     if (afterCases.snapshot.release.releaseDigest !== selected.snapshot.release.releaseDigest
       || afterCases.connection.revision !== selected.connection.revision

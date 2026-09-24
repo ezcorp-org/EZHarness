@@ -60,6 +60,12 @@ test("a stopped fixture continuation survives process exit, verifies a signed ha
   });
   expect(await beginExit).toBe(0);
   const before = JSON.parse(beforeLine);
+  const pendingClient = new PGlite(directory);
+  await pendingClient.waitReady;
+  const pending = await new IncusQualificationCheckpointStore(drizzle(pendingClient)).pending();
+  expect(pending?.runId).toBe(runId);
+  expect(pending?.nonce).toBe(nonce);
+  await pendingClient.close();
   const keys = generateKeyPairSync("ed25519");
   const publicKey = keys.publicKey.export({ type: "spki", format: "pem" }).toString();
   const resume = spawn(process.execPath, [worker, "resume", directory, runId, nonce],

@@ -244,6 +244,19 @@ export class IncusQualificationCheckpointStore {
     return row ?? null;
   }
 
+  /** Startup may resume one live handoff. Expired rows fail closed and multiple live runs require operator review. */
+  async pending(): Promise<RunRow | null> {
+    const now = new Date(this.now());
+    await this.db.execute(sql`UPDATE incus_qualification_runs
+      SET state = 'FAILED', failure_reason = 'restart deadline expired'
+      WHERE state = 'AWAITING_RESTART' AND deadline_at <= ${now}`);
+    const rows = releaseRows<RunRow>(await this.db.execute(sql`SELECT ${runColumns}
+      FROM incus_qualification_runs WHERE state = 'AWAITING_RESTART' AND deadline_at > ${now}
+      ORDER BY deadline_at ASC, run_id ASC LIMIT 2`));
+    if (rows.length > 1) throw new Error("Multiple Incus restart checkpoints require operator review");
+    return rows[0] ?? null;
+  }
+
   /** Used by the private operator control boundary before arming a fault. */
   async authorizeOwnedRun(input: { runId: string; nonce: string; scope: IncusQualificationScope;
     fixtureOperationId: string; bindingId: string; generation: number;

@@ -2,7 +2,10 @@ import { expect, test } from "bun:test";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
 import {
+  beginDurableIncusLiveCases,
   createIncusLiveCaseRunner,
+  resumeDurableIncusLiveCases,
+  type DurableIncusLiveWitness,
   type HostIncusLiveWitness,
   type LiveCleanupRecoveryFact,
   type LiveLimitLoadFact,
@@ -164,4 +167,52 @@ test("the restart authority receives the exact stopped fixture", async () => {
   await createIncusLiveCaseRunner({ witness: value.value })(scope, preset);
   expect(restarted).toEqual([{ sandboxId: expect.stringMatching(/^sandbox-qual-primary-/),
     operationId: expect.stringMatching(/^qual-primary-/) }]);
+});
+
+test("a replacement runner claims the saved primary and completes cleanup before evidence", async () => {
+  const original = witness();
+  const run = { runId: "durable-run", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 };
+  let saved: { handle: { sandboxId: string; operationId: string }; runId: string; nonce: string } | undefined;
+  const first: DurableIncusLiveWitness = {
+    ...original.value,
+    findFixture: async () => { throw new Error("the first process cannot resume"); },
+    beginRestart: async (_scope, _preset, handle, runId, nonce) => {
+      expect(original.states.get(handle.sandboxId)).toBe("stopped");
+      saved = { handle, runId, nonce };
+    },
+    claimRestart: async () => { throw new Error("the first process cannot claim"); },
+  };
+  expect(await beginDurableIncusLiveCases({ witness: first }, scope, preset, run))
+    .toEqual({ runId: run.runId, state: "AWAITING_RESTART" });
+  expect(original.destroyed).toEqual([]);
+  const replacement: DurableIncusLiveWitness = {
+    ...original.value,
+    findFixture: async (_scope, operationId) => ({ operationId, sandboxId: `sandbox-${operationId}` }),
+    beginRestart: async () => { throw new Error("replacement cannot begin again"); },
+    claimRestart: async (_scope, _preset, runId, nonce) => {
+      expect(runId).toBe(saved!.runId);
+      expect(nonce).toBe(saved!.nonce);
+      return saved!.handle;
+    },
+  };
+  const evidence = await resumeDurableIncusLiveCases({ witness: replacement }, scope, preset, run);
+  expect(evidence.cases).toHaveLength(8);
+  expect(original.destroyed).toHaveLength(2);
+  expect([...original.states.values()]).toEqual(["absent", "absent", "absent"]);
+});
+
+test("an unclaimed or changed durable run cannot publish cases", async () => {
+  const original = witness();
+  const replacement: DurableIncusLiveWitness = {
+    ...original.value,
+    findFixture: async () => { throw new Error("must not read fixtures"); },
+    beginRestart: async () => { throw new Error("must not begin"); },
+    claimRestart: async () => { throw new Error("operator receipt is unavailable"); },
+  };
+  await expect(resumeDurableIncusLiveCases({ witness: replacement }, scope, preset,
+    { runId: "unknown", nonce: "unknown" })).rejects.toThrow("operator receipt is unavailable");
+  expect(original.states.size).toBe(0);
+  replacement.claimRestart = async () => ({ operationId: "wrong-primary", sandboxId: "wrong-binding" });
+  await expect(resumeDurableIncusLiveCases({ witness: replacement }, scope, preset,
+    { runId: "unknown", nonce: "unknown" })).rejects.toThrow("claimed primary fixture changed");
 });

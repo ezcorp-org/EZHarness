@@ -16,6 +16,9 @@ import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
 import { HostIncusLiveReadback, type LiveReadbackContext } from "./incus-transport/live-readback";
 import { ProviderConnectionStore, type ProviderConnectionCredentials,
   type ProviderConnectionScope } from "./provider-connections/store";
+import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
+import { IncusQualificationContinuation } from "./incus-qualification-continuation";
+import { requestIncusSupervisorReceipt, requestIncusSupervisorRestart } from "./incus-qualification-supervisor-client";
 
 const MAX_FILE_BYTES = 64 * 1024;
 const POLL_MS = 100;
@@ -82,6 +85,7 @@ export interface IncusHostLiveWitnessDependencies {
     }>;
     hostCanConnect(target: IncusNetworkTarget): Promise<boolean>;
   };
+  supervisorSocketPath?: string;
   now?: () => number;
 }
 
@@ -120,6 +124,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   private readonly controlProbe: IncusHostLiveWitnessDependencies["controlProbe"];
   private readonly resourceNetwork: IncusHostLiveWitnessDependencies["resourceNetwork"];
   private readonly now: () => number;
+  private readonly supervisorSocketPath: string | undefined;
 
   constructor(deps: IncusHostLiveWitnessDependencies = {}) {
     this.db = deps.db ?? getDb();
@@ -134,6 +139,48 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     this.controlProbe = deps.controlProbe;
     this.resourceNetwork = deps.resourceNetwork ?? new IncusLiveNetworkProbe({ db: this.db });
     this.now = deps.now ?? Date.now;
+    this.supervisorSocketPath = deps.supervisorSocketPath ?? process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+  }
+
+  private async continuation(scope: IncusQualificationScope, preset: SandboxPreset) {
+    const { context } = await this.context(scope, preset);
+    return new IncusQualificationContinuation({
+      checkpoints: new IncusQualificationCheckpointStore(this.db), fixtures: this.fixtures,
+      readback: this.backend, context,
+    });
+  }
+
+  async findFixture(scope: IncusQualificationScope, operationId: string): Promise<LiveFixtureHandle> {
+    const readback = await this.fixtures.status(scope, operationId);
+    const handle = { operationId, sandboxId: readback.fixture.bindingId };
+    await this.owned(handle, false);
+    return handle;
+  }
+
+  async beginRestart(scope: IncusQualificationScope, preset: SandboxPreset,
+    handle: LiveFixtureHandle, runId: string, nonce: string, deadlineMs: number): Promise<void> {
+    if (!this.supervisorSocketPath) deny("operator supervisor socket is unavailable");
+    const prepared = await (await this.continuation(scope, preset))
+      .prepare({ runId, nonce, deadlineMs, scope, handle });
+    await requestIncusSupervisorRestart(this.supervisorSocketPath, {
+      version: 1, action: "restart", runId, nonce, deadlineMs, scope,
+      fixtureOperationId: prepared.fixtureOperationId, bindingId: prepared.bindingId,
+      generation: prepared.generation, connectionRevision: prepared.connectionRevision,
+      lastOperationId: prepared.lastOperationId, beforeDigest: prepared.beforeDigest,
+    });
+  }
+
+  async claimRestart(scope: IncusQualificationScope, preset: SandboxPreset,
+    runId: string, nonce: string): Promise<LiveFixtureHandle> {
+    if (!this.supervisorSocketPath) deny("operator supervisor socket is unavailable");
+    const claimed = await (await this.continuation(scope, preset)).resume(runId, nonce,
+      payload => requestIncusSupervisorReceipt(this.supervisorSocketPath!, runId, nonce,
+        payload.afterDigest, payload.deadlineMs));
+    if (claimed.scope.installationId !== scope.installationId || claimed.scope.releaseId !== scope.releaseId
+      || claimed.scope.connectionId !== scope.connectionId || claimed.scope.presetId !== scope.presetId) {
+      deny("claimed qualification scope changed");
+    }
+    return claimed.handle;
   }
 
   private async persistedOwned(handle: LiveFixtureHandle, requireRunning: boolean, allowTombstoned = false) {
