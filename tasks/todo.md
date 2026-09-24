@@ -1832,3 +1832,31 @@ as UID 1001. No live app or server files changed.
 Live readiness and checkpoint code share one parser for the sealed supervisor
 public key; the focused tests pass. The exact public key still needs operator
 review and sealed installation before activation.
+
+## 2026-09-24 — Bundle and host gate before live cutover
+
+- [x] Fence the dedicated runner and supervisor before database staging; 18 focused tests pass.
+- [x] Stage and verify app bundle from clean `0b81c087e`, then smoke it as non-root with the pinned GCC library path; HTTP 200.
+- [x] Build the disabled AMD NixOS generation with that library path and pass its generated-unit, access, and flake checks (NixOS PR #2).
+- [x] Rebase the SSH gate candidate on the server's exact live firewall source and pass gate/sshd/firewall checks.
+- [x] Build the complete server generation from the exact live firewall base without relaxing Nix signature trust; the candidate is not active.
+- [ ] Rebuild the AMD qualification generation from its exact live host source; the first built candidate changes unrelated host settings and must not be activated.
+- [ ] Install the reviewed gate files and activate the guarded server generation; run the live negative SSH tests.
+- [x] Install the exact app bundle under `/opt/ezharness` and verify its full inventory; old app stays healthy and new services stay inactive.
+- [ ] Activate a corrected guarded AMD generation with services stopped.
+- [ ] Stage sealed settings and database under dedicated UIDs; repair the saved no-effect CREATE with the independent fence.
+- [ ] Review and apply a new 0.1.2 setup plan; run the first EZHarness-owned guest lifecycle and security/resource checks.
+- [ ] Confirm hosted PR #303 CI and record live evidence before marking the PR ready.
+
+### Review
+
+The app bundle manifest contains 76,066 files and SHA-256
+`82b2bfeaa7c311097b280a6156e936bf5c0627c14d3fc38736bbde3180194b17`.
+The non-root smoke returned HTTP 200. The verified bundle is now root-owned
+under `/opt/ezharness`; the old app still returned HTTP 200. The first AMD generation is built but
+not safe to activate: review found unrelated host config changes. The server
+gate keeps the live firewall rules, and its complete generation built on the
+server with only 20 config derivations; it remains inactive. The local
+closure-copy attempt stopped at Nix's signature check; no trust override was
+used. No new host
+service or sandbox has been activated by these steps.

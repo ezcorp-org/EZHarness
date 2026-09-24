@@ -1,6 +1,6 @@
 # Isolated app cutover: review readiness, 24 September 2026
 
-Status: **preparation only**. No release was installed, host generation was
+Status: **bundle installed; cutover preparation only**. No host generation was
 activated, app or runner was stopped, database was moved, Incus setup was
 applied, or CREATE was repaired for this packet. This is an inventory for a
 later exact action review, not approval to execute one.
@@ -15,13 +15,14 @@ identifies what must be measured again immediately before each write.
 
 | Item | Evidence on 24 September | State |
 | --- | --- | --- |
-| EZHarness PR #303 | `0b81c087e7b2e5e896e0eea83e4bff16cfd91384` | Source for the next complete bundle; no bundle from this commit was observed. |
-| AMD NixOS module PR #2 | `9bdf42ba2dad5fa285b08db9d97712bfa952bdc4` | Disabled by default; declares app UID/GID 62040, runner UID/GID 62041, socket GID 62042, and the `libstdc++` runtime library path. It is not active on AMD. |
+| EZHarness PR #303 | App source `0b81c087e7b2e5e896e0eea83e4bff16cfd91384` | A complete bundle from this commit is staged and smoke-tested below; later PR commits add review documentation only. |
+| AMD NixOS module PR #2 | `9bdf42ba2dad5fa285b08db9d97712bfa952bdc4` | Disabled by default; declares app UID/GID 62040, runner UID/GID 62041, socket GID 62042, and the `libstdc++` runtime library path. Offline built system `/nix/store/cr6m9zhly8kdvii0p5m7zj9fismklz51-nixos-system-nixos-amd-26.05.20260430.15f4ee4` is **not an activation candidate**: its generated `/etc` differs from the live AMD generation in unrelated D-Bus, accounts-daemon, home-manager, linger, polkit, and tmpfiles settings. Rebuild on the exact live AMD source. |
+| Server gate build | Source `38aa065a` on exact live firewall base `3aa2cd0e`; output `/nix/store/dy66pd1mjhzxbxa7q5j9x5hf3rznar2l-nixos-system-sandbox-server-26.05.20260430.15f4ee4` | Build and SSH/firewall checks pass; NAR `sha256-cTWlmaN8Lk+sF6eISY8EQGJUFpsqg690I8klcUrotKM=`. The server still runs the old generation. Gate files are not installed. |
 | Isolated app | `127.0.0.1:4301`, Vite PIDs 3878477, 3878556, 3878559, 3878560, UID 1001 | Still the old manually launched app at the last read-only check. Refresh PID start ticks and boot ID before capture or stop. |
 | Isolated runner | PID 1982010 and gateway PID 1983979, UID 1001; `/tmp/ezh-incus-isolated-app.QMhk6Qhv/runner.sock` | Still separate from the unrelated development runner. Refresh process identity and socket inventory. |
 | Data | `/tmp/ezh-incus-isolated-app.QMhk6Qhv/db`; source parent dev:users mode 0700 | Live source. The parent cannot be sealed while old clients run. The `projects` tree also needs its own reviewed transfer and reference check. |
 | New services | `ezharness-qual-runner.service` and `ezharness-qual-supervisor.service` were `LoadState=not-found`, `ActiveState=inactive`, `MainPID=0` | The dedicated UID preflight requires both units loaded and inactive. The proposed generation has not been activated. |
-| Installed release | `/opt/ezharness` absent | The new UID cannot run the dev-owned build below `/home/dev`. |
+| Installed release | `/opt/ezharness` installed at 17:52 UTC from app source `0b81c087e` | Full inventory verified; root:root, manifest SHA-256 `82b2bfeaa7c311097b280a6156e936bf5c0627c14d3fc38736bbde3180194b17`. The old app remained healthy; no dedicated-UID service test ran. |
 | Provider | Installation `00bcc640-c430-4c9a-8d97-e35835b8bcf8`; approved active release 0.1.2 ID `9ec8e626-0a5d-4ed6-9333-a3fd1aa25472`, digest `4c0e2eee0f9105d28a5173ec695bd42c6b84de58233570fb0ffb2dcf03a6ac18` | The release is activated in the isolated app. Its earlier candidate fixtures do not prove live guest operation. Re-read active generation, connection revision, and qualification before a new setup plan. |
 | Saved CREATE | `62633686-a1bc-4b93-b87a-54fdbc96c2fd`, `OUTCOME_UNKNOWN`; fixture `live-fixture-20260924` | No provider operation ID or proof of no effect. Preserve this record until independent fence, backend observations, and signed operator repair pass. |
 
@@ -34,15 +35,29 @@ build path, but its Git SHA differs from the reviewed PR head. It is **not**
 the cutover artifact. The 0.1.2 provider release digest is an extension
 release digest, not the full app bundle digest.
 
+The current candidate at `/tmp/ezh-qualification-release-0b81c087e` was
+staged from the clean app source above with pinned Bun 1.3.14. Its manifest
+SHA-256 is `82b2bfeaa7c311097b280a6156e936bf5c0627c14d3fc38736bbde3180194b17`;
+its root and web lock SHA-256 values are respectively
+`8c2ae7d0ffec274681202bd8c90fd507597b2279ab631e03b71fdf73b9433b88`
+and `96e8a5adbc441d2cc77c1b5c860ad79c5695f473c4ac387f34132e2d4c5f8dc5`.
+The manifest inventories 76,066 files and pins Bun SHA-256
+`80d5578a593f0c954739e7f14ec1e3c4dc00757cda1ff4bb8383e82b1e44871e`.
+`verify` passed. The non-root smoke under UID 1001 returned HTTP 200 with
+`/nix/store/si4q3zks5mn5jhzzyri9hhd3cv789vlm-gcc-15.2.0-lib/lib` as
+the native library path; the smoke verified the inventory again after exit.
+The candidate remains under `/tmp`, with no install or dedicated-UID service
+test yet.
+
 ## Exact sequence and evidence still needed
 
 1. **Freeze and stage the app release.** Build from one clean reviewed PR
    commit. Record its full Git SHA, Bun binary path and SHA-256, both lock
    digests, release manifest SHA-256, inventory count, and exact install
    destination. Run `verify`, then non-root `smoke` outside `/home/dev` with
-   the GCC library directory from the same proposed AMD generation. Install
-   the exact verified tree under root-owned `/opt/ezharness` only after a
-   separate install review. Re-verify there. The module must supply
+   the GCC library directory from the same proposed AMD generation. The
+   exact verified tree is now root-owned under `/opt/ezharness` and passed
+   post-install verification. The corrected host module must supply
    `LD_LIBRARY_PATH` to the supervised app for `sharp` to load.
 2. **Review the server SSH gate before giving the app a setup key.** Server
    gate module PR #3 is `04b0523ea64478fd2530b898e249d8e68ed4852c`.
@@ -59,8 +74,10 @@ release digest, not the full app bundle digest.
    command, key fingerprint, host key pin, negative command tests, and
    rollback before server activation. The app gets only the dedicated scoped
    key and pinned known-hosts file, never the developer's personal key.
-3. **Build and review the AMD generation.** Pin the complete generation store
-   path derived from PR #2 plus exact host options, including the dedicated
+3. **Build and review the AMD generation.** First identify the exact live
+   AMD source/config and rebuild the qualification module on that base; do
+   not activate the first `/nix/store/cr6m...` candidate. Pin the corrected
+   complete generation store path plus exact host options, including the dedicated
    SSH target and host key. Check UID/GID collisions and ownership again.
    Activate with `autoStart=false`; read back both loaded, inactive service
    units, account groups, library path, runner service settings, and access
@@ -102,9 +119,8 @@ release digest, not the full app bundle digest.
 
 ## Values that cannot be approved from this packet
 
-The final PR head and bundle manifest hash, final AMD and server generation
-store paths, server-installed gate script/policy hashes, dedicated SSH host
-key fingerprint and negative live test, installed release hash and ownership,
+The final PR head, server-installed gate script/policy hashes, dedicated SSH host
+key fingerprint and negative live test,
 sealed file hashes and crypto equality receipt, current PID start ticks and
 boot ID, current DB and projects tree digests, traffic-hold receipt, final
 stage manifest hash, live service/runner behavior, independent fence result,
@@ -114,5 +130,5 @@ gate. Approval of the provider release does not approve these later writes.
 
 Review result: the source code and proposed host services provide a concrete
 cutover path. The isolated app still runs with shared UID 1001 and no
-dedicated services or installed release, so no live CREATE repair or
+dedicated services, so no live CREATE repair or
 EZHarness-owned sandbox is verified by this packet.

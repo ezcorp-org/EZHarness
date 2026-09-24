@@ -1,7 +1,8 @@
 # Qualification app bundle install: AMD review packet, 24 September 2026
 
-**Status: review only.** The install and rollback commands have not run. They install one built
-EZHarness app tree on AMD. They do not start a service, move a database, use a
+**Status: installed and verified at 17:52 UTC on 24 September 2026.** The
+rollback command has not run. This step installed one built EZHarness app tree
+on AMD. It did not start a service, move a database, use a
 credential, or change the Incus server. Run them only after review of this
 exact source, destination, and rollback path. Keep the old isolated app and
 runner running until the separate cutover review.
@@ -110,5 +111,12 @@ The three shell blocks passed Bash syntax checks. The read-only preflight
 block passed on AMD: the source Git SHA and pinned hashes match, the complete
 bundle verifies, the filesystems match, free space exceeds 6 GiB, the three
 planned `/opt` paths are absent, and both new services are inactive. The
-copy, publish, post-install checks, and rollback remain untested until the
-reviewed install runs.
+copy, publish, and post-install checks then passed. The source remained at
+`/tmp/ezh-qualification-release-0b81c087e`; the sibling staging path was
+absent after the no-clobber rename. `/opt/ezharness` and its manifest read
+back as root:root, with manifest SHA-256
+`82b2bfeaa7c311097b280a6156e936bf5c0627c14d3fc38736bbde3180194b17`.
+The full installed inventory verified. Both new services remained
+`LoadState=not-found`, `ActiveState=inactive`, and the old isolated app health
+endpoint still returned HTTP 200. The rollback hold remains absent; no
+rollback or dedicated-UID service test ran.
