@@ -982,11 +982,13 @@ Review: The helper now reads nonempty readiness content until it appears or the 
 
 ## PR #308 remaining dependency advisories — 2026-09-24
 
-- [ ] Resolve root esbuild and uuid advisories with compatibility tests (Sol root dependency agent).
-- [ ] Resolve web qs and cookie advisories with compatibility tests (Sol web dependency agent).
-- [ ] Independently verify fixed versions, installed resolution paths, and security regression tests.
-- [ ] Integrate changes; require zero advisory records with no allowlist additions.
+- [x] Resolve root esbuild and uuid advisories with compatibility tests (Sol root dependency agent).
+- [x] Resolve web qs and cookie advisories with compatibility tests (Sol web dependency agent).
+- [x] Independently verify fixed versions, installed resolution paths, and security regression tests.
+- [x] Integrate changes; require zero advisory records with no allowlist additions.
 - [ ] Run complete local quality checks, build, browser lanes, coverage, and dependency audit on final source.
 - [ ] Push to PR #308, verify hosted checks, and record final evidence.
 
 Plan review: The user requests all six remaining lower-severity advisory records fixed, validated, and pushed. Include current main through `8aa507304` before the changes. Separate root and web manifests/locks between isolated Sol worktrees. Prefer supported parent updates; use narrowly justified dependency overrides only with real caller compatibility proof. Do not suppress advisories, weaken gates, or change test deadlines. Final results go in `tasks/pr308-dependency-results.md` so tracked source stays frozen during coverage attestation.
+
+Review before final validation: Independent clean-install checks report zero advisories in root, web, and the Excel example. Pinned Bun 1.3.14 ignores parent-scoped overrides, so tested exact global pins are required. The extension resolver now honors exact global overrides, rejects unsupported forms and stale locks, and checks package declarations against the lock. Regression tests cover real dependency callers, malicious inputs, and the author save/resolve/reload flow. Git test fixtures now share an isolated environment so hooks cannot change the caller's repository identity. Run final checks and record their results in the ignored report before pushing.
