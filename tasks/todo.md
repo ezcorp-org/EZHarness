@@ -3648,3 +3648,21 @@ Base `integ/w00` `39a7189e0`. Receipts: `/tmp/factory-platform-evidence/w03e/`. 
 - [ ] Disclosed gap (owner: W03): a reservation whose reserved cost is zero is never listed by `listUncertainWithCostInTransaction`, so it can never be reconciled.
 
 **Review.** An attempt stopped before its first operation stayed `cancelling` forever. The stop saw no terminal usage and held the budget as uncertain, and reconciliation refused the hold with `no-operation-receipt`, because there was nothing to reconcile. The base run at W02c's head showed this for the package fence's run A and an operator-cancelled run O. C02 journals every operation before its effect, and an accepted cancel can prepare no more, so an empty journal after a signed stop proves zero provider cost. The stop now settles that zero in its own transaction as a typed `no-operations` settlement bound to the stop receipt, with one `usage-settled` event. Compute is charged at its reserved bound because nothing measured it. A second defect sat under it: the kernel only clears an uncertain attempt when a later stop says `uncertain: false`, which nothing emitted. The real stops went through exactly that path. Three passes at the merged head bring both runs to `cancelled`, run A with its typed reason, and the pool, PostgreSQL, coverage and complexity gates are green. Open: a hold that reconciliation later resolves from a provider receipt still never clears the kernel's uncertainty.
+
+## W05b — a reconciled hold lets the cancelled run end (branch `wp/w05b-reconcile-clear`)
+
+Base `wp/w03e-usage-settle` `c6dbc321c`. Receipts: `/tmp/factory-platform-evidence/w05b/`. Gates: `tasks/factory/w05b-GATES.md`.
+
+- [x] Reproduce on the real application with W03e's harness: run U (one uncertain operation, cancelled, reconciled) stays `cancelling` at base.
+- [x] Tests red at base, green at head, including the reverse order (reconciliation before the stop confirms).
+- [x] Fix: reconciliation clears the kernel's uncertain attempt through the sealed stop, exactly once; an unconfirmed stop or an unknown usage is not cleared; a stop confirmed after reconciliation settles as certain.
+- [x] Kernel replay test; `kernel.ts` unchanged.
+- [x] Real-server proof, three passes, both orders; sweep; gate file; report.
+
+**Review.** Reconciliation settled the cost but never told the kernel. The kernel kept the attempt
+stopped-and-uncertain, so a cancelled run never ended. The fix sends the sealed stop's event again with
+`uncertain: false`, from the reconciliation's own transaction, and only when the physical stop is
+confirmed. The real server then showed the reverse order, and it was not rare: reconciliation settled
+first, and the confirming stop failed stale. That stop now treats the settled cost as certain and clears
+the uncertainty itself. Either way the kernel is cleared exactly once, and the run ends `cancelled` with
+its reason.
