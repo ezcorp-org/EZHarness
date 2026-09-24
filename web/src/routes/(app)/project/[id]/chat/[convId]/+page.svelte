@@ -22,7 +22,7 @@
 		type Conversation,
 		type Mode,
 	} from "$lib/api.js";
-	import { store, openTeamPanel, refreshQuickstart, type AgentCallState, type TaskPanelTask } from "$lib/stores.svelte.js";
+	import { store, openTeamPanel, refreshQuickstart, notifyConversationsChanged, type AgentCallState, type TaskPanelTask } from "$lib/stores.svelte.js";
 	import { persistLastModel } from "$lib/last-model.js";
 	import { attachPanelPersistence } from "$lib/chat/page-handlers/panel-persistence.svelte.js";
 	import { attachTaskHydration } from "$lib/chat/page-handlers/task-hydrate.svelte.js";
@@ -67,7 +67,6 @@
 	let permissionModeOverride = $state<PermissionMode | undefined>(undefined);
 	let pendingSelectedAgentSubConvId = $state<string | null>(null);
 	let hydratedSubConversations = $state<SubConvoRecord[]>([]);
-	let convList: ConversationList | undefined = $state();
 
 	// Task panel (driven by the thread's chrome state).
 	let taskSnapshot = $derived(store.taskSnapshots[convId] ?? null);
@@ -193,17 +192,9 @@
 </script>
 
 <div class="absolute inset-0 flex">
-	<!-- Desktop conversation list -->
-	<div class="hidden md:flex">
-		<ConversationList
-			bind:this={convList}
-			{projectId}
-			activeConversationId={convId}
-			oncreate={handleCreate}
-			onselect={handleSelect}
-		/>
-	</div>
-
+	<!-- Desktop has no conversation column: the threads live in the sidebar's
+	     Chat section (ChatNavSection), so the conversation gets the full width.
+	     Mobile keeps its swipe-in list below. -->
 	<!-- Mobile conversation list overlay -->
 	<SwipeDrawer
 		open={mobileConvListOpen}
@@ -289,7 +280,7 @@
 		onopenobservability={() => {
 			obsOpen = true;
 		}}
-		convListRefresh={() => convList?.refresh?.()}
+		convListRefresh={() => notifyConversationsChanged(projectId)}
 	>
 		{#snippet header(chrome: ChatThreadChrome)}
 			<ChatHeader

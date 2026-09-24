@@ -541,5 +541,12 @@
   "web/e2e/project-sandbox-panel.spec.ts": [
     "web/src/lib/components/ProjectSandboxPanel.svelte",
     "web/src/routes/(app)/project/[id]/settings/+page.svelte"
+  ],
+  "web/e2e/chat-sidebar-threads.spec.ts": [
+    "web/src/lib/components/ChatNavSection.svelte",
+    "web/src/lib/components/ConversationList.svelte",
+    "web/src/routes/(app)/+layout.svelte",
+    "web/src/routes/(app)/project/[id]/chat/+page.svelte",
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
   ]
 }

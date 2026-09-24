@@ -355,6 +355,23 @@ export function refreshAgentConfigs() {
 		.catch(() => {});
 }
 
+/**
+ * A conversation list somewhere is out of date: one was created, renamed,
+ * deleted, or a title was generated. Every list listens — the sidebar's chat
+ * section, the all-chats page, the mobile drawer — so none of them needs a
+ * reference to another. `projectId` scopes it; omitted, every list refreshes.
+ *
+ * Before the chat threads moved into the sidebar there was exactly one list
+ * on screen and the conversation page refreshed it through a bound component
+ * ref. With two lists mounted at once, a ref reaches only one of them.
+ */
+export const CONVERSATIONS_CHANGED = "conversations:changed";
+
+export function notifyConversationsChanged(projectId?: string): void {
+	if (typeof window === "undefined") return;
+	window.dispatchEvent(new CustomEvent(CONVERSATIONS_CHANGED, { detail: { projectId } }));
+}
+
 let quickstartRequest = 0;
 
 /** Reload completion state after a provider, conversation, or extension mutation. */

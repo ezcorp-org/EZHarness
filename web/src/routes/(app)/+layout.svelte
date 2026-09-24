@@ -12,6 +12,7 @@
 	import { resolveBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
 	import ProjectRail from "$lib/components/ProjectRail.svelte";
 	import HubNavSection from "$lib/components/hub/HubNavSection.svelte";
+	import ChatNavSection from "$lib/components/ChatNavSection.svelte";
 	import ThemeToggle from "$lib/components/ThemeToggle.svelte";
 	import CommandPalette from "$lib/components/CommandPalette.svelte";
 	import ShortcutHelp from "$lib/components/ShortcutHelp.svelte";
@@ -223,10 +224,10 @@
 		return path === href || path.startsWith(href + "/");
 	}
 
-	let navLinks = $derived<{ href: string; label: string; group?: string; hub?: boolean }[]>([
+	let navLinks = $derived<{ href: string; label: string; group?: string; hub?: boolean; chat?: boolean }[]>([
 		...(isGlobalProject
 			? [
-					{ href: "/project/global/chat", label: "Chat" },
+					{ href: "/project/global/chat", label: "Chat", chat: true },
 					{ href: "/hub", label: "Hub", hub: true },
 					{ href: "/active-agents", label: "Active Agents" },
 					{ href: "/agents", label: "Agents", group: "Build" },
@@ -239,7 +240,7 @@
 					{ href: "/settings", label: "Settings", group: "Manage" },
 				]
 			: [
-					{ href: `/project/${store.activeProjectId}/chat`, label: "Chat" },
+					{ href: `/project/${store.activeProjectId}/chat`, label: "Chat", chat: true },
 					{ href: `/project/${store.activeProjectId}/hub`, label: "Hub", hub: true },
 					{ href: "/memories", label: "Memories" },
 					{ href: `/project/${store.activeProjectId}/settings`, label: "Project Settings" },
@@ -368,7 +369,14 @@
 					</div>
 				{/if}
 				{@const active = isLinkActive(link.href)}
-				{#if link.hub}
+				{#if link.chat}
+					<ChatNavSection
+						chatBase={link.href}
+						projectId={store.activeProjectId}
+						currentPath={page.url.pathname}
+						{active}
+					/>
+				{:else if link.hub}
 					<HubNavSection hubBase={link.href} currentPath={page.url.pathname} {active} />
 				{:else}
 					<a
@@ -594,7 +602,15 @@
 						</div>
 					{/if}
 					{@const active = isLinkActive(link.href)}
-					{#if link.hub}
+					{#if link.chat}
+						<ChatNavSection
+							chatBase={link.href}
+							projectId={store.activeProjectId}
+							currentPath={page.url.pathname}
+							{active}
+							onnavigate={() => (store.mobileMenuOpen = false)}
+						/>
+					{:else if link.hub}
 						<HubNavSection
 							hubBase={link.href}
 							currentPath={page.url.pathname}
