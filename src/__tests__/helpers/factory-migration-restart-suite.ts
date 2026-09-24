@@ -468,6 +468,28 @@ export function factoryMigrationRestartConformance(createFixture: () => Promise<
     expect(orphan).toBeInstanceOf(Error);
   });
 
+  test("repeated migration keeps a revoked artifact share beside its re-grant, and one active share per target", async () => {
+    const db = fixture.db;
+    const digest = `sha256:${"d".repeat(64)}`;
+    await db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('restart-regrant-user','restart-regrant@example.test','x','Restart regrant','admin') ON CONFLICT (id) DO NOTHING`);
+    await db.execute(sql`INSERT INTO projects(id,name,path) VALUES ('restart-regrant-target','Restart regrant target','/tmp/factory-restart-regrant')`);
+    await db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES ('restart-tenant','restart-regrant-target')`);
+    await db.execute(sql`INSERT INTO factory_artifacts(object_id,tenant_id,project_id,run_id,kind,digest,blob_digest,storage_version,encoded_bytes) VALUES ('restart-regrant-artifact','restart-tenant','restart-project','restart-run','execution_manifest',${digest},${"d".repeat(64)},'version-1',10)`);
+    const share = (revision: number, revoked: boolean) => db.execute(sql`INSERT INTO factory_artifact_read_grants (tenant_id,source_project_id,source_run_id,source_artifact_id,target_project_id,artifact_digest,artifact_bytes,artifact_kind,storage_version,media_type,issuer_id,issuer_grant_revision,protected_digest,revoked_at,grant_revision)
+      VALUES ('restart-tenant','restart-project','restart-run','restart-regrant-artifact','restart-regrant-target',${digest},10,'execution_manifest','version-1','application/json','restart-regrant-user',1,${digest},${revoked ? sql`NOW()` : sql`NULL`},${revision})`).then(() => null, (error: unknown) => error);
+    expect(await share(1, true)).toBeNull();
+    expect(await share(2, false)).toBeNull();
+    const constraints = async () => rows<{ conname: string; oid: number }>(await db.execute(sql`SELECT conname,oid FROM pg_constraint WHERE conrelid='factory_artifact_read_grants'::regclass ORDER BY conname`));
+    const before = await constraints();
+    for (let boot = 0; boot < 2; boot++) {
+      await fixture.migrate();
+      const kept = rows<{ grant_revision: number | string; revoked: boolean }>(await db.execute(sql`SELECT grant_revision, revoked_at IS NOT NULL AS revoked FROM factory_artifact_read_grants WHERE source_artifact_id='restart-regrant-artifact' ORDER BY grant_revision`));
+      expect(kept.map(row => [Number(row.grant_revision), row.revoked])).toEqual([[1, true], [2, false]]);
+      expect(await constraints()).toEqual(before);
+      expect(await share(3, false)).toBeInstanceOf(Error);
+    }
+  });
+
   test("the legacy unscoped key upgrades once and preserves dependent foreign keys on rerun", async () => {
     await fixture.db.transaction(async tx => {
       await tx.execute(sql`CREATE SCHEMA factory_old_key`);

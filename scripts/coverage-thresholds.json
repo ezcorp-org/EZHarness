@@ -1077,6 +1077,7 @@
   "src/db/migrations/add-factory-package-quarantine.ts": 100,
   "src/factory/package-fence.ts": 100,
   "src/db/migrations/add-factory-package-fence-runs.ts": 100,
+  "src/db/migrations/allow-factory-artifact-regrant.ts": 100,
   "src/factory/release-git-refs.ts": 100,
   "src/extensions/project-git-refs.ts": 100,
   "src/factory/release-destinations.ts": 100,

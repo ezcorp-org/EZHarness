@@ -3135,6 +3135,10 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // trust revisions and the execution journal, both created above.
   const { up: addFactoryPackageFenceRuns } = await import("./migrations/add-factory-package-fence-runs");
   await addFactoryPackageFenceRuns(db);
+  // W04b: a revoked artifact share no longer blocks a new grant. Depends only on
+  // add-factory-artifact-read-grants, registered above.
+  const { up: allowFactoryArtifactRegrant } = await import("./migrations/allow-factory-artifact-regrant");
+  await allowFactoryArtifactRegrant(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);
