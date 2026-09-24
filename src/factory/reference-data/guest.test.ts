@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readFile, mkdtemp, writeFile } from "node:fs/promises";
+import { readFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { filesDigest, pythonLockDigest } from "@ezcorp/extension-runner";
@@ -94,20 +94,21 @@ test("the recorded release lock names the image the committed inputs derive", as
 test("a lock that no longer matches its inputs is a readiness failure, not a substitute image", async () => {
   const recorded = await factoryReferenceDataImageLock();
   const directory = await mkdtemp(join(tmpdir(), "refdata-lock-"));
-  for (const broken of [
-    { ...recorded, tag: "0".repeat(32) },
-    { ...recorded, lockDigest: `sha256:${"0".repeat(64)}` },
-    { ...recorded, image: "localhost/ezcorp-factory-python-data:latest" },
-    { ...recorded, repository: "" },
-  ]) {
-    await writeFile(join(directory, "pinned.json"), JSON.stringify(broken));
-    // The assertion is stated against the same rules `factoryReferenceDataImage`
-    // applies, because that function reads the repository's own committed file.
-    const readBack = JSON.parse(await readFile(join(directory, "pinned.json"), "utf8")) as Record<string, unknown>;
-    const complete = Boolean(readBack.repository && readBack.tag && readBack.image && readBack.base && readBack.lockDigest);
-    const pinned = /@sha256:[a-f0-9]{64}$/.test(String(readBack.image));
-    const matches = readBack.tag === recorded.tag && readBack.lockDigest === recorded.lockDigest;
-    expect(complete && pinned && matches).toBe(false);
+  try {
+    for (const [broken, refusal] of [
+      [{ ...recorded, tag: "0".repeat(32) }, /names tag 0{32}, but the committed lock and Containerfile derive .*--repin/],
+      [{ ...recorded, lockDigest: `sha256:${"0".repeat(64)}` }, /names a different uv\.lock than the committed one.*--repin/],
+      [{ ...recorded, image: "localhost/ezcorp-factory-python-data:latest" }, /does not pin an immutable digest/],
+      [{ ...recorded, repository: "" }, /is incomplete; rebuild it with .*--repin/],
+    ] as const) {
+      await writeFile(join(directory, "pinned.json"), JSON.stringify(broken));
+      await expect(factoryReferenceDataImage(directory)).rejects.toThrow(refusal);
+    }
+    // The same folder with the committed pin resolves to the committed image.
+    await writeFile(join(directory, "pinned.json"), JSON.stringify(recorded));
+    expect(await factoryReferenceDataImage(directory)).toBe(recorded.image);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
   }
 });
 
