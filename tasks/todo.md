@@ -1742,3 +1742,18 @@ verification before and after smoke passed. Five focused Python tests passed.
 This proves local packaging and startup, not root-owned installation or live Incus qualification.
 The final safety edits after this artifact must be rebuilt from the final merged commit
 before an installation review.
+
+## Live Incus qualification remainder — 2026-09-24
+
+- [x] Push the integrated SP05, cutover-preflight, and release-bundle code; run pre-push lint, typecheck, and Svelte checks.
+- [ ] Integrate and verify the scoped, exact-plan SSH setup gate.
+- [ ] Rebuild and smoke-test a sealed bundle from the final reviewed PR head.
+- [ ] Review the AMD qualification service module and its static identity/access tests; keep host activation separate.
+- [ ] Prepare one exact cutover packet for release install, sealed settings, runner, supervisor, and database stage.
+- [ ] Move the isolated app only after cutover gates pass; verify old fixture and repair the saved no-effect CREATE under the dedicated identity.
+- [ ] Review/apply a new exact Incus setup plan; run the EZHarness-owned sandbox lifecycle and security/resource qualifications.
+- [ ] Publish final PR head, hosted CI, support matrix, and live validation evidence before calling the feature ready.
+
+### Review
+
+The pushed head `94a2fd43f` passed the repository pre-push lint, typecheck, and Svelte checks. The scoped SSH gate and AMD service module are still under independent review. No dedicated app UID, server setup gate, or EZHarness-owned guest is live yet.
