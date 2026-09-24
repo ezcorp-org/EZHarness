@@ -238,3 +238,21 @@ Fixed before the post-W01g merge; each behaviour change has a test.
   `3281b9c4d`'s classification.
 - **Runbook.** The Ollama check's `grep` carries `--line-buffered`, which this host's hook requires
   (the validator's one change when following the runbook literally).
+
+## Final round on the landed W01g (`integ/w00` `bfa74c11f`, merged as `d088621a1`)
+
+The merge kept both sides in each conflict: the base moved the guest-broker route constants to the leaf
+`runner/guest-broker-contract.ts`, and W19a's imports now read them from there
+(`guest-broker-composition.ts`, `guest-broker-client.ts`, the transport test, the model-route suite).
+The lifecycle suite's `factory_native_model_denied` case passes the base's new fifth
+`FactoryNativeRunnerPolicy` argument. Receipts at `d088621a1`, clean tree:
+
+| Check | Result | Receipt |
+| --- | --- | --- |
+| C05 `factory-process-boundaries.test.ts` | 14 pass, 0 fail (green) | `receipts/cov-runner.json` (406 pass, 0 fail, includes it) |
+| Campaign, mode `ollama` | 3 of 3 passed; answer "The primary colors of light are red, blue, and yellow.", tokens 32 / 14 each pass | `receipts/campaign-4.json`, `proof-campaign-4-d088621a1/` |
+| Campaign, mode `mock` | 3 of 3 passed; answer "prompt-digest answer 95a14d196e84db4a" each pass | same |
+| Controls | `control-no-pin` and `control-missing-model` passed | same |
+| Cross-pass summary | `passed` | `proof-campaign-4-d088621a1/summary.json` |
+| Coverage gates vs `integ/w00` | patch: 18 files, all changed lines covered; new file: 2 files | `receipts/gate-patch-coverage.json`, `receipts/gate-new-file-coverage.json` |
+| Runbook, followed literally from a fresh worktree at `d088621a1` | every command exit 0; summary `passed` (about 6.5 minutes) | `runbook-literal.txt`, `proof/` |
