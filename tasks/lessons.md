@@ -1,5 +1,7 @@
 # Lessons
 
+- Before a dedicated-UID cutover, inspect the actual isolated app process tree and source parent. A dev-owned `/tmp` parent cannot hold a root-only quarantine; move the stopped database into a root-owned private parent before making copies, and require a loaded unit for the old app and runner.
+
 - When infrastructure is not provisioned, separate locally verifiable contract work from later network qualification. Do not infer AMD, Xeon, Incus, Infisical, or credential availability from a delivery plan.
 
 - Describe a raw entrypoint subprocess as a process, not an installed immutable release.

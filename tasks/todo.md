@@ -1670,3 +1670,11 @@ Review: The repair is behind a root-only socket and an independent runner-client
 ### Review
 
 The private app socket requires the exact managed process, a signed restart claim, one exact fault arm, and a configured independent verifier. The verifier pins the Incus server leaf and reads only the exact instance. Arm requires stopped and tagged; readback requires absent. The app separately checks the durable destroy operation. Three Bun-wrapped Python suites pass; full typecheck, lint, and diff checks pass. No app or server was changed by this implementation.
+
+## Dedicated UID qualification cutover preparation
+- [x] Identify the actual isolated app, PGlite path, runner gateway, and missing built release without exposing credentials.
+- [x] Add a repeatable preflight and stopped-source staging script; keep the original database in root-only quarantine and a rollback copy.
+- [x] Document NixOS static UID, runner UID/socket/token change, supervisor config, launch, and rollback.
+- [x] Test the script with disposable fixture paths and rejection cases; run syntax checks; commit only setup files.
+
+Review: The current isolated app is a manually started Vite dev process (PIDs 3878477, 3878556, 3878559, 3878560 when inspected) using `/tmp/ezh-incus-isolated-app.QMhk6Qhv/db`; its runner and gateway were PIDs 1982010 and 1983979 with UID pin 1001. No root-owned built release exists at `/opt/ezharness/web/build/index.js`, and `/home/dev` is mode 0700. The private manifest, loaded old service units, root-sealed source parent, dedicated UID, runner group socket/token, built release, and independent recovery fence are prerequisites. Disposable tests pass; no live service, database, or Incus mutation occurred.
