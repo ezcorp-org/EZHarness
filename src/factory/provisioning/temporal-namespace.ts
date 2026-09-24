@@ -7,30 +7,13 @@
  * so `factoryTemporalRegisterRequest` translates exactly those arguments into
  * the RegisterNamespace request, and an argument it does not recognise is
  * refused rather than dropped.
- *
- * Until W15 lands in the integration branch, the arguments come from the
- * stand-in below, which has W15's name, signature, and output. At that merge
- * the stand-in's body is replaced by a re-export of W15's function.
  */
 import { FactoryProvisioningError } from "./steps";
 
-export const FACTORY_TEMPORAL_HISTORY_RETENTION_DAYS = 30;
-const DAY_SECONDS = 86_400;
-const NAMESPACE = /^[A-Za-z0-9][A-Za-z0-9._-]{0,254}$/;
-const URI = /^[a-z][a-z0-9+.-]*:\/\/\S+$/;
+export { FACTORY_TEMPORAL_HISTORY_RETENTION_DAYS, factoryTemporalNamespaceArguments } from "../temporal-retention";
+
 /** Temporal's ArchivalState enum. */
 const ARCHIVAL_ENABLED = 2;
-
-/** W15's contract, pending its merge: arguments for `temporal operator namespace create`. */
-export function factoryTemporalNamespaceArguments(namespace: string, historyArchiveUri: string, visibilityArchiveUri: string): readonly string[] {
-  if (!NAMESPACE.test(namespace) || !URI.test(historyArchiveUri) || !URI.test(visibilityArchiveUri)) throw new FactoryProvisioningError("temporal_namespace_arguments_invalid", "The namespace or an archive URI is malformed.");
-  return Object.freeze([
-    "--namespace", namespace,
-    "--retention", `${FACTORY_TEMPORAL_HISTORY_RETENTION_DAYS * 24}h`,
-    "--history-archival-state", "enabled", "--history-uri", historyArchiveUri,
-    "--visibility-archival-state", "enabled", "--visibility-uri", visibilityArchiveUri,
-  ]);
-}
 
 export interface FactoryTemporalRegisterRequest {
   readonly namespace: string;
@@ -76,4 +59,3 @@ export function factoryTemporalLocalArchiveUris(namespace: string): { readonly h
   return Object.freeze({ history: `file:///tmp/factory-temporal-archival/history/${namespace}`, visibility: `file:///tmp/factory-temporal-archival/visibility/${namespace}` });
 }
 
-export const FACTORY_TEMPORAL_RETENTION_SECONDS = FACTORY_TEMPORAL_HISTORY_RETENTION_DAYS * DAY_SECONDS;

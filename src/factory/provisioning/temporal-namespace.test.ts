@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { FactoryProvisioningError } from "./steps";
+import { FactoryTemporalRetentionError } from "../temporal-retention";
+import type { FactoryProvisioningError } from "./steps";
 import {
   FACTORY_TEMPORAL_HISTORY_RETENTION_DAYS,
-  FACTORY_TEMPORAL_RETENTION_SECONDS,
   factoryTemporalLocalArchiveUris,
   factoryTemporalNamespaceArguments,
   factoryTemporalRegisterRequest,
@@ -16,7 +16,7 @@ function refusal(work: () => unknown): FactoryProvisioningError {
   throw new Error("expected a refusal");
 }
 
-describe("factoryTemporalNamespaceArguments (W15's contract)", () => {
+describe("factoryTemporalNamespaceArguments (re-exported from W15)", () => {
   test("names the namespace, a thirty-day retention, and both archives enabled", () => {
     const args = factoryTemporalNamespaceArguments("tenant-01.w16", HISTORY, VISIBILITY);
     expect(args).toEqual([
@@ -26,15 +26,13 @@ describe("factoryTemporalNamespaceArguments (W15's contract)", () => {
     ]);
     expect(Object.isFrozen(args)).toBe(true);
     expect(FACTORY_TEMPORAL_HISTORY_RETENTION_DAYS).toBe(30);
-    expect(FACTORY_TEMPORAL_RETENTION_SECONDS).toBe(30 * 86_400);
   });
 
   test("a malformed namespace or archive URI is refused by name", () => {
     for (const [namespace, history, visibility] of [["-bad", HISTORY, VISIBILITY], ["ns", "not a uri", VISIBILITY], ["ns", HISTORY, "/no/scheme"]] as const) {
-      const error = refusal(() => factoryTemporalNamespaceArguments(namespace, history, visibility));
-      expect(error).toBeInstanceOf(FactoryProvisioningError);
-      expect(error.code).toBe("temporal_namespace_arguments_invalid");
-      expect(error.message).toBe("The namespace or an archive URI is malformed.");
+      const error = refusal(() => factoryTemporalNamespaceArguments(namespace, history, visibility)) as unknown as FactoryTemporalRetentionError;
+      expect(error).toBeInstanceOf(FactoryTemporalRetentionError);
+      expect(error.code).toBe("factory_temporal_invalid");
     }
   });
 });
