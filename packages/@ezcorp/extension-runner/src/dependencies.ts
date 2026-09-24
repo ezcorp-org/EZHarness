@@ -6,7 +6,7 @@ import { relativePath, RunnerError } from "./core";
 
 interface LockedPackage { version: string; resolved: string; integrity: string; dependencies?: Record<string, string> }
 interface PackageLock { lockfileVersion: 3; packages: Record<string, LockedPackage | { dependencies?: Record<string, string> }> }
-interface OverridePolicy { global: Record<string, string>; scoped: Record<string, Record<string, string>> }
+type OverridePolicy = Record<string, string>;
 const registry = "https://registry.npmjs.org/";
 const exactVersion = /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/;
 const packageName = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/;
@@ -34,45 +34,35 @@ async function registryBytes(url: string, maximumBytes: number, signal?: AbortSi
 }
 
 function packagePolicy(files: WorkspaceFiles): { dependencies: Record<string, string>; overrides: OverridePolicy } {
-  if (!files["package.json"]) return { dependencies: {}, overrides: { global: Object.create(null), scoped: Object.create(null) } };
+  if (!files["package.json"]) return { dependencies: {}, overrides: Object.create(null) };
   const manifest = JSON.parse(workspaceText(files["package.json"], "package.json"));
   const dependencies = { ...manifest.dependencies, ...manifest.devDependencies };
   for (const [name, version] of Object.entries(dependencies)) {
     if (!packageName.test(name) || name === "@ezcorp/sdk" || name === "@ezcorp/extension-contract" || typeof version !== "string" || !exactVersion.test(version)) throw new RunnerError("dependency_unpinned", "Dependencies require exact versions; SDK is runner-provisioned", "dependencies");
   }
-  const overrides: OverridePolicy = { global: Object.create(null), scoped: Object.create(null) };
+  const overrides: OverridePolicy = Object.create(null);
   const raw = manifest.overrides;
   if (raw !== undefined) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new RunnerError("dependency_override", "Overrides require exact package names and versions", "dependencies");
     for (const [name, value] of Object.entries(raw)) {
       if (!packageName.test(name) || name.startsWith("@ezcorp/")) throw new RunnerError("dependency_override", "Overrides require exact package names and versions", "dependencies");
-      if (typeof value === "string") {
-        if (!exactVersion.test(value) || (Object.hasOwn(dependencies, name) && dependencies[name] !== value)) throw new RunnerError("dependency_override", "Overrides require exact versions and cannot replace a direct dependency", "dependencies");
-        overrides.global[name] = value;
-      } else if (value && typeof value === "object" && !Array.isArray(value)) {
-        const children: Record<string, string> = Object.create(null);
-        for (const [child, version] of Object.entries(value)) {
-          if (!packageName.test(child) || child.startsWith("@ezcorp/") || typeof version !== "string" || !exactVersion.test(version)) throw new RunnerError("dependency_override", "Scoped overrides require exact child names and versions", "dependencies");
-          children[child] = version;
-        }
-        if (!Object.keys(children).length) throw new RunnerError("dependency_override", "Empty scoped overrides are not supported", "dependencies");
-        overrides.scoped[name] = children;
-      } else throw new RunnerError("dependency_override", "Unsupported override form", "dependencies");
+      if (typeof value !== "string" || !exactVersion.test(value) || (Object.hasOwn(dependencies, name) && dependencies[name] !== value)) throw new RunnerError("dependency_override", "Only exact global overrides are supported; direct dependency versions must match", "dependencies");
+      overrides[name] = value;
     }
   }
   return { dependencies, overrides };
 }
 
-function effectiveConstraint(parent: string, child: string, declared: string, overrides: OverridePolicy): string {
-  return overrides.scoped[parent]?.[child] ?? overrides.global[child] ?? declared;
+function effectiveConstraint(child: string, declared: string, overrides: OverridePolicy): string {
+  return overrides[child] ?? declared;
 }
 
-function resolvedDependency(parentPath: string, name: string, packages: PackageLock["packages"]): LockedPackage | undefined {
+function resolvedDependency(parentPath: string, name: string, packages: PackageLock["packages"]): { path: string; entry: LockedPackage } | undefined {
   let current = parentPath;
   while (true) {
     const path = `${current ? `${current}/` : ""}node_modules/${name}`;
     const entry = packages[path];
-    if (entry && "version" in entry) return entry;
+    if (entry && "version" in entry) return { path, entry };
     const ancestor = current.lastIndexOf("/node_modules/");
     if (ancestor < 0) {
       if (!current) return undefined;
@@ -82,15 +72,19 @@ function resolvedDependency(parentPath: string, name: string, packages: PackageL
 }
 
 function validateLockedClosure(packages: PackageLock["packages"], overrides: OverridePolicy): void {
-  for (const [path, entry] of Object.entries(packages)) {
-    const name = path ? path.split("/node_modules/").at(-1)?.replace(/^node_modules\//, "") ?? "" : "";
-    if (path && "version" in entry && overrides.global[name] && entry.version !== overrides.global[name]) throw new RunnerError("lockfile_stale", "Locked package violates override policy", "dependencies");
+  const reachable = new Set([""]);
+  const pending = [""];
+  while (pending.length) {
+    const path = pending.shift()!;
+    const entry = packages[path]!;
     for (const [child, constraint] of Object.entries(entry.dependencies ?? {})) {
       const resolved = resolvedDependency(path, child, packages);
-      const effective = effectiveConstraint(name, child, constraint, overrides);
-      if (!resolved || !Bun.semver.satisfies(resolved.version, effective)) throw new RunnerError("lockfile_stale", "Locked dependency violates override policy or is missing", "dependencies");
+      const effective = effectiveConstraint(child, constraint, overrides);
+      if (!resolved || !Bun.semver.satisfies(resolved.entry.version, effective)) throw new RunnerError("lockfile_stale", "Locked dependency violates override policy or is missing", "dependencies");
+      if (!reachable.has(resolved.path)) { reachable.add(resolved.path); pending.push(resolved.path); }
     }
   }
+  if (reachable.size !== Object.keys(packages).length) throw new RunnerError("lockfile_stale", "Locked closure contains unreachable packages", "dependencies");
 }
 
 function ancestorSatisfies(name: string, constraint: string, requester: string, packages: PackageLock["packages"]): boolean {
@@ -124,7 +118,7 @@ export async function resolveDependencies(files: WorkspaceFiles): Promise<Worksp
     packages[next.path] = locked;
     for (const [name, constraint] of Object.entries(release.dependencies ?? {})) {
       if (typeof constraint !== "string") throw new RunnerError("invalid_dependency", "Invalid dependency constraint", "dependencies");
-      const effective = effectiveConstraint(next.name, name, constraint, overrides);
+      const effective = effectiveConstraint(name, constraint, overrides);
       if (!ancestorSatisfies(name, effective, next.path, packages)) pending.push({ name, version: effective, path: `${next.path}/node_modules/${name}` });
     }
   }
