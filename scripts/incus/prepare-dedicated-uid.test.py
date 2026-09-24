@@ -29,6 +29,7 @@ class DedicatedUidStageTest(unittest.TestCase):
             value = {"oldUid": os.getuid(), "oldGid": os.getgid(),
                      "newUid": 62040, "newGid": 62040}
             with mock.patch.object(MODULE, "check", return_value=(source, quarantine, target, rollback)), \
+                 mock.patch.object(MODULE, "no_old_clients"), \
                  mock.patch.object(MODULE, "no_open_database_files"), \
                  mock.patch.object(MODULE, "chown_tree"), \
                  mock.patch.object(MODULE.os, "chown"):
@@ -50,6 +51,7 @@ class DedicatedUidStageTest(unittest.TestCase):
             source.mkdir()
             with mock.patch.object(MODULE, "check", return_value=(source, quarantine, base / "target",
                                                                     base / "backup")), \
+                 mock.patch.object(MODULE, "no_old_clients"), \
                  mock.patch.object(MODULE, "no_open_database_files",
                                    side_effect=ValueError("late client")), \
                  mock.patch.object(MODULE.os, "chown"):
@@ -92,6 +94,13 @@ class DedicatedUidStageTest(unittest.TestCase):
             source.mkdir()
             with self.assertRaisesRegex(ValueError, "source parent must be root-owned"):
                 MODULE.sealed_source_parent(source)
+
+    def test_reviewed_old_pid_must_be_gone(self):
+        with self.assertRaisesRegex(ValueError, "reviewed old process still runs"):
+            MODULE.no_old_clients({"oldProcessIds": [os.getpid()],
+                                   "runnerProcessIds": [99999999],
+                                   "runnerSocket": "/run/old/runner.sock"},
+                                  pathlib.Path("/tmp/old-db"))
 
 
 if __name__ == "__main__":

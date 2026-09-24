@@ -97,6 +97,8 @@ absolute paths:
   "oldGid": 100,
   "newUid": 62040,
   "newGid": 62040,
+  "oldProcessIds": [3878477, 3878556, 3878559, 3878560],
+  "runnerProcessIds": [1982010, 1983979],
   "sourceDb": "/reviewed/old/pglite",
   "quarantineDb": "/tmp/ezharness-qual-quarantine/pglite",
   "targetDb": "/var/lib/ezharness-qual-data/pglite",
@@ -114,7 +116,10 @@ absolute paths:
 }
 ```
 
-The example paths and numeric IDs are placeholders. Read the real isolated
+The example paths and numeric IDs are placeholders. Refresh all process IDs
+immediately before the cutover; the script requires those exact processes to
+be gone and scans process settings for the old database and runner socket.
+Read the real isolated
 app's process, loaded service unit, PGlite path, runner settings, and build artifact
 before replacing them. A main app using external `DATABASE_URL` is not the
 isolated PGlite app and must not be used for this cutover.

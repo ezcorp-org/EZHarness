@@ -23,6 +23,7 @@ from pathlib import Path
 
 FIELDS = {"oldUid", "oldGid", "newUid", "newGid", "sourceDb", "quarantineDb", "targetDb",
           "rollbackDb", "oldAppUnit", "runnerUnit", "supervisorUnit",
+          "oldProcessIds", "runnerProcessIds",
           "builtApp", "oldEnv", "newEnv", "runnerEnv", "runnerSocket",
           "runnerTokenFile", "supervisorConfig"}
 SERVICE = re.compile(r"^[A-Za-z0-9_.@-]+\.service$")
@@ -75,8 +76,14 @@ def config(path):
         require(type(value[key]) is int and value[key] > 0, "positive static UID/GID required")
     require(value["oldUid"] != value["newUid"], "new app UID must be dedicated")
     for key in FIELDS - {"oldUid", "oldGid", "newUid", "newGid",
+                         "oldProcessIds", "runnerProcessIds",
                          "oldAppUnit", "runnerUnit", "supervisorUnit"}:
         checked_path(value[key])
+    for key in ("oldProcessIds", "runnerProcessIds"):
+        require(isinstance(value[key], list) and value[key]
+                and all(type(pid) is int and pid > 1 for pid in value[key])
+                and len(set(value[key])) == len(value[key]),
+                f"reviewed process IDs required: {key}")
     for key in ("oldAppUnit", "runnerUnit", "supervisorUnit"):
         require(isinstance(value[key], str) and SERVICE.fullmatch(value[key]),
                 "systemd service name required")
@@ -115,6 +122,27 @@ def no_open_database_files(source):
                     continue
                 require(target != str(source) and not target.startswith(prefix),
                         f"process {process.name} still holds the database")
+
+
+def no_old_clients(value, source):
+    for key in ("oldProcessIds", "runnerProcessIds"):
+        for pid in value[key]:
+            require(not (Path("/proc") / str(pid)).exists(),
+                    f"reviewed old process still runs: {pid}")
+    source_env = b"EZCORP_DB_PATH=" + os.fsencode(source) + b"\0"
+    socket_env = b"EZ_EXTENSION_RUNNER_SOCKET=" + os.fsencode(value["runnerSocket"]) + b"\0"
+    socket_arg = os.fsencode(value["runnerSocket"]) + b"\0"
+    for process in Path("/proc").iterdir():
+        if not process.name.isdigit():
+            continue
+        try:
+            environment = (process / "environ").read_bytes()
+            arguments = (process / "cmdline").read_bytes()
+        except FileNotFoundError:
+            continue
+        require(source_env not in environment and socket_env not in environment
+                and socket_arg not in arguments,
+                f"old app or runner client still runs: {process.name}")
 
 
 def closed_socket(path):
@@ -254,6 +282,7 @@ def check(value):
                   value["newUid"], value["newGid"])
     for unit in ("oldAppUnit", "runnerUnit", "supervisorUnit"):
         inactive(value[unit])
+    no_old_clients(value, source)
     for process in Path("/proc").iterdir():
         if process.name.isdigit():
             try:
@@ -293,6 +322,7 @@ def stage(value):
     os.chown(quarantine, 0, 0, follow_symlinks=False)
     os.chmod(quarantine, 0o700)
     try:
+        no_old_clients(value, source)
         no_open_database_files(quarantine)
         regular_tree(quarantine)
         chown_tree(quarantine, 0, 0)
