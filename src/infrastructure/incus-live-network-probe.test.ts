@@ -209,9 +209,9 @@ test("challenge control fails when the peer closes or stalls before the token", 
     const endpoint = server.address();
     expect(endpoint).not.toBeNull();
     const target = { address: "127.0.0.1", port: typeof endpoint === "string" ? 0 : endpoint!.port };
-    try { expect(await connectHostTarget(target, "verified-token")).toBe(false); }
+    try { return await connectHostTarget(target, "verified-token"); }
     finally { await new Promise<void>(resolve => server.close(() => resolve())); }
   };
-  await run(socket => socket.end());
-  await run(() => {});
+  expect(await run(socket => socket.end())).toBe(false);
+  expect(await run(() => {})).toBe(false);
 });
