@@ -4,6 +4,7 @@ import type { MigrationDb } from "./types";
 const SOURCE_CHECK = "factory_usage_settlements_source_check";
 const STOP_RECEIPT_CHECK = "factory_usage_settlements_stop_receipt_check";
 const NO_OPERATIONS_CHECK = "factory_usage_settlements_no_operations_check";
+const BASIS_CHECK = "factory_usage_settlements_basis_check";
 
 /**
  * A stopped attempt that journaled no operation settles zero usage as a fact.
@@ -14,12 +15,16 @@ const NO_OPERATIONS_CHECK = "factory_usage_settlements_no_operations_check";
  * resolves a hold from an operation's provider receipt, and there was none.
  *
  * The settlement is typed `no-operations` and carries the signed stop receipt
- * digest that proves it. The CHECKs make the shape exact: that source, and only
+ * digest that proves it, and names its basis ("no-operations: compute at reserved bound"):
+ * no provider was charged, and compute is settled at the bound the tenant
+ * accepted at admission, so an operator can see it and a refund policy can act
+ * on it. The CHECKs make the shape exact: that source, and only
  * that source, carries a stop receipt, and it can only ever be a known zero with
  * nothing held and no provider receipt. Nothing existing is rewritten.
  */
 export async function up(database: MigrationDb): Promise<void> {
   await database.execute(sql`ALTER TABLE factory_usage_settlements ADD COLUMN IF NOT EXISTS stop_receipt_digest TEXT`);
+  await database.execute(sql`ALTER TABLE factory_usage_settlements ADD COLUMN IF NOT EXISTS basis TEXT`);
   await database.execute(sql`DO $$
     BEGIN
       -- A CHECK cannot be altered in place, and re-adding one on every boot
@@ -41,6 +46,10 @@ export async function up(database: MigrationDb): Promise<void> {
         ALTER TABLE factory_usage_settlements ADD CONSTRAINT ${sql.raw(NO_OPERATIONS_CHECK)}
           CHECK ((source = 'no-operations') = (stop_receipt_digest IS NOT NULL)
             AND (source <> 'no-operations' OR (known_cost_micros = '0' AND unknown_cost_micros IS NULL AND provider_receipt_digest IS NULL)));
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid = 'factory_usage_settlements'::regclass AND contype = 'c' AND conname = ${sql.raw(`'${BASIS_CHECK}'`)}) THEN
+        ALTER TABLE factory_usage_settlements ADD CONSTRAINT ${sql.raw(BASIS_CHECK)}
+          CHECK ((source = 'no-operations') = (basis IS NOT NULL) AND (basis IS NULL OR basis = 'no-operations: compute at reserved bound'));
       END IF;
     END $$`);
 }

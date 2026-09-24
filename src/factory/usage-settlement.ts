@@ -24,6 +24,14 @@ export const FACTORY_USAGE_SETTLEMENT_SCHEMA_VERSION = "factory.usage-settlement
  */
 export type FactoryUsageSettlementSource = "stop" | "reconciliation" | "no-operations";
 
+/**
+ * The basis a no-operations settlement records, so an operator can see it and
+ * a later refund policy can act on it: no provider was charged, and compute is
+ * settled at the bound the tenant accepted at admission, because nothing
+ * measured it. Derived from the source, never supplied by a caller.
+ */
+export const FACTORY_USAGE_NO_OPERATIONS_BASIS = "no-operations: compute at reserved bound" as const;
+
 const SETTLEMENT_SOURCES = new Set<FactoryUsageSettlementSource>(["stop", "reconciliation", "no-operations"]);
 const STOP_RECEIPT_DIGEST = /^sha256:[0-9a-f]{64}$/;
 
@@ -70,6 +78,8 @@ export interface FactoryUsageSettlement {
   readonly providerReceiptDigest?: string;
   /** Present exactly when source is "no-operations": the signed physical stop that proves the zero. */
   readonly stopReceiptDigest?: string;
+  /** Present exactly when source is "no-operations": how the settled amounts were decided. */
+  readonly basis?: typeof FACTORY_USAGE_NO_OPERATIONS_BASIS;
   readonly settledAtMs: number;
   /** `sha256:` over the canonical settlement, excluding this field. */
   readonly settlementDigest: string;
@@ -185,6 +195,7 @@ export function buildFactoryUsageSettlement(input: FactoryUsageSettlementInput):
     ...(input.unknownCostMicros === undefined ? {} : { unknownCostMicros: input.unknownCostMicros }),
     ...(input.providerReceiptDigest === undefined ? {} : { providerReceiptDigest: input.providerReceiptDigest }),
     ...(input.stopReceiptDigest === undefined ? {} : { stopReceiptDigest: input.stopReceiptDigest }),
+    ...(input.source === "no-operations" ? { basis: FACTORY_USAGE_NO_OPERATIONS_BASIS } : {}),
     settledAtMs: input.settledAtMs,
     event,
   } as const;
@@ -226,6 +237,7 @@ interface SettlementRow {
   unknown_cost_micros: string | null;
   provider_receipt_digest: string | null;
   stop_receipt_digest: string | null;
+  basis: string | null;
   settled_at_ms: number | string;
   settlement_digest: string;
   event_json: string;
@@ -315,7 +327,7 @@ export class FactoryUsageSettlements {
       ...(amounts.stopReceiptDigest === undefined ? {} : { stopReceiptDigest: amounts.stopReceiptDigest }),
       settledAtMs: this.clock(previous?.settledAtMs ?? 0),
     });
-    await transaction.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${this.tenantId},${scope.projectId},${scope.runId},${scope.reservationId},${settlement.revision},${settlement.attemptId},${settlement.source},${settlement.knownCostMicros},${settlement.unknownCostMicros ?? null},${settlement.providerReceiptDigest ?? null},${settlement.stopReceiptDigest ?? null},${settlement.settledAtMs},${settlement.settlementDigest},${encodeFactoryPayload(settlement.event)},${`sha256:${digestObject(settlement.event)}`})`);
+    await transaction.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${this.tenantId},${scope.projectId},${scope.runId},${scope.reservationId},${settlement.revision},${settlement.attemptId},${settlement.source},${settlement.knownCostMicros},${settlement.unknownCostMicros ?? null},${settlement.providerReceiptDigest ?? null},${settlement.stopReceiptDigest ?? null},${settlement.basis ?? null},${settlement.settledAtMs},${settlement.settlementDigest},${encodeFactoryPayload(settlement.event)},${`sha256:${digestObject(settlement.event)}`})`);
     await this.inbox.enqueueInTransaction(transaction, { projectId: scope.projectId, runId: scope.runId, interpreterId: scope.interpreterId }, settlement.event);
     return settlement;
   }
@@ -327,7 +339,7 @@ export class FactoryUsageSettlements {
   }
 
   private async rows(transaction: MigrationDb, scope: Pick<FactoryUsageSettlementScope, "projectId" | "runId" | "reservationId">, lock: boolean): Promise<SettlementRow[]> {
-    return rows<SettlementRow>(await transaction.execute(sql`SELECT reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest FROM factory_usage_settlements WHERE tenant_id=${this.tenantId} AND project_id=${scope.projectId} AND run_id=${scope.runId} AND reservation_id=${scope.reservationId} ORDER BY revision DESC${lock ? sql` FOR UPDATE` : sql``}`));
+    return rows<SettlementRow>(await transaction.execute(sql`SELECT reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest FROM factory_usage_settlements WHERE tenant_id=${this.tenantId} AND project_id=${scope.projectId} AND run_id=${scope.runId} AND reservation_id=${scope.reservationId} ORDER BY revision DESC${lock ? sql` FOR UPDATE` : sql``}`));
   }
 
   private decode(row: SettlementRow): FactoryUsageSettlement {
@@ -344,6 +356,7 @@ export class FactoryUsageSettlements {
       ...(row.unknown_cost_micros === null ? {} : { unknownCostMicros: row.unknown_cost_micros }),
       ...(row.provider_receipt_digest === null ? {} : { providerReceiptDigest: row.provider_receipt_digest }),
       ...(row.stop_receipt_digest === null ? {} : { stopReceiptDigest: row.stop_receipt_digest }),
+      ...(row.basis === null ? {} : { basis: row.basis as typeof FACTORY_USAGE_NO_OPERATIONS_BASIS }),
       settledAtMs: Number(row.settled_at_ms),
       event,
     } as const;

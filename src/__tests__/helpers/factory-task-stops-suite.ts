@@ -301,7 +301,9 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     expect(receipt.event).toMatchObject({ kind: "attempt-stopped", commandId: attempt.attemptId });
     expect(receipt.event.uncertain).toBeUndefined();
     const settlement = await settlementOf(settlements, attempt);
-    expect(settlement).toMatchObject({ revision: 1, source: "no-operations", knownCostMicros: "0", stopReceiptDigest: receipt.stopReceipt!.receiptDigest, attemptId: attempt.attemptId });
+    expect(settlement).toMatchObject({ revision: 1, source: "no-operations", knownCostMicros: "0", stopReceiptDigest: receipt.stopReceipt!.receiptDigest, attemptId: attempt.attemptId, basis: "no-operations: compute at reserved bound" });
+    // The stored record names its basis, so an operator can read it off the row.
+    expect(rows<{ basis: string | null }>(await fixture.db.execute(sql`SELECT basis FROM factory_usage_settlements WHERE run_id=${attempt.run.runId}`))).toEqual([{ basis: "no-operations: compute at reserved bound" }]);
     expect(settlement!.unknownCostMicros).toBeUndefined();
     expect(settlement!.event).toMatchObject({ kind: "usage-settled", revision: 1, knownCostMicros: "0" });
     // Cost and tokens are facts; unmeasured compute is charged at its reserved bound.
@@ -846,7 +848,7 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     try {
       await expect(stops.stop(service, reference)).rejects.toMatchObject({ code: "factory_task_stop_corrupt" });
     } finally {
-      await fixture.db.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${saved.tenant_id as string},${saved.project_id as string},${saved.run_id as string},${saved.reservation_id as string},${Number(saved.revision)},${saved.attempt_id as string},${saved.source as string},${saved.known_cost_micros as string},${null},${null},${saved.stop_receipt_digest as string},${Number(saved.settled_at_ms)},${saved.settlement_digest as string},${saved.event_json as string},${saved.event_digest as string})`);
+      await fixture.db.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${saved.tenant_id as string},${saved.project_id as string},${saved.run_id as string},${saved.reservation_id as string},${Number(saved.revision)},${saved.attempt_id as string},${saved.source as string},${saved.known_cost_micros as string},${null},${null},${saved.stop_receipt_digest as string},${saved.basis as string},${Number(saved.settled_at_ms)},${saved.settlement_digest as string},${saved.event_json as string},${saved.event_digest as string})`);
     }
     expect(await stops.stop(service, reference)).toEqual(receipt);
   });

@@ -13,7 +13,7 @@ test("usage settlement migration is repeatable and keeps one receipt per reserva
     await up(fixture.db); await up(fixture.db);
     const columns = rows<{ column_name: string; is_nullable: string }>(await fixture.db.execute(sql`SELECT column_name,is_nullable FROM information_schema.columns WHERE table_name='factory_usage_settlements' ORDER BY column_name`));
     expect(columns.map(row => row.column_name)).toEqual([
-      "attempt_id", "created_at", "event_digest", "event_json", "known_cost_micros", "project_id",
+      "attempt_id", "basis", "created_at", "event_digest", "event_json", "known_cost_micros", "project_id",
       "provider_receipt_digest", "reservation_id", "revision", "run_id", "settled_at_ms", "settlement_digest",
       "source", "stop_receipt_digest", "tenant_id", "unknown_cost_micros",
     ]);
