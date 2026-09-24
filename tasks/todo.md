@@ -5,14 +5,14 @@
 - [x] Activate the exact reviewed provider release in the isolated test app.
 - [x] Repair the capacity route's filesystem/registry parity and push the fix.
 - [x] Wire host-owned network and control fixture probes without opening the qualification gate.
-- [x] Pass local residual tests (184/184), combined Incus tests (228/228), lint, typecheck, build, and gate integrity on head `695f2d558`.
+- [x] Pass local residual tests (184/184), combined Incus tests (228/228 on the earlier witness head), final focused fault/controller tests (60/60), checkpoint tests (4/4), lint, typecheck, build, and gate integrity after merging main.
 - [ ] Obtain approval for revised setup digest `fd430d6aece7cad6bdac995bd4417bf3b0c663ae37a3671d127c98a4ea21be43`; apply it once and verify server readback.
 - [ ] Probe the approved connection, review and apply capacity, then run a real EZHarness-owned guest fixture and complete cleanup.
-- [ ] Close restart and failed-cleanup recovery with an external supervisor and post-effect fault hook; keep SP qualification closed until live proof.
+- [ ] Close restart and failed-cleanup recovery with an external supervisor and authenticated operator control; the durable checkpoint and scoped post-effect fault seams are implemented, but keep SP qualification closed until live proof.
 - [ ] Qualify guest network/resource controls and the separately reviewed host firewall change.
 - [ ] Pass hosted CI at final PR head and record supported profiles and remaining limits.
 
-Review: The revised setup remains `planned` in the isolated app. Commits `74862f2a6` and `695f2d558` are pushed; `dc226e80e` adds the exact restart fixture argument and recovery design and awaits push. The 27-file combined suite passed before that last contract change; its 22 focused tests, lint, and typecheck passed after it. Hosted CI is running on `695f2d558`. No new server setup write or EZHarness-created guest has occurred.
+Review: The revised setup remains `planned` in the isolated app. Hosted CI on `34b025ddc` passed 49 checks and failed the per-file coverage gate; commits `92bb08c2f` and `454ed3eea` close its five named gaps with 100% focused line coverage. Astra reproduced and rechecked authorization-before-journal and persisted checkpoint-expiry fixes (`eaf989fd7`, `c0ff32091`); no finding remains in those bounded seams. The merged tree at `9258eabd8` passes final local residual tests, focused recovery tests and coverage, lint, typecheck, build, and gate integrity. Final-head hosted CI and live server proof are pending. No new server setup write or EZHarness-created guest has occurred.
 
 ## Live Incus operator Apply recovery — 2026-09-23
 
