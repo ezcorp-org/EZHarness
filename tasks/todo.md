@@ -3558,11 +3558,11 @@ broker, guest SDK, and runner result path (W01g).
 - [x] Snapshot plus contiguous SSE cursor: signed cursor, duplicate/gap handling, 410 on expiry, authority recheck per batch, revocation closes the stream, bounded pages; client state machine with visible lag/disconnect.
 - [x] Package admin routes over W02's `FactoryPackageTrusts`: list, install (bind + publish), quarantine, revoke, affected-run preview; human session plus tenant administrator; audited queued result.
 - [x] Grant administration panel over the existing grant routes (admin scope plus administrator role).
-- [x] Administrator purge request: human administrator session, preconditions evaluated, audit that will be lost recorded; no destructive action (W19).
+- [ ] Administrator purge request: human administrator session, preconditions evaluated, audit that will be lost recorded; no destructive action (W19). (Waiting, item 13: the W15 and W16 purge preconditions; the request itself is proven.)
 - [x] Artifact downloads and previews: scoped short-lived ticket, `nosniff` plus attachment, escaped text, no executable SVG/HTML at the origin.
-- [x] Console UI: run inspector, live stream states, repair/replan, approvals and uncertain release (existing components), packages, grants, purge.
+- [ ] Console UI: run inspector, live stream states, repair/replan, approvals and uncertain release (existing components), packages, grants, purge. (Waiting, items 1 and 2: the approval decision and uncertain release need W09c's web composition, repair and replan need W01g; they are proven in components and the mock tier only.)
 - [x] JSON/YAML/SDK/editor digest parity for every construct; unknown versions read-only and exportable; save/publish race; repeated idempotency keys.
-- [x] Two installations with overlapping IDs (service level, two isolated databases; not two HTTP servers): users, restricted API keys, service principals over every list/search/read/download/event/mutation path; expiry, revocation, transactional audit failure; read-sharing grants expose only named bytes.
+- [ ] Two installations with overlapping IDs: users, restricted API keys, service principals, expiry, revocation, transactional audit failure; read-sharing grants expose only named bytes. (Waiting, item 9: proven at the service level on two isolated databases only; two HTTP installations need W16.)
 - [x] `factory-services` lane: Playwright config, real-stack boot, specs through the real authenticated application; register lanes, route manifest, evidence surfaces.
 - [x] Inspect real captures at 1440 and 390 pixels, long labels, large maps, light/dark, keyboard-only, reduced motion; fix defects and console errors.
 - [x] Final sweep per common.md plus web check, web Vitest pool, factory Playwright lanes, mutation after; report.
