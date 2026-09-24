@@ -43,18 +43,20 @@ reject user bindings and all other operations. The witness must read the
 persisted operation as `OUTCOME_UNKNOWN`, the binding as desired `ABSENT`, and
 the matching cleanup intent. It must also inspect a separate stopped fixture.
 
-The required `RECONCILE_REQUIRED` cleanup gate and
-`QUALIFICATION_CLEANUP_UNVERIFIED` readiness denial do not exist in production
-code. Add a host readiness guard in `IncusFeatureService` and qualification
-publication that projects an unresolved fixture destroy in the same reviewed
-scope to `RECONCILE_REQUIRED`. It must deny readiness with that code until the
-original operation reaches `SUCCEEDED`, the backend is absent, and the
-reservation and cleanup confirmation settle. The guard must read the durable
-operation and binding; no in-memory flag or witness-supplied verdict may clear
-it. Expose this readback to the witness. After the denial, a newly opened
-controller must reconcile by inspecting the original destroy operation, never
-by issuing a second destroy ID. Verify the unrelated fixture remains stopped
-with the same generation.
+The `IncusFeatureService` guard is now implemented in `cf0e73fb6`. It reads the
+exact reviewed fixture scope and denies readiness with
+`QUALIFICATION_CLEANUP_UNVERIFIED` until the original destroy succeeds, the
+binding is durably absent with cleanup confirmation, and the reservation
+settles. Its reconciliation path now uses the fixture's cleanup intent. A
+PGlite test exercises an unknown destroy outcome, same-operation provider
+inspection, continued denial before settlement, and release after settlement.
+
+The one-shot transport fault hook, external controller restart, qualification
+publication guard, and real backend proof are still absent. Add a production
+`RECONCILE_REQUIRED` projection for unresolved cleanup and expose the durable
+readback to the witness. A newly opened controller must reconcile the original
+operation ID, never issue a second destroy ID. Verify the unrelated fixture
+remains stopped with the same generation.
 
 ## End-to-end acceptance
 
