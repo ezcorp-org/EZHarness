@@ -18,7 +18,7 @@ use. This packet does not authorize a cutover.
 | Old setup path | `dev@sandbox-server.taile1c5b0.ts.net`, `https://sandbox-server:8443`, personal SSH key under `/home/dev/.ssh` | Replace with the reviewed dedicated principal, key, and known-hosts file in the new manifest. |
 | Environment shape | All 16 settings-tool source keys present; no extra `EZCORP_` key and no `DATABASE_URL` | Presence check only. Secret values were not read into this packet or printed. |
 | Dedicated services | Both `ezharness-qual-runner.service` and `ezharness-qual-supervisor.service` are `not-found` | They must be loaded and inactive for the later UID stage check. |
-| Dedicated accounts | `ezharness-qual-app` and `ezharness-qual-runner` do not exist yet | Proposed UID/GID values `62040`, `62041`, socket GID `62042` are not live accounts. |
+| Dedicated accounts | `ezharness-qual` and `ezharness-qual-runner` do not exist yet | Proposed UID/GID values `62040`, `62041`, socket GID `62042` are not live accounts. |
 
 The last recorded isolated-app database review reports active provider release
 `0.1.2`, release ID `9ec8e626-0a5d-4ed6-9333-a3fd1aa25472`, digest
