@@ -6,6 +6,7 @@ import { relativePath, RunnerError } from "./core";
 
 interface LockedPackage { version: string; resolved: string; integrity: string; dependencies?: Record<string, string> }
 interface PackageLock { lockfileVersion: 3; packages: Record<string, LockedPackage | { dependencies?: Record<string, string> }> }
+interface OverridePolicy { global: Record<string, string>; scoped: Record<string, Record<string, string>> }
 const registry = "https://registry.npmjs.org/";
 const exactVersion = /^\d+\.\d+\.\d+(?:-[a-zA-Z0-9.-]+)?$/;
 const packageName = /^(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+$/;
@@ -32,14 +33,64 @@ async function registryBytes(url: string, maximumBytes: number, signal?: AbortSi
   return Buffer.concat(chunks);
 }
 
-function declaredDependencies(files: WorkspaceFiles): Record<string, string> {
-  if (!files["package.json"]) return {};
+function packagePolicy(files: WorkspaceFiles): { dependencies: Record<string, string>; overrides: OverridePolicy } {
+  if (!files["package.json"]) return { dependencies: {}, overrides: { global: Object.create(null), scoped: Object.create(null) } };
   const manifest = JSON.parse(workspaceText(files["package.json"], "package.json"));
   const dependencies = { ...manifest.dependencies, ...manifest.devDependencies };
   for (const [name, version] of Object.entries(dependencies)) {
     if (!packageName.test(name) || name === "@ezcorp/sdk" || name === "@ezcorp/extension-contract" || typeof version !== "string" || !exactVersion.test(version)) throw new RunnerError("dependency_unpinned", "Dependencies require exact versions; SDK is runner-provisioned", "dependencies");
   }
-  return dependencies;
+  const overrides: OverridePolicy = { global: Object.create(null), scoped: Object.create(null) };
+  const raw = manifest.overrides;
+  if (raw !== undefined) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new RunnerError("dependency_override", "Overrides require exact package names and versions", "dependencies");
+    for (const [name, value] of Object.entries(raw)) {
+      if (!packageName.test(name) || name.startsWith("@ezcorp/")) throw new RunnerError("dependency_override", "Overrides require exact package names and versions", "dependencies");
+      if (typeof value === "string") {
+        if (!exactVersion.test(value) || (Object.hasOwn(dependencies, name) && dependencies[name] !== value)) throw new RunnerError("dependency_override", "Overrides require exact versions and cannot replace a direct dependency", "dependencies");
+        overrides.global[name] = value;
+      } else if (value && typeof value === "object" && !Array.isArray(value)) {
+        const children: Record<string, string> = Object.create(null);
+        for (const [child, version] of Object.entries(value)) {
+          if (!packageName.test(child) || child.startsWith("@ezcorp/") || typeof version !== "string" || !exactVersion.test(version)) throw new RunnerError("dependency_override", "Scoped overrides require exact child names and versions", "dependencies");
+          children[child] = version;
+        }
+        if (!Object.keys(children).length) throw new RunnerError("dependency_override", "Empty scoped overrides are not supported", "dependencies");
+        overrides.scoped[name] = children;
+      } else throw new RunnerError("dependency_override", "Unsupported override form", "dependencies");
+    }
+  }
+  return { dependencies, overrides };
+}
+
+function effectiveConstraint(parent: string, child: string, declared: string, overrides: OverridePolicy): string {
+  return overrides.scoped[parent]?.[child] ?? overrides.global[child] ?? declared;
+}
+
+function resolvedDependency(parentPath: string, name: string, packages: PackageLock["packages"]): LockedPackage | undefined {
+  let current = parentPath;
+  while (true) {
+    const path = `${current ? `${current}/` : ""}node_modules/${name}`;
+    const entry = packages[path];
+    if (entry && "version" in entry) return entry;
+    const ancestor = current.lastIndexOf("/node_modules/");
+    if (ancestor < 0) {
+      if (!current) return undefined;
+      current = "";
+    } else current = current.slice(0, ancestor);
+  }
+}
+
+function validateLockedClosure(packages: PackageLock["packages"], overrides: OverridePolicy): void {
+  for (const [path, entry] of Object.entries(packages)) {
+    const name = path ? path.split("/node_modules/").at(-1)?.replace(/^node_modules\//, "") ?? "" : "";
+    if (path && "version" in entry && overrides.global[name] && entry.version !== overrides.global[name]) throw new RunnerError("lockfile_stale", "Locked package violates override policy", "dependencies");
+    for (const [child, constraint] of Object.entries(entry.dependencies ?? {})) {
+      const resolved = resolvedDependency(path, child, packages);
+      const effective = effectiveConstraint(name, child, constraint, overrides);
+      if (!resolved || !Bun.semver.satisfies(resolved.version, effective)) throw new RunnerError("lockfile_stale", "Locked dependency violates override policy or is missing", "dependencies");
+    }
+  }
 }
 
 function ancestorSatisfies(name: string, constraint: string, requester: string, packages: PackageLock["packages"]): boolean {
@@ -53,7 +104,7 @@ function ancestorSatisfies(name: string, constraint: string, requester: string, 
 }
 
 export async function resolveDependencies(files: WorkspaceFiles): Promise<WorkspaceFiles> {
-  const dependencies = declaredDependencies(files);
+  const { dependencies, overrides } = packagePolicy(files);
   const packages: PackageLock["packages"] = { "": { dependencies } };
   const pending = Object.entries(dependencies).map(([name, version]) => ({ name, version, path: `node_modules/${name}` }));
   while (pending.length) {
@@ -73,7 +124,8 @@ export async function resolveDependencies(files: WorkspaceFiles): Promise<Worksp
     packages[next.path] = locked;
     for (const [name, constraint] of Object.entries(release.dependencies ?? {})) {
       if (typeof constraint !== "string") throw new RunnerError("invalid_dependency", "Invalid dependency constraint", "dependencies");
-      if (!ancestorSatisfies(name, constraint, next.path, packages)) pending.push({ name, version: constraint, path: `${next.path}/node_modules/${name}` });
+      const effective = effectiveConstraint(next.name, name, constraint, overrides);
+      if (!ancestorSatisfies(name, effective, next.path, packages)) pending.push({ name, version: effective, path: `${next.path}/node_modules/${name}` });
     }
   }
   return { ...files, "package-lock.json": `${JSON.stringify({ lockfileVersion: 3, packages }, null, 2)}\n` };
@@ -116,7 +168,7 @@ export function extractPackage(archive: Uint8Array): Record<string, Uint8Array> 
 }
 
 export async function fetchLockedDependencies(files: WorkspaceFiles, signal?: AbortSignal): Promise<{ text: WorkspaceFiles; binary: Record<string, Uint8Array>; executable: string[] }> {
-  const declared = declaredDependencies(files);
+  const { dependencies: declared, overrides } = packagePolicy(files);
   if (Object.keys(declared).length === 0) return { text: {}, binary: {}, executable: [] };
   if (!files["package-lock.json"]) throw new RunnerError("lockfile_required", "Resolve dependencies into a workspace revision before building", "dependencies");
   const lock: PackageLock = JSON.parse(workspaceText(files["package-lock.json"], "package-lock.json"));
@@ -127,6 +179,7 @@ export async function fetchLockedDependencies(files: WorkspaceFiles, signal?: Ab
     const entry = lock.packages[`node_modules/${name}`];
     if (!entry || !("version" in entry) || entry.version !== version) throw new RunnerError("lockfile_stale", "Direct dependency version differs from lock", "dependencies");
   }
+  validateLockedClosure(lock.packages, overrides);
   const binary: Record<string, Uint8Array> = Object.create(null);
   const executable: string[] = [];
   let bytes = 0;
@@ -141,6 +194,7 @@ export async function fetchLockedDependencies(files: WorkspaceFiles, signal?: Ab
     const extracted = extractPackage(archive);
     const manifest = JSON.parse(new TextDecoder().decode(extracted["package.json"]));
     if (manifest.version !== entry.version || path.split("/node_modules/").at(-1)?.replace(/^node_modules\//, "") !== manifest.name) throw new RunnerError("dependency_identity", "Package identity differs from lock", "dependencies");
+    if (JSON.stringify(Object.entries(entry.dependencies ?? {}).sort()) !== JSON.stringify(Object.entries(manifest.dependencies ?? {}).sort())) throw new RunnerError("dependency_identity", "Package dependency declarations differ from lock", "dependencies");
     const binaries = typeof manifest.bin === "string" ? [manifest.bin] : Object.values(manifest.bin ?? {});
     for (const binary of binaries) {
       if (typeof binary !== "string") throw new RunnerError("dependency_identity", "Invalid package binary declaration", "dependencies");
