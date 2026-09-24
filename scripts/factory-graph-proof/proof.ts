@@ -139,10 +139,25 @@ if (installationPin.provider === "ollama") {
 }
 
 // ── The compile-time control: a binding to a port that does not exist ───
+// The product keeps an invalid draft (a draft is work in progress) and marks
+// it unavailable; the compiler's diagnostics come back from `validate`, and
+// publishing the draft is refused.
 if (CONTROL === "no-pin") {
-  const refused = await step("control.bad-port.draft", () => api.call("POST", `/api/factories/projects/${projectId}/definitions`,
-    { source: graphDefinition({ id: "w19a.graph.bad-port.v1", references, badPort: true }) }, { "If-Match": "0", "Idempotency-Key": key() }));
-  record.compileControl = { status: refused.status, namesBindingPort: JSON.stringify(refused.body).includes("BINDING_PORT"), body: refused.body };
+  const badId = "w19a.graph.bad-port.v1";
+  const bad = graphDefinition({ id: badId, references, badPort: true });
+  const validated = await step("control.bad-port.validate", () => api.call("POST", `/api/factories/projects/${projectId}/definitions/${badId}/validate`, { source: bad }));
+  const drafted = await step("control.bad-port.draft", () => api.call("POST", `/api/factories/projects/${projectId}/definitions`, { source: bad }, { "If-Match": "0", "Idempotency-Key": key() }));
+  const badRevision = (drafted.body as { resource?: { revision?: number } } | undefined)?.resource?.revision;
+  const publish = await step("control.bad-port.publish", () => api.call("POST", `/api/factories/projects/${projectId}/definitions/${badId}/versions`, { version: "1.0.0" }, { "If-Match": String(badRevision ?? 1), "Idempotency-Key": key() }));
+  const diagnostics = (validated.body as { valid?: boolean; diagnostics?: Array<{ code?: string }> } | undefined);
+  record.compileControl = {
+    validateStatus: validated.status,
+    valid: diagnostics?.valid ?? null,
+    diagnosticCodes: (diagnostics?.diagnostics ?? []).map((entry) => entry.code),
+    draft: (drafted.body as { resource?: unknown } | undefined)?.resource ?? drafted.body,
+    publishStatus: publish.status,
+    publishBody: publish.body,
+  };
 }
 
 // ── The graph, published and run through public HTTP ────────────────────
@@ -165,15 +180,23 @@ if (started.status !== 202 || !runId) await finish(`the run was not accepted thr
 const TERMINAL = new Set(["succeeded", "failed", "cancelled"]);
 const timeline: string[] = [];
 let runResource: unknown;
+// A failed model call carries no usage, so its attempt's cost is unknown and
+// C03 holds the run rather than settle an unknown cost as zero. That hold is
+// named in the server log by the reconciliation role; the missing-model
+// control waits for the name instead of for a terminal status that cannot come.
+const HOLD = "factory_usage_hold_unresolved: no-operation-receipt";
+const webLog = () => stack!.children.find((entry) => entry.name === "web")?.log.join("") ?? "";
+let held = false;
 for (let attempt = 0; attempt < 600; attempt++) {
   const polled = await api.call("GET", `/api/factories/projects/${projectId}/runs/${runId}`);
   runResource = (polled.body as { resource?: unknown } | undefined)?.resource;
   const status = (runResource as { status?: string } | undefined)?.status;
   if (status !== undefined && timeline.at(-1) !== status) timeline.push(status);
   if (status !== undefined && TERMINAL.has(status)) break;
+  if (CONTROL === "missing-model" && webLog().includes(HOLD)) { held = true; break; }
   await sleep(1_000);
 }
-record.run = { runId, timeline, terminal: timeline.at(-1) ?? null, resource: runResource };
+record.run = { runId, timeline, terminal: TERMINAL.has(timeline.at(-1) ?? "") ? timeline.at(-1) : null, heldBy: held ? HOLD : null, resource: runResource };
 
 // ── The evidence, from the product database and the object store ───────
 const NODES = ["prepare", "infer", "combine"] as const;
@@ -283,21 +306,25 @@ if (CONTROL === "none") {
   expect("B's staged usage is the journal's usage", same(b?.stored?.usage, { inputTokens: usage?.inputTokens, outputTokens: usage?.outputTokens }), b?.stored?.usage);
 } else {
   const [b, c] = [nodes.infer, nodes.combine];
-  expect("the run ended failed", (record.run as { terminal?: string }).terminal === "failed", timeline);
   expect("C never ran", c?.ran === false, c);
   const error = (b?.result as { error?: { code?: string; message?: string } } | null)?.error;
   if (CONTROL === "no-pin") {
+    expect("the run ended failed", (record.run as { terminal?: string }).terminal === "failed", timeline);
     expect("B ran with no model pin", b?.ran === true && b?.model === null, b?.model);
     expect("B was refused model_pin_mismatch by the broker", error?.code === "model_pin_mismatch", error);
     expect("nothing was claimed or journaled for B", (b?.operations ?? []).length === 0, b?.operations);
-    const compile = record.compileControl as { status?: number; namesBindingPort?: boolean } | undefined;
-    expect("a binding to a missing port was refused at compile, naming BINDING_PORT", compile !== undefined && (compile.status ?? 0) >= 400 && compile.namesBindingPort === true, compile);
+    const compile = record.compileControl as { valid?: boolean | null; diagnosticCodes?: string[]; publishStatus?: number; draft?: { availability?: string } } | undefined;
+    expect("the compiler refused the missing port by name, BINDING_PORT", compile?.valid === false && (compile.diagnosticCodes ?? []).includes("BINDING_PORT"), compile);
+    expect("the invalid draft is unavailable and cannot be published", compile?.draft?.availability === "unavailable" && (compile?.publishStatus ?? 0) >= 400, compile);
   } else {
     expect("B was refused provider_unavailable", error?.code === "provider_unavailable", error);
     expect("the refusal carries Ollama's own missing-model message", String(error?.message ?? "").includes(`model '${OLLAMA_MISSING_MODEL}' not found`), error);
     const operations = b?.operations ?? [];
     const failure = operations[0]?.result as { code?: string; message?: string } | undefined;
     expect("the provider error is journaled as B's one failed model operation", operations.length === 1 && operations[0]?.kind === "model" && operations[0]?.state === "failed" && failure?.code === "factory_guest_model_failed" && String(failure?.message).includes("not found"), operations);
+    // Not a pass condition of the control; a finding it records. The failed row
+    // has no usage, so the attempt's cost is unknown and the run is held.
+    record.heldRunFinding = { held, timeline, reason: held ? HOLD : null };
   }
 }
 record.checks = checks;

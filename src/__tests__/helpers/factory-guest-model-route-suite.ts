@@ -221,6 +221,8 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     const result = await infer(attempt.request, route(async () => providerOver(provider.broker))(attempt));
     expect(result).toMatchObject({ status: "failed", error: { code: "provider_unavailable", retryable: false } });
     expect(String((result.error as { message: string }).message)).toContain("model 'qwen3:missing' not found");
+    // The failed row carries no usage, so the result cannot claim a measured total.
+    expect("usage" in result).toBe(false);
     await verifies(attempt, result);
     const rows = await operationRows(attempt);
     expect(rows).toMatchObject([{ state: "failed", kind: "model", provider_receipt_digest: null }]);
@@ -250,7 +252,9 @@ export function factoryGuestModelRouteConformance(createFixture: () => Promise<F
     const attempt = await admit({ model: undefined });
     const provider = streamDouble(() => text("never"));
     const result = await infer(attempt.request, route(async () => providerOver(provider.broker))(attempt));
-    expect(result).toMatchObject({ status: "failed", journalCursor: -1, operations: [], error: { code: "model_pin_mismatch" } });
+    // Measured zero, the sum over no operations: an unmeasured result would
+    // leave an unknown budget hold nothing can clear, and the run could not end.
+    expect(result).toMatchObject({ status: "failed", journalCursor: -1, operations: [], error: { code: "model_pin_mismatch" }, usage: { kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" } });
     expect(provider.seen).toHaveLength(0);
     expect(await operationRows(attempt)).toHaveLength(0);
     await verifies(attempt, result);

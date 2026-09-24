@@ -187,9 +187,18 @@ happened.
 
 | Control | How to run it | Correct result |
 | --- | --- | --- |
-| A binding to a port that does not exist | part of the `no-pin` pass | creating the definition answers 4xx and names `BINDING_PORT` |
+| A binding to a port that does not exist | part of the `no-pin` pass | `POST .../definitions/<id>/validate` answers `valid: false` with the diagnostic `BINDING_PORT`; the draft is stored as `unavailable`; publishing it is refused with a 4xx |
 | `infer` with no model pin | `run.sh pass mock no-pin control-no-pin` | `infer` fails with `model_pin_mismatch`; the journal holds no operation for it; `combine` never runs; the run ends `failed` |
-| A model Ollama does not have | `run.sh pass ollama missing-model control-missing-model` | `infer` fails with `provider_unavailable`, carrying `model 'qwen3:w19a-missing' not found`; the journal holds one failed model operation with that message; `combine` never runs; the run ends `failed` |
+| A model Ollama does not have | `run.sh pass ollama missing-model control-missing-model` | `infer` fails with `provider_unavailable`, carrying `model 'qwen3:w19a-missing' not found`; the journal holds one failed model operation with that message; `combine` never runs |
+
+The missing-model control shows one more fact, and the record keeps it in
+`heldRunFinding`. The run does not end. The failed model operation carries no
+usage, so the attempt's cost is unknown. The C03 rule never settles an unknown
+cost as zero, and reconciliation can clear a hold only from an operation that
+carries a provider receipt. The reconciliation role therefore names the hold on
+every pass: `factory_usage_hold_unresolved: no-operation-receipt`. The control
+waits for that name, not for a terminal status. This is an open contract
+question. It is not a harness fault.
 
 ## In a container
 

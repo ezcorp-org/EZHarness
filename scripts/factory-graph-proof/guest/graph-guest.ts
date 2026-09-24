@@ -9,7 +9,7 @@
  * The same file runs in two places. The proof harness stages it flat inside a
  * real v4 package and runs it in the isolated runner, where `call` is the
  * guest's one reverse capability, `factory.broker`. The in-process suite
- * `src/__tests__/helpers/factory-graph-guest-suite.ts` imports it directly and
+ * `src/__tests__/helpers/factory-guest-model-route-suite.ts` imports it directly and
  * drives it against the real guest-broker route, journal, and material
  * service, so the guest the harness ships is the guest the suite proves.
  *
@@ -28,6 +28,12 @@
  *     `{ code: "factory_guest_model_failed", message }`, because the product
  *     settles every claimed call that reached no answer that way;
  *   - every other refusal is decided before the claim and leaves no row.
+ *
+ * Usage follows the same rule the journal does. A result that settled no
+ * operation reports a MEASURED zero, which is the sum over no operations; an
+ * unmeasured one would become an unknown budget hold that nothing can clear,
+ * and the run could never end. A failed call carries no usage on its journal
+ * row, so a result that mirrors one cannot claim a measured total and omits it.
  */
 import { canonicalizeJson, sha256Hex } from "@ezcorp/factory-sdk/canonical";
 import { createFactoryGuestStaging, factoryGuestCheckpointName, type FactoryGuestBrokerCall } from "@ezcorp/factory-sdk/guest-materials";
@@ -175,6 +181,7 @@ export async function infer(request: FactoryRunnerRequest, call: FactoryGuestBro
       operations: settled ? [{ operationId: id, operationIndex: index, kind: "model", state: "failed", requestDigest, resultDigest: digest(failure) }] : [],
       resultDigest: digest({ code: answer.refusal.code, message: answer.refusal.message }),
       error: { code: answer.refusal.code, message: answer.refusal.message, retryable: false },
+      ...(settled ? {} : { usage: ZERO_USAGE as unknown as JsonValue }),
     };
   }
 
