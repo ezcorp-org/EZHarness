@@ -304,6 +304,7 @@ export class IncusQualificationStore {
 export interface IncusQualificationFixtureDependencies {
   db?: Database;
   qualifications?: IncusQualificationStore;
+  assertCurrentScope?: ProviderConnectionStore["assertCurrentScope"];
   admission?: SandboxAdmissionStore;
   controller?: SandboxController;
   inspect?: IncusFeatureServiceDependencies["inspect"];
@@ -330,6 +331,7 @@ export class IncusQualificationFixtureService {
   private readonly inspect: NonNullable<IncusFeatureServiceDependencies["inspect"]>;
   private readonly now: () => number;
   private readonly fixtureLocks = new Map<string, Promise<void>>();
+  private readonly assertCurrentScope: ProviderConnectionStore["assertCurrentScope"];
 
   constructor(deps: IncusQualificationFixtureDependencies = {}) {
     this.db = deps.db ?? getDb();
@@ -339,6 +341,8 @@ export class IncusQualificationFixtureService {
       new IncusSandboxProviderDispatcher(new IncusMethodCaller()));
     this.inspect = deps.inspect ?? inspectRelease;
     this.now = deps.now ?? Date.now;
+    this.assertCurrentScope = deps.assertCurrentScope ?? ((current, transaction) =>
+      new ProviderConnectionStore(this.db).assertCurrentScope(current, transaction));
   }
 
   private async fixture(operationId: string) {
@@ -423,6 +427,11 @@ export class IncusQualificationFixtureService {
     if (!row) {
       try {
         await this.db.transaction(async (tx: DbTransaction) => {
+          await this.assertCurrentScope({ connectionId: scope.connectionId,
+            providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+            releaseDigest: selected.snapshot.release.releaseDigest,
+            generation: selected.snapshot.installation.generation,
+            revision: selected.connection.revision }, tx);
           await tx.insert(projects).values({ id: projectId, name: projectId, purpose: "incus-qualification",
             path: `/__incus_qualification__/${identity}` });
           await tx.insert(sandboxBindings).values({ id: bindingId, projectId,

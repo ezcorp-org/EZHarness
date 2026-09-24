@@ -55,7 +55,8 @@ async function fixture() {
     safetyMemoryBytes: 0, safetyCpuMillicores: 0, safetyPids: 0,
     safetyDiskBytes: 0, safetyExecutionSlots: 0,
   });
-  const service = new IncusLiveProbeFixtureService({ db, rootDirectory: root, qualifications });
+  const service = new IncusLiveProbeFixtureService({ db, rootDirectory: root, qualifications,
+    assertCurrentScope: async () => {} });
   return { db, root, scope, service, authorized: () => authorized,
     disable: () => { disabled = true; },
     changeRevision: () => { connectionRevision++; } };

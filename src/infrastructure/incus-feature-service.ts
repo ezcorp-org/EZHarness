@@ -6,7 +6,7 @@ import {
   type LiveSandboxPresetQualification,
   type SandboxPreset,
 } from "@ezcorp/extension-contract";
-import { getDb, type Database } from "../db/connection";
+import { getDb, type Database, type DbTransaction } from "../db/connection";
 import { incusQualificationFixtures, projects, sandboxBindings, sandboxOperations, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
 import { assertSandboxPresetReady } from "../extensions/v4/sandbox-preset-qualification";
@@ -25,6 +25,7 @@ export interface IncusFeatureServiceDependencies {
   activeRelease?: (installationId: string) => Promise<ActiveExtensionRelease>;
   resolveConnection?: (scope: ProviderConnectionScope) => Promise<ProviderConnectionCredentials>;
   connectionRevision?: (connectionId: string) => Promise<number | null>;
+  assertCurrentScope?: ProviderConnectionStore["assertCurrentScope"];
   /** Must read host-produced SP01–SP08 evidence; absent evidence denies provisioning. */
   loadQualification: (scope: { installationId: string; releaseId: string; connectionId: string; presetId: string }) => Promise<LiveSandboxPresetQualification | null>;
   inspect?: (installationId: string, bindingId: string, input: Record<string, unknown>) => Promise<unknown>;
@@ -129,6 +130,7 @@ export class IncusFeatureService {
   private readonly retiredCleanup: typeof callRetiredIncusCleanup;
   private readonly now: () => number;
   private readonly assertReady: typeof assertSandboxPresetReady;
+  private readonly assertCurrentScope: ProviderConnectionStore["assertCurrentScope"];
 
   constructor(private readonly deps: IncusFeatureServiceDependencies) {
     this.db = deps.db ?? getDb();
@@ -141,6 +143,8 @@ export class IncusFeatureService {
     this.retiredCleanup = deps.retiredCleanup ?? callRetiredIncusCleanup;
     this.now = deps.now ?? Date.now;
     this.assertReady = deps.assertReady ?? assertSandboxPresetReady;
+    this.assertCurrentScope = deps.assertCurrentScope ?? ((scope, transaction) =>
+      new ProviderConnectionStore(this.db).assertCurrentScope(scope, transaction));
   }
 
   private async approved(input: PrepareIncusFeatureInput, expected?: SandboxBinding, requireQualification = true): Promise<{
@@ -256,14 +260,22 @@ export class IncusFeatureService {
     }
     if (!approved.qualification) throw new Error("Live Incus preset qualification is unavailable");
     const id = randomUUID();
-    return this.controller.createBinding({
-      id, projectId: input.projectId, providerInstallationId: input.installationId,
-      providerReleaseId: approved.snapshot.release.id, connectionId: input.connectionId,
-      connectionRevision: approved.connection.revision, resourceKey: id,
-      profile: approved.preset.profile, presetId: approved.preset.id,
-      presetDigest: approved.presetDigest,
-      effectiveSettingsDigest: approved.effectiveSettingsDigest,
-      desiredState: "STOPPED", observedState: "UNKNOWN",
+    return this.db.transaction(async (transaction: DbTransaction) => {
+      await this.assertCurrentScope({ connectionId: input.connectionId,
+        providerInstallationId: input.installationId,
+        providerReleaseId: approved.snapshot.release.id,
+        releaseDigest: approved.snapshot.release.releaseDigest,
+        generation: approved.snapshot.installation.generation,
+        revision: approved.connection.revision }, transaction);
+      return this.controller.createBinding({
+        id, projectId: input.projectId, providerInstallationId: input.installationId,
+        providerReleaseId: approved.snapshot.release.id, connectionId: input.connectionId,
+        connectionRevision: approved.connection.revision, resourceKey: id,
+        profile: approved.preset.profile, presetId: approved.preset.id,
+        presetDigest: approved.presetDigest,
+        effectiveSettingsDigest: approved.effectiveSettingsDigest,
+        desiredState: "STOPPED", observedState: "UNKNOWN",
+      }, transaction);
     });
   }
 
@@ -428,7 +440,7 @@ export class IncusFeatureService {
   /** Settle one confirmed operation after an exact recovery pass. */
   async settleCompletedOperation(operationId: string): Promise<void> {
     const operation = await this.controller.getOperation(operationId);
-    if (!operation || operation.state !== "SUCCEEDED") {
+    if (operation?.state !== "SUCCEEDED") {
       throw new IncusQualificationCleanupError();
     }
     await this.settle(operation);

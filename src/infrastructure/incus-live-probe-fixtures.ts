@@ -7,6 +7,7 @@ import { getDb, type Database, type DbTransaction } from "../db/connection";
 import { projectWorkspaceBindings, projects, sandboxAdmissionRequests, sandboxBindings,
   sandboxHostCapacities, sandboxOperations, sandboxProjectQuotas, sandboxReservations } from "../db/schema";
 import { IncusQualificationStore, type IncusQualificationScope } from "./incus-qualification";
+import { ProviderConnectionStore } from "./provider-connections/store";
 import type { IncusControlDenial, IncusControlProbeConfig } from "./incus-live-control-probes";
 
 const kinds = ["unsupported", "missingControl", "drift", "unqualified"] as const satisfies readonly IncusControlDenial[];
@@ -15,6 +16,7 @@ const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 interface Dependencies {
   db?: Database;
   qualifications?: IncusQualificationStore;
+  assertCurrentScope?: ProviderConnectionStore["assertCurrentScope"];
   /** Operator configured, existing 0700 directory. Never taken from request data. */
   rootDirectory: string;
 }
@@ -29,6 +31,8 @@ export interface IncusProbeFixturePlan {
   effectiveSettingsDigest: string;
   connectionRevision: number;
   profile: string;
+  releaseDigest: string;
+  providerGeneration: number;
 }
 
 export interface IncusProbeFixtureReceipt {
@@ -104,10 +108,13 @@ function expectedCases(directory: string, id: string): IncusControlProbeConfig["
 export class IncusLiveProbeFixtureService {
   private readonly db: Database;
   private readonly qualifications: IncusQualificationStore;
+  private readonly assertCurrentScope: ProviderConnectionStore["assertCurrentScope"];
 
   constructor(private readonly deps: Dependencies) {
     this.db = deps.db ?? getDb();
     this.qualifications = deps.qualifications ?? new IncusQualificationStore({ db: this.db });
+    this.assertCurrentScope = deps.assertCurrentScope ?? ((scope, transaction) =>
+      new ProviderConnectionStore(this.db).assertCurrentScope(scope, transaction));
   }
 
   async plan(scope: IncusQualificationScope, operationId: string): Promise<IncusProbeFixturePlan> {
@@ -129,7 +136,9 @@ export class IncusLiveProbeFixtureService {
     const config = { cases: expectedCases(directory, id), unqualifiedPresetId: alternate.id };
     const plan = { operationId, scope, directory, config,
       presetDigest: selected.presetDigest, effectiveSettingsDigest: selected.effectiveSettingsDigest,
-      connectionRevision: selected.connection.revision, profile: selected.preset.profile };
+      connectionRevision: selected.connection.revision, profile: selected.preset.profile,
+      releaseDigest: selected.snapshot.release.releaseDigest,
+      providerGeneration: selected.snapshot.installation.generation };
     return { ...plan, digest: digest(plan) };
   }
 
@@ -173,6 +182,10 @@ export class IncusLiveProbeFixtureService {
     for (const kind of kinds) await ensureCanary(plan.config.cases[kind].canaryPath,
       canaryContent(identity(scope, operationId), kind));
     await this.db.transaction(async (tx: DbTransaction) => {
+      await this.assertCurrentScope({ connectionId: scope.connectionId,
+        providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+        releaseDigest: plan.releaseDigest, generation: plan.providerGeneration,
+        revision: plan.connectionRevision }, tx);
       if (existing.length) { await this.assertOwned(tx, plan, true); return; }
       await this.assertOwned(tx, plan, false);
       for (const kind of kinds) {

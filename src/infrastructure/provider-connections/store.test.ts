@@ -4,6 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
+import { up as addSandboxController } from "../../db/migrations/add-sandbox-controller";
+import type { DbTransaction } from "../../db/connection";
+import { SandboxController } from "../../sandboxes/controller";
 import { up as addExtensionReleases } from "../../db/migrations/add-extension-releases";
 import { up as addProviderConnections } from "../../db/migrations/add-provider-connections";
 import { ProviderConnectionStore } from "./store";
@@ -86,6 +89,38 @@ test("provider host access follows the live approved release", async () => {
     await client.query("UPDATE extension_release_installations SET payload = $1 WHERE id = $2", [JSON.stringify({ ...installation, activeReleaseId: "release-b", generation: 3, acknowledgedGeneration: 3 }), installation.id]);
     await expect(store.resolveForHost(scope)).rejects.toThrow("not active and approved");
     await expect(store.create({ ...input, id: "new-connection" })).rejects.toThrow("not active and approved");
+    await client.close();
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+}, 30_000);
+
+test("a release changed after preparation cannot acquire a sandbox binding", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "provider-binding-fence-"));
+  try {
+    const { client, db } = await fixture(directory);
+    await client.exec("CREATE TABLE projects (id TEXT PRIMARY KEY)");
+    await client.exec("INSERT INTO projects (id) VALUES ('project')");
+    await addSandboxController(db);
+    const store = new ProviderConnectionStore(db);
+    await store.create(input);
+    const controller = new SandboxController(db, { dispatch: async () => { throw new Error("unexpected dispatch"); },
+      inspectOperation: async () => { throw new Error("unexpected inspection"); } });
+    const selected = { connectionId: input.id, providerInstallationId: installation.id,
+      providerReleaseId: release.id, releaseDigest: release.releaseDigest,
+      generation: installation.generation, revision: 1 };
+    // The caller selected release A. Activation commits release B before the
+    // binding transaction starts; the stale selection must have no effect.
+    await client.query("UPDATE extension_release_installations SET payload = $1 WHERE id = $2",
+      [JSON.stringify({ ...installation, activeReleaseId: "release-b", generation: 3,
+        acknowledgedGeneration: 3 }), installation.id]);
+    await expect(db.transaction(async (tx: DbTransaction) => {
+      await store.assertCurrentScope(selected, tx);
+      return controller.createBinding({ id: "stale-binding", projectId: "project",
+        providerInstallationId: installation.id, providerReleaseId: release.id,
+        connectionId: input.id, connectionRevision: 1 }, tx);
+    })).rejects.toThrow("not active and approved");
+    expect((await client.query("SELECT id FROM sandbox_bindings")).rows).toEqual([]);
     await client.close();
   } finally {
     await rm(directory, { recursive: true, force: true });

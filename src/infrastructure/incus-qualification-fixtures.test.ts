@@ -17,6 +17,7 @@ import { IncusQualificationFixtureService, type IncusQualificationScope, type In
 const opened: PGlite[] = [];
 const scope: IncusQualificationScope = { installationId: "installation", releaseId: "release",
   connectionId: "connection", presetId: INCUS_PRESETS[0]!.id };
+const assertCurrentScope = async () => {};
 
 async function setup(configureHost = true, pendingCreate = false, providerGeneration = 1,
   inspectError: Error | null = null, hostSlots = 2) {
@@ -37,7 +38,9 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
   const preset = INCUS_PRESETS[0]!;
   const presetDigest = await sandboxPresetDigest(preset);
   const effectiveSettingsDigest = digest({ presetDigest, connectionRevision: 1 });
-  const qualifications = { authorizeFixture: async () => ({ connection: { revision: 1 }, preset,
+  const qualifications = { authorizeFixture: async () => ({
+    snapshot: { installation: { generation: 2 }, release: { releaseDigest: "fixture-release" } },
+    connection: { revision: 1 }, preset,
     presetDigest, effectiveSettingsDigest }) } as unknown as IncusQualificationStore;
   const dispatches: SandboxProviderRequest[] = [];
   let providerState: "running" | "stopped" = "stopped";
@@ -61,6 +64,7 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
     safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 },
   });
   const service = new IncusQualificationFixtureService({ db, qualifications, admission, controller,
+    assertCurrentScope,
     inspect: async (_installationId, _bindingId, input) => {
       if (inspectError) throw inspectError;
       return { ok: true, sandbox: { sandboxId: input.sandboxId,
@@ -267,7 +271,8 @@ test("concurrent create calls with one operation identity replay one fixture", a
 
 test("two service instances replay one fixture after concurrent create", async () => {
   const { service, db, admission, qualifications, controller, dispatches } = await setup();
-  const otherService = new IncusQualificationFixtureService({ db, admission, qualifications, controller });
+  const otherService = new IncusQualificationFixtureService({ db, admission, qualifications, controller,
+    assertCurrentScope });
   const [first, replay] = await Promise.all([
     service.create(scope, "fixture-two-services"), otherService.create(scope, "fixture-two-services"),
   ]);
@@ -390,8 +395,10 @@ test("a second service can cancel before admission without allowing a provider e
     return requestAdmission(input);
   };
   const creatingService = new IncusQualificationFixtureService({ db, admission: delayedAdmission,
+    assertCurrentScope,
     qualifications, controller });
   const recoveringService = new IncusQualificationFixtureService({ db, admission,
+    assertCurrentScope,
     qualifications, controller });
   const creation = creatingService.create(scope, "fixture-cross-process-cancel");
   await atAdmission;
@@ -427,8 +434,10 @@ test("a second service cannot cancel after admission commits but before create d
     return result;
   };
   const creatingService = new IncusQualificationFixtureService({ db, admission: delayedAdmission,
+    assertCurrentScope,
     qualifications, controller });
   const recoveringService = new IncusQualificationFixtureService({ db, admission,
+    assertCurrentScope,
     qualifications, controller });
   const creation = creatingService.create(scope, "fixture-cross-process-admitted");
   await afterAdmission;
@@ -457,7 +466,8 @@ test("a lost admission reply retains possible provider effects for recovery", as
     await admission.requestAdmission(input);
     throw new Error("admission reply lost");
   };
-  const service = new IncusQualificationFixtureService({ db, admission: lostReply, qualifications, controller });
+  const service = new IncusQualificationFixtureService({ db, admission: lostReply, qualifications, controller,
+    assertCurrentScope });
   await expect(service.create(scope, "fixture-unknown-admission"))
     .rejects.toThrow("admission and cleanup failed");
   expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);

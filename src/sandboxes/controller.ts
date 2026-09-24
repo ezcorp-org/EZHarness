@@ -193,8 +193,8 @@ export class SandboxController {
     this.#maxReconcileBatch = configured;
   }
 
-  async createBinding(input: CreateSandboxBindingInput): Promise<SandboxBinding> {
-    const [created] = await this.db.insert(sandboxBindings).values({
+  async createBinding(input: CreateSandboxBindingInput, transaction: DbTransaction = this.db): Promise<SandboxBinding> {
+    const [created] = await transaction.insert(sandboxBindings).values({
       id: input.id ?? crypto.randomUUID(),
       projectId: input.projectId,
       providerInstallationId: input.providerInstallationId,

@@ -58,6 +58,11 @@ async function fixture() {
   const retiredCalls: string[] = [];
   const service = new IncusFeatureService({
     db, controller, admission, activeRelease: async () => snapshot,
+    assertCurrentScope: async scope => {
+      if (scope.providerReleaseId !== snapshot.installation.activeReleaseId) {
+        throw new Error("Provider release changed during capacity review");
+      }
+    },
     connectionRevision: async () => connection.revision,
     resolveConnection: async () => connection,
     loadQualification: async () => qualificationAvailable ? {
