@@ -343,13 +343,14 @@ describe("the executions route", () => {
     const commands = new FactoryPrivateCommands({
       service,
       authority: { tenantId, assertService() {} } as never,
-      transitions: { async loadStoredCommand() { return { kind: "dispatch-node", id: commandId } as never; } },
+      transitions: { async loadStoredCommand() { return { kind: "dispatch-node", id: commandId, nodeId: "work", candidateGeneration: 0, attempt: 1 } as never; } },
       tasks: { request: unused as never },
       execution: { admit: admit as never },
       inputs: { execute: unused as never },
       children: { resolve: unused as never },
       approvals: { tenantId, execute: unused as never },
       effects: { "cancel-node": unused, "request-acceptance": unused, "request-release": unused, "invalidate-partition": unused, "notify-partition": unused },
+      attempts: { async read() { return null; } },
     });
     const listener = startFactoryPrivateService({
       tenantId, certificateIdentity: "tenant-a",
@@ -371,13 +372,13 @@ describe("the executions route", () => {
     return { response, reported, commandId };
   }
 
-  test("a named refusal of dispatch-node is answered as the command-failed event that carries its name", async () => {
+  test("a named refusal of dispatch-node, with nothing queued, is answered as admission_denied carrying its name", async () => {
     const { FactoryPackageBlockedError } = await import("./package-preparation");
     const { response, reported, commandId } = await executions(async () => { throw new FactoryPackageBlockedError("factory_package_quarantined", 3, 1); });
     expect(response.status).toBe(200);
     expect(JSON.parse(response.body.toString())).toMatchObject({
-      kind: "command-failed", id: `${commandId}:command-failed`, commandId,
-      error: `FACTORY_COMMAND_FAILED: dispatch-node ${commandId}: factory_package_quarantined`,
+      kind: "node-failed", id: `${commandId}:admission-refused`, nodeId: "work", commandId, candidateGeneration: 0, attempt: 1,
+      error: "factory_package_quarantined", failureKind: "admission_denied",
     });
     // A refusal the run carries is not an operator fault.
     expect(reported).toEqual([]);
