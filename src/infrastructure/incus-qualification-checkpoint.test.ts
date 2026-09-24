@@ -145,6 +145,14 @@ test("the new process claims an exited writer and authorizes only its exact live
   await store.authorizeOwnedRun(authority);
   await expect(store.authorizeOwnedRun({ ...authority, bindingId: "user-binding" }))
     .rejects.toThrow("run authority is unavailable");
+  const expired = new IncusQualificationCheckpointStore(drizzle(reopened), undefined,
+    () => deadlineMs + 1);
+  await expect(expired.authorizeOwnedRun({ ...authority, deadlineMs: deadlineMs + 20_000 }))
+    .rejects.toThrow("run authority is unavailable");
+  const nearExpiry = new IncusQualificationCheckpointStore(drizzle(reopened), undefined,
+    () => deadlineMs - 10_000);
+  await expect(nearExpiry.authorizeOwnedRun({ ...authority, deadlineMs: deadlineMs + 5_000 }))
+    .rejects.toThrow("run authority is unavailable");
   await reopened.exec("UPDATE projects SET purpose = 'user' WHERE id = 'project'");
   await expect(store.authorizeOwnedRun(authority)).rejects.toThrow("operator fixture changed");
   await reopened.close();

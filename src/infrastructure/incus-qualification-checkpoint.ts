@@ -235,11 +235,15 @@ export class IncusQualificationCheckpointStore {
     fixtureOperationId: string; bindingId: string; generation: number;
     connectionRevision: number; deadlineMs: number }): Promise<void> {
     const row = await this.get(input.runId);
+    const now = this.now();
+    const runDeadlineMs = row ? new Date(row.deadlineAt).getTime() : Number.NaN;
     if (row?.state !== "CLAIMED" || row.nonce !== input.nonce
       || row.fixtureOperationId !== input.fixtureOperationId || row.bindingId !== input.bindingId
       || row.generation !== input.generation || row.connectionRevision !== input.connectionRevision
-      || !sameScope(row.scope, input.scope) || this.now() >= input.deadlineMs
-      || input.deadlineMs > this.now() + 30_000) {
+      || !sameScope(row.scope, input.scope) || !Number.isSafeInteger(input.deadlineMs)
+      || !Number.isSafeInteger(runDeadlineMs) || now >= runDeadlineMs
+      || now >= input.deadlineMs || input.deadlineMs > runDeadlineMs
+      || input.deadlineMs > now + 30_000) {
       throw new Error("Incus operator run authority is unavailable");
     }
     const fixture = await fixtureIdentity(this.db, input.fixtureOperationId);
