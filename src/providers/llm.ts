@@ -19,7 +19,7 @@ import type {
   AssistantMessage,
   AssistantMessageEventStream,
 } from "@earendil-works/pi-ai";
-import { getCredential } from "./credentials";
+import { authCallOptions, getCredential } from "./credentials";
 import { resolveModelForCredential } from "./registry";
 
 // Re-export for downstream usage
@@ -32,7 +32,7 @@ export async function streamLLM(
 ): Promise<AssistantMessageEventStream> {
   const cred = await getCredential(model.provider, opts?.conversationId);
   return stream(resolveModelForCredential(model, model.provider, cred.type), context, {
-    apiKey: cred.token,
+    ...authCallOptions(cred.token),
     signal: opts?.signal,
   });
 }
@@ -44,6 +44,6 @@ export async function completeLLM(
 ): Promise<AssistantMessage> {
   const cred = await getCredential(model.provider, opts?.conversationId);
   return complete(resolveModelForCredential(model, model.provider, cred.type), context, {
-    apiKey: cred.token,
+    ...authCallOptions(cred.token),
   });
 }
