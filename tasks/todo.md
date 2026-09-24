@@ -3805,17 +3805,32 @@ refuses it with `factory_host_broker_unavailable`, the product guest-broker rout
 product composes its provider broker for readiness and never calls it. The runner profiles in the startup document
 cannot declare a model pin, and the provider broker resolves an Ollama model without its registered base URL.
 
-- [ ] Host: forward a guest model request over the existing guest-broker route (one broker, one channel).
-- [ ] Product: answer a model request on that route through `createFactoryGuestModelBroker`, the durable journal,
+- [x] Host: forward a guest model request over the existing guest-broker route (one broker, one channel).
+- [x] Product: answer a model request on that route through `createFactoryGuestModelBroker`, the durable journal,
       W04's workspace checkpoints, and the installation's pinned provider, resolved per call.
-- [ ] Provider: resolve a pinned model the way the chat router does (catalog, discovered, registered custom model,
+- [x] Provider: resolve a pinned model the way the chat router does (catalog, discovered, registered custom model,
       the test-surface mock); readiness accepts a registered local model; temperature and seed reach the request.
-- [ ] Startup document: a runner profile may declare a model pin; boot refuses a pin that disagrees with its runner
+- [x] Startup document: a runner profile may declare a model pin; boot refuses a pin that disagrees with its runner
       or with the installation's `modelProvider`.
-- [ ] Mock provider for CI: a prompt-digest mode in the in-process mock LLM (fixed answer per prompt digest).
-- [ ] Harness in `scripts/factory-graph-proof/`: the W09b/W01g/W15b real-server stack, a three-export guest, the graph
+- [x] Mock provider for CI: a prompt-digest mode in the in-process mock LLM (fixed answer per prompt digest).
+- [x] Harness in `scripts/factory-graph-proof/`: the W09b/W01g/W15b real-server stack, a three-export guest, the graph
       A prepare -> B infer -> C combine, modes (a) Ollama and (b) mock, and four negative controls.
-- [ ] Proofs: three passes per mode on fresh databases, controls refused by name, determinism recorded.
-- [ ] Runbook `docs/factory-graph-proof.md`, followed literally.
-- [ ] Gates: coverage of new files and changed lines, PostgreSQL suites registered, typecheck, lint, boundaries,
+- [x] Proofs: three passes per mode on fresh databases, controls refused by name, determinism recorded.
+- [x] Runbook `docs/factory-graph-proof.md`, followed literally.
+- [x] Gates: coverage of new files and changed lines, PostgreSQL suites registered, typecheck, lint, boundaries,
       gate-integrity, no credential value, dangling images pruned.
+
+### Review
+
+The graph works end to end on the real application in both modes, three of three each, on fresh
+databases, at `452f0bc62`. A deterministic task feeds a model task, whose answer and the first task's
+count feed a third deterministic task. Each node reads its inputs from the store under the scope that
+sealed them, and the model task's journal holds exactly one completed model operation with the pinned
+provider, model and measured tokens. It did not work at the base: the host refused every model call,
+the product route served staging frames only, and nothing called the provider. This package wired
+that path without a new channel or a contract change, proved the guest's journal mirroring in-process
+on PGlite and PostgreSQL, and added a prompt-digest mock so CI needs no Ollama. The campaigns found
+two defects outside this package's files, both fixed with a test that fails on the old code: a
+gateway timeout that never settled under Bun, and a 500 in place of a named 422. They also found one
+contract gap that needs a ruling: a provider error leaves the run held forever on an unknown cost.
+Gates, receipts and findings: `tasks/factory/w19a-GATES.md`.
