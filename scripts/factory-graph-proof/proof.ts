@@ -21,7 +21,8 @@
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { SQL } from "bun";
-import type { FactoryModelPin } from "@ezcorp/factory-sdk";
+import type { FactoryModelPin, JsonValue } from "@ezcorp/factory-sdk";
+import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import { combineSummary, GRAPH_GUEST_OUTPUT } from "./guest/graph-guest";
 import { GRAPH_TOPIC, graphDefinition, graphModelPin, graphReferences, graphRunnerProfiles, modePin, OLLAMA_MISSING_MODEL, type GraphProofMode } from "./graph";
 import { buildGraphGuest, installGraphGuest, type GraphGuestBuild } from "./guest-package";
@@ -260,7 +261,8 @@ type Node = { ran: boolean; stored?: Record<string, unknown> | null; input?: { v
 const nodes = (evidence.nodes ?? {}) as Record<NodeName, Node>;
 const checks: Array<{ check: string; ok: boolean; detail?: unknown }> = [];
 const expect = (check: string, ok: boolean, detail?: unknown) => { checks.push({ check, ok, ...(ok ? {} : { detail }) }); };
-const same = (left: unknown, right: unknown) => JSON.stringify(left) === JSON.stringify(right);
+// Canonical JSON: a jsonb column returns its keys in its own order.
+const same = (left: unknown, right: unknown) => left !== undefined && right !== undefined && canonicalizeJson(left as JsonValue) === canonicalizeJson(right as JsonValue);
 
 if (CONTROL === "none") {
   const [a, b, c] = [nodes.prepare, nodes.infer, nodes.combine];
