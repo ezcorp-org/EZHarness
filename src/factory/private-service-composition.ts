@@ -30,7 +30,6 @@
  * accepted set without restarting the product, the same property the host stop
  * route gets from reloading its signing pair per signature.
  */
-import { basename, dirname, resolve as resolvePath } from "node:path";
 import type { KernelEvent } from "@ezcorp/factory-sdk/kernel-types";
 import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryApplication } from "./application";
@@ -44,8 +43,9 @@ import { FactoryLazyCommands } from "./lazy-commands";
 import { FactoryLazyInputReader } from "./lazy-input";
 import { FactoryPartitionCommands } from "./partition-commands";
 import { FactoryPrivateCommands, type FactoryPrivateCommandHandler } from "./private-commands";
-import { privateDirectory, readPrivateBounded } from "./private-files";
+import { readPrivateText as readPrivateFileText } from "./private-files";
 import { startFactoryPrivateService } from "./private-service";
+import type { PoolTokenVerifierOptions } from "./pool/service-token";
 import { FactoryProtectedCommandEffects, type FactoryReleaseCommandProfile } from "./protected-command-effects";
 import type { FactoryReleases } from "./releases";
 import type { FactoryStartedListener } from "./runtime-composition";
@@ -60,6 +60,24 @@ import type { FactoryTransitionArtifacts } from "./transition-artifacts";
 import type { TrustedFactoryCommandReference, TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 
 const MAX_PRIVATE_MATERIAL_BYTES = 64 * 1024;
+
+const readPrivateText = (path: string) => readPrivateFileText(path, MAX_PRIVATE_MATERIAL_BYTES);
+
+/**
+ * A service bearer-token verifier from a startup document's `tokens` section.
+ *
+ * The keys are read per request, so rotating a key file rotates the accepted
+ * set without restarting the product.
+ */
+export function factoryServiceTokenVerifier(tokens: { readonly issuer: string; readonly audience: string; readonly publicKeyPaths: Readonly<Record<string, string>> }): () => Promise<PoolTokenVerifierOptions> {
+  return async () => ({
+    issuer: tokens.issuer,
+    audience: tokens.audience,
+    publicKeys: Object.fromEntries(await Promise.all(
+      Object.entries(tokens.publicKeyPaths).map(async ([kid, path]) => [kid, await readPrivateText(path)] as const),
+    )),
+  });
+}
 
 /**
  * Longer than the longest effect this service serves, and measured rather than
@@ -85,16 +103,6 @@ export class FactoryPrivateServiceCompositionError extends Error {
   constructor(readonly code: FactoryPrivateServiceCompositionCode, message: string) {
     super(message);
     this.name = "FactoryPrivateServiceCompositionError";
-  }
-}
-
-async function readPrivateText(path: string): Promise<string> {
-  const absolute = resolvePath(path);
-  const directory = await privateDirectory(dirname(absolute));
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivateBounded(directory, basename(absolute), MAX_PRIVATE_MATERIAL_BYTES));
-  } finally {
-    await directory.close();
   }
 }
 
@@ -266,15 +274,7 @@ export async function composeFactoryPrivateService(options: FactoryPrivateServic
     port: config.privateService.port,
     requestTimeoutMs: FACTORY_PRIVATE_SERVICE_REQUEST_TIMEOUT_MS,
     tls: { ca, cert, key },
-    // Read per request, so rotating a key file rotates the accepted set without
-    // restarting the product.
-    tokens: async () => ({
-      issuer: tokens.issuer,
-      audience: tokens.audience,
-      publicKeys: Object.fromEntries(await Promise.all(
-        Object.entries(tokens.publicKeyPaths).map(async ([kid, path]) => [kid, await readPrivateText(path)] as const),
-      )),
-    }),
+    tokens: factoryServiceTokenVerifier(tokens),
     queue: new (await import("./transport-queue")).FactoryTransportQueue(
       new FactoryInstallationCommandOutbox(database, config.tenantId),
       stores.inbox,

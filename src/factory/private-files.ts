@@ -87,6 +87,11 @@ export async function readPrivatePath(path: string, maximumLength: number): Prom
   }
 }
 
+/** {@link readPrivatePath}, decoded as strict UTF-8. */
+export async function readPrivateText(path: string, maximumLength: number): Promise<string> {
+  return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivatePath(path, maximumLength));
+}
+
 /** Atomically replaces one bounded file in an owned private directory. */
 export async function writePrivateBoundedAtomic(path: string, bytes: Uint8Array, maximumLength: number): Promise<void> {
   if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || !Number.isSafeInteger(maximumLength) || maximumLength < 1 || bytes.byteLength > maximumLength) throw privateError("Private file output is invalid.");
