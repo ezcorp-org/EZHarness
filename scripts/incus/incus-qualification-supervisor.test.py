@@ -76,6 +76,57 @@ def wait_file(path):
 
 
 class SupervisorTest(unittest.TestCase):
+    def test_operator_noeffect_recovery_requires_fence_and_two_independent_reads(self):
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            key.write_text("private test key")
+            key.chmod(0o600)
+            supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"],
+                os.getuid(), os.getgid(), key, ["true"], ["true"],
+                enforce_distinct_uid=False)
+            supervisor.recovery_command = ["verifier"]
+            request = {"version": 1, "action": "recover-noeffect",
+                "nonce": "nonce", "reviewId": "review", "scope": {
+                    "installationId": "installation", "releaseId": "release",
+                    "connectionId": "connection", "presetId": "preset"},
+                "fixtureOperationId": "fixture", "bindingId": "binding",
+                "operationId": "unknown-create", "generation": 1,
+                "connectionRevision": 1, "allClientsFenced": True,
+                "fenceEvidence": "all app and runner clients stopped by operator",
+                "deadlineMs": int(time.time() * 1000) + 120000}
+            events = []
+            supervisor.stop_child = lambda: events.append("stop") or {"pid": 123, "startTicks": "456"}
+            supervisor.start_child = lambda: events.append("start")
+            def stage(phase, value, _deadline):
+                events.append(phase)
+                if phase == "durable":
+                    return {"verified": True}
+                if phase == "backend":
+                    return {"absent": True, "activeOperations": []}
+                return {"cleanupOperationId": "cleanup"}
+            supervisor.recovery_stage = stage
+            supervisor.sign_payload = lambda payload: events.append("sign") or {
+                "payload": payload, "signature": "signed"}
+            with mock.patch.object(MODULE.time, "sleep", lambda _seconds: None):
+                # The test clock must advance across the required quiet windows.
+                with mock.patch.object(MODULE.time, "time",
+                        side_effect=[1000, 1000, 1031, 1031, 1037]), \
+                     mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess(
+                         [], 0, stdout=b"public key")):
+                    request["deadlineMs"] = 1_120_000
+                    result = supervisor.recover_noeffect(request)
+            self.assertEqual(events, ["stop", "durable", "backend", "durable", "backend",
+                                      "sign", "apply", "start"])
+            self.assertEqual(result["receipt"]["payload"]["oldProcess"],
+                             {"pid": 123, "startTicks": "456"})
+            request["deadlineMs"] = int(time.time() * 1000) + 120000
+            with self.assertRaisesRegex(ValueError, "replayed"):
+                supervisor.recover_noeffect(request)
+            altered = dict(request, nonce="fresh", allClientsFenced=False)
+            with self.assertRaisesRegex(ValueError, "invalid operator recovery"):
+                supervisor.recover_noeffect(altered)
+
     def test_receipt_never_signs_after_run_deadline(self):
         with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
             root = Path(directory)

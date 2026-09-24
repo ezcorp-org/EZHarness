@@ -140,7 +140,7 @@ function canonicalJson(value: unknown): string {
   throw new TypeError("Sandbox operation payload must be JSON-compatible");
 }
 
-function operationPayloadHash(input: RequestSandboxOperationInput): string {
+export function operationPayloadHash(input: RequestSandboxOperationInput): string {
   return createHash("sha256")
     .update(canonicalJson({
       generation: input.generation,

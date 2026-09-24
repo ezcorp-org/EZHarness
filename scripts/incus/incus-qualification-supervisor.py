@@ -7,10 +7,12 @@ from that exact child process, verified with SO_PEERCRED and /proc start ticks.
 
 import argparse
 import base64
+import hashlib
 import json
 import os
 import pwd
 import re
+import select
 import signal
 import socket
 import struct
@@ -28,6 +30,9 @@ REQUEST_KEYS = {"version", "action", "runId", "nonce", "deadlineMs", "scope",
                 "fixtureOperationId", "bindingId", "generation", "connectionRevision",
                 "lastOperationId", "beforeDigest"}
 CLAIM_KEYS = {"version", "action", "runId", "nonce", "afterDigest"}
+RECOVERY_KEYS = {"version", "action", "nonce", "reviewId", "scope",
+                 "fixtureOperationId", "bindingId", "operationId", "generation",
+                 "connectionRevision", "fenceEvidence", "allClientsFenced", "deadlineMs"}
 SCOPE_KEYS = {"installationId", "releaseId", "connectionId", "presetId"}
 AUTHORIZE_TIMEOUT_SECONDS = 10
 SNAPSHOT_TIMEOUT_SECONDS = 30
@@ -89,6 +94,29 @@ def validate_request(message):
         raise ValueError("restart deadline expired or excessive")
 
 
+def validate_recovery(message):
+    if not isinstance(message, dict) or set(message) != RECOVERY_KEYS \
+            or message["version"] != 1 or message["action"] != "recover-noeffect" \
+            or message["allClientsFenced"] is not True \
+            or not isinstance(message["scope"], dict) or set(message["scope"]) != SCOPE_KEYS:
+        raise ValueError("invalid operator recovery request")
+    for name in ("nonce", "reviewId", "fixtureOperationId", "bindingId", "operationId"):
+        if not isinstance(message[name], str) or not IDENTIFIER.fullmatch(message[name]):
+            raise ValueError("invalid operator recovery identity")
+    if not all(isinstance(value, str) and IDENTIFIER.fullmatch(value)
+               for value in message["scope"].values()):
+        raise ValueError("invalid operator recovery scope")
+    if not isinstance(message["fenceEvidence"], str) \
+            or not 8 <= len(message["fenceEvidence"]) <= 512:
+        raise ValueError("operator client fence evidence required")
+    for name in ("generation", "connectionRevision", "deadlineMs"):
+        if type(message[name]) is not int or message[name] <= 0:
+            raise ValueError("invalid operator recovery number")
+    now = int(time.time() * 1000)
+    if not now + 45000 < message["deadlineMs"] <= now + 180000:
+        raise ValueError("operator recovery deadline invalid")
+
+
 class Supervisor:
     def __init__(self, socket_path, app_command, app_uid, app_gid, key_path, authority_command,
                  receipt_authority_command,
@@ -103,12 +131,16 @@ class Supervisor:
         self.app_command = app_command
         self.app_uid = app_uid
         self.app_gid = app_gid
+        self.enforce_distinct_uid = enforce_distinct_uid
         self.key_path = Path(key_path)
         self.authority_command = authority_command
         self.receipt_authority_command = receipt_authority_command
         self.child = None
         self.pending = None
         self.used_runs = set()
+        self.used_recoveries = set()
+        self.operator_socket_path = None
+        self.recovery_command = None
         key_stat = self.key_path.lstat()
         if not stat.S_ISREG(key_stat.st_mode) or key_stat.st_uid != os.geteuid() \
                 or key_stat.st_mode & 0o077:
@@ -133,6 +165,110 @@ class Supervisor:
         pid, uid, _gid = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
         return (self.child is not None and self.child.poll() is None and uid == self.app_uid
                 and pid == self.child.pid and identity(pid) == self.child_identity)
+
+    def peer_is_operator(self, connection):
+        _pid, uid, _gid = struct.unpack("3i", connection.getsockopt(
+            socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
+        return uid == os.geteuid()
+
+    def sign_payload(self, payload):
+        with tempfile.TemporaryDirectory(prefix="incus-operator-sign-") as directory:
+            data = Path(directory) / "payload"
+            data.write_bytes(canonical(payload))
+            signed = subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey",
+                                     str(self.key_path), "-in", str(data)],
+                                    capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=True)
+        return {"payload": payload, "signature": base64.b64encode(signed.stdout).decode("ascii")}
+
+    def stop_child(self):
+        old_identity = self.child_identity
+        os.killpg(self.child.pid, signal.SIGTERM)
+        try:
+            self.child.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            os.killpg(self.child.pid, signal.SIGKILL)
+            self.child.wait(timeout=5)
+        # The process group can retain runner children after its leader exits.
+        try:
+            os.killpg(old_identity["pid"], signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        self.child = None
+        if self.enforce_distinct_uid:
+            for entry in Path("/proc").iterdir():
+                if entry.name.isdigit():
+                    try:
+                        if entry.stat().st_uid == self.app_uid:
+                            raise ValueError("app UID still has a live process; client fence failed")
+                    except FileNotFoundError:
+                        continue
+        return old_identity
+
+    def recovery_stage(self, phase, value, deadline_ms):
+        check = subprocess.run(self.recovery_command,
+            input=canonical({"phase": phase, **value}) + b"\n", capture_output=True,
+            timeout=bounded_timeout(deadline_ms, VERIFY_TIMEOUT_SECONDS), check=False,
+            preexec_fn=self.drop_app_privileges if phase in ("durable", "apply") else None)
+        if check.returncode != 0:
+            raise ValueError("independent operator recovery verifier failed")
+        return json.loads(check.stdout)
+
+    def recover_noeffect(self, request):
+        validate_recovery(request)
+        if not self.recovery_command or request["nonce"] in self.used_recoveries:
+            raise ValueError("operator recovery unavailable or replayed")
+        self.used_recoveries.add(request["nonce"])
+        old_process = self.stop_child()
+        stopped_at_ms = int(time.time() * 1000)
+        try:
+            # The lifecycle transport admits at most a 30-second RPC. No
+            # backend read may be used as no-effect evidence before it expires.
+            time.sleep(30)
+            bounded_timeout(request["deadlineMs"], VERIFY_TIMEOUT_SECONDS)
+            target = {key: request[key] for key in ("scope", "fixtureOperationId", "bindingId",
+                      "operationId", "generation", "connectionRevision")}
+            if self.recovery_stage("durable", {"target": target}, request["deadlineMs"]) != {
+                    "verified": True}:
+                raise ValueError("operator durable CREATE verification failed")
+            first = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
+            first_at = int(time.time() * 1000)
+            time.sleep(5)
+            if self.recovery_stage("durable", {"target": target}, request["deadlineMs"]) != {
+                    "verified": True}:
+                raise ValueError("operator durable CREATE changed")
+            second = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
+            second_at = int(time.time() * 1000)
+            if first != {"absent": True, "activeOperations": []} \
+                    or second != {"absent": True, "activeOperations": []}:
+                raise ValueError("operator backend absence not independently verified")
+            scope = request["scope"]
+            resource = hashlib.sha256((scope["connectionId"] + "\0" +
+                                       request["bindingId"]).encode()).hexdigest()[:32]
+            payload = {"version": 1, "action": "recover-noeffect", "nonce": request["nonce"],
+                       "reviewId": request["reviewId"], "scope": scope,
+                       "fixtureOperationId": request["fixtureOperationId"],
+                       "bindingId": request["bindingId"], "operationId": request["operationId"],
+                       "generation": request["generation"],
+                       "connectionRevision": request["connectionRevision"],
+                       "resourceName": "ezh-" + resource, "oldProcess": old_process,
+                       "stoppedAtMs": stopped_at_ms, "fenceUntilMs": request["deadlineMs"],
+                       "allClientsFenced": True, "fenceEvidence": request["fenceEvidence"],
+                       "first": {"observedAtMs": first_at, "instanceState": "absent",
+                                 "activeOperations": []},
+                       "second": {"observedAtMs": second_at, "instanceState": "absent",
+                                  "activeOperations": []}}
+            receipt = self.sign_payload(payload)
+            public = subprocess.run(["openssl", "pkey", "-in", str(self.key_path), "-pubout"],
+                                    capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=True)
+            result = self.recovery_stage("apply", {"receipt": receipt,
+                "publicKeyPem": public.stdout.decode("ascii")}, request["deadlineMs"])
+            if set(result) != {"cleanupOperationId"} \
+                    or not isinstance(result["cleanupOperationId"], str) \
+                    or not IDENTIFIER.fullmatch(result["cleanupOperationId"]):
+                raise ValueError("operator recovery apply result invalid")
+            return {"receipt": receipt, "cleanupOperationId": result["cleanupOperationId"]}
+        finally:
+            self.start_child()
 
     def authorize(self, request):
         check = subprocess.run(self.authority_command, input=canonical(request) + b"\n",
@@ -192,7 +328,15 @@ class Supervisor:
             raise RuntimeError("control directory must be operator-owned and private")
         if self.socket_path.exists():
             raise RuntimeError("control socket already exists")
+        if bool(self.operator_socket_path) != bool(self.recovery_command):
+            raise RuntimeError("operator recovery socket and verifier must be configured together")
+        if self.operator_socket_path:
+            operator_parent = self.operator_socket_path.parent.stat()
+            if operator_parent.st_uid != os.geteuid() or operator_parent.st_mode & 0o027 \
+                    or self.operator_socket_path.exists():
+                raise RuntimeError("operator recovery socket directory is unavailable")
         listener = socket.socket(socket.AF_UNIX)
+        operator_listener = socket.socket(socket.AF_UNIX) if self.operator_socket_path else None
         previous_term = signal.getsignal(signal.SIGTERM)
         signal.signal(signal.SIGTERM, lambda _signum, _frame: sys.exit(0))
         try:
@@ -201,17 +345,29 @@ class Supervisor:
             os.chmod(self.socket_path, 0o660)
             listener.listen(4)
             listener.settimeout(0.5)
+            if operator_listener:
+                operator_listener.bind(str(self.operator_socket_path))
+                os.chmod(self.operator_socket_path, 0o600)
+                operator_listener.listen(1)
             self.start_child()
             while True:
                 if self.child.poll() is not None:
                     raise RuntimeError("managed app exited unexpectedly")
-                try:
-                    connection, _ = listener.accept()
-                except socket.timeout:
+                ready, _, _ = select.select(
+                    [listener] + ([operator_listener] if operator_listener else []), [], [], 0.5)
+                if not ready:
                     continue
+                source = ready[0]
+                connection, _ = source.accept()
                 with connection:
                     connection.settimeout(5)
                     try:
+                        if source is operator_listener:
+                            if not self.peer_is_operator(connection):
+                                raise ValueError("unauthorized operator peer")
+                            message = read_message(connection)
+                            send_message(connection, self.recover_noeffect(message))
+                            continue
                         if not self.peer_is_child(connection):
                             raise ValueError("unauthorized control peer")
                         message = read_message(connection)
@@ -237,6 +393,9 @@ class Supervisor:
             signal.signal(signal.SIGTERM, previous_term)
             listener.close()
             self.socket_path.unlink(missing_ok=True)
+            if operator_listener:
+                operator_listener.close()
+                self.operator_socket_path.unlink(missing_ok=True)
             if self.child and self.child.poll() is None:
                 os.killpg(self.child.pid, signal.SIGTERM)
                 try:
@@ -285,7 +444,10 @@ def main():
     config = json.loads(Path(args.config).read_text())
     required = {"socket", "appCommand", "appUid", "appGid", "key", "authorityCommand",
                 "receiptAuthorityCommand"}
-    if set(config) != required or not all(type(config[name]) is int and config[name] > 0
+    optional = {"operatorSocket", "recoveryCommand"}
+    if not required <= set(config) or set(config) - required - optional \
+            or bool(config.get("operatorSocket")) != bool(config.get("recoveryCommand")) \
+            or not all(type(config[name]) is int and config[name] > 0
                                            for name in ("appUid", "appGid")) \
             or not all(isinstance(config[name], str) and config[name].startswith("/")
                        for name in ("socket", "key")) \
@@ -293,8 +455,19 @@ def main():
                        and all(isinstance(value, str) and value for value in config[name])
                        for name in ("appCommand", "authorityCommand", "receiptAuthorityCommand")):
         raise ValueError("invalid supervisor configuration")
-    Supervisor(config["socket"], config["appCommand"], config["appUid"], config["appGid"],
-               config["key"], config["authorityCommand"], config["receiptAuthorityCommand"]).serve()
+    if "operatorSocket" in config and (not isinstance(config["operatorSocket"], str)
+            or not config["operatorSocket"].startswith("/")):
+        raise ValueError("invalid operator recovery socket")
+    if "recoveryCommand" in config and (not isinstance(config["recoveryCommand"], list)
+            or not config["recoveryCommand"]
+            or not all(isinstance(value, str) and value for value in config["recoveryCommand"])):
+        raise ValueError("invalid operator recovery verifier")
+    supervisor = Supervisor(config["socket"], config["appCommand"], config["appUid"], config["appGid"],
+                            config["key"], config["authorityCommand"], config["receiptAuthorityCommand"])
+    if config.get("operatorSocket"):
+        supervisor.operator_socket_path = Path(config["operatorSocket"])
+        supervisor.recovery_command = config["recoveryCommand"]
+    supervisor.serve()
 
 
 if __name__ == "__main__":
