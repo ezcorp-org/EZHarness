@@ -137,12 +137,21 @@ without_git_context() {
   env ${drop[@]+"${drop[@]}"} "$@"
 }
 
+# packages/@ezcorp/factory-orchestrator runs its tests only through its own
+# `test` script (tsc, then `node --test`). Its Temporal tests time out under
+# `bun test` (12 pass, 15 fail at the W09d-2 merge), so a staged file of that
+# package runs the package script once, and none of its tests go to bun.
+ORCHESTRATOR_PACKAGE="packages/@ezcorp/factory-orchestrator"
+
 run_staged_tests() {
   local max="${EZ_PRECOMMIT_TEST_MAX:-12}"
-  local targets count
-  targets=$(staged_test_targets "$@")
+  local targets count orchestrator=0 f
+  for f in "$@"; do
+    case "$f" in "$ORCHESTRATOR_PACKAGE"/*) orchestrator=1 ;; esac
+  done
+  targets=$(staged_test_targets "$@" | { grep -v "^$ORCHESTRATOR_PACKAGE/" || true; })
 
-  if [ -z "$targets" ]; then
+  if [ -z "$targets" ] && [ "$orchestrator" -eq 0 ]; then
     echo "  no test file maps to the staged changes — skipping"
     return 0
   fi
@@ -182,6 +191,10 @@ $targets
 EOF
 
   local rc=0
+  if [ "$orchestrator" -eq 1 ]; then
+    echo "  node: $ORCHESTRATOR_PACKAGE (bun run test: tsc, then node --test)"
+    (cd "$(git rev-parse --show-toplevel)/$ORCHESTRATOR_PACKAGE" && without_git_context bun run test) || rc=1
+  fi
   for t in "${bun_targets[@]-}"; do
     [ -n "$t" ] || continue
     echo "  bun: $t"

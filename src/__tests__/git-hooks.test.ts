@@ -392,6 +392,69 @@ describe("hook-lib > run_staged_tests", () => {
   });
 });
 
+describe("hook-lib > run_staged_tests > factory-orchestrator", () => {
+  const HOOK_LIB = join(REPO_ROOT, "scripts/lib/hook-lib.sh");
+  const ORCHESTRATOR = "packages/@ezcorp/factory-orchestrator";
+
+  // A fake `bun` records each call and the directory it ran in. The package
+  // script it stands in for is pinned below, so "bun run test" in the package
+  // directory is the node runner, never `bun test`.
+  function runStaged(...staged: string[]): Run {
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-orchestrator-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\necho "ran: $* in $(pwd)"\n', { mode: 0o755 });
+      chmodSync(join(bin, "bun"), 0o755);
+      return sh(["bash", "-c", `source "${HOOK_LIB}" && run_staged_tests "$@"`, "_", ...staged], {
+        cwd: REPO_ROOT,
+        env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}` },
+      });
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  }
+
+  test("the package's own test script is tsc, then node --test", async () => {
+    const pkg = await Bun.file(join(REPO_ROOT, ORCHESTRATOR, "package.json")).json();
+    expect(pkg.scripts.test).toContain("node --test");
+    expect(pkg.scripts.test).not.toContain("bun test");
+  });
+
+  test("staged orchestrator tests run the package script once, never bun test, and other tests stay on bun", () => {
+    const res = runStaged(
+      `${ORCHESTRATOR}/test/definition-pages.test.ts`,
+      `${ORCHESTRATOR}/test/dispatcher.test.ts`,
+      "src/__tests__/git-hooks.test.ts",
+    );
+    expect(res.exitCode).toBe(0);
+    expect(res.out.split(`ran: run test in ${join(REPO_ROOT, ORCHESTRATOR)}`)).toHaveLength(2);
+    expect(res.out).not.toContain(`ran: test --timeout 30000 ./${ORCHESTRATOR}`);
+    expect(res.out).toContain("ran: test --timeout 30000 ./src/__tests__/git-hooks.test.ts");
+  });
+
+  test("a staged orchestrator source file alone still runs the package script", () => {
+    const res = runStaged(`${ORCHESTRATOR}/src/validation.ts`);
+    expect(res.exitCode).toBe(0);
+    expect(res.out).toContain(`ran: run test in ${join(REPO_ROOT, ORCHESTRATOR)}`);
+    expect(res.out).not.toContain("ran: test ");
+    expect(res.out).not.toContain("no test file maps");
+  });
+
+  test("a failing package script fails the hook", () => {
+    const bin = mkdtempSync(join(tmpdir(), "hook-lib-orchestrator-fail-"));
+    try {
+      writeFileSync(join(bin, "bun"), '#!/bin/sh\nif [ "$1" = run ]; then exit 1; fi\n', { mode: 0o755 });
+      chmodSync(join(bin, "bun"), 0o755);
+      const res = sh(["bash", "-c", `source "${HOOK_LIB}" && run_staged_tests "$@"`, "_", `${ORCHESTRATOR}/test/dispatcher.test.ts`], {
+        cwd: REPO_ROOT,
+        env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}` },
+      });
+      expect(res.exitCode).toBe(1);
+    } finally {
+      rmSync(bin, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("fixture env isolation", () => {
   test("drops the git context a hook exports, so fixtures never touch the real repo", () => {
     expect(
