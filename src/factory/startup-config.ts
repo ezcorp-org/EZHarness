@@ -233,7 +233,7 @@ export interface FactoryStartupValidatorRuntime {
   readonly materialDigest: string;
 }
 
-/** The data-key wrapping service. Owned by `key-management.ts`. */
+/** The data-key wrapping service. Owned by `key-composition.ts`. */
 export type FactoryStartupKeyManagement = FactoryKeyManagement;
 
 /**

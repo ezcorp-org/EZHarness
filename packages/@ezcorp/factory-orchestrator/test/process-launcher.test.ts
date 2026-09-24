@@ -168,7 +168,7 @@ test("the launcher opens the payload codec through each selected key service, an
   const { startFactoryKeyServiceDouble } = await import("../../../../src/__tests__/helpers/factory-key-service-double.ts");
   const { MemoryWraps } = await import("../../../../src/__tests__/helpers/factory-kms-doubles.ts");
   const { InstallationDataKey } = await import("../../../../src/factory/encryption.ts");
-  const { composeFactoryDataKeyWrapper } = await import("../../../../src/factory/key-management.ts");
+  const { composeFactoryDataKeyWrapper } = await import("../../../../src/factory/key-composition.ts");
   const { loadFactoryTemporalPayloadCodec } = await import("../../../../src/factory/file-key-wraps.ts");
   const { defaultPayloadConverter } = await import("@temporalio/common");
   const directory = await mkdtemp(join(runtimeRoot, "factory-process-kms-"));
