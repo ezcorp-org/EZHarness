@@ -11,6 +11,7 @@ import * as schema from "../db/schema";
 import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { SandboxController, type SandboxProviderRequest } from "../sandboxes/controller";
 import { IncusFeatureService } from "./incus-feature-service";
+import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
 import { IncusQualificationFixtureService, type IncusQualificationScope, type IncusQualificationStore } from "./incus-qualification";
 
 const opened: PGlite[] = [];
@@ -101,6 +102,31 @@ test("host fixture create and destroy use admission and durable controller witho
   expect((await controller.getBinding(fixture!.bindingId))?.observedState).toBe("ABSENT");
   await expect(db.delete(schema.projects).where(eq(schema.projects.id, fixture!.projectId)).execute())
     .rejects.toThrow();
+});
+
+test("host fault destroy journals and arms the exact operation before dispatch", async () => {
+  const { db, service, dispatches } = await setup();
+  await service.create(scope, "fixture-fault");
+  const [fixture] = await db.select().from(schema.incusQualificationFixtures);
+  const armed = { operationId: "" };
+  const fault = { arm: async (input: { destroyOperationId: string; fixtureOperationId: string; bindingId: string }) => {
+    const [journal] = await db.select().from(schema.sandboxOperations)
+      .where(eq(schema.sandboxOperations.id, input.destroyOperationId)).limit(1);
+    const [reservation] = await db.select().from(schema.sandboxReservations)
+      .where(eq(schema.sandboxReservations.bindingId, input.bindingId)).limit(1);
+    expect(input.fixtureOperationId).toBe("fixture-fault");
+    expect(input.bindingId).toBe(fixture!.bindingId);
+    expect(journal).toMatchObject({ kind: "DESTROY", state: "JOURNALED", idempotencyKey: "fixture-fault:destroy" });
+    expect(reservation?.cleanupIntentId).toBe("incus-qualification-destroy-fixture-fault");
+    expect(dispatches).toHaveLength(1);
+    armed.operationId = journal!.id;
+  } } as unknown as HostIncusLostDestroyReplyFault;
+  const destroyed = await service.destroyWithLostReplyFault(scope, "fixture-fault",
+    { runId: "run-a", nonce: "nonce-a", deadlineMs: Date.now() + 30_000 }, fault);
+  expect(destroyed.id).toBe(armed.operationId);
+  expect(dispatches[1]?.operationId).toBe(armed.operationId);
+  await expect(service.destroyWithLostReplyFault(scope, "fixture-fault",
+    { runId: "run-a", nonce: "nonce-b", deadlineMs: Date.now() + 30_000 }, fault)).rejects.toThrow("fresh operation");
 });
 
 test("missing host capacity and reused fixture identity fail closed", async () => {

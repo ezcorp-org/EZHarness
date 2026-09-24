@@ -22,6 +22,7 @@ import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { SandboxController } from "../sandboxes/controller";
 import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { IncusMethodCaller } from "./incus-method-caller";
+import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
 import { inspectRelease, readIncusProviderGeneration, type IncusFeatureServiceDependencies } from "./incus-feature-service";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
 import type { IncusProbeResult, IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
@@ -574,6 +575,19 @@ export class IncusQualificationFixtureService {
   }
 
   async destroy(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
+    return this.destroyInternal(scope, operationId);
+  }
+
+  /** Called only after an authenticated operator run claims its durable checkpoint. */
+  async destroyWithLostReplyFault(scope: IncusQualificationScope, operationId: string,
+    authority: { runId: string; nonce: string; deadlineMs: number },
+    fault: HostIncusLostDestroyReplyFault): Promise<SandboxOperation> {
+    return this.destroyInternal(scope, operationId, { authority, fault });
+  }
+
+  private async destroyInternal(scope: IncusQualificationScope, operationId: string,
+    injection?: { authority: { runId: string; nonce: string; deadlineMs: number };
+      fault: HostIncusLostDestroyReplyFault }): Promise<SandboxOperation> {
     const { row, binding } = await this.ownedFixture(scope, operationId);
     const request = { bindingId: row.bindingId, generation: binding.generation,
       idempotencyScope: "incus-qualification", idempotencyKey: `${operationId}:destroy` };
@@ -583,13 +597,22 @@ export class IncusQualificationFixtureService {
       eq(sandboxOperations.idempotencyKey, request.idempotencyKey))).limit(1);
     if (replay) {
       if (replay.kind !== "DESTROY") throw new Error("Incus qualification fixture cleanup identity changed");
+      if (injection) throw new Error("Incus qualification destroy fault requires a fresh operation");
       return replay;
     }
     const expectedGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now);
     await this.admission.markCleanupIntent(row.bindingId, binding.generation,
       `incus-qualification-destroy-${operationId}`);
-    const operation = await this.controller.requestAndDispatch({ ...request, kind: "DESTROY",
-      payload: { expectedGeneration } });
+    const dispatch = { ...request, kind: "DESTROY" as const, payload: { expectedGeneration } };
+    let operation: SandboxOperation;
+    if (injection) {
+      const journal = await this.controller.journalOperation(dispatch);
+      await injection.fault.arm({ ...injection.authority, scope, fixtureOperationId: operationId,
+        bindingId: row.bindingId, destroyOperationId: journal.id,
+        generation: binding.generation, providerGeneration: expectedGeneration,
+        connectionRevision: row.connectionRevision });
+      operation = await this.controller.executeOperation(journal.id);
+    } else operation = await this.controller.requestAndDispatch(dispatch);
     if (operation.state === "SUCCEEDED" && (await this.controller.getBinding(row.bindingId))?.observedState === "ABSENT") {
       await this.admission.recordObservedState(row.bindingId, binding.generation, "ABSENT",
         `incus-qualification-destroy-${operationId}`);

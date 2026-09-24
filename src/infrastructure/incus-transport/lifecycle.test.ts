@@ -176,6 +176,66 @@ test("absence alone cannot prove a synthetic destroy completed", async () => {
   expect(inspected.operation.state).toBe("outcome_unknown");
 });
 
+test("a scoped lost destroy reply follows the real DELETE, successful provider operation, and pinned absence", async () => {
+  const op = "11111111-1111-1111-1111-111111111111";
+  const instance = { name: sandboxName, status: "Stopped", config: {
+    "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
+    "user.ezharness.sandbox_id": sandboxId, "user.ezharness.profile": "linux-exec.v1",
+    "user.ezharness.preset_id": "incus-linux-exec-v1", "user.ezharness.generation": "1" } };
+  const calls: string[] = [];
+  let deleted = false;
+  let consumed = 0;
+  const fault = { matches: (request: IncusTransportRequest) => request.action === "instance.destroy"
+    && request.idempotency?.requestId === "destroy-journal-a",
+    consume: () => { consumed++; return true; } };
+  const fetcher = async (url: string, init: RequestInit) => {
+    const path = new URL(url).pathname;
+    calls.push(`${init.method} ${path}`);
+    if (path.includes("/operations/")) return reply({ status: "Success", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+    if (init.method === "GET") return deleted ? reply({}, 404)
+      : Response.json({ type: "sync", metadata: instance }, { headers: { etag: '"generation-1"' } });
+    if (init.method === "DELETE") { deleted = true; return reply({ id: op }, 202); }
+    return reply({});
+  };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never, fault);
+  const destroy = { ...command, action: "instance.destroy" as const,
+    idempotency: { requestId: "destroy-journal-a", key: "destroy-journal-a" },
+    payload: { expectedGeneration: 1 } };
+  await expect(transport.request(destroy)).rejects.toMatchObject({ kind: "unavailable", effect: "unknown",
+    operationId: `incus-destroy-${op}` });
+  expect(consumed).toBe(1);
+  expect(calls).toEqual([`GET /1.0/instances/${sandboxName}`, `PATCH /1.0/instances/${sandboxName}`,
+    `DELETE /1.0/instances/${sandboxName}`, `GET /1.0/operations/${op}`, `GET /1.0/instances/${sandboxName}`]);
+});
+
+test("a destroy reply is not suppressed when provider inspection cannot prove the effect", async () => {
+  const op = "11111111-1111-1111-1111-111111111111";
+  const instance = { name: sandboxName, status: "Stopped", config: {
+    "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
+    "user.ezharness.sandbox_id": sandboxId, "user.ezharness.profile": "linux-exec.v1",
+    "user.ezharness.preset_id": "incus-linux-exec-v1", "user.ezharness.generation": "1" } };
+  for (const providerStatus of ["Running", "Success", "missing-operation"] as const) {
+    let consumed = 0;
+    let deleted = false;
+    const fetcher = async (url: string, init: RequestInit) => {
+      const path = new URL(url).pathname;
+      if (path.includes("/operations/")) return providerStatus === "missing-operation"
+        ? reply({}, 404)
+        : reply({ status: providerStatus, resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+      if (init.method === "GET") return deleted && providerStatus !== "Success" ? reply({}, 404)
+        : Response.json({ type: "sync", metadata: instance }, { headers: { etag: '"generation-1"' } });
+      if (init.method === "DELETE") { deleted = true; return reply({ id: op }, 202); }
+      return reply({});
+    };
+    const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never,
+      { matches: () => true, consume: () => { consumed++; return true; } });
+    const result = await transport.request({ ...command, action: "instance.destroy", deadlineMs: Date.now() + 250,
+      payload: { expectedGeneration: 1 } }) as { receipt: { operationId: string } };
+    expect(result.receipt.operationId).toBe(`incus-destroy-${op}`);
+    expect(consumed).toBe(0);
+  }
+});
+
 test("real preset and broker scope use the backend Incus profile for transport", async () => {
   const database = new PGlite();
   try {

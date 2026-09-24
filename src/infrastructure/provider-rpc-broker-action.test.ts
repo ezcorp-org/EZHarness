@@ -134,3 +134,18 @@ test("default broker factories pass pinned scope to probe, lifecycle, and guest 
   expect(await broker.request(probe, { command }, deadline))
     .toMatchObject({ ok: false, error: { kind: "not_found" } });
 });
+
+test("default host broker gives only lifecycle transport its operator fault instance", async () => {
+  const { db, connections, scope } = await setup();
+  const fault = { matches: () => false, consume: () => false };
+  const broker = new ProviderRpcBroker(connections, undefined, db, undefined, fault);
+  const deadline = Date.now() + 10_000;
+  const base = { providerId: "incus", connectionId: "connection", sandboxId: "binding", rpcDeadlineMs: deadline };
+  const lifecycle = { ...scope("lifecycle.inspect", base), approvedGuest: undefined };
+  const guest = scope("files.stat", { ...base, path: "src/app.ts" });
+  const factory = (broker as unknown as { actionTransportFactory: (action: PreparedIncusAction) => object }).actionTransportFactory;
+  expect((factory(lifecycle) as { lostDestroyReply?: unknown }).lostDestroyReply).toBe(fault);
+  expect((factory(guest) as { lostDestroyReply?: unknown }).lostDestroyReply).toBeUndefined();
+  expect(await broker.request(lifecycle, { command: lifecycle.expectedCommand }, deadline))
+    .toMatchObject({ ok: false, error: { kind: "not_found" } });
+});

@@ -5,7 +5,7 @@ import { getDb, type Database } from "../db/connection";
 import { sandboxBindings, sandboxReservations, type SandboxBinding } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { HostIncusProbeTransport, type HostConnectionResolver } from "./incus-transport/transport";
-import { HostIncusLifecycleTransport } from "./incus-transport/lifecycle";
+import { HostIncusLifecycleTransport, type PostEffectDestroyReplyFault } from "./incus-transport/lifecycle";
 import { HostIncusGuestTransport } from "./incus-transport/guest";
 import { GUEST_HELPER_VERSION, guestHelperSha256 } from "./incus-guest/protocol";
 import { createIncusTransportCommand } from "../../extensions/incus-sandbox/adapter";
@@ -155,14 +155,20 @@ export class ProviderRpcBroker {
       }),
     private readonly db?: Database,
     private readonly actionTransportFactory: (scope: PreparedIncusAction, signal?: AbortSignal) => IncusTransport =
-      (scope, signal) => new (scope.approvedGuest ? HostIncusGuestTransport : HostIncusLifecycleTransport)(connections, {
+      (scope, signal) => {
+        const hostScope = {
         providerInstallationId: scope.installationId,
         providerReleaseId: scope.releaseId,
         revision: scope.revision,
         approvedPreset: scope.approvedPreset,
         ...(scope.approvedGuest ? { approvedGuest: scope.approvedGuest } : {}),
         signal,
-      }),
+        };
+        return scope.approvedGuest
+          ? new HostIncusGuestTransport(connections, hostScope)
+          : new HostIncusLifecycleTransport(connections, hostScope, undefined, lostDestroyReply);
+      },
+    lostDestroyReply?: PostEffectDestroyReplyFault,
   ) {}
 
   private get database(): Database { return this.db ?? getDb(); }

@@ -146,6 +146,12 @@ type LifecycleContext = {
   policy: ReturnType<typeof sourceConfig>;
 };
 
+/** Injected only by the authenticated host operator path. */
+export interface PostEffectDestroyReplyFault {
+  matches(command: IncusTransportRequest, scope: HostConnectionScope): boolean;
+  consume(command: IncusTransportRequest, scope: HostConnectionScope): boolean;
+}
+
 async function inspectInstance({ session, command, instancePath }: LifecycleContext) {
   const found = metadata(await session.request("GET", instancePath), true);
   if (!found) throw new IncusTransportError("not_found", "Incus instance not found");
@@ -274,7 +280,8 @@ async function createInstance({ session, command, project, collection, input, po
   catch (error) { throw uncertain(error, stableId); }
 }
 
-async function mutateInstance({ session, command, project, instancePath, input }: LifecycleContext, kind: "setPower" | "destroy", currentReply: Awaited<ReturnType<Session["request"]>>, existing: Record<string, unknown> | null, stableId: string) {
+async function mutateInstance(context: LifecycleContext, kind: "setPower" | "destroy", currentReply: Awaited<ReturnType<Session["request"]>>, existing: Record<string, unknown> | null, stableId: string, fault?: PostEffectDestroyReplyFault, scope?: HostConnectionScope) {
+  const { session, command, project, instancePath, input } = context;
   if (!existing) {
     if (kind === "destroy") return receipt("destroy", command, stableId);
     throw new IncusTransportError("not_found", "Incus sandbox not found");
@@ -297,11 +304,29 @@ async function mutateInstance({ session, command, project, instancePath, input }
     try { const reply = await session.request("PUT", `/1.0/instances/${command.sandboxName}/state?project=${project}`, { action: input.desiredState === "running" ? "start" : "stop", timeout: 30 }); metadata(reply); return receipt("setPower", command, acceptedOperationId(reply, kind, stableId)); }
     catch (error) { throw uncertain(error, stableId); }
   }
-  try { const reply = await session.request("DELETE", instancePath); metadata(reply); return receipt("destroy", command, acceptedOperationId(reply, kind, stableId)); }
+  let reply: Awaited<ReturnType<Session["request"]>>;
+  try { reply = await session.request("DELETE", instancePath); metadata(reply); }
   catch (error) { throw uncertain(error, stableId); }
+  const providerId = acceptedOperationId(reply, kind, stableId);
+  if (fault && scope && fault.matches(command, scope) && /^incus-destroy-[a-f0-9-]{36}$/.test(providerId)) {
+    // The reply is lost only after the same Incus operation succeeds and this
+    // pinned session independently reads the resource as absent.
+    while (Date.now() < command.deadlineMs) {
+      let state: string;
+      try { state = (await inspectIncusOperation(context, providerId)).operation.state; }
+      catch { break; }
+      if (state === "succeeded") {
+        if (fault.consume(command, scope)) throw new IncusTransportError("unavailable", "Incus destroy reply was lost after effect", { effect: "unknown", operationId: providerId });
+        break;
+      }
+      if (state !== "running") break;
+      await new Promise(resolve => setTimeout(resolve, Math.min(100, Math.max(0, command.deadlineMs - Date.now()))));
+    }
+  }
+  return receipt("destroy", command, providerId);
 }
 
-async function requestLifecycleAction(session: Session, command: IncusTransportRequest, scope: HostConnectionScope) {
+async function requestLifecycleAction(session: Session, command: IncusTransportRequest, scope: HostConnectionScope, fault?: PostEffectDestroyReplyFault) {
   const project = encodeURIComponent(session.connection.project);
   const collection = `/1.0/instances?project=${project}`;
   const instancePath = `/1.0/instances/${command.sandboxName}?project=${project}`;
@@ -318,17 +343,18 @@ async function requestLifecycleAction(session: Session, command: IncusTransportR
   const existing = found ? object(found) : null;
   if (existing) instanceIdentity(existing, command);
   if (kind === "create") return createInstance(context, existing, stableId);
-  return mutateInstance(context, kind, currentReply, existing, stableId);
+  return mutateInstance(context, kind, currentReply, existing, stableId, fault, scope);
 }
 
 /** Host-owned lifecycle actions against one pinned Incus project and reviewed policy. */
 export class HostIncusLifecycleTransport implements IncusTransport {
-  constructor(private readonly connections: HostConnectionResolver, private readonly scope: HostConnectionScope, private readonly http: PinnedFetch = verifiedHttpsRequest) {}
+  constructor(private readonly connections: HostConnectionResolver, private readonly scope: HostConnectionScope, private readonly http: PinnedFetch = verifiedHttpsRequest,
+    private readonly lostDestroyReply?: PostEffectDestroyReplyFault) {}
 
   async request(command: Readonly<IncusTransportRequest>): Promise<unknown> {
     if (!["instance.create", "instance.inspect", "instance.list", "instance.setPower", "instance.destroy", "operation.inspect"].includes(command.action)) throw new IncusTransportError("unsupported", "Incus lifecycle action is unavailable");
     return withSession(this.connections, this.scope, this.http, command,
-      session => requestLifecycleAction(session, command, this.scope));
+      session => requestLifecycleAction(session, command, this.scope, this.lostDestroyReply));
   }
 }
 

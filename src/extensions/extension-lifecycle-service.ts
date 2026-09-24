@@ -149,7 +149,7 @@ export async function resolveExtensionReleaseSnapshot(repository: DatabaseLifecy
   return release ? { release, installation: state.installation, limits: executionLimits } : null;
 }
 
-interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations; blobs: FileBlobStore }
+interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations; blobs: FileBlobStore; incusLostDestroyReply: import("../infrastructure/incus-destroy-reply-fault").HostIncusLostDestroyReplyFault }
 export interface RecoveryServices { lifecycle: Pick<ExtensionLifecycle, "recover" | "reconcile">; repository: Pick<DatabaseLifecycleRepository, "read">; migrations: Pick<ExtensionDataMigrations, "recover"> }
 let services: Promise<LifecycleServices> | undefined;
 const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -180,9 +180,17 @@ async function initialize(): Promise<LifecycleServices> {
   const { configureReleaseRuntime } = await import("./release-process");
   const { ProviderConnectionStore } = await import("../infrastructure/provider-connections/store");
   const { ProviderRpcBroker } = await import("../infrastructure/provider-rpc-broker");
+  const { HostIncusLostDestroyReplyFault } = await import("../infrastructure/incus-destroy-reply-fault");
+  const { IncusQualificationCheckpointStore } = await import("../infrastructure/incus-qualification-checkpoint");
+  const incusLostDestroyReply = new HostIncusLostDestroyReplyFault(getDb(), {
+    // The external supervisor's private socket is not installed yet. The
+    // production transport shares this instance, but no request can arm it.
+    authenticateOperator: async () => { throw new Error("Incus operator fault control is unavailable"); },
+    authorizeRun: arm => new IncusQualificationCheckpointStore(getDb()).authorizeOwnedRun(arm),
+  });
   configureReleaseRuntime({
     runner: async () => runner,
-    providerRpcBroker: new ProviderRpcBroker(new ProviderConnectionStore(getDb())),
+    providerRpcBroker: new ProviderRpcBroker(new ProviderConnectionStore(getDb()), undefined, getDb(), undefined, incusLostDestroyReply),
     dispatchNotification: async (extensionId, method, params) => {
       const { enqueueExtensionNotification } = await import("./delivery-runtime");
       await enqueueExtensionNotification(extensionId, method, params ?? {});
@@ -225,7 +233,7 @@ async function initialize(): Promise<LifecycleServices> {
     publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest, "artifact") : undefined); },
     onBuildSettled: deferredByRunner => { recoveryCapacityAvailable ||= !deferredByRunner; lifecycleRecovery.request({ followUp: !deferredByRunner }); },
   });
-  return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations, blobs };
+  return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations, blobs, incusLostDestroyReply };
 }
 
 function getServices(): Promise<LifecycleServices> {
@@ -236,6 +244,8 @@ function getServices(): Promise<LifecycleServices> {
 export async function getExtensionLifecycle(): Promise<ExtensionLifecycle> { return (await getServices()).lifecycle; }
 export async function getExtensionControl(): Promise<ExtensionControl> { return (await getServices()).control; }
 export async function getExtensionRunner(): Promise<Runner> { return (await getServices()).runner; }
+/** Host operator socket only; its authority callback currently fails closed. */
+export async function getHostIncusLostDestroyReplyFault() { return (await getServices()).incusLostDestroyReply; }
 export async function getExtensionDeliveryQueue(): Promise<ExtensionDeliveryQueue> { return (await getServices()).deliveries; }
 export async function getExtensionInstallationState(installationId: string) { return (await getServices()).repository.read(installationId); }
 
