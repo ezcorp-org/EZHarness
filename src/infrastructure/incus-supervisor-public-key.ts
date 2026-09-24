@@ -17,6 +17,10 @@ export function incusSupervisorPublicKeyPem(env: NodeJS.ProcessEnv = process.env
     }
     value = bytes.toString("utf8");
   }
+  if (!value) throw new Error("Incus supervisor public key is missing");
+  if (!value.startsWith("-----BEGIN PUBLIC KEY-----\n") || !value.trimEnd().endsWith("-----END PUBLIC KEY-----")) {
+    throw new Error("Incus supervisor key must be a public SPKI PEM");
+  }
   const key = createPublicKey(value);
   if (key.asymmetricKeyType !== "ed25519") throw new Error("Incus supervisor public key must be Ed25519");
   return value;
