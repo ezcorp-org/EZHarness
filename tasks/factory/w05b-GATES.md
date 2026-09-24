@@ -50,11 +50,15 @@ for ever.
   EXPECT: every leg exits 0.
   EVIDENCE: `sweep-final/receipts/*.json` at `90396066a`, clean tree. Every leg except the backend pool exited 0: typecheck, lint, boundaries, gate integrity; new-file gate: no new source files; patch gate: all changed executable lines covered (2 files).
   The pool failed two tests for an environmental reason. The shared `.git/config` changed to `core.bare = true` at 02:10, and this worktree had no per-worktree `core.bare = false`, so git refused to run `git grep` and `git check-ignore` there. Both tests fail identically at `c6dbc321c`. After setting `core.bare = false` for this worktree only (`logs/pool-failures-rerun.log`: 17 pass, 0 fail), the pool was rerun: `logs/backend-pool-rerun.log`, 28200 pass, 0 fail, at `90396066a`, clean tree.
+- [x] G6: Delta for the validator-3 L1 ruling (commit `296f0f36f`): the clearing member is required, the production wiring is proven, and two racing reconciliations clear the kernel once.
+  CHECK: `python3 delta/run-leg.py <leg> ...` for typecheck, lint, boundaries, gate integrity, focused suites, and (under `flock --close /tmp/ezcorp-validation-heavy.lock timeout 2400`) real PostgreSQL task-stops, guest-model journal, budgets, assurance.
+  EXPECT: every leg exits 0. The composition test shows the reconciler reads its scope from, and clears through, the composed `FactoryTaskStops`. The race test shows one settlement and one `:usage-resolved` event.
+  EVIDENCE: `delta/receipts/{typecheck,lint,boundaries,gate-integrity}.json` exit 0; `delta/receipts/focused.json` (74 pass, 0 fail, 545 assertions); `delta/receipts/postgres.json` (61 pass, 0 fail, 429 assertions), all at `296f0f36f`, clean tree.
 
 ## Files owned by other packages (disclosed)
 
 - **W03 (Sol lifecycle):** `src/factory/task-stops.ts` and `src/factory/usage-settlement.ts`.
-  - The interface `FactoryUsageSettlementAuthority` gains the optional `clearResolvedStopInTransaction`, which the production stop store implements. It is optional so the two test doubles, in the W03e and W05 suites, stay unchanged.
+  - The interface `FactoryUsageSettlementAuthority` gains the required `clearResolvedStopInTransaction`, which the production stop store implements. It was optional at `90396066a`; the validator-3 L1 ruling made it required (fail closed), so the two test doubles, in the W03e and W05 suites, now implement it.
   - `stopEventFor` gains the phase `usage-resolved`.
   - The stop's finalize and its re-derivation accept a stop confirmed after reconciliation.
 - **Sol controls:** `packages/@ezcorp/factory-sdk/src/kernel.test.ts` gains one replay test. `kernel.ts` is unchanged, because the kernel already folds `uncertain: false` (W03e). W09d-2 (`wp/w09d2-named-refusals`) edits `kernel.ts` for another case, and this package does not touch that file.

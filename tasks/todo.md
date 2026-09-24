@@ -3658,6 +3658,7 @@ Base `wp/w03e-usage-settle` `c6dbc321c`. Receipts: `/tmp/factory-platform-eviden
 - [x] Fix: reconciliation clears the kernel's uncertain attempt through the sealed stop, exactly once; an unconfirmed stop or an unknown usage is not cleared; a stop confirmed after reconciliation settles as certain.
 - [x] Kernel replay test; `kernel.ts` unchanged.
 - [x] Real-server proof, three passes, both orders; sweep; gate file; report.
+- [x] Validator-3 L1 delta: `clearResolvedStopInTransaction` is a required member; the doubles implement it; a composition test proves the production wiring; a race test proves one clearing event (G6).
 
 **Review.** Reconciliation settled the cost but never told the kernel. The kernel kept the attempt
 stopped-and-uncertain, so a cancelled run never ended. The fix sends the sealed stop's event again with
