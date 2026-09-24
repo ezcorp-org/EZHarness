@@ -13,8 +13,11 @@ import {
   writeFactoryTestHostMaterial,
   writeModeFile,
 } from "../../__tests__/helpers/factory-private-root";
+import { factoryTemporalPositionsFromConfig } from "../recovery-composition";
 import { parseFactoryStartupConfig } from "../startup-config";
+import { FactoryTemporalHttpPositions } from "../temporal-retention";
 import {
+  FACTORY_CONTAINER_PATHS,
   FACTORY_CONTAINER_SERVICES,
   FACTORY_DEFAULT_DATABASE_POOL_MAX,
   FACTORY_DEPLOYED_SERVICES,
@@ -219,6 +222,98 @@ describe("renderFactoryInstallationBundle", () => {
     const error = await factoryRejection(renderFactoryInstallationBundle(missing, makeFactoryTestDeploymentSettings(join(root, "runtime"))));
     expect((error as NodeJS.ErrnoException).code).toBe("ENOENT");
   });
+});
+
+/**
+ * Coordinator ruling (recovery): every rendered startup document declares
+ * every section W15's recovery roles compose from (`composeFactoryRecoveryRoles`):
+ * the archive, the ordinary store retention erases from, the pool's checkpoint
+ * client, the Temporal HTTP route, and the key management kind. A section left
+ * out holds the barrier role by name instead of sealing.
+ *
+ * W14 asked this test to confirm the pool restore scope and the temporalHttp
+ * route. The restore scope lives in the token `pool.serviceTokenPath` names;
+ * the fleet host mints that file, and host.test.ts ("each installation's pool
+ * token carries pool:restore for its own tenant and no other tenant's scope")
+ * proves it carries `pool:restore:<tenant>`. Here: that the document names it
+ * and the harness receives it.
+ */
+describe("every rendered startup document declares the recovery sections W15's barrier composes from", () => {
+  const tenants = ["tenant-01", "tenant-02"] as const;
+  const secret = (name: string) => `${FACTORY_CONTAINER_PATHS.secrets}/${name}`;
+  let root: string;
+  const bundles = new Map<string, FactoryInstallationBundle>();
+
+  beforeAll(async () => {
+    root = await makeFactoryPrivateRoot();
+    for (const tenantId of tenants) {
+      const installation = makeFactoryTestInstallation(root, { tenantId });
+      await seedInstallationFiles(installation, { mesh: true, runtimeRoot: join(root, "runtime") });
+      const bundle = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime")));
+      await writeFactoryDeliveries(bundle);
+      bundles.set(tenantId, bundle);
+    }
+  });
+  afterAll(async () => { await removeFactoryPrivateRoot(root); });
+
+  const harnessOf = (tenantId: string) => bundles.get(tenantId)!.deliveries.harness;
+  /** The document as the harness reads it: the written file, through the process parser. */
+  const startupOf = async (tenantId: string) => parseFactoryStartupConfig(JSON.parse(await readFile(join(harnessOf(tenantId).directory, "factory-startup.json"), "utf8")));
+  /** The file the harness delivery holds at a container secret path. */
+  const delivered = (tenantId: string, containerPath: string) => {
+    expect(containerPath.startsWith(secret(""))).toBe(true);
+    return join(harnessOf(tenantId).directory, containerPath.slice(secret("").length));
+  };
+  const expectDelivered = async (tenantId: string, containerPaths: readonly string[]) => {
+    for (const path of containerPaths) expect({ path, mode: await mode(delivered(tenantId, path)) }).toEqual({ path, mode: 0o600 });
+  };
+
+  for (const tenantId of tenants) {
+    test(`${tenantId}: storage.archive and storage.ordinary name the tenant's own bucket and delivered credentials`, async () => {
+      const { storage } = await startupOf(tenantId);
+      expect(storage).toEqual({
+        ordinary: { endpoint: "http://127.0.0.1:59000", bucket: tenantId, prefix: "ordinary", credentialSet: "ordinary", credentialsPath: secret("ordinary-storage.json") },
+        archive: { endpoint: "http://127.0.0.1:59001", bucket: tenantId, prefix: "archive", credentialSet: "archive", credentialsPath: secret("archive-storage.json") },
+      } as never);
+      await expectDelivered(tenantId, [storage.ordinary.credentialsPath, storage.archive.credentialsPath]);
+    });
+
+    test(`${tenantId}: pool names the fleet host's shared pool over the host authority, with the host-minted token that carries pool:restore`, async () => {
+      const { pool } = await startupOf(tenantId);
+      const bundle = bundles.get(tenantId)!;
+      expect(pool).toEqual({
+        baseUrl: `https://127.0.0.1:${bundle.host.ports.pool}`,
+        serviceTokenPath: secret(FACTORY_MESH_FILES.harnessPoolToken),
+        tls: { caPath: secret(FACTORY_HOST_FILES.caCertificate), certificatePath: secret(FACTORY_MESH_FILES.harnessCertificate), privateKeyPath: secret(FACTORY_MESH_FILES.harnessKey) },
+      } as never);
+      await expectDelivered(tenantId, [pool.serviceTokenPath, pool.tls.caPath, pool.tls.certificatePath, pool.tls.privateKeyPath]);
+      // The token delivered is the one the fleet host mints into the installation's secrets on admission.
+      expect(harnessOf(tenantId).files[FACTORY_MESH_FILES.harnessPoolToken]).toEqual({ source: join(makeFactoryTestInstallation(root, { tenantId }).secretDirectory, FACTORY_MESH_FILES.harnessPoolToken) });
+    });
+
+    test(`${tenantId}: temporalHttp names the gateway's read-only route and the namespace certificate, never the namespace token, and the barrier's reader composes from it`, async () => {
+      const startup = await startupOf(tenantId);
+      expect(startup.temporalHttp).toEqual({
+        endpoint: makeFactoryTestDeploymentSettings(join(root, "runtime")).network.temporalHttpEndpoint,
+        tls: { caPath: secret("temporal-ca.crt"), certificatePath: secret("temporal-client.crt"), privateKeyPath: secret("temporal-client.key") },
+      });
+      const tls = startup.temporalHttp!.tls!;
+      await expectDelivered(tenantId, [tls.caPath, tls.certificatePath, tls.privateKeyPath]);
+      expect(Object.keys(harnessOf(tenantId).files)).not.toContain("temporal-token");
+      expect(await readdir(harnessOf(tenantId).directory)).not.toContain("temporal-token");
+      // W15's own composer reads the delivered files the document names.
+      const positions = await factoryTemporalPositionsFromConfig({
+        temporalNamespace: startup.temporalNamespace,
+        temporalHttp: { endpoint: startup.temporalHttp!.endpoint, tls: { caPath: delivered(tenantId, tls.caPath), certificatePath: delivered(tenantId, tls.certificatePath), privateKeyPath: delivered(tenantId, tls.privateKeyPath) } },
+      });
+      expect(positions).toBeInstanceOf(FactoryTemporalHttpPositions);
+      expect(positions.namespace).toBe(startup.temporalNamespace);
+    });
+
+    test(`${tenantId}: keyManagement declares the operator master key`, async () => {
+      expect((await startupOf(tenantId)).keyManagement).toEqual({ kind: "operator-master-key" });
+    });
+  }
 });
 
 describe("writeFactoryDeliveries", () => {

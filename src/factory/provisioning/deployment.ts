@@ -68,6 +68,8 @@ export interface FactoryDeploymentNetwork {
   readonly archiveEndpoint: string;
   readonly temporalAddress: string;
   readonly temporalServerName: string;
+  /** The gateway's read-only Temporal HTTP route, e.g. `https://127.0.0.1:32004`. */
+  readonly temporalHttpEndpoint: string;
   /** The public origin a browser uses for this installation, e.g. `https://tenant-01.fleet.test:30443`. */
   readonly publicOrigin: (installation: FactoryInstallationContext) => string;
   readonly portBase: number;
@@ -238,6 +240,11 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     // itself is never mounted into the harness.
     keys: { masterKeyFilePath: `/run/ezcorp/orchestrator-only/${FACTORY_KEY_FILES.master}`, masterKeyId, wrappedKeyFilePath: `/run/ezcorp/orchestrator-only/${FACTORY_KEY_FILES.wraps}`, grantableRoots: [FACTORY_CONTAINER_PATHS.projects] },
     workers: { idleDelayMs: 1_000, batch: 4 },
+    // W15's checkpoint barrier reads Temporal positions through the gateway's
+    // read-only route with the namespace certificate the installation already
+    // holds (CN = its namespace); the gateway injects the read token.
+    temporalHttp: { endpoint: settings.network.temporalHttpEndpoint, tls: { caPath: secretPath("temporal-ca.crt"), certificatePath: secretPath("temporal-client.crt"), privateKeyPath: secretPath("temporal-client.key") } },
+    keyManagement: { kind: "operator-master-key" },
   });
 
   const orchestrator = {
@@ -275,6 +282,8 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       ...mesh(FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.serverCertificate, FACTORY_MESH_FILES.serverKey, FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey,
         FACTORY_MESH_FILES.tokenPublicKey, FACTORY_MESH_FILES.harnessPoolToken, FACTORY_MESH_FILES.attemptTokenSecret,
         FACTORY_APPLICATION_SECRET_FILES.jwt, FACTORY_APPLICATION_SECRET_FILES.encryption, FACTORY_APPLICATION_SECRET_FILES.salt,
+        // The namespace certificate for the read-only Temporal HTTP route; never the namespace token.
+        "temporal-ca.crt", "temporal-client.crt", "temporal-client.key",
         "ordinary-storage.json", "archive-storage.json"),
       // The host's public material: its authority, for the shared pool and supervisor, and its stop-receipt key.
       [FACTORY_HOST_FILES.caCertificate]: { source: host.caCertificatePath },

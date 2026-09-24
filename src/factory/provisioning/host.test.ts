@@ -243,6 +243,18 @@ describe("admission", () => {
     for (const directory of [join(host.paths.readinessDirectory, "pool"), join(host.paths.readinessDirectory, "supervisor"), host.paths.runnerRoot]) expect((await stat(directory)).mode & 0o777).toBe(0o700);
   }, SLOW);
 
+  test("each installation's pool token carries pool:restore for its own tenant and no other tenant's scope", async () => {
+    // W14's restore point, referenced from the recovery-section declaration test in deployment.test.ts.
+    const admitted = [await installation("tenant-01"), await installation("tenant-02")];
+    for (const context of admitted) await host.admit(context);
+    for (const context of admitted) {
+      const scope = claims(await text(join(context.secretDirectory, FACTORY_MESH_FILES.harnessPoolToken))).scope as string[];
+      expect(scope).toContain(`pool:restore:${context.tenantId}`);
+      const other = context.tenantId === "tenant-01" ? "tenant-02" : "tenant-01";
+      expect(scope.filter((entry) => entry.includes(other))).toEqual([]);
+    }
+  }, SLOW);
+
   test("admitting the same installation again is idempotent", async () => {
     const one = await installation("tenant-01");
     await host.admit(one);

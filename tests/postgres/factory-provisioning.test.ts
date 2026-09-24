@@ -829,7 +829,7 @@ describe("fleet composition", () => {
       control: { databaseUrlPath: controlPath },
       database: { adminUrlPath: adminPath, serviceHost: "127.0.0.1", servicePort: 5432 },
       storage: { ordinary: { endpoint: "http://127.0.0.1:18333", prefix: "ordinary", issuer: { kind: "seeded", serverIdentityPath: ordinary } }, archive: { endpoint: "http://127.0.0.1:18334", prefix: "archive", issuer: { kind: "seeded", serverIdentityPath: archive } }, failureDomain: "same-host-not-independent" },
-      temporal: { port: 32001, serverName: "temporal.local" },
+      temporal: { port: 32001, httpPort: 32004, serverName: "temporal.local" },
       ingress: { address: "127.0.0.1", port: 32005, domain: `${fleetId}.factory.test` },
       installations: { portBase: 31000, cpuCapacity: 2, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: (await import("../../src/__tests__/helpers/factory-private-root")).FACTORY_TEST_RUNNER_PROFILES },
       image: { reference: `localhost/ezcorp-factory@sha256:${"a".repeat(64)}`, revision: "b".repeat(40) },
@@ -839,6 +839,8 @@ describe("fleet composition", () => {
     try {
       await fleet.provisioner.setup();
       expect((await fleet.provisioner.ledger.directory()).some((entry) => entry.fleetId === fleetId)).toBe(true);
+      // The harness reads Temporal positions through the gateway's read-only HTTP route.
+      expect(fleet.deploymentSettings.network.temporalHttpEndpoint).toBe("https://127.0.0.1:32004");
       expect(fleet.deploymentSettings.network.publicOrigin({ hostname: "tenant-01.x" } as FactoryInstallationContext)).toBe("https://tenant-01.x:32005");
       expect(fleet.platform.temporal.revocationsPath.startsWith(operator)).toBe(true);
       // No platform runs for this fleet, so the serving check is a failure, never a false "serves".
@@ -891,6 +893,8 @@ describe("the operator entry", () => {
     const second = await writeFactoryLocalFleet(options);
     expect(second.settings).toEqual(first.settings);
     expect(first.settings.temporal.port).toBe(32001);
+    // The read-only Temporal HTTP route has its own port beside the gRPC one.
+    expect(first.settings.temporal.httpPort).toBe(32004);
     expect(first.settings.ingress.port).toBe(32005);
     const controlDatabase = `factory_control_${localFleet}`;
     try {

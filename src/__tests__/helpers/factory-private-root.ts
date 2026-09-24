@@ -102,7 +102,7 @@ export function makeFactoryTestDeploymentSettings(runtimeRoot: string, overrides
     network: {
       databaseHost: "127.0.0.1", databasePort: 55432,
       ordinaryEndpoint: "http://127.0.0.1:59000", archiveEndpoint: "http://127.0.0.1:59001",
-      temporalAddress: "127.0.0.1:57233", temporalServerName: "temporal.test",
+      temporalAddress: "127.0.0.1:57233", temporalServerName: "temporal.test", temporalHttpEndpoint: "https://127.0.0.1:57244",
       publicOrigin: (installation) => `https://${installation.hostname}:30443`,
       portBase: 40_000,
     },

@@ -40,7 +40,7 @@ const TEMPLATE = join(REPOSITORY, "deploy/factory/compose/installation.yml");
 const HOST_TEMPLATE = join(REPOSITORY, "deploy/factory/compose/host.yml");
 const SUPERVISOR_UNIT_FILE = join(REPOSITORY, "deploy/factory/systemd/ezcorp-factory-supervisor@.service");
 const SETTINGS = { bun: "/opt/bun/bin/bun", releaseDirectory: "/srv/release/current", path: "/usr/bin:/bin" };
-const PORTS = { databasePort: 55432, storagePorts: [59001, 59000, 59000], temporalPort: 57233, uid: 1001, gid: 1001 };
+const PORTS = { databasePort: 55432, storagePorts: [59001, 59000, 59000], temporalPort: 57233, temporalHttpPort: 57244, uid: 1001, gid: 1001 };
 const OK: FactoryCommandResult = { code: 0, stdout: "", stderr: "" };
 const HEALTHY = ["gateway", "harness", "orchestrator"].map((service) => JSON.stringify({ Service: service, State: "running", Health: "healthy", ExitCode: 0 })).join("\n");
 const HOST_BUILD: FactoryFleetHostBuild = { image: `registry.test/ezcorp@sha256:${"d".repeat(64)}`, revision: "e".repeat(40), release: "/srv/release/host" };
@@ -157,8 +157,8 @@ describe("factoryComposeEnvironment", () => {
       EZCORP_FACTORY_TENANT: "tenant-01",
       EZCORP_FACTORY_HARNESS_PORT: "40010",
       EZCORP_FACTORY_GATEWAY_NETWORK: "pasta:-T,55432",
-      // The harness reaches its gateway, the database, both stores, and the fleet host's shared pool and supervisor.
-      EZCORP_FACTORY_HARNESS_NETWORK: "pasta:-T,40012,-T,41002,-T,41003,-T,55432,-T,59000,-T,59001",
+      // The harness reaches its gateway, the database, both stores, the fleet host's shared pool and supervisor, and the gateway's read-only Temporal HTTP route.
+      EZCORP_FACTORY_HARNESS_NETWORK: "pasta:-T,40012,-T,41002,-T,41003,-T,55432,-T,57244,-T,59000,-T,59001",
       EZCORP_FACTORY_ORCHESTRATOR_NETWORK: "pasta:-T,40011,-T,57233",
       EZCORP_FACTORY_READINESS_ORCHESTRATION: join(bundle.readinessDirectory, "orchestration"),
       EZCORP_FACTORY_HOST_READINESS_POOL: bundle.host.poolReadinessDirectory,

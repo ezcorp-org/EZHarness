@@ -48,7 +48,8 @@ export interface FactoryFleetSettings {
   readonly control: { readonly databaseUrlPath: string };
   readonly database: { readonly adminUrlPath: string; readonly serviceHost: string; readonly servicePort: number };
   readonly storage: { readonly ordinary: FactoryFleetStorageDomain; readonly archive: FactoryFleetStorageDomain; readonly failureDomain: string };
-  readonly temporal: { readonly port: number; readonly serverName: string };
+  /** `port`: the gateway's gRPC route; `httpPort`: its read-only HTTP route for W15's checkpoint barrier. */
+  readonly temporal: { readonly port: number; readonly httpPort: number; readonly serverName: string };
   readonly ingress: { readonly address: string; readonly port: number; readonly domain: string };
   readonly installations: {
     readonly portBase: number;
@@ -85,7 +86,7 @@ export function parseFactoryFleetSettings(value: unknown): FactoryFleetSettings 
     check(`storage.${domain}`, keys(entry, "endpoint,issuer,prefix") && url(entry.endpoint) && /^[a-z][a-z0-9-]{0,62}$/.test(entry.prefix) && keys(entry.issuer, "kind,serverIdentityPath") && entry.issuer.kind === "seeded" && absolute(entry.issuer.serverIdentityPath));
   }
   check("storage", keys(settings.storage, "archive,failureDomain,ordinary") && typeof settings.storage.failureDomain === "string" && settings.storage.failureDomain.length > 0);
-  check("temporal", keys(settings.temporal, "port,serverName") && port(settings.temporal.port) && typeof settings.temporal.serverName === "string");
+  check("temporal", keys(settings.temporal, "httpPort,port,serverName") && port(settings.temporal.port) && port(settings.temporal.httpPort) && settings.temporal.httpPort !== settings.temporal.port && typeof settings.temporal.serverName === "string");
   check("ingress", keys(settings.ingress, "address,domain,port") && /^(?:\d{1,3}\.){3}\d{1,3}$/.test(settings.ingress.address) && port(settings.ingress.port) && /^[a-z0-9.-]{1,200}$/.test(settings.ingress.domain));
   check("installations", keys(settings.installations, "cpuCapacity,interpreterCompatibility,portBase,runnerProfiles") && port(settings.installations.portBase) && Number.isSafeInteger(settings.installations.cpuCapacity) && settings.installations.cpuCapacity > 0 && typeof settings.installations.interpreterCompatibility === "string");
   check("image", keys(settings.image, "reference,revision") && /^[^@\s]+@sha256:[a-f0-9]{64}$/.test(settings.image.reference) && /^[a-f0-9]{40}$/.test(settings.image.revision));
@@ -183,6 +184,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   const temporalAdmin = factoryTemporalNamespaceAdmin(endpoint, platform.temporal, platform.temporal);
   const temporal = new FactoryTemporalStep({
     authority: platform.temporal,
+    httpTokensDirectory: platform.temporal.httpTokensDirectory,
     admin: temporalAdmin,
     access: factoryTemporalAccessProbe(endpoint),
     certificates: factoryTemporalCertificateIssuer(),
@@ -212,6 +214,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
       databaseHost: settings.database.serviceHost, databasePort: settings.database.servicePort,
       ordinaryEndpoint: settings.storage.ordinary.endpoint, archiveEndpoint: settings.storage.archive.endpoint,
       temporalAddress: `127.0.0.1:${settings.temporal.port}`, temporalServerName: settings.temporal.serverName,
+      temporalHttpEndpoint: `https://127.0.0.1:${settings.temporal.httpPort}`,
       publicOrigin: (installation) => factoryInstallationPublicOrigin(settings, installation),
       portBase: settings.installations.portBase,
     },
@@ -225,7 +228,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   const storagePorts = [settings.storage.ordinary.endpoint, settings.storage.archive.endpoint].map((endpointUrl) => Number(new URL(endpointUrl).port));
   const composeTarget = new FactoryComposeTarget({
     compose: runtime.compose, templatePath: resolve(settings.release.directory, "deploy/factory/compose/installation.yml"), execute,
-    databasePort: settings.database.servicePort, storagePorts, temporalPort: settings.temporal.port, uid: runtime.uid, gid: runtime.gid,
+    databasePort: settings.database.servicePort, storagePorts, temporalPort: settings.temporal.port, temporalHttpPort: settings.temporal.httpPort, uid: runtime.uid, gid: runtime.gid,
   });
   const target = runtime.target ?? composeTarget;
   const deployment = new FactoryDeploymentStep({ settings: deploymentSettings, target, host: fleetHost });

@@ -160,7 +160,7 @@ export async function runFactoryFleetMain(argv: readonly string[], compose: Fact
         return { census: factoryDatabaseCensus(adminUrl), approvals: factoryDatabasePurgeApprovals(adminUrl) };
       },
       observer: async () => factoryIngressBootstrapObserver(factoryHttpsIngressProbe(settings.ingress.address, settings.ingress.port, `${new TextDecoder().decode(await readFactoryPrivatePath(composed.platform.ingress.caCertificatePath)).trim()}\n`)),
-      startPlatform: () => startFactoryPlatform({ fleetId: settings.fleetId, operatorRoot: settings.roots.operator, repositoryRoot: settings.release.directory, temporalPort: settings.temporal.port, ingressAddress: settings.ingress.address, ingressPort: settings.ingress.port }, composed.platform, compose, factorySpawnExecutor, () => composed.platformServes()),
+      startPlatform: () => startFactoryPlatform({ fleetId: settings.fleetId, operatorRoot: settings.roots.operator, repositoryRoot: settings.release.directory, temporalPort: settings.temporal.port, temporalHttpPort: settings.temporal.httpPort, ingressAddress: settings.ingress.address, ingressPort: settings.ingress.port }, composed.platform, compose, factorySpawnExecutor, () => composed.platformServes()),
     }));
   } catch (error) { io.fail({ error: errorView(error) }); }
   finally { await fleet?.close(); }
@@ -219,7 +219,7 @@ export async function writeFactoryLocalFleet(options: FactoryLocalFleetOptions):
       archive: { endpoint: "http://127.0.0.1:18334", prefix: "archive", issuer: { kind: "seeded", serverIdentityPath: resolve(options.storageSecretsDirectory, "archive.json") } },
       failureDomain: "same-host-not-independent",
     },
-    temporal: { port: options.portBase + 1_001, serverName: "temporal.local" },
+    temporal: { port: options.portBase + 1_001, httpPort: options.portBase + 1_004, serverName: "temporal.local" },
     ingress: { address: "127.0.0.1", port: options.portBase + 1_005, domain: `${options.fleetId}.factory.test` },
     installations: { portBase: options.portBase, cpuCapacity: 2, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: options.runnerProfiles },
     image: { reference: options.image, revision: options.revision },

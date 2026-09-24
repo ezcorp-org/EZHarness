@@ -47,6 +47,8 @@ export interface FactoryComposeTargetOptions {
   readonly databasePort: number;
   readonly storagePorts: readonly number[];
   readonly temporalPort: number;
+  /** The gateway's read-only Temporal HTTP route, which each harness reads positions through. */
+  readonly temporalHttpPort: number;
   readonly uid: number;
   readonly gid: number;
   readonly readyTimeoutMs?: number;
@@ -87,7 +89,7 @@ function envFile(values: Readonly<Record<string, string>>): string {
 }
 
 /** The Compose interpolation file: every `${...}` the template names, references only. */
-export function factoryComposeEnvironment(bundle: FactoryInstallationBundle, options: Pick<FactoryComposeTargetOptions, "databasePort" | "storagePorts" | "temporalPort" | "uid" | "gid">, envFiles: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
+export function factoryComposeEnvironment(bundle: FactoryInstallationBundle, options: Pick<FactoryComposeTargetOptions, "databasePort" | "storagePorts" | "temporalPort" | "temporalHttpPort" | "uid" | "gid">, envFiles: Readonly<Record<string, string>>): Readonly<Record<string, string>> {
   const { installation, ports, deliveries, host } = bundle;
   return Object.freeze({
     EZCORP_FACTORY_PROJECT: factoryComposeProject(installation),
@@ -109,7 +111,7 @@ export function factoryComposeEnvironment(bundle: FactoryInstallationBundle, opt
     EZCORP_FACTORY_HARNESS_PORT: String(ports.harness),
     EZCORP_FACTORY_PRIVATE_SERVICE_PORT: String(ports.privateService),
     EZCORP_FACTORY_GATEWAY_NETWORK: factoryPastaNetwork([options.databasePort]),
-    EZCORP_FACTORY_HARNESS_NETWORK: factoryPastaNetwork([options.databasePort, ...options.storagePorts, host.ports.pool, ports.gateway, host.ports.supervisor]),
+    EZCORP_FACTORY_HARNESS_NETWORK: factoryPastaNetwork([options.databasePort, ...options.storagePorts, host.ports.pool, ports.gateway, host.ports.supervisor, options.temporalHttpPort]),
     EZCORP_FACTORY_ORCHESTRATOR_NETWORK: factoryPastaNetwork([options.temporalPort, ports.privateService]),
     EZCORP_FACTORY_DELIVER_GATEWAY: deliveries.gateway.directory,
     EZCORP_FACTORY_DELIVER_HARNESS: deliveries.harness.directory,

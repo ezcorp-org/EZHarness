@@ -28,7 +28,7 @@ const VALID: FactoryFleetSettings = {
   control: { databaseUrlPath: "/srv/operator/control-database-url" },
   database: { adminUrlPath: "/srv/operator/admin-database-url", serviceHost: "127.0.0.1", servicePort: 55_432 },
   storage: { ordinary: storageDomain(59_000), archive: { ...storageDomain(59_001), prefix: "archive" }, failureDomain: "host-a" },
-  temporal: { port: 57_233, serverName: "temporal.test" },
+  temporal: { port: 57_233, httpPort: 57_244, serverName: "temporal.test" },
   ingress: { address: "127.0.0.1", port: 30_443, domain: "factory.example" },
   installations: { portBase: 40_000, cpuCapacity: 4, interpreterCompatibility: "factory-interpreter-1", runnerProfiles: FACTORY_TEST_RUNNER_PROFILES as never },
   image: { reference: FACTORY_TEST_IMAGE, revision: "c".repeat(40) },
@@ -89,6 +89,8 @@ describe("parseFactoryFleetSettings", () => {
       ["storage.archive", "archive", "storage.archive"], ["storage.archive.prefix", `a${"b".repeat(63)}`, "storage.archive"],
       ["storage.failureDomain", "", "storage"], ["storage.failureDomain", 1, "storage"],
       ["temporal.port", 80, "temporal"], ["temporal.serverName", null, "temporal"],
+      // The read-only HTTP route needs its own port: a missing, invalid, or shared one is refused.
+      ["temporal.httpPort", undefined, "temporal"], ["temporal.httpPort", 80, "temporal"], ["temporal.httpPort", "57244", "temporal"], ["temporal.httpPort", 57_233, "temporal"],
       ["ingress.address", "localhost", "ingress"], ["ingress.port", 443.5, "ingress"], ["ingress.domain", "Factory.example", "ingress"],
       ["installations.portBase", 1_000, "installations"], ["installations.cpuCapacity", 0, "installations"], ["installations.cpuCapacity", 1.5, "installations"], ["installations.interpreterCompatibility", 1, "installations"],
       ["image.reference", "registry.test/ezcorp:latest", "image"], ["image.revision", "abc", "image"],
