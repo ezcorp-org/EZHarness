@@ -402,3 +402,4 @@
 - Register each new `/api/*` route in `src/api-registry.ts` with its actual session or API-key scope, then run `web/src/__tests__/route-contract.test.ts` and `src/__tests__/session-scope-surface.test.ts`. The isolated route test alone misses the product-wide registry gate.
 - Authenticate and bind operator authority before writing a cleanup intent or a dispatchable destroy journal. A rejected fault arm after journaling can still let reconciliation perform the destroy.
 - When a timed operator arm precedes a durable journal, reserve the exact operation ID first and recheck the arm and deadline immediately before journal publication. A late failure must leave no executable operation; retain and report any cleanup intent that was already written.
+- Agents in one worktree share the Git index. Before each commit, stage explicit owned paths and inspect `git diff --cached --name-only`; do not assume another agent's staged files are isolated.

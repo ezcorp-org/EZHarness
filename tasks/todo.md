@@ -1473,3 +1473,13 @@ The two-process PGlite test passed after the first process exited. The new proce
 ### Review
 
 The real-process Python suite passes three cases. The Bun wrapper, persisted authorizer, client, and continuation tests pass. The authorizer now rejects a replacement current operation even when it has the same generation and succeeded state. The sample receipt verifier remains disabled, so it cannot sign production restart proof. The host witness stays closed until the real backend verifier, process owner, and live continuation are integrated and tested.
+
+## Hosted coverage complexity gate (2026-09-23)
+
+- [x] Split the five touched functions above CRAP 30 in hosted run 35946718282 while preserving their behavior.
+- [x] Run focused tests and coverage for the affected modules, plus typecheck, lint, build, and gate integrity.
+- [ ] Push the integrated changes and confirm the hosted per-file coverage gate and all other required checks pass on the new head.
+
+### Review
+
+The failing functions were `arm`, `requireIdentity`, `exerciseIncusControlledLoads`, the live-cases callback at line 238, and `mutateInstance`. Agents split each into focused checks without lowering the 30-point limit. The integrated focused run passed 46 tests and 219 assertions; all five changed production sources retained 100% line coverage. Full typecheck, lint, production build, and gate integrity passed. Astra found no behavior change in static review and 37 old/new differential runner cases. Hosted CI remains to be completed on the combined head.
