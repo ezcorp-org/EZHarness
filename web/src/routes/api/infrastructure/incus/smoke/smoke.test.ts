@@ -2,23 +2,28 @@ import { afterAll, expect, mock, test } from "bun:test";
 
 const calls: string[] = [];
 const files = new Map<string, Uint8Array>();
+const operation = { id: "controller-op", bindingId: "fixture-binding", kind: "CREATE", state: "SUCCEEDED",
+  generation: 1, providerOperationId: "provider-op", errorCode: null,
+  requestPayload: { privateKeyPem: "secret" } };
 let observedState = "RUNNING";
 let fail = false;
 let composeOutput = "ezh-compose-ok";
+let latestOperation = operation;
+let powerSequence = 0;
+let nextPowerState: "SUCCEEDED" | "OUTCOME_UNKNOWN" = "SUCCEEDED";
 const originalImage = process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF;
 afterAll(() => {
   if (originalImage === undefined) delete process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF;
   else process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF = originalImage;
 });
 
-const operation = { id: "controller-op", bindingId: "fixture-binding", kind: "CREATE", state: "SUCCEEDED",
-  generation: 1, providerOperationId: "provider-op", errorCode: null,
-  requestPayload: { privateKeyPem: "secret" } };
 mock.module("$server/infrastructure/incus-qualification", () => ({
   IncusQualificationFixtureService: class {
     async create(scope: { connectionId: string }, id: string) {
       calls.push(`create:${scope.connectionId}:${id}`);
       if (fail) throw new Error("private certificate secret");
+      observedState = "STOPPED";
+      latestOperation = operation;
       return operation;
     }
     async status(scope: { connectionId: string }, id: string) {
@@ -26,17 +31,23 @@ mock.module("$server/infrastructure/incus-qualification", () => ({
       if (fail) throw new Error("private certificate secret");
       return { fixture: { operationId: id, connectionId: scope.connectionId,
         bindingId: "fixture-binding" }, binding: { id: "fixture-binding",
-        desiredState: observedState, observedState }, operation: { id: operation.id } };
+        generation: 1, desiredState: observedState, observedState }, operation: latestOperation };
     }
     async setPower(scope: { connectionId: string }, id: string, state: string, key: string) {
       calls.push(`power:${scope.connectionId}:${id}:${state}:${key}`);
       if (fail) throw new Error("private certificate secret");
-      return { ...operation, kind: state === "running" ? "START" : "STOP" };
+      latestOperation = { ...operation, id: `power-${++powerSequence}`,
+        kind: state === "running" ? "START" : "STOP", state: nextPowerState };
+      observedState = nextPowerState === "SUCCEEDED" ? state === "running" ? "RUNNING" : "STOPPED" : "UNKNOWN";
+      nextPowerState = "SUCCEEDED";
+      return latestOperation;
     }
     async destroy(scope: { connectionId: string }, id: string) {
       calls.push(`destroy:${scope.connectionId}:${id}`);
       if (fail) throw new Error("private certificate secret");
-      return { ...operation, kind: "DESTROY" };
+      latestOperation = { ...operation, id: "destroy-op", kind: "DESTROY" };
+      observedState = "ABSENT";
+      return latestOperation;
     }
   },
 }));
@@ -108,10 +119,14 @@ test("smoke input cannot choose guest commands, paths, images, or provider autho
 
 test("create, power, durable status, inspect, and destroy use one exact fixture identity", async () => {
   calls.length = 0;
+  powerSequence = 0;
   expect((await POST(event(admin, { ...scope, action: "create" }))).status).toBe(202);
   expect((await POST(event(admin, { ...scope, action: "create" }))).status).toBe(202);
   expect((await POST(event(admin, { ...scope, action: "start" }))).status).toBe(202);
+  expect((await POST(event(admin, { ...scope, action: "start" }))).status).toBe(202);
   expect((await POST(event(admin, { ...scope, action: "stop" }))).status).toBe(202);
+  expect((await POST(event(admin, { ...scope, action: "stop" }))).status).toBe(202);
+  expect((await POST(event(admin, { ...scope, action: "start" }))).status).toBe(202);
   const status = await POST(event(admin, { ...scope, action: "status" }));
   expect(await status.json()).toMatchObject({ fixture: { bindingId: "fixture-binding" } });
   const inspection = await POST(event(admin, { ...scope, action: "inspect" }));
@@ -119,10 +134,35 @@ test("create, power, durable status, inspect, and destroy use one exact fixture 
   const destroyed = await POST(event(admin, { ...scope, action: "destroy" }));
   expect(await destroyed.json()).toMatchObject({ operation: { kind: "DESTROY" } });
   expect(calls).toEqual(["create:connection:incus-smoke-one", "create:connection:incus-smoke-one",
-    "power:connection:incus-smoke-one:running:smoke-start",
-    "power:connection:incus-smoke-one:stopped:smoke-stop",
+    "status:connection:incus-smoke-one",
+    "power:connection:incus-smoke-one:running:smoke-start-g1-after-controller-op",
+    "status:connection:incus-smoke-one", "status:connection:incus-smoke-one",
+    "power:connection:incus-smoke-one:stopped:smoke-stop-g1-after-power-1",
+    "status:connection:incus-smoke-one", "status:connection:incus-smoke-one",
+    "power:connection:incus-smoke-one:running:smoke-start-g1-after-power-2",
     "status:connection:incus-smoke-one", "status:connection:incus-smoke-one",
     "inspect:fixture-binding:incus-smoke-one", "destroy:connection:incus-smoke-one"]);
+});
+
+test("an unknown power result replays its saved receipt and blocks the opposite transition", async () => {
+  calls.length = 0;
+  latestOperation = operation;
+  observedState = "STOPPED";
+  nextPowerState = "OUTCOME_UNKNOWN";
+  const first = await POST(event(admin, { ...scope, action: "start" }));
+  expect((await first.json()).operation).toMatchObject({ state: "OUTCOME_UNKNOWN" });
+  const replay = await POST(event(admin, { ...scope, action: "start" }));
+  expect((await replay.json()).operation).toMatchObject({ id: latestOperation.id, state: "OUTCOME_UNKNOWN" });
+  expect((await POST(event(admin, { ...scope, action: "stop" }))).status).toBe(409);
+  expect(calls.filter(call => call.startsWith("power:"))).toHaveLength(1);
+});
+
+test("power denies a predecessor from another binding generation", async () => {
+  calls.length = 0;
+  latestOperation = { ...operation, generation: 2 };
+  observedState = "STOPPED";
+  expect((await POST(event(admin, { ...scope, action: "start" }))).status).toBe(409);
+  expect(calls).toEqual(["status:connection:incus-smoke-one"]);
 });
 
 test("fixed marker is read back and replay does not overwrite it", async () => {

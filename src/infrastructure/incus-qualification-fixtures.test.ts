@@ -192,6 +192,21 @@ test("fixture status stays in exact scope and exposes safe durable state", async
     .rejects.toThrow("fixture is unavailable");
 });
 
+test("fixture status follows controller sequence when create, start, and stop share a timestamp", async () => {
+  const { db, service } = await setup();
+  const created = await service.create(scope, "fixture-order");
+  const started = await service.setPower(scope, "fixture-order", "running", "order-start");
+  const stopped = await service.setPower(scope, "fixture-order", "stopped", "order-stop");
+  const sameTime = new Date("2026-09-23T00:00:00.000Z");
+  for (const [id, replacement] of [[created.id, "z-create"], [started.id, "y-start"],
+    [stopped.id, "a-stop"]] as const) {
+    await db.update(schema.sandboxOperations).set({ id: replacement, createdAt: sameTime })
+      .where(eq(schema.sandboxOperations.id, id));
+  }
+  expect((await service.status(scope, "fixture-order")).operation).toMatchObject({ id: "a-stop",
+    kind: "STOP", state: "SUCCEEDED" });
+}, 30_000);
+
 test("fixture power uses inspected generation, durable idempotency, and exact ownership", async () => {
   const { service, dispatches, db } = await setup(true, false, 7);
   await service.create(scope, "fixture-power");

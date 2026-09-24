@@ -52,6 +52,28 @@ async function exactFile(witness: IncusHostLiveWitness, handle: LiveFixtureHandl
   if (!Buffer.from(observed).equals(Buffer.from(expected))) throw new Error("Incus smoke guest file changed");
 }
 
+async function power(service: IncusQualificationFixtureService, scope: IncusQualificationScope,
+  operationId: string, action: "start" | "stop") {
+  const status = await service.status(scope, operationId);
+  const prior = status.operation;
+  const kind = action === "start" ? "START" : "STOP";
+  if (!prior || !identifier.test(prior.id) || prior.generation !== status.binding.generation) {
+    throw new Error("Incus smoke power predecessor is unavailable");
+  }
+  // The current durable receipt is the result of this step, even when its
+  // provider reply was lost. A later opposite step creates a new predecessor.
+  if (prior.kind === kind) return prior;
+  const expectedState = action === "start" ? "STOPPED" : "RUNNING";
+  if (prior.state !== "SUCCEEDED"
+    || status.binding.desiredState !== expectedState || status.binding.observedState !== expectedState
+    || action === "start" && prior.kind !== "CREATE" && prior.kind !== "STOP"
+    || action === "stop" && prior.kind !== "START") {
+    throw new Error("Incus smoke power predecessor is not settled");
+  }
+  return service.setPower(scope, operationId, action === "start" ? "running" : "stopped",
+    `smoke-${action}-g${status.binding.generation}-after-${prior.id}`);
+}
+
 export const POST: RequestHandler = async ({ locals, request }) => {
   const admin = requireAdminSession(locals);
   if (admin instanceof Response) return admin;
@@ -75,8 +97,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       || input.action === "start" || input.action === "stop") {
       const operation = input.action === "create" ? await service.create(input.scope, input.operationId)
         : input.action === "destroy" ? await service.destroy(input.scope, input.operationId)
-          : await service.setPower(input.scope, input.operationId,
-            input.action === "start" ? "running" : "stopped", `smoke-${input.action}`);
+          : await power(service, input.scope, input.operationId, input.action);
       return json({ operation: operationState(operation) }, { status: 202 });
     }
     const status = await service.status(input.scope, input.operationId);

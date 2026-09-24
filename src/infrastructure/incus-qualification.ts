@@ -372,7 +372,8 @@ export class IncusQualificationFixtureService {
       providerOperationId: sandboxOperations.providerOperationId, errorCode: sandboxOperations.errorCode,
       createdAt: sandboxOperations.createdAt, updatedAt: sandboxOperations.updatedAt })
       .from(sandboxOperations).where(eq(sandboxOperations.bindingId, row.bindingId))
-      .orderBy(desc(sandboxOperations.createdAt), desc(sandboxOperations.id)).limit(1);
+      .orderBy(desc(sandboxOperations.reconcileOrder), desc(sandboxOperations.createdAt),
+        desc(sandboxOperations.id)).limit(1);
     return { fixture: { operationId: row.operationId, installationId: row.installationId,
       releaseId: row.releaseId, connectionId: row.connectionId, connectionRevision: row.connectionRevision,
       presetId: row.presetId, projectId: row.projectId, bindingId: row.bindingId },
