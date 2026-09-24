@@ -83,7 +83,8 @@ export function extractSpecifiers(source: string): string[] {
  * would force duplicating the very constant the guard exists to compare
  * against. This is a principled distinction, not a per-file allowlist.
  *
- * A test path is a test or spec file, anything under a `__tests__/` directory,
+ * A test path is a test or spec file (`.test.`, `.spec.`, or the Playwright
+ * `.pw.` suffix a qualification config selects), anything under a `__tests__/` directory,
  * the root `tests/` tree (the PostgreSQL helpers), the Playwright tree
  * `web/e2e/`, and a package's own top-level `test/` or `tests/` directory.
  * Directory names are anchored to those roots, because production code also
@@ -91,7 +92,7 @@ export function extractSpecifiers(source: string): string[] {
  * route, not a test.
  */
 export function isTestPath(p: string): boolean {
-  return /(?:\.(?:test|spec)(?:\.|$)|__tests__\/|^tests\/|^web\/e2e\/|^packages\/@ezcorp\/[^/]+\/tests?\/)/.test(p);
+  return /(?:\.(?:test|spec|pw)(?:\.|$)|__tests__\/|^tests\/|^web\/e2e\/|^packages\/@ezcorp\/[^/]+\/tests?\/)/.test(p);
 }
 
 /**

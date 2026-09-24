@@ -2457,10 +2457,10 @@ describe("check-boundaries: only a test may import test code", () => {
   });
 
   test("the definition of a test path covers each test tree and nothing in production", () => {
-    for (const p of ["src/__tests__/x.ts", "a/b.test.ts", "a/b.spec.ts", "a/b.test", "tests/postgres/helpers/x.ts", "packages/@ezcorp/x/tests/h.ts", "packages/@ezcorp/x/test/h.ts", "web/e2e/fixtures/m.ts"]) {
+    for (const p of ["src/__tests__/x.ts", "a/b.test.ts", "a/b.spec.ts", "a/b.test", "tests/postgres/helpers/x.ts", "packages/@ezcorp/x/tests/h.ts", "packages/@ezcorp/x/test/h.ts", "web/e2e/fixtures/m.ts", "web/qualification/local-sandbox/local-mvp.pw.ts"]) {
       expect(isTestPath(p), p).toBe(true);
     }
-    for (const p of ["src/factory/boot.ts", "web/src/lib/server/factory/route-kit.ts", "scripts/check-boundaries.ts", "packages/@ezcorp/x/src/testing.ts", "src/contests/x.ts", "web/src/routes/e2e/x.ts", "web/src/routes/api/providers/local/test/+server.ts", "src/lib/tests/x.ts"]) {
+    for (const p of ["src/factory/boot.ts", "web/src/lib/server/factory/route-kit.ts", "scripts/check-boundaries.ts", "packages/@ezcorp/x/src/testing.ts", "src/contests/x.ts", "web/src/routes/e2e/x.ts", "web/src/routes/api/providers/local/test/+server.ts", "src/lib/tests/x.ts", "web/qualification/local-sandbox/playwright.config.ts", "src/pwd.ts"]) {
       expect(isTestPath(p), p).toBe(false);
     }
   });
