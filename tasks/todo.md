@@ -1773,3 +1773,16 @@ The pushed head `94a2fd43f` passed the repository pre-push lint, typecheck, and 
 ### Review
 
 The gate runs approved commands directly without a shell. It starts with a fixed read-only policy; an administrator must approve the exact saved plan digest before the route exports any write policy or Apply starts. Approval and export audit the digest and write deadline. Release, connection, mode, latest-plan, and live inventory checks bind the export to current state. Apply envelopes carry the plan digest; the gate rejects a mismatched policy before a shared write. It rejects expired writes but permits inventory reads. A fresh export for the same current approved plan remains possible; uncertain effects still require reconciliation. The operator must replace the full policy with read-only or disable the key after Apply. Nine Python gate tests, 47 focused Bun tests, 11 route tests, repository typecheck, focused Biome check, and production build passed. The old SSH transport stays active until a separate server change is reviewed and tested; no live host or app setting changed in this worktree.
+# Isolated Incus qualification sealed settings
+
+- [x] Inspect the existing launcher, dedicated-UID preflight, and NixOS module paths.
+- [x] Add pinned process-environment capture and private candidate generation.
+- [x] Add negative and fake-process tests.
+- [x] Run focused tests and syntax checks; review the generated file contract.
+
+Review: Five disposable tests pass, including capture from a fake running
+process, stale process start time, unexpected keys, and missing hold evidence.
+The current isolated process has the expected key names and its values pass
+the literal parser; no values were printed. The generated app and runner
+keys match the existing dedicated-UID parser. The supervisor public-key
+delivery remains an activation gate. No live app or server files changed.

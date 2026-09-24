@@ -30,6 +30,48 @@ The preflight checks ownership, path traversal, and that exact entrypoint.
 
 ## 2. Prepare sealed settings
 
+The [candidate settings tool](../scripts/incus/prepare-qualification-settings.py)
+can make the three environment files and runner token before the database
+cutover. Use a private root-owned mode `0700` staging directory outside
+`/etc`. Its manifest is root-owned mode `0600` and names the old app PID,
+the process start ticks from `/proc/PID/stat`, the host boot ID from
+`/proc/sys/kernel/random/boot_id`, old and new database and
+project paths, and every reviewed runner, supervisor, and SSH path. It has an
+exact key set. An operator must hold ingress and runner clients, then make
+a root-owned mode `0600` hold receipt with exactly
+`sourcePid`, `sourceStartTicks`, `sourceBootId`, `sourceDb`, and
+`trafficHeld: true`.
+The receipt records an operator assertion; the tool cannot prove traffic is
+held. The pinned old process must still run for the one-time capture. Run:
+
+```sh
+sudo python3 scripts/incus/prepare-qualification-settings.py \
+  --manifest /root/incus-qualification-settings.json prepare --execute
+sudo python3 scripts/incus/prepare-qualification-settings.py \
+  --manifest /root/incus-qualification-settings.json check
+```
+
+The tool reads the actual old process environment, checks its PID, start time,
+UID, database, project root, port, and local origin, and refuses
+`DATABASE_URL` or unknown `EZCORP_` keys. It does not execute the old
+launcher, whose crypto values were generated at start. It writes root-owned
+mode `0600` candidates for `old-isolated.env`, `qualification.env`,
+`qualification-runner.env`, and `qualification-runner-token`, plus a
+hash-only receipt. It prints no secret values. Only the new app settings
+refer to the reviewed dedicated-UID socket, token, setup key, and supervisor
+paths. The tool does not copy the developer's SSH key. Review file hashes
+and paths, then copy the exact candidates to the NixOS module's reviewed
+`/etc/ezharness` paths in a separate cutover step. Stop the old app and
+runner before the database stage. A fresh final `check` and the existing
+`prepare-dedicated-uid.py check` are required at their respective gates.
+The latter requires the dedicated runner's runtime token and directory.
+Provision and review those before the database stage; candidate generation
+alone does not create them.
+The live qualification witness also needs the supervisor's Ed25519 public
+key in `EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY`. Its reviewed delivery to the
+app environment is a separate activation gate; this tool does not invent
+or embed the key.
+
 Prepare two root-owned mode `0600` environment files: one exact baseline
 for the old isolated app and one for the new app. They must keep
 `EZCORP_ENCRYPTION_SECRET`, `EZCORP_ENCRYPTION_SALT`, and
