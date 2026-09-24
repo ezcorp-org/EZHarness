@@ -143,3 +143,41 @@ export function classifyProviderError(errorMessage: string | undefined | null): 
   if (ANTHROPIC_OVERLOADED_STATUS.test(errorMessage)) return "retry-then-failover";
   return "rethrow";
 }
+
+/**
+ * What a failure WAS, for the person reading the error card — separate from
+ * {@link classifyProviderError}, which decides what to DO about it.
+ *
+ * The distinction matters most for a rate limit. A 429 from a free model is a
+ * brief, per-model condition, usually imposed by the company actually serving
+ * the model behind a gateway (Kilo reports it in `metadata.provider_name`,
+ * e.g. "Poolside"). Rendering it as "Kilo is unavailable right now. All
+ * providers are currently unavailable" sends the user looking for an outage or
+ * a misconfiguration that does not exist.
+ */
+export interface ProviderFailureDetail {
+  /** Set only for a transient rate limit (never for a quota/billing limit). */
+  reason?: "rate_limited";
+  /** The upstream serving company, when a gateway names it. */
+  upstreamProvider?: string;
+}
+
+// A 429 status or the words "rate limit" / "rate-limited" / "too many requests".
+const RATE_LIMIT_PATTERN = /\b429\b|rate[\s_-]?limit|too many requests/i;
+// Kilo/OpenRouter embed the serving company in the error JSON's metadata. The
+// value is bounded and quote-free so a malformed payload cannot smuggle
+// arbitrary text into the UI.
+const UPSTREAM_PROVIDER_PATTERN = /"provider_name"\s*:\s*"([^"\\]{1,60})"/;
+
+export function describeProviderFailure(errorMessage: string | undefined | null): ProviderFailureDetail {
+  if (!errorMessage) return {};
+  const detail: ProviderFailureDetail = {};
+  // An account/billing limit is NOT a brief rate limit even when it arrives as
+  // a 429 — telling the user to "retry in a moment" would be wrong there.
+  if (RATE_LIMIT_PATTERN.test(errorMessage) && !ACCOUNT_LIMIT_PATTERN.test(errorMessage)) {
+    detail.reason = "rate_limited";
+  }
+  const upstream = UPSTREAM_PROVIDER_PATTERN.exec(errorMessage)?.[1]?.trim();
+  if (upstream) detail.upstreamProvider = upstream;
+  return detail;
+}

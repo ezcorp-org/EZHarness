@@ -7,7 +7,7 @@ import { Agent } from "@earendil-works/pi-agent-core";
 import { streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Message } from "../../types";
 import { resolveModelForCredential } from "../../providers/registry";
-import { getCredential } from "../../providers/credentials";
+import { getCredential, withKeylessAuth } from "../../providers/credentials";
 import type { StreamChatContext } from "./context";
 import type { SetupToolsResult } from "./setup-tools";
 import { makeCompactionTransform, type CompactionConfig } from "./context-compaction";
@@ -68,10 +68,13 @@ export function buildPiAgent(
   // Shared with providers/llm.ts (streamLLM/completeLLM) via
   // resolveModelForCredential so the chat path and background LLM calls
   // can never diverge on OAuth handling.
-  const model = resolveModelForCredential(
-    resolved.piModel,
-    resolved.provider,
-    initialCred.type,
+  //
+  // withKeylessAuth: the Agent forwards a fixed config to pi-ai, never call
+  // headers, so a keyless credential's "send no Authorization" rule has to
+  // ride on the model — see KEYLESS_TOKEN in providers/credentials.ts.
+  const model = withKeylessAuth(
+    resolveModelForCredential(resolved.piModel, resolved.provider, initialCred.type),
+    initialCred.token,
   );
 
   // Prefix-cache retention for THIS turn. Anthropic caches the system

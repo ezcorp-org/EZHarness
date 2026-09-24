@@ -35,21 +35,24 @@ ez-corp-db
 #
 # `worktrees` is PATH-EXACT — it matches the top-level dir and nothing
 # else — so it did NOT cover `.claude/worktrees/`, where the Agent tool's
-# `isolation: "worktree"` puts every spawned agent's checkout. AGENTS.md
-# mandates that isolation, so the mandated workflow is what fills the
-# directory. Measured on the primary dev box: 101 worktrees, 26 GB,
+# automatic isolation used to put checkouts. Measured on the primary dev box:
+# 101 worktrees, 26 GB,
 # 5,326,186 files, against 80,368 files in the actual repo. A bare
 # `FROM scratch` + `COPY . /x` probe hit 21.67 GB and was still climbing
 # after 12 minutes; with the `**/` forms below the same probe transfers
 # 96.58 MB in 0.9s.
 #
-# Keep BOTH spellings: the bare name is the documented-exact match, and
+# Keep the legacy and canonical names: the bare name is an exact match, and
 # `**/`-prefixed handling of a zero-depth match is not worth relying on.
 # Same reasoning as `web/node_modules` on line 2 and the `**/`-prefixed
 # test excludes at the bottom of this file — this is the third instance
-# of the same trap.
+# of the same trap. Mutation sandboxes also contain copied credentials.
 worktrees
 **/worktrees
+.worktrees
+**/.worktrees
+web/.stryker-tmp
+**/.stryker-tmp
 **/node_modules
 # Agent scratch (see above) plus per-machine Claude Code config.
 .claude

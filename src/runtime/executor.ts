@@ -27,6 +27,8 @@ import { setupTools } from "./stream-chat/setup-tools";
 import { applyAutoSpinUp } from "./stream-chat/auto-spin-up";
 import { buildPiAgent } from "./stream-chat/build-pi-agent";
 import { runWithFailover } from "./stream-chat/failover";
+import { describeProviderFailure } from "./stream-chat/provider-error-classifier";
+import { kiloModelFallbackFor } from "./routing/kilo-catalog";
 import { buildPromptInput } from "./stream-chat/build-prompt";
 import { suggestFallback } from "../providers/router";
 import { ToolExecutor } from "../extensions/tool-executor";
@@ -1448,6 +1450,12 @@ export class AgentExecutor {
             ? agent.prompt(promptInput, attachmentImages)
             : agent.prompt(promptInput),
         suggestFallback,
+        // A rate-limited FREE Kilo model retries on kilo-auto/free before
+        // Kilo itself is blamed (see kiloModelFallbackFor for the rule).
+        suggestModelFallback: (failed, errorMessage) => {
+          const model = kiloModelFallbackFor(failed.provider, failed.model, describeProviderFailure(errorMessage).reason);
+          return model ? { provider: failed.provider, model, tier: resolvedModel.effectiveTier } : null;
+        },
         resolveAttempt: async (suggestion) => {
           const attempt = await resolveFailoverAttempt(suggestion, credentialConversationId);
           // GoalHost continues from run.provider/run.model, so both must
