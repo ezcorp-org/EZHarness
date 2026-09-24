@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, test } from "bun:test";
-import { generateKeyPairSync } from "node:crypto";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { generateKeyPairSync, type KeyPairKeyObjectResult } from "node:crypto";
 import { chmod, copyFile, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
@@ -9,13 +9,18 @@ import type { FactoryPoolReadinessUpdate } from "./readiness";
 const directories: string[] = [];
 afterEach(async () => { await Promise.all(directories.splice(0).map(path => rm(path, { recursive: true, force: true }))); });
 
+// Key generation is the slow part of a fixture, and a fixture only reads these, so one set serves the file.
+const shared: string[] = [];
+let certs: Awaited<ReturnType<typeof certificates>>;
+let keys: KeyPairKeyObjectResult;
+beforeAll(async () => { certs = await certificates(shared); keys = generateKeyPairSync("rsa", { modulusLength: 2048 }); });
+afterAll(async () => { await Promise.all(shared.map(path => rm(path, { recursive: true, force: true }))); });
+
 async function fixture(overrides: Record<string, unknown> = {}) {
-  const certs = await certificates(directories);
-  const certificateRoot = directories.at(-1)!;
+  const certificateRoot = shared[0]!;
   const root = await mkdtemp(join(process.env.HOME!, ".factory-pool-process-")); directories.push(root);
   await Promise.all(["server.key", "server.pem", "ca.pem"].map(name => copyFile(join(certificateRoot, name), join(root, name))));
   await Promise.all(["server.key", "server.pem", "ca.pem"].map(name => chmod(join(root, name), 0o600)));
-  const keys = generateKeyPairSync("rsa", { modulusLength: 2048 });
   const paths = { config: join(root, "pool.json"), database: join(root, "database.json"), publicKey: join(root, "token.pem"), readiness: join(root, "ready.json") };
   await Promise.all([
     writeFile(paths.database, JSON.stringify({ databaseUrl: "postgres://pool_role:private-secret@localhost:5432/pool_db" }), { mode: 0o600 }),
