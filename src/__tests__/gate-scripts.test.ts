@@ -50,6 +50,7 @@ import {
 import {
   ratchetViolation,
 } from "../../scripts/typecheck-tests.ts";
+
 import {
   type AllowlistEntry,
   AuditUnavailableError,
@@ -77,6 +78,46 @@ import {
   WORKER_FORBIDDEN_SUBSYSTEMS,
 } from "../../scripts/check-boundaries.ts";
 
+function fixtureGitEnv(ambient: NodeJS.ProcessEnv = process.env): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(ambient)) {
+    if (!name.startsWith("GIT_") && value !== undefined) env[name] = value;
+  }
+  env.GIT_CONFIG_GLOBAL = "/dev/null";
+  env.GIT_CONFIG_SYSTEM = "/dev/null";
+  return env;
+}
+
+test("fixture Git commands ignore a hook's parent repository", () => {
+  const root = mkdtempSync(join(tmpdir(), "gate-git-env-"));
+  const parent = join(root, "parent");
+  const fixture = join(root, "fixture");
+  try {
+    mkdirSync(parent);
+    mkdirSync(fixture);
+    const git = (cwd: string, env: Record<string, string>, ...args: string[]) => Bun.spawnSync(
+      ["git", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" },
+    );
+    const clean = fixtureGitEnv();
+    expect(git(parent, clean, "init", "--quiet").exitCode).toBe(0);
+
+    const poisoned = {
+      ...process.env,
+      GIT_DIR: join(parent, ".git"),
+      GIT_INDEX_FILE: join(parent, ".git", "index"),
+      GIT_PREFIX: "parent/",
+    };
+    const isolated = fixtureGitEnv(poisoned);
+    expect(git(fixture, isolated, "init", "--quiet").exitCode).toBe(0);
+    expect(git(fixture, isolated, "config", "user.name", "Patch fixture").exitCode).toBe(0);
+    expect(git(fixture, isolated, "config", "user.email", "patch-fixture@example.test").exitCode).toBe(0);
+    expect(git(fixture, isolated, "config", "--get", "user.name").stdout.toString().trim()).toBe("Patch fixture");
+    expect(git(parent, clean, "config", "--local", "--get", "user.name").exitCode).toBe(1);
+    expect(existsSync(join(fixture, ".git", "config"))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 // ── gate-integrity: isolated parser dependency ─────────────────────────────
 describe("gate-integrity: isolated parser dependency", () => {
   const repoRoot = join(import.meta.dir, "..", "..");
@@ -105,7 +146,7 @@ describe("gate-integrity: isolated parser dependency", () => {
       writeFileSync(testPath, 'import { expect, test } from "bun:test";\ntest("base", () => expect(true).toBe(true));\n');
 
       const git = (...args: string[]) => {
-        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, env: fixtureGitEnv(), stdout: "pipe", stderr: "pipe" });
         expect(proc.exitCode).toBe(0);
       };
       git("init", "--quiet");
@@ -127,7 +168,7 @@ describe("gate-integrity: isolated parser dependency", () => {
       expect(existsSync(join(fixture, "node_modules"))).toBe(false);
       const runGate = (nodePath?: string) => Bun.spawnSync([process.execPath, "scripts/gate-integrity.ts"], {
         cwd: fixture,
-        env: { ...process.env, BASE_REF: "gate-base", NODE_PATH: nodePath ?? "" },
+        env: { ...fixtureGitEnv(), BASE_REF: "gate-base", NODE_PATH: nodePath ?? "" },
         stdout: "pipe",
         stderr: "pipe",
       });
@@ -143,7 +184,7 @@ describe("gate-integrity: isolated parser dependency", () => {
         ".github/gate-integrity-deps",
         "--frozen-lockfile",
         "--ignore-scripts",
-      ], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+      ], { cwd: fixture, env: fixtureGitEnv(), stdout: "pipe", stderr: "pipe" });
       expect(install.exitCode).toBe(0);
       expect(existsSync(join(fixture, "node_modules"))).toBe(false);
 
@@ -196,7 +237,7 @@ describe("coverage diff gates: dependency-free Git controls", () => {
       writeFileSync(join(fixture, "scripts/coverage-thresholds.json"), '{ "src/new.ts": 100 }\n');
 
       const git = (...args: string[]) => {
-        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, stdout: "pipe", stderr: "pipe" });
+        const proc = Bun.spawnSync(["git", ...args], { cwd: fixture, env: fixtureGitEnv(), stdout: "pipe", stderr: "pipe" });
         expect(proc.exitCode).toBe(0);
       };
       git("init", "--quiet");
@@ -223,7 +264,7 @@ describe("coverage diff gates: dependency-free Git controls", () => {
       expect(existsSync(join(fixture, "node_modules"))).toBe(false);
       const runGate = (script: string, base: string) => Bun.spawnSync([process.execPath, script], {
         cwd: fixture,
-        env: { ...process.env, BASE_REF: base, NODE_PATH: "" },
+        env: { ...fixtureGitEnv(), BASE_REF: base, NODE_PATH: "" },
         stdout: "pipe",
         stderr: "pipe",
       });
