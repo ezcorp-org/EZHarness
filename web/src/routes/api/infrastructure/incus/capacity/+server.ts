@@ -13,7 +13,7 @@ const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 const defaultDependencies = { bootstrapFromEnvironment, getExtensionLifecycle, getDb, ProviderConnectionStore,
   IncusCapacityService, resolveActiveRelease, getReleaseRuntime };
 
-export async function createService(dependencies: typeof defaultDependencies): Promise<IncusCapacityService | null> {
+export async function _createService(dependencies: typeof defaultDependencies): Promise<IncusCapacityService | null> {
   const bootstrap = dependencies.bootstrapFromEnvironment();
   if (!bootstrap) return null;
   await dependencies.getExtensionLifecycle();
@@ -40,7 +40,7 @@ async function boundedBody(request: Request): Promise<unknown> {
   finally { reader.releaseLock(); }
 }
 
-export function createCapacityHandlers(resolveService: () => Promise<IncusCapacityService | null>) {
+export function _createCapacityHandlers(resolveService: () => Promise<IncusCapacityService | null>) {
 const GET: RequestHandler = async ({ locals, url }) => {
   const admin = requireAdminSession(locals);
   if (admin instanceof Response) return admin;
@@ -84,4 +84,4 @@ const POST: RequestHandler = async ({ locals, request }) => {
 return { GET, POST };
 }
 
-export const { GET, POST } = createCapacityHandlers(() => createService(defaultDependencies));
+export const { GET, POST } = _createCapacityHandlers(() => _createService(defaultDependencies));

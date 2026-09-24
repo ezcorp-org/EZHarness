@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createCapacityHandlers, createService, GET, POST } from "./+server";
+import { _createCapacityHandlers, _createService, GET, POST } from "./+server";
 
 const admin = { user: { id: "admin", role: "admin" }, authMethod: "session" };
 const url = "http://localhost/api/infrastructure/incus/capacity";
@@ -47,10 +47,10 @@ test("capacity service uses the configured bootstrap, database, and active relea
     IncusCapacityService: class { constructor(value: Record<string, unknown>) { options = value; } },
     resolveActiveRelease: async (id: string, runtime: unknown) => ({ id, runtime }),
     getReleaseRuntime: () => "runtime",
-  } as unknown as Parameters<typeof createService>[0];
-  expect(await createService({ ...dependencies, bootstrapFromEnvironment: () => null })).toBeNull();
+  } as unknown as Parameters<typeof _createService>[0];
+  expect(await _createService({ ...dependencies, bootstrapFromEnvironment: () => null })).toBeNull();
   expect(calls).toEqual([]);
-  expect(await createService(dependencies)).toBeTruthy();
+  expect(await _createService(dependencies)).toBeTruthy();
   expect(calls).toEqual(["lifecycle"]);
   expect(options?.database).toBe(database);
   expect(options?.bootstrap).toBe(bootstrap.ssh);
@@ -69,8 +69,8 @@ test("capacity handlers return the reviewed plan, apply receipt, and saved recei
       calls.push(["apply", value, digest, principal]); return receipt;
     },
     status: async (setupId: string) => { calls.push(["status", setupId]); return receipt; },
-  } as unknown as NonNullable<Awaited<ReturnType<Parameters<typeof createCapacityHandlers>[0]>>>;
-  const handlers = createCapacityHandlers(async () => capacity);
+  } as unknown as NonNullable<Awaited<ReturnType<Parameters<typeof _createCapacityHandlers>[0]>>>;
+  const handlers = _createCapacityHandlers(async () => capacity);
   const digest = "a".repeat(64);
   const planned = await handlers.POST(event(admin, { action: "plan", setupId: "setup:1" }));
   expect(planned.status).toBe(200);
@@ -85,8 +85,8 @@ test("capacity handlers return the reviewed plan, apply receipt, and saved recei
 });
 
 test("capacity handlers report missing bootstrap and service failures", async () => {
-  const missing = createCapacityHandlers(async () => null);
-  const failing = createCapacityHandlers(async () => { throw new Error("service failed"); });
+  const missing = _createCapacityHandlers(async () => null);
+  const failing = _createCapacityHandlers(async () => { throw new Error("service failed"); });
   for (const handlers of [missing, failing]) {
     const expected = handlers === missing ? { status: 503, code: "bootstrap_not_configured" }
       : { status: 409, code: "capacity_unavailable" };
@@ -98,11 +98,11 @@ test("capacity handlers report missing bootstrap and service failures", async ()
       expect((await response.json()).code).toBe(expected.code);
     }
   }
-  const operationFails = createCapacityHandlers(async () => ({
+  const operationFails = _createCapacityHandlers(async () => ({
     status: async () => { throw new Error("status failed"); },
     plan: async () => { throw new Error("plan failed"); },
     apply: async () => { throw new Error("apply failed"); },
-  }) as unknown as NonNullable<Awaited<ReturnType<Parameters<typeof createCapacityHandlers>[0]>>>);
+  }) as unknown as NonNullable<Awaited<ReturnType<Parameters<typeof _createCapacityHandlers>[0]>>>);
   const digest = "a".repeat(64);
   expect((await operationFails.GET({ locals: admin, url: new URL(`${url}?setupId=setup`) } as Parameters<typeof GET>[0])).status).toBe(409);
   expect((await operationFails.POST(event(admin, { action: "plan", setupId: "setup" }))).status).toBe(409);
@@ -111,7 +111,7 @@ test("capacity handlers report missing bootstrap and service failures", async ()
 
 test("capacity handlers reject malformed or missing JSON before service access", async () => {
   let serviceCalls = 0;
-  const handlers = createCapacityHandlers(async () => { serviceCalls++; return null; });
+  const handlers = _createCapacityHandlers(async () => { serviceCalls++; return null; });
   for (const body of ["{broken", "[]", "null", "42"]) {
     const request = new Request(url, { method: "POST", headers: { origin: "http://localhost", "content-type": "application/json" }, body });
     expect((await handlers.POST({ locals: admin, request } as Parameters<typeof POST>[0])).status).toBe(400);
