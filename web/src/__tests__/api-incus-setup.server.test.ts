@@ -186,4 +186,11 @@ test("unknown probe failures expose only fixed diagnostic labels", async () => {
 	expect(structuralBody.diagnostic).toEqual({ errorType: "RunnerError", errorCode: "extension_error", source: "other",
 		shape: "object", hasMessage: true, hasError: true, hasKind: false, hasStatus: false });
 	expect(JSON.stringify(structuralBody)).not.toContain("private-key-must-never-escape");
+	failure = Object.assign(new Error("Host capability denied or failed"), { name: "RunnerError", code: "extension_error" });
+	const deniedBody = await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json();
+	expect(deniedBody.diagnostic.runnerReason).toBe("host_transport_denied");
+	failure = Object.assign(new Error("Incus required controls are unavailable: boundedOutput, durableProcesses"),
+		{ name: "RunnerError", code: "extension_error" });
+	const controlsBody = await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json();
+	expect(controlsBody.diagnostic.runnerReason).toBe("unverified_guest_controls");
 });

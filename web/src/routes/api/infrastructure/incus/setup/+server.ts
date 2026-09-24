@@ -10,6 +10,29 @@ import { releaseRows } from "$server/db/queries/extension-releases";
 import type { RequestHandler } from "./$types";
 
 const identifier = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
+const knownControls = new Set(["unprivileged", "projectLimits", "privateNetwork", "explicitGuestUser",
+  "atomicFileReplace", "durableProcesses", "boundedOutput", "endpointProxy"]);
+
+function unverifiedControls(message: string): string[] {
+  const prefix = "Incus required controls are unavailable: ";
+  if (!message.startsWith(prefix)) return [];
+  const controls = message.slice(prefix.length).split(", ");
+  return controls.length && controls.every(control => knownControls.has(control)) ? controls : [];
+}
+
+function runnerReason(message: string): string | undefined {
+  if (unverifiedControls(message).length) return "unverified_guest_controls";
+  const reasons: Record<string, string> = {
+    "Host capability denied or failed": "host_transport_denied",
+    "The Incus service is unavailable": "incus_service_unavailable",
+    "The Incus request was denied": "incus_request_denied",
+    "The Incus request deadline was exceeded": "incus_request_timeout",
+    "The Incus transport failed": "incus_transport_failed",
+    "Incus helper version pin does not match": "helper_version_unverified",
+    "Incus nested Compose support is unavailable": "nested_compose_unverified",
+  };
+  return Object.hasOwn(reasons, message) ? reasons[message] : undefined;
+}
 
 async function service(requireRecipe = false): Promise<IncusOperatorSetupService | Response> {
   const bootstrap = bootstrapFromEnvironment();
@@ -29,12 +52,8 @@ function safeError(error: unknown): Response {
   // codes and the bounded control names that this host probe can attest.
   const code = error && typeof error === "object" && "code" in error ? error.code : undefined;
   if (code === "UNSUPPORTED_PROVIDER") {
-    const prefix = "Incus required controls are unavailable: ";
-    const controls = message.startsWith(prefix) ? message.slice(prefix.length).split(", ") : [];
-    const knownControls = new Set(["unprivileged", "projectLimits", "privateNetwork", "explicitGuestUser",
-      "atomicFileReplace", "durableProcesses", "boundedOutput", "endpointProxy"]);
-    const detail = controls.length && controls.every(control => knownControls.has(control))
-      ? ` Unverified controls: ${controls.join(", ")}.` : "";
+    const controls = unverifiedControls(message);
+    const detail = controls.length ? ` Unverified controls: ${controls.join(", ")}.` : "";
     return json({ code: "provider_preflight_unverified",
       message: `Incus provider preflight could not verify the required capabilities.${detail}` }, { status: 409 });
   }
@@ -68,8 +87,10 @@ function safeError(error: unknown): Response {
     : firstFrame.includes("incus-transport/") ? "incus_transport" : "other";
   const shape = typeof error === "string" ? "string" : Array.isArray(error) ? "array"
     : record ? "object" : error === null ? "null" : "other";
+  const boundedRunnerReason = errorType === "RunnerError" && code === "extension_error" ? runnerReason(message) : undefined;
   return json({ code: "setup_failed", message: "Incus setup failed. Check host logs and inspect the saved plan.",
     diagnostic: { errorType, ...(errorCode ? { errorCode } : {}), source, shape,
+      ...(boundedRunnerReason ? { runnerReason: boundedRunnerReason } : {}),
       ...(record ? { hasMessage: typeof record.message === "string", hasError: Object.hasOwn(record, "error"),
         hasKind: Object.hasOwn(record, "kind"), hasStatus: Object.hasOwn(record, "status") } : {}) } }, { status: 409 });
 }
