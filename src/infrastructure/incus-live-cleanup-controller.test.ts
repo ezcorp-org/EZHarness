@@ -66,8 +66,19 @@ function harness(fault?: "readback" | "other-operation" | "readiness" | "expired
   const reopen = () => new IncusLiveCleanupController({ db, fixtures,
     qualifications: {} as IncusQualificationStore, readinessProjectId: "controlled-user-project",
     checkpoints, fault: async () => operatorFault, freshFeatureGate: () => featureGate, now: () => now });
-  return { controller: reopen(), reopen, calls, completed: () => { phase = 2; } };
+  const reopenWithDefaultGate = () => new IncusLiveCleanupController({ db, fixtures,
+    qualifications: {} as IncusQualificationStore, readinessProjectId: "controlled-user-project",
+    checkpoints, fault: async () => operatorFault, now: () => now });
+  return { controller: reopen(), reopen, reopenWithDefaultGate, calls, completed: () => { phase = 2; } };
 }
+
+test("the default production readiness gate denies an unprepared user project", async () => {
+  const { controller, reopenWithDefaultGate, calls } = harness();
+  await expect(controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
+  await expect(reopenWithDefaultGate().attemptReadiness(scope, handle))
+    .rejects.toThrow("Incus feature project is unavailable");
+  expect(calls).toEqual(["destroy", "readback"]);
+});
 
 test("reopened controller resumes the exact uncertain destroy from durable identities", async () => {
   const { controller, reopen, calls } = harness();

@@ -209,6 +209,25 @@ class DedicatedUidStageTest(unittest.TestCase):
                                    "runnerSocket": "/run/old/runner.sock"},
                                   pathlib.Path("/tmp/old-db"))
 
+    def test_kernel_thread_without_environment_does_not_block_old_client_scan(self):
+        with tempfile.TemporaryDirectory() as temp:
+            proc = pathlib.Path(temp)
+            for pid in ("2", "3"):
+                (proc / pid).mkdir()
+                (proc / pid / "environ").write_bytes(b"")
+                (proc / pid / "cmdline").write_bytes(b"")
+            original_read = pathlib.Path.read_bytes
+
+            def read_process_file(path):
+                if path.parent.name == "2" and path.name == "environ":
+                    raise ProcessLookupError("kernel thread has no environment")
+                return original_read(path)
+
+            value = {"oldProcessIds": [], "runnerProcessIds": [],
+                     "runnerSocket": "/run/old/runner.sock"}
+            with mock.patch.object(pathlib.Path, "read_bytes", read_process_file):
+                MODULE.no_old_clients(value, proc / "old-db", proc)
+
     def test_runner_token_rejects_shared_old_uid_owner(self):
         with tempfile.TemporaryDirectory() as temp:
             token = pathlib.Path(temp) / "token"

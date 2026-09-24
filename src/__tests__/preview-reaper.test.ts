@@ -186,7 +186,8 @@ describe("reapPreviewConversation — default (live) revoke seam", () => {
     const { createConversation } = await import("../db/queries/conversations");
     const { createPreviewSession, getPreviewByIdRaw } = await import("../db/queries/preview-sessions");
     const { getDb } = await import("../db/connection");
-    const { sandboxBindings } = await import("../db/schema");
+    const { sandboxBindings, previewSessions } = await import("../db/schema");
+    const { eq } = await import("drizzle-orm");
     const { setSandboxWorkspaceTargetResolver } = await import("../runtime/workspaces/project-target");
     const { sandboxWorkspaceTarget } = await import("../runtime/workspaces/target");
     const user = await createUser({ email: "reaper-sandbox@test.com", passwordHash: "h", name: "Reaper" });
@@ -221,6 +222,14 @@ describe("reapPreviewConversation — default (live) revoke seam", () => {
       setSandboxWorkspaceTargetResolver(null);
       const denied = await reapPreviewConversation(conversation.id, deps);
       expect(denied.previewsRevoked).toBe(0);
+      expect(closed).toEqual([row.id]);
+      expect((await getPreviewByIdRaw(stale.id))?.status).toBe("active");
+
+      const otherUser = await createUser({ email: "reaper-other@test.com", passwordHash: "h", name: "Other" });
+      await getDb().update(previewSessions).set({ userId: otherUser.id })
+        .where(eq(previewSessions.id, stale.id));
+      const reassigned = await reapPreviewConversation(conversation.id, deps);
+      expect(reassigned.previewsRevoked).toBe(0);
       expect(closed).toEqual([row.id]);
       expect((await getPreviewByIdRaw(stale.id))?.status).toBe("active");
     } finally {

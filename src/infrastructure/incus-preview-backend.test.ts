@@ -15,6 +15,20 @@ function preview(request: Request, targetPort = 3000): SandboxPreviewServeReques
     request, expiresAt };
 }
 
+test("sandbox preview open accepts only a current bounded endpoint", async () => {
+  let calls = 0;
+  const now = 1_000_000;
+  const backend = new IncusSandboxPreviewBackend({ call: async () => { calls++; return {}; } }, () => now);
+  const valid = { binding, previewId: "preview-a", userId: "user-a", conversationId: "conversation-a",
+    targetPort: 3000, expiresAt: new Date(now + 60_000) };
+  await backend.open(valid);
+  await expect(backend.open({ ...valid, targetPort: 80 })).rejects.toThrow("port");
+  await expect(backend.open({ ...valid, expiresAt: new Date(now) })).rejects.toThrow("expiry");
+  await expect(backend.open({ ...valid, expiresAt: new Date(now + 24 * 60 * 60 * 1000 + 1) }))
+    .rejects.toThrow("expiry");
+  expect(calls).toBe(0);
+});
+
 test("sandbox preview uses only the approved guest process and a pinned loopback port", async () => {
   const body = Buffer.from(JSON.stringify({ status: 200, headers: [["content-type", "text/plain"], ["set-cookie", "site=ok; Domain=app.example"]],
     body: Buffer.from("guest page").toString("base64") }));

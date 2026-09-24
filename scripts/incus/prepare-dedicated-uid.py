@@ -146,21 +146,21 @@ def no_open_database_files(source):
                 f"process {process.name} still holds the database")
 
 
-def no_old_clients(value, source):
+def no_old_clients(value, source, process_root=Path("/proc")):
     for key in ("oldProcessIds", "runnerProcessIds"):
         for pid in value[key]:
-            require(not (Path("/proc") / str(pid)).exists(),
+            require(not (process_root / str(pid)).exists(),
                     f"reviewed old process still runs: {pid}")
     source_env = b"EZCORP_DB_PATH=" + os.fsencode(source) + b"\0"
     socket_env = b"EZ_EXTENSION_RUNNER_SOCKET=" + os.fsencode(value["runnerSocket"]) + b"\0"
     socket_arg = os.fsencode(value["runnerSocket"]) + b"\0"
-    for process in Path("/proc").iterdir():
+    for process in process_root.iterdir():
         if not process.name.isdigit():
             continue
         try:
             environment = (process / "environ").read_bytes()
             arguments = (process / "cmdline").read_bytes()
-        except FileNotFoundError:
+        except (FileNotFoundError, ProcessLookupError):
             continue
         require(source_env not in environment and socket_env not in environment
                 and socket_arg not in arguments,

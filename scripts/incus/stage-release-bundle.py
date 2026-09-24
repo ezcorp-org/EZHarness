@@ -31,6 +31,7 @@ REQUIRED = (
     "web/node_modules/@sveltejs/kit",
 )
 MANIFEST = "release-bundle-manifest.json"
+RUNTIME_DIR = ".ezcorp"
 
 
 def require(condition, message):
@@ -65,13 +66,29 @@ def extract_head(source, target):
             name = Path(item.name)
             require(name.parts and not name.is_absolute() and ".." not in name.parts,
                     "archive path escapes release")
+            require(name.parts[0] != RUNTIME_DIR, "tracked reserved runtime path is not allowed")
             require(item.isfile() or item.isdir(), "tracked links or special files are not allowed")
         members.extractall(target, filter="data")
 
 
+def immutable_paths(root):
+    def visit(directory):
+        for path in directory.iterdir():
+            mode = path.lstat().st_mode
+            if directory == root and path.name == RUNTIME_DIR:
+                require(stat.S_ISDIR(mode), "runtime directory must not be a symlink or file")
+                continue
+            if stat.S_ISDIR(mode):
+                yield from visit(path)
+            else:
+                yield path
+
+    return sorted(visit(root))
+
+
 def inventory(root):
     files = []
-    for path in sorted(root.rglob("*")):
+    for path in immutable_paths(root):
         relative = path.relative_to(root).as_posix()
         if relative == MANIFEST:
             continue
@@ -210,6 +227,7 @@ def stage(source, output, bun, expected_bun_sha256):
         run([executable, "install", "--production", "--frozen-lockfile", "--ignore-scripts"], cwd=work, env=env)
         run([executable, "install", "--production", "--frozen-lockfile", "--ignore-scripts"], cwd=work / "web", env=env)
         shutil.rmtree(work / "web/.svelte-kit", ignore_errors=True)
+        require(not os.path.lexists(work / RUNTIME_DIR), "build created reserved runtime path")
         check_required(work)
         document = {"schema": 1, "gitSha": head, "bunVersion": "1.3.14",
                     "bunSha256": expected_bun_sha256,

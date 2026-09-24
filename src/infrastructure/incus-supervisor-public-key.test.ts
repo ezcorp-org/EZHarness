@@ -17,6 +17,8 @@ test("ambiguous, invalid, or wrong-type supervisor keys fail closed", () => {
     EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64: Buffer.from(pem).toString("base64") })).toThrow();
   expect(() => incusSupervisorPublicKeyPem({ EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64: "AA=" })).toThrow();
   expect(() => incusSupervisorPublicKeyPem({ EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64:
+    Buffer.alloc(4097).toString("base64") })).toThrow("encoding is invalid");
+  expect(() => incusSupervisorPublicKeyPem({ EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64:
     Buffer.from(rsa).toString("base64") })).toThrow();
   expect(() => incusSupervisorPublicKeyPem({ EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64:
     Buffer.from(privatePem).toString("base64") })).toThrow();

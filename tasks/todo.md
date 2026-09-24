@@ -3,14 +3,17 @@
 ## First EZHarness-owned Incus sandbox — live completion (24 September 2026)
 
 - [x] Reproduce and fix the failed no-effect recovery restart path; keep a durable hold through supervisor restart.
-- [ ] Build and install a final-head qualification bundle after independent review and tests.
+- [x] Build and install a final-head qualification bundle after independent review and tests.
+- [x] Run the guarded traffic hold, stop old isolated processes, stage the database and projects, and verify the saved fixture.
+- [ ] Keep mutable `.ezcorp` state outside the release with a persistent bind mount; rebuild/install a bundle whose verifier has that explicit exception.
+- [ ] Start the dedicated app and prove health, identity, runner socket, and saved Incus state before releasing traffic.
 - [x] Prove the saved `OUTCOME_UNKNOWN` CREATE and fixture from a detached database copy and the restored isolated app.
 - [ ] Activate the independent server observer and dedicated AMD app/runner with guarded rollback.
 - [ ] Reconcile the exact unknown CREATE only after old client authority is revoked and two independent readbacks pass.
 - [ ] Create, use, reconnect to, and clean up an EZHarness-owned guest; run real limits and isolation checks.
 - [ ] Push the final PR #303 source and pass hosted CI; keep support claims tied to live evidence.
 
-Review: The database gate is 4/4. The isolated app is healthy on its original database. The server observer generation is active and verified. A real subprocess test reproduced the failed-recovery app restart; the durable hold fix now passes all ten supervisor tests, including service restart. The repaired source needs independent review, final-head bundle staging, hosted CI, dedicated cutover, signed CREATE repair, and live guest proof. See `gates/incus-final-live-2026-09-24.md`.
+Review: The database gate is 4/4. The server observer is active. The old isolated app and runner are stopped behind a verified traffic hold. The staged database still matches the saved fixture, and the dedicated runner answers an authenticated socket check. The dedicated supervisor is stopped because the immutable release needs an external persistent `.ezcorp` runtime mount. Focused Python tests and full typecheck pass for the repair. The new bundle, host activation, hosted CI, signed CREATE repair, and live guest proof remain. See `gates/incus-final-live-2026-09-24.md`.
 
 ## Incus completion update — 2026-09-24
 

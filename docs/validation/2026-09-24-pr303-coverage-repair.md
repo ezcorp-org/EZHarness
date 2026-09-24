@@ -14,4 +14,10 @@ Local evidence after these edits:
 
 `incus-host-live-witness.ts` and `incus-startup.ts` were the other two failing files. Their changes are owned by the parent integration task. The complete per-file gate remains open until a new hosted run merges all coverage and passes.
 
+## Second hosted run
+
+At head `b9f91ffd1`, [run 36058071610](https://github.com/ezcorp-org/EZHarness/actions/runs/36058071610/job/107839881968) reached the new-file gate and failed because eight new source files had no explicit keys in `scripts/coverage-thresholds.json`. Its coverage producers were green. The eight files now have 100% keys, with no lowered limit. A local merge of the hosted LCOV artifacts showed four of those files already at 100%; four needed focused tests. The added tests cover default cleanup readiness, preview-open expiry and port checks, oversized encoded supervisor keys, and preview ownership after a user change.
+
+The four affected test files now pass **24 tests, 0 failures** under Bun LCOV. Each previously missed line in the four new sources has a nonzero hit in that run. Biome on the five edited test/config files, full typecheck, and `git diff --check` pass. This is local evidence; a new hosted run must confirm the merged per-file gate.
+
 The parent integration task added restart handoff and limit-load witness tests, plus startup tests for the saved control fixture and default cleanup recovery. It also passes the explicit database into `IncusLiveControlProbes`, so a witness created with an injected database cannot fall back to the process-global database. A focused Bun LCOV run of the startup and witness suites passed **24 tests** and reported **zero uncovered lines** in both `incus-startup.ts` and `incus-host-live-witness.ts`. Biome and full typecheck passed after these edits. This is local evidence only; the hosted merged gate is still required.

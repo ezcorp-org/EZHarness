@@ -73,12 +73,68 @@ These checks prove host runtime capability for installed source
 later PR #303 final bundle, dedicated service startup, runner socket, or
 authenticated runner call.
 
+## Fixed final-head bundle: installed and verified
+
+The clean source HEAD `b9f91ffd16e37dcae9e64eefc642591a02b84cd4`
+was staged at `/tmp/ezh-final-head-b9f91ffd/release` with Bun 1.3.14
+SHA-256 `80d5578a593f0c954739e7f14ec1e3c4dc00757cda1ff4bb8383e82b1e44871e`.
+The root-private parent is root:root mode 0700. Frozen root/web installs and
+the build passed. The manifest has 76,085 entries, names that exact Git
+commit, and has SHA-256
+`7f574788b73871354517effce5a319b915662dc8267c0b8769d5a38428ba9083`.
+The bundled verifier SHA-256 is
+`838a3b2acba001333340d728f0aa43e924a974ba3284ea36ff315a9790015d2c`.
+An independent full inventory `verify` passed. The bundled supervisor's
+10 process tests passed. A disposable UID 62040 smoke returned HTTP 200
+with the pinned GCC library directory; its temporary DB/home was removed.
+The first test run and a later import-based inspection wrote two `.pyc`
+files under the staged bundle. A complete inventory comparison found exactly
+those two extra files, with no missing or changed manifest entry. Both files
+and their now-empty cache directory were removed. Full `verify` and the
+install packet's read-only `preflight` passed again. The 10 bundled tests
+then passed with `PYTHONDONTWRITEBYTECODE=1`; another full `verify` passed
+and no cache directory reappeared. Set that environment variable for any
+further bundled Python test or import. Do not let a test write into the
+staged release.
+The temporary traverse grant was removed, and UID 62040 had no process
+afterward. The old app still listens as PID 708161, both qualification units
+are inactive, and `/opt/ezharness` remains on the earlier release.
+
+The root-owned mode 0700 install packet is
+`/root/ezh-qualification-stage/install-final-head-bundle-v1.sh`, SHA-256
+`a6c6fb4c9e67989739616b82025093fc8f13120d268b717d526acc2f86779ae4`.
+Its read-only `preflight` passed against both complete bundle inventories,
+same-filesystem paths, available space, absent sibling paths, and inactive
+units. After review, its exact command is `sudo -n
+/root/ezh-qualification-stage/install-final-head-bundle-v1.sh install
+--execute`. It copies and verifies the new tree under
+`/opt/.ezharness-release-b9f91ffd`, holds the old verified tree at
+`/opt/.ezharness-held-0b81c087e`, and publishes the new tree with
+same-filesystem, no-clobber renames. It automatically restores the old tree
+if publication or post-install verification fails. If installation succeeds
+but the later cutover has not started, `sudo -n
+/root/ezh-qualification-stage/install-final-head-bundle-v1.sh rollback
+--execute` moves the new tree to `/opt/.ezharness-failed-b9f91ffd` and
+restores the old tree. The old held tree is retained until cutover review.
+The exact script passed a fresh preflight and `install --execute` completed.
+`/opt/ezharness` now has manifest SHA-256
+`7f574788b73871354517effce5a319b915662dc8267c0b8769d5a38428ba9083`;
+the old verified tree is retained at `/opt/.ezharness-held-0b81c087e` with
+manifest SHA-256 `82b2bfeaa7c311097b280a6156e936bf5c0627c14d3fc38736bbde3180194b17`.
+Both trees are root:root mode 0755. The old app PID 708161 still returned
+HTTP 200 from `/api/health`, and both qualification units remained inactive.
+No rollback action ran. A root-only `cutover-pins-v3.json`, SHA-256
+`9e095abc49d995b596c0fa48464386327f9a9ab5a96b35847dee5edab64b2e1e`,
+replaces only the release-manifest digest in v2 after verifying all 12 pinned
+private files and the installed source commit. The v2 pins remain unchanged.
+
 ## Required review before the stop
 
 1. Review the active AMD generation, server SSH gate, scoped setup identity,
    release inventory, recipe/image digests, and exact private hashes. The
-   installed release predates later PR #303 executable changes. Rebuild and
-   re-pin if the cutover needs final PR source; do not silently substitute it.
+   installed release is the fixed PR #303 head above. Recheck
+   `cutover-pins-v3.json`, the installed manifest, and every candidate before
+   cutover; do not substitute another source revision.
 2. Review the real local fence candidate and the corrected old certificate
    digest. A fresh server trust readback recomputed the `engine` certificate
    DER SHA-256 as `fcd2d46c8f4007cd01098123e6bfbfba0c962b1c9d9f511bf222dfb7a9b3e622`.
@@ -99,9 +155,9 @@ authenticated runner call.
    version 2, exact public key, project, instance, and old DER digest after
    server activation. Any drift stops the cutover.
 3. The disposable UID 62040 app and UID 62041 rootless Podman smokes passed
-   for the installed bundle, as recorded above. After final PR #303 source
-   is committed, build and pin its release bundle and repeat the app smoke.
-   Prove runner service startup and its authenticated socket call after
+   for the earlier bundle. The installed fixed final-head bundle passed its
+   independent UID 62040 smoke. Prove runner service startup and its
+   authenticated socket call after
    staged data is ready. Keep both live qualification units off until the
    guarded action sequence reaches service startup. Recheck the GCC setting
    and the release hash:
@@ -323,11 +379,18 @@ can be stale. Never delete either rollback copy as part of recovery.
 
 ## Review result
 
-Both v2 manifests passed the tools' exact-key parsers. The Python scripts
-passed syntax checks; ingress preflight and read-only stop helpers match
-current groups, listener, and DB holder. The detached project query found
-two rows and zero old-root paths. The real fence wrapper denied because its
-sealed AMD observer config is absent. No live cutover step has run. Server
-observer activation passed; AMD observer config, final release choice, real hold,
-sealed settings, and runner UID quiescence remain open. All
-[cutover gates](../../gates/incus-app-cutover.md) remain unchecked.
+The traffic hold is active. The old isolated app and runner are stopped. The
+database and two project rows were staged under UID 62040; a detached readback
+still matches the saved fixture. The dedicated runner is active and its socket
+returned HTTP 200 only with the pinned bearer token. The dedicated supervisor
+is stopped. Its first app start found that the immutable release needs a
+writable `.ezcorp` runtime path. No Incus resource was created by this start.
+The server observer is active, but the old restricted Incus client certificate
+remains trusted until the no-effect recovery fence is ready.
+
+The next bundle must exclude only a real top-level `.ezcorp` directory from
+its immutable inventory. The NixOS service must bind persistent, app-owned
+runtime data into that directory and verify the bind before app start. Keep
+the traffic hold in place until the dedicated app, saved state, and runner
+pass health and identity checks. The new host generation and bundle are not
+yet active. The [cutover gates](../../gates/incus-app-cutover.md) remain open.
