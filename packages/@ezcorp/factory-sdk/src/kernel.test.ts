@@ -161,6 +161,37 @@ describe("factory kernel", () => {
     expect(stopped.nextState.unresolvedUncertainNodeIds).toEqual(["only"]);
   });
 
+  test("a usage-resolved stop clears the uncertain attempt once and ends the cancelled run with its reason, deterministically on replay", () => {
+    const graph = compiled([{ id: "only", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "only" } });
+    const start = createKernelState(graph, "run-usage-resolved", {}, 0);
+    const first = advanceKernel(graph, start, event("start", { kind: "start" })).nextState;
+    const admission = first.nodes.only!.attempts.at(-1)!;
+    const admitted = advanceKernel(graph, first, event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: admission.candidateGeneration, granted: true })).nextState;
+    const only = dispatchedAttempt(admitted, "only");
+    const stop = { kind: "attempt-stopped", nodeId: "only", commandId: only.commandId, candidateGeneration: only.candidateGeneration, attempt: only.attempt } as const;
+    // W05b: reconciliation re-sends the sealed stop as `<cancel>:usage-resolved` with uncertain:false.
+    const events = [
+      event("start", { kind: "start" }),
+      event("admit", { kind: "admission-result", nodeId: "only", commandId: admission.commandId, candidateGeneration: admission.candidateGeneration, granted: true }),
+      event("cancel", { kind: "cancel", reason: "factory_package_quarantined" }),
+      event("stopped", { ...stop, uncertain: true }),
+      event("usage-resolved", { ...stop, uncertain: false }),
+    ];
+    const fold = () => events.reduce<{ state: typeof start; commands: ReturnType<typeof advanceKernel>["commands"][] }>((acc, next) => { const advanced = advanceKernel(graph, acc.state, next); return { state: advanced.nextState, commands: [...acc.commands, advanced.commands] }; }, { state: start, commands: [] });
+    const folded = fold();
+    // Before the clearing event the run waits; the clearing event ends it with its reason.
+    expect(folded.commands[3]!.some(command => command.kind === "cancel-run")).toBe(false);
+    expect(folded.commands[4]).toEqual([expect.objectContaining({ kind: "cancel-run", reason: "factory_package_quarantined" })]);
+    expect(folded.state.unresolvedUncertainNodeIds).toEqual([]);
+    expect(folded.state.nodes.only!.attempts.at(-1)).toMatchObject({ stopped: true, uncertain: false });
+    // Replay from the start produces the same state and the same commands.
+    expect(fold()).toEqual(folded);
+    // Redelivering the clearing event changes nothing and ends nothing twice.
+    const redelivered = advanceKernel(graph, folded.state, events[4]!);
+    expect(redelivered.commands).toEqual([]);
+    expect(redelivered.nextState).toEqual(folded.state);
+  });
+
   test("a failed effect command stops the run and fails it with the typed reason, never a cancel", () => {
     const graph = compiled([{ id: "only", kind: "task", runner }], { result: { kind: "ref", root: "node", name: "only" } });
     let state = advanceKernel(graph, createKernelState(graph, "run-command-failed", {}, 0), event("start", { kind: "start" })).nextState;

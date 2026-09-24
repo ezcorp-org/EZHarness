@@ -495,6 +495,75 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
     await expect(reconciler.reconcile({ reservationId: "missing-reservation", attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest, usage })).rejects.toMatchObject({ code: "factory_usage_settlement_not_found" });
   });
 
+  test("a reconciled hold clears the kernel's uncertain attempt once, and the cancelled run reaches its terminal", async () => {
+    const attempt = await launchedAttempt();
+    const { operation } = await dispatchedOperation(attempt);
+    const { reference, advanced } = await cancelled(attempt);
+    const held = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const stopped = await held.stops.stop(service, reference);
+    expect(stopped.event).toMatchObject({ kind: "attempt-stopped", uncertain: true });
+    // Before reconciliation the kernel holds the attempt stopped-and-uncertain.
+    expect(await foldedStatus(attempt, advanced)).toBe("stopping");
+    const usage = { kind: "measured" as const, inputTokens: 2, outputTokens: 3, computeMs: 4, costMicros: "5" };
+    const reconciler = new FactoryUsageReconciliation(fixture.db, tenantId, held.stops, attempt.journal, lifecycle.budgets, held.settlements);
+    const settled = await reconciler.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest: "e".repeat(64), usage });
+    expect(settled).toMatchObject({ source: "reconciliation", knownCostMicros: "5" });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
+    // The settlement tells the kernel the attempt is no longer uncertain, with the stop's own identity.
+    const events = rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${attempt.run.runId} ORDER BY sequence`)).map(row => JSON.parse(row.payload) as KernelEvent);
+    expect(events.map(event => event.kind)).toEqual(["admission-result", "cancel", "attempt-stopped", "usage-settled", "attempt-stopped"]);
+    expect(events.at(-1)).toEqual({ ...stopped.event, id: `${reference.commandId}:usage-resolved`, atMs: settled.settledAtMs, uncertain: false });
+    expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
+    // Exactly once: a replayed reconciliation and a replayed stop add nothing.
+    expect(await reconciler.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest: "e".repeat(64), usage })).toEqual(settled);
+    expect(await held.stops.stop(service, reference)).toEqual(stopped);
+    expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "attempt-stopped")).toHaveLength(2);
+    expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
+  });
+
+  test("a hold whose usage is still unknown is not reconciled, and the kernel keeps the attempt uncertain", async () => {
+    const attempt = await launchedAttempt();
+    const { authority, operation } = await dispatchedOperation(attempt);
+    await attempt.journal.settle(authority, operation.operationId, "uncertain", { providerReceiptDigest: "f".repeat(64), usage: { kind: "unknown", reason: "provider receipt pending", heldCostMicros: "9" } } as never);
+    const { reference, advanced } = await cancelled(attempt);
+    const held = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    expect((await held.stops.stop(service, reference)).state).toBe("stopped");
+    const reconciler = new FactoryUsageReconciliation(fixture.db, tenantId, held.stops, attempt.journal, lifecycle.budgets, held.settlements);
+    const [hold] = await fixture.db.transaction(transaction => lifecycle.budgets.listUncertainWithCostInTransaction(transaction)).then(holds => holds.filter(entry => entry.reservationId === attempt.reservationId));
+    expect(await reconciler.resolve(hold!)).toMatchObject({ kind: "unknown", reason: "usage-still-unknown" });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "uncertain" });
+    expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "attempt-stopped")).toHaveLength(1);
+    expect(await foldedStatus(attempt, advanced)).toBe("stopping");
+  });
+
+  test("reconciling a hold whose physical stop is still unconfirmed settles the cost but clears nothing", async () => {
+    const attempt = await launchedAttempt();
+    const { operation } = await dispatchedOperation(attempt);
+    const { reference, advanced } = await cancelled(attempt);
+    // The host never answers, so the stop stays uncertain: the process may still be running.
+    const hung = harness(attempt, { async stop(_request, signal) { return new Promise<never>((_resolve, reject) => { signal.addEventListener("abort", () => reject(new Error("host unreachable"))); }); } }, acknowledger(), undefined, 1);
+    expect((await hung.stops.stop(service, reference)).state).toBe("uncertain");
+    const reconciler = new FactoryUsageReconciliation(fixture.db, tenantId, hung.stops, attempt.journal, lifecycle.budgets, hung.settlements);
+    const usage = { kind: "measured" as const, inputTokens: 1, outputTokens: 1, computeMs: 1, costMicros: "2" };
+    expect(await reconciler.reconcile({ reservationId: attempt.reservationId, attemptId: attempt.attemptId, operationId: operation.operationId, providerReceiptDigest: "c".repeat(64), usage })).toMatchObject({ source: "reconciliation" });
+    // Cost is settled; the physical stop is not proven, so no clearing event is sent.
+    expect(rows<{ payload: string }>(await fixture.db.execute(sql`SELECT payload FROM factory_inbox_events WHERE tenant_id=${tenantId} AND run_id=${attempt.run.runId} AND payload::jsonb->>'id' LIKE '%:usage-resolved'`))).toEqual([]);
+    expect(await foldedStatus(attempt, advanced)).toBe("stopping");
+    // The host confirms later. The cost is already settled, so this stop is
+    // certain: it keeps the reconciled budget and clears the uncertainty itself.
+    const confirmed = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const stopped = await confirmed.stops.stop(service, reference);
+    expect(stopped.state).toBe("stopped");
+    expect(stopped.event).toMatchObject({ kind: "attempt-stopped", uncertain: false });
+    expect(await reservationState(attempt.reservationId)).toMatchObject({ state: "settled" });
+    expect((await settlementRows(attempt.run.runId)).map(row => row.source)).toEqual(["reconciliation"]);
+    expect(await foldedStatus(attempt, advanced)).toBe("cancelled");
+    // Re-reading the sealed stop accepts the shape, and nothing is sent twice.
+    expect(await confirmed.stops.stop(service, reference)).toEqual(stopped);
+    // One stop-uncertain event and one certain stopped event: nothing is sent twice.
+    expect((await inboxKinds(attempt.run.runId)).filter(kind => kind === "attempt-stopped")).toHaveLength(2);
+  });
+
   test("a listed hold resolves to the sealed facts reconciliation needs, or stays unknown", async () => {
     const attempt = await launchedAttempt();
     const { operation } = await dispatchedOperation(attempt);
