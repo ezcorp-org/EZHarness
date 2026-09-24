@@ -440,6 +440,7 @@ class Supervisor:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
+    parser.add_argument("--recover-request")
     args = parser.parse_args()
     config = json.loads(Path(args.config).read_text())
     required = {"socket", "appCommand", "appUid", "appGid", "key", "authorityCommand",
@@ -462,6 +463,24 @@ def main():
             or not config["recoveryCommand"]
             or not all(isinstance(value, str) and value for value in config["recoveryCommand"])):
         raise ValueError("invalid operator recovery verifier")
+    if args.recover_request:
+        if os.geteuid() != 0 or not config.get("operatorSocket"):
+            raise ValueError("operator recovery requires root and a private socket")
+        path = Path(args.recover_request)
+        file = path.lstat()
+        if not stat.S_ISREG(file.st_mode) or file.st_uid != 0 or file.st_mode & 0o077:
+            raise ValueError("operator recovery request must be a private root-owned file")
+        request = json.loads(path.read_text())
+        validate_recovery(request)
+        with socket.socket(socket.AF_UNIX) as connection:
+            connection.settimeout(180)
+            connection.connect(config["operatorSocket"])
+            send_message(connection, request)
+            response = read_message(connection)
+        print(json.dumps(response, sort_keys=True))
+        if "error" in response:
+            raise SystemExit(1)
+        return
     supervisor = Supervisor(config["socket"], config["appCommand"], config["appUid"], config["appGid"],
                             config["key"], config["authorityCommand"], config["receiptAuthorityCommand"])
     if config.get("operatorSocket"):
