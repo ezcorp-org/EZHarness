@@ -3628,3 +3628,19 @@ test. `initPglite` carried a changed line whose factory branch cannot run, and t
 The global floor (73.88 percent), the per-file thresholds, and the origin/main new-file gate stay red. The cause is
 files that only CI's repository-wide shards or the browser receipt measure. None of those files is one this
 package changed.
+
+## W04b — re-grant after revoke, and grantee display names (branch `wp/w04b-regrant`)
+
+Base `integ/w00` `d5ee52309`. Receipts: `/tmp/factory-platform-evidence/w04b/`. Gates: `tasks/factory/w04b-GATES.md`.
+
+- [x] Reproduce at base: grant, revoke, grant again fails with `factory_artifact_grant_conflict`.
+- [x] One row per grant (`grant_revision`); the revoked row stays; the new grant is a new active row; a partial unique index covers active grants only; an active grant still conflicts.
+- [x] Migration proven on the old shape holding a revoked row, rerunnable with unchanged oids; restart case; parity index.
+- [x] Grant records and the grant API name the grantee (`displayName`), with the placeholder `Unnamed principal` for no name.
+- [x] Tests on PGlite, real PostgreSQL, and Vitest; sweep green.
+
+**Review.** The share table was keyed by the share, so its first row, even once revoked, owned the key forever.
+Numbering grants turns revoke-then-grant into history rather than a conflict. A partial index keeps the rule
+that matters: one active grant per target. First grants keep their old seal, so every existing row still
+verifies. The display name is read from the user or service-account record only. It is resolved outside the
+authorization path, and it can never fall back to the raw id.
