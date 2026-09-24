@@ -57,6 +57,7 @@ describe("factoryPlatformPaths and naming", () => {
         revocationsDirectory: "/srv/op/platform/temporal/revocations", revocationsPath: "/srv/op/platform/temporal/revocations/revocations.json",
         certificatePath: "/srv/op/platform/temporal/control.crt", privateKeyPath: "/srv/op/platform/temporal/control.key",
         serverDirectory: "/srv/op/platform/temporal/server", databaseEnvPath: "/srv/op/platform/temporal/database.env",
+        httpTokensDirectory: "/srv/op/platform/temporal/http-tokens",
       },
       ingress: { root: "/srv/op/platform/ingress", caCertificatePath: "/srv/op/platform/ingress-ca/ca.crt", caKeyPath: "/srv/op/platform/ingress-ca/ca.key" },
     });
@@ -94,8 +95,10 @@ describe("ensureFactoryPlatformMaterial", () => {
     const [, password] = env.match(/^POSTGRES_PASSWORD=([A-Za-z0-9_-]{32})\nPOSTGRES_PWD=([A-Za-z0-9_-]{32})\n$/) ?? [];
     expect(env).toBe(`POSTGRES_PASSWORD=${password}\nPOSTGRES_PWD=${password}\n`);
     for (const path of [paths.temporal.caCertificatePath, paths.temporal.caKeyPath, paths.temporal.tokenKeyPath, paths.temporal.certificatePath, paths.temporal.privateKeyPath, paths.temporal.databaseEnvPath, paths.temporal.revocationsPath, paths.ingress.caCertificatePath, paths.ingress.caKeyPath]) expect(await mode(path)).toBe(0o600);
-    expect(JSON.parse(await text(paths.temporal.revocationsPath))).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [] });
+    expect(JSON.parse(await text(paths.temporal.revocationsPath))).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [], tokenIds: [] });
     expect(new X509Certificate(await text(paths.ingress.caCertificatePath)).subject).toBe("CN=factory-ingress-ca");
+    // The gateway read-token directory exists, private, before the first namespace is provisioned.
+    expect(await mode(paths.temporal.httpTokensDirectory)).toBe(0o700);
     for (const name of ["routes", "certs", "conf"]) expect(await mode(join(paths.ingress.root, name))).toBe(0o700);
     // The ingress process mounts only its own root; the authority that signs every hostname stays outside it.
     expect(paths.ingress.caKeyPath.startsWith(`${paths.ingress.root}/`)).toBe(false);
@@ -192,7 +195,7 @@ describe("ensureFactoryPlatformMaterial", () => {
   });
 });
 
-const settings: FactoryPlatformSettings = { fleetId: "fleet-a", operatorRoot: "/unused", repositoryRoot: "/repo", temporalPort: 17233, ingressAddress: "127.0.0.1", ingressPort: 18443 };
+const settings: FactoryPlatformSettings = { fleetId: "fleet-a", operatorRoot: "/unused", repositoryRoot: "/repo", temporalPort: 17233, temporalHttpPort: 17244, ingressAddress: "127.0.0.1", ingressPort: 18443 };
 
 describe("factoryPlatformEnvironment", () => {
   test("names the project, the operator paths, and the repository's config", () => {
@@ -203,6 +206,8 @@ describe("factoryPlatformEnvironment", () => {
       EZCORP_FACTORY_TEMPORAL_DB_ENV: "/srv/op/platform/temporal/database.env",
       EZCORP_FACTORY_TEMPORAL_SERVER_DIR: "/srv/op/platform/temporal/server",
       EZCORP_FACTORY_TEMPORAL_REVOCATIONS_DIR: "/srv/op/platform/temporal/revocations",
+      EZCORP_FACTORY_TEMPORAL_HTTP_TOKENS: "/srv/op/platform/temporal/http-tokens",
+      EZCORP_FACTORY_TEMPORAL_HTTP_PORT: "17244",
       EZCORP_FACTORY_AUTHORIZER_SCRIPTS: "/repo/scripts",
       EZCORP_FACTORY_TEMPORAL_GATEWAY_CONFIG: "/repo/config/factory-temporal-gateway.yaml",
       EZCORP_FACTORY_TEMPORAL_PORT: "17233",

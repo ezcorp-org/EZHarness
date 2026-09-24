@@ -83,9 +83,12 @@ services:
     command: ["bun", "/factory/factory-temporal-authorizer.mjs"]
     environment:
       FACTORY_TEMPORAL_REVOCATIONS: /factory-revocations/revocations.json
+      FACTORY_TEMPORAL_HTTP_TOKENS: /factory-http-tokens
     volumes:
       - ${EZCORP_FACTORY_AUTHORIZER_SCRIPTS:?}:/factory:ro
       - ${EZCORP_FACTORY_TEMPORAL_REVOCATIONS_DIR:?}:/factory-revocations:ro
+      # One read token per namespace, 0600 and owned by the host user (root here, in the rootless namespace).
+      - ${EZCORP_FACTORY_TEMPORAL_HTTP_TOKENS:?}:/factory-http-tokens:ro
     mem_limit: 128m
     cpus: 0.25
     pids_limit: 64
@@ -100,7 +103,8 @@ services:
     # rootless container is the host user, who owns the mounted key and config.
     environment: { ENVOY_UID: "0" }
     command: ["envoy", "-c", "/factory/factory-temporal-gateway.yaml"]
-    ports: ["127.0.0.1:${EZCORP_FACTORY_TEMPORAL_PORT:?}:7233"]
+    # gRPC for the orchestrator and the provisioner; the read-only HTTP route for W15's checkpoint barrier.
+    ports: ["127.0.0.1:${EZCORP_FACTORY_TEMPORAL_PORT:?}:7233", "127.0.0.1:${EZCORP_FACTORY_TEMPORAL_HTTP_PORT:?}:7244"]
     volumes:
       - ${EZCORP_FACTORY_TEMPORAL_GATEWAY_CONFIG:?}:/factory/factory-temporal-gateway.yaml:ro
       - ${EZCORP_FACTORY_TEMPORAL_SERVER_DIR:?}:/factory-temporal-auth:ro

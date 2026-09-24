@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from "bun:test";
 import { createHash, createPrivateKey, createPublicKey, createVerify, generateKeyPairSync, X509Certificate } from "node:crypto";
-import { chmod, mkdir, readFile, rm, stat } from "node:fs/promises";
+import { chmod, mkdir, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { factoryRejection, makeFactoryPrivateRoot, makeFactoryTestInstallation, removeFactoryPrivateRoot, writeModeFile } from "../../__tests__/helpers/factory-private-root";
 import { createFactoryCertificateAuthority, issueFactoryCertificate } from "./certificates";
@@ -15,6 +15,7 @@ import {
   factoryTemporalJwks,
   factoryTemporalOwnerMarker,
   factoryTemporalToken,
+  factoryTemporalTokenClaims,
   parseFactoryTemporalRevocations,
   revokeFactoryTemporalIdentity,
   type FactoryTemporalAccessProbe,
@@ -76,7 +77,7 @@ function verifiedClaims(token: string, jwks = factoryTemporalJwks(tokenKeyPem, K
   return verifier.verify(createPublicKey({ key: jwk as never, format: "jwk" }), Buffer.from(signature!, "base64url")) ? decodeSegment(payload!) : undefined;
 }
 
-async function revocations(): Promise<{ subjects: string[]; certificateHashes: string[] }> {
+async function revocations(): Promise<{ schemaVersion?: string; subjects: string[]; certificateHashes: string[]; tokenIds: string[] }> {
   return JSON.parse(await readFile(authority.revocationsPath, "utf8"));
 }
 
@@ -167,13 +168,25 @@ describe("factoryTemporalToken and factoryTemporalJwks", () => {
   });
 });
 
+describe("factoryTemporalTokenClaims", () => {
+  test("reads a token's claims without verifying it, and answers undefined for text that is not a token", () => {
+    expect(factoryTemporalTokenClaims(`${factoryTemporalToken("s", ["read:s"], tokenKeyPem, KEY_ID, 10)}\n`)).toMatchObject({ sub: "s", permissions: ["read:s"], exp: 10 + 30 * 24 * 60 * 60 });
+    for (const text of ["", "no-dots", "x.%%%.y", `x.${Buffer.from("7").toString("base64url")}.y`, `x.${Buffer.from("null").toString("base64url")}.y`]) expect(factoryTemporalTokenClaims(text)).toBeUndefined();
+  });
+});
+
 describe("parseFactoryTemporalRevocations", () => {
   const hash = "a".repeat(64);
   test("accepts a well-formed list and returns copies", () => {
-    const input = { schemaVersion: "factory.temporal-revocations.v1", subjects: ["x"], certificateHashes: [hash] };
+    const input = { schemaVersion: "factory.temporal-revocations.v1", subjects: ["x"], certificateHashes: [hash], tokenIds: ["c".repeat(32)] };
     const parsed = parseFactoryTemporalRevocations(input);
     expect(parsed).toEqual(input as never);
     expect(parsed.subjects).not.toBe(input.subjects);
+    expect(parsed.tokenIds).not.toBe(input.tokenIds);
+  });
+
+  test("a list written before token IDs existed reads as revoking no token", () => {
+    expect(parseFactoryTemporalRevocations({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [] }).tokenIds).toEqual([]);
   });
 
   const corrupt: Array<[string, unknown]> = [
@@ -185,6 +198,9 @@ describe("parseFactoryTemporalRevocations", () => {
     ["a short hash", { schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: ["abc"] }],
     ["an uppercase hash", { schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: ["A".repeat(64)] }],
     ["a numeric hash", { schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [5] }],
+    ["token IDs not a list", { schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [], tokenIds: "x" }],
+    ["a token ID that is not a jti", { schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [], tokenIds: ["read-1"] }],
+    ["a numeric token ID", { schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [], tokenIds: [7] }],
   ];
   for (const [name, value] of corrupt) {
     test(`refuses ${name}`, () => {
@@ -204,7 +220,7 @@ describe("revokeFactoryTemporalIdentity", () => {
     expect((await stat(authority.revocationsPath)).mode & 0o777).toBe(0o600);
     await revokeFactoryTemporalIdentity(authority.revocationsPath, { subject: "tenant-01.fleet-a" });
     await revokeFactoryTemporalIdentity(authority.revocationsPath, { certificateHash: hashA });
-    expect(await revocations()).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: ["tenant-01.fleet-a", "tenant-02.fleet-a"], certificateHashes: [hashA, hashB] } as never);
+    expect(await revocations()).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: ["tenant-01.fleet-a", "tenant-02.fleet-a"], certificateHashes: [hashA, hashB], tokenIds: [] } as never);
   });
 
   test("revoking the same entry twice, or nothing at all, leaves the list unchanged", async () => {
@@ -228,6 +244,14 @@ describe("revokeFactoryTemporalIdentity", () => {
     await writeModeFile(authority.revocationsPath, "{truncated");
     expect(await factoryRejection(revokeFactoryTemporalIdentity(authority.revocationsPath, { subject: "s" }))).toMatchObject({ code: "temporal_revocations_corrupt" });
     expect(await readFile(authority.revocationsPath, "utf8")).toBe("{truncated");
+  });
+
+  test("a token ID is revoked beside subjects and hashes, sorted and deduplicated", async () => {
+    const [first, second] = ["e".repeat(32), "d".repeat(32)];
+    await revokeFactoryTemporalIdentity(authority.revocationsPath, { tokenId: first });
+    await revokeFactoryTemporalIdentity(authority.revocationsPath, { tokenId: second });
+    await revokeFactoryTemporalIdentity(authority.revocationsPath, { tokenId: first });
+    expect(await revocations()).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [], tokenIds: [second, first] });
   });
 
   test("concurrent revocations of one entry leave exactly one copy of it", async () => {
@@ -366,7 +390,7 @@ describe("FactoryTemporalStep", () => {
       const { step, access } = await loadedStep();
       const resources = await step.ensure(installation);
       await step.teardown(installation, resources);
-      expect(await revocations()).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: ["tenant-01.fleet-a"], certificateHashes: [resources.certificateHash!] } as never);
+      expect(await revocations()).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: ["tenant-01.fleet-a"], certificateHashes: [resources.certificateHash!], tokenIds: [] } as never);
       for (const path of Object.values(step.credential(installation))) expect(await Bun.file(path).exists()).toBe(false);
       await step.teardown(installation, resources);
       expect((await revocations()).subjects).toEqual(["tenant-01.fleet-a"]);
@@ -376,7 +400,7 @@ describe("FactoryTemporalStep", () => {
     test("without a recorded hash, revokes the subject only", async () => {
       const { step } = await loadedStep();
       await step.teardown(installation, {});
-      expect(await revocations()).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: ["tenant-01.fleet-a"], certificateHashes: [] } as never);
+      expect(await revocations()).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: ["tenant-01.fleet-a"], certificateHashes: [], tokenIds: [] } as never);
     });
   });
 
@@ -389,7 +413,7 @@ describe("FactoryTemporalStep", () => {
       const after = await step.rotate(installation, before);
       expect(after.certificateHash).not.toBe(before.certificateHash);
       expect(after).toEqual({ ...before, certificateHash: after.certificateHash! });
-      expect(await revocations()).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [before.certificateHash!] } as never);
+      expect(await revocations()).toEqual({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [before.certificateHash!], tokenIds: [] } as never);
       expect(await readFile(step.credential(installation).tokenPath, "utf8")).not.toBe(oldToken);
       expect(new X509Certificate(await readFile(step.credential(installation).certificatePath, "utf8")).subject).toBe("CN=tenant-01.fleet-a");
       await writeModeFile(join(root, "old.crt"), oldPem);
@@ -462,6 +486,100 @@ describe("FactoryTemporalStep", () => {
     test("rotate before load fails by name", async () => {
       const { step } = makeStep();
       expect((await factoryRejection(step.rotate(installation, {}))).code).toBe("temporal_authority_unloaded");
+    });
+  });
+
+  describe("the gateway read token for the read-only Temporal HTTP route", () => {
+    const namespace = "tenant-01.fleet-a";
+    const tokens = () => join(root, "http-tokens");
+    const tokenPath = () => join(tokens(), `${namespace}.token`);
+    const claimsOnFile = async () => verifiedClaims(await readFile(tokenPath(), "utf8"))!;
+
+    test("ensure writes one private token scoped exactly read:<namespace>, outside the installation's secrets, and a rerun keeps it", async () => {
+      const { step } = await loadedStep({ httpTokensDirectory: tokens() });
+      await step.ensure(installation);
+      expect((await stat(tokens())).mode & 0o777).toBe(0o700);
+      expect((await stat(tokenPath())).mode & 0o777).toBe(0o600);
+      const claims = await claimsOnFile();
+      expect(claims).toMatchObject({ sub: namespace, iss: FACTORY_TEMPORAL_ISSUER, aud: FACTORY_TEMPORAL_AUDIENCE, iat: NOW_MS / 1_000 });
+      expect(claims.permissions).toEqual([`read:${namespace}`]);
+      expect(claims.jti).toMatch(/^[a-f0-9]{32}$/);
+      // The installation holds its certificate, never the read token the gateway injects.
+      const token = await readFile(tokenPath(), "utf8");
+      for (const name of await readdir(installation.secretDirectory)) expect(await readFile(join(installation.secretDirectory, name), "utf8")).not.toContain(token.trim());
+      await step.ensure(installation);
+      expect(await readFile(tokenPath(), "utf8")).toBe(token);
+    });
+
+    test("without a token directory no read token is written, rotated, or revoked", async () => {
+      const { step } = await loadedStep();
+      const before = await step.ensure(installation);
+      await step.rotate(installation, before);
+      await step.teardown(installation, before);
+      expect(await Bun.file(tokens()).exists()).toBe(false);
+      expect((await revocations()).tokenIds).toEqual([]);
+    });
+
+    test("verify refuses a missing, foreign, unscoped, non-token, or expired read token by name", async () => {
+      let clock = NOW_MS;
+      const { step } = await loadedStep({ httpTokensDirectory: tokens(), now: () => clock });
+      const resources = await step.ensure(installation);
+      const refusal = async () => (await factoryRejection(step.verify(installation, resources))).code;
+      const token = await readFile(tokenPath(), "utf8");
+      for (const replacement of [
+        factoryTemporalToken("tenant-02.fleet-a", [`read:${namespace}`], tokenKeyPem, KEY_ID, NOW_MS / 1_000),
+        factoryTemporalToken(namespace, [`admin:${namespace}`], tokenKeyPem, KEY_ID, NOW_MS / 1_000),
+        factoryTemporalToken(namespace, ["read:tenant-02.fleet-a"], tokenKeyPem, KEY_ID, NOW_MS / 1_000),
+        "not a token",
+      ]) {
+        await writeModeFile(tokenPath(), replacement);
+        expect(await refusal()).toBe("temporal_read_token_invalid");
+      }
+      await rm(tokenPath());
+      expect(await refusal()).toBe("temporal_read_token_invalid");
+      await writeModeFile(tokenPath(), token);
+      await step.verify(installation, resources);
+      clock = NOW_MS + 30 * 24 * 60 * 60 * 1_000;
+      expect(await refusal()).toBe("temporal_read_token_invalid");
+    });
+
+    test("a read token readable by others is refused by the private reader, not read", async () => {
+      const { step } = await loadedStep({ httpTokensDirectory: tokens() });
+      const resources = await step.ensure(installation);
+      await chmod(tokenPath(), 0o644);
+      expect((await factoryRejection(step.verify(installation, resources))).message).toBe("Private file must be owned, private, regular, and bounded.");
+    });
+
+    test("rotate writes a new read token, then revokes the old one by ID and only it", async () => {
+      const { step } = await loadedStep({ httpTokensDirectory: tokens() });
+      const before = await step.ensure(installation);
+      const old = await claimsOnFile();
+      await step.rotate(installation, before);
+      const fresh = await claimsOnFile();
+      expect(fresh.jti).not.toBe(old.jti);
+      expect(fresh).toMatchObject({ sub: namespace, permissions: [`read:${namespace}`] });
+      expect((await stat(tokenPath())).mode & 0o777).toBe(0o600);
+      expect((await revocations()).tokenIds).toEqual([old.jti as string]);
+    });
+
+    test("rotate of an installation provisioned before read tokens existed mints one and revokes nothing", async () => {
+      const { step } = await loadedStep({ httpTokensDirectory: tokens() });
+      const before = await step.ensure(installation);
+      await rm(tokenPath());
+      await step.rotate(installation, before);
+      expect((await claimsOnFile()).permissions).toEqual([`read:${namespace}`]);
+      expect((await revocations()).tokenIds).toEqual([]);
+    });
+
+    test("teardown revokes the read token by ID and removes its file, and succeeds twice", async () => {
+      const { step } = await loadedStep({ httpTokensDirectory: tokens() });
+      const resources = await step.ensure(installation);
+      const { jti } = await claimsOnFile();
+      await step.teardown(installation, resources);
+      expect((await revocations()).tokenIds).toEqual([jti as string]);
+      expect(await Bun.file(tokenPath()).exists()).toBe(false);
+      await step.teardown(installation, resources);
+      expect((await revocations()).tokenIds).toEqual([jti as string]);
     });
   });
 

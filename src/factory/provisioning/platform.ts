@@ -24,7 +24,7 @@ import type { FactoryTemporalControlIdentity } from "./temporal-client";
 
 export interface FactoryPlatformPaths {
   readonly root: string;
-  readonly temporal: FactoryTemporalAuthorityPaths & FactoryTemporalControlIdentity & { readonly serverDirectory: string; readonly revocationsDirectory: string; readonly databaseEnvPath: string };
+  readonly temporal: FactoryTemporalAuthorityPaths & FactoryTemporalControlIdentity & { readonly serverDirectory: string; readonly revocationsDirectory: string; readonly databaseEnvPath: string; readonly httpTokensDirectory: string };
   readonly ingress: { readonly root: string; readonly caCertificatePath: string; readonly caKeyPath: string };
 }
 
@@ -43,6 +43,8 @@ export function factoryPlatformPaths(operatorRoot: string): FactoryPlatformPaths
       certificatePath: resolve(temporal, "control.crt"), privateKeyPath: resolve(temporal, "control.key"),
       serverDirectory: resolve(temporal, "server"),
       databaseEnvPath: resolve(temporal, "database.env"),
+      // One `read:<namespace>` token per namespace, injected by the gateway on the read-only HTTP route.
+      httpTokensDirectory: resolve(temporal, "http-tokens"),
     }),
     ingress: Object.freeze({ root: ingress, caCertificatePath: resolve(ingressAuthority, "ca.crt"), caKeyPath: resolve(ingressAuthority, "ca.key") }),
   });
@@ -79,8 +81,9 @@ export async function ensureFactoryPlatformMaterial(operatorRoot: string, option
     for (const name of ["server.key", "server.crt", "ca.crt", "jwks.json"]) await chmod(resolve(paths.temporal.serverDirectory, name), 0o644);
   } finally { await temporal.close(); }
   const revocations = await openFactoryPrivateDirectory(paths.temporal.revocationsDirectory);
-  try { await ensureFactoryPrivateFile(revocations, "revocations.json", () => `${JSON.stringify({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [] })}\n`); }
+  try { await ensureFactoryPrivateFile(revocations, "revocations.json", () => `${JSON.stringify({ schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [], tokenIds: [] })}\n`); }
   finally { await revocations.close(); }
+  await (await openFactoryPrivateDirectory(paths.temporal.httpTokensDirectory)).close();
   await ensureAuthority(resolve(paths.ingress.caCertificatePath, ".."), "factory-ingress-ca", options.run);
   for (const name of ["routes", "certs", "conf"]) await (await openFactoryPrivateDirectory(resolve(paths.ingress.root, name))).close();
   return paths;
@@ -91,6 +94,8 @@ export interface FactoryPlatformSettings {
   readonly operatorRoot: string;
   readonly repositoryRoot: string;
   readonly temporalPort: number;
+  /** Host port of the gateway's read-only Temporal HTTP route. */
+  readonly temporalHttpPort: number;
   readonly ingressAddress: string;
   readonly ingressPort: number;
 }
@@ -125,6 +130,8 @@ export function factoryPlatformEnvironment(settings: FactoryPlatformSettings, pa
     EZCORP_FACTORY_TEMPORAL_DB_ENV: paths.temporal.databaseEnvPath,
     EZCORP_FACTORY_TEMPORAL_SERVER_DIR: paths.temporal.serverDirectory,
     EZCORP_FACTORY_TEMPORAL_REVOCATIONS_DIR: paths.temporal.revocationsDirectory,
+    EZCORP_FACTORY_TEMPORAL_HTTP_TOKENS: paths.temporal.httpTokensDirectory,
+    EZCORP_FACTORY_TEMPORAL_HTTP_PORT: String(settings.temporalHttpPort),
     EZCORP_FACTORY_AUTHORIZER_SCRIPTS: resolve(settings.repositoryRoot, "scripts"),
     EZCORP_FACTORY_TEMPORAL_GATEWAY_CONFIG: resolve(settings.repositoryRoot, "config/factory-temporal-gateway.yaml"),
     EZCORP_FACTORY_TEMPORAL_PORT: String(settings.temporalPort),

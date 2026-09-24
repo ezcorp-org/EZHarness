@@ -45,6 +45,8 @@ export interface FactoryTemporalRevocations {
   readonly schemaVersion: "factory.temporal-revocations.v1";
   readonly subjects: readonly string[];
   readonly certificateHashes: readonly string[];
+  /** Superseded tokens, by `jti`: the gateway refuses them on either route. */
+  readonly tokenIds: readonly string[];
 }
 
 /** Registers and describes namespaces with the operator's control identity. */
@@ -76,6 +78,13 @@ export interface FactoryTemporalStepOptions {
   readonly admin: FactoryTemporalNamespaceAdmin;
   readonly access: FactoryTemporalAccessProbe;
   readonly certificates: FactoryCertificateIssuer;
+  /**
+   * The gateway's read-token directory (`platform/temporal/http-tokens`). When
+   * set, each namespace gets a `read:<namespace>` token, `<namespace>.token`,
+   * which the gateway injects on the read-only Temporal HTTP route; the
+   * installation itself never holds it.
+   */
+  readonly httpTokensDirectory?: string;
   readonly now?: () => number;
   /** Fault injection: throw after the rotation is staged, or after its files are swapped. Tests only. */
   readonly rotationFault?: (point: "staged" | "swapped") => Promise<void>;
@@ -99,6 +108,14 @@ export function factoryCertificateHash(certificatePem: string): string {
   return createHash("sha256").update(new X509Certificate(certificatePem).raw).digest("hex");
 }
 
+/** A token's claims, or undefined when the text is not a token. Reads only; verification is the gateway's. */
+export function factoryTemporalTokenClaims(token: string): { readonly sub?: string; readonly permissions?: readonly string[]; readonly exp?: number; readonly jti?: string } | undefined {
+  try {
+    const claims = JSON.parse(Buffer.from(token.trim().split(".")[1] ?? "", "base64url").toString("utf8")) as unknown;
+    return claims !== null && typeof claims === "object" ? claims as ReturnType<typeof factoryTemporalTokenClaims> : undefined;
+  } catch { return undefined; }
+}
+
 /** An RS256 token for one Temporal subject with one namespace permission. */
 export function factoryTemporalToken(subject: string, permissions: readonly string[], keyPem: string, keyId: string, nowSeconds: number, lifetimeSeconds = TOKEN_LIFETIME_SECONDS): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -115,18 +132,20 @@ export function factoryTemporalJwks(keyPem: string, keyId: string): { readonly k
 
 export function parseFactoryTemporalRevocations(value: unknown): FactoryTemporalRevocations {
   const record = value as Partial<FactoryTemporalRevocations> | null;
-  if (record?.schemaVersion !== "factory.temporal-revocations.v1" || !Array.isArray(record.subjects) || !Array.isArray(record.certificateHashes)
-    || record.subjects.some((subject) => typeof subject !== "string") || record.certificateHashes.some((hash) => typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash))) {
+  const tokenIds = record?.tokenIds ?? [];
+  if (record?.schemaVersion !== "factory.temporal-revocations.v1" || !Array.isArray(record.subjects) || !Array.isArray(record.certificateHashes) || !Array.isArray(tokenIds)
+    || record.subjects.some((subject) => typeof subject !== "string") || record.certificateHashes.some((hash) => typeof hash !== "string" || !/^[a-f0-9]{64}$/.test(hash))
+    || tokenIds.some((id) => typeof id !== "string" || !/^[a-f0-9]{32}$/.test(id))) {
     throw new FactoryProvisioningError("temporal_revocations_corrupt", "The Temporal revocation list is corrupt.");
   }
-  return { schemaVersion: record.schemaVersion, subjects: [...record.subjects], certificateHashes: [...record.certificateHashes] };
+  return { schemaVersion: record.schemaVersion, subjects: [...record.subjects], certificateHashes: [...record.certificateHashes], tokenIds: [...tokenIds] };
 }
 
 async function readRevocations(path: string): Promise<FactoryTemporalRevocations> {
   let text: string;
   try { text = new TextDecoder().decode(await readFactoryPrivatePath(path)); }
   catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [] };
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { schemaVersion: "factory.temporal-revocations.v1", subjects: [], certificateHashes: [], tokenIds: [] };
     throw error;
   }
   let parsed: unknown;
@@ -141,12 +160,13 @@ async function readRevocations(path: string): Promise<FactoryTemporalRevocations
  * The file is the gateway authorizer's input, so it is replaced whole rather
  * than edited, and a reader never sees half a list.
  */
-export async function revokeFactoryTemporalIdentity(path: string, entry: { readonly subject?: string; readonly certificateHash?: string }): Promise<void> {
+export async function revokeFactoryTemporalIdentity(path: string, entry: { readonly subject?: string; readonly certificateHash?: string; readonly tokenId?: string }): Promise<void> {
   const current = await readRevocations(path);
   const next: FactoryTemporalRevocations = {
     schemaVersion: "factory.temporal-revocations.v1",
     subjects: [...new Set([...current.subjects, ...(entry.subject ? [entry.subject] : [])])].sort(),
     certificateHashes: [...new Set([...current.certificateHashes, ...(entry.certificateHash ? [entry.certificateHash] : [])])].sort(),
+    tokenIds: [...new Set([...current.tokenIds, ...(entry.tokenId ? [entry.tokenId] : [])])].sort(),
   };
   await replaceFactoryPrivateFile(path, `${JSON.stringify(next)}\n`);
 }
@@ -178,6 +198,11 @@ export class FactoryTemporalStep implements FactoryProvisioningDriver {
       await ensureFactoryPrivateFile(directory, FILES.ca, () => caPem);
       await ensureFactoryPrivateFile(directory, FILES.token, () => this.token(installation));
     } finally { await directory.close(); }
+    if (this.options.httpTokensDirectory !== undefined) {
+      const tokens = await openFactoryPrivateDirectory(this.options.httpTokensDirectory);
+      try { await ensureFactoryPrivateFile(tokens, this.readTokenName(installation), () => this.readToken(installation)); }
+      finally { await tokens.close(); }
+    }
     if (existing === undefined) await this.options.admin.register(installation.temporalNamespace, marker);
     const resources = await this.resources(installation);
     await this.verify(installation, resources);
@@ -192,6 +217,12 @@ export class FactoryTemporalStep implements FactoryProvisioningDriver {
     const certificate = new X509Certificate(certificatePem);
     if (certificate.subject !== `CN=${installation.temporalNamespace}`) throw new FactoryProvisioningError("temporal_certificate_subject", "The namespace certificate names the wrong subject.");
     if (resources.certificateHash !== factoryCertificateHash(certificatePem)) throw new FactoryProvisioningError("temporal_resource_mismatch", "The recorded namespace certificate is not the one on disk.");
+    if (this.options.httpTokensDirectory !== undefined) {
+      const claims = await this.readTokenClaims(installation);
+      if (claims?.sub !== installation.temporalNamespace || !claims.permissions?.includes(`read:${installation.temporalNamespace}`) || !Number.isSafeInteger(claims.exp) || claims.exp! * 1_000 <= this.now()) {
+        throw new FactoryProvisioningError("temporal_read_token_invalid", "The namespace's gateway read token is missing its scope or has expired; rotate the temporal step.");
+      }
+    }
     if (!await this.options.access.describe(installation.temporalNamespace, this.credential(installation))) throw new FactoryProvisioningError("temporal_access_denied", `The namespace credential cannot reach ${installation.temporalNamespace}.`);
   }
 
@@ -201,6 +232,7 @@ export class FactoryTemporalStep implements FactoryProvisioningDriver {
     const directory = await openFactoryPrivateDirectory(installation.secretDirectory);
     try { for (const name of [...Object.values(FILES), PENDING]) await removeFactoryPrivateFile(directory, name); }
     finally { await directory.close(); }
+    await this.retireReadToken(installation);
   }
 
   /**
@@ -217,6 +249,7 @@ export class FactoryTemporalStep implements FactoryProvisioningDriver {
     await replaceFactoryPrivateFile(factoryPrivatePath(installation.secretDirectory, PENDING), `${JSON.stringify(staged)}\n`);
     await this.options.rotationFault?.("staged");
     await this.finishRotation(installation);
+    await this.rotateReadToken(installation);
     const next = await this.resources(installation);
     await this.verify(installation, next);
     return next;
@@ -241,6 +274,44 @@ export class FactoryTemporalStep implements FactoryProvisioningDriver {
       await removeFactoryPrivateFile(directory, PENDING);
       return true;
     } finally { await directory.close(); }
+  }
+
+  private readTokenName(installation: FactoryInstallationContext): string {
+    return `${installation.temporalNamespace}.token`;
+  }
+
+  /** The gateway's read-only token for one namespace: the only permission is `read:<namespace>`. */
+  private readToken(installation: FactoryInstallationContext): string {
+    return `${factoryTemporalToken(installation.temporalNamespace, [`read:${installation.temporalNamespace}`], this.tokenKey(), this.options.authority.tokenKeyId, Math.floor(this.now() / 1_000))}\n`;
+  }
+
+  /**
+   * Replace the read token, then revoke the one it replaces: the gateway's next
+   * call injects the new token, and a call carrying the old one is refused.
+   */
+  private async rotateReadToken(installation: FactoryInstallationContext): Promise<void> {
+    if (this.options.httpTokensDirectory === undefined) return;
+    const previous = (await this.readTokenClaims(installation))?.jti;
+    await replaceFactoryPrivateFile(factoryPrivatePath(this.options.httpTokensDirectory, this.readTokenName(installation)), this.readToken(installation));
+    if (previous) await revokeFactoryTemporalIdentity(this.options.authority.revocationsPath, { tokenId: previous });
+  }
+
+  /** At teardown: revoke the read token by ID and remove its file. Idempotent. */
+  private async retireReadToken(installation: FactoryInstallationContext): Promise<void> {
+    if (this.options.httpTokensDirectory === undefined) return;
+    const previous = (await this.readTokenClaims(installation))?.jti;
+    if (previous) await revokeFactoryTemporalIdentity(this.options.authority.revocationsPath, { tokenId: previous });
+    const tokens = await openFactoryPrivateDirectory(this.options.httpTokensDirectory);
+    try { await removeFactoryPrivateFile(tokens, this.readTokenName(installation)); } finally { await tokens.close(); }
+  }
+
+  /** The namespace's read-token claims, or undefined when none is on file. Only called with a token directory set. */
+  private async readTokenClaims(installation: FactoryInstallationContext): Promise<ReturnType<typeof factoryTemporalTokenClaims>> {
+    try { return factoryTemporalTokenClaims(new TextDecoder().decode(await readFactoryPrivatePath(factoryPrivatePath(this.options.httpTokensDirectory!, this.readTokenName(installation))))); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+      throw error;
+    }
   }
 
   private token(installation: FactoryInstallationContext): string {
