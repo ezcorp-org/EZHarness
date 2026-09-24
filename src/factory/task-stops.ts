@@ -376,7 +376,6 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     }));
   }
 
-  /** The settlement scope for one reservation, so later reconciliation binds the same attempt. */
   /**
    * W05b: tells the kernel a stopped attempt's uncertainty is resolved.
    *
@@ -407,6 +406,7 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
     return event;
   }
 
+  /** The settlement scope for one reservation, so later reconciliation binds the same attempt. */
   async readSettlementScopeInTransaction(transaction: MigrationDb, reservationId: string): Promise<FactoryUsageSettlementScope | undefined> {
     assertFactoryIdentity(reservationId);
     const row = rows<StopRow>(await transaction.execute(sql`SELECT * FROM factory_task_stops WHERE tenant_id=${this.authority.tenantId} AND reservation_id=${reservationId} FOR UPDATE`))[0];
