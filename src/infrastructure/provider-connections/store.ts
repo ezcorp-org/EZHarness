@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import type { MigrationDb } from "../../db/migrations/types";
 import { DatabaseLifecycleRepository, releaseRows, type ReleaseDatabase } from "../../db/queries/extension-releases";
 import { decryptWithAad, encryptWithAad } from "../../providers/encryption";
 
@@ -88,18 +89,50 @@ export class ProviderConnectionStore {
     this.lifecycle = new DatabaseLifecycleRepository(database);
   }
 
-  private async assertActive(installationId: string, releaseId: string, transaction: Parameters<DatabaseLifecycleRepository["read"]>[1]): Promise<void> {
+  private async assertActive(installationId: string, releaseId: string, transaction: Parameters<DatabaseLifecycleRepository["read"]>[1]) {
     const state = await this.lifecycle.read(installationId, transaction);
     if (!state) throw new Error("Provider release is not active and approved");
     const installation = state.installation;
     const release = state.releases[releaseId];
+    const approval = Object.values(state.approvals).find((candidate) => candidate.status === "consumed" &&
+      candidate.releaseId === releaseId && candidate.releaseDigest === release?.releaseDigest &&
+      candidate.expectedGeneration === installation.generation - 1 &&
+      candidate.principalId === installation.ownerId && candidate.scope === installation.scope);
     if (!installation.enabled || installation.uninstalled || installation.status !== "active" ||
       installation.activeReleaseId !== releaseId || installation.acknowledgedGeneration !== installation.generation || !release ||
-      !Object.values(state.approvals).some((approval) => approval.status === "consumed" &&
-        approval.releaseId === releaseId && approval.releaseDigest === release.releaseDigest &&
-        approval.expectedGeneration === installation.generation - 1 &&
-        approval.principalId === installation.ownerId && approval.scope === installation.scope)) {
+      !approval) {
       throw new Error("Provider release is not active and approved");
+    }
+    return { installation, release, approval };
+  }
+
+  /** Hold all authority rows through a host-owned capacity write. */
+  async assertCurrentScope(scope: ProviderConnectionScope & { releaseDigest: string; generation: number },
+    transaction: MigrationDb): Promise<void> {
+    const { installation, release, approval } = await this.assertActive(scope.providerInstallationId,
+      scope.providerReleaseId, transaction);
+    if (installation.generation !== scope.generation || release.releaseDigest !== scope.releaseDigest) {
+      throw new Error("Provider release changed during capacity review");
+    }
+    const records = releaseRows<{ kind: string; id: string; payload: string }>(await transaction.execute(sql`
+      SELECT kind, id, payload FROM extension_release_records WHERE installation_id = ${scope.providerInstallationId}
+      AND ((kind = 'releases' AND id = ${scope.providerReleaseId}) OR (kind = 'approvals' AND id = ${approval.id}))
+      ORDER BY kind, id FOR SHARE`));
+    if (records.length !== 2 || !records.some(row => row.kind === "releases" && row.id === release.id
+      && row.payload === JSON.stringify(release)) || !records.some(row => row.kind === "approvals" && row.id === approval.id
+      && row.payload === JSON.stringify(approval))) {
+      throw new Error("Provider release approval changed during capacity review");
+    }
+    const rows = releaseRows<{ id: string; revision: number; providerInstallationId: string;
+      providerReleaseId: string; revokedAt: Date | null }>(await transaction.execute(sql`
+      SELECT id, revision, provider_installation_id AS "providerInstallationId",
+        provider_release_id AS "providerReleaseId", revoked_at AS "revokedAt"
+      FROM provider_connections WHERE id = ${scope.connectionId} FOR SHARE`));
+    const connection = rows[0];
+    if (!connection || connection.revokedAt || connection.revision !== scope.revision ||
+      connection.providerInstallationId !== scope.providerInstallationId ||
+      connection.providerReleaseId !== scope.providerReleaseId) {
+      throw new Error("Provider connection changed during capacity review");
     }
   }
 

@@ -151,6 +151,14 @@ function deriveCapacity(row: SetupRow, observation: CapacityObservation): Sandbo
 
 function same(left: unknown, right: unknown): boolean { return digest(left) === digest(right); }
 
+function assertUnexpired(plan: IncusCapacityPlan, now: Date): void {
+  const captured = Date.parse(plan.observation.capturedAt);
+  const expiry = Date.parse(plan.expiresAt);
+  requireValue(Number.isFinite(captured) && Number.isFinite(expiry) && captured <= now.getTime()
+    && expiry > now.getTime() && expiry - captured === PLAN_LIFETIME_MS,
+  "capacity plan expired or clock changed");
+}
+
 export class IncusCapacityService {
   constructor(private readonly deps: CapacityDependencies) {}
 
@@ -201,7 +209,7 @@ export class IncusCapacityService {
       releaseId: row.providerReleaseId, releaseDigest: row.providerReleaseDigest, generation: row.providerGeneration,
       connectionId: row.connectionId, connectionRevision: row.connectionRevision, recipeDigest: digest(row.recipe),
       setupPlanDigest: row.plan.planDigest, observation, capacity: deriveCapacity(row, observation),
-      expiresAt: new Date(now.getTime() + PLAN_LIFETIME_MS).toISOString() };
+      expiresAt: new Date(Date.parse(observation.capturedAt) + PLAN_LIFETIME_MS).toISOString() };
     return { ...payload, planDigest: digest(payload) };
   }
 
@@ -221,18 +229,13 @@ export class IncusCapacityService {
       && input.connectionRevision === row.connectionRevision && input.recipeDigest === digest(row.recipe)
       && input.setupPlanDigest === row.plan.planDigest && same(input.capacity, deriveCapacity(row, input.observation)),
     "capacity plan scope or derivation changed");
-    const now = (this.deps.now ?? (() => new Date()))();
-    requireValue(Date.parse(input.observation.capturedAt) <= now.getTime()
-      && Date.parse(input.expiresAt) > now.getTime()
-      && Date.parse(input.expiresAt) - Date.parse(input.observation.capturedAt) === PLAN_LIFETIME_MS,
-    "capacity plan expired or clock changed");
+    assertUnexpired(input, (this.deps.now ?? (() => new Date()))());
     const { observation } = await this.current(row);
     requireValue(observation.hostId === input.observation.hostId && observation.cpuThreads === input.observation.cpuThreads
       && observation.availableMemoryBytes >= input.capacity.allocatable.memoryBytes + EXTERNAL_MEMORY_RESERVE
       && observation.poolFreeBytes >= input.capacity.allocatable.diskBytes + EXTERNAL_DISK_RESERVE
       && observation.availablePids >= input.capacity.allocatable.pids + EXTERNAL_PID_RESERVE,
     "fresh host headroom no longer supports reviewed capacity");
-    const receipt = { plan: input, appliedBy: principalId, appliedAt: now.toISOString() };
     return this.deps.database.transaction(async (transaction: DbTransaction) => {
       const locked = await this.setup(input.setupId, transaction, true);
       if (locked.capacityReceipt) {
@@ -240,9 +243,17 @@ export class IncusCapacityService {
           "another capacity plan was applied");
         return locked.capacityReceipt;
       }
+      await this.deps.connections.assertCurrentScope({ connectionId: locked.connectionId,
+        providerInstallationId: locked.providerInstallationId, providerReleaseId: locked.providerReleaseId,
+        revision: locked.connectionRevision, releaseDigest: locked.providerReleaseDigest,
+        generation: locked.providerGeneration }, transaction);
+      assertUnexpired(input, (this.deps.now ?? (() => new Date()))());
       await new SandboxAdmissionStore(this.deps.database).configureHostCapacity(input.capacity, transaction);
+      const committedAt = (this.deps.now ?? (() => new Date()))();
+      assertUnexpired(input, committedAt);
+      const receipt = { plan: input, appliedBy: principalId, appliedAt: committedAt.toISOString() };
       await transaction.execute(sql`UPDATE incus_operator_setups SET capacity_receipt = ${JSON.stringify(receipt)}::text::jsonb,
-        capacity_applied_by = ${principalId}, capacity_applied_at = ${now.toISOString()}::timestamptz, updated_at = NOW()
+        capacity_applied_by = ${principalId}, capacity_applied_at = ${committedAt.toISOString()}::timestamptz, updated_at = NOW()
         WHERE id = ${row.id} AND capacity_receipt IS NULL`);
       return receipt;
     });

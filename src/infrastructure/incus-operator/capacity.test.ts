@@ -82,10 +82,17 @@ async function fixture() {
     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'verified')`, ["setup", snapshot.installation.id, snapshot.release.id,
     snapshot.release.releaseDigest, 2, connection.id, connection.revision, "admin", JSON.stringify(recipe), JSON.stringify(setupPlan)]);
   let activeRunner = runner();
-  const service = new IncusCapacityService({ database: db, connections: { resolveForHost: async () => ({}) } as unknown as ProviderConnectionStore,
-    bootstrap, activeRelease: async () => snapshot, inspect: async () => observed,
-    runner: argv => activeRunner(argv), verifyPin: async () => {}, now: () => new Date("2026-09-23T12:00:00.000Z") });
-  return { client, db, service, setRunner: (next: ReturnType<typeof runner>) => { activeRunner = next; } };
+  let activeInspect = async () => observed;
+  let clock = new Date("2026-09-23T12:00:00.000Z");
+  const connections = new ProviderConnectionStore(db);
+  const dependencies = { database: db, connections, bootstrap, activeRelease: async () => snapshot,
+    inspect: async () => activeInspect(), runner: (argv: readonly string[]) => activeRunner(argv),
+    verifyPin: async () => {}, now: () => clock };
+  const service = new IncusCapacityService(dependencies);
+  return { client, db, service, connections, snapshot, dependencies,
+    setRunner: (next: ReturnType<typeof runner>) => { activeRunner = next; },
+    setInspect: (next: () => Promise<IncusInventory>) => { activeInspect = next; },
+    setTime: (next: string) => { clock = new Date(next); } };
 }
 
 afterEach(async () => { await Promise.all(opened.splice(0).map(client => client.close())); });
@@ -162,4 +169,107 @@ test("Plan fails closed when the host cannot retain external and admission margi
   value.setRunner(runner(10, 96));
   await expect(value.service.plan("setup")).rejects.toThrow("no safe capacity");
   expect((await value.client.query("SELECT * FROM sandbox_host_capacities")).rows).toHaveLength(0);
+});
+
+test("Plan expiry is anchored to the protected observation even if the clock advances while planning", async () => {
+  const value = await fixture();
+  let reads = 0;
+  value.dependencies.now = () => new Date(reads++ === 0 ? "2026-09-23T12:00:00.000Z" : "2026-09-23T12:00:20.000Z");
+  const plan = await value.service.plan("setup");
+  expect(plan.observation.capturedAt).toBe("2026-09-23T12:00:00.000Z");
+  expect(plan.expiresAt).toBe("2026-09-23T12:10:00.000Z");
+});
+
+test("connection revocation during paused SSH inspection blocks the capacity write", async () => {
+  const value = await fixture();
+  const plan = await value.service.plan("setup");
+  let entered!: () => void;
+  let resume!: () => void;
+  const inspecting = new Promise<void>(resolve => { entered = resolve; });
+  const paused = new Promise<void>(resolve => { resume = resolve; });
+  value.setInspect(async () => { entered(); await paused; return inventory(); });
+  const applying = value.service.apply(plan, plan.planDigest, "admin");
+  await inspecting;
+  await value.connections.revoke("connection", 1);
+  resume();
+  await expect(applying).rejects.toThrow("Provider connection changed during capacity review");
+  expect((await value.client.query("SELECT * FROM sandbox_host_capacities")).rows).toHaveLength(0);
+});
+
+test("release replacement during paused SSH inspection blocks the capacity write", async () => {
+  const value = await fixture();
+  const plan = await value.service.plan("setup");
+  let entered!: () => void;
+  let resume!: () => void;
+  const inspecting = new Promise<void>(resolve => { entered = resolve; });
+  const paused = new Promise<void>(resolve => { resume = resolve; });
+  value.setInspect(async () => { entered(); await paused; return inventory(); });
+  const applying = value.service.apply(plan, plan.planDigest, "admin");
+  await inspecting;
+  const changed = { ...value.snapshot.installation, activeReleaseId: "replacement", generation: 3, acknowledgedGeneration: 3 };
+  await value.client.query("UPDATE extension_release_installations SET payload=$1 WHERE id=$2",
+    [JSON.stringify(changed), value.snapshot.installation.id]);
+  resume();
+  await expect(applying).rejects.toThrow("Provider release is not active and approved");
+  expect((await value.client.query("SELECT * FROM sandbox_host_capacities")).rows).toHaveLength(0);
+});
+
+test("approval withdrawal during paused SSH inspection blocks the capacity write", async () => {
+  const value = await fixture();
+  const plan = await value.service.plan("setup");
+  let entered!: () => void;
+  let resume!: () => void;
+  const inspecting = new Promise<void>(resolve => { entered = resolve; });
+  const paused = new Promise<void>(resolve => { resume = resolve; });
+  value.setInspect(async () => { entered(); await paused; return inventory(); });
+  const applying = value.service.apply(plan, plan.planDigest, "admin");
+  await inspecting;
+  await value.client.query("UPDATE extension_release_records SET payload=(payload::jsonb || '{\"status\":\"rejected\"}'::jsonb)::text WHERE installation_id=$1 AND kind='approvals' AND id='approval'",
+    [value.snapshot.installation.id]);
+  resume();
+  await expect(applying).rejects.toThrow("Provider release is not active and approved");
+  expect((await value.client.query("SELECT * FROM sandbox_host_capacities")).rows).toHaveLength(0);
+});
+
+test("plan expiry after fresh SSH read but before transaction authority check blocks the write", async () => {
+  const value = await fixture();
+  const plan = await value.service.plan("setup");
+  const real = value.connections;
+  let entered!: () => void;
+  let resume!: () => void;
+  const checking = new Promise<void>(resolve => { entered = resolve; });
+  const paused = new Promise<void>(resolve => { resume = resolve; });
+  value.dependencies.connections = {
+    resolveForHost: real.resolveForHost.bind(real),
+    assertCurrentScope: async (...args: Parameters<ProviderConnectionStore["assertCurrentScope"]>) => {
+      entered(); await paused; return real.assertCurrentScope(...args);
+    },
+  } as ProviderConnectionStore;
+  const applying = value.service.apply(plan, plan.planDigest, "admin");
+  await checking;
+  value.setTime("2026-09-23T12:10:01.000Z");
+  resume();
+  await expect(applying).rejects.toThrow("capacity plan expired or clock changed");
+  expect((await value.client.query("SELECT * FROM sandbox_host_capacities")).rows).toHaveLength(0);
+});
+
+test("plan expiry while capacity admission waits rolls back its write", async () => {
+  const value = await fixture();
+  const plan = await value.service.plan("setup");
+  let reads = 0;
+  value.dependencies.now = () => new Date(++reads >= 4 ? "2026-09-23T12:10:01.000Z" : "2026-09-23T12:00:00.000Z");
+  await expect(value.service.apply(plan, plan.planDigest, "admin")).rejects.toThrow("capacity plan expired or clock changed");
+  expect((await value.client.query("SELECT * FROM sandbox_host_capacities")).rows).toHaveLength(0);
+  expect((await value.client.query<{ capacity_receipt: unknown }>("SELECT capacity_receipt FROM incus_operator_setups WHERE id='setup'")).rows[0]!.capacity_receipt).toBeNull();
+});
+
+test("competing exact Apply requests converge on one saved receipt", async () => {
+  const value = await fixture();
+  const plan = await value.service.plan("setup");
+  const [first, second] = await Promise.all([
+    value.service.apply(plan, plan.planDigest, "admin"),
+    value.service.apply(plan, plan.planDigest, "admin"),
+  ]);
+  expect(second).toEqual(first);
+  expect((await value.client.query("SELECT * FROM sandbox_host_capacities")).rows).toHaveLength(1);
 });
