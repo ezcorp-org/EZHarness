@@ -1563,3 +1563,9 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - A summary built from receipt files can report an old pass as a new one. When a run fails before it writes its record, the summary must not read the previous record. Check `producingCommit` and `startedAt` on every receipt before quoting it.
 - When the AWS SDK fails with "DOMParser is not defined / Deserialization error", read the object store's log before blaming the bundle. The SDK parses XML only for an S3 error body, and here the real error was a full host disk that made the store's volumes read-only.
 - Bun's line coverage can mark the line before an unexecuted function as uncovered: the unexecuted block's range bleeds back one line. Before restructuring code to satisfy the patch gate, check whether the neighbouring function runs in the measured suites, and add the suite that exercises it.
+
+## 2026-09-24 — A Node service must not import a product module for a constant (W15c)
+
+- A Node service may import only leaf modules from the product. `src/db/queries/*` and anything that
+  reaches them (records, auth) pull in `db/connection` and the Bun SQL driver. Put shared constants and
+  types in a leaf, and let `check-factory-boundaries.ts` (`NODE_SERVICE_BOUNDARIES`) guard the entry.
