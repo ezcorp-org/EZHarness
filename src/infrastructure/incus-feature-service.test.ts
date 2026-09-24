@@ -98,6 +98,20 @@ async function fixture() {
 
 afterEach(async () => { await Promise.all(databases.splice(0).map(db => db.close())); });
 
+test("read-only readiness uses the prepare gate without creating a binding", async () => {
+  const { db, service, preset, dispatches } = await fixture();
+  const input = { projectId: "project", installationId: "installation",
+    connectionId: "connection", presetId: preset.id };
+  await service.checkReadiness(input);
+  expect(await db.select().from(schema.sandboxBindings)).toEqual([]);
+  expect(dispatches).toEqual([]);
+  await db.insert(schema.projects).values({ id: "qual-project", name: "qual-project",
+    path: "/__incus_qualification__/qual-project", purpose: "incus-qualification" });
+  await expect(service.checkReadiness({ ...input, projectId: "qual-project" }))
+    .rejects.toThrow("feature project is unavailable");
+  expect(await db.select().from(schema.sandboxBindings)).toEqual([]);
+}, DB_TEST_TIMEOUT_MS);
+
 test("prepare, create, start, stop and destroy use durable admission and provider receipts", async () => {
   const { service, controller, admission, dispatches, setProvider, preset, configureAdmission } = await fixture();
   const binding = await service.prepare({ projectId: "project", installationId: "installation", connectionId: "connection", presetId: preset.id });

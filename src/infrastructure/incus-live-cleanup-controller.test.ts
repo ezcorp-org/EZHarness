@@ -1,0 +1,90 @@
+import { expect, test } from "bun:test";
+import type { Database } from "../db/connection";
+import { sandboxBindings, sandboxOperations, sandboxReservations } from "../db/schema";
+import type { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
+import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
+import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
+import type { IncusFeatureService } from "./incus-feature-service";
+import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
+
+const now = Date.now();
+const scope = { installationId: "install", releaseId: "release", connectionId: "connection", presetId: "preset" };
+const handle = { operationId: "qual-recovery-run-one", sandboxId: "recovery-binding" };
+const destroyId = "11111111-1111-4111-8111-111111111111";
+
+function harness(fault?: "readback" | "other-operation" | "readiness") {
+  let phase = 0;
+  const calls: string[] = [];
+  const status = () => ({ fixture: { ...scope, operationId: handle.operationId,
+    bindingId: handle.sandboxId, connectionRevision: 2 },
+  binding: { id: handle.sandboxId, generation: 1,
+    desiredState: phase === 0 ? "STOPPED" : "ABSENT",
+    observedState: phase === 0 ? "STOPPED" : phase === 1 ? "UNKNOWN" : "ABSENT" },
+  operation: { id: phase === 0 ? "create-one" : destroyId,
+    kind: phase === 0 ? "CREATE" : "DESTROY",
+    state: phase === 0 || phase === 2 ? "SUCCEEDED" : "OUTCOME_UNKNOWN", generation: 1 } });
+  const db = { select: (shape?: Record<string, unknown>) => ({ from: (table: unknown) => ({ where: () => ({
+    limit: async () => table === sandboxOperations ? shape?.id ? [{ id: fault === "other-operation" ? "other" : destroyId }]
+      : [{ id: destroyId, bindingId: handle.sandboxId, requestPayload: { expectedGeneration: 7 } }]
+      : table === sandboxBindings ? [{ id: handle.sandboxId, cleanupConfirmedAt: new Date() }]
+        : table === sandboxReservations ? [{ bindingId: handle.sandboxId,
+          cleanupIntentId: `incus-qualification-destroy-${handle.operationId}`,
+          computeState: "RELEASED", diskState: "RELEASED" }] : [],
+  }) }) }) } as unknown as Database;
+  const fixtures = { status: async () => status(),
+    destroyWithLostReplyFault: async () => { calls.push("destroy"); phase = 1; throw new Error("reply lost"); },
+  } as unknown as IncusQualificationFixtureService;
+  const checkpoints = { get: async () => ({ state: "CLAIMED", nonce: "nonce", scope,
+    deadlineAt: new Date(now + 60_000) }),
+  authorizeRecoveryFixtureForRun: async (arm: Record<string, unknown>) => {
+    expect(arm.fixtureOperationId).toBe(handle.operationId);
+    expect(arm.bindingId).toBe(handle.sandboxId);
+  } } as unknown as IncusQualificationCheckpointStore;
+  const readback = { fact: fault === "readback" ? null : "RECONCILE_REQUIRED",
+    destroyOperationId: destroyId, bindingId: handle.sandboxId };
+  const operatorFault = { readback: async () => { calls.push("readback"); return readback; } } as unknown as HostIncusLostDestroyReplyFault;
+  const featureGate = { checkReadiness: async (input: { projectId: string; installationId: string;
+    connectionId: string; presetId: string }) => {
+    expect(input).toEqual({ projectId: "controlled-user-project", installationId: scope.installationId,
+      connectionId: scope.connectionId, presetId: scope.presetId });
+    calls.push("readiness");
+    if (fault === "readiness") return;
+    throw Object.assign(new Error("cleanup pending"), { code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
+  }, reconcile: async () => { calls.push("reconcile"); phase = 2; } } as unknown as IncusFeatureService;
+  const controller = new IncusLiveCleanupController({ db, fixtures,
+    qualifications: {} as IncusQualificationStore, readinessProjectId: "controlled-user-project",
+    checkpoints, fault: async () => operatorFault, freshFeatureGate: () => featureGate, now: () => now });
+  return { controller, calls };
+}
+
+test("operator cleanup uses one lost reply, exact readback, readiness denial and same journal recovery", async () => {
+  const { controller, calls } = harness();
+  await expect(controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
+  await expect(controller.attemptReadiness(scope, handle)).rejects.toMatchObject({
+    code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
+  await controller.reconcileFromReopenedController(scope, handle);
+  expect(calls).toEqual(["destroy", "readback", "readiness", "reconcile"]);
+  await expect(controller.reconcileFromReopenedController(scope, handle))
+    .rejects.toThrow("recovery journal identity changed");
+});
+
+test("missing independent readback or an unrelated pending operation fails closed", async () => {
+  const noReadback = harness("readback");
+  await expect(noReadback.controller.injectLostDestroyReply(scope, handle))
+    .rejects.toThrow("operator destroy readback did not confirm uncertainty");
+  await expect(noReadback.controller.attemptReadiness(scope, handle))
+    .rejects.toThrow("not bound to this readiness request");
+  const competing = harness("other-operation");
+  await expect(competing.controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
+  await expect(competing.controller.attemptReadiness(scope, handle))
+    .rejects.toMatchObject({ code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
+  await expect(competing.controller.reconcileFromReopenedController(scope, handle))
+    .rejects.toThrow("another pending operation blocks exact recovery");
+  expect(competing.calls).not.toContain("reconcile");
+  const noDenial = harness("readiness");
+  await expect(noDenial.controller.injectLostDestroyReply(scope, handle)).rejects.toThrow("reply lost");
+  await noDenial.controller.attemptReadiness(scope, handle);
+  await expect(noDenial.controller.reconcileFromReopenedController(scope, handle))
+    .rejects.toThrow("production readiness did not deny");
+  expect(noDenial.calls).not.toContain("reconcile");
+});

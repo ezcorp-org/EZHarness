@@ -153,6 +153,31 @@ test("the new process claims an exited writer and authorizes only its exact live
     () => deadlineMs - 10_000);
   await expect(nearExpiry.authorizeOwnedRun({ ...authority, deadlineMs: deadlineMs + 5_000 }))
     .rejects.toThrow("run authority is unavailable");
+  const recoveryOperationId = `qual-recovery-${runId}`;
+  await reopened.exec(`INSERT INTO projects VALUES ('project-recovery', 'incus-qualification');
+    INSERT INTO sandbox_bindings VALUES ('binding-recovery', 'project-recovery', 1, 'STOPPED', 'STOPPED',
+      'recovery-stop', 'installation', 'release', 'connection', 2, 'preset');
+    INSERT INTO provider_sandbox_operations VALUES ('recovery-stop', 'binding-recovery', 'SUCCEEDED', 1);`);
+  await reopened.query(`INSERT INTO incus_qualification_fixtures VALUES ($1, 'project-recovery', 'binding-recovery',
+    'installation', 'release', 'connection', 2, 'preset')`, [recoveryOperationId]);
+  const recoveryAuthority = { ...authority, fixtureOperationId: recoveryOperationId,
+    bindingId: "binding-recovery", generation: 1 };
+  await store.authorizeRecoveryFixtureForRun(recoveryAuthority);
+  await expect(store.authorizeRecoveryFixtureForRun({ ...recoveryAuthority, bindingId: "user-binding" }))
+    .rejects.toThrow("fixture changed");
+  await expect(store.authorizeRecoveryFixtureForRun({ ...recoveryAuthority,
+    fixtureOperationId: handle.operationId })).rejects.toThrow("run authority is unavailable");
+  await reopened.exec("UPDATE sandbox_bindings SET observed_state = 'UNKNOWN' WHERE id = 'binding-recovery'");
+  await expect(store.authorizeRecoveryFixtureForRun(recoveryAuthority)).rejects.toThrow("fixture changed");
+  await reopened.exec("UPDATE sandbox_bindings SET observed_state = 'STOPPED' WHERE id = 'binding-recovery'");
+  const destroyOperationId = randomUUID();
+  await reopened.query("INSERT INTO provider_sandbox_operations VALUES ($1, 'binding-recovery', 'OUTCOME_UNKNOWN', 1)",
+    [destroyOperationId]);
+  await reopened.query(`UPDATE sandbox_bindings SET current_operation_id = $1,
+    desired_state = 'ABSENT', observed_state = 'UNKNOWN' WHERE id = 'binding-recovery'`, [destroyOperationId]);
+  await store.authorizeRecoveryReadbackForRun({ ...recoveryAuthority, destroyOperationId });
+  await expect(store.authorizeRecoveryReadbackForRun({ ...recoveryAuthority,
+    destroyOperationId: randomUUID() })).rejects.toThrow("readback changed");
   await reopened.exec("UPDATE projects SET purpose = 'user' WHERE id = 'project'");
   await expect(store.authorizeOwnedRun(authority)).rejects.toThrow("operator fixture changed");
   await store.fail(runId);

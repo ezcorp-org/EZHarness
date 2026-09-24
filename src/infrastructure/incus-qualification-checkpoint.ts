@@ -128,6 +128,10 @@ interface RunRow {
   state: string;
 }
 
+type RecoveryFaultAuthority = { runId: string; nonce: string; scope: IncusQualificationScope;
+  fixtureOperationId: string; bindingId: string; generation: number;
+  connectionRevision: number; deadlineMs: number };
+
 const runColumns = sql`run_id AS "runId", fixture_operation_id AS "fixtureOperationId",
   scope, binding_id AS "bindingId", generation, connection_revision AS "connectionRevision",
   last_operation_id AS "lastOperationId", nonce, deadline_at AS "deadlineAt",
@@ -286,6 +290,59 @@ export class IncusQualificationCheckpointStore {
       || fixture.bindingId !== row.bindingId || fixture.generation !== row.generation
       || fixture.connectionRevision !== row.connectionRevision) {
       throw new Error("Incus operator fixture changed");
+    }
+  }
+
+  private async recoveryFixture(input: RecoveryFaultAuthority): Promise<FixtureIdentityRow> {
+    const row = await this.get(input.runId);
+    const now = this.now();
+    const runDeadlineMs = row ? new Date(row.deadlineAt).getTime() : Number.NaN;
+    if (row?.state !== "CLAIMED" || row.nonce !== input.nonce
+      || !sameScope(row.scope, input.scope)
+      || input.fixtureOperationId !== `qual-recovery-${input.runId}`
+      || input.bindingId === row.bindingId
+      || !Number.isSafeInteger(input.generation) || input.generation < 1
+      || input.connectionRevision !== row.connectionRevision
+      || !Number.isSafeInteger(input.deadlineMs) || !Number.isSafeInteger(runDeadlineMs)
+      || now >= runDeadlineMs || now >= input.deadlineMs
+      || input.deadlineMs > runDeadlineMs || input.deadlineMs > now + 30_000) {
+      throw new Error("Incus recovery fault run authority is unavailable");
+    }
+    const fixture = await fixtureIdentity(this.db, input.fixtureOperationId);
+    if (fixture?.projectPurpose !== "incus-qualification"
+      || fixture.bindingId !== input.bindingId
+      || fixture.installationId !== input.scope.installationId
+      || fixture.releaseId !== input.scope.releaseId
+      || fixture.connectionId !== input.scope.connectionId
+      || fixture.presetId !== input.scope.presetId
+      || fixture.generation !== input.generation
+      || fixture.connectionRevision !== input.connectionRevision
+      || fixture.bindingInstallationId !== fixture.installationId
+      || fixture.bindingReleaseId !== fixture.releaseId
+      || fixture.bindingConnectionId !== fixture.connectionId
+      || fixture.bindingConnectionRevision !== fixture.connectionRevision
+      || fixture.bindingPresetId !== fixture.presetId
+      || fixture.lastOperationGeneration !== fixture.generation) {
+      throw new Error("Incus recovery fault fixture changed");
+    }
+    return fixture;
+  }
+
+  /** The claimed restart run may arm a fault only on its new stopped fixture. */
+  async authorizeRecoveryFixtureForRun(input: RecoveryFaultAuthority): Promise<void> {
+    const fixture = await this.recoveryFixture(input);
+    if (fixture.desiredState !== "STOPPED" || fixture.observedState !== "STOPPED"
+      || fixture.lastOperationState !== "SUCCEEDED") {
+      throw new Error("Incus recovery fault fixture changed");
+    }
+  }
+
+  /** Readback follows the same exact destroy journal after its reply was lost. */
+  async authorizeRecoveryReadbackForRun(input: RecoveryFaultAuthority & { destroyOperationId: string }): Promise<void> {
+    const fixture = await this.recoveryFixture(input);
+    if (fixture.desiredState !== "ABSENT" || fixture.lastOperationId !== input.destroyOperationId
+      || !["OUTCOME_UNKNOWN", "SUCCEEDED"].includes(fixture.lastOperationState ?? "")) {
+      throw new Error("Incus recovery fault readback changed");
     }
   }
 

@@ -231,17 +231,27 @@ export class IncusFeatureService {
     }
   }
 
-  async prepare(input: PrepareIncusFeatureInput): Promise<SandboxBinding> {
+  private async checkedPreparation(input: PrepareIncusFeatureInput) {
     const [project] = await this.db.select({ purpose: projects.purpose }).from(projects)
       .where(eq(projects.id, input.projectId)).limit(1);
     if (project?.purpose !== "user") throw new Error("Incus feature project is unavailable");
     const [existing] = await this.db.select().from(sandboxBindings)
       .where(eq(sandboxBindings.projectId, input.projectId)).limit(1);
     const approved = await this.approved(input, existing);
+    if (existing && (existing.tombstonedAt || !existing.connectionRevision || existing.resourceKey !== existing.id)) {
+      throw new Error("Incus feature binding is unavailable");
+    }
+    return { existing, approved };
+  }
+
+  /** Uses the same production gate as prepare without creating a binding. */
+  async checkReadiness(input: PrepareIncusFeatureInput): Promise<void> {
+    await this.checkedPreparation(input);
+  }
+
+  async prepare(input: PrepareIncusFeatureInput): Promise<SandboxBinding> {
+    const { existing, approved } = await this.checkedPreparation(input);
     if (existing) {
-      if (existing.tombstonedAt || !existing.connectionRevision || existing.resourceKey !== existing.id) {
-        throw new Error("Incus feature binding is unavailable");
-      }
       return existing;
     }
     if (!approved.qualification) throw new Error("Live Incus preset qualification is unavailable");

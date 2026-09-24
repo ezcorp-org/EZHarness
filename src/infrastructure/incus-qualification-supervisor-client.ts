@@ -1,6 +1,7 @@
 import { createConnection } from "node:net";
 import type { IncusQualificationScope } from "./incus-qualification";
 import type { SignedRestartHandoff } from "./incus-qualification-checkpoint";
+import type { LostDestroyReplyArm } from "./incus-destroy-reply-fault";
 
 /** The socket authenticates the actual managed process with Linux SO_PEERCRED. */
 export interface SupervisorRestartRequest {
@@ -20,6 +21,7 @@ export interface SupervisorRestartRequest {
 
 const RESTART_ACK_TIMEOUT_MS = 5_000;
 const RECEIPT_TIMEOUT_MS = 40_000;
+const FAULT_TIMEOUT_MS = 20_000;
 
 async function exchange(socketPath: string, message: unknown, timeoutMs: number): Promise<unknown> {
   if (!socketPath.startsWith("/") || !socketPath.length) throw new Error("Incus supervisor socket is unavailable");
@@ -69,4 +71,17 @@ export async function requestIncusSupervisorReceipt(socketPath: string, runId: s
     throw new Error("Incus supervisor receipt is invalid");
   }
   return response.receipt;
+}
+
+/** Operator supervisor checks SO_PEERCRED, claimed run and exact fault arm. */
+export async function requestIncusSupervisorFault(socketPath: string,
+  phase: "presence" | "arm" | "readback", arm?: LostDestroyReplyArm): Promise<void> {
+  if (phase !== "presence" && !arm) throw new Error("Incus fault authorization arm is unavailable");
+  const remaining = arm ? arm.deadlineMs - Date.now() : FAULT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(remaining) || remaining <= 0) {
+    throw new Error("Incus fault authorization deadline expired");
+  }
+  const response = await exchange(socketPath, { version: 1, action: "fault", phase,
+    ...(arm ? { arm } : {}) }, Math.min(remaining, FAULT_TIMEOUT_MS)) as { authorized?: unknown };
+  if (response.authorized !== true) throw new Error("Incus operator supervisor denied fault authorization");
 }

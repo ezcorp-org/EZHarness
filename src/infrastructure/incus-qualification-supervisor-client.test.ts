@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { requestIncusSupervisorReceipt, requestIncusSupervisorRestart,
+import { requestIncusSupervisorFault, requestIncusSupervisorReceipt, requestIncusSupervisorRestart,
   type SupervisorRestartRequest } from "./incus-qualification-supervisor-client";
 import type { SignedRestartHandoff } from "./incus-qualification-checkpoint";
 
@@ -99,4 +99,22 @@ test("client receipt wait stays inside the run deadline", async () => {
     Date.now() + 100)).rejects.toThrow("timed out");
   await expect(requestIncusSupervisorReceipt(hanging, "run", "nonce", "b".repeat(64),
     Date.now() - 1)).rejects.toThrow("deadline expired");
+});
+
+test("fault client sends the exact operator arm and refuses missing or denied authority", async () => {
+  const arm = { runId: "run", nonce: "nonce", deadlineMs: Date.now() + 20_000,
+    scope: restart.scope, fixtureOperationId: "qual-recovery-run", bindingId: "recovery-binding",
+    destroyOperationId: "11111111-1111-4111-8111-111111111111", generation: 1,
+    providerGeneration: 1, connectionRevision: 2 };
+  const socket = await server(input => {
+    expect(input).toEqual({ version: 1, action: "fault", phase: "arm", arm });
+    return '{"authorized":true}\n';
+  });
+  await requestIncusSupervisorFault(socket, "arm", arm);
+  const denied = await server('{"authorized":false}\n');
+  await expect(requestIncusSupervisorFault(denied, "presence")).rejects.toThrow("denied fault authorization");
+  await expect(requestIncusSupervisorFault(socket, "readback"))
+    .rejects.toThrow("arm is unavailable");
+  await expect(requestIncusSupervisorFault(socket, "arm", { ...arm, deadlineMs: Date.now() - 1 }))
+    .rejects.toThrow("deadline expired");
 });

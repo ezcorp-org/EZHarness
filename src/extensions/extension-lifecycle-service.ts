@@ -182,12 +182,24 @@ async function initialize(): Promise<LifecycleServices> {
   const { ProviderRpcBroker } = await import("../infrastructure/provider-rpc-broker");
   const { HostIncusLostDestroyReplyFault } = await import("../infrastructure/incus-destroy-reply-fault");
   const { IncusQualificationCheckpointStore } = await import("../infrastructure/incus-qualification-checkpoint");
+  const { requestIncusSupervisorFault } = await import("../infrastructure/incus-qualification-supervisor-client");
+  const faultSocket = process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+  const operatorFault = async (phase: "presence" | "arm" | "readback",
+    arm?: import("../infrastructure/incus-destroy-reply-fault").LostDestroyReplyArm) => {
+    if (!faultSocket) throw new Error("Incus operator fault control is unavailable");
+    await requestIncusSupervisorFault(faultSocket, phase, arm);
+  };
+  const faultCheckpoints = new IncusQualificationCheckpointStore(getDb());
   const incusLostDestroyReply = new HostIncusLostDestroyReplyFault(getDb(), {
-    // The external supervisor's private socket is not installed yet. The
-    // production transport shares this instance, but no request can arm it.
-    authenticateOperator: async () => { throw new Error("Incus operator fault control is unavailable"); },
-    authorizeRun: arm => new IncusQualificationCheckpointStore(getDb()).authorizeOwnedRun(arm),
-    authorizeReadback: arm => new IncusQualificationCheckpointStore(getDb()).authorizeOwnedRun(arm),
+    authenticateOperator: () => operatorFault("presence"),
+    authorizeRun: async arm => {
+      await faultCheckpoints.authorizeRecoveryFixtureForRun(arm);
+      await operatorFault("arm", arm);
+    },
+    authorizeReadback: async arm => {
+      await faultCheckpoints.authorizeRecoveryReadbackForRun(arm);
+      await operatorFault("readback", arm);
+    },
   });
   configureReleaseRuntime({
     runner: async () => runner,

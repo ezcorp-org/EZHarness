@@ -21,6 +21,7 @@ import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpo
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
 import { requestIncusSupervisorReceipt, requestIncusSupervisorRestart } from "./incus-qualification-supervisor-client";
 import { observeFailedCleanupRecovery } from "./incus-live-recovery-probes";
+import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
 
 const MAX_FILE_BYTES = 64 * 1024;
 const POLL_MS = 100;
@@ -152,9 +153,12 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     this.backend = deps.backend ?? new HostIncusLiveReadback(new ProviderConnectionStore(this.db));
     this.controlProbe = deps.controlProbe;
     this.resourceNetwork = deps.resourceNetwork ?? new IncusLiveNetworkProbe({ db: this.db });
-    this.cleanupRecovery = deps.cleanupRecovery;
     this.now = deps.now ?? Date.now;
     this.supervisorSocketPath = deps.supervisorSocketPath ?? process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+    const readinessProjectId = process.env.EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID;
+    this.cleanupRecovery = deps.cleanupRecovery ?? (this.supervisorSocketPath && readinessProjectId
+      ? new IncusLiveCleanupController({ db: this.db, fixtures: this.fixtures,
+        qualifications: this.qualifications, readinessProjectId }) : undefined);
   }
 
   private async continuation(scope: IncusQualificationScope, preset: SandboxPreset) {
