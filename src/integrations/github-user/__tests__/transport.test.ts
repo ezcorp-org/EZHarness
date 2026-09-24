@@ -1,19 +1,17 @@
 import { afterEach, expect, test } from "bun:test";
 import { beginDeviceCode, exchangeCode, exchangeDeviceCode, githubApi, refreshDevicePair, refreshPair } from "../transport";
-import { getGithubOAuthConfig } from "../config";
+import { getGithubOAuthConfig, isGithubUserConfigured } from "../config";
 
 const originalFetch = globalThis.fetch;
-const originalCallback = process.env.EZ_GITHUB_APP_CALLBACK_URL;
-const originalPublic = process.env.EZCORP_PUBLIC_URL;
-const originalMode = process.env.EZ_GITHUB_AUTH_MODE;
+const configEnvKeys = ["EZ_GITHUB_INSTANCE_ID", "EZ_GITHUB_APP_ID", "EZ_GITHUB_APP_SLUG", "EZ_GITHUB_APP_CLIENT_ID", "EZ_GITHUB_APP_CLIENT_SECRET", "EZ_GITHUB_APP_CALLBACK_URL", "EZ_GITHUB_AUTH_MODE", "EZCORP_PUBLIC_URL"] as const;
+const originalConfigEnv = Object.fromEntries(configEnvKeys.map((key) => [key, process.env[key]]));
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  if (originalCallback === undefined) delete process.env.EZ_GITHUB_APP_CALLBACK_URL;
-  else process.env.EZ_GITHUB_APP_CALLBACK_URL = originalCallback;
-  if (originalPublic === undefined) delete process.env.EZCORP_PUBLIC_URL;
-  else process.env.EZCORP_PUBLIC_URL = originalPublic;
-  if (originalMode === undefined) delete process.env.EZ_GITHUB_AUTH_MODE;
-  else process.env.EZ_GITHUB_AUTH_MODE = originalMode;
+  for (const key of configEnvKeys) {
+    const value = originalConfigEnv[key];
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  }
 });
 
 function respond(handler: (url: string, init?: RequestInit) => Response): void {
@@ -53,6 +51,33 @@ test("callback configuration matches the exact route and public origin", () => {
   expect(() => getGithubOAuthConfig()).toThrow("GitHub callback URL is invalid");
   process.env.EZCORP_PUBLIC_URL = "https://app.example";
   expect(getGithubOAuthConfig().callbackUrl).toBe("https://app.example/api/github/callback");
+});
+
+test("configured helper accepts valid device and OAuth settings and rejects disabled or invalid settings", () => {
+  process.env.EZ_GITHUB_INSTANCE_ID = "instance-test";
+  process.env.EZ_GITHUB_APP_ID = "123";
+  process.env.EZ_GITHUB_APP_SLUG = "ezharness-test";
+  process.env.EZ_GITHUB_APP_CLIENT_ID = "client";
+  process.env.EZCORP_PUBLIC_URL = "https://app.example";
+  process.env.EZ_GITHUB_AUTH_MODE = "device";
+  delete process.env.EZ_GITHUB_APP_CLIENT_SECRET;
+  delete process.env.EZ_GITHUB_APP_CALLBACK_URL;
+  expect(isGithubUserConfigured()).toBe(true);
+  expect(() => getGithubOAuthConfig()).toThrow("Legacy GitHub OAuth is disabled");
+
+  process.env.EZ_GITHUB_AUTH_MODE = "oauth";
+  expect(isGithubUserConfigured()).toBe(false);
+  process.env.EZ_GITHUB_APP_CLIENT_SECRET = "secret";
+  process.env.EZ_GITHUB_APP_CALLBACK_URL = "https://app.example/api/github/callback";
+  expect(isGithubUserConfigured()).toBe(true);
+  process.env.EZ_GITHUB_APP_CALLBACK_URL = "https://other.example/api/github/callback";
+  expect(isGithubUserConfigured()).toBe(false);
+
+  process.env.EZ_GITHUB_AUTH_MODE = "disabled";
+  expect(isGithubUserConfigured()).toBe(false);
+  process.env.EZ_GITHUB_AUTH_MODE = "device";
+  process.env.EZ_GITHUB_APP_ID = "0";
+  expect(isGithubUserConfigured()).toBe(false);
 });
 
 test("device transport sends only the public client ID and accepts only GitHub's fixed verification URL", async () => {
