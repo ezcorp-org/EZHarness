@@ -117,9 +117,13 @@ def verify(root):
     return document
 
 
-def smoke(root):
+def smoke(root, native_lib_dir=None):
     require(os.geteuid() != 0, "smoke must run as a non-root user")
     verify(root)
+    if native_lib_dir is not None:
+        native_lib_dir = native_lib_dir.resolve(strict=True)
+        require(native_lib_dir.is_dir() and (native_lib_dir / "libstdc++.so.6").is_file(),
+                "native library directory must contain libstdc++.so.6")
     with tempfile.TemporaryDirectory(prefix="ezh-bundle-smoke-", dir="/tmp") as scratch:
         scratch = Path(scratch)
         require(not scratch.is_relative_to(Path("/home/dev")), "smoke data must be outside /home/dev")
@@ -135,6 +139,8 @@ def smoke(root):
                "EZCORP_PROJECT_ROOT": str(root),
                "EZCORP_ENCRYPTION_SECRET": "smoke-only-encryption-secret-32-bytes",
                "EZCORP_JWT_SECRET": "smoke-only-jwt-secret-32-bytes"}
+        if native_lib_dir is not None:
+            env["LD_LIBRARY_PATH"] = str(native_lib_dir)
         process = subprocess.Popen([str(root / "bin/bun"), str(root / "web/build/index.js")],
                                    cwd=root, env=env, stdout=subprocess.PIPE,
                                    stderr=subprocess.STDOUT, text=True)
@@ -143,7 +149,7 @@ def smoke(root):
             deadline = time.monotonic() + 45
             status = None
             while time.monotonic() < deadline:
-                require(process.poll() is None, "bundled app exited during smoke")
+                require(process.poll() is None, "bundled app exited during smoke; check the pinned native library path")
                 try:
                     with urllib.request.urlopen(url, timeout=2) as response:
                         status = response.status
@@ -224,14 +230,17 @@ def main():
     build.add_argument("--bun", type=Path, required=True)
     build.add_argument("--bun-sha256", required=True)
     for name in ("verify", "smoke"):
-        commands.add_parser(name).add_argument("--root", type=Path, required=True)
+        command = commands.add_parser(name)
+        command.add_argument("--root", type=Path, required=True)
+        if name == "smoke":
+            command.add_argument("--native-lib-dir", type=Path)
     args = parser.parse_args()
     if args.command == "stage":
         result = stage(args.source, args.output, args.bun, args.bun_sha256)
     elif args.command == "verify":
         result = {"gitSha": verify(args.root)["gitSha"], "verified": True}
     else:
-        result = smoke(args.root)
+        result = smoke(args.root, args.native_lib_dir)
     print(json.dumps(result, sort_keys=True))
 
 

@@ -13,7 +13,8 @@ python3 scripts/incus/stage-release-bundle.py stage \
 python3 scripts/incus/stage-release-bundle.py verify \
   --root /tmp/ezh-qualification-release-REVIEWED-SHA
 python3 scripts/incus/stage-release-bundle.py smoke \
-  --root /tmp/ezh-qualification-release-REVIEWED-SHA
+  --root /tmp/ezh-qualification-release-REVIEWED-SHA \
+  --native-lib-dir /nix/store/REVIEWED-gcc-lib/lib
 ```
 
 The source must have no tracked or untracked changes. Staging uses `git archive
@@ -31,6 +32,10 @@ The smoke runs the bundled app as the caller's **non-root** UID on a loopback
 ephemeral port. It creates disposable PGlite and home directories under `/tmp`,
 uses smoke-only credentials, checks the app health endpoint, and stops the app.
 It verifies the bundle again after the app stops.
+On NixOS, the app's `sharp` native module needs `libstdc++.so.6`. Pin the exact
+GCC runtime directory from the reviewed AMD host generation with
+`--native-lib-dir`; the qualification service sets the same library path.
+The bundle alone does not include that system library.
 It does not test real runner authorization or an Incus connection. Run it before
 installing a reviewed bundle under `/opt/ezharness`. The NixOS module expects
 the bundle root there, including `bin/bun`, `web/build/index.js`,
