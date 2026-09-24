@@ -15,6 +15,7 @@ mock.module("../../db/queries/users", () => ({ getUserById: async () => ({ id: "
 mock.module("../../db/queries/conversations", () => ({ getConversation: async () => ({ id: "conversation", userId: owned ? "user" : "other", projectId: "project" }) }));
 mock.module("../../db/queries/projects", () => ({ getProject: async () => ({ id: "project", path: local ? "/project" : null }) }));
 mock.module("../../auth/middleware", () => ({ checkProjectRole: async () => member ? undefined : new Response(null, { status: 403 }) }));
+mock.module("../../runtime/workspace/target", () => ({ projectRequiresSandbox: async () => false }));
 const secret = mock(async () => credential ? "host-only-token" : null);
 mock.module("../secrets-store", () => ({ getSecret: secret }));
 const open = mock(async () => { if (failure) throw new Error("host-only-token"); return { url: "https://github.com/owner/repo/pull/1" }; });

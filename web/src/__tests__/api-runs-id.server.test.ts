@@ -49,6 +49,7 @@ function makeEvent(opts: {
 	method?: string;
 	query?: string;
 	signal?: AbortSignal;
+	platform?: { server?: { timeout?: (request: Request, seconds: number) => void }; request?: Request };
 }) {
 	const id = opts.id ?? "run-abc";
 	const qs = opts.query ? `?${opts.query}` : "";
@@ -57,6 +58,7 @@ function makeEvent(opts: {
 		locals: opts.locals ?? {},
 		params: { id },
 		request: { signal: opts.signal ?? new AbortController().signal } as Request,
+		platform: opts.platform,
 	} as any;
 }
 
@@ -295,6 +297,48 @@ describe("GET ?wait=1 — abort + outcome plumbing", () => {
 		mockGetRun.mockResolvedValue({ id: "run-abc", status: "running" });
 		// Caller owns the run.
 		mockGetRunOwnership.mockResolvedValue({ userId: "u1", conversationId: null });
+	});
+
+	test("disables Bun's idle timeout only for an authorized long-poll", async () => {
+		const timeout = vi.fn();
+		const originalRequest = new Request("http://localhost/api/runs/run-abc?wait=1");
+		mockAwaitRunCompletion.mockResolvedValue({
+			kind: "done",
+			outcome: "complete",
+			run: { id: "run-abc", status: "success" },
+		});
+
+		const res = await GET(makeEvent({
+			locals: { user },
+			query: "wait=1",
+			platform: { server: { timeout }, request: originalRequest },
+		}));
+
+		expect(res.status).toBe(200);
+		expect(timeout).toHaveBeenCalledWith(originalRequest, 0);
+	});
+
+	test("does not alter Bun's idle timeout before authentication", async () => {
+		const timeout = vi.fn();
+		const originalRequest = new Request("http://localhost/api/runs/run-abc?wait=1");
+		await expect(GET(makeEvent({
+			locals: {},
+			query: "wait=1",
+			platform: { server: { timeout }, request: originalRequest },
+		}))).rejects.toBeInstanceOf(Response);
+		expect(timeout).not.toHaveBeenCalled();
+	});
+
+	test("does not alter Bun's idle timeout for a regular run read", async () => {
+		const timeout = vi.fn();
+		const originalRequest = new Request("http://localhost/api/runs/run-abc");
+		const res = await GET(makeEvent({
+			locals: { user },
+			platform: { server: { timeout }, request: originalRequest },
+		}));
+
+		expect(res.status).toBe(200);
+		expect(timeout).not.toHaveBeenCalled();
 	});
 
 	test("passes request.signal through to awaitRunCompletion", async () => {

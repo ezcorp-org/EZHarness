@@ -1,5 +1,6 @@
 import type { RequestHandler } from "./$types";
 import { getBus, getExecutor } from "$lib/server/context";
+import { disableBunRequestIdleTimeout } from "$lib/server/bun-request-timeout";
 import { requireAuth } from "$server/auth/middleware";
 import { requireScope } from "$lib/server/security/api-keys";
 import { getConversation } from "$server/db/queries/conversations";
@@ -48,7 +49,7 @@ export const GET: RequestHandler = async ({ locals, url, request, platform }) =>
   // svelte-adapter-bun provides the live Bun server and original request here.
   // This is a long-lived stream, so disable Bun's per-request idle timeout
   // after authentication rather than weakening the timeout for every route.
-  if (platform?.server?.timeout && platform.request) platform.server.timeout(platform.request, 0);
+  disableBunRequestIdleTimeout(platform);
 
   const bus = getBus();
 

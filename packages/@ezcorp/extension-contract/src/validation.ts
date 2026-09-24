@@ -3,7 +3,7 @@ import { RE2JS } from "re2js";
 import schema from "./wire-schema.json";
 import type { ExtensionManifestV4, JsonValue, ToolDefinitionV4, ValueSchema, WireData, WorkspaceFile, WorkspaceFiles } from "@ezcorp/extension-contract/types";
 import { parseTcpDestination } from "./network";
-import { assertJson, ContractError, MAX_FRAME_BYTES } from "./json";
+import { assertJson, ContractError, isForbiddenJsonKey, MAX_FRAME_BYTES } from "./json";
 import { validateWorkspaceFiles, validateWorkspacePath } from "./files";
 export * from "./json";
 export * from "./files";
@@ -16,6 +16,56 @@ export const TOOL_RESULT_SCHEMA = {
   properties: { content: { type: "array", items: { type: "object", required: ["type"], properties: { type: { type: "string" }, text: { type: "string" } }, additionalProperties: true } }, isError: { type: "boolean" } },
   additionalProperties: true,
 };
+export type SandboxProviderGroup = "sandbox.lifecycle.v1" | "sandbox.process.v1" | "sandbox.files.v1";
+export type ProviderSchemaDirection = "input" | "result";
+const providerMethodDefinitions = {
+  "sandbox.lifecycle.v1": {
+    create: ["SandboxCreateInput", "SandboxCreateResult"], inspect: ["SandboxInspectInput", "SandboxInspectResult"], start: ["SandboxStartInput", "SandboxStartResult"], stop: ["SandboxStopInput", "SandboxStopResult"], destroy: ["SandboxDestroyInput", "SandboxDestroyResult"],
+  },
+  "sandbox.process.v1": {
+    start: ["SandboxProcessStartInput", "SandboxProcessStartResult"], inspect: ["SandboxProcessInspectInput", "SandboxProcessInspectResult"], readOutput: ["SandboxProcessReadOutputInput", "SandboxProcessReadOutputResult"], cancel: ["SandboxProcessCancelInput", "SandboxProcessCancelResult"],
+  },
+  "sandbox.files.v1": {
+    stat: ["SandboxFileStatInput", "SandboxFileStatResult"], list: ["SandboxFileListInput", "SandboxFileListResult"], read: ["SandboxFileReadInput", "SandboxFileReadResult"], write: ["SandboxFileWriteInput", "SandboxFileWriteResult"], mkdir: ["SandboxFileMkdirInput", "SandboxFileMkdirResult"], remove: ["SandboxFileRemoveInput", "SandboxFileRemoveResult"], chmod: ["SandboxFileChmodInput", "SandboxFileChmodResult"],
+  },
+} as const;
+export type SandboxProviderOperation<Group extends SandboxProviderGroup> = keyof typeof providerMethodDefinitions[Group] & string;
+const providerSchemaCache = new Map<string, { inputSchema: ValueSchema; outputSchema: ValueSchema }>();
+
+function standaloneWireSchema(definitionName: string): ValueSchema {
+  const definitions = schema.definitions as Record<string, ValueSchema>;
+  const included = new Map<string, ValueSchema>();
+  const rewrite = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(rewrite);
+    if (!value || typeof value !== "object") return value;
+    const record = value as Record<string, unknown>;
+    if (typeof record.$ref === "string" && record.$ref.startsWith("#/definitions/")) {
+      const name = decodeURIComponent(record.$ref.slice("#/definitions/".length));
+      if (!definitions[name]) throw new ContractError("INVALID_CONTRACT", `Missing provider wire definition: ${name}`);
+      if (!included.has(name)) {
+        included.set(name, {});
+        included.set(name, rewrite(definitions[name]) as ValueSchema);
+      }
+      return { $ref: `#/$defs/${name}` };
+    }
+    return Object.fromEntries(Object.entries(record).map(([key, child]) => [key, rewrite(child)]));
+  };
+  const root = definitions[definitionName];
+  if (!root) throw new ContractError("INVALID_CONTRACT", `Missing provider wire definition: ${definitionName}`);
+  const rewritten = rewrite(root) as ValueSchema;
+  return { ...rewritten, ...(included.size ? { $defs: Object.fromEntries(included) } : {}) };
+}
+
+export function providerMethodSchemas<Group extends SandboxProviderGroup>(group: Group, operation: SandboxProviderOperation<Group>): { inputSchema: ValueSchema; outputSchema: ValueSchema } {
+  const key = `${group}:${operation}`;
+  const cached = providerSchemaCache.get(key);
+  if (cached) return structuredClone(cached);
+  const pair = (providerMethodDefinitions[group] as Record<string, readonly [string, string]>)[operation];
+  if (!pair) throw new ContractError("INVALID_CONTRACT", "Unsupported provider method");
+  const value = { inputSchema: standaloneWireSchema(pair[0]), outputSchema: standaloneWireSchema(pair[1]) };
+  providerSchemaCache.set(key, value);
+  return structuredClone(value);
+}
 const encoder = new TextEncoder();
 const ajv = new Ajv({ strict: false, allErrors: false, ownProperties: true, validateFormats: false });
 ajv.addSchema(schema, "wire");
@@ -116,54 +166,479 @@ export function compileValueSchema(value: unknown, maxValueBytes = MAX_FRAME_BYT
   return checkValue;
 }
 
-export function validateManifest(value: unknown): ExtensionManifestV4 {
-  const manifest = validateWire("manifest", value);
-  if (manifest.permissions.networkTcp) {
-    if (manifest.permissions.networkTcp.length > 32 || new Set(manifest.permissions.networkTcp).size !== manifest.permissions.networkTcp.length) throw new ContractError("INVALID_MANIFEST", "TCP grants must be a unique bounded destination list");
-    for (const destination of manifest.permissions.networkTcp) parseTcpDestination(destination);
+const PROVIDER_CHUNK_BYTES = 256 * 1024;
+const PROVIDER_DEADLINE_MS = 24 * 60 * 60 * 1000;
+const providerIdentifierPattern = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
+const providerDigestPattern = /^[a-f0-9]{64}$/;
+
+function providerIdentifier(value: unknown, field: string): void {
+  if (typeof value !== "string" || !providerIdentifierPattern.test(value)) throw new ContractError("INVALID_PROVIDER_VALUE", `Invalid ${field}`);
+}
+
+function providerInteger(value: unknown, field: string, minimum = 0, maximum = Number.MAX_SAFE_INTEGER): void {
+  if (!Number.isSafeInteger(value) || (value as number) < minimum || (value as number) > maximum) throw new ContractError("INVALID_PROVIDER_VALUE", `Invalid ${field}`);
+}
+
+function providerVirtualPath(value: unknown): void {
+  if (typeof value !== "string" || encoder.encode(value).byteLength > 1024 || !value.startsWith("/") || (value.length > 1 && value.endsWith("/")) || value.includes("\\") || Array.from(value).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) throw new ContractError("INVALID_PROVIDER_PATH", "Expected a canonical workspace-root path");
+  if (value !== "/" && value.slice(1).split("/").some(part => !part || part === "." || part === ".." || isForbiddenJsonKey(part))) throw new ContractError("INVALID_PROVIDER_PATH", "Unsafe workspace-root path");
+}
+
+function providerEncodedBytes(encoding: unknown, data: unknown): number {
+  if (typeof data !== "string") throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid provider byte payload");
+  if (encoding === "utf8") return encoder.encode(data).byteLength;
+  if (encoding !== "base64" || data.length % 4 !== 0 || !/^[A-Za-z0-9+/]*={0,2}$/.test(data) || (data && btoa(atob(data.slice(-4))) !== data.slice(-4))) throw new ContractError("INVALID_PROVIDER_VALUE", "Expected canonical provider base64");
+  return data.length / 4 * 3 - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
+}
+
+function validateProviderCall(call: Record<string, unknown>): void {
+  const scope = call.scope as Record<string, unknown>;
+  providerIdentifier(scope.projectId, "project ID");
+  providerIdentifier(scope.bindingId, "binding ID");
+  providerInteger(scope.generation, "generation", 1);
+  providerIdentifier(call.operationId, "operation ID");
+  providerIdentifier(call.idempotencyKey, "idempotency key");
+  if (typeof call.requestDigest !== "string" || !providerDigestPattern.test(call.requestDigest)) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid request digest");
+}
+
+function validateProviderReceipt(receipt: Record<string, unknown>): void {
+  providerIdentifier(receipt.operationId, "receipt operation ID");
+  providerIdentifier(receipt.idempotencyKey, "receipt idempotency key");
+  if (typeof receipt.requestDigest !== "string" || !providerDigestPattern.test(receipt.requestDigest)) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid receipt request digest");
+  if (receipt.providerOperationId !== undefined) providerIdentifier(receipt.providerOperationId, "provider operation ID");
+  if (receipt.outcome === "failed" && !receipt.error) throw new ContractError("INVALID_PROVIDER_VALUE", "Failed provider receipt requires an error");
+  if (receipt.outcome === "succeeded" && receipt.error) throw new ContractError("INVALID_PROVIDER_VALUE", "Successful provider receipt cannot contain an error");
+  if (receipt.error) {
+    const error = receipt.error as Record<string, unknown>;
+    providerIdentifier(error.code, "provider error code");
+    if (typeof error.message !== "string" || encoder.encode(error.message).byteLength > 4096) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid provider error message");
   }
-  if (manifest.permissions.secretRead && (new Set(manifest.permissions.secretRead).size !== manifest.permissions.secretRead.length || manifest.permissions.secretRead.some(name => !["OPENAI_API_KEY", "OPENAI_ACCESS_TOKEN", "GITHUB_TOKEN"].includes(name)))) throw new ContractError("INVALID_MANIFEST", "Raw credential grants must name unique supported providers");
+}
+
+function validateProviderResource(resource: Record<string, unknown>): void {
+  providerIdentifier(resource.resourceId, "resource ID");
+  const limits = resource.limits as Record<string, unknown>;
+  providerInteger(limits.memoryBytes, "memory bytes", 1);
+  providerInteger(limits.milliCpu, "CPU milliCPU", 1, 1_000_000);
+  providerInteger(limits.pids, "PID limit", 1, 32_768);
+  providerInteger(limits.diskBytes, "disk bytes", 1);
+}
+
+function validateProviderProcess(process: Record<string, unknown>): void {
+  const identity = process.identity as Record<string, unknown>;
+  providerIdentifier(identity.bootId, "boot ID");
+  providerIdentifier(identity.processId, "process ID");
+  providerInteger(process.outputCursor, "process output cursor");
+  if (process.exitCode !== undefined) providerInteger(process.exitCode, "process exit code", -255, 255);
+}
+
+function validateProviderFileStat(entry: Record<string, unknown>): void {
+  providerVirtualPath(entry.path);
+  providerIdentifier(entry.revision, "file revision");
+  providerInteger(entry.sizeBytes, "file size");
+  providerInteger(entry.mode, "file mode", 0, 0o777);
+}
+
+type ProviderRecord = Record<string, unknown>;
+
+function validateLifecycleProviderInput(operation: string, record: ProviderRecord): void {
+  if (operation === "create") validateProviderResource({ resourceId: "request", desiredState: "stopped", observedState: "stopped", limits: record.limits });
+}
+
+function validateProcessStartArgv(record: ProviderRecord): void {
+  const argv = record.argv as unknown[];
+  if (argv.length === 0 || argv.length > 128 || argv.some(item => typeof item !== "string" || item.includes("\0") || encoder.encode(item).byteLength > 4096)) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid process argv");
+}
+
+function validateProcessStartEnvironment(record: ProviderRecord): void {
+  const env = record.env as Record<string, unknown>;
+  if (Object.keys(env).length > 128 || Object.entries(env).some(([name, item]) => !/^[A-Za-z_][A-Za-z0-9_]{0,127}$/.test(name) || typeof item !== "string" || item.includes("\0")) || encoder.encode(JSON.stringify(env)).byteLength > 64 * 1024) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid process environment");
+}
+
+function validateProcessStartInput(record: ProviderRecord): void {
+  validateProcessStartArgv(record);
+  validateProcessStartEnvironment(record);
+  providerVirtualPath(record.cwd);
+  providerInteger(record.timeoutMs, "process timeout", 1, PROVIDER_DEADLINE_MS);
+}
+
+function validateProcessOutputInput(record: ProviderRecord): void {
+  providerInteger(record.cursor, "process output cursor");
+  providerInteger(record.maxBytes, "process output byte limit", 1, PROVIDER_CHUNK_BYTES);
+}
+
+function validateProcessProviderInput(operation: string, record: ProviderRecord): void {
+  if (record.identity) validateProviderProcess({ identity: record.identity, state: "unknown", outputCursor: 0 });
+  if (operation === "start") validateProcessStartInput(record);
+  if (operation === "readOutput") validateProcessOutputInput(record);
+}
+
+function validateFileProviderInput(operation: string, record: ProviderRecord): void {
+  providerVirtualPath(record.path);
+  if (record.cursor !== undefined) providerIdentifier(record.cursor, "file list cursor");
+  if (record.expectedRevision !== undefined) providerIdentifier(record.expectedRevision, "expected file revision");
+  if (record.revision !== undefined) providerIdentifier(record.revision, "file revision");
+  fileInputValidators[operation]?.(record);
+}
+
+const fileInputValidators: Record<string, ((record: ProviderRecord) => void) | undefined> = {
+  list: record => providerInteger(record.limit, "file list limit", 1, 256),
+  read: record => {
+    providerInteger(record.offsetBytes, "file read offset");
+    providerInteger(record.lengthBytes, "file read length", 1, PROVIDER_CHUNK_BYTES);
+  },
+  write: record => {
+    if (providerEncodedBytes(record.encoding, record.data) > PROVIDER_CHUNK_BYTES) throw new ContractError("DATA_LIMIT", "File write exceeds provider chunk limit");
+  },
+  chmod: record => providerInteger(record.mode, "file mode", 0, 0o777),
+};
+
+function validateProviderInput(group: SandboxProviderGroup, operation: string, record: ProviderRecord): void {
+  validateProviderCall(record.call as ProviderRecord);
+  if (record.resourceId !== undefined) providerIdentifier(record.resourceId, "resource ID");
+  if (group === "sandbox.lifecycle.v1") validateLifecycleProviderInput(operation, record);
+  if (group === "sandbox.process.v1") validateProcessProviderInput(operation, record);
+  if (group === "sandbox.files.v1") validateFileProviderInput(operation, record);
+}
+
+function validateProviderResultObjects(record: ProviderRecord): void {
+  if (record.resource) validateProviderResource(record.resource as ProviderRecord);
+  if (record.process) validateProviderProcess(record.process as ProviderRecord);
+  if (record.entry) validateProviderFileStat(record.entry as ProviderRecord);
+}
+
+function validateProviderResultEntries(record: ProviderRecord): void {
+  if (!record.entries) return;
+  const entries = record.entries as unknown[];
+  if (entries.length > 256) throw new ContractError("DATA_LIMIT", "File list exceeds provider entry limit");
+  for (const entry of entries as ProviderRecord[]) validateProviderFileStat(entry);
+}
+
+function validateProviderResultCursors(record: ProviderRecord): void {
+  if (record.nextCursor !== undefined) providerIdentifier(record.nextCursor, "next file list cursor");
+  if (record.removedRevision !== undefined) providerIdentifier(record.removedRevision, "removed file revision");
+}
+
+function validateProviderResultDetails(record: ProviderRecord): void {
+  validateProviderResultObjects(record);
+  validateProviderResultEntries(record);
+  validateProviderResultCursors(record);
+}
+
+function validateProcessOutputResult(record: ProviderRecord): void {
+  validateProviderProcess({ identity: record.identity, state: "unknown", outputCursor: record.cursor });
+  providerInteger(record.cursor, "process output cursor");
+  const chunks = record.chunks as unknown[];
+  if (chunks.length > 256) throw new ContractError("DATA_LIMIT", "Too many process output chunks");
+  let bytes = 0;
+  for (const chunk of chunks as ProviderRecord[]) bytes += providerEncodedBytes(chunk.encoding, chunk.data);
+  if (bytes > PROVIDER_CHUNK_BYTES) throw new ContractError("DATA_LIMIT", "Process output exceeds provider chunk limit");
+}
+
+function validateFileReadResult(record: ProviderRecord): void {
+  providerVirtualPath(record.path);
+  providerIdentifier(record.revision, "file revision");
+  providerInteger(record.offsetBytes, "file read offset");
+  providerInteger(record.nextOffsetBytes, "next file read offset");
+  if ((record.nextOffsetBytes as number) < (record.offsetBytes as number)) throw new ContractError("INVALID_PROVIDER_VALUE", "Next file read offset cannot move backwards");
+  if (providerEncodedBytes(record.encoding, record.data) > PROVIDER_CHUNK_BYTES) throw new ContractError("DATA_LIMIT", "File read exceeds provider chunk limit");
+}
+
+function validateProviderResult(group: SandboxProviderGroup, operation: string, record: ProviderRecord): void {
+  validateProviderReceipt(record.receipt as ProviderRecord);
+  if ((record.receipt as ProviderRecord).outcome !== "succeeded") return;
+  validateProviderResultDetails(record);
+  if (group === "sandbox.process.v1" && operation === "readOutput") validateProcessOutputResult(record);
+  if (group === "sandbox.files.v1" && operation === "read") validateFileReadResult(record);
+}
+
+export function validateProviderMethodValue<Group extends SandboxProviderGroup>(group: Group, operation: SandboxProviderOperation<Group>, direction: ProviderSchemaDirection, value: unknown): unknown {
+  const schemas = providerMethodSchemas(group, operation);
+  compileValueSchema(direction === "input" ? schemas.inputSchema : schemas.outputSchema)(value);
+  const record = value as Record<string, unknown>;
+  if (direction === "input") {
+    validateProviderInput(group, operation, record);
+  } else {
+    validateProviderResult(group, operation, record);
+  }
+  return value;
+}
+
+function validateProviderReceiptIdentity(call: ProviderRecord, receipt: ProviderRecord): void {
+  for (const field of ["operationId", "idempotencyKey", "requestDigest"]) if (call[field] !== receipt[field]) throw new ContractError("INVALID_PROVIDER_RECEIPT", `Provider receipt changed ${field}`);
+}
+
+function validateProviderResourceIdentity(request: ProviderRecord, response: ProviderRecord): void {
+  if (request.resourceId !== undefined) {
+    const resource = response.resource as ProviderRecord | undefined;
+    if (resource && request.resourceId !== resource.resourceId) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider response changed resource ID");
+  }
+}
+
+function validateProviderProcessIdentity(request: ProviderRecord, response: ProviderRecord): void {
+  if (request.identity !== undefined) {
+    const process = response.process as ProviderRecord | undefined;
+    if (process && canonicalJson(request.identity) !== canonicalJson(process.identity)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider response changed process identity");
+  }
+}
+
+function validateProcessOutputExchange(request: ProviderRecord, response: ProviderRecord): void {
+  if (canonicalJson(request.identity) !== canonicalJson(response.identity)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider output changed process identity");
+  const chunks = response.chunks as ProviderRecord[];
+  const bytes = chunks.reduce((total, chunk) => total + providerEncodedBytes(chunk.encoding, chunk.data), 0);
+  const requestCursor = request.cursor as number;
+  const responseCursor = response.cursor as number;
+  const minimumCursor = requestCursor + bytes;
+  if (responseCursor < minimumCursor || bytes > (request.maxBytes as number) || (response.gap === false && responseCursor !== minimumCursor)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider output exceeded its requested cursor or byte range");
+}
+
+function validateFileReadIdentity(request: ProviderRecord, response: ProviderRecord): void {
+  if (response.path !== request.path || response.offsetBytes !== request.offsetBytes || (request.revision !== undefined && response.revision !== request.revision)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider read changed path, revision, or offset");
+}
+
+function validateFileReadRange(request: ProviderRecord, response: ProviderRecord): void {
+  const bytes = providerEncodedBytes(response.encoding, response.data);
+  if (bytes > (request.lengthBytes as number) || response.nextOffsetBytes !== (request.offsetBytes as number) + bytes) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider read returned an invalid byte range");
+}
+
+function validateFileListExchange(requestedPath: string, response: ProviderRecord): void {
+  const prefix = requestedPath === "/" ? "/" : `${requestedPath}/`;
+  for (const entry of response.entries as ProviderRecord[]) {
+    const path = entry.path as string;
+    if (!path.startsWith(prefix) || path.slice(prefix.length).includes("/")) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider list returned an entry outside the requested directory");
+  }
+}
+
+function validateFileEntryPath(requestedPath: string, response: ProviderRecord): void {
+  const returnedEntry = response.entry as ProviderRecord | undefined;
+  if (returnedEntry && returnedEntry.path !== requestedPath) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider response changed file path");
+}
+
+function validateFilesProviderExchange(operation: string, request: ProviderRecord, response: ProviderRecord): void {
+  const requestedPath = request.path as string;
+  validateFileEntryPath(requestedPath, response);
+  if (operation === "list") validateFileListExchange(requestedPath, response);
+  if (operation === "read") {
+    validateFileReadIdentity(request, response);
+    validateFileReadRange(request, response);
+  }
+  if (operation === "remove" && request.expectedRevision !== undefined && response.removedRevision !== request.expectedRevision) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Provider removal changed the expected revision");
+}
+
+function validateSuccessfulProviderExchange(group: SandboxProviderGroup, operation: string, request: ProviderRecord, response: ProviderRecord): void {
+  validateProviderResourceIdentity(request, response);
+  validateProviderProcessIdentity(request, response);
+  if (group === "sandbox.process.v1" && operation === "readOutput") validateProcessOutputExchange(request, response);
+  if (group === "sandbox.files.v1") validateFilesProviderExchange(operation, request, response);
+}
+
+export function validateProviderMethodExchange<Group extends SandboxProviderGroup>(group: Group, operation: SandboxProviderOperation<Group>, input: unknown, result: unknown): { input: unknown; result: unknown } {
+  validateProviderMethodValue(group, operation, "input", input);
+  validateProviderMethodValue(group, operation, "result", result);
+  const call = (input as { call: Record<string, unknown> }).call;
+  const receipt = (result as { receipt: Record<string, unknown> }).receipt;
+  validateProviderReceiptIdentity(call, receipt);
+  if (receipt.outcome !== "succeeded") return { input, result };
+  const request = input as Record<string, unknown>;
+  const response = result as Record<string, unknown>;
+  validateSuccessfulProviderExchange(group, operation, request, response);
+  return { input, result };
+}
+
+type ManifestProvider = NonNullable<ExtensionManifestV4["providers"]>[number];
+type ManifestMethod = NonNullable<ExtensionManifestV4["methods"]>[number];
+type MethodSensitivity = ManifestMethod["sensitivity"];
+
+function validateManifestNetworkPermissions(manifest: ExtensionManifestV4): void {
+  const destinations = manifest.permissions.networkTcp;
+  if (!destinations) return;
+  if (destinations.length > 32 || new Set(destinations).size !== destinations.length) throw new ContractError("INVALID_MANIFEST", "TCP grants must be a unique bounded destination list");
+  for (const destination of destinations) parseTcpDestination(destination);
+}
+
+function validateManifestSecretPermissions(manifest: ExtensionManifestV4): void {
+  const providers = manifest.permissions.secretRead;
+  if (!providers) return;
+  if (new Set(providers).size !== providers.length || providers.some(name => !["OPENAI_API_KEY", "OPENAI_ACCESS_TOKEN", "GITHUB_TOKEN"].includes(name))) throw new ContractError("INVALID_MANIFEST", "Raw credential grants must name unique supported providers");
+}
+
+function validateManifestIdentity(manifest: ExtensionManifestV4): void {
   if (!/^[a-z][a-z0-9-]{0,63}$/.test(manifest.name) || !/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/.test(manifest.version)) throw new ContractError("INVALID_MANIFEST", "Invalid extension name or version");
   if (manifest.entrypoint) validateWorkspacePath(manifest.entrypoint.replace(/^\.\//, ""));
+}
+
+function validateManifestTool(tool: ToolDefinitionV4, names: Set<string>): void {
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/.test(tool.name) || names.has(tool.name)) throw new ContractError("INVALID_MANIFEST", "Invalid or duplicate tool name");
+  names.add(tool.name);
+  compileValueSchema(tool.inputSchema);
+  compileValueSchema(tool.outputSchema);
+  if (tool.mcpOutputSchema) compileValueSchema(tool.mcpOutputSchema);
+}
+
+function validateManifestTools(manifest: ExtensionManifestV4): Set<string> {
   const names = new Set<string>();
-  for (const tool of manifest.tools ?? []) {
-    if (!/^[a-zA-Z][a-zA-Z0-9_-]{0,127}$/.test(tool.name) || names.has(tool.name)) throw new ContractError("INVALID_MANIFEST", "Invalid or duplicate tool name");
-    names.add(tool.name);
-    compileValueSchema(tool.inputSchema);
-    compileValueSchema(tool.outputSchema);
-    if (tool.mcpOutputSchema) compileValueSchema(tool.mcpOutputSchema);
-  }
+  for (const tool of manifest.tools ?? []) validateManifestTool(tool, names);
   if (names.size > 128) throw new ContractError("DATA_LIMIT", "Too many tools");
-  const methodNames = new Set<string>();
-  for (const method of manifest.methods ?? []) {
-    if (!/^[a-zA-Z][a-zA-Z0-9_./:-]{0,127}$/.test(method.name) || method.name.startsWith("extension/") || methodNames.has(method.name)) throw new ContractError("INVALID_MANIFEST", "Invalid or duplicate runtime method");
-    methodNames.add(method.name);
-    compileValueSchema(method.inputSchema);
-    compileValueSchema(method.outputSchema);
+  return names;
+}
+
+function validateManifestMethod(method: ManifestMethod, names: Set<string>): void {
+  if (!/^[a-zA-Z][a-zA-Z0-9_./:-]{0,127}$/.test(method.name) || method.name.startsWith("extension/") || names.has(method.name)) throw new ContractError("INVALID_MANIFEST", "Invalid or duplicate runtime method");
+  names.add(method.name);
+  compileValueSchema(method.inputSchema);
+  compileValueSchema(method.outputSchema);
+}
+
+function validateManifestMethods(manifest: ExtensionManifestV4): Set<string> {
+  const names = new Set<string>();
+  for (const method of manifest.methods ?? []) validateManifestMethod(method, names);
+  if (names.size > 128) throw new ContractError("DATA_LIMIT", "Too many runtime methods");
+  return names;
+}
+
+function validateManifestMethodSensitivity(manifest: ExtensionManifestV4, toolNames: Set<string>): Map<string, MethodSensitivity> {
+  const sensitivity = new Map((manifest.methods ?? []).map(method => [method.name, method.sensitivity]));
+  for (const [method, value] of sensitivity) if (value === "sensitive" && toolNames.has(method)) throw new ContractError("INVALID_MANIFEST", "Sensitive runtime methods cannot be tools");
+  return sensitivity;
+}
+
+function validateProviderId(provider: ManifestProvider, providerIds: Set<string>): void {
+  if (!/^[a-z][a-z0-9-]{0,63}$/.test(provider.id) || providerIds.has(provider.id)) throw new ContractError("INVALID_MANIFEST", "Invalid or duplicate provider ID");
+}
+
+function validateProviderHostAndProfiles(provider: ManifestProvider): void {
+  if (provider.minimumHostContract.minor !== 0) throw new ContractError("INVALID_MANIFEST", "Provider minimum host contract must be supported host contract 4.0");
+  if (!provider.profiles.length || provider.profiles.length > 8 || new Set(provider.profiles).size !== provider.profiles.length) throw new ContractError("INVALID_MANIFEST", "Provider profiles must be a unique bounded list");
+}
+
+function validateProviderCapabilitiesAndGroups(provider: ManifestProvider): void {
+  if (provider.capabilities.length > 16 || new Set(provider.capabilities).size !== provider.capabilities.length) throw new ContractError("INVALID_MANIFEST", "Provider capabilities must be a unique bounded list");
+  if (!provider.methodGroups.length || provider.methodGroups.length > 16) throw new ContractError("INVALID_MANIFEST", "Provider method groups must be a non-empty bounded list");
+}
+
+function validateProviderMetadata(provider: ManifestProvider): void {
+  validateProviderHostAndProfiles(provider);
+  validateProviderCapabilitiesAndGroups(provider);
+  compileValueSchema(provider.configSchema, 64 * 1024);
+  if (provider.requiredPermissions.length > 16 || new Set(provider.requiredPermissions).size !== provider.requiredPermissions.length) throw new ContractError("INVALID_MANIFEST", "Provider permissions must be a unique bounded list");
+}
+
+function validateProviderPermissions(provider: ManifestProvider, manifest: ExtensionManifestV4): void {
+  for (const permission of provider.requiredPermissions) {
+    const declaration = manifest.permissions[permission as keyof typeof manifest.permissions];
+    const declared = Object.hasOwn(manifest.permissions, permission) && (Array.isArray(declaration) ? declaration.length > 0 : Boolean(declaration));
+    if (!declared) throw new ContractError("INVALID_MANIFEST", "Provider required permission must be declared by the manifest");
   }
-  if (methodNames.size > 128) throw new ContractError("DATA_LIMIT", "Too many runtime methods");
-  if (manifest.dataSchema) {
-    const data = manifest.dataSchema;
-    if (![data.version, ...data.readableVersions].every(version => /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(version)) || data.readableVersions.length > 64 || new Set(data.readableVersions).size !== data.readableVersions.length || !data.readableVersions.includes(data.version)) throw new ContractError("INVALID_MANIFEST", "Invalid data schema compatibility declaration");
-    if (data.migrateMethod && !methodNames.has(data.migrateMethod)) throw new ContractError("INVALID_MANIFEST", "Data migration must reference a declared runtime method");
+}
+
+function validateSandboxProviderMethodSchema(group: string, operation: string, mapped: string, manifest: ExtensionManifestV4): void {
+  const definitions = (providerMethodDefinitions[group as SandboxProviderGroup] as Record<string, readonly [string, string]>)[operation];
+  const method = manifest.methods?.find(candidate => candidate.name === mapped);
+  if (!definitions || !method || canonicalJson(method.inputSchema) !== canonicalJson(standaloneWireSchema(definitions[0])) || canonicalJson(method.outputSchema) !== canonicalJson(standaloneWireSchema(definitions[1]))) throw new ContractError("INVALID_MANIFEST", "Sandbox provider methods must use the canonical wire schemas");
+}
+
+function validateProviderMethodKind(provider: ManifestProvider, group: string, operation: string, mapped: string, manifest: ExtensionManifestV4, methodSensitivity: Map<string, MethodSensitivity>): void {
+  if (provider.kind === "static-secret" && methodSensitivity.get(mapped) !== "sensitive") throw new ContractError("INVALID_MANIFEST", "Secret provider methods must be sensitive");
+  if (provider.kind === "sandbox") validateSandboxProviderMethodSchema(group, operation, mapped, manifest);
+}
+
+function validateProviderMethodMapping(provider: ManifestProvider, group: string, operation: string, mapped: string, manifest: ExtensionManifestV4, methodNames: Set<string>, methodSensitivity: Map<string, MethodSensitivity>, mappedMethods: Set<string>): void {
+  if (!methodNames.has(mapped) || mappedMethods.has(mapped) || !methodSensitivity.get(mapped)) throw new ContractError("INVALID_MANIFEST", "Provider methods must uniquely reference explicitly classified manifest methods");
+  mappedMethods.add(mapped);
+  validateProviderMethodKind(provider, group, operation, mapped, manifest, methodSensitivity);
+}
+
+function validateProviderKindGroups(provider: ManifestProvider, groupNames: Set<string>): void {
+  if (provider.kind === "sandbox") {
+    for (const required of ["sandbox.lifecycle.v1", "sandbox.process.v1", "sandbox.files.v1"]) if (!groupNames.has(required)) throw new ContractError("INVALID_MANIFEST", "Sandbox providers must declare lifecycle, process, and file method groups");
+  } else if (!groupNames.has("secret.static.v1")) throw new ContractError("INVALID_MANIFEST", "Static secret providers must declare the static secret method group");
+}
+
+function validateProviderContribution(provider: ManifestProvider, manifest: ExtensionManifestV4, methodNames: Set<string>, methodSensitivity: Map<string, MethodSensitivity>): void {
+  validateProviderMetadata(provider);
+  validateProviderPermissions(provider, manifest);
+  const groupNames = new Set<string>();
+  const mappedMethods = new Set<string>();
+  for (const group of provider.methodGroups) {
+    if (groupNames.has(group.name)) throw new ContractError("INVALID_MANIFEST", "Duplicate provider method group");
+    groupNames.add(group.name);
+    for (const [operation, mapped] of Object.entries(group.methods)) validateProviderMethodMapping(provider, group.name, operation, mapped, manifest, methodNames, methodSensitivity, mappedMethods);
   }
-  for (const route of manifest.permissions.hostApi?.routes ?? []) {
-    if (!/^\/api\/(?:[a-zA-Z0-9_-]+|:[a-zA-Z][a-zA-Z0-9_]*)(?:\/(?:[a-zA-Z0-9_-]+|:[a-zA-Z][a-zA-Z0-9_]*))*$/.test(route.path)) throw new ContractError("INVALID_MANIFEST", "Host API routes must be fixed /api paths with named parameters");
+  validateProviderKindGroups(provider, groupNames);
+}
+
+function validateManifestProviders(manifest: ExtensionManifestV4, methodNames: Set<string>, methodSensitivity: Map<string, MethodSensitivity>): void {
+  const providerIds = new Set<string>();
+  for (const provider of manifest.providers ?? []) {
+    validateProviderId(provider, providerIds);
+    providerIds.add(provider.id);
+    validateProviderContribution(provider, manifest, methodNames, methodSensitivity);
   }
-  for (const preprocessor of manifest.preprocessors ?? []) if (!names.has(preprocessor.tool) || preprocessor.accepts.length === 0) throw new ContractError("INVALID_MANIFEST", "Preprocessor must reference a declared tool and MIME types");
-  if (manifest.smokeTest && !names.has(manifest.smokeTest.tool)) throw new ContractError("INVALID_MANIFEST", "Smoke test must reference a declared tool");
-  for (const contributions of [manifest.skills, manifest.pages, manifest.entities, manifest.messageToolbar, manifest.mcpServers]) {
-    const identities = new Set<string>();
-    for (const item of contributions ?? []) {
-      const record = item as unknown as Record<string, unknown>;
-      const identity = String(record.name ?? record.id ?? record.type);
-      if (!identity || identities.has(identity)) throw new ContractError("INVALID_MANIFEST", "Duplicate contribution identity");
-      identities.add(identity);
-    }
+  if (providerIds.size > 16) throw new ContractError("DATA_LIMIT", "Too many provider contributions");
+}
+
+function validateDataSchemaCompatibility(data: NonNullable<ExtensionManifestV4["dataSchema"]>): void {
+  if (![data.version, ...data.readableVersions].every(version => /^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(version)) || data.readableVersions.length > 64 || new Set(data.readableVersions).size !== data.readableVersions.length || !data.readableVersions.includes(data.version)) throw new ContractError("INVALID_MANIFEST", "Invalid data schema compatibility declaration");
+}
+
+function validateDataSchemaMigration(data: NonNullable<ExtensionManifestV4["dataSchema"]>, methodNames: Set<string>, methodSensitivity: Map<string, MethodSensitivity>): void {
+  if (data.migrateMethod && !methodNames.has(data.migrateMethod)) throw new ContractError("INVALID_MANIFEST", "Data migration must reference a declared runtime method");
+  if (data.migrateMethod && methodSensitivity.get(data.migrateMethod) === "sensitive") throw new ContractError("INVALID_MANIFEST", "Data migration cannot invoke a sensitive runtime method");
+}
+
+function validateManifestDataSchema(manifest: ExtensionManifestV4, methodNames: Set<string>, methodSensitivity: Map<string, MethodSensitivity>): void {
+  if (!manifest.dataSchema) return;
+  validateDataSchemaCompatibility(manifest.dataSchema);
+  validateDataSchemaMigration(manifest.dataSchema, methodNames, methodSensitivity);
+}
+
+function validateManifestHostApi(manifest: ExtensionManifestV4): void {
+  for (const route of manifest.permissions.hostApi?.routes ?? []) if (!/^\/api\/(?:[a-zA-Z0-9_-]+|:[a-zA-Z][a-zA-Z0-9_]*)(?:\/(?:[a-zA-Z0-9_-]+|:[a-zA-Z][a-zA-Z0-9_]*))*$/.test(route.path)) throw new ContractError("INVALID_MANIFEST", "Host API routes must be fixed /api paths with named parameters");
+}
+
+function validateManifestPreprocessors(manifest: ExtensionManifestV4, toolNames: Set<string>): void {
+  for (const preprocessor of manifest.preprocessors ?? []) if (!toolNames.has(preprocessor.tool) || preprocessor.accepts.length === 0) throw new ContractError("INVALID_MANIFEST", "Preprocessor must reference a declared tool and MIME types");
+}
+
+function validateManifestSmokeTest(manifest: ExtensionManifestV4, toolNames: Set<string>): void {
+  if (manifest.smokeTest && !toolNames.has(manifest.smokeTest.tool)) throw new ContractError("INVALID_MANIFEST", "Smoke test must reference a declared tool");
+}
+
+function validateManifestContributionGroup(contributions: unknown[] | undefined): void {
+  const identities = new Set<string>();
+  for (const item of contributions ?? []) {
+    const record = item as Record<string, unknown>;
+    const identity = String(record.name ?? record.id ?? record.type);
+    if (!identity || identities.has(identity)) throw new ContractError("INVALID_MANIFEST", "Duplicate contribution identity");
+    identities.add(identity);
   }
+}
+
+function validateManifestContributions(manifest: ExtensionManifestV4): void {
+  for (const contributions of [manifest.skills, manifest.pages, manifest.entities, manifest.messageToolbar, manifest.mcpServers]) validateManifestContributionGroup(contributions as unknown[] | undefined);
+}
+
+function validateManifestToolbar(manifest: ExtensionManifestV4): void {
   const subscriptions = manifest.permissions.eventSubscriptions;
   const events = Array.isArray(subscriptions) ? subscriptions : subscriptions?.events ?? [];
   for (const item of manifest.messageToolbar ?? []) if (!item.event.startsWith(`${manifest.name}:`) || !events.includes(item.event)) throw new ContractError("INVALID_MANIFEST", "Toolbar event must be declared in extension namespace");
+}
+
+export function validateManifest(value: unknown): ExtensionManifestV4 {
+  const manifest = validateWire("manifest", value);
+  validateManifestNetworkPermissions(manifest);
+  validateManifestSecretPermissions(manifest);
+  validateManifestIdentity(manifest);
+  const toolNames = validateManifestTools(manifest);
+  const methodNames = validateManifestMethods(manifest);
+  const methodSensitivity = validateManifestMethodSensitivity(manifest, toolNames);
+  validateManifestProviders(manifest, methodNames, methodSensitivity);
+  validateManifestDataSchema(manifest, methodNames, methodSensitivity);
+  validateManifestHostApi(manifest);
+  validateManifestPreprocessors(manifest, toolNames);
+  validateManifestSmokeTest(manifest, toolNames);
+  validateManifestContributions(manifest);
+  validateManifestToolbar(manifest);
   return manifest;
 }
 

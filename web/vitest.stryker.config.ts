@@ -18,13 +18,14 @@
  * This pairs with two other settings, and all three are needed together:
  *   - `mutation.mutateGlobs` excludes `src/lib/server/**` (scripts/quality-gates.json),
  *     so nothing we mutate depends on the tests dropped here.
- *   - `vitest.related: false` (web/stryker.config.json). Stryker's vitest
- *     runner defaults to vitest's `--related` module-graph filter, which cannot
- *     follow `$lib`-ALIASED imports. With it on, only 157 of 521 test files ran
- *     and 1804 mutants reported NoCoverage for code whose tests exist and pass
- *     — a measured 66.04% score that was an artifact, not a quality signal.
- *     Turning it off means the dry run executes the whole (non-server) suite:
- *     slower to start, but the only way the score means anything.
+ *   - Stryker's vitest `related` filter stays ON (web/stryker.config.json sets
+ *     nothing, and the runner's default is true). It cannot follow `$lib`-ALIASED
+ *     imports, so files it misses report every mutant as NoCoverage — measured
+ *     at 157 of 521 test files seen and a 66.04% score that was an artifact,
+ *     not a quality signal. Turning it off is not affordable (one 99-mutant
+ *     file took 18m51s with 93 timeouts), so scripts/mutation.ts instead FAILS
+ *     LOUDLY on any file that comes back 100% NoCoverage. Read the
+ *     `related` trap in web/stryker.config.json before changing either side.
  */
 import base from "./vitest.config";
 

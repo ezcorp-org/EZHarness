@@ -542,5 +542,9 @@
     "web/src/lib/factory/**",
     "web/src/routes/(app)/factories/**",
     "web/src/routes/(app)/+layout.svelte"
+  ],
+  "web/e2e/project-sandbox-panel.spec.ts": [
+    "web/src/lib/components/ProjectSandboxPanel.svelte",
+    "web/src/routes/(app)/project/[id]/settings/+page.svelte"
   ]
 }
