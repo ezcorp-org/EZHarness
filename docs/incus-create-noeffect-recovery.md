@@ -29,15 +29,56 @@ named instance must be empty or absent. This check depends on both the
 operator's assertion and the independent fence command's proof for clients
 outside the managed app.
 
-The operator-owned connection config named by
-`EZCORP_INCUS_NOEFFECT_CONFIG` must be a root-owned mode `0600` JSON file
-with `context` and `transportConnection` in the same shapes used by
-`incus-qualification-supervisor-receipt.ts`. It must pin the reviewed
-installation, release, connection revision, project, server certificate,
-image, and preset. Set `EZCORP_INCUS_SUPERVISOR_DB_PATH` to the app's exact
-persistent PGlite directory. The app-UID verifier opens PGlite only while
-the app is stopped. The operator verifier reads Incus over pinned mTLS. The
-signing key remains root-owned outside the app.
+The operator-owned config named by `EZCORP_INCUS_NOEFFECT_CONFIG` must be a
+root-owned mode `0600` JSON file with `context` (the reviewed
+`LiveReadbackContext`) and `observation`:
+
+```json
+{
+  "host": "PINNED_INCUS_SSH_HOST",
+  "user": "DEDICATED_FORCED_COMMAND_SSH_ACCOUNT",
+  "identityFile": "/etc/ezharness/noeffect-observer.key",
+  "knownHostsFile": "/etc/ezharness/noeffect-known-hosts",
+  "project": "ezharness",
+  "instance": "EXACT_DERIVED_INCUS_INSTANCE_NAME",
+  "oldCertificateSha256": "EXACT_64_LOWERCASE_HEX_DER_FINGERPRINT"
+}
+```
+
+The instance name must equal the name derived from the saved connection and
+binding IDs. Pin the SSH host key in the dedicated known-hosts file. Both
+the key and known-hosts files must be root-owned, regular, mode `0600`, and
+have no symlink at their final path. This key must be distinct from the
+app's provider certificate and from the setup operator's SSH key. The
+observer config contains no provider private key. Set
+`EZCORP_INCUS_SUPERVISOR_DB_PATH` to the app's exact persistent PGlite
+directory. The app-UID verifier opens PGlite only while the app is stopped.
+The signing key stays root-owned outside the app.
+
+On the Incus host, install the reviewed `ssh-gate.py` as root-owned code.
+Create a separate SSH account with one observer public key, no password
+login, no other keys, and no unrestricted sudo. Bind that key with OpenSSH
+`restrict` and a forced command that runs the gate with one root-owned
+policy file. Incus group access is privileged; the forced command and policy
+are the authority boundary for this account. The forced command must receive the exact SSH original command
+`ezh-incus-noeffect-observe-v1`. The dedicated policy has exactly these
+fields: `version: 2`, `purpose: "noeffect-readback"`, `project`, `instance`,
+and `oldCertificateSha256`. It must pin the same values as the operator
+config. It has no command list or write classification. The account must
+have only the rights needed for `incus list --project=...`, project-scoped
+`incus query /1.0/operations?project=...`, and `incus config trust list`.
+Review the host account, key, policy owner and mode, forced command, and
+Incus authorization before use. This repository does not install them.
+
+Revoke the old provider client certificate on the Incus host after all
+clients are fenced. The observer requires its exact DER SHA-256 fingerprint
+to be absent from the complete trust list. It also requires the exact
+instance to be absent and every project-scoped active operation list to be
+empty. Failed, malformed, or slow reads reject recovery. The observer does
+not take a command, host, project, instance, or fingerprint from the repair
+request. The SSH connection uses the private pinned host-key file, disables
+password authentication and forwarding, and has a bounded timeout. Do not
+use the setup gate's version 1 command policy for this observer.
 
 Add these fields to the supervisor's private JSON config:
 
@@ -62,8 +103,9 @@ result fails closed.
 The operator socket is mode `0600` and accepts only the supervisor UID. It
 is not a public HTTP action. Prepare a root-owned mode `0600` JSON request
 with the exact IDs read from the saved fixture and operation. Use a fresh
-nonce, a deadline between 85 and 180 seconds ahead that covers the 65-second
-wait and all bounded readback stages, and a review ID:
+nonce, a deadline between 145 and 180 seconds ahead that provides headroom
+for the 65-second wait and bounded readback stages, and a review ID. A stage
+that reaches its own limit or the request deadline still fails closed:
 
 ```json
 {

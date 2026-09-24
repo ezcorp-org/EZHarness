@@ -1860,3 +1860,20 @@ server with only 20 config derivations; it remains inactive. The local
 closure-copy attempt stopped at Nix's signature check; no trust override was
 used. No new host
 service or sandbox has been activated by these steps.
+
+## 2026-09-24 — First engine-owned Incus sandbox
+
+- [x] Activate and independently verify the approved server SSH gate.
+- [x] Activate and independently verify the approved AMD dedicated-service generation.
+- [x] Complete read-only cutover and connection audits in parallel; name the exact blockers.
+- [x] Prepare and parse the private sealed-settings manifest; install the dedicated setup SSH files and prove a read-only call as the app UID.
+- [ ] Stage sealed settings and isolated data under dedicated identities, then switch the isolated app with rollback checks.
+- [ ] Resolve the saved unknown CREATE through the fenced repair path before a new effect.
+- [ ] Provide a separately trusted readback path so the old provider client credential can be fenced during unknown-CREATE repair; verify denial of the old credential before accepting the no-effect receipt.
+- [ ] Apply a newly reviewed exact Incus setup plan if live inventory requires one.
+- [ ] From EZHarness, create a sandbox, run a process in its workspace, verify reconnect and isolation, then destroy or retain it by policy.
+- [ ] Record live evidence, run affected checks, and update PR #303 without claiming untested profiles.
+
+### Review
+
+The server and AMD host generations are active. The old isolated app is still running. A private exact-key settings manifest passes parsing; the dedicated app UID can make a read-only SSH gate call. Traffic is not held, so no secret capture or database stage ran. The saved unknown CREATE cannot yet be repaired safely because its readback uses the same provider client credential that must be fenced. No EZHarness-owned guest has been created, so the live acceptance result is still open.

@@ -412,3 +412,10 @@
 
 - Bound a no-effect wait by the longest worker and provider request policy, not only the innermost transport deadline. A 30-second transport timeout did not cover a 60-second v4 worker. Require an independent check for detached or remote clients before accepting backend absence.
 - Check a dedicated app UID and process-group ownership before stopping the managed app. A shared development UID must reject recovery while the app is still running; do not turn an invalid repair request into an avoidable outage.
+
+## 2026-09-24 — Finish the live outcome after approved gates
+
+- Report host setup, provider activation, and direct Incus tests as prerequisites, not as a working EZHarness sandbox. The acceptance result is an engine-owned create, process run, reconnect, and cleanup on the real server.
+- After an exact plan is approved, execute and verify it before preparing another review packet. State the one next dependency and its owner after each step.
+- Parallelize independent read-only audits and documentation. Keep app cutover, unknown-effect repair, provider setup, and sandbox creation in one ordered live sequence so agents do not race on shared state.
+- Before treating an unknown-effect repair as ready, prove the observation credential stays usable after every credential that could repeat the effect is fenced. A readback with the old write-capable client certificate is not independent evidence.

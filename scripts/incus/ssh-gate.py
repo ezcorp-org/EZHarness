@@ -14,6 +14,7 @@ import sys
 import time
 
 ORIGINAL_COMMAND = "ezh-incus-operator-v1"
+OBSERVE_COMMAND = "ezh-incus-noeffect-observe-v1"
 MAX_REQUEST = 64 * 1024
 MAX_POLICY = 128 * 1024
 MAX_OUTPUT = 1024 * 1024
@@ -162,7 +163,7 @@ def authorize(policy, original, payload, now=None):
     return argv, stdin.encode() if stdin is not None else b""
 
 
-def execute(argv, input_bytes):
+def execute(argv, input_bytes, timeout=TIMEOUT):
     env = {"PATH": "/run/current-system/sw/bin", "HOME": "/var/empty", "LC_ALL": "C"}
     executable = "/run/current-system/sw/bin/" + argv[0]
     proc = subprocess.Popen([executable, *argv[1:]], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -170,7 +171,7 @@ def execute(argv, input_bytes):
     selector = selectors.DefaultSelector()
     chunks = {proc.stdout: [], proc.stderr: []}
     total = 0
-    deadline = time.monotonic() + TIMEOUT
+    deadline = time.monotonic() + timeout
     sent = 0
     try:
         for pipe in chunks:
@@ -226,17 +227,71 @@ def execute(argv, input_bytes):
                 pipe.close()
 
 
+def validate_observation_policy(policy):
+    if not isinstance(policy, dict) or set(policy) != {"version", "purpose", "project", "instance", "oldCertificateSha256"} \
+            or policy["version"] != 2 or policy["purpose"] != "noeffect-readback":
+        raise Denied("observation policy must be dedicated and read-only")
+    if not isinstance(policy["project"], str) or not re.fullmatch(SAFE_NAME, policy["project"]):
+        raise Denied("invalid observation project")
+    if not isinstance(policy["instance"], str) or not re.fullmatch(r"[a-z][a-z0-9-]{0,127}", policy["instance"]):
+        raise Denied("invalid observation instance")
+    fingerprint = policy["oldCertificateSha256"]
+    if not isinstance(fingerprint, str) or not re.fullmatch(r"[a-f0-9]{64}", fingerprint):
+        raise Denied("invalid old certificate fingerprint")
+
+
+def observe_noeffect(policy, original, raw):
+    validate_observation_policy(policy)
+    if original != OBSERVE_COMMAND or raw:
+        raise Denied("unexpected observation request")
+    project = policy["project"]
+    commands = (
+        ["incus", "list", f"--project={project}", "--format=json"],
+        ["incus", "query", f"/1.0/operations?project={project}"],
+        ["incus", "config", "trust", "list", "--format=json"],
+    )
+    results = []
+    for argv in commands:
+        code, stdout, _ = execute(argv, b"", timeout=5)
+        if code != 0 or len(stdout) > MAX_OUTPUT:
+            raise Denied("Incus observation failed")
+        try:
+            results.append(json.loads(stdout))
+        except (ValueError, UnicodeError) as error:
+            raise Denied("Incus observation is invalid") from error
+    instances, operations, certificates = results
+    if not isinstance(instances, list) or any(not isinstance(row, dict) or not isinstance(row.get("name"), str)
+                                              for row in instances):
+        raise Denied("Incus instance list is invalid")
+    if not isinstance(operations, dict) or any(not isinstance(rows, list) or
+            any(not isinstance(row, str) for row in rows) for rows in operations.values()):
+        raise Denied("Incus operation list is invalid")
+    if not isinstance(certificates, list) or any(not isinstance(row, dict) or
+            not isinstance(row.get("fingerprint"), str) for row in certificates):
+        raise Denied("Incus trust list is invalid")
+    if any(row["fingerprint"].lower() == policy["oldCertificateSha256"] for row in certificates):
+        raise Denied("old provider certificate remains trusted")
+    if any(row["name"] == policy["instance"] for row in instances) or any(operations.values()):
+        raise Denied("instance or delayed Incus operation remains")
+    return {"version": 1, "project": project, "instance": policy["instance"],
+            "oldCertificateSha256": policy["oldCertificateSha256"],
+            "absent": True, "activeOperations": [], "oldCertificateRevoked": True}
+
+
 def main():
     if len(sys.argv) != 2:
         raise Denied("policy path is required")
-    if os.environ.get("SSH_ORIGINAL_COMMAND") != ORIGINAL_COMMAND:
-        raise Denied("unexpected SSH command")
+    original = os.environ.get("SSH_ORIGINAL_COMMAND")
     raw = sys.stdin.buffer.read(MAX_REQUEST + 1)
     if len(raw) > MAX_REQUEST:
         raise Denied("SSH request is too large")
     policy = read_policy(sys.argv[1])
+    if original == OBSERVE_COMMAND:
+        result = observe_noeffect(policy, original, raw)
+        sys.stdout.write(json.dumps(result, separators=(",", ":")) + "\n")
+        return 0
     validate_policy(policy)
-    argv, stdin = authorize(policy, os.environ["SSH_ORIGINAL_COMMAND"], json.loads(raw))
+    argv, stdin = authorize(policy, original, json.loads(raw))
     code, stdout, stderr = execute(argv, stdin)
     sys.stdout.buffer.write(stdout)
     sys.stderr.buffer.write(stderr)

@@ -3,6 +3,7 @@ import os
 import pathlib
 import tempfile
 import unittest
+from unittest.mock import patch
 from datetime import datetime, timedelta, timezone
 
 
@@ -136,6 +137,52 @@ class ReviewedCommandGateTest(unittest.TestCase):
             if os.geteuid() != 0:
                 with self.assertRaises(gate.Denied):
                     gate.read_policy(policy)
+
+
+class NoEffectObservationGateTest(unittest.TestCase):
+    def setUp(self):
+        self.policy = {"version": 2, "purpose": "noeffect-readback", "project": "ezharness",
+                       "instance": "ezh-expected", "oldCertificateSha256": "a" * 64}
+
+    def observe(self, instances=None, operations=None, certificates=None, policy=None, raw=b"",
+                original=gate.OBSERVE_COMMAND):
+        outputs = [instances if instances is not None else [],
+                   operations if operations is not None else {"running": [], "pending": []},
+                   certificates if certificates is not None else []]
+        calls = []
+
+        def execute(argv, input_bytes, timeout=gate.TIMEOUT):
+            calls.append(argv)
+            return 0, __import__("json").dumps(outputs[len(calls) - 1]).encode(), b""
+
+        with patch.object(gate, "execute", side_effect=execute):
+            result = gate.observe_noeffect(policy or self.policy, original, raw)
+        self.assertEqual(calls, [
+            ["incus", "list", "--project=ezharness", "--format=json"],
+            ["incus", "query", "/1.0/operations?project=ezharness"],
+            ["incus", "config", "trust", "list", "--format=json"],
+        ])
+        return result
+
+    def test_exact_absence_empty_operations_and_revoked_old_certificate(self):
+        result = self.observe(instances=[{"name": "other"}], certificates=[{"fingerprint": "b" * 64}])
+        self.assertTrue(result["absent"] and result["oldCertificateRevoked"])
+
+    def test_present_instance_active_operation_or_trusted_old_certificate_denied(self):
+        for values in ({"instances": [{"name": "ezh-expected"}]},
+                       {"operations": {"running": ["/1.0/operations/123"]}},
+                       {"certificates": [{"fingerprint": "a" * 64}]}):
+            with self.subTest(values=values), self.assertRaises(gate.Denied):
+                self.observe(**values)
+
+    def test_write_policy_request_command_and_malformed_inventory_denied(self):
+        write_policy = {"version": 1, "planDigest": "b" * 64,
+                        "commands": [{"argv": ["incus", "project", "create", "other"], "write": True}]}
+        for kwargs in ({"policy": write_policy}, {"raw": b'{}'}, {"original": gate.ORIGINAL_COMMAND},
+                       {"operations": {"running": "unknown"}}, {"certificates": [{}]},
+                       {"instances": [{"unexpected": True}]}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(gate.Denied):
+                self.observe(**kwargs)
 
 
 if __name__ == "__main__":

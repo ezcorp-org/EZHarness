@@ -118,7 +118,7 @@ def validate_recovery(message):
         if type(message[name]) is not int or message[name] <= 0:
             raise ValueError("invalid operator recovery number")
     now = int(time.time() * 1000)
-    if not now + 85000 < message["deadlineMs"] <= now + 180000:
+    if not now + 145000 < message["deadlineMs"] <= now + 180000:
         raise ValueError("operator recovery deadline invalid")
 
 

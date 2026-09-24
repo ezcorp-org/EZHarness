@@ -238,7 +238,10 @@ print(json.dumps({'snapshot':{'alive':alive}}))
                 "operationId": "unknown-create", "generation": 1,
                 "connectionRevision": 1, "allClientsFenced": True,
                 "fenceEvidence": "all app and runner clients stopped by operator",
-                "deadlineMs": int(time.time() * 1000) + 120000}
+                "deadlineMs": int(time.time() * 1000) + 160000}
+            with self.assertRaisesRegex(ValueError, "operator recovery deadline invalid"):
+                MODULE.validate_recovery(dict(request,
+                    deadlineMs=int(time.time() * 1000) + 120000))
             events = []
             supervisor.assert_exclusive_app_uid = lambda: (_ for _ in ()).throw(
                 ValueError("app UID is shared outside the managed process group"))
@@ -265,13 +268,13 @@ print(json.dumps({'snapshot':{'alive':alive}}))
                         side_effect=[1000, 1000, 1066, 1066, 1072]), \
                      mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess(
                          [], 0, stdout=b"public key")):
-                    request["deadlineMs"] = 1_120_000
+                    request["deadlineMs"] = 1_160_000
                     result = supervisor.recover_noeffect(request)
             self.assertEqual(events, ["stop", "fence", "durable", "backend", "durable", "backend",
                                       "sign", "apply", "start"])
             self.assertEqual(result["receipt"]["payload"]["oldProcess"],
                              {"pid": 123, "startTicks": "456"})
-            request["deadlineMs"] = int(time.time() * 1000) + 120000
+            request["deadlineMs"] = int(time.time() * 1000) + 160000
             with self.assertRaisesRegex(ValueError, "replayed"):
                 supervisor.recover_noeffect(request)
             altered = dict(request, nonce="fresh", allClientsFenced=False)
