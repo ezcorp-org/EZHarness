@@ -1,12 +1,13 @@
 import { createHash } from "node:crypto";
 import { mkdir, open, readFile } from "node:fs/promises";
-import { validateProviderMethodValue, type ProviderCall, type ProviderError, type ProviderFailedReceipt, type ProviderReceipt, type ProviderSucceededReceipt, type ProviderUnknownReceipt, type SandboxCreateInput, type SandboxCreateResult, type SandboxDestroyInput, type SandboxDestroyResult, type SandboxFileChmodInput, type SandboxFileChmodResult, type SandboxFileListInput, type SandboxFileListResult, type SandboxFileMkdirInput, type SandboxFileMkdirResult, type SandboxFileReadInput, type SandboxFileReadResult, type SandboxFileRemoveInput, type SandboxFileRemoveResult, type SandboxFileStat, type SandboxFileStatInput, type SandboxFileStatResult, type SandboxFileWriteInput, type SandboxFileWriteResult, type SandboxInspectInput, type SandboxInspectResult, type SandboxProcessCancelInput, type SandboxProcessCancelResult, type SandboxProcessInspectInput, type SandboxProcessInspectResult, type SandboxProcessReadOutputInput, type SandboxProcessReadOutputResult, type SandboxProcessStartInput, type SandboxProcessStartResult, type SandboxStartInput, type SandboxStartResult, type SandboxStopInput, type SandboxStopResult } from "@ezcorp/extension-contract";
+import { validateProviderMethodValue, type ProviderCall, type ProviderError, type ProviderFailedReceipt, type ProviderReceipt, type ProviderSucceededReceipt, type ProviderUnknownReceipt, type SandboxBeginExportInput, type SandboxBeginExportResult, type SandboxCreateInput, type SandboxCreateResult, type SandboxDestroyInput, type SandboxDestroyResult, type SandboxEndExportInput, type SandboxEndExportResult, type SandboxFileChmodInput, type SandboxFileChmodResult, type SandboxFileListInput, type SandboxFileListResult, type SandboxFileMkdirInput, type SandboxFileMkdirResult, type SandboxFileReadInput, type SandboxFileReadResult, type SandboxFileRemoveInput, type SandboxFileRemoveResult, type SandboxFileStat, type SandboxFileStatInput, type SandboxFileStatResult, type SandboxFileWriteInput, type SandboxFileWriteResult, type SandboxInspectInput, type SandboxInspectResult, type SandboxProcessCancelInput, type SandboxProcessCancelResult, type SandboxProcessInspectInput, type SandboxProcessInspectResult, type SandboxProcessReadOutputInput, type SandboxProcessReadOutputResult, type SandboxProcessStartInput, type SandboxProcessStartResult, type SandboxReadExportInput, type SandboxReadExportResult, type SandboxStartInput, type SandboxStartResult, type SandboxStopInput, type SandboxStopResult } from "@ezcorp/extension-contract";
 import { CONFIG_LABEL, RESOURCE_LABEL, configurationDigest, containerIdFromCreateOutput, createContainerArgv, expectedContainerIdentity, resourcePaths, runBoundedCommand, validateHostConfig, validateProcessConfinement, type BoundedCommandResult, type LocalPodmanHostConfig } from "./commands";
 import { ResourceRoot } from "./resource-root";
 import { WorkspaceImage } from "./workspace-image";
 import { DurableOperationJournal, type RecoverableMutationBegin } from "./journal";
 import { flock, LocalProcessSupervisor, LOCK_EXCLUSIVE_NONBLOCKING, LOCK_RELEASE, type OwnedProcessResource } from "./supervisor";
 import { LocalWorkspaceFileError, LocalWorkspaceFiles } from "./files";
+import { FrozenWorkspaceExports } from "./exports";
 
 type Metadata = { resourceId: string; containerId: string; containerName: string; configDigest: string; scope: ProviderCall["scope"]; bootId?: string; state: "stopped" | "running" | "destroying" | "unknown"; limits: SandboxCreateInput["limits"] };
 type CreateReservation = { version: 1; state: "creating"; phase: "reserved" | "workspace" | "container"; resourceId: string; containerName: string; configDigest: string; scope: ProviderCall["scope"]; call: ProviderCall; limits: SandboxCreateInput["limits"] };
@@ -42,6 +43,7 @@ async function serialized<T>(locks: Map<string, Promise<void>>, key: string, eff
 }
 
 export class LocalPodmanDriver {
+  private readonly frozenExports = new FrozenWorkspaceExports();
   private readonly config: LocalPodmanHostConfig; private readonly roots: ResourceRoot; private readonly images: WorkspaceImage; private readonly journal: DurableOperationJournal; private readonly supervisor: LocalProcessSupervisor; private readonly fileSystems = new Map<string, LocalWorkspaceFiles>(); private readonly destroyLocks = new Map<string, Promise<void>>(); private readonly transitionLocks = new Map<string, Promise<void>>(); private runtimeProof?: Promise<void>;
   private readonly readProcessStatus: (pid: number) => Promise<string>;
   constructor(config: LocalPodmanHostConfig, dependencies: { workspaceImage?: WorkspaceImage; readProcessStatus?: (pid: number) => Promise<string> } = {}) { this.config = validateHostConfig(config); this.roots = new ResourceRoot(this.config.stateRoot); this.images = dependencies.workspaceImage ?? new WorkspaceImage(this.config); this.readProcessStatus = dependencies.readProcessStatus ?? ((pid) => readFile(`/proc/${pid}/status`, "utf8")); this.journal = new DurableOperationJournal(`${this.config.stateRoot}/operations`); this.supervisor = new LocalProcessSupervisor({ stateRoot: this.config.stateRoot, podmanPath: this.config.podmanPath, supervisorPath: this.config.supervisorPath, maxOutputBytes: 1024 * 1024, workspaceUid: this.config.workspaceUid, workspaceGid: this.config.workspaceGid }, (resourceId) => this.resolveProcessResource(resourceId)); }
@@ -322,5 +324,33 @@ export class LocalPodmanDriver {
       const observed = await files.stat(this.statInput(input));
       return this.stateTransitioned(recovery, observed.entry) && observed.entry.mode === input.mode ? { receipt: receipt(input.call, "succeeded"), entry: observed.entry } : undefined;
     }));
+  }
+  async beginExport(input: SandboxBeginExportInput): Promise<SandboxBeginExportResult> {
+    validateProviderMethodValue("sandbox.transfer.v1", "beginExport", "input", input);
+    return this.withWorkspaceFiles(input, async () => {
+      try {
+        const paths = resourcePaths(this.config.stateRoot, input.resourceId);
+        return { receipt: receipt(input.call, "succeeded"), ...(await this.frozenExports.begin(paths.mount, JSON.stringify(input.call.scope), input.resourceId)) };
+      } catch (error) { return this.fileFailure(input.call, error); }
+    });
+  }
+  async readExport(input: SandboxReadExportInput): Promise<SandboxReadExportResult> {
+    validateProviderMethodValue("sandbox.transfer.v1", "readExport", "input", input);
+    return this.withScopeLock(input.call, async () => {
+      const authorized = await this.authorize(input.resourceId, input.call);
+      if (!("value" in authorized)) return authorized;
+      try {
+        return { receipt: receipt(input.call, "succeeded"), ...this.frozenExports.read(JSON.stringify(input.call.scope), input.resourceId, input.snapshotId, input.offsetBytes, input.lengthBytes) };
+      } catch (error) { return this.fileFailure(input.call, error); }
+    });
+  }
+  async endExport(input: SandboxEndExportInput): Promise<SandboxEndExportResult> {
+    validateProviderMethodValue("sandbox.transfer.v1", "endExport", "input", input);
+    return this.withScopeLock(input.call, async () => {
+      const authorized = await this.authorize(input.resourceId, input.call);
+      if (!("value" in authorized)) return authorized;
+      this.frozenExports.end(JSON.stringify(input.call.scope), input.resourceId, input.snapshotId);
+      return { receipt: receipt(input.call, "succeeded") };
+    });
   }
 }

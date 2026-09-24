@@ -42,6 +42,9 @@ describe("provider manifest contributions", () => {
     expect(validateManifest(legacy)).toEqual(legacy);
     expect(validateManifest({ ...legacy, skills: [{ name: "summarize", description: "Summarize a document" }] }).skills?.[0]?.name).toBe("summarize");
     expect(validateManifest({ ...base, providers: [sandboxProvider] }).providers?.[0]).toEqual(sandboxProvider);
+    const transfer = { name: "sandbox.transfer.v1" as const, methods: { beginExport: "transfer/beginExport", readExport: "transfer/readExport", endExport: "transfer/endExport" } };
+    const withTransfer = { ...base, methods: [...base.methods, ...declaredMethods(transfer.name, transfer.methods)], providers: [{ ...sandboxProvider, methodGroups: [...sandboxGroups, transfer] }] };
+    expect(validateManifest(withTransfer).providers?.[0]?.methodGroups.at(-1)).toEqual(transfer);
 
     const secret = {
       ...base,

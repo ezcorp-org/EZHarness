@@ -138,6 +138,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
     const res = (await handle({ event, resolve } as any)) as Response;
 
     expect(res.status).toBe(200);
+    expect(event.locals.sessionId).toBe("sess-1");
     expect(vi.mocked(signJWT)).toHaveBeenCalledTimes(1);
     expect(vi.mocked(rotateSessionToken)).toHaveBeenCalledTimes(1);
 
@@ -202,6 +203,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
 
     expect(event.locals.user).toMatchObject({ id: "u-1", role: "member" });
     expect(event.locals.authMethod).toBe("session");
+    expect(event.locals.sessionId).toBe("sess-1");
     // And NOT the key-principal field: a cookie session is authorized by
     // role alone, which is what makes `requireScope` a no-op for it.
     expect(event.locals.apiKeyScopes).toBeUndefined();
@@ -222,6 +224,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
 
     expect(event.locals.user).toBeUndefined();
     expect(event.locals.authMethod).toBeUndefined();
+    expect(event.locals.sessionId).toBeUndefined();
   });
 
   test("non-data route keeps the global Permissions-Policy camera deny", async () => {
@@ -284,16 +287,21 @@ describe("hooks.server.ts — sliding session refresh", () => {
     const staleIat = nowSeconds() - (REFRESH_AFTER_SECONDS + 60);
     vi.mocked(verifyJWT).mockResolvedValue({
       ...BASE_PAYLOAD,
+      sessionId: "forged-session",
+      verifiedSessionId: "forged-verified-session",
       iat: staleIat,
       exp: staleIat + 30 * 24 * 3600,
     } as any);
     vi.mocked(lookupSessionByTokenHash).mockRejectedValue(new Error("DB down"));
 
     const event = makeEvent();
+    event.locals.sessionId = "stale-session";
     const resolve = vi.fn(async () => new Response("ok", { status: 200 }));
     const res = (await handle({ event, resolve } as any)) as Response;
 
     expect(res.status).toBe(200);
+    expect(event.locals.user).toMatchObject({ id: "u-1" });
+    expect(event.locals.sessionId).toBeUndefined();
     // We can't rotate without a known session id — skip silently.
     expect(vi.mocked(signJWT)).not.toHaveBeenCalled();
     expect(vi.mocked(rotateSessionToken)).not.toHaveBeenCalled();
@@ -316,6 +324,7 @@ describe("hooks.server.ts — sliding session refresh", () => {
     try { await handle({ event, resolve } as any); } catch (err) { thrown = err; }
 
     expect(thrown).toBeDefined();
+    expect(event.locals.sessionId).toBeUndefined();
     // Revoked redirect wins; refresh code is never reached.
     expect(vi.mocked(signJWT)).not.toHaveBeenCalled();
     expect(vi.mocked(rotateSessionToken)).not.toHaveBeenCalled();
@@ -342,9 +351,28 @@ describe("hooks.server.ts — sliding session refresh", () => {
     const res = (await handle({ event, resolve } as any)) as Response;
 
     expect(res.status).toBe(200);
+    expect(event.locals.sessionId).toBe("sess-1");
     expect(vi.mocked(signJWT)).not.toHaveBeenCalled();
     expect(vi.mocked(rotateSessionToken)).not.toHaveBeenCalled();
     expect(event.cookies.set).not.toHaveBeenCalled();
+  });
+
+  test("public API identification stamps only the row-backed session id", async () => {
+    vi.mocked(verifyJWT).mockResolvedValue({
+      ...BASE_PAYLOAD,
+      sessionId: "forged-session",
+      verifiedSessionId: "forged-verified-session",
+      iat: nowSeconds() - 60,
+      exp: nowSeconds() + 30 * 24 * 3600,
+    } as any);
+
+    const event = makeEvent({ path: "/api/health" });
+    const response = await handle({ event, resolve: vi.fn(async () => new Response("ok")) } as any);
+
+    expect(response.status).toBe(200);
+    expect(event.locals.user).toMatchObject({ id: "u-1" });
+    expect(event.locals.authMethod).toBe("session");
+    expect(event.locals.sessionId).toBe("sess-1");
   });
 
   test("rotation passes the previous-token grace seconds to rotateSessionToken", async () => {

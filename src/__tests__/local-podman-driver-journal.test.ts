@@ -457,4 +457,23 @@ describe("local lifecycle journal integration", () => {
     const removeInput = { call: fileCall(), resourceId: "resource", path: "/dir", recursive: true }; expect((await driver.fileRemove(removeInput)).receipt.outcome).toBe("succeeded");
     const foreign = { ...statInput, call: { ...fileCall(), scope: { ...input().call.scope, projectId: "foreign" } } }; expect(await driver.fileStat(foreign)).toMatchObject({ receipt: { outcome: "failed", error: { code: "scope_mismatch" } } });
   });
+  test("exports a stopped workspace through scoped immutable chunks", async () => {
+    const { driver, config, running } = await fixture();
+    await writeFile(`${resourcePaths(config.stateRoot, "resource").mount}/a.txt`, "exact bytes");
+    const beginInput = { ...input(), call: { ...input().call, operationId: "begin-export", idempotencyKey: "begin-export" } };
+    const begun = await driver.beginExport(beginInput);
+    expect(() => validateProviderMethodExchange("sandbox.transfer.v1", "beginExport", beginInput, begun)).not.toThrow();
+    if (!("snapshotId" in begun)) throw new Error("missing frozen export");
+    const readInput = { ...input(), call: { ...input().call, operationId: "read-export", idempotencyKey: "read-export" }, snapshotId: begun.snapshotId, offsetBytes: 0, lengthBytes: begun.byteLength };
+    const read = await driver.readExport(readInput);
+    expect(() => validateProviderMethodExchange("sandbox.transfer.v1", "readExport", readInput, read)).not.toThrow();
+    if (!("data" in read)) throw new Error("missing export chunk");
+    expect(JSON.parse(Buffer.from(read.data, "base64").toString("utf8"))[0].path).toBe("a.txt");
+    const endInput = { ...input(), call: { ...input().call, operationId: "end-export", idempotencyKey: "end-export" }, snapshotId: begun.snapshotId };
+    const ended = await driver.endExport(endInput);
+    expect(() => validateProviderMethodExchange("sandbox.transfer.v1", "endExport", endInput, ended)).not.toThrow();
+    expect((await driver.readExport(readInput)).receipt.outcome).toBe("failed");
+    await writeFile(running, "running");
+    expect((await driver.beginExport({ ...beginInput, call: { ...beginInput.call, operationId: "running-export", idempotencyKey: "running-export" } })).receipt.outcome).toBe("failed");
+  });
 });

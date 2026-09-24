@@ -45,6 +45,7 @@ import { getHubPageProvider } from "$server/runtime/hub-pages";
 import { validatePageTree } from "$server/extensions/page-schema";
 import { parseHubPageId } from "$lib/hub";
 import { renderExtensionPage } from "$lib/server/hub-render-pull";
+import { disableBunRequestIdleTimeout } from "$lib/server/bun-request-timeout";
 import { getProject } from "$server/db/queries/projects";
 import { logger } from "$server/logger";
 
@@ -76,7 +77,7 @@ const MAX_STEP_PARAM_LENGTH = 128;
  *  extension, which parses + validates it (unknown → empty state, never error). */
 const MAX_VIEW_PARAM_LENGTH = 160;
 
-export const GET: RequestHandler = async ({ locals, params, url, setHeaders }) => {
+export const GET: RequestHandler = async ({ locals, params, url, setHeaders, platform }) => {
   setHeaders({ "cache-control": "private, no-store", vary: "Cookie, Authorization" });
   const scopeErr = requireScope(locals, "read");
   if (scopeErr) return scopeErr;
@@ -136,6 +137,9 @@ export const GET: RequestHandler = async ({ locals, params, url, setHeaders }) =
   }
 
   if (parsed.kind === "ext") {
+    // The render has its own 10s error envelope. Keep Bun's 10s transport
+    // timer from resetting the socket before that bounded result is returned.
+    disableBunRequestIdleTimeout(platform);
     const result = await renderExtensionPage(
       parsed.extension,
       parsed.pageId,

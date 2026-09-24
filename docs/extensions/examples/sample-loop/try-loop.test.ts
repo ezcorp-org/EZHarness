@@ -28,7 +28,7 @@ const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url:
 import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { join } from "path";
 import { tmpdir } from "os";
-import { mkdirSync, rmSync, existsSync, readFileSync } from "fs";
+import { mkdirSync, rmSync, readFileSync } from "fs";
 
 mock.module("../../../../src/db/queries/extensions", () => ({
   incrementFailures: async () => 1,
@@ -40,8 +40,8 @@ afterAll(() => restoreModuleMocks());
 
 import { ExtensionProcess } from "../../../../src/extensions/subprocess";
 import { restoreModuleMocks } from "@ezcorp/sdk/test";
-import { buildHarnessEnv, makeFsRpcHandler } from "@ezcorp/sdk/test";
-import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
+import { buildHarnessEnv } from "@ezcorp/sdk/test";
+import { sampleLoopHost } from "../../../../src/__tests__/helpers/sample-loop-harness";
 
 const ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 
@@ -56,36 +56,9 @@ const FAKE_MESSAGES = [
   { id: "m3", role: "user", content: "Perfect, thanks." },
 ];
 
-interface HostState {
-  kv: Map<string, unknown>;
-  fsRoot: string;
-}
-
-function ok(id: JsonRpcRequest["id"], result: unknown): JsonRpcResponse {
-  return { jsonrpc: "2.0", id, result };
-}
-
-function handleStorage(state: HostState, p: Record<string, unknown>): unknown {
-  const action = p.action as string;
-  const key = p.key as string;
-  if (action === "get") {
-    return state.kv.has(key) ? { value: state.kv.get(key), exists: true } : { value: null, exists: false };
-  }
-  if (action === "set") {
-    state.kv.set(key, JSON.parse(JSON.stringify(p.value)));
-    return { ok: true, sizeBytes: 0 };
-  }
-  if (action === "delete") return { deleted: state.kv.delete(key) };
-  if (action === "list") {
-    const prefix = (p.prefix as string) ?? "";
-    return { keys: [...state.kv.keys()].filter((k) => k.startsWith(prefix)) };
-  }
-  return { ok: true };
-}
-
 describe("sample-loop — TRY IT (hands-on demo)", () => {
   let proc: ExtensionProcess | undefined;
-  let state: HostState;
+  let state: ReturnType<typeof sampleLoopHost>;
   let projectRoot: string;
   let originalCwd: string;
 
@@ -94,7 +67,7 @@ describe("sample-loop — TRY IT (hands-on demo)", () => {
     mkdirSync(join(projectRoot, ".ezcorp", "extension-data"), { recursive: true });
     originalCwd = process.cwd();
     process.chdir(projectRoot);
-    state = { kv: new Map(), fsRoot: projectRoot };
+    state = sampleLoopHost(projectRoot, FAKE_SUMMARY, "demo-model", FAKE_MESSAGES);
   });
 
   afterEach(() => {
@@ -107,32 +80,8 @@ describe("sample-loop — TRY IT (hands-on demo)", () => {
   function spawnWired(): ExtensionProcess {
     const extId = "sample-loop-" + Math.random().toString(36).slice(2, 8);
     const env = buildHarnessEnv(extId, { filesystem: true });
-    const fsHandler = makeFsRpcHandler(projectRoot);
     const p = new ExtensionProcess(extId, ENTRYPOINT, env, { persistent: true, callTimeoutMs: 15_000 });
-    p.setRequestHandler(async (req): Promise<JsonRpcResponse> => {
-      const params = (req.params ?? {}) as Record<string, unknown>;
-      if (req.method === "ezcorp/storage") return ok(req.id, handleStorage(state, params));
-      if (req.method === "ezcorp/llm-complete") {
-        return ok(req.id, {
-          content: FAKE_SUMMARY,
-          blocks: [],
-          usage: { inputTokens: 1, outputTokens: 1 },
-          finishReason: "stop",
-          model: "demo-model",
-        });
-      }
-      if (req.method === "ezcorp/invoke") {
-        const tool = (params as { tool?: string }).tool;
-        if (tool === "runtime.conversations.getMessages") {
-          return ok(req.id, { messages: FAKE_MESSAGES, projectId: "p1" });
-        }
-        if (tool === "runtime.settings.getMine") return ok(req.id, { enabled: true });
-        return ok(req.id, {});
-      }
-      const fsRes = fsHandler(req);
-      if (fsRes) return fsRes;
-      return { jsonrpc: "2.0", id: req.id, error: { code: -32601, message: `no: ${req.method}` } };
-    });
+    p.setRequestHandler(state.handleRequest);
     return p;
   }
 
@@ -142,19 +91,12 @@ describe("sample-loop — TRY IT (hands-on demo)", () => {
     log("sample-loop: on every run:complete, summarize the chat in one line.");
 
     proc = spawnWired();
-    proc.ensureRunning();
-    await new Promise((r) => setTimeout(r, 150)); // let the channel come up
+    expect((await proc.call("tools/list")).error).toEqual({ code: -32601, message: "Method not found: tools/list" });
 
     const conversationId = "conv-demo-1";
     log(`▶  firing  ezcorp/event/run:complete  { conversationId: "${conversationId}" }`);
-    proc.sendNotification("ezcorp/event/run:complete", { conversationId });
-
-    // Wait for the primitive to persist the run.
-    for (let i = 0; i < 80; i++) {
-      const idx = state.kv.get("loop:summarize:index") as string[] | undefined;
-      if (Array.isArray(idx) && idx.length > 0) break;
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    expect(await proc.sendNotification("ezcorp/event/run:complete", { conversationId })).toBe(true);
+    await state.whenComplete;
 
     const ids = state.kv.get("loop:summarize:index") as string[] | undefined;
     expect(Array.isArray(ids)).toBe(true);
@@ -178,21 +120,14 @@ describe("sample-loop — TRY IT (hands-on demo)", () => {
 
     // Artifact mirror.
     const file = join(projectRoot, ".ezcorp", "extension-data", "summarize", "summaries", `${runId}.md`);
-    let body: string | undefined;
-    for (let i = 0; i < 60; i++) {
-      if (existsSync(file)) {
-        body = readFileSync(file, "utf8");
-        break;
-      }
-      await new Promise((r) => setTimeout(r, 25));
-    }
+    const body = readFileSync(file, "utf8");
     expect(body).toBeDefined();
-    expect(body!).toContain(FAKE_SUMMARY);
+    expect(body).toContain(FAKE_SUMMARY);
 
     log("");
     log("✓  ARTIFACT MIRRORED (.ezcorp/extension-data — git-legible)");
     log(`     .ezcorp/extension-data/summarize/summaries/${runId}.md`);
-    for (const line of body!.split("\n")) log(`     │ ${line}`);
+    for (const line of body.split("\n")) log(`     │ ${line}`);
     console.log("   ✅ loop works end-to-end.");
     console.log("└──────────────────────────────────────────────────────────\n");
   });

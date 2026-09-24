@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, randomBytes, scryptSync } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHmac, randomBytes, scryptSync } from "node:crypto";
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
@@ -193,6 +193,11 @@ export function encryptWithAad(plaintext: string, aad: string): string {
 
 export function decryptWithAad(ciphertext: string, aad: string): string {
   return doDecrypt(ciphertext, Buffer.from(aad, "utf8"));
+}
+
+/** Stable local identifier derived from the already persistent encryption key. */
+export function getStableInstallationId(): string {
+  return createHmac("sha256", getAppSecret()).update("ezcorp:github-user:instance:v1").digest("base64url").slice(0, 32);
 }
 
 /** Reset cached key and salt (for testing) */

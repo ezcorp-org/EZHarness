@@ -22,16 +22,20 @@ import { handleProjectGit } from "../../extensions/project-git-broker";
 import { DatabaseLifecycleRepository } from "../../db/queries/extension-releases";
 import { up as createReleaseTables } from "../../db/migrations/add-extension-releases";
 import { createStubPermissionEngine } from "./permission-engine-stub";
+import { fixtureGitEnv } from "./git-fixture-env";
 import type { JsonRpcRequest, JsonRpcResponse } from "../../extensions/types";
 import type { ResolveHost } from "../../search/egress";
 
 export async function seedFirstPartyGit(directory: string): Promise<void> {
   await mkdir(directory, { recursive: true });
   await writeFile(join(directory, "README.md"), "# probe\n");
+  // Hooks export repository-local GIT_* paths. A fixture repository must never
+  // inherit them: even `git init` can then rewrite the caller's real config.
+  const gitEnv = fixtureGitEnv();
   for (const args of [["init", "-q"], ["config", "user.email", "probe@example.test"], ["config", "user.name", "Probe"], ["add", "README.md"], ["commit", "-q", "-m", "feat: seed the probe repo"]]) {
-    const process = Bun.spawn(["git", "-C", directory, ...args], { stdout: "pipe", stderr: "pipe", env: { ...globalThis.process.env, GIT_CONFIG_GLOBAL: "/dev/null", GIT_CONFIG_SYSTEM: "/dev/null" } });
+    const process = Bun.spawn(["git", "-C", directory, ...args], { stdout: "pipe", stderr: "pipe", env: gitEnv });
     const stderr = await new Response(process.stderr).text();
-    if (await process.exited !== 0) throw new Error(stderr);
+    if (await process.exited !== 0) throw new Error(`git ${args.join(" ")} failed: ${stderr}`);
   }
 }
 

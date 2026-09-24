@@ -122,7 +122,7 @@ describe("settingsDefaultRoute", () => {
 describe("visibleNavItems", () => {
 	test("hides admin entries for members", () => {
 		const ids = visibleNavItems(false).map((i) => i.id);
-		expect(ids).toEqual(["personalization", "briefing", "developer"]);
+		expect(ids).toEqual(["personalization", "briefing", "github", "developer"]);
 	});
 
 	test("shows admin entries for admins", () => {
@@ -145,6 +145,7 @@ describe("activeNavId", () => {
 		expect(activeNavId("/settings/admin")).toBe("admin");
 		expect(activeNavId("/settings/briefing")).toBe("briefing");
 		expect(activeNavId("/settings/search")).toBe("websearch");
+		expect(activeNavId("/settings/github")).toBe("github");
 	});
 
 	test("nested audit page wins over the admin prefix", () => {

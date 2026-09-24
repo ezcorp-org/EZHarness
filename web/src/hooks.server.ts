@@ -322,6 +322,7 @@ export const CSP_HEADER_VALUE = [
 // "verify the JWT, then check the row that makes revocation stick" is exactly
 // how one copy silently loses a check.
 type SessionPayload = NonNullable<Awaited<ReturnType<typeof verifyJWT>>>;
+type VerifiedSessionPayload = SessionPayload & { verifiedSessionId: string | null };
 
 type SessionVerdict =
   // Not usable as a principal. `no-secret` means "could not judge" (the JWT
@@ -334,7 +335,7 @@ type SessionVerdict =
   // Verified. `reason: null` is the discriminant callers narrow on.
   | {
       reason: null;
-      payload: SessionPayload;
+      payload: VerifiedSessionPayload;
       secret: string;
       sessionId: string | null;
       viaPrevious: boolean;
@@ -383,7 +384,9 @@ async function verifySessionCookie(token: string): Promise<SessionVerdict> {
 
   return {
     reason: null,
-    payload,
+    // Overwrite any similarly named JWT claim. Only the database lookup may
+    // provide a durable session id; JWT-only fallback keeps it absent.
+    payload: { ...payload, verifiedSessionId: sessionId },
     secret,
     sessionId,
     viaPrevious,
@@ -402,7 +405,7 @@ async function verifySessionCookie(token: string): Promise<SessionVerdict> {
 // verdict, so the two stamps mean the same thing: same signature check, same
 // revoked-row check. That is what makes stamping from the public branch honest
 // rather than a widening.
-function stampSessionPrincipal(locals: App.Locals, payload: SessionPayload): void {
+function stampSessionPrincipal(locals: App.Locals, payload: VerifiedSessionPayload): void {
   locals.user = {
     id: payload.id,
     email: payload.email,
@@ -410,6 +413,7 @@ function stampSessionPrincipal(locals: App.Locals, payload: SessionPayload): voi
     role: payload.role,
   };
   locals.authMethod = "session";
+  locals.sessionId = payload.verifiedSessionId ?? undefined;
 }
 
 const handleApp: Handle = async ({ event, resolve }) => {

@@ -1,8 +1,8 @@
-import { expect, test } from "bun:test";
-import { existsSync } from "node:fs";
+import { afterEach, expect, test } from "bun:test";
+import { existsSync, watch } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { DEFAULT_IMAGE } from "@ezcorp/extension-runner";
 
 const root = resolve(import.meta.dir, "../..");
@@ -151,22 +151,47 @@ async function removeFixture(fixture: LaunchFixture): Promise<void> {
   await rm(fixture.directory, { recursive: true, force: true });
 }
 
-const cancellationObservationMs = 10_000;
 const sleep = (ms: number) => new Promise<void>((resolveSleep) => setTimeout(resolveSleep, ms));
 
-async function readReadyFile(path: string, producer: ReturnType<typeof Bun.spawn>): Promise<string> {
-  while (true) {
-    try {
-      const value = (await readFile(path, "utf8")).trim();
-      if (value) return value;
-    } catch (error) {
-      if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+async function readReadyFile(path: string, child: ReturnType<typeof Bun.spawn>): Promise<string> {
+  let wake = () => {};
+  let watchError: Error | undefined;
+  const directoryChanges = watch(dirname(path), () => wake());
+  let fileChanges: ReturnType<typeof watch> | undefined;
+  const onWatchError = (error: Error) => {
+    watchError = error;
+    wake();
+  };
+  directoryChanges.on("error", onWatchError);
+  void child.exited.then(() => wake());
+  try {
+    for (;;) {
+      if (watchError) throw watchError;
+      // Watch before the first read so a write cannot fall between inspection and subscription.
+      // The producer creates the file before it writes its content.
+      const change = new Promise<void>((resolveChange) => { wake = resolveChange; });
+      try {
+        const value = (await readFile(path, "utf8")).trim();
+        if (value) return value;
+        if (!fileChanges) {
+          // A directory watch may report creation before the first write.
+          // Watch the file itself, then re-read to close the subscription race.
+          fileChanges = watch(path, () => wake());
+          fileChanges.on("error", onWatchError);
+          continue;
+        }
+      } catch (error) {
+        if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
+      }
+      if (child.exitCode !== null) throw new Error(`Launcher exited ${child.exitCode} before writing ${path}`);
+      await change;
     }
-    if (producer.exitCode !== null) throw new Error(`Launcher exited ${producer.exitCode} before writing ${path}`);
-    await sleep(10);
+  } finally {
+    wake = () => {};
+    fileChanges?.close();
+    directoryChanges.close();
   }
 }
-
 test("launcher readiness fails when its producer exits without a file", async () => {
   const directory = await mkdtemp(join(tmpdir(), "production-lifecycle-readiness-"));
   const producer = Bun.spawn([process.execPath, "-e", "process.exit(17)"], { stdout: "ignore", stderr: "ignore" });
@@ -235,11 +260,34 @@ async function finishOwnedLauncher(
   }
 }
 
+type OwnedLaunchFixture = { fixture: LaunchFixture; child?: ReturnType<typeof Bun.spawn>; owned: Array<{ pid: number; identity: ProcessIdentity }> };
+const activeLaunchFixtures = new Set<OwnedLaunchFixture>();
+
+async function cleanupOwnedLaunchFixture(active: OwnedLaunchFixture): Promise<void> {
+  try {
+    if (active.child && active.owned.length === 0 && active.child.exitCode === null) {
+      const identity = await processIdentity(active.child.pid);
+      if (identity) active.owned.push({ pid: active.child.pid, identity });
+      else active.child.kill("SIGTERM");
+    }
+    await finishOwnedLauncher(active.child, active.owned);
+  } finally {
+    await removeFixture(active.fixture);
+    activeLaunchFixtures.delete(active);
+  }
+}
+
+// Bun runs afterEach even when a test times out. Keep ownership outside the
+// suspended test so its detached launcher cannot survive that timeout.
+afterEach(async () => {
+  for (const active of activeLaunchFixtures) await cleanupOwnedLaunchFixture(active);
+});
+
 test("long persistent state keeps the authenticated runner transport below the Unix-path limit", async () => {
   const fixture = await makeFixture();
-  let child: ReturnType<typeof Bun.spawn> | undefined;
-  let deadline: ReturnType<typeof setTimeout> | undefined;
-  let timedOut = false;
+  const owned: Array<{ pid: number; identity: ProcessIdentity }> = [];
+  const active: OwnedLaunchFixture = { fixture, owned };
+  activeLaunchFixtures.add(active);
   try {
     await writeFile(join(fixture.state, "persistent-sentinel.txt"), "retain persistent state");
     await writeFile(fixture.setsidRelease, "release");
@@ -247,19 +295,16 @@ test("long persistent state keeps the authenticated runner transport below the U
       "bun",
       "-e",
       'const {inspectProductionRunner}=await import("./scripts/lib/production-lifecycle-client.ts");const inspection=await inspectProductionRunner("launcher-readiness");if(inspection.id!=="launcher-readiness"||inspection.state!=="unknown")throw new Error("Unexpected runner inspection: "+JSON.stringify(inspection));await Bun.write(process.env.PROBE_OUTPUT,JSON.stringify({stateRoot:process.env.EZ_PRODUCTION_RUN_ROOT,runnerImage:process.env.EZ_EXTENSION_RUNNER_IMAGE,id:inspection.id,state:inspection.state})+"\\n");',
-    ], { EZ_PRODUCTION_RUNNER_IMAGE: DEFAULT_IMAGE });
-    child = launched;
-    deadline = setTimeout(() => {
-      timedOut = true;
-      child!.kill("SIGTERM");
-    }, 20_000);
+    ], { EZ_PRODUCTION_RUNNER_IMAGE: DEFAULT_IMAGE }, true);
+    active.child = launched;
+    const launcherIdentity = await processIdentity(launched.pid);
+    expect(launcherIdentity).toBeDefined();
+    owned.push({ pid: launched.pid, identity: launcherIdentity! });
     const [exit, stdout, stderr] = await Promise.all([
-      child.exited,
+      launched.exited,
       new Response(launched.stdout).text(),
       new Response(launched.stderr).text(),
     ]);
-    const diagnostics = await launcherDiagnostics(fixture.receipt);
-    expect(timedOut, `launcher exceeded the 20s deadline\n${diagnostics}\nstdout:\n${stdout}\nstderr:\n${stderr}`).toBe(false);
     expect(exit, `${stdout}\n${stderr}`).toBe(0);
     expect(await readFile(fixture.commandEnvironment, "utf8")).toBe(`${JSON.stringify({ stateRoot: fixture.state, runnerImage: DEFAULT_IMAGE, id: "launcher-readiness", state: "unknown" })}\n`);
     const generatedCompose = await readFile(fixture.compose, "utf8");
@@ -276,10 +321,7 @@ test("long persistent state keeps the authenticated runner transport below the U
     expect(existsSync(mountedRunnerRoot!)).toBe(false);
     expect(existsSync(mountedRunnerToken!)).toBe(false);
   } finally {
-    if (deadline) clearTimeout(deadline);
-    if (child && child.exitCode === null) child.kill("SIGTERM");
-    if (child) await child.exited;
-    await removeFixture(fixture);
+    await cleanupOwnedLaunchFixture(active);
   }
 }, 30_000);
 
@@ -291,6 +333,8 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
   const runnerPidFile = join(fixture.directory, "runner.pid");
   let child: ReturnType<typeof Bun.spawn> | undefined;
   const owned: Array<{ pid: number; identity: ProcessIdentity }> = [];
+  const active: OwnedLaunchFixture = { fixture, owned };
+  activeLaunchFixtures.add(active);
   try {
     await writeFile(fixture.setsidRelease, "release");
     const launched = launch(fixture, [
@@ -304,6 +348,7 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
       VERIFIER_READY_FILE: verifierReady,
     }, true);
     child = launched;
+    active.child = launched;
     const launcherIdentity = await processIdentity(launched.pid);
     expect(launcherIdentity).toBeDefined();
     owned.push({ pid: launched.pid, identity: launcherIdentity! });
@@ -311,7 +356,7 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
     const stdout = new Response(launched.stdout).text();
     const stderr = new Response(launched.stderr).text();
     try {
-      await readReadyFile(verifierReady, child);
+      expect(await readReadyFile(verifierReady, launched)).toBe("ready");
     } catch (error) {
       throw new Error(`${String(error)}\n${await launcherDiagnostics(fixture.receipt)}\nlauncher_exit=${await settlesWithin(child.exited, 100)}\nstdout=${await settlesWithin(stdout, 100)}\nstderr=${await settlesWithin(stderr, 100)}`);
     }
@@ -323,7 +368,7 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
     expect(runnerPid).toBeGreaterThan(1);
     const [runnerRoot] = (await readFile(fixture.runnerTransport, "utf8")).trim().split("\n");
     const reportedGroupFile = join(runnerRoot!, "..", "verification-group.pid");
-    const reportedVerifierGroup = Number(await readReadyFile(reportedGroupFile, child));
+    const reportedVerifierGroup = Number(await readReadyFile(reportedGroupFile, launched));
     const verifierIdentity = await processIdentity(observedVerifierPid);
     const verifierDescendantIdentity = await processIdentity(verifierDescendantPid);
     const runnerIdentity = await processIdentity(runnerPid);
@@ -342,9 +387,9 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
 
     child.kill("SIGTERM");
     const [launcherExit, stdoutResult, stderrResult] = await Promise.all([
-      settlesWithin(child.exited, cancellationObservationMs),
-      settlesWithin(stdout, cancellationObservationMs),
-      settlesWithin(stderr, cancellationObservationMs),
+      child.exited,
+      stdout,
+      stderr,
     ]);
     const stdoutDrained = stdoutResult !== undefined;
     const stderrDrained = stderrResult !== undefined;
@@ -369,8 +414,7 @@ test("launcher cancellation reaps its verifier and runner before streams drain",
       verifierDescendantAlive: false,
     });
   } finally {
-    await finishOwnedLauncher(child, owned);
-    await removeFixture(fixture);
+    await cleanupOwnedLaunchFixture(active);
   }
 }, 25_000);
 
@@ -378,15 +422,18 @@ test("launcher cancellation before verifier group readiness reaps its owned star
   const fixture = await makeFixture();
   let child: ReturnType<typeof Bun.spawn> | undefined;
   const owned: Array<{ pid: number; identity: ProcessIdentity }> = [];
+  const active: OwnedLaunchFixture = { fixture, owned };
+  activeLaunchFixtures.add(active);
   try {
     const launched = launch(fixture, ["bun", "-e", 'throw new Error("verifier must not start before its group is ready");'], {}, true);
     child = launched;
+    active.child = launched;
     const launcherIdentity = await processIdentity(launched.pid);
     expect(launcherIdentity).toBeDefined();
     owned.push({ pid: launched.pid, identity: launcherIdentity! });
     const stdout = new Response(launched.stdout).text();
     const stderr = new Response(launched.stderr).text();
-    const starterPid = Number(await readReadyFile(fixture.setsidStarter, child));
+    const starterPid = Number(await readReadyFile(fixture.setsidStarter, launched));
     expect(starterPid).toBeGreaterThan(1);
     const starterIdentity = await processIdentity(starterPid);
     expect(starterIdentity).toBeDefined();
@@ -395,9 +442,9 @@ test("launcher cancellation before verifier group readiness reaps its owned star
 
     child.kill("SIGTERM");
     const [launcherExit, stdoutResult, stderrResult] = await Promise.all([
-      settlesWithin(child.exited, cancellationObservationMs),
-      settlesWithin(stdout, cancellationObservationMs),
-      settlesWithin(stderr, cancellationObservationMs),
+      child.exited,
+      stdout,
+      stderr,
     ]);
     const stdoutDrained = stdoutResult !== undefined;
     const stderrDrained = stderrResult !== undefined;
@@ -420,8 +467,7 @@ test("launcher cancellation before verifier group readiness reaps its owned star
       stdoutDrained: true,
     });
   } finally {
-    await finishOwnedLauncher(child, owned);
-    await removeFixture(fixture);
+    await cleanupOwnedLaunchFixture(active);
   }
 }, 25_000);
 

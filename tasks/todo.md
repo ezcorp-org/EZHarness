@@ -1,3 +1,20 @@
+# PR #308 review fixes
+
+- [x] Reproduce the review findings and assign isolated Sol worktrees.
+- [x] Fix OAuth session revocation and refresh recovery; integrate focused tests.
+- [x] Add migration upgrade, idempotency, and foreign-key tests.
+- [x] Fix real filesystem import and publication recovery; remove repeated identity and limits.
+- [x] Fix GitHub setup, base selection, empty-change feedback, and diff drawer state.
+- [x] Diagnose and fix hosted launcher cancellation failure.
+
+Final verification and PR check results are tracked in `tasks/pr308-fix-plan.md`.
+Keep the source commit fixed while collecting browser coverage receipts.
+
+Review findings and detailed execution notes: `tasks/pr308-review.md` and `tasks/pr308-fix-plan.md`.
+Work is isolated on `fix/pr308-review-findings` and four Sol agent worktrees.
+
+---
+
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
 Branch: `feat/trusted-local-runner` (worktree `worktrees/trusted-local`, from `main` @ 2588c9f19).
@@ -899,6 +916,20 @@ tests pass 132 tests and 315 assertions. The repaired full backend pool passes 2
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
 
+## Review PR #308 — 2026-09-23
+
+- [x] Read PR history, description, review findings, failing CI, and linked design.
+- [x] Reproduce OAuth session-revocation and read-only PR recovery gaps in focused tests.
+- [x] Fix both gaps, including row-locked final session validation.
+- [x] Run broker, device-flow, and PR-service suites; typecheck and lint.
+- [x] Run launcher integration suite locally under CI settings.
+- [ ] Push fix commit and inspect new hosted CI.
+- [ ] Record final review and blockers.
+
+Plan review: Keep this work on the PR #308 branch and change only the credential broker, PR recovery call, and focused tests. Do not weaken the launcher test while its hosted failure remains unexplained.
+
+Review: The two source findings failed before the fix and pass after it. Focused broker, device, and PR-service suites pass 31 tests and 222 assertions. Full typecheck and lint over 4,740 files pass. The launcher integration suite passes 4 tests and 43 assertions locally with CI environment flags. Hosted residual integration failed twice at its 20-second watchdog on the old head; a fresh run on the repair commit is pending. Human non-author and CODEOWNERS review remain required.
+
 ## PR #315 keyless credential review — 2026-09-23
 
 - [x] Read PR intent, changed files, review state, and failed CI log.
@@ -948,3 +979,16 @@ Integration plan: #309 landed on main at 3b5095303. Merge that exact base into t
 Plan review: Both failures stopped after about five seconds while waiting for a startup file. The PR does not change the launcher. Wait for an observable process state instead of measuring host scheduling time; keep the test's overall timeout as the deadlock guard.
 
 Review: The helper now reads nonempty readiness content until it appears or the producer exits. One new test proves that a producer exit fails immediately. The exact lifecycle suite passed 5/5 on pinned Bun 1.3.14; Biome and full typecheck passed. The failed hosted job cannot be rerun while its workflow is active (GitHub HTTP 403), so the change needs a new CI run after push.
+
+## PR #308 remaining dependency advisories — 2026-09-24
+
+- [x] Resolve root esbuild and uuid advisories with compatibility tests (Sol root dependency agent).
+- [x] Resolve web qs and cookie advisories with compatibility tests (Sol web dependency agent).
+- [x] Independently verify fixed versions, installed resolution paths, and security regression tests.
+- [x] Integrate changes; require zero advisory records with no allowlist additions.
+- [ ] Run complete local quality checks, build, browser lanes, coverage, and dependency audit on final source.
+- [ ] Push to PR #308, verify hosted checks, and record final evidence.
+
+Plan review: The user requests all six remaining lower-severity advisory records fixed, validated, and pushed. Include current main through `8aa507304` before the changes. Separate root and web manifests/locks between isolated Sol worktrees. Prefer supported parent updates; use narrowly justified dependency overrides only with real caller compatibility proof. Do not suppress advisories, weaken gates, or change test deadlines. Final results go in `tasks/pr308-dependency-results.md` so tracked source stays frozen during coverage attestation.
+
+Review before final validation: Independent clean-install checks report zero advisories in root, web, and the Excel example. Pinned Bun 1.3.14 ignores parent-scoped overrides, so tested exact global pins are required. The extension resolver now honors exact global overrides, rejects unsupported forms and stale locks, and checks package declarations against the lock. Regression tests cover real dependency callers, malicious inputs, and the author save/resolve/reload flow. Git test fixtures now share an isolated environment so hooks cannot change the caller's repository identity. Run final checks and record their results in the ignored report before pushing.
