@@ -23,7 +23,7 @@ root-owned `recoveryFenceCommand` to prove
 that detached runners and other clients are stopped. Without that configured
 verifier, recovery fails closed. It then waits 65 seconds, beyond the host
 transport's 30-second deadline and the v4 worker's 60-second policy,
-deadline, and makes two separate durable and pinned Incus observations at
+then makes two separate durable and pinned Incus observations at
 least five seconds apart. Both project-wide operation lists and the exact
 named instance must be empty or absent. This check depends on both the
 operator's assertion and the independent fence command's proof for clients
@@ -62,7 +62,8 @@ result fails closed.
 The operator socket is mode `0600` and accepts only the supervisor UID. It
 is not a public HTTP action. Prepare a root-owned mode `0600` JSON request
 with the exact IDs read from the saved fixture and operation. Use a fresh
-nonce, an expiry about two minutes ahead, and a review ID:
+nonce, a deadline between 85 and 180 seconds ahead that covers the 65-second
+wait and all bounded readback stages, and a review ID:
 
 ```json
 {
