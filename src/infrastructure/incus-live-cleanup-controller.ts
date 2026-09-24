@@ -56,9 +56,9 @@ export class IncusLiveCleanupController {
   private async claimed(scope: IncusQualificationScope, handle: LiveFixtureHandle) {
     const runId = this.runId(handle);
     const row = await this.checkpoints.get(runId);
-    const runDeadlineMs = row ? new Date(row.deadlineAt).getTime() : Number.NaN;
-    const deadlineMs = Math.min(runDeadlineMs, this.now() + 25_000);
-    requireCleanup(row?.state === "CLAIMED" && Number.isSafeInteger(runDeadlineMs)
+    const recoveryDeadlineMs = row?.claimedAt ? new Date(row.claimedAt).getTime() + 20 * 60_000 : Number.NaN;
+    const deadlineMs = Math.min(recoveryDeadlineMs, this.now() + 25_000);
+    requireCleanup(row?.state === "CLAIMED" && Number.isSafeInteger(recoveryDeadlineMs)
       && deadlineMs > this.now() && row.scope.installationId === scope.installationId
       && row.scope.releaseId === scope.releaseId && row.scope.connectionId === scope.connectionId
       && row.scope.presetId === scope.presetId,
@@ -144,6 +144,7 @@ export class IncusLiveCleanupController {
     requireCleanup(candidates.length === 1 && candidates[0]?.id === pending.operationId,
       "another pending operation blocks exact recovery");
     await this.freshFeatureGate().reconcile(1);
+    await this.freshFeatureGate().settleCompletedOperation(pending.operationId);
     const status = await this.deps.fixtures.status(scope, handle.operationId);
     const [binding] = await this.deps.db.select().from(sandboxBindings)
       .where(eq(sandboxBindings.id, handle.sandboxId)).limit(1);

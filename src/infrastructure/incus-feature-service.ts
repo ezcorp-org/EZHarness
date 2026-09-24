@@ -425,6 +425,15 @@ export class IncusFeatureService {
     }
   }
 
+  /** Settle one confirmed operation after an exact recovery pass. */
+  async settleCompletedOperation(operationId: string): Promise<void> {
+    const operation = await this.controller.getOperation(operationId);
+    if (!operation || operation.state !== "SUCCEEDED") {
+      throw new IncusQualificationCleanupError();
+    }
+    await this.settle(operation);
+  }
+
   async reconcile(limit?: number): Promise<ReturnType<SandboxController["reconcile"]> extends Promise<infer T> ? T : never> {
     const result = await this.controller.reconcile(limit);
     const requested = limit === undefined || !Number.isFinite(limit) ? 100 : Math.trunc(limit);

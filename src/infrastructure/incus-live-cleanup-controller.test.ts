@@ -35,7 +35,7 @@ function harness(fault?: "readback" | "other-operation" | "readiness") {
     destroyWithLostReplyFault: async () => { calls.push("destroy"); phase = 1; throw new Error("reply lost"); },
   } as unknown as IncusQualificationFixtureService;
   const checkpoints = { get: async () => ({ state: "CLAIMED", nonce: "nonce", scope,
-    deadlineAt: new Date(now + 60_000) }),
+    deadlineAt: new Date(now - 1), claimedAt: new Date(now - 60_000) }),
   authorizeRecoveryFixtureForRun: async (arm: Record<string, unknown>) => {
     expect(arm.fixtureOperationId).toBe(handle.operationId);
     expect(arm.bindingId).toBe(handle.sandboxId);
@@ -50,7 +50,9 @@ function harness(fault?: "readback" | "other-operation" | "readiness") {
     calls.push("readiness");
     if (fault === "readiness") return;
     throw Object.assign(new Error("cleanup pending"), { code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
-  }, reconcile: async () => { calls.push("reconcile"); phase = 2; } } as unknown as IncusFeatureService;
+  }, reconcile: async () => { calls.push("reconcile"); phase = 2; },
+  settleCompletedOperation: async (id: string) => { expect(id).toBe(destroyId); calls.push("settle"); },
+  } as unknown as IncusFeatureService;
   const controller = new IncusLiveCleanupController({ db, fixtures,
     qualifications: {} as IncusQualificationStore, readinessProjectId: "controlled-user-project",
     checkpoints, fault: async () => operatorFault, freshFeatureGate: () => featureGate, now: () => now });
@@ -63,7 +65,7 @@ test("operator cleanup uses one lost reply, exact readback, readiness denial and
   await expect(controller.attemptReadiness(scope, handle)).rejects.toMatchObject({
     code: "QUALIFICATION_CLEANUP_UNVERIFIED" });
   await controller.reconcileFromReopenedController(scope, handle);
-  expect(calls).toEqual(["destroy", "readback", "readiness", "reconcile"]);
+  expect(calls).toEqual(["destroy", "readback", "readiness", "reconcile", "settle"]);
   await expect(controller.reconcileFromReopenedController(scope, handle))
     .rejects.toThrow("recovery journal identity changed");
 });
