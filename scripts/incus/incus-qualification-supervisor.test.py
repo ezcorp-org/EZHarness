@@ -90,6 +90,11 @@ class SupervisorTest(unittest.TestCase):
                 supervisor.verify_recovery_fence({"fenceEvidence": "evidence"},
                                                  {"pid": 123, "startTicks": "456"})
             supervisor.recovery_fence_command = ["checker"]
+            with mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    [], 0, stdout=b'{"fenced":true,"evidence":"different"}')):
+                with self.assertRaisesRegex(ValueError, "client fence verification failed"):
+                    supervisor.verify_recovery_fence({"fenceEvidence": "reviewed evidence"},
+                                                     {"pid": 123, "startTicks": "456"})
             request = {"version": 1, "action": "recover-noeffect",
                 "nonce": "nonce", "reviewId": "review", "scope": {
                     "installationId": "installation", "releaseId": "release",
