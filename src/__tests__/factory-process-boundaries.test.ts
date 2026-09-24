@@ -238,12 +238,30 @@ describe("C02.1 the Node orchestration process holds no product credential", () 
     expect(closure.files).toContain("src/factory/file-key-wraps.ts");
     expect(closure.files).toContain("src/factory/encryption.ts");
     // The key service it opens that key through, and nothing else from the AWS SDK.
+    expect(closure.files).toContain("src/factory/key-composition.ts");
     expect(closure.files).toContain("src/factory/key-management.ts");
     expect([...closure.bare.keys()].filter((specifier) => specifier.startsWith("@aws-sdk/")).sort()).toEqual([...KEY_SERVICE_PACKAGES]);
   });
 
   test("the key-service exemption is exact: the object-store client is still a credential", () => {
     expect(credentialPackages(runtimeClosure(["src/extensions/v4/blobs.ts"])).some((name) => name.startsWith("@aws-sdk/client-s3"))).toBe(true);
+  });
+});
+
+/** The pool service is a Node process: it must never link the product's Bun database driver. */
+const POOL_SERVICE_ENTRY = "src/factory/pool/service-server.ts";
+
+describe("C12 the pool service process runs on Node", () => {
+  test("its entry bundles for the Node target", async () => {
+    const result = await Bun.build({ entrypoints: [resolve(REPO_ROOT, POOL_SERVICE_ENTRY)], target: "node", format: "esm", throw: false });
+    expect(result.logs.filter((log) => log.level === "error").map(String)).toEqual([]);
+    expect(result.success).toBe(true);
+  });
+
+  test("it shares the checkpoint limits, not the barrier that links the product database", () => {
+    const closure = runtimeClosure([POOL_SERVICE_ENTRY]);
+    expect(closure.files).toContain("src/factory/checkpoint-limits.ts");
+    expect(closure.files.filter((file) => file === "src/factory/checkpoint-barrier.ts" || file === "src/db/connection.ts" || file.startsWith("src/db/queries/"))).toEqual([]);
   });
 });
 

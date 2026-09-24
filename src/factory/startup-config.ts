@@ -16,7 +16,7 @@
  * credential value, matching `parseFactoryOrchestratorProcessConfig`.
  */
 import { resolve } from "node:path";
-import { wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-management";
+import { wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-composition";
 import { isPlainRecord } from "./plain-values";
 import { readPrivatePath } from "./private-files";
 import { exactKeys, httpsUrl, wellFormed, type FieldKind } from "./startup-values";

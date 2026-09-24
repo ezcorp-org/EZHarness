@@ -2,7 +2,7 @@ import type { TransactionalDb } from "../db/migrations/types";
 import type { FactoryCheckpointTemporalSource } from "./checkpoint-barrier";
 import { loadFactoryStopHostKeys } from "./dispatch-composition";
 import { loadFactoryDataKeyFromFiles } from "./file-key-wraps";
-import type { FactoryKeyCompositionDependencies } from "./key-management";
+import type { FactoryKeyCompositionDependencies } from "./key-composition";
 import { createPoolAdmissionClient, createPoolCheckpointClient, type PoolAdmissionClient, type PoolCheckpointClient } from "./pool/client";
 import { readPrivatePath } from "./private-files";
 import { factoryClientRestorePoolLedger, factoryTemporalPositionsFromConfig } from "./recovery-composition";

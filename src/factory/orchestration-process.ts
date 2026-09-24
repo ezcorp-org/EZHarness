@@ -10,7 +10,7 @@ import {
 import type { GatewayTransportOptions } from "../../packages/@ezcorp/factory-transport/src/index.ts";
 import type { TemporalPayloadCodec as PayloadCodec } from "./encryption.ts";
 import { loadFactoryTemporalPayloadCodec, type FactoryTemporalPayloadCodecFileConfig } from "./file-key-wraps.ts";
-import { wellFormedFactoryKeyManagement } from "./key-management.ts";
+import { wellFormedFactoryKeyManagement } from "./key-composition.ts";
 import { createFactoryOrchestrationReadinessWriter } from "./orchestration-readiness-writer.ts";
 import { privateDirectory, readPrivateBounded } from "./private-files.ts";
 

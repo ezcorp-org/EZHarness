@@ -1,5 +1,5 @@
 import { EncryptedRecordCodec, FactoryEncryptionError, FactoryTemporalPayloadCodec, InstallationDataKey, type InstallationKeyWrap, type InstallationKeyWrapStore } from "./encryption.ts";
-import { composeFactoryDataKeyWrapper, wellFormedFactoryKeyManagement, type FactoryKeyCompositionDependencies, type FactoryKeyManagement, type FactoryOperatorKeyReference } from "./key-management.ts";
+import { composeFactoryDataKeyWrapper, wellFormedFactoryKeyManagement, type FactoryKeyCompositionDependencies, type FactoryKeyManagement, type FactoryOperatorKeyReference } from "./key-composition.ts";
 import { readPrivatePath } from "./private-files.ts";
 
 const KEY_WRAP_SCHEMA_VERSION = "factory.key-wraps.v1";

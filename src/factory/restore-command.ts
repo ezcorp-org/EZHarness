@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import type { TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { composeFactoryInstallationRestore, factoryStartupConfigPath } from "./installation-startup";
-import type { FactoryKeyCompositionDependencies } from "./key-management";
+import type { FactoryKeyCompositionDependencies } from "./key-composition";
 import { factoryRestoreReportDigest, type FactoryRestoreMode } from "./restore";
 import { factoryAttestedRestoreFence } from "./restore-composition";
 import { loadFactoryStartupConfig } from "./startup-config";

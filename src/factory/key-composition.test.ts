@@ -5,7 +5,7 @@ import { startFactoryKeyServiceDouble, type FactoryKeyServiceDouble } from "../_
 import { FakeCloudKms, MemoryWraps } from "../__tests__/helpers/factory-kms-doubles";
 import { InstallationDataKey, type FactoryDataKeyWrapper } from "./encryption";
 import { loadFactoryDataKeyFromFiles, type FactoryDataKeyFileReferences } from "./file-key-wraps";
-import { composeFactoryDataKeyWrapper, factoryAwsKmsClient, wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-management";
+import { composeFactoryDataKeyWrapper, factoryAwsKmsClient, wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-composition";
 
 /**
  * The one key-service unit, from the product process: each kind the startup

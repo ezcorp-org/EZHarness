@@ -67,7 +67,7 @@ import type { FactoryRoleDriver } from "./runtime-seams";
 import type { FactoryStartedListener } from "./runtime-composition";
 import type { FactoryPhysicalStopper, FactoryTaskStops } from "./task-stops";
 import { composeFactoryRecoveryRoles } from "./recovery-composition";
-import type { FactoryKeyCompositionDependencies } from "./key-management";
+import type { FactoryKeyCompositionDependencies } from "./key-composition";
 import type { FactoryRestore, FactoryRestoreFence } from "./restore";
 import { FactoryRunTransitionProjector } from "./run-transition-projector";
 
