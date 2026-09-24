@@ -13,7 +13,7 @@ export interface IncusResourceProbeDependencies {
   runGuest: (handle: LiveFixtureHandle, argv: readonly string[], timeoutMs: number) => Promise<LiveCommandResult>;
   /** Must read the exact instance root-volume quota over the pinned Incus transport. */
   readRootQuota: (handle: LiveFixtureHandle) => Promise<{ sandboxId: string; bytes: number }>;
-  /** Proves each denied target is reachable from the host at probe time. */
+  /** Proves each denied target is reachable from the host before and after the guest probe. */
   hostCanConnect: (target: IncusNetworkTarget) => Promise<boolean>;
 }
 
@@ -105,9 +105,12 @@ export async function observeIncusResourceEnforcement(
     && validPort(targets.management.port) && validPort(targets.otherSandbox.port)
     && (managementAddress !== otherAddress || targets.management.port !== targets.otherSandbox.port),
   "distinct IP-literal targets are required");
-  for (const [name, target] of Object.entries(targets)) {
-    requireProbe(await dependencies.hostCanConnect(target), `${name} control target is not reachable from the host`);
-  }
+  const checkHostTargets = async () => {
+    for (const [name, target] of Object.entries(targets)) {
+      requireProbe(await dependencies.hostCanConnect(target), `${name} control target is not reachable from the host`);
+    }
+  };
+  await checkHostTargets();
   const result = await dependencies.runGuest(handle, ["python3", "-c", GUEST_SCRIPT,
     targets.management.address, String(targets.management.port),
     targets.otherSandbox.address, String(targets.otherSandbox.port)], 30_000);
@@ -129,6 +132,9 @@ export async function observeIncusResourceEnforcement(
   requireProbe(raw.managementBlocked === true && raw.otherSandboxBlocked === true,
     "guest reached a forbidden network target");
   requireProbe(isolatedUidMap(raw.uidMap), "guest UID map is not isolated from host root");
+  // A short-lived control listener can expire while the guest runs. Recheck
+  // the same target after the refusal so expiration cannot masquerade as isolation.
+  await checkHostTargets();
   return { memoryMaxBytes, cpuQuotaMillis: quotaMillis, pidsMax,
     rootQuotaBytes: root.bytes, privateNetworkProbeBlocked: true, unprivilegedUidMap: true };
 }

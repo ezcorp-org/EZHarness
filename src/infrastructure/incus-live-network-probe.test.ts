@@ -110,7 +110,21 @@ test("derives exact running neighbor address and protected listener port, then p
     `/1.0/instances/${resourceName(context.scope.connectionId, neighbor.sandboxId)}/state`]);
   expect(operations).toEqual(["processes.start", "processes.readOutput"]);
   expect(await probe.hostCanConnect(target)).toBe(true);
+  expect(await probe.hostCanConnect(target)).toBe(true);
   expect(checked[0]?.expected).toMatch(/^[a-f0-9]{48}$/);
+  expect(checked[1]?.expected).toBe(checked[0]?.expected);
+});
+
+test("a concurrent listener cannot replace an earlier target's challenge", async () => {
+  const { probe, context, checked } = await setup();
+  const first = await probe.neighborTarget(context, neighbor);
+  expect(await probe.hostCanConnect(first)).toBe(true);
+  const second = await probe.neighborTarget(context, neighbor);
+  expect(await probe.hostCanConnect(first)).toBe(false);
+  expect(await probe.hostCanConnect({ ...second })).toBe(false);
+  expect(await probe.hostCanConnect(second)).toBe(true);
+  expect(checked).toHaveLength(2);
+  expect(checked[1]?.expected).not.toBe(checked[0]?.expected);
 });
 
 test("rejects durable identity and running-state drift before backend or guest access", async () => {

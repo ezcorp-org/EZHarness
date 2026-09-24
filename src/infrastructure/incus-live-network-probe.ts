@@ -112,7 +112,8 @@ export class IncusLiveNetworkProbe {
   private readonly http: PinnedFetch;
   private readonly invokeGuest: GuestCall;
   private readonly connect: NonNullable<IncusLiveNetworkProbeDependencies["connect"]>;
-  private readonly challenges = new Map<string, string>();
+  private readonly challenges = new WeakMap<IncusNetworkTarget, string>();
+  private readonly neighborTargets = new Map<string, WeakRef<IncusNetworkTarget>>();
 
   constructor(deps: IncusLiveNetworkProbeDependencies = {}) {
     this.db = deps.db ?? getDb();
@@ -239,9 +240,10 @@ export class IncusLiveNetworkProbe {
       const match = /^([1-9][0-9]{0,4})\n$/.exec(line);
       if (match) {
         requireNetwork(Number(match[1]) <= 65535, "neighbor listener port is invalid");
-        const target = { sandboxId: neighbor.sandboxId, address, port: Number(match[1]) };
+        const target = Object.freeze({ sandboxId: neighbor.sandboxId, address, port: Number(match[1]) });
         await this.exactFixture(context, neighbor);
-        this.challenges.set(`${address}:${target.port}`, token);
+        this.challenges.set(target, token);
+        this.neighborTargets.set(`${address}:${target.port}`, new WeakRef(target));
         return target;
       }
       requireNetwork(/^[0-9]{0,5}$/.test(line), "neighbor listener port is invalid");
@@ -254,7 +256,10 @@ export class IncusLiveNetworkProbe {
   }
 
   async hostCanConnect(target: IncusNetworkTarget): Promise<boolean> {
-    const token = this.challenges.get(`${target.address}:${target.port}`);
+    const registered = this.neighborTargets.get(`${target.address}:${target.port}`)?.deref();
+    if (registered && registered !== target) return false;
+    const token = this.challenges.get(target);
+    if (registered && !token) return false;
     try { return await this.connect(target, token); }
     catch { return false; }
   }

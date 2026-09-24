@@ -58,6 +58,19 @@ test("does not treat an unreachable control target as isolation evidence", async
   expect(guestCalls).toBe(0);
 });
 
+test("denies a blocked guest result if the neighbor listener expires before the final host check", async () => {
+  const checks: IncusResourceProbeTargets[keyof IncusResourceProbeTargets][] = [];
+  const example = probe({ hostCanConnect: async target => {
+    checks.push(target);
+    return !(target === targets.otherSandbox && checks.length === 4);
+  } });
+  await expect(example.run()).rejects.toThrow("otherSandbox control target");
+  expect(example.calls).toHaveLength(1);
+  expect(checks).toEqual([targets.management, targets.otherSandbox,
+    targets.management, targets.otherSandbox]);
+  expect(checks[1]).toBe(checks[3]);
+});
+
 test("rejects network access, quota identity drift, and malformed guest output", async () => {
   await expect(probe({}, { ...guest, managementBlocked: false }).run()).rejects.toThrow("forbidden network");
   await expect(probe({}, { ...guest, otherSandboxBlocked: false }).run()).rejects.toThrow("forbidden network");
