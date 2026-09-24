@@ -1,6 +1,6 @@
 # Review: deny feature guests access to host management ports
 
-This is a source proposal only. No NixOS source, running firewall, Incus setting, or guest was changed. The selected host is `sandbox-server`; read-only SSH on 2026-09-23 found `/home/dev/work/nixos` at commit `f7c716c6c808f5d4490aca230e1f4e52c228980f`. Its only local edits were in `tasks/`.
+This is a built host change awaiting separate approval. No NixOS source, running firewall, Incus setting, or guest was changed on `sandbox-server`. The patch is in isolated NixOS worktree `/home/dev/work/nixos/.worktrees/ezh-guest-management-firewall`, commit `7e442febfdbbb702c9ab1c96b7dbb1431f1070a4`; validation record commit `ebdf7342c27c01c4438b294057a8ad1856f93d37` changes only its documentation. Read-only SSH on 24 September confirmed the server source remains at base commit `f7c716c6c808f5d4490aca230e1f4e52c228980f` with two local `tasks/` edits. Its running generation is `/nix/store/spkx13gcwryacv7fd7sx3mrw1q351mg8-nixos-system-sandbox-server-26.05.20260430.15f4ee4`.
 
 ## Current path and rule order
 
@@ -34,13 +34,13 @@ diff --git a/flake.nix b/flake.nix
            my.devContainer.enable = true;
 ```
 
-NixOS's `networking.nftables.tables` renders this as a separate `inet` table. Its build checks the generated rules with `nft --check` in a sandbox. A read-only local `nix eval --offline --impure --raw --expr` with an injected module accepted the table's `family` and `content` options. A standalone unprivileged `nft -c` could not initialize netlink (`Operation not permitted`), so it is **not** syntax evidence.
+NixOS's `networking.nftables.tables` renders this as a separate `inet` table. Its build checks the generated rules with `nft --check` in a sandbox. A bounded online build of the exact isolated worktree exited 0; `networking.nftables.checkRuleset = true`, and the generated nft ruleset placed the new priority `filter - 10` drop before the current priority `filter` SSH accept. The full [NixOS validation record](/home/dev/work/nixos/.worktrees/ezh-guest-management-firewall/docs/incus-guest-management-firewall-validation.md) includes the command and derivations.
 
-After applying the diff to a review branch, run offline without activating the server:
+| Built item | Exact value |
+| --- | --- |
+| Toplevel derivation | `/nix/store/ipcjmwjb1pavrfmm2cyfxp5krqmkskgl-nixos-system-sandbox-server-26.05.20260430.15f4ee4.drv` |
+| Toplevel output | `/nix/store/pcnpahs54gv9x9p5f164zspwg64sr4wp-nixos-system-sandbox-server-26.05.20260430.15f4ee4` |
+| NAR hash | `sha256-rqo+pnGKmgo3x6J1VyQtxexTh9wxPgZKQihshfWiLj0=` |
+| nft rules output | `/nix/store/035589hnpimbb7gbclm9vxg4jr2zlvns-nftables-rules` |
 
-```sh
-cd /home/dev/work/nixos
-nix build --offline --no-link .#nixosConfigurations.sandbox-server.config.system.build.toplevel
-```
-
-The build must exit zero, including the generated nftables ruleset check. Before any `nixos-rebuild test` or `switch`, compare the resulting rules with the reviewed diff and retain an operator SSH recovery path. After a separately approved activation, read back the new `inet ezh-guest-management input` chain and confirm its priority and drop rule, keep TCP 53 and UDP 53/67 on `ezharness0`, and verify SSH over `tailscale0`. A disposable feature guest must fail to connect to both the host's bridge and Tailscale addresses on TCP 22 and to the Incus API address on TCP 8443. Those live checks remain open.
+Before any `nixos-rebuild test` or `switch`, compare the resulting rules with the reviewed diff and retain an operator SSH recovery path. Activation is **not approved by this packet**. After a separately approved activation, read back the new `inet ezh-guest-management input` chain and confirm its priority and drop rule, keep TCP 53 and UDP 53/67 on `ezharness0`, and verify SSH over `tailscale0`. A disposable feature guest must fail to connect to both the host's bridge and Tailscale addresses on TCP 22 and to the Incus API address on TCP 8443. Those live checks remain open.
