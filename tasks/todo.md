@@ -1678,3 +1678,14 @@ The private app socket requires the exact managed process, a signed restart clai
 - [x] Test the script with disposable fixture paths and rejection cases; run syntax checks; commit only setup files.
 
 Review: The current isolated app is a manually started Vite dev process (PIDs 3878477, 3878556, 3878559, 3878560 when inspected) using `/tmp/ezh-incus-isolated-app.QMhk6Qhv/db`; its runner and gateway were PIDs 1982010 and 1983979 with UID pin 1001. No root-owned built release exists at `/opt/ezharness/web/build/index.js`, and `/home/dev` is mode 0700. The private manifest, loaded old service units, root-sealed source parent, dedicated UID, runner group socket/token, built release, and independent recovery fence are prerequisites. Disposable tests pass; no live service, database, or Incus mutation occurred.
+
+## Supervisor restart process fence — 2026-09-24
+
+- [x] Reproduce a restart where the app exits but its child ignores TERM.
+- [x] Require the old process group and dedicated app UID to be clear before snapshot or new app start.
+- [x] Use the same bounded stop fence for offline recovery and supervisor shutdown.
+- [x] Run the process-level tests and focused checks.
+
+### Review
+
+The red process test showed that a descendant which ignored TERM was alive when the durable snapshot ran. The supervisor now keeps the leader PID reserved until it signals the whole group, waits for all live group members and all live processes under the dedicated app UID, and fails closed after five seconds. Restart, offline recovery, and shutdown use one stop path. A negative test proves a failed fence prevents the snapshot. Nine process-level Python tests, four fault tests, all three Bun-wrapped supervisor suites, Python compilation, and diff checks pass. No live app or server changed.

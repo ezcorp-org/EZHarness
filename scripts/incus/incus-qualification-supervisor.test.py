@@ -4,6 +4,7 @@
 import importlib.util
 import json
 import os
+import signal
 import shutil
 import socket
 import subprocess
@@ -36,6 +37,8 @@ def call(data):
         return json.loads(reply)
 request = json.loads((root / 'request.json').read_text())
 if index == 0:
+    if (root / 'hold-restart').exists():
+        while not (root / 'allow-restart').exists(): time.sleep(0.01)
     (root / 'accepted.json').write_text(json.dumps(call(request)))
 else:
     receipt = {'version':1,'action':'receipt','runId':request['runId'],
@@ -92,7 +95,91 @@ def wait_file(path):
     raise AssertionError(f"timed out waiting for {path}")
 
 
+def process_live(pid):
+    try:
+        stat = Path(f"/proc/{pid}/stat").read_text()
+        return stat[stat.rfind(")") + 2] != "Z"
+    except FileNotFoundError:
+        return False
+
+
 class SupervisorTest(unittest.TestCase):
+    def test_restart_refuses_snapshot_if_app_uid_stays_live(self):
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            key.write_text("private test key")
+            key.chmod(0o600)
+            supervisor = MODULE.Supervisor(str(root / "control.sock"),
+                [sys.executable, "-c", "import time; time.sleep(60)"],
+                os.getuid(), os.getgid(), key, ["true"], ["true"],
+                enforce_distinct_uid=False)
+            supervisor.start_child()
+            snapshot = mock.Mock()
+            supervisor.authorize = snapshot
+            try:
+                with mock.patch.object(supervisor, "remaining_app_processes", return_value=[999]):
+                    with self.assertRaisesRegex(ValueError, "client fence failed"):
+                        supervisor.restart_authorized({"runId": "run"})
+                snapshot.assert_not_called()
+                self.assertIsNotNone(supervisor.child)
+            finally:
+                if supervisor.child and supervisor.child.poll() is None:
+                    os.killpg(supervisor.child.pid, signal.SIGKILL)
+                    supervisor.child.wait(timeout=5)
+
+    def test_restart_fences_stubborn_descendant_before_snapshot(self):
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            key.write_text("private test key")
+            key.chmod(0o600)
+            app = r'''
+import os, signal, subprocess, sys, time
+from pathlib import Path
+root=Path(sys.argv[1]); marker=root/'generation'
+if not marker.exists():
+    marker.write_text('first')
+    child=subprocess.Popen([sys.executable,'-c',
+        'import signal,time,sys; from pathlib import Path; '
+        'signal.signal(signal.SIGTERM,signal.SIG_IGN); '
+        'Path(sys.argv[1]).write_text("ready"); time.sleep(60)',
+        str(root/'stubborn-ready')])
+    (root/'stubborn.pid').write_text(str(child.pid))
+while True: time.sleep(.1)
+'''
+            snapshot = r'''
+import json,sys
+from pathlib import Path
+root=Path(sys.argv[1]); pid=int((root/'stubborn.pid').read_text())
+stat=Path(f'/proc/{pid}/stat')
+alive=stat.exists() and stat.read_text()[stat.read_text().rfind(')')+2] != 'Z'
+(root/'snapshot-alive').write_text(str(alive))
+print(json.dumps({'snapshot':{'alive':alive}}))
+'''
+            supervisor = MODULE.Supervisor(str(root / "control.sock"),
+                [sys.executable, "-c", app, directory], os.getuid(), os.getgid(),
+                key, ["true"], [sys.executable, "-c", snapshot, directory],
+                enforce_distinct_uid=False)
+            supervisor.authorize = lambda _request: None
+            supervisor.start_child()
+            try:
+                for _ in range(100):
+                    if (root / "stubborn.pid").exists() and (root / "stubborn-ready").exists(): break
+                    time.sleep(0.05)
+                pid = int((root / "stubborn.pid").read_text())
+                request = {"runId": "run", "deadlineMs": int(time.time()*1000)+30000}
+                supervisor.restart_authorized(request)
+                self.assertEqual((root / "snapshot-alive").read_text(), "False")
+                self.assertFalse(process_live(pid))
+            finally:
+                if supervisor.child and supervisor.child.poll() is None:
+                    os.killpg(supervisor.child.pid, signal.SIGKILL)
+                    supervisor.child.wait(timeout=5)
+                if (root / "stubborn.pid").exists():
+                    try: os.kill(int((root / "stubborn.pid").read_text()), signal.SIGKILL)
+                    except ProcessLookupError: pass
+
     def test_readiness_requires_both_independent_verifiers_and_no_active_run(self):
         with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
             root = Path(directory)
@@ -307,6 +394,7 @@ m.Supervisor(sys.argv[2],[sys.executable,'-c','raise SystemExit(7)'],
                 "scope": request["scope"], "fixtureOperationId": "fixture", "bindingId": "binding",
                 "destroyOperationId": "e3a94f88-c426-4bc3-8cd3-263681049a1b",
                 "generation": 3, "providerGeneration": 2, "connectionRevision": 2}))
+            (root / "hold-restart").write_text("1")
             # Production constructor rejects a shared app/operator UID.
             with self.assertRaisesRegex(RuntimeError, "distinct UIDs"):
                 MODULE.Supervisor(str(socket_path), ["true"], os.getuid(), os.getgid(), key,
@@ -338,6 +426,7 @@ supervisor.serve()
                     rogue.connect(str(socket_path))
                     rogue.sendall(b'{"version":1,"action":"fault","phase":"presence"}\n')
                     self.assertIn("unauthorized control peer", rogue.recv(4096).decode())
+                (root / "allow-restart").write_text("1")
                 old = wait_file(root / "app-0.json")
                 new = wait_file(root / "app-1.json")
                 new_pid = new["pid"]

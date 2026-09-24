@@ -42,6 +42,7 @@ AUTHORIZE_TIMEOUT_SECONDS = 10
 SNAPSHOT_TIMEOUT_SECONDS = 30
 VERIFY_TIMEOUT_SECONDS = 30
 SIGN_TIMEOUT_SECONDS = 5
+PROCESS_FENCE_TIMEOUT_SECONDS = 5
 
 
 def identity(pid):
@@ -201,9 +202,13 @@ class Supervisor:
                                       preexec_fn=self.drop_app_privileges)
         self.child_identity = identity(self.child.pid)
 
+    def child_exited(self):
+        return os.waitid(os.P_PID, self.child.pid,
+                         os.WEXITED | os.WNOHANG | os.WNOWAIT) is not None
+
     def peer_is_child(self, connection):
         pid, uid, _gid = struct.unpack("3i", connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
-        return (self.child is not None and self.child.poll() is None and uid == self.app_uid
+        return (self.child is not None and not self.child_exited() and uid == self.app_uid
                 and pid == self.child.pid and identity(pid) == self.child_identity)
 
     def peer_is_operator(self, connection):
@@ -220,42 +225,57 @@ class Supervisor:
                                     capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=True)
         return {"payload": payload, "signature": base64.b64encode(signed.stdout).decode("ascii")}
 
+    def live_processes(self):
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                status = (entry / "stat").read_text()
+                if status[status.rfind(")") + 2] == "Z":
+                    continue
+                yield int(entry.name), entry.stat().st_uid, os.getpgid(int(entry.name))
+            except (FileNotFoundError, ProcessLookupError):
+                continue
+
+    def remaining_app_processes(self, old_group):
+        return [pid for pid, uid, group in self.live_processes()
+                if group == old_group or (self.enforce_distinct_uid and uid == self.app_uid)]
+
     def stop_child(self):
         old_identity = self.child_identity
-        os.killpg(self.child.pid, signal.SIGTERM)
+        old_group = self.child.pid
         try:
-            self.child.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(self.child.pid, signal.SIGKILL)
-            self.child.wait(timeout=5)
-        # The process group can retain runner children after its leader exits.
-        try:
-            os.killpg(old_identity["pid"], signal.SIGKILL)
+            os.killpg(old_group, signal.SIGTERM)
         except ProcessLookupError:
             pass
+        # WNOWAIT keeps the leader PID reserved while its group is signalled.
+        # Reaping it first could let a new process reuse the group ID.
+        term_deadline = time.monotonic() + 10
+        while not self.child_exited():
+            if time.monotonic() >= term_deadline:
+                break
+            time.sleep(0.05)
+        # The leader can exit while a child in its process group ignores TERM.
+        # Kill the complete group and wait for all live members to disappear.
+        try:
+            os.killpg(old_group, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        self.child.wait(timeout=PROCESS_FENCE_TIMEOUT_SECONDS)
+        deadline = time.monotonic() + PROCESS_FENCE_TIMEOUT_SECONDS
+        while self.remaining_app_processes(old_group):
+            if time.monotonic() >= deadline:
+                raise ValueError("old app process group or UID remains live; client fence failed")
+            time.sleep(0.05)
         self.child = None
-        if self.enforce_distinct_uid:
-            for entry in Path("/proc").iterdir():
-                if entry.name.isdigit():
-                    try:
-                        if entry.stat().st_uid == self.app_uid:
-                            raise ValueError("app UID still has a live process; client fence failed")
-                    except FileNotFoundError:
-                        continue
         return old_identity
 
     def assert_exclusive_app_uid(self):
         if not self.enforce_distinct_uid:
             return
-        for entry in Path("/proc").iterdir():
-            if not entry.name.isdigit():
-                continue
-            try:
-                if entry.stat().st_uid == self.app_uid \
-                        and os.getpgid(int(entry.name)) != self.child.pid:
-                    raise ValueError("app UID is shared outside the managed process group")
-            except (ProcessLookupError, FileNotFoundError):
-                continue
+        if any(uid == self.app_uid and group != self.child.pid
+               for _pid, uid, group in self.live_processes()):
+            raise ValueError("app UID is shared outside the managed process group")
 
     def recovery_stage(self, phase, value, deadline_ms):
         check = subprocess.run(self.recovery_command,
@@ -469,7 +489,7 @@ class Supervisor:
                 operator_listener.listen(1)
             self.start_child()
             while True:
-                if self.child.poll() is not None:
+                if self.child_exited():
                     raise RuntimeError("managed app exited unexpectedly")
                 ready, _, _ = select.select(
                     [listener] + ([operator_listener] if operator_listener else []), [], [], 0.5)
@@ -518,25 +538,15 @@ class Supervisor:
             if operator_listener:
                 operator_listener.close()
                 self.operator_socket_path.unlink(missing_ok=True)
-            if self.child and self.child.poll() is None:
-                os.killpg(self.child.pid, signal.SIGTERM)
-                try:
-                    self.child.wait(timeout=10)
-                except subprocess.TimeoutExpired:
-                    os.killpg(self.child.pid, signal.SIGKILL)
-                    self.child.wait(timeout=5)
+            if self.child:
+                self.stop_child()
 
     def restart_authorized(self, request):
-        old_identity = self.child_identity
+        self.assert_exclusive_app_uid()
         self.used_runs.add(request["runId"])
         self.claimed = None
         self.fault_armed = None
-        os.killpg(self.child.pid, signal.SIGTERM)
-        try:
-            self.child.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            os.killpg(self.child.pid, signal.SIGKILL)
-            self.child.wait(timeout=5)
+        old_identity = self.stop_child()
         # Embedded PGlite permits only one owner. Inspect its durable state
         # after the old app exits, before any new app can open the database.
         try:
