@@ -77,16 +77,7 @@ import {
   WORKER_ALLOWED_PREFIXES,
   WORKER_FORBIDDEN_SUBSYSTEMS,
 } from "../../scripts/check-boundaries.ts";
-
-function fixtureGitEnv(ambient: NodeJS.ProcessEnv = process.env): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(ambient)) {
-    if (!name.startsWith("GIT_") && value !== undefined) env[name] = value;
-  }
-  env.GIT_CONFIG_GLOBAL = "/dev/null";
-  env.GIT_CONFIG_SYSTEM = "/dev/null";
-  return env;
-}
+import { fixtureGitEnv } from "./helpers/git-fixture-env.ts";
 
 test("fixture Git commands ignore a hook's parent repository", () => {
   const root = mkdtempSync(join(tmpdir(), "gate-git-env-"));
