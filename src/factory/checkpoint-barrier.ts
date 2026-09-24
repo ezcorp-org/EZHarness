@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
-import { FACTORY_CHECKPOINT_MAX_AGE_SECONDS, FACTORY_RECOVERY_UNGATED_TABLES } from "../db/migrations/add-factory-recovery";
+import { FACTORY_RECOVERY_UNGATED_TABLES } from "../db/migrations/add-factory-recovery";
 import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import { digestBytes } from "../extensions/v4/blobs";
+import { FACTORY_CHECKPOINT_LIMITS, type FactoryCheckpointPoolSource, type FactoryCheckpointSlotSource } from "./checkpoint-limits";
 import { assertFactoryIdentity } from "./records";
 import { parseFactoryArchiveReference, readFactoryRecoveryJson, writeFactoryRecoveryJson, type FactoryRecoveryArchive } from "./recovery-archive";
 import type { FactoryArchiveObject } from "./releases";
@@ -48,17 +49,7 @@ import type { FactoryArchiveObject } from "./releases";
  * reopens effect claims.
  */
 
-export const FACTORY_CHECKPOINT_LIMITS = Object.freeze({
-  targetMs: 2_000,
-  maximumMs: 10_000,
-  maxConcurrentBarriers: 16,
-  maxAgeMs: FACTORY_CHECKPOINT_MAX_AGE_SECONDS * 1_000,
-  /** The longest the drain step waits for in-flight senders before fencing them. */
-  drainMs: 1_000,
-  pollMs: 5,
-  /** A seal write starts only with this much of the maximum left, so a claimed seal is never written after it. */
-  sealMarginMs: 500,
-});
+export { FACTORY_CHECKPOINT_LIMITS, type FactoryCheckpointPoolSnapshot, type FactoryCheckpointPoolSource, type FactoryCheckpointSlotSource } from "./checkpoint-limits";
 
 export const FACTORY_CHECKPOINT_MANIFEST_SCHEMA = "factory.checkpoint-manifest.v1";
 export const FACTORY_CHECKPOINT_SEAL_SCHEMA = "factory.checkpoint-seal.v1";
@@ -87,28 +78,6 @@ export class FactoryCheckpointError extends Error {
 
 class BarrierAbort extends Error {
   constructor(readonly code: FactoryCheckpointAbortCode, options?: { cause?: unknown }) { super(code, options); }
-}
-
-export interface FactoryCheckpointPoolSnapshot {
-  /** The pool database's own position for the snapshot. */
-  readonly position: string;
-  readonly rows: readonly Record<string, unknown>[];
-}
-
-/**
- * The cluster-wide barrier limit (C06/C12). The pool service holds sixteen
- * slots for every tenant that shares it; a barrier runs only while it holds
- * one, so at most sixteen barriers are in flight across the deployment.
- */
-export interface FactoryCheckpointSlotSource {
-  /** A slot token, or null when every slot is held by another tenant. */
-  acquire(signal?: AbortSignal): Promise<{ readonly token: string } | null>;
-  release(token: string, signal?: AbortSignal): Promise<void>;
-}
-
-/** The tenant's rows of the shared pool ledger, read in one pool transaction. */
-export interface FactoryCheckpointPoolSource {
-  snapshotTenant(tenantId: string, signal?: AbortSignal): Promise<FactoryCheckpointPoolSnapshot>;
 }
 
 export interface FactoryTemporalWorkflowPosition {
