@@ -30,7 +30,7 @@ function recipe(overrides: Partial<IncusSetupRecipe> = {}): IncusSetupRecipe {
     project: { name: "project", description: "Owned", config: {
       "features.images": "false", "features.networks": "false", "features.networks.zones": "false", "features.profiles": "true", "features.storage.buckets": "false", "features.storage.volumes": "true",
       "limits.containers": "4", "limits.cpu": "8", "limits.disk.pool.pool": "80GiB", "limits.memory": "32GiB", "limits.networks": "0", "limits.processes": "4096", "limits.virtual-machines": "0",
-      restricted: "true", "restricted.containers.nesting": "allow", "restricted.devices.nic": "managed", "restricted.images.servers": "images.linuxcontainers.org", "restricted.networks.access": "bridge",
+      restricted: "true", "restricted.containers.nesting": "allow", "restricted.devices.nic": "managed", "restricted.images.servers": ",", "restricted.networks.access": "bridge",
     } },
     profile: { name: "compose", description: "Bounded", config: { "limits.cpu": "2", "limits.memory": "8GiB", "limits.memory.enforce": "hard", "limits.processes": "1024", "security.idmap.isolated": "true", "security.nesting": "true", "security.privileged": "false" }, devices: { eth0: { type: "nic", name: "eth0", network: "bridge", "security.port_isolation": "true" }, root: { type: "disk", path: "/", pool: "pool", size: "16GiB" } } },
     server: { httpsAddress: "100.81.181.39:8443" },
@@ -679,6 +679,10 @@ describe("Incus setup planning", () => {
     expect(() => validateRecipe(recipe({ providerClient: { ...recipe().providerClient!, projects: ["other"] } }))).toThrow("restricted to the setup project");
     expect(() => validateRecipe(recipe({ network: { ...recipe().network, config: { ...recipe().network.config, "ipv4.address": "auto" } } }))).toThrow("pin an IPv4 CIDR");
     expect(() => validateRecipe(recipe({ profile: { ...recipe().profile, config: { ...recipe().profile.config, "raw.lxc": "lxc.apparmor.profile=unconfined" } } }))).toThrow("unsupported fields");
+    expect(() => validateRecipe(recipe({ project: { ...recipe().project, config: { ...recipe().project.config,
+      "restricted.images.servers": "images.linuxcontainers.org" } } }))).toThrow("closed restriction policy");
+    expect((checkedInRecipe as IncusSetupRecipe).project.config["restricted.images.servers"]).toBe(",");
+    expect((imageBuildTemplate as IncusSetupRecipe).project.config["restricted.images.servers"]).toBe(",");
   });
 });
 

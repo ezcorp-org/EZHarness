@@ -1,5 +1,17 @@
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
+## Incus completion update — 2026-09-24
+
+- [x] Activate and verify the guarded NixOS firewall generation on the sandbox host.
+- [x] Correct the restricted project's local-image policy and prove one disposable guest starts, has DNS, cannot reach host management ports, and cleans up.
+- [x] Apply the isolated app's reviewed 32 GiB capacity policy.
+- [ ] Integrate the independent qualification receipt, durable continuation, and diagnostic probe commits.
+- [ ] Re-run the isolated app probe and fix each concrete failure.
+- [ ] Qualify the live provider profile, create and clean up an EZHarness-owned feature guest, then run the full feature workflow.
+- [ ] Pass local gates and hosted CI at the final PR head; update PR #303 with measured evidence and limits.
+
+Review: The host firewall is active and the local-image correction is stable with no guest left behind. The isolated app still returns 409 from provider probe; EZHarness has not yet created a guest. The live qualification and feature gates remain closed.
+
 ## PR #303 current Incus completion checklist — 2026-09-23
 
 - [x] Activate the exact reviewed provider release in the isolated test app.

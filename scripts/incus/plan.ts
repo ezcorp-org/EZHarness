@@ -155,7 +155,11 @@ export function validateRecipe(recipe: IncusSetupRecipe): void {
   const cidr = recipe.network.config["ipv4.address"];
   if (!cidr || !cidrRange(cidr) || recipe.network.config["ipv4.nat"] !== "true" || recipe.network.config["ipv6.address"] !== "none" || recipe.network.config["dns.mode"] !== "managed") throw new Error("network must pin an IPv4 CIDR, NAT, managed DNS and disabled IPv6");
   const project = recipe.project.config;
-  if (project.restricted !== "true" || project["features.networks"] !== "false" || project["features.profiles"] !== "true" || project["limits.virtual-machines"] !== "0" || project["restricted.devices.nic"] !== "managed" || project["restricted.networks.access"] !== recipe.network.name
+  // Incus 6.0.6 treats a local image source as an empty host. A nonempty
+  // comma-delimited setting containing only empty hosts allows the pinned
+  // local fingerprint while denying remote image servers. The reviewed recipe
+  // pins this exact Incus version and the live setup test verifies the rule.
+  if (project.restricted !== "true" || project["features.images"] !== "false" || project["features.networks"] !== "false" || project["features.profiles"] !== "true" || project["limits.virtual-machines"] !== "0" || project["restricted.devices.nic"] !== "managed" || project["restricted.images.servers"] !== "," || project["restricted.networks.access"] !== recipe.network.name
     || !project[`limits.disk.pool.${recipe.storage.name}`]) throw new Error("project must retain the closed restriction policy");
   boundedPositiveInteger(project["limits.containers"]!, 4, "container limit"); boundedPositiveInteger(project["limits.cpu"]!, 12, "project CPU limit"); boundedPositiveInteger(project["limits.processes"]!, 4096, "project process limit");
   if (binarySizeBytes(project["limits.memory"]!) > 32 * 1024 ** 3 || binarySizeBytes(project[`limits.disk.pool.${recipe.storage.name}`]!) > recipe.storage.sizeBytes) throw new Error("project memory or disk limit exceeds the supported bound");

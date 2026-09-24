@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "id": "incus-xeon-compose",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "guestImage": {
     "alias": "ezharness-guest-0-1-0",
     "fingerprint": "57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c",
@@ -77,7 +77,7 @@
       "restricted": "true",
       "restricted.containers.nesting": "allow",
       "restricted.devices.nic": "managed",
-      "restricted.images.servers": "images.linuxcontainers.org",
+      "restricted.images.servers": ",",
       "restricted.networks.access": "ezharness0"
     }
   },
