@@ -15,6 +15,9 @@ import type { ProviderConnectionCredentials } from "./provider-connections/store
 import { IncusFeatureService } from "./incus-feature-service";
 
 const databases: PGlite[] = [];
+// Each case starts and migrates a fresh PGlite database. In the combined
+// Incus suite that work can exceed Bun's five-second default before assertions run.
+const DB_TEST_TIMEOUT_MS = 30_000;
 
 async function fixture() {
   const pglite = new PGlite();
@@ -127,7 +130,7 @@ test("prepare, create, start, stop and destroy use durable admission and provide
   await service.reconcile();
   expect((await admission.getReservation(binding.id))?.diskState).toBe("RELEASED");
   expect((await controller.getBinding(binding.id))?.cleanupConfirmedAt).toBeInstanceOf(Date);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("preparation fails closed without qualification or a matching connection revision", async () => {
   const { service, setQualification, connection } = await fixture();
@@ -137,7 +140,7 @@ test("preparation fails closed without qualification or a matching connection re
   setQualification(true);
   connection.revokedAt = new Date();
   await expect(service.prepare(input)).rejects.toThrow("connection changed");
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("expired qualification blocks new work but permits stop and destroy; destroy replay needs no inspection", async () => {
   const { service, admission, dispatches, preset, configureAdmission, setQualification,
@@ -165,7 +168,7 @@ test("expired qualification blocks new work but permits stop and destroy; destro
   const replay = await service.destroy(request("destroy"));
   expect(replay.id).toBe(destroyed.id);
   expect(dispatches.filter(item => item.kind === "DESTROY")).toHaveLength(1);
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("retired destroy journals an exact stopped guest and replays without another readback", async () => {
   const { service, controller, admission, dispatches, preset, configureAdmission, retiredCalls } = await fixture();
@@ -184,7 +187,7 @@ test("retired destroy journals an exact stopped guest and replays without anothe
   expect(retiredCalls).toHaveLength(1);
   await service.reconcile();
   expect((await admission.getReservation(binding.id))?.diskState).toBe("RELEASED");
-});
+}, DB_TEST_TIMEOUT_MS);
 
 test("reservation settlement is bounded, fair after a bad row, and durable across polls", async () => {
   const { db, service, admission, preset } = await fixture();
@@ -236,4 +239,4 @@ test("reservation settlement is bounded, fair after a bad row, and durable acros
     .where(eq(schema.sandboxReservations.bindingId, "settlement-binding-0"));
   await service.reconcile(2);
   expect((await admission.getReservation("settlement-binding-0"))?.computeState).toBe("RELEASED");
-});
+}, DB_TEST_TIMEOUT_MS);
