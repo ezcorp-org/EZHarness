@@ -6,8 +6,9 @@
  * runs `git init` in a tmpdir with that context inherited acts on the REAL
  * repository: on 2026-09-24 gate-scripts.test.ts, run by the pre-commit hook,
  * re-initialised the shared repository as bare and wrote its fixture identity
- * into the shared config. A scratch HOME keeps the user's global config (and
- * its identity, hooks, and signing settings) out of the fixture as well.
+ * into the shared config. A scratch HOME and GIT_CONFIG_NOSYSTEM keep the
+ * user's global and the host's system config (identity, hooks, signing) out of
+ * the fixture as well.
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -23,11 +24,15 @@ export function withoutGitContext(env: Record<string, string | undefined>): GitE
   return out;
 }
 
-/** `env` with no git context and `home` as HOME, so no global config is read. */
+/**
+ * `env` with no git context, `home` as HOME, and GIT_CONFIG_NOSYSTEM=1, so
+ * neither the global nor the system git config is read.
+ */
 export function scratchGitEnv(home: string, env: Record<string, string | undefined> = process.env): GitEnv {
   const out = withoutGitContext(env);
   delete out.XDG_CONFIG_HOME;
   out.HOME = home;
+  out.GIT_CONFIG_NOSYSTEM = "1";
   return out;
 }
 

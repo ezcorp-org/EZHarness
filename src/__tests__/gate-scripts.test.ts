@@ -209,7 +209,8 @@ describe("scratch repositories: the caller's git context is never used", () => {
       expect(snapshot()).toEqual(before);
       expect(realpathSync(scratch.git("rev-parse", "--absolute-git-dir").trim())).toBe(realpathSync(join(scratch.dir, ".git")));
       expect(scratch.git("log", "-1", "--format=%an <%ae>").trim()).toBe("Scratch <scratch@example.test>");
-      expect(Object.keys(scratch.env).filter((name) => name.startsWith("GIT_"))).toEqual([]);
+      expect(Object.keys(scratch.env).filter((name) => name.startsWith("GIT_"))).toEqual(["GIT_CONFIG_NOSYSTEM"]);
+      expect(scratch.env.GIT_CONFIG_NOSYSTEM).toBe("1");
       expect(scratch.env.HOME).toBe(join(root, "scratch", "home"));
       const globalName = Bun.spawnSync(["git", "config", "--global", "user.name"], { cwd: scratch.dir, env: scratch.env, stdout: "pipe" });
       expect(globalName.exitCode).toBe(1);
@@ -228,7 +229,7 @@ describe("scratch repositories: the caller's git context is never used", () => {
     }
   });
 
-  test("scratchGitEnv drops every GIT_* variable and XDG_CONFIG_HOME and sets HOME", () => {
+  test("scratchGitEnv drops the caller's GIT_* variables and XDG_CONFIG_HOME, sets HOME, and ignores the system config", () => {
     expect(scratchGitEnv("/scratch/home", {
       GIT_DIR: "/real/.git",
       GIT_INDEX_FILE: "/real/.git/index",
@@ -240,7 +241,8 @@ describe("scratch repositories: the caller's git context is never used", () => {
       HOME: "/real/home",
       PATH: "/bin",
       UNSET: undefined,
-    })).toEqual({ HOME: "/scratch/home", PATH: "/bin" });
+      GIT_CONFIG_NOSYSTEM: "0",
+    })).toEqual({ HOME: "/scratch/home", PATH: "/bin", GIT_CONFIG_NOSYSTEM: "1" });
   });
 
   test("scratchRepository names the failing git command and its stderr", () => {
