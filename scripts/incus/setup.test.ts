@@ -753,6 +753,30 @@ describe("Incus setup application", () => {
     expect(classifyApplyResult(result(1, "", "resource already exists"))).toBe("reconcile");
     expect(classifyApplyResult(result(1, "", "server is busy; try again"))).toBe("retryable");
     expect(classifyApplyResult(result(1, "", "permission denied"))).toBe("review_required");
+    expect(classifyApplyResult({ exitCode: 0, stdout: "", stderr: "", timedOut: true })).toBe("reconcile");
+  });
+
+  test("unsupported-key diagnostics require an exact key in the reviewed project command", async () => {
+    const planned = syntheticReadyPlan();
+    const project = planned.steps.find(step => step.id === "restricted-project")!;
+    const payload = { ...planned, steps: [project] };
+    const { planDigest: _oldDigest, ...withoutDigest } = payload;
+    const oneStep = { ...withoutDigest, planDigest: digest(withoutDigest) };
+    const secret = "secret-in-stderr-do-not-echo";
+    const notReviewed = await applySetupPlan(oneStep, async argv => argv === project.apply.argv
+      ? result(1, "", `Error: Invalid project configuration key "secret.key"\n${secret}`)
+      : result(1, "", "not found"), { execute: true, approvedPlanDigest: oneStep.planDigest });
+    expect(notReviewed.state).toBe("review_required");
+    expect(notReviewed.steps[0]?.diagnostic).toBeUndefined();
+    expect(JSON.stringify(notReviewed)).not.toContain(secret);
+
+    const knownKey = project.apply.argv.find((arg, index) => project.apply.argv[index - 1] === "--config")!.split("=")[0]!;
+    const uncertain = await applySetupPlan(oneStep, async argv => argv === project.apply.argv
+      ? { ...result(255, "", `Error: Invalid project configuration key "${knownKey}"\nconnection closed\n${secret}`), timedOut: true }
+      : result(1, "", "not found"), { execute: true, approvedPlanDigest: oneStep.planDigest });
+    expect(uncertain.state).toBe("reconcile_required");
+    expect(uncertain.steps[0]?.diagnostic).toBeUndefined();
+    expect(JSON.stringify(uncertain)).not.toContain(secret);
   });
 });
 

@@ -107,6 +107,15 @@ test("protected observation rejects failed and malformed headroom reads", async 
     async () => ({ exitCode: 1, stdout: "", stderr: "failed" }), async () => {})).rejects.toThrow("protected host read failed");
 });
 
+test("protected observation uses the host clock when no test clock is injected", async () => {
+  const before = Date.now();
+  const observed = await readCapacityObservation(bootstrap, inventory(), recipe.storage.name,
+    runner(), async () => {});
+  const after = Date.now();
+  expect(Date.parse(observed.capturedAt)).toBeGreaterThanOrEqual(before);
+  expect(Date.parse(observed.capturedAt)).toBeLessThanOrEqual(after);
+});
+
 test("read-only plan and exact Apply configure capacity once with no reservations", async () => {
   const value = await fixture();
   expect(await value.service.status("setup")).toBeNull();

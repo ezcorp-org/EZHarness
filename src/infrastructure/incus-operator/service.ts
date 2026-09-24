@@ -230,6 +230,10 @@ export class IncusOperatorSetupService {
         { execute: true, approvedPlanDigest, preflightPlan });
       let state: SetupState = receipt.state === "dry_run" || receipt.state === "blocked" ? "review_required" : receipt.state;
       let failures: string[] = receipt.blockedReasons ?? [];
+      const rejected = receipt.steps.find(step => step.diagnostic?.code === "UNSUPPORTED_CONFIG_KEY");
+      if (state === "review_required" && rejected?.diagnostic) {
+        failures = [`Incus rejected reviewed configuration key ${rejected.diagnostic.rejectedKey} at ${rejected.id}. Update the recipe and make a new reviewed plan.`];
+      }
       if (state === "applied") {
         const current = await (this.deps.inspect ?? inspectIncus)(this.deps.bootstrap.ssh);
         failures = verifySetupPlan(row.plan, row.recipe, current, incusPresets(snapshot));

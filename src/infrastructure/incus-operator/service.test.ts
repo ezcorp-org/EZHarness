@@ -10,7 +10,7 @@ import { incusManifest } from "../../../extensions/incus-sandbox/manifest";
 import checkedInRecipe from "../../../scripts/incus/recipe.json";
 import imageBuildTemplate from "../../../scripts/incus/recipe.template.json";
 import type { RemoteRunner } from "../../../scripts/incus/inspect";
-import type { IncusInventory, IncusSetupRecipe } from "../../../scripts/incus/model";
+import { digest, type IncusInventory, type IncusSetupRecipe } from "../../../scripts/incus/model";
 import { up as addExtensionReleases } from "../../db/migrations/add-extension-releases";
 import { up as addProviderConnections } from "../../db/migrations/add-provider-connections";
 import { up as addIncusOperatorSetups } from "../../db/migrations/add-incus-operator-setups";
@@ -188,6 +188,45 @@ test("unknown SSH outcome is durable and a repeated review does not duplicate a 
     const retry = await value.service.apply(setup.id, setup.plan.planDigest, "admin");
     expect(retry.receipt?.steps[0]?.action).toBe("skipped");
     expect(value.calls.filter(argv => argv.join("\0") === firstStep.apply.argv.join("\0"))).toHaveLength(1);
+  } finally { await value.close(); }
+}, 30_000);
+
+test("known rejected reviewed project key reports only a safe actionable receipt", async () => {
+  const value = await fixture();
+  try {
+    const setup = await value.service.plan(value.snapshot.installation.id, "admin");
+    // Model the exact older reviewed plan that contained the key before the
+    // recipe validator removed it. The saved digest still binds those bytes.
+    const key = "restricted.storage-pools.access";
+    const steps = setup.plan.steps.map(step => step.id === "restricted-project"
+      ? { ...step, apply: { ...step.apply, argv: [...step.apply.argv, "--config", `${key}=ezharness-btrfs`] } } : step);
+    const { planDigest: _old, ...oldPayload } = setup.plan;
+    const reviewed = { ...oldPayload, steps };
+    const plan = { ...reviewed, planDigest: digest(reviewed) };
+    await value.client.query("UPDATE incus_operator_setups SET plan=$1 WHERE id=$2", [JSON.stringify(plan), setup.id]);
+    const secret = "private-token-do-not-echo";
+    value.setRunner(async argv => {
+      const inspected = plan.steps.find(step => step.inspect.argv.join("\0") === argv.join("\0"));
+      if (inspected) {
+        if (inspected.id === "storage-pool" || inspected.id === "managed-network") {
+          return { exitCode: 0, stdout: JSON.stringify(inspected.inspect.expected), stderr: "" };
+        }
+        return { exitCode: 1, stdout: "", stderr: "not found" };
+      }
+      if (argv.join("\0") === plan.steps.find(step => step.id === "restricted-project")!.apply.argv.join("\0")) {
+        return { exitCode: 1, stdout: "", stderr: `Error: Invalid project configuration key "${key}"\n${secret}` };
+      }
+      throw new Error("Unexpected SSH command");
+    });
+    const result = await value.service.apply(setup.id, plan.planDigest, "admin");
+    expect(result.state).toBe("review_required");
+    expect(result.receipt?.planDigest).toBe(plan.planDigest);
+    expect(result.receipt?.steps.at(-1)).toMatchObject({ id: "restricted-project", outcome: "review_required",
+      diagnostic: { code: "UNSUPPORTED_CONFIG_KEY", rejectedKey: key } });
+    expect(result.failures?.[0]).toContain(key);
+    expect(result.failures?.[0]).toContain("new reviewed plan");
+    expect(JSON.stringify(result)).not.toContain(secret);
+    expect(JSON.stringify(await value.service.latest(value.snapshot.installation.id))).not.toContain(secret);
   } finally { await value.close(); }
 }, 30_000);
 

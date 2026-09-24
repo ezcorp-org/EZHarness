@@ -122,13 +122,15 @@ export interface IncusImageBootstrapPlan extends IncusSetupPlan {
 export type StepObservation = "absent" | "match" | "drift";
 export type OutcomeClass = "succeeded" | "reconcile" | "retryable" | "review_required";
 export interface CommandResult { exitCode: number; stdout: string; stderr: string; timedOut?: boolean }
+export interface ApplyDiagnostic { code: "UNSUPPORTED_CONFIG_KEY"; rejectedKey: string }
 export interface ApplyReceipt {
   schemaVersion: typeof SETUP_SCHEMA_VERSION;
   planDigest: string;
   dryRun: boolean;
   state: "dry_run" | "applied" | "blocked" | "reconcile_required" | "review_required";
   blockedReasons?: string[];
-  steps: Array<{ id: string; before: StepObservation; action: "planned" | "skipped" | "executed" | "stopped"; outcome: OutcomeClass; exitCode?: number }>;
+  steps: Array<{ id: string; before: StepObservation; action: "planned" | "skipped" | "executed" | "stopped";
+    outcome: OutcomeClass; exitCode?: number; diagnostic?: ApplyDiagnostic }>;
 }
 
 export function sha256(value: string): string {

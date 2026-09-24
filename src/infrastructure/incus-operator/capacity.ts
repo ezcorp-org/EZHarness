@@ -97,7 +97,7 @@ function boundedOutput(value: string, label: string): string {
 /** All commands are fixed, read-only host commands. No request supplies shell text. */
 export async function readCapacityObservation(connection: IncusConnection, inventory: IncusInventory, poolName: string,
   runner: RemoteRunner = sshRunner(connection), verifyPin: typeof verifyKnownHostPin = verifyKnownHostPin,
-  now: () => Date = () => new Date()): Promise<CapacityObservation> {
+  now?: () => Date): Promise<CapacityObservation> {
   const pool = inventory.storagePools.find(item => item.name === poolName);
   requireValue(pool, "reviewed pool is absent");
   requireValue(/^[a-z][a-z0-9-]{0,62}$/.test(pool.name), "pool name is invalid");
@@ -122,7 +122,7 @@ export async function readCapacityObservation(connection: IncusConnection, inven
   const total = whole((space as Record<string, unknown>).total, "pool total");
   const used = whole((space as Record<string, unknown>).used, "pool used");
   requireValue(total > 0 && used <= total, "pool space is invalid");
-  return { capturedAt: now().toISOString(), hostId: inventory.host.hostname, availableMemoryBytes,
+  return { capturedAt: (now?.() ?? new Date()).toISOString(), hostId: inventory.host.hostname, availableMemoryBytes,
     poolFreeBytes: total - used, availablePids, cpuThreads: whole(inventory.host.cpuThreads, "CPU threads") };
 }
 
@@ -203,7 +203,7 @@ export class IncusCapacityService {
     const row = await this.setup(setupId);
     requireValue(!row.capacityReceipt, "capacity was already applied for this setup");
     const { observation } = await this.current(row);
-    const now = (this.deps.now ?? (() => new Date()))();
+    const now = this.deps.now?.() ?? new Date();
     requireValue(Math.abs(now.getTime() - Date.parse(observation.capturedAt)) < 30_000, "host sample is stale");
     const payload = { schemaVersion: 1 as const, setupId: row.id, installationId: row.providerInstallationId,
       releaseId: row.providerReleaseId, releaseDigest: row.providerReleaseDigest, generation: row.providerGeneration,
@@ -229,7 +229,7 @@ export class IncusCapacityService {
       && input.connectionRevision === row.connectionRevision && input.recipeDigest === digest(row.recipe)
       && input.setupPlanDigest === row.plan.planDigest && same(input.capacity, deriveCapacity(row, input.observation)),
     "capacity plan scope or derivation changed");
-    assertUnexpired(input, (this.deps.now ?? (() => new Date()))());
+    assertUnexpired(input, this.deps.now?.() ?? new Date());
     const { observation } = await this.current(row);
     requireValue(observation.hostId === input.observation.hostId && observation.cpuThreads === input.observation.cpuThreads
       && observation.availableMemoryBytes >= input.capacity.allocatable.memoryBytes + EXTERNAL_MEMORY_RESERVE
@@ -247,9 +247,9 @@ export class IncusCapacityService {
         providerInstallationId: locked.providerInstallationId, providerReleaseId: locked.providerReleaseId,
         revision: locked.connectionRevision, releaseDigest: locked.providerReleaseDigest,
         generation: locked.providerGeneration }, transaction);
-      assertUnexpired(input, (this.deps.now ?? (() => new Date()))());
+      assertUnexpired(input, this.deps.now?.() ?? new Date());
       await new SandboxAdmissionStore(this.deps.database).configureHostCapacity(input.capacity, transaction);
-      const committedAt = (this.deps.now ?? (() => new Date()))();
+      const committedAt = this.deps.now?.() ?? new Date();
       assertUnexpired(input, committedAt);
       const receipt = { plan: input, appliedBy: principalId, appliedAt: committedAt.toISOString() };
       await transaction.execute(sql`UPDATE incus_operator_setups SET capacity_receipt = ${JSON.stringify(receipt)}::text::jsonb,

@@ -1,4 +1,4 @@
-import type { ApplyReceipt, CommandResult, IncusImageBootstrapPlan, IncusSetupPlan, OutcomeClass, SetupStep, StepObservation } from "./model";
+import type { ApplyDiagnostic, ApplyReceipt, CommandResult, IncusImageBootstrapPlan, IncusSetupPlan, OutcomeClass, SetupStep, StepObservation } from "./model";
 import { SETUP_SCHEMA_VERSION, assertSetupPlanDigest, digest, isSubset } from "./model";
 import type { RemoteRunner } from "./inspect";
 
@@ -15,12 +15,26 @@ function parseObserved(step: SetupStep, result: CommandResult): StepObservation 
 }
 
 export function classifyApplyResult(result: CommandResult): OutcomeClass {
+  if (result.timedOut) return "reconcile";
   if (result.exitCode === 0) return "succeeded";
   const diagnostic = `${result.stdout}\n${result.stderr}`.toLowerCase();
   if (result.timedOut || /connection (?:closed|reset)|broken pipe|timed out|timeout|unexpected eof/.test(diagnostic)) return "reconcile";
   if (/already exists|conflict|operation.*(?:pending|running|in progress)|database is locked/.test(diagnostic)) return "reconcile";
   if (/temporar(?:y|ily)|try again|server is busy|too many requests/.test(diagnostic)) return "retryable";
   return "review_required";
+}
+
+/** Only a reviewed project config key can be named; never return runner text. */
+function safeConfigDiagnostic(step: SetupStep, result: CommandResult): ApplyDiagnostic | undefined {
+  if (step.id !== "restricted-project" || step.resource !== "project") return undefined;
+  const output = `${result.stdout}\n${result.stderr}`;
+  if (Buffer.byteLength(output) > 16 * 1024) return undefined;
+  const match = /Invalid project configuration key "([a-z][a-z0-9.-]{0,127})"/.exec(output);
+  const key = match?.[1];
+  if (!key || !step.apply.argv.some((arg, index) => arg === "--config" && step.apply.argv[index + 1]?.startsWith(`${key}=`))) {
+    return undefined;
+  }
+  return { code: "UNSUPPORTED_CONFIG_KEY", rejectedKey: key };
 }
 
 export async function inspectStep(step: SetupStep, runner: RemoteRunner): Promise<StepObservation> {
@@ -75,7 +89,9 @@ async function applyPlan(plan: IncusSetupPlan, runner: RemoteRunner, options: { 
     }
     const outcome = classifyApplyResult(result);
     if (outcome !== "succeeded") {
-      receipts.push({ id: step.id, before, action: "stopped", outcome, exitCode: result.exitCode });
+      const diagnostic = outcome === "review_required" ? safeConfigDiagnostic(step, result) : undefined;
+      receipts.push({ id: step.id, before, action: "stopped", outcome, exitCode: result.exitCode,
+        ...(diagnostic ? { diagnostic } : {}) });
       return { schemaVersion: SETUP_SCHEMA_VERSION, planDigest: plan.planDigest, dryRun: false, state: outcome === "review_required" ? "review_required" : "reconcile_required", steps: receipts };
     }
     let after: StepObservation;
