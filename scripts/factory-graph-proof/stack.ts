@@ -166,6 +166,32 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   for (const directory of ["secrets", "project", "readiness"]) await mkdir(join(root, directory), { mode: 0o700 });
   const secrets = join(root, "secrets");
   const directories = [root];
+  const created: string[] = [];
+  let admin: SQL | undefined;
+  let productDatabase = "";
+  let web: Child | undefined;
+  let stopped = false;
+  /** Takes down everything this stack made, whatever point it reached. */
+  const stop = async (keepProduct: boolean) => {
+    if (stopped) return;
+    stopped = true;
+    if (web !== undefined) {
+      stopGroup(web.child.pid, "SIGTERM");
+      await Promise.race([new Promise((settle) => web!.child.once("exit", settle)), sleep(30_000)]);
+    }
+    for (const entry of children) stopGroup(entry.child.pid, "SIGKILL");
+    await sleep(500);
+    try {
+      for (const database of created) {
+        if (keepProduct && database === productDatabase) { record.retainedProductDatabase = database; continue; }
+        await admin?.unsafe(`DROP DATABASE "${database}" WITH (FORCE)`);
+      }
+    } finally {
+      await admin?.close();
+    }
+    await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }).catch(() => undefined)));
+  };
+  try {
 
   // ── mTLS material: the shared test CA, and a second client identity ──
   const { certificates } = await import(join(repo, "src/__tests__/helpers/factory-certificates.ts"));
@@ -206,12 +232,14 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   }
 
   // ── Fresh pool and product databases on the shared PostgreSQL ──
-  const admin = new SQL(process.env.FACTORY_TEST_POSTGRES_URL!, { max: 1 });
+  admin = new SQL(process.env.FACTORY_TEST_POSTGRES_URL!, { max: 1 });
   const stamp = `${Date.now()}_${randomBytes(3).toString("hex")}`;
   const poolDatabase = `w19a_pool_${stamp}`;
-  const productDatabase = `w19a_product_${stamp}`;
-  await admin.unsafe(`CREATE DATABASE "${poolDatabase}"`);
-  await admin.unsafe(`CREATE DATABASE "${productDatabase}"`);
+  productDatabase = `w19a_product_${stamp}`;
+  for (const database of [poolDatabase, productDatabase]) {
+    await admin.unsafe(`CREATE DATABASE "${database}"`);
+    created.push(database);
+  }
   const productUrl = new URL(process.env.FACTORY_TEST_POSTGRES_URL!);
   productUrl.pathname = `/${productDatabase}`;
   const poolUrl = new URL(process.env.FACTORY_TEST_POSTGRES_URL!);
@@ -220,17 +248,15 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   record.databases = { pool: poolDatabase, product: productDatabase };
 
   // ── The installation's key material, wrapped by the operator master key ──
-  const { InstallationDataKey } = await import(join(repo, "src/factory/encryption.ts"));
-  const { composeFactoryDataKeyWrapper } = await import(join(repo, "src/factory/key-management.ts"));
+  const { InstallationDataKey, StaticMasterKeyProvider } = await import(join(repo, "src/factory/encryption.ts"));
   const masterKeyPath = join(secrets, "master.key");
   const masterKeyId = "master-1";
   await privateWrite(masterKeyPath, randomBytes(32));
-  const keyManagement = { kind: "operator-master-key" };
   const heldWraps: Array<{ installationId: string; wrapVersion: number; masterKeyId: string; wrappedDataKey: Uint8Array }> = [];
   await InstallationDataKey.loadOrCreate(INSTALLATION, {
     async load() { return heldWraps.map((wrap) => ({ ...wrap, wrappedDataKey: Uint8Array.from(wrap.wrappedDataKey) })); },
     async save(wrap: (typeof heldWraps)[number]) { heldWraps.push({ ...wrap }); },
-  } as never, await composeFactoryDataKeyWrapper({ masterKeyFilePath: masterKeyPath, masterKeyId, grantableRoots: [join(root, "project")] }, keyManagement as never));
+  } as never, new StaticMasterKeyProvider({ id: masterKeyId, bytes: new Uint8Array(await readFile(masterKeyPath)) }));
   const wrappedKeyPath = join(secrets, "wraps.json");
   await privateWrite(wrappedKeyPath, JSON.stringify({
     schemaVersion: "factory.key-wraps.v1", installationId: INSTALLATION,
@@ -328,7 +354,6 @@ export async function startStack(options: StackOptions): Promise<Stack> {
       archive: { endpoint: "http://127.0.0.1:18334", bucket: TENANT, prefix: "archive", credentialSet: "archive", credentialsPath: join(secrets, "archive-storage.json") },
     },
     keys: { masterKeyFilePath: masterKeyPath, masterKeyId, wrappedKeyFilePath: wrappedKeyPath, grantableRoots: [join(root, "project")] },
-    keyManagement,
     workers: { idleDelayMs: 200, batch: 4 },
   };
   await privateWrite(join(secrets, "factory-startup.json"), JSON.stringify(startup));
@@ -340,7 +365,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     schemaVersion: "factory.orchestrator-process.v1", installationId: INSTALLATION, tenantId: TENANT,
     temporal: { address: `127.0.0.1:${temporalTlsPort}`, namespace: NAMESPACE, serverName: "localhost", ...clientTls, apiKeyPath: join(secrets, "temporal-api.key") },
     gateway: { baseUrl: `https://127.0.0.1:${privateServicePort}`, serverName: "localhost", tls: { ...clientTls, serviceTokenPath: join(secrets, "orchestrator.token") } },
-    codec: { wrappedKeyFilePath: wrappedKeyPath, masterKeyFilePath: masterKeyPath, masterKeyId, grantableRoots: [join(root, "project")], keyManagement },
+    codec: { wrappedKeyFilePath: wrappedKeyPath, masterKeyFilePath: masterKeyPath, masterKeyId, grantableRoots: [join(root, "project")] },
     readinessFilePath: join(root, "readiness", "orchestration.json"), readinessHeartbeatMs: 5_000,
   }));
 
@@ -356,7 +381,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
 
   // ── The web server ──
   const port = freePort();
-  const web = start("web", bun, ["build/index.js"], {
+  web = start("web", bun, ["build/index.js"], {
     cwd: join(repo, "web"),
     env: {
       PORT: String(port), HOST: "127.0.0.1", ORIGIN: `http://127.0.0.1:${port}`,
@@ -394,27 +419,17 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   }
   record.ready = ready;
 
-  let stopped = false;
-  const stop = async (keepProduct: boolean) => {
-    if (stopped) return;
-    stopped = true;
-    stopGroup(web.child.pid, "SIGTERM");
-    await Promise.race([new Promise((settle) => web.child.once("exit", settle)), sleep(30_000)]);
-    for (const entry of children) stopGroup(entry.child.pid, "SIGKILL");
-    await sleep(500);
-    try {
-      await admin.unsafe(`DROP DATABASE "${poolDatabase}" WITH (FORCE)`);
-      if (!keepProduct) await admin.unsafe(`DROP DATABASE "${productDatabase}" WITH (FORCE)`);
-      else record.retainedProductDatabase = productDatabase;
-    } finally {
-      await admin.close();
-    }
-    await Promise.all(directories.map((path) => rm(path, { recursive: true, force: true }).catch(() => undefined)));
-  };
   if (ready === null) {
     record.processLogs = Object.fromEntries(children.map((entry) => [entry.name, entry.log.join("").slice(-6_000)]));
   }
   return { root, port, productUrl: productUrl.toString(), productDatabase, runnerRoot, session: api, children, stop };
+  } catch (error) {
+    // Nothing a failed start made may outlive it: not a child, not a
+    // database on the shared server, not a private directory.
+    record.processLogs = Object.fromEntries(children.map((entry) => [entry.name, entry.log.join("").slice(-6_000)]));
+    await stop(false);
+    throw error;
+  }
 }
 
 /** The supervisor's lease children: one runner held for life means exactly one `flock`. */
