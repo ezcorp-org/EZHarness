@@ -589,7 +589,13 @@ export class FactoryTaskStops implements FactoryUsageSettlementAuthority {
       this.assertHostReceipt(sealed, physical);
       stopCount(stopped.atMs);
       const certain = settledZero || terminalStopUsage(liveAuthority)?.kind === "measured";
-      if (stopped.atMs < acceptedAtMs || canonicalJson(stopped) !== canonicalJson(stopEventFor(request, authority, stopped.atMs, "stopped", !certain, Boolean(uncertain)))) throw new FactoryTaskStopError("factory_task_stop_corrupt");
+      // A stop sealed before W03e never cleared an earlier uncertainty
+      // explicitly, so its certain event after a `stop-uncertain` one has no
+      // `uncertain` field. That row is valid old data and stays readable; only
+      // an event matching neither shape is corrupt.
+      const current = canonicalJson(stopEventFor(request, authority, stopped.atMs, "stopped", !certain, Boolean(uncertain)));
+      const preW03e = canonicalJson(stopEventFor(request, authority, stopped.atMs, "stopped", !certain));
+      if (stopped.atMs < acceptedAtMs || (canonicalJson(stopped) !== current && canonicalJson(stopped) !== preW03e)) throw new FactoryTaskStopError("factory_task_stop_corrupt");
     }
   }
 

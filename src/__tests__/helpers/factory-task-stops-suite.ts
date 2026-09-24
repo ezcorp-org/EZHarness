@@ -5,7 +5,7 @@ import { canonicalJson } from "@ezcorp/extension-contract";
 import { advanceKernel, createKernelState, FACTORY_LAZY_INPUT_SCHEMA_VERSION, referenceCodeV1, type FactoryDefinition, type FactoryRunnerRequest, type FactoryRunnerResult, type FactoryRunStartBody, type JsonValue, type KernelEvent } from "@ezcorp/factory-sdk";
 import type { TransactionalDb } from "../../db/migrations/types";
 import { releaseRows as rows } from "../../db/queries/extension-releases";
-import { digestBytes } from "../../extensions/v4/blobs";
+import { digestBytes, digestObject } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryArtifacts } from "../../factory/artifacts";
 import { createFactoryArtifactActivities } from "../../factory/artifact-activities";
@@ -851,5 +851,30 @@ export function factoryTaskStopsConformance(create: () => Promise<FactoryTaskSto
       await fixture.db.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,provider_receipt_digest,stop_receipt_digest,basis,settled_at_ms,settlement_digest,event_json,event_digest) VALUES (${saved.tenant_id as string},${saved.project_id as string},${saved.run_id as string},${saved.reservation_id as string},${Number(saved.revision)},${saved.attempt_id as string},${saved.source as string},${saved.known_cost_micros as string},${null},${null},${saved.stop_receipt_digest as string},${saved.basis as string},${Number(saved.settled_at_ms)},${saved.settlement_digest as string},${saved.event_json as string},${saved.event_digest as string})`);
     }
     expect(await stops.stop(service, reference)).toEqual(receipt);
+  });
+
+  test("a measured stop sealed after an uncertain one by pre-W03e code stays readable, and a forged shape does not", async () => {
+    const attempt = await launchedAttempt();
+    const { reference } = await failedOutcome(attempt, "measured");
+    // The first pass leaves durable uncertainty; the second seals the measured stop after it.
+    const failing = harness(attempt, stopper(async () => { throw new Error("host unreachable"); }), acknowledger());
+    expect((await failing.stops.stop(service, reference)).state).toBe("uncertain");
+    const { stops } = harness(attempt, stopper(async request => signed(request)), acknowledger());
+    const sealed = await stops.stop(service, reference);
+    expect(sealed.event).toMatchObject({ kind: "attempt-stopped", uncertain: false });
+    const stored = rows<{ stopped_event_json: string; stopped_event_digest: string }>(await fixture.db.execute(sql`SELECT stopped_event_json, stopped_event_digest FROM factory_task_stops WHERE run_id=${attempt.run.runId}`))[0]!;
+    const reseal = (event: KernelEvent) => fixture.db.execute(sql`UPDATE factory_task_stops SET stopped_event_json=${JSON.stringify(event)}, stopped_event_digest=${`sha256:${digestObject(event)}`} WHERE run_id=${attempt.run.runId}`);
+    try {
+      // The shape pre-W03e code wrote: a certain stop with no \`uncertain\` field.
+      const { uncertain: _cleared, ...preW03e } = sealed.event;
+      await reseal(preW03e as KernelEvent);
+      expect(await stops.stop(service, reference)).toEqual({ ...sealed, event: preW03e });
+      // A shape no version ever wrote is still corrupt.
+      await reseal({ ...sealed.event, uncertain: true } as KernelEvent);
+      await expect(stops.stop(service, reference)).rejects.toMatchObject({ code: "factory_task_stop_corrupt" });
+    } finally {
+      await fixture.db.execute(sql`UPDATE factory_task_stops SET stopped_event_json=${stored.stopped_event_json}, stopped_event_digest=${stored.stopped_event_digest} WHERE run_id=${attempt.run.runId}`);
+    }
+    expect(await stops.stop(service, reference)).toEqual(sealed);
   });
 }
