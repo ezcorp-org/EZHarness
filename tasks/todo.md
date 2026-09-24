@@ -2,13 +2,15 @@
 
 ## First EZHarness-owned Incus sandbox — live completion (24 September 2026)
 
+- [x] Reproduce and fix the failed no-effect recovery restart path; keep a durable hold through supervisor restart.
+- [ ] Build and install a final-head qualification bundle after independent review and tests.
 - [x] Prove the saved `OUTCOME_UNKNOWN` CREATE and fixture from a detached database copy and the restored isolated app.
 - [ ] Activate the independent server observer and dedicated AMD app/runner with guarded rollback.
 - [ ] Reconcile the exact unknown CREATE only after old client authority is revoked and two independent readbacks pass.
 - [ ] Create, use, reconnect to, and clean up an EZHarness-owned guest; run real limits and isolation checks.
 - [ ] Push the final PR #303 source and pass hosted CI; keep support claims tied to live evidence.
 
-Review: The database gate is 4/4. The isolated app is healthy on its original database. The server remains on its old NixOS generation. A signed store copy of the observer generation was rejected before activation, so a pinned server-local build is in progress. Local fence tests, focused coverage tests, lint, and typecheck pass; the live workflow and hosted PR gates remain open. See `gates/incus-final-live-2026-09-24.md`.
+Review: The database gate is 4/4. The isolated app is healthy on its original database. The server observer generation is active and verified. A real subprocess test reproduced the failed-recovery app restart; the durable hold fix now passes all ten supervisor tests, including service restart. The repaired source needs independent review, final-head bundle staging, hosted CI, dedicated cutover, signed CREATE repair, and live guest proof. See `gates/incus-final-live-2026-09-24.md`.
 
 ## Incus completion update — 2026-09-24
 

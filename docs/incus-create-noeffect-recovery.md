@@ -156,7 +156,13 @@ runner UID, or a runner unit that is not masked and inactive with an empty
 cgroup. Mask and stop the runner as a separate reviewed host step before the
 request; this command only reads state. Do not mistake another development
 runner service for this unit. An idle administrator with unrelated access does
-not fail this scoped local client check.
+not fail this scoped local client check. Stopping the runner unit does not stop
+its lingering user manager or Podman pause process. After confirming UID 62041
+has no other jobs, run `loginctl disable-linger ezharness-qual-runner` and
+`loginctl terminate-user ezharness-qual-runner`. Require no process under the
+runner UID before the request. The managed app is still running at that point;
+the supervisor stops it and checks the app UID during recovery. Restore
+linger only after the repair and app readback succeed, before runner startup.
 Unmask the runner only after repair completes and the restarted app passes
 its read-only checks, while ingress remains held.
 
@@ -225,7 +231,12 @@ CREATE row and its idempotency key, marks it `FAILED` with
 marks the binding `ABSENT`, and releases compute and disk in one transaction.
 The `incus_noeffect_recoveries` audit row stores the original CREATE row
 and signed operator receipt. The supervisor starts the app again only after
-the offline step ends.
+the offline step ends. Before it stops the app, the supervisor writes a durable
+`private.pem.noeffect-hold` file beside its signing key. A failed fence,
+readback, or apply leaves that marker in place and keeps the app stopped,
+including after a supervisor service restart. Inspect the exact failed step
+and backend state before an operator removes the marker; restarting the unit
+alone does not clear it. Keep ingress held during this review.
 
 If the fence, pinned reads, or row checks cannot be proved, leave the saved
 operation `OUTCOME_UNKNOWN`. Keep the app stopped for manual review of Incus

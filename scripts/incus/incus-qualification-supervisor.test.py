@@ -245,14 +245,22 @@ print(json.dumps({'snapshot':{'alive':alive}}))
                 MODULE.validate_recovery(dict(request,
                     deadlineMs=int(time.time() * 1000) + 120000))
             events = []
+            supervisor.child = object()
             supervisor.assert_exclusive_app_uid = lambda: (_ for _ in ()).throw(
                 ValueError("app UID is shared outside the managed process group"))
             with self.assertRaisesRegex(ValueError, "app UID is shared"):
                 supervisor.recover_noeffect(request)
             self.assertEqual(events, [], "shared UID preflight killed the app")
             supervisor.assert_exclusive_app_uid = lambda: None
-            supervisor.stop_child = lambda: events.append("stop") or {"pid": 123, "startTicks": "456"}
-            supervisor.start_child = lambda: events.append("start")
+            def stop_child():
+                events.append("stop")
+                supervisor.child = None
+                return {"pid": 123, "startTicks": "456"}
+            def start_child():
+                events.append("start")
+                supervisor.child = object()
+            supervisor.stop_child = stop_child
+            supervisor.start_child = start_child
             supervisor.verify_recovery_fence = lambda _request, _old: events.append("fence")
             def stage(phase, value, _deadline):
                 events.append(phase)
@@ -274,6 +282,7 @@ print(json.dumps({'snapshot':{'alive':alive}}))
                     result = supervisor.recover_noeffect(request)
             self.assertEqual(events, ["stop", "fence", "durable", "backend", "durable", "backend",
                                       "sign", "fence", "apply", "start"])
+            self.assertFalse(supervisor.recovery_hold_path.exists())
             self.assertEqual(result["receipt"]["payload"]["oldProcess"],
                              {"pid": 123, "startTicks": "456"})
             events.clear()
@@ -289,14 +298,90 @@ print(json.dumps({'snapshot':{'alive':alive}}))
                      [], 0, stdout=b"public key")):
                 with self.assertRaisesRegex(ValueError, "runner restarted"):
                     supervisor.recover_noeffect(request)
-            self.assertEqual(events[-3:], ["sign", "fence", "start"])
+            self.assertEqual(events[-2:], ["sign", "fence"])
             self.assertNotIn("apply", events)
+            self.assertTrue(supervisor.recovery_hold_path.exists())
+            self.assertIsNone(supervisor.child)
             request["deadlineMs"] = int(time.time() * 1000) + 160000
             with self.assertRaisesRegex(ValueError, "replayed"):
                 supervisor.recover_noeffect(request)
             altered = dict(request, nonce="fresh", allClientsFenced=False)
             with self.assertRaisesRegex(ValueError, "invalid operator recovery"):
                 supervisor.recover_noeffect(altered)
+
+    def test_real_failed_operator_fence_keeps_managed_app_stopped(self):
+        with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
+            root = Path(directory)
+            key = root / "key.pem"
+            subprocess.run(["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(key)],
+                           check=True, capture_output=True)
+            key.chmod(0o600)
+            socket_path = root / "control.sock"
+            operator_path = root / "operator.sock"
+            app_pids = root / "app-pids"
+            child_code = "import os,sys,time; open(sys.argv[1],'a').write(str(os.getpid())+'\\n'); time.sleep(120)"
+            command = [sys.executable, "-c", """
+import importlib.util, os, sys
+s=importlib.util.spec_from_file_location('supervisor',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+supervisor=m.Supervisor(sys.argv[2],[sys.executable,'-c',sys.argv[5],sys.argv[6]],
+ os.getuid(),os.getgid(),sys.argv[4],['true'],['true'],enforce_distinct_uid=False)
+supervisor.operator_socket_path=m.Path(sys.argv[3])
+supervisor.recovery_command=['true']
+supervisor.recovery_fence_command=[sys.executable,'-c','raise SystemExit(1)']
+supervisor.serve()
+""", str(SOURCE), str(socket_path), str(operator_path), str(key), child_code,
+                str(app_pids)]
+            runner = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            try:
+                for _ in range(100):
+                    if operator_path.exists() and app_pids.exists(): break
+                    time.sleep(0.05)
+                self.assertTrue(operator_path.exists())
+                old_pid = int(app_pids.read_text().strip())
+                request = {"version": 1, "action": "recover-noeffect", "nonce": "nonce",
+                    "reviewId": "review", "scope": {"installationId": "installation",
+                        "releaseId": "release", "connectionId": "connection", "presetId": "preset"},
+                    "fixtureOperationId": "fixture", "bindingId": "binding",
+                    "operationId": "unknown-create", "generation": 1, "connectionRevision": 1,
+                    "allClientsFenced": True, "fenceEvidence": "reviewed stopped clients",
+                    "deadlineMs": int(time.time() * 1000) + 160000}
+                with socket.socket(socket.AF_UNIX) as operator:
+                    operator.connect(str(operator_path))
+                    operator.sendall(json.dumps(request).encode() + b"\n")
+                    response = operator.recv(4096).decode()
+                self.assertIn("independent runner client fence verification failed", response)
+                for _ in range(100):
+                    if not Path(f"/proc/{old_pid}").exists(): break
+                    time.sleep(0.05)
+                self.assertFalse(Path(f"/proc/{old_pid}").exists())
+                time.sleep(0.15)
+                self.assertEqual(app_pids.read_text().splitlines(), [str(old_pid)])
+                self.assertIsNone(runner.poll(), "supervisor must hold without systemd restarting it")
+                self.assertTrue(key.with_name(key.name + ".noeffect-hold").exists())
+                request["nonce"] = "new-nonce"
+                with socket.socket(socket.AF_UNIX) as operator:
+                    operator.connect(str(operator_path))
+                    operator.sendall(json.dumps(request).encode() + b"\n")
+                    self.assertIn("held for operator review", operator.recv(4096).decode())
+                runner.terminate()
+                runner.wait(timeout=5)
+                runner.stdout.close(); runner.stderr.close()
+                runner = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                for _ in range(100):
+                    if operator_path.exists(): break
+                    time.sleep(0.05)
+                self.assertIsNone(runner.poll(), "held supervisor must survive service restart")
+                self.assertEqual(app_pids.read_text().splitlines(), [str(old_pid)],
+                                 "service restart must not start the app while held")
+                with socket.socket(socket.AF_UNIX) as operator:
+                    operator.connect(str(operator_path))
+                    operator.sendall(json.dumps(request).encode() + b"\n")
+                    self.assertIn("held for operator review", operator.recv(4096).decode())
+            finally:
+                runner.terminate()
+                try: runner.wait(timeout=5)
+                except subprocess.TimeoutExpired: runner.kill(); runner.wait()
+                runner.stdout.close(); runner.stderr.close()
 
     def test_receipt_never_signs_after_run_deadline(self):
         with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
@@ -386,11 +471,10 @@ m.Supervisor(sys.argv[2],[sys.executable,'-c','raise SystemExit(7)'],
                            check=True, capture_output=True)
             key.chmod(0o600)
             root.chmod(0o770)
-            supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"],
-                                           os.getuid(), os.getgid(), key, ["true"], ["true"],
-                                           enforce_distinct_uid=False)
             with self.assertRaisesRegex(RuntimeError, "operator-owned and private"):
-                supervisor.serve()
+                MODULE.Supervisor(str(root / "control.sock"), ["true"],
+                                  os.getuid(), os.getgid(), key, ["true"], ["true"],
+                                  enforce_distinct_uid=False).serve()
 
     def test_real_restart_kernel_peer_and_one_use_receipt(self):
         # AF_UNIX paths are short; do not inherit a nested CI TMPDIR.

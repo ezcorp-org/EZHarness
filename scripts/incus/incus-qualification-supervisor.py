@@ -170,6 +170,7 @@ class Supervisor:
         self.app_gid = app_gid
         self.enforce_distinct_uid = enforce_distinct_uid
         self.key_path = Path(key_path)
+        self.recovery_hold_path = self.key_path.with_name(self.key_path.name + ".noeffect-hold")
         self.authority_command = authority_command
         self.receipt_authority_command = receipt_authority_command
         self.child = None
@@ -186,6 +187,9 @@ class Supervisor:
         if not stat.S_ISREG(key_stat.st_mode) or key_stat.st_uid != os.geteuid() \
                 or key_stat.st_mode & 0o077:
             raise RuntimeError("operator signing key must be a private regular file")
+        parent_stat = self.key_path.parent.stat()
+        if parent_stat.st_uid != os.geteuid() or parent_stat.st_mode & 0o022:
+            raise RuntimeError("operator signing key directory must be operator-owned and private")
         if not self.authority_command:
             raise RuntimeError("operator authority verifier is required")
         if not self.receipt_authority_command:
@@ -198,9 +202,41 @@ class Supervisor:
             os.setuid(self.app_uid)
 
     def start_child(self):
+        if self.recovery_held():
+            raise RuntimeError("recovery held for operator review")
         self.child = subprocess.Popen(self.app_command, close_fds=True, start_new_session=True,
                                       preexec_fn=self.drop_app_privileges)
         self.child_identity = identity(self.child.pid)
+
+    def recovery_held(self):
+        try:
+            hold = self.recovery_hold_path.lstat()
+        except FileNotFoundError:
+            return False
+        if not stat.S_ISREG(hold.st_mode) or hold.st_uid != os.geteuid() \
+                or hold.st_mode & 0o077:
+            raise RuntimeError("unsafe recovery hold; operator review required")
+        return True
+
+    def set_recovery_hold(self, request):
+        descriptor = os.open(self.recovery_hold_path,
+                             os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+        with os.fdopen(descriptor, "wb") as handle:
+            handle.write(canonical({"nonce": request["nonce"], "reviewId": request["reviewId"]}) + b"\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        self.sync_hold_directory()
+
+    def clear_recovery_hold(self):
+        self.recovery_hold_path.unlink()
+        self.sync_hold_directory()
+
+    def sync_hold_directory(self):
+        descriptor = os.open(self.key_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
 
     def child_exited(self):
         return os.waitid(os.P_PID, self.child.pid,
@@ -301,65 +337,66 @@ class Supervisor:
     def recover_noeffect(self, request):
         validate_recovery(request)
         if not self.recovery_command or not self.recovery_fence_command \
-                or request["nonce"] in self.used_recoveries:
-            raise ValueError("operator recovery unavailable or replayed")
+                or request["nonce"] in self.used_recoveries or self.recovery_held() \
+                or self.child is None:
+            raise ValueError("operator recovery unavailable, replayed, or held for operator review")
         self.assert_exclusive_app_uid()
         self.used_recoveries.add(request["nonce"])
+        self.set_recovery_hold(request)
         old_process = self.stop_child()
         stopped_at_ms = int(time.time() * 1000)
-        try:
-            self.verify_recovery_fence(request, old_process)
-            # The host transport has a 30-second RPC deadline, but the v4
-            # worker policy can run for 60 seconds. Leave margin for exit.
-            time.sleep(65)
-            bounded_timeout(request["deadlineMs"], VERIFY_TIMEOUT_SECONDS)
-            target = {key: request[key] for key in ("scope", "fixtureOperationId", "bindingId",
-                      "operationId", "generation", "connectionRevision")}
-            if self.recovery_stage("durable", {"target": target}, request["deadlineMs"]) != {
-                    "verified": True}:
-                raise ValueError("operator durable CREATE verification failed")
-            first = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
-            first_at = int(time.time() * 1000)
-            time.sleep(5)
-            if self.recovery_stage("durable", {"target": target}, request["deadlineMs"]) != {
-                    "verified": True}:
-                raise ValueError("operator durable CREATE changed")
-            second = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
-            second_at = int(time.time() * 1000)
-            if first != {"absent": True, "activeOperations": []} \
-                    or second != {"absent": True, "activeOperations": []}:
-                raise ValueError("operator backend absence not independently verified")
-            scope = request["scope"]
-            resource = hashlib.sha256((scope["connectionId"] + "\0" +
-                                       request["bindingId"]).encode()).hexdigest()[:32]
-            payload = {"version": 1, "action": "recover-noeffect", "nonce": request["nonce"],
-                       "reviewId": request["reviewId"], "scope": scope,
-                       "fixtureOperationId": request["fixtureOperationId"],
-                       "bindingId": request["bindingId"], "operationId": request["operationId"],
-                       "generation": request["generation"],
-                       "connectionRevision": request["connectionRevision"],
-                       "resourceName": "ezh-" + resource, "oldProcess": old_process,
-                       "stoppedAtMs": stopped_at_ms, "fenceUntilMs": request["deadlineMs"],
-                       "allClientsFenced": True, "fenceEvidence": request["fenceEvidence"],
-                       "first": {"observedAtMs": first_at, "instanceState": "absent",
-                                 "activeOperations": []},
-                       "second": {"observedAtMs": second_at, "instanceState": "absent",
-                                  "activeOperations": []}}
-            receipt = self.sign_payload(payload)
-            public = subprocess.run(["openssl", "pkey", "-in", str(self.key_path), "-pubout"],
-                                    capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=True)
-            # A stopped runner can restart during the quiet window or readbacks.
-            # Recheck the same exact local fence immediately before the DB write.
-            self.verify_recovery_fence(request, old_process)
-            result = self.recovery_stage("apply", {"receipt": receipt,
-                "publicKeyPem": public.stdout.decode("ascii")}, request["deadlineMs"])
-            if set(result) != {"cleanupOperationId"} \
-                    or not isinstance(result["cleanupOperationId"], str) \
-                    or not IDENTIFIER.fullmatch(result["cleanupOperationId"]):
-                raise ValueError("operator recovery apply result invalid")
-            return {"receipt": receipt, "cleanupOperationId": result["cleanupOperationId"]}
-        finally:
-            self.start_child()
+        self.verify_recovery_fence(request, old_process)
+        # The host transport has a 30-second RPC deadline, but the v4
+        # worker policy can run for 60 seconds. Leave margin for exit.
+        time.sleep(65)
+        bounded_timeout(request["deadlineMs"], VERIFY_TIMEOUT_SECONDS)
+        target = {key: request[key] for key in ("scope", "fixtureOperationId", "bindingId",
+                  "operationId", "generation", "connectionRevision")}
+        if self.recovery_stage("durable", {"target": target}, request["deadlineMs"]) != {
+                "verified": True}:
+            raise ValueError("operator durable CREATE verification failed")
+        first = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
+        first_at = int(time.time() * 1000)
+        time.sleep(5)
+        if self.recovery_stage("durable", {"target": target}, request["deadlineMs"]) != {
+                "verified": True}:
+            raise ValueError("operator durable CREATE changed")
+        second = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
+        second_at = int(time.time() * 1000)
+        if first != {"absent": True, "activeOperations": []} \
+                or second != {"absent": True, "activeOperations": []}:
+            raise ValueError("operator backend absence not independently verified")
+        scope = request["scope"]
+        resource = hashlib.sha256((scope["connectionId"] + "\0" +
+                                   request["bindingId"]).encode()).hexdigest()[:32]
+        payload = {"version": 1, "action": "recover-noeffect", "nonce": request["nonce"],
+                   "reviewId": request["reviewId"], "scope": scope,
+                   "fixtureOperationId": request["fixtureOperationId"],
+                   "bindingId": request["bindingId"], "operationId": request["operationId"],
+                   "generation": request["generation"],
+                   "connectionRevision": request["connectionRevision"],
+                   "resourceName": "ezh-" + resource, "oldProcess": old_process,
+                   "stoppedAtMs": stopped_at_ms, "fenceUntilMs": request["deadlineMs"],
+                   "allClientsFenced": True, "fenceEvidence": request["fenceEvidence"],
+                   "first": {"observedAtMs": first_at, "instanceState": "absent",
+                             "activeOperations": []},
+                   "second": {"observedAtMs": second_at, "instanceState": "absent",
+                              "activeOperations": []}}
+        receipt = self.sign_payload(payload)
+        public = subprocess.run(["openssl", "pkey", "-in", str(self.key_path), "-pubout"],
+                                capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=True)
+        # A stopped runner can restart during the quiet window or readbacks.
+        # Recheck the same exact local fence immediately before the DB write.
+        self.verify_recovery_fence(request, old_process)
+        result = self.recovery_stage("apply", {"receipt": receipt,
+            "publicKeyPem": public.stdout.decode("ascii")}, request["deadlineMs"])
+        if set(result) != {"cleanupOperationId"} \
+                or not isinstance(result["cleanupOperationId"], str) \
+                or not IDENTIFIER.fullmatch(result["cleanupOperationId"]):
+            raise ValueError("operator recovery apply result invalid")
+        self.clear_recovery_hold()
+        self.start_child()
+        return {"receipt": receipt, "cleanupOperationId": result["cleanupOperationId"]}
 
     def authorize(self, request):
         check = subprocess.run(self.authority_command, input=canonical(request) + b"\n",
@@ -492,9 +529,10 @@ class Supervisor:
                 operator_listener.bind(str(self.operator_socket_path))
                 os.chmod(self.operator_socket_path, 0o600)
                 operator_listener.listen(1)
-            self.start_child()
+            if not self.recovery_held():
+                self.start_child()
             while True:
-                if self.child_exited():
+                if self.child is not None and self.child_exited():
                     raise RuntimeError("managed app exited unexpectedly")
                 ready, _, _ = select.select(
                     [listener] + ([operator_listener] if operator_listener else []), [], [], 0.5)
