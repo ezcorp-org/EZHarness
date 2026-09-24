@@ -16,7 +16,7 @@ import { signFactoryAttemptToken } from "../attempt-token";
 import { FactoryExecutionJournal } from "../executions";
 import { startFactoryPrivateHttps } from "../private-https";
 import { factoryRunnerRequestAuthority } from "./attempt-authority";
-import { createFactoryGuestBrokerClient } from "./guest-broker-client";
+import { FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS, createFactoryGuestBrokerClient } from "./guest-broker-client";
 import { FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE, createFactoryGuestBrokerRouteHandler } from "./guest-broker-service";
 import { factoryAttemptInvocationId, factoryAttemptWorkerId } from "./attempt-wire";
 import { createFactoryGuestMaterialFrameBroker, createFactoryGuestMaterialServices } from "./guest-material-broker";
@@ -331,6 +331,24 @@ test("an answer the product could not have produced is refused rather than hande
   const other = await createFactoryGuestBrokerClient({ baseUrl: garbled.url, tls: fixture.paths, serverName: "localhost" });
   await expect(other.invoke(fixture.request, frame)).rejects.toThrow("answered a staging frame with something that is not JSON");
   await expect(other.invoke(fixture.request, modelRequest(fixture.operationId))).rejects.toThrow("answered a model request with something that is not JSON");
+}, 120_000);
+
+test("a model request waits on its own timeout, not the staging frame's", async () => {
+  const fixture = await setup();
+  // A product that has received the model request and not answered yet: the
+  // host's wait is bounded by the model timeout it was given, and ends there.
+  let arrived: () => void = () => {};
+  const received = new Promise<void>((resolve) => { arrived = resolve; });
+  const silent = startFactoryPrivateHttps({
+    tls: { key: fixture.certs.serverKey, cert: fixture.certs.serverCert, ca: fixture.certs.ca },
+    handle: () => { arrived(); return new Promise(() => {}); },
+  });
+  closing.push(async () => { silent.stop(); });
+  const host = await createFactoryGuestBrokerClient({ baseUrl: silent.url, tls: fixture.paths, serverName: "localhost", modelRequestTimeoutMs: 200 });
+  const waiting = host.invoke(fixture.request, modelRequest(fixture.operationId));
+  await received;
+  await expect(waiting).rejects.toThrow("factory gateway request timed out");
+  expect(FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS).toBe(300_000);
 }, 120_000);
 
 test("a supervisor configured with a guest broker forwards staging frames and model requests, and refuses anything else by name", async () => {

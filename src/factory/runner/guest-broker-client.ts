@@ -25,7 +25,20 @@ import { isFactoryGuestModelPayload, type FactoryGuestBroker } from "./guest-mod
  * not still refuses by name.
  */
 
+/**
+ * How long the host waits for the product to answer a model request.
+ *
+ * A staging frame is answered in milliseconds and keeps the transport's
+ * ordinary timeout. A model request is answered only after the provider
+ * finishes, which for a real model can take far longer, so it gets the
+ * transport's own ceiling. The attempt's signed deadline still bounds the
+ * guest, and the product settles the call on the journal before it answers.
+ */
+export const FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS = 300_000;
+
 export interface FactoryGuestBrokerClientOptions extends GatewayTransportOptions {
+  /** Overrides {@link FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS}. */
+  readonly modelRequestTimeoutMs?: number;
   /**
    * Where a reverse payload that is neither a staging frame nor a model request
    * goes. The product route answers exactly those two, so anything else keeps
@@ -36,9 +49,9 @@ export interface FactoryGuestBrokerClientOptions extends GatewayTransportOptions
 }
 
 /** The two payloads the product route answers, each with the response contract it is checked against. */
-function responseContract(payload: unknown): { readonly name: string; readonly valid: (answer: unknown) => boolean } | undefined {
-  if (isFactoryGuestMaterialFrame(payload)) return { name: "staging frame", valid: (answer) => validateFactoryGuestMaterialResponse(answer).ok };
-  if (isFactoryGuestModelPayload(payload)) return { name: "model request", valid: (answer) => validateFactoryGuestModelResponse(answer).ok };
+function responseContract(payload: unknown): { readonly name: string; readonly model: boolean; readonly valid: (answer: unknown) => boolean } | undefined {
+  if (isFactoryGuestMaterialFrame(payload)) return { name: "staging frame", model: false, valid: (answer) => validateFactoryGuestMaterialResponse(answer).ok };
+  if (isFactoryGuestModelPayload(payload)) return { name: "model request", model: true, valid: (answer) => validateFactoryGuestModelResponse(answer).ok };
   return undefined;
 }
 
@@ -48,6 +61,7 @@ function invalid(detail: string): never {
 
 export async function createFactoryGuestBrokerClient(options: FactoryGuestBrokerClientOptions): Promise<FactoryGuestBroker> {
   const transport = await createGatewayTransport(options);
+  const modelTransport = await createGatewayTransport({ ...options, requestTimeoutMs: options.modelRequestTimeoutMs ?? FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS });
   return Object.freeze({
     async invoke(request: FactoryRunnerRequest, payload: unknown): Promise<unknown> {
       const contract = responseContract(payload);
@@ -57,7 +71,7 @@ export async function createFactoryGuestBrokerClient(options: FactoryGuestBroker
       }
       // The guest's own attempt token, exactly as the launch intent carries it.
       // The host mints nothing and substitutes nothing.
-      const response = await transport.request("POST", FACTORY_GUEST_BROKER_PATH, { attemptToken: request.broker.attemptToken, payload }, FACTORY_GUEST_BROKER_MAX_BODY_BYTES);
+      const response = await (contract.model ? modelTransport : transport).request("POST", FACTORY_GUEST_BROKER_PATH, { attemptToken: request.broker.attemptToken, payload }, FACTORY_GUEST_BROKER_MAX_BODY_BYTES);
       let answer: unknown;
       try { answer = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(response.body)); }
       catch { invalid(`The product process answered a ${contract.name} with something that is not JSON.`); }
