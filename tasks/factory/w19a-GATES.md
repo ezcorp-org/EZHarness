@@ -170,3 +170,27 @@ passes, with identical token counts. `summary.json` records it with the pinned s
   composition; noted, not changed.
 - **Fixed on the way:** a gateway request under Bun never settled after its timeout (`factory-transport`,
   G5); a compiler diagnostic that names a node turned a named 422 into a 500 (G5b).
+
+## Coordinator rulings (2026-09-24) and disclosed gaps
+
+- **Disclosed gap, owner W03 (package W03f, after W03e and W05b).** A failed model operation with a
+  typed provider error must settle as certain zero usage at the operation level, so the run ends
+  failed with the typed reason instead of `factory_usage_hold_unresolved`. Reproduction: the
+  `control-missing-model` pass (`run.sh pass ollama missing-model control-missing-model`); record
+  `proof/control-missing-model.json` shows `run.timeline: [queued, running]`, `run.heldBy:
+  factory_usage_hold_unresolved: no-operation-receipt`, and `infer`'s one failed model operation with
+  `usage: null`; the server log repeats the hold on every reconciliation pass. Until W03f lands, the
+  control asserts the typed refusal and the journal row, and records the hold as `heldRunFinding`.
+- **Disclosed design follow-up, owners W01e and W03.** A guest cannot mirror an `uncertain` hold row
+  (the provider answered and the completed settlement was lost). Carrying the settled operation
+  evidence on the model response closes it. Not fixed here.
+- **Disclosed hygiene follow-up, owners W09 and W16 (readiness).** `/api/ready` reports
+  `providerReadiness` as a boot snapshot; recompute it on read or on registration events.
+- **Base.** This head includes W01g `f0aafe3a0`, whose C05 case in
+  `src/__tests__/factory-process-boundaries.test.ts` ("the supervisor PROCESS holds host identity and
+  no tenant credential") is red: the supervisor closure reaches `src/db/` through
+  `guest-broker-client.ts` → `guest-broker-service.ts` → `attempt-token.ts`. W19a's additions to that
+  closure are `guest-model-broker.ts` and `guest-frames.ts`, which reach neither `src/db/` nor
+  `src/providers/`. The fix is on `wp/w01g-staging`. Before its own merge, W19a merges the
+  `integ/w00` hash that contains the fixed W01g, resolves `guest-broker-client.ts` and
+  `guest-broker-service.ts` onto the new leaf module, and reruns the passes once.
