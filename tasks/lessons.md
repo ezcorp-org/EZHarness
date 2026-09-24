@@ -1446,6 +1446,11 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Bun's isolated store keeps a STALE version after a lockfile change, and an incremental `bun install --frozen-lockfile` does not remove it. After merging main's dependency bump my worktree held `zod@4.5.2` next to `zod@4.5.4`, and 25 typecheck errors appeared in a package I had never touched. I proved the SOURCE trees were byte-identical against staging and reported the red as inherited — which was wrong, because a tree diff says nothing about the installed graph. Staging, reinstalled clean, was green at the same merge base with the same SDK. After merging a dependency bump: `rm -rf node_modules web/node_modules`, reinstall both, rebuild the workspace packages, THEN judge a red.
 - Attributing a failure away from yourself needs a stronger proof than attributing one to yourself. "The files are identical" is evidence about one input; a build has several. Before telling someone a red is theirs, reproduce it somewhere they control, or rule out every input you own.
 
+## 2026-09-22 — W01g round 2
+- Check the merge base yourself before you trust a stated one. The handoff said `integ/w00` was merged at the W09b merge; `git merge-base HEAD integ/w00` showed an older commit, and the file the whole round depended on was absent.
+- A proof harness that reads a credential directory from the environment must refuse by name when it is empty. An empty value became a copy from a relative path and a failure that looked like a product fault.
+- When a proof needs a composition the product cannot yet express, add the configuration field to the product and inject it from the harness. Do not add a convention (a file beside a key) that only a harness uses.
+
 ## 2026-09-22 — W09d: composing validators
 
 - A test suite that pins the clock cannot see a lease expire. W05's acceptance path re-recorded the candidate's terminal fact through a live-attempt authorization on every call, and every suite passed because `now` never moved past the candidate's lease. The real started application refused `factory_run_fence_changed` the first time a validator took longer than that lease, which is always. When a path can run long after the thing it re-authorizes, write one test whose authorizer says "expired".
@@ -1519,3 +1524,8 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Verify live state before you answer a factual question about it. When the user asked which model the subagents run on, the first answer came from the spawn parameter, not from evidence. Ask the agents (or read the source) first, then answer with the evidence named.
 - An outer `timeout` around a command that waits for a lock counts the wait. The first W18a-2 combined run waited about 1.6 hours for the heavy lock inside `timeout 9000` and was killed (exit 124) in its node leg. Put the timeout inside the lock (`flock ... timeout N cmd`), or rely on the runner's own per-leg bound.
 - Never pipe a command that must run to completion into a reader that can close early (head, a limited grep). A closed pipe kills git commit with SIGPIPE and nothing is committed. Write to a file, then summarize from the file.
+
+## 2026-09-23 — W01g round 4
+- A summary built from receipt files can report an old pass as a new one. When a run fails before it writes its record, the summary must not read the previous record. Check `producingCommit` and `startedAt` on every receipt before quoting it.
+- When the AWS SDK fails with "DOMParser is not defined / Deserialization error", read the object store's log before blaming the bundle. The SDK parses XML only for an S3 error body, and here the real error was a full host disk that made the store's volumes read-only.
+- Bun's line coverage can mark the line before an unexecuted function as uncovered: the unexecuted block's range bleeds back one line. Before restructuring code to satisfy the patch gate, check whether the neighbouring function runs in the measured suites, and add the suite that exercises it.

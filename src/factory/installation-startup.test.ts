@@ -8,7 +8,7 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import type { FactorySettleableChild } from "./child-runs";
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { BlobStore } from "../extensions/v4/types";
-import { resetReadiness } from "../readiness";
+import { getReadiness, resetReadiness } from "../readiness";
 import { configureFactoryApplication, getFactoryApplication } from "./application";
 import type { FactoryBootConfig } from "./boot";
 import { createFactoryPoolReadinessWriter } from "./pool/readiness";
@@ -662,6 +662,11 @@ describe("the release store, and the role it unblocks", () => {
     expect(report.heldWorkers.map((worker) => worker.role)).not.toContain("notification-inbox-delivery");
     // Nothing reported a release-store failure on this path.
     expect(reported.slice(before).filter((entry) => entry.role === "release-store")).toEqual([]);
+    // This document declares no guest-broker route, so none is bound, and
+    // readiness says so by name rather than by absence.
+    expect((getReadiness().detail as { factory: Record<string, unknown> }).factory.guestBroker)
+      .toEqual({ state: "unconfigured", code: "factory_guest_broker_unconfigured" });
+    expect(reported.slice(before).filter((entry) => entry.role === "guest-broker")).toEqual([]);
   });
 
   test("holds the role and names the cause when a credential set is unreadable", async () => {

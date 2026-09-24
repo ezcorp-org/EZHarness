@@ -65,6 +65,7 @@ import type { FactoryApplication, FactoryApplicationOptions } from "./applicatio
 import type { TrustedFactoryServiceIdentity } from "./trusted-command-gateway";
 import type { FactoryRoleDriver } from "./runtime-seams";
 import type { FactoryStartedListener } from "./runtime-composition";
+import { composeFactoryGuestBroker, type FactoryGuestBrokerReadiness } from "./guest-broker-composition";
 import type { FactoryPhysicalStopper, FactoryTaskStops } from "./task-stops";
 import { composeFactoryRecoveryRoles } from "./recovery-composition";
 import type { FactoryKeyCompositionDependencies } from "./key-composition";
@@ -602,6 +603,7 @@ export async function startFactoryInstallation(options: FactoryInstallationStart
     orphanSweepIntervalMs: (await import("../extensions/host-maintenance-daemon")).getSweepIntervalMs(),
     ...(supplied.extraProbes === undefined ? {} : { extraProbes: supplied.extraProbes }),
     ...(provider === undefined ? {} : { providerReadiness: provider.readiness }),
+    ...(composed?.guestBroker === undefined ? {} : { guestBrokerReadiness: composed.guestBroker }),
     report: host.report,
   };
 
@@ -671,6 +673,7 @@ async function installationCollaborators(
   readonly workers: FactoryRuntimeDependencies["workers"];
   readonly seams: FactoryRuntimeDependencies["seams"];
   readonly listeners: readonly FactoryStartedListener[];
+  readonly guestBroker: FactoryGuestBrokerReadiness;
 }> {
   const { createFactoryApplication } = await import("./application");
   // A throwaway application only to reach the lifecycle the roles read. The
@@ -762,6 +765,14 @@ async function installationCollaborators(
   const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance);
   const recovery = await composeFactoryRecoveryRoles({ config, database: host.database, report: host.report });
 
+  // ── W01g: the guest-broker route ────────────────────────────────────
+  // The runner host forwards a guest's staging frames here, because this is
+  // the process that holds the tenant database. Its own listener, beside the
+  // private service rather than inside it: a different peer set (hosts, not
+  // the orchestrator) and a different credential (the attempt token).
+  const guestBroker = await composeFactoryGuestBroker({ database: host.database, config, application, blobs, report: host.report });
+  // ── end W01g ─────────────────────────────────────────────────────────
+
   return {
     workers: {
       projections: stores.projections,
@@ -780,7 +791,11 @@ async function installationCollaborators(
         usageReconciler: settlement.usageReconciliation,
       }),
     },
-    listeners: privateService === undefined ? [] : [privateService],
+    listeners: [
+      ...(privateService === undefined ? [] : [privateService]),
+      ...(guestBroker.listener === undefined ? [] : [guestBroker.listener]),
+    ],
+    guestBroker: guestBroker.readiness,
   };
 }
 

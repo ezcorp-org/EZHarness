@@ -3545,6 +3545,81 @@ it as an inline UNIQUE, so the database calls it
 `factory_release_operations_tenant_id_project_id_run_id_node_key`. A live probe confirms two unique
 arbiters and only two.
 
+## W01g — guest material staging over the broker (Terra runtime)
+
+Branch `wp/w01g-staging` from `integ/w00` at `850ffaa54`. Gate file:
+`tasks/factory/w01g-GATES.md`. Evidence: `/tmp/factory-platform-evidence/w01g/`.
+
+- [x] Reproduce the failure first: a real run at the base ends `failed` because the guest returns
+      `cancelled` and has no staging path.
+- [x] Frame contract: `FactoryGuestMaterialBegin/Chunk/Seal` plus an `Output` promotion frame and
+      one typed response union, in the SDK beside the model frames, with generated JSON schemas
+      and Bun/Python parity over the shared conformance fixtures.
+- [x] Host adapter: every frame forwarded to `FactoryAttemptMaterials` under the attempt's
+      verified authority; durable idempotency for a repeated frame; cancellation and the deadline
+      honoured mid-upload; every refusal named.
+- [x] Guest SDK, Bun and Python: `stageOutput(name, bytes | stream)` chunks, seals, and returns
+      the sealed material; `stageResult` and `stageCheckpoint` build what a COMPLETED result
+      carries.
+- [x] Runner result path: the promotion stages the attempt's candidate output through W04's own
+      writer, so the completed result is validated, recorded and projected by the existing path;
+      `NativeFactoryArtifacts` gets its production implementation over the same two writers.
+- [x] Proof on the real started application: a real sandboxed guest stages one output and the run
+      reaches terminal `succeeded` through the completed path.
+- [x] Three consecutive clean passes and the negative control, from this branch at `179674cbf`
+      on a clean tree (`proof-1.json` to `proof-3.json`, `negative-control.json`).
+- [x] The host mounts the route from `services.guestBroker` in its own configuration document
+      (`994deebe8`); the proof-only commit and the file-beside-the-key client are gone.
+- [x] The product runtime binds the route itself from `guestBroker` in its startup document
+      (G14, delegated by the coordinator); the harness only observes.
+- [x] Final sweep on a clean tree after `git merge integ/w00`.
+
+### Review
+
+The gap W09b recorded was not one missing function but a missing route. A guest runs on
+`--network=none`, so W04's material service — which is HTTPS — is unreachable from inside it, and
+the reverse control frame is the only byte path it has. That frame carried exactly one payload,
+the model request. So the work was: define the staging frames, answer them on the host under the
+attempt's own authority, and carry them from the host process that runs the container to the
+product process that holds the tenant database, because W09b's own comment recorded that no route
+between those two existed and that a guest's broker call therefore refused by name.
+
+Three things the first end-to-end run taught, each of which had passed a unit test:
+
+A sealed material has TWO digests. The handle covers the chunk manifest the scoped reader
+resolves; the content digest covers the bytes. Confusing them is silent — both are `sha256:` and
+64 hex — so `stageOutput` now returns both rather than the handle alone, and a promotion names the
+content.
+
+A COMPLETED result cannot name a material. `verifyCompletedEvidence` loads the output as kind
+`candidate_output`, bound to the attempt's own node instance and generation, and re-parses it as
+canonical I-JSON. So the promotion reads the sealed bytes back through the scoped reader and
+stages them through W04's `stageCandidateOutputInTransaction`, whose coordinate makes a repeat
+after a lost response return the same reference and different bytes conflict. Nothing in W03's
+verifier changed.
+
+A completed result also needs a workspace checkpoint whose cursor equals its own, and an attempt
+that settled no operation has cursor -1 — which W04's checkpoint writer refuses, because its names
+are operation indexes. The guest names that one `workspace/attempt.json` and stages a real sealed
+material, so the reference points at bytes rather than at nothing.
+
+Round 2 (2026-09-22). The branch had merged `integ/w00` at `bcd97df48`, not at the W09b merge,
+so W09b's supervisor was not yet on it; the merge at `5c9729734` brought it. The host half of the
+mount is now product code: an optional `services.guestBroker` section in the supervisor document,
+in the pool section's exact shape and validated by the same function. The host builds the client
+before its listener binds, and a model request keeps `factory_host_broker_unavailable`. The
+declared client that read a file beside the host key is removed, and the SDK now owns the
+"is this a staging frame" predicate, so a runner host routes a frame without loading product
+modules. The three passes ran from this worktree, with the section written into W09b's unedited
+harness document by a pass-through bun wrapper. The product half, the listener in the product
+runtime, is still bound by the harness process and stays open as G14 for the coordinator.
+
+Round 3 (2026-09-22). The coordinator delegated the product mount. The startup document has an
+optional `guestBroker` section, and `installation-startup.ts` binds the route in its own W01g
+region beside the private service. Readiness carries `guestBroker` as bound, unconfigured, or
+unavailable with a code. The three passes ran with the web server binding the route and the
+harness only observing.
+
 ## W09d — compose validators into the installation (branch `wp/w09d-validators`)
 
 Brief: `/tmp/factory-platform-evidence/w00/briefs/w09d.md`. Evidence: `/tmp/factory-platform-evidence/w09d/`. Gates: `tasks/factory/w09d-GATES.md`. Report: `/tmp/factory-platform-evidence/w09d/report.txt`.
