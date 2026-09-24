@@ -25,6 +25,7 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
   opened.push(client);
   await client.waitReady;
   await client.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  await client.exec("CREATE TABLE extension_release_installations (id TEXT PRIMARY KEY, payload TEXT NOT NULL)");
   await client.exec("CREATE TABLE project_workspace_bindings (project_id TEXT PRIMARY KEY, kind TEXT NOT NULL, binding_id TEXT, revision INTEGER NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   await client.exec("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, provider_installation_id TEXT NOT NULL, provider_release_id TEXT NOT NULL, endpoint TEXT NOT NULL, server_certificate_pem TEXT NOT NULL, project TEXT NOT NULL, configuration JSONB, client_certificate_pem TEXT NOT NULL, private_key_ciphertext TEXT NOT NULL, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   const db = drizzle(client, { schema });
@@ -76,6 +77,16 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
 }
 
 afterEach(async () => { await Promise.all(opened.splice(0).map(client => client.close())); });
+
+test("the default scope guard denies create before any provider effect when approval is absent", async () => {
+  const { db, admission, controller, qualifications, dispatches } = await setup();
+  const guarded = new IncusQualificationFixtureService({ db, admission, controller, qualifications });
+  await expect(guarded.create(scope, "guarded-create"))
+    .rejects.toThrow("Provider release is not active and approved");
+  expect(dispatches).toHaveLength(0);
+  expect(await db.select().from(schema.projects)).toHaveLength(0);
+  expect(await db.select().from(schema.sandboxBindings)).toHaveLength(0);
+});
 
 test("host fixture create and destroy use admission and durable controller without a user workspace binding", async () => {
   const { db, service, dispatches, controller, admission, presetDigest, effectiveSettingsDigest } = await setup();

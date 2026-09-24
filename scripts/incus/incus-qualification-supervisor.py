@@ -291,7 +291,9 @@ class Supervisor:
             raise ValueError("independent runner client fence verifier is required")
         check = subprocess.run(self.recovery_fence_command,
             input=canonical({"request": request, "oldProcess": old_process}) + b"\n",
-            capture_output=True, timeout=AUTHORIZE_TIMEOUT_SECONDS, check=False)
+            capture_output=True,
+            timeout=bounded_timeout(request["deadlineMs"], AUTHORIZE_TIMEOUT_SECONDS),
+            check=False)
         if check.returncode != 0 or json.loads(check.stdout) != {
                 "fenced": True, "evidence": request["fenceEvidence"]}:
             raise ValueError("independent runner client fence verification failed")
@@ -346,6 +348,9 @@ class Supervisor:
             receipt = self.sign_payload(payload)
             public = subprocess.run(["openssl", "pkey", "-in", str(self.key_path), "-pubout"],
                                     capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=True)
+            # A stopped runner can restart during the quiet window or readbacks.
+            # Recheck the same exact local fence immediately before the DB write.
+            self.verify_recovery_fence(request, old_process)
             result = self.recovery_stage("apply", {"receipt": receipt,
                 "publicKeyPem": public.stdout.decode("ascii")}, request["deadlineMs"])
             if set(result) != {"cleanupOperationId"} \

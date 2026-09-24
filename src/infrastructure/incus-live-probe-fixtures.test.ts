@@ -28,6 +28,7 @@ async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "incus-probe-fixtures-"));
   active.push({ pglite, root });
   await pglite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  await pglite.exec("CREATE TABLE extension_release_installations (id TEXT PRIMARY KEY, payload TEXT NOT NULL)");
   const db = drizzle(pglite, { schema });
   await addSandboxController(db);
   await addQualificationFixtures(db);
@@ -57,10 +58,20 @@ async function fixture() {
   });
   const service = new IncusLiveProbeFixtureService({ db, rootDirectory: root, qualifications,
     assertCurrentScope: async () => {} });
-  return { db, root, scope, service, authorized: () => authorized,
+  return { db, root, scope, service, qualifications, authorized: () => authorized,
     disable: () => { disabled = true; },
     changeRevision: () => { connectionRevision++; } };
 }
+
+test("the default scope guard denies fixture writes without a live approved provider", async () => {
+  const { db, root, scope, qualifications } = await fixture();
+  const guarded = new IncusLiveProbeFixtureService({ db, rootDirectory: root, qualifications });
+  const plan = await guarded.plan(scope, "guarded-run");
+  await expect(guarded.apply(scope, "guarded-run", plan.digest))
+    .rejects.toThrow("Provider release is not active and approved");
+  expect(await db.select().from(schema.projects)).toHaveLength(0);
+  expect(await db.select().from(schema.sandboxBindings)).toHaveLength(0);
+});
 
 test("only an intact fixture matching the current reviewed plan supplies control config", async () => {
   const { scope, service, changeRevision } = await fixture();

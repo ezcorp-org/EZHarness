@@ -1,5 +1,15 @@
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
 
+## First EZHarness-owned Incus sandbox — live completion (24 September 2026)
+
+- [x] Prove the saved `OUTCOME_UNKNOWN` CREATE and fixture from a detached database copy and the restored isolated app.
+- [ ] Activate the independent server observer and dedicated AMD app/runner with guarded rollback.
+- [ ] Reconcile the exact unknown CREATE only after old client authority is revoked and two independent readbacks pass.
+- [ ] Create, use, reconnect to, and clean up an EZHarness-owned guest; run real limits and isolation checks.
+- [ ] Push the final PR #303 source and pass hosted CI; keep support claims tied to live evidence.
+
+Review: The database gate is 4/4. The isolated app is healthy on its original database. The server remains on its old NixOS generation. A signed store copy of the observer generation was rejected before activation, so a pinned server-local build is in progress. Local fence tests, focused coverage tests, lint, and typecheck pass; the live workflow and hosted PR gates remain open. See `gates/incus-final-live-2026-09-24.md`.
+
 ## Incus completion update — 2026-09-24
 
 - [x] Activate and verify the guarded NixOS firewall generation on the sandbox host.
@@ -1873,7 +1883,7 @@ service or sandbox has been activated by these steps.
 - [x] Audit the exact recovery fence contract against the live `dev` SSH/admin path and define the narrow authority that must be retired. Do not mark no-effect from an empty inventory alone.
 - [ ] Implement and qualify a fail-closed scoped fence verifier for the old app, runner, and holders of the old provider credential; hold any active admin activity that could alter the exact instance or trust during observation.
 - [x] Merge the independent observer's NixOS module (PR #6, merge commit `f77983795058e90401f3a28e60d8660b9c7d4823`) into the still-open PR #4 branch. It is not on NixOS `main`, and the server still runs the prior generation.
-- [ ] Read the exact saved CREATE, fixture scope, and binding from a consistent copy of the isolated app database, then pin the observer instance and policy digest. The documented fixture ID came from a synthetic test and is not live evidence.
+- [x] Read the exact saved CREATE, fixture scope, and binding from a consistent detached copy; independently confirm the exact fixture through authenticated status. Instance `ezh-6b3b9dde8ce9a4cc358f04db0d5cbde1` is now verified from durable IDs.
 - [ ] Build, review, activate, and verify the independent observer generation; prove its operation-list output and old-certificate denial on the real server.
 - [x] Rebuild and smoke-test `bfebe35e7` as the dedicated app UID; keep this as intermediate evidence while the fence code changes.
 - [ ] Rebuild once from the final reviewed PR head and verify the installed bundle before cutover.
@@ -1883,4 +1893,4 @@ service or sandbox has been activated by these steps.
 
 ### Review
 
-The server and AMD host generations are active. The old isolated app is still running. A private exact-key settings manifest passes parsing; the dedicated app UID can make a read-only SSH gate call. Traffic is not held, so no secret capture or database stage ran. An earlier CREATE was reported as `OUTCOME_UNKNOWN`, but its UUID and fixture scope have not been verified against the live database. The hardcoded `live-fixture-20260924` first appears in a synthetic test; authenticated status-only calls with both documented release IDs returned generic HTTP 409. Do not activate an observer policy or perform recovery based on that ID. The observer NixOS module merged in PR #6 into still-open PR #4, not `main`; its server account is not active and the live server still runs its prior generation. The operation-list correction and 13 tests are pushed at `bfebe35e7`. The intermediate `bfebe35e7` bundle passed full inventory verification and an HTTP 200 smoke as UID 62040; it has not been installed. A draft fence verifier with static operator-hold evidence was discarded because it could not prove the hold through the full repair interval. No EZHarness-owned guest has been created, so the live acceptance result is still open.
+The server and AMD host generations are active. A consistent detached PGlite copy confirmed CREATE `62633686-a1bc-4b93-b87a-54fdbc96c2fd` is truly `OUTCOME_UNKNOWN`, with fixture `live-fixture-20260924`, binding `incus-qual-binding-55cd3694c953ba5c7f5213e70a779ef1939c5fbc31ee8963622a4fe146a2a8fe`, and derived instance `ezh-6b3b9dde8ce9a4cc358f04db0d5cbde1`. The first restart lacked a needed `LD_LIBRARY_PATH` and returned 500; the parent stopped only that failed app group and relaunched with the pinned GCC library path. Health, readiness, and authenticated status then returned 200 and confirmed the same CREATE. The separate runner remained running. The observer module is merged into still-open NixOS PR #4 but inactive on the server. The intermediate `bfebe35e7` bundle passed full inventory verification and an HTTP 200 smoke as UID 62040; it has not been installed. Dedicated cutover, independent recovery, and an EZHarness-owned guest remain open.

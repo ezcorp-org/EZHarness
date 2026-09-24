@@ -222,13 +222,15 @@ print(json.dumps({'snapshot':{'alive':alive}}))
                 enforce_distinct_uid=False)
             supervisor.recovery_command = ["verifier"]
             with self.assertRaisesRegex(ValueError, "independent runner client fence verifier"):
-                supervisor.verify_recovery_fence({"fenceEvidence": "evidence"},
+                supervisor.verify_recovery_fence({"fenceEvidence": "evidence",
+                                                  "deadlineMs": int(time.time()*1000)+10000},
                                                  {"pid": 123, "startTicks": "456"})
             supervisor.recovery_fence_command = ["checker"]
             with mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess(
                     [], 0, stdout=b'{"fenced":true,"evidence":"different"}')):
                 with self.assertRaisesRegex(ValueError, "client fence verification failed"):
-                    supervisor.verify_recovery_fence({"fenceEvidence": "reviewed evidence"},
+                    supervisor.verify_recovery_fence({"fenceEvidence": "reviewed evidence",
+                                                      "deadlineMs": int(time.time()*1000)+10000},
                                                      {"pid": 123, "startTicks": "456"})
             request = {"version": 1, "action": "recover-noeffect",
                 "nonce": "nonce", "reviewId": "review", "scope": {
@@ -271,9 +273,24 @@ print(json.dumps({'snapshot':{'alive':alive}}))
                     request["deadlineMs"] = 1_160_000
                     result = supervisor.recover_noeffect(request)
             self.assertEqual(events, ["stop", "fence", "durable", "backend", "durable", "backend",
-                                      "sign", "apply", "start"])
+                                      "sign", "fence", "apply", "start"])
             self.assertEqual(result["receipt"]["payload"]["oldProcess"],
                              {"pid": 123, "startTicks": "456"})
+            events.clear()
+            request["nonce"] = "late-fail"
+            request["deadlineMs"] = int(time.time() * 1000) + 160000
+            def late_fence(_request, _old):
+                events.append("fence")
+                if events.count("fence") == 2:
+                    raise ValueError("runner restarted")
+            supervisor.verify_recovery_fence = late_fence
+            with mock.patch.object(MODULE.time, "sleep", lambda _seconds: None), \
+                 mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess(
+                     [], 0, stdout=b"public key")):
+                with self.assertRaisesRegex(ValueError, "runner restarted"):
+                    supervisor.recover_noeffect(request)
+            self.assertEqual(events[-3:], ["sign", "fence", "start"])
+            self.assertNotIn("apply", events)
             request["deadlineMs"] = int(time.time() * 1000) + 160000
             with self.assertRaisesRegex(ValueError, "replayed"):
                 supervisor.recover_noeffect(request)
@@ -427,8 +444,12 @@ supervisor.serve()
                     self.assertIn("unauthorized control peer", rogue.recv(4096).decode())
                 with socket.socket(socket.AF_UNIX) as rogue:
                     rogue.connect(str(socket_path))
-                    rogue.sendall(b'{"version":1,"action":"fault","phase":"presence"}\n')
-                    self.assertIn("unauthorized control peer", rogue.recv(4096).decode())
+                    try:
+                        rogue.sendall(b'{"version":1,"action":"fault","phase":"presence"}\n')
+                        self.assertIn("unauthorized control peer", rogue.recv(4096).decode())
+                    except BrokenPipeError:
+                        # The peer check can close before this client sends.
+                        pass
                 (root / "allow-restart").write_text("1")
                 old = wait_file(root / "app-0.json")
                 new = wait_file(root / "app-1.json")

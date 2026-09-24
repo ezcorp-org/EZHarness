@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { generateKeyPairSync } from "node:crypto";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -13,6 +13,7 @@ import { incusQualificationFixtures } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { IncusHostLiveWitness, incusHostLiveWitnessReady } from "./incus-host-live-witness";
 import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
+import { IncusQualificationContinuation } from "./incus-qualification-continuation";
 import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
 import type { ProviderConnectionCredentials } from "./provider-connections/store";
 
@@ -79,6 +80,64 @@ test("every unmeasured host probe denies instead of reporting a passing fact", a
   ]) await expect(call()).rejects.toThrow("Incus live witness unavailable");
   await expect(witness.exerciseLimits(handle, handle)).rejects.toThrow("two distinct running fixtures");
   await expect(witness.observeEnforcement(handle, handle)).rejects.toThrow("two distinct fixtures");
+});
+
+test("restart handoff stays bound to the saved fixture and rejects a changed claimed scope", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ezh-restart-gate-"));
+  const socket = join(root, "supervisor.sock");
+  const messages: Array<Record<string, unknown>> = [];
+  const server = createServer(connection => {
+    let request = "";
+    connection.on("data", chunk => {
+      request += chunk.toString();
+      if (!request.includes("\n")) return;
+      const message = JSON.parse(request) as Record<string, unknown>;
+      messages.push(message);
+      connection.end(`${JSON.stringify(message.action === "restart"
+        ? { accepted: true } : { receipt: { payload: {}, signature: "signed" } })}\n`);
+    });
+  });
+  const prepared = { fixtureOperationId: handle.operationId, bindingId: handle.sandboxId,
+    generation: 2, connectionRevision: 1, lastOperationId: "last-operation",
+    beforeDigest: "a".repeat(64) };
+  let claimedScope = scope;
+  const prepare = spyOn(IncusQualificationContinuation.prototype, "prepare")
+    .mockImplementation(async input => {
+      expect(input).toMatchObject({ scope, handle, runId: "run", nonce: "nonce" });
+      return prepared as never;
+    });
+  const resume = spyOn(IncusQualificationContinuation.prototype, "resume")
+    .mockImplementation(async (_runId, _nonce, requestReceipt) => {
+      await requestReceipt({ afterDigest: "b".repeat(64), deadlineMs: Date.now() + 30_000 } as never);
+      return { scope: claimedScope, handle } as never;
+    });
+  const fixtures = { status: async () => ({ fixture: { bindingId: handle.sandboxId } }) } as unknown as IncusQualificationFixtureService;
+  const candidate = new IncusHostLiveWitness({ db: {} as Database,
+    qualifications: {} as IncusQualificationStore,
+    fixtures,
+    supervisorSocketPath: socket });
+  const internal = candidate as unknown as {
+    context: () => Promise<unknown>;
+    owned: (value: typeof handle) => Promise<unknown>;
+  };
+  internal.context = async () => ({ context: {} });
+  internal.owned = async value => { expect(value).toEqual(handle); return {}; };
+  try {
+    await new Promise<void>((resolve, reject) => server.listen(socket, resolve).once("error", reject));
+    expect(await candidate.findFixture(scope, handle.operationId)).toEqual(handle);
+    await candidate.beginRestart(scope, INCUS_PRESETS[0]!, handle, "run", "nonce", Date.now() + 30_000);
+    expect(await candidate.claimRestart(scope, INCUS_PRESETS[0]!, "run", "nonce")).toEqual(handle);
+    claimedScope = { ...scope, connectionId: "other-connection" };
+    await expect(candidate.claimRestart(scope, INCUS_PRESETS[0]!, "run", "nonce"))
+      .rejects.toThrow("claimed qualification scope changed");
+    expect(messages.map(message => message.action)).toEqual(["restart", "receipt", "receipt"]);
+    expect(messages[0]).toMatchObject({ scope, bindingId: handle.sandboxId,
+      fixtureOperationId: handle.operationId, generation: 2, connectionRevision: 1 });
+  } finally {
+    prepare.mockRestore(); resume.mockRestore();
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 test("cleanup witness reads durable fault, real readiness denial, and same-operation recovery", async () => {
@@ -342,6 +401,57 @@ test("resource enforcement binds guest cgroups and network checks to two running
   targetId = "forged-neighbor";
   await expect(candidate.observeEnforcement(handle, other)).rejects.toThrow("neighbor network identity changed");
   expect(calls.filter(value => value.startsWith("guest:"))).toHaveLength(1);
+});
+
+test("limit loads recheck the pinned host and neighbor after each guest load", async () => {
+  const preset = INCUS_PRESETS[0]!;
+  const other = { sandboxId: "neighbor-binding", operationId: "neighbor-operation" };
+  const calls: string[] = [];
+  const selected = { preset, connection: { endpoint: "https://100.81.181.39:8443" } };
+  const backend = {
+    image: async () => ({ imageDigest: preset.imageDigest, profile: preset.profile,
+      helperDigest: preset.helperDigests[0] }),
+    instance: async (_context: unknown, sandboxId: string) => {
+      calls.push(`inspect:${sandboxId}`);
+      return { state: "running", privateNetwork: true, restrictedProject: true, unprivileged: true };
+    },
+    poolResources: async () => ({ freeBytes: 1024 ** 4 }),
+  };
+  const candidate = new IncusHostLiveWitness({ db: {} as Database,
+    qualifications: {} as IncusQualificationStore,
+    fixtures: {} as IncusQualificationFixtureService,
+    backend: backend as never,
+    resourceNetwork: { neighborTarget: async () => ({ sandboxId: other.sandboxId,
+      address: "10.173.0.22", port: 8080 }),
+      hostCanConnect: async target => { calls.push(`host:${target.address}:${target.port}`); return true; } },
+  });
+  const internal = candidate as unknown as {
+    owned: (value: typeof handle) => Promise<unknown>;
+    context: () => Promise<unknown>;
+  };
+  internal.owned = async () => ({ scope, selected });
+  internal.context = async () => ({ context: {} });
+  candidate.observeEnforcement = async () => ({ memoryMaxBytes: preset.limits.memoryBytes,
+    cpuQuotaMillis: preset.limits.cpuMillis, pidsMax: preset.limits.pids,
+    rootQuotaBytes: preset.limits.diskBytes }) as never;
+  candidate.run = async (fixture, argv) => {
+    if (fixture.sandboxId === other.sandboxId) return { exitCode: 0,
+      stdout: "ezh-neighbor-ok", stderr: "" };
+    const resource = argv[3]!;
+    calls.push(`load:${resource}`);
+    const detail = resource === "memory" ? { oomKillDelta: 1, childExit: 137 }
+      : resource === "cpu" ? { throttledDelta: 1, elapsedMs: 4000 }
+        : resource === "pids" ? { denialEventDelta: 1, spawned: 0 } : { errno: 28 };
+    return { exitCode: 0, stderr: "", stdout: JSON.stringify({ resource,
+      attempted: Number(argv[4]), observedLimit: Number(argv[5]), contained: true, detail }) };
+  };
+  const facts = await candidate.exerciseLimits(handle, other);
+  expect(facts.map(fact => fact.resource)).toEqual(["memory", "cpu", "pids", "disk"]);
+  expect(facts.every(fact => fact.contained && fact.hostHealthy && fact.neighborHealthy)).toBe(true);
+  expect(calls.filter(call => call.startsWith("load:"))).toEqual([
+    "load:memory", "load:cpu", "load:pids", "load:disk"]);
+  expect(calls).toContain("host:100.81.181.39:8443");
+  expect(calls).toContain(`inspect:${other.sandboxId}`);
 });
 
 test("discarded create reply must replay the same durable fixture operation", async () => {

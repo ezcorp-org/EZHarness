@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
@@ -11,7 +11,12 @@ import type { SandboxWorkspaceTargetResolver } from "../runtime/workspaces/proje
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import type { ProviderConnectionMetadata } from "./provider-connections/store";
 import type { createProviderSandboxWorkspaceBackend } from "../runtime/workspaces/provider-backend";
-import { initializeIncusSandboxWorkspace, resumePendingIncusQualification,
+import { IncusLiveProbeFixtureService } from "./incus-live-probe-fixtures";
+import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
+import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
+import { IncusFeatureService } from "./incus-feature-service";
+import { createIncusQualificationWitness, initializeIncusSandboxWorkspace, resumePendingIncusQualification,
+  startIncusQualificationContinuation,
   reconcileIncusWithClaimedCleanup, startIncusSandboxReconciler } from "./incus-startup";
 
 let resolver: SandboxWorkspaceTargetResolver | null = null;
@@ -21,6 +26,41 @@ let revision = 1;
 let revoked = false;
 let reconcileCalls = 0;
 const preset = incusManifest.sandboxProviders![0]!.presets[0]!;
+
+test("qualification witness requires a host probe root and uses the saved host fixture", async () => {
+  const previous = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+  const scope = { installationId: "installation", releaseId: "release",
+    connectionId: "connection", presetId: preset.id };
+  const db = {} as Parameters<typeof createIncusQualificationWitness>[2];
+  const config = { cases: Object.fromEntries(["unsupported", "missingControl", "drift", "unqualified"]
+    .map(kind => [kind, { projectId: `probe-${kind}`, canaryPath: `/private/${kind}` }])),
+    unqualifiedPresetId: "other-preset" };
+  const ready = spyOn(IncusLiveProbeFixtureService.prototype, "readyConfig")
+    .mockResolvedValue(config as never);
+  try {
+    delete process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+    await expect(createIncusQualificationWitness(scope, "run", db))
+      .rejects.toThrow("control probe root is unavailable");
+    expect(ready).not.toHaveBeenCalled();
+    process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/probe-root";
+    const witness = await createIncusQualificationWitness(scope, "run", db);
+    expect(ready).toHaveBeenCalledWith(scope, "run");
+    expect((witness as unknown as { controlProbe: unknown }).controlProbe).toBeDefined();
+  } finally {
+    ready.mockRestore();
+    if (previous === undefined) delete process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+    else process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = previous;
+  }
+});
+
+test("qualification continuation reports a failed handoff without leaving a pending shutdown", async () => {
+  let attempts = 0;
+  const stop = startIncusQualificationContinuation({ db: {} as never,
+    checkpoints: { pending: async () => { attempts++; throw new Error("database unavailable"); },
+      fail: async () => {} } });
+  await stop();
+  expect(attempts).toBe(1);
+});
 
 test("startup fences the active SP05 run and recovers only a replacement process's exact journal", async () => {
   const calls: string[] = [];
@@ -147,6 +187,42 @@ test("startup reconciler reads durable state through the real service before shu
   }
 }, 30_000);
 
+test("default reconciler requires the host project before it recovers an uncertain cleanup", async () => {
+  const previous = process.env.EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID;
+  const calls: string[] = [];
+  const pending = { runId: "run", scope: { installationId: "installation", releaseId: "release",
+    connectionId: "connection", presetId: "preset" },
+    handle: { sandboxId: "binding", operationId: "fixture" }, operationId: "destroy",
+    originProcessCurrent: false, operationState: "OUTCOME_UNKNOWN" };
+  const checkpoint = spyOn(IncusQualificationCheckpointStore.prototype, "pendingCleanup")
+    .mockResolvedValue(pending as never);
+  const fail = spyOn(IncusQualificationCheckpointStore.prototype, "fail")
+    .mockImplementation(async () => { calls.push("checkpoint failed"); });
+  const recover = spyOn(IncusLiveCleanupController.prototype, "reconcileFromReopenedController")
+    .mockImplementation(async () => { calls.push("recovered"); });
+  const settle = spyOn(IncusLiveCleanupController.prototype, "settleAlreadyCompletedDestroy")
+    .mockImplementation(async () => { calls.push("settled"); });
+  const reconcile = spyOn(IncusFeatureService.prototype, "reconcile")
+    .mockImplementation(async () => { calls.push("reconciled"); return [] as never; });
+  try {
+    delete process.env.EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID;
+    await startIncusSandboxReconciler(30_000, undefined, {} as never)();
+    expect(calls).toEqual([]);
+    process.env.EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID = "reviewed-project";
+    await startIncusSandboxReconciler(30_000, undefined, {} as never)();
+    expect(calls).toEqual(["recovered", "checkpoint failed", "reconciled"]);
+    calls.length = 0;
+    pending.operationState = "SUCCEEDED";
+    await startIncusSandboxReconciler(30_000, undefined, {} as never)();
+    expect(calls).toEqual(["settled", "checkpoint failed", "reconciled"]);
+  } finally {
+    checkpoint.mockRestore(); fail.mockRestore(); recover.mockRestore();
+    settle.mockRestore(); reconcile.mockRestore();
+    if (previous === undefined) delete process.env.EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID;
+    else process.env.EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID = previous;
+  }
+});
+
 test("replacement startup uses one pending checkpoint and persists only resumed evidence", async () => {
   const calls: string[] = [];
   const scope = { installationId: "installation", releaseId: "release", connectionId: "connection", presetId: "preset" };
@@ -180,6 +256,12 @@ test("replacement startup uses one pending checkpoint and persists only resumed 
     resume: async () => { throw new Error("pinned backend changed"); },
   } as never)).rejects.toThrow("pinned backend changed");
   expect(calls).toEqual(["pending", "authorize", "witness:run", "failed"]);
+  calls.length = 0;
+  await expect(resumePendingIncusQualification({ ...deps,
+    checkpoints: { ...deps.checkpoints, fail: async () => { throw new Error("checkpoint write failed"); } },
+    resume: async () => { throw new Error("pinned backend changed"); },
+  } as never)).rejects.toThrow("pinned backend changed");
+  expect(calls).toEqual(["pending", "authorize", "witness:run"]);
   calls.length = 0;
   await resumePendingIncusQualification({ ...deps,
     checkpoints: { ...deps.checkpoints, pending: async () => { calls.push("pending"); return null; } },

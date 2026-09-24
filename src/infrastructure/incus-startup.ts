@@ -26,7 +26,7 @@ export async function createIncusQualificationWitness(scope: IncusQualificationS
   const rootDirectory = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
   if (!rootDirectory) throw new Error("Incus control probe root is unavailable");
   const config = await new IncusLiveProbeFixtureService({ db, rootDirectory }).readyConfig(scope, runId);
-  return new IncusHostLiveWitness({ db, controlProbe: new IncusLiveControlProbes(config) });
+  return new IncusHostLiveWitness({ db, controlProbe: new IncusLiveControlProbes(config, { db }) });
 }
 
 type QualificationContinuationDependencies = {

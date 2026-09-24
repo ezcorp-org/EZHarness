@@ -249,3 +249,25 @@ test("an unclaimed or changed durable run cannot publish cases", async () => {
   await expect(resumeDurableIncusLiveCases({ witness: replacement }, scope, preset,
     { runId: "unknown", nonce: "unknown" })).rejects.toThrow("claimed primary fixture changed");
 });
+
+test("a failed replacement observation cleans both claimed fixtures before returning the error", async () => {
+  const original = witness();
+  const run = { runId: "failed-resume", nonce: "fresh-nonce", deadlineMs: Date.now() + 60_000 };
+  const first: DurableIncusLiveWitness = { ...original.value,
+    findFixture: async () => { throw new Error("first process cannot resume"); },
+    claimRestart: async () => { throw new Error("first process cannot claim"); },
+    beginRestart: async () => {},
+  };
+  await beginDurableIncusLiveCases({ witness: first }, scope, preset, run);
+  const replacement: DurableIncusLiveWitness = { ...original.value,
+    findFixture: async (_scope, operationId) => ({ operationId, sandboxId: `sandbox-${operationId}` }),
+    claimRestart: async () => ({ operationId: `qual-primary-${run.runId}`,
+      sandboxId: `sandbox-qual-primary-${run.runId}` }),
+    beginRestart: async () => { throw new Error("replacement cannot restart again"); },
+    observe: async () => { throw new Error("host observation failed after restart"); },
+  };
+  await expect(resumeDurableIncusLiveCases({ witness: replacement }, scope, preset, run))
+    .rejects.toThrow("host observation failed after restart");
+  expect(original.destroyed).toHaveLength(2);
+  expect([...original.states.values()]).toEqual(["absent", "absent"]);
+});

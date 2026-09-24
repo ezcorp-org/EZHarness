@@ -35,15 +35,23 @@ root-owned mode `0600` JSON file with `context` (the reviewed
 
 ```json
 {
-  "host": "PINNED_INCUS_SSH_HOST",
-  "user": "DEDICATED_FORCED_COMMAND_SSH_ACCOUNT",
-  "identityFile": "/etc/ezharness/noeffect-observer.key",
-  "knownHostsFile": "/etc/ezharness/noeffect-known-hosts",
-  "project": "ezharness",
-  "instance": "EXACT_DERIVED_INCUS_INSTANCE_NAME",
-  "oldCertificateSha256": "EXACT_64_LOWERCASE_HEX_DER_FINGERPRINT"
+  "context": {},
+  "observation": {
+    "host": "PINNED_INCUS_SSH_HOST",
+    "user": "DEDICATED_FORCED_COMMAND_SSH_ACCOUNT",
+    "identityFile": "/etc/ezharness/noeffect-observer.key",
+    "knownHostsFile": "/etc/ezharness/noeffect-known-hosts",
+    "project": "ezharness",
+    "instance": "EXACT_DERIVED_INCUS_INSTANCE_NAME",
+    "oldCertificateSha256": "EXACT_64_LOWERCASE_HEX_DER_FINGERPRINT"
+  }
 }
 ```
+
+The empty `context` is only a placeholder. Replace it with the complete
+reviewed `LiveReadbackContext` for the saved connection, release, preset, and
+recipe. An empty context fails validation. Keep the observer fields inside
+`observation`; top-level observer fields are not read by the recovery tool.
 
 The instance name must equal the name derived from the saved connection and
 binding IDs. Pin the SSH host key in the dedicated known-hosts file. Both
@@ -106,6 +114,66 @@ stopped runner services, and any remote credential holders. It receives
 `{"request": ..., "oldProcess": ...}` on stdin and must return exactly
 `{"fenced": true, "evidence": "<the request fenceEvidence>"}`. Any other
 result fails closed.
+
+The [scoped local fence](../scripts/incus/incus-qualification-recovery-fence.py)
+is the reviewed command for the dedicated-UID cutover. Install it under a
+root-owned path. Give it a root-owned mode `0600` config with exactly these
+fields, replacing every placeholder from the saved CREATE and the cutover:
+
+```json
+{
+  "target": {
+    "scope": {
+      "installationId": "00bcc640-c430-4c9a-8d97-e35835b8bcf8",
+      "releaseId": "02ce233e-ccbf-4b19-a93f-4e6ee63a926a",
+      "connectionId": "9be7969a-0319-4cd7-8b85-d6e034f0f226",
+      "presetId": "incus-compose-v1"
+    },
+    "fixtureOperationId": "live-fixture-20260924",
+    "bindingId": "incus-qual-binding-55cd3694c953ba5c7f5213e70a779ef1939c5fbc31ee8963622a4fe146a2a8fe",
+    "operationId": "62633686-a1bc-4b93-b87a-54fdbc96c2fd",
+    "generation": 1,
+    "connectionRevision": 1
+  },
+  "appUid": 62040,
+  "runnerUid": 62041,
+  "runnerUnit": "ezharness-qual-runner.service",
+  "project": "ezharness",
+  "instance": "ezh-6b3b9dde8ce9a4cc358f04db0d5cbde1",
+  "oldCertificateSha256": "EXACT_64_LOWERCASE_HEX_DER_FINGERPRINT",
+  "observerConfig": "/etc/ezharness/noeffect-observer.json"
+}
+```
+
+The command is `python3 /opt/ezharness/scripts/incus/incus-qualification-recovery-fence.py
+--config /etc/ezharness/noeffect-fence.json`, using the installed absolute
+Python path in supervisor JSON. Set `EZCORP_INCUS_NOEFFECT_CONFIG` to the same
+sealed observer config named by `observerConfig`. The fence compares all saved
+CREATE IDs, derives its instance name, and checks that this observer config
+pins the exact instance, project, and old certificate fingerprint. It refuses
+an app process in the stopped group, any process under the dedicated app or
+runner UID, or a runner unit that is not masked and inactive with an empty
+cgroup. Mask and stop the runner as a separate reviewed host step before the
+request; this command only reads state. Do not mistake another development
+runner service for this unit. An idle administrator with unrelated access does
+not fail this scoped local client check.
+Unmask the runner only after repair completes and the restarted app passes
+its read-only checks, while ingress remains held.
+
+The independent SSH observer checks the old certificate is absent from Incus
+trust, the instance is absent, and the project's operation list is empty on
+two reads after the 65-second quiet period. The supervisor checks the local
+fence once after stopping the app and again immediately before offline apply.
+Its signed receipt still records the same request and observations. Removing
+the exact old certificate on the Incus host is a separate operator action;
+the fence command never writes to that server. Incus says later API calls
+with a removed trusted certificate return 403. An already accepted
+asynchronous operation can continue, which is why the quiet period and both
+operation reads remain necessary. The operator must also inventory and hold
+any other credential or local Unix-socket actor able to write this project;
+this local command cannot prove such unrelated host authority is idle. If
+that host control, the runner mask, or certificate removal cannot be
+maintained through apply, keep `recoveryFenceCommand` set to `false`.
 
 The operator socket is mode `0600` and accepts only the supervisor UID. It
 is not a public HTTP action. Prepare a root-owned mode `0600` JSON request

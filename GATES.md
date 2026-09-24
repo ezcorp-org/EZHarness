@@ -1,4 +1,4 @@
-Current Incus completion: [gates/incus-completion-2026-09-24.md](gates/incus-completion-2026-09-24.md). Prior [PR #303 gates](gates/incus-live-pr303.md) and project records follow unchanged.
+Current Incus completion: [gates/incus-final-live-2026-09-24.md](gates/incus-final-live-2026-09-24.md). Prior [PR #303 gates](gates/incus-live-pr303.md) and project records follow unchanged.
 
 # Gates: Extension v4 implementation and PR
 

@@ -151,6 +151,20 @@ test("prepare, create, start, stop and destroy use durable admission and provide
   expect((await controller.getBinding(binding.id))?.cleanupConfirmedAt).toBeInstanceOf(Date);
 }, DB_TEST_TIMEOUT_MS);
 
+test("a missing or unfinished operation cannot be settled as complete", async () => {
+  const { service, preset, configureAdmission } = await fixture();
+  await expect(service.settleCompletedOperation("missing-operation"))
+    .rejects.toThrow();
+  const binding = await service.prepare({ projectId: "project", installationId: "installation",
+    connectionId: "connection", presetId: preset.id });
+  await configureAdmission();
+  const operation = await service.create({ bindingId: binding.id,
+    idempotencyScope: "feature", idempotencyKey: "pending-create" });
+  expect(operation.state).toBe("DISPATCHED");
+  if (operation.state !== "DISPATCHED") throw new Error("create was not dispatched");
+  await expect(service.settleCompletedOperation(operation.operation.id)).rejects.toThrow();
+}, DB_TEST_TIMEOUT_MS);
+
 test("preparation fails closed without qualification or a matching connection revision", async () => {
   const { service, setQualification, connection } = await fixture();
   const input = { projectId: "project", installationId: "installation", connectionId: "connection", presetId: "incus-linux-exec-v1" };

@@ -1,5 +1,8 @@
 # Lessons
 
+- Before a guarded NixOS activation, verify that the target accepts the candidate closure's signatures. If `nix copy` rejects an unsigned path, keep the old generation active and build the pinned derivation on the target; do not disable signature checks to save time.
+- Pin the old Incus client identity from the live trust entry's certificate DER digest. A release digest or a copied value from another review packet is not an authority fingerprint.
+
 - Before a dedicated-UID cutover, inspect the actual isolated app process tree and source parent. A dev-owned `/tmp` parent cannot hold a root-only quarantine; move the stopped database into a root-owned private parent before making copies, and require a loaded unit for the old app and runner.
 
 - When infrastructure is not provisioned, separate locally verifiable contract work from later network qualification. Do not infer AMD, Xeon, Incus, Infisical, or credential availability from a delivery plan.
@@ -422,3 +425,5 @@
 - Keep a recovery fence scoped to the clients and credentials that can repeat the saved effect. Idle operator access is not itself an active client. Do not replace a missing live hold with a static `trafficHeld` field or add a new signer unless the proof actually needs it; verify the hold remains effective throughout the observation and database repair.
 - Recheck a PR's current state and base branch when the user reports a merge. A PR merged into another open feature branch is not on `main`, and neither merge is an active server generation. Verify the running system and exact policy before treating the observer as installed.
 - Never promote a test fixture ID or synthetic CREATE UUID into a live recovery fact. Read the actual durable row and scope before building server policy or treating an HTTP 409 as proof that a fixture is absent.
+- Before stopping a live test app, prove the restart launcher carries every required runtime library path from the current process environment. The isolated app's launcher omitted `LD_LIBRARY_PATH`, so its first restart returned HTTP 500 until the pinned GCC library path was supplied.
+- Test the exact process-group signal command on the target host. NixOS `kill` rejected the negative group argument in the recovery runbook; Python `os.killpg` worked after verifying the group identity.

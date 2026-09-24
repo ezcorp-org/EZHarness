@@ -151,6 +151,30 @@ export async function resolveExtensionReleaseSnapshot(repository: DatabaseLifecy
 
 interface LifecycleServices { lifecycle: ExtensionLifecycle; control: ExtensionControl; runner: Runner; repository: DatabaseLifecycleRepository; deliveries: ExtensionDeliveryQueue; migrations: ExtensionDataMigrations; blobs: FileBlobStore; incusLostDestroyReply: import("../infrastructure/incus-destroy-reply-fault").HostIncusLostDestroyReplyFault }
 export interface RecoveryServices { lifecycle: Pick<ExtensionLifecycle, "recover" | "reconcile">; repository: Pick<DatabaseLifecycleRepository, "read">; migrations: Pick<ExtensionDataMigrations, "recover"> }
+type LostDestroyReplyArm = import("../infrastructure/incus-destroy-reply-fault").LostDestroyReplyArm;
+type FaultCheckpointAuthorization = Pick<import("../infrastructure/incus-qualification-checkpoint").IncusQualificationCheckpointStore,
+  "authorizeRecoveryFixtureForRun" | "authorizeRecoveryReadbackForRun">;
+
+/** Keep the database authorization ahead of every supervisor fault command. */
+export function incusOperatorFaultAuthority(checkpoints: FaultCheckpointAuthorization,
+  socket: string | undefined,
+  request: (socket: string, phase: "presence" | "arm" | "readback", arm?: LostDestroyReplyArm) => Promise<void>) {
+  const operatorFault = async (phase: "presence" | "arm" | "readback", arm?: LostDestroyReplyArm) => {
+    if (!socket) throw new Error("Incus operator fault control is unavailable");
+    await request(socket, phase, arm);
+  };
+  return {
+    authenticateOperator: () => operatorFault("presence"),
+    authorizeRun: async (arm: LostDestroyReplyArm) => {
+      await checkpoints.authorizeRecoveryFixtureForRun(arm);
+      await operatorFault("arm", arm);
+    },
+    authorizeReadback: async (arm: LostDestroyReplyArm) => {
+      await checkpoints.authorizeRecoveryReadbackForRun(arm);
+      await operatorFault("readback", arm);
+    },
+  };
+}
 let services: Promise<LifecycleServices> | undefined;
 const recoveryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let recoveryCapacityAvailable = false;
@@ -184,23 +208,9 @@ async function initialize(): Promise<LifecycleServices> {
   const { IncusQualificationCheckpointStore } = await import("../infrastructure/incus-qualification-checkpoint");
   const { requestIncusSupervisorFault } = await import("../infrastructure/incus-qualification-supervisor-client");
   const faultSocket = process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
-  const operatorFault = async (phase: "presence" | "arm" | "readback",
-    arm?: import("../infrastructure/incus-destroy-reply-fault").LostDestroyReplyArm) => {
-    if (!faultSocket) throw new Error("Incus operator fault control is unavailable");
-    await requestIncusSupervisorFault(faultSocket, phase, arm);
-  };
   const faultCheckpoints = new IncusQualificationCheckpointStore(getDb());
-  const incusLostDestroyReply = new HostIncusLostDestroyReplyFault(getDb(), {
-    authenticateOperator: () => operatorFault("presence"),
-    authorizeRun: async arm => {
-      await faultCheckpoints.authorizeRecoveryFixtureForRun(arm);
-      await operatorFault("arm", arm);
-    },
-    authorizeReadback: async arm => {
-      await faultCheckpoints.authorizeRecoveryReadbackForRun(arm);
-      await operatorFault("readback", arm);
-    },
-  });
+  const incusLostDestroyReply = new HostIncusLostDestroyReplyFault(getDb(),
+    incusOperatorFaultAuthority(faultCheckpoints, faultSocket, requestIncusSupervisorFault));
   configureReleaseRuntime({
     runner: async () => runner,
     providerRpcBroker: new ProviderRpcBroker(new ProviderConnectionStore(getDb()), undefined, getDb(), undefined, incusLostDestroyReply),

@@ -3,7 +3,7 @@ import type { CandidateVerificationReport, ReleaseRecord, RunnerExecution } from
 import { closeTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
 import { incusManifest, INCUS_PRESETS, INCUS_CAPABILITIES, INCUS_PROFILES } from "../../extensions/incus-sandbox/manifest";
 import { digestObject } from "./v4/blobs";
-import { getExtensionLifecycle, getExtensionRunner, recoverInstallation, recoverInstallations, recoveryDeadline, } from "./extension-lifecycle-service";
+import { getExtensionLifecycle, getExtensionRunner, incusOperatorFaultAuthority, recoverInstallation, recoverInstallations, recoveryDeadline, } from "./extension-lifecycle-service";
 import type { InstallationRecord, InstallationState } from "./v4";
 import type { RecoveryServices } from "./extension-lifecycle-service";
 
@@ -13,6 +13,33 @@ mockDbConnection();
 afterAll(closeTestDb);
 
 type DeferredTimer = () => Promise<void>;
+
+test("Incus operator fault commands require a socket and checkpoint authority before dispatch", async () => {
+  const events: string[] = [];
+  const arm = { runId: "run" } as Parameters<ReturnType<typeof incusOperatorFaultAuthority>["authorizeRun"]>[0];
+  const checkpoints = {
+    authorizeRecoveryFixtureForRun: async () => { events.push("authorize:arm"); },
+    authorizeRecoveryReadbackForRun: async () => { events.push("authorize:readback"); },
+  };
+  const request = async (_socket: string, phase: "presence" | "arm" | "readback") => {
+    events.push(`supervisor:${phase}`);
+  };
+  const disconnected = incusOperatorFaultAuthority(checkpoints as never, undefined, request);
+  await expect(disconnected.authenticateOperator()).rejects.toThrow("operator fault control is unavailable");
+  expect(events).toEqual([]);
+  const connected = incusOperatorFaultAuthority(checkpoints as never, "/private/supervisor.sock", request);
+  await connected.authenticateOperator();
+  await connected.authorizeRun(arm);
+  await connected.authorizeReadback(arm);
+  expect(events).toEqual(["supervisor:presence", "authorize:arm", "supervisor:arm",
+    "authorize:readback", "supervisor:readback"]);
+
+  const rejected = incusOperatorFaultAuthority({ ...checkpoints,
+    authorizeRecoveryFixtureForRun: async () => { throw new Error("fixture approval changed"); },
+  } as never, "/private/supervisor.sock", request);
+  await expect(rejected.authorizeRun(arm)).rejects.toThrow("fixture approval changed");
+  expect(events).toHaveLength(5);
+});
 
 function recoveryFixture(completeOnSecondRecovery = true) {
   const operation = { id: "build", kind: "build" as const, state: "building" as const, idempotencyKey: "build", inputDigest: "build", diagnostics: [], events: [], createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), lease: { holder: "first-holder", fence: 1, until: Date.now() + 60_000 } };
