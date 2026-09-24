@@ -1870,10 +1870,14 @@ service or sandbox has been activated by these steps.
 - [ ] Stage sealed settings and isolated data under dedicated identities, then switch the isolated app with rollback checks.
 - [ ] Resolve the saved unknown CREATE through the fenced repair path before a new effect.
 - [ ] Provide a separately trusted readback path so the old provider client credential can be fenced during unknown-CREATE repair; verify denial of the old credential before accepting the no-effect receipt.
+- [x] Audit the exact recovery fence contract against the live `dev` SSH/admin path and define the narrow authority that must be retired. Do not mark no-effect from an empty inventory alone.
+- [ ] Implement and qualify a fail-closed scoped fence verifier for the old app, runner, and holders of the old provider credential; hold any active admin activity that could alter the exact instance or trust during observation.
+- [ ] Install and verify the independent observer only after its exact server plan is reviewed; prove its operation-list output and old-certificate denial on the real server.
+- [ ] Rebuild and smoke-test the final `bfebe35e7` bundle as the dedicated app UID. Keep the old app running until the fenced cutover passes.
 - [ ] Apply a newly reviewed exact Incus setup plan if live inventory requires one.
 - [ ] From EZHarness, create a sandbox, run a process in its workspace, verify reconnect and isolation, then destroy or retain it by policy.
 - [ ] Record live evidence, run affected checks, and update PR #303 without claiming untested profiles.
 
 ### Review
 
-The server and AMD host generations are active. The old isolated app is still running. A private exact-key settings manifest passes parsing; the dedicated app UID can make a read-only SSH gate call. Traffic is not held, so no secret capture or database stage ran. The saved unknown CREATE cannot yet be repaired safely because its readback uses the same provider client credential that must be fenced. No EZHarness-owned guest has been created, so the live acceptance result is still open.
+The server and AMD host generations are active. The old isolated app is still running. A private exact-key settings manifest passes parsing; the dedicated app UID can make a read-only SSH gate call. Traffic is not held, so no secret capture or database stage ran. The saved unknown CREATE cannot yet be repaired safely because its readback uses the same provider client credential that must be fenced. An independent observer implementation is on the PR, and a live read showed why its operation query needed the CLI list form; the correction and 13 tests are pushed at `bfebe35e7`. The observer server account is not active. A read-only audit found unrestricted `dev` SSH keys and an Incus-capable `dev` account. Idle unrelated admin access does not itself invalidate a scoped no-effect proof; active access that could mutate the exact instance or restore the old credential must be held and checked. The old app, runner, and remote credential holders still need a real fence verifier. No EZHarness-owned guest has been created, so the live acceptance result is still open.
