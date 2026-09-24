@@ -3095,9 +3095,12 @@ export const factoryValidatorResults = pgTable("factory_validator_results", {
 export const factoryArtifactReadGrants = pgTable("factory_artifact_read_grants", {
   tenantId: text("tenant_id").notNull(), sourceProjectId: text("source_project_id").notNull(), sourceRunId: text("source_run_id").notNull(), sourceArtifactId: text("source_artifact_id").notNull(), targetProjectId: text("target_project_id").notNull(),
   artifactDigest: text("artifact_digest").notNull(), artifactBytes: bigint("artifact_bytes", { mode: "number" }).notNull(), artifactKind: text("artifact_kind").notNull(), storageVersion: text("storage_version").notNull(), mediaType: text("media_type").notNull(),
-  issuerId: text("issuer_id").notNull(), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  issuerId: text("issuer_id").notNull(), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }), grantRevision: bigint("grant_revision", { mode: "number" }).notNull().default(1), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
-  primaryKey({ columns: [table.tenantId, table.sourceProjectId, table.sourceArtifactId, table.targetProjectId] }),
+  // W04b: one row per grant. A revoked row stays; only an active grant is unique.
+  primaryKey({ columns: [table.tenantId, table.sourceProjectId, table.sourceArtifactId, table.targetProjectId, table.grantRevision] }),
+  uniqueIndex("idx_factory_artifact_read_grants_active").on(table.tenantId, table.sourceProjectId, table.sourceArtifactId, table.targetProjectId).where(sql`${table.revokedAt} IS NULL`),
+  check("factory_artifact_read_grants_grant_revision_check", sql`${table.grantRevision} > 0`),
   index("idx_factory_artifact_read_grants_target").on(table.tenantId, table.targetProjectId, table.sourceArtifactId),
   foreignKey({ columns: [table.tenantId, table.sourceProjectId, table.sourceArtifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
   foreignKey({ columns: [table.tenantId, table.sourceProjectId, table.sourceRunId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),

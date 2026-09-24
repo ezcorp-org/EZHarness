@@ -3127,4 +3127,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addFactoryChildArtifactAliases(db);
   const { up: addFactoryLegacyWorkflowAdapters } = await import("./migrations/add-factory-legacy-workflow-adapters");
   await addFactoryLegacyWorkflowAdapters(db);
+  // W04b: a revoked artifact share no longer blocks a new grant. Depends only on
+  // add-factory-artifact-read-grants, registered above.
+  const { up: allowFactoryArtifactRegrant } = await import("./migrations/allow-factory-artifact-regrant");
+  await allowFactoryArtifactRegrant(db);
 }
