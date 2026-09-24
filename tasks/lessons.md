@@ -405,3 +405,8 @@
 - When a timed operator arm precedes a durable journal, reserve the exact operation ID first and recheck the arm and deadline immediately before journal publication. A late failure must leave no executable operation; retain and report any cleanup intent that was already written.
 - Agents in one worktree share the Git index. Before each commit, stage explicit owned paths and inspect `git diff --cached --name-only`; do not assume another agent's staged files are isolated.
 - When hosted CI times out on fixture readiness, fix the test's synchronization even if the PR did not change that fixture. Wait for the producer's observable output or exit; do not treat a passing focused rerun as proof that a wall-clock deadline is safe.
+
+## 2026-09-24 — Offline Incus effect fences
+
+- Bound a no-effect wait by the longest worker and provider request policy, not only the innermost transport deadline. A 30-second transport timeout did not cover a 60-second v4 worker. Require an independent check for detached or remote clients before accepting backend absence.
+- Check a dedicated app UID and process-group ownership before stopping the managed app. A shared development UID must reject recovery while the app is still running; do not turn an invalid repair request into an avoidable outage.
