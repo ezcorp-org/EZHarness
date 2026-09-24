@@ -14,3 +14,8 @@ Scope: complete and verify the first real EZHarness-to-Incus feature flow, recov
   EVIDENCE: pending
 - [ ] G6: The documented v1 release gates have evidence; any unimplemented capability stays disabled and is listed precisely.
   EVIDENCE: pending
+
+Release 0.1.2 is active in the isolated app at generation 3. Its first new
+setup plan was blocked by a certificate-rotation defect and was never applied.
+The source now reuses a reviewed client identity only after old work is drained;
+the live unknown CREATE still needs audited recovery before a new plan.

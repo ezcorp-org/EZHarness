@@ -8,7 +8,8 @@
 - [x] Integrate the independent qualification receipt, durable continuation, and diagnostic probe commits.
 - [x] Re-run the isolated app probe; pin the non-CA server leaf and identify the helper qualification gate.
 - [x] Build and directly test a corrected pinned guest image that grants UID/GID 1000 Docker access.
-- [ ] Build, review, and activate provider release 0.1.2 against the isolated app and verify the current operator setup.
+- [x] Build, review, and activate provider release 0.1.2 against the isolated app.
+- [ ] Reconcile the old unknown CREATE, then make and verify a new operator setup plan with the existing scoped client trust.
 - [ ] Resolve the saved unknown CREATE through a fenced, audited recovery action before another CREATE.
 - [ ] Qualify the live provider profile, create and clean up an EZHarness-owned feature guest, then run the full feature workflow.
 - [ ] Pass local gates and hosted CI at the final PR head; update PR #303 with measured evidence and limits.

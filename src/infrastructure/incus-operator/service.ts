@@ -7,7 +7,7 @@ import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import recipeTemplate from "../../../scripts/incus/recipe.json";
 import { applySetupPlan } from "../../../scripts/incus/apply";
 import { inspectIncus, sshRunner, type RemoteRunner } from "../../../scripts/incus/inspect";
-import type { ApplyReceipt, IncusConnection, IncusSetupPlan, IncusSetupRecipe } from "../../../scripts/incus/model";
+import type { ApplyReceipt, IncusConnection, IncusInventory, IncusSetupPlan, IncusSetupRecipe } from "../../../scripts/incus/model";
 import { assertSetupPlanDigest, digest } from "../../../scripts/incus/model";
 import { createSetupPlan, validateRecipe, verifySetupPlan } from "../../../scripts/incus/plan";
 import { releaseRows, type ReleaseDatabase } from "../../db/queries/extension-releases";
@@ -137,6 +137,40 @@ export function loadReviewedIncusRecipe(path: string): IncusSetupRecipe {
 export class IncusOperatorSetupService {
   constructor(private readonly deps: SetupDependencies) {}
 
+  private async reviewedIdentity(installationId: string, releaseId: string,
+    recipe: IncusSetupRecipe, inventory: IncusInventory): Promise<{
+      fingerprint: string; certificatePem: string; privateKeyPem: string;
+    } | null> {
+    const [prior] = releaseRows<SetupRow>(await this.deps.database.execute(sql`SELECT ${columns}
+      FROM incus_operator_setups WHERE provider_installation_id = ${installationId}
+      AND state = 'verified' ORDER BY created_at DESC, id DESC LIMIT 1`));
+    if (!prior?.recipe.providerClient) return null;
+    const scope = { connectionId: prior.connectionId, providerInstallationId: installationId,
+      providerReleaseId: prior.providerReleaseId, revision: prior.connectionRevision };
+    const old = prior.providerReleaseId === releaseId
+      ? await this.deps.connections.resolveForHost(scope)
+      : await this.deps.connections.resolveRetiredForUpgrade(scope, prior.providerReleaseDigest);
+    const client = prior.recipe.providerClient;
+    const certificate = new X509Certificate(old.clientCertificatePem);
+    const fingerprint = certificate.fingerprint256.replaceAll(":", "").toLowerCase();
+    const trust = inventory.trust.find(entry => entry.fingerprint === fingerprint);
+    const validFrom = Date.parse(certificate.validFrom);
+    const validTo = Date.parse(certificate.validTo);
+    if (old.endpoint !== this.deps.bootstrap.endpoint || old.serverCertificatePem !== inventory.server.certificatePem
+      || old.project !== recipe.project.name || old.configuration.kind !== "incus"
+      || old.configuration.profile !== recipe.profile.name || old.configuration.helperVersion !== "0.1.0"
+      || old.configuration.guestUser !== "sandbox" || client.certificatePem !== old.clientCertificatePem
+      || client.certificateFingerprint !== fingerprint || client.name !== "engine"
+      || client.restricted !== true || client.projects.length !== 1 || client.projects[0] !== recipe.project.name
+      || !trust || trust.name !== "engine" || trust.type !== "client" || trust.restricted !== true
+      || trust.projects.length !== 1 || trust.projects[0] !== recipe.project.name
+      || !Number.isFinite(validFrom) || !Number.isFinite(validTo)
+      || validFrom > Date.now() || validTo <= Date.now()) {
+      throw new Error("Reviewed Incus client identity cannot be reused; inspect the prior setup and trust");
+    }
+    return { fingerprint, certificatePem: old.clientCertificatePem, privateKeyPem: old.privateKeyPem };
+  }
+
   private async row(id: string): Promise<SetupRow> {
     const found = releaseRows<SetupRow>(await this.deps.database.execute(sql`SELECT ${columns} FROM incus_operator_setups WHERE id = ${id}`))[0];
     if (!found) throw new Error("Incus setup was not found");
@@ -177,7 +211,8 @@ export class IncusOperatorSetupService {
       throw new Error("Host-owned SSH and HTTPS settings do not match the reviewed recipe");
     }
     const connectionId = randomUUID();
-    const identity = await (this.deps.identity ?? issueIncusClientIdentity)(connectionId);
+    const identity = await this.reviewedIdentity(installationId, snapshot.release.id, recipe, inventory)
+      ?? await (this.deps.identity ?? issueIncusClientIdentity)(connectionId);
     recipe.providerClient = { name: "engine", certificateFingerprint: identity.fingerprint,
       certificatePem: identity.certificatePem, projects: [recipe.project.name], restricted: true };
     const plan = createSetupPlan(recipe, inventory, incusPresets(snapshot));

@@ -42,7 +42,7 @@ function inventory(): IncusInventory {
     images: [{ fingerprint: guestImage.fingerprint, aliases: [guestImage.alias] }] };
 }
 
-async function fixture() {
+async function fixture(identityOverride?: Awaited<ReturnType<typeof issueIncusClientIdentity>>) {
   const directory = await mkdtemp(join(tmpdir(), "incus-operator-"));
   const client = new PGlite(directory);
   await client.waitReady;
@@ -67,7 +67,7 @@ async function fixture() {
   const connections = new ProviderConnectionStore(db);
   const service = new IncusOperatorSetupService({ database: db, connections, bootstrap, recipe,
     activeRelease: async () => snapshot, inspect: async () => structuredClone(observed),
-    identity: async () => ({ certificatePem: clientPem, privateKeyPem: "secret-private-key-canary", fingerprint: "b".repeat(64) }),
+    identity: async () => identityOverride ?? ({ certificatePem: clientPem, privateKeyPem: "secret-private-key-canary", fingerprint: "b".repeat(64) }),
     runner: () => async (argv, stdin) => { calls.push([...argv]); return run(argv, stdin); },
     process: () => ({ callIncusProbe: async () => {
       if (probeFails) throw new Error("probe unavailable");
@@ -157,6 +157,53 @@ test("a newer saved plan replaces the old review before any SSH effect", async (
       .rejects.toThrow("replaced by a newer plan");
     expect(value.calls).toHaveLength(0);
     expect((await value.service.latest(value.snapshot.installation.id))?.id).toBe(newPlan.id);
+  } finally { await value.close(); }
+}, 30_000);
+
+test("a reviewed upgrade reuses one scoped client identity only after the old connection drains", async () => {
+  const identity = await issueIncusClientIdentity("reviewed-upgrade");
+  const value = await fixture(identity);
+  try {
+    const prior = await value.service.plan(value.snapshot.installation.id, "admin");
+    expect(prior.state).toBe("planned");
+    await value.client.query("UPDATE incus_operator_setups SET state = 'verified' WHERE id = $1", [prior.id]);
+    value.observe({ ...inventory(), trust: [{ fingerprint: identity.fingerprint, name: "engine",
+      restricted: true, projects: [recipe.project.name], type: "client" }] });
+    await value.client.query("CREATE TABLE sandbox_bindings (id TEXT PRIMARY KEY, connection_id TEXT NOT NULL, tombstoned_at TIMESTAMPTZ, cleanup_confirmed_at TIMESTAMPTZ)");
+    await value.client.query("CREATE TABLE provider_sandbox_operations (id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, state TEXT NOT NULL)");
+    const oldRelease = structuredClone(value.snapshot.release);
+    const nextRelease = { ...oldRelease, id: "release-upgrade", releaseDigest: "e".repeat(64) };
+    value.snapshot.release = nextRelease;
+    value.snapshot.installation.activeReleaseId = nextRelease.id;
+    value.snapshot.installation.generation = 3;
+    value.snapshot.installation.acknowledgedGeneration = 3;
+    await value.client.query("UPDATE extension_release_installations SET payload = $1 WHERE id = $2",
+      [JSON.stringify(value.snapshot.installation), value.snapshot.installation.id]);
+    await value.client.query("INSERT INTO extension_release_records (installation_id,kind,id,payload) VALUES ($1,'releases',$2,$3)",
+      [value.snapshot.installation.id, nextRelease.id, JSON.stringify(nextRelease)]);
+    await value.client.query("INSERT INTO extension_release_records (installation_id,kind,id,payload) VALUES ($1,'approvals',$2,$3)",
+      [value.snapshot.installation.id, "upgrade-approval", JSON.stringify({ id: "upgrade-approval",
+        installationId: value.snapshot.installation.id, releaseId: nextRelease.id,
+        releaseDigest: nextRelease.releaseDigest, principalId: value.snapshot.installation.ownerId,
+        scope: "global", status: "consumed", expectedGeneration: 2 })]);
+    await value.client.query("INSERT INTO sandbox_bindings (id,connection_id) VALUES ($1,$2)",
+      ["unfinished-binding", prior.connectionId]);
+    await expect(value.service.plan(value.snapshot.installation.id, "admin"))
+      .rejects.toThrow("unfinished sandboxes");
+    await value.client.query("UPDATE sandbox_bindings SET tombstoned_at = NOW(), cleanup_confirmed_at = NOW() WHERE id = 'unfinished-binding'");
+    await value.client.query("INSERT INTO provider_sandbox_operations (id,binding_id,state) VALUES ('old-operation','unfinished-binding','OUTCOME_UNKNOWN')");
+    await expect(value.service.plan(value.snapshot.installation.id, "admin"))
+      .rejects.toThrow("unfinished sandboxes");
+    await value.client.query("UPDATE provider_sandbox_operations SET state = 'FAILED' WHERE id = 'old-operation'");
+    const upgraded = await value.service.plan(value.snapshot.installation.id, "admin");
+    expect(upgraded.state).toBe("planned");
+    expect(upgraded.connectionId).not.toBe(prior.connectionId);
+    const saved = await value.connections.resolveForHost({ connectionId: upgraded.connectionId,
+      providerInstallationId: value.snapshot.installation.id, providerReleaseId: nextRelease.id,
+      revision: upgraded.connectionRevision });
+    expect(saved.clientCertificatePem).toBe(identity.certificatePem);
+    expect(saved.privateKeyPem).toBe(identity.privateKeyPem);
+    expect(value.calls).toHaveLength(0);
   } finally { await value.close(); }
 }, 30_000);
 

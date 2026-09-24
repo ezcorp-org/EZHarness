@@ -168,6 +168,13 @@ export class ProviderConnectionStore {
     return this.resolveScoped(scope, releaseDigest);
   }
 
+  /** Reuse a reviewed Incus client identity for a new release only after the old
+   * release is drained. The new connection is a separate, release-bound record. */
+  async resolveRetiredForUpgrade(scope: ProviderConnectionScope, releaseDigest: string): Promise<ProviderConnectionCredentials> {
+    if (!releaseDigest) throw new Error("Retired provider release is unavailable");
+    return this.resolveScoped(scope, releaseDigest, true);
+  }
+
   /** Read the immutable release and historical approval for exact host cleanup. */
   async loadRetiredRelease(installationId: string, releaseId: string) {
     return this.database.transaction(transaction => this.retiredRelease(installationId, releaseId, transaction));
@@ -189,7 +196,8 @@ export class ProviderConnectionStore {
     return { installation: state.installation, release };
   }
 
-  private async resolveScoped(scope: ProviderConnectionScope, retiredDigest: string | null): Promise<ProviderConnectionCredentials> {
+  private async resolveScoped(scope: ProviderConnectionScope, retiredDigest: string | null,
+    requireDrained = false): Promise<ProviderConnectionCredentials> {
     return this.database.transaction(async (transaction) => {
       const rows = releaseRows<Row>(await transaction.execute(sql`SELECT ${credentialColumns} FROM provider_connections
         WHERE id = ${scope.connectionId} FOR SHARE`));
@@ -200,6 +208,16 @@ export class ProviderConnectionStore {
       }
       if (retiredDigest === null) await this.assertActive(row.providerInstallationId, row.providerReleaseId, transaction);
       else await this.retiredRelease(scope.providerInstallationId, scope.providerReleaseId, transaction, retiredDigest);
+      if (requireDrained) {
+        const dependents = releaseRows<{ id: string }>(await transaction.execute(sql`SELECT binding.id
+          FROM sandbox_bindings AS binding WHERE binding.connection_id = ${scope.connectionId}
+          AND (binding.tombstoned_at IS NULL OR binding.cleanup_confirmed_at IS NULL OR EXISTS (
+            SELECT 1 FROM provider_sandbox_operations AS operation
+            WHERE operation.binding_id = binding.id AND operation.state IN
+              ('JOURNALED', 'DISPATCHING', 'PROVIDER_PENDING', 'OUTCOME_UNKNOWN')))
+          LIMIT 1 FOR SHARE`));
+        if (dependents.length) throw new Error("Retired provider connection has unfinished sandboxes");
+      }
       try {
         const publicRow = metadata(row);
         return { ...publicRow, privateKeyPem: decryptWithAad(row.privateKeyCiphertext, aadFor(publicRow)) };
