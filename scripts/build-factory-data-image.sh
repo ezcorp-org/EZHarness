@@ -9,11 +9,13 @@
 # The tag is derived from the lock and the Containerfile, so a changed closure
 # is a different image rather than a silently replaced one.
 #
-# The build is reproducible: every build is a clean rebuild with all
-# timestamps fixed, so the same lock and Containerfile give the same manifest
-# digest. The script compares what it built with the committed pin and fails
-# on any difference. Pass --repin only when the lock or the Containerfile
-# changed on purpose; it records the new pin instead of failing.
+# The build reproduces on the same toolchain: every build is a clean rebuild
+# with all timestamps fixed, so on one Podman version the same lock and
+# Containerfile give the same manifest digest. Across Podman versions, layer
+# tar ordering and compression are not proven. The script compares what it
+# built with the committed pin; on any difference it removes what it built and
+# fails. Pass --repin only when the lock or the Containerfile changed on
+# purpose; it records the new pin instead of failing.
 #
 # Usage: bash scripts/build-factory-data-image.sh [--print-tag | --repin]
 set -uo pipefail
@@ -52,6 +54,12 @@ grep -q '^pyarrow==' "$CONTEXT/locked-requirements.txt" || fail "the exported cl
 # files by src/factory/reference-data/guest.ts.
 TAG=$(cat "$LOCK" "$CONTEXT/Containerfile" | sha256sum | cut -c1-32)
 IMAGE="localhost/ezcorp-factory-python-data:$TAG"
+# The build lands under its own candidate tag. Only a build that matches the
+# pin (or one recorded with --repin) gets the real tag, so a failed check can
+# drop exactly what it built and never moves or removes the pinned image, even
+# when the inputs are unchanged and the tags would be equal.
+CANDIDATE="localhost/ezcorp-factory-python-data:candidate-$TAG"
+discard() { podman rmi "$CANDIDATE" >/dev/null 2>&1; }
 
 if [ "$MODE" = print-tag ]; then echo "$IMAGE"; exit 0; fi
 
@@ -60,24 +68,24 @@ if [ "$MODE" = print-tag ]; then echo "$IMAGE"; exit 0; fi
 #   proves the build reproduces rather than that the cache was warm.
 # - `--timestamp 0`: the image's created time, its history, and every file in
 #   every new layer carry the epoch instead of the build time.
-# - `--identity-label=false`: no build-tool version label, so a Podman upgrade
-#   alone does not change the digest.
+# - `--identity-label=false`: no build-tool version label in the config, so
+#   the label is not one more input that differs between toolchains.
 # The Containerfile keeps build-stamped bytes (bytecode, caches) out of the layer.
 echo "→ building $IMAGE" >&2
 podman build --pull=never --no-cache --timestamp 0 --identity-label=false \
-  --tag "$IMAGE" --file "$CONTEXT/Containerfile" "$CONTEXT" >&2 \
-  || fail "podman build failed"
+  --tag "$CANDIDATE" --file "$CONTEXT/Containerfile" "$CONTEXT" >&2 \
+  || { discard; fail "podman build failed"; }
 
 # The RELEASE LOCK. The runner refuses any image reference that is not an
 # immutable digest, so the build records the manifest digest it produced and the
-# repository carries it. The build is reproducible, so a rebuild from the same
-# lock and Containerfile must give the committed digest. The runner's build lane
+# repository carries it. On the same toolchain a rebuild from the same lock and
+# Containerfile must give the committed digest. The runner's build lane
 # also re-reads the closure from a live guest and compares it with the
 # declaration before it will seal an artifact.
-DIGEST=$(podman image inspect "$IMAGE" --format '{{.Digest}}' 2>/dev/null)   || fail "the built image is not inspectable"
+DIGEST=$(podman image inspect "$CANDIDATE" --format '{{.Digest}}' 2>/dev/null) || { discard; fail "the built image is not inspectable"; }
 case "$DIGEST" in
   sha256:*) ;;
-  *) fail "the built image has no manifest digest: $DIGEST" ;;
+  *) discard; fail "the built image has no manifest digest: $DIGEST" ;;
 esac
 LOCK_DIGEST="sha256:$(sha256sum "$LOCK" | cut -d' ' -f1)"
 BASE=$(grep '^FROM ' "$CONTEXT/Containerfile" | head -1 | cut -d' ' -f2)
@@ -100,7 +108,12 @@ elif [ "$MODE" = repin ]; then
   printf '%s\n' "$PIN" > "$CONTEXT/pinned.json"
   echo "→ recorded $CONTEXT/pinned.json" >&2
 else
+  # A failed check leaves nothing behind: removing the candidate tag deletes
+  # the image unless another tag still names the same image.
+  discard
   COMMITTED=$(grep -o '"image": "[^"]*"' "$CONTEXT/pinned.json" 2>/dev/null | cut -d'"' -f4)
-  fail "the build did not reproduce the committed pin: built localhost/ezcorp-factory-python-data@$DIGEST, pinned ${COMMITTED:-nothing}. Pass --repin only if the lock or the Containerfile changed on purpose."
+  fail "the build did not reproduce the committed pin: built localhost/ezcorp-factory-python-data@$DIGEST, pinned ${COMMITTED:-nothing}. The built image was removed. Pass --repin only if the lock or the Containerfile changed on purpose."
 fi
+podman tag "$CANDIDATE" "$IMAGE" || { discard; fail "could not tag the built image as $IMAGE"; }
+discard
 echo "localhost/ezcorp-factory-python-data@$DIGEST"

@@ -105,8 +105,9 @@ function imageContext(): string {
  *
  * A locally built image has no registry identity until W16 publishes one, so
  * the build records the manifest digest it produced and the repository carries
- * it. The build is reproducible (W12d): the same lock and Containerfile give
- * the same digest, and the build script fails when they do not. The runner's
+ * it. The build reproduces on the same toolchain (W12d): on one Podman version
+ * the same lock and Containerfile give the same digest, and the build script
+ * fails when they do not. Across Podman versions this is not proven. The runner's
  * build lane also reads the closure back out of a live guest and refuses to
  * seal an artifact when it differs from `FACTORY_REFERENCE_DATA_DISTRIBUTIONS`.
  *
