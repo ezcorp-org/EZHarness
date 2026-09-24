@@ -1,4 +1,4 @@
-import { and, eq, lt, gt, desc } from "drizzle-orm";
+import { and, eq, inArray, lt, gt, desc } from "drizzle-orm";
 import { resolve, sep } from "node:path";
 import { realpathSync } from "node:fs";
 import { getDb } from "../connection";
@@ -385,25 +385,28 @@ export async function reapPreviewsForConversation(
 export async function reapPreviewIdsForConversation(
   conversationId: string,
   now: Date = new Date(),
+  closeSandbox?: (row: PreviewSession) => Promise<void>,
 ): Promise<string[]> {
   if (!conversationId) return [];
   const active = await getDb()
-    .select({ workspaceTarget: previewSessions.workspaceTarget })
+    .select()
     .from(previewSessions)
     .where(and(
       eq(previewSessions.conversationId, conversationId),
       eq(previewSessions.status, "active"),
     ));
-  if (active.some((row: { workspaceTarget: WorkspaceTargetReference }) =>
-    isSandboxReference(row.workspaceTarget)
-  )) {
-    throw sandboxCapabilityUnavailable("preview close");
+  for (const row of active) {
+    if (!isSandboxReference(row.workspaceTarget)) continue;
+    if (!closeSandbox) throw sandboxCapabilityUnavailable("preview close");
+    await closeSandbox(row);
   }
+  if (active.length === 0) return [];
   const rows = await getDb()
     .update(previewSessions)
     .set({ status: "revoked", revokedAt: now })
     .where(and(
       eq(previewSessions.conversationId, conversationId),
+      inArray(previewSessions.id, active.map((row: PreviewSession) => row.id)),
       eq(previewSessions.status, "active"),
     ))
     .returning({ id: previewSessions.id });

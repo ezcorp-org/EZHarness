@@ -13,6 +13,21 @@ import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
 // Registry mock.
 const getServablePreview = vi.fn();
 const touchPreview = vi.fn(async () => undefined);
+const getConversation = vi.fn();
+const getProject = vi.fn();
+const resolveProjectWorkspaceTarget = vi.fn();
+vi.mock("$server/db/queries/conversations", async () => ({
+  ...await vi.importActual<typeof import("$server/db/queries/conversations")>("$server/db/queries/conversations"),
+  getConversation: (...args: any[]) => getConversation(...args),
+}));
+vi.mock("$server/db/queries/projects", async () => ({
+  ...await vi.importActual<typeof import("$server/db/queries/projects")>("$server/db/queries/projects"),
+  getProject: (...args: any[]) => getProject(...args),
+}));
+vi.mock("$server/runtime/workspaces/project-target", async () => ({
+  ...await vi.importActual<typeof import("$server/runtime/workspaces/project-target")>("$server/runtime/workspaces/project-target"),
+  resolveProjectWorkspaceTarget: (...args: any[]) => resolveProjectWorkspaceTarget(...args),
+}));
 vi.mock("$server/db/queries/preview-sessions", async () => {
   const actual = await vi.importActual<typeof import("$server/db/queries/preview-sessions")>(
     "$server/db/queries/preview-sessions",
@@ -207,6 +222,57 @@ describe("servePreviewRequest serving path", () => {
 });
 
 describe("servePreviewRequest dynamic passthrough (Phase 3a)", () => {
+  test("an authorized sandbox preview uses the current project binding and guest backend", async () => {
+    const binding = { projectId: "project-1", workspaceId: "sandbox-1", connectionId: "connection-1",
+      providerId: "incus", generation: 1, presetId: "compose", releaseDigest: "a".repeat(64),
+      presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64) };
+    verifyPreviewToken.mockResolvedValue({ previewId: VALID_ID, userId: "u1" });
+    getServablePreview.mockResolvedValue({ id: VALID_ID, userId: "u1", conversationId: "conversation-1",
+      kind: "dynamic", staticPath: null, targetPort: 5173, expiresAt: new Date(Date.now() + 60_000),
+      workspaceTarget: { kind: "sandbox", binding } });
+    getConversation.mockResolvedValue({ id: "conversation-1", userId: "u1", projectId: "project-1" });
+    getProject.mockResolvedValue({ id: "project-1", path: "/unused" });
+    const serve = vi.fn(async (_request: { request: Request }) => new Response("guest page"));
+    resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "sandbox", binding, backend: { previews: { serve } } });
+    const request = new Request(`http://${VALID_ID}.preview.ezcorp.example.com/page`, {
+      headers: { cookie: "__ezpreview=tok", authorization: "Bearer app-secret" },
+    });
+    const response = await servePreviewRequest(request, { previewId: VALID_ID });
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("guest page");
+    expect(getConversation).toHaveBeenCalledWith("conversation-1");
+    expect(getProject).toHaveBeenCalledWith("project-1");
+    expect(resolveProjectWorkspaceTarget).toHaveBeenCalledOnce();
+    expect(serve).toHaveBeenCalledOnce();
+    expect(serve.mock.calls[0]![0].request.headers.get("authorization")).toBeNull();
+  });
+
+  test("stale generation and missing guest backend deny preview access", async () => {
+    const binding = { projectId: "project-1", workspaceId: "sandbox-1", connectionId: "connection-1",
+      providerId: "incus", generation: 1, presetId: "compose", releaseDigest: "a".repeat(64),
+      presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64) };
+    verifyPreviewToken.mockResolvedValue({ previewId: VALID_ID, userId: "u1" });
+    getServablePreview.mockResolvedValue({ id: VALID_ID, userId: "u1", conversationId: "conversation-1",
+      kind: "dynamic", staticPath: null, targetPort: 5173, expiresAt: new Date(Date.now() + 60_000),
+      workspaceTarget: { kind: "sandbox", binding } });
+    getConversation.mockResolvedValue({ id: "conversation-1", userId: "u1", projectId: "project-1" });
+    getProject.mockResolvedValue({ id: "project-1", path: "/unused" });
+    const request = new Request(`http://${VALID_ID}.preview.ezcorp.example.com/page`, {
+      headers: { cookie: "__ezpreview=tok" },
+    });
+    const serve = vi.fn(async () => new Response("must not serve"));
+    resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "sandbox", binding: { ...binding, generation: 2 },
+      backend: { previews: { serve } } });
+    expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
+    resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "sandbox", binding, backend: null });
+    expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
+    getConversation.mockResolvedValue({ id: "conversation-1", userId: "another-user", projectId: "project-1" });
+    resolveProjectWorkspaceTarget.mockClear();
+    expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
+    expect(resolveProjectWorkspaceTarget).not.toHaveBeenCalled();
+    expect(serve).not.toHaveBeenCalled();
+  });
+
   test("an authenticated sandbox preview never falls through to the AMD loopback proxy", async () => {
     verifyPreviewToken.mockResolvedValue({ previewId: VALID_ID, userId: "u1" });
     getServablePreview.mockResolvedValue({

@@ -230,6 +230,7 @@ export function contentTypeFor(filePath: string): string {
 export interface PreviewRegistryRow {
   id: string;
   userId: string | null;
+  conversationId?: string | null;
   kind: "static" | "dynamic";
   staticPath: string | null;
   targetPort: number | null;
@@ -271,7 +272,8 @@ export interface HandlePreviewRequestDeps {
    * must match exactly; request data cannot select a backend. */
   resolveWorkspaceTarget?: (
     reference: Extract<WorkspaceTargetReference, { kind: "sandbox" }>,
-  ) => WorkspaceTarget | undefined;
+    row: PreviewRegistryRow,
+  ) => WorkspaceTarget | undefined | Promise<WorkspaceTarget | undefined>;
 }
 
 /**
@@ -481,7 +483,7 @@ export async function handlePreviewRequest(
   if (row.workspaceTarget?.kind === "sandbox") {
     const sandboxReference = row.workspaceTarget;
     const serveSandbox = async (): Promise<Response> => {
-      const target = deps.resolveWorkspaceTarget?.(sandboxReference);
+      const target = await deps.resolveWorkspaceTarget?.(sandboxReference, row);
       if (
         target?.kind !== "sandbox"
         || !sameSandboxWorkspaceBinding(sandboxReference.binding, target.binding)

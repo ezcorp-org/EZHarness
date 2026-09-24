@@ -47,6 +47,7 @@ test("startup workspace resolver rechecks persisted release, connection and pres
   const target = await resolver!(pinned) as { binding: Record<string, unknown> } | null;
   expect(target?.binding).toMatchObject({ projectId: "project", workspaceId: "binding",
     connectionId: "connection", generation: 2, releaseDigest: "release-digest" });
+  expect((target as { backend?: { previews?: unknown } })?.backend?.previews).toBeUndefined();
   expect(await resolver!({ ...pinned, observedState: "STOPPED" })).toBeNull();
   expect(await resolver!({ ...pinned, presetDigest: "wrong" })).toBeNull();
   revision = 2;
@@ -58,6 +59,26 @@ test("startup workspace resolver rechecks persisted release, connection and pres
   releaseId = "release"; releaseFails = true;
   expect(await resolver!(pinned)).toBeNull();
   releaseFails = false;
+});
+
+test("preview backend needs a compose binding and explicit host qualification", async () => {
+  const previewBackend = { open: async () => {}, serve: async () => new Response("ok"), close: async () => {} };
+  initializeIncusSandboxWorkspace({
+    backend: {} as ReturnType<typeof createProviderSandboxWorkspaceBackend>, previewBackend,
+    previewQualified: async () => true,
+    setResolver: next => { resolver = next; },
+    resolveRelease: async () => ({ release: { id: "release", releaseDigest: "release-digest", manifest: incusManifest } }) as ActiveExtensionRelease,
+    getConnectionMetadata: async () => ({ revision: 1, revokedAt: null, providerInstallationId: "installation",
+      providerReleaseId: "release", configuration: { kind: "incus" } }) as ProviderConnectionMetadata,
+  });
+  const linux = binding(await sandboxPresetDigest(preset)) as Parameters<SandboxWorkspaceTargetResolver>[0];
+  const linuxTarget = await resolver!(linux);
+  expect(linuxTarget?.backend?.previews).toBeUndefined();
+  const composePreset = incusManifest.sandboxProviders![0]!.presets.find(item => item.profile === "persistent-web-compose.v1")!;
+  const compose = { ...linux, profile: composePreset.profile, presetId: composePreset.id,
+    presetDigest: await sandboxPresetDigest(composePreset) };
+  const composeTarget = await resolver!(compose);
+  expect(composeTarget?.backend?.previews).toBe(previewBackend);
 });
 
 test("startup reconciler runs immediately and closes without scheduling more work", async () => {

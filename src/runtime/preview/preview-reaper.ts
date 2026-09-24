@@ -25,6 +25,8 @@ import {
 import { reapPreviewUid, quarantinePreviewUid } from "./preview-uid-pool";
 import { reapPreviewNetns } from "./preview-netns";
 import { getPreviewQuota } from "./preview-rate-limit";
+import { resolveCurrentPreviewSandboxTarget } from "./preview-target";
+import { sandboxCapabilityUnavailable } from "../workspaces/target";
 
 const log = logger.child("preview.reaper");
 
@@ -110,7 +112,12 @@ export async function reapPreviewConversation(
       deps.revokePreviews ??
       (async (c: string) => {
         const { reapPreviewIdsForConversation } = await import("../../db/queries/preview-sessions");
-        return reapPreviewIdsForConversation(c);
+        return reapPreviewIdsForConversation(c, new Date(), async row => {
+          const target = await resolveCurrentPreviewSandboxTarget(row);
+          if (!target?.backend?.previews || !row.userId) throw sandboxCapabilityUnavailable("preview close");
+          await target.backend.previews.close({ binding: target.binding, previewId: row.id,
+            userId: row.userId, targetPort: row.targetPort });
+        });
       });
     const revokedIds = await revoke(conversationId);
     result.previewsRevoked = revokedIds.length;

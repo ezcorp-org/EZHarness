@@ -306,6 +306,20 @@ describe("sandbox preview serving", () => {
     expect(fixture.localTouches).toEqual({ files: 0, loopback: 0 });
   });
 
+  test("an async current-binding lookup must finish before sandbox preview serving", async () => {
+    const fixture = deps();
+    let served = false;
+    const target = sandboxWorkspaceTarget(binding, toolBackend({ previews: {
+      async open() {}, async serve() { served = true; return new Response("guest"); }, async close() {},
+    } }));
+    const response = await handlePreviewRequest({ previewId, requestPath: "/", cookieToken: "valid",
+      request: new Request(`https://${previewId}.preview.example.test/`),
+    }, { ...fixture.value, resolveWorkspaceTarget: async () => target });
+    expect(response.status).toBe(200);
+    expect(served).toBe(true);
+    expect(fixture.localTouches).toEqual({ files: 0, loopback: 0 });
+  });
+
   test("sandbox provider receives a sanitized POST with its body intact", async () => {
     const fixture = deps();
     let providerRequest: Request | undefined;

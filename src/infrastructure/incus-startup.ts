@@ -1,11 +1,13 @@
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { getDb, type Database } from "../db/connection";
+import type { SandboxBinding } from "../db/schema";
 import { getReleaseRuntime, resolveActiveRelease } from "../extensions/release-process";
 import { createProviderSandboxWorkspaceBackend } from "../runtime/workspaces/provider-backend";
 import { setSandboxWorkspaceTargetResolver } from "../runtime/workspaces/project-target";
-import { sandboxWorkspaceTarget } from "../runtime/workspaces/target";
+import { sandboxWorkspaceTarget, type SandboxPreviewBackend } from "../runtime/workspaces/target";
 import { ProviderConnectionStore } from "./provider-connections/store";
 import { IncusWorkspaceCaller } from "./incus-workspace-caller";
+import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 import { IncusFeatureService } from "./incus-feature-service";
 import { IncusQualificationStore } from "./incus-qualification";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
@@ -64,6 +66,9 @@ export function startIncusQualificationContinuation(deps: QualificationContinuat
 
 type StartupDependencies = {
   backend?: ReturnType<typeof createProviderSandboxWorkspaceBackend>;
+  previewBackend?: SandboxPreviewBackend;
+  /** Host-owned preview qualification. The default remains closed. */
+  previewQualified?: (binding: SandboxBinding) => Promise<boolean>;
   setResolver?: typeof setSandboxWorkspaceTargetResolver;
   resolveRelease?: (installationId: string) => ReturnType<typeof resolveActiveRelease>;
   getConnectionMetadata?: (connectionId: string) => ReturnType<ProviderConnectionStore["getMetadata"]>;
@@ -72,7 +77,11 @@ type StartupDependencies = {
 /** Install a resolver, not a standing provider grant. Each tool call rechecks
  * its binding, active release, connection revision, and selected preset. */
 export function initializeIncusSandboxWorkspace(dependencies: StartupDependencies = {}): void {
-  const backend = dependencies.backend ?? createProviderSandboxWorkspaceBackend(new IncusWorkspaceCaller());
+  const caller = dependencies.backend ? null : new IncusWorkspaceCaller();
+  const backend = dependencies.backend ?? createProviderSandboxWorkspaceBackend(caller!);
+  const previewBackend = dependencies.previewQualified
+    ? dependencies.previewBackend ?? new IncusSandboxPreviewBackend(caller ?? new IncusWorkspaceCaller())
+    : undefined;
   (dependencies.setResolver ?? setSandboxWorkspaceTargetResolver)(async binding => {
     if (!binding.resourceKey || binding.resourceKey !== binding.id || !binding.connectionRevision
       || !binding.profile || !binding.presetId || !binding.presetDigest || !binding.effectiveSettingsDigest
@@ -92,6 +101,9 @@ export function initializeIncusSandboxWorkspace(dependencies: StartupDependencie
       const provider = snapshot.release.manifest.sandboxProviders?.find(item => item.kind === "sandbox" && item.id === "incus");
       const preset = provider?.presets.find(item => item.id === binding.presetId && item.profile === binding.profile);
       if (!preset || await sandboxPresetDigest(preset) !== binding.presetDigest) return null;
+      const selectedBackend = previewBackend && binding.profile === "persistent-web-compose.v1"
+        && await dependencies.previewQualified?.(binding)
+        ? { ...backend, previews: previewBackend } : backend;
       return sandboxWorkspaceTarget({
         projectId: binding.projectId,
         workspaceId: binding.resourceKey,
@@ -102,7 +114,7 @@ export function initializeIncusSandboxWorkspace(dependencies: StartupDependencie
         releaseDigest: snapshot.release.releaseDigest,
         presetDigest: binding.presetDigest,
         effectiveSettingsDigest: binding.effectiveSettingsDigest,
-      }, backend);
+      }, selectedBackend);
     } catch {
       return null;
     }

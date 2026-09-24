@@ -250,6 +250,19 @@ describe("createPreviewSession", () => {
       request: { binding, previewId: row.id, userId: userA, targetPort: 4173 },
     });
     expect((await preview.getPreviewByIdRaw(row.id))?.status).toBe("revoked");
+
+    const second = await preview.createPreviewSession({ userId: userA, conversationId: convA,
+      kind: "dynamic", targetPort: 4174, workspaceTarget: target, ttlMs: 60_000 });
+    await expect(preview.reapPreviewIdsForConversation(convA, new Date(), async () => {
+      throw new Error("current binding is unavailable");
+    })).rejects.toThrow("current binding is unavailable");
+    expect((await preview.getPreviewByIdRaw(second.id))?.status).toBe("active");
+    const reaped = await preview.reapPreviewIdsForConversation(convA, new Date(), async current => {
+      if (current.id === second.id) await backend.previews.close({ binding, previewId: current.id,
+        userId: userA, targetPort: current.targetPort });
+    });
+    expect(reaped).toContain(second.id);
+    expect((await preview.getPreviewByIdRaw(second.id))?.status).toBe("revoked");
   });
 
   test("sandbox open without a preview capability fails before a registry row is created", async () => {

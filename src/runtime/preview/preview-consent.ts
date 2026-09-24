@@ -36,7 +36,7 @@ import { getPreviewNetns } from "./preview-netns";
 import type { PreviewDetectedEvent } from "./preview-port-watcher";
 import { getConversation } from "../../db/queries/conversations";
 import { getProject } from "../../db/queries/projects";
-import { resolveLocalProjectTarget } from "../workspaces/project-target";
+import { resolveProjectWorkspaceTarget } from "../workspaces/project-target";
 
 const log = logger.child("preview.consent");
 
@@ -157,20 +157,26 @@ export async function exposeDetectedPort(event: PreviewDetectedEvent): Promise<{
     throw new Error("exposeDetectedPort: conversation is not owned by the requester");
   }
   const project = await getProject(conversation.projectId);
-  if (!project?.path) {
+  if (!project) {
     throw new Error("exposeDetectedPort: project workspace is unavailable");
   }
   // The conversation's netns id (if allocated) pins the dynamic preview to
   // the right namespace. Null is acceptable — Phase 3 wires the live
   // passthrough; the registry row + access gate are valid today.
   const netns = getPreviewNetns(conversationId);
+  const workspaceTarget = await resolveProjectWorkspaceTarget(project, "preview open").catch(error => {
+    if (!project.path && error instanceof Error && error.message === "Project path is unavailable for preview open") {
+      throw new Error("exposeDetectedPort: project workspace is unavailable");
+    }
+    throw error;
+  });
   const row = await createPreviewSession({
     userId,
     conversationId,
     kind: "dynamic",
     targetPort: port,
     netnsId: netns?.netnsId ?? null,
-    workspaceTarget: await resolveLocalProjectTarget(project, "preview open"),
+    workspaceTarget,
   });
   const code = mintOneTimeCode({ previewId: row.id, userId });
   return { previewId: row.id, code, subdomainLabel: row.id };
