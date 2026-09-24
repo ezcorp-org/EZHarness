@@ -122,6 +122,7 @@ interface RunRow {
   lastOperationId: string;
   nonce: string;
   deadlineAt: Date | string;
+  claimedAt: Date | string | null;
   beforeObservation: RecoveryObservation;
   beforeDigest: string;
   oldProcessIdentity: ProcessIdentity;
@@ -134,7 +135,7 @@ type RecoveryFaultAuthority = { runId: string; nonce: string; scope: IncusQualif
 
 const runColumns = sql`run_id AS "runId", fixture_operation_id AS "fixtureOperationId",
   scope, binding_id AS "bindingId", generation, connection_revision AS "connectionRevision",
-  last_operation_id AS "lastOperationId", nonce, deadline_at AS "deadlineAt",
+  last_operation_id AS "lastOperationId", nonce, deadline_at AS "deadlineAt", claimed_at AS "claimedAt",
   before_observation AS "beforeObservation", before_digest AS "beforeDigest",
   old_process_identity AS "oldProcessIdentity", state`;
 
@@ -296,16 +297,16 @@ export class IncusQualificationCheckpointStore {
   private async recoveryFixture(input: RecoveryFaultAuthority): Promise<FixtureIdentityRow> {
     const row = await this.get(input.runId);
     const now = this.now();
-    const runDeadlineMs = row ? new Date(row.deadlineAt).getTime() : Number.NaN;
+    const recoveryDeadlineMs = row?.claimedAt ? new Date(row.claimedAt).getTime() + 20 * 60_000 : Number.NaN;
     if (row?.state !== "CLAIMED" || row.nonce !== input.nonce
       || !sameScope(row.scope, input.scope)
       || input.fixtureOperationId !== `qual-recovery-${input.runId}`
       || input.bindingId === row.bindingId
       || !Number.isSafeInteger(input.generation) || input.generation < 1
       || input.connectionRevision !== row.connectionRevision
-      || !Number.isSafeInteger(input.deadlineMs) || !Number.isSafeInteger(runDeadlineMs)
-      || now >= runDeadlineMs || now >= input.deadlineMs
-      || input.deadlineMs > runDeadlineMs || input.deadlineMs > now + 30_000) {
+      || !Number.isSafeInteger(input.deadlineMs) || !Number.isSafeInteger(recoveryDeadlineMs)
+      || now >= recoveryDeadlineMs || now >= input.deadlineMs
+      || input.deadlineMs > recoveryDeadlineMs || input.deadlineMs > now + 30_000) {
       throw new Error("Incus recovery fault run authority is unavailable");
     }
     const fixture = await fixtureIdentity(this.db, input.fixtureOperationId);

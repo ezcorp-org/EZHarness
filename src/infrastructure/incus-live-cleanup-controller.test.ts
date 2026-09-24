@@ -12,7 +12,7 @@ const scope = { installationId: "install", releaseId: "release", connectionId: "
 const handle = { operationId: "qual-recovery-run-one", sandboxId: "recovery-binding" };
 const destroyId = "11111111-1111-4111-8111-111111111111";
 
-function harness(fault?: "readback" | "other-operation" | "readiness") {
+function harness(fault?: "readback" | "other-operation" | "readiness" | "expired") {
   let phase = 0;
   const calls: string[] = [];
   const status = () => ({ fixture: { ...scope, operationId: handle.operationId,
@@ -35,7 +35,8 @@ function harness(fault?: "readback" | "other-operation" | "readiness") {
     destroyWithLostReplyFault: async () => { calls.push("destroy"); phase = 1; throw new Error("reply lost"); },
   } as unknown as IncusQualificationFixtureService;
   const checkpoints = { get: async () => ({ state: "CLAIMED", nonce: "nonce", scope,
-    deadlineAt: new Date(now - 1), claimedAt: new Date(now - 60_000) }),
+    deadlineAt: new Date(now - 1),
+    claimedAt: new Date(now - (fault === "expired" ? 20 * 60_000 : 60_000)) }),
   authorizeRecoveryFixtureForRun: async (arm: Record<string, unknown>) => {
     expect(arm.fixtureOperationId).toBe(handle.operationId);
     expect(arm.bindingId).toBe(handle.sandboxId);
@@ -71,6 +72,10 @@ test("operator cleanup uses one lost reply, exact readback, readiness denial and
 });
 
 test("missing independent readback or an unrelated pending operation fails closed", async () => {
+  const expired = harness("expired");
+  await expect(expired.controller.injectLostDestroyReply(scope, handle))
+    .rejects.toThrow("claimed operator run is unavailable");
+  expect(expired.calls).toEqual([]);
   const noReadback = harness("readback");
   await expect(noReadback.controller.injectLostDestroyReply(scope, handle))
     .rejects.toThrow("operator destroy readback did not confirm uncertainty");

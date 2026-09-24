@@ -8,6 +8,8 @@ import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
 import type { IncusLiveCaseEvidence, IncusQualificationScope } from "./incus-qualification";
 
 const CASE_IDS = ["SP01", "SP02", "SP03", "SP04", "SP05", "SP06", "SP07", "SP08"] as const;
+const QUALIFICATION_PHASE_MS = 20 * 60_000;
+const RESTART_HANDOFF_MS = 110_000;
 const MARKER_PATH = "ezh-qualification-marker";
 const COMPOSE_PATH = "ezh-qualification-compose.yaml";
 
@@ -384,16 +386,24 @@ export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions
   scope: IncusQualificationScope, preset: SandboxPreset,
   run: { runId: string; nonce: string; deadlineMs: number }): Promise<{ runId: string; state: "AWAITING_RESTART" }> {
   const { witness } = options;
+  const now = options.now ?? Date.now;
   requireFact(validDurableRun(run.runId, run.nonce), "run identity is invalid");
+  requireFact(Number.isSafeInteger(run.deadlineMs) && run.deadlineMs > now()
+    && run.deadlineMs <= now() + QUALIFICATION_PHASE_MS,
+  "qualification preparation deadline is invalid");
   await observeLiveStart(witness, scope, preset);
   const state: FixtureRunState = { primary: null, unrelated: null, recovery: null,
     primaryDestroyed: false, unrelatedDestroyed: false, recoveryDestroyed: false };
   let failure: unknown;
   try {
     await createLiveFixtures(witness, scope, preset, run.runId, state);
+    requireFact(now() < run.deadlineMs, "qualification preparation deadline expired");
     requireFact(state.primary, "primary fixture was not created");
     await prepareGuestForRestart(witness, preset, state.primary, run.runId, options.composeFixtureImageRef);
-    await witness.beginRestart(scope, preset, state.primary, run.runId, run.nonce, run.deadlineMs);
+    requireFact(now() < run.deadlineMs, "qualification preparation deadline expired");
+    // The handoff clock starts after guest setup and controlled loads, not at HTTP admission.
+    await witness.beginRestart(scope, preset, state.primary, run.runId, run.nonce,
+      now() + RESTART_HANDOFF_MS);
     return { runId: run.runId, state: "AWAITING_RESTART" };
   } catch (error) {
     failure = error;
@@ -408,8 +418,10 @@ export async function resumeDurableIncusLiveCases(options: IncusLiveRunnerOption
   scope: IncusQualificationScope, preset: SandboxPreset,
   run: { runId: string; nonce: string }): Promise<IncusLiveCaseEvidence> {
   const { witness } = options;
+  const now = options.now ?? Date.now;
   requireFact(validDurableRun(run.runId, run.nonce), "run identity is invalid");
   const primary = await witness.claimRestart(scope, preset, run.runId, run.nonce);
+  const continuationDeadlineMs = now() + QUALIFICATION_PHASE_MS;
   requireFact(primary.operationId === `qual-primary-${run.runId}`, "claimed primary fixture changed");
   const state: FixtureRunState = { primary, unrelated: null, recovery: null,
     primaryDestroyed: false, unrelatedDestroyed: false, recoveryDestroyed: false };
@@ -422,7 +434,9 @@ export async function resumeDurableIncusLiveCases(options: IncusLiveRunnerOption
     observed = await observeLiveStart(witness, scope, preset);
     assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
     await finishGuestAfterRestart(witness, preset, primary, run.runId);
+    requireFact(now() < continuationDeadlineMs, "qualification continuation deadline expired");
     await destroyAndRecoverFixtures(witness, scope, preset, run.runId, state);
+    requireFact(now() < continuationDeadlineMs, "qualification continuation deadline expired");
   } catch (error) {
     failure = error;
   }

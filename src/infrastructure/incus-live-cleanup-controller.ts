@@ -11,7 +11,7 @@ import type { LiveFixtureHandle } from "./incus-live-cases";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 
-type FeatureGate = Pick<IncusFeatureService, "checkReadiness" | "reconcile">;
+type FeatureGate = Pick<IncusFeatureService, "checkReadiness" | "reconcile" | "settleCompletedOperation">;
 
 export interface IncusLiveCleanupControllerDependencies {
   db: Database;

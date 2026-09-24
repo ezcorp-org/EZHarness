@@ -162,7 +162,14 @@ test("the new process claims an exited writer and authorizes only its exact live
     'installation', 'release', 'connection', 2, 'preset')`, [recoveryOperationId]);
   const recoveryAuthority = { ...authority, fixtureOperationId: recoveryOperationId,
     bindingId: "binding-recovery", generation: 1 };
+  // The short restart handoff may expire before the later cleanup test starts.
+  await reopened.exec("UPDATE incus_qualification_runs SET deadline_at = NOW() - INTERVAL '1 second' WHERE state = 'CLAIMED'");
   await store.authorizeRecoveryFixtureForRun(recoveryAuthority);
+  const claimedAt = new Date((await store.get(runId))!.claimedAt!).getTime();
+  const lateRecovery = new IncusQualificationCheckpointStore(drizzle(reopened), undefined,
+    () => claimedAt + 20 * 60_000);
+  await expect(lateRecovery.authorizeRecoveryFixtureForRun({ ...recoveryAuthority,
+    deadlineMs: claimedAt + 20 * 60_000 + 10_000 })).rejects.toThrow("run authority is unavailable");
   await expect(store.authorizeRecoveryFixtureForRun({ ...recoveryAuthority, bindingId: "user-binding" }))
     .rejects.toThrow("fixture changed");
   await expect(store.authorizeRecoveryFixtureForRun({ ...recoveryAuthority,
@@ -178,6 +185,8 @@ test("the new process claims an exited writer and authorizes only its exact live
   await store.authorizeRecoveryReadbackForRun({ ...recoveryAuthority, destroyOperationId });
   await expect(store.authorizeRecoveryReadbackForRun({ ...recoveryAuthority,
     destroyOperationId: randomUUID() })).rejects.toThrow("readback changed");
+  await reopened.query("UPDATE incus_qualification_runs SET deadline_at = $1 WHERE run_id = $2",
+    [new Date(deadlineMs), runId]);
   await reopened.exec("UPDATE projects SET purpose = 'user' WHERE id = 'project'");
   await expect(store.authorizeOwnedRun(authority)).rejects.toThrow("operator fixture changed");
   await store.fail(runId);

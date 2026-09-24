@@ -201,6 +201,39 @@ test("a replacement runner claims the saved primary and completes cleanup before
   expect([...original.states.values()]).toEqual(["absent", "absent", "absent"]);
 });
 
+test("slow controlled loads get a fresh short restart handoff, while preparation stays bounded", async () => {
+  let clock = Date.now();
+  const initial = clock;
+  const original = witness({ exerciseLimits: async () => {
+    clock += 8 * 60_000;
+    return witness().loadFacts;
+  } });
+  let handoffDeadline = 0;
+  const first: DurableIncusLiveWitness = { ...original.value,
+    findFixture: async () => { throw new Error("not resumed"); },
+    claimRestart: async () => { throw new Error("not resumed"); },
+    beginRestart: async (_scope, _preset, _handle, _runId, _nonce, deadlineMs) => {
+      handoffDeadline = deadlineMs;
+    } };
+  await beginDurableIncusLiveCases({ witness: first, now: () => clock }, scope, preset,
+    { runId: "slow-run", nonce: "fresh-nonce", deadlineMs: initial + 20 * 60_000 });
+  expect(handoffDeadline).toBe(clock + 110_000);
+  expect(handoffDeadline).toBeGreaterThan(initial + 110_000);
+
+  const expired = witness({ exerciseLimits: async () => {
+    clock += 21 * 60_000;
+    return witness().loadFacts;
+  } });
+  const denied: DurableIncusLiveWitness = { ...expired.value,
+    findFixture: async () => { throw new Error("not resumed"); },
+    claimRestart: async () => { throw new Error("not resumed"); },
+    beginRestart: async () => { throw new Error("expired run must not restart"); } };
+  await expect(beginDurableIncusLiveCases({ witness: denied, now: () => clock }, scope, preset,
+    { runId: "expired-run", nonce: "fresh-nonce", deadlineMs: clock + 20 * 60_000 }))
+    .rejects.toThrow("preparation deadline expired");
+  expect(expired.destroyed).toHaveLength(2);
+});
+
 test("an unclaimed or changed durable run cannot publish cases", async () => {
   const original = witness();
   const replacement: DurableIncusLiveWitness = {

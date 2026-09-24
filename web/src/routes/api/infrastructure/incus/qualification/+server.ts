@@ -56,7 +56,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       const run = await beginDurableIncusLiveCases({ witness,
         composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF },
       input.scope, selected.preset, { runId: input.operationId, nonce: randomUUID(),
-        deadlineMs: Date.now() + 110_000 });
+        deadlineMs: Date.now() + 20 * 60_000 });
       return json({ run }, { status: 202 });
     }
     const service = new IncusQualificationFixtureService();
