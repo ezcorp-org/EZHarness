@@ -198,6 +198,22 @@ test("adapter INTERNAL for a lost mutation without provider ID remains unknown",
   expect(calls).toHaveLength(1);
 });
 
+test("a proven pre-write CREATE failure is terminal and is not retried by reconciliation", async () => {
+  const { controller, calls, setRespond } = await setup();
+  setRespond(() => ({ ok: false, error: { code: "UNAVAILABLE",
+    message: "The Incus service is unavailable", retryable: true } }));
+  const result = await controller.requestAndDispatch({
+    bindingId: "binding", kind: "CREATE", generation: 1,
+    idempotencyScope: "lifecycle", idempotencyKey: "tls-before-write", payload: {
+      profile: "linux-exec.v1", presetId: "incus-linux-exec-v1",
+      presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64),
+    },
+  });
+  expect(result).toMatchObject({ state: "FAILED", errorCode: "UNAVAILABLE", providerOperationId: null });
+  expect((await controller.reconcile()).examined).toBe(0);
+  expect(calls).toHaveLength(1);
+});
+
 test("create rejects a journal payload that disagrees with binding preset pins", async () => {
   const { controller, calls } = await setup();
   const result = await controller.requestAndDispatch({

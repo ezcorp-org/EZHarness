@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
-import type { IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
+import { IncusTransportError, type IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
 import { incusManifest } from "../../../extensions/incus-sandbox/manifest";
 import { up as addSandboxController } from "../../db/migrations/add-sandbox-controller";
 import * as schema from "../../db/schema";
@@ -72,6 +72,21 @@ test("create takes image, profile and limits only from the host-approved policy"
   expect((created!.config as Record<string, unknown>)["limits.cpu"]).toBe("2");
   expect((created!.config as Record<string, unknown>)["limits.cpu.allowance"]).toBe("2000ms/1000ms");
   expect(created!.devices).toEqual({ root: { type: "disk", path: "/", pool: "ezharness", size: "21474836480" } });
+});
+
+test("a TLS failure on the first CREATE read leaves no provider effect", async () => {
+  for (const failure of [new Error("UNABLE_TO_VERIFY_LEAF_SIGNATURE"),
+    new IncusTransportError("unavailable", "TLS failed")]) {
+    const methods: string[] = [];
+    const fetcher = async (_url: string, init: RequestInit) => {
+      methods.push(init.method ?? "GET");
+      throw failure;
+    };
+    const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope,
+      fetcher as never);
+    await expect(transport.request(command)).rejects.toMatchObject({ kind: "unavailable", effect: "none" });
+    expect(methods).toEqual(["GET"]);
+  }
 });
 
 test("create refuses a feature NIC without backend port isolation before allocation", async () => {

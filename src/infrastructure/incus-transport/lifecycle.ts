@@ -57,6 +57,7 @@ export interface Session {
 
 export async function withSession<T>(connections: HostConnectionResolver, scope: HostConnectionScope, http: PinnedFetch, command: IncusTransportRequest, run: (session: Session) => Promise<T>): Promise<T> {
   assertScope(command, scope);
+  let mutationAttempted = false;
   const controller = new AbortController();
   const abort = () => controller.abort();
   scope.signal?.addEventListener("abort", abort, { once: true });
@@ -84,6 +85,8 @@ export async function withSession<T>(connections: HostConnectionResolver, scope:
     const session: Session = { connection, origin, tls, signal: controller.signal, request: async (method, path, body, etag) => {
       const url = new URL(path, origin);
       if (url.origin !== origin.origin || !url.pathname.startsWith("/1.0/")) denied("Incus route escaped origin");
+      // Once a write is attempted, even a lost TLS reply can hide an Incus effect.
+      if (method !== "GET") mutationAttempted = true;
       const response = await Promise.race([http(url.href, { method, body: body ? JSON.stringify(body) : undefined, headers: etag ? { "If-Match": etag } : undefined, redirect: "manual", proxy: false, decompress: false, signal: controller.signal, tls }), deadline]);
       if (response.status >= 300 && response.status < 400) denied("Incus redirect denied");
       const envelope = await Promise.race([boundedJson(response, true), deadline]);
@@ -91,9 +94,13 @@ export async function withSession<T>(connections: HostConnectionResolver, scope:
     } };
     return await run(session);
   } catch (error) {
-    if (error instanceof IncusTransportError) throw error;
-    if (controller.signal.aborted) throw new IncusTransportError("deadline", "Incus lifecycle deadline exceeded");
-    throw new IncusTransportError("unavailable", "Incus lifecycle request failed");
+    if (error instanceof IncusTransportError) {
+      if (mutationAttempted || error.effect === "none" || error.operationId) throw error;
+      throw new IncusTransportError(error.kind, error.message, { effect: "none" });
+    }
+    const effect = mutationAttempted ? "unknown" : "none";
+    if (controller.signal.aborted) throw new IncusTransportError("deadline", "Incus lifecycle deadline exceeded", { effect });
+    throw new IncusTransportError("unavailable", "Incus lifecycle request failed", { effect });
   } finally {
     clearTimeout(timer);
     scope.signal?.removeEventListener("abort", abort);
