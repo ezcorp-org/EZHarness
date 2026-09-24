@@ -11,15 +11,15 @@ import type { RequestHandler } from "./$types";
 
 const identifier = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 
-async function service(): Promise<IncusOperatorSetupService | Response> {
+async function service(requireRecipe = false): Promise<IncusOperatorSetupService | Response> {
   const bootstrap = bootstrapFromEnvironment();
   if (!bootstrap) return json({ code: "bootstrap_not_configured", message: "Set the host-owned Incus SSH target, key, known_hosts pin, and HTTPS endpoint." }, { status: 503 });
-  const recipePath = process.env.EZCORP_INCUS_SETUP_RECIPE_FILE;
-  if (!recipePath) return json({ code: "recipe_not_configured", message: "Set the host-owned reviewed Incus recipe file." }, { status: 503 });
-  const recipe = loadReviewedIncusRecipe(recipePath);
+  const recipePath = requireRecipe ? process.env.EZCORP_INCUS_SETUP_RECIPE_FILE : undefined;
+  if (requireRecipe && !recipePath) return json({ code: "recipe_not_configured", message: "Set the host-owned reviewed Incus recipe file." }, { status: 503 });
+  const recipe = recipePath ? loadReviewedIncusRecipe(recipePath) : undefined;
   await getExtensionLifecycle();
   const database = getDb();
-  return new IncusOperatorSetupService({ database, connections: new ProviderConnectionStore(database), bootstrap, recipe,
+  return new IncusOperatorSetupService({ database, connections: new ProviderConnectionStore(database), bootstrap, ...(recipe ? { recipe } : {}),
     activeRelease: installationId => resolveActiveRelease(installationId, getReleaseRuntime()) });
 }
 
@@ -100,7 +100,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     return json({ code: "invalid_input", message: "The setup ID or plan digest is invalid." }, { status: 400 });
   }
   try {
-    const configured = await service();
+    const configured = await service(action === "plan");
     if (configured instanceof Response) return configured;
     if (action === "plan") return json({ setup: await configured.plan(input.installationId as string, user.id) });
     if (action === "apply") return json({ setup: await configured.apply(input.setupId as string, input.planDigest as string, user.id) });

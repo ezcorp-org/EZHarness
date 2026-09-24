@@ -87,10 +87,10 @@ test("setup reports missing host bootstrap without loading a release", async () 
 	expect(calls).toEqual([]);
 });
 
-test("setup requires a host-owned recipe and passes it to the operator service", async () => {
+test("Plan requires a host-owned recipe and passes it to the operator service", async () => {
 	delete process.env.EZCORP_INCUS_SETUP_RECIPE_FILE;
-	expect(await (await GET(getEvent("?installationId=provider"))).json()).toMatchObject({ code: "recipe_not_configured" });
-	expect(calls).toEqual([]);
+	expect(await (await POST(postEvent({ action: "plan", installationId: "provider" }))).json()).toMatchObject({ code: "recipe_not_configured" });
+	expect(recipePaths).toEqual([]);
 	process.env.EZCORP_INCUS_SETUP_RECIPE_FILE = "/host/reviewed-recipe.json";
 	expect((await POST(postEvent({ action: "plan", installationId: "provider" }))).status).toBe(200);
 	expect(recipePaths).toEqual(["/host/reviewed-recipe.json"]);
@@ -99,6 +99,21 @@ test("setup requires a host-owned recipe and passes it to the operator service",
 	expect(await (await POST(postEvent({ action: "plan", installationId: "provider" }))).json()).toMatchObject({
 		code: "setup_failed", message: "Reviewed Incus recipe must pin the image",
 	});
+});
+
+test("saved setup reads, Apply, and probe remain reachable when the current recipe is stale or missing", async () => {
+	recipeFailure = new Error("private recipe details");
+	expect(await (await GET(getEvent("?installationId=provider"))).json()).toEqual({ setup: { id: "provider" } });
+	expect(await (await POST(postEvent({ action: "apply", setupId: "setup-a", planDigest: "a".repeat(64) }))).json()).toEqual({ setup: { id: "setup-a" } });
+	expect(await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json()).toEqual({ ready: true });
+	expect(recipePaths).toEqual([]);
+	expect(serviceRecipes).toEqual([undefined, undefined, undefined]);
+	const stalePlan = await POST(postEvent({ action: "plan", installationId: "provider" }));
+	expect(stalePlan.status).toBe(409);
+	expect(await stalePlan.json()).toEqual({ code: "setup_failed", message: "Incus setup failed. Check host logs and inspect the saved plan." });
+	delete process.env.EZCORP_INCUS_SETUP_RECIPE_FILE;
+	expect(await (await POST(postEvent({ action: "probe", setupId: "setup-a" }))).json()).toEqual({ ready: true });
+	expect(recipePaths).toEqual(["/host/reviewed-recipe.json"]);
 });
 
 test("lists active Incus releases and prior inactive setups", async () => {
