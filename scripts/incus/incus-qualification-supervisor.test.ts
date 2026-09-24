@@ -26,7 +26,8 @@ for (const filename of ["incus-qualification-supervisor.test.py",
       resolve({ code, stderr, timedOut });
     });
   });
-  expect(result.timedOut).toBe(false);
-  expect(result.code).toBe(0);
+  if (result.timedOut || result.code !== 0) {
+    throw new Error(`${filename} exited with code ${result.code} (timed out: ${result.timedOut})\n${result.stderr}`);
+  }
   expect(result.stderr).toContain("OK");
 }, 25_000);
