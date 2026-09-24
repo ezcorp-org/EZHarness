@@ -4414,3 +4414,30 @@ uses explicit portable empty-variable syntax and preserves its literal rebuild c
 tests pass 132 tests and 315 assertions. The repaired full backend pool passes 26,273 tests across
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
+
+## W02c — the package quarantine fence (branch `wp/w02c-quarantine`)
+
+Base `integ/w00` `578692e8a`; merged `943b9fa0c` at `43d224900` and `8cea0f638` at `3695f8351`. Passes at `1d06a7394`, sweep at `3695f8351`. Receipts: `/tmp/factory-platform-evidence/w02c/`. Gates: `tasks/factory/w02c-GATES.md`.
+
+- [x] Reproduce at base in the real application (W09b's stack, a guest that waits): quarantine mid-attempt, then start a second run.
+- [x] Typed refusal: `factory_package_quarantined` / `factory_package_revoked` carry the trust revision that set the state and the installation generation it was decided against.
+- [x] Admission fence: the production runner policy reads current trust before it admits an attempt.
+- [x] Preflight and launch fences: the existing readiness reads refuse with the typed error; the dispatcher records the typed code.
+- [x] Live work: a production `FactoryPackageQuarantineFence` cancels every run with a live attempt on the package, with the typed reason, through the ordinary kernel cancel and so through W03's stop path; one shared in-transaction cancel for operator and fence.
+- [x] Affected-run record: a sealed table written in the quarantine transaction, idempotent; a scoped reader for W14 and a preview that uses the same query.
+- [x] Fail closed: quarantine and revoke refuse by name when no fence is composed.
+- [x] Lift: a later publish re-admits new attempts only; stopped runs stay cancelled with their reason.
+- [x] Tests: success, concurrent quarantine and admission or launch (one winner), lost response, crash mid-fence and mid-stop, stale revision and generation, cross-tenant, corruption, fail-closed; restart suite; PostgreSQL parity and suite registration.
+- [x] Real-server proof, three passes (9/9 each, `proof/receipt-v2-pass-*.json`). Two blockers outside W02c are reported in the gate file's Open section.
+- [x] Gate file, review, sweep.
+
+**Review.** The fence existed as a seam with nothing behind it. The real application quarantined a package
+and kept running its attempt, admitted new attempts, and kept no record. The base run measured all of that.
+W02c puts a production fence behind the seam. In the decision's own transaction it cancels each affected run
+through the operator's cancel, which W03's stop path then settles unchanged. It writes one sealed record per
+attempt and refuses admission, preflight and launch with a typed error naming the generation. The real server
+shows the fence's own promises holding in three passes: the guest was stopped mid-attempt, the stop survived a
+killed product server, the run was recorded, a new run was refused by name, and a run after the lift launched.
+Two things the fence consumes still stop a run from ending. W03's usage reconciliation leaves a stopped
+zero-operation attempt's hold unresolved, so run A stays `cancelling`. The orchestrator runs each effect once,
+so a refused admission kills the run's workflow. Both are reported as interface questions, not worked around.

@@ -1544,3 +1544,12 @@ A Temporal test server spawned by a suite that ran under `flock /tmp/ezcorp-vali
 - Budget a hosted-runner job against the 360-minute cap with a measured rate, not a guess. When one job cannot finish, shard the work and merge with an exact-count check so a missing slice fails instead of shrinking the denominator.
 - Report a hash or count only after reading the command's output; never write the value you expect. (Integrator, 2026-09-24: a staged-tree hash and file count were sent in the same step as the query that produced them.)
 - In a shell wrapper, save the exit code on the line right after the command (`rc=$?`). A `$(...)` in the same echo as `$?` runs first and resets it to 0: "exit=0" was logged for a test pool that exited 1 (2026-09-24).
+
+## 2026-09-23 — W02c package quarantine fence
+
+- Do not edit a shell script while a queued job will run it. Bash reads a script as it runs, so an edit made while an earlier leg was running broke the sweep with "unexpected EOF". Copy a driver before queueing it, or change it only between runs.
+- A proof harness must keep every child process log. My runner deleted `process-*.log` after moving only a few of them, and the one failure that mattered was in the gateway stub's log. Move them all, by glob.
+- Run a proof from a detached worktree at a fixed commit, never from the worktree you are editing. The harness imports repository sources at run time, so an edit made while a job waits in the lock queue changes what the job measures.
+- A race test that passes on PGlite can still hide a branch, because PGlite serializes the two transactions. My quarantine and launch race always let the quarantine win on PGlite. On real PostgreSQL the launch won, and it failed on an unprepared package the test had never needed.
+- A 500 from the object store can be a full host disk. When S3 PutObject returned InternalError while List worked, `df -h /` showed 100% used. Probe with a key of your own, delete it afterwards, and report the store to the coordinator. Do not repair it.
+- `/tmp` inputs older than ten days are removed by the daily systemd-tmpfiles clean at 03:55 local. When `postgres.env` or the pinned Bun disappears, check the tmpfiles journal before debugging.

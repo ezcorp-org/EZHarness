@@ -27,6 +27,7 @@ import { FactoryExecutionJournal } from "../../factory/executions";
 import { FactoryAttemptQueue } from "../../factory/attempt-queue";
 import { FactoryTaskExecutionAdmission } from "../../factory/task-execution-admission";
 import { FactoryNativeRunnerPolicy, type FactoryNativeRunnerProfile } from "../../factory/native-runner-policy";
+import { packagesTrustedForTest } from "./factory-live-attempt-world";
 import { FactoryAttemptDispatcher } from "../../factory/attempt-dispatcher";
 import { verifyFactoryAttemptToken } from "../../factory/attempt-token";
 import { FactoryInbox } from "../../factory/inbox";
@@ -149,7 +150,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const task = await dispatchedTask(definitionKey, request, existingRun);
     const taskNode = task.compiled.indexes.nodeById[task.dispatch.nodeId];
     if (taskNode?.kind !== "task") throw new Error("fixture dispatch task is missing");
-    const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: taskNode.runner, resourceClass: "cpu", allocation: task.profile, allowedCapabilities: taskNode.capabilities ?? [], tools: [] }], "factory-broker");
+    const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: taskNode.runner, resourceClass: "cpu", allocation: task.profile, allowedCapabilities: taskNode.capabilities ?? [], tools: [] }], "factory-broker", packagesTrustedForTest);
     const execution = new FactoryTaskExecutionAdmission(task.authority, task.admissions, task.journal, task.queue, policy, () => now);
     expect(await privateCommands(task.authority, task.transitions, { execution }).execute(task.service, task.dispatchReference)).toBeNull();
     const admitted = await execution.admit(task.service, task.dispatchReference);
@@ -340,22 +341,22 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       authorizations.push({ principal: args[1], projectId: args[2], action: args[3], ...(args[4] === undefined ? {} : { revision: args[4] }) });
       return grants.authorizeInTransaction(...args);
     } };
-    const policy = new FactoryNativeRunnerPolicy(tenantId, observedGrants, [nativeProfile], "factory-broker");
+    const policy = new FactoryNativeRunnerPolicy(tenantId, observedGrants, [nativeProfile], "factory-broker", packagesTrustedForTest);
     await authority.withCurrent(service, dispatchReference, async (transaction, context) => {
       if (context.command.kind !== "dispatch-node") throw new Error("fixture dispatch command changed");
       const compute = await admissions.readAdmittedInTransaction(transaction, { projectId, runId: run.runId, reservationId: reserved.reservationId });
       const policyInput = { reference: dispatchReference, command: context.command, context, initiator: context.initiator, compute };
       expect(await policy.resolveInTransaction(transaction, policyInput)).toMatchObject({ grants: [], resources: { resourceClass: "cpu", memoryBytes: 128, maxCostMicros: "5", maxTokens: 6, maxComputeMs: 7 }, tools: [{ name: "audit_snapshot" }, { name: "read_snapshot" }], brokerAudience: "factory-broker" });
-      expect(() => new FactoryNativeRunnerPolicy(tenantId, grants, [], "factory-broker")).toThrow("factory_native_policy_invalid");
-      expect(() => new FactoryNativeRunnerPolicy(tenantId, { tenantId: "foreign-tenant", authorizeInTransaction: grants.authorizeInTransaction.bind(grants) }, [nativeProfile], "factory-broker")).toThrow("factory_native_policy_invalid");
-      expect(() => new FactoryNativeRunnerPolicy(tenantId, grants, [nativeProfile, nativeProfile], "factory-broker")).toThrow("factory_native_policy_invalid");
-      expect(() => new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...nativeProfile, allocation: { ...profile, memoryBytes: 0 } }], "factory-broker")).toThrow("factory_native_policy_invalid");
-      expect(() => new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...nativeProfile, allowedCapabilities: ["llm", "llm"] }], "factory-broker")).toThrow("factory_native_policy_invalid");
-      expect(() => new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...nativeProfile, tools: [{ declaration: { name: "outside", inputSchema: {} }, requiredCapabilities: ["network"] }] }], "factory-broker")).toThrow("factory_native_policy_invalid");
-      const unavailable = new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...nativeProfile, runner: { ...nativeProfile.runner, export: "other" } }], "factory-broker");
+      expect(() => new FactoryNativeRunnerPolicy(tenantId, grants, [], "factory-broker", packagesTrustedForTest)).toThrow("factory_native_policy_invalid");
+      expect(() => new FactoryNativeRunnerPolicy(tenantId, { tenantId: "foreign-tenant", authorizeInTransaction: grants.authorizeInTransaction.bind(grants) }, [nativeProfile], "factory-broker", packagesTrustedForTest)).toThrow("factory_native_policy_invalid");
+      expect(() => new FactoryNativeRunnerPolicy(tenantId, grants, [nativeProfile, nativeProfile], "factory-broker", packagesTrustedForTest)).toThrow("factory_native_policy_invalid");
+      expect(() => new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...nativeProfile, allocation: { ...profile, memoryBytes: 0 } }], "factory-broker", packagesTrustedForTest)).toThrow("factory_native_policy_invalid");
+      expect(() => new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...nativeProfile, allowedCapabilities: ["llm", "llm"] }], "factory-broker", packagesTrustedForTest)).toThrow("factory_native_policy_invalid");
+      expect(() => new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...nativeProfile, tools: [{ declaration: { name: "outside", inputSchema: {} }, requiredCapabilities: ["network"] }] }], "factory-broker", packagesTrustedForTest)).toThrow("factory_native_policy_invalid");
+      const unavailable = new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...nativeProfile, runner: { ...nativeProfile.runner, export: "other" } }], "factory-broker", packagesTrustedForTest);
       await expect(unavailable.resolveInTransaction(transaction, policyInput)).rejects.toMatchObject({ code: "factory_native_package_untrusted" });
       await expect(policy.resolveInTransaction(transaction, { ...policyInput, reference: { ...dispatchReference, tenantId: "foreign-tenant" } })).rejects.toMatchObject({ code: "factory_native_policy_scope" });
-      const deniedResources = new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...nativeProfile, allocation: { ...profile, memoryBytes: 127 } }], "factory-broker");
+      const deniedResources = new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...nativeProfile, allocation: { ...profile, memoryBytes: 127 } }], "factory-broker", packagesTrustedForTest);
       await expect(deniedResources.resolveInTransaction(transaction, policyInput)).rejects.toMatchObject({ code: "factory_native_resource_denied" });
       const capabilityContext = { ...context, compiled: { ...context.compiled, definition: { ...context.compiled.definition, capabilities: ["llm"] } }, node: { ...context.node, capabilities: ["llm"] } };
       expect(await policy.resolveInTransaction(transaction, { ...policyInput, context: capabilityContext })).toMatchObject({ grants: ["llm"], tools: [{ name: "audit_snapshot" }, { name: "model_snapshot" }, { name: "read_snapshot" }] });
@@ -366,14 +367,14 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
       const model = { provider: "factory-broker", model: "factory-model", configurationDigest, configuration, policyDigest: `sha256:${digestObject(modelPolicy)}`, policy: modelPolicy };
       const modeledProfile = { ...nativeProfile, runner: modeledRunner, model };
       const modeledContext = { ...context, node: { ...context.node, runner: modeledRunner } };
-      const modeled = new FactoryNativeRunnerPolicy(tenantId, grants, [modeledProfile], "factory-broker");
+      const modeled = new FactoryNativeRunnerPolicy(tenantId, grants, [modeledProfile], "factory-broker", packagesTrustedForTest);
       const modeledResolution = await modeled.resolveInTransaction(transaction, { ...policyInput, context: modeledContext });
       expect(modeledResolution).toMatchObject({ model });
       const modeledSnapshot = encodeFactoryPayload(modeledResolution);
       expect(() => { (modeledResolution.model!.policy as Record<string, JsonValue>).retries = 1; }).toThrow();
       expect(() => { (modeledResolution.tools[0]!.inputSchema as { type?: string }).type = "string"; }).toThrow();
       expect(encodeFactoryPayload(await modeled.resolveInTransaction(transaction, { ...policyInput, context: modeledContext }))).toBe(modeledSnapshot);
-      const deniedModel = new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...modeledProfile, model: { ...model, policyDigest: `sha256:${"f".repeat(64)}` } }], "factory-broker");
+      const deniedModel = new FactoryNativeRunnerPolicy(tenantId, grants, [{ ...modeledProfile, model: { ...model, policyDigest: `sha256:${"f".repeat(64)}` } }], "factory-broker", packagesTrustedForTest);
       await expect(deniedModel.resolveInTransaction(transaction, { ...policyInput, context: modeledContext })).rejects.toMatchObject({ code: "factory_native_model_denied" });
 
       let authorizeStarted!: () => void;
@@ -384,7 +385,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
         authorizeStarted();
         await continuation;
         return grants.authorizeInTransaction(...args);
-      } }, [nativeProfile], "factory-broker");
+      } }, [nativeProfile], "factory-broker", packagesTrustedForTest);
       const mutableInput = structuredClone(policyInput);
       const delayedResolution = delayed.resolveInTransaction(transaction, mutableInput);
       await started;
@@ -410,7 +411,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     expect(replayed.request).toEqual(result.request);
     expect(replayed.delivery.reference).toEqual(result.delivery.reference);
     expect(replayed.reservationId).toBe(result.reservationId);
-    const changedPolicy = new FactoryNativeRunnerPolicy(tenantId, grants, [nativeProfile], "changed-broker");
+    const changedPolicy = new FactoryNativeRunnerPolicy(tenantId, grants, [nativeProfile], "changed-broker", packagesTrustedForTest);
     await expect(new FactoryTaskExecutionAdmission(authority, admissions, journal, queue, changedPolicy, () => now).admit(service, dispatchReference)).rejects.toMatchObject({ code: "factory_task_execution_conflict" });
     await expect(execution.admit(service, { ...dispatchReference, projectId: "foreign-project" })).rejects.toThrow("factory_transition_command_not_found");
     now = lease.deadlineAt.getTime();
@@ -2460,7 +2461,7 @@ export function factoryRunLifecycleConformance(create: () => Promise<{ db: Trans
     const task = await dispatchedTask();
     const node = task.compiled.indexes.nodeById[task.dispatch.nodeId];
     if (node?.kind !== "task") throw new Error("missing task node");
-    const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: node.runner, resourceClass: "cpu", allocation: task.profile, allowedCapabilities: [], tools: [] }], "factory-broker");
+    const policy = new FactoryNativeRunnerPolicy(tenantId, grants, [{ runner: node.runner, resourceClass: "cpu", allocation: task.profile, allowedCapabilities: [], tools: [] }], "factory-broker", packagesTrustedForTest);
     const execution = new FactoryTaskExecutionAdmission(task.authority, task.admissions, task.journal, task.queue, policy, () => now);
     await withPrivateConnection(task, privateCommands(task.authority, task.transitions, { execution }), async ({ url: baseUrl, certs, token }) => {
       const url = `${baseUrl}/internal/factory/v1/executions/${encodeURIComponent(task.dispatch.id)}`;

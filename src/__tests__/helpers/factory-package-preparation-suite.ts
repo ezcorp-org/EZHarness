@@ -23,10 +23,13 @@ const limits: ResourceLimits = { memoryBytes: 64 * 1024 * 1024, cpuMillis: 1000,
 
 function digestReference(value: RunnerReference): string { return `sha256:${digestObject(value)}`; }
 
-function release(sourceDigest: string, artifactDigest: string): ReleaseRecord {
-  const manifest = { schemaVersion: 4 as const, name: reference.manifestName, version: reference.version, author: { name: "Package test" }, description: "Factory package", permissions: {}, tools: [{ name: reference.export, description: "Echo", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
-  const input = { installationId: "package-installation", workspaceId: "workspace", workspaceRevision: 1, sourceDigest, artifactDigest, imageDigest: "podman-image@sha256:test", manifest, evidence: { protocolVersion: 4 as const, validatorVersion: "runner-v4", discoveryDigest: digestObject(manifest), tests: [{ name: "unit", passed: true }] }, runnerProfile: "podman-v4", policyDigest: digestObject({ policy: "v4" }) };
-  return { ...input, id: "package-release", releaseDigest: digestObject(input), createdAt: "2030-01-01T00:00:00.000Z" };
+function release(sourceDigest: string, artifactDigest: string): ReleaseRecord { return factoryPackageRelease(reference, sourceDigest, artifactDigest); }
+
+/** An immutable v4 release whose manifest serves exactly `runner`'s name, version, and export. */
+export function factoryPackageRelease(runner: RunnerReference, sourceDigest: string, artifactDigest: string, installationId = "package-installation", releaseId = "package-release"): ReleaseRecord {
+  const manifest = { schemaVersion: 4 as const, name: runner.manifestName, version: runner.version, author: { name: "Package test" }, description: "Factory package", permissions: {}, tools: [{ name: runner.export, description: "Echo", inputSchema: { type: "object" }, outputSchema: { type: "object" } }] };
+  const input = { installationId, workspaceId: "workspace", workspaceRevision: 1, sourceDigest, artifactDigest, imageDigest: "podman-image@sha256:test", manifest, evidence: { protocolVersion: 4 as const, validatorVersion: "runner-v4", discoveryDigest: digestObject(manifest), tests: [{ name: "unit", passed: true }] }, runnerProfile: "podman-v4", policyDigest: digestObject({ policy: "v4" }) };
+  return { ...input, id: releaseId, releaseDigest: digestObject(input), createdAt: "2030-01-01T00:00:00.000Z" };
 }
 
 export function factoryPackagePreparationConformance(create: () => Promise<FactoryPackagePreparationFixture>): void {
