@@ -4,6 +4,7 @@ import os
 import pathlib
 import stat
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -101,6 +102,63 @@ class DedicatedUidStageTest(unittest.TestCase):
                                    "runnerProcessIds": [99999999],
                                    "runnerSocket": "/run/old/runner.sock"},
                                   pathlib.Path("/tmp/old-db"))
+
+    def test_runner_token_rejects_shared_old_uid_owner(self):
+        with tempfile.TemporaryDirectory() as temp:
+            token = pathlib.Path(temp) / "token"
+            token.write_bytes(b"x" * 32)
+            token.chmod(0o640)
+            with self.assertRaisesRegex(ValueError, "runner token owner"):
+                MODULE.runner_token(token, runner_uid=62041,
+                                    app_gid=os.getgid(), old_uid=os.getuid())
+            MODULE.runner_token(token, runner_uid=os.getuid(),
+                                app_gid=os.getgid(), old_uid=62042)
+
+    def test_unreadable_process_descriptors_block_stage(self):
+        process = mock.MagicMock()
+        process.name = "12345"
+        directory = mock.MagicMock()
+        directory.iterdir.side_effect = PermissionError("denied")
+        process.__truediv__.return_value = directory
+        proc = mock.MagicMock()
+        proc.iterdir.return_value = [process]
+        with mock.patch.object(MODULE, "Path", return_value=proc):
+            with self.assertRaisesRegex(ValueError, "cannot inspect process"):
+                MODULE.no_open_database_files(pathlib.Path("/tmp/old-db"))
+
+    def test_live_parent_directory_handle_blocks_stage(self):
+        with tempfile.TemporaryDirectory() as temp:
+            parent = pathlib.Path(temp) / "private"
+            parent.mkdir()
+            source = parent / "db"
+            source.mkdir()
+            child = subprocess.Popen([sys.executable, "-c",
+                                      "import os,sys,time; fd=os.open(sys.argv[1], os.O_RDONLY|os.O_DIRECTORY); "
+                                      "print('ready', flush=True); time.sleep(20)", str(parent)],
+                                     stdout=subprocess.PIPE, text=True, start_new_session=True)
+            try:
+                self.assertEqual(child.stdout.readline().strip(), "ready")
+                proc = mock.MagicMock()
+                proc.iterdir.return_value = [pathlib.Path(f"/proc/{child.pid}")]
+                with mock.patch.object(MODULE, "Path", return_value=proc):
+                    with self.assertRaisesRegex(ValueError, "still holds the database"):
+                        MODULE.no_open_database_files(source)
+            finally:
+                child.terminate()
+                child.wait(timeout=5)
+                child.stdout.close()
+
+    def test_recursive_owner_restore_includes_nested_wal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = pathlib.Path(temp) / "pglite"
+            wal = root / "pg_wal"
+            wal.mkdir(parents=True)
+            file = wal / "0001"
+            file.write_bytes(b"saved transaction")
+            with mock.patch.object(MODULE.os, "chown") as change_owner:
+                MODULE.chown_tree(root, 1001, 100)
+            changed = {pathlib.Path(call.args[0]) for call in change_owner.call_args_list}
+            self.assertEqual(changed, {root, wal, file})
 
 
 if __name__ == "__main__":

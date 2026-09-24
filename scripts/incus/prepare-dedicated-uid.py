@@ -21,7 +21,7 @@ import time
 from pathlib import Path
 
 
-FIELDS = {"oldUid", "oldGid", "newUid", "newGid", "sourceDb", "quarantineDb", "targetDb",
+FIELDS = {"oldUid", "oldGid", "newUid", "newGid", "runnerUid", "sourceDb", "quarantineDb", "targetDb",
           "rollbackDb", "oldAppUnit", "runnerUnit", "supervisorUnit",
           "oldProcessIds", "runnerProcessIds",
           "builtApp", "oldEnv", "newEnv", "runnerEnv", "runnerSocket",
@@ -72,10 +72,11 @@ def checked_path(value):
 def config(path):
     value = json.loads(private_file(path).read_text())
     require(isinstance(value, dict) and set(value) == FIELDS, "cutover manifest keys changed")
-    for key in ("oldUid", "oldGid", "newUid", "newGid"):
+    for key in ("oldUid", "oldGid", "newUid", "newGid", "runnerUid"):
         require(type(value[key]) is int and value[key] > 0, "positive static UID/GID required")
-    require(value["oldUid"] != value["newUid"], "new app UID must be dedicated")
-    for key in FIELDS - {"oldUid", "oldGid", "newUid", "newGid",
+    require(len({value["oldUid"], value["newUid"], value["runnerUid"]}) == 3,
+            "app and runner UIDs must be dedicated")
+    for key in FIELDS - {"oldUid", "oldGid", "newUid", "newGid", "runnerUid",
                          "oldProcessIds", "runnerProcessIds",
                          "oldAppUnit", "runnerUnit", "supervisorUnit"}:
         checked_path(value[key])
@@ -107,21 +108,35 @@ def inactive(unit):
 
 def no_open_database_files(source):
     prefix = str(source) + "/"
+    parent = str(source.parent)
     for process in Path("/proc").iterdir():
         if not process.name.isdigit():
             continue
         for directory in (process / "fd", process / "map_files"):
             try:
                 entries = list(directory.iterdir())
-            except (OSError, PermissionError):
+            except FileNotFoundError:
                 continue
+            except OSError as error:
+                raise ValueError(f"cannot inspect process {process.name} descriptors") from error
             for entry in entries:
                 try:
                     target = os.readlink(entry)
-                except OSError:
+                except FileNotFoundError:
                     continue
-                require(target != str(source) and not target.startswith(prefix),
+                except OSError as error:
+                    raise ValueError(f"cannot inspect process {process.name} descriptors") from error
+                require(target != parent and target != str(source) and not target.startswith(prefix),
                         f"process {process.name} still holds the database")
+        try:
+            working_directory = os.readlink(process / "cwd")
+        except FileNotFoundError:
+            continue
+        except OSError as error:
+            raise ValueError(f"cannot inspect process {process.name} working directory") from error
+        require(working_directory != parent and working_directory != str(source)
+                and not working_directory.startswith(prefix),
+                f"process {process.name} still holds the database")
 
 
 def no_old_clients(value, source):
@@ -211,9 +226,20 @@ def sealed_source_parent(source):
             "source parent must be root-owned mode 0700 after old clients stop")
 
 
+def runner_token(path, runner_uid, app_gid, old_uid):
+    token = checked_path(str(path)).lstat()
+    require(runner_uid != old_uid and token.st_uid == runner_uid,
+            "runner token owner is not the dedicated runner")
+    require(stat.S_ISREG(token.st_mode) and token.st_gid == app_gid
+            and token.st_mode & 0o027 == 0 and token.st_mode & 0o040
+            and 32 <= token.st_size <= 4096,
+            "runner token is not private and app-readable")
+
+
 def check(value):
     require(os.geteuid() == 0, "root operator required")
     require(value["newUid"] == pwd.getpwuid(value["newUid"]).pw_uid
+            and value["runnerUid"] == pwd.getpwuid(value["runnerUid"]).pw_uid
             and value["newGid"] == grp.getgrgid(value["newGid"]).gr_gid,
             "dedicated static app UID/GID is not provisioned")
     source = checked_path(value["sourceDb"])
@@ -266,10 +292,8 @@ def check(value):
             and isinstance(fence, list) and fence and isinstance(fence[0], str)
             and Path(fence[0]).name != "false",
             "supervisor config does not pin the dedicated app")
-    token = checked_path(value["runnerTokenFile"]).lstat()
-    require(stat.S_ISREG(token.st_mode) and token.st_gid == value["newGid"]
-            and token.st_mode & 0o027 == 0 and token.st_mode & 0o040
-            and 32 <= token.st_size <= 4096, "runner token is not private and app-readable")
+    runner_token(value["runnerTokenFile"], value["runnerUid"],
+                 value["newGid"], value["oldUid"])
     accessible_to(checked_path(value["runnerTokenFile"]), value["newUid"], value["newGid"],
                   read_file=True)
     socket_parent = checked_path(value["runnerSocket"]).parent.lstat()

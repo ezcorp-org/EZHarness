@@ -97,6 +97,7 @@ absolute paths:
   "oldGid": 100,
   "newUid": 62040,
   "newGid": 62040,
+  "runnerUid": 62041,
   "oldProcessIds": [3878477, 3878556, 3878559, 3878560],
   "runnerProcessIds": [1982010, 1983979],
   "sourceDb": "/reviewed/old/pglite",
@@ -149,7 +150,8 @@ sudo python3 scripts/incus/prepare-dedicated-uid.py \
   --manifest /root/incus-dedicated-uid.json stage --execute
 ```
 
-The script checks that no process holds a descriptor in the old database,
+The script checks that no process holds a descriptor in the old database or
+its parent directory, including a process working directory,
 that the runner socket is gone, that the new UID and sealed settings agree,
 and that the built app and destination parents have safe owners and modes.
 The explicit stage moves the stopped source database to a root-only quarantine,
@@ -173,14 +175,23 @@ runner-client fence verifier is installed and reviewed.
 
 If a check fails before the new app accepts work, stop the supervisor and
 runner. Keep the target copy for inspection. The original source and the
-root-only rollback copy remain available; restore the quarantined source's
-recorded UID/GID and mode from `dedicated-uid-stage.json` and move it back to
+root-only rollback copy remain available; restore the recorded UID/GID
+**recursively to every directory and file** in the quarantined source, then
+restore its recorded root mode from `dedicated-uid-stage.json` and move it back to
 the original path only after confirming that no process holds it and the
 original path is still absent. Restore the source parent's reviewed owner and
 mode. Then restart the old runner and app with their
 original settings. If the new app has accepted work or run migrations,
 review the resulting state before choosing a rollback point; switching
 back to the old copy could lose writes.
+
+For that owner restore, first verify the quarantine tree still has the
+receipt's `sha256` and contains only regular files and directories. Use the
+script's recursive `chown_tree(quarantine, sourceUid, sourceGid)` operation,
+then set the recorded `sourceMode` on the root directory. Verify every nested
+file with `owned_tree(quarantine, sourceUid, sourceGid)` before the atomic
+move back. A root-directory-only `chown` leaves PGlite data and WAL files
+unreadable by the old app. Keep the rollback copy intact during this check.
 
 This procedure only prepares the UID cutover. The saved CREATE still needs
 the independent client-fence verifier and the separate operator recovery

@@ -1700,3 +1700,13 @@ The red process test showed that a descendant which ignored TERM was alive when 
 ### Review
 
 The red test showed a fresh controller lost the pending destroy identity. The recovery path now reads the claimed signed restart receipt and exact journal, fences the normal reconciler while SP05 is active, and settles only the saved operation after a replacement process starts. A crash after provider success but before reservation release is retried through the same completed operation. A dead run is marked failed after cleanup; it cannot publish SP05 evidence. A completed run and qualification evidence now commit in one transaction. Focused and neighboring tests pass (40 tests total), including a third process reopening persistent PGlite. Backend/web/test typecheck, lint, and build pass. No live app or server was changed.
+
+## Dedicated UID cutover peer-review fixes — 2026-09-24
+
+- [x] Reproduce acceptance of an old-UID-owned runner token and unreadable process descriptors.
+- [x] Require the reviewed runner UID, and fail closed on descriptor/cwd inspection errors.
+- [x] Detect a real process holding the source parent directory open.
+- [x] Specify recursive owner restoration for rollback and test nested WAL coverage.
+- [x] Run disposable tests, root read-only descriptor scan, Python compile, and diff check.
+
+Review: Eleven cutover tests pass. A real child holding the parent directory is denied, and the root descriptor scan passes on the current host. The script and runbook remain preparation only; no live app, database, or Incus state changed. The separate SP05 reconciler race is still under repair.

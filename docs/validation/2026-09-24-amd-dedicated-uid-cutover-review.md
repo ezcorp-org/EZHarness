@@ -104,7 +104,8 @@ scope and a negative command test before exposing the key to the app UID.
 | Rollback | `/var/lib/ezharness-qual-rollback/pglite` | Parent root:root 0700, target and receipt absent. |
 | App projects | `/var/lib/ezharness-qual-data/projects` | Review the old `projects` tree and DB references; move or copy under separate checked procedure before opening traffic. The PGlite stage script does not handle it. |
 
-The root-owned manifest must name the refreshed app/runner PIDs, the exact
+The root-owned manifest must name the dedicated runner UID (62041), refreshed
+app/runner PIDs, the exact
 three service units (or `null` for the old manually launched app), all four
 database paths, built entrypoint, three sealed environment files, socket,
 token, and supervisor config. `prepare-dedicated-uid.py check` is the final
