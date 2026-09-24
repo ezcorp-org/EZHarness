@@ -144,8 +144,6 @@ incus exec "$name" --project default -- sh -eu -c '
   groupadd -g 1000 sandbox
   useradd -u 1000 -g 1000 -m -d /workspace -s /bin/sh sandbox
   install -d -o 1000 -g 1000 -m 0700 /workspace /var/lib/ezharness-helper
-  groupadd -f docker
-  usermod -aG docker sandbox
   cat >/etc/systemd/system/ezh-containerd.service <<EOF
 [Unit]
 Description=Containerd for EZHarness guest
@@ -162,7 +160,7 @@ Description=Docker for EZHarness guest
 Requires=ezh-containerd.service
 After=ezh-containerd.service network-online.target
 [Service]
-ExecStart=/usr/local/bin/dockerd --host=unix:///var/run/docker.sock --storage-driver=vfs
+ExecStart=/usr/local/bin/dockerd --host=unix:///var/run/docker.sock --group=sandbox --storage-driver=vfs
 Restart=on-failure
 [Install]
 WantedBy=multi-user.target
@@ -186,6 +184,13 @@ if ! timeout 120s incus exec "$name" --project default -- sh -eu -c '
   docker info --format "{{.ServerVersion}}" >/dev/null
 '; then
   echo 'nested Docker daemon did not become ready; inspect the temporary guest service logs before publishing' >&2
+  exit 1
+fi
+if ! timeout 30s incus exec "$name" --project default -- sh -eu -c '
+  # Incus process calls set only the primary UID/GID. Verify that exact identity.
+  setpriv --reuid=1000 --regid=1000 --clear-groups /usr/local/bin/docker info --format "{{.ServerVersion}}" >/dev/null
+'; then
+  echo 'sandbox identity cannot access the nested Docker socket; inspect its guest socket group before publishing' >&2
   exit 1
 fi
 incus exec "$name" --project default -- sh -eu -c '

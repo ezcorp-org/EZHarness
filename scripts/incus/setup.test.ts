@@ -360,6 +360,7 @@ esac
     const aliasCounter = join(directory, "alias-count");
     const publishMarker = join(directory, "published-marker");
     const hygieneScript = join(directory, "hygiene-script");
+    const serviceScript = join(directory, "service-script");
     await writeFile(incus, `#!/bin/sh
 case "$1" in
   image)
@@ -384,6 +385,8 @@ case "$1" in
     case "$4" in
       *'guest has no APT source files'*) guest_script=$(printf '%s\\n' "$4" | sed "s#/etc/apt#$EZH_APT_ROOT#g"); sh -eu -c "$guest_script" sh "$6";;
       *'/etc/os-release'*) exit 0;;
+      *'ExecStart=/usr/local/bin/dockerd'*) printf '%s\\n' "$4" > "$EZH_SERVICE_SCRIPT"; exit 0;;
+      *'setpriv --reuid=1000 --regid=1000 --clear-groups'*) printf 'sandbox-docker-check\\n' >> "$EZH_BUILD_CAPTURE"; [ "$EZH_SANDBOX_DOCKER_READY" = yes ];;
       *'docker info'*) printf 'docker-check\\n' >> "$EZH_BUILD_CAPTURE"; [ "$EZH_DOCKER_READY" = yes ];;
       *'rm -rf -- /var/lib/docker /var/lib/containerd'*) printf 'hygiene\\n' >> "$EZH_BUILD_CAPTURE"; printf '%s\\n' "$4" > "$EZH_HYGIENE_SCRIPT"; [ "$EZH_HYGIENE_READY" = yes ];;
       *) exit 0;;
@@ -417,13 +420,14 @@ case "$1" in
     esac;;
 esac
 `);
-    const publishRun = async (mode: string, secondAlias = false, dockerReady = true, hygieneReady = true) => {
+    const publishRun = async (mode: string, secondAlias = false, dockerReady = true, hygieneReady = true, sandboxDockerReady = true) => {
       await Promise.all([writeFile(aliasCounter, "0\n"), writeFile(capture, ""), rm(publishMarker, { force: true })]);
       const runResult = Bun.spawnSync(["bash", join(import.meta.dir, "build-guest-image.sh"), ...args],
         { env: { ...process.env, PATH: `${directory}:${process.env.PATH ?? ""}`, EZH_IPV4: "yes", EZH_DNS: "yes",
           EZH_APT_ROOT: aptRoot, EZH_BUILD_CAPTURE: capture, EZH_ALIAS_COUNT: aliasCounter, EZH_ALIAS: pins.alias,
           EZH_SECOND_ALIAS: secondAlias ? "yes" : "no", EZH_DOCKER_READY: dockerReady ? "yes" : "no",
-          EZH_HYGIENE_READY: hygieneReady ? "yes" : "no", EZH_HYGIENE_SCRIPT: hygieneScript,
+          EZH_SANDBOX_DOCKER_READY: sandboxDockerReady ? "yes" : "no",
+          EZH_HYGIENE_READY: hygieneReady ? "yes" : "no", EZH_HYGIENE_SCRIPT: hygieneScript, EZH_SERVICE_SCRIPT: serviceScript,
           EZH_PUBLISHED: published, EZH_WRONG_TARGET: "b".repeat(64), EZH_QUERY_MODE: mode,
           EZH_PUBLISH_MARKER: publishMarker } });
       return { runResult, calls: await readFile(capture, "utf8") };
@@ -435,9 +439,14 @@ esac
     expect(directAlias.calls).toContain("iptables=1.8.9-2");
     expect(directAlias.calls).toContain("nftables=1.0.6-2+deb12u2");
     expect(directAlias.calls).toContain("docker-check");
+    expect(directAlias.calls).toContain("sandbox-docker-check");
     expect(directAlias.calls).toContain("hygiene");
     const stages = directAlias.calls.trim().split("\n");
-    expect(stages.indexOf("docker-check")).toBeLessThan(stages.indexOf("hygiene"));
+    expect(stages.indexOf("docker-check")).toBeLessThan(stages.indexOf("sandbox-docker-check"));
+    expect(stages.indexOf("sandbox-docker-check")).toBeLessThan(stages.indexOf("hygiene"));
+    const installedService = await readFile(serviceScript, "utf8");
+    expect(installedService).toContain("--group=sandbox --storage-driver=vfs");
+    expect(installedService).not.toContain("usermod -aG docker sandbox");
     expect(stages.indexOf("hygiene")).toBeLessThan(stages.indexOf("stop"));
     expect(stages.indexOf("stop")).toBeLessThan(stages.findIndex(stage => stage.startsWith("publish ")));
     const cleanup = await readFile(hygieneScript, "utf8");
@@ -481,6 +490,13 @@ esac
     expect(failedDocker.calls).toContain("docker-check");
     expect(failedDocker.calls).not.toContain("hygiene");
     expect(failedDocker.calls).not.toContain("publish");
+    const failedSandboxDocker = await publishRun("direct", false, true, true, false);
+    expect(failedSandboxDocker.runResult.exitCode).not.toBe(0);
+    expect(failedSandboxDocker.runResult.stderr.toString()).toContain("sandbox identity cannot access the nested Docker socket");
+    expect(failedSandboxDocker.calls).toContain("docker-check");
+    expect(failedSandboxDocker.calls).toContain("sandbox-docker-check");
+    expect(failedSandboxDocker.calls).not.toContain("hygiene");
+    expect(failedSandboxDocker.calls).not.toContain("publish");
     const failedHygiene = await publishRun("direct", false, true, false);
     expect(failedHygiene.runResult.exitCode).not.toBe(0);
     expect(failedHygiene.calls).toContain("hygiene");
