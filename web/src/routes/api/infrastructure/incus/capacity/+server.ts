@@ -10,13 +10,16 @@ import type { RequestHandler } from "./$types";
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 
-async function service(): Promise<IncusCapacityService | null> {
-  const bootstrap = bootstrapFromEnvironment();
+const defaultDependencies = { bootstrapFromEnvironment, getExtensionLifecycle, getDb, ProviderConnectionStore,
+  IncusCapacityService, resolveActiveRelease, getReleaseRuntime };
+
+export async function createService(dependencies: typeof defaultDependencies): Promise<IncusCapacityService | null> {
+  const bootstrap = dependencies.bootstrapFromEnvironment();
   if (!bootstrap) return null;
-  await getExtensionLifecycle();
-  const database = getDb();
-  return new IncusCapacityService({ database, connections: new ProviderConnectionStore(database), bootstrap: bootstrap.ssh,
-    activeRelease: installationId => resolveActiveRelease(installationId, getReleaseRuntime()) });
+  await dependencies.getExtensionLifecycle();
+  const database = dependencies.getDb();
+  return new dependencies.IncusCapacityService({ database, connections: new dependencies.ProviderConnectionStore(database), bootstrap: bootstrap.ssh,
+    activeRelease: installationId => dependencies.resolveActiveRelease(installationId, dependencies.getReleaseRuntime()) });
 }
 
 async function boundedBody(request: Request): Promise<unknown> {
@@ -37,19 +40,20 @@ async function boundedBody(request: Request): Promise<unknown> {
   finally { reader.releaseLock(); }
 }
 
-export const GET: RequestHandler = async ({ locals, url }) => {
+export function createCapacityHandlers(resolveService: () => Promise<IncusCapacityService | null>) {
+const GET: RequestHandler = async ({ locals, url }) => {
   const admin = requireAdminSession(locals);
   if (admin instanceof Response) return admin;
   const setupId = url.searchParams.get("setupId");
   if (!setupId || !ID.test(setupId)) return json({ code: "invalid_input" }, { status: 400 });
   try {
-    const configured = await service();
+    const configured = await resolveService();
     if (!configured) return json({ code: "bootstrap_not_configured" }, { status: 503 });
     return json({ receipt: await configured.status(setupId) });
   } catch { return json({ code: "capacity_unavailable" }, { status: 409 }); }
 };
 
-export const POST: RequestHandler = async ({ locals, request }) => {
+const POST: RequestHandler = async ({ locals, request }) => {
   const admin = requireAdminSession(locals);
   if (admin instanceof Response) return admin;
   if (request.headers.get("origin") !== new URL(request.url).origin) {
@@ -69,7 +73,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     return json({ code: "invalid_input", message: "Provide the exact setup or reviewed capacity plan." }, { status: 400 });
   }
   try {
-    const configured = await service();
+    const configured = await resolveService();
     if (!configured) return json({ code: "bootstrap_not_configured" }, { status: 503 });
     if (input.action === "plan") return json({ plan: await configured.plan(input.setupId as string) });
     return json({ receipt: await configured.apply(input.plan as IncusCapacityPlan, input.planDigest as string, admin.id) });
@@ -77,3 +81,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     return json({ code: "capacity_unavailable", message: "Capacity could not be planned or applied. Inspect the verified setup, host headroom, and server logs." }, { status: 409 });
   }
 };
+return { GET, POST };
+}
+
+export const { GET, POST } = createCapacityHandlers(() => createService(defaultDependencies));
