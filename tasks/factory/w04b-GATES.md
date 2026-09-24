@@ -56,4 +56,12 @@ Branch `wp/w04b-regrant`, created at `integ/w00` `d5ee52309`. At the sweep, `int
 - **Coordinator:** `src/db/migrate.ts` (one appended migration), `src/db/schema.ts` (the model's primary key, partial index, check and column), `src/__tests__/helpers/factory-migration-restart-suite.ts` (one case), `tests/postgres/factory-schema.test.ts` (the new index).
 - **Sol controls (W06):** `packages/@ezcorp/factory-sdk/src/types.ts` (`FactoryGrantResource.displayName`) and the regenerated `factory-api-response.schema.json`. `src/factory/grants.ts` gains the name lookup; the authorization path is unchanged.
 - **W14 (routes, in flight):** `web/src/routes/api/factories/_shared.ts` (`grantResource` and the two grant mutation responses add `displayName`) and its route test. W14 restructured `_shared.ts` on its branch, so expect a small textual conflict at merge. Keep both sides, with `displayName` in all three grant resources.
+- **W18 (coverage gate files):** `scripts/coverage-thresholds.json` gains one key, for the new migration file, at 100.
+- **Grants test suite** (`src/__tests__/helpers/factory-grants-suite.ts`, owned with `src/factory/grants.ts`): one new case, "grant records name the grantee ..."; the existing cases are unchanged.
 - **No new PostgreSQL suite files.** Two existing suites gained cases, so the registration in `db-postgres.yml` is unchanged.
+
+## Validation delta (w15-validator, 2026-09-24, report `/tmp/factory-platform-evidence/w04b-validation/report.txt`)
+
+- **F1 (security): fixed.** The sweep put the PostgreSQL URL, password included, in the argv of the two PostgreSQL legs, so their receipts recorded it. The lead redacted those receipts in place, and the one W05b receipt with the same leak was redacted the same way. Each sweep script (W04b, W05b, W02c) now passes the URL only through the environment of a subshell. The receipt writer records only the argv and redacts URL credentials from anything it copies. Every other script under these evidence directories passes the URL through the environment only, and a scan found the password in no remaining file. The two PostgreSQL legs were rerun, and their receipts are in `sweep-delta/receipts/`.
+- **F2: added.** The share test "human-issued exact share ..." pins a first grant's seal to the pre-W04b formula. The test writes that formula out as it stood at `d5ee52309`, so a later change to the product's formula cannot also move the pin.
+- **F3: disclosed** above: `scripts/coverage-thresholds.json` (W18) and the grants suite.
