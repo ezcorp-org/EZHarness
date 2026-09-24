@@ -22,11 +22,11 @@ const validConfig = {
 };
 
 describe("Incus extension manifest", () => {
-  test("release 0.1.1 binds the reviewed image and helper in each preset digest", async () => {
+  test("release 0.1.2 binds the reviewed image and helper in each preset digest", async () => {
     const presets = incusManifest.sandboxProviders![0]!.presets;
-    const image = "57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c";
+    const image = "2f8868763f6cbec0452ab0d4db82ecb315c4aff1b9a3d2d1777cd878017e9fa1";
     const helper = "804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75";
-    expect(incusManifest.version).toBe("0.1.1");
+    expect(incusManifest.version).toBe("0.1.2");
     for (const preset of presets) {
       expect(preset.imageDigest).toBe(image);
       expect(preset.helperDigests).toEqual([helper]);

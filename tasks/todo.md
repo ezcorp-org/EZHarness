@@ -5,12 +5,15 @@
 - [x] Activate and verify the guarded NixOS firewall generation on the sandbox host.
 - [x] Correct the restricted project's local-image policy and prove one disposable guest starts, has DNS, cannot reach host management ports, and cleans up.
 - [x] Apply the isolated app's reviewed 32 GiB capacity policy.
-- [ ] Integrate the independent qualification receipt, durable continuation, and diagnostic probe commits.
-- [ ] Re-run the isolated app probe and fix each concrete failure.
+- [x] Integrate the independent qualification receipt, durable continuation, and diagnostic probe commits.
+- [x] Re-run the isolated app probe; pin the non-CA server leaf and identify the helper qualification gate.
+- [x] Build and directly test a corrected pinned guest image that grants UID/GID 1000 Docker access.
+- [ ] Build, review, and activate provider release 0.1.2 against the isolated app and verify the current operator setup.
+- [ ] Resolve the saved unknown CREATE through a fenced, audited recovery action before another CREATE.
 - [ ] Qualify the live provider profile, create and clean up an EZHarness-owned feature guest, then run the full feature workflow.
 - [ ] Pass local gates and hosted CI at the final PR head; update PR #303 with measured evidence and limits.
 
-Review: The host firewall is active and the local-image correction is stable with no guest left behind. The isolated app still returns 409 from provider probe; EZHarness has not yet created a guest. The live qualification and feature gates remain closed.
+Review: The host firewall and local-image correction are active. The provider probe reaches preflight but remains closed on unverified helper evidence. The first EZHarness CREATE has a durable unknown outcome with no current backend instance; it must be reconciled, not retried. The new image passed direct guest Docker/Compose checks, and the provider source now pins it. No EZHarness-owned guest has yet been proven ready. The live qualification and feature gates remain closed.
 
 ## PR #303 current Incus completion checklist — 2026-09-23
 

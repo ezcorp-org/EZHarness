@@ -600,7 +600,7 @@ describe("Incus setup planning", () => {
   test("reviewed recipe and active release require the same published image and helper", () => {
     const reviewed = checkedInRecipe as IncusSetupRecipe;
     const presets = incusManifest.sandboxProviders!.find(provider => provider.id === INCUS_PROVIDER_ID)!.presets;
-    const fingerprint = "57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c";
+    const fingerprint = "2f8868763f6cbec0452ab0d4db82ecb315c4aff1b9a3d2d1777cd878017e9fa1";
     expect(reviewed.guestImage?.fingerprint).toBe(fingerprint);
     expect(presets.every(preset => preset.imageDigest === fingerprint &&
       JSON.stringify(preset.helperDigests) === JSON.stringify([reviewed.guestImage!.helperSha256]))).toBe(true);
